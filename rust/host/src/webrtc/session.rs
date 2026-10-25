@@ -405,6 +405,8 @@ struct Live {
     /// Keeps the event channel open for as long as the session is live.
     _bridge: Arc<Bridge>,
     connected: bool,
+    /// The transport connected before the worker vouched for an HDR source: "streaming" waits.
+    streaming_held: bool,
     since: Instant,
 }
 
@@ -548,17 +550,31 @@ impl Actor {
         match event {
             Event::Connected => {
                 live.connected = true;
-                let (video, audio) = live.settings.to_wire();
-                let message = ServerMessage::SessionStatus {
-                    state: SessionState::Streaming,
-                    session_id: Some(live.id),
-                    video: Some(video),
-                    audio: Some(audio),
-                    message: None,
-                };
-                self.say(message);
+                // An HDR stream is announced only once the worker has seen the display in HDR,
+                // so one that is refused ends with an error and was never "streaming".
+                if live.settings.hdr && !live.session.source_checked.load(Ordering::Acquire) {
+                    live.streaming_held = true;
+                    return;
+                }
+                self.announce_streaming();
             }
         }
+    }
+
+    fn announce_streaming(&mut self) {
+        let Some(live) = &mut self.live else {
+            return;
+        };
+        live.streaming_held = false;
+        let (video, audio) = live.settings.to_wire();
+        let message = ServerMessage::SessionStatus {
+            state: SessionState::Streaming,
+            session_id: Some(live.id),
+            video: Some(video),
+            audio: Some(audio),
+            message: None,
+        };
+        self.say(message);
     }
 
     /// Report a session that ended by itself, and end one that never connected.
@@ -582,6 +598,8 @@ impl Actor {
             } else {
                 ServerMessage::session_status(SessionState::Idle, Some(id))
             });
+        } else if live.streaming_held && live.session.source_checked.load(Ordering::Acquire) {
+            self.announce_streaming();
         } else if !live.connected && live.since.elapsed() > CONNECT_TIMEOUT {
             tracing::warn!(session = live.id, "WebRTC session did not connect in time");
             live.session.fail();
@@ -979,6 +997,7 @@ impl Actor {
                     events: receiver,
                     _bridge: bridge,
                     connected: false,
+                    streaming_held: false,
                     since: Instant::now(),
                 });
                 Flow::Done

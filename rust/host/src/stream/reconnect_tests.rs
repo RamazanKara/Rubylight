@@ -50,6 +50,9 @@ pub(crate) struct Fixture {
     display_in_sdr: AtomicBool,
     /// Windows does not report the fixture display's colour space.
     display_unreadable: AtomicBool,
+    /// The WebRTC worker waits before its first frame's source check, as a capture that is slow
+    /// to deliver its first frame does.
+    hold_first_frame: AtomicBool,
     /// How long releasing a launch's fake audio takes, as a driver that blocks does.
     audio_release_ms: Arc<AtomicU64>,
 }
@@ -216,7 +219,11 @@ impl Fixture {
             !self.webrtc_fails_before_its_link.load(Ordering::Acquire),
             "the fixture's WebRTC worker failed before taking its link"
         );
+        while self.hold_first_frame.load(Ordering::Acquire) && !h.stop.load(Ordering::Acquire) {
+            thread::sleep(Duration::from_millis(5));
+        }
         require_hdr_source(s, || self.display_in_hdr(), false)?;
+        s.source_checked.store(true, Ordering::Release);
         // As `spawn_audio`: the audio end first, then the video worker takes the link.
         let mut audio = super::audio_sink::WebRtcAudio(
             h.webrtc_links

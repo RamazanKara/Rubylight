@@ -151,6 +151,8 @@ struct Peer {
     units: Arc<Mutex<Vec<Vec<u8>>>>,
     audio: Arc<Mutex<Vec<Vec<u8>>>>,
     pli: Arc<AtomicUsize>,
+    /// The client's transport is up (ICE and DTLS done).
+    connected: Arc<AtomicBool>,
     control: Arc<Mutex<Vec<String>>>,
     /// Text the host sent on the control channel.
     heard: Arc<Mutex<Vec<String>>>,
@@ -179,16 +181,18 @@ impl Peer {
             units: Arc::default(),
             audio: Arc::default(),
             pli: Arc::default(),
+            connected: Arc::default(),
             control: Arc::default(),
             heard: Arc::default(),
             outbox: Arc::default(),
             thread: None,
         };
-        let (stop, units, audio, pli, control, heard, outbox) = (
+        let (stop, units, audio, pli, connected, control, heard, outbox) = (
             peer.stop.clone(),
             peer.units.clone(),
             peer.audio.clone(),
             peer.pli.clone(),
+            peer.connected.clone(),
             peer.control.clone(),
             peer.heard.clone(),
             peer.outbox.clone(),
@@ -209,6 +213,9 @@ impl Peer {
                         Ok(Output::Transmit(t)) => {
                             let data: Vec<u8> = t.contents.into();
                             let _ = socket.send_to(&data, t.destination);
+                        }
+                        Ok(Output::Event(Event::Connected)) => {
+                            connected.store(true, Ordering::Release)
                         }
                         Ok(Output::Event(Event::MediaAdded(added))) if added.kind.is_video() => {
                             video = Some(added.mid)
@@ -316,6 +323,10 @@ impl Peer {
             }
         }));
         (peer, answer)
+    }
+
+    fn connected(&self) -> bool {
+        self.connected.load(Ordering::Acquire)
     }
 
     fn count(&self) -> usize {
@@ -523,6 +534,13 @@ async fn next(ws: &mut Ws) -> Value {
         ) {
             return message;
         }
+    }
+}
+
+/// No message but gateway and capability refreshes arrives for `span`.
+async fn nothing_for(ws: &mut Ws, span: Duration) {
+    if let Ok(message) = tokio::time::timeout(span, next(ws)).await {
+        panic!("announced before the source check: {message}");
     }
 }
 
@@ -756,7 +774,8 @@ async fn hdr_on_an_sdr_display_ends_the_session_with_an_error() -> Result<()> {
     ws.send(web.request("start-session", "hevc", true, 2)).await;
     status(&mut ws, "session-status", "starting").await;
     let (id, peer) = answer_case(&mut ws, &HEVC.hdr()).await;
-    // The worker refuses before it sends a frame: the client hears an error, not SDR as HDR.
+    // The worker refuses before it sends a frame, and "streaming" is not announced before the
+    // refusal whenever the transport connects: the client hears an error, not SDR as HDR.
     let message = next(&mut ws).await;
     assert_eq!(message["type"], "session-status", "{message}");
     assert_eq!(message["state"], "error", "{message}");
@@ -764,6 +783,62 @@ async fn hdr_on_an_sdr_display_ends_the_session_with_an_error() -> Result<()> {
     web.idle().await;
     assert_eq!(peer.count(), 0, "no frame went out");
     assert!(UdpSocket::bind(address(web.media_port)).is_ok());
+    drop(peer);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn streaming_is_not_announced_for_hdr_until_the_source_is_checked() -> Result<()> {
+    let web = web_with_every_codec().await?;
+    web.harness
+        .fixture
+        .display_in_sdr
+        .store(true, Ordering::Release);
+    // The capture's first frame is held back, so the transport is up before the check runs.
+    web.harness
+        .fixture
+        .hold_first_frame
+        .store(true, Ordering::Release);
+    let mut ws = web.device("TV", u32::MAX).await;
+    ws.send(web.request("start-session", "hevc", true, 2)).await;
+    status(&mut ws, "session-status", "starting").await;
+    let (id, peer) = answer_case(&mut ws, &HEVC.hdr()).await;
+    until("transport connected", WAIT, || peer.connected()).await;
+    // Well past the 100 ms the session watches at: nothing is announced while the check waits.
+    nothing_for(&mut ws, Duration::from_millis(600)).await;
+    web.harness
+        .fixture
+        .hold_first_frame
+        .store(false, Ordering::Release);
+    let message = next(&mut ws).await;
+    assert_eq!(message["type"], "session-status", "{message}");
+    assert_eq!(message["state"], "error", "{message}");
+    assert_eq!(message["sessionId"], id);
+    web.idle().await;
+    assert_eq!(peer.count(), 0, "no frame went out");
+    drop(peer);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_held_streaming_status_goes_out_once_the_source_is_checked() -> Result<()> {
+    let web = web_with_every_codec().await?;
+    web.harness
+        .fixture
+        .hold_first_frame
+        .store(true, Ordering::Release);
+    let mut ws = web.device("TV", u32::MAX).await;
+    ws.send(web.request("start-session", "hevc", true, 2)).await;
+    status(&mut ws, "session-status", "starting").await;
+    let (id, peer) = answer_case(&mut ws, &HEVC.hdr()).await;
+    until("transport connected", WAIT, || peer.connected()).await;
+    nothing_for(&mut ws, Duration::from_millis(400)).await;
+    web.harness
+        .fixture
+        .hold_first_frame
+        .store(false, Ordering::Release);
+    streaming(&mut ws, id).await;
+    until("video received", WAIT, || peer.count() >= 3).await;
     drop(peer);
     Ok(())
 }

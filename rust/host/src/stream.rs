@@ -1511,6 +1511,7 @@ impl Media {
                         }
                     };
                     require_hdr_source(&s, || first.gpu.display_in_hdr(), false)?;
+                    s.source_checked.store(true, Ordering::Release);
                     m.configure_encoder(&s, &c, &first, &prepared, &mut encoder)?;
                     drop(first);
                     let mut staging = None;

@@ -2456,6 +2456,10 @@ pub struct Session<P = (), A = ()> {
     /// Set before `stop` when the stream ends on an error, so the client is
     /// told it failed rather than that the host closed it.
     pub failed: AtomicBool,
+    /// Set by the stream worker once the capture's first frame passed the checks a WebRTC HDR
+    /// stream needs (the display is in HDR). The transport holds back its "streaming" status
+    /// until then, so a refused stream is never announced first.
+    pub source_checked: AtomicBool,
     pub idr: AtomicBool,
     pub invalidation: std::sync::Mutex<Option<(u64, u64)>>,
     pub recovery_wake: std::sync::Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
@@ -2539,6 +2543,7 @@ impl<P, A> Session<P, A> {
             config,
             stop: AtomicBool::new(false),
             failed: AtomicBool::new(false),
+            source_checked: AtomicBool::new(false),
             idr: AtomicBool::new(true),
             invalidation: Default::default(),
             recovery_wake: Default::default(),

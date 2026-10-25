@@ -209,10 +209,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
                 case 1:
                 case 3:
                     // Try the larger buffer size
-                    bufferSize = Math.max(AudioTrack.getMinBufferSize(sampleRate,
-                            channelConfig,
-                            AudioFormat.ENCODING_PCM_16BIT),
-                            bytesPerFrame * 2);
+                    bufferSize = Math.max(minBufferBytes(), bytesPerFrame * 2);
 
                     // Round to next frame
                     bufferSize = (((bufferSize + (bytesPerFrame - 1)) / bytesPerFrame) * bytesPerFrame);
@@ -234,8 +231,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
             }
 
             try {
-                int minBufferFrames = Math.max(0, AudioTrack.getMinBufferSize(sampleRate, channelConfig,
-                        AudioFormat.ENCODING_PCM_16BIT)) / (channels * 2);
+                int minBufferFrames = Math.max(0, minBufferBytes()) / (channels * 2);
                 trackPerfMode = -1;
                 trackMinBufferFrames = minBufferFrames;
                 outputBurst = outputFramesPerBuffer();
@@ -388,6 +384,11 @@ public class AndroidAudioRenderer implements AudioRenderer {
     private String pathDetails() {
         return ", perfMode=" + AudioBufferPolicy.perfModeName(trackPerfMode) + ", outputBurst=" + outputBurst +
                 ", minBufferFrames=" + trackMinBufferFrames + ", floorFrames=" + floorFrames;
+    }
+
+    /** The framework's minimum buffer for this track's format; a surround track's is far above a stereo one's. */
+    int minBufferBytes() {
+        return AudioTrack.getMinBufferSize(sampleRate, channelConfig, AudioFormat.ENCODING_PCM_16BIT);
     }
 
     int nativeOutputRate() {

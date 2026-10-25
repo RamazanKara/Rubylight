@@ -319,6 +319,13 @@ public class AndroidAudioRendererTest {
             return pendingMs;
         }
 
+        // The framework minimum in bytes; negative asks the platform.
+        int minBytes = -1;
+
+        @Override int minBufferBytes() {
+            return minBytes >= 0 ? minBytes : super.minBufferBytes();
+        }
+
         @Override long uptimeMillis() {
             return now;
         }
@@ -414,6 +421,41 @@ public class AndroidAudioRendererTest {
         renderer.perfMode = AudioBufferPolicy.PERF_LOW_LATENCY;
         assertEquals(0, renderer.setup(STEREO, 48000, 240));
         assertTrue(audioReport(), audioReport().contains("perfMode=lowLatency"));
+        assertTrue(audioReport(), audioReport().contains("floorFrames=480"));
+        renderer.cleanup();
+    }
+
+    // Surround never takes AAudio, and the fast path is not granted to a 6 or 8 channel track: it runs on the
+    // normal mixer. On a Retroid Pocket 6 the 5.1 minimum is 3844 frames; the old two-packet buffer underran
+    // 118 times a minute there.
+    @Test public void surroundTracksRefusedTheFastPathKeepTheirMinimumAndSizeBytesPerChannel() {
+        int[][] layouts = {{6, 0x3F}, {8, 0x63F}};
+        for (int[] layout : layouts) {
+            int channels = layout[0];
+            UnavailableOutput renderer = new UnavailableOutput(RuntimeEnvironment.getApplication());
+            renderer.rate = 48000;
+            renderer.minBytes = 3844 * channels * 2;
+            assertEquals(0, renderer.setup(new com.limelight.nvstream.jni.MoonBridge.AudioConfiguration(channels, layout[1]),
+                    48000, 240));
+            String report = audioReport();
+            assertTrue(report, report.contains("channels=" + channels + ","));
+            // Two packets of 240 frames, two bytes per sample.
+            assertTrue(report, report.contains("bufferBytes=" + 240 * channels * 2 * 2 + ","));
+            assertTrue(report, report.contains("perfMode=none"));
+            assertTrue(report, report.contains("minBufferFrames=3844"));
+            assertTrue(report, report.contains("floorFrames=3844"));
+            assertTrue(report, report.contains("nativeRate=48000"));
+
+            renderer.cleanup();
+        }
+    }
+
+    @Test public void surroundTrackOnAGrantedFastPathKeepsTheTwoPacketFloor() {
+        UnavailableOutput renderer = new UnavailableOutput(RuntimeEnvironment.getApplication());
+        renderer.rate = 48000;
+        renderer.perfMode = AudioBufferPolicy.PERF_LOW_LATENCY;
+        renderer.minBytes = 3844 * 6 * 2;
+        assertEquals(0, renderer.setup(new com.limelight.nvstream.jni.MoonBridge.AudioConfiguration(6, 0x3F), 48000, 240));
         assertTrue(audioReport(), audioReport().contains("floorFrames=480"));
         renderer.cleanup();
     }

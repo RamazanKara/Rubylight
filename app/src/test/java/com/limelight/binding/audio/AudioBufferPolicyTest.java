@@ -120,6 +120,18 @@ public class AudioBufferPolicyTest {
         assertEquals("same eight-packet bound as before", 1920, frames);
     }
 
+    // Retroid Pocket 6, 5.1 and 7.1: perfMode=none, framework minimum 3844 frames, capacity 5520 as measured.
+    @Test public void surroundTrackOnTheNormalMixerNeverShrinksBelowItsMinimum() {
+        assertEquals(3844, AudioBufferPolicy.trackFloorFrames(33, AudioBufferPolicy.PERF_NONE, true, 240, 3844));
+        assertEquals(5520, AudioBufferPolicy.trackCapacityFrames(240, 3844, 192));
+        AudioBufferPolicy policy = AudioBufferPolicy.forTrack(
+                AudioBufferPolicy.trackStepFrames(false, 240, 192), 5520, 3844, 3844, 0, 0);
+        assertEquals(3844, policy.sample(0, 1000));
+        for (long t = 30000; t < 600000; t += 1000) assertEquals(3844, policy.sample(0, t));
+        // Underruns still grow it, within the capacity.
+        assertEquals(4084, policy.sample(3, 700000));
+    }
+
     @Test public void growthStepFollowsTheOutputBurstOffTheFastPath() {
         assertEquals(240, AudioBufferPolicy.trackStepFrames(true, 240, 960));
         assertEquals(240, AudioBufferPolicy.trackStepFrames(false, 240, 0));

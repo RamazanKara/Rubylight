@@ -2461,9 +2461,11 @@ mod tests {
             &BTreeMap::new(),
         )
         .unwrap();
-        assert_eq!(child.wait(Duration::from_secs(10)).unwrap(), 0);
+        let code = child.wait(Duration::from_secs(10)).unwrap();
         // Localized output uses the OEM code page; the SIDs are ASCII.
-        let groups = String::from_utf8_lossy(&std::fs::read(output).unwrap()).into_owned();
+        let groups =
+            String::from_utf8_lossy(&std::fs::read(output).unwrap_or_default()).into_owned();
+        assert_eq!(code, 0, "{groups}");
         // Medium mandatory level, never High, unless User Account Control is
         // off (as on CI runners): then the desktop itself is elevated and the
         // program gets what the desktop would give it rather than failing.

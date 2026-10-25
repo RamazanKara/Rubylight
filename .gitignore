@@ -19,3 +19,6 @@ venv/
 
 # GitHub Pages build output (site/build.py)
 /_site/
+
+# WebRTC e2e: the browser client is fetched at its pin, never vendored
+/rust/tests/fixtures/webrtc-web/

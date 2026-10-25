@@ -87,6 +87,8 @@ pub struct LaunchPlan {
     pub bitrate_limit_kbps: u32,
     pub pyrowave_link_mbps: u32,
     pub pyrowave_pace_mbps: u32,
+    /// The internet connection is Wi-Fi or cellular; used only when the route to the host cannot
+    /// be read (`network::toward`).
     pub client_wireless: bool,
     pub recovery: Option<recovery::Recovery>,
 }
@@ -712,7 +714,17 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         .info
         .capabilities
         .trusted_codec_mode_support(plan.info.server_codec_mode_support);
-    let link_mbps = hint_override("NIGHTJAR_PYROWAVE_LINK_MBPS", plan.pyrowave_link_mbps);
+    // The interface the system sends this host's traffic over decides, not the internet
+    // connection; the connection is the fallback when that lookup tells nothing.
+    let toward = crate::network::toward(&plan.record.address);
+    let client_wireless = toward.map_or(plan.client_wireless, |t| t.wireless);
+    let routed_link_mbps = toward.map_or(plan.pyrowave_link_mbps, |t| if t.wireless { 0 } else { t.link_mbps.min(9999) });
+    eprintln!(
+        "nightjar: route to the PC: {} ({}), link {routed_link_mbps} Mbps",
+        if client_wireless { "wireless" } else { "wired or unknown" },
+        if toward.is_some() { "from the route" } else { "from the internet connection" },
+    );
+    let link_mbps = hint_override("NIGHTJAR_PYROWAVE_LINK_MBPS", routed_link_mbps);
     let pace_mbps = hint_override("NIGHTJAR_PYROWAVE_PACE_MBPS", plan.pyrowave_pace_mbps);
     let beam = beam_race(settings.beam_race, link_mbps, plan.gpu_decoder.is_some());
     match beam {
@@ -749,7 +761,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         haptics_pcm: settings.controllers && settings.controller_audio && role != AppRole::RemoteMonitor,
         pyrowave_link_mbps: link_mbps as i32,
         pyrowave_pace_mbps: pace_mbps as i32,
-        client_wireless: plan.client_wireless,
+        client_wireless,
         pyrowave_records_supported: plan.info.capabilities.has(Feature::PyroWaveRecords),
         pyrowave_row_order: race_ask.row_order,
         encryption_flags: ENCFLG_ALL,

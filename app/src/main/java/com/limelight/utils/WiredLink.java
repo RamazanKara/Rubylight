@@ -63,29 +63,37 @@ public final class WiredLink {
 
     private WiredLink() {}
 
-    /** The wired link speed in Mbps toward {@code host}, or 0 when unknown. Blocks on name lookup. */
-    public static int mbpsToward(Context context, String host) {
-        try {
-            InetAddress address = InetAddress.getByName(host);
-            return mbpsToward(routesTo(context, address), WiredLink::sysfsMbps);
-        } catch (IOException | RuntimeException e) {
-            // Unresolvable name, no permission or a connectivity service that is gone: no hint.
-            return 0;
+    /** The pacing hints for one host, both from the same route lookup. */
+    public static final class Hints {
+        /** The wired link speed in Mbps, or 0 when unknown. */
+        public final int mbps;
+        /**
+         * The route is Wi-Fi or cellular, for the clientWireless hint (x-rl-video[0].clientWireless)
+         * that lets a Rubylight host pace for a wireless link from the first frame. False when it
+         * is wired, unknown, a VPN whose underlying transport is not visible, or undeterminable.
+         */
+        public final boolean wireless;
+
+        public Hints(int mbps, boolean wireless) {
+            this.mbps = mbps;
+            this.wireless = wireless;
         }
     }
 
-    /**
-     * Whether the route to {@code host} is Wi-Fi or cellular, for the clientWireless hint
-     * (x-rl-video[0].clientWireless) that lets a Rubylight host pace for a wireless link from the
-     * first frame. False when it is wired, unknown, a VPN whose underlying transport is not
-     * visible, or cannot be determined. Blocks on name lookup.
-     */
-    public static boolean wirelessToward(Context context, String host) {
+    /** The wired link speed in Mbps toward {@code host}, or 0 when unknown. Blocks on name lookup. */
+    public static int mbpsToward(Context context, String host) {
+        return hintsToward(context, host).mbps;
+    }
+
+    /** Both hints toward {@code host} from one name lookup and one route list. */
+    public static Hints hintsToward(Context context, String host) {
         try {
             InetAddress address = InetAddress.getByName(host);
-            return wirelessToward(routesTo(context, address));
+            List<Route> routes = routesTo(context, address);
+            return new Hints(mbpsToward(routes, WiredLink::sysfsMbps), wirelessToward(routes));
         } catch (IOException | RuntimeException e) {
-            return false;
+            // Unresolvable name, no permission or a connectivity service that is gone: no hints.
+            return new Hints(0, false);
         }
     }
 
@@ -122,9 +130,13 @@ public final class WiredLink {
     private static List<Route> routesTo(Context context, InetAddress host) {
         List<Route> routes = new ArrayList<>();
         ConnectivityManager connectivity = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
-        if (connectivity == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            // RouteInfo cannot be asked about a destination before Android 10, so the routes
-            // are unknown and so is the link.
+        if (connectivity == null) {
+            return routes;
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            // RouteInfo cannot be asked about a destination before Android 10, so the routes are
+            // unknown. The active network is the best guess for the medium, never for the speed.
+            routes.addAll(activeNetworkRoute(connectivity));
             return routes;
         }
         Network active = connectivity.getActiveNetwork();
@@ -149,6 +161,43 @@ public final class WiredLink {
                         capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
                         capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)));
             }
+        }
+        return routes;
+    }
+
+    /** The active network as the only route, for Android 9 and older. */
+    @SuppressWarnings("deprecation")
+    private static List<Route> activeNetworkRoute(ConnectivityManager connectivity) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Network active = connectivity.getActiveNetwork();
+            NetworkCapabilities capabilities = active == null ? null : connectivity.getNetworkCapabilities(active);
+            if (capabilities == null) {
+                return new ArrayList<>();
+            }
+            return activeNetworkRoute(capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET),
+                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
+                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR),
+                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN));
+        }
+        // Android 5: only the legacy network type is there, and a VPN shows no medium.
+        android.net.NetworkInfo info = connectivity.getActiveNetworkInfo();
+        if (info == null) {
+            return new ArrayList<>();
+        }
+        int type = info.getType();
+        return activeNetworkRoute(type == ConnectivityManager.TYPE_ETHERNET,
+                type == ConnectivityManager.TYPE_WIFI, type == ConnectivityManager.TYPE_MOBILE,
+                type == ConnectivityManager.TYPE_VPN);
+    }
+
+    /**
+     * The route to guess from the transports of the active network alone: no interface name and
+     * the default route, so it can say wireless but never a link speed.
+     */
+    static List<Route> activeNetworkRoute(boolean ethernet, boolean wifi, boolean cellular, boolean vpn) {
+        List<Route> routes = new ArrayList<>();
+        if (ethernet || wifi || cellular) {
+            routes.add(new Route(null, ethernet, vpn, true, 0, wifi, cellular));
         }
         return routes;
     }

@@ -78,7 +78,9 @@ public class WiredLinkTest {
 
     @Test public void wiredUnknownAndEmptyRoutesAreNotWireless() {
         assertFalse(WiredLink.wirelessToward(Collections.singletonList(ethernet("eth0", 24, true))));
-        assertFalse(WiredLink.wirelessToward(Collections.singletonList(wifi(24, true))));
+        // A network that shows no Wi-Fi or cellular transport (the 5-argument constructor sets
+        // neither) is unknown, not wireless.
+        assertFalse(WiredLink.wirelessToward(Collections.singletonList(new Route("tun9", false, false, true, 24))));
         assertFalse(WiredLink.wirelessToward(Collections.<Route>emptyList()));
         // Ethernet among the transports wins over a Wi-Fi flag on the same network.
         assertFalse(WiredLink.wirelessToward(Collections.singletonList(
@@ -89,6 +91,22 @@ public class WiredLinkTest {
         assertTrue(WiredLink.wirelessToward(Collections.singletonList(vpnOver(true, false, 0, true))));
         assertTrue(WiredLink.wirelessToward(Collections.singletonList(vpnOver(false, true, 0, true))));
         assertFalse(WiredLink.wirelessToward(Collections.singletonList(vpnOver(false, false, 0, true))));
+    }
+
+    // Android 9 and older cannot ask for the route to a host, so the active network's transports
+    // stand in for it: they can say wireless, never a link speed.
+    @Test public void activeNetworkAloneDecidesBeforeAndroid10() {
+        // ethernet, wifi, cellular, vpn
+        assertTrue(WiredLink.wirelessToward(WiredLink.activeNetworkRoute(false, true, false, false)));
+        assertTrue(WiredLink.wirelessToward(WiredLink.activeNetworkRoute(false, false, true, false)));
+        assertTrue(WiredLink.wirelessToward(WiredLink.activeNetworkRoute(false, true, false, true)));
+        assertFalse(WiredLink.wirelessToward(WiredLink.activeNetworkRoute(true, false, false, false)));
+        assertFalse(WiredLink.wirelessToward(WiredLink.activeNetworkRoute(true, true, false, false)));
+        // A VPN that shows no underlying transport, or no active network at all, is unknown.
+        assertTrue(WiredLink.activeNetworkRoute(false, false, false, true).isEmpty());
+        assertFalse(WiredLink.wirelessToward(WiredLink.activeNetworkRoute(false, false, false, false)));
+        // Never a speed: even an Ethernet guess has no interface to read one from.
+        assertEquals(0, WiredLink.mbpsToward(WiredLink.activeNetworkRoute(true, false, false, false), name -> 1000));
     }
 
     @Test public void theRouteTheTrafficTakesDecidesWhetherItIsWireless() {

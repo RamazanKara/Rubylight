@@ -63,6 +63,25 @@ public class NvConnectionHapticsFlagTest {
         assertEquals(0, CapturingBridge.paceMbps);
     }
 
+    // A Wi-Fi or cellular route reaches the stream configuration, and a wired or unknown one does
+    // not, whatever the link speed is.
+    @Test public void wirelessRouteReachesTheStreamConfiguration() throws Exception {
+        for (boolean wireless : new boolean[] {true, false, true}) {
+            FakeWiredLink.mbps = 0;
+            FakeWiredLink.wireless = wireless;
+            CapturingBridge.clientWireless = !wireless;
+            startStream();
+            assertEquals(wireless, CapturingBridge.clientWireless);
+        }
+        FakeWiredLink.mbps = 2500;
+        FakeWiredLink.wireless = false;
+        CapturingBridge.clientWireless = true;
+        startStream();
+        assertFalse(CapturingBridge.clientWireless);
+        assertEquals(2500, CapturingBridge.linkMbps);
+        FakeWiredLink.wireless = false;
+    }
+
     // The drop tolerance reaches the native control timeout only when it is longer than it.
     @Test public void networkDropToleranceIsSetBeforeEveryStart() throws Exception {
         String[][] settings = {{"0", "0"}, {"30", "30000"}, {"60", "60000"}, {"3600", "0"}};
@@ -145,10 +164,16 @@ public class NvConnectionHapticsFlagTest {
     @Implements(value = WiredLink.class, isInAndroidSdk = false)
     public static class FakeWiredLink {
         static int mbps;
+        static boolean wireless;
 
         @Implementation
         public static int mbpsToward(Context context, String host) {
             return mbps;
+        }
+
+        @Implementation
+        public static WiredLink.Hints hintsToward(Context context, String host) {
+            return new WiredLink.Hints(mbps, wireless);
         }
     }
 

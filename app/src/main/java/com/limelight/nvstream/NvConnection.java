@@ -1011,8 +1011,9 @@ public class NvConnection {
                     // same path (PyroWavePaceCalibration), if any. Zero (Wi-Fi, cellular,
                     // unknown) leaves either out of the stream description.
                     boolean pyroWave = (context.negotiatedVideoFormats & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0;
-                    int pyroWaveLinkMbps = WiredLink.mbpsToward(appContext, context.serverAddress.address);
-                    boolean clientWireless = WiredLink.wirelessToward(appContext, context.serverAddress.address);
+                    WiredLink.Hints linkHints = WiredLink.hintsToward(appContext, context.serverAddress.address);
+                    int pyroWaveLinkMbps = linkHints.mbps;
+                    boolean clientWireless = linkHints.wireless;
                     int pyroWavePaceMbps = pyroWave ?
                             PyroWavePaceStore.paceMbpsFor(appContext, hostDetails.uuid, pyroWaveLinkMbps) : 0;
                     if (pyroWave) {

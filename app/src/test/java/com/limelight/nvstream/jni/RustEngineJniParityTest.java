@@ -232,6 +232,35 @@ public class RustEngineJniParityTest {
         assertEquals(javaNames, rustNames);
     }
 
+    @Test public void moonBridgePassesRustBridgeItsArgumentsInTheDeclaredOrder() throws IOException {
+        // The same swap that the types cannot catch, one call up: MoonBridge.startConnection hands
+        // its parameters to RustBridge.startConnection by position.
+        String rustBridge = new String(Files.readAllBytes(new File(
+                "src/main/java/com/limelight/nvstream/jni/RustBridge.java").toPath()), StandardCharsets.UTF_8);
+        String moonBridge = new String(Files.readAllBytes(new File(
+                "src/main/java/com/limelight/nvstream/jni/MoonBridge.java").toPath()), StandardCharsets.UTF_8);
+        Matcher declaration = Pattern.compile("static native int startConnection\\((.*?)\\);", Pattern.DOTALL)
+                .matcher(rustBridge);
+        Matcher call = Pattern.compile("RustBridge\\.startConnection\\((.*?)\\);", Pattern.DOTALL).matcher(moonBridge);
+        assertTrue(declaration.find());
+        assertTrue(call.find());
+        // Passed under another name than RustBridge declares it.
+        Map<String, String> passedAs = new TreeMap<>();
+        passedAs.put("packed444Requested", "packed444");
+        passedAs.put("packedModes", "packed444Modes");
+        List<String> declared = new ArrayList<>();
+        for (String parameter : splitParameters(declaration.group(1))) {
+            String[] words = parameter.trim().split("\\s+");
+            declared.add(words[words.length - 1]);
+        }
+        List<String> passed = new ArrayList<>();
+        for (String argument : splitParameters(call.group(1))) {
+            String name = argument.trim();
+            passed.add(passedAs.containsKey(name) ? passedAs.get(name) : name);
+        }
+        assertEquals(declared, passed);
+    }
+
     @Test public void everyMoonBridgeNativeHasARustBridgeCounterpartOrIsListedAsCOnly() throws Exception {
         Class<?> moonBridge = Class.forName("com.limelight.nvstream.jni.MoonBridge", false,
                 RustEngineJniParityTest.class.getClassLoader());

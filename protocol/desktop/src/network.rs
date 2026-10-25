@@ -1,3 +1,4 @@
+use std::net::{IpAddr, ToSocketAddrs};
 use std::sync::mpsc::{channel, Receiver};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,6 +45,121 @@ impl Network {
         if self.wifi && self.ssid.is_none() { format!("{name} · Wi-Fi name unavailable") }
         else { name.into() }
     }
+}
+
+/// What the interface carrying the traffic to a host is made of.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Medium { Wired, Wireless, Other }
+
+/// The route to one host: whether it leaves over Wi-Fi or cellular, and the speed of the port when
+/// it is wired.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Toward {
+    pub wireless: bool,
+    pub link_mbps: u32,
+}
+
+impl Toward {
+    /// Tunnels, loopback and anything else that does not say what carries the traffic are `None`,
+    /// so the caller falls back to the internet connection.
+    fn of(medium: Medium, link_mbps: u32) -> Option<Toward> {
+        match medium {
+            Medium::Wired => Some(Toward { wireless: false, link_mbps }),
+            Medium::Wireless => Some(Toward { wireless: true, link_mbps: 0 }),
+            Medium::Other => None,
+        }
+    }
+}
+
+/// The interface the system routes traffic for `host` over, not the one with the internet
+/// connection: a PC on the same Ethernet segment is wired even when Wi-Fi is the default route.
+/// Blocks on name lookup. `None` when the lookup fails or the interface is not telling.
+pub fn toward(host: &str) -> Option<Toward> {
+    let ip = (host, 0).to_socket_addrs().ok()?.next()?.ip();
+    let (medium, link_mbps) = interface_toward(ip)?;
+    Toward::of(medium, link_mbps)
+}
+
+/// Windows interface types (IANA ifType): IEEE 802.11 and the two WWAN types are wireless;
+/// Ethernet in its several spellings is wired.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn medium_of_if_type(if_type: u32) -> Medium {
+    match if_type {
+        71 | 243 | 244 => Medium::Wireless,
+        6 | 26 | 62 | 69 | 117 => Medium::Wired,
+        _ => Medium::Other,
+    }
+}
+
+/// Linux: a `wireless` directory or a wlan/wwan `DEVTYPE` in sysfs is wireless, an Ethernet-type
+/// (ARPHRD_ETHER, 1) interface without them is wired.
+#[cfg_attr(windows, allow(dead_code))]
+fn medium_of_sysfs(has_wireless_dir: bool, devtype: Option<&str>, arphrd: Option<u32>) -> Medium {
+    if has_wireless_dir || matches!(devtype, Some("wlan" | "wwan")) {
+        Medium::Wireless
+    } else if arphrd == Some(1) && !matches!(devtype, Some("bridge" | "vlan" | "veth")) {
+        Medium::Wired
+    } else {
+        Medium::Other
+    }
+}
+
+/// The interface name from one line of `ip -o route get`: `... dev eth0 src ...`.
+#[cfg_attr(windows, allow(dead_code))]
+fn parse_route_dev(output: &str) -> Option<&str> {
+    let mut words = output.split_whitespace();
+    words.find(|word| *word == "dev")?;
+    words.next().filter(|name| {
+        (1..=15).contains(&name.len()) && name.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))
+    })
+}
+
+#[cfg(windows)]
+fn interface_toward(ip: IpAddr) -> Option<(Medium, u32)> {
+    use windows::Win32::NetworkManagement::IpHelper::{GetBestInterfaceEx, GetIfEntry2, MIB_IF_ROW2};
+    use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6, SOCKADDR, SOCKADDR_IN, SOCKADDR_IN6};
+    let mut index = 0u32;
+    let status = unsafe {
+        match ip {
+            IpAddr::V4(v4) => {
+                let mut address: SOCKADDR_IN = std::mem::zeroed();
+                address.sin_family = AF_INET;
+                address.sin_addr.S_un.S_addr = u32::from_ne_bytes(v4.octets());
+                GetBestInterfaceEx(&address as *const SOCKADDR_IN as *const SOCKADDR, &mut index)
+            }
+            IpAddr::V6(v6) => {
+                let mut address: SOCKADDR_IN6 = std::mem::zeroed();
+                address.sin6_family = AF_INET6;
+                address.sin6_addr.u.Byte = v6.octets();
+                GetBestInterfaceEx(&address as *const SOCKADDR_IN6 as *const SOCKADDR, &mut index)
+            }
+        }
+    };
+    if status != 0 { return None; }
+    let mut row: MIB_IF_ROW2 = unsafe { std::mem::zeroed() };
+    row.InterfaceIndex = index;
+    if unsafe { GetIfEntry2(&mut row) }.0 != 0 { return None; }
+    // All ones means the adapter does not report a speed.
+    let mbps = if row.ReceiveLinkSpeed == u64::MAX { 0 } else { (row.ReceiveLinkSpeed / 1_000_000).min(u32::MAX as u64) as u32 };
+    Some((medium_of_if_type(row.Type), mbps))
+}
+
+#[cfg(not(windows))]
+fn interface_toward(ip: IpAddr) -> Option<(Medium, u32)> {
+    let output = std::process::Command::new("ip").args(["-o", "route", "get", &ip.to_string()]).output().ok()?;
+    if !output.status.success() { return None; }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let name = parse_route_dev(&text)?;
+    let base = format!("/sys/class/net/{name}");
+    let read = |file: &str| std::fs::read_to_string(format!("{base}/{file}")).ok();
+    let devtype = read("uevent").and_then(|uevent| {
+        uevent.lines().find_map(|line| line.strip_prefix("DEVTYPE=").map(str::to_owned))
+    });
+    let arphrd = read("type").and_then(|t| t.trim().parse::<u32>().ok());
+    let medium = medium_of_sysfs(std::path::Path::new(&format!("{base}/wireless")).exists(), devtype.as_deref(), arphrd);
+    // "-1" is what a port without a speed reports.
+    let mbps = read("speed").and_then(|t| t.trim().parse::<i64>().ok()).filter(|n| *n > 0).map_or(0, |n| n.min(u32::MAX as i64) as u32);
+    Some((medium, mbps))
 }
 
 pub fn query(waker: crate::hosts::Waker) -> Receiver<Network> {
@@ -145,5 +261,50 @@ mod tests {
         // Metered alone says nothing about the medium; an unreadable network is not wireless.
         assert!(!Network { metered: true, ..Default::default() }.wireless());
         assert!(!Network { error: Some("no adapter".into()), ..Default::default() }.wireless());
+    }
+
+    #[test]
+    fn windows_interface_types_map_to_a_medium() {
+        assert_eq!(medium_of_if_type(71), Medium::Wireless); // IEEE 802.11
+        assert_eq!(medium_of_if_type(243), Medium::Wireless); // WWAN
+        assert_eq!(medium_of_if_type(244), Medium::Wireless);
+        assert_eq!(medium_of_if_type(6), Medium::Wired); // Ethernet
+        assert_eq!(medium_of_if_type(117), Medium::Wired); // Gigabit Ethernet
+        // Loopback, tunnel, PPP and unknown types say nothing.
+        assert_eq!(medium_of_if_type(24), Medium::Other);
+        assert_eq!(medium_of_if_type(131), Medium::Other);
+        assert_eq!(medium_of_if_type(23), Medium::Other);
+        assert_eq!(medium_of_if_type(0), Medium::Other);
+    }
+
+    #[test]
+    fn sysfs_attributes_map_to_a_medium() {
+        assert_eq!(medium_of_sysfs(true, None, Some(1)), Medium::Wireless);
+        assert_eq!(medium_of_sysfs(false, Some("wlan"), Some(1)), Medium::Wireless);
+        assert_eq!(medium_of_sysfs(false, Some("wwan"), Some(1)), Medium::Wireless);
+        assert_eq!(medium_of_sysfs(false, None, Some(1)), Medium::Wired);
+        assert_eq!(medium_of_sysfs(false, Some("bridge"), Some(1)), Medium::Other);
+        assert_eq!(medium_of_sysfs(false, None, Some(772)), Medium::Other); // loopback
+        assert_eq!(medium_of_sysfs(false, None, Some(65534)), Medium::Other); // tun
+        assert_eq!(medium_of_sysfs(false, None, None), Medium::Other);
+    }
+
+    #[test]
+    fn route_lookup_output_names_the_interface() {
+        assert_eq!(parse_route_dev("192.168.1.9 dev wlp3s0 src 192.168.1.20 uid 1000"), Some("wlp3s0"));
+        assert_eq!(parse_route_dev("10.0.0.1 via 10.0.0.254 dev eth0 src 10.0.0.2\n"), Some("eth0"));
+        assert_eq!(parse_route_dev("local 127.0.0.1 dev lo src 127.0.0.1"), Some("lo"));
+        assert_eq!(parse_route_dev("RTNETLINK answers: Network is unreachable"), None);
+        assert_eq!(parse_route_dev("1.2.3.4 dev"), None);
+        assert_eq!(parse_route_dev("1.2.3.4 dev bad/name"), None);
+        assert_eq!(parse_route_dev("1.2.3.4 dev 0123456789abcdef"), None);
+    }
+
+    #[test]
+    fn only_wired_and_wireless_media_decide_the_route() {
+        assert_eq!(Toward::of(Medium::Wired, 2500), Some(Toward { wireless: false, link_mbps: 2500 }));
+        // A wireless port's speed says nothing about the path.
+        assert_eq!(Toward::of(Medium::Wireless, 866), Some(Toward { wireless: true, link_mbps: 0 }));
+        assert_eq!(Toward::of(Medium::Other, 1000), None);
     }
 }

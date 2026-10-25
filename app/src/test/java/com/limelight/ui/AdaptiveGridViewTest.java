@@ -61,4 +61,29 @@ public class AdaptiveGridViewTest {
             assertEquals(2, grid.getNumColumns());
         }
     }
+
+    @Test
+    public void theEndDirectionPastTheLastCardReachesTheScreensOwnButton() {
+        try (var controller = Robolectric.buildActivity(UiNavigationTest.Screen.class).setup().visible()) {
+            UiNavigationTest.Screen screen = controller.get();
+            android.widget.LinearLayout container = new android.widget.LinearLayout(screen);
+            AdaptiveGridView grid = new AdaptiveGridView(screen);
+            android.widget.Button add = new android.widget.Button(screen);
+            container.setOrientation(android.widget.LinearLayout.VERTICAL);
+            container.addView(grid, new android.widget.LinearLayout.LayoutParams(1000, 600));
+            container.addView(add);
+            screen.setContentView(container);
+            grid.setColumnPolicy(true, false);
+            grid.setEndFocusTarget(add);
+            grid.setAdapter(new ArrayAdapter<>(screen, android.R.layout.simple_list_item_1, new String[] {"A", "B", "C"}));
+            measure(container, 1000, 800);
+            assertTrue(grid.requestFocusFromTouch());
+            measure(container, 1000, 800);
+            grid.setSelection(2);
+            measure(container, 1000, 800);
+            assertEquals(2, grid.getSelectedItemPosition());
+            grid.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_RIGHT));
+            assertTrue("the button takes focus", add.hasFocus());
+        }
+    }
 }

@@ -753,6 +753,9 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
             showComputerMenu((ComputerObject) pcGridAdapter.getItem(position));
             return true;
         });
+        if (listView instanceof com.limelight.ui.AdaptiveGridView) {
+            ((com.limelight.ui.AdaptiveGridView) listView).setEndFocusTarget(findViewById(R.id.manuallyAddPc));
+        }
         if (pcGridAdapter.getCount() == 0) findViewById(R.id.discovery_add).requestFocus();
         else if (!listView.isInTouchMode()) listView.requestFocus(); // content first, not the shell bar
     }

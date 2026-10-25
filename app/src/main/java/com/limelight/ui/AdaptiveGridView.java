@@ -22,7 +22,12 @@ public class AdaptiveGridView extends GridView {
     /** Below this height, cards switch to their compact artwork so a whole row stays visible. */
     private static final int SHORT_VIEWPORT_DP = 400;
 
+    /** Room kept around the selected card for its focus scale and outline, in dp. */
+    private static final int FOCUS_MARGIN_DP = 8;
+
     private boolean policySet;
+    private boolean revealPending;
+    private final Runnable revealSelection = this::revealSelection;
     private boolean computers;
     private boolean smallIcons;
 
@@ -56,6 +61,12 @@ public class AdaptiveGridView extends GridView {
      * button, Enter or the A button opens it and the opposite direction returns to the card.
      */
     private View markedAction;
+    private View endTarget;
+
+    /** The view the end direction moves to from the last card, such as the button that adds an item. */
+    public void setEndFocusTarget(View target) {
+        endTarget = target;
+    }
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
@@ -68,6 +79,14 @@ public class AdaptiveGridView extends GridView {
                 markAction(action);
                 return true;
             }
+            // Past the last card (and its overflow button) the end direction reaches the screen's own button,
+            // which floats outside the grid and has no other way in from the cards.
+            if (endTarget != null && endTarget.getVisibility() == VISIBLE && keyCode == towardAction &&
+                    getSelectedItemPosition() == getCount() - 1 && (action == null || markedAction != null)) {
+                markAction(null);
+                endTarget.requestFocus();
+                return true;
+            }
             if (markedAction != null && markedAction == action) {
                 if (keyCode == towardCard) {
                     markAction(null);
@@ -77,7 +96,26 @@ public class AdaptiveGridView extends GridView {
             }
         }
         markAction(null);
+        revealPending = true;
         return super.onKeyDown(keyCode, event);
+    }
+
+    /**
+     * After a key moved the selection, the card is shown whole with room for its focus scale and outline.
+     * The list's own scrolling only keeps the card inside the grid's padding, which a card that is taller than
+     * that padding, or one that scales up, can still spill out of.
+     */
+    private void revealSelection() {
+        revealPending = false;
+        View card = getSelectedView();
+        if (card == null || !isAttachedToWindow()) return;
+        int margin = Math.round(FOCUS_MARGIN_DP * getResources().getDisplayMetrics().density);
+        int top = card.getTop() - margin;
+        int bottom = card.getBottom() + margin;
+        int dy = 0;
+        if (bottom - top > getHeight() || top < 0) dy = top;
+        else if (bottom > getHeight()) dy = bottom - getHeight();
+        if (dy != 0) scrollListBy(dy);
     }
 
     @Override
@@ -135,6 +173,10 @@ public class AdaptiveGridView extends GridView {
         super.layoutChildren();
         // A rebuilt or recycled card no longer holds the marked button.
         if (action != null && action != selectedAction()) markAction(null);
+        if (revealPending) {
+            removeCallbacks(revealSelection);
+            post(revealSelection);
+        }
     }
 
     /** The overflow button of the selected card, if it shows one. */

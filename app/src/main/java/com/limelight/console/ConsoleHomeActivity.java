@@ -156,6 +156,12 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             public void onHostOptions(HomeModel.HostCard card) {
                 showHostOptions(card);
             }
+
+            @Override
+            public void onAllGames(String filter) {
+                startActivity(new Intent(ConsoleHomeActivity.this, allGamesActivity())
+                        .putExtra(AllGamesActivity.EXTRA_FILTER, filter));
+            }
         };
         if (isTelevision()) {
             setUpShelves(listener);
@@ -474,12 +480,19 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     }
 
     private void openGame(HomeModel.GameCard card) {
-        startActivity(new Intent(this, detailActivity())
-                .putExtra(GameDetailActivity.EXTRA_HOST_UUID, card.hostUuid)
-                .putExtra(GameDetailActivity.EXTRA_APP_ID, card.appId)
-                .putExtra(GameDetailActivity.EXTRA_TITLE, card.title)
-                .putExtra(GameDetailActivity.EXTRA_HOST_NAME, card.hostName));
+        GameOpener.open(opener, worker, card);
     }
+
+    private final GameOpener.Screen opener = new GameOpener.Screen() {
+        @Override public android.app.Activity activity() { return ConsoleHomeActivity.this; }
+        @Override public ConsoleRepository repository() { return repository; }
+        @Override public ComputerDetails host(String uuid) { return feed.host(uuid); }
+        @Override public Class<? extends GameDetailActivity> detailActivity() { return ConsoleHomeActivity.this.detailActivity(); }
+        @Override public void onAdded() {
+            refreshedSignature = null;
+            scheduleReload();
+        }
+    };
 
     /** Submits the model; when a card had focus, the same card (by its stable id) has it afterwards. */
     private void submitKeepingFocus(HomeModel model) {
@@ -584,6 +597,11 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     /** The screen a game opens; the debug demo returns its own. */
     protected Class<? extends GameDetailActivity> detailActivity() {
         return GameDetailActivity.class;
+    }
+
+    /** The screen an "All N" tile opens; the debug demo returns its own. */
+    protected Class<? extends AllGamesActivity> allGamesActivity() {
+        return AllGamesActivity.class;
     }
 
     private void openHost(HomeModel.HostCard card) {

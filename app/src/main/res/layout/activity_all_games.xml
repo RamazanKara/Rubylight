@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- All games: the library of every paired host as one poster grid under a row of filters (All, Installed, each store,
+     Other apps, Not added). Above the grid, the focused poster's title and line, since a TV poster carries no text. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical"
+    android:clipChildren="false" android:clipToPadding="false"
+    android:paddingStart="@dimen/shell_overscan_horizontal" android:paddingEnd="@dimen/shell_overscan_horizontal"
+    android:paddingTop="@dimen/shell_overscan_vertical">
+    <include android:id="@+id/all_games_toolbar" layout="@layout/view_top_app_bar" android:visibility="gone" />
+    <include layout="@layout/view_shell_bar" />
+    <ProgressBar android:id="@+id/all_games_loading" style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent" android:layout_height="4dp" android:indeterminate="true"
+        android:visibility="invisible" />
+    <TextView android:id="@+id/all_games_title" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s" android:layout_marginTop="@dimen/space_xs"
+        android:text="@string/console_all_games_title" android:accessibilityHeading="true"
+        android:textAppearance="@style/TextAppearance.Nightjar.ScreenTitle" android:textColor="?attr/colorOnSurface" />
+    <HorizontalScrollView android:id="@+id/all_games_filters_scroll"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/space_s"
+        android:scrollbars="none" android:overScrollMode="never" android:clipToPadding="false"
+        android:focusable="false" android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s"
+        android:paddingTop="2dp" android:paddingBottom="2dp">
+        <LinearLayout android:id="@+id/all_games_filters" android:layout_width="wrap_content"
+            android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" />
+    </HorizontalScrollView>
+    <!-- Read by the focus, never focused: a screen reader reads the card, which says the same. -->
+    <LinearLayout android:id="@+id/all_games_focus" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:layout_marginTop="@dimen/space_m"
+        android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s"
+        android:importantForAccessibility="noHideDescendants">
+        <TextView android:id="@+id/all_games_focus_meta" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:maxLines="1" android:ellipsize="end"
+            android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant" />
+        <TextView android:id="@+id/all_games_focus_title" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:maxLines="1" android:ellipsize="end"
+            android:textAppearance="@style/TextAppearance.Nightjar.Title" android:textColor="?attr/colorOnSurface" />
+    </LinearLayout>
+    <!-- As on Home, the grid reaches 24 dp past the content on both sides so a focused poster's ring and glow show whole. -->
+    <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:layout_marginStart="-24dp" android:layout_marginEnd="-24dp" android:layout_marginTop="@dimen/space_xs"
+        android:clipChildren="true">
+        <androidx.recyclerview.widget.RecyclerView android:id="@+id/all_games_grid"
+            android:layout_width="match_parent" android:layout_height="match_parent"
+            android:clipToPadding="false" android:clipChildren="false" android:overScrollMode="never"
+            android:paddingStart="24dp" android:paddingEnd="24dp" android:paddingTop="@dimen/space_m"
+            android:paddingBottom="@dimen/space_xxl" android:focusable="false"
+            android:descendantFocusability="afterDescendants" />
+        <TextView android:id="@+id/all_games_empty" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_gravity="center" android:gravity="center" android:padding="@dimen/space_xl"
+            android:text="@string/console_all_games_empty" android:visibility="gone"
+            android:textAppearance="@style/TextAppearance.Nightjar.Body" android:textColor="?attr/colorOnSurfaceVariant" />
+    </FrameLayout>
+</LinearLayout>

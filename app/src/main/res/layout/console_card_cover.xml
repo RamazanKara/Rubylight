@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A game in the Home library: cover, a state chip, its title and where it is. ConsoleHomeAdapter sets the cover height. -->
+<!-- A game in the Home library: cover, a state chip, its title and where it is. ShelfAdapter sets the cover height. -->
 <com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto" app:cardPreventCornerOverlap="false" android:clipToOutline="true"
     android:layout_width="match_parent" android:layout_height="wrap_content" style="@style/LibraryCard"

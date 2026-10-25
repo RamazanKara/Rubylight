@@ -37,20 +37,32 @@ public final class DemoConsoleHome extends ConsoleHomeActivity {
     /** Presses the three dots on the Living-room PC's card once Home has painted it. */
     private void openOptions(int attempt) {
         androidx.recyclerview.widget.RecyclerView list = findViewById(R.id.console_list);
-        for (int i = 0; i < list.getChildCount(); i++) {
-            android.view.View card = list.getChildAt(i);
-            android.widget.TextView title = card.findViewById(R.id.console_title);
-            android.view.View more = card.findViewById(R.id.console_more);
-            if (more != null && title != null && "Living-room PC".contentEquals(title.getText())) {
-                more.performClick();
-                return;
-            }
+        android.view.View more = moreOf(list);
+        if (more != null) {
+            more.performClick();
+            return;
         }
         // A short screen leaves the PCs row below the fold, where it is not laid out: scroll to it.
         if (attempt == 3 && list.getAdapter() != null && list.getAdapter().getItemCount() > 0) {
             list.scrollToPosition(list.getAdapter().getItemCount() - 1);
         }
         if (attempt < 30) list.postDelayed(() -> openOptions(attempt + 1), 300);
+    }
+
+    /** The three dots of the Living-room PC's card, which sits in a shelf of the list; null while it is not laid out. */
+    private static android.view.View moreOf(android.view.View view) {
+        if (view.getId() == R.id.console_more && view.getParent() instanceof android.view.View) {
+            android.widget.TextView title = ((android.view.View) view.getParent()).findViewById(R.id.console_title);
+            if (title != null && "Living-room PC".contentEquals(title.getText())) return view;
+        }
+        if (view instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                android.view.View found = moreOf(group.getChildAt(i));
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     @Override protected Class<? extends GameDetailActivity> detailActivity() {

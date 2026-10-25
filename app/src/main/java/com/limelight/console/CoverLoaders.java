@@ -15,6 +15,7 @@ import com.limelight.nvstream.http.NvApp;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Consumer;
 
 /**
  * Covers for Home and the game detail: the library grid's own box-art loader (memory, disk, then the
@@ -30,6 +31,7 @@ final class CoverLoaders {
     private final int coverWidthDp;
     private final Map<String, CachedAppAssetLoader> loaders = new HashMap<>();
     private final Map<String, String> addresses = new HashMap<>();
+    private Consumer<NvApp> artListener;
 
     CoverLoaders(Context context, String uniqueId, int coverWidthDp) {
         this.context = context;
@@ -58,6 +60,22 @@ final class CoverLoaders {
         loader(host).populateImageView(app, image, text);
     }
 
+    /** The cover if it is in memory now (never starts a load), else null. */
+    Bitmap peek(ComputerDetails host, NvApp app) {
+        return host == null ? null : loader(host).peekCover(app);
+    }
+
+    /** True once the game is known to have no artwork, so its backdrop can stay the canvas instead of waiting for one. */
+    boolean lacksArt(ComputerDetails host, NvApp app) {
+        return host == null || loader(host).hasNoArt(app);
+    }
+
+    /** Called on the main thread when a cover that was still loading has arrived (or turned out to be missing). */
+    void setArtListener(Consumer<NvApp> listener) {
+        artListener = listener;
+        for (CachedAppAssetLoader loader : loaders.values()) loader.setArtListener(listener);
+    }
+
     private CachedAppAssetLoader loader(ComputerDetails host) {
         String address = host.activeAddress == null ? "" : host.activeAddress.address + ":" + host.activeAddress.port;
         CachedAppAssetLoader loader = loaders.get(host.uuid);
@@ -72,6 +90,7 @@ final class CoverLoaders {
                     new NetworkAssetLoader(context, uniqueId), new MemoryAssetLoader(), new DiskAssetLoader(context),
                     // Without artwork the card shows the title on the cover's own surface.
                     Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888));
+            loader.setArtListener(artListener);
             loaders.put(host.uuid, loader);
             addresses.put(host.uuid, address);
         }

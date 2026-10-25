@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- A poster is 128 dp wide inside its 8 dp inset, 192 dp tall; 16 dp between posters. -->
+    <dimen name="shelf_card_width">144dp</dimen>
+    <dimen name="shelf_host_width">320dp</dimen>
+    <dimen name="shelf_keyline">48dp</dimen>
+    <dimen name="hero_height">128dp</dimen>
+</resources>

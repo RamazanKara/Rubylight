@@ -62,25 +62,45 @@ public class FavouritesRowTest {
                 new HashSet<>(Collections.singletonList("tower")));
     }
 
+    /** The card at {@code card} on shelf {@code row}, made and bound the way the shelves do. */
+    private ShelfAdapter.CardHolder card(ConsoleHomeAdapter adapter, int row, int card) {
+        FrameLayout parent = new FrameLayout(context);
+        ConsoleHomeAdapter.ShelfHolder shelf = adapter.onCreateViewHolder(parent, 0);
+        adapter.onBindViewHolder(shelf, row);
+        ShelfAdapter.CardHolder holder = shelf.adapter.onCreateViewHolder(parent, shelf.adapter.getItemViewType(card));
+        shelf.adapter.onBindViewHolder(holder, card);
+        return holder;
+    }
+
     @Test
-    public void theFavouritesRowComesBeforeContinuePlayingAndTheLibrary() throws Exception {
+    public void theShelvesRunContinuePlayingThenFavouritesThenTheLibraryThenThePcs() throws Exception {
         rig.recents.add(new com.limelight.nativeapi.RecentsStore.Recent("tower", "Tower", 11, "Portal", 10));
         rig.repository.setFavourite("tower", "Tower", 12, "Zelda", true);
         List<RecordedMenu> menus = new ArrayList<>();
         ConsoleHomeAdapter adapter = new ConsoleHomeAdapter(context, null, uuid -> null, recorder(menus));
         adapter.submit(model());
 
-        // Header, Zelda (favourite), header, Portal (recent), header, library, header, hosts.
-        assertEquals(ConsoleHomeAdapter.HEADER, adapter.viewTypeAt(0));
-        assertEquals(ConsoleHomeAdapter.COVER_GAME, adapter.viewTypeAt(1));
-        assertEquals(ConsoleHomeAdapter.HEADER, adapter.viewTypeAt(2));
-        assertEquals(ConsoleHomeAdapter.WIDE_GAME, adapter.viewTypeAt(3));
+        assertEquals(4, adapter.rowCount());
+        assertEquals("shelf:continue", adapter.rowKey(0));
+        assertEquals("shelf:favourites", adapter.rowKey(1));
+        assertEquals("shelf:library", adapter.rowKey(2));
+        assertEquals("shelf:hosts", adapter.rowKey(3));
         FrameLayout parent = new FrameLayout(context);
-        RecyclerView.ViewHolder first = adapter.onCreateViewHolder(parent, ConsoleHomeAdapter.HEADER);
-        adapter.onBindViewHolder(first, 0);
-        assertEquals(context.getString(R.string.console_section_favourites),
-                ((android.widget.TextView) first.itemView).getText().toString());
-        assertEquals(1, adapter.firstCard());
+        ConsoleHomeAdapter.ShelfHolder second = adapter.onCreateViewHolder(parent, 0);
+        adapter.onBindViewHolder(second, 1);
+        assertEquals(context.getString(R.string.console_section_favourites), second.title.getText().toString());
+        assertEquals(new ConsoleHomeAdapter.Cursor(0, 0), adapter.firstCard());
+    }
+
+    @Test
+    public void aShelfWithNoCardsIsLeftOutAndAGameIsAlwaysACover() throws Exception {
+        ConsoleHomeAdapter adapter = new ConsoleHomeAdapter(context, null, uuid -> null, recorder(new ArrayList<>()));
+        adapter.submit(model());
+        // No recents and no stars: the library and the PCs.
+        assertEquals(2, adapter.rowCount());
+        assertEquals("shelf:library", adapter.rowKey(0));
+        assertTrue(card(adapter, 0, 0).cover);
+        assertFalse(card(adapter, 1, 0).cover);
     }
 
     @Test
@@ -92,8 +112,7 @@ public class FavouritesRowTest {
         adapter.submit(model);
         FrameLayout parent = new FrameLayout(context);
 
-        RecyclerView.ViewHolder card = adapter.onCreateViewHolder(parent, ConsoleHomeAdapter.COVER_GAME);
-        adapter.onBindViewHolder(card, 1);
+        RecyclerView.ViewHolder card = card(adapter, 0, 0);
         assertTrue(card.itemView.isFocusable());
         assertTrue(card.itemView.performLongClick());
         assertEquals(1, menus.size());
@@ -103,11 +122,29 @@ public class FavouritesRowTest {
                 .endsWith(context.getString(R.string.console_favourite_description)));
 
         // A host card has no game menu; its long press opens the PC's options instead.
-        RecyclerView.ViewHolder host = adapter.onCreateViewHolder(parent, ConsoleHomeAdapter.HOST);
-        adapter.onBindViewHolder(host, adapter.getItemCount() - 1);
+        RecyclerView.ViewHolder host = card(adapter, adapter.rowCount() - 1, 0);
         assertTrue(host.itemView.performLongClick());
         assertEquals(1, menus.size());
         assertEquals(1, hostOptions.size());
+    }
+
+    @Test
+    public void xOnAGameCardOpensItsMenuLikeALongPress() throws Exception {
+        rig.repository.setFavourite("tower", "Tower", 12, "Zelda", true);
+        List<RecordedMenu> menus = new ArrayList<>();
+        ConsoleHomeAdapter adapter = new ConsoleHomeAdapter(context, null, uuid -> null, recorder(menus));
+        adapter.submit(model());
+        RecyclerView.ViewHolder card = card(adapter, 0, 0);
+        focus(new FrameLayout(context), card.itemView);
+
+        card.itemView.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN,
+                android.view.KeyEvent.KEYCODE_BUTTON_X));
+        assertTrue("the menu waits for the key to come up", menus.isEmpty());
+        card.itemView.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_UP,
+                android.view.KeyEvent.KEYCODE_BUTTON_X));
+        assertEquals(1, menus.size());
+        assertEquals("Zelda", menus.get(0).title);
+        assertTrue("and stars nothing", toggles.isEmpty());
     }
 
     private static final class RecordedMenu {
@@ -161,16 +198,10 @@ public class FavouritesRowTest {
     public void aHeldKeyPutsTheNewHomeCardStraightIntoFocusAndTheOldOneAtRest() throws Exception {
         ConsoleHomeAdapter adapter = new ConsoleHomeAdapter(context, null, uuid -> null, recorder(new ArrayList<>()));
         adapter.submit(model());
-        List<Integer> covers = new ArrayList<>();
-        for (int i = 0; i < adapter.getItemCount(); i++) {
-            if (adapter.viewTypeAt(i) == ConsoleHomeAdapter.COVER_GAME) covers.add(i);
-        }
-        assertTrue(covers.size() >= 2);
+        assertTrue(adapter.cardCount(0) >= 2);
         android.widget.LinearLayout row = new android.widget.LinearLayout(context);
-        RecyclerView.ViewHolder first = adapter.onCreateViewHolder(row, ConsoleHomeAdapter.COVER_GAME);
-        RecyclerView.ViewHolder second = adapter.onCreateViewHolder(row, ConsoleHomeAdapter.COVER_GAME);
-        adapter.onBindViewHolder(first, covers.get(0));
-        adapter.onBindViewHolder(second, covers.get(1));
+        RecyclerView.ViewHolder first = card(adapter, 0, 0);
+        RecyclerView.ViewHolder second = card(adapter, 0, 1);
         first.itemView.setFocusable(true);
         second.itemView.setFocusable(true);
         row.addView(first.itemView, new android.widget.LinearLayout.LayoutParams(300, 400));
@@ -199,8 +230,7 @@ public class FavouritesRowTest {
         ConsoleHomeAdapter adapter = new ConsoleHomeAdapter(context, null, uuid -> null, recorder(new ArrayList<>()));
         adapter.submit(model());
         FrameLayout parent = new FrameLayout(context);
-        RecyclerView.ViewHolder card = adapter.onCreateViewHolder(parent, ConsoleHomeAdapter.COVER_GAME);
-        adapter.onBindViewHolder(card, 1);
+        RecyclerView.ViewHolder card = card(adapter, 0, 0);
         focus(parent, card.itemView);
 
         card.itemView.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN,
@@ -210,8 +240,7 @@ public class FavouritesRowTest {
                 android.view.KeyEvent.KEYCODE_MENU));
         assertEquals(java.util.Collections.singletonList("Zelda"), toggles);
 
-        RecyclerView.ViewHolder host = adapter.onCreateViewHolder(parent, ConsoleHomeAdapter.HOST);
-        adapter.onBindViewHolder(host, adapter.getItemCount() - 1);
+        RecyclerView.ViewHolder host = card(adapter, adapter.rowCount() - 1, 0);
         parent.removeAllViews();
         focus(parent, host.itemView);
         host.itemView.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_UP,
@@ -229,13 +258,28 @@ public class FavouritesRowTest {
         ConsoleHomeAdapter adapter = new ConsoleHomeAdapter(context, null, uuid -> null, recorder(new ArrayList<>()));
         adapter.submit(model());
 
-        // Favourites row first, then Continue playing with the running Portal.
-        assertEquals(ConsoleHomeAdapter.HEADER, adapter.viewTypeAt(0));
-        assertEquals(1, adapter.firstCard());
-        assertEquals("favourite:tower:t-zelda", adapter.keyAt(1));
-        int focus = adapter.initialFocus();
-        assertEquals(ConsoleHomeAdapter.WIDE_GAME, adapter.viewTypeAt(focus));
+        // Continue playing first, with the running Portal; the favourites after it.
+        assertEquals("shelf:continue", adapter.rowKey(0));
+        assertEquals(new ConsoleHomeAdapter.Cursor(0, 0), adapter.firstCard());
+        assertEquals("favourite:tower:t-zelda", adapter.keyAt(new ConsoleHomeAdapter.Cursor(1, 0)));
+        ConsoleHomeAdapter.Cursor focus = adapter.initialFocus();
+        assertEquals(0, focus.row);
         assertTrue(adapter.keyAt(focus).startsWith("continue:tower:11"));
+    }
+
+    @Test
+    public void aRunningGameInTheLibraryTakesFocusWhenNothingIsInContinuePlaying() throws Exception {
+        // The shelf of games to continue is empty (no recents) but a game runs: the library's copy has the focus.
+        rig.transport.reply("tower", "session", ok(NativeApiFixtures.session("streaming", "you",
+                "{\"install_id\":\"t-zelda\",\"app_id\":12,\"title\":\"Zelda\"}", "[]")));
+        rig.transport.reply("tower", "library", ok(library("t1",
+                game("t-portal", 11, "Portal", "steam:400", false), game("t-zelda", 12, "Zelda", null, true))));
+        ConsoleHomeAdapter adapter = new ConsoleHomeAdapter(context, null, uuid -> null, recorder(new ArrayList<>()));
+        HomeModel model = model();
+        adapter.submit(model);
+        ConsoleHomeAdapter.Cursor focus = adapter.initialFocus();
+        assertNotNull(focus);
+        assertEquals("Zelda", adapter.itemAt(focus).game.title);
     }
 
     @Test
@@ -243,14 +287,16 @@ public class FavouritesRowTest {
         rig.repository.setFavourite("tower", "Tower", 12, "Zelda", true);
         ConsoleHomeAdapter adapter = new ConsoleHomeAdapter(context, null, uuid -> null, recorder(new ArrayList<>()));
         adapter.submit(model());
-        int library = adapter.positionOfKey("game:host:tower:12");
-        assertTrue(library > 1);
+        ConsoleHomeAdapter.Cursor library = adapter.positionOfKey("game:host:tower:12");
+        assertNotNull(library);
+        assertEquals("shelf:library", adapter.rowKey(library.row));
         assertEquals("game:host:tower:12", adapter.keyAt(library));
-        assertEquals(-1, adapter.positionOfKey("favourite:tower:gone"));
-        assertNull(adapter.keyAt(0));
-        // Where a header or a removed card was, the nearest card takes over.
-        assertEquals(1, adapter.nearestCard(0));
-        assertNotNull(adapter.keyAt(adapter.nearestCard(2)));
+        assertNull(adapter.positionOfKey("favourite:tower:gone"));
+        assertNull(adapter.keyAt(new ConsoleHomeAdapter.Cursor(0, 99)));
+        // Where a removed card was, the nearest card of its shelf takes over; past the last shelf, the last.
+        ConsoleHomeAdapter.Cursor near = adapter.nearestCard(new ConsoleHomeAdapter.Cursor(0, 99));
+        assertEquals(new ConsoleHomeAdapter.Cursor(0, adapter.cardCount(0) - 1), near);
+        assertNotNull(adapter.keyAt(adapter.nearestCard(new ConsoleHomeAdapter.Cursor(9, 0))));
     }
 
     @Test

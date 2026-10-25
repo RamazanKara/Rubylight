@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Home's shelves. A card's width includes its inset; a shelf keeps its last card clear of the end by the keyline so the
+         next card peeks in. -->
+    <dimen name="shelf_card_width">144dp</dimen>
+    <dimen name="shelf_host_width">288dp</dimen>
+    <dimen name="shelf_keyline">24dp</dimen>
+    <dimen name="hero_height">0dp</dimen>
+</resources>

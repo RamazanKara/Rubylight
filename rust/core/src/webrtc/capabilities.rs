@@ -777,6 +777,114 @@ pub fn av1_level(width: u32, height: u32, fps: u32, bitrate_kbps: u32) -> Option
     pick(&AV1_LEVELS, width, height, fps, bitrate_kbps)
 }
 
+/// An H.264 level as the last byte of the SDP `profile-level-id`: `level_idc`, ten times the
+/// level number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct H264Level {
+    pub name: &'static str,
+    pub level_idc: u32,
+}
+
+/// H.264 table A-1 from level 3.1, the level the offer always had, up to 5.2: MaxMBPS
+/// (macroblocks a second), MaxFS (macroblocks a frame) and MaxBR (kbps, the Baseline factor the
+/// offer's profile byte names). Level 6 and above, which 4K120 would need, browsers refuse.
+const H264_LEVELS: [(H264Level, u64, u64, u64); 8] = [
+    (
+        H264Level {
+            name: "3.1",
+            level_idc: 31,
+        },
+        108_000,
+        3_600,
+        14_000,
+    ),
+    (
+        H264Level {
+            name: "3.2",
+            level_idc: 32,
+        },
+        216_000,
+        5_120,
+        20_000,
+    ),
+    (
+        H264Level {
+            name: "4",
+            level_idc: 40,
+        },
+        245_760,
+        8_192,
+        20_000,
+    ),
+    (
+        H264Level {
+            name: "4.1",
+            level_idc: 41,
+        },
+        245_760,
+        8_192,
+        50_000,
+    ),
+    (
+        H264Level {
+            name: "4.2",
+            level_idc: 42,
+        },
+        522_240,
+        8_704,
+        50_000,
+    ),
+    (
+        H264Level {
+            name: "5",
+            level_idc: 50,
+        },
+        589_824,
+        22_080,
+        135_000,
+    ),
+    (
+        H264Level {
+            name: "5.1",
+            level_idc: 51,
+        },
+        983_040,
+        36_864,
+        240_000,
+    ),
+    (
+        H264Level {
+            name: "5.2",
+            level_idc: 52,
+        },
+        2_073_600,
+        36_864,
+        240_000,
+    ),
+];
+
+/// The lowest H.264 level, not below 3.1, whose frame size, macroblock rate and bitrate hold the
+/// stream, for the `profile-level-id`. `None` above 5.2. At 20 Mbps this gives 4.2 at 1080p60,
+/// 5.1 at 1080p90 and 120 or 1440p60, and 5.2 at 1440p90 and 120.
+pub fn h264_level(width: u32, height: u32, fps: u32, bitrate_kbps: u32) -> Option<H264Level> {
+    // Pictures are coded in 16x16 macroblocks; a side may be at most sqrt(8 * MaxFS) of them.
+    let (w, h) = (
+        u64::from(width).div_ceil(16),
+        u64::from(height).div_ceil(16),
+    );
+    H264_LEVELS
+        .iter()
+        .find(|(_, max_mbps, max_fs, max_kbps)| {
+            let side = isqrt(8 * max_fs);
+            w * h <= *max_fs
+                && w <= side
+                && h <= side
+                && w * h * u64::from(fps) <= *max_mbps
+                && u64::from(bitrate_kbps) <= *max_kbps
+        })
+        .map(|(level, ..)| *level)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1550,6 +1658,52 @@ mod tests {
         assert_eq!(av1(1920, 1080, 60, 50_000), ("5.2", 14, 0));
         assert_eq!(av1(3840, 2160, 120, 100_000), ("5.2", 14, 1));
         assert_eq!(av1_level(100_000, 100_000, 30, 10_000), None);
+    }
+
+    fn h264(w: u32, h: u32, fps: u32, kbps: u32) -> (&'static str, u32) {
+        let level = h264_level(w, h, fps, kbps).unwrap();
+        (level.name, level.level_idc)
+    }
+
+    #[test]
+    fn h264_levels_follow_table_a1() {
+        // 1080p is 120x68 macroblocks (8160), 1440p 160x90 (14400), 720p 80x45 (3600).
+        assert_eq!(h264(1280, 720, 30, 12_000), ("3.1", 31));
+        assert_eq!(h264(1280, 720, 60, 12_000), ("3.2", 32));
+        assert_eq!(h264(1280, 720, 120, 12_000), ("4.2", 42));
+        assert_eq!(h264(1920, 1080, 30, 20_000), ("4", 40));
+        assert_eq!(h264(1920, 1080, 60, 20_000), ("4.2", 42));
+        assert_eq!(h264(1920, 1080, 90, 20_000), ("5.1", 51));
+        assert_eq!(h264(1920, 1080, 120, 20_000), ("5.1", 51));
+        assert_eq!(h264(2560, 1440, 30, 30_000), ("5", 50));
+        assert_eq!(h264(2560, 1440, 60, 30_000), ("5.1", 51));
+        assert_eq!(h264(2560, 1440, 90, 30_000), ("5.2", 52));
+        assert_eq!(h264(2560, 1440, 120, 30_000), ("5.2", 52));
+        // The bitrate counts too: 1080p60 at 100 Mbps is over 4.2's 50 Mbps.
+        assert_eq!(h264(1920, 1080, 60, 50_000), ("4.2", 42));
+        assert_eq!(h264(1920, 1080, 60, 100_000), ("5", 50));
+        // 4K120 would be level 6, which is not offered.
+        assert_eq!(h264_level(3840, 2160, 120, 50_000), None);
+        assert_eq!(
+            h264_level(3840, 2160, 60, 50_000).map(|l| l.name),
+            Some("5.2")
+        );
+    }
+
+    #[test]
+    fn every_offered_h264_mode_has_a_level_across_the_bitrate_range() {
+        for mode in MODES.iter().filter(|m| m.h264) {
+            for fps in FRAME_RATES {
+                for kbps in [BITRATE_RANGE_KBPS.start(), BITRATE_RANGE_KBPS.end()] {
+                    assert!(
+                        h264_level(mode.width, mode.height, fps, *kbps).is_some(),
+                        "{}x{}@{fps} {kbps}",
+                        mode.width,
+                        mode.height
+                    );
+                }
+            }
+        }
     }
 
     #[test]

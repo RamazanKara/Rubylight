@@ -9,7 +9,7 @@
 //! See `docs/webrtc-design.md` ("Library").
 use anyhow::{Context, Result, anyhow, bail};
 use butterpollo_core::audio::OpusLayout;
-use butterpollo_core::webrtc::capabilities::{av1_level, hevc_level};
+use butterpollo_core::webrtc::capabilities::{av1_level, h264_level, hevc_level};
 use str0m::change::{SdpAnswer, SdpPendingOffer};
 use str0m::channel::{ChannelConfig, ChannelId, Reliability};
 use str0m::format::{Codec, FormatParams};
@@ -31,9 +31,10 @@ pub const INPUT_LABEL: &str = "input";
 /// The protocol's stereo fmtp. str0m has no `maxaveragebitrate`, so the line is written as text.
 const STEREO_FMTP: &str =
     "minptime=20;maxaveragebitrate=128000;stereo=1;sprop-stereo=1;useinbandfec=0";
-/// What libdatachannel offers by default, which the Tizen app and browsers accept for the High
-/// profile stream AMF writes (receivers decode from the SPS and treat the level as asymmetric).
-const H264_PROFILE_LEVEL_ID: u32 = 0x42e01f;
+/// The profile bytes of libdatachannel's default `42e01f`, which the Tizen app and browsers accept
+/// for the High profile stream AMF writes (receivers decode from the SPS and treat the level as
+/// asymmetric). The level byte comes from the mode ([`h264_params`]).
+const H264_PROFILE: u32 = 0x42e0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VideoCodec {
@@ -146,6 +147,19 @@ fn hevc_params(mode: &VideoMode) -> Result<(u8, u8)> {
     Ok((u8::try_from(level.level_id)?, u8::try_from(tier.flag())?))
 }
 
+/// The H.264 `profile-level-id` for the mode: the fixed profile bytes and the level from core's
+/// table (never below level 3.1).
+fn h264_params(mode: &VideoMode) -> Result<u32> {
+    let level =
+        h264_level(mode.width, mode.height, mode.fps, mode.bitrate_kbps).with_context(|| {
+            format!(
+                "no H.264 level holds {}x{}@{} at {} kbps",
+                mode.width, mode.height, mode.fps, mode.bitrate_kbps
+            )
+        })?;
+    Ok((H264_PROFILE << 8) | level.level_idc)
+}
+
 /// The AV1 `level-idx` and `tier` for the mode.
 fn av1_params(mode: &VideoMode) -> Result<(u8, u8)> {
     let (level, tier) = av1_level(mode.width, mode.height, mode.fps, mode.bitrate_kbps)
@@ -165,7 +179,7 @@ fn video_codec_and_format(mode: &VideoMode) -> Result<(Codec, FormatParams)> {
             FormatParams {
                 level_asymmetry_allowed: Some(true),
                 packetization_mode: Some(1),
-                profile_level_id: Some(H264_PROFILE_LEVEL_ID),
+                profile_level_id: Some(h264_params(mode)?),
                 ..Default::default()
             },
         ),
@@ -405,7 +419,7 @@ pub fn check_answer(sdp: &str, spec: &OfferSpec) -> Result<(String, AnswerInfo)>
     let param = |name: &str| params.iter().find(|(k, _)| *k == name).map(|(_, v)| *v);
     match spec.video.codec {
         VideoCodec::H264 => {
-            let want = format!("{:02x}", (H264_PROFILE_LEVEL_ID >> 16) & 0xff);
+            let want = format!("{:02x}", (H264_PROFILE >> 8) & 0xff);
             let got = param("profile-level-id").unwrap_or("42e01f");
             if !got.get(..2).is_some_and(|p| p.eq_ignore_ascii_case(&want)) {
                 bail!("the answer changed the H.264 profile (wanted {want}xxxx, got {got})");
@@ -921,10 +935,58 @@ mod tests {
             [
                 ("level-asymmetry-allowed".to_string(), "1".to_string()),
                 ("packetization-mode".to_string(), "1".to_string()),
-                ("profile-level-id".to_string(), "42e01f".to_string()),
+                ("profile-level-id".to_string(), "42e02a".to_string()),
             ],
             "{line}"
         );
+    }
+
+    #[test]
+    fn h264_level_comes_from_the_mode_and_rate() {
+        use butterpollo_core::webrtc::capabilities::{FRAME_RATES, MODES};
+        // (width, height, fps, profile-level-id) at each mode's default bitrate; the profile bytes
+        // never change. 1080p60 is 4.2, 1080p120 5.1 and 1440p90 and 120 are 5.2 (table A-1).
+        let expected = [
+            (1280, 720, 30, "42e01f"),
+            (1280, 720, 60, "42e020"),
+            (1280, 720, 90, "42e02a"),
+            (1280, 720, 120, "42e02a"),
+            (1920, 1080, 30, "42e028"),
+            (1920, 1080, 60, "42e02a"),
+            (1920, 1080, 90, "42e033"),
+            (1920, 1080, 120, "42e033"),
+            (2560, 1440, 30, "42e032"),
+            (2560, 1440, 60, "42e033"),
+            (2560, 1440, 90, "42e034"),
+            (2560, 1440, 120, "42e034"),
+        ];
+        let mut offered = 0;
+        for mode in MODES.iter().filter(|m| m.h264) {
+            for fps in FRAME_RATES {
+                let mut s = spec(VideoCodec::H264, false);
+                s.video.width = mode.width;
+                s.video.height = mode.height;
+                s.video.fps = fps;
+                s.video.bitrate_kbps = mode.default_bitrate_kbps;
+                let line = fmtp(&offer_for(&s));
+                let want = expected
+                    .iter()
+                    .find(|(w, h, f, _)| (*w, *h, *f) == (mode.width, mode.height, fps))
+                    .map(|(.., id)| id.to_string());
+                assert_eq!(
+                    param_of(&line, "profile-level-id"),
+                    want,
+                    "{}x{}@{fps}: {line}",
+                    mode.width,
+                    mode.height
+                );
+                // The answer keeps the profile and may name any level.
+                let answer = answer_to(&s, &offer_for(&s));
+                assert!(check_answer(&answer, &s).is_ok(), "{answer}");
+                offered += 1;
+            }
+        }
+        assert_eq!(offered, expected.len(), "every offered H.264 mode and rate");
     }
 
     #[test]
@@ -1053,7 +1115,8 @@ mod tests {
 
         let s = spec(VideoCodec::H264, false);
         let answer = answer_to(&s, &offer_for(&s));
-        let changed = answer.replace("profile-level-id=42e01f", "profile-level-id=64001f");
+        let changed = answer.replace("profile-level-id=42e02a", "profile-level-id=64002a");
+        assert_ne!(changed, answer);
         assert!(
             check_answer(&changed, &s)
                 .unwrap_err()
@@ -1061,7 +1124,8 @@ mod tests {
                 .contains("H.264 profile")
         );
         // A different level is fine: the level is asymmetric.
-        let level = answer.replace("profile-level-id=42e01f", "profile-level-id=42e034");
+        let level = answer.replace("profile-level-id=42e02a", "profile-level-id=42e034");
+        assert_ne!(level, answer);
         assert!(check_answer(&level, &s).is_ok());
     }
 

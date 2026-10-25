@@ -1043,7 +1043,7 @@ public class NvConnection {
                             nativeStarted = true;
                         }
                         MoonBridge.setupBridge(videoDecoderRenderer, audioRenderer, connectionListener, () -> stopRequested);
-                        PreferenceConfiguration prefs = PreferenceConfiguration.readPreferences(appContext);
+                        PreferenceConfiguration prefs = hintPrefs;
                         micEnabled = prefs.enableMic;
                         micPermitted = prefs.enableMic && hasMicrophonePermission();
                         if (micEnabled && !micPermitted) {

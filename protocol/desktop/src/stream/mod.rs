@@ -604,21 +604,44 @@ fn tells_host_wireless(setting: bool, family: nightjar_core::http::Family, wirel
     setting && wireless && family == nightjar_core::http::Family::Rubylight
 }
 
-/// The link speed for `x-ss-video[0].pyrowaveLinkMbps`: zero (no attribute) when the setting is off.
-/// The beam-race check and the calibrated pace still use the real speed.
-fn link_speed_hint(setting: bool, link_mbps: u32) -> u32 {
-    if setting { link_mbps } else { 0 }
+/// The value a network-hint variable names, if it names one (measurement runs on loopback, where
+/// the real link is not the one under test). A value that is not a number is said so on stderr
+/// and ignored.
+fn hint_env(name: &str) -> Option<u32> {
+    let text = std::env::var(name).ok()?;
+    let parsed = text.trim().parse().ok();
+    if parsed.is_none() {
+        eprintln!("nightjar: {name}={text:?} is not a number, so it is ignored");
+    }
+    parsed
 }
 
-/// A network hint the stream sends the host, unless the variable names another value (measurement
-/// runs on loopback, where the real link is not the one under test). A value that is not a number
-/// is said so on stderr and ignored.
+/// `value`, unless the variable names another one.
 fn hint_override(name: &str, value: u32) -> u32 {
-    let Ok(text) = std::env::var(name) else { return value };
-    text.trim().parse().unwrap_or_else(|_| {
-        eprintln!("nightjar: {name}={text:?} is not a number, so it is ignored");
-        value
-    })
+    hint_env(name).unwrap_or(value)
+}
+
+/// The link speed and pace the stream works with and what it tells the host.
+#[derive(Debug, PartialEq)]
+struct LinkHints {
+    /// The speed the beam-race check goes by, whatever the host is told.
+    link_mbps: u32,
+    /// `x-ss-video[0].pyrowaveLinkMbps`; zero leaves the attribute out.
+    sent_link_mbps: u32,
+    /// `x-ss-video[0].pyrowavePaceMbps`, calibrated or overridden.
+    pace_mbps: u32,
+}
+
+/// With "Tell the PC the link speed" off the host gets no speed, but the beam race and the
+/// calibrated pace (measured and keyed on the real speed) still use it. A variable naming the
+/// speed wins over the setting, so measurement runs keep their hint.
+fn link_hints(tell: bool, routed_mbps: u32, link_env: Option<u32>, measured_pace: u32, pace_env: Option<u32>) -> LinkHints {
+    let link_mbps = link_env.unwrap_or(routed_mbps);
+    LinkHints {
+        link_mbps,
+        sent_link_mbps: if tell || link_env.is_some() { link_mbps } else { 0 },
+        pace_mbps: pace_env.unwrap_or(measured_pace),
+    }
 }
 
 /// `Auto` (moonlight-common-c's choice from the address), unless `NIGHTJAR_STREAM_LOCATION` is
@@ -745,9 +768,17 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
             Err(why) => format!("from the internet connection, {why}"),
         },
     );
-    let link_mbps = hint_override("NIGHTJAR_PYROWAVE_LINK_MBPS", routed_link_mbps);
     let measured_pace = plan.pace.as_ref().map_or(0, |pace| pace.for_network(&network, plan.host_link_mbps));
-    let pace_mbps = hint_override("NIGHTJAR_PYROWAVE_PACE_MBPS", measured_pace);
+    let LinkHints { link_mbps, sent_link_mbps, pace_mbps } = link_hints(
+        settings.tell_host_link_speed,
+        routed_link_mbps,
+        hint_env("NIGHTJAR_PYROWAVE_LINK_MBPS"),
+        measured_pace,
+        hint_env("NIGHTJAR_PYROWAVE_PACE_MBPS"),
+    );
+    if link_mbps > 0 && sent_link_mbps == 0 {
+        eprintln!("nightjar: not telling the PC the link speed ({link_mbps} Mbps): it is turned off in the settings");
+    }
     let beam = beam_race(settings.beam_race, link_mbps, plan.gpu_decoder.is_some());
     match beam {
         BeamRace::NotWired => eprintln!("{BEAM_RACE_NOT_WIRED}"),
@@ -781,7 +812,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         color_range: if settings.full_range { COLOR_RANGE_FULL } else { COLOR_RANGE_LIMITED },
         microphone: settings.microphone && role != AppRole::RemoteMonitor,
         haptics_pcm: settings.controllers && settings.controller_audio && role != AppRole::RemoteMonitor,
-        pyrowave_link_mbps: link_speed_hint(settings.tell_host_link_speed, link_mbps) as i32,
+        pyrowave_link_mbps: sent_link_mbps as i32,
         pyrowave_pace_mbps: pace_mbps as i32,
         client_wireless,
         pyrowave_records_supported: plan.info.capabilities.has(Feature::PyroWaveRecords),
@@ -2667,10 +2698,19 @@ mod tests {
     }
 
     #[test]
-    fn the_link_speed_hint_is_left_out_when_the_setting_is_off() {
-        assert_eq!(link_speed_hint(true, 1000), 1000);
-        assert_eq!(link_speed_hint(false, 1000), 0);
-        assert_eq!(link_speed_hint(true, 0), 0);
+    fn the_link_speed_hint_is_left_out_when_the_setting_is_off_but_beam_race_and_pace_keep_the_real_speed() {
+        // On: the host is told the routed speed.
+        let on = link_hints(true, 2500, None, 2100, None);
+        assert_eq!(on, LinkHints { link_mbps: 2500, sent_link_mbps: 2500, pace_mbps: 2100 });
+        // Off: nothing is sent, the beam race still sees a wired link and the pace stays.
+        let off = link_hints(false, 2500, None, 2100, None);
+        assert_eq!(off, LinkHints { link_mbps: 2500, sent_link_mbps: 0, pace_mbps: 2100 });
+        assert_eq!(beam_race_for(None, true, off.link_mbps, true), BeamRace::On);
+        // An unknown speed is never sent, on or off.
+        assert_eq!(link_hints(true, 0, None, 0, None).sent_link_mbps, 0);
+        // A variable naming the speed wins over the setting, and the pace variable over the measurement.
+        let forced = link_hints(false, 2500, Some(1000), 2100, Some(900));
+        assert_eq!(forced, LinkHints { link_mbps: 1000, sent_link_mbps: 1000, pace_mbps: 900 });
     }
 
     #[test]

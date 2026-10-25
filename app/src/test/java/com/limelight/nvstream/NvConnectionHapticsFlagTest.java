@@ -10,6 +10,7 @@ import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.LimelightCryptoProvider;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.jni.MoonBridge;
+import com.limelight.utils.PyroWavePaceStore;
 import com.limelight.utils.WiredLink;
 
 import org.junit.Before;
@@ -36,9 +37,12 @@ public class NvConnectionHapticsFlagTest {
         FakeWiredLink.mbps = 0;
         FakeWiredLink.wireless = false;
         rubylightHost = true;
+        pyroWaveStream = false;
     }
 
     private static boolean rubylightHost;
+    // A Rubylight host that offers PyroWave and a phone that asks for it.
+    private static boolean pyroWaveStream;
 
     // Haptics PCM switches a Vibepollo host's control loop to 5 ms; only a USB DualSense with
     // waveform haptics enabled can play it.
@@ -135,6 +139,27 @@ public class NvConnectionHapticsFlagTest {
         assertEquals(2500, CapturingBridge.linkMbps);
     }
 
+    // The pace calibrated on this path is keyed on the real link speed: with the speed left out of
+    // the stream description the stored pace is still sent.
+    @Test public void aStoredPaceIsStillSentWhenTheLinkSpeedIsWithheld() throws Exception {
+        pyroWaveStream = true;
+        FakeWiredLink.mbps = 2500;
+        PyroWavePaceStore.put(RuntimeEnvironment.getApplication(), "test-host",
+                new PyroWavePaceStore.Calibration(2100, 2500, 0, true));
+        PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication()).edit()
+                .putBoolean("checkbox_tell_host_link_speed", false).commit();
+        CapturingBridge.linkMbps = CapturingBridge.paceMbps = -1;
+        startStream();
+        assertEquals(0, CapturingBridge.linkMbps);
+        assertEquals(2100, CapturingBridge.paceMbps);
+
+        PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication()).edit()
+                .putBoolean("checkbox_tell_host_link_speed", true).commit();
+        startStream();
+        assertEquals(2500, CapturingBridge.linkMbps);
+        assertEquals(2100, CapturingBridge.paceMbps);
+    }
+
     // The drop tolerance reaches the native control timeout only when it is longer than it.
     @Test public void networkDropToleranceIsSetBeforeEveryStart() throws Exception {
         String[][] settings = {{"0", "0"}, {"30", "30000"}, {"60", "60000"}, {"3600", "0"}};
@@ -187,7 +212,9 @@ public class NvConnectionHapticsFlagTest {
         NvConnectionRecoveryTest.FakeHost.initial = "<root status_code=\"200\"><appversion>7.1.431.0</appversion>" +
                 "<uniqueid>test-host</uniqueid><HttpsPort>47984</HttpsPort><state>SUNSHINE_SERVER_FREE</state>" +
                 "<currentgame>0</currentgame><currentgameuuid></currentgameuuid><PairStatus>1</PairStatus>" +
-                (rubylightHost ? "<RustHostVersion>2.2.21</RustHostVersion>" : "") + "</root>";
+                (rubylightHost ? "<RustHostVersion>2.2.21</RustHostVersion>" : "") +
+                (pyroWaveStream ? "<ServerCodecModeSupport>" + (0x800000 | 0x1) + "</ServerCodecModeSupport>" : "") +
+                "</root>";
         NvConnectionRecoveryTest.FakeHost.resumeFailure = null;
         NvConnectionRecoveryTest.FakeHost.resumeResult = true;
         NvConnectionRecoveryTest.FakeHost.requests.clear();
@@ -196,7 +223,8 @@ public class NvConnectionHapticsFlagTest {
         NvConnection connection = new NvConnection(RuntimeEnvironment.getApplication(),
                 new ComputerDetails.AddressTuple("192.0.2.1", 47989), 47984, "device",
                 new StreamConfiguration.Builder().setApp(app).setResolution(1280, 720).setRefreshRate(60)
-                        .setSupportedVideoFormats(MoonBridge.VIDEO_FORMAT_H264).build(), crypto(), null);
+                        .setSupportedVideoFormats(MoonBridge.VIDEO_FORMAT_H264 |
+                                (pyroWaveStream ? MoonBridge.VIDEO_FORMAT_PYROWAVE : 0)).build(), crypto(), null);
         NvConnectionListener listener = (NvConnectionListener) Proxy.newProxyInstance(
                 NvConnectionListener.class.getClassLoader(), new Class<?>[] {NvConnectionListener.class},
                 (proxy, method, args) -> null);

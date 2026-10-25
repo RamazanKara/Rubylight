@@ -20,6 +20,9 @@ jobs=${JOBS:-$(nproc)}
 
 if [[ $(uname -s) == Linux ]]; then
   linux=1
+  # The libraries get the run path $ORIGIN from LD_RUN_PATH (the linker uses it when no -rpath is
+  # given; configure and make would expand a $ORIGIN in the flags).
+  export LD_RUN_PATH='$ORIGIN'
   platform=(
     --enable-vaapi
     --enable-hwaccel=h264_vaapi,hevc_vaapi,av1_vaapi
@@ -46,22 +49,42 @@ cd "$build"
   --enable-decoder=h264,hevc,av1 --enable-parser=h264,hevc,av1 \
   --enable-libdav1d --enable-decoder=libdav1d \
   "${platform[@]}"
-# On Linux the libraries get the run path $ORIGIN from LD_RUN_PATH (the linker uses it when no
-# -rpath is given; configure and make would expand a $ORIGIN in the flags).
-LD_RUN_PATH='$ORIGIN' make -j"$jobs"
+make -j"$jobs"
 make install
+
+# The licences the package carries (FFmpeg is LGPL, dynamically linked; dav1d is BSD) and where
+# the FFmpeg source is (LGPL source offer): the prefix's licenses-ffmpeg/ and licenses-dav1d/.
+mkdir -p "$prefix/licenses-ffmpeg" "$prefix/licenses-dav1d"
+cp "$source_dir/COPYING.LGPLv2.1" "$source_dir/LICENSE.md" "$prefix/licenses-ffmpeg/"
+ffmpeg_release=$(cat "$source_dir/RELEASE")
+cat >"$prefix/licenses-ffmpeg/SOURCE.txt" <<EOF
+FFmpeg $ffmpeg_release, LGPL v2.1 or later, linked dynamically (libavcodec and libavutil).
+Source: https://ffmpeg.org/releases/ffmpeg-$ffmpeg_release.tar.xz
+SHA-256: ${FFMPEG_SHA256:-not recorded}
+Built unmodified by protocol/desktop/ffmpeg-decode-only.sh of the Nightjar repository
+(https://github.com/RamazanKara/nightjar), which has the configure options.
+EOF
 
 if [[ -n $linux ]]; then
   for lib in "$prefix"/lib/lib*.so.*.*; do
-    readelf -d "$lib" | grep -q 'RUNPATH.*\[\$ORIGIN\]' || { echo "${lib##*/} has no run path \$ORIGIN" >&2; exit 1; }
+    readelf -d "$lib" | grep -Eq '(RPATH|RUNPATH).*\[\$ORIGIN\]' || { echo "${lib##*/} has no run path \$ORIGIN" >&2; exit 1; }
   done
-  # libavcodec needs dav1d at run time: ship the one it was built against, next to it.
+  # libavcodec needs dav1d at run time: ship the one it was built against, next to it (a copy
+  # from an earlier run would hide the system's from ldd).
+  rm -f "$prefix"/lib/libdav1d.so*
   dav1d=$(ldd "$prefix/lib/libavcodec.so" | sed -n 's/^[[:space:]]*libdav1d\.so[^ ]* => \([^ ]*\) .*/\1/p')
   [ -n "$dav1d" ] || { echo "libavcodec.so does not link libdav1d (apt install libdav1d-dev)" >&2; exit 1; }
   cp -L "$dav1d" "$prefix/lib/"
-  # The package carries the licences next to the libraries (FFmpeg is LGPL, dynamically linked).
-  mkdir -p "$prefix/licenses-ffmpeg"
-  cp "$source_dir/COPYING.LGPLv2.1" "$source_dir/LICENSE.md" "$prefix/licenses-ffmpeg/"
+  # dav1d's licence: the copyright file of the Debian package that owns the library, or Arch's.
+  owner=$(dpkg -S "$(readlink -f "$dav1d")" 2>/dev/null | head -n1 | cut -d: -f1) || true
+  if [[ -n $owner && -f /usr/share/doc/$owner/copyright ]]; then
+    cp "/usr/share/doc/$owner/copyright" "$prefix/licenses-dav1d/COPYING"
+  elif [[ -f /usr/share/licenses/dav1d/COPYING ]]; then
+    cp /usr/share/licenses/dav1d/COPYING "$prefix/licenses-dav1d/COPYING"
+  else
+    echo "no licence text for $dav1d (/usr/share/doc/<package>/copyright or /usr/share/licenses/dav1d/COPYING)" >&2
+    exit 1
+  fi
   cd /
   rm -rf "$build"
   exit 0
@@ -76,4 +99,6 @@ cp "$msys/bin/libopus-0.dll" "$prefix/bin/"
 dav1d=$(ls "$msys"/bin/libdav1d-*.dll 2>/dev/null | head -n 1)
 [ -n "$dav1d" ] || { echo "no libdav1d-*.dll in $msys/bin (pacman -S mingw-w64-ucrt-x86_64-dav1d)" >&2; exit 1; }
 cp "$dav1d" "$prefix/bin/"
+[ -f "$msys/share/licenses/dav1d/COPYING" ] || { echo "no $msys/share/licenses/dav1d/COPYING" >&2; exit 1; }
+cp "$msys/share/licenses/dav1d/COPYING" "$prefix/licenses-dav1d/"
 rm -rf "$build"

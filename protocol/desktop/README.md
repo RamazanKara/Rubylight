@@ -22,7 +22,9 @@ $env:LIBCLANG_PATH = "C:\msys64\ucrt64\bin"      # only if another LLVM is insta
 cargo run --release -p nightjar-desktop      # in protocol/
 ```
 
-`NIGHTJAR_FFMPEG_DIR` points the build at another FFmpeg/Opus prefix (`include/`, `lib/`).
+`NIGHTJAR_FFMPEG_DIR` points the build at another FFmpeg prefix (`include/`, `lib/`); on Windows the prefix also holds
+Opus, on Linux Opus comes from pkg-config. On Linux the executable then has the run path `$ORIGIN/lib` only, so
+`cargo run` and `cargo test` binaries need the prefix's `lib` on `LD_LIBRARY_PATH`.
 
 Why GNU and not MSVC: the binary needs only the system UCRT (no Visual C++ runtime to
 redistribute), every native dependency comes from one package manager with import
@@ -44,6 +46,10 @@ missing), then starts the unpacked exe with only the Windows folders on `PATH`. 
 version; the release workflow builds it that way (`nightjar-desktop-<version>-windows-x86_64.zip`), and
 `package-linux.sh -v` does the same for the Linux tar.gz.
 
+`nightjar --check-pyrowave <file>` (no window; the packaging scripts run it on the unpacked package) writes whether the SDK
+library beside the executable loads (`load:`) and whether a decoder builds on this PC's GPU (`probe:`) and exits 0, 2 (loaded,
+no usable GPU) or 1 (did not load).
+
 ### Packaging for Linux
 
 `package-linux.sh -f <FFmpeg prefix> [-s <PyroWave SDK>] [-v <version>]` builds the release binary against
@@ -52,12 +58,9 @@ and libavutil with the H.264, HEVC and AV1 decoders, their VAAPI paths and dav1d
 `libdav1d-dev` and `libva-dev`), and ships `libavcodec`, `libavutil` and `libdav1d` in `lib/` beside the
 executable. The executable and the libraries have the run path `$ORIGIN/lib` and `$ORIGIN`, so the FFmpeg of the
 machine (another version on a Steam Deck, or none) is never used; FFmpeg stays dynamic (LGPL) and its
-licence is in `licenses-ffmpeg/`. libopus, libva and the desktop libraries stay the system's
-(`LINUX-RUNTIME.txt`). The script unpacks the archive and fails if `ldd` shows a libav* or libdav1d outside it,
+licence, source offer and dav1d's licence are in `licenses-ffmpeg/` and `licenses-dav1d/`. libopus, libva and the desktop libraries stay the system's
+(`LINUX-RUNTIME.txt` lists them, with the libraries `lib/` needs). The script unpacks the archive and fails if `ldd` shows a libav* or libdav1d outside it,
 or a library that is not found.
-`nightjar --check-pyrowave <file>` (no window; the packaging scripts run it on the unpacked package) writes whether the SDK
-library beside the executable loads (`load:`) and whether a decoder builds on this PC's GPU (`probe:`) and exits 0, 2 (loaded,
-no usable GPU) or 1 (did not load).
 
 ### Linux
 
@@ -81,7 +84,7 @@ PyroWave GPU decoding (`pyrowave_decoder = Gpu`, [docs/pyrowave-decode.md](../..
 loads `libpyrowave-shared.so` from beside the executable and needs a Vulkan 1.3 device. Build the
 library with `scripts/build-pyrowave-sdk.sh` (git, cmake 3.27 or newer, ninja, a C++ compiler and `libvulkan-dev`;
 it needs the Rubylight host's checkout for its patches, see the script's header) and set `NIGHTJAR_PYROWAVE_SDK` to that folder
-to run from `cargo`, or use `package-linux.sh -s <folder>`, which checks the library against
+to run from `cargo`, or use `package-linux.sh -f <FFmpeg prefix> -s <folder>`, which checks the library against
 `pyrowave-sdk.pin` and packs a tar.gz with it, its `build-info.txt`, its licences and the list of
 system libraries the executable needs. `Gpu` is the default; without the library (a source build)
 PyroWave is not offered and the settings say why, until the decoder is switched to CPU. The client

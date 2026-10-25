@@ -97,12 +97,15 @@ mkdir "$stage/lib"
 cp -a "$ffmpeg"/lib/lib*.so.* "$stage/lib/"
 strip --strip-unneeded "$stage"/lib/lib*.so.*.*
 for lib in "$stage"/lib/libav*.so.*; do
-	[[ -L $lib ]] || readelf -d "$lib" | grep -q 'RUNPATH.*\[\$ORIGIN\]' ||
+	[[ -L $lib ]] || readelf -d "$lib" | grep -Eq '(RPATH|RUNPATH).*\[\$ORIGIN\]' ||
 		{ echo "error: ${lib##*/} has no run path \$ORIGIN, so it would not find its neighbours in lib/" >&2; exit 1; }
 done
-for licence in COPYING.LGPLv2.1 LICENSE.md; do
-	[[ ! -e $ffmpeg/licenses-ffmpeg/$licence ]] || { mkdir -p "$stage/licenses-ffmpeg"; cp "$ffmpeg/licenses-ffmpeg/$licence" "$stage/licenses-ffmpeg/"; }
+# The licences ffmpeg-decode-only.sh put in the prefix are part of the package: FFmpeg is LGPL
+# and dav1d BSD, and both ship with the libraries.
+for licence in licenses-ffmpeg/COPYING.LGPLv2.1 licenses-ffmpeg/LICENSE.md licenses-ffmpeg/SOURCE.txt licenses-dav1d/COPYING; do
+	[[ -s $ffmpeg/$licence ]] || { echo "error: $ffmpeg/$licence is missing; build the prefix with ffmpeg-decode-only.sh" >&2; exit 1; }
 done
+cp -r "$ffmpeg/licenses-ffmpeg" "$ffmpeg/licenses-dav1d" "$stage/"
 # What the machine running it needs besides the C library and what the archive carries.
 ldd "$stage/nightjar" | grep -v " => $stage/" | sed -n 's/^[[:space:]]*\(lib[^ ]*\) => .*/\1/p' | sort >"$stage/system-libraries.txt"
 {
@@ -110,15 +113,20 @@ ldd "$stage/nightjar" | grep -v " => $stage/" | sed -n 's/^[[:space:]]*\(lib[^ ]
 	echo "packages that provide them bring the rest. system-libraries.txt has the full ldd list."
 	echo "FFmpeg's libavcodec and libavutil and libdav1d are in lib/ and are not the system's:"
 	echo "the executable finds them there, so the FFmpeg of the distribution does not matter."
+	echo "The libraries in lib/ need some more of the system's (libva and what it needs); they are listed too."
 	echo
+	# The executable's direct libraries and those of the shipped ones, minus what lib/ has.
+	needed=$({ readelf -d "$stage/nightjar"; for lib in "$stage"/lib/lib*.so.*.*; do readelf -d "$lib"; done; } |
+		sed -n 's/.*(NEEDED).*Shared library: \[\(lib[^]]*\)\].*/\1/p' | sort -u)
 	while read -r lib; do
+		[[ ! -e $stage/lib/$lib ]] || continue
 		owner=
 		if command -v dpkg >/dev/null; then
 			path=$(ldd "$stage/nightjar" | sed -n "s/^[[:space:]]*$lib => \([^ ]*\) .*/\1/p")
 			owner=$(dpkg -S "$(readlink -f "$path")" 2>/dev/null | head -n1 | cut -d: -f1) || true
 		fi
 		echo "  $lib${owner:+  (Debian/Ubuntu package $owner)}"
-	done < <(readelf -d "$stage/nightjar" | sed -n 's/.*(NEEDED).*Shared library: \[\(lib[^]]*\)\].*/\1/p' | sort | grep -vE '^lib(c|m|dl|pthread|rt|gcc_s|stdc\+\+|avcodec|avutil)\.so')
+	done < <(grep -vE '^lib(c|m|dl|pthread|rt|gcc_s|stdc\+\+)\.so' <<<"$needed")
 	echo
 	echo "SDL3 loads the X11 or Wayland, PulseAudio/PipeWire/ALSA and udev libraries of the desktop"
 	echo "at run time; a desktop installation has them."

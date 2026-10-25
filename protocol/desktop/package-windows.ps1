@@ -120,6 +120,14 @@ if ($sdkDll) {
     Copy-Item (Join-Path $PyrowaveSdkDir 'licenses') (Join-Path $stage 'licenses-pyrowave') -Recurse
 }
 Copy-Item (Join-Path $PSScriptRoot 'README.md') $stage
+# The decode-only FFmpeg's (LGPL, with the source offer) and dav1d's (BSD) licences, from the prefix.
+if ($FfmpegDir) {
+    foreach ($licences in 'licenses-ffmpeg', 'licenses-dav1d') {
+        $from = Join-Path $FfmpegDir $licences
+        if (-not (Test-Path $from)) { throw "$from is missing; build the prefix with ffmpeg-decode-only.sh" }
+        Copy-Item $from (Join-Path $stage $licences) -Recurse
+    }
+}
 
 # The shipped files must run on a clean Windows 10/11: every import of every DLL and exe in the
 # package is a file in the package or a library Windows itself ships. The Visual C++ runtime is

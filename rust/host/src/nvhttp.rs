@@ -26,7 +26,7 @@ use butterpollo_core::{
     crypto,
     pairing::Pairing,
     remote::{self, Control},
-    session::Role,
+    session::{Role, Transport},
     state::{App, Client},
 };
 use serde_json::json;
@@ -1194,8 +1194,15 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         {
             return Err(LaunchFailure(503, butterpollo_core::amd_gpu::NO_ENCODER_LAUNCH).into());
         }
-        let mut launch =
-            build_launch_session(&connection, &args, client, app_id, role, key, key_id);
+        let mut launch = build_launch_session(
+            &connection,
+            &args,
+            client,
+            app_id,
+            role,
+            key,
+            key_id,
+        );
         launch.background = Some(validate_background_launch(&h, &launch)?);
         let rtsp_port = h.config.read().unwrap().ports()?.rtsp;
         if !launch.rtsp_encrypted
@@ -1208,137 +1215,258 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         } else {
             "rtsp"
         };
-        let id = launch.id.clone();
-        // Stopping streams can still own displays shared with this launch.
-        // Read both maps under one lock so a worker moving into teardown
-        // cannot disappear from the wait before releasing its resources.
-        let (canceled, stopping) = {
-            let mut sessions = h.sessions.lock().unwrap();
-            let canceled = sessions.supersede(&launch.client.uuid, role);
-            let stopping: Vec<_> = sessions
-                .active
-                .values()
-                .filter(|s| s.stopping())
-                .map(|s| s.launch.id.clone())
-                .chain(sessions.teardown.keys().cloned())
-                .collect();
-            (canceled, stopping)
-        };
-        drop(canceled);
-        if !stopping.is_empty() {
-            tracing::info!(client = %launch.client.name, "waiting for previous streams to release their resources");
-            if !wait_for_teardown(&h.sessions, &stopping, Duration::from_secs(5)) {
-                return Err(LaunchFailure(503, "Another stream operation is still running").into());
-            }
-        }
-        // The state machine follows stream launches; a failure before the
-        // reply returns it to what it was.
-        let mut session =
-            (role == Role::Stream).then(|| h.session_begin(&launch.client.uuid, app.as_ref()));
-        replace_launch_app(&h, &launch, resume, owner)?;
-        // Preparing can outlast the pending launch's 30 s (prep commands may
-        // run for minutes); it expires only from the reply on, on every path.
-        struct Preparing(std::sync::Arc<std::sync::atomic::AtomicBool>);
-        impl Drop for Preparing {
-            fn drop(&mut self) {
-                self.0.store(false, std::sync::atomic::Ordering::Release);
-            }
-        }
-        launch
-            .preparing
-            .store(true, std::sync::atomic::Ordering::Release);
-        let preparing = Preparing(launch.preparing.clone());
-        let canceled = h.sessions.lock().unwrap().queue(launch.clone())?;
-        drop(canceled);
-        if role != Role::InputOnly {
-            #[cfg(test)]
-            if let Some(fixture) = &h.reconnect_fixture {
-                fixture.prepare(&launch);
-            }
-            if launch.preparation.lock().unwrap().is_none() {
-                let prepared = prepare_launch_display(&h, &args, &launch);
-                match prepared {
-                    Ok(prepared) => *launch.preparation.lock().unwrap() = Some(Box::new(prepared)),
-                    Err(error) => {
-                        let canceled = h.sessions.lock().unwrap().pending.remove(&id);
-                        drop(canceled);
-                        return Err(error);
-                    }
-                }
-            }
-        }
-        if let Some(value) = args.get("rlControllers")
-            && let Err(error) = crate::controller_sessions::prepare(&h, &launch, value)
-        {
-            let canceled = h.sessions.lock().unwrap().pending.remove(&id);
-            drop(canceled);
-            return Err(error);
-        }
-        if let Some(session) = &session {
-            session.app_starting();
-        }
-        let prepared_app = prepare_launch_app(&h, &args, app.as_ref(), &launch, &id)?;
-        if let Err(error) = check_streaming_session(
-            &h,
-            if resume {
-                "resume_prepared"
-            } else {
-                "launch_prepared"
-            },
-        ) {
-            let canceled = h.sessions.lock().unwrap().pending.remove(&id);
-            // A newly started app still belongs to this attempt. Its RAII
-            // teardown stops it and undoes prep commands, outside host locks.
-            // An existing/resumed app has never been moved out of current_app.
-            drop(prepared_app);
-            drop(canceled);
-            return Err(error);
-        }
-        // The client has 30 s to connect from now on.
-        match h.sessions.lock().unwrap().pending.get_mut(&id) {
-            Some(pending) => pending.created = Instant::now(),
-            None => bail!("the launch was replaced by a newer one from this device"),
-        }
-        retain_launch_app(&h, &launch, prepared_app);
-        drop(preparing);
-        tracing::info!(
-            client = %launch.client.name,
-            app_id,
-            role = ?role,
-            mode = args.get("mode").map_or("", String::as_str),
-            hdr = args.get("hdrMode").is_some_and(|v| v == "1"),
-            resume,
-            "Moonlight session launched"
-        );
-        // Everything the client asked for, without the stream's AES key.
-        let parameters = args
-            .iter()
-            .filter(|(name, _)| !matches!(name.as_str(), "rikey" | "rikeyid"))
-            .map(|(name, value)| format!("{name}={value}"))
-            .collect::<Vec<_>>()
-            .join("&");
-        tracing::info!(client = %launch.client.name, resume, ?parameters, "Moonlight launch parameters");
+        launch_back_half(&h, &args, launch, app, resume, owner)?;
         let host = match connection.local.ip() {
             std::net::IpAddr::V4(ip) => ip.to_string(),
             std::net::IpAddr::V6(ip) => format!("[{ip}]"),
         };
-        if let Some(session) = &mut session {
-            session.succeed();
-        }
-        if role == Role::Stream {
-            // Off the launch path: the profile's settings are written on a thread of their own.
-            crate::radeon_profile::launched(
-                &h,
-                &launch.client.uuid,
-                app.as_ref(),
-                args.get("mode")
-                    .and_then(|mode| crate::radeon_profile::stream_fps(mode)),
-            );
-        }
         Ok((reply.into(), format!("{scheme}://{host}:{rtsp_port}")))
     })();
     let driver_ready = result.is_ok() && butterpollo_windows::display::virtual_display_available();
     launch_response(result, requested, reply, resume, driver_ready)
+}
+/// What a launch does once its client is known and the request is parsed, the same for a
+/// Moonlight and a WebRTC launch: end the sessions it replaces, wait for their resources, begin
+/// the session state, queue the launch, prepare the display, controllers and app, and keep the
+/// app. The caller holds `launch_transition`. The launch stays queued until its transport starts it.
+fn launch_back_half(
+    h: &Shared,
+    args: &Args,
+    launch: Launch,
+    app: Option<App>,
+    resume: bool,
+    owner: remote::Owner,
+) -> Result<Launch> {
+    let role = launch.role;
+    let app_id = launch.app_id;
+    let id = launch.id.clone();
+    // Stopping streams can still own displays shared with this launch.
+    // Read both maps under one lock so a worker moving into teardown
+    // cannot disappear from the wait before releasing its resources.
+    let (canceled, stopping) = {
+        let mut sessions = h.sessions.lock().unwrap();
+        let mut canceled = sessions.supersede(&launch.client.uuid, role);
+        // A Moonlight stream and a WebRTC stream never run together: the newer one ends the older.
+        canceled.extend(sessions.supersede_other_transport(role, launch.transport));
+        let stopping: Vec<_> = sessions
+            .active
+            .values()
+            .filter(|s| s.stopping())
+            .map(|s| s.launch.id.clone())
+            .chain(sessions.teardown.keys().cloned())
+            .collect();
+        (canceled, stopping)
+    };
+    drop(canceled);
+    if !stopping.is_empty() {
+        tracing::info!(client = %launch.client.name, "waiting for previous streams to release their resources");
+        if !wait_for_teardown(&h.sessions, &stopping, Duration::from_secs(5)) {
+            return Err(LaunchFailure(503, "Another stream operation is still running").into());
+        }
+    }
+    // The state machine follows stream launches; a failure before the
+    // reply returns it to what it was.
+    let mut session =
+        (role == Role::Stream).then(|| h.session_begin(&launch.client.uuid, app.as_ref()));
+    replace_launch_app(h, &launch, resume, owner)?;
+    // Preparing can outlast the pending launch's 30 s (prep commands may
+    // run for minutes); it expires only from the reply on, on every path.
+    struct Preparing(std::sync::Arc<std::sync::atomic::AtomicBool>);
+    impl Drop for Preparing {
+        fn drop(&mut self) {
+            self.0.store(false, std::sync::atomic::Ordering::Release);
+        }
+    }
+    launch
+        .preparing
+        .store(true, std::sync::atomic::Ordering::Release);
+    let preparing = Preparing(launch.preparing.clone());
+    let canceled = h.sessions.lock().unwrap().queue(launch.clone())?;
+    drop(canceled);
+    if role != Role::InputOnly {
+        #[cfg(test)]
+        if let Some(fixture) = &h.reconnect_fixture {
+            fixture.prepare(&launch);
+        }
+        if launch.preparation.lock().unwrap().is_none() {
+            let prepared = prepare_launch_display(h, args, &launch);
+            match prepared {
+                Ok(prepared) => *launch.preparation.lock().unwrap() = Some(Box::new(prepared)),
+                Err(error) => {
+                    let canceled = h.sessions.lock().unwrap().pending.remove(&id);
+                    drop(canceled);
+                    return Err(error);
+                }
+            }
+        }
+    }
+    if let Some(value) = args.get("rlControllers")
+        && let Err(error) = crate::controller_sessions::prepare(h, &launch, value)
+    {
+        let canceled = h.sessions.lock().unwrap().pending.remove(&id);
+        drop(canceled);
+        return Err(error);
+    }
+    if let Some(session) = &session {
+        session.app_starting();
+    }
+    let prepared_app = prepare_launch_app(h, args, app.as_ref(), &launch, &id)?;
+    if let Err(error) = check_streaming_session(
+        h,
+        if resume {
+            "resume_prepared"
+        } else {
+            "launch_prepared"
+        },
+    ) {
+        let canceled = h.sessions.lock().unwrap().pending.remove(&id);
+        // A newly started app still belongs to this attempt. Its RAII
+        // teardown stops it and undoes prep commands, outside host locks.
+        // An existing/resumed app has never been moved out of current_app.
+        drop(prepared_app);
+        drop(canceled);
+        return Err(error);
+    }
+    // The client has 30 s to connect from now on.
+    match h.sessions.lock().unwrap().pending.get_mut(&id) {
+        Some(pending) => pending.created = Instant::now(),
+        None => bail!("the launch was replaced by a newer one from this device"),
+    }
+    retain_launch_app(h, &launch, prepared_app);
+    drop(preparing);
+    let mode = args.get("mode").map_or("", String::as_str);
+    let hdr = args.get("hdrMode").is_some_and(|v| v == "1");
+    if launch.transport == Transport::WebRtc {
+        tracing::info!(client = %launch.client.name, app_id, role = ?role, mode, hdr, resume, "WebRTC session launched");
+    } else {
+        tracing::info!(client = %launch.client.name, app_id, role = ?role, mode, hdr, resume, "Moonlight session launched");
+    }
+    // Everything the client asked for, without the stream's AES key.
+    let parameters = args
+        .iter()
+        .filter(|(name, _)| !matches!(name.as_str(), "rikey" | "rikeyid"))
+        .map(|(name, value)| format!("{name}={value}"))
+        .collect::<Vec<_>>()
+        .join("&");
+    tracing::info!(client = %launch.client.name, resume, ?parameters, "Moonlight launch parameters");
+    if let Some(session) = &mut session {
+        session.succeed();
+    }
+    if role == Role::Stream {
+        // Off the launch path: the profile's settings are written on a thread of their own.
+        crate::radeon_profile::launched(
+            h,
+            &launch.client.uuid,
+            app.as_ref(),
+            args.get("mode")
+                .and_then(|mode| crate::radeon_profile::stream_fps(mode)),
+        );
+    }
+    Ok(launch)
+}
+/// What a WebRTC start-session asks the launch for. The settings are the validated ones.
+pub(crate) struct WebRtcLaunch {
+    pub client: Client,
+    pub peer: std::net::IpAddr,
+    pub app_id: u32,
+    pub width: u32,
+    pub height: u32,
+    pub fps: u32,
+}
+/// Why a WebRTC launch did not happen.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum WebRtcLaunchError {
+    InvalidApplication,
+    /// Another app, or another device's WebRTC stream, holds the host.
+    SessionActive(&'static str),
+    /// A stream operation of another session has not finished.
+    HostBusy,
+    Failed(String),
+}
+/// The launch of a WebRTC session: the same preparation as a Moonlight launch, for the device
+/// that signalled start-session. The returned launch is queued; `Sessions::start` takes it over
+/// once the peer connection is up. Waits for displays and apps, so never on the async runtime.
+pub(crate) fn launch_webrtc(
+    h: &Shared,
+    request: WebRtcLaunch,
+) -> std::result::Result<Launch, WebRtcLaunchError> {
+    let _transition = h.launch_transition.lock().unwrap();
+    let outcome = (|| -> Result<Launch> {
+        check_streaming_session(h, "launch_request")?;
+        h.request_codec_probe();
+        if crate::updater::installing(h) {
+            return Err(LaunchFailure(
+                503,
+                "Rubylight is installing an update. Reconnect shortly.",
+            )
+            .into());
+        }
+        let args = Args::from([
+            ("appid".to_owned(), request.app_id.to_string()),
+            (
+                "mode".to_owned(),
+                format!("{}x{}x{}", request.width, request.height, request.fps),
+            ),
+            ("hdrMode".to_owned(), "0".to_owned()),
+        ]);
+        let owner = remote_owner(h, &request.client.uuid);
+        let (role, app, app_id) = resolve_launch_app(
+            h,
+            &args,
+            &request.client,
+            request.app_id,
+            None,
+            owner,
+            false,
+        )
+        .map_err(|_| LaunchFailure(404, "application not found"))?;
+        if h.current_app
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|running| running.id != app_id)
+        {
+            return Err(LaunchFailure(
+                409,
+                "Another app is running; switch to this one or stop the host session first",
+            )
+            .into());
+        }
+        if h.sessions.lock().unwrap().held_by_other(
+            Role::Stream,
+            Transport::WebRtc,
+            &request.client.uuid,
+        ) {
+            return Err(LaunchFailure(409, "Another device is streaming over WebRTC").into());
+        }
+        h.wait_for_startup_codecs_blocking(STARTUP_CODEC_WAIT);
+        if h.codecs.load(std::sync::atomic::Ordering::Acquire) & 0x0783_0301 == 0 {
+            return Err(LaunchFailure(503, butterpollo_core::amd_gpu::NO_ENCODER_LAUNCH).into());
+        }
+        // The stream key belongs to GameStream's RTSP; nothing on this launch uses it.
+        let mut launch = build_launch(
+            request.peer,
+            &args,
+            request.client,
+            app_id,
+            role,
+            crypto::random::<16>(),
+            rand::random(),
+        );
+        launch.transport = Transport::WebRtc;
+        launch.background = Some(validate_background_launch(h, &launch)?);
+        launch_back_half(h, &args, launch, app, false, owner)
+    })();
+    outcome.map_err(|error| match error.downcast_ref::<LaunchFailure>() {
+        Some(LaunchFailure(404, _)) => WebRtcLaunchError::InvalidApplication,
+        Some(LaunchFailure(409, message)) => WebRtcLaunchError::SessionActive(message),
+        Some(LaunchFailure(503, message))
+            if *message != butterpollo_core::amd_gpu::NO_ENCODER_LAUNCH =>
+        {
+            WebRtcLaunchError::HostBusy
+        }
+        _ => WebRtcLaunchError::Failed(format!("{error:#}")),
+    })
 }
 fn validate_launch_client(
     h: &Shared,
@@ -1516,10 +1644,29 @@ fn build_launch_session(
     key: [u8; 16],
     key_id: u32,
 ) -> Launch {
+    build_launch(
+        connection.peer.ip(),
+        args,
+        client,
+        app_id,
+        role,
+        key,
+        key_id,
+    )
+}
+fn build_launch(
+    peer: std::net::IpAddr,
+    args: &Args,
+    client: Client,
+    app_id: u32,
+    role: Role,
+    key: [u8; 16],
+    key_id: u32,
+) -> Launch {
     Launch {
         id: uuid::Uuid::new_v4().to_string(),
         client,
-        peer: connection.peer.ip(),
+        peer,
         app_id,
         background: None,
         key,

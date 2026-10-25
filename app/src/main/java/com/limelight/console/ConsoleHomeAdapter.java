@@ -54,6 +54,28 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
     static final int COVER_GAME = 2;
     static final int HOST = 3;
 
+    /**
+     * How visible a section header is as it scrolls under the top of the list: opaque while most of it is in view,
+     * gone once less than half is, so the foot of its letters never peeks out under the tab bar.
+     */
+    static float headerAlpha(int top, int bottom) {
+        int height = bottom - top;
+        if (height <= 0) return 1f;
+        float shown = Math.max(0, Math.min(height, bottom)) / (float) height;
+        return Math.max(0f, Math.min(1f, (shown - 0.5f) * 2f));
+    }
+
+    /** Fades the headers that are partly above the list's top edge; the others are left as they are. */
+    static void fadeHeaders(RecyclerView list) {
+        for (int i = 0; i < list.getChildCount(); i++) {
+            View child = list.getChildAt(i);
+            RecyclerView.ViewHolder holder = list.getChildViewHolder(child);
+            if (holder.getItemViewType() != HEADER) continue;
+            float alpha = child.getTop() >= 0 ? 1f : headerAlpha(child.getTop(), child.getBottom());
+            if (child.getAlpha() != alpha) child.setAlpha(alpha);
+        }
+    }
+
     private static final class Row {
         final int type;
         final String key;

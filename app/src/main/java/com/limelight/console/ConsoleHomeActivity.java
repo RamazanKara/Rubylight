@@ -128,7 +128,16 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         });
         list.setLayoutManager(grid);
         list.setItemAnimator(null);
-        list.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> fitColumns(r - l));
+        list.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            fitColumns(r - l);
+            ConsoleHomeAdapter.fadeHeaders(list);
+        });
+        list.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(RecyclerView view, int dx, int dy) {
+                ConsoleHomeAdapter.fadeHeaders(view);
+            }
+        });
 
         feed = new HostFeed(this, this);
         adapter = new ConsoleHomeAdapter(this, null, feed::host, new ConsoleHomeAdapter.Listener() {

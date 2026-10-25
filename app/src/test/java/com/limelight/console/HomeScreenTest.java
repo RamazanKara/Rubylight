@@ -92,6 +92,16 @@ public class HomeScreenTest {
     }
 
     @Test
+    public void aHeaderScrolledUnderTheTopOfTheListFadesOutBeforeItsLettersPeekOut() {
+        assertEquals("in view", 1f, ConsoleHomeAdapter.headerAlpha(0, 60), 0f);
+        assertEquals("just a little above", 1f, ConsoleHomeAdapter.headerAlpha(-6, 54), 0.25f);
+        assertEquals("half in view", 0f, ConsoleHomeAdapter.headerAlpha(-30, 30), 0f);
+        assertEquals("only the foot of its letters left", 0f, ConsoleHomeAdapter.headerAlpha(-52, 8), 0f);
+        assertEquals("gone", 0f, ConsoleHomeAdapter.headerAlpha(-80, -20), 0f);
+        assertTrue("fading", ConsoleHomeAdapter.headerAlpha(-15, 45) > 0f && ConsoleHomeAdapter.headerAlpha(-15, 45) < 1f);
+    }
+
+    @Test
     public void columnsFollowTheWidthAndStayEvenFromFour() {
         assertEquals(2, ConsoleHomeActivity.columnsFor(320));
         assertEquals(2, ConsoleHomeActivity.columnsFor(389));

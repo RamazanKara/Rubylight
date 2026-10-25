@@ -79,6 +79,11 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
     private boolean shown;
     private boolean loaded;
     private boolean focusPending = true;
+    /** The card that has focus last, by key and place; a bind keeps focus on it even before the grid lays out. */
+    private String focusedKey;
+    private int focusedAt = -1;
+    /** Each focus request outdates the ones still posted. */
+    private int focusTicket;
     private int lastWidthPx;
     private final Runnable reload = this::reloadNow;
 
@@ -135,7 +140,11 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
             @Override public void onHostOptions(HomeModel.HostCard card) { }
         });
         env.coverHeightPx = ShelfAdapter.coverHeight(this, isTelevision());
-        env.focus = (shelf, item, card) -> showFocused(item.game);
+        env.focus = (shelf, item, card) -> {
+            focusedKey = item.key;
+            focusedAt = adapter.positionOfKey(item.key);
+            showFocused(item.game);
+        };
         adapter = new ShelfAdapter(env);
         grid = new GridLayoutManager(this, MAX_COLUMNS);
         list.setLayoutManager(grid);
@@ -364,9 +373,10 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
 
     /** Shows the filter's cards; the focused card keeps focus across a refresh, a new filter starts at the top. */
     private void bindGrid(boolean newFilter) {
-        View focused = list.getFocusedChild();
-        int at = focused == null ? -1 : list.getChildAdapterPosition(focused);
-        ShelfAdapter.Item before = at < 0 ? null : adapter.item(at);
+        // By key, not by the focused view's position: a bind that comes before the grid laid out the last one has
+        // no position for it (the cached library, then a refresh that answers at once).
+        String before = list.hasFocus() ? focusedKey : null;
+        int at = focusedAt;
         List<ShelfAdapter.Item> items = new ArrayList<>();
         for (HomeModel.GameCard card : cardsOf(model, filter)) items.add(new ShelfAdapter.Item(card.key, card, null));
         adapter.setItems(SHELF, items);
@@ -377,7 +387,7 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
             showFocused(null);
         }
         if (before != null) {
-            int target = adapter.positionOfKey(before.key);
+            int target = adapter.positionOfKey(before);
             if (target < 0) target = Math.min(at, items.size() - 1);
             if (target >= 0) focusCard(target, 0);
             else focusSelectedChip();
@@ -395,19 +405,25 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
     }
 
     private void focusCard(int position, int attempt) {
+        focusCard(position, attempt, ++focusTicket);
+    }
+
+    private void focusCard(int position, int attempt, int ticket) {
         list.post(() -> {
+            if (ticket != focusTicket) return;
             RecyclerView.ViewHolder holder = list.findViewHolderForAdapterPosition(position);
             if (holder != null) {
                 if (!holder.itemView.hasFocus()) holder.itemView.requestFocus();
                 else showFocused(adapter.item(position).game);
             } else if (attempt < 3) {
                 grid.scrollToPosition(position);
-                focusCard(position, attempt + 1);
+                focusCard(position, attempt + 1, ticket);
             }
         });
     }
 
     private void focusSelectedChip() {
+        focusTicket++;
         for (int i = 0; i < filterRow.getChildCount(); i++) {
             View chip = filterRow.getChildAt(i);
             if (chip.isSelected()) {

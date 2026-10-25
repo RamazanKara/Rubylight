@@ -64,6 +64,9 @@ public final class UiNavigation {
     }
 
     public static void bindPreferences(ListView list) {
+        // The explanation opens when the key is released on the row it was pressed on. A press that moved focus
+        // onto this list (Right from the section list) is released here too, and must not open anything.
+        boolean[] pressed = new boolean[1];
         list.setOnKeyListener((view, key, event) -> {
             int helpDirection = ViewCompat.getLayoutDirection(list) == ViewCompat.LAYOUT_DIRECTION_RTL ?
                     KeyEvent.KEYCODE_DPAD_LEFT : KeyEvent.KEYCODE_DPAD_RIGHT;
@@ -72,7 +75,13 @@ public final class UiNavigation {
             Object explanation = row == null ? null : row.getTag(R.id.preference_help);
             // A disabled row's explanation says why it is unavailable, so it opens there too.
             if (!(explanation instanceof Runnable)) return false;
-            if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) ((Runnable) explanation).run();
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                pressed[0] = true;
+            } else if (event.getAction() == KeyEvent.ACTION_UP) {
+                boolean armed = pressed[0];
+                pressed[0] = false;
+                if (armed && !event.isCanceled()) ((Runnable) explanation).run();
+            }
             return true;
         });
     }

@@ -159,6 +159,8 @@ public final class AdaptiveLayout {
                     Math.max(0, cutout.right - bars.right), Math.max(0, cutout.bottom - bars.bottom));
         }
         int margin = television && !streaming ? Math.round(24 * density) : 0;
+        // A focused card scales up and draws its outline past its frame: let it use the margin, not be cut by it.
+        if (margin > 0 && root instanceof android.view.ViewGroup) ((android.view.ViewGroup) root).setClipToPadding(false);
         int width = root.getWidth();
         int height = root.getHeight();
         if (fold == null || width == 0 || height == 0) {
@@ -205,9 +207,14 @@ public final class AdaptiveLayout {
         WindowSizeClass size = WindowSizeClass.compute(widthDp, heightDp);
         if (computers && size.getWindowWidthSizeClass() == WindowWidthSizeClass.COMPACT &&
                 size.getWindowHeightSizeClass() != WindowHeightSizeClass.COMPACT) return 1;
-        int cellWidth = computers ? 280 : (smallIcons ? 112 : 168);
-        if (television) cellWidth = computers ? 320 : (smallIcons ? 144 : 200);
+        int cellWidth = cellWidthDp(computers, smallIcons, television);
         int spacing = television ? 16 : 8;
         return Math.max(1, (int) ((widthDp + spacing) / (cellWidth + spacing)));
+    }
+
+    /** The width a grid column is sized for, in dp; the grid stretches columns to fill the row. */
+    public static int cellWidthDp(boolean computers, boolean smallIcons, boolean television) {
+        if (television) return computers ? 320 : (smallIcons ? 144 : 200);
+        return computers ? 280 : (smallIcons ? 112 : 168);
     }
 }

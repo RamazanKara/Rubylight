@@ -78,6 +78,10 @@ public:
     // Whether this device can run the renderer at all
     static bool probe();
 
+    // Why the last probe() or create() failed, or the last thing that went wrong: the final
+    // error the renderer logged. Empty if nothing has.
+    static std::string lastError();
+
     // Returns null if the renderer can't run on this device or surface
     static std::unique_ptr<VulkanRenderer> create(ANativeWindow* output, const RendererConfig& config);
 
@@ -100,6 +104,11 @@ public:
 
     // Stops presenting and lets go of the output surface. Safe to call more than once.
     void stop();
+
+    // The renderer can no longer present (device lost, or renders failing over and over), so
+    // the picture is frozen. The caller should end the stream with the reason.
+    bool fatal() const { return fatal_.load(); }
+    std::string fatalReason();
 
     // Frames presented since the last call
     uint32_t takePresentedFrames() { return presentedFrames_.exchange(0); }
@@ -232,8 +241,20 @@ private:
     bool ensurePipeline();
     bool createPipeline(VkPipelineLayout layout, VkShaderModule fragShader, VkPipeline* pipeline);
     void destroyPipelines();
-    // Every use of the queue is under queueMutex_
+    // Every use of the queue is under queueMutex_. Once stopping, bounded: it gives up on a GPU
+    // that doesn't finish within a fraction of a second, and skips a lost device.
     void waitIdle();
+    // Waits for the GPU work still in flight, up to budgetNs in all. False if it didn't finish.
+    bool drainFences(uint64_t budgetNs);
+    // Waits for a fence in short slices, so a stop() isn't kept waiting the full timeout
+    VkResult waitFence(VkFence fence, uint64_t timeoutNs);
+    // Counts a failed render. A lost device ends the renderer at once, anything else after
+    // `limit` failures in a row.
+    void noteFailure(const char* what, VkResult result, int limit);
+    void setFatal(const std::string& reason);
+    // After a failed submit: the slot's fence and semaphore are left in a state nothing will
+    // signal or wait on, so they're replaced
+    void recreateSlotSync(int slot);
     ImportedBuffer* importBuffer(AHardwareBuffer* buffer);
     void destroyImport(AHardwareBuffer* buffer, ImportedBuffer& imported);
     void evictImports();
@@ -370,6 +391,14 @@ private:
     std::atomic<uint32_t> wakeFlags_ {0};
     std::atomic<bool> quit_ {false};
     bool stopped_ = false;
+    // Failed renders in a row, and whether the renderer gave up (see fatal())
+    std::atomic<int> failures_ {0};
+    std::atomic<bool> fatal_ {false};
+    std::atomic<bool> deviceLost_ {false};
+    // The GPU didn't finish its work when stopping, so the swapchain is left as it is
+    bool wedged_ = false;
+    std::mutex fatalMutex_;
+    std::string fatalReason_;
     std::mutex stopMutex_;
     AChoreographer* choreographer_ = nullptr;
     bool refreshRateCallbackRegistered_ = false;

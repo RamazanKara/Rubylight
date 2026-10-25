@@ -4,6 +4,8 @@
 #include <cerrno>
 #include <cinttypes>
 #include <cmath>
+#include <cstdarg>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
@@ -22,13 +24,30 @@
 #include <Limelight.h>
 
 #define LOG_TAG "VulkanRenderer"
-#define ALOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#define ALOGE(...) recordError(ANDROID_LOG_ERROR, __VA_ARGS__)
 #define ALOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 #define ALOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+// Logged, and kept as the reason the renderer isn't available (VulkanRenderer::lastError())
+#define ALOGR(...) recordError(ANDROID_LOG_INFO, __VA_ARGS__)
 
 namespace vkr {
 
 namespace {
+    std::mutex gLastErrorMutex;
+    std::string gLastError;
+
+    __attribute__((format(printf, 2, 3)))
+    void recordError(int priority, const char* format, ...) {
+        char text[256];
+        va_list args;
+        va_start(args, format);
+        vsnprintf(text, sizeof(text), format, args);
+        va_end(args);
+        __android_log_write(priority, LOG_TAG, text);
+        std::lock_guard<std::mutex> lock(gLastErrorMutex);
+        gLastError = text;
+    }
+
     // Keep in sync with the push constant block in the shaders
     struct PushConstants {
         float uvRect[4];
@@ -93,6 +112,15 @@ namespace {
 
     constexpr uint64_t kFenceTimeoutNs = 1'000'000'000;
     constexpr uint64_t kAcquireTimeoutNs = 100'000'000;
+    // Once the renderer is stopping, waits for the GPU or a swapchain image are cut to this so
+    // stop() returns promptly, and a vkDeviceWaitIdle is bounded the same way
+    constexpr uint64_t kStopWaitNs = 50'000'000;
+    // How long stop() waits for the GPU's work in flight before giving up on cleaning up
+    constexpr uint64_t kStopDrainNs = 250'000'000;
+    // Consecutive failed renders after which the renderer gives up, so the stream ends with an
+    // error rather than sitting on a frozen picture
+    constexpr int kFatalFailures = 10;
+    constexpr int kFatalFenceTimeouts = 3;
 
     void raiseThreadPriority(const char* name) {
         // ANDROID_PRIORITY_URGENT_DISPLAY, then ANDROID_PRIORITY_DISPLAY
@@ -135,7 +163,7 @@ namespace {
         VkPhysicalDeviceProperties props;
         vk.vkGetPhysicalDeviceProperties(device, &props);
         if (props.apiVersion < VK_API_VERSION_1_1) {
-            ALOGI("%s only supports Vulkan %u.%u", props.deviceName,
+            ALOGR("%s only supports Vulkan %u.%u", props.deviceName,
                   VK_API_VERSION_MAJOR(props.apiVersion), VK_API_VERSION_MINOR(props.apiVersion));
             return false;
         }
@@ -146,7 +174,7 @@ namespace {
         vk.vkEnumerateDeviceExtensionProperties(device, nullptr, &count, extensions.data());
         for (const char* name : kRequiredDeviceExtensions) {
             if (!hasExtension(extensions, name)) {
-                ALOGI("%s lacks %s", props.deviceName, name);
+                ALOGR("%s lacks %s", props.deviceName, name);
                 return false;
             }
         }
@@ -156,7 +184,7 @@ namespace {
         features.pNext = &ycbcr;
         vk.vkGetPhysicalDeviceFeatures2(device, &features);
         if (!ycbcr.samplerYcbcrConversion) {
-            ALOGI("%s lacks samplerYcbcrConversion", props.deviceName);
+            ALOGR("%s lacks samplerYcbcrConversion", props.deviceName);
             return false;
         }
 
@@ -178,7 +206,7 @@ VkInstance VulkanRenderer::createVkInstance(VkApi& vk, bool* hasColorspaceExt, I
                                             bool frontBuffer) {
     uint32_t version = 0;
     if (vk.vkEnumerateInstanceVersion(&version) != VK_SUCCESS || version < VK_API_VERSION_1_1) {
-        ALOGI("Vulkan instance version too old");
+        ALOGR("Vulkan instance version too old");
         return VK_NULL_HANDLE;
     }
     uint32_t count = 0;
@@ -192,7 +220,7 @@ VkInstance VulkanRenderer::createVkInstance(VkApi& vk, bool* hasColorspaceExt, I
     };
     for (const char* name : setup.extensions) {
         if (!hasExtension(available, name)) {
-            ALOGI("Instance lacks %s", name);
+            ALOGR("Instance lacks %s", name);
             return VK_NULL_HANDLE;
         }
     }
@@ -248,11 +276,13 @@ void VulkanRenderer::prepareDevice(uint32_t queueFamily, bool hdrMetadata, bool 
 
 bool VulkanRenderer::probe() {
     if (!loadNdkApi()) {
+        ALOGR("The NDK media APIs the Vulkan renderer needs are missing (Android 10 or newer)");
         return false;
     }
 
     VkApi vk;
     if (!vk.loadGlobal()) {
+        ALOGR("No Vulkan driver (libvulkan.so) could be loaded");
         return false;
     }
 
@@ -278,7 +308,15 @@ bool VulkanRenderer::probe() {
     }
 
     vk.vkDestroyInstance(instance, nullptr);
+    if (!suitable) {
+        ALOGR("No Vulkan device supports what the renderer needs (see the lines above)");
+    }
     return suitable;
+}
+
+std::string VulkanRenderer::lastError() {
+    std::lock_guard<std::mutex> lock(gLastErrorMutex);
+    return gLastError;
 }
 
 std::unique_ptr<VulkanRenderer> VulkanRenderer::create(ANativeWindow* output, const RendererConfig& config) {
@@ -346,9 +384,10 @@ bool VulkanRenderer::init(ANativeWindow* output) {
     }
     perfHint_.start(ndk_, perfHintTargetNs);
 
-    // Keep-alive presents while the host sends nothing (keepAlive()), every 16 ms unless
-    // changed with adb shell setprop debug.moonlight.keep_alive_ms <ms>, or 0 for none
-    keepAliveNs_ = 16'000'000;
+    // Keep-alive presents while the host sends nothing (keepAlive()): off unless switched on
+    // with adb shell setprop debug.moonlight.keep_alive_ms <ms> (16 was the original default,
+    // at the cost of waking the GPU while the picture is still)
+    keepAliveNs_ = 0;
     {
         char value[PROP_VALUE_MAX] = {};
         if (__system_property_get("debug.moonlight.keep_alive_ms", value) > 0) {
@@ -596,8 +635,103 @@ bool VulkanRenderer::createShaderModules() {
 }
 
 void VulkanRenderer::waitIdle() {
+    if (deviceLost_) {
+        return;
+    }
+    // vkDeviceWaitIdle has no timeout. Stopping happens on the UI thread, so first make sure the
+    // work in flight does finish (a presented frame completes on its own once the GPU is idle).
+    if (quit_ && !drainFences(kStopDrainNs)) {
+        ALOGE("The GPU did not finish its work when stopping");
+        wedged_ = true;
+        return;
+    }
+    if (deviceLost_) {
+        return;
+    }
     std::lock_guard<std::mutex> lock(queueMutex_);
     vk_.vkDeviceWaitIdle(device_);
+}
+
+bool VulkanRenderer::drainFences(uint64_t budgetNs) {
+    const int64_t deadlineNs = nowNs() + static_cast<int64_t>(budgetNs);
+    for (int i = 0; i < kFramesInFlight; i++) {
+        if (!fences_[i]) {
+            continue;
+        }
+        const int64_t leftNs = std::max<int64_t>(deadlineNs - nowNs(), 0);
+        const VkResult result = vk_.vkWaitForFences(device_, 1, &fences_[i], VK_TRUE, static_cast<uint64_t>(leftNs));
+        if (result == VK_ERROR_DEVICE_LOST) {
+            deviceLost_ = true;
+            return true;
+        }
+        if (result != VK_SUCCESS) {
+            return false;
+        }
+    }
+    return true;
+}
+
+VkResult VulkanRenderer::waitFence(VkFence fence, uint64_t timeoutNs) {
+    const int64_t deadlineNs = nowNs() + static_cast<int64_t>(timeoutNs);
+    for (;;) {
+        const int64_t leftNs = std::max<int64_t>(deadlineNs - nowNs(), 0);
+        const uint64_t sliceNs = std::min<uint64_t>(static_cast<uint64_t>(leftNs), kStopWaitNs);
+        const VkResult result = vk_.vkWaitForFences(device_, 1, &fence, VK_TRUE, sliceNs);
+        if (result != VK_TIMEOUT || quit_ || leftNs <= static_cast<int64_t>(kStopWaitNs)) {
+            return result;
+        }
+    }
+}
+
+void VulkanRenderer::setFatal(const std::string& reason) {
+    {
+        std::lock_guard<std::mutex> lock(fatalMutex_);
+        if (fatal_) {
+            return;
+        }
+        fatalReason_ = reason;
+        fatal_ = true;
+    }
+    ALOGE("Giving up: %s", reason.c_str());
+}
+
+std::string VulkanRenderer::fatalReason() {
+    std::lock_guard<std::mutex> lock(fatalMutex_);
+    return fatalReason_;
+}
+
+void VulkanRenderer::noteFailure(const char* what, VkResult result, int limit) {
+    if (quit_) {
+        return;
+    }
+    if (result == VK_ERROR_DEVICE_LOST) {
+        deviceLost_ = true;
+        setFatal(std::string("the GPU was lost (") + what + ")");
+        return;
+    }
+    const int failures = ++failures_;
+    if (failures >= limit) {
+        setFatal(std::string(what) + " failed " + std::to_string(failures) + " times in a row (" +
+                 std::to_string(result) + ")");
+    }
+}
+
+void VulkanRenderer::recreateSlotSync(int slot) {
+    if (fences_[slot]) {
+        vk_.vkDestroyFence(device_, fences_[slot], nullptr);
+        fences_[slot] = VK_NULL_HANDLE;
+    }
+    if (imageAcquired_[slot]) {
+        vk_.vkDestroySemaphore(device_, imageAcquired_[slot], nullptr);
+        imageAcquired_[slot] = VK_NULL_HANDLE;
+    }
+    VkFenceCreateInfo fenceInfo {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+    fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+    VkSemaphoreCreateInfo semInfo {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+    if (vk_.vkCreateFence(device_, &fenceInfo, nullptr, &fences_[slot]) != VK_SUCCESS ||
+            vk_.vkCreateSemaphore(device_, &semInfo, nullptr, &imageAcquired_[slot]) != VK_SUCCESS) {
+        setFatal("could not recover from a failed GPU submit");
+    }
 }
 
 bool VulkanRenderer::createImageReader() {
@@ -689,14 +823,17 @@ void VulkanRenderer::stop() {
     alignedDraws_.clear();
     if (device_) {
         waitIdle();
-        destroySwapchain();
-        if (renderPass_) {
-            destroyPipelines();
-            vk_.vkDestroyRenderPass(device_, renderPass_, nullptr);
-            renderPass_ = VK_NULL_HANDLE;
+        // A GPU that never finished is left alone; destroying what it is using would be worse
+        if (!wedged_) {
+            destroySwapchain();
+            if (renderPass_) {
+                destroyPipelines();
+                vk_.vkDestroyRenderPass(device_, renderPass_, nullptr);
+                renderPass_ = VK_NULL_HANDLE;
+            }
         }
     }
-    if (surface_) {
+    if (surface_ && !wedged_) {
         vk_.vkDestroySurfaceKHR(instance_, surface_, nullptr);
         surface_ = VK_NULL_HANDLE;
     }
@@ -1360,14 +1497,20 @@ void VulkanRenderer::setAlignedTimer() {
 
 bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int64_t showVsyncNs, bool ahead,
                                  int64_t commitNs, bool onArrival) {
+    if (fatal_ || quit_) {
+        return false;
+    }
     const int64_t startNs = nowNs();
     if (!ensureSwapchain()) {
+        noteFailure("creating the swapchain", VK_ERROR_INITIALIZATION_FAILED, kFatalFailures * 3);
         return false;
     }
 
     // MediaCodec's buffer, imported into Vulkan
     ImportedBuffer* imported = importBuffer(frame->buffer);
     if (!imported || !ensurePipeline()) {
+        noteFailure(imported ? "creating the pipeline" : "importing a decoded frame", VK_ERROR_INITIALIZATION_FAILED,
+                    kFatalFailures);
         return false;
     }
 
@@ -1377,10 +1520,13 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
     const bool fenceWaited = result != VK_SUCCESS;
     const int64_t fenceWaitNs = fenceWaited ? nowNs() : 0;
     if (fenceWaited) {
-        result = vk_.vkWaitForFences(device_, 1, &fences_[slot], VK_TRUE, kFenceTimeoutNs);
+        result = waitFence(fences_[slot], kFenceTimeoutNs);
     }
     if (result != VK_SUCCESS) {
-        ALOGE("Timed out waiting for the GPU: %d", result);
+        if (!quit_) {
+            ALOGE("Timed out waiting for the GPU: %d", result);
+            noteFailure("waiting for the GPU", result, kFatalFenceTimeouts);
+        }
         return false;
     }
     const int64_t fencedNs = nowNs();
@@ -1404,20 +1550,31 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
     slotPresentIds_[slot] = 0;
 
     uint32_t imageIndex = 0;
-    result = vk_.vkAcquireNextImageKHR(device_, swapchain_, kAcquireTimeoutNs, imageAcquired_[slot],
-                                       VK_NULL_HANDLE, &imageIndex);
+    // In slices, so stopping doesn't wait out the whole timeout
+    const auto acquireImage = [&]() {
+        VkResult acquired;
+        const int64_t deadlineNs = nowNs() + static_cast<int64_t>(kAcquireTimeoutNs);
+        do {
+            acquired = vk_.vkAcquireNextImageKHR(device_, swapchain_, kStopWaitNs, imageAcquired_[slot],
+                                                 VK_NULL_HANDLE, &imageIndex);
+        } while (acquired == VK_TIMEOUT && !quit_ && nowNs() < deadlineNs);
+        return acquired;
+    };
+    result = acquireImage();
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
         swapchainDirty_ = true;
         if (!ensureSwapchain() || !ensurePipeline()) {
+            noteFailure("recreating the swapchain", VK_ERROR_INITIALIZATION_FAILED, kFatalFailures * 3);
             return false;
         }
-        result = vk_.vkAcquireNextImageKHR(device_, swapchain_, kAcquireTimeoutNs, imageAcquired_[slot],
-                                           VK_NULL_HANDLE, &imageIndex);
+        result = acquireImage();
     }
     if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+        // A timeout is the compositor not taking frames (the screen is off, say), not a failure
         if (result != VK_TIMEOUT && result != VK_NOT_READY) {
             ALOGE("vkAcquireNextImageKHR failed: %d", result);
             swapchainDirty_ = true;
+            noteFailure("acquiring a swapchain image", result, kFatalFailures);
         }
         return false;
     }
@@ -1528,7 +1685,15 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
     if (timed) {
         vk_.vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestampPool_, kTimestampsPerFrame * slot + 3);
     }
-    vk_.vkEndCommandBuffer(cmd);
+    result = vk_.vkEndCommandBuffer(cmd);
+    if (result != VK_SUCCESS) {
+        // The image is acquired and its semaphore signalled; start the swapchain over
+        ALOGE("vkEndCommandBuffer failed: %d", result);
+        swapchainDirty_ = true;
+        recreateSlotSync(slot);
+        noteFailure("recording a frame", result, kFatalFailures);
+        return false;
+    }
 
     // The swapchain image. Timed, everything waits for the image, so the start timestamp shows
     // when it was free; only a draw's vertex work could otherwise go ahead of it, which for one
@@ -1552,6 +1717,13 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
     }
     if (result != VK_SUCCESS) {
         ALOGE("vkQueueSubmit failed: %d", result);
+        // The fence was reset and nothing will signal it, so the next render in this slot would
+        // wait on it forever; the acquired image is given back by rebuilding the swapchain
+        swapchainDirty_ = true;
+        if (result != VK_ERROR_DEVICE_LOST) {
+            recreateSlotSync(slot);
+        }
+        noteFailure("submitting a frame to the GPU", result, kFatalFailures);
         return false;
     }
     if (frontBufferAligned_ && frontBuffer_) {
@@ -1666,6 +1838,10 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
     else if (result != VK_SUCCESS) {
         ALOGE("vkQueuePresentKHR failed: %d", result);
         swapchainDirty_ = true;
+        noteFailure("presenting a frame", result, kFatalFailures);
+    }
+    if (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR || result == VK_ERROR_OUT_OF_DATE_KHR) {
+        failures_ = 0;
     }
 
     evictImports();

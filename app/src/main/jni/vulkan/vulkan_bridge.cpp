@@ -18,6 +18,20 @@ Java_com_limelight_binding_video_VulkanRendererBridge_nativeProbe(JNIEnv*, jclas
     return VulkanRenderer::probe() ? JNI_TRUE : JNI_FALSE;
 }
 
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_limelight_binding_video_VulkanRendererBridge_nativeLastError(JNIEnv* env, jclass) {
+    return env->NewStringUTF(VulkanRenderer::lastError().c_str());
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_limelight_binding_video_VulkanRendererBridge_nativeFatalReason(JNIEnv* env, jclass, jlong handle) {
+    VulkanRenderer* renderer = fromHandle(handle);
+    if (!renderer || !renderer->fatal()) {
+        return nullptr;
+    }
+    return env->NewStringUTF(renderer->fatalReason().c_str());
+}
+
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_limelight_binding_video_VulkanRendererBridge_nativeCreate(
         JNIEnv* env, jclass, jobject outputSurface, jint streamWidth, jint streamHeight, jint streamFps,

@@ -446,6 +446,13 @@ impl Device {
             .map(|color| color.lock().unwrap().metadata(Instant::now()))
             .unwrap_or_default()
     }
+    /// Whether Windows composes the captured output as HDR10 (BT.2020 PQ) right now. The pixel
+    /// format of a frame does not say: Desktop Duplication hands over FP16 for an SDR output
+    /// under advanced colour or beside a virtual display, and WGC's pool is FP16 whenever HDR
+    /// was requested. `None` when the output's colour space cannot be read.
+    pub fn display_in_hdr(&self) -> Option<bool> {
+        output::in_hdr(self.color_description().ok().flatten())
+    }
     fn color_description(&self) -> Result<Option<output::Description>> {
         self.color
             .as_ref()

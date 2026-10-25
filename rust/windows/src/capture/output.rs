@@ -33,6 +33,11 @@ pub(super) struct Description {
     pub metadata: butterpollo_core::hdr::Metadata,
 }
 
+/// Whether an output's colour space is the HDR10 signal the HDR encode path carries.
+pub(super) fn in_hdr(description: Option<Description>) -> Option<bool> {
+    description.map(|d| d.color_space == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020)
+}
+
 pub(super) fn mode_changed(
     previous: Option<DXGI_COLOR_SPACE_TYPE>,
     current: Option<Description>,
@@ -522,5 +527,13 @@ mod tests {
         cache.source.candidates = vec![(identity(), None)];
         assert_eq!(cache.poll(now + CHECK_INTERVAL * 2).unwrap(), None);
         assert_eq!(cache.metadata(now + CHECK_INTERVAL * 2), known.metadata);
+    }
+
+    #[test]
+    fn the_display_is_in_hdr_by_its_color_space_not_its_frame_format() {
+        assert_eq!(in_hdr(Some(description(true, 850.))), Some(true));
+        assert_eq!(in_hdr(Some(description(false, 80.))), Some(false));
+        // An output that cannot say is not assumed to be in HDR.
+        assert_eq!(in_hdr(None), None);
     }
 }

@@ -56,29 +56,59 @@ fn server_command(
     ))
 }
 /// A WebRTC HDR stream carries the display's HDR or nothing: SDR content labelled HDR, or HDR
-/// tone-mapped to SDR, is not what the client asked for, so the session ends with an error. The
-/// capture hands over an 8-bit surface exactly when the display is not in HDR. GameStream keeps
-/// its own behaviour for this case. `running` tells a display that left HDR from one that never
-/// was in it.
+/// tone-mapped to SDR, is not what the client asked for, so the session ends with an error.
+/// `display_in_hdr` is the capture's reading of the output's colour space (HDR10 or not); the
+/// frames' pixel format cannot stand in for it, since FP16 frames come from SDR outputs too.
+/// GameStream keeps its own behaviour for this case. `running` tells a display that left HDR
+/// from one that never was in it.
 pub(crate) fn require_hdr_source(
     s: &Session,
-    pixel: butterpollo_windows::capture::Pixel,
+    display_in_hdr: impl FnOnce() -> Option<bool>,
     running: bool,
 ) -> Result<()> {
-    if s.launch.transport != butterpollo_core::session::Transport::WebRtc
-        || !s.config.hdr
-        || pixel != butterpollo_windows::capture::Pixel::Bgra8
-    {
+    if s.launch.transport != butterpollo_core::session::Transport::WebRtc || !s.config.hdr {
         return Ok(());
     }
-    if running {
-        anyhow::bail!(
+    match display_in_hdr() {
+        Some(true) => Ok(()),
+        Some(false) if running => anyhow::bail!(
             "the display left HDR during the stream; the HDR stream ended instead of showing SDR as HDR. Keep Windows HDR on for this display, or start an SDR stream"
-        );
+        ),
+        Some(false) => anyhow::bail!(
+            "HDR was requested but the display is not in HDR; turn on HDR for this display in Windows settings (or set the HDR policy to auto in the host's display settings), or start an SDR stream"
+        ),
+        // A reading that fails mid-stream is the capture's to report (it ends on a colour space
+        // error itself); only a display seen leaving HDR ends the stream here.
+        None if running => Ok(()),
+        None => anyhow::bail!(
+            "HDR was requested but Windows did not report the display's colour space, so the stream cannot tell HDR from SDR; start an SDR stream"
+        ),
     }
-    anyhow::bail!(
-        "HDR was requested but the display is not in HDR; turn on HDR for this display in Windows settings (or set the HDR policy to auto in the host's display settings), or start an SDR stream"
-    )
+}
+/// The Opus layout a stream encodes: the one a WebRTC answer agreed to, or for GameStream the one
+/// the launch asked for.
+pub(crate) fn audio_layout(
+    s: &Session,
+    negotiated: Option<&butterpollo_core::audio::OpusLayout>,
+) -> Result<butterpollo_core::audio::OpusLayout> {
+    match negotiated {
+        Some(layout) => Ok(layout.clone()),
+        None => butterpollo_core::audio::OpusLayout::select(
+            s.config.audio_channels as usize,
+            s.config.audio_quality,
+            s.launch.options.get("surroundParams").map(String::as_str),
+        ),
+    }
+}
+/// The audio thread's encoder (`libopus-0.dll` from `directory`) for [`audio_layout`].
+pub(crate) fn open_audio_encoder(
+    directory: &std::path::Path,
+    s: &Session,
+    negotiated: Option<&butterpollo_core::audio::OpusLayout>,
+) -> Result<(Opus, butterpollo_core::audio::OpusLayout)> {
+    let layout = audio_layout(s, negotiated)?;
+    let opus = Opus::new_layout_duration(directory, &layout, s.config.audio_packet_ms)?;
+    Ok((opus, layout))
 }
 /// How often completed encoder output is collected while a frame is in flight.
 const OUTPUT_POLL: Duration = Duration::from_micros(100);
@@ -1444,7 +1474,7 @@ impl Media {
                             if let Some(image) = latest.wait_for_frame(&timer, &capture_wake, (Instant::now() + Duration::from_millis(50)).min(deadline))? { break image; }
                         }
                     };
-                    require_hdr_source(&s, first.pixel, false)?;
+                    require_hdr_source(&s, || first.gpu.display_in_hdr(), false)?;
                     m.configure_encoder(&s, &c, &first, &prepared, &mut encoder)?;
                     drop(first);
                     let mut staging = None;
@@ -2337,7 +2367,7 @@ impl Media {
                                 latest.release_generation(&capture_wake);
                                 continue;
                             };
-                            require_hdr_source(&s, image.pixel, true)?;
+                            require_hdr_source(&s, || image.gpu.display_in_hdr(), true)?;
                             // Resolution changes or DXGI loss can recreate the capture device.
                             rebuild_encoder |= encoder
                                 .as_ref()
@@ -2912,17 +2942,13 @@ impl Media {
         let mut audio_check = Instant::now();
         let mut audio_error: Option<String> = None;
         let directory = std::env::current_exe()?.parent().unwrap().to_owned();
-        // A WebRTC stream encodes the layout its answer agreed to; GameStream the one the
-        // launch asked for.
-        let layout = match &webrtc {
-            Some(sender) => sender.layout().clone(),
-            None => butterpollo_core::audio::OpusLayout::select(
-                s.config.audio_channels as usize,
-                s.config.audio_quality,
-                s.launch.options.get("surroundParams").map(String::as_str),
-            )?,
-        };
-        let mut opus = Opus::new_layout_duration(&directory, &layout, s.config.audio_packet_ms)?;
+        let (mut opus, _) = open_audio_encoder(
+            &directory,
+            &s,
+            webrtc
+                .as_ref()
+                .map(crate::webrtc::media::AudioSender::layout),
+        )?;
         let mut output: Box<dyn AudioSink + '_> = match webrtc {
             Some(sender) => Box::new(WebRtcAudio(sender)),
             None => Box::new(GameStreamAudio::new(

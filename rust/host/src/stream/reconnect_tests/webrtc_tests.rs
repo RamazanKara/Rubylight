@@ -675,7 +675,8 @@ async fn a_display_that_leaves_hdr_ends_the_stream_with_an_error() -> Result<()>
     streaming(&mut ws, id).await;
     until("video received", WAIT, || peer.count() >= 3).await;
 
-    // Windows drops out of HDR: the stream ends, it does not carry on as SDR.
+    // Windows drops out of HDR while the frames stay FP16: the stream ends, it does not carry on
+    // as SDR labelled HDR.
     web.harness
         .fixture
         .display_in_sdr
@@ -684,6 +685,47 @@ async fn a_display_that_leaves_hdr_ends_the_stream_with_an_error() -> Result<()>
     assert_eq!(message["type"], "session-status", "{message}");
     assert_eq!(message["state"], "error", "{message}");
     web.idle().await;
+    drop(peer);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn hdr_needs_a_display_colour_space_that_windows_reports() -> Result<()> {
+    // The frames are FP16 either way, so without a reading there is nothing to tell HDR from
+    // SDR content in an HDR container: the session ends instead of guessing.
+    let web = web_with_every_codec().await?;
+    web.harness
+        .fixture
+        .display_unreadable
+        .store(true, Ordering::Release);
+    let mut ws = web.device("TV", u32::MAX).await;
+    ws.send(web.request("start-session", "hevc", true, 2)).await;
+    status(&mut ws, "session-status", "starting").await;
+    let (id, peer) = answer_case(&mut ws, &HEVC.hdr()).await;
+    let message = next(&mut ws).await;
+    assert_eq!(message["state"], "error", "{message}");
+    assert_eq!(message["sessionId"], id);
+    web.idle().await;
+    assert_eq!(peer.count(), 0, "no frame went out");
+    drop(peer);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failing_colour_space_reading_mid_stream_is_the_captures_to_report() -> Result<()> {
+    let web = web_with_every_codec().await?;
+    let mut ws = web.device("TV", u32::MAX).await;
+    ws.send(web.request("start-session", "hevc", true, 2)).await;
+    status(&mut ws, "session-status", "starting").await;
+    let (id, peer) = answer_case(&mut ws, &HEVC.hdr()).await;
+    streaming(&mut ws, id).await;
+    until("video received", WAIT, || peer.count() >= 3).await;
+    web.harness
+        .fixture
+        .display_unreadable
+        .store(true, Ordering::Release);
+    let seen = peer.count();
+    until("video continues", WAIT, || peer.count() >= seen + 5).await;
     drop(peer);
     Ok(())
 }

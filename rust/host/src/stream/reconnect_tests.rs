@@ -43,8 +43,11 @@ pub(crate) struct Fixture {
     resume_rtsp_cleanup: AtomicBool,
     /// A WebRTC worker that fails before it takes its media link.
     webrtc_fails_before_its_link: AtomicBool,
-    /// The fixture's display is not in HDR: its WebRTC worker sees 8-bit frames.
+    /// The fixture's display is not in HDR. Its frames stay FP16 either way, as a Desktop
+    /// Duplication or WGC pool does for an SDR output: only the colour space says.
     display_in_sdr: AtomicBool,
+    /// Windows does not report the fixture display's colour space.
+    display_unreadable: AtomicBool,
     /// How long releasing a launch's fake audio takes, as a driver that blocks does.
     audio_release_ms: Arc<AtomicU64>,
 }
@@ -197,13 +200,10 @@ impl Fixture {
             self.reset_done.store(true, Ordering::Release);
         }
     }
-    /// What the display hands the capture: HDR's float surface, or 8-bit when it is not in HDR.
-    fn pixel(&self) -> butterpollo_windows::capture::Pixel {
-        if self.display_in_sdr.load(Ordering::Acquire) {
-            butterpollo_windows::capture::Pixel::Bgra8
-        } else {
-            butterpollo_windows::capture::Pixel::RgbaF16
-        }
+    /// The capture's reading of the display's colour space: HDR10, not, or unreadable.
+    fn display_in_hdr(&self) -> Option<bool> {
+        (!self.display_unreadable.load(Ordering::Acquire))
+            .then(|| !self.display_in_sdr.load(Ordering::Acquire))
     }
     /// A WebRTC session's stream worker: the production `Sender` and audio sink, with synthetic
     /// access units and Opus packets. The keyframe flag is honoured as the encoder does, and the
@@ -214,13 +214,15 @@ impl Fixture {
             !self.webrtc_fails_before_its_link.load(Ordering::Acquire),
             "the fixture's WebRTC worker failed before taking its link"
         );
-        require_hdr_source(s, self.pixel(), false)?;
+        require_hdr_source(s, || self.display_in_hdr(), false)?;
         // As `spawn_audio`: the audio end first, then the video worker takes the link.
         let mut audio = super::audio_sink::WebRtcAudio(
             h.webrtc_links
                 .audio_sender(&s.launch.id)
                 .context("the WebRTC audio link is missing")?,
         );
+        // The layout the production audio thread would open its encoder with.
+        let layout = super::audio_layout(s, Some(audio.0.layout()))?;
         let sender = crate::webrtc::session::Sender::new(
             h.webrtc_links
                 .take(&s.launch.id)
@@ -232,9 +234,9 @@ impl Fixture {
         let mut first = true;
         let result = (|| -> Result<()> {
             while !h.stop.load(Ordering::Acquire) && !s.stopping() {
-                require_hdr_source(s, self.pixel(), true)?;
+                require_hdr_source(s, || self.display_in_hdr(), true)?;
                 // Two 5 ms packets per tick; the payload names the layout the encoder would use.
-                let payload = webrtc_tests::audio_payload(audio.0.layout());
+                let payload = webrtc_tests::audio_payload(&layout);
                 for _ in 0..2 {
                     super::audio_sink::AudioSink::send(&mut audio, &payload, Instant::now())?;
                 }

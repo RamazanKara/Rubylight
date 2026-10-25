@@ -43,11 +43,11 @@ struct RendererConfig {
 
 // Decoded frame held until it is replaced on screen and the GPU is done with it: an image from
 // the image reader
+class VulkanRenderer;
 struct VideoFrame {
     VideoFrame(const NdkApi* ndk, AImage* image) : ndk(ndk), image(image) {}
-    ~VideoFrame() {
-        if (image) ndk->AImage_delete(image);
-    }
+    // Tells the renderer's present reports if the frame never reached the screen
+    ~VideoFrame();
     VideoFrame(const VideoFrame&) = delete;
     VideoFrame& operator=(const VideoFrame&) = delete;
 
@@ -61,6 +61,10 @@ struct VideoFrame {
     int64_t originNs = 0;
     bool originSynced = false;
     bool presentCounted = false;  // Its capture to present is counted, or will be when reported
+    // A present of it was queued, so its present report is on its way (or already made). A frame
+    // released without one was dropped.
+    bool presentQueued = false;
+    VulkanRenderer* reporter = nullptr;
 
     AImageCropRect crop {};
     FrameTiming timing;
@@ -132,14 +136,20 @@ public:
     CaptureLatency takeCaptureLatency();
 
     // Whether the screen tells us when each frame was shown (VK_GOOGLE_display_timing). Without it
-    // there are no present reports.
+    // there are no present reports. With it, every frame the decoder delivers gets exactly one:
+    // when it reached the screen, or that it never did. A frame drawn into a front buffer, or
+    // presented before the display's period is known, gets the time its present was queued.
     bool reportsPresentTimes() const { return hasDisplayTimingExt_; }
 
-    // When frames reached the screen, as pairs of the frame's host timestamp (what it was queued
-    // to the decoder with) and the time on our clock, oldest first. Frames the compositor
-    // replaced or the pacer dropped never appear. Returns the number of pairs written to out, at
-    // most max; the rest wait for the next call.
+    // How each frame ended up, as pairs of the frame's host timestamp (what it was queued to the
+    // decoder with) and the time it reached the screen on our clock, oldest first. A time of 0
+    // means the frame never reached the screen: the pacer dropped or replaced it, or the
+    // compositor did. Returns the number of pairs written to out, at most max; the rest wait for
+    // the next call. Frames the image reader drops before we see them have no report.
     size_t takePresentReports(int64_t* out, size_t max);
+
+    // For VideoFrame: the frame with this host timestamp will not be shown
+    void reportDropped(int64_t hostPtsNs);
 
     // For the performance overlay: what the renderer outputs, which only changes with HDR, and
     // its pacing numbers as a headline (the buffer) and details (lock state, skipped frames),
@@ -243,9 +253,15 @@ private:
     // drew it for, for the trace.
     void presentNewest(int64_t targetVsyncNs = 0);
     void collectPresentTimings();
+    // Queues a present report; presentNs 0 for a frame that was not shown
+    void reportPresent(int64_t hostPtsNs, int64_t presentNs);
     bool ensureSwapchain();
     bool createSwapchain();
+    // Draws nothing while the output window has no size (during a rotation or a window change)
+    bool outputWindowEmpty_ = false;
     void destroySwapchain();
+    // Everything that depends on the output surface, in the order it has to go
+    void releaseOutput();
     bool ensureConversion(const ConversionKey& key);
     void destroyConversion();
     bool ensurePipeline();

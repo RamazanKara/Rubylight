@@ -322,6 +322,11 @@ std::string VulkanRenderer::lastError() {
 }
 
 std::unique_ptr<VulkanRenderer> VulkanRenderer::create(ANativeWindow* output, const RendererConfig& config) {
+    {
+        // So a start that fails without logging an error doesn't blame an earlier one
+        std::lock_guard<std::mutex> lock(gLastErrorMutex);
+        gLastError.clear();
+    }
     const NdkApi* ndk = loadNdkApi();
     if (!ndk) {
         return nullptr;
@@ -636,6 +641,28 @@ bool VulkanRenderer::createShaderModules() {
     return true;
 }
 
+VideoFrame::~VideoFrame() {
+    if (reporter && !presentQueued && timing.hostPtsNs != 0) {
+        reporter->reportDropped(timing.hostPtsNs);
+    }
+    if (image) ndk->AImage_delete(image);
+}
+
+void VulkanRenderer::reportPresent(int64_t hostPtsNs, int64_t presentNs) {
+    if (!hasDisplayTimingExt_ || hostPtsNs == 0) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(latencyMutex_);
+    presentReports_.push_back({hostPtsNs, presentNs});
+    while (presentReports_.size() > kMaxPresentReports) {
+        presentReports_.pop_front();
+    }
+}
+
+void VulkanRenderer::reportDropped(int64_t hostPtsNs) {
+    reportPresent(hostPtsNs, 0);
+}
+
 void VulkanRenderer::waitIdle() {
     if (deviceLost_) {
         return;
@@ -774,7 +801,29 @@ VulkanRenderer::~VulkanRenderer() {
     pending.clear();
 
     if (device_) {
-        waitIdle();
+        if (deviceLost_) {
+            ALOGW("The GPU was lost; releasing its resources without waiting for it");
+        }
+        else if (wedged_) {
+            // stop() gave up on the GPU so the UI thread wouldn't wait; this runs on the stop
+            // worker, so wait as long as it takes. Destroying the device under pending work is
+            // undefined behaviour.
+            ALOGW("The GPU had not finished when stopping; waiting for it before releasing its resources");
+            const int64_t startNs = nowNs();
+            VkResult idle;
+            {
+                std::lock_guard<std::mutex> lock(queueMutex_);
+                idle = vk_.vkDeviceWaitIdle(device_);
+            }
+            if (idle == VK_ERROR_DEVICE_LOST) {
+                deviceLost_ = true;
+            }
+            ALOGW("The GPU %s after %lld ms (%d)", idle == VK_SUCCESS ? "finished" : "gave up",
+                  static_cast<long long>((nowNs() - startNs) / 1'000'000), idle);
+        }
+        else {
+            waitIdle();
+        }
     }
     current_.reset();
     for (auto& frame : slotFrames_) {
@@ -782,6 +831,8 @@ VulkanRenderer::~VulkanRenderer() {
     }
 
     if (device_) {
+        // What stop() left alone if the GPU was wedged (a no-op otherwise)
+        releaseOutput();
         destroyConversion();
         for (int i = 0; i < kFramesInFlight; i++) {
             if (fences_[i]) vk_.vkDestroyFence(device_, fences_[i], nullptr);
@@ -806,6 +857,21 @@ VulkanRenderer::~VulkanRenderer() {
     }
 }
 
+void VulkanRenderer::releaseOutput() {
+    if (device_) {
+        destroySwapchain();
+        if (renderPass_) {
+            destroyPipelines();
+            vk_.vkDestroyRenderPass(device_, renderPass_, nullptr);
+            renderPass_ = VK_NULL_HANDLE;
+        }
+    }
+    if (surface_) {
+        vk_.vkDestroySurfaceKHR(instance_, surface_, nullptr);
+        surface_ = VK_NULL_HANDLE;
+    }
+}
+
 void VulkanRenderer::stop() {
     std::lock_guard<std::mutex> stopLock(stopMutex_);
     if (stopped_) {
@@ -825,19 +891,11 @@ void VulkanRenderer::stop() {
     alignedDraws_.clear();
     if (device_) {
         waitIdle();
-        // A GPU that never finished is left alone; destroying what it is using would be worse
-        if (!wedged_) {
-            destroySwapchain();
-            if (renderPass_) {
-                destroyPipelines();
-                vk_.vkDestroyRenderPass(device_, renderPass_, nullptr);
-                renderPass_ = VK_NULL_HANDLE;
-            }
-        }
     }
-    if (surface_ && !wedged_) {
-        vk_.vkDestroySurfaceKHR(instance_, surface_, nullptr);
-        surface_ = VK_NULL_HANDLE;
+    // A GPU that never finished is left alone; destroying what it is using would be worse. The
+    // destructor waits for it without a limit and then releases these.
+    if (!wedged_) {
+        releaseOutput();
     }
     if (outputWindow_) {
         ANativeWindow_release(outputWindow_);
@@ -1023,6 +1081,7 @@ void VulkanRenderer::onImageAvailable() {
         // MediaCodec stamps each image with the frame's presentation time, which is the host's
         // timestamp for the frame
         ndk_->AImage_getTimestamp(image, &frame->timing.hostPtsNs);
+        frame->reporter = this;
         if (ndk_->AImage_getCropRect(image, &frame->crop) != AMEDIA_OK) {
             frame->crop = {0, 0, 0, 0};
         }
@@ -1504,7 +1563,9 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
     }
     const int64_t startNs = nowNs();
     if (!ensureSwapchain()) {
-        noteFailure("creating the swapchain", VK_ERROR_INITIALIZATION_FAILED, kFatalFailures * 3);
+        if (!outputWindowEmpty_) {
+            noteFailure("creating the swapchain", VK_ERROR_INITIALIZATION_FAILED, kFatalFailures * 3);
+        }
         return false;
     }
 
@@ -1566,7 +1627,9 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
         swapchainDirty_ = true;
         if (!ensureSwapchain() || !ensurePipeline()) {
-            noteFailure("recreating the swapchain", VK_ERROR_INITIALIZATION_FAILED, kFatalFailures * 3);
+            if (!outputWindowEmpty_) {
+                noteFailure("recreating the swapchain", VK_ERROR_INITIALIZATION_FAILED, kFatalFailures * 3);
+            }
             return false;
         }
         result = acquireImage();
@@ -1752,6 +1815,8 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
     // compositor drop it for a newer frame: it only drops a waiting frame that has a time of its
     // own. Without one, frames queued behind each other: on an iPlay 70 mini Ultra at 144 fps
     // shown on arrival, 44% reached the screen a vsync later than they could have.
+    uint64_t taggedPresentId = 0;
+    bool countedAtTag = false;
     VkPresentTimeGOOGLE presentTime {static_cast<uint32_t>(presentId), 0};
     VkPresentTimesInfoGOOGLE presentTimes {VK_STRUCTURE_TYPE_PRESENT_TIMES_INFO_GOOGLE};
     // A front buffer is drawn at its time and never presented as a new image, so it has no
@@ -1777,7 +1842,9 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
         pending = {vsyncNs, presentScheduler_.delayVsyncs(), ahead,
                    ahead ? vsyncNs - (commitNs != 0 ? commitNs : nowNs()) : 0};
         pending.onArrival = onArrival;
+        taggedPresentId = presentId;
         if (!frame->presentCounted) {
+            countedAtTag = true;
             // Counted when the present is reported, at the time it reached the screen
             pending.originNs = frame->originNs;
             pending.originSynced = frame->originSynced;
@@ -1787,6 +1854,7 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
         if (pendingPresents_.size() > 256) {
             // Reports lost across a swapchain rebuild never arrive
             while (!pendingPresents_.empty() && pendingPresents_.begin()->first + 128 < presentId) {
+                reportPresent(pendingPresents_.begin()->second.hostPtsNs, 0);
                 pendingPresents_.erase(pendingPresents_.begin());
             }
         }
@@ -1799,12 +1867,29 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
     // swapchain image
     perfHint_.reportWork(nowNs() - startNs - (acquiredNs - releasedNs) - (fenceWaited ? fencedNs - fenceWaitNs : 0));
 
-    if (!frame->presentCounted && frame->originNs != 0 && (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR)) {
-        // Without a report of when it reached the screen, until the present was queued. A frame
-        // drawn again (across a swapchain rebuild) is only counted the first time.
-        frame->presentCounted = true;
-        std::lock_guard<std::mutex> lock(latencyMutex_);
-        countLatency(captureLatency_.presented, nowNs() - frame->originNs, frame->originSynced);
+    const bool shown = result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR;
+    if (!shown && countedAtTag) {
+        // Nothing was queued, so no report will come for the tag: the frame is counted when a
+        // later present of it is
+        PendingPresent& failed = pendingPresents_[taggedPresentId];
+        failed.originNs = 0;
+        failed.hostPtsNs = 0;
+        frame->presentCounted = false;
+    }
+    if (shown && !frame->presentQueued) {
+        frame->presentQueued = true;
+        if (!frame->presentCounted) {
+            // Not tagged for a report of when it reached the screen (a front buffer, or a period
+            // not yet known): until the present was queued. A frame drawn again (across a
+            // swapchain rebuild) is only counted the first time.
+            frame->presentCounted = true;
+            const int64_t queuedNs = nowNs();
+            if (frame->originNs != 0) {
+                std::lock_guard<std::mutex> lock(latencyMutex_);
+                countLatency(captureLatency_.presented, queuedNs - frame->originNs, frame->originSynced);
+            }
+            reportPresent(frame->timing.hostPtsNs, queuedNs);
+        }
     }
     if (presentId != 0) {
         const int64_t queuedNs = nowNs();
@@ -1873,6 +1958,7 @@ void VulkanRenderer::collectPresentTimings() {
                 presentScheduler_.onAheadOutcome(it->second.slackNs, it->second.vsyncNs, it->second.delayVsyncs,
                                                  false, 0, 0, 0, currentPeriodNs_);
             }
+            reportPresent(it->second.hostPtsNs, 0);
             it = pendingPresents_.erase(it);
         }
 
@@ -1901,18 +1987,16 @@ void VulkanRenderer::collectPresentTimings() {
         if (pending != pendingPresents_.end()) {
             // A frame replaced at its vsync never reached the screen
             if (!pending->second.replaced) {
-                std::lock_guard<std::mutex> lock(latencyMutex_);
                 if (pending->second.originNs != 0) {
+                    std::lock_guard<std::mutex> lock(latencyMutex_);
                     countLatency(captureLatency_.presented,
                                  static_cast<int64_t>(t.actualPresentTime) - pending->second.originNs,
                                  pending->second.originSynced);
                 }
-                if (pending->second.hostPtsNs != 0) {
-                    presentReports_.push_back({pending->second.hostPtsNs, static_cast<int64_t>(t.actualPresentTime)});
-                    while (presentReports_.size() > kMaxPresentReports) {
-                        presentReports_.pop_front();
-                    }
-                }
+                reportPresent(pending->second.hostPtsNs, static_cast<int64_t>(t.actualPresentTime));
+            }
+            else {
+                reportPresent(pending->second.hostPtsNs, 0);
             }
             pendingPresents_.erase(pending);
         }
@@ -2042,8 +2126,14 @@ bool VulkanRenderer::createSwapchain() {
         extent.height = static_cast<uint32_t>(ANativeWindow_getHeight(outputWindow_));
     }
     if (extent.width == 0 || extent.height == 0) {
+        // Not a failure: the window is being resized or rotated, and has a size again soon
+        if (!outputWindowEmpty_) {
+            ALOGW("The output window has no size; not drawing until it has");
+        }
+        outputWindowEmpty_ = true;
         return false;
     }
+    outputWindowEmpty_ = false;
     const VkSurfaceTransformFlagBitsKHR transform = choosePreTransform(caps);
     extent = preRotatedExtent(extent, transform);
 

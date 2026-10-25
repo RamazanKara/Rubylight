@@ -785,7 +785,11 @@ mod tests {
         let first = serde_json::to_value(webrtc_client(1, "First")).unwrap();
         let mut second = serde_json::to_value(webrtc_client(1, "Second")).unwrap();
         second["uuid"] = json!("web-other");
-        write_json(&p, &json!({"root":{"named_devices":[first, second.clone()]}})).unwrap();
+        write_json(
+            &p,
+            &json!({"root":{"named_devices":[first, second.clone()]}}),
+        )
+        .unwrap();
         let s = PairedState::load(&p).unwrap();
         assert_eq!(s.clients.len(), 1);
         assert_eq!(s.clients[0].name, "First");

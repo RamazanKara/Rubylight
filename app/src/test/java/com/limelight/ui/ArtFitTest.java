@@ -122,7 +122,7 @@ public class ArtFitTest {
 
     @Test
     public void theGradientBandsAreAsTallAsTheLetterboxTheArtLeavesAndNeverNegative() {
-        ArtFit.Backdrop banner = new ArtFit.Backdrop(ArtFit.backdropFor(solid(460, 215, Color.WHITE)), Color.DKGRAY);
+        ArtFit.Backdrop banner = new ArtFit.Backdrop(ArtFit.backdropFor(solid(460, 215, Color.WHITE)));
         Rect poster = new Rect(0, 0, 300, 450);
         // The banner is 140 high in a 450 high poster: 155 above and below, 0.344 of the height each.
         assertEquals(155f / 450f, banner.band(poster), 0.001f);
@@ -130,10 +130,10 @@ public class ArtFitTest {
         // The test runtime does not rasterize; this checks the gradient draws without a shader error.
         banner.draw(new android.graphics.Canvas(Bitmap.createBitmap(300, 450, Bitmap.Config.ARGB_8888)));
 
-        ArtFit.Backdrop box = new ArtFit.Backdrop(ArtFit.backdropFor(solid(600, 800, Color.WHITE)), Color.DKGRAY);
+        ArtFit.Backdrop box = new ArtFit.Backdrop(ArtFit.backdropFor(solid(600, 800, Color.WHITE)));
         assertEquals("3:4 leaves a thin band", (450f - 400f) / 2f / 450f, box.band(poster), 0.001f);
 
-        ArtFit.Backdrop tall = new ArtFit.Backdrop(ArtFit.backdropFor(solid(300, 600, Color.WHITE)), Color.DKGRAY);
+        ArtFit.Backdrop tall = new ArtFit.Backdrop(ArtFit.backdropFor(solid(300, 600, Color.WHITE)));
         assertEquals("art taller than the poster has no top or bottom band", 0f, tall.band(poster), 0.0001f);
         tall.setBounds(poster);
         tall.draw(new android.graphics.Canvas(Bitmap.createBitmap(300, 450, Bitmap.Config.ARGB_8888)));
@@ -145,5 +145,20 @@ public class ArtFitTest {
         Bitmap art = Bitmap.createBitmap(460, 215, Bitmap.Config.ARGB_8888).copy(Bitmap.Config.HARDWARE, false);
         // The loader only builds bands from the software bitmap it decoded; a hardware one gets none, not an exception.
         if (art != null && art.getConfig() == Bitmap.Config.HARDWARE) assertNull(ArtFit.backdropFor(art));
+    }
+
+    @Test
+    public void aBandFadesToADarkerShadeOfItsOwnEdgeColourNeverToTheCardSurface() {
+        // Dark art in a light theme: the card surface is near white and must not show in the bands.
+        ArtFit.Backdrop dark = new ArtFit.Backdrop(ArtFit.backdropFor(solid(460, 215, Color.rgb(40, 60, 100))));
+        int[] stops = dark.stops();
+        assertEquals(Color.rgb(30, 45, 75), stops[1]);
+        assertEquals("the top edge is the top colour, darker", Color.rgb(17, 25, 41), stops[0]);
+        assertEquals(Color.rgb(17, 25, 41), stops[3]);
+        for (int stop : stops) {
+            assertTrue("no stop is lighter than the art's edge colour", Color.red(stop) <= 30 && Color.green(stop) <= 45
+                    && Color.blue(stop) <= 75);
+        }
+        assertTrue("the poster edge is darker than where the art starts", Color.blue(stops[0]) < Color.blue(stops[1]));
     }
 }

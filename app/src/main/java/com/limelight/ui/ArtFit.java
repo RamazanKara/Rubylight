@@ -24,8 +24,9 @@ import com.google.android.material.color.MaterialColors;
  * so a banner or a 3:4 box never loses its edges to a crop.
  *
  * <p>The bands above and below a letterboxed cover are a vertical gradient: next to the art it is the average
- * colour of the art's own top (or bottom) rows, darkened a little, and it fades into the card's surface towards the
- * poster's edge. That is two colours, read once on the loader's thread ({@link #backdropFor}), kept with the
+ * colour of the art's own top (or bottom) rows, darkened a little, and it fades to a darker shade of that same colour
+ * towards the poster's edge, never to the card's surface, which in a light theme would wash the band out against dark
+ * art. That is two colours, read once on the loader's thread ({@link #backdropFor}), kept with the
  * decoded cover and only attached when the cover is bound. There is no blur, so no blobs, and the poster draws
  * nothing but one gradient.
  */
@@ -40,6 +41,8 @@ public final class ArtFit {
     static final int EDGE_ROWS = 4;
     /** The edge colours are multiplied by this, so the art next to them keeps its contrast. */
     private static final float DARKEN = 0.75f;
+    /** At the poster's edge a band is its edge colour multiplied by this. */
+    static final float EDGE_SHADE = 0.55f;
 
     private ArtFit() { }
 
@@ -80,7 +83,7 @@ public final class ArtFit {
         View frame = (View) parent;
         int surface = MaterialColors.getColor(frame, com.google.android.material.R.attr.colorSurfaceContainerHigh);
         if (letterbox && bands != null) {
-            frame.setBackground(new Backdrop(bands, surface));
+            frame.setBackground(new Backdrop(bands));
         } else if (frame.getBackground() instanceof Backdrop) {
             frame.setBackground(new ColorDrawable(surface));
         }
@@ -123,32 +126,35 @@ public final class ArtFit {
     }
 
     static int darkened(int color) {
-        return Color.rgb(Math.round(Color.red(color) * DARKEN), Math.round(Color.green(color) * DARKEN),
-                Math.round(Color.blue(color) * DARKEN));
+        return shaded(color, DARKEN);
+    }
+
+    static int shaded(int color, float factor) {
+        return Color.rgb(Math.round(Color.red(color) * factor), Math.round(Color.green(color) * factor),
+                Math.round(Color.blue(color) * factor));
     }
 
     /**
-     * The poster's background: the surface at the poster's top edge, rising to the top colour where the art starts,
-     * then the bottom colour where the art ends, falling back to the surface at the bottom edge. The part under
-     * the art is never seen. Art taller than a poster has bars at the sides instead, which get the plain
+     * The poster's background: a darker shade of the top colour at the poster's top edge, rising to the top colour
+     * where the art starts, then the bottom colour where the art ends, falling to a darker shade of it at the bottom
+     * edge. The surface colour is not part of it. The part under the art is never seen. Art taller than a poster has bars at the sides instead, which get the plain
      * top-to-bottom gradient.
      */
     static final class Backdrop extends Drawable {
         private final Bands bands;
-        private final int surface;
         private final Paint paint = new Paint();
 
-        Backdrop(Bands bands, int surface) {
+        Backdrop(Bands bands) {
             this.bands = bands;
-            this.surface = surface;
         }
 
         Bands bands() {
             return bands;
         }
 
-        int surface() {
-            return surface;
+        /** The colours of the gradient across a band, from the poster's top edge to its bottom edge. */
+        int[] stops() {
+            return new int[] {shaded(bands.top, EDGE_SHADE), bands.top, bands.bottom, shaded(bands.bottom, EDGE_SHADE)};
         }
 
         /** Where the art starts, as a fraction of the poster's height; 0 when it fills the height. */
@@ -169,7 +175,7 @@ public final class ArtFit {
                 shader = new LinearGradient(0, bounds.top, 0, bounds.bottom, bands.top, bands.bottom, Shader.TileMode.CLAMP);
             } else {
                 shader = new LinearGradient(0, bounds.top, 0, bounds.bottom,
-                        new int[] {surface, bands.top, bands.bottom, surface},
+                        stops(),
                         new float[] {0f, band, 1f - band, 1f}, Shader.TileMode.CLAMP);
             }
             paint.setShader(shader);

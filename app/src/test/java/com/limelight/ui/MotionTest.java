@@ -154,9 +154,63 @@ public class MotionTest {
             assertTrue(spec[0], pressed && focused && rest);
         }
         NodeList still = parse("src/main/res/animator/tv_poster_focus_static.xml").getElementsByTagName("objectAnimator");
+        java.util.Set<String> reset = new java.util.HashSet<>();
         for (int i = 0; i < still.getLength(); i++) {
-            assertEquals("0", ((Element) still.item(i)).getAttribute("android:duration"));
-            assertEquals("1", ((Element) still.item(i)).getAttribute("android:valueTo"));
+            Element tween = (Element) still.item(i);
+            assertEquals("0", tween.getAttribute("android:duration"));
+            String property = tween.getAttribute("android:propertyName");
+            reset.add(property);
+            assertEquals(property, property.equals("translationZ") ? "0dp" : "1", tween.getAttribute("android:valueTo"));
+        }
+        assertEquals("the still animator undoes everything the full one moves",
+                new java.util.HashSet<>(java.util.Arrays.asList("scaleX", "scaleY", "translationZ")), reset);
+    }
+
+    /** What a poster does when it is selected, run on the inflated layout: the scale and lift the XML promises, and the title. */
+    private static void assertPosterFocus(Context context, int layout, float scale, float lift) {
+        android.view.View card = LayoutInflater.from(context).inflate(layout, null);
+        android.view.View title = card.findViewById(R.id.grid_title);
+        // Only the library's posters carry a title; Home's cards print theirs under the poster.
+        if (title != null) assertEquals("a poster at rest shows no title", 0f, title.getAlpha(), 0f);
+        card.setSelected(true);
+        FastTravel.settle(card);
+        assertEquals(scale, card.getScaleX(), 0.001f);
+        assertEquals(scale, card.getScaleY(), 0.001f);
+        assertEquals(lift, card.getTranslationZ(), 0.01f);
+        if (title != null) assertEquals(1f, title.getAlpha(), 0f);
+        card.setSelected(false);
+        FastTravel.settle(card);
+        assertEquals(1f, card.getScaleX(), 0.001f);
+        assertEquals(0f, card.getTranslationZ(), 0.01f);
+        if (title != null) assertEquals(0f, title.getAlpha(), 0f);
+    }
+
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-television-xhdpi")
+    public void aSelectedPosterReachesItsFocusScaleLiftAndTitle() {
+        animatorScale(1f);
+        PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication()).edit().clear().commit();
+        try (var controller = Robolectric.buildActivity(Screen.class).setup()) {
+            float lift = 6 * controller.get().getResources().getDisplayMetrics().density;
+            assertPosterFocus(controller.get(), R.layout.app_grid_item, 1.08f, lift);
+            assertPosterFocus(controller.get(), R.layout.app_grid_item_small, 1.10f, lift);
+            assertPosterFocus(controller.get(), R.layout.console_card_cover, 1.08f, lift);
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-television-xhdpi")
+    public void withReducedMotionASelectedPosterStaysPutAndStillShowsItsTitle() {
+        animatorScale(1f);
+        set(Motion.REDUCE);
+        try (var controller = Robolectric.buildActivity(Screen.class).setup()) {
+            android.view.View card = LayoutInflater.from(controller.get()).inflate(R.layout.app_grid_item, null);
+            card.setSelected(true);
+            FastTravel.settle(card);
+            assertEquals(1f, card.getScaleX(), 0f);
+            assertEquals(1f, card.getScaleY(), 0f);
+            assertEquals(0f, card.getTranslationZ(), 0f);
+            assertEquals(1f, card.findViewById(R.id.grid_title).getAlpha(), 0f);
         }
     }
 

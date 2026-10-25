@@ -4,6 +4,8 @@
     <item>
         <set android:ordering="together">
             <objectAnimator android:propertyName="scaleX" android:valueTo="1" android:duration="0" />
+            <objectAnimator android:propertyName="scaleY" android:valueTo="1" android:duration="0" />
+            <objectAnimator android:propertyName="translationZ" android:valueTo="0dp" android:duration="0" android:valueType="floatType" />
         </set>
     </item>
 </selector>

@@ -209,6 +209,29 @@ public class AppGridAdapterTest {
 
     @Test
     @Config(qualifiers = "w960dp-h540dp-television-xhdpi")
+    public void theRingIsDrawnAroundThePosterAndNeverOverItsArt() {
+        try (var controller = Robolectric.buildActivity(com.limelight.ui.UiNavigationTest.Screen.class).setup().visible()) {
+            for (int layoutId : new int[] {R.layout.app_grid_item, R.layout.app_grid_item_small}) {
+                android.view.View root = android.view.LayoutInflater.from(controller.get()).inflate(layoutId, null);
+                root.measure(android.view.View.MeasureSpec.makeMeasureSpec(432, android.view.View.MeasureSpec.EXACTLY),
+                        android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED));
+                root.layout(0, 0, root.getMeasuredWidth(), root.getMeasuredHeight());
+                android.view.View ring = root.findViewById(R.id.grid_ring);
+                android.view.View card = root.findViewById(R.id.grid_card);
+                int reach = Math.round(5 * controller.get().getResources().getDisplayMetrics().density);
+                assertSame("the ring is the poster's sibling, not a layer over its art", root, ring.getParent());
+                assertEquals(card.getLeft() - reach, ring.getLeft());
+                assertEquals(card.getTop() - reach, ring.getTop());
+                assertEquals(card.getRight() + reach, ring.getRight());
+                assertEquals(card.getBottom() + reach, ring.getBottom());
+                assertTrue("inside the glow's padding", ring.getLeft() >= 0 && ring.getTop() >= 0);
+                assertTrue("drawn after the poster, so over it", ((android.view.ViewGroup) root).indexOfChild(ring) > ((android.view.ViewGroup) root).indexOfChild(card));
+            }
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-television-xhdpi")
     public void aHeldKeyPutsEachCardStraightIntoItsFinalFocusState() {
         try (var controller = Robolectric.buildActivity(com.limelight.ui.UiNavigationTest.Screen.class).setup().visible()) {
             com.limelight.ui.AdaptiveGridView grid = posterGrid(controller.get(), 20, 700);
@@ -217,6 +240,8 @@ public class AppGridAdapterTest {
             assertEquals(1, grid.getSelectedItemPosition());
             assertEquals("the new card is already scaled", 1.08f, grid.getSelectedView().getScaleX(), 0.001f);
             assertEquals("the old card is already at rest", 1f, first.getScaleX(), 0.001f);
+            assertEquals("the new card already shows its title", 1f, grid.getSelectedView().findViewById(R.id.grid_title).getAlpha(), 0f);
+            assertEquals("the old card's title is already gone", 0f, first.findViewById(R.id.grid_title).getAlpha(), 0f);
             key(grid, android.view.KeyEvent.KEYCODE_DPAD_RIGHT, 2);
             assertEquals(2, grid.getSelectedItemPosition());
             assertEquals(1.08f, grid.getSelectedView().getScaleX(), 0.001f);

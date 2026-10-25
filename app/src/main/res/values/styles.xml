@@ -102,6 +102,7 @@
         <item name="nightjarPosterFocusAnimator">@animator/tv_poster_focus</item>
         <item name="nightjarPosterFocusAnimatorSmall">@animator/tv_poster_focus_small</item>
         <item name="nightjarPosterRing">@drawable/tv_poster_ring</item>
+        <item name="nightjarPosterTitleAnimator">@animator/tv_poster_title</item>
         <item name="nightjarPosterGlow">@drawable/tv_focus_glow_fade</item>
         <item name="shapeAppearanceSmallComponent">@style/ShapeAppearance.Nightjar</item>
         <item name="shapeAppearanceMediumComponent">@style/ShapeAppearance.Nightjar</item>
@@ -209,6 +210,7 @@
         <item name="nightjarPosterFocusAnimator">@animator/tv_poster_focus</item>
         <item name="nightjarPosterFocusAnimatorSmall">@animator/tv_poster_focus_small</item>
         <item name="nightjarPosterRing">@drawable/tv_poster_ring</item>
+        <item name="nightjarPosterTitleAnimator">@animator/tv_poster_title</item>
         <item name="nightjarPosterGlow">@drawable/tv_focus_glow_fade</item>
         <item name="shapeAppearanceSmallComponent">@style/ShapeAppearance.Nightjar</item>
         <item name="shapeAppearanceMediumComponent">@style/ShapeAppearance.Nightjar</item>
@@ -267,6 +269,7 @@
         <item name="nightjarPosterFocusAnimator">@animator/tv_poster_focus_static</item>
         <item name="nightjarPosterFocusAnimatorSmall">@animator/tv_poster_focus_static</item>
         <item name="nightjarPosterRing">@drawable/tv_poster_ring_static</item>
+        <item name="nightjarPosterTitleAnimator">@animator/tv_poster_title_static</item>
         <item name="nightjarPosterGlow">@drawable/tv_focus_glow_static</item>
     </style>
 
@@ -276,6 +279,7 @@
         <item name="nightjarPosterFocusAnimator">@animator/tv_poster_focus_static</item>
         <item name="nightjarPosterFocusAnimatorSmall">@animator/tv_poster_focus_static</item>
         <item name="nightjarPosterRing">@drawable/tv_poster_ring_hc_static</item>
+        <item name="nightjarPosterTitleAnimator">@animator/tv_poster_title_static</item>
         <item name="nightjarPosterGlow">@drawable/tv_focus_glow_none</item>
     </style>
 

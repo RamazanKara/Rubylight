@@ -9,7 +9,8 @@
     <include layout="@layout/view_shell_bar" />
     <ProgressBar android:id="@+id/console_loading" style="?android:attr/progressBarStyleHorizontal"
         android:layout_width="match_parent" android:layout_height="4dp" android:indeterminate="true" />
-    <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+    <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:clipChildren="false">
         <androidx.recyclerview.widget.RecyclerView android:id="@+id/console_list"
             android:layout_width="match_parent" android:layout_height="match_parent"
             android:clipToPadding="false" android:clipChildren="false" android:scrollbars="vertical"

@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A game in the TV library: a large 2:3 poster, art only. The focused game's title is read from the
-     card's contentDescription and shown by the header; a game without art keeps its centered title. The root's padding is the glow's
-     reach (16dp): the glow view fills the root and draws under the card, the ring is a view over the poster, and the
-     root's animator scales and lifts the lot. AppGridAdapter fills it; GenericGridAdapter sets the poster height. -->
+<!-- A game in the TV library: a large 2:3 poster. Only the focused game shows its title (on a scrim at the foot); it is also in the
+     card's contentDescription. A game without art keeps its centered title. The root's padding is the glow's
+     reach (16dp): the glow view fills the root and draws under the card, the ring is a view around the poster, in the padding, so it never covers the art, and the
+     root's animator scales and lifts the lot. The focused poster's title fades in on a scrim over its foot. AppGridAdapter fills it; GenericGridAdapter sets the poster height. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -23,25 +23,35 @@
                 android:gravity="center" android:padding="@dimen/space_m"
                 android:textAppearance="@style/TextAppearance.Nightjar.Title" android:textColor="?attr/colorOnSurface"
                 android:maxLines="4" android:ellipsize="end" android:importantForAccessibility="no" />
-            <TextView android:id="@+id/grid_status" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:layout_gravity="top|start" android:layout_margin="@dimen/space_xs"
+            <TextView android:id="@+id/grid_title" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_gravity="bottom" android:alpha="0" android:duplicateParentState="true"
+                android:stateListAnimator="?attr/nightjarPosterTitleAnimator" android:background="@drawable/tv_poster_scrim"
                 android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s"
-                android:paddingTop="@dimen/space_xs" android:paddingBottom="@dimen/space_xs" android:background="@drawable/bg_chip"
-                android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurface"
-                android:visibility="gone" android:importantForAccessibility="no" />
-            <TextView android:id="@+id/grid_role" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:layout_gravity="bottom|start" android:layout_margin="@dimen/space_xs"
-                android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s"
-                android:paddingTop="@dimen/space_xs" android:paddingBottom="@dimen/space_xs"
-                android:maxLines="1" android:ellipsize="end" android:background="@drawable/bg_chip" android:drawablePadding="@dimen/space_xs"
-                android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurface"
-                android:visibility="gone" android:importantForAccessibility="no" />
+                android:paddingTop="@dimen/space_xl" android:paddingBottom="@dimen/space_s"
+                android:maxLines="2" android:ellipsize="end" android:textColor="@android:color/white"
+                android:textAppearance="@style/TextAppearance.Nightjar.Label" android:importantForAccessibility="no" />
+            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_gravity="top|start" android:layout_margin="@dimen/space_xs" android:orientation="vertical">
+                <TextView android:id="@+id/grid_status" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_marginBottom="@dimen/space_xs"
+                    android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s"
+                    android:paddingTop="@dimen/space_xs" android:paddingBottom="@dimen/space_xs" android:background="@drawable/bg_chip"
+                    android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurface"
+                    android:visibility="gone" android:importantForAccessibility="no" />
+                <TextView android:id="@+id/grid_role" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s"
+                    android:paddingTop="@dimen/space_xs" android:paddingBottom="@dimen/space_xs"
+                    android:maxLines="1" android:ellipsize="end" android:background="@drawable/bg_chip" android:drawablePadding="@dimen/space_xs"
+                    android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurface"
+                    android:visibility="gone" android:importantForAccessibility="no" />
+            </LinearLayout>
             <ImageButton android:id="@+id/grid_more" style="@style/ToolbarIcon" android:layout_gravity="top|end"
                 android:padding="@dimen/space_l" android:background="@drawable/bg_cover_action" android:focusable="false"
                 android:importantForAccessibility="yes" android:src="@drawable/ic_library_more" android:contentDescription="@string/library_options" />
-            <View android:id="@+id/grid_ring" android:layout_width="match_parent" android:layout_height="match_parent"
-                android:background="?attr/nightjarPosterRing" android:duplicateParentState="true"
-                android:importantForAccessibility="no" />
         </FrameLayout>
     </com.google.android.material.card.MaterialCardView>
+    <View android:id="@+id/grid_ring" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:layout_marginStart="-5dp" android:layout_marginEnd="-5dp" android:layout_marginTop="-5dp" android:layout_marginBottom="-5dp"
+        android:background="?attr/nightjarPosterRing" android:duplicateParentState="true"
+        android:importantForAccessibility="no" />
 </FrameLayout>

@@ -17,7 +17,6 @@ Read the relevant doc instead of exploring: [docs/building.md](docs/building.md)
 - Other CI checks: `cd rust\web; npm ci --no-audit --no-fund; npm run check; node --test "*.test.mjs"; npm run build` (kill stray node/vite first: "Port 24678 is already in use"), and `python -m unittest discover -s rust/release -p test_release.py` (and `test_gpu_hang.py`).
 - Driver: build and install per its README (`build-package.ps1`, then `install-local.ps1` elevated, host idle, unsigned package). May need a restart.
 - Disk fills up: share `C:\src\rl-target` across worktrees and delete stale worktree `target\` folders.
-- "dubious ownership": `git config --global --add safe.directory <path>`.
 - `core.autocrlf=input`: keep LF (`open(..., newline='')`); edit with the Edit tool, not patch scripts.
 - Heredocs and PowerShell here-strings break here: write multi-line scripts and commit messages to a file (`python f.py || exit 1`, `git commit -F f`). Join rebase and push with `&&`, never `;` or a pipe, and grep for `^<<<<<<<` before `git add`.
 - Parallel agents each get their own worktree. Never `git stash` (shared across worktrees); move changes with `git diff --binary` and `git apply -3`.
@@ -44,7 +43,6 @@ This PC is the dev box, the release test host and the user's gaming PC (RX 7900 
 - While the user is gaming: no GPU benchmarks, streams, virtual displays, layout changes, virtual controllers or `check.ps1`, and build with `-j 4`, unless the user says testing is fine.
 - Test hosts use an isolated profile and ports (`butterpollo.exe --config-dir C:\tests\<p> --port 48123 --bind 127.0.0.1`; the harness uses 48518-48544) with `virtual_display_layout = extended`, and `dd_configuration_option = disabled` and `virtual_display_mode = disabled` unless the run needs a virtual display (as SYSTEM). Check that the user is idle first: the pattern window covers the monitor.
 - Driver and virtual-display tests need SYSTEM: use `rust/release/elevated.ps1` (`schtasks /RU SYSTEM`; setup in rust/release/README.md).
-- If `check.ps1` stops at "test receivers and probes", delete the stale `fixtures\moonlight-client-build`.
 - Exit code 3 from `e2e.py` or `check.ps1` means an AMD encoder hang: stop and investigate, never retry.
 - Restart only with the host idle, nothing in flight and the work able to resume unattended; batch it last. Never upgrade Windows.
 - Run streams and soaks in the background; read `result.json` and the 5 s `stream timings` lines in the host log, not full logs.

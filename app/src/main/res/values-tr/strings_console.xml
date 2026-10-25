@@ -42,6 +42,8 @@
     <string name="console_add_on_pc">Bilgisayarda ekle</string>
     <string name="console_adding">%1$s ekleniyor…</string>
     <string name="console_add_failed">%1$s eklenemedi</string>
+    <string name="console_detail_not_installed">%1$s üzerinde yüklü değil</string>
+    <string name="console_detail_not_launchable">%1$s bu oyunu başlatamıyor</string>
     <string name="console_filter_all">Tümü</string>
     <string name="console_filter_installed">Yüklü</string>
     <string name="console_all_games_title">Tüm oyunlar</string>

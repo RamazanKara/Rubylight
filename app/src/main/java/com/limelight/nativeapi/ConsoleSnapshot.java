@@ -44,17 +44,20 @@ public final class ConsoleSnapshot {
         public final boolean added;
         /** Seconds since the epoch it last ran on the host, or null when the host does not say. */
         public final Long lastPlayed;
+        /** False when the host says it cannot start the game; null when it does not say. */
+        public final Boolean launchable;
 
         Source(String hostUuid, String hostName, int appId, String installId, String title, String gameId,
                boolean running, String coverPath, String coverVersion, Boolean installed, String appUuid,
                boolean hdrSupported) {
             this(hostUuid, hostName, appId, installId, title, gameId, running, coverPath, coverVersion, installed,
-                    appUuid, hdrSupported, null, null, true, null);
+                    appUuid, hdrSupported, null, null, true, null, null);
         }
 
         Source(String hostUuid, String hostName, int appId, String installId, String title, String gameId,
                boolean running, String coverPath, String coverVersion, Boolean installed, String appUuid,
-               boolean hdrSupported, String storeSource, String storeName, boolean added, Long lastPlayed) {
+               boolean hdrSupported, String storeSource, String storeName, boolean added, Long lastPlayed,
+               Boolean launchable) {
             this.hostUuid = hostUuid;
             this.hostName = hostName;
             this.appId = appId;
@@ -71,6 +74,7 @@ public final class ConsoleSnapshot {
             this.storeName = storeName;
             this.added = added;
             this.lastPlayed = lastPlayed;
+            this.launchable = launchable;
         }
 
         /**

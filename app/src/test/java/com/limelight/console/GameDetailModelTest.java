@@ -14,6 +14,7 @@ import static org.junit.Assert.assertTrue;
 
 import android.app.Application;
 
+import com.limelight.R;
 import com.limelight.nativeapi.ConsoleSnapshot;
 import com.limelight.nativeapi.NativeApiFixtures;
 import com.limelight.nvstream.http.ComputerDetails;
@@ -26,6 +27,7 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
+import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 
 import java.util.Arrays;
@@ -57,6 +59,55 @@ public class GameDetailModelTest {
 
     private static String running(String state, int appId, String title) {
         return session(state, "you", "{\"install_id\":\"x\",\"app_id\":" + appId + ",\"title\":\"" + title + "\"}", "[]");
+    }
+
+    private ConsoleSnapshot towerWith(String portalFields, String sessionJson) throws Exception {
+        rig.transport.reply("tower", "library", ok(library("t1",
+                "{\"install_id\":\"t-portal\",\"app_id\":11,\"title\":\"Portal\"" + portalFields + "}")));
+        rig.transport.reply("tower", "session", ok(sessionJson));
+        return rig.repository.refresh(Collections.singletonList(nativeHost("tower", "Tower", true)));
+    }
+
+    @Test
+    public void aGameNotInstalledOnTheHostCannotBeStartedAndSaysWhy() throws Exception {
+        GameDetailModel model = GameDetailModel.of(towerWith(",\"installed\":false", NativeApiFixtures.IDLE),
+                "tower", 11, "x", "y", true, true, true);
+        assertEquals(GameDetailModel.Blocked.NOT_INSTALLED, model.blocked());
+        assertFalse(model.canStart());
+        assertEquals(R.string.console_detail_not_installed, model.blockedNote());
+        assertEquals("Not installed on Tower",
+                RuntimeEnvironment.getApplication().getString(model.blockedNote(), model.hostName));
+    }
+
+    @Test
+    public void aGameTheHostSaysItCannotLaunchCannotBeStarted() throws Exception {
+        GameDetailModel model = GameDetailModel.of(
+                towerWith(",\"installed\":true,\"launchable\":false", NativeApiFixtures.IDLE),
+                "tower", 11, "x", "y", true, true, true);
+        assertEquals(GameDetailModel.Blocked.NOT_LAUNCHABLE, model.blocked());
+        assertFalse(model.canStart());
+        assertEquals(R.string.console_detail_not_launchable, model.blockedNote());
+    }
+
+    @Test
+    public void aGameTheHostSaysNothingAboutOrCallsInstalledStarts() throws Exception {
+        for (String fields : Arrays.asList("", ",\"installed\":null", ",\"installed\":true,\"launchable\":true")) {
+            GameDetailModel model = GameDetailModel.of(towerWith(fields, NativeApiFixtures.IDLE),
+                    "tower", 11, "x", "y", true, true, true);
+            assertEquals(fields, GameDetailModel.Blocked.NONE, model.blocked());
+            assertTrue(fields, model.canStart());
+            assertEquals(0, model.blockedNote());
+        }
+    }
+
+    @Test
+    public void aRunningGameStillResumesWhateverTheLibrarySaysOfIt() throws Exception {
+        GameDetailModel model = GameDetailModel.of(
+                towerWith(",\"installed\":false,\"running\":true", running("streaming", 11, "Portal")),
+                "tower", 11, "x", "y", true, true, true);
+        assertEquals(GameDetailModel.State.RUNNING, model.state);
+        assertEquals(GameDetailModel.Blocked.NONE, model.blocked());
+        assertTrue(model.resumes());
     }
 
     @Test

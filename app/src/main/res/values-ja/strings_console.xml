@@ -42,6 +42,8 @@
     <string name="console_add_on_pc">PC で追加してください</string>
     <string name="console_adding">%1$s を追加しています…</string>
     <string name="console_add_failed">%1$s を追加できませんでした</string>
+    <string name="console_detail_not_installed">%1$s にインストールされていません</string>
+    <string name="console_detail_not_launchable">%1$s ではこのゲームを起動できません</string>
     <string name="console_filter_all">すべて</string>
     <string name="console_filter_installed">インストール済み</string>
     <string name="console_all_games_title">すべてのゲーム</string>

@@ -42,6 +42,8 @@
     <string name="console_add_on_pc">请在 PC 上添加</string>
     <string name="console_adding">正在添加 %1$s…</string>
     <string name="console_add_failed">无法添加 %1$s</string>
+    <string name="console_detail_not_installed">未安装在 %1$s 上</string>
+    <string name="console_detail_not_launchable">%1$s 无法启动此游戏</string>
     <string name="console_filter_all">全部</string>
     <string name="console_filter_installed">已安装</string>
     <string name="console_all_games_title">全部游戏</string>

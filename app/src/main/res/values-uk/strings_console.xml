@@ -42,6 +42,8 @@
     <string name="console_add_on_pc">Додайте її на ПК</string>
     <string name="console_adding">Додавання: %1$s…</string>
     <string name="console_add_failed">Не вдалося додати: %1$s</string>
+    <string name="console_detail_not_installed">Не встановлено на %1$s</string>
+    <string name="console_detail_not_launchable">%1$s не може запустити цю гру</string>
     <string name="console_filter_all">Усі</string>
     <string name="console_filter_installed">Встановлені</string>
     <string name="console_all_games_title">Усі ігри</string>

@@ -302,7 +302,7 @@ public final class ConsoleRepository {
             sources.add(new ConsoleSnapshot.Source(computer.uuid, computer.displayName(), game.appId,
                     game.installId == null ? "" : game.installId, game.title, game.gameId, game.running,
                     game.coverPath, game.coverVersion, game.installed, "", false, game.storeSource, game.storeName,
-                    game.added, game.lastPlayed));
+                    game.added, game.lastPlayed, game.launchable));
         }
         return sources;
     }

@@ -42,6 +42,8 @@
     <string name="console_add_on_pc">PC에서 추가하세요</string>
     <string name="console_adding">%1$s 추가 중…</string>
     <string name="console_add_failed">%1$s을(를) 추가할 수 없습니다</string>
+    <string name="console_detail_not_installed">%1$s에 설치되지 않음</string>
+    <string name="console_detail_not_launchable">%1$s에서 이 게임을 시작할 수 없습니다</string>
     <string name="console_filter_all">전체</string>
     <string name="console_filter_installed">설치됨</string>
     <string name="console_all_games_title">모든 게임</string>

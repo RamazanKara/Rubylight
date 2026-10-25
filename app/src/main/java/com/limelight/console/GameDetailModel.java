@@ -1,5 +1,8 @@
 package com.limelight.console;
 
+import androidx.annotation.StringRes;
+
+import com.limelight.R;
 import com.limelight.nativeapi.ConsoleSnapshot;
 import com.limelight.nativeapi.NativeSession;
 
@@ -56,8 +59,35 @@ public final class GameDetailModel {
         return state != State.IDLE;
     }
 
+    /** Why a host that answers cannot start the game: its library says it is not installed, or not startable. */
+    public enum Blocked { NONE, NOT_INSTALLED, NOT_LAUNCHABLE }
+
+    /** What the host's library says against starting the game; a game that runs or is suspended can be resumed. */
+    public Blocked blocked() {
+        if (source == null || state != State.IDLE) return Blocked.NONE;
+        if (Boolean.FALSE.equals(source.installed)) return Blocked.NOT_INSTALLED;
+        if (Boolean.FALSE.equals(source.launchable)) return Blocked.NOT_LAUNCHABLE;
+        return Blocked.NONE;
+    }
+
     public boolean canStart() {
-        return hostOnline;
+        return hostOnline && blocked() == Blocked.NONE;
+    }
+
+    /**
+     * The game page's note for a game its host cannot start ("Not installed on Living-room PC"), formatted with
+     * {@link #hostName}; 0 when nothing stands against starting it.
+     */
+    @StringRes
+    public int blockedNote() {
+        switch (blocked()) {
+            case NOT_INSTALLED:
+                return R.string.console_detail_not_installed;
+            case NOT_LAUNCHABLE:
+                return R.string.console_detail_not_launchable;
+            default:
+                return 0;
+        }
     }
 
     /**

@@ -42,6 +42,8 @@
     <string name="console_add_on_pc">Dodaj ją na komputerze</string>
     <string name="console_adding">Dodawanie: %1$s…</string>
     <string name="console_add_failed">Nie udało się dodać: %1$s</string>
+    <string name="console_detail_not_installed">Nie zainstalowano na %1$s</string>
+    <string name="console_detail_not_launchable">%1$s nie może uruchomić tej gry</string>
     <string name="console_filter_all">Wszystkie</string>
     <string name="console_filter_installed">Zainstalowane</string>
     <string name="console_all_games_title">Wszystkie gry</string>

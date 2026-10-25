@@ -42,6 +42,8 @@
     <string name="console_add_on_pc">Thêm trên PC</string>
     <string name="console_adding">Đang thêm %1$s…</string>
     <string name="console_add_failed">Không thể thêm %1$s</string>
+    <string name="console_detail_not_installed">Chưa cài đặt trên %1$s</string>
+    <string name="console_detail_not_launchable">%1$s không thể khởi chạy trò chơi này</string>
     <string name="console_filter_all">Tất cả</string>
     <string name="console_filter_installed">Đã cài đặt</string>
     <string name="console_all_games_title">Tất cả trò chơi</string>

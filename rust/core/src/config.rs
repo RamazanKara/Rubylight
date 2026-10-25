@@ -485,6 +485,11 @@ impl Config {
     pub fn webrtc_server(&self) -> bool {
         self.boolean("webrtc_server", false)
     }
+    /// Whether the WebRTC media thread paces video (the default). `webrtc_pacing = false` sends
+    /// every packet the moment str0m makes it; it exists to measure the two against each other.
+    pub fn webrtc_pacing(&self) -> bool {
+        self.boolean("webrtc_pacing", true)
+    }
     /// The WebRTC signalling port (TCP; discovery always listens on UDP 8000).
     /// A value outside 1024..=65535 is reported and the default is used.
     pub fn webrtc_port(&self) -> u16 {
@@ -1058,6 +1063,15 @@ impl Ports {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn webrtc_video_is_paced_unless_the_measurement_switch_turns_it_off() {
+        let mut config = super::Config::default();
+        assert!(config.webrtc_pacing());
+        let saved = serde_json::json!({"webrtc_pacing": "false"});
+        config.update(saved.as_object().unwrap()).unwrap();
+        assert!(!config.webrtc_pacing());
+    }
+
     #[test]
     fn the_webrtc_server_is_off_on_8000_and_8001_and_refuses_bad_ports() {
         let config = super::Config::default();

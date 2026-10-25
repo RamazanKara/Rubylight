@@ -921,9 +921,25 @@ pub(super) fn encoder_probe(codecs: u32) -> EncoderProbe {
     }
 }
 
+/// The frame rates offered per mode. `webrtc_frame_rates = 30,60,90,120` replaces them for every
+/// mode, so a test host can stream rates that are not offered by default.
+pub(super) fn frame_rate_offer(config: &butterpollo_core::config::Config) -> FrameRateOffer {
+    let rates: Vec<u32> = config
+        .get("webrtc_frame_rates", "")
+        .split(',')
+        .filter_map(|rate| rate.trim().parse().ok())
+        .collect();
+    if rates.is_empty() {
+        FrameRateOffer::default()
+    } else {
+        FrameRateOffer::uniform(&rates)
+    }
+}
+
 fn capabilities(h: &Host) -> (ServerMessage, EncoderProbe) {
     let probe = encoder_probe(h.codecs.load(std::sync::atomic::Ordering::Acquire));
-    let body = HostCapabilities::new(probe, FrameRateOffer::default()).capabilities();
+    let offer = frame_rate_offer(&h.config.read().unwrap());
+    let body = HostCapabilities::new(probe, offer).capabilities();
     (ServerMessage::Capabilities(body), probe)
 }
 
@@ -1659,6 +1675,18 @@ pub(crate) mod tests {
         ] {
             assert!(!local_network(peer.parse().unwrap()), "{peer}");
         }
+    }
+
+    /// A test host can stream rates that are not offered by default; nothing else changes them.
+    #[test]
+    fn the_frame_rate_setting_replaces_the_offer_for_every_mode() {
+        let mut config = butterpollo_core::config::Config::default();
+        assert_eq!(frame_rate_offer(&config), FrameRateOffer::default());
+        let saved = serde_json::json!({"webrtc_frame_rates": "30, 60,120,x"});
+        config.update(saved.as_object().unwrap()).unwrap();
+        let offer = frame_rate_offer(&config);
+        assert_eq!(offer, FrameRateOffer::uniform(&[30, 60, 120]));
+        assert_ne!(offer, FrameRateOffer::default());
     }
 
     /// The capabilities list follows the host's AMF probe bits, not the protocol table.

@@ -31,7 +31,7 @@ use butterpollo_core::{
     performance::{Claims, Timing},
     rtsp::{Negotiated, webrtc_audio_kbps},
     webrtc::{
-        capabilities::{Codec, FrameRateOffer, HostCapabilities, StreamSettings},
+        capabilities::{Codec, HostCapabilities, StreamSettings},
         protocol::{
             AudioSettings, ControlMessage, ErrorCode, HostSessionState, ServerMessage,
             SessionState, VideoSettings, classify_control,
@@ -668,8 +668,8 @@ impl Actor {
             ));
         }
         let codecs = self.h.codecs.load(Ordering::Acquire);
-        let capabilities =
-            HostCapabilities::new(server::encoder_probe(codecs), FrameRateOffer::default());
+        let offer = server::frame_rate_offer(&self.h.config.read().unwrap());
+        let capabilities = HostCapabilities::new(server::encoder_probe(codecs), offer);
         let settings = capabilities
             .validate(&request.video, &request.audio)
             .map_err(|invalid| Box::new(invalid.into_message(kind)))?;
@@ -1167,16 +1167,22 @@ fn start_live(
     let audio_layout = audio_layout(settings.audio_channels as u8, answered.audio_layout)
         .map_err(Rejected::Answer)?;
     let link = butterpollo_windows::net::routed_link(peer);
-    let configured_kbps = h
-        .config
-        .read()
-        .unwrap()
-        .integer("pacing_max_bitrate_kbps", 0);
+    let (configured_kbps, paced) = {
+        let config = h.config.read().unwrap();
+        (
+            config.integer("pacing_max_bitrate_kbps", 0),
+            config.webrtc_pacing(),
+        )
+    };
     let options = TransportOptions {
-        pacing: Pacing::Paced {
-            configured_kbps,
-            link_bps: link.bps,
-            wireless: link.wireless,
+        pacing: if paced {
+            Pacing::Paced {
+                configured_kbps,
+                link_bps: link.bps,
+                wireless: link.wireless,
+            }
+        } else {
+            Pacing::Off
         },
         ..TransportOptions::default()
     };

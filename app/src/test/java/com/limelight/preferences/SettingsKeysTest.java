@@ -141,14 +141,33 @@ public class SettingsKeysTest {
     public void renderThroughOpenGlUsersMoveToVulkanOnce() {
         SharedPreferences p = prefs();
         p.edit().putBoolean("checkbox_gl_render", true).commit();
-        PreferenceConfiguration config = PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication());
-        assertTrue(config.vulkanRender);
+        assertTrue(PreferenceConfiguration.migrateRetiredGlRender(p, 33));
         assertFalse(p.contains("checkbox_gl_render"));
         assertTrue(p.getBoolean("checkbox_vulkan_render", false));
+        assertTrue(PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication()).vulkanRender);
 
         // Turning Vulkan off afterwards sticks: the old key is gone, so nothing switches it back on.
         p.edit().putBoolean("checkbox_vulkan_render", false).commit();
         assertFalse(PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication()).vulkanRender);
+    }
+
+    @Test
+    public void openGlUsersWithAnUpscalerOrAnOldAndroidDoNotGetVulkan() {
+        SharedPreferences p = prefs();
+        p.edit().putBoolean("checkbox_gl_render", true).putString("upscaling_mode", "fsr1").commit();
+        assertFalse(PreferenceConfiguration.migrateRetiredGlRender(p, 33));
+        assertFalse(p.contains("checkbox_gl_render"));
+        assertFalse(p.contains("checkbox_vulkan_render"));
+
+        p.edit().putBoolean("checkbox_gl_render", true).remove("upscaling_mode").commit();
+        assertFalse(PreferenceConfiguration.migrateRetiredGlRender(p, 28));
+        assertFalse(p.contains("checkbox_gl_render"));
+        assertFalse(p.contains("checkbox_vulkan_render"));
+
+        // Android 10 is the first that can run it, with no upscaler selected
+        p.edit().putBoolean("checkbox_gl_render", true).putString("upscaling_mode", "off").commit();
+        assertTrue(PreferenceConfiguration.migrateRetiredGlRender(p, 29));
+        assertTrue(p.getBoolean("checkbox_vulkan_render", false));
     }
 
     @Test

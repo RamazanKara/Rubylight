@@ -19,6 +19,7 @@ import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.binding.video.DisplayFrameRatePolicy;
 import com.limelight.binding.video.PerformanceOverlay;
 import com.limelight.binding.video.UpscalingPolicy;
+import com.limelight.binding.video.VideoRendererChoice;
 import com.limelight.ui.StreamOrientation;
 import com.limelight.ui.VideoScaling;
 
@@ -947,18 +948,28 @@ public class PreferenceConfiguration {
 
     /**
      * "Render through OpenGL" is removed. A user who had it on gets "Render through Vulkan", the
-     * setting that replaced it for frame-generation overlays, unless they already chose a value
-     * for that. The old key is dropped either way.
+     * setting that replaced it for frame-generation overlays, only if that can take its place:
+     * they never chose a value for it, no upscaler is selected (Vulkan would override it) and the
+     * device runs Android 10 or later. The old key is dropped either way.
      *
      * @return whether Vulkan was switched on
      */
-    static boolean migrateRetiredGlRender(SharedPreferences prefs) {
+    static boolean migrateRetiredGlRender(SharedPreferences prefs, int sdkInt) {
         if (!prefs.contains(RETIRED_GL_RENDER_PREF_STRING)) return false;
-        boolean switchOn = prefs.getBoolean(RETIRED_GL_RENDER_PREF_STRING, false) &&
-                !prefs.contains(VULKAN_RENDER_PREF_STRING);
+        boolean wasOn = prefs.getBoolean(RETIRED_GL_RENDER_PREF_STRING, false);
+        boolean chosen = prefs.contains(VULKAN_RENDER_PREF_STRING);
+        boolean upscaling = UpscalingPolicy.Mode.fromPreference(
+                prefs.getString(UPSCALING_PREF_STRING, "off")) != UpscalingPolicy.Mode.OFF;
+        boolean supported = sdkInt >= VideoRendererChoice.MIN_SDK;
+        boolean switchOn = wasOn && !chosen && !upscaling && supported;
         SharedPreferences.Editor editor = prefs.edit().remove(RETIRED_GL_RENDER_PREF_STRING);
         if (switchOn) editor.putBoolean(VULKAN_RENDER_PREF_STRING, true);
         editor.apply();
+        if (wasOn && !switchOn) {
+            com.limelight.LimeLog.info("\"Render through OpenGL\" was on and is gone; Vulkan stays off (" +
+                    (chosen ? "a Vulkan choice exists" : upscaling ? "an upscaler is selected" :
+                            "Android " + sdkInt + " is too old") + ")");
+        }
         return switchOn;
     }
 
@@ -982,7 +993,7 @@ public class PreferenceConfiguration {
 
         // Migrate legacy preferences to the new locations
         migrateOverlayMode(prefs);
-        if (migrateRetiredGlRender(prefs)) {
+        if (migrateRetiredGlRender(prefs, Build.VERSION.SDK_INT)) {
             com.limelight.LimeLog.info("\"Render through OpenGL\" was on; it is now \"Render through Vulkan\"");
         }
         if (migrateRustEngineDefault(prefs)) {

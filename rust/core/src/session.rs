@@ -1541,6 +1541,7 @@ mod tests {
             options: Default::default(),
             audio_preparation: Default::default(),
             preparing: Default::default(),
+            transport: Default::default(),
             warnings: Default::default(),
         }
     }
@@ -2198,6 +2199,65 @@ mod tests {
         sessions.queue(launch("again", Role::Stream)).unwrap();
         assert!(!other.stopping());
     }
+    fn webrtc_launch(id: &str, client: &str) -> Launch {
+        let mut launch = launch(id, Role::Stream);
+        launch.transport = Transport::WebRtc;
+        launch.client.uuid = client.into();
+        launch
+    }
+    #[test]
+    fn a_session_of_either_transport_ends_the_other_one() {
+        // A WebRTC session replaces a Moonlight stream and a pending Moonlight launch.
+        let mut sessions = Sessions::default();
+        sessions.queue(launch("moonlight", Role::Stream)).unwrap();
+        let moonlight = sessions
+            .start(launch("moonlight", Role::Stream), Negotiated::default())
+            .unwrap();
+        sessions.queue(launch("pending", Role::Stream)).unwrap();
+        let canceled = sessions.supersede_other_transport(Role::Stream, Transport::WebRtc);
+        assert_eq!(canceled.len(), 1);
+        assert!(moonlight.stopping());
+        assert!(sessions.pending.is_empty());
+        // And a Moonlight launch replaces a WebRTC stream, from any device.
+        sessions.queue(webrtc_launch("web", "tv")).unwrap();
+        let web = sessions
+            .start(webrtc_launch("web", "tv"), Negotiated::default())
+            .unwrap();
+        let canceled = sessions.supersede_other_transport(Role::Stream, Transport::GameStream);
+        assert!(canceled.is_empty());
+        assert!(web.stopping());
+        // Sessions of the transport asking are left alone.
+        sessions.queue(webrtc_launch("web2", "tv")).unwrap();
+        let web2 = sessions
+            .start(webrtc_launch("web2", "tv"), Negotiated::default())
+            .unwrap();
+        let canceled = sessions.supersede_other_transport(Role::Stream, Transport::WebRtc);
+        assert!(canceled.is_empty());
+        assert!(!web2.stopping());
+        // Another role is untouched too.
+        sessions
+            .queue(launch("monitor", Role::RemoteMonitor))
+            .unwrap();
+        let canceled = sessions.supersede_other_transport(Role::Stream, Transport::GameStream);
+        assert!(canceled.is_empty());
+        assert!(sessions.pending.contains_key("monitor"));
+    }
+    #[test]
+    fn a_webrtc_stream_is_held_by_another_device_only_while_it_lives() {
+        let mut sessions = Sessions::default();
+        assert!(!sessions.held_by_other(Role::Stream, Transport::WebRtc, "tv"));
+        sessions.queue(webrtc_launch("web", "tv")).unwrap();
+        assert!(!sessions.held_by_other(Role::Stream, Transport::WebRtc, "tv"));
+        assert!(sessions.held_by_other(Role::Stream, Transport::WebRtc, "phone"));
+        // A Moonlight launch is not a WebRTC one.
+        assert!(!sessions.held_by_other(Role::Stream, Transport::GameStream, "phone"));
+        let web = sessions
+            .start(webrtc_launch("web", "tv"), Negotiated::default())
+            .unwrap();
+        assert!(sessions.held_by_other(Role::Stream, Transport::WebRtc, "phone"));
+        web.stop();
+        assert!(!sessions.held_by_other(Role::Stream, Transport::WebRtc, "phone"));
+    }
 }
 /// A platform preparation that can be borrowed or moved into its stream.
 pub trait Preparation<T>: Send {
@@ -2208,6 +2268,15 @@ pub trait Preparation<T>: Send {
 /// A prepared audio route shared with the app and its stream.
 pub trait AudioPreparation<T>: Send + Sync {
     fn route(&self) -> Arc<T>;
+}
+
+/// How a session's media reaches the client. GameStream is Moonlight's RTSP, RTP and ENet;
+/// WebRTC is the signalling server's session (see `webrtc::session` in the host).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Transport {
+    #[default]
+    GameStream,
+    WebRtc,
 }
 
 pub struct Launch<P = (), A = ()> {
@@ -2239,6 +2308,7 @@ pub struct Launch<P = (), A = ()> {
     /// own commands, which can take minutes), it does not expire: the client
     /// connects only after the launch reply.
     pub preparing: Arc<AtomicBool>,
+    pub transport: Transport,
 }
 // Launch clones share the slots; the platform preparations need not be Clone.
 impl<P, A> Clone for Launch<P, A> {
@@ -2266,6 +2336,7 @@ impl<P, A> Clone for Launch<P, A> {
             options: self.options.clone(),
             audio_preparation: self.audio_preparation.clone(),
             preparing: self.preparing.clone(),
+            transport: self.transport,
         }
     }
 }
@@ -3309,6 +3380,35 @@ impl<P, A> Sessions<P, A> {
             .filter(|s| s.launch.role == Role::Stream && !s.stopping())
             .map(|s| s.launch.client.uuid.clone())
             .collect()
+    }
+    /// A new session over one transport ends the sessions of the other in the same role: a
+    /// WebRTC stream and a Moonlight stream never run together, whichever came first. Sessions
+    /// of the same transport follow the per-client rules of `supersede`.
+    #[must_use = "drop canceled launches after releasing the sessions lock"]
+    pub fn supersede_other_transport(
+        &mut self,
+        role: Role,
+        transport: Transport,
+    ) -> Vec<Launch<P, A>> {
+        let canceled = self.remove_pending(|p| p.role == role && p.transport != transport);
+        for s in self.active.values() {
+            if s.launch.role == role && s.launch.transport != transport {
+                s.stop();
+            }
+        }
+        canceled
+    }
+    /// Whether another device has a live session of this transport and role: pending, or running
+    /// and not stopping.
+    pub fn held_by_other(&self, role: Role, transport: Transport, client: &str) -> bool {
+        let other = |l: &Launch<P, A>| {
+            l.role == role && l.transport == transport && l.client.uuid != client
+        };
+        self.pending.values().any(|p| p.live() && other(p))
+            || self
+                .active
+                .values()
+                .any(|s| !s.stopping() && other(&s.launch))
     }
     #[must_use = "drop canceled launches after releasing the sessions lock"]
     pub fn stop_role(&mut self, role: Role, client: Option<&str>) -> Vec<Launch<P, A>> {

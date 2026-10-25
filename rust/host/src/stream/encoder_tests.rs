@@ -92,6 +92,7 @@ impl Stream {
             options: Default::default(),
             audio_preparation: Default::default(),
             preparing: Default::default(),
+            transport: Default::default(),
             warnings: Default::default(),
         };
         Ok(Self {

@@ -234,7 +234,62 @@ impl Default for Negotiated {
         }
     }
 }
+/// The datagram str0m targets for WebRTC video and how much of it is payload: the RTP header
+/// with its extensions and the SRTP tag take the rest. `webrtc::media` packetizes to these.
+pub const WEBRTC_DATAGRAM_BYTES: u64 = 1150;
+pub const WEBRTC_PAYLOAD_BYTES: u64 = WEBRTC_DATAGRAM_BYTES - 50;
+/// The Opus bitrate of a WebRTC audio layout: the protocol's 128 kbps for stereo and
+/// GameStream's surround bitrates for 6 and 8 channels.
+pub fn webrtc_audio_kbps(channels: u8) -> u32 {
+    match channels {
+        6 => 256,
+        8 => 450,
+        _ => 128,
+    }
+}
 impl Negotiated {
+    /// What `start-session` negotiates, in place of RTSP's ANNOUNCE: one slice, no FEC (WebRTC
+    /// retransmits and the client asks for keyframes), 5 ms Opus packets, and a single
+    /// reference frame so the encoder keeps no long-term references for invalidation, which
+    /// this transport never uses. `bitrate_kbps` is what the client asked for in all; the
+    /// video budget is what is left after the audio layout and the RTP and SRTP overhead.
+    pub fn webrtc(
+        width: u32,
+        height: u32,
+        fps: u32,
+        codec: crate::webrtc::capabilities::Codec,
+        hdr: bool,
+        bitrate_kbps: u32,
+        channels: u8,
+    ) -> Self {
+        use crate::webrtc::capabilities::Codec;
+        let video = u64::from(bitrate_kbps).saturating_sub(u64::from(webrtc_audio_kbps(channels)))
+            * WEBRTC_PAYLOAD_BYTES
+            / WEBRTC_DATAGRAM_BYTES;
+        Self {
+            width,
+            height,
+            fps,
+            bitrate_kbps: video.clamp(1, u64::from(u32::MAX)) as u32,
+            configured_bitrate_kbps: bitrate_kbps,
+            codec: match codec {
+                Codec::H264 => 0,
+                Codec::Hevc => 1,
+                Codec::Av1 => 2,
+            },
+            hdr,
+            slices: 1,
+            references: 1,
+            min_fec: 0,
+            audio_channels: channels,
+            audio_packet_ms: 5,
+            // Neither GameStream's AES layer nor its QoS tags apply: DTLS-SRTP encrypts.
+            encryption: 0,
+            video_qos: false,
+            audio_qos: false,
+            ..Self::default()
+        }
+    }
     pub fn coded_size(&self) -> (u32, u32) {
         if crate::packed444::supported(self.chroma_packing) {
             crate::packed444::Geometry::new(self.width, self.height)
@@ -454,6 +509,65 @@ pub fn codec_warning(preference: &str, codec: u8, pyrowave_available: bool) -> O
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::webrtc::capabilities::Codec;
+
+    #[test]
+    fn webrtc_negotiation_has_no_fec_one_slice_and_5_ms_opus() {
+        for (codec, number) in [(Codec::H264, 0), (Codec::Hevc, 1), (Codec::Av1, 2)] {
+            let n = Negotiated::webrtc(1920, 1080, 60, codec, false, 20_000, 2);
+            n.validate().unwrap();
+            assert_eq!(
+                (n.width, n.height, n.fps, n.codec),
+                (1920, 1080, 60, number)
+            );
+            assert_eq!((n.slices, n.min_fec, n.audio_packet_ms), (1, 0, 5));
+            assert_eq!(n.references, 1, "no long-term references for invalidation");
+            assert_eq!(n.encryption, 0);
+            assert!(!n.video_qos && !n.audio_qos && !n.hdr && !n.mic);
+            assert_eq!((n.chroma_packing, n.yuv444), (0, false));
+            assert_eq!(n.fps_millihz(), 60_000);
+        }
+        let hdr = Negotiated::webrtc(3840, 2160, 120, Codec::Hevc, true, 50_000, 2);
+        hdr.validate().unwrap();
+        assert!(hdr.hdr && hdr.ten_bit());
+    }
+
+    #[test]
+    fn webrtc_video_budget_is_the_bitrate_minus_audio_and_rtp_overhead() {
+        let video = |kbps, channels| {
+            Negotiated::webrtc(1920, 1080, 60, Codec::H264, false, kbps, channels).bitrate_kbps
+        };
+        // 128 kbps of stereo Opus, then 1100 payload bytes of every 1150.
+        assert_eq!(video(20_000, 2), (20_000 - 128) * 1100 / 1150);
+        assert_eq!(video(20_000, 6), (20_000 - 256) * 1100 / 1150);
+        assert_eq!(video(20_000, 8), (20_000 - 450) * 1100 / 1150);
+        assert!(video(20_000, 8) < video(20_000, 6) && video(20_000, 6) < video(20_000, 2));
+        // The whole stream never exceeds what the client asked for.
+        for channels in [2, 6, 8] {
+            let overhead =
+                u64::from(video(50_000, channels)) * WEBRTC_DATAGRAM_BYTES / WEBRTC_PAYLOAD_BYTES;
+            assert!(overhead + u64::from(webrtc_audio_kbps(channels)) <= 50_000);
+        }
+        // A degenerate request still leaves the encoder a positive rate.
+        assert_eq!(video(100, 8), 1);
+        assert_eq!(
+            Negotiated::webrtc(1920, 1080, 60, Codec::H264, false, 20_000, 2)
+                .configured_bitrate_kbps,
+            20_000
+        );
+    }
+
+    #[test]
+    fn webrtc_negotiation_with_an_unsupported_layout_does_not_validate() {
+        for channels in [0, 1, 3, 4, 5, 7] {
+            assert!(
+                Negotiated::webrtc(1920, 1080, 60, Codec::H264, false, 20_000, channels)
+                    .validate()
+                    .is_err(),
+                "{channels}"
+            );
+        }
+    }
 
     #[test]
     fn stream_rate_cannot_be_below_one_frame_per_second() {

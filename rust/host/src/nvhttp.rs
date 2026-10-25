@@ -1554,6 +1554,7 @@ fn build_launch_session(
         audio_preparation: Default::default(),
         options: args.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
         preparing: Default::default(),
+        transport: Default::default(),
         warnings: Default::default(),
     }
 }

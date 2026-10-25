@@ -118,8 +118,10 @@ the dark system theme (`-Theme light` captures the day palette instead), a fixed
 keyboard and no "Viewing full screen" confirmation, then restore the prior values in `finally`. The published
 stills, store screenshots and video use the dark theme: its night surfaces and amber accents are the Nightjar
 identity, and they sit in the site's dark phone frames.
-On an emulator, software AV1/HEVC 10-bit playback can render corrupt, so every state is launched with
-`--es codec h264` to use the 8-bit sample (the codec extra is debug-only and sticks for the process).
+On an emulator, software AV1/HEVC 10-bit playback can render corrupt, so the demo plays the 10-bit samples
+only when the device has a hardware decoder for them and otherwise falls back to the 8-bit H.264 sample, with the
+overlay labelled to match. Every state is still launched with `--es codec h264` to force the 8-bit sample (the
+codec extra is debug-only and sticks for the process).
 They force-stop only this package
 between states and at exit. They do not clear app data. Settings navigation and
 the tour's taps use UIAutomator resource IDs, text and discovered

@@ -187,6 +187,7 @@ public class DemoModeTest {
     @Test public void metricsUseTheProductionListenerAndChangeBetweenSamples() {
         Context context = RuntimeEnvironment.getApplication();
         String[] samples = new String[2];
+        DemoMetrics.sample = "av1";
         DemoMetrics.update(context, (video, network, decode, statistics, compact) -> {
             assertTrue(video.contains("AV1"));
             assertTrue(video.contains("FSR 1"));
@@ -196,6 +197,15 @@ public class DemoModeTest {
         }, 0);
         DemoMetrics.update(context, (video, network, decode, statistics, compact) -> samples[1] = decode, 2);
         assertNotEquals(samples[0], samples[1]);
+        // The overlay describes the sample that plays: the 8-bit fallback is labelled H.264, not AV1 HDR.
+        DemoMetrics.sample = "h264";
+        DemoMetrics.update(context, (video, network, decode, statistics, compact) -> {
+            assertTrue(video.contains("H.264 · 8-bit SDR"));
+            assertFalse(video.contains("AV1"));
+            assertTrue(statistics.toString().contains("H.264 · SDR"));
+            assertFalse(statistics.toString().contains("HDR"));
+        }, 0);
+        DemoMetrics.sample = "av1";
     }
 
     @Test public void streamChromeRestoresOverlayModeAndReleasesControls() {
@@ -203,7 +213,8 @@ public class DemoModeTest {
                 .putExtra("state", "advanced");
         var first = Robolectric.buildActivity(DemoGameActivity.class, intent).create();
         TextView overlay = first.get().findViewById(R.id.performanceOverlay);
-        assertTrue(overlay.getText().toString().contains("AV1"));
+        // Robolectric has no hardware AV1 or HEVC decoder, so the demo plays the 8-bit sample and says so.
+        assertTrue(overlay.getText().toString().contains("H.264"));
         assertTrue(overlay.getText().toString().contains("p95"));
         assertEquals(Integer.MAX_VALUE, overlay.getMaxLines());
         Bundle saved = new Bundle();

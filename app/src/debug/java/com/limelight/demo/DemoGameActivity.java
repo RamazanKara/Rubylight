@@ -7,8 +7,6 @@ import android.content.pm.PackageManager;
 import android.content.res.AssetFileDescriptor;
 import android.content.res.Configuration;
 import android.graphics.Rect;
-import android.media.MediaCodecInfo;
-import android.media.MediaCodecList;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -186,6 +184,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         label.setPadding(8, 8, 8, 12);
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         container.addView(label, params);
+        sample();
         DemoMetrics.update(this, this, 0);
         // The first-stream hint, as a real stream shows it once; "--ez hint true" shows it until tapped.
         TextView hint = findViewById(R.id.streamMenuHint);
@@ -348,23 +347,20 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
     }
 
     private String sample() {
-        // Launching the demo with "--es codec h264" forces the 8-bit sample for this process; software
-        // AV1/HEVC 10-bit playback renders corrupt on some emulators.
-        if (!fallback && !forceH264) {
-            for (String[] candidate : new String[][] {{"video/av01", "av1"}, {"video/hevc", "hevc"}}) {
-                for (MediaCodecInfo info : new MediaCodecList(MediaCodecList.REGULAR_CODECS).getCodecInfos()) {
-                    if (info.isEncoder()) continue;
-                    for (String type : info.getSupportedTypes()) {
-                        if (candidate[0].equalsIgnoreCase(type)) {
-                            try (AssetFileDescriptor ignored = getAssets().openFd("demo/stream-" + candidate[1] + ".mp4")) {
-                                return candidate[1];
-                            } catch (IOException ignored) { }
-                        }
-                    }
-                }
-            }
+        // Launching the demo with "--es codec h264" forces the 8-bit sample for this process. The 10-bit
+        // AV1 and HEVC samples need a hardware decoder: a software one renders them corrupt on emulators.
+        String sample = DemoSample.choose(DemoSample.hasHardwareDecoder("video/av01"),
+                DemoSample.hasHardwareDecoder("video/hevc"), hasAsset("av1"), hasAsset("hevc"), forceH264, fallback);
+        DemoMetrics.sample = sample;
+        return sample;
+    }
+
+    private boolean hasAsset(String codec) {
+        try (AssetFileDescriptor ignored = getAssets().openFd("demo/stream-" + codec + ".mp4")) {
+            return true;
+        } catch (IOException e) {
+            return false;
         }
-        return "h264";
     }
 
     private void play(SurfaceHolder holder) {

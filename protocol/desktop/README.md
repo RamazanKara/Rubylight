@@ -43,6 +43,18 @@ The script also checks that no import is left outside the zip or Windows itself 
 missing), then starts the unpacked exe with only the Windows folders on `PATH`. `-Version` names the zip after a release
 version; the release workflow builds it that way (`nightjar-desktop-<version>-windows-x86_64.zip`), and
 `package-linux.sh -v` does the same for the Linux tar.gz.
+
+### Packaging for Linux
+
+`package-linux.sh -f <FFmpeg prefix> [-s <PyroWave SDK>] [-v <version>]` builds the release binary against
+the decode-only FFmpeg that `ffmpeg-decode-only.sh <ffmpeg 8 source> <prefix>` builds on Linux (libavcodec
+and libavutil with the H.264, HEVC and AV1 decoders, their VAAPI paths and dav1d; needs `nasm`,
+`libdav1d-dev` and `libva-dev`), and ships `libavcodec`, `libavutil` and `libdav1d` in `lib/` beside the
+executable. The executable and the libraries have the run path `$ORIGIN/lib` and `$ORIGIN`, so the FFmpeg of the
+machine (another version on a Steam Deck, or none) is never used; FFmpeg stays dynamic (LGPL) and its
+licence is in `licenses-ffmpeg/`. libopus, libva and the desktop libraries stay the system's
+(`LINUX-RUNTIME.txt`). The script unpacks the archive and fails if `ldd` shows a libav* or libdav1d outside it,
+or a library that is not found.
 `nightjar --check-pyrowave <file>` (no window; the packaging scripts run it on the unpacked package) writes whether the SDK
 library beside the executable loads (`load:`) and whether a decoder builds on this PC's GPU (`probe:`) and exits 0, 2 (loaded,
 no usable GPU) or 1 (did not load).
@@ -50,7 +62,7 @@ no usable GPU) or 1 (did not load).
 ### Linux
 
 ```sh
-sudo apt install cmake ninja-build pkg-config libavcodec-dev libavutil-dev libopus-dev libva-dev \
+sudo apt install cmake ninja-build pkg-config libavcodec-dev libavutil-dev libopus-dev libva-dev nasm libdav1d-dev \
   libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxfixes-dev libxtst-dev \
   libxkbcommon-dev libwayland-dev wayland-protocols libegl-dev libgl-dev libgles-dev libdrm-dev \
   libgbm-dev libpulse-dev libasound2-dev libpipewire-0.3-dev libudev-dev libdbus-1-dev libdecor-0-dev

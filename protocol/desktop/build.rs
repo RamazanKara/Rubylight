@@ -35,8 +35,22 @@ fn main() {
         Some(prefix) => {
             bindings = bindings.clang_arg(format!("-I{prefix}/include"));
             println!("cargo:rustc-link-search=native={prefix}/lib");
-            for library in ["avcodec", "avutil", "opus"] {
+            // Windows packages bring Opus in the same prefix. On Linux Opus is the system's
+            // (libopus.so.0 keeps its soname) and the package ships FFmpeg in lib/ beside the
+            // executable: the run path finds it there, whatever FFmpeg the machine has.
+            let libraries: &[&str] = if windows {
+                &["avcodec", "avutil", "opus"]
+            } else {
+                &["avcodec", "avutil"]
+            };
+            for library in libraries {
                 println!("cargo:rustc-link-lib=dylib={library}");
+            }
+            if !windows {
+                pkg_config::Config::new()
+                    .probe("opus")
+                    .unwrap_or_else(|e| panic!("opus not found: {e}"));
+                println!("cargo:rustc-link-arg-bins=-Wl,-rpath,$ORIGIN/lib");
             }
         }
         None => {

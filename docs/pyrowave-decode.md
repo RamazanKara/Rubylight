@@ -298,7 +298,8 @@ decode:
   libpyrowave-shared.so not found next to the executable (...). Switch the PyroWave decoder to CPU
   in the settings, or pick another codec.` A failing Vulkan device gets the same treatment, with the
   SDK's error. Probing twice loads the SDK once.
-- **Packaging.** `protocol/desktop/package-linux.sh -s <SDK folder>` builds the release binary and
+- **Packaging.** `protocol/desktop/package-linux.sh -f <FFmpeg prefix> -s <SDK folder>` builds the release
+  binary against the decode-only FFmpeg (shipped in `lib/`, see `protocol/desktop/README.md`) and
   packs `nightjar-desktop-<version>-linux-<arch>.tar.gz` with the library beside it, its build-info
   as `pyrowave-sdk-build-info.txt`, `licenses-pyrowave/` and `system-libraries.txt` (what `ldd`
   finds). Like the Windows script it refuses a library that is not the pinned one, or whose SHA-256

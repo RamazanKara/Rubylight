@@ -21,11 +21,11 @@ const ALL_LEGS = ['pair', 'apps', 'browser', 'av1', 'hevc', 'surround51', 'surro
 const legs = option('legs', ALL_LEGS.join(',')).split(',');
 const seconds = Number(option('seconds', 60));
 // `--runs 3` repeats every streaming leg; `--system` starts the test host as SYSTEM in the console
-// session (the virtual display driver accepts nothing else); `--host-config a=b,c=d` adds lines to
+// session (the virtual display driver accepts nothing else); `--host-config a=b,c=d` (a value may hold commas: 30,60) adds lines to
 // the test host's sunshine.conf, so one invocation measures one host configuration.
 const runs = Number(option('runs', 1));
 const system = args.includes('--system');
-const hostConfig = Object.fromEntries(option('host-config', '').split(',').filter(Boolean).map(pair => {
+const hostConfig = Object.fromEntries(option('host-config', '').split(/,(?=\w+=)/).filter(Boolean).map(pair => {
   const at = pair.indexOf('=');
   assert(at > 0, `--host-config wants key=value pairs, not "${pair}"`);
   return [pair.slice(0, at), pair.slice(at + 1)];
@@ -568,6 +568,8 @@ const ourLegs = {
   'h264-120': {codec: 'h264', fps: 120},
   'av1-90': {codec: 'av1', fps: 90},
   'av1-120': {codec: 'av1', fps: 120},
+  'hevc-90': {codec: 'hevc', kind: 'chrome', browserArgs: H265_RECEIVE, fps: 90},
+  'hevc-120': {codec: 'hevc', kind: 'chrome', browserArgs: H265_RECEIVE, fps: 120},
   // The same 4K on the virtual display in SDR, to tell the display's cost from HDR's.
   'av1-4k-vd': {codec: 'av1', width: 3840, height: 2160, bitrateKbps: 50000, clock: false, tone: false},
   // HDR needs a virtual display that is in HDR (--system with virtual_display_mode and

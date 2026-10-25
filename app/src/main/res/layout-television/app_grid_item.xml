@@ -9,7 +9,7 @@
     android:padding="@dimen/poster_glow" android:clipChildren="false" android:clipToPadding="false"
     android:stateListAnimator="?attr/nightjarPosterFocusAnimator" android:descendantFocusability="blocksDescendants">
     <View android:id="@+id/grid_glow" android:layout_width="match_parent" android:layout_height="match_parent"
-        android:layout_margin="-16dp" android:background="?attr/nightjarPosterGlow"
+        android:layout_marginStart="-16dp" android:layout_marginEnd="-16dp" android:layout_marginTop="-16dp" android:layout_marginBottom="-16dp" android:background="?attr/nightjarPosterGlow"
         android:duplicateParentState="true" android:importantForAccessibility="no" />
     <com.google.android.material.card.MaterialCardView android:id="@+id/grid_card"
         app:cardPreventCornerOverlap="false" android:clipToOutline="true"

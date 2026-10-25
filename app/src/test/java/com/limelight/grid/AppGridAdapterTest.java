@@ -188,6 +188,27 @@ public class AppGridAdapterTest {
 
     @Test
     @Config(qualifiers = "w960dp-h540dp-television-xhdpi")
+    public void theGlowReachesItsFullPaddingBeyondThePoster() {
+        try (var controller = Robolectric.buildActivity(com.limelight.ui.UiNavigationTest.Screen.class).setup().visible()) {
+            for (int layoutId : new int[] {R.layout.app_grid_item, R.layout.app_grid_item_small}) {
+                android.view.View root = android.view.LayoutInflater.from(controller.get()).inflate(layoutId, null);
+                root.measure(android.view.View.MeasureSpec.makeMeasureSpec(432, android.view.View.MeasureSpec.EXACTLY),
+                        android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED));
+                root.layout(0, 0, root.getMeasuredWidth(), root.getMeasuredHeight());
+                android.view.View glow = root.findViewById(R.id.grid_glow);
+                android.view.View card = root.findViewById(R.id.grid_card);
+                int reach = controller.get().getResources().getDimensionPixelSize(R.dimen.poster_glow);
+                // A negative layout_margin is ignored by the framework: only the four sides separately reach out.
+                assertEquals(card.getLeft() - reach, glow.getLeft());
+                assertEquals(card.getTop() - reach, glow.getTop());
+                assertEquals(card.getRight() + reach, glow.getRight());
+                assertEquals(card.getBottom() + reach, glow.getBottom());
+            }
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-television-xhdpi")
     public void aHeldKeyPutsEachCardStraightIntoItsFinalFocusState() {
         try (var controller = Robolectric.buildActivity(com.limelight.ui.UiNavigationTest.Screen.class).setup().visible()) {
             com.limelight.ui.AdaptiveGridView grid = posterGrid(controller.get(), 20, 700);

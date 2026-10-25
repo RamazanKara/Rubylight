@@ -781,7 +781,7 @@ impl SendQueue {
     }
 
     /// Whether the simulated link loses this datagram. Only video, as `webrtc_loss_permille`
-    /// promises; the datagram is counted as lost, not as sent.
+    /// promises; `send_due` counts it as a simulated loss, not as sent.
     pub fn lost_in_the_air(&mut self, out: &Outgoing) -> bool {
         out.paced && self.loss.drops()
     }
@@ -936,6 +936,8 @@ struct Counters {
     paced_dropped: AtomicU64,
     channel_sent: AtomicU64,
     channel_dropped: AtomicU64,
+    /// Video datagrams the loss switch (`webrtc_loss_permille`) threw away instead of sending.
+    simulated_losses: AtomicU64,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -957,6 +959,7 @@ pub struct TransportStats {
     pub paced_dropped: u64,
     pub channel_sent: u64,
     pub channel_dropped: u64,
+    pub simulated_losses: u64,
 }
 
 struct Shared {
@@ -1341,7 +1344,19 @@ impl MediaHandle {
             paced_dropped: get(&c.paced_dropped),
             channel_sent: get(&c.channel_sent),
             channel_dropped: get(&c.channel_dropped),
+            simulated_losses: get(&c.simulated_losses),
         }
+    }
+
+    /// The video datagrams the loss switch has thrown away so far, for the `stream timings` line;
+    /// None while the switch is off.
+    pub fn simulated_losses(&self) -> Option<u64> {
+        (self.shared.options.loss_permille > 0).then(|| {
+            self.shared
+                .counters
+                .simulated_losses
+                .load(Ordering::Relaxed)
+        })
     }
 
     /// Stop and join the threads. Called from one of the transport's own hooks (the event hook
@@ -1655,6 +1670,10 @@ fn send_due(socket: &UdpSocket, queue: &mut SendQueue, shared: &Shared) {
         }
         for out in &batch.packets {
             if queue.lost_in_the_air(out) {
+                shared
+                    .counters
+                    .simulated_losses
+                    .fetch_add(1, Ordering::Relaxed);
                 continue;
             }
             match socket.send_to(&out.data, out.destination) {
@@ -2628,6 +2647,43 @@ mod tests {
             .filter(|_| second.lost_in_the_air(&video))
             .count();
         assert_eq!(again, lost);
+    }
+
+    #[test]
+    fn simulated_losses_are_counted_and_reported_only_with_the_switch_on() {
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let (handle, _rx, _idr) = detached(TransportOptions {
+            loss_permille: 500,
+            ..TransportOptions::default()
+        });
+        let mut queue =
+            SendQueue::new(Pacing::Off, 30_000, PERIOD, false, Instant::now()).with_loss(500);
+        let to = receiver.local_addr().unwrap();
+        for _ in 0..200 {
+            queue.push(Outgoing {
+                destination: to,
+                ..rtp_packet(100)
+            });
+        }
+        for _ in 0..20 {
+            queue.push(Outgoing {
+                destination: to,
+                ..control_packet()
+            });
+        }
+        send_due(&socket, &mut queue, &handle.shared);
+        let stats = handle.stats();
+        assert!(queue.is_empty());
+        assert!(
+            (50..=150).contains(&stats.simulated_losses),
+            "{} of 200 video datagrams at 50%",
+            stats.simulated_losses
+        );
+        assert_eq!(stats.simulated_losses + stats.datagrams_sent, 220);
+        assert_eq!(handle.simulated_losses(), Some(stats.simulated_losses));
+        let (clean, _rx, _idr) = detached(TransportOptions::default());
+        assert_eq!(clean.simulated_losses(), None);
     }
 
     #[test]

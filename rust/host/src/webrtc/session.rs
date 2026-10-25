@@ -159,6 +159,11 @@ impl Sender {
         self.media.peer()
     }
 
+    /// Video datagrams the loss switch has thrown away so far; None while it is off.
+    pub fn simulated_losses(&self) -> Option<u64> {
+        self.media.simulated_losses()
+    }
+
     /// Queue frames the encoder returned. A frame the transport cannot take is dropped and a
     /// keyframe requested by the transport; the stream goes on.
     pub fn submit(

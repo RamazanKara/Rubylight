@@ -2298,6 +2298,8 @@ impl Media {
                                             link_failed_probes=link["failed_probes"].as_u64().unwrap_or(0),
                                             link_rtt_ms=link["rtt_ms"].as_u64().unwrap_or(0),
                                             link_rtt_floor_ms=link["rtt_floor_ms"].as_u64().unwrap_or(0),
+                                            // Only with webrtc_loss_permille on: the video datagrams it has thrown away.
+                                            webrtc_simulated_losses=webrtc_sender.as_ref().and_then(|sender| sender.simulated_losses()),
                                             "stream timings"
                                         );
                                     }

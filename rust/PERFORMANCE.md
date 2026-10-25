@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| Wi-Fi clients paced from the first frame (`clientWireless`): Nightjar desktop over 5 GHz and 2.4 GHz, with and without the hint | [October 25, Wi-Fi pacing hint](#october-25-wi-fi-pacing-hint-on-a-real-laptop) |
 | Behaviour across client link speeds: 1000 to 10 Mbit/s, step changes, Wi-Fi profile, what breaks above the link | [October 23, behaviour across client link speeds](#october-23-behaviour-across-client-link-speeds) |
 | Near-link tuning of the link-rate controller: pace above the delivered rate, headroom 0.80, tight AMF buffer (all reverted) | [October 24, near-link tuning (L6)](#october-24-near-link-tuning-three-steps-tried-and-reverted-l6) |
 | Nightjar desktop PyroWave decode: stage split, single upload (kept), batched passes (reverted), the present clock holding every frame 50 ms at the start | [October 23, PyroWave desktop decode stage split (brief 1)](#october-23-pyrowave-desktop-decode-stage-split-brief-1) |
@@ -42,6 +43,19 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## October 25: Wi-Fi pacing hint on a real laptop
+
+Question: does pacing a Wi-Fi client from the first frame (`x-rl-video[0].clientWireless:1`, `wireless_adaptive_pacing`) cut loss without adding latency? Host: this PC (RX 7900 XT, wired 2.5 GbE), a release build of main at the pacing change, isolated profile, WGC capture with a full-screen scrolling texture at 60 fps. Client: Nightjar desktop on the Ryzen 7 8845HS laptop, Wi-Fi only. Arm A is Nightjar 3.1.0, which sends no hint, so the host starts at 800 Mbps route pacing; arm B is the new client, so the host starts adaptive pacing at 94 Mbps. Both arms use the same FFmpeg and SDL DLLs. HEVC 1080p60, the host capped the bitrate at 46,988 kbps, adaptive bitrate off, 90 s per run in the order A B A B A B, loss memory cleared before every run.
+
+| Link | Arm | FEC-unrecoverable frames (mean) | IDR requests after the first (mean) | Bitrate step-downs (mean) | End-to-end median / p99 (mean of runs) | Frames decoded of about 5400 (mean) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 5 GHz, 2402 Mbit/s, signal 95-96% | A, no hint | 0 | 0 | 0 | 4.74 / 10.12 ms | 5397 |
+| 5 GHz, 2402 Mbit/s, signal 95-96% | B, hint | 0 | 0 | 0 | 4.77 / 10.18 ms | 5399 |
+| 2.4 GHz ch 13, 287 Mbit/s, signal 80-85% | A, no hint | 61 (13-115) | 100 (17-195) | 3.7 | 64 / 12,170 ms | 3925 |
+| 2.4 GHz ch 13, 287 Mbit/s, signal 80-85% | B, hint | 15.7 (4-35) | 27.7 (9-54) | 1.7 | 13.7 / 1652 ms | 4728 |
+
+On the clean 5 GHz link the hint changes nothing measurable: no loss in either arm. B's host send stage is 5-8 ms at p99 because each frame is spread out, but that does not show up end to end. On 2.4 GHz every run lost video, and B lost about a quarter as many unrecoverable frames and needed about a quarter as many keyframes, with a much shorter latency tail. Three runs per arm with a wide spread inside each arm, so the direction is solid and the ratios are not. B still stalls after loss on this link, so 47 Mbps HEVC remains too much for it. One laptop, one AP; phones not measured. Outputs: `C:\src\butterpollo-release\wifi-ab\` and `wifi-ab-24\` on the test PC.
 
 ## October 23: behaviour across client link speeds
 

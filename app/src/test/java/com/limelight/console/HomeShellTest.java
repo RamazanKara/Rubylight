@@ -120,6 +120,11 @@ public class HomeShellTest {
 
     /** Reports the hosts to Home's feed and paints the cards they would give, laid out in a 1080x1920 list. */
     private RecyclerView showHosts(Home home, ComputerDetails... hosts) throws Exception {
+        return showHosts(home, 1, hosts);
+    }
+
+    /** {@link #showHosts(Home, ComputerDetails...)} with {@code games} games on each online host. */
+    private RecyclerView showHosts(Home home, int games, ComputerDetails... hosts) throws Exception {
         HostFeed feed = ReflectionHelpers.getField(home, "feed");
         ReflectionHelpers.setField(feed, "binder", binder(renamed, removed));
         ConsoleRig rig = new ConsoleRig(temporary.newFolder());
@@ -129,7 +134,11 @@ public class HomeShellTest {
                 feed.update(host);
                 if (host.state == ComputerDetails.State.ONLINE) online.add(host.uuid);
                 if (host.state == ComputerDetails.State.ONLINE) {
-                    rig.transport.reply(host.uuid, "library", ok(library("r", game(host.uuid + "-g", 1, "Portal", null, false))));
+                    String[] listed = new String[games];
+                    for (int i = 0; i < games; i++) {
+                        listed[i] = game(host.uuid + "-g" + i, i + 1, i == 0 ? "Portal" : "Game " + i, null, false);
+                    }
+                    rig.transport.reply(host.uuid, "library", ok(library("r", listed)));
                     rig.transport.reply(host.uuid, "session", ok(NativeApiFixtures.IDLE));
                 }
             }
@@ -493,6 +502,94 @@ public class HomeShellTest {
             assertNotNull(ShadowDialog.getLatestDialog());
         } finally {
             rig.close();
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void onAPhoneWithAGamepadTheDpadReachesTheShellBarFromTheTopCardAndBack() throws Exception {
+        ActivityController<Home> controller = home();
+        try {
+            Home home = controller.get();
+            showHosts(home, NativeApiFixtures.nativeHost("tower", "Tower", true));
+            ConsoleHomeListAdapter adapter = ReflectionHelpers.getField(home, "adapter");
+            assertNotNull("a phone keeps the list of cards", adapter);
+            RecyclerView.ViewHolder top = list(home).findViewHolderForAdapterPosition(adapter.initialFocus());
+            assertNotNull(top);
+            View above = focusAfter(home, top.itemView, View.FOCUS_UP);
+            assertNotNull("up from the first card reaches the bar", above);
+            assertTrue("a button of the bar", isInside(home.findViewById(R.id.shell_bar), above));
+            View below = focusAfter(home, above, View.FOCUS_DOWN);
+            assertNotNull("down from the bar reaches a card", below);
+            assertTrue("a card of the list", isInside(list(home), below));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /**
+     * Presses Up as the system does: the activity first, then the focus search. Walks from {@code from} until focus is on
+     * the shell bar, laying the list out after each step.
+     */
+    private static View walkUp(Home home, View from, int limit) {
+        View at = from;
+        int stuck = 0;
+        for (int i = 0; i < limit; i++) {
+            shadowOf(Looper.getMainLooper()).idle();
+            at.requestFocus();
+            focusAfter(home, at, View.FOCUS_UP);
+            if (!home.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_UP))) {
+                View next = focusAfter(home, at, View.FOCUS_UP);
+                if (next == null) return null;
+                if (next != at) next.requestFocus();
+            }
+            View now = home.getWindow().getDecorView().findFocus();
+            assertNotNull("focus after step " + i + " from " + at, now);
+            if (isInside(home.findViewById(R.id.shell_bar), now)) return now;
+            // A press may only scroll the list to the header above the first row; the next one moves on.
+            if (now == at && ++stuck > 2) return at;
+            if (now != at) stuck = 0;
+            at = now;
+        }
+        return at;
+    }
+
+    @Test
+    public void onAPhoneUpFromALongLibraryReachesTheShellBar() throws Exception {
+        ActivityController<Home> controller = home();
+        try {
+            Home home = controller.get();
+            showHosts(home, 14, NativeApiFixtures.nativeHost("tower", "Tower", true));
+            ConsoleHomeListAdapter adapter = ReflectionHelpers.getField(home, "adapter");
+            int last = adapter.getItemCount() - 1;
+            list(home).scrollToPosition(last);
+            focusAfter(home, home.findViewById(R.id.shell_home), View.FOCUS_UP);
+            RecyclerView.ViewHolder holder = list(home).findViewHolderForAdapterPosition(last);
+            assertNotNull(holder);
+            assertTrue(holder.itemView.requestFocus());
+            View end = walkUp(home, holder.itemView, 40);
+            assertNotNull("focus does not get stuck", end);
+            assertTrue("ends on the current tab of the bar, not on " + end, end == home.findViewById(R.id.shell_home));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "television")
+    public void onTelevisionUpFromTheTopShelfOfALongLibraryReachesTheShellBar() throws Exception {
+        ActivityController<Home> controller = home();
+        try {
+            Home home = controller.get();
+            showHosts(home, 14, NativeApiFixtures.nativeHost("tower", "Tower", true));
+            ConsoleHomeAdapter shelves = ReflectionHelpers.getField(home, "shelves");
+            View card = shelves.cardView(list(home), new ConsoleHomeAdapter.Cursor(0, 9));
+            assertNotNull("a card in the first shelf", card);
+            assertTrue(card.requestFocus());
+            View end = walkUp(home, card, 40);
+            assertNotNull("focus does not get stuck", end);
+            assertTrue("ends on a button of the bar, not on " + end, end == home.findViewById(R.id.shell_home));
+        } finally {
             controller.pause().stop().destroy();
         }
     }

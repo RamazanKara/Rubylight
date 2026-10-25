@@ -177,7 +177,10 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     }
 
     private void setUpGrid(ConsoleHomeAdapter.Listener listener) {
-        grid = new GridLayoutManager(this, columns);
+        grid = new HomeGridLayoutManager(this, columns, position -> {
+            int first = adapter.firstCard();
+            return first >= 0 && first < position;
+        });
         grid.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
             @Override
             public int getSpanSize(int position) {
@@ -272,6 +275,10 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     public boolean dispatchKeyEvent(android.view.KeyEvent event) {
         if (ambience != null && event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
             ambience.setGamepad(fromGamepad(event));
+        }
+        // Up from the top of the list goes to the current tab of the shell bar, whatever the focus search would pick.
+        if (com.limelight.ui.ShellFocus.upToCurrentTab(this, event, list)) {
+            return true;
         }
         return super.dispatchKeyEvent(event);
     }

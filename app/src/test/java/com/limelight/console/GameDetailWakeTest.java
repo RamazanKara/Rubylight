@@ -6,12 +6,14 @@ import static com.limelight.nativeapi.NativeApiFixtures.nativeHost;
 import static com.limelight.nativeapi.NativeApiFixtures.ok;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.robolectric.Shadows.shadowOf;
 
 import android.app.Application;
 import android.content.Context;
 import android.content.Intent;
+import android.view.View;
 import android.content.ServiceConnection;
 import android.os.Build;
 import android.os.Looper;
@@ -199,6 +201,22 @@ public class GameDetailWakeTest {
             Thread.sleep(200);
             page.pass(1_000);
             assertEquals("exactly one start", 1, Detail.played.size());
+        } finally {
+            page.close();
+        }
+    }
+
+    @Test
+    public void theFirstDpadPressAfterATouchLandsOnWakeAndPlayNotOnBack() throws Exception {
+        Page page = new Page("aa:bb:cc:dd:ee:ff");
+        try {
+            page.waitForWakeButton();
+            View content = page.screen.findViewById(android.R.id.content);
+            View focused = content.findFocus();
+            if (focused != null) focused.clearFocus();
+            // What leaving touch mode does: the window's default focus.
+            assertTrue(page.screen.getWindow().getDecorView().restoreDefaultFocus());
+            assertSame(page.play, content.findFocus());
         } finally {
             page.close();
         }

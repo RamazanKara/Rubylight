@@ -165,6 +165,8 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         title.setText(titleExtra);
         host.setText(hostNameExtra);
         play.setEnabled(false);
+        // The first D-pad press after a touch (or an adb start) lands on Play, not on the back arrow at the top.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) play.setFocusedByDefault(true);
 
         feed = new HostFeed(this, this);
         feed.bind();

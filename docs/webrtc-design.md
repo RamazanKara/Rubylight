@@ -295,10 +295,13 @@ audio() ── Opus packet ──▶ webrtc sink (instead of the GameStream audi
 - **Input.** Keyboard, mouse and gamepad messages go from the media thread to a dedicated input thread
   over a channel, with no batching, so a slow `SendInput` can never stall the media thread's pacing.
   That is the same arrangement as ENet's control thread, which injects on its own thread. Mouse motion
-  is not coalesced on the host. The queue delay, from the transport receiving a frame to the injector
-  having been handed its events, is recorded per message and its maximum and 99th percentile are logged
-  in the stream's "WebRTC input summary" (`queue_max_us`, `queue_p99_us`) next to the unknown-code count,
-  so B5 can report the cost of the hop.
+  is not coalesced on the host. The queue delay, from the transport receiving a frame to the worker
+  calling the injector, is recorded per message and its maximum and 99th percentile are logged in the
+  stream's "WebRTC input summary" (`queue_max_us`, `queue_p99_us`) next to the unknown-code count, so B5
+  can report the cost of the hop. The summary also splits it (`wait_*`, the channel; `refresh_*`, the
+  injector's periodic refresh) and times the injector call (`apply_*`), which `SendInput` holds for as
+  long as the desktop's low-level hooks take; on the laptop's echo window a mouse click holds it for
+  4 to 28 ms, and the log names the events of any call over 2 ms.
 - **Recovery.**
   - PLI, FIR and the control channel's `request-keyframe` set `Session.idr` and wake recovery, the same
     as a Moonlight IDR request.

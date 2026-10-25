@@ -233,7 +233,10 @@ async function main() {
         summary = support.hostLog(host.log, offset).inputs.at(-1) || null;
       }
       result.hostInput = summary;
-      if (summary) console.log(`WebRTC input summary: queue_max_us=${summary.queue_max_us} queue_p99_us=${summary.queue_p99_us}`);
+      if (summary) {
+        const parts = ['queue', 'wait', 'refresh', 'apply'].map(k => `${k}_max_us=${summary[`${k}_max_us`]} ${k}_p99_us=${summary[`${k}_p99_us`]}`);
+        console.log(`WebRTC input summary: ${parts.join(' ')}`);
+      }
       else result.notes.push('the host logged no "WebRTC input summary" line');
       result.hostWarnings = support.hostLog(host.log, offset).errors;
     } catch (error) {

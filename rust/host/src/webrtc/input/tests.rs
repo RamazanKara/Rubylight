@@ -612,6 +612,60 @@ fn the_queue_delay_is_measured_from_receipt_to_the_injector() {
 }
 
 #[test]
+fn a_slow_injector_call_is_not_the_hosts_queue_delay() {
+    // SendInput waits for the desktop's low-level hooks, and a click can take milliseconds in
+    // them. That is reported as the injector's time, not as the queue's.
+    let mut r = rig(u32::MAX);
+    r.rec.slow_apply(Duration::from_millis(15));
+    for i in 0..4 {
+        r.core.input(
+            &format!(
+                r#"{{"v":1,"type":"mouse-button","button":0,"down":{}}}"#,
+                i % 2 == 0
+            ),
+            Instant::now(),
+        );
+    }
+    let summary = r.core.summary();
+    assert_eq!(summary.queued, 4);
+    assert!(summary.apply_max_us >= 15_000, "{summary:?}");
+    assert!(summary.queue_max_us < 2_000, "{summary:?}");
+    assert!(summary.wait_max_us < 2_000, "{summary:?}");
+}
+
+#[test]
+fn a_burst_through_the_worker_reaches_the_injector_without_a_timer_in_the_way() {
+    let f = Fixture::new();
+    let rec = Recorder::default();
+    let make = rec.clone();
+    let (tx, rx) = mpsc::channel();
+    let handle = InputHandle(tx);
+    let worker = std::thread::spawn(move || run(rx, Box::new(move |_| make.make())));
+    handle.bind(session(&f, u32::MAX));
+    // The worker is up and has its injector before the burst.
+    handle.input(
+        br#"{"v":1,"type":"mouse-move","dx":1,"dy":0}"#.to_vec(),
+        false,
+    );
+    wait_for("the first move", || rec.events().len() == 1);
+    for i in 0..200 {
+        handle.input(
+            format!(r#"{{"v":1,"type":"mouse-move","dx":{},"dy":1}}"#, i % 5 + 1).into_bytes(),
+            false,
+        );
+    }
+    wait_for("the burst", || rec.events().len() == 201);
+    handle.closed();
+    let summary = worker.join().unwrap().expect("the worker ran");
+    assert_eq!(summary.queued, 201);
+    // Not a bound on the hop (a loaded machine can hold a thread for milliseconds) but on the
+    // failure it guards against: the worker waking on a timer tick, which holds a message for
+    // 8 to 25 ms, instead of on the channel.
+    assert!(summary.queue_p99_us < 8_000, "{summary:?}");
+    assert!(summary.wait_p99_us < 8_000, "{summary:?}");
+}
+
+#[test]
 fn the_delay_percentile_follows_the_bulk_not_the_outlier() {
     let mut d = Delays::default();
     assert_eq!(d.p99_us(), 0);

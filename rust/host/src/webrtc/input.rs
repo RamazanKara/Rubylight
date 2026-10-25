@@ -40,6 +40,8 @@ use std::{
 /// How often the injector's display lookup and pointer refresh run while input flows (the
 /// GameStream control loop runs them every pass of its 8 ms poll).
 const REFRESH: Duration = Duration::from_millis(8);
+/// An injector call slower than this is logged, with the kinds of event in it.
+const SLOW_APPLY: Duration = Duration::from_millis(2);
 /// How often the injector is polled for rumble while a controller is plugged in, as the
 /// GameStream control loop does.
 const FEEDBACK_POLL: Duration = Duration::from_millis(8);
@@ -271,20 +273,37 @@ pub struct Summary {
     /// Events the device's permissions or a missing injector kept from the desktop.
     pub dropped: u64,
     pub rumble_sent: u64,
-    /// Messages whose events reached the injector, and how long the worker's queue held them:
-    /// from the transport receiving the frame to the injector having been handed its events.
+    /// Messages whose events reached the injector, and how long the host held them: from the
+    /// transport receiving the frame to the worker calling the injector. The injector call itself,
+    /// `SendInput`, is below: Windows runs every low-level hook before it returns, so a desktop
+    /// with a slow one (or a click that takes the focus) holds the call for milliseconds, as it
+    /// does for ENet, and that is not the host's queue.
     pub queued: u64,
     pub queue_max_us: u64,
     pub queue_p99_us: u64,
+    /// The parts of that delay: waiting in the channel for the worker, and the injector's
+    /// periodic refresh that runs before the events; then the injector call itself.
+    pub wait_max_us: u64,
+    pub wait_p99_us: u64,
+    pub refresh_max_us: u64,
+    pub refresh_p99_us: u64,
+    pub apply_max_us: u64,
+    pub apply_p99_us: u64,
 }
 
-/// A histogram of queue delays in power-of-two microsecond buckets: no allocation per message and
-/// a percentile that is at most twice too high.
+/// Sub-buckets per power of two in [`Delays`]: a percentile is at most 1/SUB too high.
+const SUB: usize = 4;
+/// Values below this are their own bucket.
+const EXACT: u64 = 8;
+const BUCKETS: usize = EXACT as usize + SUB * 37;
+
+/// A histogram of delays in microseconds, four buckets to the octave: no allocation per message,
+/// exact below 8 us and within 25 % above.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Delays {
     count: u64,
     max_us: u64,
-    buckets: [u64; 40],
+    buckets: [u64; BUCKETS],
 }
 
 impl Default for Delays {
@@ -292,16 +311,34 @@ impl Default for Delays {
         Self {
             count: 0,
             max_us: 0,
-            buckets: [0; 40],
+            buckets: [0; BUCKETS],
         }
     }
 }
 
 impl Delays {
+    fn bucket(us: u64) -> usize {
+        if us < EXACT {
+            return us as usize;
+        }
+        let octave = (u64::BITS - 1 - us.leading_zeros()) as usize;
+        let sub = ((us >> (octave - 2)) & (SUB as u64 - 1)) as usize;
+        (EXACT as usize + (octave - 3) * SUB + sub).min(BUCKETS - 1)
+    }
+
+    /// The largest value that falls in `bucket`.
+    fn upper(bucket: usize) -> u64 {
+        if bucket < EXACT as usize {
+            return bucket as u64;
+        }
+        let octave = (bucket - EXACT as usize) / SUB + 3;
+        let sub = (bucket - EXACT as usize) % SUB;
+        (((SUB + sub + 1) as u64) << (octave - 2)) - 1
+    }
+
     fn record(&mut self, delay: Duration) {
         let us = u64::try_from(delay.as_micros()).unwrap_or(u64::MAX);
-        let bucket = ((u64::BITS - us.leading_zeros()) as usize).min(self.buckets.len() - 1);
-        self.buckets[bucket] += 1;
+        self.buckets[Self::bucket(us)] += 1;
         self.count += 1;
         self.max_us = self.max_us.max(us);
     }
@@ -313,7 +350,7 @@ impl Delays {
         for (bucket, count) in self.buckets.iter().enumerate() {
             seen += count;
             if self.count > 0 && seen >= rank {
-                return (1u64 << bucket).min(self.max_us);
+                return Self::upper(bucket).min(self.max_us);
             }
         }
         0
@@ -335,6 +372,12 @@ struct Core {
     feedback_at: Instant,
     summary: Summary,
     delays: Delays,
+    waits: Delays,
+    refreshes: Delays,
+    applies: Delays,
+    /// When the worker took the frame being handled off its queue.
+    dequeued: Option<Instant>,
+    slow_logged: u32,
     /// When the frame being handled reached the transport, for the delay it waited in the queue.
     received: Option<Instant>,
     warned_invalid: bool,
@@ -356,6 +399,11 @@ impl Core {
             feedback_at: now,
             summary: Summary::default(),
             delays: Delays::default(),
+            waits: Delays::default(),
+            refreshes: Delays::default(),
+            applies: Delays::default(),
+            dequeued: None,
+            slow_logged: 0,
             received: None,
             warned_invalid: false,
         };
@@ -371,6 +419,12 @@ impl Core {
             queued: self.delays.count,
             queue_max_us: self.delays.max_us,
             queue_p99_us: self.delays.p99_us(),
+            wait_max_us: self.waits.max_us,
+            wait_p99_us: self.waits.p99_us(),
+            refresh_max_us: self.refreshes.max_us,
+            refresh_p99_us: self.refreshes.p99_us(),
+            apply_max_us: self.applies.max_us,
+            apply_p99_us: self.applies.p99_us(),
             ..self.summary
         }
     }
@@ -507,19 +561,48 @@ impl Core {
         // The stream's display can be created or renamed after input began.
         let mode = session.stream_mode();
         sink.geometry(&session.output.read().unwrap(), mode.width, mode.height);
+        let mut refreshed = Duration::ZERO;
         if now >= self.refresh_at {
             self.refresh_at = now + REFRESH;
+            let started = Instant::now();
             if let Err(error) = sink.refresh() {
                 session.launch.warnings.event("input_pointer", format!("Pointer refresh failed ({error:#}); pointer updates may be missing. Unlock the desktop or reconnect."), EVENT_PERIOD);
             }
+            refreshed = started.elapsed();
         }
         self.summary.injected += events.len() as u64;
+        let started = Instant::now();
         for error in sink.apply(&events) {
             session.launch.warnings.event("input_injection", format!("Input injection failed ({error:#}); keyboard, mouse or controller actions may be missing. Unlock the desktop and check Windows input permissions."), EVENT_PERIOD);
         }
+        let done = Instant::now();
+        if done.saturating_duration_since(started) >= SLOW_APPLY && self.slow_logged < 16 {
+            self.slow_logged += 1;
+            let kinds: Vec<String> = events
+                .iter()
+                .map(|e| {
+                    format!("{e:?}")
+                        .split([' ', '(', '{'])
+                        .next()
+                        .unwrap_or("")
+                        .to_string()
+                })
+                .collect();
+            tracing::info!(
+                took_us = done.saturating_duration_since(started).as_micros() as u64,
+                ?kinds,
+                "WebRTC input: a slow injection"
+            );
+        }
         if let Some(received) = self.received {
             self.delays
-                .record(Instant::now().saturating_duration_since(received));
+                .record(started.saturating_duration_since(received));
+            self.refreshes.record(refreshed);
+            self.applies.record(done.saturating_duration_since(started));
+            if let Some(dequeued) = self.dequeued {
+                self.waits
+                    .record(dequeued.saturating_duration_since(received));
+            }
         }
     }
 
@@ -628,6 +711,12 @@ impl Core {
             queued = summary.queued,
             queue_max_us = summary.queue_max_us,
             queue_p99_us = summary.queue_p99_us,
+            wait_max_us = summary.wait_max_us,
+            wait_p99_us = summary.wait_p99_us,
+            refresh_max_us = summary.refresh_max_us,
+            refresh_p99_us = summary.refresh_p99_us,
+            apply_max_us = summary.apply_max_us,
+            apply_p99_us = summary.apply_p99_us,
             "WebRTC input summary"
         );
     }
@@ -651,14 +740,15 @@ pub fn spawn(h: Shared) -> Result<InputHandle> {
     Ok(InputHandle(tx))
 }
 
-fn run(rx: mpsc::Receiver<Message>, make: Make) {
+/// The summary is for the tests; the spawned worker logs it and drops it.
+fn run(rx: mpsc::Receiver<Message>, make: Make) -> Option<Summary> {
     let mut early = VecDeque::new();
     let mut control = None;
     let session = loop {
         match rx.recv() {
             Ok(Message::Bind(session)) => break session,
             Ok(Message::Control(sender)) => control = Some(sender),
-            Ok(Message::Closed) | Err(_) => return,
+            Ok(Message::Closed) | Err(_) => return None,
             Ok(message) => early.push_back(message),
         }
     };
@@ -685,6 +775,7 @@ fn run(rx: mpsc::Receiver<Message>, make: Make) {
         tracing::error!("WebRTC input worker failed again while releasing; dropping the injector");
         core.sink = None;
     }
+    Some(core.summary())
 }
 
 fn panic_text(panic: &(dyn std::any::Any + Send)) -> String {
@@ -714,6 +805,7 @@ fn serve(core: &mut Core, rx: &mpsc::Receiver<Message>, mut early: VecDeque<Mess
             }
         };
         let now = Instant::now();
+        core.dequeued = Some(now);
         match message {
             Some(Message::Gamepad(text, received)) => core.gamepad(&text, received),
             Some(Message::Input(text, received)) => core.input(&text, received),
@@ -748,6 +840,7 @@ mod recording {
         fail_makes: usize,
         denied_kinds: Vec<u16>,
         panic_next: bool,
+        apply_delay: Duration,
     }
 
     /// An injector that records what it is handed and injects nothing: a test fixture's input
@@ -797,6 +890,11 @@ mod recording {
             self.0.lock().unwrap().panic_next = true;
         }
 
+        /// Every `apply` takes this long, as `SendInput` does behind a slow low-level hook.
+        pub(crate) fn slow_apply(&self, delay: Duration) {
+            self.0.lock().unwrap().apply_delay = delay;
+        }
+
         pub(crate) fn forbid_feedback(&self, kind: u16) {
             self.0.lock().unwrap().denied_kinds.push(kind);
         }
@@ -822,7 +920,12 @@ mod recording {
                 drop(log);
                 panic!("the test injector panicked");
             }
+            let delay = log.apply_delay;
             log.events.extend_from_slice(events);
+            drop(log);
+            if !delay.is_zero() {
+                std::thread::sleep(delay);
+            }
             Vec::new()
         }
         fn next_due(&self) -> Option<Instant> {

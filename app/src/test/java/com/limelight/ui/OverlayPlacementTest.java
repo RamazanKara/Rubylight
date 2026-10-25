@@ -83,6 +83,43 @@ public class OverlayPlacementTest {
                 OverlayPlacement.Spot.BOTTOM_END, false));
     }
 
+    // A 1920x1080 television: the chosen corner is kept there as on a phone, with the on-screen controls hidden
+    // (invisible, as the demo and a stream without them leave them) beside it.
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-television-xhdpi")
+    public void aTelevisionKeepsTheChosenCornerBesideHiddenControls() {
+        Activity activity = Robolectric.buildActivity(Activity.class).setup().get();
+        assertEquals(android.content.res.Configuration.UI_MODE_TYPE_TELEVISION,
+                activity.getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_TYPE_MASK);
+        FrameLayout parent = new FrameLayout(activity);
+        View overlay = new View(activity);
+        parent.addView(overlay, new FrameLayout.LayoutParams(606, 259, Gravity.TOP | Gravity.START));
+        List<View> controls = new ArrayList<>();
+        for (int[] box : new int[][] {{1590, 15}, {1740, 165}, {1440, 165}}) {
+            View button = new View(activity);
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(150, 150, Gravity.TOP | Gravity.START);
+            params.leftMargin = box[0];
+            params.topMargin = box[1];
+            parent.addView(button, params);
+            button.setVisibility(View.INVISIBLE);
+            controls.add(button);
+        }
+        activity.setContentView(parent);
+        parent.measure(View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY));
+        parent.layout(0, 0, 1920, 1080);
+        OverlayPlacement.Obstacles hidden = out -> {
+            for (View button : controls) OverlayPlacement.addVisible(button, parent, out);
+        };
+        assertEquals(OverlayPlacement.Spot.TOP_END, OverlayPlacement.place(overlay, parent, hidden, 16,
+                OverlayPlacement.Corner.TOP_RIGHT));
+        assertEquals(Gravity.TOP | Gravity.END, ((FrameLayout.LayoutParams) overlay.getLayoutParams()).gravity);
+        // Shown, they cover the top right and the overlay takes the mirror spot below them, not top left.
+        for (View button : controls) button.setVisibility(View.VISIBLE);
+        assertEquals(OverlayPlacement.Spot.BOTTOM_END, OverlayPlacement.place(overlay, parent, hidden, 16,
+                OverlayPlacement.Corner.TOP_RIGHT));
+    }
+
     @Test
     public void aCoveredCornerTriesItsVerticalMirrorBeforeTheUsualOrder() {
         Rect bottomEnd = OverlayPlacement.bounds(OverlayPlacement.Spot.BOTTOM_END, AREA, WIDTH, HEIGHT, false);

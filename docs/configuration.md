@@ -518,13 +518,13 @@ The format is `key = value`, one setting per line. Stop the host before editing 
 
 ## WebRTC server (Experimental)
 
-Off by default. With **WebRTC server (Experimental)** (`webrtc_server`) on, Rubylight listens for TVs and browsers that speak the Moonlight WebRTC protocol (version 2). They can find the PC, pair, sign in, and list its apps. Streaming over WebRTC is not available yet: `start-session` answers `unsupported-settings`.
+Off by default. With **WebRTC server (Experimental)** (`webrtc_server`) on, Rubylight listens for TVs and browsers that speak the Moonlight WebRTC protocol (version 2). They can find the PC, pair, sign in, list its apps and stream. [WebRTC server](webrtc.md) has the setup, what streams and the protocol extensions for client authors.
 
 | Key | Default | What it means |
 | --- | --- | --- |
 | `webrtc_server` | `false` | Turns the server on. Needs a restart. |
 | `webrtc_port` | `8000` | TCP port of the WebSocket, announced in the discovery reply. 1024 to 65535. Discovery itself always listens on UDP 8000, where TVs send their broadcast. |
-| `webrtc_media_port` | `8001` | UDP port reserved for WebRTC media. 1024 to 65535. |
+| `webrtc_media_port` | `8001` | UDP port for WebRTC video, audio and input. 1024 to 65535. |
 
 - Pairing: the TV shows a four-digit PIN and the request appears on the console's PIN page next to Moonlight's. Enter the PIN there. The TV then holds a client ID and a secret; the secret is stored in `sunshine_state.json` and is never shown in the console. Paired TVs are listed on **Devices** with a WebRTC badge, where you can disable or unpair them. A disabled or unpaired TV is disconnected at once. At most 32 TVs stay paired; the oldest go first.
 - Signalling is plain `ws://`, not encrypted. Signing in keeps other devices from using or interrupting a stream; it does not hide what is sent on the network. Only peers on the local network are served: loopback, private (RFC 1918), link-local, unique-local IPv6 and carrier-grade NAT (100.64.0.0/10) addresses. Anything else is closed before its first message and logged. Do not forward these ports on your router.

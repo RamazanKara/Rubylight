@@ -186,14 +186,17 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         lastWidthPx = widthPx;
         float density = getResources().getDisplayMetrics().density;
         int count = columnsFor(Math.round(widthPx / density));
-        int margin = getResources().getDimensionPixelSize(R.dimen.space_s);
+        // A card keeps its margin around it (a TV cover pads itself with its glow instead).
+        int margin = getResources().getDimensionPixelSize(R.dimen.cover_inset);
         int columnWidth = (widthPx - list.getPaddingLeft() - list.getPaddingRight()) / count - 2 * margin;
+        boolean television = (getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_TYPE_MASK)
+                == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION;
         list.post(() -> {
             if (count != columns) {
                 columns = count;
                 grid.setSpanCount(count);
             }
-            adapter.setCoverHeight(Math.max(1, columnWidth * 4 / 3));
+            adapter.setCoverHeight(Math.max(1, television ? columnWidth * 3 / 2 : columnWidth * 4 / 3));
         });
     }
 

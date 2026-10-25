@@ -81,7 +81,6 @@ test('values the fallback console saves select the option the host reads them as
 });
 
 for (const [key, valid, invalid] of [
-  ['packetsize', [0, 256, 1400], [-1, 1, 255, 1401]],
   ['update_check_interval', [0, 3600, 86400], [-1, 1, 3599]],
 ]) {
   test(`${key} accepts zero and its supported range`, () => {

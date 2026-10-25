@@ -827,9 +827,18 @@ pub fn apply(stream: &mut Negotiated, launch_millihz: u32, config: &Config) {
         }
     }
     stream.bitrate_kbps = budget.clamp(1, 2_000_000) as u32;
+}
+/// Video packets always use the size the device asked for. Moonlight receives into a
+/// buffer of that size, so a larger packet is cut short (#52: 1200 bytes against the 1184
+/// a remote IPv6 Moonlight asks for, a green picture with no loss), and it rebuilds
+/// FEC-recovered packets at that size, so a smaller one corrupts every repaired frame.
+/// A `packetsize` left in the config is ignored and reported.
+pub fn report_packet_size(warnings: &crate::session::Warnings, config: &Config) {
     let packet_size = config.integer("packetsize", 0);
-    if (256..=1400).contains(&packet_size) {
-        stream.packet_size = packet_size as usize;
+    if packet_size != 0 {
+        warnings.set("packet_size", format!("packetsize = {packet_size} is ignored: video packets use the size the device asks for. Remove it from the config."));
+    } else {
+        warnings.clear("packet_size");
     }
 }
 /// The encoder bitrate [`apply`] would choose without `max_bitrate`.

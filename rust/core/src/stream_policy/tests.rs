@@ -1335,6 +1335,41 @@ fn without_reports_pacer_claims_match_an_untouched_pacer() {
     }
 }
 #[test]
+fn video_packets_always_use_the_device_request() {
+    // #52: packetsize=1200 replaced the 1184 a remote IPv6 Moonlight asked for, so every
+    // video packet was cut short in its receive buffer; a smaller size breaks the packets
+    // Moonlight rebuilds from FEC at its own size.
+    let warnings = crate::session::Warnings::default();
+    for text in [
+        "packetsize=1200
+",
+        "packetsize=512
+",
+        "packetsize=1401
+",
+    ] {
+        let config = Config::parse(text).unwrap();
+        for requested in [1184, 1024, 1392] {
+            let mut stream = Negotiated {
+                packet_size: requested,
+                ..Default::default()
+            };
+            apply(&mut stream, 0, &config);
+            assert_eq!(stream.packet_size, requested, "{text:?}");
+        }
+        report_packet_size(&warnings, &config);
+        assert!(!warnings.snapshot().is_empty(), "{text:?}");
+    }
+    for text in [
+        "",
+        "packetsize=0
+",
+    ] {
+        report_packet_size(&warnings, &Config::parse(text).unwrap());
+        assert!(warnings.snapshot().is_empty(), "{text:?}");
+    }
+}
+#[test]
 fn configured_wire_budget_deducts_fec_and_audio_after_the_ceiling() {
     let mut stream = Negotiated {
         fps: 120,

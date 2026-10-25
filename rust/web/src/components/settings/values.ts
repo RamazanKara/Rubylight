@@ -70,7 +70,6 @@ export function numberError(setting: Setting, text: string, badInput = false): s
   if (text.trim() === '') return '';
   const value = toNumber(text);
   if (value === null) return 'Enter a valid number.';
-  if (setting.key === 'packetsize' && value > 0 && value < 256) return 'Enter 0 or a number from 256 to 1400.';
   if (setting.key === 'update_check_interval' && value > 0 && value < 3600) return 'Enter 0 or at least 3600 seconds.';
   const { min, max, step } = setting.control;
   if ((min !== undefined && value < min) || (max !== undefined && value > max)) {

@@ -357,16 +357,6 @@ const video: Setting[] = [
     visibleWhen: (values) => flag(values, 'pyrowave', true),
   },
   {
-    key: 'packetsize',
-    label: 'Packet size',
-    description:
-      'Largest video packet the host sends, from 256 to 1400 bytes. 0 uses the size the device asks for; lower it if your network drops large packets.',
-    category: 'video',
-    group: 'Bitrate and network',
-    control: { kind: 'number', min: 0, max: 1400, step: 1, unit: 'bytes' },
-    default: 0,
-  },
-  {
     key: 'video_max_batch_size_kb',
     label: 'Send batch size',
     description:

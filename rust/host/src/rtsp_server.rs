@@ -266,6 +266,7 @@ async fn connection(
                             config.integer("max_bitrate", 0)
                         ),
                     );
+                    butterpollo_core::stream_policy::report_packet_size(&launch.warnings, &config);
                     // A ten-bit format with `hdrMode=0` is ten-bit SDR, packed 4:4:4
                     // included: its encoder codes SDR ten-bit either way and its
                     // startup probe asks for `sdr_10bit`.

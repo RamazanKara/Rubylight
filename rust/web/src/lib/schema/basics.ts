@@ -310,7 +310,7 @@ const network: Setting[] = [
   {
     key: 'webrtc_server',
     label: 'WebRTC server (Experimental)',
-    description: 'Let TVs and browsers that speak the Moonlight WebRTC protocol pair and sign in. Streaming over WebRTC is not available yet.',
+    description: 'Let TVs and browsers that speak the Moonlight WebRTC protocol pair and stream. Experimental.',
     details:
       'Pairing requests appear on the PIN page. Signalling is plain ws:// on the local network: signing in keeps other devices from using this PC, but does not hide the traffic. Only devices on the local network are accepted.',
     category: 'network',
@@ -334,7 +334,7 @@ const network: Setting[] = [
   {
     key: 'webrtc_media_port',
     label: 'WebRTC media port',
-    description: 'The UDP port for WebRTC video, audio and input once streaming over WebRTC is available.',
+    description: 'The UDP port for WebRTC video, audio and input.',
     category: 'network',
     group: 'WebRTC',
     control: { kind: 'number', min: 1024, max: 65535, step: 1 },

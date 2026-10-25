@@ -160,8 +160,8 @@ overrides it). F12 saves a screenshot of the window to the config directory's
 Logs: everything the client writes to stderr is kept, with UTC timestamps, in `logs/nightjar.log` in the config
 directory (release builds on Windows have no console); the previous run is `nightjar.prev.log`. Settings, App,
 "Open logs folder" opens it. `src/logpipe.rs` diverts stderr into a pipe, so the stream threads pay no more than for
-`eprintln!`. A separate thread writes the file, so a slow disk drops log lines (and says how many) instead of
-stalling the stream. `src/logfile.rs` holds rotation (also at 4 MB) and stamping.
+`eprintln!`. A separate thread writes the file; the reader holds back up to 4 MB for it, and only a disk that stalls past
+that drops log lines (the log says how many) instead of stalling the stream. `src/logfile.rs` holds rotation (also at 4 MB) and stamping.
 
 `NIGHTJAR_TIMING_CSV=<file or folder>` writes one row per picture shown, in the format of the
 Android app's `nightjar-latency.csv` (a folder gets that file name): times in nanoseconds on the

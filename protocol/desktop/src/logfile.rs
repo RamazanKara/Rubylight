@@ -15,15 +15,18 @@
 //!   milliseconds. `\r\n` is stored as `\n`; a line that is still open when a chunk ends gets no
 //!   second stamp from the next chunk.
 //! - Two threads: the reader ([`pump_reader`]) only reads the pipe and forwards to the real
-//!   stderr, the writer ([`pump_writer`]) does the file work. A bounded channel joins them and
-//!   never blocks the reader, so a stalled disk loses log lines (counted, and said so in the
-//!   log once the disk recovers) instead of blocking `eprintln!` on the stream threads.
+//!   stderr, the writer ([`pump_writer`]) does the file work. A channel joins them and never
+//!   blocks the reader: what the writer has not taken yet is held back (up to
+//!   [`BACKLOG_BYTES`]). Only above that, on a stalled disk, are lines lost; they are counted and
+//!   the log says so at the next line break once the disk recovers. So a slow disk never blocks
+//!   `eprintln!` on the stream threads, and a fast one never loses a line.
 
 use std::fs::File;
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::mpsc::{Receiver, SyncSender};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc::{Receiver, SyncSender, TrySendError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Size at which a log file is rotated.
@@ -295,63 +298,154 @@ impl LogFile {
     pub fn flush(&mut self) -> io::Result<()> {
         self.file.flush()
     }
+
+    /// The next byte written starts a line.
+    pub fn at_line_start(&self) -> bool {
+        self.stamper.at_line_start
+    }
 }
 
-/// One read from the pipe, on its way to the file writer.
+/// Bytes the reader may have on their way to the file writer, in the channel and held back.
+pub const BACKLOG_BYTES: usize = 4 * 1024 * 1024;
+
+/// How many bytes are waiting for the file writer: output is dropped only above `limit`, so a
+/// burst of short lines on a healthy disk is never lost, however many reads it takes.
+pub struct Backlog {
+    queued: AtomicUsize,
+    limit: usize,
+}
+
+impl Backlog {
+    pub fn new(limit: usize) -> Self {
+        Self { queued: AtomicUsize::new(0), limit }
+    }
+
+    /// The writer took a chunk of `bytes`.
+    pub fn taken(&self, bytes: usize) {
+        self.queued.fetch_sub(bytes, Ordering::SeqCst);
+    }
+}
+
+/// Bytes read from the pipe, on their way to the file writer.
 pub struct Chunk {
+    /// When the first of the bytes was read.
     pub at: SystemTime,
     pub bytes: Vec<u8>,
-    /// Bytes read before this chunk that the reader had to drop because the channel was full.
+    /// Bytes read before these that the reader had to drop because the backlog was full.
     pub lost: usize,
 }
 
 /// The reader thread's loop: `read` fills the buffer and returns the byte count (0 = closed),
-/// `forward` passes the same bytes on to the real stderr, unchanged, and the chunk goes to the
-/// file writer with `try_send`. It never waits for the file: if the writer is behind (a stalled
-/// disk) the chunk is dropped and counted, so the pipe keeps draining and `eprintln!` on the
-/// stream threads never blocks on the disk. The next chunk that fits carries the count.
-pub fn pump_reader(mut read: impl FnMut(&mut [u8]) -> usize, mut forward: impl FnMut(&[u8]), files: SyncSender<Chunk>) {
+/// `forward` passes the same bytes on to the real stderr, unchanged, and a copy goes to the file
+/// writer with `try_send`. It never waits for the file: if the channel is full the bytes are held
+/// back and sent together with the next read, and only when `backlog` is used up (a stalled disk)
+/// are they dropped and counted, so the pipe keeps draining and `eprintln!` on the stream threads
+/// never blocks on the disk. The next chunk that fits carries the count.
+pub fn pump_reader(mut read: impl FnMut(&mut [u8]) -> usize, mut forward: impl FnMut(&[u8]), files: SyncSender<Chunk>, backlog: &Backlog) {
     let mut buffer = [0u8; 16 * 1024];
+    let mut pending: Vec<u8> = Vec::new();
+    let mut pending_at = SystemTime::now();
     let mut lost = 0;
+    let mut writer_gone = false;
     loop {
         let n = read(&mut buffer);
         if n == 0 {
             break;
         }
         forward(&buffer[..n]);
-        match files.try_send(Chunk { at: SystemTime::now(), bytes: buffer[..n].to_vec(), lost }) {
-            Ok(()) => lost = 0,
-            Err(_) => lost += n,
+        if writer_gone {
+            continue;
         }
+        if backlog.queued.load(Ordering::SeqCst) + pending.len() + n > backlog.limit {
+            lost += n;
+        } else {
+            if pending.is_empty() {
+                pending_at = SystemTime::now();
+            }
+            pending.extend_from_slice(&buffer[..n]);
+        }
+        if pending.is_empty() {
+            continue;
+        }
+        let size = pending.len();
+        backlog.queued.fetch_add(size, Ordering::SeqCst);
+        match files.try_send(Chunk { at: pending_at, bytes: std::mem::take(&mut pending), lost }) {
+            Ok(()) => lost = 0,
+            Err(TrySendError::Full(chunk)) => {
+                backlog.queued.fetch_sub(size, Ordering::SeqCst);
+                pending = chunk.bytes;
+            }
+            Err(TrySendError::Disconnected(_)) => writer_gone = true,
+        }
+    }
+    // The pipe is closed and the writer is draining: this is the one place that may wait for it.
+    if !writer_gone && (!pending.is_empty() || lost > 0) {
+        let _ = files.send(Chunk { at: pending_at, bytes: pending, lost });
     }
 }
 
-/// The file writer thread's loop, until the reader hangs up. A file error is reported once
-/// through `warn` and stops the file side; chunks keep being taken so the channel does not fill
-/// for that reason.
-pub fn pump_writer(chunks: Receiver<Chunk>, mut log: LogFile, mut warn: impl FnMut(&str)) {
-    fn write(log: &mut LogFile, chunk: &Chunk) -> io::Result<()> {
-        if chunk.lost > 0 {
-            log.note(&format!("{} bytes of log output were dropped, the disk was too slow", chunk.lost), chunk.at)?;
+/// Write one chunk. `owed` is the count of dropped bytes not yet reported: the note goes in at
+/// the next line break, never inside a line.
+fn write_chunk_noting(log: &mut LogFile, owed: &mut usize, chunk: &Chunk) -> io::Result<()> {
+    *owed += chunk.lost;
+    let mut bytes = &chunk.bytes[..];
+    if *owed > 0 {
+        if !log.at_line_start() {
+            match bytes.iter().position(|&b| b == b'\n') {
+                Some(end) => {
+                    log.write_chunk(&bytes[..=end], chunk.at)?;
+                    bytes = &bytes[end + 1..];
+                }
+                // Still inside the line: the note waits.
+                None => return log.write_chunk(bytes, chunk.at),
+            }
         }
-        log.write_chunk(&chunk.bytes, chunk.at)?;
-        log.flush()
+        note_dropped(log, owed, chunk.at)?;
     }
+    log.write_chunk(bytes, chunk.at)
+}
+
+fn note_dropped(log: &mut LogFile, owed: &mut usize, at: SystemTime) -> io::Result<()> {
+    log.note(&format!("{owed} bytes of log output were dropped, the disk was too slow"), at)?;
+    *owed = 0;
+    Ok(())
+}
+
+/// The file writer thread's loop, until the reader hangs up. It takes everything that is queued
+/// before it flushes. A file error is reported once through `warn` and stops the file side;
+/// chunks keep being taken so the backlog does not fill for that reason.
+pub fn pump_writer(chunks: Receiver<Chunk>, backlog: &Backlog, mut log: LogFile, mut warn: impl FnMut(&str)) {
     for text in log.take_warnings() {
         warn(&text);
     }
     let mut healthy = true;
-    for chunk in chunks.iter() {
-        if !healthy {
-            continue;
+    let mut owed = 0;
+    let mut last = SystemTime::now();
+    while let Ok(first) = chunks.recv() {
+        let mut next = Some(first);
+        while let Some(chunk) = next.take() {
+            backlog.taken(chunk.bytes.len());
+            last = chunk.at;
+            if healthy {
+                if let Err(e) = write_chunk_noting(&mut log, &mut owed, &chunk) {
+                    healthy = false;
+                    warn(&format!("log file stopped: {e}"));
+                }
+                for text in log.take_warnings() {
+                    warn(&text);
+                }
+            }
+            next = chunks.try_recv().ok();
         }
-        if let Err(e) = write(&mut log, &chunk) {
-            healthy = false;
-            warn(&format!("log file stopped: {e}"));
+        if healthy {
+            if let Err(e) = log.flush() {
+                healthy = false;
+                warn(&format!("log file stopped: {e}"));
+            }
         }
-        for text in log.take_warnings() {
-            warn(&text);
-        }
+    }
+    if healthy && owed > 0 {
+        let _ = note_dropped(&mut log, &mut owed, last);
     }
     let _ = log.flush();
 }
@@ -544,40 +638,65 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    #[test]
-    fn the_pump_forwards_raw_bytes_and_logs_stamped_lines() {
-        let dir = temp("pump");
+    /// Feed `reads` through a reader into a writer thread and return what the log file holds.
+    fn through_pumps(reads: Vec<Vec<u8>>, name: &str) -> (Vec<u8>, String) {
+        let dir = temp(name);
         let log = LogFile::open(&dir, CAP).unwrap();
+        let backlog = std::sync::Arc::new(Backlog::new(BACKLOG_BYTES));
         let (files, chunks) = sync_channel(8);
-        let mut input: Vec<&[u8]> = vec![b"hello wor", b"ld\r\nbye\n"];
-        input.reverse();
+        let writer = {
+            let backlog = backlog.clone();
+            std::thread::spawn(move || pump_writer(chunks, &backlog, log, |_| {}))
+        };
+        let mut reads = reads.into_iter();
         let mut forwarded = Vec::new();
         pump_reader(
-            |buffer| match input.pop() {
-                Some(chunk) => {
-                    buffer[..chunk.len()].copy_from_slice(chunk);
-                    chunk.len()
+            |buffer| match reads.next() {
+                Some(read) => {
+                    buffer[..read.len()].copy_from_slice(&read);
+                    read.len()
                 }
                 None => 0,
             },
             |bytes| forwarded.extend_from_slice(bytes),
             files,
+            &backlog,
         );
-        let mut warnings = Vec::new();
-        pump_writer(chunks, log, |text| warnings.push(text.to_owned()));
-        assert_eq!(forwarded, b"hello world\r\nbye\n");
-        assert!(warnings.is_empty());
+        writer.join().unwrap();
         let text = std::fs::read_to_string(dir.join(CURRENT)).unwrap();
-        let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines.len(), 2);
-        assert!(lines[0].ends_with("Z hello world") && lines[1].ends_with("Z bye"));
         let _ = std::fs::remove_dir_all(&dir);
+        (forwarded, text)
     }
 
     #[test]
-    fn a_reader_never_waits_for_a_writer_that_is_behind() {
-        // Room for one chunk. The writer takes nothing until the third read: the second chunk is
-        // dropped but still forwarded, and the third (which fits again) carries the loss.
+    fn the_pump_forwards_raw_bytes_and_logs_stamped_lines() {
+        let (forwarded, text) = through_pumps(vec![b"hello wor".to_vec(), b"ld\r\nbye\n".to_vec()], "pump");
+        assert_eq!(forwarded, b"hello world\r\nbye\n");
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].ends_with("Z hello world") && lines[1].ends_with("Z bye"));
+    }
+
+    #[test]
+    fn a_burst_of_short_lines_on_a_healthy_disk_loses_nothing() {
+        // One short line per read, as eprintln! on many threads produces, far faster than a
+        // disk flush per read could keep up with.
+        let reads: Vec<Vec<u8>> = (0..20_000).map(|i| format!("nightjar: stream timing line {i:05}\n").into_bytes()).collect();
+        let (forwarded, text) = through_pumps(reads, "burst");
+        assert_eq!(forwarded.iter().filter(|&&b| b == b'\n').count(), 20_000);
+        assert!(!text.contains("dropped"), "nothing may be dropped");
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 20_000);
+        for (i, line) in lines.iter().enumerate() {
+            assert!(line.ends_with(&format!("Z nightjar: stream timing line {i:05}")), "{line}");
+        }
+    }
+
+    #[test]
+    fn a_reader_holds_back_what_the_writer_has_not_taken_and_sends_it_whole() {
+        // Room for one chunk. The writer takes nothing until the third read: the second read is
+        // held back, forwarded all the same, and goes out with the third. Nothing is lost.
+        let backlog = Backlog::new(BACKLOG_BYTES);
         let (files, chunks) = sync_channel(1);
         let script: [&[u8]; 3] = [b"first\n", b"second\n", b"third\n"];
         let mut reads = 0;
@@ -595,33 +714,110 @@ mod tests {
             },
             |bytes| forwarded.extend_from_slice(bytes),
             files,
+            &backlog,
         );
         assert_eq!(forwarded, b"first\nsecond\nthird\n");
+        taken.extend(chunks.try_iter());
+        let seen: Vec<(&[u8], usize)> = taken.iter().map(|c| (&c.bytes[..], c.lost)).collect();
+        assert_eq!(seen, vec![(&b"first\n"[..], 0), (&b"second\nthird\n"[..], 0)]);
+    }
+
+    #[test]
+    fn a_reader_drops_only_above_the_byte_limit_and_counts_it() {
+        // The writer is stalled until the third read; the backlog holds 10 bytes.
+        let backlog = Backlog::new(10);
+        let (files, chunks) = sync_channel(8);
+        let script: [&[u8]; 3] = [b"first\n", b"second\n", b"third\n"];
+        let mut reads = 0;
+        let mut forwarded = Vec::new();
+        let mut taken: Vec<Chunk> = Vec::new();
+        pump_reader(
+            |buffer| {
+                if reads == 2 {
+                    for chunk in chunks.try_iter() {
+                        backlog.taken(chunk.bytes.len());
+                        taken.push(chunk);
+                    }
+                }
+                let Some(chunk) = script.get(reads) else { return 0 };
+                reads += 1;
+                buffer[..chunk.len()].copy_from_slice(chunk);
+                chunk.len()
+            },
+            |bytes| forwarded.extend_from_slice(bytes),
+            files,
+            &backlog,
+        );
+        assert_eq!(forwarded, b"first\nsecond\nthird\n", "forwarding never stops");
         taken.extend(chunks.try_iter());
         let seen: Vec<(&[u8], usize)> = taken.iter().map(|c| (&c.bytes[..], c.lost)).collect();
         assert_eq!(seen, vec![(&b"first\n"[..], 0), (&b"third\n"[..], b"second\n".len())]);
     }
 
+    fn write_through_writer(chunks: Vec<Chunk>, name: &str) -> String {
+        let dir = temp(name);
+        let log = LogFile::open(&dir, CAP).unwrap();
+        let backlog = Backlog::new(BACKLOG_BYTES);
+        let (files, receiver) = sync_channel(chunks.len().max(1));
+        for chunk in chunks {
+            files.send(chunk).unwrap();
+        }
+        drop(files);
+        pump_writer(receiver, &backlog, log, |_| {});
+        let text = std::fs::read_to_string(dir.join(CURRENT)).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        text
+    }
+
     #[test]
     fn the_chunk_after_a_drop_carries_the_count_and_the_log_says_so() {
-        let dir = temp("pump-lost");
-        let log = LogFile::open(&dir, CAP).unwrap();
-        let (files, chunks) = sync_channel(1);
         let at = UNIX_EPOCH;
-        // What pump_reader leaves behind after a stall: a chunk that fits and, after two dropped
-        // ones (13 bytes), the next one that does.
-        files.send(Chunk { at, bytes: b"before\n".to_vec(), lost: 0 }).unwrap();
-        let writer = std::thread::spawn(move || pump_writer(chunks, log, |_| {}));
-        files.send(Chunk { at, bytes: b"after\n".to_vec(), lost: 13 }).unwrap();
-        drop(files);
-        writer.join().unwrap();
-        let text = std::fs::read_to_string(dir.join(CURRENT)).unwrap();
+        let text = write_through_writer(
+            vec![Chunk { at, bytes: b"before\n".to_vec(), lost: 0 }, Chunk { at, bytes: b"after\n".to_vec(), lost: 13 }],
+            "pump-lost",
+        );
         let lines: Vec<&str> = text.lines().collect();
         assert_eq!(lines.len(), 3, "{text}");
         assert!(lines[0].ends_with("Z before"));
         assert!(lines[1].ends_with("Z 13 bytes of log output were dropped, the disk was too slow"));
         assert!(lines[2].ends_with("Z after"));
-        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_drop_note_waits_for_the_end_of_the_line() {
+        let at = UNIX_EPOCH;
+        let text = write_through_writer(
+            vec![
+                Chunk { at, bytes: b"half a li".to_vec(), lost: 0 },
+                Chunk { at, bytes: b"ne\nnext\n".to_vec(), lost: 5 },
+                // Lost bytes before a chunk with no line end in it: the note waits for one.
+                Chunk { at, bytes: b"x".to_vec(), lost: 0 },
+                Chunk { at, bytes: b"y".to_vec(), lost: 3 },
+                Chunk { at, bytes: b"z\nlast".to_vec(), lost: 0 },
+            ],
+            "pump-lost-line",
+        );
+        let lines: Vec<&str> = text.lines().map(|l| l.trim_start_matches("1970-01-01T00:00:00.000Z ")).collect();
+        assert_eq!(
+            lines,
+            vec![
+                "half a line",
+                "5 bytes of log output were dropped, the disk was too slow",
+                "next",
+                "xyz",
+                "3 bytes of log output were dropped, the disk was too slow",
+                "last"
+            ],
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn a_drop_at_the_very_end_is_still_reported() {
+        let text = write_through_writer(vec![Chunk { at: UNIX_EPOCH, bytes: b"cut".to_vec(), lost: 0 }, Chunk { at: UNIX_EPOCH, bytes: Vec::new(), lost: 9 }], "pump-lost-end");
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 2, "{text}");
+        assert!(lines[1].ends_with("Z 9 bytes of log output were dropped, the disk was too slow"));
     }
 
     #[test]

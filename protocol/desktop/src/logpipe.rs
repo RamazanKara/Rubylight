@@ -21,16 +21,17 @@
 use std::io::Write;
 use std::panic::PanicHookInfo;
 use std::sync::mpsc::{channel, sync_channel, Receiver};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use crate::logfile::{self, Chunk, LogFile};
+use crate::logfile::{self, Backlog, Chunk, LogFile};
 
 /// How long [`shutdown`] waits for the logger threads.
 const DRAIN: Duration = Duration::from_millis(1000);
-/// Chunks (up to 16 KiB each) that may wait for the file writer before output is dropped.
-const BACKLOG: usize = 64;
+/// Chunks that may wait in the channel; what is held back beyond that is bounded in bytes
+/// ([`logfile::BACKLOG_BYTES`]).
+const CHANNEL: usize = 256;
 
 /// The names of the logger threads: a panic on one of them must not wait for the other.
 const READER: &str = "log";
@@ -62,11 +63,15 @@ pub fn start() {
         Ok(parts) => parts,
         Err(e) => return say(&format!("no log file: could not redirect stderr: {e}")),
     };
-    let (files, chunks) = sync_channel::<Chunk>(BACKLOG);
+    let (files, chunks) = sync_channel::<Chunk>(CHANNEL);
     let (finished, done) = channel();
-    let writer = std::thread::Builder::new().name(WRITER.into()).spawn(move || {
-        logfile::pump_writer(chunks, log, say);
-        let _ = finished.send(());
+    let backlog = Arc::new(Backlog::new(logfile::BACKLOG_BYTES));
+    let writer = std::thread::Builder::new().name(WRITER.into()).spawn({
+        let backlog = backlog.clone();
+        move || {
+            logfile::pump_writer(chunks, &backlog, log, say);
+            let _ = finished.send(());
+        }
     });
     let writer = match writer {
         Ok(writer) => writer,
@@ -75,9 +80,15 @@ pub fn start() {
             return say(&format!("no log file: could not start the file thread: {e}"));
         }
     };
-    let reader = std::thread::Builder::new()
-        .name(READER.into())
-        .spawn(move || logfile::pump_reader(|buffer| reader.read(buffer), |bytes| forward.write(bytes), files));
+    let reader = std::thread::Builder::new().name(READER.into()).spawn(move || {
+        logfile::pump_reader(|buffer| reader.read(buffer), |bytes| forward.write(bytes), files, &backlog);
+        // Still registered: nobody asked for this, the pipe failed. Give stderr back before this
+        // thread goes, or the next `eprintln!` would fail on a pipe nobody reads and panic.
+        if let Some(active) = take_active() {
+            active.redirect.restore();
+            say("log pipe failed, logging to the file has stopped");
+        }
+    });
     let reader = match reader {
         Ok(reader) => reader,
         Err(e) => {
@@ -121,23 +132,10 @@ fn take_active() -> Option<Active> {
 pub fn shutdown() {
     let Some(active) = take_active() else { return };
     active.redirect.restore();
-    let deadline = Instant::now() + DRAIN;
-    loop {
-        match active.done.recv_timeout(Duration::from_millis(10)) {
-            // Finished, or the writer is gone (it panicked).
-            Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                let _ = active.reader.join();
-                let _ = active.writer.join();
-                return;
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                if Instant::now() >= deadline {
-                    return;
-                }
-                // The reader may still be waiting in a read that nothing will end.
-                sys::nudge(&active.reader);
-            }
-        }
+    // Finished, or the writer is gone (it panicked); otherwise give up after DRAIN.
+    if active.done.recv_timeout(DRAIN).is_ok() {
+        let _ = active.reader.join();
+        let _ = active.writer.join();
     }
 }
 
@@ -153,7 +151,6 @@ impl Drop for Guard {
 #[cfg(unix)]
 mod sys {
     use std::io;
-    use std::thread::JoinHandle;
 
     /// What `restore` needs: the original stderr, saved.
     pub struct Redirect {
@@ -173,7 +170,7 @@ mod sys {
             if libc::fcntl(fd, libc::F_GETFD) >= 0 {
                 return Ok(false);
             }
-            let null = libc::open(c"/dev/null".as_ptr(), libc::O_WRONLY);
+            let null = libc::open(c"/dev/null".as_ptr(), libc::O_RDWR);
             if null < 0 {
                 return Err(io::Error::last_os_error());
             }
@@ -189,10 +186,13 @@ mod sys {
         }
     }
 
-    /// Start with fd 2 open. Without it a descriptor made later could get number 2 and be
-    /// closed or written to as stderr, by us or by anyone else.
+    /// Start with fds 0, 1 and 2 open. Without them a descriptor made later (the log file, the
+    /// pipe) could get number 0, 1 or 2 and be read, written or closed as a standard stream, by
+    /// us or by anyone else.
     pub fn prepare() {
-        let _ = ensure_open(2);
+        for fd in 0..3 {
+            let _ = ensure_open(fd);
+        }
     }
 
     /// A close-on-exec copy of `fd` numbered 3 or more, which is closed. Stdin, stdout and stderr
@@ -257,9 +257,6 @@ mod sys {
             }
         }
     }
-
-    /// Nothing to do: closing the write end ends the read.
-    pub fn nudge(_reader: &JoinHandle<()>) {}
 
     impl Reader {
         /// Bytes read, 0 at the end of the pipe or on an error.
@@ -331,26 +328,84 @@ mod sys {
             }
         }
 
-        #[test]
-        fn pipe_ends_never_land_on_the_standard_descriptors() {
-            // SAFETY: descriptors made and closed here.
+        /// Run `body` in a forked child (the standard descriptors cannot be closed in the test
+        /// process) and return its exit code; 0 is success. The child only uses plain syscalls
+        /// and exits without unwinding.
+        fn in_child(body: fn() -> i32) -> i32 {
+            // SAFETY: the child runs `body` and `_exit`s; the parent waits for it.
             unsafe {
-                // Free the lowest descriptors the way a launcher that closed them would have.
-                let mut fds = [0 as libc::c_int; 2];
-                assert_eq!(libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC), 0);
-                let kept = [libc::dup(fds[0]), libc::dup(fds[1])];
-                let [low_read, low_write] = fds;
-                let (read, write) = (move_up(low_read).unwrap(), move_up(low_write).unwrap());
-                assert!(read >= 3 && write >= 3);
-                // Data still flows through the moved ends.
-                assert_eq!(libc::write(write, b"ok".as_ptr().cast(), 2), 2);
-                let mut buffer = [0u8; 2];
-                assert_eq!(libc::read(read, buffer.as_mut_ptr().cast(), 2), 2);
-                assert_eq!(&buffer, b"ok");
-                for fd in [read, write, kept[0], kept[1]] {
-                    libc::close(fd);
+                let pid = libc::fork();
+                assert!(pid >= 0);
+                if pid == 0 {
+                    libc::_exit(body());
                 }
+                let mut status = 0;
+                assert_eq!(libc::waitpid(pid, &mut status, 0), pid);
+                if libc::WIFEXITED(status) { libc::WEXITSTATUS(status) } else { 100 + libc::WTERMSIG(status) }
             }
+        }
+
+        /// `install` the way `start` does, then write to stderr and read it back from the pipe.
+        fn install_and_loop_back() -> i32 {
+            let Ok((redirect, reader, forward)) = install() else { return 1 };
+            // Both ends of the pipe and the saved stderr must stay clear of 0, 1 and 2.
+            if reader.0 < 3 || forward.0 < 3 {
+                return 2;
+            }
+            // SAFETY: fd 2 is the pipe's write end now.
+            if unsafe { libc::write(2, b"ok".as_ptr().cast(), 2) } != 2 {
+                return 3;
+            }
+            let mut buffer = [0u8; 2];
+            if reader.read(&mut buffer) != 2 || &buffer != b"ok" {
+                return 4;
+            }
+            redirect.restore();
+            0
+        }
+
+        #[test]
+        fn pipe_ends_are_moved_off_the_standard_descriptors() {
+            // A launcher that closed stdin and stdout: pipe2 hands out 0 and 1 first, and only
+            // `move_up` keeps the pipe off them (no `prepare` here).
+            assert_eq!(
+                in_child(|| {
+                    // SAFETY: closing this child's own descriptors.
+                    unsafe {
+                        libc::close(0);
+                        libc::close(1);
+                    }
+                    install_and_loop_back()
+                }),
+                0
+            );
+        }
+
+        #[test]
+        fn prepare_opens_whichever_standard_descriptors_are_closed() {
+            assert_eq!(
+                in_child(|| {
+                    // SAFETY: closing and probing this child's own descriptors.
+                    unsafe {
+                        libc::close(0);
+                        libc::close(1);
+                        libc::close(2);
+                        prepare();
+                        for fd in 0..3 {
+                            if libc::fcntl(fd, libc::F_GETFD) < 0 {
+                                return 10 + fd;
+                            }
+                        }
+                        // What start() opens next, the log file, lands above them.
+                        let file = libc::open(c"/dev/null".as_ptr(), libc::O_RDONLY);
+                        if file < 3 {
+                            return 20;
+                        }
+                    }
+                    install_and_loop_back()
+                }),
+                0
+            );
         }
     }
 }
@@ -358,16 +413,13 @@ mod sys {
 #[cfg(windows)]
 mod sys {
     use std::io;
-    use std::os::windows::io::AsRawHandle;
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::thread::JoinHandle;
 
     use windows::Win32::Foundation::{CloseHandle, DuplicateHandle, DUPLICATE_SAME_ACCESS, HANDLE, INVALID_HANDLE_VALUE};
     use windows::Win32::Storage::FileSystem::{ReadFile, WriteFile};
     use windows::Win32::System::Console::{GetConsoleMode, GetStdHandle, SetStdHandle, WriteConsoleW, CONSOLE_MODE, STD_ERROR_HANDLE};
     use windows::Win32::System::Pipes::{CreatePipe, PeekNamedPipe};
     use windows::Win32::System::Threading::GetCurrentProcess;
-    use windows::Win32::System::IO::CancelSynchronousIo;
 
     use crate::logfile::Utf8Carry;
 
@@ -385,6 +437,10 @@ mod sys {
     /// Set by `restore`: the pipe's write end is never closed (see there), so the reader ends
     /// when it has read what is in the pipe.
     static STOP: AtomicBool = AtomicBool::new(false);
+    /// `restore` wrote the one wake-up byte ([`SENTINEL`]) that the reader must not log.
+    static SENTINEL_SENT: AtomicBool = AtomicBool::new(false);
+    /// Written by `restore` to wake a reader that is waiting in `ReadFile` on an empty pipe.
+    const SENTINEL: u8 = 0;
 
     /// A handle that may move to the logger thread; the code below uses each one from one place.
     #[derive(Clone, Copy)]
@@ -397,8 +453,12 @@ mod sys {
         /// A duplicate of the original stderr handle, if there was one (a GUI-subsystem process
         /// started from Explorer has none).
         saved: Option<Raw>,
+        /// The pipe's write end, kept open for the life of the process (see `restore`).
+        pipe: Raw,
     }
 
+    /// The pipe's read end. Never closed either: a write that was already under way when the
+    /// reader left would fail with a broken pipe, and `eprintln!` panics on that.
     pub struct Reader(Raw);
 
     /// The real stderr, as the logger thread forwards to it.
@@ -438,6 +498,7 @@ mod sys {
 
     pub fn install() -> io::Result<(Redirect, Reader, Forward)> {
         STOP.store(false, Ordering::SeqCst);
+        SENTINEL_SENT.store(false, Ordering::SeqCst);
         let (mut read, mut write) = (HANDLE::default(), HANDLE::default());
         // SAFETY: handles made and used here.
         unsafe {
@@ -460,7 +521,7 @@ mod sys {
                 let mut mode = CONSOLE_MODE(0);
                 GetConsoleMode(saved.0, &mut mode).is_ok()
             });
-            Ok((Redirect { saved }, Reader(Raw(read)), Forward { handle: saved, console, carry: Utf8Carry::default() }))
+            Ok((Redirect { saved, pipe: Raw(write) }, Reader(Raw(read)), Forward { handle: saved, console, carry: Utf8Carry::default() }))
         }
     }
 
@@ -487,34 +548,62 @@ mod sys {
                 }
             }
             STOP.store(true, Ordering::SeqCst);
-            // `saved` stays open: the logger thread may still be writing to it. It ends with the
-            // process.
+            // A reader waiting on an empty pipe needs a byte to wake it. It can only block if the
+            // pipe is full, and then the reader is not waiting, so that never holds up the
+            // caller: it is written from a thread of its own, which is left behind if it does.
+            SENTINEL_SENT.store(true, Ordering::SeqCst);
+            let pipe = self.pipe;
+            let _ = std::thread::Builder::new().name("log-wake".into()).spawn(move || {
+                // The whole `Raw`, which is `Send`, not just its handle field.
+                let pipe = pipe;
+                let mut count = 0u32;
+                // SAFETY: the handle is never closed.
+                if unsafe { WriteFile(pipe.0, Some(&[SENTINEL]), Some(&mut count), None) }.is_err() {
+                    SENTINEL_SENT.store(false, Ordering::SeqCst);
+                }
+            });
+            // `saved` stays open too: the logger thread may still be writing to it. It ends with
+            // the process.
         }
     }
 
-    /// Wake the reader if it is blocked in `ReadFile`. A read that starts after this call is not
-    /// affected, so the caller repeats it until the thread is done.
-    pub fn nudge(reader: &JoinHandle<()>) {
-        // SAFETY: the join handle keeps the thread handle valid.
-        let _ = unsafe { CancelSynchronousIo(HANDLE(reader.as_raw_handle())) };
+    /// `count` bytes were read: leave out the wake-up byte if it is the last of them.
+    fn without_sentinel(buffer: &[u8], count: usize) -> usize {
+        if count > 0 && STOP.load(Ordering::SeqCst) && buffer[count - 1] == SENTINEL && SENTINEL_SENT.swap(false, Ordering::SeqCst) {
+            count - 1
+        } else {
+            count
+        }
     }
 
     impl Reader {
-        /// Bytes read; 0 at the end of the pipe, on an error, or once `STOP` is set and the pipe
-        /// is empty.
+        /// Bytes read; 0 on an error or once `STOP` is set and the pipe is empty. An empty write
+        /// from native code is not the end: the write end stays open, so nothing but an error
+        /// ends the read while the pipe is in use.
         pub fn read(&self, buffer: &mut [u8]) -> usize {
             loop {
                 if STOP.load(Ordering::SeqCst) {
-                    return self.read_available(buffer);
+                    let count = self.read_available(buffer);
+                    if count == 0 {
+                        return 0;
+                    }
+                    let count = without_sentinel(buffer, count);
+                    if count > 0 {
+                        return count;
+                    }
+                    continue;
                 }
                 let mut count = 0u32;
                 // SAFETY: the buffer is valid for its length.
                 let ok = unsafe { ReadFile(self.0 .0, Some(buffer), Some(&mut count), None) };
                 match ok {
-                    Ok(()) if count > 0 => return count as usize,
-                    // A cancelled read (shutdown): go round and drain.
-                    Err(_) if STOP.load(Ordering::SeqCst) => {}
-                    _ => return 0,
+                    Ok(()) => {
+                        let count = without_sentinel(buffer, count as usize);
+                        if count > 0 {
+                            return count;
+                        }
+                    }
+                    Err(_) => return 0,
                 }
             }
         }
@@ -531,13 +620,6 @@ mod sys {
             // SAFETY: the buffer is valid for `want` bytes, and that much is waiting.
             let ok = unsafe { ReadFile(self.0 .0, Some(&mut buffer[..want]), Some(&mut count), None) };
             if ok.is_err() { 0 } else { count as usize }
-        }
-    }
-
-    impl Drop for Reader {
-        fn drop(&mut self) {
-            // SAFETY: closing our own handle.
-            let _ = unsafe { CloseHandle(self.0 .0) };
         }
     }
 
@@ -575,19 +657,55 @@ mod sys {
     #[cfg(test)]
     mod tests {
         use super::*;
+        use std::sync::mpsc::channel;
+        use std::sync::Mutex;
+        use std::time::Duration;
+
+        /// The tests share `STOP` and `SENTINEL_SENT`.
+        static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+        fn pipe() -> (Reader, HANDLE) {
+            let (mut read, mut write) = (HANDLE::default(), HANDLE::default());
+            // SAFETY: handles made here; like the real ones they are never closed.
+            unsafe { CreatePipe(&mut read, &mut write, None, 4096).unwrap() };
+            STOP.store(false, Ordering::SeqCst);
+            SENTINEL_SENT.store(false, Ordering::SeqCst);
+            (Reader(Raw(read)), write)
+        }
+
+        fn put(write: HANDLE, bytes: &[u8]) {
+            let mut count = 0u32;
+            // SAFETY: a valid pipe handle and slice.
+            unsafe { WriteFile(write, Some(bytes), Some(&mut count), None).unwrap() };
+        }
 
         #[test]
         fn once_stopped_the_reader_drains_the_pipe_and_ends_without_waiting() {
-            let (mut read, mut write) = (HANDLE::default(), HANDLE::default());
-            // SAFETY: handles made and closed here.
-            unsafe {
-                CreatePipe(&mut read, &mut write, None, 4096).unwrap();
-                let mut count = 0u32;
-                WriteFile(write, Some(b"left in the pipe"), Some(&mut count), None).unwrap();
-                // The write end stays open, as at shutdown.
-                let reader = Reader(Raw(read));
-                STOP.store(true, Ordering::SeqCst);
-                let mut buffer = [0u8; 8];
+            let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+            let (reader, write) = pipe();
+            put(write, b"left in the pipe");
+            // The write end stays open, as at shutdown.
+            STOP.store(true, Ordering::SeqCst);
+            let mut buffer = [0u8; 8];
+            let mut got = Vec::new();
+            loop {
+                let n = reader.read(&mut buffer);
+                if n == 0 {
+                    break;
+                }
+                got.extend_from_slice(&buffer[..n]);
+            }
+            STOP.store(false, Ordering::SeqCst);
+            assert_eq!(got, b"left in the pipe");
+        }
+
+        #[test]
+        fn the_wake_up_byte_ends_a_waiting_reader_and_is_not_logged() {
+            let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+            let (reader, write) = pipe();
+            let (done, finished) = channel();
+            std::thread::spawn(move || {
+                let mut buffer = [0u8; 64];
                 let mut got = Vec::new();
                 loop {
                     let n = reader.read(&mut buffer);
@@ -596,11 +714,36 @@ mod sys {
                     }
                     got.extend_from_slice(&buffer[..n]);
                 }
-                STOP.store(false, Ordering::SeqCst);
-                assert_eq!(got, b"left in the pipe");
-                drop(reader);
-                let _ = CloseHandle(write);
-            }
+                let _ = done.send(got);
+            });
+            put(write, b"line\n");
+            std::thread::sleep(Duration::from_millis(100));
+            // What `restore` does, without touching this process's stderr.
+            STOP.store(true, Ordering::SeqCst);
+            SENTINEL_SENT.store(true, Ordering::SeqCst);
+            put(write, &[SENTINEL]);
+            let got = finished.recv_timeout(Duration::from_secs(5)).expect("the reader did not end");
+            STOP.store(false, Ordering::SeqCst);
+            assert_eq!(got, b"line\n");
+        }
+
+        #[test]
+        fn an_empty_write_does_not_end_the_reader() {
+            let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+            let (reader, write) = pipe();
+            let (done, finished) = channel();
+            std::thread::spawn(move || {
+                let mut buffer = [0u8; 64];
+                let n = reader.read(&mut buffer);
+                let _ = done.send(buffer[..n].to_vec());
+            });
+            std::thread::sleep(Duration::from_millis(100));
+            let mut count = 0u32;
+            // SAFETY: a valid pipe handle; a zero-length write, as native code sometimes makes.
+            unsafe { WriteFile(write, Some(&[]), Some(&mut count), None).unwrap() };
+            std::thread::sleep(Duration::from_millis(100));
+            put(write, b"x");
+            assert_eq!(finished.recv_timeout(Duration::from_secs(5)).expect("the reader ended"), b"x");
         }
     }
 }

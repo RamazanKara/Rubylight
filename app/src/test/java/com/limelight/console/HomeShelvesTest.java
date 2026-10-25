@@ -5,6 +5,7 @@ import static com.limelight.nativeapi.NativeApiFixtures.library;
 import static com.limelight.nativeapi.NativeApiFixtures.nativeHost;
 import static com.limelight.nativeapi.NativeApiFixtures.ok;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
@@ -52,6 +53,8 @@ public class HomeShelvesTest {
     private Activity activity;
     private ConsoleHomeAdapter adapter;
     private RecyclerView list;
+    private View bar;
+    private HomeModel model;
 
     @Before
     public void setUp() throws Exception {
@@ -79,12 +82,18 @@ public class HomeShelvesTest {
         rows.setRowFocus(adapter);
         list.setLayoutManager(rows);
         list.setAdapter(adapter);
-        FrameLayout root = new FrameLayout(activity);
-        root.addView(list, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        // A button above the shelves stands for the shell bar.
+        LinearLayout root = new LinearLayout(activity);
+        root.setOrientation(LinearLayout.VERTICAL);
+        bar = new android.widget.Button(activity);
+        bar.setFocusable(true);
+        root.addView(bar, new LinearLayout.LayoutParams(200, 100));
+        root.addView(list, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         activity.setContentView(root);
         controller.visible();
-        adapter.submit(HomeModel.of(rig.repository.refresh(Collections.singletonList(nativeHost("tower", "Tower", true))),
-                new HashSet<>(Collections.singletonList("tower"))));
+        model = HomeModel.of(rig.repository.refresh(Collections.singletonList(nativeHost("tower", "Tower", true))),
+                new HashSet<>(Collections.singletonList("tower")));
+        adapter.submit(model);
         layout();
     }
 
@@ -143,6 +152,112 @@ public class HomeShelvesTest {
         View back = press(below, View.FOCUS_UP);
         assertEquals("back on the card it left", new ConsoleHomeAdapter.Cursor(0, 5), adapter.focusedCard(list));
         assertSame(fifth, back);
+    }
+
+    private ConsoleHomeAdapter.ShelfHolder holder(int row) {
+        return (ConsoleHomeAdapter.ShelfHolder) list.findViewHolderForAdapterPosition(row);
+    }
+
+    private int firstVisible(int row) {
+        return holder(row).layout.findFirstVisibleItemPosition();
+    }
+
+    private int offsetOf(int row) {
+        ConsoleHomeAdapter.ShelfHolder shelf = holder(row);
+        return shelf.layout.findViewByPosition(firstVisible(row)).getLeft();
+    }
+
+    @Test
+    public void aShelfKeepsItsPlaceAndFocusThroughARefreshAndAReturnFromTheGamePage() {
+        View eighth = card(1, 8);
+        assertTrue(eighth.requestFocus());
+        layout();
+        int first = firstVisible(1);
+        int offset = offsetOf(1);
+        assertTrue("the shelf is scrolled", first > 0);
+        String focused = adapter.keyAt(adapter.focusedCard(list));
+        ConsoleHomeAdapter.ShelfHolder before = holder(1);
+
+        // The host feed polls: the same model comes in again, as it does when the game page is left with Back.
+        for (int i = 0; i < 3; i++) {
+            adapter.submit(model);
+            layout();
+        }
+
+        assertSame("the same shelf view", before, holder(1));
+        assertEquals("the same first card", first, firstVisible(1));
+        assertEquals("at the same offset", offset, offsetOf(1));
+        ConsoleHomeAdapter.Cursor at = adapter.focusedCard(list);
+        assertNotNull("focus stayed on a card", at);
+        assertEquals("and on the same one", focused, adapter.keyAt(at));
+    }
+
+    @Test
+    public void aShelfThatTakesAHolderSetsItToItsOwnPlaceNotTheLastOnes() throws Exception {
+        card(1, 8);
+        int first = firstVisible(1);
+        assertTrue(first > 0);
+        // Only the PCs remain: their shelf takes up a holder that showed the scrolled library.
+        rig.transport.reply("tower", "library", ok(library("t1")));
+        for (int i = 0; i < 8; i++) rig.repository.setFavourite("tower", "Tower", "t-" + i, 100 + i, "Game " + i, false);
+        HomeModel hosts = HomeModel.of(rig.repository.refresh(Collections.singletonList(nativeHost("tower", "Tower", true))),
+                new HashSet<>(Collections.singletonList("tower")));
+        adapter.submit(hosts);
+        layout();
+        assertEquals(1, adapter.rowCount());
+        assertEquals("shelf:hosts", adapter.rowKey(0));
+        assertEquals(0, firstVisible(0));
+        // The library is back where it was left.
+        adapter.submit(model);
+        layout();
+        int row = 1;
+        assertEquals("shelf:library", adapter.rowKey(row));
+        assertEquals(first, firstVisible(row));
+    }
+
+    @Test
+    public void downFromTheShellBarLandsOnTheCardTheFirstShelfRemembers() {
+        View fifth = card(0, 4);
+        assertTrue(fifth.requestFocus());
+        layout();
+        // Nearest across to the bar would be the first card.
+        assertTrue(bar.requestFocus());
+        layout();
+        assertTrue(bar.hasFocus());
+        View next = bar.focusSearch(View.FOCUS_DOWN);
+        assertSame("the remembered card, not the one nearest across", fifth, next);
+        assertTrue(next.requestFocus());
+        layout();
+        assertEquals(new ConsoleHomeAdapter.Cursor(0, 4), adapter.focusedCard(list));
+    }
+
+    @Test
+    public void backOnAMarkedHostCardOnlyUnmarksTheDotsAndACancelledOneDoesNot() {
+        ConsoleHomeAdapter.Cursor hostAt = new ConsoleHomeAdapter.Cursor(adapter.rowCount() - 1, 0);
+        View host = card(hostAt.row, hostAt.card);
+        assertTrue(host.requestFocus());
+        layout();
+        View more = host.findViewById(R.id.console_more);
+        host.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_RIGHT));
+        assertTrue("the end of the shelf marks the dots", more.isHovered());
+
+        host.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_BACK));
+        host.dispatchKeyEvent(new android.view.KeyEvent(0, 0, android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_BACK,
+                0, 0, 0, 0, android.view.KeyEvent.FLAG_CANCELED));
+        assertTrue("a cancelled Back does nothing", more.isHovered());
+
+        assertTrue("Back is taken by the card, so the screen stays", host.dispatchKeyEvent(
+                new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_BACK)));
+        host.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_BACK));
+        assertFalse("Back only unmarks", more.isHovered());
+        assertEquals("and focus stays on the card", hostAt, adapter.focusedCard(list));
+    }
+
+    @Test
+    public void aShelfIsNamedForTheListOfItsCards() {
+        ConsoleHomeAdapter.ShelfHolder shelf = holder(0);
+        assertEquals(shelf.title.getText().toString(), shelf.cards.getContentDescription().toString());
+        assertEquals(shelf.cards.getId(), shelf.title.getLabelFor());
     }
 
     @Test

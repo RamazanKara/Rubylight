@@ -31,10 +31,10 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<ConsoleHomeAdapter.S
     interface Listener {
         void onGame(HomeModel.GameCard card);
 
-        /** A long press (or the D-pad centre held, or X) on a game card. */
+        /** A long press (or the D-pad centre held), X or Menu on a game card (on a phone's Home, Menu stars it instead). */
         void onGameMenu(HomeModel.GameCard card);
 
-        /** The Menu key on a game card: star or unstar it at once. */
+        /** The Menu key on a game card of a phone's Home: star or unstar it at once. */
         void onGameToggleFavourite(HomeModel.GameCard card);
 
         void onHost(HomeModel.HostCard card);
@@ -85,6 +85,8 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<ConsoleHomeAdapter.S
     /** The card that last had focus on each shelf, and where each shelf is scrolled to. */
     private final Map<String, String> remembered = new HashMap<>();
     private final Map<String, int[]> scrolled = new HashMap<>();
+    /** The shelves on screen now: their places are written down before a new list of shelves takes them over. */
+    private final java.util.Set<ShelfHolder> attached = new java.util.HashSet<>();
     private final RecyclerView.RecycledViewPool pool = new RecyclerView.RecycledViewPool();
     private ShelfAdapter.FocusListener focusListener;
 
@@ -129,6 +131,7 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<ConsoleHomeAdapter.S
     }
 
     void submit(HomeModel model) {
+        for (ShelfHolder holder : attached) saveScroll(holder);
         shelves.clear();
         addGames("continue", R.string.console_section_continue, model.continuePlaying);
         addGames("favourites", R.string.console_section_favourites, model.favourites);
@@ -320,17 +323,35 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<ConsoleHomeAdapter.S
     @Override
     public void onBindViewHolder(@NonNull ShelfHolder holder, int position) {
         Shelf shelf = shelves.get(position);
+        // A holder that still shows this shelf (a refresh, a poll, a return from the game page) is where its user left it.
+        // Only a holder that takes up a different shelf is put where that shelf was left.
+        boolean moved = !shelf.key.equals(holder.key);
+        if (moved) saveScroll(holder);
         holder.key = shelf.key;
         holder.title.setText(shelf.title);
+        holder.cards.setContentDescription(holder.itemView.getContext().getString(shelf.title));
         holder.adapter.setItems(shelf.key, shelf.items);
-        // A shelf comes back where it was left: the same cards in view, not the first ones.
+        if (!moved) return;
         int[] at = scrolled.get(shelf.key);
         if (at != null && at[0] < shelf.items.size()) holder.layout.scrollToPositionWithOffset(at[0], at[1]);
+        else holder.layout.scrollToPositionWithOffset(0, 0);
     }
 
     @Override
     public void onViewRecycled(@NonNull ShelfHolder holder) {
         saveScroll(holder);
+        holder.key = null;
+    }
+
+    @Override
+    public void onViewAttachedToWindow(@NonNull ShelfHolder holder) {
+        attached.add(holder);
+    }
+
+    @Override
+    public void onViewDetachedFromWindow(@NonNull ShelfHolder holder) {
+        saveScroll(holder);
+        attached.remove(holder);
     }
 
     private void saveScroll(ShelfHolder holder) {
@@ -351,6 +372,8 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<ConsoleHomeAdapter.S
             super(view);
             title = view.findViewById(R.id.shelf_title);
             cards = view.findViewById(R.id.shelf_cards);
+            // Moving down into a shelf announces it by its name.
+            title.setLabelFor(R.id.shelf_cards);
             adapter = new ShelfAdapter(env);
             layout = new ShelfLayoutManager(view.getContext(), LinearLayoutManager.HORIZONTAL,
                     () -> isFastTravel() || Motion.reduced(view.getContext()));

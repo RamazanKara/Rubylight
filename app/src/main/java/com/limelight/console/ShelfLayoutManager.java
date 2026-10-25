@@ -150,6 +150,21 @@ final class ShelfLayoutManager extends LinearLayoutManager {
         return target == null ? null : cardOr(target, focused);
     }
 
+    /**
+     * Focus that comes into the shelves from outside them (down from the shell bar) goes to the card the first shelf in view
+     * remembers, not to the card nearest across: the shelves offer that one card and no other.
+     */
+    @Override
+    public boolean onAddFocusables(RecyclerView recyclerView, java.util.ArrayList<View> views, int direction, int focusableMode) {
+        if (cards || rowFocus == null || recyclerView.hasFocus() || getChildCount() == 0) return false;
+        if (direction != View.FOCUS_DOWN && direction != View.FOCUS_FORWARD) return false;
+        View from = recyclerView.getRootView().findFocus();
+        View card = from == null ? null : rowFocus.cardIn(recyclerView, getChildAt(0), from);
+        if (card == null || !card.isFocusable()) return false;
+        views.add(card);
+        return true;
+    }
+
     @Override
     public View onFocusSearchFailed(View focused, int focusDirection, RecyclerView.Recycler recycler, RecyclerView.State state) {
         View found = super.onFocusSearchFailed(focused, focusDirection, recycler, state);

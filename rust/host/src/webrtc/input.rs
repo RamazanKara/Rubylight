@@ -114,7 +114,10 @@ impl InputHandle {
 
 fn text(data: Vec<u8>, binary: bool, channel: &str) -> Option<String> {
     if binary {
-        tracing::warn!(channel, "WebRTC input: a binary frame is not part of the protocol; dropped");
+        tracing::warn!(
+            channel,
+            "WebRTC input: a binary frame is not part of the protocol; dropped"
+        );
         return None;
     }
     match String::from_utf8(data) {
@@ -151,12 +154,15 @@ impl NativeSink {
             tracing::warn!(error = %format!("{error:#}"), "input configuration unavailable");
         })?;
         let output = s.output.read().unwrap().clone();
-        let pads = h.controller_sessions.acquire(&s.launch, &c).inspect_err(|error| {
-            warnings.set(
-                "input_initialization",
-                format!("Controller recovery is still in progress ({error:#}); retrying."),
-            );
-        })?;
+        let pads = h
+            .controller_sessions
+            .acquire(&s.launch, &c)
+            .inspect_err(|error| {
+                warnings.set(
+                    "input_initialization",
+                    format!("Controller recovery is still in progress ({error:#}); retrying."),
+                );
+            })?;
         let mut injector = Injector::new_options_reported(
             if output.is_empty() {
                 c.get("output_name", "")
@@ -483,7 +489,10 @@ impl Core {
     fn release_held(&mut self, now: Instant) {
         let events = self.channel.release_all();
         if !events.is_empty() {
-            tracing::info!(count = events.len(), "WebRTC input: releasing what the client held");
+            tracing::info!(
+                count = events.len(),
+                "WebRTC input: releasing what the client held"
+            );
             self.inject(events, now);
         }
     }

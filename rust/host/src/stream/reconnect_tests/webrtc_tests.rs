@@ -10,7 +10,7 @@ use butterpollo_core::{audio::OpusLayout, webrtc::auth::proof_hex};
 use serde_json::{Value, json};
 use str0m::{
     Event, Input, Output,
-    channel::ChannelId,
+    channel::{ChannelConfig, ChannelId, Reliability},
     media::{KeyframeRequestKind, Mid},
     net::{Protocol, Receive},
 };
@@ -155,7 +155,19 @@ struct Peer {
     audio: Arc<Mutex<Vec<Vec<u8>>>>,
     pli: Arc<AtomicUsize>,
     control: Arc<Mutex<Vec<String>>>,
+    /// Text the host sent on the control channel.
+    heard: Arc<Mutex<Vec<String>>>,
+    /// What the client sends on the gamepad and input channels, in order.
+    outbox: Arc<Mutex<Vec<Outgoing>>>,
     thread: Option<thread::JoinHandle<()>>,
+}
+
+/// One thing a browser-like client does with its data channels.
+enum Outgoing {
+    Gamepad(String),
+    OpenInput,
+    Input(String),
+    CloseInput,
 }
 
 impl Peer {
@@ -171,19 +183,27 @@ impl Peer {
             audio: Arc::default(),
             pli: Arc::default(),
             control: Arc::default(),
+            heard: Arc::default(),
+            outbox: Arc::default(),
             thread: None,
         };
-        let (stop, units, audio, pli, control) = (
+        let (stop, units, audio, pli, control, heard, outbox) = (
             peer.stop.clone(),
             peer.units.clone(),
             peer.audio.clone(),
             peer.pli.clone(),
             peer.control.clone(),
+            peer.heard.clone(),
+            peer.outbox.clone(),
         );
         peer.thread = Some(thread::spawn(move || {
             let mut video: Option<Mid> = None;
             let mut sound: Option<Mid> = None;
             let mut control_channel: Option<ChannelId> = None;
+            let mut gamepad_channel: Option<ChannelId> = None;
+            let mut input_channel: Option<ChannelId> = None;
+            let mut input_open = false;
+            let mut pending: std::collections::VecDeque<Outgoing> = Default::default();
             let mut buffer = vec![0u8; 2048];
             while !stop.load(Ordering::Acquire) {
                 let timeout = loop {
@@ -208,6 +228,20 @@ impl Peer {
                         Ok(Output::Event(Event::ChannelOpen(id, label))) if label == "control" => {
                             control_channel = Some(id)
                         }
+                        Ok(Output::Event(Event::ChannelOpen(id, label))) if label == "gamepad" => {
+                            gamepad_channel = Some(id)
+                        }
+                        Ok(Output::Event(Event::ChannelOpen(id, label))) if label == "input" => {
+                            input_open = input_channel == Some(id)
+                        }
+                        Ok(Output::Event(Event::ChannelData(data)))
+                            if Some(data.id) == control_channel && !data.binary =>
+                        {
+                            heard
+                                .lock()
+                                .unwrap()
+                                .push(String::from_utf8_lossy(&data.data).into_owned())
+                        }
                         Ok(Output::Event(_)) => {}
                         Err(_) => return,
                     }
@@ -223,6 +257,46 @@ impl Peer {
                 if let Some(id) = control_channel {
                     for text in control.lock().unwrap().drain(..) {
                         let _ = rtc.channel(id).map(|mut c| c.write(false, text.as_bytes()));
+                    }
+                }
+                pending.extend(outbox.lock().unwrap().drain(..));
+                // In order; a message for a channel that is not open yet waits for it.
+                while let Some(item) = pending.pop_front() {
+                    let sent = match &item {
+                        Outgoing::Gamepad(text) => gamepad_channel.is_some_and(|id| {
+                            rtc.channel(id)
+                                .is_some_and(|mut c| c.write(false, text.as_bytes()).is_ok())
+                        }),
+                        Outgoing::OpenInput => {
+                            let mut api = rtc.sdp_api();
+                            input_channel = Some(api.add_channel_with_config(ChannelConfig {
+                                label: "input".into(),
+                                ordered: true,
+                                reliability: Reliability::Reliable,
+                                ..Default::default()
+                            }));
+                            assert!(api.apply().is_none());
+                            true
+                        }
+                        Outgoing::Input(text) => {
+                            input_open
+                                && input_channel.is_some_and(|id| {
+                                    rtc.channel(id).is_some_and(|mut c| {
+                                        c.write(false, text.as_bytes()).is_ok()
+                                    })
+                                })
+                        }
+                        Outgoing::CloseInput => {
+                            if let Some(id) = input_channel {
+                                rtc.direct_api().close_data_channel(id);
+                                input_open = false;
+                            }
+                            true
+                        }
+                    };
+                    if !sent {
+                        pending.push_front(item);
+                        break;
                     }
                 }
                 let wait = timeout
@@ -249,6 +323,38 @@ impl Peer {
 
     fn count(&self) -> usize {
         self.units.lock().unwrap().len()
+    }
+
+    fn send(&self, item: Outgoing) {
+        self.outbox.lock().unwrap().push(item);
+    }
+
+    /// A gamepad channel message.
+    fn gamepad(&self, text: &str) {
+        self.send(Outgoing::Gamepad(text.into()));
+    }
+
+    /// Open the `input` channel.
+    fn open_input(&self) {
+        self.send(Outgoing::OpenInput);
+    }
+
+    /// An `input` channel message, sent once the channel is open.
+    fn input(&self, text: &str) {
+        self.send(Outgoing::Input(text.into()));
+    }
+
+    fn close_input(&self) {
+        self.send(Outgoing::CloseInput);
+    }
+
+    /// The control messages of `kind` the host sent.
+    fn heard(&self, kind: &str) -> Vec<Value> {
+        let all = self.heard.lock().unwrap();
+        all.iter()
+            .filter_map(|t| serde_json::from_str::<Value>(t).ok())
+            .filter(|m| m["type"] == kind)
+            .collect()
     }
 
     fn keyframes(&self, codec: u8) -> usize {
@@ -1191,3 +1297,5 @@ async fn a_webrtc_launch_records_its_device_as_the_apps_owner() -> Result<()> {
     drop(peer);
     Ok(())
 }
+
+mod input_tests;

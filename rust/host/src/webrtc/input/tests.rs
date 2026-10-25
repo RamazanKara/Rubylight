@@ -140,14 +140,7 @@ fn a_gamepad_arrives_reports_and_leaves_through_the_injector() {
         r.at(20),
     );
     let events = r.events();
-    assert!(matches!(
-        events[0],
-        Input::Arrival {
-            id: 0,
-            kind: 1,
-            ..
-        }
-    ));
+    assert!(matches!(events[0], Input::Arrival { id: 0, kind: 1, .. }));
     assert!(matches!(
         events[1],
         Input::Controller {
@@ -527,7 +520,10 @@ fn an_injector_that_cannot_be_made_is_loud_and_tried_again_later() {
     // Not again before the retry delay; then one more failure, then it works.
     core.input(r#"{"v":1,"type":"key","code":"KeyB","down":true}"#, ms(600));
     assert!(rec.events().is_empty());
-    core.input(r#"{"v":1,"type":"key","code":"KeyC","down":true}"#, ms(1200));
+    core.input(
+        r#"{"v":1,"type":"key","code":"KeyC","down":true}"#,
+        ms(1200),
+    );
     assert_eq!(rec.events(), vec![key_down(0x43)]);
     assert_eq!(rec.sinks(), (1, 1));
 }

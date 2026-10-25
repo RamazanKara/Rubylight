@@ -419,14 +419,26 @@ fn run<B: RadeonBackend>(
     // must not touch them.
     let mut active: HashSet<String> = HashSet::new();
     let mut degraded = recover(&mut controller, status, timing, false);
+    // The next retry is due `retry_every` after the worker degraded or last retried. Jobs that
+    // come meanwhile do not put it off: a panel that asks more often would put it off for good.
+    let mut retry_at = None;
     loop {
         let job = if degraded {
-            match queue.recv_timeout(timing.retry_every) {
-                Ok(job) => Some(job),
-                Err(RecvTimeoutError::Timeout) => None,
-                Err(RecvTimeoutError::Disconnected) => return,
+            let due = *retry_at.get_or_insert_with(|| Instant::now() + timing.retry_every);
+            let job = match due.checked_duration_since(Instant::now()) {
+                Some(left) if !left.is_zero() => match queue.recv_timeout(left) {
+                    Ok(job) => Some(job),
+                    Err(RecvTimeoutError::Timeout) => None,
+                    Err(RecvTimeoutError::Disconnected) => return,
+                },
+                _ => None,
+            };
+            if job.is_none() {
+                retry_at = None;
             }
+            job
         } else {
+            retry_at = None;
             match queue.recv() {
                 Ok(job) => Some(job),
                 Err(_) => return,
@@ -808,6 +820,30 @@ mod tests {
         });
         assert_eq!(driver.value("anti_lag.enabled"), Value::Bool(true));
         assert!(Journal::load(&journal).unwrap().entries.is_empty());
+    }
+
+    #[test]
+    fn a_retry_runs_on_time_while_the_panel_keeps_asking() {
+        let dir = tempfile::tempdir().unwrap();
+        let journal = crashed_journal(dir.path());
+        let (driver, _open) = Driver::new();
+        let driver = driver.without_gate();
+        driver.panel.lock().unwrap().refuse = Some("anti_lag.enabled");
+        let timing = Timing {
+            retry_every: Duration::from_millis(200),
+            ..quick()
+        };
+        let worker = Worker::start(driver.clone(), journal, timing);
+        until("the recovery to report", || {
+            worker.status().phase == Phase::Degraded
+        });
+        driver.panel.lock().unwrap().refuse = None;
+        // Each read is a job of its own, more often than the retry is due.
+        until("the retry while the panel reads", || {
+            worker.pending(Duration::from_secs(5)).unwrap();
+            worker.status().phase == Phase::Ready
+        });
+        assert_eq!(driver.value("anti_lag.enabled"), Value::Bool(true));
     }
 
     #[test]

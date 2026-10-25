@@ -48,4 +48,14 @@ public class DiskAssetLoaderTest {
         assertArrayEquals(original, Files.readAllBytes(loader.getFile(tuple.computer.uuid, tuple.cacheKey).toPath()));
         assertEquals(1, loader.getFile(tuple.computer.uuid, tuple.cacheKey).getParentFile().list().length);
     }
+
+    @Test
+    public void aCoverIsDecodedInItsOwnShapeNotSqueezedIntoAPoster() {
+        assertArrayEquals("a banner stays a banner", new int[] {360, 168}, DiskAssetLoader.targetSize(920, 430));
+        assertArrayEquals("a square stays square", new int[] {360, 360}, DiskAssetLoader.targetSize(600, 600));
+        assertArrayEquals("2:3 fills the box", new int[] {360, 540}, DiskAssetLoader.targetSize(600, 900));
+        assertArrayEquals("3:4 is limited by its width", new int[] {360, 480}, DiskAssetLoader.targetSize(600, 800));
+        assertArrayEquals("a small cover is not enlarged", new int[] {200, 300}, DiskAssetLoader.targetSize(200, 300));
+        assertArrayEquals("unknown sizes fall back to the box", new int[] {360, 540}, DiskAssetLoader.targetSize(0, 0));
+    }
 }

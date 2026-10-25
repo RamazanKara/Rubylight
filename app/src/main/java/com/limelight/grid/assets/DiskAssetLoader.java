@@ -21,9 +21,9 @@ public class DiskAssetLoader {
     // 5 MB
     private static final long MAX_ASSET_SIZE = 5 * 1024 * 1024;
 
-    // Standard box art is 300x400
-    private static final int STANDARD_ASSET_WIDTH = 300;
-    private static final int STANDARD_ASSET_HEIGHT = 400;
+    // A cover is decoded to fit this box, a 2:3 poster; its own shape is kept
+    private static final int STANDARD_ASSET_WIDTH = 360;
+    private static final int STANDARD_ASSET_HEIGHT = 540;
 
     private final boolean isLowRamDevice;
     private final File cacheDir;
@@ -40,6 +40,16 @@ public class DiskAssetLoader {
 
     public boolean checkCacheExists(CachedAppAssetLoader.LoaderTuple tuple) {
         return CacheHelper.cacheFileExists(cacheDir, "boxart", tuple.computer.uuid, tuple.cacheKey + ".png");
+    }
+
+    /**
+     * The decoded size of a cover: as large as fits the standard box, never larger than the file, and in the
+     * file's own shape. A fixed size would squeeze a banner or a square into a poster before it is fitted.
+     */
+    static int[] targetSize(int width, int height) {
+        if (width <= 0 || height <= 0) return new int[] {STANDARD_ASSET_WIDTH, STANDARD_ASSET_HEIGHT};
+        float scale = Math.min(1f, Math.min((float) STANDARD_ASSET_WIDTH / width, (float) STANDARD_ASSET_HEIGHT / height));
+        return new int[] {Math.max(1, Math.round(width * scale)), Math.max(1, Math.round(height * scale))};
     }
 
     // https://developer.android.com/topic/performance/graphics/load-bitmap.html
@@ -123,7 +133,8 @@ public class DiskAssetLoader {
                         scaledBitmap.originalWidth = imageInfo.getSize().getWidth();
                         scaledBitmap.originalHeight = imageInfo.getSize().getHeight();
 
-                        imageDecoder.setTargetSize(STANDARD_ASSET_WIDTH, STANDARD_ASSET_HEIGHT);
+                        int[] target = targetSize(scaledBitmap.originalWidth, scaledBitmap.originalHeight);
+                        imageDecoder.setTargetSize(target[0], target[1]);
                         if (isLowRamDevice) {
                             imageDecoder.setMemorySizePolicy(ImageDecoder.MEMORY_POLICY_LOW_RAM);
                         }

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_tell_host_link_speed">Indicar al PC la velocidad del enlace</string>
+    <string name="summary_tell_host_link_speed">Permite que el PC limite su velocidad de envío a la del puerto por cable de este dispositivo.</string>
+</resources>

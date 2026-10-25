@@ -206,6 +206,13 @@ pub struct Settings {
     pub microphone: bool,
     pub cursor_shapes: bool,
     pub network_grace_ms: u32,
+    /// Tell a Rubylight PC when the route to it is Wi-Fi or cellular, so it paces for a wireless
+    /// link from the first frame (`x-rl-video[0].clientWireless`). On by default.
+    pub tell_host_wireless: bool,
+    /// Tell the PC this device's wired port speed toward it, so it can limit its sending rate
+    /// (`x-ss-video[0].pyrowaveLinkMbps`, any codec, any host). On by default. The calibrated pace
+    /// is looked up with the real link speed either way.
+    pub tell_host_link_speed: bool,
     pub auto_reconnect: bool,
     pub virtual_display: bool,
     pub virtual_display_scale: u32,
@@ -335,6 +342,8 @@ impl Default for Settings {
             microphone: false,
             cursor_shapes: true,
             network_grace_ms: 3000,
+            tell_host_wireless: true,
+            tell_host_link_speed: true,
             auto_reconnect: false,
             virtual_display: false,
             virtual_display_scale: 100,
@@ -1257,6 +1266,25 @@ mod tests {
         assert_eq!(profiles.settings(&Settings::default(), Kind::Mobile), Settings::default());
         let restored: Profiles = serde_json::from_str(&serde_json::to_string(&profiles).unwrap()).unwrap();
         assert_eq!(restored, profiles);
+    }
+
+    #[test]
+    fn telling_the_host_about_wireless_is_on_by_default_and_in_old_files() {
+        assert!(Settings::default().tell_host_wireless);
+        // A settings file from before the field existed keeps it on.
+        let old: Settings = serde_json::from_str(r#"{"fps":60,"auto_reconnect":true}"#).unwrap();
+        assert!(old.tell_host_wireless && old.auto_reconnect);
+        let off: Settings = serde_json::from_str(r#"{"tell_host_wireless":false}"#).unwrap();
+        assert!(!off.tell_host_wireless);
+    }
+
+    #[test]
+    fn telling_the_host_the_link_speed_is_on_by_default_and_in_old_files() {
+        assert!(Settings::default().tell_host_link_speed);
+        let old: Settings = serde_json::from_str(r#"{"fps":60,"tell_host_wireless":false}"#).unwrap();
+        assert!(old.tell_host_link_speed && !old.tell_host_wireless);
+        let off: Settings = serde_json::from_str(r#"{"tell_host_link_speed":false}"#).unwrap();
+        assert!(!off.tell_host_link_speed);
     }
 
     #[test]

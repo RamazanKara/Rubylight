@@ -529,6 +529,16 @@
             android:entryValues="@array/network_grace_values"
             android:defaultValue="0" />
         <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_tell_host_wireless"
+            android:title="@string/title_tell_host_wireless"
+            android:dialogMessage="@string/summary_tell_host_wireless"
+            android:defaultValue="true" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_tell_host_link_speed"
+            android:title="@string/title_tell_host_link_speed"
+            android:dialogMessage="@string/summary_tell_host_link_speed"
+            android:defaultValue="true" />
+        <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_input_only_any_host"
             android:title="@string/title_checkbox_input_only_any_host"
             android:dialogMessage="@string/summary_checkbox_input_only_any_host"

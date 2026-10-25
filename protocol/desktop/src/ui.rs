@@ -1960,6 +1960,12 @@ impl Launcher {
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["auto_reconnect"], "Reconnect after an interruption", "Try to resume the same running app up to five times within one minute.", |ui, s| {
                 toggle(ui, &mut s.auto_reconnect)
             });
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["tell_host_wireless"], "Tell the PC when on Wi-Fi", "A Rubylight PC then paces the stream for Wi-Fi from the start.", |ui, s| {
+                toggle(ui, &mut s.tell_host_wireless)
+            });
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["tell_host_link_speed"], "Tell the PC the link speed", "Lets the PC limit its sending rate to this device's wired port speed.", |ui, s| {
+                toggle(ui, &mut s.tell_host_link_speed)
+            });
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["network_grace_ms"], "Network interruption grace", "Keep the session alive through brief network interruptions.", |ui, s| {
                 egui::ComboBox::from_id_salt("network-grace")
                     .selected_text(trf("{} seconds", &[&(s.network_grace_ms / 1000)]))

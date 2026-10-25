@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_tell_host_wireless">在 Wi-Fi 下通知电脑</string>
+    <string name="summary_tell_host_wireless">Rubylight 电脑会从一开始就按 Wi-Fi 调整串流节奏。其他电脑不会收到该信息。</string>
+</resources>

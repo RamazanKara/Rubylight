@@ -35,7 +35,10 @@ public class NvConnectionHapticsFlagTest {
     @Before public void startWithAWiredUnknownRoute() {
         FakeWiredLink.mbps = 0;
         FakeWiredLink.wireless = false;
+        rubylightHost = true;
     }
+
+    private static boolean rubylightHost;
 
     // Haptics PCM switches a Vibepollo host's control loop to 5 ms; only a USB DualSense with
     // waveform haptics enabled can play it.
@@ -85,6 +88,50 @@ public class NvConnectionHapticsFlagTest {
         CapturingBridge.clientWireless = true;
         startStream();
         assertFalse(CapturingBridge.clientWireless);
+        assertEquals(2500, CapturingBridge.linkMbps);
+    }
+
+    // The wireless hint goes only to a Rubylight host and only while the setting is on (it is on
+    // by default); the wired link speed is not affected by either.
+    @Test public void wirelessHintNeedsTheSettingAndARubylightHost() throws Exception {
+        PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication()).edit()
+                .remove("checkbox_tell_host_wireless").commit();
+        FakeWiredLink.wireless = true;
+        CapturingBridge.clientWireless = false;
+        startStream();
+        assertTrue("on by default", CapturingBridge.clientWireless);
+
+        PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication()).edit()
+                .putBoolean("checkbox_tell_host_wireless", false).commit();
+        CapturingBridge.clientWireless = true;
+        startStream();
+        assertFalse("switched off", CapturingBridge.clientWireless);
+
+        PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication()).edit()
+                .putBoolean("checkbox_tell_host_wireless", true).commit();
+        rubylightHost = false;
+        CapturingBridge.clientWireless = true;
+        startStream();
+        assertFalse("another host", CapturingBridge.clientWireless);
+    }
+
+    // "Tell the PC the link speed" is on by default; off leaves the speed out of the stream
+    // description for every codec, and the calibrated pace is still looked up with the real speed.
+    @Test public void linkSpeedHintNeedsTheSetting() throws Exception {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication());
+        FakeWiredLink.mbps = 2500;
+        prefs.edit().remove("checkbox_tell_host_link_speed").commit();
+        CapturingBridge.linkMbps = -1;
+        startStream();
+        assertEquals("on by default", 2500, CapturingBridge.linkMbps);
+
+        prefs.edit().putBoolean("checkbox_tell_host_link_speed", false).commit();
+        CapturingBridge.linkMbps = -1;
+        startStream();
+        assertEquals("switched off", 0, CapturingBridge.linkMbps);
+
+        prefs.edit().putBoolean("checkbox_tell_host_link_speed", true).commit();
+        startStream();
         assertEquals(2500, CapturingBridge.linkMbps);
     }
 
@@ -139,7 +186,8 @@ public class NvConnectionHapticsFlagTest {
     private static void startStream(VideoDecoderRenderer renderer) throws Exception {
         NvConnectionRecoveryTest.FakeHost.initial = "<root status_code=\"200\"><appversion>7.1.431.0</appversion>" +
                 "<uniqueid>test-host</uniqueid><HttpsPort>47984</HttpsPort><state>SUNSHINE_SERVER_FREE</state>" +
-                "<currentgame>0</currentgame><currentgameuuid></currentgameuuid><PairStatus>1</PairStatus></root>";
+                "<currentgame>0</currentgame><currentgameuuid></currentgameuuid><PairStatus>1</PairStatus>" +
+                (rubylightHost ? "<RustHostVersion>2.2.21</RustHostVersion>" : "") + "</root>";
         NvConnectionRecoveryTest.FakeHost.resumeFailure = null;
         NvConnectionRecoveryTest.FakeHost.resumeResult = true;
         NvConnectionRecoveryTest.FakeHost.requests.clear();

@@ -1013,14 +1013,26 @@ public class NvConnection {
                     boolean pyroWave = (context.negotiatedVideoFormats & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0;
                     WiredLink.Hints linkHints = WiredLink.hintsToward(appContext, context.serverAddress.address);
                     int pyroWaveLinkMbps = linkHints.mbps;
-                    boolean clientWireless = linkHints.wireless;
+                    boolean wirelessRoute = linkHints.wireless;
+                    PreferenceConfiguration hintPrefs = PreferenceConfiguration.readPreferences(appContext);
+                    boolean clientWireless = WiredLink.tellsHostWireless(
+                            hintPrefs.tellHostWireless, hostDetails.caps.family(), wirelessRoute);
+                    // The calibrated pace below is looked up with the real speed; the setting only
+                    // decides whether the speed itself goes to the host.
+                    int sentLinkMbps = hintPrefs.tellHostLinkSpeed ? pyroWaveLinkMbps : 0;
+                    if (pyroWaveLinkMbps > 0 && sentLinkMbps == 0) {
+                        LimeLog.info("Not telling the host the link speed (" + pyroWaveLinkMbps + " Mbps): turned off in the settings");
+                    }
+                    if (wirelessRoute && !clientWireless) {
+                        LimeLog.info("Not telling the host the route is wireless: turned off in the settings or not a Rubylight host");
+                    }
                     int pyroWavePaceMbps = pyroWave ?
                             PyroWavePaceStore.paceMbpsFor(appContext, hostDetails.uuid, pyroWaveLinkMbps) : 0;
                     if (pyroWave) {
-                        LimeLog.info("PyroWave pacing hints: link " + pyroWaveLinkMbps + " Mbps, wireless " +
+                        LimeLog.info("PyroWave pacing hints: link " + sentLinkMbps + " Mbps, wireless " +
                                 clientWireless + ", calibrated pace " + pyroWavePaceMbps + " Mbps");
-                    } else if (pyroWaveLinkMbps > 0 || clientWireless) {
-                        LimeLog.info("Pacing hint: link " + pyroWaveLinkMbps + " Mbps, wireless " + clientWireless);
+                    } else if (sentLinkMbps > 0 || clientWireless) {
+                        LimeLog.info("Pacing hint: link " + sentLinkMbps + " Mbps, wireless " + clientWireless);
                     }
 
                     synchronized (MoonBridge.class) {
@@ -1062,7 +1074,7 @@ public class NvConnection {
                                         !context.streamConfig.getApp().isSmallStreamInputOnly(),
                                 context.streamConfig.getApp().getRole() == NvApp.Role.REMOTE_MONITOR,
                                 micPermitted, prefs.usbDualSenseHaptics,
-                                pyroWaveLinkMbps, pyroWavePaceMbps, clientWireless);
+                                sentLinkMbps, pyroWavePaceMbps, clientWireless);
                         if (ret != 0) {
                             return;
                         }

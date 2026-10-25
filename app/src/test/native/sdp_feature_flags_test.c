@@ -116,6 +116,20 @@ static void pacingHints(void) {
     }
 }
 
+// With "Tell the PC the link speed" off the app passes 0: no link attribute for any codec, while
+// the calibrated pace stays PyroWave's.
+static void linkSpeedSettingOff(void) {
+    static const int formats[] = {VIDEO_FORMAT_H264, VIDEO_FORMAT_H265, VIDEO_FORMAT_AV1_MAIN8, VIDEO_FORMAT_PYROWAVE};
+    for (int i = 0; i < 4; i++) {
+        sunshineStream();
+        NegotiatedVideoFormat = formats[i];
+        StreamConfig.pyrowaveLinkMbps = 0;
+        StreamConfig.pyrowavePaceMbps = 1800;
+        CHECK(sdpHas("pyrowaveLinkMbps") == 0);
+        CHECK(pyroWaveHint("pyrowavePaceMbps") == (formats[i] == VIDEO_FORMAT_PYROWAVE ? 1800 : -1));
+    }
+}
+
 // The wireless hint is Rubylight's own attribute, sent as 1 for every codec only when set,
 // and never as 0.
 static void clientWirelessHint(void) {
@@ -133,6 +147,7 @@ static void clientWirelessHint(void) {
 
 int main(void) {
     pacingHints();
+    linkSpeedSettingOff();
     clientWirelessHint();
     sunshineStream();
     CHECK(offeredFlags(false) == (ML_FF_FEC_STATUS | ML_FF_SESSION_ID_V1));

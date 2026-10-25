@@ -81,6 +81,8 @@ public class PreferenceConfiguration {
     private static final String ENABLE_PIP_PREF_STRING = "checkbox_enable_pip";
     private static final String AUTO_RECONNECT_PREF_STRING = "checkbox_auto_reconnect";
     private static final String NETWORK_GRACE_PREF_STRING = "list_network_grace";
+    private static final String TELL_HOST_WIRELESS_PREF_STRING = "checkbox_tell_host_wireless";
+    private static final String TELL_HOST_LINK_SPEED_PREF_STRING = "checkbox_tell_host_link_speed";
     private static final String QUICK_RESUME_PREF_STRING = "checkbox_quick_resume";
     private static final String AUTO_RECONNECT_DEFAULT_OFF_PREF_STRING = "auto_reconnect_default_off";
     private static final String ENABLE_PERF_OVERLAY_STRING = "checkbox_enable_perf_overlay";
@@ -234,6 +236,9 @@ public class PreferenceConfiguration {
     public boolean autoReconnect;
     /** Seconds a stream waits for a silent network; 0 is off (see NetworkGrace). */
     public int networkGraceSeconds;
+    /** Tell a Rubylight PC when the route to it is Wi-Fi or cellular. On unless switched off. */
+    public boolean tellHostWireless = true;
+    public boolean tellHostLinkSpeed = true;
     public boolean quickResume;
     public com.limelight.nvstream.AdaptiveQualityController.Mode adaptiveQualityMode =
             com.limelight.nvstream.AdaptiveQualityController.Mode.OFF;
@@ -1157,6 +1162,8 @@ public class PreferenceConfiguration {
         config.autoReconnect = prefs.getBoolean(AUTO_RECONNECT_PREF_STRING, false);
         config.networkGraceSeconds = com.limelight.utils.NetworkGrace.parseSeconds(
                 prefs.getString(NETWORK_GRACE_PREF_STRING, "0"));
+        config.tellHostWireless = prefs.getBoolean(TELL_HOST_WIRELESS_PREF_STRING, true);
+        config.tellHostLinkSpeed = prefs.getBoolean(TELL_HOST_LINK_SPEED_PREF_STRING, true);
         config.quickResume = prefs.getBoolean(QUICK_RESUME_PREF_STRING, false);
         config.adaptiveQualityMode = com.limelight.nvstream.AdaptiveQualityController.Mode.parse(
                 prefs.getString("adaptive_quality_mode", "off"));

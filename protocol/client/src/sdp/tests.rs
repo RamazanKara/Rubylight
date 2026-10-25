@@ -326,6 +326,21 @@ fn link_speed_hint_is_sent_for_every_codec_and_only_pyrowave_gets_the_pace() {
 }
 
 #[test]
+fn link_speed_setting_off_leaves_out_the_link_attribute_but_keeps_the_calibrated_pace() {
+    // The client reports 0 when "Tell the PC the link speed" is off; the pace stays as calibrated.
+    for format in [VIDEO_FORMAT_H264, VIDEO_FORMAT_H265, VIDEO_FORMAT_AV1_MAIN8, VIDEO_FORMAT_PYROWAVE] {
+        let config = StreamConfig { pyrowave_link_mbps: 0, pyrowave_pace_mbps: 2100, ..Default::default() };
+        let sdp = generate(&params(&config, SUNSHINE, "10.0.0.7", format)).text;
+        assert!(!sdp.contains("pyrowaveLinkMbps"), "{format:#x}");
+        assert_eq!(
+            sdp.contains("x-ss-video[0].pyrowavePaceMbps:2100"),
+            format == VIDEO_FORMAT_PYROWAVE,
+            "{format:#x}"
+        );
+    }
+}
+
+#[test]
 fn wireless_route_is_flagged_for_every_codec_and_never_sent_as_zero() {
     const WIRELESS: &str = "x-rl-video[0].clientWireless";
     for format in [

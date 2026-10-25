@@ -1,5 +1,6 @@
 package com.limelight.utils;
 
+import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.utils.WiredLink.Route;
 
 import org.junit.Test;
@@ -121,5 +122,14 @@ public class WiredLinkTest {
                 new Route("wlan0", false, false, true, 24, true, false), ethernet("eth0", 24, false))));
         assertFalse(WiredLink.wirelessToward(Arrays.asList(
                 new Route("wlan0", false, false, false, 24, true, false), ethernet("eth0", 24, true))));
+    }
+
+    @Test public void onlyARubylightHostOnAWirelessRouteWithTheSettingOnIsTold() {
+        for (HostCapabilities.Family family : HostCapabilities.Family.values()) {
+            boolean rubylight = family == HostCapabilities.Family.RUBYLIGHT;
+            assertEquals(family.name(), rubylight, WiredLink.tellsHostWireless(true, family, true));
+            assertFalse(WiredLink.tellsHostWireless(false, family, true));
+            assertFalse(WiredLink.tellsHostWireless(true, family, false));
+        }
     }
 }

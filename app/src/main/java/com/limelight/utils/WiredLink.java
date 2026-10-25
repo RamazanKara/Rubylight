@@ -85,6 +85,16 @@ public final class WiredLink {
         return hintsToward(context, host).mbps;
     }
 
+    /**
+     * Whether to send the wireless-route hint: the setting is on, the route is Wi-Fi or cellular
+     * and the host says it is Rubylight, the only host that reads it.
+     */
+    public static boolean tellsHostWireless(boolean setting,
+                                            com.limelight.nvstream.http.HostCapabilities.Family family,
+                                            boolean wireless) {
+        return setting && wireless && family == com.limelight.nvstream.http.HostCapabilities.Family.RUBYLIGHT;
+    }
+
     /** Both hints toward {@code host} from one name lookup and one route list. */
     public static Hints hintsToward(Context context, String host) {
         try {

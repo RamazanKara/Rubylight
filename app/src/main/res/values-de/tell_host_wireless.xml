@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_tell_host_wireless">Dem PC mitteilen, wenn ich im WLAN bin</string>
+    <string name="summary_tell_host_wireless">Ein Rubylight-PC taktet den Stream dann von Anfang an für WLAN. Andere PCs erfahren nichts davon.</string>
+</resources>

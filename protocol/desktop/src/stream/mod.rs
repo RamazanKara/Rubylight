@@ -598,6 +598,18 @@ fn slices_override(text: &str) -> Option<u32> {
     text.trim().parse().ok().filter(|n| (1..=MAX_RACE_SLICES).contains(n))
 }
 
+/// Whether to send `x-rl-video[0].clientWireless`: the setting is on, the route is wireless and the
+/// PC says it is a Rubylight host, the only host that reads it.
+fn tells_host_wireless(setting: bool, family: nightjar_core::http::Family, wireless: bool) -> bool {
+    setting && wireless && family == nightjar_core::http::Family::Rubylight
+}
+
+/// The link speed for `x-ss-video[0].pyrowaveLinkMbps`: zero (no attribute) when the setting is off.
+/// The beam-race check and the calibrated pace still use the real speed.
+fn link_speed_hint(setting: bool, link_mbps: u32) -> u32 {
+    if setting { link_mbps } else { 0 }
+}
+
 /// A network hint the stream sends the host, unless the variable names another value (measurement
 /// runs on loopback, where the real link is not the one under test). A value that is not a number
 /// is said so on stderr and ignored.
@@ -718,11 +730,16 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
     // connection; the connection is the fallback when that lookup tells nothing.
     let toward = crate::network::toward(&plan.record.address);
     let network = plan.network.toward(toward);
-    let client_wireless = network.wireless();
+    let family = plan.info.capabilities.family();
+    let client_wireless = tells_host_wireless(settings.tell_host_wireless, family, network.wireless());
     let routed_link_mbps = network.wired_link_mbps();
+    if network.wireless() && !client_wireless {
+        let why = if settings.tell_host_wireless { "the PC is not a Rubylight host" } else { "it is turned off in the settings" };
+        eprintln!("nightjar: not telling the PC the route is wireless: {why}");
+    }
     eprintln!(
         "nightjar: route to the PC: {} ({}), link {routed_link_mbps} Mbps",
-        if client_wireless { "wireless" } else { "wired or unknown" },
+        if network.wireless() { "wireless" } else { "wired or unknown" },
         match toward {
             Ok(_) => "from the route".to_string(),
             Err(why) => format!("from the internet connection, {why}"),
@@ -764,7 +781,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         color_range: if settings.full_range { COLOR_RANGE_FULL } else { COLOR_RANGE_LIMITED },
         microphone: settings.microphone && role != AppRole::RemoteMonitor,
         haptics_pcm: settings.controllers && settings.controller_audio && role != AppRole::RemoteMonitor,
-        pyrowave_link_mbps: link_mbps as i32,
+        pyrowave_link_mbps: link_speed_hint(settings.tell_host_link_speed, link_mbps) as i32,
         pyrowave_pace_mbps: pace_mbps as i32,
         client_wireless,
         pyrowave_records_supported: plan.info.capabilities.has(Feature::PyroWaveRecords),
@@ -2637,6 +2654,24 @@ impl Streaming {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_wireless_hint_goes_only_to_a_rubylight_host_on_a_wireless_route_when_the_setting_is_on() {
+        use nightjar_core::http::Family;
+        assert!(tells_host_wireless(true, Family::Rubylight, true));
+        assert!(!tells_host_wireless(false, Family::Rubylight, true));
+        assert!(!tells_host_wireless(true, Family::Rubylight, false));
+        for other in [Family::GameStream, Family::Sunshine, Family::Apollo, Family::Vibepollo, Family::Unknown] {
+            assert!(!tells_host_wireless(true, other, true), "{other:?}");
+        }
+    }
+
+    #[test]
+    fn the_link_speed_hint_is_left_out_when_the_setting_is_off() {
+        assert_eq!(link_speed_hint(true, 1000), 1000);
+        assert_eq!(link_speed_hint(false, 1000), 0);
+        assert_eq!(link_speed_hint(true, 0), 0);
+    }
 
     #[test]
     fn early_decode_without_records_is_reported_not_silent() {

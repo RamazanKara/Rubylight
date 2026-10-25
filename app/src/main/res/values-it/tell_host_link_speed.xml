@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_tell_host_link_speed">Comunica al PC la velocità del collegamento</string>
+    <string name="summary_tell_host_link_speed">Permette al PC di limitare la velocità di invio a quella della porta cablata di questo dispositivo.</string>
+</resources>

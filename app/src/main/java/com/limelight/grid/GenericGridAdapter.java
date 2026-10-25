@@ -139,10 +139,8 @@ public abstract class GenericGridAdapter<T> extends BaseAdapter {
         frame.setTranslationY(0);
         // The focus scale belongs to the card's state; a card that is not selected has none left over.
         if (!card.isSelected() && !card.isFocused()) {
-            android.animation.StateListAnimator animator = card.getStateListAnimator();
-            if (animator != null) animator.jumpToCurrentState();
-            // The ring and glow fade with the state too: a recycled card shows neither.
-            card.jumpDrawablesToCurrentState();
+            // The ring, glow and title fade with the state too: a recycled card shows none of them.
+            com.limelight.ui.FastTravel.settle(card);
         }
     }
 }

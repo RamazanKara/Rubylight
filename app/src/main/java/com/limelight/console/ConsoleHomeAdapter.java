@@ -312,7 +312,11 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
             if (libraryCover) {
                 // The card's own focus tween is skipped while a key is held: the new card is focused at once, the old at rest.
                 itemView.setOnFocusChangeListener((v, hasFocus) -> {
-                    if (travel.isActive(SystemClock.uptimeMillis())) FastTravel.settle(v);
+                    if (travel.isActive(SystemClock.uptimeMillis())) {
+                        // Focus changes before the card's drawable state does; settle the state it is moving to.
+                        v.refreshDrawableState();
+                        FastTravel.settle(v);
+                    }
                 });
             }
             itemView.setOnKeyListener((v, keyCode, event) -> {

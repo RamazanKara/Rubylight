@@ -38,11 +38,19 @@ public final class FastTravel {
         lastMove = Long.MIN_VALUE;
     }
 
-    /** Puts a card that is no longer changing back to its resting look at once: ends its focus animator and fades. */
+    /**
+     * Puts a card that is no longer changing into the look of its current state at once: ends its focus animator,
+     * the animators of the views inside it (a poster's title) and the fades of their drawables. The card's drawable
+     * state must already be the new one; a focus listener runs before it is, so it refreshes it first.
+     */
     public static void settle(android.view.View card) {
         if (card == null) return;
         android.animation.StateListAnimator animator = card.getStateListAnimator();
         if (animator != null) animator.jumpToCurrentState();
         card.jumpDrawablesToCurrentState();
+        if (card instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup) card;
+            for (int i = 0; i < group.getChildCount(); i++) settle(group.getChildAt(i));
+        }
     }
 }

@@ -230,11 +230,12 @@ impl Rig {
             "the startup recovery failed"
         );
     }
-    /// The journal on disk.
+    /// The journal as the worker reads it, between its jobs. A test that opened the file itself
+    /// while the worker saved it made that save fail ("access denied": Windows does not replace a
+    /// file that is open), and the restore then waited for the worker's next retry, a minute on.
     fn journal(&self) -> Vec<Entry> {
-        Journal::load(&self.host().directory.join(JOURNAL_FILE))
-            .unwrap()
-            .entries
+        let worker = self.host().radeon.worker().unwrap();
+        worker.pending(Duration::from_secs(15)).unwrap()
     }
     /// Every restore the session machine handed on has finished.
     fn flush(&self) {

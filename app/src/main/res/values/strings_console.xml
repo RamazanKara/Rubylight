@@ -6,6 +6,8 @@
     <string name="console_section_continue">Continue playing</string>
     <string name="console_section_library">Library</string>
     <string name="console_section_hosts">PCs</string>
+    <!-- The key hint under Home's hero: X opens the focused game's or PC's options. -->
+    <string name="console_hint_options">Options</string>
     <string name="console_favourite_add">Add to favourites</string>
     <string name="console_favourite_remove">Remove from favourites</string>
     <string name="console_favourite_description">Favourite</string>

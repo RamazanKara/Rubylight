@@ -5,6 +5,7 @@
     <string name="console_section_continue">Oynamaya devam et</string>
     <string name="console_section_library">Kitaplık</string>
     <string name="console_section_hosts">Bilgisayarlar</string>
+    <string name="console_hint_options">Seçenekler</string>
     <string name="console_favourite_add">Favorilere ekle</string>
     <string name="console_favourite_remove">Favorilerden kaldır</string>
     <string name="console_favourite_description">Favori</string>

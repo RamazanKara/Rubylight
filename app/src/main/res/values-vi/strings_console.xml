@@ -5,6 +5,7 @@
     <string name="console_section_continue">Chơi tiếp</string>
     <string name="console_section_library">Thư viện</string>
     <string name="console_section_hosts">PC</string>
+    <string name="console_hint_options">Tùy chọn</string>
     <string name="console_favourite_add">Thêm vào yêu thích</string>
     <string name="console_favourite_remove">Xóa khỏi yêu thích</string>
     <string name="console_favourite_description">Yêu thích</string>

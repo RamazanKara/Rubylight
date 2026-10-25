@@ -5,6 +5,7 @@
     <string name="console_section_continue">Continuar jogando</string>
     <string name="console_section_library">Biblioteca</string>
     <string name="console_section_hosts">PCs</string>
+    <string name="console_hint_options">Opções</string>
     <string name="console_favourite_add">Adicionar aos favoritos</string>
     <string name="console_favourite_remove">Remover dos favoritos</string>
     <string name="console_favourite_description">Favorito</string>

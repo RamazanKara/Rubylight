@@ -5,6 +5,7 @@
     <string name="console_section_continue">이어서 플레이</string>
     <string name="console_section_library">라이브러리</string>
     <string name="console_section_hosts">PC</string>
+    <string name="console_hint_options">옵션</string>
     <string name="console_favourite_add">즐겨찾기에 추가</string>
     <string name="console_favourite_remove">즐겨찾기에서 삭제</string>
     <string name="console_favourite_description">즐겨찾기</string>

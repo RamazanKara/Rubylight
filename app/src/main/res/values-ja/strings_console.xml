@@ -5,6 +5,7 @@
     <string name="console_section_continue">続きをプレイ</string>
     <string name="console_section_library">ライブラリ</string>
     <string name="console_section_hosts">PC</string>
+    <string name="console_hint_options">オプション</string>
     <string name="console_favourite_add">お気に入りに追加</string>
     <string name="console_favourite_remove">お気に入りから削除</string>
     <string name="console_favourite_description">お気に入り</string>

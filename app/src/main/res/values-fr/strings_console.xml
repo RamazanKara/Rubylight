@@ -5,6 +5,7 @@
     <string name="console_section_continue">Reprendre</string>
     <string name="console_section_library">Bibliothèque</string>
     <string name="console_section_hosts">PC</string>
+    <string name="console_hint_options">Options</string>
     <string name="console_favourite_add">Ajouter aux favoris</string>
     <string name="console_favourite_remove">Retirer des favoris</string>
     <string name="console_favourite_description">Favori</string>

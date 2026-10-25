@@ -5,6 +5,7 @@
     <string name="console_section_continue">繼續遊戲</string>
     <string name="console_section_library">遊戲庫</string>
     <string name="console_section_hosts">電腦</string>
+    <string name="console_hint_options">選項</string>
     <string name="console_favourite_add">加入我的最愛</string>
     <string name="console_favourite_remove">從我的最愛移除</string>
     <string name="console_favourite_description">我的最愛</string>

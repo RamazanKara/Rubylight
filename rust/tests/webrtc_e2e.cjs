@@ -115,6 +115,11 @@ function streamResult({first, last, g2g, host, offset, extra}) {
   return {seconds: elapsed, video, audio, glassToGlass: g2g, host: log.summary, hostInput: log.inputs.at(-1) || null, hostWarnings: log.errors, ...extra};
 }
 
+// Above every other window, so nothing hides the time code from the capture.
+function pinClock() {
+  execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'webrtc_client', 'topmost.ps1'), '-Marker', 'rl-e2e-clock'], {stdio: 'pipe'});
+}
+
 async function openClock() {
   const executablePath = support.edgePath();
   assert(executablePath, 'Edge is not installed');
@@ -126,7 +131,7 @@ async function openClock() {
   const cdp = await context.newCDPSession(page);
   const {windowId} = await cdp.send('Browser.getWindowForTarget');
   await cdp.send('Browser.setWindowBounds', {windowId, bounds: {left: 0, top: 0, width: 1500, height: 720, windowState: 'normal'}});
-  await page.bringToFront();
+  pinClock();
   return {browser, page};
 }
 
@@ -300,7 +305,7 @@ async function ourSession(host, {codec, channels = 2, kind = 'edge', browserArgs
       await wait(4000);
       const first = await page.evaluate(() => RlProbe.sample());
       await page.evaluate(() => { RlProbe.g2g.length = 0; RlProbe.g2gRejected = 0; });
-      await clock.page.bringToFront();
+      pinClock();
       await wait(seconds * 1000 - 4000);
       result.check = await toneCheck(page, channels);
       await saveFrame(page, `${codec}-${channels}ch`);

@@ -38,6 +38,12 @@ public abstract class NightjarActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         refreshAppearance();
+        hideBarsOnForcedTelevision();
+    }
+
+    /** A TV has no system bars; the forced TV layout on a handheld fills the screen the same way. */
+    private void hideBarsOnForcedTelevision() {
+        if (AppTheme.forcedTelevision(this)) AppTheme.hideSystemBars(this);
     }
 
     @Override
@@ -64,6 +70,7 @@ public abstract class NightjarActivity extends AppCompatActivity {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         if (!hasFocus) dpadEchoes.reset();
+        else hideBarsOnForcedTelevision();
         super.onWindowFocusChanged(hasFocus);
     }
 

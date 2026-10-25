@@ -146,4 +146,46 @@ public class UiModeTest {
             assertEquals(Configuration.UI_MODE_TYPE_TELEVISION, Counting.lastType);
         }
     }
+
+    private static boolean barsHidden(android.app.Activity activity) {
+        int flags = activity.getWindow().getDecorView().getSystemUiVisibility();
+        return (flags & android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) != 0 &&
+                (flags & android.view.View.SYSTEM_UI_FLAG_FULLSCREEN) != 0;
+    }
+
+    @Test
+    public void theForcedTvLayoutOnAPhoneHidesTheSystemBars() {
+        mode("tv");
+        assertTrue(AppTheme.forcedTelevision(context));
+        try (var screen = Robolectric.buildActivity(MotionTest.Screen.class).setup()) {
+            assertTrue(barsHidden(screen.get()));
+            // Regaining focus hides them again after a swipe showed them.
+            screen.get().getWindow().getDecorView().setSystemUiVisibility(0);
+            assertFalse(barsHidden(screen.get()));
+            screen.get().onWindowFocusChanged(true);
+            assertTrue(barsHidden(screen.get()));
+        }
+    }
+
+    @Test
+    public void automaticAndHandheldKeepTheSystemBars() {
+        for (String value : new String[] {"auto", "handheld"}) {
+            mode(value);
+            assertFalse(AppTheme.forcedTelevision(context));
+            try (var screen = Robolectric.buildActivity(MotionTest.Screen.class).setup()) {
+                assertFalse(value, barsHidden(screen.get()));
+            }
+        }
+    }
+
+    @Test
+    public void aRealTelevisionKeepsItsOwnBehaviour() {
+        org.robolectric.Shadows.shadowOf((android.app.UiModeManager) context.getSystemService(Context.UI_MODE_SERVICE))
+                .currentModeType = Configuration.UI_MODE_TYPE_TELEVISION;
+        mode("tv");
+        assertFalse(AppTheme.forcedTelevision(context));
+        try (var screen = Robolectric.buildActivity(MotionTest.Screen.class).setup()) {
+            assertFalse(barsHidden(screen.get()));
+        }
+    }
 }

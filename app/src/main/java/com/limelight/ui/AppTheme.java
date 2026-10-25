@@ -52,6 +52,27 @@ public final class AppTheme {
         return parseUiMode(PreferenceManager.getDefaultSharedPreferences(context).getString(UI_MODE, null));
     }
 
+    /**
+     * The TV layout is forced on a device that is not a TV. A TV has no system bars, so the screens go immersive to
+     * fill the viewport as on one. The device's own type comes from the UiModeManager, not from a Configuration,
+     * which this setting overrides.
+     */
+    public static boolean forcedTelevision(Context context) {
+        if (!UI_MODE_TV.equals(uiMode(context))) return false;
+        android.app.UiModeManager manager = (android.app.UiModeManager) context.getApplicationContext()
+                .getSystemService(Context.UI_MODE_SERVICE);
+        return manager == null || manager.getCurrentModeType() != Configuration.UI_MODE_TYPE_TELEVISION;
+    }
+
+    /** Hides the status and navigation bars; a swipe from the edge shows them for a moment. */
+    public static void hideSystemBars(Activity activity) {
+        androidx.core.view.WindowInsetsControllerCompat controller = androidx.core.view.WindowCompat
+                .getInsetsController(activity.getWindow(), activity.getWindow().getDecorView());
+        controller.setSystemBarsBehavior(
+                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+        controller.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars());
+    }
+
     static String parseUiMode(String value) {
         return UI_MODE_TV.equals(value) || UI_MODE_HANDHELD.equals(value) ? value : UI_MODE_AUTO;
     }

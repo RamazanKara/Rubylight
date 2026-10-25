@@ -1,5 +1,6 @@
 use crate::state::{Launch, Session, Shared};
 use butterpollo_core::{controller_audio, haptics};
+mod audio_sink;
 mod background;
 mod capture;
 mod device_recovery;
@@ -8,6 +9,7 @@ mod encoder_tests;
 mod game_audio;
 mod qos;
 pub(crate) mod slices;
+use audio_sink::{AudioSink, GameStreamAudio, WebRtcAudio};
 use qos::Tagged;
 #[cfg(test)]
 pub(crate) mod reconnect_tests;
@@ -52,6 +54,31 @@ fn server_command(
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false),
     ))
+}
+/// A WebRTC HDR stream carries the display's HDR or nothing: SDR content labelled HDR, or HDR
+/// tone-mapped to SDR, is not what the client asked for, so the session ends with an error. The
+/// capture hands over an 8-bit surface exactly when the display is not in HDR. GameStream keeps
+/// its own behaviour for this case. `running` tells a display that left HDR from one that never
+/// was in it.
+pub(crate) fn require_hdr_source(
+    s: &Session,
+    pixel: butterpollo_windows::capture::Pixel,
+    running: bool,
+) -> Result<()> {
+    if s.launch.transport != butterpollo_core::session::Transport::WebRtc
+        || !s.config.hdr
+        || pixel != butterpollo_windows::capture::Pixel::Bgra8
+    {
+        return Ok(());
+    }
+    if running {
+        anyhow::bail!(
+            "the display left HDR during the stream; the HDR stream ended instead of showing SDR as HDR. Keep Windows HDR on for this display, or start an SDR stream"
+        );
+    }
+    anyhow::bail!(
+        "HDR was requested but the display is not in HDR; turn on HDR for this display in Windows settings (or set the HDR policy to auto in the host's display settings), or start an SDR stream"
+    )
 }
 /// How often completed encoder output is collected while a frame is in flight.
 const OUTPUT_POLL: Duration = Duration::from_micros(100);
@@ -1249,15 +1276,26 @@ impl Media {
         self: &Arc<Self>,
         h: &Shared,
         s: &Arc<Session>,
-    ) -> std::io::Result<thread::JoinHandle<()>> {
+    ) -> Result<thread::JoinHandle<()>> {
+        // The video worker takes the media link later, so the audio thread gets its own handle on
+        // the audio side now. A WebRTC session whose answer left no layout cannot stream sound.
+        let webrtc = if s.launch.transport == butterpollo_core::session::Transport::WebRtc {
+            Some(
+                h.webrtc_links
+                    .audio_sender(&s.launch.id)
+                    .context("the WebRTC audio link is missing for this session")?,
+            )
+        } else {
+            None
+        };
         let audio_m = self.clone();
         let audio_h = h.clone();
         let audio_s = s.clone();
-        thread::Builder::new().name("audio".into()).spawn(move || {
-            if let Err(e) = audio_m.audio(audio_h, audio_s.clone()) {
+        Ok(thread::Builder::new().name("audio".into()).spawn(move || {
+            if let Err(e) = audio_m.audio(audio_h, audio_s.clone(), webrtc) {
                 audio_s.launch.warnings.set("audio_stopped", format!("Audio stopped ({e:#}); video is still running without sound. Check the playback device and network, then reconnect."));
             }
-        })
+        })?)
     }
     fn spawn_session(
         self: &Arc<Self>,
@@ -1406,14 +1444,12 @@ impl Media {
                             if let Some(image) = latest.wait_for_frame(&timer, &capture_wake, (Instant::now() + Duration::from_millis(50)).min(deadline))? { break image; }
                         }
                     };
+                    require_hdr_source(&s, first.pixel, false)?;
                     m.configure_encoder(&s, &c, &first, &prepared, &mut encoder)?;
                     drop(first);
                     let mut staging = None;
                     client_commands = Some(crate::process::ClientCommands::start(&h, &s)?);
-                    // A WebRTC stream's audio is not wired yet (B4b); it has no GameStream audio socket.
-                    if s.launch.transport == butterpollo_core::session::Transport::GameStream {
-                        audio = Some(m.spawn_audio(&h, &s)?);
-                    }
+                    audio = Some(m.spawn_audio(&h, &s)?);
                     let requested_fec = c.integer("fec_percentage", 20);
                     if requested_fec != requested_fec.clamp(0, 100) {
                         s.launch.warnings.set("network_fec_config", format!("FEC percentage {requested_fec} is outside 0-100; using {}%. Correct fec_percentage in Video settings.", requested_fec.clamp(0, 100)));
@@ -2301,6 +2337,7 @@ impl Media {
                                 latest.release_generation(&capture_wake);
                                 continue;
                             };
+                            require_hdr_source(&s, image.pixel, true)?;
                             // Resolution changes or DXGI loss can recreate the capture device.
                             rebuild_encoder |= encoder
                                 .as_ref()
@@ -2838,7 +2875,12 @@ impl Media {
                 tracing::info!(client=%s.launch.client.name,"CLIENT DISCONNECTED");
             })
     }
-    fn audio(&self, h: Shared, s: Arc<Session>) -> Result<()> {
+    fn audio(
+        &self,
+        h: Shared,
+        s: Arc<Session>,
+        webrtc: Option<crate::webrtc::media::AudioSender>,
+    ) -> Result<()> {
         let _com = ComGuard::new()?;
         let _priority = Priority::input();
         let config = effective_config(&h, &s.launch)?;
@@ -2870,24 +2912,37 @@ impl Media {
         let mut audio_check = Instant::now();
         let mut audio_error: Option<String> = None;
         let directory = std::env::current_exe()?.parent().unwrap().to_owned();
-        let layout = butterpollo_core::audio::OpusLayout::select(
-            s.config.audio_channels as usize,
-            s.config.audio_quality,
-            s.launch.options.get("surroundParams").map(String::as_str),
-        )?;
+        // A WebRTC stream encodes the layout its answer agreed to; GameStream the one the
+        // launch asked for.
+        let layout = match &webrtc {
+            Some(sender) => sender.layout().clone(),
+            None => butterpollo_core::audio::OpusLayout::select(
+                s.config.audio_channels as usize,
+                s.config.audio_quality,
+                s.launch.options.get("surroundParams").map(String::as_str),
+            )?,
+        };
         let mut opus = Opus::new_layout_duration(&directory, &layout, s.config.audio_packet_ms)?;
-        let mut p = AudioPacketizer::new(
-            s.launch.key,
-            s.launch.key_id,
-            s.config.encryption & 4 != 0,
-            u32::from(s.config.audio_packet_ms),
-        );
+        let mut output: Box<dyn AudioSink + '_> = match webrtc {
+            Some(sender) => Box::new(WebRtcAudio(sender)),
+            None => Box::new(GameStreamAudio::new(
+                &self.audio,
+                &self.peers,
+                &s.launch.id,
+                AudioPacketizer::new(
+                    s.launch.key,
+                    s.launch.key_id,
+                    s.config.encryption & 4 != 0,
+                    u32::from(s.config.audio_packet_ms),
+                ),
+                s.config.audio_qos,
+            )),
+        };
         let frames = 48 * usize::from(s.config.audio_packet_ms);
         let start = Instant::now();
         let interval = Duration::from_millis(u64::from(s.config.audio_packet_ms));
         // When audio last arrived, and when an idle endpoint's next silence is due.
         let mut heard = Instant::now();
-        let mut audio_qos = Tagged::default();
         let mut loss = butterpollo_core::audio::HostLoss::default();
         let mut last_loss = None;
         let mut upkeep: Option<RouteUpkeep> = None;
@@ -2996,12 +3051,7 @@ impl Media {
                     }
                 }
             }
-            let peer = self
-                .peers
-                .lock()
-                .unwrap()
-                .get(&(s.launch.id.clone(), true))
-                .copied();
+            let ready = output.ready();
             // Every whole packet the endpoint has delivered goes out at once, as
             // Sunshine sends them. On a fixed tick each waited up to a packet,
             // and a tick just before a late chunk sent silence in its place.
@@ -3058,17 +3108,10 @@ impl Media {
                     next = now + interval;
                 }
             }
-            if let Some(peer) = peer {
-                if s.config.audio_qos {
-                    audio_qos.follow(&self.audio, peer, true);
-                }
+            if ready {
                 for samples in &packets {
-                    for packet in p.encode(&opus.encode(samples)?)? {
-                        // A lost audio packet is concealed by the client; only a
-                        // broken socket stops the audio.
-                        if !butterpollo_windows::net::send_datagram(&self.audio, &packet, peer)? {
-                            loss.unsent();
-                        }
+                    for _ in 0..output.send(&opus.encode(samples)?, now)? {
+                        loss.unsent();
                     }
                 }
             } else if start.elapsed() > crate::network::ping_timeout(&config) {

@@ -10,7 +10,7 @@ use super::sdp::{
     VideoCodec,
 };
 use anyhow::{Context, Result, anyhow, bail};
-use butterpollo_core::network_pacing;
+use butterpollo_core::{audio::OpusLayout, network_pacing};
 use butterpollo_windows::timing::{Signal, Timer};
 use socket2::{Domain, Protocol as SockProtocol, Socket, Type};
 use std::borrow::Cow;
@@ -997,6 +997,44 @@ pub struct MediaHandle {
     shared: Arc<Shared>,
     threads: Vec<JoinHandle<()>>,
     local: SocketAddr,
+    audio_layout: Option<OpusLayout>,
+}
+
+/// The audio side of a [`MediaHandle`], for the thread that encodes the host's sound. It does not
+/// own the transport: closing the handle stops the threads, and a packet sent after that is
+/// dropped.
+#[derive(Clone)]
+pub struct AudioSender {
+    tx: Sender<Command>,
+    shared: Arc<Shared>,
+    layout: OpusLayout,
+}
+
+impl AudioSender {
+    /// The multistream layout the encoder must use: the one the client answered with.
+    pub fn layout(&self) -> &OpusLayout {
+        &self.layout
+    }
+
+    /// Never blocks; a full queue drops the packet (Opus conceals one).
+    pub fn submit(&self, packet: AudioPacket) -> Submit {
+        queue_audio(&self.shared, &self.tx, packet)
+    }
+}
+
+fn queue_audio(shared: &Shared, tx: &Sender<Command>, packet: AudioPacket) -> Submit {
+    if shared.pending_audio.fetch_add(1, Ordering::AcqRel) >= shared.options.audio_queue
+        || tx.send(Command::Audio(packet)).is_err()
+    {
+        shared.pending_audio.fetch_sub(1, Ordering::AcqRel);
+        shared
+            .counters
+            .audio_dropped
+            .fetch_add(1, Ordering::Relaxed);
+        return Submit::Dropped;
+    }
+    shared.notify();
+    Submit::Queued
 }
 
 impl MediaHandle {
@@ -1063,6 +1101,7 @@ impl MediaHandle {
             shared,
             threads,
             local,
+            audio_layout: None,
         })
     }
 
@@ -1147,18 +1186,24 @@ impl MediaHandle {
 
     /// Never blocks; a full queue drops the packet (Opus conceals one).
     pub fn submit_audio(&self, packet: AudioPacket) -> Submit {
-        let shared = &self.shared;
-        if shared.pending_audio.fetch_add(1, Ordering::AcqRel) >= shared.options.audio_queue
-            || !self.queue(Command::Audio(packet))
-        {
-            shared.pending_audio.fetch_sub(1, Ordering::AcqRel);
-            shared
-                .counters
-                .audio_dropped
-                .fetch_add(1, Ordering::Relaxed);
-            return Submit::Dropped;
-        }
-        Submit::Queued
+        queue_audio(&self.shared, &self.tx, packet)
+    }
+
+    /// Record the Opus layout the answer agreed to, which [`AudioSender::layout`] hands the audio
+    /// thread's encoder.
+    pub fn with_audio_layout(mut self, layout: OpusLayout) -> Self {
+        self.audio_layout = Some(layout);
+        self
+    }
+
+    /// The audio end of the transport for the audio thread, which starts before the video worker
+    /// takes this handle. `None` until the layout is recorded.
+    pub fn audio_sender(&self) -> Option<AudioSender> {
+        Some(AudioSender {
+            tx: self.tx.clone(),
+            shared: self.shared.clone(),
+            layout: self.audio_layout.clone()?,
+        })
     }
 
     pub fn send_control(&self, data: Vec<u8>, binary: bool) {
@@ -2554,6 +2599,7 @@ mod tests {
                 shared,
                 threads: Vec::new(),
                 local: HOST.parse().unwrap(),
+                audio_layout: None,
             },
             rx,
             idr,
@@ -2614,6 +2660,39 @@ mod tests {
             "a lost audio packet needs no keyframe"
         );
         assert_eq!(handle.stats().audio_dropped, 1);
+    }
+
+    #[test]
+    fn the_audio_sender_shares_the_handles_queue_and_counters() {
+        let (handle, rx, _idr) = detached(TransportOptions {
+            audio_queue: 1,
+            ..TransportOptions::default()
+        });
+        assert!(
+            handle.audio_sender().is_none(),
+            "no layout, no audio end: stereo and surround must both say what they encode"
+        );
+        let layout = OpusLayout::select(6, false, None).unwrap();
+        let handle = handle.with_audio_layout(layout.clone());
+        let sender = handle.audio_sender().unwrap();
+        assert_eq!(sender.layout(), &layout);
+        let packet = || AudioPacket {
+            data: vec![7],
+            capture: Instant::now(),
+        };
+        assert_eq!(sender.submit(packet()), Submit::Queued);
+        assert_eq!(
+            handle.submit_audio(packet()),
+            Submit::Dropped,
+            "one queue, whichever end fills it"
+        );
+        assert!(matches!(rx.try_recv(), Ok(Command::Audio(p)) if p.data == [7]));
+        assert_eq!(handle.stats().audio_dropped, 1);
+        // The sender outlives nothing: with the handle's threads gone a packet is dropped.
+        drop(rx);
+        handle.shared.pending_audio.store(0, Ordering::Release);
+        assert_eq!(sender.submit(packet()), Submit::Dropped);
+        assert_eq!(handle.stats().audio_dropped, 2);
     }
 
     #[test]

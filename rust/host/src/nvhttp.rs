@@ -1366,6 +1366,7 @@ pub(crate) struct WebRtcLaunch {
     pub width: u32,
     pub height: u32,
     pub fps: u32,
+    pub hdr: bool,
 }
 /// Why a WebRTC launch did not happen.
 #[derive(Debug, PartialEq, Eq)]
@@ -1401,7 +1402,10 @@ pub(crate) fn launch_webrtc(
                 "mode".to_owned(),
                 format!("{}x{}x{}", request.width, request.height, request.fps),
             ),
-            ("hdrMode".to_owned(), "0".to_owned()),
+            (
+                "hdrMode".to_owned(),
+                if request.hdr { "1" } else { "0" }.to_owned(),
+            ),
         ]);
         let owner = remote_owner(h, &request.client.uuid);
         let (role, app, app_id) = resolve_launch_app(

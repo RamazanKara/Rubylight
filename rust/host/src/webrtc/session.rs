@@ -13,8 +13,8 @@
 
 use super::{
     media::{
-        self, Hooks, IdrReason, MediaHandle, Pacing, Submit, TransportEvent, TransportOptions,
-        VideoFrame,
+        self, AudioSender, Hooks, IdrReason, MediaHandle, Pacing, Submit, TransportEvent,
+        TransportOptions, VideoFrame,
     },
     sdp::{self, AudioMode, OfferSpec, VideoCodec, VideoMode},
     server,
@@ -24,10 +24,11 @@ use crate::{
     state::{Launch, Session, Shared},
     stream::Media,
 };
-use anyhow::{Context, Result, anyhow, ensure};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use butterpollo_core::{
+    audio::OpusLayout,
     performance::{Claims, Timing},
-    rtsp::Negotiated,
+    rtsp::{Negotiated, webrtc_audio_kbps},
     webrtc::{
         capabilities::{Codec, FrameRateOffer, HostCapabilities, StreamSettings},
         protocol::{
@@ -88,6 +89,12 @@ impl Links {
 
     pub fn take(&self, launch: &str) -> Option<MediaHandle> {
         self.media.lock().unwrap().remove(launch)
+    }
+
+    /// The audio end of a transport that has not been taken yet, for the audio thread. The video
+    /// worker takes the handle itself later.
+    pub fn audio_sender(&self, launch: &str) -> Option<AudioSender> {
+        self.media.lock().unwrap().get(launch)?.audio_sender()
     }
 
     /// Drop a transport nobody took, freeing its port.
@@ -576,30 +583,23 @@ impl Actor {
         let settings = capabilities
             .validate(&request.video, &request.audio)
             .map_err(|invalid| Box::new(invalid.into_message(kind)))?;
-        // HDR, AV1 and surround arrive with the transport's HDR, AV1 and audio paths (B4b). Until
-        // then they are refused here, never streamed as something else.
+        // The codec, in the bit depth asked for, must be there now (the AMF probe found it), not
+        // only in the protocol's table. AV1 and HDR are refused when it is not, never streamed
+        // as something else.
         let unsupported = |message: &str| error(kind, ErrorCode::UnsupportedSettings, message);
-        if settings.hdr {
-            return Err(unsupported("HDR is not available over WebRTC yet"));
-        }
-        if settings.codec == Codec::Av1 {
-            return Err(unsupported("AV1 is not available over WebRTC yet"));
-        }
-        if settings.audio_channels != 2 {
-            return Err(unsupported(
-                "Surround audio is not available over WebRTC yet",
-            ));
-        }
-        // The codec must also be there now, not only in the protocol's table.
-        let (codec, bit) = match settings.codec {
-            Codec::H264 => (0, 1),
-            _ => (1, 0x100),
+        let codec = butterpollo_core::codec_support::Codec {
+            id: match settings.codec {
+                Codec::H264 => 0,
+                Codec::Hevc => 1,
+                Codec::Av1 => 2,
+            },
+            hdr: settings.hdr,
         };
-        if codecs & bit == 0 {
+        if codecs & codec.bit() == 0 {
             let detail = butterpollo_core::codec_support::refusal_for(
                 &self.h.codec_missing.lock().unwrap(),
-                codec,
-                false,
+                codec.id,
+                settings.hdr,
                 false,
             );
             return Err(unsupported(&detail));
@@ -812,6 +812,7 @@ impl Actor {
             width: settings.width,
             height: settings.height,
             fps: settings.fps,
+            hdr: settings.hdr,
         };
         let h = self.h.clone();
         let launched =
@@ -982,7 +983,10 @@ impl Actor {
                 hdr: settings.hdr,
                 bitrate_kbps: settings.bitrate_kbps,
             },
-            audio: AudioMode::stereo(),
+            audio: match settings.audio_channels {
+                2 => AudioMode::stereo(),
+                channels => AudioMode::chrome_surround(channels as usize)?,
+            },
             // NACK and RTX are compared with keyframe recovery alone in B5.
             rtx: false,
         };
@@ -1039,6 +1043,19 @@ fn go_live(
     started
 }
 
+/// The Opus layout the audio thread encodes: the one the client answered with for 5.1 and 7.1,
+/// stereo otherwise, at the bitrate [`Negotiated::webrtc`] took out of the video budget for it.
+fn audio_layout(channels: u8, answered: Option<OpusLayout>) -> Result<OpusLayout> {
+    let mut layout = match (channels, answered) {
+        (2, _) => OpusLayout::select(2, false, None)?,
+        (6 | 8, Some(layout)) if layout.channels == usize::from(channels) => layout,
+        (6 | 8, _) => bail!("the answer has no {channels}-channel multiopus layout"),
+        _ => bail!("unsupported audio channel count {channels}"),
+    };
+    layout.bitrate = webrtc_audio_kbps(channels) as i32 * 1000;
+    Ok(layout)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn start_live(
     h: &Shared,
@@ -1057,8 +1074,10 @@ fn start_live(
     ) else {
         return Err(Rejected::Answer(anyhow!("the offer was already answered")));
     };
-    let (ids, _) =
+    let (ids, answered) =
         sdp::accept_answer(&mut rtc, offer, answer, &prepared.spec).map_err(Rejected::Answer)?;
+    let audio_layout = audio_layout(settings.audio_channels as u8, answered.audio_layout)
+        .map_err(Rejected::Answer)?;
     let link = butterpollo_windows::net::routed_link(peer);
     let configured_kbps = h
         .config
@@ -1087,7 +1106,8 @@ fn start_live(
         bridge.hooks(),
     )
     .map_err(Rejected::Host)?;
-    h.webrtc_links.put(launch.id.clone(), handle);
+    h.webrtc_links
+        .put(launch.id.clone(), handle.with_audio_layout(audio_layout));
     let negotiated = Negotiated::webrtc(
         settings.width,
         settings.height,
@@ -1135,6 +1155,52 @@ mod tests {
     use super::*;
     use crate::state::test_support::Fixture;
     use butterpollo_core::session::Role;
+
+    #[test]
+    fn the_audio_layout_is_the_answered_one_at_the_bitrate_the_video_budget_paid_for() {
+        let answered = |channels| {
+            let (streams, coupled, mapping): (i32, i32, &[u8]) = match channels {
+                6 => (4, 2, &[0, 4, 1, 2, 3, 5]),
+                _ => (5, 3, &[0, 6, 1, 2, 3, 4, 5, 7]),
+            };
+            OpusLayout {
+                channels: usize::from(channels),
+                streams,
+                coupled,
+                mapping: mapping.to_vec(),
+                bitrate: 1,
+            }
+        };
+        // Stereo ignores the answer; the surround layouts keep theirs.
+        let stereo = audio_layout(2, None).unwrap();
+        assert_eq!((stereo.channels, stereo.bitrate), (2, 128_000));
+        for channels in [6u8, 8] {
+            let layout = audio_layout(channels, Some(answered(channels))).unwrap();
+            let want = answered(channels);
+            assert_eq!(
+                (layout.streams, layout.coupled, &layout.mapping),
+                (want.streams, want.coupled, &want.mapping)
+            );
+            // GameStream's surround bitrates, and what `Negotiated::webrtc` subtracts.
+            assert_eq!(
+                layout.bitrate,
+                [256_000, 450_000][usize::from(channels / 8)]
+            );
+            assert_eq!(layout.bitrate, webrtc_audio_kbps(channels) as i32 * 1000);
+            assert_eq!(
+                layout.bitrate,
+                OpusLayout::select(usize::from(channels), false, None)
+                    .unwrap()
+                    .bitrate
+            );
+            // No answered layout, or one for another channel count, is refused.
+            assert!(audio_layout(channels, None).is_err());
+            assert!(
+                audio_layout(channels, Some(answered(if channels == 6 { 8 } else { 6 }))).is_err()
+            );
+        }
+        assert!(audio_layout(4, None).is_err());
+    }
 
     fn bridge() -> (Arc<Bridge>, UnboundedReceiver<Event>) {
         let (events, received) = unbounded_channel();

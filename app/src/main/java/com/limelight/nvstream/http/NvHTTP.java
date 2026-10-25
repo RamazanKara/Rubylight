@@ -522,12 +522,15 @@ public class NvHTTP {
         details.encoderBitrateSupported = encoderBitratePresent && initialEncoderBitratePresent;
     }
 
-    /** {@code Packed444Modes} from serverinfo: its mode mask, or -1 when absent or not a mask. */
+    /**
+     * {@code Packed444Modes} from serverinfo: the modes this client knows (bits a newer host adds
+     * are left out), or -1 when absent or not a number.
+     */
     static int readPacked444Modes(String value) {
         if (value == null) return -1;
         try {
             int parsed = Integer.parseInt(value.trim());
-            return parsed >= 0 && parsed <= 0xF ? parsed : -1;
+            return parsed >= 0 ? parsed & 0xF : -1;
         } catch (NumberFormatException e) {
             return -1;
         }

@@ -187,7 +187,7 @@ public class MediaCodecOutputFormatTest {
         String host = MediaCodecDecoderRenderer.ISSUE_HOST_NO_TEN_BIT;
         assertEquals("host doesn't offer 10-bit full chroma", host);
         String common = MediaCodecDecoderRenderer.ISSUE_NO_TEN_BIT_IN_COMMON;
-        assertEquals("no 10-bit full chroma mode in common", common);
+        assertEquals("this device and PC share no 10-bit full chroma mode", common);
         // 10-bit offered, the handshake picked 8-bit packed: the PC had no 10-bit mode, or none
         // this device has (AV1 10-bit only, here), or its modes are unknown.
         assertEquals(host, MediaCodecDecoderRenderer.hostTenBitDrop(true, null, hevc, 0b0101));

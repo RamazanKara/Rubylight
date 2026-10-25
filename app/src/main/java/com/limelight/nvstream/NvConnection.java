@@ -591,6 +591,19 @@ public class NvConnection {
         return modes;
     }
 
+    /**
+     * After a packed stream's start ({@code startResult}): a started stream keeps what its DESCRIBE
+     * offered for the next launch; a refusal of packed forgets the PC, so a cache from before the
+     * host turned full chroma off does not make every launch ask for SDR first.
+     */
+    static void rememberPackedModes(Context appContext, String uuid, int startResult, int describeModes) {
+        if (startResult == MoonBridge.CLIENT_ERROR_PACKED_444_REFUSED) {
+            HostPackedModes.store(appContext, uuid, 0);
+        } else if (startResult == 0) {
+            HostPackedModes.store(appContext, uuid, describeModes);
+        }
+    }
+
     private boolean startApp(VideoDecoderRenderer renderer) throws XmlPullParserException, IOException
     {
         NvHTTP h = new NvHTTP(context.serverAddress, context.httpsPort, uniqueId, context.serverCert, cryptoProvider);
@@ -1131,11 +1144,13 @@ public class NvConnection {
                                 context.streamConfig.getApp().getRole() == NvApp.Role.REMOTE_MONITOR,
                                 micPermitted, prefs.usbDualSenseHaptics,
                                 sentLinkMbps, pyroWavePaceMbps, clientWireless);
+                        if (context.streamConfig.isPacked444()) {
+                            rememberPackedModes(appContext, hostDetails.uuid, ret, MoonBridge.getHostPacked444Modes());
+                        }
                         if (ret != 0) {
                             return;
                         }
                         if (context.streamConfig.isPacked444()) {
-                            HostPackedModes.store(appContext, hostDetails.uuid, MoonBridge.getHostPacked444Modes());
                             noticePackedAfterStart(appContext, hostDetails.uuid, context.connListener,
                                     context.negotiatedHdr, packedHdrDropAtLaunch,
                                     videoDecoderRenderer.packedHdrDropReason());

@@ -1575,7 +1575,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     static final String ISSUE_HOST_NO_TEN_BIT = "host doesn't offer 10-bit full chroma";
-    static final String ISSUE_NO_TEN_BIT_IN_COMMON = "no 10-bit full chroma mode in common";
+    static final String ISSUE_NO_TEN_BIT_IN_COMMON = "this device and PC share no 10-bit full chroma mode";
 
     /**
      * Why the PC's packed modes {@code hostModes} leave this device's verified {@code deviceModes}

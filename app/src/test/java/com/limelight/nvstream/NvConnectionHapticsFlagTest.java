@@ -267,8 +267,16 @@ public class NvConnectionHapticsFlagTest {
         static boolean clientWireless;
         static Integer gracePeriodMs;
         static int videoCapabilities = -1;
+        // What startConnection returns (-1 stops before the stream) and the DESCRIBE's packed modes after it.
+        static int startResult = -1;
+        static int hostPacked444Modes = -1;
 
         @Implementation protected static void __staticInitializer__() {}
+
+        @Implementation
+        public static int getHostPacked444Modes() {
+            return hostPacked444Modes;
+        }
 
         @Implementation
         public static void setNetworkGracePeriodMs(int gracePeriodMs) {
@@ -296,8 +304,8 @@ public class NvConnectionHapticsFlagTest {
             CapturingBridge.linkMbps = pyrowaveLinkMbps;
             CapturingBridge.paceMbps = pyrowavePaceMbps;
             CapturingBridge.clientWireless = clientWireless;
-            // Stop here: no native stream exists in this test.
-            return -1;
+            // -1 stops here: no native stream exists in this test.
+            return startResult;
         }
     }
 }

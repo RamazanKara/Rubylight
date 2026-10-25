@@ -379,7 +379,7 @@ fn packed_hdr_against_a_host_without_ten_bit_packed_starts_in_eight_bit() {
         (
             1 | 8,
             VIDEO_FORMAT_H265,
-            Some("no 10-bit full chroma mode in common"),
+            Some("this device and PC share no 10-bit full chroma mode"),
         ),
     ] {
         let mut handshake = packed_handshake(hdr);

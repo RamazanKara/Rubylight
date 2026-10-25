@@ -308,6 +308,50 @@ public class NvConnectionHostNoticeTest {
     }
 
     @Test
+    public void aStartedPackedStreamRemembersTheDescribeAndARefusalForgetsIt() throws Exception {
+        Application app = RuntimeEnvironment.getApplication();
+        String uuid = "3c0e9b6e-6d8b-4a43-9c2e-5f1d1a2b3c4d";
+        int offered = MoonBridge.VIDEO_FORMAT_H264 | MoonBridge.VIDEO_FORMAT_H265;
+        try {
+            com.limelight.computers.HostPackedModes.store(app, uuid, 0);
+            sessionPacked = true;
+            NvConnectionHapticsFlagTest.CapturingBridge.startResult = 0;
+            NvConnectionHapticsFlagTest.CapturingBridge.hostPacked444Modes = 0b0011;
+            stream(SUNSHINE, false, offered, false);
+            lastConnection.stop();
+            assertEquals(0b0011, com.limelight.computers.HostPackedModes.cached(app, uuid));
+            // The next launch knows it before /launch.
+            stream(SUNSHINE, false, offered, false);
+            lastConnection.stop();
+            assertEquals(Integer.valueOf(0b0011), hostPackedModesSeen);
+
+            // Any other failure says nothing about the PC's modes.
+            NvConnectionHapticsFlagTest.CapturingBridge.startResult = -1;
+            NvConnectionHapticsFlagTest.CapturingBridge.hostPacked444Modes = -1;
+            stream(SUNSHINE, false, offered, false);
+            assertEquals(0b0011, com.limelight.computers.HostPackedModes.cached(app, uuid));
+
+            // A refused packed stream forgets them: the retry runs without packed chroma.
+            NvConnectionHapticsFlagTest.CapturingBridge.startResult = MoonBridge.CLIENT_ERROR_PACKED_444_REFUSED;
+            stream(SUNSHINE, false, offered, false);
+            assertEquals(-1, com.limelight.computers.HostPackedModes.cached(app, uuid));
+        } finally {
+            sessionPacked = false;
+            NvConnectionHapticsFlagTest.CapturingBridge.startResult = -1;
+            NvConnectionHapticsFlagTest.CapturingBridge.hostPacked444Modes = -1;
+            com.limelight.computers.HostPackedModes.store(app, uuid, 0);
+        }
+
+        // A started stream without a DESCRIBE mask (the C engine says -1) keeps what was known.
+        NvConnection.rememberPackedModes(app, "remember-host", 0, 0b1000);
+        assertEquals(0b1000, com.limelight.computers.HostPackedModes.cached(app, "remember-host"));
+        NvConnection.rememberPackedModes(app, "remember-host", 0, -1);
+        assertEquals(0b1000, com.limelight.computers.HostPackedModes.cached(app, "remember-host"));
+        NvConnection.rememberPackedModes(app, "remember-host", MoonBridge.CLIENT_ERROR_PACKED_444_REFUSED, 0b1000);
+        assertEquals(-1, com.limelight.computers.HostPackedModes.cached(app, "remember-host"));
+    }
+
+    @Test
     public void theStreamOnlyTrustsPyroWaveBitsFromHostsThatShowPyroWave() throws Exception {
         stream(SUNSHINE.replace("<ServerCodecModeSupport>197377", "<ServerCodecModeSupport>" + (197377 | 0x07800000)), false);
         assertEquals(197377, NvConnectionHapticsFlagTest.CapturingBridge.serverCodecModeSupport);

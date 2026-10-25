@@ -306,7 +306,7 @@ impl RtspOutcome {
             if self.host_packed444_modes & (mode_bit(1, true) | mode_bit(2, true)) == 0 {
                 "host doesn't offer 10-bit full chroma"
             } else {
-                "no 10-bit full chroma mode in common"
+                "this device and PC share no 10-bit full chroma mode"
             },
         )
     }

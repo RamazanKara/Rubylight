@@ -39,11 +39,24 @@ public class HostPackedModesTest {
         HostPackedModes.store(context, "pc", 0b0011);
         HostPackedModes.store(context, "pc", -1);
         assertEquals(0b0011, HostPackedModes.cached(context, "pc"));
+        // Only modes a newer host added: none this client knows.
         HostPackedModes.store(context, "pc", 0x10);
         assertEquals(-1, HostPackedModes.cached(context, "pc"));
-        // A stored value outside the mask is not trusted.
         context.getSharedPreferences(HostPackedModes.PREFERENCES, Context.MODE_PRIVATE).edit()
                 .putInt("pc", 0x30).commit();
+        assertEquals(-1, HostPackedModes.cached(context, "pc"));
+    }
+
+    @Test
+    public void modesANewerHostAddsAreLeftOut() {
+        HostPackedModes.store(context, "pc", 0x15);
+        assertEquals(0b0101, HostPackedModes.cached(context, "pc"));
+        context.getSharedPreferences(HostPackedModes.PREFERENCES, Context.MODE_PRIVATE).edit()
+                .putInt("pc", 0x3A).commit();
+        assertEquals(0b1010, HostPackedModes.cached(context, "pc"));
+        // A negative value is not a mask, not every mode.
+        context.getSharedPreferences(HostPackedModes.PREFERENCES, Context.MODE_PRIVATE).edit()
+                .putInt("pc", -1).commit();
         assertEquals(-1, HostPackedModes.cached(context, "pc"));
     }
 

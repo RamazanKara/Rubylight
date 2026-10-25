@@ -395,6 +395,12 @@ fn phase_interval(s: &Session, at: Instant, period: Duration) -> Option<Duration
     Some(interval)
 }
 
+/// Whether the ENet control worker should see a peer for `session`. A WebRTC
+/// session carries control and input on its DataChannels, so it never has one.
+fn expects_enet_control(session: &Session) -> bool {
+    session.launch.transport != butterpollo_core::session::Transport::WebRtc
+}
+
 /// Whether `overrides` set the peak brightness, under its name before or
 /// after it moved out of RTX HDR.
 fn sets_peak(overrides: &serde_json::Map<String, serde_json::Value>) -> bool {
@@ -3901,7 +3907,8 @@ impl Media {
             unattended.retain(|id, _| active_sessions.iter().any(|s| &s.launch.id == id));
             for s in active_sessions.drain(..) {
                 let id = &s.launch.id;
-                if s.stopping() || peers.values().any(|p| &p.id == id) {
+                if s.stopping() || !expects_enet_control(&s) || peers.values().any(|p| &p.id == id)
+                {
                     unattended.remove(id);
                     continue;
                 }
@@ -4065,6 +4072,17 @@ pub(crate) fn feedback_packets(id: u16, kind: u16, data: &[u8]) -> Vec<(u16, Vec
 #[cfg(test)]
 mod tests {
 
+    #[test]
+    fn webrtc_sessions_are_not_ended_for_lacking_an_enet_control_peer() {
+        let f = crate::state::test_support::Fixture::new();
+        let client = f.client(u32::MAX);
+        let moonlight = f.session(client.clone(), Role::Stream);
+        assert!(super::expects_enet_control(&moonlight));
+        let mut launch = f.launch(client, Role::Stream);
+        launch.transport = butterpollo_core::session::Transport::WebRtc;
+        let webrtc = Session::new(launch, Default::default());
+        assert!(!super::expects_enet_control(&webrtc));
+    }
     #[test]
     fn webrtc_launches_take_whole_frames_whatever_the_host_asks_for() {
         let f = crate::state::test_support::Fixture::new();

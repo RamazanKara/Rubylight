@@ -141,10 +141,9 @@ impl AudioPace {
         self.counted += samples;
     }
 
-    /// The capture went away at `now` (a reopen, a failed read) with `discarded` samples of
-    /// audio it never handed over. Until audio or silence follows, the time passing is lost.
-    pub(super) fn capture_closed(&mut self, now: Instant, discarded: u64) {
-        self.host_dropped(discarded);
+    /// The capture went away at `now` (a reopen, a failed read). Until audio or silence follows,
+    /// the time passing is lost.
+    pub(super) fn capture_closed(&mut self, now: Instant) {
         self.gap.get_or_insert(now);
     }
 
@@ -239,12 +238,27 @@ pub(super) fn retire<C: AudioCapture>(
     pace: &mut AudioPace,
     now: Instant,
 ) {
+    let queued = retire_read(old, waited, loss, pace, now);
+    pace.host_dropped(queued);
+}
+
+/// The part of [`retire`] that precedes whatever the capture handed over: its Windows skip and
+/// the audio this host trimmed. Returns the audio it still queued, which follows what was read.
+fn retire_read<C: AudioCapture>(
+    old: &mut C,
+    waited: Option<Duration>,
+    loss: &mut HostLoss,
+    pace: &mut AudioPace,
+    now: Instant,
+) -> u64 {
     let delivered = old.take_delivered();
     if let Some(waited) = waited {
         let lost = loss.read(waited, delivered, old.buffer());
         pace.windows_dropped(lost, delivered.unwrap_or_default());
     }
-    pace.capture_closed(now, old.take_discarded());
+    pace.host_dropped(old.take_trimmed());
+    pace.capture_closed(now);
+    old.take_discarded()
 }
 
 /// One pass of the audio thread's read side: every whole packet the capture has, with where each
@@ -261,6 +275,8 @@ pub(super) fn collect<C: AudioCapture>(
     mut interrupted: impl FnMut(&anyhow::Error),
 ) -> (Vec<Vec<f32>>, Vec<u64>) {
     let mut packets = Vec::new();
+    // What a failed capture still queued: it comes after the packets it handed over first.
+    let mut queued = 0;
     let waited = capture.as_mut().and_then(AudioCapture::since_drained);
     while let Some(capturing) = capture.as_mut() {
         match capturing.read(frames) {
@@ -268,7 +284,7 @@ pub(super) fn collect<C: AudioCapture>(
             Ok(None) => break,
             Err(error) => {
                 interrupted(&error);
-                retire(capturing, waited, loss, pace, now());
+                queued += retire_read(capturing, waited, loss, pace, now());
                 *capture = None;
             }
         }
@@ -302,6 +318,7 @@ pub(super) fn collect<C: AudioCapture>(
         pace.capture_delivered(at);
     }
     let positions = pace.stamp(at, &mut packets, silence);
+    pace.host_dropped(queued);
     (packets, positions)
 }
 
@@ -660,7 +677,9 @@ mod tests {
         let positions = audio.pass(&mut capture, 0);
         assert!(capture.is_none());
         assert_eq!(audio.errors, ["the endpoint went away"]);
-        assert_eq!(positions, [3840 + 480 + 960]);
+        // The packet read before the failure sits after the skip and the trim, which happened
+        // before it, and before the 20 ms the capture still queued, which was never read.
+        assert_eq!(positions, [3840 + 480]);
         // 30 ms later a reopened capture delivers: the time between, under the idle limit and
         // sent no silence, is lost as well.
         let mut capture = Some(Fake::playing(1));

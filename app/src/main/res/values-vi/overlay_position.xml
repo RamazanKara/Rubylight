@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_overlay_position">Vị trí lớp phủ</string>
+    <string name="overlay_position_section">Vị trí</string>
+    <string name="overlay_position_top_left">Trên cùng bên trái</string>
+    <string name="overlay_position_top_right">Trên cùng bên phải</string>
+    <string name="overlay_position_bottom_left">Dưới cùng bên trái</string>
+    <string name="overlay_position_bottom_right">Dưới cùng bên phải</string>
+</resources>

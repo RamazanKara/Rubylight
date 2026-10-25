@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_overlay_position">Overlay position</string>
+    <string name="overlay_position_section">Position</string>
+    <string name="overlay_position_top_left">Top left</string>
+    <string name="overlay_position_top_right">Top right</string>
+    <string name="overlay_position_bottom_left">Bottom left</string>
+    <string name="overlay_position_bottom_right">Bottom right</string>
+    <string-array name="overlay_position_names" translatable="false"><item>@string/overlay_position_top_left</item><item>@string/overlay_position_top_right</item><item>@string/overlay_position_bottom_left</item><item>@string/overlay_position_bottom_right</item></string-array>
+    <string-array name="overlay_position_values" translatable="false"><item>top_left</item><item>top_right</item><item>bottom_left</item><item>bottom_right</item></string-array>
+</resources>

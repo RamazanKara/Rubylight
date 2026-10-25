@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_overlay_position">Katman konumu</string>
+    <string name="overlay_position_section">Konum</string>
+    <string name="overlay_position_top_left">Sol üst</string>
+    <string name="overlay_position_top_right">Sağ üst</string>
+    <string name="overlay_position_bottom_left">Sol alt</string>
+    <string name="overlay_position_bottom_right">Sağ alt</string>
+</resources>

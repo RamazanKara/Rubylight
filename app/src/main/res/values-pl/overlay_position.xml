@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_overlay_position">Położenie nakładki</string>
+    <string name="overlay_position_section">Położenie</string>
+    <string name="overlay_position_top_left">Lewy górny róg</string>
+    <string name="overlay_position_top_right">Prawy górny róg</string>
+    <string name="overlay_position_bottom_left">Lewy dolny róg</string>
+    <string name="overlay_position_bottom_right">Prawy dolny róg</string>
+</resources>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_overlay_position">Posición de la superposición</string>
+    <string name="overlay_position_section">Posición</string>
+    <string name="overlay_position_top_left">Arriba a la izquierda</string>
+    <string name="overlay_position_top_right">Arriba a la derecha</string>
+    <string name="overlay_position_bottom_left">Abajo a la izquierda</string>
+    <string name="overlay_position_bottom_right">Abajo a la derecha</string>
+</resources>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_overlay_position">Положение оверлея</string>
+    <string name="overlay_position_section">Положение</string>
+    <string name="overlay_position_top_left">Слева вверху</string>
+    <string name="overlay_position_top_right">Справа вверху</string>
+    <string name="overlay_position_bottom_left">Слева внизу</string>
+    <string name="overlay_position_bottom_right">Справа внизу</string>
+</resources>

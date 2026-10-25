@@ -88,6 +88,16 @@ public class SettingsKeysTest {
         prefs().edit().clear().commit();
     }
 
+    @Test public void theOverlayPositionDefaultsToTopLeftAndAnUnknownValueReadsAsIt() {
+        assertEquals("top_left", PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication()).overlayPosition);
+        for (String key : RuntimeEnvironment.getApplication().getResources().getStringArray(R.array.overlay_position_values)) {
+            prefs().edit().putString("performance_overlay_position", key).commit();
+            assertEquals(key, PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication()).overlayPosition);
+        }
+        prefs().edit().putString("performance_overlay_position", "middle").commit();
+        assertEquals("top_left", PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication()).overlayPosition);
+    }
+
     @Test public void tapGestureActionsPersistIndependentlyAndMatchThePickerValues() {
         String[] actions = RuntimeEnvironment.getApplication().getResources()
                 .getStringArray(R.array.three_finger_tap_values);
@@ -297,6 +307,7 @@ public class SettingsKeysTest {
         reads.put("checkbox_enable_mic", new Read(false, true, c -> c.enableMic));
         reads.put("checkbox_enable_audiofx", new Read(false, true, c -> c.enableAudioFx));
         reads.put("checkbox_enable_perf_overlay", new Read(false, true, c -> c.enablePerfOverlay));
+        reads.put("performance_overlay_position", new Read("top_left", "bottom_right", c -> c.overlayPosition));
         reads.put("checkbox_enable_pip", new Read(false, true, c -> c.enablePip));
         reads.put("checkbox_auto_reconnect", new Read(false, true, c -> c.autoReconnect));
         reads.put("list_network_grace", new Read("0", "30", c -> c.networkGraceSeconds));

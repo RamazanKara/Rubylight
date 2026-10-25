@@ -511,6 +511,12 @@
         <!-- Off, Compact, Statistics or Debug: writes checkbox_enable_perf_overlay and performance_overlay_mode (OverlayChoice). -->
         <Preference android:key="checkbox_enable_perf_overlay"
             android:title="@string/title_performance_overlay" android:persistent="false" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="performance_overlay_position"
+            android:title="@string/title_overlay_position"
+            android:entries="@array/overlay_position_names"
+            android:entryValues="@array/overlay_position_values"
+            android:defaultValue="top_left" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_enable_pip"
             android:title="@string/title_checkbox_enable_pip"

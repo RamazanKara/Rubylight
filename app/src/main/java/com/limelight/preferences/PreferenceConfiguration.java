@@ -250,6 +250,8 @@ public class PreferenceConfiguration {
      */
     public boolean autoBitrate;
     public volatile boolean enablePerfOverlay;
+    /** The corner the performance overlay prefers: top_left, top_right, bottom_left or bottom_right. */
+    public volatile String overlayPosition = "top_left";
     public boolean enableLatencyToast;
     public boolean rustEngine;
     public boolean experimentalPacked444;
@@ -927,6 +929,7 @@ public class PreferenceConfiguration {
     }
 
     static final String OVERLAY_MODE_PREF_STRING = "performance_overlay_mode";
+    static final String OVERLAY_POSITION_PREF_STRING = "performance_overlay_position";
     // Set once the compact overlay became the default, so a later choice of Statistics is kept.
     static final String OVERLAY_COMPACT_DEFAULT_PREF_STRING = "performance_overlay_compact_default";
 
@@ -1175,6 +1178,8 @@ public class PreferenceConfiguration {
         dropAutoBitrateLimits(prefs);
         config.autoBitrate = prefs.getBoolean(AutoBitrateChoice.SETTINGS_KEY, false);
         config.enablePerfOverlay = prefs.getBoolean(ENABLE_PERF_OVERLAY_STRING, DEFAULT_ENABLE_PERF_OVERLAY);
+        config.overlayPosition = com.limelight.ui.OverlayPlacement.Corner.parse(
+                prefs.getString(OVERLAY_POSITION_PREF_STRING, null)).key;
         config.bindAllUsb = prefs.getBoolean(BIND_ALL_USB_STRING, DEFAULT_BIND_ALL_USB);
         config.mouseEmulation = prefs.getBoolean(MOUSE_EMULATION_STRING, DEFAULT_MOUSE_EMULATION);
         config.mouseEmulationFixedStep = prefs.getBoolean(MOUSE_EMULATION_FIXED_STEP_STRING, false);

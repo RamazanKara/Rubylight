@@ -919,6 +919,8 @@ struct Shared {
     counters: Counters,
     hooks: Hooks,
     options: TransportOptions,
+    /// Where the last datagram went: the remote end of the ICE pair str0m selected.
+    peer: std::sync::Mutex<Option<SocketAddr>>,
 }
 
 impl Shared {
@@ -1026,6 +1028,7 @@ impl MediaHandle {
             counters: Counters::default(),
             hooks,
             options,
+            peer: std::sync::Mutex::new(None),
         });
         let (tx, rx) = mpsc::channel::<Command>();
         socket
@@ -1065,6 +1068,11 @@ impl MediaHandle {
 
     pub fn local_addr(&self) -> SocketAddr {
         self.local
+    }
+
+    /// The client's address on the selected ICE pair, once media has gone out to it.
+    pub fn peer(&self) -> Option<SocketAddr> {
+        *self.shared.peer.lock().unwrap()
     }
 
     /// Whether both threads are still running. A session that ended (or was closed) is not.
@@ -1503,6 +1511,12 @@ fn send_due(socket: &UdpSocket, queue: &mut SendQueue, shared: &Shared) {
         let batch = queue.next_batch(now + EARLY_SEND);
         if batch.packets.is_empty() {
             break;
+        }
+        if let Some(last) = batch.packets.last() {
+            let mut peer = shared.peer.lock().unwrap();
+            if *peer != Some(last.destination) {
+                *peer = Some(last.destination);
+            }
         }
         for out in &batch.packets {
             match socket.send_to(&out.data, out.destination) {
@@ -2532,6 +2546,7 @@ mod tests {
             counters: Counters::default(),
             hooks,
             options,
+            peer: std::sync::Mutex::new(None),
         });
         (
             MediaHandle {

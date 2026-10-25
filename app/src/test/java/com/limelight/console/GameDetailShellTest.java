@@ -17,12 +17,17 @@ import android.view.View;
 
 import com.limelight.PcViewLifecycleTest;
 import com.limelight.R;
+import com.limelight.nativeapi.ConsoleSnapshot;
+import com.limelight.nativeapi.NativeApiFixtures;
+import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.preferences.GlPreferences;
 import com.limelight.preferences.StreamSettings;
 
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
@@ -31,6 +36,7 @@ import org.robolectric.android.controller.ActivityController;
 import org.robolectric.annotation.Config;
 
 import java.io.File;
+import java.util.Collections;
 
 /** A game's page under the shell bar: it belongs to Home, so Home in the bar is the page it came from. */
 @RunWith(RobolectricTestRunner.class)
@@ -42,6 +48,8 @@ public class GameDetailShellTest {
             return false;
         }
     }
+
+    @Rule public TemporaryFolder temporary = new TemporaryFolder();
 
     private Context context;
 
@@ -200,6 +208,79 @@ public class GameDetailShellTest {
             hdr.setVisibility(android.view.View.VISIBLE);
             assertTrue(String.valueOf(GameDetailActivity.chipsDescription(chips))
                     .endsWith(", " + page.getString(R.string.host_profile_hdr)));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /** Tower's library with Portal carrying {@code fields} (store, installed), read the way the page reads it. */
+    private GameDetailModel portal(String fields) throws Exception {
+        ConsoleRig rig = new ConsoleRig(temporary.newFolder());
+        try {
+            rig.transport.reply("tower", "library", NativeApiFixtures.ok(NativeApiFixtures.library("t1",
+                    "{\"install_id\":\"t-portal\",\"app_id\":11,\"title\":\"Portal\"" + fields + "}")));
+            rig.transport.reply("tower", "session", NativeApiFixtures.ok(NativeApiFixtures.IDLE));
+            ConsoleSnapshot snapshot = rig.repository.refresh(
+                    Collections.singletonList(NativeApiFixtures.nativeHost("tower", "Tower", true)));
+            return GameDetailModel.of(snapshot, "tower", 11, "Portal", "Tower", true, true, true);
+        } finally {
+            rig.close();
+        }
+    }
+
+    /** The page as its first reload leaves it: the cover loaders it makes once it knows this device's id. */
+    private static Detail loaded(ActivityController<Detail> controller) {
+        Detail page = controller.get();
+        org.robolectric.util.ReflectionHelpers.setField(page, "covers", new CoverLoaders(page, "test-device", 200));
+        return page;
+    }
+
+    private static ComputerDetails tower() {
+        ComputerDetails computer = new ComputerDetails();
+        computer.uuid = "tower";
+        computer.name = "Tower";
+        return computer;
+    }
+
+    @Test
+    public void aGameNotInstalledOnTheHostSaysSoUnderAnUnavailablePlay() throws Exception {
+        GameDetailModel model = portal(",\"installed\":false");
+        ActivityController<Detail> controller = detail();
+        try {
+            Detail page = loaded(controller);
+            page.render(model, tower());
+            android.widget.TextView note = page.findViewById(R.id.detail_note);
+            assertEquals(View.VISIBLE, note.getVisibility());
+            assertEquals("Not installed on Tower", note.getText().toString());
+            assertFalse(page.findViewById(R.id.detail_play).isEnabled());
+
+            page.render(portal(",\"installed\":true"), tower());
+            assertEquals(View.GONE, note.getVisibility());
+            assertTrue(page.findViewById(R.id.detail_play).isEnabled());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "television")
+    public void onTelevisionTheChipLineNamesTheStoreWithItsGlyph() throws Exception {
+        ActivityController<Detail> controller = detail();
+        try {
+            Detail page = loaded(controller);
+            android.widget.TextView store = page.findViewById(R.id.detail_store);
+            page.render(portal(",\"store\":{\"source\":\"steam\",\"id\":\"400\"}"), tower());
+            assertEquals(View.VISIBLE, store.getVisibility());
+            assertEquals("Steam", store.getText().toString());
+            android.graphics.drawable.Drawable glyph = store.getCompoundDrawablesRelative()[0];
+            assertTrue(glyph != null);
+            assertEquals(Math.round(store.getTextSize()), glyph.getBounds().width());
+            assertEquals(View.VISIBLE, page.findViewById(R.id.detail_chips).getVisibility());
+            assertTrue(String.valueOf(page.findViewById(R.id.detail_chips).getContentDescription()).contains("Steam"));
+
+            page.render(portal(""), tower());
+            assertEquals(View.GONE, store.getVisibility());
+            assertNull(store.getCompoundDrawablesRelative()[0]);
         } finally {
             controller.pause().stop().destroy();
         }

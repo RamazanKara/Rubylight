@@ -43,11 +43,13 @@
                 <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
                     android:layout_marginStart="40dp" android:orientation="vertical"
                     android:clipChildren="false" android:clipToPadding="false">
-                    <!-- Running or suspended (with its dot), installed or not, HDR. A screen reader hears the line as one stop,
+                    <!-- Running or suspended (with its dot), the store (its glyph and name), installed or not, HDR. A screen reader hears the line as one stop,
                          from the content description GameDetailActivity joins from the shown chips. -->
                     <LinearLayout android:id="@+id/detail_chips" android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:orientation="horizontal" android:visibility="gone" android:importantForAccessibility="yes">
                         <TextView android:id="@+id/detail_status" style="@style/Widget.Nightjar.TvChip"
+                            android:layout_marginEnd="@dimen/space_s" android:visibility="gone" />
+                        <TextView android:id="@+id/detail_store" style="@style/Widget.Nightjar.TvChip"
                             android:layout_marginEnd="@dimen/space_s" android:visibility="gone" />
                         <TextView android:id="@+id/detail_installed" style="@style/Widget.Nightjar.TvChip"
                             android:layout_marginEnd="@dimen/space_s" android:visibility="gone" />

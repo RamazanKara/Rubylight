@@ -1,6 +1,7 @@
 package com.limelight.console;
 
 import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -10,6 +11,7 @@ import android.widget.Toast;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import androidx.annotation.VisibleForTesting;
 import androidx.core.content.ContextCompat;
 
 import com.google.android.material.button.MaterialButton;
@@ -83,6 +85,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     private View chips;
     private TextView installed;
     private TextView hdr;
+    private TextView store;
     private ComputerDetails shownComputer;
 
     private final Runnable reload = this::reloadNow;
@@ -142,6 +145,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         chips = findViewById(R.id.detail_chips);
         installed = findViewById(R.id.detail_installed);
         hdr = findViewById(R.id.detail_hdr);
+        store = findViewById(R.id.detail_store);
         backdrop = findViewById(R.id.detail_backdrop);
         if (backdrop != null) setUpAmbience();
         play.setOnClickListener(v -> onPlay());
@@ -319,7 +323,8 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         });
     }
 
-    private void render(GameDetailModel m, ComputerDetails computer) {
+    @VisibleForTesting
+    void render(GameDetailModel m, ComputerDetails computer) {
         title.setText(m.title);
         host.setText(m.hostName);
         ((com.google.android.material.appbar.MaterialToolbar) findViewById(R.id.detail_toolbar)).setTitle(m.title);
@@ -343,6 +348,10 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         play.setEnabled(m.canStart());
         if (!m.hostOnline) {
             note.setText(R.string.library_offline);
+            note.setVisibility(View.VISIBLE);
+        } else if (m.blockedNote() != 0) {
+            // Play is off: say why ("Not installed on Living-room PC").
+            note.setText(getString(m.blockedNote(), m.hostName));
             note.setVisibility(View.VISIBLE);
         } else if (m.otherRunningTitle != null) {
             note.setText(getString(R.string.console_detail_replaces, m.otherRunningTitle));
@@ -386,9 +395,27 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         installed.setText(Boolean.FALSE.equals(isInstalled) ? R.string.console_chip_not_installed : R.string.console_detail_installed);
         installed.setVisibility(isInstalled == null ? View.GONE : View.VISIBLE);
         hdr.setVisibility(m.source != null && m.source.hdrSupported ? View.VISIBLE : View.GONE);
-        boolean any = hasState || isInstalled != null || hdr.getVisibility() == View.VISIBLE;
+        renderStore(m.source);
+        boolean any = hasState || isInstalled != null || hdr.getVisibility() == View.VISIBLE || store.getVisibility() == View.VISIBLE;
         chips.setVisibility(any ? View.VISIBLE : View.GONE);
         chips.setContentDescription(chipsDescription((ViewGroup) chips));
+    }
+
+    /** The store chip: the store's glyph, at the chip text's size, beside its name; gone for a game no store owns. */
+    private void renderStore(ConsoleSnapshot.Source source) {
+        String key = source == null ? null : source.storeSource;
+        String name = source == null ? null : Stores.name(key, source.storeName);
+        store.setText(name);
+        store.setVisibility(name == null ? View.GONE : View.VISIBLE);
+        int glyph = Stores.glyph(key);
+        Drawable icon = glyph == 0 ? null : ContextCompat.getDrawable(this, glyph);
+        if (icon != null) {
+            icon = icon.mutate();
+            icon.setTint(store.getCurrentTextColor());
+            int size = Math.round(store.getTextSize());
+            icon.setBounds(0, 0, size, size);
+        }
+        store.setCompoundDrawablesRelative(icon, null, null, null);
     }
 
     /** What a screen reader hears for the chip line, read as one stop: the shown chips' texts, in order. */

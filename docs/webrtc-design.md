@@ -66,7 +66,7 @@ code and socket settings. It adds no native dependency and builds on both toolch
 What str0m needs from us:
 
 - Clear the default codecs and set fixed payload types.
-- Disable RTX, transport-cc and REMB in the offer.
+- Offer NACK with RTX for video; disable transport-cc and REMB in the offer.
 - Add the playout-delay extension `http://www.webrtc.org/experiments/rtp-hdrext/playout-delay` to the
   extension map.
 - Set the H.265 fmtp ourselves. str0m defaults to `profile-id=1;level-id=180`.
@@ -314,8 +314,10 @@ audio() ── Opus packet ──▶ webrtc sink (instead of the GameStream audi
 - **Recovery.**
   - PLI, FIR and the control channel's `request-keyframe` set `Session.idr` and wake recovery, the same
     as a Moonlight IDR request.
-  - There is no RTX in the MVP. B2 finds out whether str0m 0.24.1 can answer NACK without RTX. B5
-    measures a 0.1 % loss leg with RTX on and off, and the better one ships.
+  - NACK with RTX is on by default. B5 measured a 0.1 % loss leg both ways: with RTX the stream kept
+    60 fps and no freeze, PLI recovery alone gave 36 to 43 fps and 3 to 18 freezes in 40 s, and on a
+    clean link RTX changed nothing (rust/PERFORMANCE.md). `webrtc_rtx = false` turns it off for
+    measurements.
 - **No FEC and no reference-frame invalidation.** WebRTC has neither. Intra refresh stays off, as on
   GameStream.
 
@@ -328,7 +330,11 @@ audio() ── Opus packet ──▶ webrtc sink (instead of the GameStream audi
 - HDR: HEVC Main10 and AV1 Main 10-bit at 1080p, 1440p and 4K, with BT.2020 PQ colour description and
   mastering-display and content-light metadata in the bitstream.
 - AV1 wherever the AMF probe finds an AV1 encoder.
-- 30 and 60 fps. 90 and 120 fps are offered only for modes where B5 measures them clean.
+- 30, 60, 90 and 120 fps at every mode, each gated by the AMF throughput cap of the codec
+  (`MaxThroughput`, `HevcMaxThroughput`, `Av1CapMaxThroughput`); a request beyond it is refused. B5
+  measured 1080p at 90 and 120 with all three codecs, 1440p120 with HEVC and 4K120 with HEVC and AV1
+  clean. 720p above 60, H.264 1440p above 60 and lower-throughput GPUs are Experimental. H.264 stays
+  out of 4K: 4K120 would need level 6.0, which browsers refuse.
 - Opus stereo audio, and 5.1 and 7.1 Opus multistream (extension).
 - Gamepads with rumble, and gamepad mouse mode on a long press of Start.
 - Keyboard and mouse over the `input` DataChannel (extension).
@@ -372,7 +378,7 @@ itself, HDR decode inside a browser), it is hardened and fake-tested, and stays 
     scaling, and the held-input tracker releases everything on close.
 - **Unit (host, str0m).**
   - The offer has one codec at a fixed PT and exactly one correct `imageattr`.
-  - The offer has the playout-delay extension, and no RTX, transport-cc or REMB.
+  - The offer has the playout-delay extension and RTX for video, and no transport-cc or REMB.
   - The H.265 fmtp level matches the mode, for Main and Main10.
   - The AV1 fmtp matches the mode, and HDR offers carry the colour-space extension, which is never
     sent.

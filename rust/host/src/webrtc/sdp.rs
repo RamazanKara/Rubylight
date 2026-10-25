@@ -101,7 +101,8 @@ impl AudioMode {
 pub struct OfferSpec {
     pub video: VideoMode,
     pub audio: AudioMode,
-    /// RTX and NACK feedback for video. Off by default: str0m answers NACK only through RTX.
+    /// RTX and NACK feedback for video (`webrtc_rtx`, on by default): str0m answers NACK only
+    /// through RTX.
     pub rtx: bool,
 }
 
@@ -189,7 +190,7 @@ fn video_codec_and_format(mode: &VideoMode) -> Result<(Codec, FormatParams)> {
 }
 
 /// The Rtc configuration both for the host and, with `set_ice_lite(false)`, for a test client: one
-/// video codec and Opus at fixed payload types, and no transport-cc, REMB or (unless asked) RTX.
+/// video codec and Opus at fixed payload types, RTX when the spec asks for it, and no transport-cc or REMB.
 pub fn rtc_config(spec: &OfferSpec) -> Result<RtcConfig> {
     let mut exts = ExtensionMap::empty();
     exts.set(MID_EXT_ID, Extension::RtpMid);

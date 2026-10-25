@@ -45,12 +45,14 @@ Paired TVs and browsers are listed on **Devices** with a **WebRTC** badge. Disab
 
 | Part | What you get |
 | --- | --- |
-| Video | H.264, HEVC and AV1 at 720p, 1080p and 1440p; HEVC and AV1 also at 4K. AV1 appears only when the GPU's AMD encoder supports it. 30 and 60 fps. |
+| Video | H.264, HEVC and AV1 at 720p, 1080p and 1440p; HEVC and AV1 also at 4K. AV1 appears only when the GPU's AMD encoder supports it. 30, 60, 90 and 120 fps at every resolution, as far as the GPU's encoder can keep up (see below). |
 | HDR | HEVC Main10 and AV1 10-bit at 1080p, 1440p and 4K. The host display must already be in HDR. If it is not, or it leaves HDR during the stream, the stream ends with an error. The host never tone-maps to SDR. |
 | Audio | Stereo, 5.1 and 7.1. Surround needs a client that asks for it and decodes it, which today means a Chromium-based browser. |
 | Gamepad | Gamepads with rumble. |
 | Gamepad as a mouse | Hold Start for 750 ms and release it. The stick moves the pointer, the D-pad scrolls, and A, B, X, LB and RB click. Do it again to turn it off. |
 | Keyboard and mouse | From a client that opens the `input` channel (see below). The browser client does not. |
+
+The host reads how much its encoder can do (AMF's throughput limit per codec) and offers only the frame rates it can encode in real time: a slower AMD GPU may list 4K at 30 and 60 only. Measured clean on an RX 7900 XT: 90 and 120 fps at 1080p with all three codecs, 1440p120 with HEVC, and 4K120 with HEVC and AV1. 720p at 90 and 120, H.264 at 1440p above 60, and GPUs with a lower throughput limit are Experimental.
 
 A request for anything the host cannot send is refused with an error. There is no fallback: no SDR for an HDR request, no H.264 for AV1, no stereo for a surround request.
 
@@ -78,6 +80,8 @@ The host sends the offer. It carries one video codec at a fixed payload type, on
 The host is ICE-lite. Its only candidate is its own address plus `webrtc_media_port`. It has no STUN or TURN, learns your address from your connectivity checks, and ignores `candidate` messages.
 
 The host checks your answer. A changed codec or profile is an error, and the host never falls back to something else.
+
+The video track offers NACK with RTX, so a lost packet is resent instead of costing a keyframe. The host paces its packets at a rate above the stream's bitrate, so a keyframe does not leave as one burst. The HEVC `level-id` and AV1 `level-idx` follow the mode, the rate and the bitrate (up to 5.2 for 4K120).
 
 The host's `control` messages carry a `v`:
 

@@ -121,6 +121,12 @@ impl Host {
         }
     }
 
+    /// In the recheck window and the library was not read for `RECHECK_LIBRARY_INTERVAL`.
+    fn library_recheck_due(&self, now: Instant) -> bool {
+        self.recheck_until.is_some_and(|until| now < until)
+            && self.native.full_at.is_none_or(|t| now.saturating_duration_since(t) >= RECHECK_LIBRARY_INTERVAL)
+    }
+
     pub fn paired(&self) -> bool {
         self.record.server_certificate.is_some()
             && self.info.as_ref().is_none_or(|i| i.paired)
@@ -1054,8 +1060,7 @@ impl Hosts {
         }
         let apps = matches!(host.apps, Apps::NotLoaded);
         // Just after an exit the library's running flags change too: read it again every few seconds.
-        let recheck = host.recheck_until.is_some_and(|until| Instant::now() < until)
-            && host.native.full_at.is_none_or(|t| t.elapsed() >= RECHECK_LIBRARY_INTERVAL);
+        let recheck = host.library_recheck_due(Instant::now());
         self.refresh_native(id, recheck);
         if apps {
             self.load_apps(id);
@@ -1391,6 +1396,21 @@ mod tests {
         hosts.refresh_after_exit(id);
         let until = hosts.list[0].recheck_until.expect("a stream's end arms the recheck");
         assert_eq!(hosts.list[0].poll_interval(until), POLL_INTERVAL, "and it ends");
+    }
+
+    #[test]
+    fn the_library_is_read_again_every_few_seconds_while_rechecking_only() {
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
+        let now = Instant::now();
+        let host = &mut hosts.list[0];
+        host.native.full_at = Some(now);
+        assert!(!host.library_recheck_due(now), "outside the window the 30 s timer rules");
+        host.recheck_until = Some(now + RECHECK_WINDOW);
+        assert!(!host.library_recheck_due(now + RECHECK_LIBRARY_INTERVAL / 2), "just read");
+        assert!(host.library_recheck_due(now + RECHECK_LIBRARY_INTERVAL), "read again after a few seconds");
+        host.native.full_at = None;
+        assert!(host.library_recheck_due(now), "never read: read now");
+        assert!(!host.library_recheck_due(now + RECHECK_WINDOW), "the window ends");
     }
 
     #[test]

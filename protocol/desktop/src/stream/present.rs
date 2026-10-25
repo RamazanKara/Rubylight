@@ -277,13 +277,14 @@ impl VideoTexture {
         }
     }
 
-    /// Records why a picture cannot be shown: for the caller's message, and once in the log.
-    fn fail(&mut self, reason: String) {
-        if self.logged_failure.as_deref() != Some(reason.as_str()) {
-            eprintln!("nightjar: {reason}");
-            self.logged_failure = Some(reason.clone());
+    /// Records why a picture cannot be shown: `short` for the caller's message, `detail` once in
+    /// the log (a failing stream retries every picture).
+    fn fail(&mut self, detail: String, short: String) {
+        if self.logged_failure.as_deref() != Some(detail.as_str()) {
+            eprintln!("nightjar: {detail}");
+            self.logged_failure = Some(detail);
         }
-        self.failure = Some(reason);
+        self.failure = Some(short);
     }
 
     pub fn is_hdr(&self) -> bool {
@@ -351,7 +352,8 @@ impl VideoTexture {
                 i64::from(space.0),
             );
             let metadata = self.hdr_metadata.filter(|_| self.hdr_mode == Some(true));
-            let hdr = hdr_properties(self.hdr_frame, white_level, metadata);
+            // SRGB_LINEAR is the float target of the PyroWave and packed paths, never a PQ picture.
+            let hdr = hdr_properties(self.hdr_frame && space != SDL_COLORSPACE_SRGB_LINEAR, white_level, metadata);
             if let Some(white_point) = hdr.white_point {
                 SDL_SetFloatProperty(props, SDL_PROP_TEXTURE_CREATE_SDR_WHITE_POINT_FLOAT, white_point);
             }
@@ -361,16 +363,16 @@ impl VideoTexture {
             self.texture = SDL_CreateTextureWithProperties(renderer, props);
             SDL_DestroyProperties(props);
             if self.texture.is_null() {
-                let reason = format!(
-                    "SDL could not create the {} video texture ({width}x{height}, colorspace {:#x}, SDR white point {:?}, HDR headroom {:?}, renderer {}): {}",
+                let error = crate::sdl::error();
+                let detail = format!(
+                    "SDL could not create the {} video texture ({width}x{height}, colorspace {:#x}, SDR white point {:?}, HDR headroom {:?}, renderer {}): {error}",
                     pixel_format_name(format),
                     space.0,
                     hdr.white_point,
                     hdr.headroom,
                     crate::sdl::renderer_name(renderer),
-                    crate::sdl::error(),
                 );
-                self.fail(reason);
+                self.fail(detail, error);
                 return false;
             }
             SDL_SetTextureScaleMode(self.texture, SDL_SCALEMODE_LINEAR);
@@ -557,16 +559,22 @@ impl VideoTexture {
                         return false;
                     }
                     if self.d3d11.is_null() {
-                        self.fail(format!(
-                            "the {} video texture has no Direct3D 11 texture to copy the decoder's pictures into (renderer {})",
-                            pixel_format_name(format),
-                            crate::sdl::renderer_name(renderer),
-                        ));
+                        self.fail(
+                            format!(
+                                "the {} video texture has no Direct3D 11 texture to copy the decoder's pictures into (renderer {})",
+                                pixel_format_name(format),
+                                crate::sdl::renderer_name(renderer),
+                            ),
+                            "the video texture is not a Direct3D 11 texture".into(),
+                        );
                         return false;
                     }
                     let copied = frame.copy_to_d3d11(self.d3d11, w, h);
                     if !copied {
-                        self.fail(format!("copying a {w}x{h} decoder picture into the {} video texture failed", pixel_format_name(format)));
+                        self.fail(
+                            format!("copying a {w}x{h} decoder picture into the {} video texture failed", pixel_format_name(format)),
+                            "the GPU copy failed".into(),
+                        );
                     }
                     copied
                 }
@@ -735,6 +743,9 @@ impl VideoTexture {
             failure: self.failure.take(),
             hdr_mode: self.hdr_mode,
             hdr_metadata: self.hdr_metadata,
+            // Facts about the stream, not the texture: `ensure` calls `destroy` before it reads them.
+            hdr_frame: self.hdr_frame,
+            logged_failure: self.logged_failure.take(),
             pyrowave_stages: stages,
             ..Self::default()
         };
@@ -821,6 +832,20 @@ pub(crate) mod tests {
         assert_eq!(hdr_properties(true, 1.0, Some(empty)).headroom, None);
     }
 
+    #[test]
+    fn destroying_the_texture_keeps_what_is_known_about_the_stream() {
+        // `ensure` destroys first and reads the PQ flag after; a failing stream logs once, not per picture.
+        let mut texture = VideoTexture { hdr_frame: true, ..Default::default() };
+        texture.fail("detail".into(), "short".into());
+        assert_eq!(texture.failure.as_deref(), Some("short"));
+        texture.destroy();
+        assert!(texture.hdr_frame, "the PQ flag must survive destroy");
+        assert!(texture.is_hdr());
+        assert_eq!(texture.logged_failure.as_deref(), Some("detail"));
+        assert_eq!(texture.failure.as_deref(), Some("short"));
+        assert!(hdr_properties(texture.hdr_frame, 2.5, None).white_point == Some(200.0));
+    }
+
     /// The report: an HDR stream showed "Cannot show d3d11 pictures". Needs a Direct3D 11 display.
     #[cfg(windows)]
     #[test]
@@ -835,13 +860,21 @@ pub(crate) mod tests {
             let renderer = crate::sdl::create_renderer(window, true);
             assert!(!renderer.is_null(), "{}", crate::sdl::error());
             let make = |space: SDL_Colorspace| {
-                let mut texture = VideoTexture { hdr_frame: true, ..Default::default() };
-                let made = texture.ensure(renderer, SDL_PIXELFORMAT_P010, 1920, 1080, space, 1.0);
-                (made, texture.failure.take())
+                let metadata = nightjar_core::control::HdrMetadata { max_display_luminance: 1000, ..Default::default() };
+                let mut texture = VideoTexture { hdr_frame: true, hdr_mode: Some(true), hdr_metadata: Some(metadata), ..Default::default() };
+                // A white level of 2.5 is 200 nits, so a 1000-nit peak is 5x headroom.
+                let made = texture.ensure(renderer, SDL_PIXELFORMAT_P010, 1920, 1080, space, 2.5);
+                let failure = texture.failure.take();
+                let properties = if made { SDL_GetTextureProperties(texture.texture) } else { SDL_PropertiesID(0) };
+                let white = SDL_GetFloatProperty(properties, SDL_PROP_TEXTURE_SDR_WHITE_POINT_FLOAT, 0.0);
+                let headroom = SDL_GetFloatProperty(properties, SDL_PROP_TEXTURE_HDR_HEADROOM_FLOAT, 0.0);
+                texture.destroy();
+                (made, failure, white, headroom)
             };
-            let (made, why) = make(colorspace(&frame(16, 9, 1)));
+            let (made, why, white, headroom) = make(colorspace(&frame(16, 9, 1)));
             assert!(made, "{why:?}");
-            let (made, why) = make(SDL_COLORSPACE_HDR10);
+            assert_eq!((white, headroom), (200.0, 5.0), "the texture must keep the display's white and the peak");
+            let (made, why, ..) = make(SDL_COLORSPACE_HDR10);
             assert!(!made, "SDL accepts an RGB colorspace for P010 now; the HDR10 workaround is unnecessary");
             assert!(why.is_some_and(|why| why.contains("YUV colorspace")));
             SDL_DestroyRenderer(renderer);

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The poster ring fades in over 120 ms and out over 90 ms with the card's state. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android" android:enterFadeDuration="120" android:exitFadeDuration="90">
+    <item android:state_pressed="true" android:drawable="@drawable/tv_poster_ring_shape" />
+    <item android:state_focused="true" android:drawable="@drawable/tv_poster_ring_shape" />
+    <item android:state_selected="true" android:drawable="@drawable/tv_poster_ring_shape" />
+    <item android:state_hovered="true" android:drawable="@drawable/tv_poster_ring_shape" />
+    <item android:drawable="@android:color/transparent" />
+</selector>

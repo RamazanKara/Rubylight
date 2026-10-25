@@ -15,4 +15,10 @@
     <!-- Focus animators (res/animator): full, still, thick and thick-still versions. -->
     <attr name="nightjarCardFocusAnimator" format="reference" />
     <attr name="nightjarControlFocusAnimator" format="reference" />
+    <!-- A TV library poster: its focus tween (large and small), its ring and its glow. High contrast thickens the
+         ring and drops the glow; Reduce motion stops the zoom and the fades. -->
+    <attr name="nightjarPosterFocusAnimator" format="reference" />
+    <attr name="nightjarPosterFocusAnimatorSmall" format="reference" />
+    <attr name="nightjarPosterRing" format="reference" />
+    <attr name="nightjarPosterGlow" format="reference" />
 </resources>

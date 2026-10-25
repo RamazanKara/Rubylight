@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Reduced motion: a poster does not move on focus; its ring and glow show without fading. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <set android:ordering="together">
+            <objectAnimator android:propertyName="scaleX" android:valueTo="1" android:duration="0" />
+        </set>
+    </item>
+</selector>

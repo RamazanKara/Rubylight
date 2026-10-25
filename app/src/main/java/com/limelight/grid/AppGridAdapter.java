@@ -202,8 +202,11 @@ public class AppGridAdapter extends GenericGridAdapter<AppView.AppObject> {
         TextView title = parentView.findViewById(R.id.grid_title);
         boolean television = (context.getResources().getConfiguration().uiMode &
                 android.content.res.Configuration.UI_MODE_TYPE_MASK) == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION;
-        title.setVisibility(television ? View.VISIBLE : View.GONE);
-        title.setText(obj.app.getAppName());
+        // A TV poster shows art only (its layout has no caption): the title is in the card's description.
+        if (title != null) {
+            title.setVisibility(television ? View.VISIBLE : View.GONE);
+            title.setText(obj.app.getAppName());
+        }
 
         TextView roleView = parentView.findViewById(R.id.grid_role);
         NvApp.Role role = obj.app.getRole();

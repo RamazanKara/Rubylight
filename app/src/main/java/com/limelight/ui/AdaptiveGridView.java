@@ -2,6 +2,7 @@ package com.limelight.ui;
 
 import android.content.Context;
 import android.content.res.Configuration;
+import android.os.SystemClock;
 import android.util.AttributeSet;
 import android.view.KeyEvent;
 import android.view.View;
@@ -24,12 +25,17 @@ public class AdaptiveGridView extends GridView {
 
     /** Room kept around the selected card for its focus scale and outline, in dp. */
     private static final int FOCUS_MARGIN_DP = 8;
+    /** A TV poster's focus scale when it is focused (tv_poster_focus, tv_poster_focus_small). Its glow is inside its own padding. */
+    private static final float POSTER_SCALE = 1.08f;
+    private static final float POSTER_SCALE_SMALL = 1.10f;
 
     private boolean policySet;
     private boolean revealPending;
     private final Runnable revealSelection = this::revealSelection;
     private boolean computers;
     private boolean smallIcons;
+    /** Tells a held key from a press, so a long run across the grid does not queue a focus tween per card. */
+    private final FastTravel travel = new FastTravel();
 
     public AdaptiveGridView(Context context) {
         super(context);
@@ -97,6 +103,7 @@ public class AdaptiveGridView extends GridView {
         }
         markAction(null);
         revealPending = movesSelection(keyCode);
+        if (revealPending) travel.onMove(event.getRepeatCount(), SystemClock.uptimeMillis());
         return super.onKeyDown(keyCode, event);
     }
 
@@ -109,13 +116,29 @@ public class AdaptiveGridView extends GridView {
         revealPending = false;
         View card = getSelectedView();
         if (card == null || !isAttachedToWindow()) return;
-        int margin = Math.round(FOCUS_MARGIN_DP * getResources().getDisplayMetrics().density);
+        int margin = focusMarginPx(card);
         int top = card.getTop() - margin;
         int bottom = card.getBottom() + margin;
         int dy = 0;
         if (bottom - top > getHeight() || top < 0) dy = top;
         else if (bottom > getHeight()) dy = bottom - getHeight();
         if (dy != 0) scrollListBy(dy);
+    }
+
+    /**
+     * Room around the selected card. A TV poster grows by its focus scale around its centre, and that growth is
+     * what can spill out of the grid, so the room is derived from the card's height; its glow is inside its own padding.
+     */
+    private int focusMarginPx(View card) {
+        int base = Math.round(FOCUS_MARGIN_DP * getResources().getDisplayMetrics().density);
+        if (computers || !isTelevision()) return base;
+        float scale = smallIcons ? POSTER_SCALE_SMALL : POSTER_SCALE;
+        return Math.max(base, (int) Math.ceil((scale - 1f) * card.getHeight() / 2f));
+    }
+
+    private boolean isTelevision() {
+        return (getResources().getConfiguration().uiMode & Configuration.UI_MODE_TYPE_MASK)
+                == Configuration.UI_MODE_TYPE_TELEVISION;
     }
 
     @Override
@@ -173,6 +196,10 @@ public class AdaptiveGridView extends GridView {
         super.layoutChildren();
         // A rebuilt or recycled card no longer holds the marked button.
         if (action != null && action != selectedAction()) markAction(null);
+        if (travel.isActive(SystemClock.uptimeMillis())) {
+            // A held key puts every card straight into the state it is in: the new one focused, the old one at rest.
+            for (int i = 0; i < getChildCount(); i++) FastTravel.settle(getChildAt(i));
+        }
         if (revealPending) {
             removeCallbacks(revealSelection);
             post(revealSelection);

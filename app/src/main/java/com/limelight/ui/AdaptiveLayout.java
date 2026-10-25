@@ -208,7 +208,8 @@ public final class AdaptiveLayout {
         if (computers && size.getWindowWidthSizeClass() == WindowWidthSizeClass.COMPACT &&
                 size.getWindowHeightSizeClass() != WindowHeightSizeClass.COMPACT) return 1;
         int cellWidth = cellWidthDp(computers, smallIcons, television);
-        int spacing = television ? 16 : 8;
+        // A TV's app posters have no gap of their own: each pads itself with its glow (see poster_glow).
+        int spacing = television ? (computers ? 16 : 0) : 8;
         return Math.max(1, (int) ((widthDp + spacing) / (cellWidth + spacing)));
     }
 

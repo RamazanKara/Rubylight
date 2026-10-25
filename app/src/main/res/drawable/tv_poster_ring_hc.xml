@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- High contrast: the thicker ring, faded the same way. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android" android:enterFadeDuration="120" android:exitFadeDuration="90">
+    <item android:state_pressed="true" android:drawable="@drawable/tv_poster_ring_shape_hc" />
+    <item android:state_focused="true" android:drawable="@drawable/tv_poster_ring_shape_hc" />
+    <item android:state_selected="true" android:drawable="@drawable/tv_poster_ring_shape_hc" />
+    <item android:state_hovered="true" android:drawable="@drawable/tv_poster_ring_shape_hc" />
+    <item android:drawable="@android:color/transparent" />
+</selector>

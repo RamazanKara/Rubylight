@@ -40,10 +40,13 @@ public class TileSizingTest {
         }
     }
 
+    /** A TV tile is a 2:3 poster whatever the viewport: a short grid scrolls to a whole row instead of cropping to landscape. */
     @Test
-    public void aShortTvViewportShowsLandscapeArtAndATallOnePortrait() {
-        assertEquals(200, TileSizing.artHeightPx(300, true, true, false, 2f));
-        assertEquals(400, TileSizing.artHeightPx(300, false, true, false, 2f));
+    public void aTvPosterIsTwoByThreeInAnyViewport() {
+        assertEquals(450, TileSizing.artHeightPx(300, true, true, false, 2f));
+        assertEquals(450, TileSizing.artHeightPx(300, false, true, false, 2f));
+        assertEquals(450, TileSizing.artHeightPx(300, false, true, true, 2f));
+        assertEquals(Math.round(168 * 2f * 3 / 2), TileSizing.artHeightPx(0, false, true, false, 2f));
     }
 
     /** Phones are sized as in earlier releases: portrait 4:3, and a fixed compact height for large tiles in landscape. */

@@ -79,6 +79,8 @@ public abstract class GenericGridAdapter<T> extends BaseAdapter {
             boolean small = layoutId == R.layout.app_grid_item_small;
             boolean shortViewport = viewGroup instanceof AdaptiveGridView && ((AdaptiveGridView) viewGroup).hasShortViewport();
             int width = viewGroup instanceof android.widget.GridView ? ((android.widget.GridView) viewGroup).getColumnWidth() : 0;
+            // The art is as wide as the column less the tile's own padding (a TV poster pads itself with its glow).
+            if (width > 0) width = Math.max(1, width - convertView.getPaddingLeft() - convertView.getPaddingRight());
             boolean television = (context.getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_TYPE_MASK)
                     == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION;
             int height = TileSizing.artHeightPx(width, shortViewport, television, small,
@@ -122,7 +124,8 @@ public abstract class GenericGridAdapter<T> extends BaseAdapter {
     static void resetRecycledState(View card, ImageView cover, boolean appTile) {
         cover.clearAnimation();
         // Only the app layouts crop their cover; the other layouts keep the scale type they inflate with.
-        if (appTile) cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        // It also drops the letterbox backdrop the last cover left on the frame.
+        if (appTile) com.limelight.ui.ArtFit.reset(cover);
         cover.setImageMatrix(null);
         cover.setScaleX(1);
         cover.setScaleY(1);
@@ -136,8 +139,8 @@ public abstract class GenericGridAdapter<T> extends BaseAdapter {
         frame.setTranslationY(0);
         // The focus scale belongs to the card's state; a card that is not selected has none left over.
         if (!card.isSelected() && !card.isFocused()) {
-            android.animation.StateListAnimator animator = card.getStateListAnimator();
-            if (animator != null) animator.jumpToCurrentState();
+            // The ring, glow and title fade with the state too: a recycled card shows none of them.
+            com.limelight.ui.FastTravel.settle(card);
         }
     }
 }

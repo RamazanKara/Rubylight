@@ -38,15 +38,30 @@ public class GenerateAssets {
         g.fill(new Ellipse2D.Float(x - radius, y - radius, radius * 2, radius * 2));
     }
 
+    // Covers are 600x800 unless listed: a few differ so every client shows how a banner, a square and a 2:3 poster fit.
+    static int[] artSize(int index) {
+        switch (index) {
+            case 1: return new int[] {920, 430};  // landscape banner, like a Steam header
+            case 2: return new int[] {600, 600};  // square
+            case 3: return new int[] {600, 900};  // 2:3 poster
+            default: return new int[] {600, 800};
+        }
+    }
+
     static void art(Path directory) throws IOException {
         Files.createDirectories(directory);
         for (int index = 0; index < TITLES.length; index++) {
-            BufferedImage image = new BufferedImage(600, 800, BufferedImage.TYPE_INT_RGB);
+            int[] dims = artSize(index);
+            BufferedImage image = new BufferedImage(dims[0], dims[1], BufferedImage.TYPE_INT_RGB);
             Graphics2D g = graphics(image);
+            // The 600x800 composition is scaled to fit and bottom-aligned; the background runs on past its edges.
+            double fit = Math.min(dims[0] / 600.0, dims[1] / 800.0);
+            g.translate((dims[0] - 600 * fit) / 2, dims[1] - 800 * fit);
+            g.scale(fit, fit);
             Color accent = ACCENTS[index];
             g.setPaint(new GradientPaint(0, 800, INK, 600, 0,
                     new Color(accent.getRed() / 3, accent.getGreen() / 3, accent.getBlue() / 3)));
-            g.fillRect(0, 0, 600, 800);
+            g.fillRect(-2000, -2000, 5000, 5000);
             glow(g, 440, 190, 400, new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), 95));
             Random random = new Random(810 + index);
             for (int p = 0; p < 90; p++) {
@@ -71,7 +86,7 @@ public class GenerateAssets {
             text(g, GLYPHS[index], 182, -66, 65, new Color(240, 243, 244));
             g.setTransform(original);
             g.setPaint(new GradientPaint(0, 520, new Color(17, 26, 31, 0), 0, 800, INK));
-            g.fillRect(0, 520, 600, 280);
+            g.fillRect(-2000, 520, 5000, 2280);
             text(g, String.format("%02d  /  COLLECTION", index + 1), 16, 40, 578, accent);
             String[] words = TITLES[index].toUpperCase(java.util.Locale.ROOT).split(" ");
             for (int word = 0; word < words.length; word++) text(g, words[word], 52, 38, 643 + word * 58, Color.WHITE);
@@ -210,6 +225,7 @@ public class GenerateAssets {
     public static void main(String[] args) throws Exception {
         Path assets = Path.of(args[0]);
         art(assets.resolve("art"));
+        if (args.length > 2 && args[2].equals("--art-only")) return;
         Process encoder = new ProcessBuilder(args[1], "-y", "-hide_banner", "-loglevel", "warning",
                 "-f", "rawvideo", "-pixel_format", "bgr24", "-video_size", "1920x1080", "-framerate", "60",
                 "-i", "pipe:0", "-an", "-c:v", "libx264", "-preset", "fast", "-crf", "19", "-threads", "2",

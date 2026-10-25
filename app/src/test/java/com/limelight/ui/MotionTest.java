@@ -119,6 +119,119 @@ public class MotionTest {
         }
     }
 
+    private static Element parse(String path) throws Exception {
+        return DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(new File(path)).getDocumentElement();
+    }
+
+    /** The poster tweens are the spec's: 200 ms to the focus scale, 150 ms back, 70 ms to the press scale; nothing else moves. */
+    @Test
+    public void posterAnimatorsFollowTheMotionSpec() throws Exception {
+        for (String[] spec : new String[][] {{"tv_poster_focus", "1.08"}, {"tv_poster_focus_small", "1.10"}}) {
+            NodeList items = parse("src/main/res/animator/" + spec[0] + ".xml").getElementsByTagName("item");
+            boolean pressed = false, focused = false, rest = false;
+            for (int i = 0; i < items.getLength(); i++) {
+                Element item = (Element) items.item(i);
+                NodeList tweens = item.getElementsByTagName("objectAnimator");
+                for (int t = 0; t < tweens.getLength(); t++) {
+                    String property = ((Element) tweens.item(t)).getAttribute("android:propertyName");
+                    assertTrue(spec[0] + " animates " + property, property.matches("scaleX|scaleY|translationZ"));
+                }
+                Element first = (Element) tweens.item(0);
+                if (item.hasAttribute("android:state_pressed")) {
+                    pressed = true;
+                    assertEquals("0.96", first.getAttribute("android:valueTo"));
+                    assertEquals("70", first.getAttribute("android:duration"));
+                } else if (item.hasAttribute("android:state_selected")) {
+                    focused = true;
+                    assertEquals(spec[1], first.getAttribute("android:valueTo"));
+                    assertEquals("200", first.getAttribute("android:duration"));
+                } else if (!item.hasAttribute("android:state_focused") && !item.hasAttribute("android:state_hovered")) {
+                    rest = true;
+                    assertEquals("1", first.getAttribute("android:valueTo"));
+                    assertEquals("150", first.getAttribute("android:duration"));
+                }
+            }
+            assertTrue(spec[0], pressed && focused && rest);
+        }
+        NodeList still = parse("src/main/res/animator/tv_poster_focus_static.xml").getElementsByTagName("objectAnimator");
+        java.util.Set<String> reset = new java.util.HashSet<>();
+        for (int i = 0; i < still.getLength(); i++) {
+            Element tween = (Element) still.item(i);
+            assertEquals("0", tween.getAttribute("android:duration"));
+            String property = tween.getAttribute("android:propertyName");
+            reset.add(property);
+            assertEquals(property, property.equals("translationZ") ? "0dp" : "1", tween.getAttribute("android:valueTo"));
+        }
+        assertEquals("the still animator undoes everything the full one moves",
+                new java.util.HashSet<>(java.util.Arrays.asList("scaleX", "scaleY", "translationZ")), reset);
+    }
+
+    /** What a poster does when it is selected, run on the inflated layout: the scale and lift the XML promises, and the title. */
+    private static void assertPosterFocus(Context context, int layout, float scale, float lift) {
+        android.view.View card = LayoutInflater.from(context).inflate(layout, null);
+        android.view.View title = card.findViewById(R.id.grid_title);
+        // Only the library's posters carry a title; Home's cards print theirs under the poster.
+        if (title != null) assertEquals("a poster at rest shows no title", 0f, title.getAlpha(), 0f);
+        card.setSelected(true);
+        FastTravel.settle(card);
+        assertEquals(scale, card.getScaleX(), 0.001f);
+        assertEquals(scale, card.getScaleY(), 0.001f);
+        assertEquals(lift, card.getTranslationZ(), 0.01f);
+        if (title != null) assertEquals(1f, title.getAlpha(), 0f);
+        card.setSelected(false);
+        FastTravel.settle(card);
+        assertEquals(1f, card.getScaleX(), 0.001f);
+        assertEquals(0f, card.getTranslationZ(), 0.01f);
+        if (title != null) assertEquals(0f, title.getAlpha(), 0f);
+    }
+
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-television-xhdpi")
+    public void aSelectedPosterReachesItsFocusScaleLiftAndTitle() {
+        animatorScale(1f);
+        PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication()).edit().clear().commit();
+        try (var controller = Robolectric.buildActivity(Screen.class).setup()) {
+            float lift = 6 * controller.get().getResources().getDisplayMetrics().density;
+            assertPosterFocus(controller.get(), R.layout.app_grid_item, 1.08f, lift);
+            assertPosterFocus(controller.get(), R.layout.app_grid_item_small, 1.10f, lift);
+            assertPosterFocus(controller.get(), R.layout.console_card_cover, 1.08f, lift);
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-television-xhdpi")
+    public void withReducedMotionASelectedPosterStaysPutAndStillShowsItsTitle() {
+        animatorScale(1f);
+        set(Motion.REDUCE);
+        try (var controller = Robolectric.buildActivity(Screen.class).setup()) {
+            android.view.View card = LayoutInflater.from(controller.get()).inflate(R.layout.app_grid_item, null);
+            card.setSelected(true);
+            FastTravel.settle(card);
+            assertEquals(1f, card.getScaleX(), 0f);
+            assertEquals(1f, card.getScaleY(), 0f);
+            assertEquals(0f, card.getTranslationZ(), 0f);
+            assertEquals(1f, card.findViewById(R.id.grid_title).getAlpha(), 0f);
+        }
+    }
+
+    /** The ring fades in 120 ms and out in 90, the glow 160 and 120; with reduced motion neither fades. */
+    @Test
+    public void posterRingAndGlowFadeAsSpecifiedAndNotAtAllWhenReduced() throws Exception {
+        String[][] fades = {{"tv_poster_ring", "120", "90"}, {"tv_poster_ring_hc", "120", "90"},
+                {"tv_focus_glow_fade", "160", "120"}, {"tv_poster_ring_static", "", ""},
+                {"tv_poster_ring_hc_static", "", ""}, {"tv_focus_glow_static", "", ""}};
+        for (String[] fade : fades) {
+            Element selector = parse("src/main/res/drawable/" + fade[0] + ".xml");
+            assertEquals(fade[0], fade[1], selector.getAttribute("android:enterFadeDuration"));
+            assertEquals(fade[0], fade[2], selector.getAttribute("android:exitFadeDuration"));
+        }
+        // The thick high-contrast ring is 4 dp, the normal one 3 dp.
+        assertEquals("3dp", ((Element) parse("src/main/res/drawable/tv_poster_ring_shape.xml")
+                .getElementsByTagName("stroke").item(0)).getAttribute("android:width"));
+        assertEquals("4dp", ((Element) parse("src/main/res/drawable/tv_poster_ring_shape_hc.xml")
+                .getElementsByTagName("stroke").item(0)).getAttribute("android:width"));
+    }
+
     public static class Screen extends NightjarActivity {
         @Override protected void onCreate(Bundle state) {
             super.onCreate(state);
@@ -230,5 +343,77 @@ public class MotionTest {
         com.limelight.Game game = Robolectric.buildActivity(com.limelight.Game.class).get();
         AppTheme.apply(game);
         assertEquals("no overlays over a stream", R.animator.tv_card_focus, cardAnimator(game));
+    }
+
+    private static int resolved(Context context, int attr) {
+        TypedValue value = new TypedValue();
+        assertTrue(context.getTheme().resolveAttribute(attr, value, true));
+        return value.resourceId;
+    }
+
+    private static android.view.View poster(Screen screen, int layout, boolean selected) {
+        android.view.View poster = LayoutInflater.from(screen).inflate(layout, null);
+        poster.setSelected(selected);
+        poster.jumpDrawablesToCurrentState();
+        poster.getStateListAnimator().jumpToCurrentState();
+        return poster;
+    }
+
+    @Test
+    @Config(qualifiers = "television")
+    public void withFullMotionAPosterPopsAndLiftsAndItsRingAndGlowFade() {
+        animatorScale(1f);
+        PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication()).edit().clear().commit();
+        try (var controller = Robolectric.buildActivity(Screen.class).setup()) {
+            Screen screen = controller.get();
+            assertEquals(R.drawable.tv_poster_ring, resolved(screen, R.attr.nightjarPosterRing));
+            assertEquals(R.drawable.tv_focus_glow_fade, resolved(screen, R.attr.nightjarPosterGlow));
+            float density = screen.getResources().getDisplayMetrics().density;
+            android.view.View large = poster(screen, R.layout.app_grid_item, true);
+            assertEquals(1.08f, large.getScaleX(), 0.001f);
+            assertEquals(1.08f, large.getScaleY(), 0.001f);
+            assertEquals("lifted over its neighbours", 6 * density, large.getTranslationZ(), 0.01f);
+            android.view.View small = poster(screen, R.layout.app_grid_item_small, true);
+            assertEquals("a small poster pops a little more", 1.10f, small.getScaleX(), 0.001f);
+            android.view.View rest = poster(screen, R.layout.app_grid_item, false);
+            assertEquals(1f, rest.getScaleX(), 0f);
+            assertEquals(0f, rest.getTranslationZ(), 0f);
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "television")
+    public void withReducedMotionAPosterStaysPutAndItsRingAndGlowShowAtOnce() {
+        set(Motion.REDUCE);
+        try (var controller = Robolectric.buildActivity(Screen.class).setup()) {
+            Screen screen = controller.get();
+            assertEquals(R.animator.tv_poster_focus_static, resolved(screen, R.attr.nightjarPosterFocusAnimator));
+            assertEquals(R.animator.tv_poster_focus_static, resolved(screen, R.attr.nightjarPosterFocusAnimatorSmall));
+            assertEquals(R.drawable.tv_poster_ring_static, resolved(screen, R.attr.nightjarPosterRing));
+            assertEquals(R.drawable.tv_focus_glow_static, resolved(screen, R.attr.nightjarPosterGlow));
+            android.view.View poster = poster(screen, R.layout.app_grid_item, true);
+            assertEquals(1f, poster.getScaleX(), 0f);
+            assertEquals(0f, poster.getTranslationZ(), 0f);
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "television")
+    public void highContrastThickensThePosterRingAndDropsItsGlow() {
+        PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication()).edit()
+                .putBoolean(AppTheme.HIGH_CONTRAST, true).commit();
+        animatorScale(1f);
+        try (var controller = Robolectric.buildActivity(Screen.class).setup()) {
+            assertEquals(R.drawable.tv_poster_ring_hc, resolved(controller.get(), R.attr.nightjarPosterRing));
+            assertEquals(R.drawable.tv_focus_glow_none, resolved(controller.get(), R.attr.nightjarPosterGlow));
+            assertEquals("the zoom stays", R.animator.tv_poster_focus,
+                    resolved(controller.get(), R.attr.nightjarPosterFocusAnimator));
+        }
+        PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication()).edit()
+                .putString(Motion.REDUCE_MOTION, Motion.REDUCE).commit();
+        try (var controller = Robolectric.buildActivity(Screen.class).setup()) {
+            assertEquals(R.drawable.tv_poster_ring_hc_static, resolved(controller.get(), R.attr.nightjarPosterRing));
+            assertEquals(R.animator.tv_poster_focus_static, resolved(controller.get(), R.attr.nightjarPosterFocusAnimator));
+        }
     }
 }

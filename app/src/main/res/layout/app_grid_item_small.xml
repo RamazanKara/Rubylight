@@ -10,7 +10,7 @@
         android:orientation="vertical">
         <FrameLayout android:layout_width="match_parent" android:layout_height="144dp"
             android:background="?attr/colorSurfaceContainerHigh">
-            <ImageView android:id="@+id/grid_image" android:layout_width="match_parent" android:layout_height="match_parent"
+            <com.limelight.ui.PosterImageView android:id="@+id/grid_image" android:layout_width="match_parent" android:layout_height="match_parent"
                 android:scaleType="centerCrop" android:importantForAccessibility="no" />
             <TextView android:id="@+id/grid_text" android:layout_width="match_parent" android:layout_height="match_parent"
                 android:gravity="center" android:padding="@dimen/space_m"

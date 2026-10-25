@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The amber glow (tv_focus_glow.9.png, drawn by scripts/gen_glow.py) fades in over 160 ms and out over 120 ms. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android" android:enterFadeDuration="160" android:exitFadeDuration="120">
+    <item android:state_pressed="true" android:drawable="@drawable/tv_focus_glow" />
+    <item android:state_focused="true" android:drawable="@drawable/tv_focus_glow" />
+    <item android:state_selected="true" android:drawable="@drawable/tv_focus_glow" />
+    <item android:state_hovered="true" android:drawable="@drawable/tv_focus_glow" />
+    <item android:drawable="@android:color/transparent" />
+</selector>

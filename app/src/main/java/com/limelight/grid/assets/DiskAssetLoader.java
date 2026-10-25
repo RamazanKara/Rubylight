@@ -8,6 +8,7 @@ import android.graphics.ImageDecoder;
 import android.os.Build;
 
 import com.limelight.LimeLog;
+import com.limelight.ui.ArtFit;
 import com.limelight.utils.CacheHelper;
 
 import java.io.File;
@@ -21,9 +22,9 @@ public class DiskAssetLoader {
     // 5 MB
     private static final long MAX_ASSET_SIZE = 5 * 1024 * 1024;
 
-    // Standard box art is 300x400
+    // A cover is decoded to fit this box, a 2:3 poster (a little taller than the old 300x400); its own shape is kept
     private static final int STANDARD_ASSET_WIDTH = 300;
-    private static final int STANDARD_ASSET_HEIGHT = 400;
+    private static final int STANDARD_ASSET_HEIGHT = 450;
 
     private final boolean isLowRamDevice;
     private final File cacheDir;
@@ -40,6 +41,16 @@ public class DiskAssetLoader {
 
     public boolean checkCacheExists(CachedAppAssetLoader.LoaderTuple tuple) {
         return CacheHelper.cacheFileExists(cacheDir, "boxart", tuple.computer.uuid, tuple.cacheKey + ".png");
+    }
+
+    /**
+     * The decoded size of a cover: as large as fits the standard box, never larger than the file, and in the
+     * file's own shape. A fixed size would squeeze a banner or a square into a poster before it is fitted.
+     */
+    static int[] targetSize(int width, int height) {
+        if (width <= 0 || height <= 0) return new int[] {STANDARD_ASSET_WIDTH, STANDARD_ASSET_HEIGHT};
+        float scale = Math.min(1f, Math.min((float) STANDARD_ASSET_WIDTH / width, (float) STANDARD_ASSET_HEIGHT / height));
+        return new int[] {Math.max(1, Math.round(width * scale)), Math.max(1, Math.round(height * scale))};
     }
 
     // https://developer.android.com/topic/performance/graphics/load-bitmap.html
@@ -103,14 +114,16 @@ public class DiskAssetLoader {
                 options.inPreferredConfig = Bitmap.Config.RGB_565;
                 options.inDither = true;
             }
-            else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                    && !ArtFit.letterboxes(decodeOnlyOptions.outWidth, decodeOnlyOptions.outHeight)) {
+                // A letterboxed cover is read once for its backdrop, which a hardware bitmap cannot give.
                 options.inPreferredConfig = Bitmap.Config.HARDWARE;
             }
 
             bmp = BitmapFactory.decodeFile(file.getAbsolutePath(), options);
             if (bmp != null) {
                 LimeLog.info("Tuple "+tuple+" decoded from disk cache with sample size: "+options.inSampleSize);
-                return new ScaledBitmap(decodeOnlyOptions.outWidth, decodeOnlyOptions.outHeight, bmp);
+                return withBackdrop(new ScaledBitmap(decodeOnlyOptions.outWidth, decodeOnlyOptions.outHeight, bmp));
             }
         }
         else {
@@ -123,13 +136,18 @@ public class DiskAssetLoader {
                         scaledBitmap.originalWidth = imageInfo.getSize().getWidth();
                         scaledBitmap.originalHeight = imageInfo.getSize().getHeight();
 
-                        imageDecoder.setTargetSize(STANDARD_ASSET_WIDTH, STANDARD_ASSET_HEIGHT);
+                        int[] target = targetSize(scaledBitmap.originalWidth, scaledBitmap.originalHeight);
+                        imageDecoder.setTargetSize(target[0], target[1]);
+                        if (ArtFit.letterboxes(scaledBitmap.originalWidth, scaledBitmap.originalHeight)) {
+                            // Read once for its backdrop, which a hardware bitmap cannot give.
+                            imageDecoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
+                        }
                         if (isLowRamDevice) {
                             imageDecoder.setMemorySizePolicy(ImageDecoder.MEMORY_POLICY_LOW_RAM);
                         }
                     }
                 });
-                return scaledBitmap;
+                return withBackdrop(scaledBitmap);
             } catch (IOException e) {
                 e.printStackTrace();
                 return null;
@@ -137,6 +155,27 @@ public class DiskAssetLoader {
         }
 
         return null;
+    }
+
+    /**
+     * Reads the edge colours a letterboxed cover sits on, here on the loader's thread, so the UI thread
+     * only attaches it. The cover itself goes back to a hardware bitmap when the device allows it.
+     */
+    private ScaledBitmap withBackdrop(ScaledBitmap cover) {
+        cover.backdrop = ArtFit.backdropFor(cover.bitmap);
+        if (cover.backdrop != null && !isLowRamDevice && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                Bitmap hardware = cover.bitmap.copy(Bitmap.Config.HARDWARE, false);
+                if (hardware != null) {
+                    cover.bitmap.recycle();
+                    cover.bitmap = hardware;
+                }
+            } catch (RuntimeException e) {
+                // The software copy stays; it only costs heap.
+                LimeLog.warning("Cover kept as a software bitmap: " + e);
+            }
+        }
+        return cover;
     }
 
     public File getFile(String computerUuid, String cacheKey) {

@@ -7,6 +7,12 @@
     <dimen name="space_xl">24dp</dimen>
     <dimen name="space_xxl">32dp</dimen>
     <dimen name="grid_spacing">8dp</dimen>
+    <!-- The gap between library posters. On TV each poster's own padding already holds its glow (poster_glow). -->
+    <dimen name="app_grid_spacing">8dp</dimen>
+    <!-- How far a poster's glow reaches around its card; the TV poster layout pads itself with it. -->
+    <dimen name="poster_glow">16dp</dimen>
+    <!-- Space a Home cover card keeps on each side: its margin, or on TV the glow padding it draws inside. -->
+    <dimen name="cover_inset">8dp</dimen>
     <dimen name="grid_padding_top">4dp</dimen>
     <dimen name="grid_padding_bottom">16dp</dimen>
     <dimen name="settings_section_padding">16dp</dimen>

@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A game in the Home library on TV: a 2:3 poster over its title and where it is. Like the library poster
+     (layout-television/app_grid_item.xml) the glow is a view under the card and the ring one around it, in the root's padding;
+     the root's animator scales and lifts the lot. The padding is only the gap between cards: the glow reaches past it
+     and the lists above this card do not clip it.
+     ConsoleHomeAdapter sets the poster height. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:padding="@dimen/cover_inset" android:clipChildren="false" android:clipToPadding="false"
+    android:focusable="true" android:clickable="true" android:defaultFocusHighlightEnabled="false"
+    android:stateListAnimator="?attr/nightjarPosterFocusAnimator" android:descendantFocusability="blocksDescendants">
+    <View android:layout_width="match_parent" android:layout_height="match_parent"
+        android:layout_marginStart="-16dp" android:layout_marginEnd="-16dp" android:layout_marginTop="-16dp" android:layout_marginBottom="-16dp" android:background="?attr/nightjarPosterGlow"
+        android:duplicateParentState="true" android:importantForAccessibility="no" />
+    <com.google.android.material.card.MaterialCardView
+        app:cardPreventCornerOverlap="false" android:clipToOutline="true"
+        android:layout_width="match_parent" android:layout_height="wrap_content" style="@style/LibraryPoster"
+        android:duplicateParentState="true">
+        <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:duplicateParentState="true">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+                <FrameLayout android:id="@+id/console_cover_frame" android:layout_width="match_parent" android:layout_height="160dp"
+                    android:background="?attr/colorSurfaceContainerHigh">
+                    <com.limelight.ui.PosterImageView android:id="@+id/console_cover" android:layout_width="match_parent" android:layout_height="match_parent"
+                        android:scaleType="centerCrop" android:importantForAccessibility="no" />
+                    <TextView android:id="@+id/console_cover_text" android:layout_width="match_parent" android:layout_height="match_parent"
+                        android:gravity="center" android:padding="@dimen/space_m"
+                        android:textAppearance="@style/TextAppearance.Nightjar.Title" android:textColor="?attr/colorOnSurface"
+                        android:maxLines="4" android:ellipsize="end" android:importantForAccessibility="no" />
+                    <TextView android:id="@+id/console_badge" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:layout_gravity="top|start" android:layout_margin="@dimen/space_xs"
+                        android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s"
+                        android:paddingTop="@dimen/space_xs" android:paddingBottom="@dimen/space_xs" android:background="@drawable/bg_chip"
+                        android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurface"
+                        android:visibility="gone" android:importantForAccessibility="no" />
+                </FrameLayout>
+                <TextView android:id="@+id/console_title" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s" android:paddingTop="@dimen/space_s"
+                    android:minLines="2" android:maxLines="2" android:ellipsize="end"
+                    android:textAppearance="@style/TextAppearance.Nightjar.Label" android:textColor="?attr/colorOnSurface"
+                    android:importantForAccessibility="no" />
+                <TextView android:id="@+id/console_subtitle" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s" android:paddingBottom="@dimen/space_s"
+                    android:maxLines="1" android:ellipsize="end"
+                    android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurfaceVariant"
+                    android:importantForAccessibility="no" />
+            </LinearLayout>
+        </FrameLayout>
+    </com.google.android.material.card.MaterialCardView>
+    <View android:layout_width="match_parent" android:layout_height="match_parent"
+        android:layout_marginStart="-5dp" android:layout_marginEnd="-5dp" android:layout_marginTop="-5dp" android:layout_marginBottom="-5dp"
+        android:background="?attr/nightjarPosterRing" android:duplicateParentState="true"
+        android:importantForAccessibility="no" />
+</FrameLayout>

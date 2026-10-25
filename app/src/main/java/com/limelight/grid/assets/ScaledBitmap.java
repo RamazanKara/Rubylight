@@ -7,6 +7,8 @@ public class ScaledBitmap {
     public int originalHeight;
 
     public Bitmap bitmap;
+    /** The edge colours a letterboxed cover sits on (see ArtFit), built with the cover; null for a cropped one. */
+    public com.limelight.ui.ArtFit.Bands backdrop;
 
     public ScaledBitmap() {}
 

@@ -155,6 +155,44 @@ public class FavouritesRowTest {
         assertTrue(card.requestFocus());
     }
 
+    /** A held key moves focus card to card with no tween: the new card is at its focus scale and the old at rest at once. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-television-xhdpi")
+    public void aHeldKeyPutsTheNewHomeCardStraightIntoFocusAndTheOldOneAtRest() throws Exception {
+        ConsoleHomeAdapter adapter = new ConsoleHomeAdapter(context, null, uuid -> null, recorder(new ArrayList<>()));
+        adapter.submit(model());
+        List<Integer> covers = new ArrayList<>();
+        for (int i = 0; i < adapter.getItemCount(); i++) {
+            if (adapter.viewTypeAt(i) == ConsoleHomeAdapter.COVER_GAME) covers.add(i);
+        }
+        assertTrue(covers.size() >= 2);
+        android.widget.LinearLayout row = new android.widget.LinearLayout(context);
+        RecyclerView.ViewHolder first = adapter.onCreateViewHolder(row, ConsoleHomeAdapter.COVER_GAME);
+        RecyclerView.ViewHolder second = adapter.onCreateViewHolder(row, ConsoleHomeAdapter.COVER_GAME);
+        adapter.onBindViewHolder(first, covers.get(0));
+        adapter.onBindViewHolder(second, covers.get(1));
+        first.itemView.setFocusable(true);
+        second.itemView.setFocusable(true);
+        row.addView(first.itemView, new android.widget.LinearLayout.LayoutParams(300, 400));
+        row.addView(second.itemView, new android.widget.LinearLayout.LayoutParams(300, 400));
+        row.measure(android.view.View.MeasureSpec.makeMeasureSpec(1200, android.view.View.MeasureSpec.EXACTLY),
+                android.view.View.MeasureSpec.makeMeasureSpec(800, android.view.View.MeasureSpec.EXACTLY));
+        row.layout(0, 0, 1200, 800);
+
+        // A single press tweens: the card has not reached its scale when focus arrives.
+        assertTrue(first.itemView.requestFocus());
+        assertTrue("a press animates", first.itemView.getScaleX() < 1.08f);
+        first.itemView.getStateListAnimator().jumpToCurrentState();
+        assertEquals(1.08f, first.itemView.getScaleX(), 0.001f);
+
+        // A held key: the key listener sees the repeat, then focus moves to the next card.
+        first.itemView.dispatchKeyEvent(new android.view.KeyEvent(0, 0, android.view.KeyEvent.ACTION_DOWN,
+                android.view.KeyEvent.KEYCODE_DPAD_RIGHT, 1));
+        assertTrue(second.itemView.requestFocus());
+        assertEquals("the new card is focused at once", 1.08f, second.itemView.getScaleX(), 0.001f);
+        assertEquals("the old card is at rest at once", 1f, first.itemView.getScaleX(), 0.001f);
+    }
+
     @Test
     public void theMenuKeyOnAGameCardTogglesItsFavouriteOnceAndAHostCardIgnoresIt() throws Exception {
         rig.repository.setFavourite("tower", "Tower", 12, "Zelda", true);

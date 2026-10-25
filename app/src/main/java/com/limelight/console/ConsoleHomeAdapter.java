@@ -3,6 +3,7 @@ package com.limelight.console;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.os.Build;
+import android.os.SystemClock;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -18,6 +19,8 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.google.android.material.color.MaterialColors;
 import com.limelight.R;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.ui.ArtFit;
+import com.limelight.ui.FastTravel;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -74,6 +77,8 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
     private final List<Row> rows = new ArrayList<>();
     private final Map<String, Long> ids = new HashMap<>();
     private int coverHeightPx;
+    /** Tells a held D-pad key from a press, so a run across the covers does not queue a focus tween per card. */
+    private final FastTravel travel = new FastTravel();
 
     ConsoleHomeAdapter(Context context, CoverLoaders covers, Function<String, ComputerDetails> hosts, Listener listener) {
         this.context = context;
@@ -89,7 +94,7 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
         notifyDataSetChanged();
     }
 
-    /** Library covers are this tall (the grid's column width times 4/3). */
+    /** Library covers are this tall (the grid's column width times 4/3, or 3/2 for a TV poster). */
     void setCoverHeight(int px) {
         if (px != coverHeightPx) {
             coverHeightPx = px;
@@ -279,7 +284,9 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
                 }
             }
             image.setImageTintList(null);
-            image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            // A cover is fitted to its poster by the art it is given (ArtFit); a wide card always crops.
+            if (libraryCover) ArtFit.reset(image);
+            else image.setScaleType(ImageView.ScaleType.CENTER_CROP);
             if (covers != null) covers.bind(hosts.apply(card.hostUuid), CoverLoaders.appOf(card.title, card.appId, card.source), image,
                     imageText);
             title.setText(card.title);
@@ -302,7 +309,20 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
                 listener.onGameMenu(card);
                 return true;
             });
+            if (libraryCover) {
+                // The card's own focus tween is skipped while a key is held: the new card is focused at once, the old at rest.
+                itemView.setOnFocusChangeListener((v, hasFocus) -> {
+                    if (travel.isActive(SystemClock.uptimeMillis())) {
+                        // Focus changes before the card's drawable state does; settle the state it is moving to.
+                        v.refreshDrawableState();
+                        FastTravel.settle(v);
+                    }
+                });
+            }
             itemView.setOnKeyListener((v, keyCode, event) -> {
+                if (libraryCover && event.getAction() == KeyEvent.ACTION_DOWN && movesFocus(keyCode)) {
+                    travel.onMove(event.getRepeatCount(), SystemClock.uptimeMillis());
+                }
                 if (keyCode != KeyEvent.KEYCODE_MENU) {
                     return false;
                 }
@@ -311,6 +331,11 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
                 }
                 return true;
             });
+        }
+
+        private boolean movesFocus(int keyCode) {
+            return keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
+                    || keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN;
         }
 
         void bindHost(HomeModel.HostCard card) {

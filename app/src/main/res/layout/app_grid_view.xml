@@ -2,7 +2,7 @@
     android:id="@+id/fragmentView" android:layout_width="match_parent" android:layout_height="match_parent"
     android:nextFocusUp="@id/library_back" android:accessibilityTraversalAfter="@id/library_back"
     android:numColumns="auto_fit" android:columnWidth="160dp" android:stretchMode="columnWidth"
-    android:horizontalSpacing="@dimen/grid_spacing" android:verticalSpacing="@dimen/grid_spacing"
+    android:horizontalSpacing="@dimen/app_grid_spacing" android:verticalSpacing="@dimen/app_grid_spacing"
     android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter"
     android:paddingTop="@dimen/grid_padding_top" android:paddingBottom="@dimen/grid_padding_bottom"
     android:focusable="true" android:focusableInTouchMode="true" android:clipToPadding="false" android:clipChildren="false"

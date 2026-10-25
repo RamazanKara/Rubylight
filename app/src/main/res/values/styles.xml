@@ -99,6 +99,11 @@
         <item name="nightjarButtonRestStroke">@android:color/transparent</item>
         <item name="nightjarCardFocusAnimator">@animator/tv_card_focus</item>
         <item name="nightjarControlFocusAnimator">@animator/tv_control_focus</item>
+        <item name="nightjarPosterFocusAnimator">@animator/tv_poster_focus</item>
+        <item name="nightjarPosterFocusAnimatorSmall">@animator/tv_poster_focus_small</item>
+        <item name="nightjarPosterRing">@drawable/tv_poster_ring</item>
+        <item name="nightjarPosterTitleAnimator">@animator/tv_poster_title</item>
+        <item name="nightjarPosterGlow">@drawable/tv_focus_glow_fade</item>
         <item name="shapeAppearanceSmallComponent">@style/ShapeAppearance.Nightjar</item>
         <item name="shapeAppearanceMediumComponent">@style/ShapeAppearance.Nightjar</item>
     </style>
@@ -202,6 +207,11 @@
         <item name="nightjarButtonRestStroke">@android:color/transparent</item>
         <item name="nightjarCardFocusAnimator">@animator/tv_card_focus</item>
         <item name="nightjarControlFocusAnimator">@animator/tv_control_focus</item>
+        <item name="nightjarPosterFocusAnimator">@animator/tv_poster_focus</item>
+        <item name="nightjarPosterFocusAnimatorSmall">@animator/tv_poster_focus_small</item>
+        <item name="nightjarPosterRing">@drawable/tv_poster_ring</item>
+        <item name="nightjarPosterTitleAnimator">@animator/tv_poster_title</item>
+        <item name="nightjarPosterGlow">@drawable/tv_focus_glow_fade</item>
         <item name="shapeAppearanceSmallComponent">@style/ShapeAppearance.Nightjar</item>
         <item name="shapeAppearanceMediumComponent">@style/ShapeAppearance.Nightjar</item>
     </style>
@@ -248,17 +258,29 @@
         <item name="nightjarButtonRestStroke">?attr/colorOnSurface</item>
         <item name="nightjarCardFocusAnimator">@animator/tv_card_focus_hc</item>
         <item name="nightjarControlFocusAnimator">@animator/tv_control_focus_hc</item>
+        <item name="nightjarPosterRing">@drawable/tv_poster_ring_hc</item>
+        <item name="nightjarPosterGlow">@drawable/tv_focus_glow_none</item>
     </style>
 
     <!-- Reduced motion: focus changes only the ring, with no zoom. See Motion. -->
     <style name="ThemeOverlay.Nightjar.ReducedMotion" parent="">
         <item name="nightjarCardFocusAnimator">@animator/tv_card_focus_static</item>
         <item name="nightjarControlFocusAnimator">@animator/tv_control_focus_static</item>
+        <item name="nightjarPosterFocusAnimator">@animator/tv_poster_focus_static</item>
+        <item name="nightjarPosterFocusAnimatorSmall">@animator/tv_poster_focus_static</item>
+        <item name="nightjarPosterRing">@drawable/tv_poster_ring_static</item>
+        <item name="nightjarPosterTitleAnimator">@animator/tv_poster_title_static</item>
+        <item name="nightjarPosterGlow">@drawable/tv_focus_glow_static</item>
     </style>
 
     <style name="ThemeOverlay.Nightjar.HighContrast.ReducedMotion" parent="ThemeOverlay.Nightjar.HighContrast">
         <item name="nightjarCardFocusAnimator">@animator/tv_card_focus_hc_static</item>
         <item name="nightjarControlFocusAnimator">@animator/tv_control_focus_hc_static</item>
+        <item name="nightjarPosterFocusAnimator">@animator/tv_poster_focus_static</item>
+        <item name="nightjarPosterFocusAnimatorSmall">@animator/tv_poster_focus_static</item>
+        <item name="nightjarPosterRing">@drawable/tv_poster_ring_hc_static</item>
+        <item name="nightjarPosterTitleAnimator">@animator/tv_poster_title_static</item>
+        <item name="nightjarPosterGlow">@drawable/tv_focus_glow_none</item>
     </style>
 
     <style name="ThemeOverlay.Nightjar.Dialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
@@ -361,6 +383,16 @@
         <item name="cardElevation">0dp</item>
         <item name="strokeColor">@color/card_stroke</item>
         <item name="strokeWidth">?attr/nightjarCardStrokeWidth</item>
+        <item name="android:focusable">false</item>
+        <item name="android:clickable">false</item>
+    </style>
+
+    <!-- A TV library poster's card: no stroke, 12dp corners. Its ring and glow are drawables (see layout-television/app_grid_item.xml). -->
+    <style name="LibraryPoster" parent="Widget.Material3.CardView.Filled">
+        <item name="cardBackgroundColor">@color/card_surface</item>
+        <item name="cardCornerRadius">12dp</item>
+        <item name="cardElevation">0dp</item>
+        <item name="strokeWidth">0dp</item>
         <item name="android:focusable">false</item>
         <item name="android:clickable">false</item>
     </style>

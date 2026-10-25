@@ -34,5 +34,7 @@
     <color name="inverse_on_surface">@color/night_inverse_on_surface</color>
     <!-- 12% of the error colour, for the press state of destructive buttons. -->
     <color name="error_ripple">#1FFFB4AB</color>
+    <!-- The thin dark line inside a poster's focus ring (40% black), so the ring reads over bright art. -->
+    <color name="tv_ring_hairline">#66000000</color>
     <bool name="light_system_bars">false</bool>
 </resources>

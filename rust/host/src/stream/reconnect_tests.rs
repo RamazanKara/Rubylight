@@ -787,13 +787,38 @@ impl rusty_enet::Socket for LossySocket {
         &mut self,
         buffer: &mut [u8; rusty_enet::MTU_MAX],
     ) -> std::io::Result<Option<(SocketAddr, rusty_enet::PacketReceived)>> {
-        let packet = rusty_enet::Socket::receive(&mut self.socket, buffer)?;
+        // As the host's control socket: a datagram the client sent before the host bound its
+        // port comes back as an ICMP port unreachable, and Windows reports that as
+        // WSAECONNRESET on this receive. rusty_enet would end the client's worker on it.
+        let packet = match rusty_enet::Socket::receive(&mut self.socket, buffer) {
+            Err(error) if butterpollo_windows::net::datagram_lost(&error) => None,
+            result => result?,
+        };
         if self.blocked.load(Ordering::Acquire) {
             Ok(None)
         } else {
             Ok(packet)
         }
     }
+}
+/// A client can send its ENet connect before the host binds the control port. The port
+/// unreachable that comes back loses that datagram; the client's worker goes on and connects on
+/// ENet's retry.
+#[test]
+fn the_client_socket_outlives_a_datagram_to_a_closed_port() -> Result<()> {
+    let closed = udp().local_addr()?;
+    let mut socket = LossySocket {
+        socket: udp(),
+        blocked: Arc::default(),
+    };
+    rusty_enet::Socket::send(&mut socket, closed, b"connect")?;
+    let mut buffer = [0; rusty_enet::MTU_MAX];
+    let end = Instant::now() + Duration::from_millis(200);
+    while Instant::now() < end {
+        assert!(rusty_enet::Socket::receive(&mut socket, &mut buffer)?.is_none());
+        thread::sleep(Duration::from_millis(1));
+    }
+    Ok(())
 }
 /// Link notice payloads with the time each arrived.
 type Notices = Arc<Mutex<Vec<(Instant, Vec<u8>)>>>;
@@ -803,6 +828,8 @@ struct Client {
     video_down: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
     frames: Arc<AtomicUsize>,
+    /// Rounds the worker finished: one that began before a switch was flipped ends by the next.
+    rounds: Arc<AtomicUsize>,
     reason: Arc<AtomicU32>,
     /// Link notices (0x5538) the host sent, with their arrival times.
     notices: Notices,
@@ -818,6 +845,7 @@ impl Client {
         let video_down = Arc::new(AtomicBool::new(false));
         let stop = Arc::new(AtomicBool::new(false));
         let frames = Arc::new(AtomicUsize::new(0));
+        let rounds = Arc::new(AtomicUsize::new(0));
         let reason = Arc::new(AtomicU32::new(0));
         let notices = Arc::new(Mutex::new(Vec::new()));
         let hdr_modes = Notices::default();
@@ -845,6 +873,7 @@ impl Client {
         );
         let (worker_notices, worker_outbox) = (notices.clone(), outbox.clone());
         let worker_hdr_modes = hdr_modes.clone();
+        let worker_rounds = rounds.clone();
         let worker = thread::spawn(move || -> Result<()> {
             let mut next_ping = Instant::now();
             let mut buffer = [0; 2048];
@@ -912,6 +941,7 @@ impl Client {
                     }
                 }
                 host.flush();
+                worker_rounds.fetch_add(1, Ordering::AcqRel);
                 thread::sleep(Duration::from_millis(1));
             }
             // Dropping ENet sends no Disconnect, just like a vanished client.
@@ -922,6 +952,7 @@ impl Client {
             video_down,
             stop,
             frames,
+            rounds,
             reason,
             notices,
             hdr_modes,
@@ -935,6 +966,15 @@ impl Client {
         let mut message = kind.to_le_bytes().to_vec();
         message.extend_from_slice(payload);
         self.outbox.lock().unwrap().push(message);
+    }
+    /// Stops the video pings and returns once no round that could still send one is running.
+    async fn stop_video_pings(&self) {
+        self.video_down.store(true, Ordering::Release);
+        let round = self.rounds.load(Ordering::Acquire);
+        until("the client's last video ping sent", WAIT, || {
+            self.rounds.load(Ordering::Acquire) > round
+        })
+        .await;
     }
     fn network(&self, down: bool) {
         self.control_down.store(down, Ordering::Release);
@@ -1188,8 +1228,8 @@ async fn legacy_media_pings_wake_idle_sockets() -> Result<()> {
     let h = Harness::new(10_000, 1).await?;
     let launch = h.launch(0, false).await?;
     let (session, client) = h.play(&launch).await?;
-    client.video_down.store(true, Ordering::Release);
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    // A ping the client's worker sent after this one would take the video peer back.
+    client.stop_video_pings().await;
     let socket = UdpSocket::bind("127.0.0.1:0")?;
     for port in [h.ports.video, h.ports.audio] {
         socket.send_to(b"PING", address(port))?;

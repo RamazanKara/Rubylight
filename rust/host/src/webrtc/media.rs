@@ -209,6 +209,28 @@ fn ticks(since: Duration, hz: u64) -> u64 {
     (since.as_nanos() * u128::from(hz) / 1_000_000_000) as u64
 }
 
+/// A capture gap longer than this (in 48 kHz ticks, 40 ms) moves the audio RTP clock forward,
+/// so the receiver conceals real silence; shorter read jitter does not.
+const AUDIO_RESYNC_TICKS: u64 = 1920;
+
+/// The samples at 48 kHz in an Opus packet, from its table-of-contents byte (RFC 6716, 3.1). A
+/// multistream packet starts with the first stream's TOC and every stream has the same duration.
+fn opus_samples(packet: &[u8]) -> Option<u64> {
+    let toc = *packet.first()?;
+    let config = toc >> 3;
+    let frame = match config {
+        0..=11 => [480, 960, 1920, 2880][usize::from(config & 3)],
+        12..=15 => [480, 960][usize::from(config & 1)],
+        _ => [120, 240, 480, 960][usize::from(config & 3)],
+    };
+    let frames = match toc & 3 {
+        0 => 1,
+        1 | 2 => 2,
+        _ => u64::from(*packet.get(1)? & 0x3f),
+    };
+    Some(frame * frames)
+}
+
 fn read_leb128(data: &[u8]) -> Option<(usize, usize)> {
     let mut value = 0usize;
     for (i, byte) in data.iter().take(8).enumerate() {
@@ -295,6 +317,8 @@ pub struct Engine {
     frame_wire_bytes: usize,
     rejected: u64,
     failed: u64,
+    /// The RTP time the next audio packet starts at, 48 kHz ticks since `start`.
+    audio_next: Option<u64>,
 }
 
 impl Engine {
@@ -327,6 +351,7 @@ impl Engine {
             frame_wire_bytes: 0,
             rejected: 0,
             failed: 0,
+            audio_next: None,
         }
     }
 
@@ -633,10 +658,17 @@ impl Engine {
         if !self.is_connected() {
             return Ok(false);
         }
-        let time = MediaTime::new(
-            ticks(packet.capture.saturating_duration_since(self.start), 48_000),
-            Frequency::FORTY_EIGHT_KHZ,
-        );
+        // The audio thread reads whole WASAPI chunks and stamps every packet from one with the
+        // same instant. Receivers place packets by RTP time, so equal stamps made them drop
+        // three of four and conceal the rest. Time advances by what each packet holds, and
+        // follows the capture clock only across a real gap.
+        let wall = ticks(packet.capture.saturating_duration_since(self.start), 48_000);
+        let at = match self.audio_next {
+            Some(next) if wall < next + AUDIO_RESYNC_TICKS => next,
+            _ => wall,
+        };
+        self.audio_next = Some(at + opus_samples(&packet.data).unwrap_or(0));
+        let time = MediaTime::new(at, Frequency::FORTY_EIGHT_KHZ);
         self.rtc
             .writer(self.ids.audio_mid)
             .context("the audio media is not negotiated")?
@@ -2236,6 +2268,59 @@ mod tests {
                 assert!(*g == p, "{channels} channels: {}", diff(g, p));
             }
         }
+    }
+
+    #[test]
+    fn opus_packet_durations_come_from_the_toc_byte() {
+        // CELT 20, 10, 5 and 2.5 ms single frames, SILK 20 ms, hybrid 10 ms.
+        for (toc, samples) in [
+            (0xFCu8, 960),
+            (0xF0, 480),
+            (0xE8, 240),
+            (0xE0, 120),
+            (0x08, 960),
+            (0x70, 480),
+        ] {
+            assert_eq!(opus_samples(&[toc, 0, 0]), Some(samples), "{toc:#x}");
+        }
+        // Two frames (codes 1 and 2) and an arbitrary count (code 3).
+        assert_eq!(opus_samples(&[0xF9, 0]), Some(1920));
+        assert_eq!(opus_samples(&[0xFA, 0]), Some(1920));
+        assert_eq!(opus_samples(&[0xEB, 3]), Some(720));
+        assert_eq!(opus_samples(&[]), None);
+        assert_eq!(opus_samples(&[0xEB]), None);
+    }
+
+    #[test]
+    fn audio_packets_stamped_with_one_capture_instant_still_advance_the_rtp_clock() {
+        let mut link = Link::connected(spec(VideoCodec::H264, false));
+        // 5 ms CELT packets (240 ticks) read in pairs, as the audio thread does from 10 ms WASAPI chunks.
+        let packet = |n: u8| vec![0xE8, n, n];
+        for i in 0..8u64 {
+            link.audio(packet(i as u8), 10 * (i / 2));
+            link.step(Duration::from_millis(5));
+        }
+        link.run(Duration::from_millis(40));
+        let times: Vec<u64> = link
+            .media
+            .iter()
+            .filter(|m| m.pt == 111)
+            .map(|m| m.time.numer())
+            .collect();
+        assert_eq!(times.len(), 8);
+        for pair in times.windows(2) {
+            assert_eq!(pair[1] - pair[0], 240, "{times:?}");
+        }
+        // A gap in capture moves the clock on, so the receiver conceals it.
+        link.audio(packet(9), 10 * 3 + 200);
+        link.run(Duration::from_millis(40));
+        let last = link
+            .media
+            .iter()
+            .filter(|m| m.pt == 111)
+            .next_back()
+            .unwrap();
+        assert!(last.time.numer() - times[7] > 240 + 1920, "{:?}", last.time);
     }
 
     #[test]

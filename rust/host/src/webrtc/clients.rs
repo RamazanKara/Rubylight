@@ -13,7 +13,8 @@ use butterpollo_core::{
     state::Client,
     webrtc::{
         auth::{
-            Challenge, ConnectionTable, Credentials, Dropped, MAX_PAIRED, PendingPin, PendingPins,
+            Challenge, ConnectionState, ConnectionTable, Credentials, Dropped, MAX_PAIRED,
+            MAX_UNAUTHENTICATED, PendingPin, PendingPins,
         },
         protocol::ErrorCode,
     },
@@ -22,7 +23,7 @@ use rand::rngs::OsRng;
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     sync::Mutex,
     time::{Duration, Instant},
 };
@@ -36,6 +37,12 @@ pub enum Close {
     /// More than eight connections had not authenticated; this was the oldest.
     TooManyUnauthenticated,
 }
+
+/// Connections one peer may hold without authenticating. Lower than the
+/// total, so one peer cannot push another peer's waiting TV out.
+pub const MAX_UNAUTHENTICATED_PER_IP: usize = 4;
+/// A pairing notification for one peer comes at most this often.
+const NOTIFY_EVERY: Duration = Duration::from_secs(30);
 
 /// What the console shows of the server.
 #[derive(Debug, Clone, Default)]
@@ -56,6 +63,10 @@ struct Inner {
     table: ConnectionTable,
     pins: PendingPins,
     closers: HashMap<u64, mpsc::UnboundedSender<Close>>,
+    /// The peer of every connection, oldest first.
+    peers: Vec<(u64, IpAddr)>,
+    /// When each peer last raised a pairing notification.
+    notified: HashMap<IpAddr, Instant>,
     next: u64,
 }
 
@@ -79,6 +90,8 @@ impl Registry {
                 table: ConnectionTable::default(),
                 pins: PendingPins::new(),
                 closers: HashMap::new(),
+                peers: Vec::new(),
+                notified: HashMap::new(),
                 next: 1,
             }),
             status: Mutex::new(Status::default()),
@@ -123,16 +136,56 @@ impl Registry {
         self.changed.subscribe()
     }
 
-    /// A new connection. The oldest unauthenticated ones beyond the limit are told to go.
-    pub fn open(&self) -> Registered {
+    /// A new connection from `peer`, or None when it must be refused. A peer
+    /// over its share of unauthenticated connections pushes out its own
+    /// oldest, never another peer's; and when the total is full and the peer
+    /// has none to push out, the new connection is refused.
+    pub fn open(&self, peer: IpAddr) -> Option<Registered> {
         let mut inner = self.inner.lock().unwrap();
+        let waiting: Vec<u64> = inner
+            .peers
+            .iter()
+            .filter(|(id, ip)| {
+                *ip == peer && inner.table.state(*id) == Some(&ConnectionState::Unauthenticated)
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        let mut evict = None;
+        if waiting.len() >= MAX_UNAUTHENTICATED_PER_IP {
+            evict = Some(waiting[0]);
+        } else if inner.table.unauthenticated() >= MAX_UNAUTHENTICATED {
+            evict = Some(*waiting.first()?);
+        }
+        if let Some(id) = evict {
+            inner.table.close(id);
+            inner.peers.retain(|(other, _)| *other != id);
+            inner.tell(
+                vec![Dropped {
+                    id,
+                    was_streaming: false,
+                }],
+                Close::TooManyUnauthenticated,
+            );
+        }
         let id = inner.next;
         inner.next += 1;
         let (tx, closed) = mpsc::unbounded_channel();
         inner.closers.insert(id, tx);
+        inner.peers.push((id, peer));
         let dropped = inner.table.open(id);
         inner.tell(dropped, Close::TooManyUnauthenticated);
-        Registered { id, closed }
+        Some(Registered { id, closed })
+    }
+
+    /// Whether a pairing request from `peer` may raise a notification now:
+    /// once per peer in 30 seconds.
+    pub fn may_notify(&self, peer: IpAddr) -> bool {
+        let mut inner = self.inner.lock().unwrap();
+        let now = Instant::now();
+        inner
+            .notified
+            .retain(|_, at| now.duration_since(*at) < NOTIFY_EVERY);
+        inner.notified.insert(peer, now).is_none()
     }
 
     /// The connection proved itself as `client_id`; its older connections go.
@@ -148,6 +201,7 @@ impl Registry {
         let mut inner = self.inner.lock().unwrap();
         inner.table.close(id);
         inner.closers.remove(&id);
+        inner.peers.retain(|(other, _)| *other != id);
     }
 
     /// Connections held.
@@ -275,5 +329,66 @@ impl Inner {
                 let _ = closer.send(reason);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ip(last: u8) -> IpAddr {
+        IpAddr::from([192, 168, 1, last])
+    }
+
+    #[test]
+    fn a_peer_over_its_share_pushes_out_only_its_own_oldest() {
+        let registry = Registry::new();
+        let mut a: Vec<_> = (0..4).map(|_| registry.open(ip(1)).unwrap()).collect();
+        let mut b: Vec<_> = (0..4).map(|_| registry.open(ip(2)).unwrap()).collect();
+        // The total (8) is full. Peer A asks again: its own oldest goes.
+        let a5 = registry.open(ip(1)).unwrap();
+        assert_eq!(a[0].closed.try_recv(), Ok(Close::TooManyUnauthenticated));
+        for other in a[1..].iter_mut().chain(b.iter_mut()) {
+            assert!(other.closed.try_recv().is_err(), "left alone");
+        }
+        assert_eq!(registry.connections(), 8);
+        drop(a5);
+    }
+
+    #[test]
+    fn a_new_peer_is_refused_when_the_total_is_full_and_nobody_is_pushed_out() {
+        let registry = Registry::new();
+        let mut held: Vec<_> = [1, 1, 1, 1, 2, 2, 2, 2]
+            .into_iter()
+            .map(|n| registry.open(ip(n)).unwrap())
+            .collect();
+        assert!(registry.open(ip(3)).is_none());
+        for connection in &mut held {
+            assert!(connection.closed.try_recv().is_err());
+        }
+        assert_eq!(registry.connections(), 8);
+        // A connection that ends makes room.
+        registry.close(held[0].id);
+        assert!(registry.open(ip(3)).is_some());
+    }
+
+    #[test]
+    fn authenticated_connections_do_not_count_against_a_peers_share() {
+        let registry = Registry::new();
+        let first = registry.open(ip(1)).unwrap();
+        registry.authenticate(first.id, "client").unwrap();
+        let mut others: Vec<_> = (0..4).map(|_| registry.open(ip(1)).unwrap()).collect();
+        for other in &mut others {
+            assert!(other.closed.try_recv().is_err());
+        }
+        assert_eq!(registry.connections(), 5);
+    }
+
+    #[test]
+    fn a_peer_raises_a_pairing_notice_once_in_thirty_seconds() {
+        let registry = Registry::new();
+        assert!(registry.may_notify(ip(1)));
+        assert!(!registry.may_notify(ip(1)));
+        assert!(registry.may_notify(ip(2)));
     }
 }

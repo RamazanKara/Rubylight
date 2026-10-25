@@ -37,7 +37,7 @@ use butterpollo_core::{
     },
 };
 use hyper_util::{
-    rt::{TokioExecutor, TokioIo},
+    rt::{TokioExecutor, TokioIo, TokioTimer},
     server::conn::auto::Builder,
     service::TowerToHyperService,
 };
@@ -63,6 +63,30 @@ const MAX_ARTWORK: u64 = 4 * 1024 * 1024;
 const PROBE_CHECK: Duration = Duration::from_secs(5);
 /// "List applications", the permission bit GameStream's `applist` needs.
 const LIST_APPS: u32 = 1 << 24;
+
+/// How long a connection has to finish its HTTP request and upgrade.
+const HANDSHAKE: Duration = Duration::from_secs(10);
+/// How long a connection may stay unauthenticated, or until its pairing
+/// request runs out if that is later.
+const UNAUTHENTICATED: Duration = Duration::from_secs(60);
+
+/// The time limits of a connection; tests shorten them.
+#[derive(Clone, Copy)]
+struct Limits {
+    handshake: Duration,
+    unauthenticated: Duration,
+    pairing: Duration,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Self {
+            handshake: HANDSHAKE,
+            unauthenticated: UNAUTHENTICATED,
+            pairing: PAIRING_LIFETIME,
+        }
+    }
+}
 
 /// The running server. Dropping it stops the listener, discovery and every
 /// connection.
@@ -93,6 +117,16 @@ pub fn start(h: Shared, bind: IpAddr) -> Option<Running> {
 
 /// [`start`] on chosen ports (tests use ephemeral ones; `0` picks one).
 pub fn start_on(h: Shared, bind: IpAddr, port: u16, discovery_port: u16) -> Option<Running> {
+    start_with(h, bind, port, discovery_port, Limits::default())
+}
+
+fn start_with(
+    h: Shared,
+    bind: IpAddr,
+    port: u16,
+    discovery_port: u16,
+    limits: Limits,
+) -> Option<Running> {
     let mut status = Status {
         enabled: true,
         ..Status::default()
@@ -138,13 +172,14 @@ pub fn start_on(h: Shared, bind: IpAddr, port: u16, discovery_port: u16) -> Opti
     status.discovery = discovery_address;
     h.webrtc.set_status(status);
     tracing::info!(%signalling, discovery = ?discovery_address, "WebRTC server listening (unencrypted ws://, local network only)");
-    tasks.push(tokio::spawn(accept(h, listener)));
+    tasks.push(tokio::spawn(accept(h, listener, limits)));
     Some(Running { tasks })
 }
 
 #[derive(Clone)]
 struct Context {
     h: Shared,
+    limits: Limits,
 }
 
 /// Where a connection came from and arrived at.
@@ -185,10 +220,10 @@ fn local_network(peer: IpAddr) -> bool {
     reach(peer.to_canonical()) <= Reach::Lan
 }
 
-async fn accept(h: Shared, listener: tokio::net::TcpListener) {
+async fn accept(h: Shared, listener: tokio::net::TcpListener, limits: Limits) {
     let router = Router::new()
         .fallback(get(upgrade))
-        .with_state(Context { h });
+        .with_state(Context { h, limits });
     let sockets = Arc::new(tokio::sync::Semaphore::new(MAX_SOCKETS));
     let mut refused = Throttle {
         last: None,
@@ -212,12 +247,26 @@ async fn accept(h: Shared, listener: tokio::net::TcpListener) {
         let router = router.clone().layer(Extension(Peer { address, local }));
         tokio::spawn(async move {
             let _permit = permit;
-            let _ = Builder::new(TokioExecutor::new())
-                .serve_connection_with_upgrades(
-                    TokioIo::new(socket),
-                    TowerToHyperService::new(router),
-                )
-                .await;
+            // HTTP/1 only: the WebSocket upgrade needs it, and the version
+            // sniffing of the auto builder would wait on a silent peer.
+            let mut builder = Builder::new(TokioExecutor::new()).http1_only();
+            builder
+                .http1()
+                .timer(TokioTimer::new())
+                .header_read_timeout(limits.handshake);
+            // The connection future ends when the upgrade is handed over, so
+            // this bounds a peer that never sends its request, sends it
+            // slowly, or never completes the upgrade.
+            let served = builder.serve_connection_with_upgrades(
+                TokioIo::new(socket),
+                TowerToHyperService::new(router),
+            );
+            if tokio::time::timeout(limits.handshake, served)
+                .await
+                .is_err()
+            {
+                tracing::debug!(%address, "WebRTC connection did not finish its upgrade in time");
+            }
         });
     }
 }
@@ -230,7 +279,7 @@ async fn upgrade(
     socket
         .max_message_size(MAX_MESSAGE)
         .max_frame_size(MAX_MESSAGE)
-        .on_upgrade(move |socket| connection(context.h, peer, socket))
+        .on_upgrade(move |socket| connection(context.h, context.limits, peer, socket))
 }
 
 /// What a connection does after a message.
@@ -265,10 +314,18 @@ struct Connection {
     client: Option<Authenticated>,
     pairing: Option<Pairing>,
     probe: Option<EncoderProbe>,
+    limits: Limits,
+    /// When a connection that has not authenticated is closed.
+    unauthenticated_until: tokio::time::Instant,
 }
 
-async fn connection(h: Shared, peer: Peer, mut socket: WebSocket) {
-    let Registered { id, mut closed } = h.webrtc.open();
+async fn connection(h: Shared, limits: Limits, peer: Peer, mut socket: WebSocket) {
+    let Some(Registered { id, mut closed }) = h.webrtc.open(peer.address.ip().to_canonical())
+    else {
+        tracing::debug!(peer = %peer.address, "WebRTC connection refused: this peer has all the unauthenticated connections the host allows");
+        let _ = socket.send(Message::Close(None)).await;
+        return;
+    };
     let mut state = Connection {
         challenge: h.webrtc.challenge(),
         h: h.clone(),
@@ -277,6 +334,8 @@ async fn connection(h: Shared, peer: Peer, mut socket: WebSocket) {
         client: None,
         pairing: None,
         probe: None,
+        limits,
+        unauthenticated_until: tokio::time::Instant::now() + limits.unauthenticated,
     };
     tracing::debug!(peer = %peer.address, id, "WebRTC connection opened");
     let mut changed = h.webrtc.subscribe();
@@ -292,7 +351,26 @@ async fn connection(h: Shared, peer: Peer, mut socket: WebSocket) {
             let _ = socket.send(Message::Close(None)).await;
             break;
         }
+        let idle_until = state
+            .client
+            .is_none()
+            .then_some(state.unauthenticated_until);
+        // Biased: a host-side close, a pairing result and the idle limit are
+        // answered before a busy peer's next message.
         tokio::select! {
+            biased;
+            Some(reason) = closed.recv() => {
+                tracing::debug!(peer = %peer.address, id, ?reason, "WebRTC connection closed by the host");
+                match reason {
+                    Close::Replaced | Close::TooManyUnauthenticated => flow = Flow::Close,
+                }
+            }
+            outcome = state.pairing_outcome() => flow = state.finish_pairing(outcome, &mut out),
+            _ = idle(idle_until) => {
+                tracing::debug!(peer = %peer.address, id, "WebRTC connection closed: not authenticated in time");
+                flow = Flow::Close;
+            }
+            Ok(()) = changed.changed() => flow = state.recheck(&mut out),
             message = socket.recv() => match message {
                 Some(Ok(Message::Text(text))) => {
                     flow = state.handle(text.as_str(), &mut out).await;
@@ -305,19 +383,19 @@ async fn connection(h: Shared, peer: Peer, mut socket: WebSocket) {
                 Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
                 Some(Ok(_)) => {}
             },
-            Some(reason) = closed.recv() => {
-                tracing::debug!(peer = %peer.address, id, ?reason, "WebRTC connection closed by the host");
-                match reason {
-                    Close::Replaced | Close::TooManyUnauthenticated => flow = Flow::Close,
-                }
-            }
-            Ok(()) = changed.changed() => flow = state.recheck(&mut out),
-            outcome = state.pairing_outcome() => flow = state.finish_pairing(outcome, &mut out),
             _ = tick.tick() => state.refresh_capabilities(&mut out),
         }
     }
     state.end();
     tracing::debug!(peer = %peer.address, id, "WebRTC connection closed");
+}
+
+/// Resolves at `until`; never for a connection that has authenticated.
+async fn idle(until: Option<tokio::time::Instant>) {
+    match until {
+        Some(until) => tokio::time::sleep_until(until).await,
+        None => std::future::pending().await,
+    }
 }
 
 /// Send what is queued. False when the socket is gone.
@@ -546,6 +624,21 @@ impl Connection {
             ));
             return;
         }
+        if !self
+            .h
+            .config
+            .read()
+            .unwrap()
+            .boolean("enable_pairing", true)
+        {
+            tracing::info!(peer = %self.peer.address, "WebRTC pairing refused: pairing is turned off");
+            out.push(Self::error(
+                ErrorCode::PairingFailed,
+                "request-pairing",
+                "Pairing is turned off on this host",
+            ));
+            return;
+        }
         let name = if name.trim().is_empty() {
             "WebRTC client"
         } else {
@@ -559,19 +652,31 @@ impl Connection {
             ));
             return;
         }
-        // A new request replaces the connection's old one.
+        // A new request replaces the connection's old one, and does not
+        // raise another notification.
+        let again = self.pairing.is_some();
         self.cancel_pairing();
         let (request_id, entered) = self.h.webrtc.begin_pairing(&self.h, pin, name);
+        let deadline = tokio::time::Instant::now() + self.limits.pairing;
         self.pairing = Some(Pairing {
             request_id,
             entered,
-            deadline: tokio::time::Instant::now() + PAIRING_LIFETIME,
+            deadline,
         });
+        // The socket may wait for the answer for as long as the request lives.
+        self.unauthenticated_until = self.unauthenticated_until.max(deadline);
         tracing::info!(client = name, peer = %self.peer.address, "WebRTC pairing PIN required in the web interface");
-        butterpollo_windows::tray::notify(
-            "Pairing request",
-            &format!("{name} wants to pair. Enter the PIN it shows in the Rubylight console."),
-        );
+        if !again
+            && self
+                .h
+                .webrtc
+                .may_notify(self.peer.address.ip().to_canonical())
+        {
+            butterpollo_windows::tray::notify(
+                "Pairing request",
+                &format!("{name} wants to pair. Enter the PIN it shows in the Rubylight console."),
+            );
+        }
     }
 
     fn cancel_pairing(&mut self) {
@@ -795,19 +900,28 @@ mod tests {
         }
 
         async fn send(&mut self, message: Value) {
-            let payload = message.to_string().into_bytes();
+            self.send_text(message.to_string().into_bytes()).await;
+        }
+
+        /// One masked text frame carrying `payload` as it is.
+        async fn send_text(&mut self, payload: Vec<u8>) {
             let mut frame = vec![0x81u8];
             match payload.len() {
                 n if n < 126 => frame.push(0x80 | n as u8),
-                n => {
+                n if n <= u16::MAX as usize => {
                     frame.push(0x80 | 126);
                     frame.extend_from_slice(&(n as u16).to_be_bytes());
+                }
+                n => {
+                    frame.push(0x80 | 127);
+                    frame.extend_from_slice(&(n as u64).to_be_bytes());
                 }
             }
             let mask = [0x12u8, 0x34, 0x56, 0x78];
             frame.extend_from_slice(&mask);
             frame.extend(payload.iter().enumerate().map(|(i, b)| b ^ mask[i % 4]));
-            self.stream.write_all(&frame).await.unwrap();
+            // The server may close the socket before it has read it all.
+            let _ = self.stream.write_all(&frame).await;
         }
 
         /// The next message; None once the server closed the socket.
@@ -861,8 +975,13 @@ mod tests {
 
     impl Server {
         fn start() -> Self {
+            Self::start_with(Limits::default())
+        }
+
+        fn start_with(limits: Limits) -> Self {
             let f = Fixture::new();
-            let running = start_on(f.host.clone(), [127, 0, 0, 1].into(), 0, 0).expect("starts");
+            let running =
+                start_with(f.host.clone(), [127, 0, 0, 1].into(), 0, 0, limits).expect("starts");
             let address = f.host.webrtc.status().signalling.expect("listening");
             Self {
                 f,
@@ -1076,17 +1195,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_ninth_unauthenticated_connection_pushes_out_the_oldest() {
+    async fn a_fifth_unauthenticated_connection_from_one_peer_pushes_out_its_oldest() {
         let server = Server::start();
         let mut sockets = Vec::new();
-        for _ in 0..8 {
+        for _ in 0..4 {
             sockets.push(server.connect().await.0);
         }
-        let mut ninth = server.connect().await.0;
+        let mut fifth = server.connect().await.0;
         sockets[0].closed().await;
         // The others stay open: a probe connection may idle.
-        ninth.send(json!({"version":2,"type":"get-apps"})).await;
-        assert_eq!(ninth.expect("error").await["code"], "not-authenticated");
+        fifth.send(json!({"version":2,"type":"get-apps"})).await;
+        assert_eq!(fifth.expect("error").await["code"], "not-authenticated");
         sockets[1]
             .send(json!({"version":2,"type":"get-apps"}))
             .await;
@@ -1094,6 +1213,173 @@ mod tests {
             sockets[1].expect("error").await["code"],
             "not-authenticated"
         );
+    }
+
+    fn short(handshake: u64, unauthenticated: u64, pairing: u64) -> Limits {
+        Limits {
+            handshake: Duration::from_millis(handshake),
+            unauthenticated: Duration::from_millis(unauthenticated),
+            pairing: Duration::from_millis(pairing),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_tcp_connection_that_sends_nothing_is_closed() {
+        let server = Server::start_with(short(300, 60_000, 60_000));
+        let mut silent = TcpStream::connect(server.address).await.unwrap();
+        let mut byte = [0u8; 1];
+        let read = tokio::time::timeout(Duration::from_secs(5), silent.read(&mut byte))
+            .await
+            .expect("the server closed the idle connection");
+        assert!(matches!(read, Ok(0) | Err(_)));
+        // A peer that starts a request and stalls is closed too.
+        let mut slow = TcpStream::connect(server.address).await.unwrap();
+        slow.write_all(b"GET / HTTP/1.1\r\nHost: te").await.unwrap();
+        let read = tokio::time::timeout(Duration::from_secs(5), slow.read(&mut byte))
+            .await
+            .expect("the server closed the stalled request");
+        assert!(matches!(read, Ok(0) | Err(_)));
+    }
+
+    #[tokio::test]
+    async fn an_unauthenticated_websocket_that_stays_silent_is_closed() {
+        let server = Server::start_with(short(10_000, 400, 60_000));
+        let (mut ws, _) = server.connect().await;
+        ws.closed().await;
+    }
+
+    #[tokio::test]
+    async fn a_paired_connection_outlives_the_handshake_and_idle_limits() {
+        let server = Server::start_with(short(300, 60_000, 60_000));
+        let (client_id, secret) = server.pair("TV").await;
+        let mut ws = sign_in(&server, &client_id, &secret).await;
+        tokio::time::sleep(Duration::from_millis(900)).await;
+        ws.send(json!({"version":2,"type":"get-apps"})).await;
+        ws.expect("apps").await;
+    }
+
+    #[tokio::test]
+    async fn a_pairing_request_keeps_its_socket_until_it_expires_and_then_says_so() {
+        let server = Server::start_with(short(10_000, 200, 700));
+        let (mut ws, _) = server.connect().await;
+        ws.send(json!({"version":2,"type":"request-pairing","pin":"4321","clientName":"TV"}))
+            .await;
+        server.pending_request().await;
+        // Past the idle limit, the request holds the socket open.
+        let error = ws.expect("error").await;
+        assert_eq!(error["code"], "pairing-expired");
+        assert_eq!(error["requestType"], "request-pairing");
+        assert!(server.f.host.pins.lock().unwrap().is_empty());
+        ws.closed().await;
+    }
+
+    #[tokio::test]
+    async fn pairing_turned_off_refuses_a_request_without_a_console_entry_or_notice() {
+        let server = Server::start();
+        server
+            .f
+            .host
+            .config
+            .write()
+            .unwrap()
+            .values
+            .insert("enable_pairing".into(), "false".into());
+        let (mut ws, _) = server.connect().await;
+        ws.send(json!({"version":2,"type":"request-pairing","pin":"4321","clientName":"TV"}))
+            .await;
+        let error = ws.expect("error").await;
+        assert_eq!(error["code"], "pairing-failed");
+        assert!(server.f.host.pins.lock().unwrap().is_empty());
+        // No notification was raised for the peer.
+        assert!(server.f.host.webrtc.may_notify([127, 0, 0, 1].into()));
+        assert!(server.f.host.paired.read().unwrap().clients.is_empty());
+        // The connection is still usable, and pairing works again once it is on.
+        server
+            .f
+            .host
+            .config
+            .write()
+            .unwrap()
+            .values
+            .insert("enable_pairing".into(), "true".into());
+        ws.send(json!({"version":2,"type":"request-pairing","pin":"4321","clientName":"TV"}))
+            .await;
+        server.pending_request().await;
+    }
+
+    #[tokio::test]
+    async fn asking_again_does_not_raise_another_notice() {
+        let server = Server::start();
+        let (mut ws, _) = server.connect().await;
+        ws.send(json!({"version":2,"type":"request-pairing","pin":"4321","clientName":"TV"}))
+            .await;
+        server.pending_request().await;
+        // The first request used this peer's notice for 30 seconds.
+        assert!(!server.f.host.webrtc.may_notify([127, 0, 0, 1].into()));
+        ws.send(json!({"version":2,"type":"request-pairing","pin":"8765","clientName":"TV"}))
+            .await;
+        ws.send(json!({"version":2,"type":"get-apps"})).await;
+        assert_eq!(ws.expect("error").await["code"], "not-authenticated");
+        assert_eq!(server.f.host.pins.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_message_over_256_kib_closes_the_connection() {
+        let server = Server::start();
+        let (mut ws, _) = server.connect().await;
+        // Just under the limit is read, and answered as the bad message it is.
+        ws.send_text(vec![b' '; MAX_MESSAGE - 16]).await;
+        assert_eq!(ws.expect("error").await["code"], "invalid-json");
+        ws.send_text(vec![b' '; MAX_MESSAGE + 1]).await;
+        ws.closed().await;
+    }
+
+    #[tokio::test]
+    async fn the_first_device_of_either_kind_gets_everything_and_a_later_tv_view_only() {
+        let server = Server::start();
+        let (first, _) = server.pair("First TV").await;
+        let (second, _) = server.pair("Second TV").await;
+        let perm = |id: &str| {
+            server
+                .f
+                .host
+                .paired
+                .read()
+                .unwrap()
+                .webrtc_client(id)
+                .unwrap()
+                .perm
+        };
+        assert_eq!(
+            perm(&first),
+            butterpollo_core::state::FIRST_DEVICE_PERMISSION
+        );
+        assert_eq!(
+            perm(&second),
+            butterpollo_core::state::LATER_DEVICE_PERMISSION
+        );
+        // Behind a GameStream phone, a TV is a later device too.
+        let phone = Server::start();
+        phone
+            .f
+            .client(butterpollo_core::state::FIRST_DEVICE_PERMISSION);
+        let (tv, secret) = phone.pair("TV").await;
+        assert_eq!(
+            phone
+                .f
+                .host
+                .paired
+                .read()
+                .unwrap()
+                .webrtc_client(&tv)
+                .unwrap()
+                .perm,
+            butterpollo_core::state::LATER_DEVICE_PERMISSION
+        );
+        // Viewing the library is part of view-only.
+        let mut ws = sign_in(&phone, &tv, &secret).await;
+        ws.send(json!({"version":2,"type":"get-apps"})).await;
+        ws.expect("apps").await;
     }
 
     #[tokio::test]

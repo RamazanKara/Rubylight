@@ -67,6 +67,11 @@ public final class BackdropBlur {
         Rect source = new Rect((width - cropWidth) / 2, (height - cropHeight) / 2,
                 (width - cropWidth) / 2 + cropWidth, (height - cropHeight) / 2 + cropHeight);
         Bitmap current = cover;
+        // The artwork loader decodes straight to the GPU on newer Android; a software canvas cannot draw those.
+        if (cover.getConfig() == Bitmap.Config.HARDWARE) {
+            current = cover.copy(Bitmap.Config.ARGB_8888, false);
+            if (current == null) return;
+        }
         Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);
         while (source.width() >= 4 * WIDTH) {
             Bitmap half = Bitmap.createBitmap(source.width() / 2, source.height() / 2, Bitmap.Config.ARGB_8888);

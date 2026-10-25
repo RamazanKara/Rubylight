@@ -44,6 +44,21 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
 
+## October 25: WebRTC input delay on the 780M laptop
+
+Question: how much time does the host add between the browser's input frame and `SendInput`? Host: a release build of the WebRTC server on the Ryzen 7 8845HS laptop (isolated profile, injection into an echo window there; the browser runs on the dev PC). The leg injects 29 checked sequences (keys, text, relative and absolute moves, buttons, wheel, stuck keys, gamepad mouse mode) and the host logs one "WebRTC input summary" per stream.
+
+| Part | Before the fix | After |
+| --- | --- | --- |
+| Queue delay, receipt to the injector call, max | 25.3 to 26.1 ms (this included the injector call) | 0.11 to 0.52 ms |
+| Channel hop (`wait_max_us`) | not measured | 49 to 512 us |
+| Pointer refresh (`refresh_max_us`) | not measured | 28 to 48 us |
+| `SendInput` (`apply_max_us`), echo window on low-level hooks | not measured | 7.2, 9.3, 8.5 ms |
+| `SendInput` (`apply_max_us`), echo window on Raw Input | not measured | 28.1, 36.3, 37.6 ms |
+| Bare `SendInput` probe, no host, first left press after about 4 s idle | not measured | 24 to 27 ms |
+
+The "before" queue figure was the injector call counted as queue time; the worker now stamps the delay where it calls the injector, so it is the host's own wait. The stall is the first left-button press after a few idle seconds (every other event is under 1 ms) and is the same with the host out of the picture, with either way of reading the input in the echo window. The likely cause is Windows handling a click on the window under the cursor; not isolated further. ENet's control thread makes the same call. Three runs per echo mode, one laptop, one Wi-Fi link. Outputs: `C:\tests\webrtc-laptop\b5k\` on the dev PC.
+
 ## October 25: Wi-Fi pacing hint on a real laptop
 
 Question: does pacing a Wi-Fi client from the first frame (`x-rl-video[0].clientWireless:1`, `wireless_adaptive_pacing`) cut loss without adding latency? Host: this PC (RX 7900 XT, wired 2.5 GbE), a release build of main at the pacing change, isolated profile, WGC capture with a full-screen scrolling texture at 60 fps. Client: Nightjar desktop on the Ryzen 7 8845HS laptop, Wi-Fi only. Arm A is Nightjar 3.1.0, which sends no hint, so the host starts at 800 Mbps route pacing; arm B is the new client, so the host starts adaptive pacing at 94 Mbps. Both arms use the same FFmpeg and SDL DLLs. HEVC 1080p60, the host capped the bitrate at 46,988 kbps, adaptive bitrate off, 90 s per run in the order A B A B A B, loss memory cleared before every run.

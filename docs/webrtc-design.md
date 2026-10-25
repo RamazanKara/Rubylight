@@ -296,15 +296,21 @@ audio() ── Opus packet ──▶ webrtc sink (instead of the GameStream audi
   over a channel, with no batching, so a slow `SendInput` can never stall the media thread's pacing.
   That is the same arrangement as ENet's control thread, which injects on its own thread. Mouse motion
   is not coalesced on the host. The queue delay, from the transport receiving a frame to the worker
-  calling the injector, is recorded per message and its maximum and 99th percentile are logged in the
-  stream's "WebRTC input summary" (`queue_max_us`, `queue_p99_us`) next to the unknown-code count, so B5
-  can report the cost of the hop. The summary also splits it (`wait_*`, the channel; `refresh_*`, the
-  injector's periodic refresh) and times the injector call (`apply_*`), and the log names the events of
-  any call over 2 ms. On the laptop the first left-button press after a few idle seconds takes 20 to
-  38 ms inside `SendInput`; every other event takes under 1 ms. A bare `SendInput` probe with no host
-  shows the same stall, and it is the same with the echo window on Raw Input or on low-level hooks,
-  so it is neither the host's queue nor the harness's hooks. It is Windows' handling of a click on the
-  window under the cursor, and it is left alone: the call is the one ENet's control thread makes.
+  calling the injector, is recorded per message and its median, 99th percentile and maximum are logged
+  in the stream's "WebRTC input summary" (`queue_p50_us`, `queue_p99_us`, `queue_max_us`) next to the
+  unknown-code count, so B5 can report the cost of the hop. The summary also splits it (`wait_*`, the
+  channel; `refresh_*`, the injector's periodic refresh) and times the injector call (`apply_*`).
+  Every percentile is a figure over messages: `refresh_p99_us` is the refresh time of the 99th
+  percentile message, and most messages do not refresh, so it is a small number whatever one refresh
+  costs. On the laptop the host's own part is 0.11 to 0.52 ms at most per run (the channel 49 to
+  512 us, the refresh 28 to 48 us). The injector call is where the time is: the first left-button press after a
+  few idle seconds takes 20 to 38 ms inside `SendInput`, and every other event takes under 1 ms. A
+  bare `SendInput` probe with no host takes 24 to 27 ms for that press. With the echo window on Raw
+  Input the leg's `apply_max_us` was 28 to 38 ms, and on low-level hooks 7 to 9 ms, so the stall does
+  not come from the harness's hooks. The likely cause is Windows' handling of a click on the window
+  under the cursor; it has not been isolated further, and it is left alone because the call is the
+  one ENet's control thread makes. `slow_calls` counts the injector calls over 2 ms, and the log
+  names the events of the first 16 of them in a session.
 - **Recovery.**
   - PLI, FIR and the control channel's `request-keyframe` set `Session.idr` and wake recovery, the same
     as a Moonlight IDR request.

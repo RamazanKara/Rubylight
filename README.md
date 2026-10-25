@@ -10,7 +10,7 @@
 
 <div align="center">
 
-**[Download 3.0.0-rc.1](https://github.com/RamazanKara/Rubylight/releases/tag/v3.0.0-rc.1)** · **[Get started](docs/getting-started.md)** · [Website](https://ramazankara.github.io/Rubylight/) · [Docs](docs/README.md) · [Looking for an optimized client? Nightjar for Android/Linux/Windows](https://github.com/RamazanKara/nightjar)
+**[Download 3.0.0-rc.2](https://github.com/RamazanKara/Rubylight/releases/tag/v3.0.0-rc.2)** · **[Get started](docs/getting-started.md)** · [Website](https://ramazankara.github.io/Rubylight/) · [Docs](docs/README.md) · [Looking for an optimized client? Nightjar for Android/Linux/Windows](https://github.com/RamazanKara/nightjar)
 
 <sub>Windows x64 · GPL-3.0 · Formerly Butterpollo</sub>
 
@@ -29,7 +29,7 @@ Rubylight is a Windows game-streaming host for your Radeon PC. It streams to any
 **Requirements:** an AMD Radeon GPU with a working AMF encoder, on Windows 10 or 11. Linux is in the pipeline, but not yet available ( Contributors are welcome! )
 ## Install. Pair. Play.
 
-1. **Install.** Run **`rubylight-setup-3.0.0-rc.1.exe`** from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v3.0.0-rc.1). It sets up the service, the virtual display driver and controller support. No test mode, no restart. A ZIP is there too, for trying the host without installing.
+1. **Install.** Run **`rubylight-setup-3.0.0-rc.2.exe`** from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v3.0.0-rc.2). It sets up the service, the virtual display driver and controller support. No test mode, no restart. A ZIP is there too, for trying the host without installing.
 2. **Sign in.** Open **`https://localhost:47990`** on the PC and create your account.
 3. **Pair and play.** Open Moonlight on your device, select your PC and enter its PIN on the console's **Devices** page. Once the device appears as paired, choose **Desktop** or a game in Moonlight to start streaming.
 

@@ -1,9 +1,20 @@
 # Started by the ButterpolloReleaseElevated task (see elevation.ps1) with
 # highest privileges. Reads the request release.ps1 wrote and runs the
 # elevated step for it. Only paths inside release.ps1's default work folder
-# are accepted.
+# are accepted. Also serves the WebRTC end-to-end harness (below).
 $ErrorActionPreference = 'Stop'
 $root = 'C:\src\butterpollo-release\'
+# The WebRTC end-to-end harness asks through its own request, which webrtc-e2e-elevated.ps1 checks
+# step by step and spends. One older than two minutes is from a run that died before the task
+# started; it is dropped, and the release request is served.
+$e2e = Join-Path $root 'webrtc-e2e\request.json'
+if (Test-Path -LiteralPath $e2e) {
+    if ((Get-Item -LiteralPath $e2e).LastWriteTime -gt (Get-Date).AddMinutes(-2)) {
+        & (Join-Path $PSScriptRoot 'webrtc-e2e-elevated.ps1')
+        return
+    }
+    Remove-Item -LiteralPath $e2e -Force
+}
 $request = Get-Content (Join-Path $root 'request.json') -Raw | ConvertFrom-Json
 $version = [string]$request.version
 if ($version -notmatch '^\d+\.\d+\.\d+(-(alpha|beta|rc)\.\d+)?$') { throw "invalid version $version" }

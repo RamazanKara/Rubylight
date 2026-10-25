@@ -296,10 +296,10 @@ function restoreSink(before) {
 }
 
 // A run that was killed outright (power, taskkill /F) cannot clean up. The next one does it before
-// anything else: the sink gets its old format back and the old test host, tone player and browser
-// client server are stopped.
+// anything else: the sink gets its old format back, the old test host, tone player and browser
+// client server are stopped, and its SYSTEM task and firewall rule are removed.
 function recoverFromEarlierRun() {
-  const notes = [];
+  const notes = hostSupport.recoverElevated();
   if (fs.existsSync(SINK_RESTORE)) {
     try { restoreSink(JSON.parse(fs.readFileSync(SINK_RESTORE, 'utf8')).before); notes.push('restored the sink format an earlier run left'); }
     catch (error) { throw new Error(`${SINK_RESTORE} is there but the sink could not be restored: ${error.message}`); }

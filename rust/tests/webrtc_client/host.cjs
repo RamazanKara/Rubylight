@@ -7,7 +7,6 @@ const https = require('node:https');
 const http = require('node:http');
 const path = require('node:path');
 const {spawn, execFileSync} = require('node:child_process');
-const support = require('./support.cjs');
 
 const REAL_SERVERINFO = 'http://127.0.0.1:47989/serverinfo';
 const REAL_LOG = 'C:\\ProgramData\\Butterpollo\\config\\logs\\butterpollo.log';
@@ -47,14 +46,37 @@ const defaults = {
   // display driver requires. An example of butterpollo-windows.
   launcher: process.env.BUTTERPOLLO_TEST_LAUNCHER || 'C:\\src\\butterpollo-release\\wr\\target\\release\\examples\\system_launch.exe',
   task: 'RubylightWebrtcE2eHost',
-  // The elevation helper: an on-demand task registered for the user with highest privileges
-  // (rust/release/elevation.ps1 registers the release one). Its script is copied from
-  // elevated_tasks.ps1 before each request.
-  elevatedTask: 'ButterpolloRenameTest',
-  elevatedScript: 'C:\\src\\butterpollo-release\\rename-test\\test.ps1',
-  elevateDir: 'C:\\src\\butterpollo-release\\wr\\elevate',
   port: 48140, webrtcPort: 48545, mediaPort: 48546,
 };
+
+// The administrator steps go through the release's elevation task (rust/release/elevation.ps1),
+// which runs the scripts installed in a folder only administrators can change. elevated-task.ps1
+// hands this harness's request to webrtc-e2e-elevated.ps1, the installed elevated_tasks.ps1, which
+// checks every step. The folders are fixed in those scripts.
+const ELEVATION = {
+  task: 'ButterpolloReleaseElevated',
+  installed: 'C:\\ProgramData\\ButterpolloRelease',
+  requests: 'C:\\src\\butterpollo-release\\webrtc-e2e',
+  // Installed name, checkout copy.
+  scripts: {
+    'elevated-task.ps1': path.join(__dirname, '..', '..', 'release', 'elevated-task.ps1'),
+    'webrtc-e2e-elevated.ps1': path.join(__dirname, 'elevated_tasks.ps1'),
+  },
+};
+
+// Why the elevation task cannot serve this checkout, or null: it must be registered, and the
+// scripts it runs must be this checkout's.
+function elevationProblem({installed = ELEVATION.installed, scripts = ELEVATION.scripts, registered} = {}) {
+  if (registered === undefined) {
+    try { execFileSync('schtasks', ['/Query', '/TN', ELEVATION.task], {stdio: 'ignore'}); registered = true; } catch { registered = false; }
+  }
+  const stale = Object.entries(scripts).filter(([name, source]) => {
+    try { return !fs.readFileSync(path.join(installed, name)).equals(fs.readFileSync(source)); } catch { return true; }
+  }).map(([name]) => name);
+  if (registered && !stale.length) return null;
+  const what = registered ? `its scripts are missing or out of date (${stale.join(', ')})` : `the task ${ELEVATION.task} is not registered`;
+  return `the harness needs administrator steps and ${what}: run \`pwsh -File rust/release/elevation.ps1\` from an elevated PowerShell in this checkout once, then start the run again (or run the harness elevated)`;
+}
 
 // Writes the profile on first use and returns the harness settings, with the
 // generated console password and sink. The password stays in harness.json.
@@ -97,56 +119,60 @@ function prepare(options = {}, {config = {}} = {}) {
   return {...o, ...harness};
 }
 
-const FIREWALL_RULE = 'Rubylight WebRTC e2e test host';
 const isAdmin = () => { try { execFileSync('net', ['session'], {stdio: 'ignore'}); return true; } catch { return false; } };
 const pause = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
-// Runs steps that need administrator rights: directly in an elevated shell, otherwise through the
-// elevation task, whose script (elevated_tasks.ps1) accepts only this harness's own task and
-// staging directory. A step is {args: [...schtasks arguments]} or {kill: true}; a failing step
-// throws unless it is `optional`. Synchronous, because the exit handlers use it.
+// Runs steps that need administrator rights through elevated_tasks.ps1, which accepts only this
+// harness's own task, staging directory and firewall rule: the checkout's copy in an elevated shell,
+// otherwise the installed copy through the elevation task. A step is {args: [...schtasks
+// arguments]}, {kill: true} or {firewall: true, remove?: true}; a failing step throws unless it is
+// `optional`. Synchronous, because the exit handlers use it.
 function elevate(o, steps) {
+  const admin = isAdmin();
+  const problem = admin ? null : elevationProblem();
+  if (problem) throw new Error(problem);
   const results = [];
-  if (isAdmin()) {
-    for (const step of steps) {
-      if (step.firewall && step.remove) {
-        const script = `Get-NetFirewallRule -DisplayName '${FIREWALL_RULE}' -ErrorAction SilentlyContinue | Remove-NetFirewallRule`;
-        execFileSync('powershell.exe', ['-NoProfile', '-Command', script], {stdio: 'pipe'});
-        results.push({exit: 0, output: ''});
-        continue;
-      }
-      if (step.firewall) {
-        const script = `if (-not (Get-NetFirewallRule -DisplayName '${FIREWALL_RULE}' -ErrorAction SilentlyContinue)) { New-NetFirewallRule -DisplayName '${FIREWALL_RULE}' -Direction Inbound -Action Allow -Profile Any -Program '${path.join(o.staging, 'butterpollo.exe')}' | Out-Null }`;
-        execFileSync('powershell.exe', ['-NoProfile', '-Command', script], {stdio: 'pipe'});
-        results.push({exit: 0, output: ''});
-        continue;
-      }
-      if (step.kill) { support.killLeftovers({hostDir: o.staging, toneExe: '', webPort: 0}); results.push({exit: 0, output: ''}); continue; }
-      try { results.push({exit: 0, output: execFileSync('schtasks', step.args, {encoding: 'utf8', stdio: 'pipe'})}); }
-      catch (error) { results.push({exit: error.status ?? 1, output: String(error.stdout || error.message)}); }
+  const request = path.join(ELEVATION.requests, 'request.json'), answer = path.join(ELEVATION.requests, 'result.json');
+  const id = crypto.randomBytes(8).toString('hex');
+  fs.mkdirSync(ELEVATION.requests, {recursive: true});
+  fs.rmSync(answer, {force: true});
+  fs.writeFileSync(request, JSON.stringify({id, steps}));
+  try {
+    if (admin) execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ELEVATION.scripts['webrtc-e2e-elevated.ps1']], {stdio: 'pipe'});
+    else execFileSync('schtasks', ['/Run', '/TN', ELEVATION.task], {stdio: 'pipe'});
+  } catch (error) {
+    fs.rmSync(request, {force: true});
+    throw new Error(`the elevated steps could not start: ${error.message}`);
+  }
+  const deadline = Date.now() + 90000;
+  for (;;) {
+    try {
+      const done = JSON.parse(fs.readFileSync(answer, 'utf8').replace(/^\uFEFF/, ''));
+      if (done.id === id) { results.push(...[].concat(done.results)); break; }
+    } catch {}
+    if (Date.now() > deadline) {
+      fs.rmSync(request, {force: true});
+      throw new Error(`the elevation task ${ELEVATION.task} did not answer in 90 s`);
     }
-  } else {
-    fs.mkdirSync(o.elevateDir, {recursive: true});
-    fs.mkdirSync(path.dirname(o.elevatedScript), {recursive: true});
-    fs.copyFileSync(path.join(__dirname, 'elevated_tasks.ps1'), o.elevatedScript);
-    const id = crypto.randomBytes(8).toString('hex');
-    fs.rmSync(path.join(o.elevateDir, 'result.json'), {force: true});
-    fs.writeFileSync(path.join(o.elevateDir, 'request.json'), JSON.stringify({id, steps}));
-    execFileSync('schtasks', ['/Run', '/TN', o.elevatedTask], {stdio: 'pipe'});
-    const deadline = Date.now() + 90000;
-    for (;;) {
-      try {
-        const done = JSON.parse(fs.readFileSync(path.join(o.elevateDir, 'result.json'), 'utf8').replace(/^\uFEFF/, ''));
-        if (done.id === id) { results.push(...[].concat(done.results)); break; }
-      } catch {}
-      if (Date.now() > deadline) throw new Error(`the elevation task ${o.elevatedTask} did not answer in 90 s`);
-      pause(250);
-    }
+    pause(250);
   }
   steps.forEach((step, i) => {
     if (!step.optional && results[i]?.exit !== 0) throw new Error(`${step.kill ? 'kill' : step.firewall ? 'firewall' : 'schtasks ' + step.args.join(' ')} failed (${results[i]?.exit}): ${results[i]?.output}`);
   });
   return results;
+}
+
+// What a run that was killed outright left behind and only an administrator can remove: the SYSTEM
+// task, the host it started and the firewall rule. Returns notes on what was there.
+function recoverElevated(o = defaults) {
+  const [, deleted, killed, firewall] = elevate(o, [
+    {args: ['/End', '/TN', o.task], optional: true}, {args: ['/Delete', '/TN', o.task, '/F'], optional: true},
+    {kill: true, optional: true}, {firewall: true, remove: true, optional: true}]);
+  const notes = [];
+  if (deleted?.exit === 0) notes.push(`deleted the task ${o.task} an earlier run left`);
+  if (killed?.output) notes.push(`stopped what the earlier SYSTEM host left: ${killed.output}`);
+  if (firewall?.output === 'firewall rule removed') notes.push('removed the firewall rule an earlier run left');
+  return notes;
 }
 
 function stage(o) {
@@ -299,4 +325,4 @@ class TestHost {
   }
 }
 
-module.exports = {assertRealHostIdle, prepare, TestHost, defaults, REAL_LOG, get};
+module.exports = {assertRealHostIdle, prepare, TestHost, defaults, REAL_LOG, get, recoverElevated, elevationProblem, ELEVATION};

@@ -96,7 +96,7 @@ public class AdaptiveGridView extends GridView {
             }
         }
         markAction(null);
-        revealPending = true;
+        revealPending = movesSelection(keyCode);
         return super.onKeyDown(keyCode, event);
     }
 
@@ -204,6 +204,24 @@ public class AdaptiveGridView extends GridView {
         if (markedAction != null) markedAction.setHovered(false);
         markedAction = action;
         if (action != null) action.setHovered(true);
+    }
+
+    /** The keys that move a grid's selection, which may leave the new card partly out of view. */
+    private static boolean movesSelection(int keyCode) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_UP:
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+            case KeyEvent.KEYCODE_PAGE_UP:
+            case KeyEvent.KEYCODE_PAGE_DOWN:
+            case KeyEvent.KEYCODE_MOVE_HOME:
+            case KeyEvent.KEYCODE_MOVE_END:
+            case KeyEvent.KEYCODE_TAB:
+                return true;
+            default:
+                return false;
+        }
     }
 
     private static boolean isActivateKey(int keyCode) {

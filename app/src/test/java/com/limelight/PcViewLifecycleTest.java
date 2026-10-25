@@ -463,6 +463,37 @@ public class PcViewLifecycleTest {
     }
 
     @Test
+    public void rightFromThePcCardStepsOntoItsOverflowButtonThenOntoAddPc() {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            GridView grid = screen.findViewById(R.id.fragmentView);
+            android.view.View add = screen.findViewById(R.id.manuallyAddPc);
+            assertNotNull(add);
+            assertEquals(1, grid.getCount());
+            assertTrue(grid.requestFocusFromTouch());
+            grid.setSelection(0);
+            android.view.View root = screen.findViewById(android.R.id.content);
+            int w = screen.getResources().getDisplayMetrics().widthPixels;
+            int h = screen.getResources().getDisplayMetrics().heightPixels;
+            root.measure(android.view.View.MeasureSpec.makeMeasureSpec(w, android.view.View.MeasureSpec.EXACTLY),
+                    android.view.View.MeasureSpec.makeMeasureSpec(h, android.view.View.MeasureSpec.EXACTLY));
+            root.layout(0, 0, w, h);
+            android.view.View more = grid.getSelectedView().findViewById(R.id.grid_more);
+            assertNotNull(more);
+            assertFalse(more.isHovered());
+            grid.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_RIGHT));
+            assertTrue("the first Right marks the overflow button", more.isHovered());
+            assertTrue(grid.hasFocus());
+            grid.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_RIGHT));
+            assertTrue("the second Right reaches Add PC", add.hasFocus());
+            assertFalse(more.isHovered());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
     public void theOptionsHintStaysInItsPlaceWhilePointerAndKeysTakeTurns() {
         ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
         try {

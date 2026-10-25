@@ -6,6 +6,10 @@
 
 Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 3.0.0-rc.2 installer is named `rubylight-setup-3.0.0-rc.2.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
 
+## Unreleased
+
+- **A lost control connection always ends the stream as lost.** When a client vanished and the host's control worker ran late, ENet's own peer timeout could drop the client before the host's ping check saw it. The host then ended the stream as if it had closed it itself (0x80030023), and the stream could count as a clean fast-rate probe. A client ENet drops after it went quiet for `ping_timeout` now ends the stream as failed, like the ping check.
+
 ## New in 3.0.0-rc.2
 
 - **Automatic update checks run on schedule.** The host now counts the time since the last check by the clock, so a PC that slept checks as soon as it wakes, a new check interval applies at once without a restart, and a check that fails because the network is not back yet is first retried within two minutes (backing off after that, up to the check interval) instead of after a whole interval. A game left running no longer holds checks back (only a stream does). Maintenance shows the next check and the cause of a failed one, and the host log records every check.

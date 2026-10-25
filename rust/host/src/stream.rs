@@ -3243,6 +3243,7 @@ impl Media {
             let ping_timeout = crate::network::ping_timeout(&h.config.read().unwrap());
             #[cfg(test)]
             if let Some(fixture) = &h.reconnect_fixture {
+                fixture.hold_control();
                 fixture.reset_peer(&mut host, &peers);
             }
             let mut disconnected = Vec::new();
@@ -3333,6 +3334,16 @@ impl Media {
                         let id = peer.id();
                         if let Some(p) = peers.remove(&id) {
                             let session = h.sessions.lock().unwrap().active.get(&p.id).cloned();
+                            // ENet timed out a client that went quiet: the stream was lost, as the
+                            // ping check below says when it sees that first. A pass that runs late
+                            // gets ENet's Disconnect before it.
+                            if let Some(session) = &session
+                                && !session.stopping()
+                                && p.seen.elapsed() > ping_timeout
+                            {
+                                tracing::warn!(client=%session.launch.client.name,"client control stream timed out");
+                                session.fail();
+                            }
                             let canceled = h.sessions.lock().unwrap().request_stop(Some(&p.id));
                             drop(canceled);
                             if let Some(session) = session

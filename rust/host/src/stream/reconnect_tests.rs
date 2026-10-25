@@ -55,6 +55,8 @@ pub(crate) struct Fixture {
     hold_first_frame: AtomicBool,
     /// How long releasing a launch's fake audio takes, as a driver that blocks does.
     audio_release_ms: Arc<AtomicU64>,
+    /// The control worker does not run between these two times, as on a loaded machine.
+    control_held: Mutex<Option<(Instant, Instant)>>,
 }
 
 pub(crate) struct Slot(Arc<AtomicUsize>);
@@ -188,6 +190,17 @@ impl Fixture {
     }
     pub(crate) fn input(&self) -> Slot {
         Slot::new(&self.inputs)
+    }
+    /// Holds the control worker once it is due, before its next pass.
+    pub(super) fn hold_control(&self) {
+        let mut held = self.control_held.lock().unwrap();
+        if let Some((from, until)) = *held
+            && Instant::now() >= from
+        {
+            held.take();
+            drop(held);
+            thread::sleep(until.saturating_duration_since(Instant::now()));
+        }
     }
     pub(super) fn reset_peer(
         &self,
@@ -1646,6 +1659,27 @@ async fn rtsp_reconnect_reports_busy_when_previous_teardown_times_out() -> Resul
     Ok(())
 }
 
+/// A control worker that runs late finds ENet's own timeout for a lost client before its ping
+/// check. The stream ended as closed by the host (0x80030023); it was lost.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_lost_control_stream_found_late_by_enet_still_fails() -> Result<()> {
+    let h = Harness::new(2000, 1).await?;
+    let launch = h.launch(0, false).await?;
+    let (session, client) = h.play(&launch).await?;
+    let lost = Instant::now();
+    // From before the ping check is due, once ENet has resent its unanswered ping often enough,
+    // to after ENet's own timeout.
+    *h.fixture.control_held.lock().unwrap() = Some((
+        lost + Duration::from_millis(1800),
+        lost + Duration::from_millis(4000),
+    ));
+    client.control_down.store(true, Ordering::Release);
+    until("the lost client's stream ends", WAIT, || session.stopping()).await;
+    h.empty().await?;
+    assert_eq!(session.termination_reason(), FAILED);
+    drop(client);
+    h.finish().await
+}
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn control_lost_while_video_continues_times_out() -> Result<()> {
     let h = Harness::new(2000, 1).await?;

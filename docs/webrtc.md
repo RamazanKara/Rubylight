@@ -52,7 +52,7 @@ Paired TVs and browsers are listed on **Devices** with a **WebRTC** badge. Disab
 | Gamepad as a mouse | Hold Start for 750 ms and release it. The stick moves the pointer, the D-pad scrolls, and A, B, X, LB and RB click. Do it again to turn it off. |
 | Keyboard and mouse | From a client that opens the `input` channel (see below). The browser client does not. |
 
-The host reads how much its encoder can do (AMF's throughput limit per codec) and offers only the frame rates it can encode in real time: a slower AMD GPU may list 4K at 30 and 60 only. Measured clean on an RX 7900 XT: 90 and 120 fps at 1080p with all three codecs, 1440p120 with HEVC, and 4K120 with HEVC and AV1. 720p at 90 and 120, H.264 at 1440p above 60, and GPUs with a lower throughput limit are Experimental.
+The host reads how much its encoder can do (AMF's throughput limit per codec) and offers only the frame rates it can encode in real time: a slower AMD GPU may list 4K at 30 and 60 only. A driver that reports no limit gets 60 fps and below. Measured clean on an RX 7900 XT: 90 and 120 fps at 1080p with all three codecs, 1440p120 with HEVC, and 4K120 with HEVC and AV1. Experimental: 720p at 90 and 120, H.264 at 1440p above 60, AV1 at 1440p90 and 1440p120, 90 fps at 1440p and 4K, HDR above 60 fps, GPUs with a lower throughput limit, and drivers that report no limit.
 
 A request for anything the host cannot send is refused with an error. There is no fallback: no SDR for an HDR request, no H.264 for AV1, no stereo for a surround request.
 
@@ -66,7 +66,7 @@ Rubylight serves only peers on the local network: loopback, private (RFC 1918), 
 
 ## For client authors
 
-Rubylight implements protocol version 2 as the upstream [protocol document](https://github.com/mlopezsegura/Monlight-Tizen-WebRtc-Client/blob/main/docs/protocol.md) describes it: discovery, pairing, authentication, apps, `start-session`, `switch-session`, the stop messages and the host's offer. Read that for the messages. This part covers what Rubylight does that you need to know, and its two extensions. The reference host is [Sunshine-Web-RTC](https://github.com/mlopezsegura/Sunshine-Web-RTC). A stock client sees exactly protocol v2.
+Rubylight implements protocol version 2 as the upstream [protocol document](https://github.com/mlopezsegura/Monlight-Tizen-WebRtc-Client/blob/main/docs/protocol.md) describes it: discovery, pairing, authentication, apps, `start-session`, `switch-session`, the stop messages and the host's offer. Read that for the messages. This part covers what Rubylight does that you need to know, and its extensions. The reference host is [Sunshine-Web-RTC](https://github.com/mlopezsegura/Sunshine-Web-RTC). A stock client sees exactly protocol v2.
 
 ### The host's offer
 
@@ -113,14 +113,19 @@ A client may ask for a keyframe on the `control` channel, besides an RTCP PLI or
 ```json
 "extensions": {
   "audioChannels": [2, 6, 8],
-  "input": {"label": "input", "version": 1, "keyboard": true, "mouse": true}
+  "input": {"label": "input", "version": 1, "keyboard": true, "mouse": true},
+  "codecFrameRates": [
+    {"width": 1280, "height": 720, "codec": "h264", "frameRates": [30, 60, 90, 120]},
+    ...
+  ]
 }
 ```
 
 - `audioChannels` lists the channel counts `start-session` accepts in `audio.channels`.
 - `input` says the host accepts a client-opened DataChannel with that label. `keyboard` and `mouse` say what it carries.
+- `codecFrameRates` lists, for each mode and codec, the frame rates that codec takes on this host's encoder. A `videoModes` entry lists only the rates every one of its codecs takes, so any listed rate works with any listed codec. When the encoder's limits differ by codec, a codec may take more rates than its mode lists, or a codec that cannot take 60 fps at a mode may be left out of the mode and appear only here. The host accepts every pair listed here.
 
-`version` stays 2. An extension is used only when the client asks for it: a 6 or 8 for `audio.channels`, or an `input` channel.
+`version` stays 2. An extension is used only when the client asks for it: a 6 or 8 for `audio.channels`, an `input` channel, or a rate from `codecFrameRates`.
 
 ### Surround audio
 

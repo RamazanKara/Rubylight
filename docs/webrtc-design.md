@@ -33,10 +33,11 @@ All three repos are weeks old. Before each brief starts, and again before the re
    protocol's error with a clear message. It never takes over silently.
 5. **The host sends the offer** (protocol v2). The offer carries a single codec with fixed payload
    types. The host checks the answer and rejects any change of codec or profile with an error.
-6. **Everything protocol v2 defines, plus two extensions.** H.264, HEVC and AV1, HDR (HEVC Main10 and
+6. **Everything protocol v2 defines, plus three extensions.** H.264, HEVC and AV1, HDR (HEVC Main10 and
    AV1 Main 10-bit) and 30 to 120 fps are part of protocol v2 and are in scope as written there.
    Surround audio and keyboard and mouse input are not in protocol v2 (scope widened on 2026-10-24), so
-   they are Rubylight extensions:
+   they are Rubylight extensions, as is the per-codec frame-rate list (`codecFrameRates`, added on
+   2026-10-25):
    - advertised in a `capabilities.extensions` object, which stock clients ignore;
    - used only when the client asks for them (`audio.channels` 6 or 8, a client-opened `input`
      DataChannel);
@@ -226,9 +227,15 @@ audio() ── Opus packet ──▶ webrtc sink (instead of the GameStream audi
     it holds for that client, so nothing stays stuck. The cursor comes from capture, as it does for
     Moonlight.
   - `capabilities.extensions` advertises
-    `{"audioChannels":[2,6,8],"input":{"label":"input","version":1,"keyboard":true,"mouse":true}}`.
+    `{"audioChannels":[2,6,8],"input":{"label":"input","version":1,"keyboard":true,"mouse":true},"codecFrameRates":[...]}`.
     Surround is negotiated in the answer (see Library), so the shape is unchanged; a client that asks
     for 6 or 8 channels must answer with `multiopus`.
+  - `codecFrameRates` holds one `{width, height, codec, frameRates}` per mode and codec: the rates
+    that codec takes under the encoder's throughput cap. The `videoModes` entry stays consistent
+    for stock clients: its codecs are those that take 60 fps (or the lowest rate any codec takes
+    when none takes 60), its rates are those all of them take, `fps` is 60 if listed and otherwise
+    the highest listed rate, and `defaultCodec` moves to the first listed codec when the mode's
+    default is left out. `validate` accepts every pair in either list.
 - **ICE.** The host is ICE-lite. Its only candidate is the local address the WebSocket arrived on,
   plus `webrtc_media_port`. There is no STUN or TURN.
   - Chrome hides its own host candidates behind mDNS names. We ignore them and learn the client's
@@ -331,10 +338,14 @@ audio() ── Opus packet ──▶ webrtc sink (instead of the GameStream audi
   mastering-display and content-light metadata in the bitstream.
 - AV1 wherever the AMF probe finds an AV1 encoder.
 - 30, 60, 90 and 120 fps at every mode, each gated by the AMF throughput cap of the codec
-  (`MaxThroughput`, `HevcMaxThroughput`, `Av1CapMaxThroughput`); a request beyond it is refused. B5
-  measured 1080p at 90 and 120 with all three codecs, 1440p120 with HEVC and 4K120 with HEVC and AV1
-  clean. 720p above 60, H.264 1440p above 60 and lower-throughput GPUs are Experimental. H.264 stays
-  out of 4K: 4K120 would need level 6.0, which browsers refuse.
+  (`MaxThroughput`, `HevcMaxThroughput`, `Av1CapMaxThroughput`); a request beyond it is refused. A
+  codec whose cap is unknown (none reported, or not probed because of `hevc_mode`/`av1_mode`) gets 60
+  fps and below, with one warning in the log. AMF has no separate 10-bit cap, so HDR is gated by the
+  same one. B5 measured 1080p at 90 and 120 with all three codecs, 1440p120 with HEVC and 4K120 with
+  HEVC and AV1 clean. Experimental: 720p above 60, H.264 at 1440p above 60, AV1 at 1440p90 and
+  1440p120, 90 fps at 1440p and 4K, HDR above 60 fps, lower-throughput GPUs, and drivers that report
+  no cap (which get 60 fps and below). H.264 stays out of 4K: 4K120 would need level 6.0, which
+  browsers refuse.
 - Opus stereo audio, and 5.1 and 7.1 Opus multistream (extension).
 - Gamepads with rumble, and gamepad mouse mode on a long press of Start.
 - Keyboard and mouse over the `input` DataChannel (extension).

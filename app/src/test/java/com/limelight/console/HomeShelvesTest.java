@@ -126,6 +126,19 @@ public class HomeShelvesTest {
     }
 
     @Test
+    public void gamesNotAddedYetKeepTheirOwnBackdropKeysByTitle() {
+        // The host found both but added neither, so both have app id 0: the title keeps them apart.
+        String portal = HomeAmbience.gameKey("tower", 0, "Portal");
+        String zelda = HomeAmbience.gameKey("tower", 0, "Zelda");
+        assertFalse(portal.equals(zelda));
+        assertEquals(portal, HomeAmbience.gameKey("tower", 0, "Portal"));
+        // An added game is keyed by its app id, so a rename keeps its backdrop.
+        assertEquals(HomeAmbience.gameKey("tower", 11, "Portal"), HomeAmbience.gameKey("tower", 11, "Portal 2"));
+        assertFalse(HomeAmbience.gameKey("tower", 11, "Portal").equals(portal));
+        assertFalse(HomeAmbience.gameKey("den", 0, "Portal").equals(portal));
+    }
+
+    @Test
     public void downFromACardLandsOnTheNearestCardOfTheNextShelfAndUpReturnsToIt() {
         assertEquals("shelf:favourites", adapter.rowKey(0));
         assertEquals("shelf:store:steam", adapter.rowKey(1));

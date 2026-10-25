@@ -131,6 +131,16 @@ public:
     };
     CaptureLatency takeCaptureLatency();
 
+    // Whether the screen tells us when each frame was shown (VK_GOOGLE_display_timing). Without it
+    // there are no present reports.
+    bool reportsPresentTimes() const { return hasDisplayTimingExt_; }
+
+    // When frames reached the screen, as pairs of the frame's host timestamp (what it was queued
+    // to the decoder with) and the time on our clock, oldest first. Frames the compositor
+    // replaced or the pacer dropped never appear. Returns the number of pairs written to out, at
+    // most max; the rest wait for the next call.
+    size_t takePresentReports(int64_t* out, size_t max);
+
     // For the performance overlay: what the renderer outputs, which only changes with HDR, and
     // its pacing numbers as a headline (the buffer) and details (lock state, skipped frames),
     // separated by a newline. Either part may be empty.
@@ -312,6 +322,7 @@ private:
         int64_t originNs = 0;   // For the capture to present statistic, if it's counted at this present
         bool originSynced = false;
         bool onArrival = false;  // Shown on arrival (mailbox), tagged only for its report
+        int64_t hostPtsNs = 0;   // To tell Java when the frame reached the screen, if it's counted at this present
     };
 
     // Host frame timing with display timing: present frames as they arrive, asking for the
@@ -484,6 +495,11 @@ private:
     bool hdrActive_ = false;
 
     std::atomic<uint32_t> presentedFrames_ {0};
+    struct PresentReport {
+        int64_t hostPtsNs;
+        int64_t presentNs;
+    };
+    std::deque<PresentReport> presentReports_;  // Under latencyMutex_
 
     // Capture latency statistics. Frames' origins wait here, by host timestamp, until they're
     // decoded.

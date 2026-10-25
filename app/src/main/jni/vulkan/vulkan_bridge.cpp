@@ -163,6 +163,28 @@ Java_com_limelight_binding_video_VulkanRendererBridge_nativeTakeCaptureLatency(J
     env->SetLongArrayRegion(out, 0, 6, values);
 }
 
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_limelight_binding_video_VulkanRendererBridge_nativeReportsPresentTimes(JNIEnv*, jclass, jlong handle) {
+    VulkanRenderer* renderer = fromHandle(handle);
+    return renderer && renderer->reportsPresentTimes() ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_limelight_binding_video_VulkanRendererBridge_nativeTakePresentReports(JNIEnv* env, jclass, jlong handle,
+                                                                              jlongArray out) {
+    VulkanRenderer* renderer = fromHandle(handle);
+    if (!renderer || !out) {
+        return 0;
+    }
+    const jsize capacity = env->GetArrayLength(out) / 2;
+    std::vector<int64_t> reports(static_cast<size_t>(capacity) * 2);
+    const size_t n = renderer->takePresentReports(reports.data(), static_cast<size_t>(capacity));
+    if (n > 0) {
+        env->SetLongArrayRegion(out, 0, static_cast<jsize>(n * 2), reinterpret_cast<const jlong*>(reports.data()));
+    }
+    return static_cast<jint>(n);
+}
+
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_limelight_binding_video_VulkanRendererBridge_nativeGetRendererText(JNIEnv* env, jclass, jlong handle) {
     VulkanRenderer* renderer = fromHandle(handle);

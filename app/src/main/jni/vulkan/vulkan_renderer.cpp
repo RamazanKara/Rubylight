@@ -120,6 +120,8 @@ namespace {
     // Consecutive failed renders after which the renderer gives up, so the stream ends with an
     // error rather than sitting on a frozen picture
     constexpr int kFatalFailures = 10;
+    // Present reports Java hasn't collected yet; at 1 s between collections, well over a second of 240 fps
+    constexpr size_t kMaxPresentReports = 512;
     constexpr int kFatalFenceTimeouts = 3;
 
     void raiseThreadPriority(const char* name) {
@@ -1779,6 +1781,7 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
             // Counted when the present is reported, at the time it reached the screen
             pending.originNs = frame->originNs;
             pending.originSynced = frame->originSynced;
+            pending.hostPtsNs = frame->timing.hostPtsNs;
             frame->presentCounted = true;
         }
         if (pendingPresents_.size() > 256) {
@@ -1897,11 +1900,19 @@ void VulkanRenderer::collectPresentTimings() {
         }
         if (pending != pendingPresents_.end()) {
             // A frame replaced at its vsync never reached the screen
-            if (pending->second.originNs != 0 && !pending->second.replaced) {
+            if (!pending->second.replaced) {
                 std::lock_guard<std::mutex> lock(latencyMutex_);
-                countLatency(captureLatency_.presented,
-                             static_cast<int64_t>(t.actualPresentTime) - pending->second.originNs,
-                             pending->second.originSynced);
+                if (pending->second.originNs != 0) {
+                    countLatency(captureLatency_.presented,
+                                 static_cast<int64_t>(t.actualPresentTime) - pending->second.originNs,
+                                 pending->second.originSynced);
+                }
+                if (pending->second.hostPtsNs != 0) {
+                    presentReports_.push_back({pending->second.hostPtsNs, static_cast<int64_t>(t.actualPresentTime)});
+                    while (presentReports_.size() > kMaxPresentReports) {
+                        presentReports_.pop_front();
+                    }
+                }
             }
             pendingPresents_.erase(pending);
         }
@@ -1991,6 +2002,18 @@ VulkanRenderer::CaptureLatency VulkanRenderer::takeCaptureLatency() {
     CaptureLatency latency = captureLatency_;
     captureLatency_ = {};
     return latency;
+}
+
+size_t VulkanRenderer::takePresentReports(int64_t* out, size_t max) {
+    std::lock_guard<std::mutex> lock(latencyMutex_);
+    size_t n = 0;
+    while (n < max && !presentReports_.empty()) {
+        out[2 * n] = presentReports_.front().hostPtsNs;
+        out[2 * n + 1] = presentReports_.front().presentNs;
+        presentReports_.pop_front();
+        n++;
+    }
+    return n;
 }
 
 bool VulkanRenderer::ensureSwapchain() {

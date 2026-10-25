@@ -377,13 +377,18 @@
     <string name="summary_upscaling_sharpness" formatted="false">FSR/SGSR 锐化：0% 为关闭，100% 为最大；从下次串流开始生效，SGSR 重建始终启用。</string>
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">关闭（直接输出）</string>
-    <string name="title_gl_render">通过 OpenGL 渲染</string>
-    <string name="summary_gl_render">通过 OpenGL 发送视频，以便帧生成叠加层可以挂接。会改变帧节奏、增加延迟，延迟叠加层显示的数值也会减少。仅用于此类叠加层。</string>
-    <string name="upscaling_gl_only">OpenGL（不缩放）</string>
-    <string name="gl_render_fallback">OpenGL 渲染：直接输出。%1$s</string>
     <string name="title_vulkan_render">通过 Vulkan 渲染</string>
-    <string name="summary_vulkan_render">通过 Vulkan 显示视频，并使用其自带的帧节奏控制（H.264、HEVC 和 AV1）。需要 Android 10 或更高版本，并取代 OpenGL 渲染和超分辨率。实验性功能。</string>
-    <string name="vulkan_render_fallback">Vulkan 渲染：使用直接输出。渲染器无法启动。</string>
+    <string name="summary_vulkan_render">实验性功能。通过 Vulkan 显示视频，并使用其自带的帧节奏控制，适用于挂接 Vulkan 的帧生成叠加层。会增加一个渲染通道，因此延迟略有增加。需要 Android 10 或更高版本。PyroWave 不使用。开启期间超分辨率会关闭。</string>
+    <string name="vulkan_render_fallback">未使用 Vulkan 渲染。%1$s</string>
+    <string name="vulkan_reason_pyrowave">PyroWave 视频不使用它。</string>
+    <string name="vulkan_reason_api">它需要 Android 10 或更高版本。</string>
+    <string name="vulkan_reason_unsupported">此设备不支持它。</string>
+    <string name="vulkan_reason_packed">4:4:4 视频不使用它。</string>
+    <string name="vulkan_reason_start">渲染器无法启动。</string>
+    <string name="vulkan_overrides_upscaling">已开启 Vulkan 渲染，因此不使用超分辨率。</string>
+    <string name="upscaling_vulkan_short">Vulkan 渲染时关闭</string>
+    <string name="vulkan_renderer_failed">Vulkan 渲染器已停止工作：%1$s\n\n请在视频设置中关闭“通过 Vulkan 渲染”，然后重新开始串流。</string>
+    <string name="vulkan_failure_unknown">未知错误</string>
     <string name="upscaling_fallback">放大：直接输出。%1$s</string>
     <string name="upscaling_hdr">HDR/10 位视频保持直接输出，以保留色彩和精度。</string>
     <string name="upscaling_pyrowave">选择 FSR 或 SGSR 时，PyroWave 串流均在 GPU 上使用 SGSR。</string>

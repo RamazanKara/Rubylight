@@ -377,13 +377,18 @@
     <string name="summary_upscaling_sharpness" formatted="false">Повышение резкости FSR/SGSR: 0% — выкл., 100% — максимум; применяется со следующей трансляции, реконструкция SGSR всегда активна.</string>
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">Выкл. (прямой вывод)</string>
-    <string name="title_gl_render">Рендеринг через OpenGL</string>
-    <string name="summary_gl_render">Отправляет видео через OpenGL, чтобы оверлеи генерации кадров могли к нему подключиться. Меняет темп кадров, увеличивает задержку, а оверлей задержки показывает меньше значений. Используйте только для таких оверлеев.</string>
-    <string name="upscaling_gl_only">OpenGL (без масштабирования)</string>
-    <string name="gl_render_fallback">Рендеринг OpenGL: прямой вывод. %1$s</string>
     <string name="title_vulkan_render">Рендеринг через Vulkan</string>
-    <string name="summary_vulkan_render">Выводит видео через Vulkan с собственным управлением темпом кадров (H.264, HEVC и AV1). Требуется Android 10 или новее; заменяет рендеринг через OpenGL и масштабирование. Экспериментально.</string>
-    <string name="vulkan_render_fallback">Рендеринг Vulkan: прямой вывод. Не удалось запустить рендерер.</string>
+    <string name="summary_vulkan_render">Экспериментально. Выводит видео через Vulkan с собственным управлением темпом кадров, для оверлеев генерации кадров, которые подключаются к Vulkan. Добавляет проход рендеринга, поэтому задержка немного растёт. Требуется Android 10 или новее. С PyroWave не используется. Пока включено, масштабирование отключено.</string>
+    <string name="vulkan_render_fallback">Рендеринг через Vulkan не используется. %1$s</string>
+    <string name="vulkan_reason_pyrowave">Видео PyroWave его не использует.</string>
+    <string name="vulkan_reason_api">Требуется Android 10 или новее.</string>
+    <string name="vulkan_reason_unsupported">Это устройство его не поддерживает.</string>
+    <string name="vulkan_reason_packed">Видео 4:4:4 его не использует.</string>
+    <string name="vulkan_reason_start">Не удалось запустить рендерер.</string>
+    <string name="vulkan_overrides_upscaling">Рендеринг через Vulkan включён, поэтому масштабирование не используется.</string>
+    <string name="upscaling_vulkan_short">Отключено при рендеринге через Vulkan</string>
+    <string name="vulkan_renderer_failed">Рендерер Vulkan перестал работать: %1$s\n\nОтключите «Рендеринг через Vulkan» в настройках видео и запустите трансляцию заново.</string>
+    <string name="vulkan_failure_unknown">неизвестная ошибка</string>
     <string name="upscaling_fallback">Масштабирование: прямой вывод. %1$s</string>
     <string name="upscaling_hdr">Для HDR/10 бит используется прямой вывод, чтобы сохранить цвет и точность.</string>
     <string name="upscaling_pyrowave">Трансляции PyroWave используют SGSR на GPU как для FSR, так и для SGSR.</string>

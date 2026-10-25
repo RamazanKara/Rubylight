@@ -377,13 +377,18 @@
     <string name="summary_upscaling_sharpness" formatted="false">Nitidez do FSR/SGSR: 0% desativada, 100% máxima; vale na próxima transmissão, com a reconstrução SGSR sempre ativa.</string>
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">Desativado (saída direta)</string>
-    <string name="title_gl_render">Renderizar via OpenGL</string>
-    <string name="summary_gl_render">Envia o vídeo via OpenGL para que sobreposições de geração de quadros possam se conectar. Altera o ritmo dos quadros, adiciona latência e a sobreposição de latência mostra menos valores. Use só para essas sobreposições.</string>
-    <string name="upscaling_gl_only">OpenGL (sem escala)</string>
-    <string name="gl_render_fallback">Renderização OpenGL: saída direta. %1$s</string>
     <string name="title_vulkan_render">Renderizar com Vulkan</string>
-    <string name="summary_vulkan_render">Exibe o vídeo por meio do Vulkan, com ritmo de quadros próprio (H.264, HEVC e AV1). Requer Android 10 ou superior e substitui a renderização OpenGL e o upscaling. Experimental.</string>
-    <string name="vulkan_render_fallback">Renderização Vulkan: saída direta. Não foi possível iniciar o renderizador.</string>
+    <string name="summary_vulkan_render">Experimental. Exibe o vídeo por meio do Vulkan, com ritmo de quadros próprio, para overlays de geração de quadros que se conectam ao Vulkan. Adiciona uma etapa de renderização, então há um pouco mais de latência. Requer Android 10 ou superior. Não é usado com PyroWave. O upscaling fica desativado enquanto esta opção estiver ativa.</string>
+    <string name="vulkan_render_fallback">A renderização com Vulkan não está sendo usada. %1$s</string>
+    <string name="vulkan_reason_pyrowave">O vídeo PyroWave não o usa.</string>
+    <string name="vulkan_reason_api">Requer Android 10 ou superior.</string>
+    <string name="vulkan_reason_unsupported">Este dispositivo não o suporta.</string>
+    <string name="vulkan_reason_packed">O vídeo 4:4:4 não o usa.</string>
+    <string name="vulkan_reason_start">Não foi possível iniciar o renderizador.</string>
+    <string name="vulkan_overrides_upscaling">A renderização com Vulkan está ativada, então o upscaling não é usado.</string>
+    <string name="upscaling_vulkan_short">Desativado com a renderização Vulkan</string>
+    <string name="vulkan_renderer_failed">O renderizador Vulkan parou de funcionar: %1$s\n\nDesative “Renderizar com Vulkan” nas configurações de vídeo e inicie a transmissão novamente.</string>
+    <string name="vulkan_failure_unknown">erro desconhecido</string>
     <string name="upscaling_fallback">Upscaling: saída direta. %1$s</string>
     <string name="upscaling_hdr">HDR/10 bits mantém a saída direta para preservar cor e precisão.</string>
     <string name="upscaling_pyrowave">Transmissões PyroWave usam SGSR na GPU tanto para FSR quanto para SGSR.</string>

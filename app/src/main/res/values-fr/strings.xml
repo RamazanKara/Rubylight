@@ -377,13 +377,18 @@
     <string name="summary_upscaling_sharpness" formatted="false">Accentuation FSR/SGSR (0 % = désactivée, 100 % = maximale) ; s’applique au prochain stream, la reconstruction SGSR restant toujours active.</string>
     <string name="upscaling_sharpness_value">%1$d %%</string>
     <string name="upscaling_direct">Désactivée (sortie directe)</string>
-    <string name="title_gl_render">Rendu via OpenGL</string>
-    <string name="summary_gl_render">Envoie la vidéo via OpenGL pour que les surcouches de génération d’images puissent s’y brancher. Modifie le rythme des images, ajoute de la latence, et la surcouche de latence affiche moins de valeurs. À réserver à ces surcouches.</string>
-    <string name="upscaling_gl_only">OpenGL (sans mise à l’échelle)</string>
-    <string name="gl_render_fallback">Rendu OpenGL : sortie directe. %1$s</string>
     <string name="title_vulkan_render">Rendu via Vulkan</string>
-    <string name="summary_vulkan_render">Affiche la vidéo via Vulkan avec sa propre gestion du rythme des images (H.264, HEVC et AV1). Nécessite Android 10 ou version ultérieure et remplace le rendu OpenGL et la mise à l’échelle. Expérimental.</string>
-    <string name="vulkan_render_fallback">Rendu Vulkan : sortie directe. Le moteur de rendu n’a pas pu démarrer.</string>
+    <string name="summary_vulkan_render">Expérimental. Affiche la vidéo via Vulkan avec sa propre gestion du rythme des images, pour les surcouches de génération d’images qui s’accrochent à Vulkan. Ajoute une passe de rendu, donc un peu de latence. Nécessite Android 10 ou version ultérieure. Non utilisé avec PyroWave. La mise à l’échelle est désactivée tant que cette option est activée.</string>
+    <string name="vulkan_render_fallback">Le rendu Vulkan n’est pas utilisé. %1$s</string>
+    <string name="vulkan_reason_pyrowave">La vidéo PyroWave ne l’utilise pas.</string>
+    <string name="vulkan_reason_api">Il nécessite Android 10 ou version ultérieure.</string>
+    <string name="vulkan_reason_unsupported">Cet appareil ne le prend pas en charge.</string>
+    <string name="vulkan_reason_packed">La vidéo 4:4:4 ne l’utilise pas.</string>
+    <string name="vulkan_reason_start">Le moteur de rendu n’a pas pu démarrer.</string>
+    <string name="vulkan_overrides_upscaling">Le rendu Vulkan est activé, la mise à l’échelle n’est donc pas utilisée.</string>
+    <string name="upscaling_vulkan_short">Désactivée avec le rendu Vulkan</string>
+    <string name="vulkan_renderer_failed">Le moteur de rendu Vulkan a cessé de fonctionner : %1$s\n\nDésactivez « Rendu via Vulkan » dans les réglages vidéo, puis relancez le stream.</string>
+    <string name="vulkan_failure_unknown">erreur inconnue</string>
     <string name="upscaling_fallback">Mise à l’échelle : sortie directe. %1$s</string>
     <string name="upscaling_hdr">Le HDR/10 bits conserve la sortie directe pour préserver les couleurs et la précision.</string>
     <string name="upscaling_pyrowave">Les streams PyroWave utilisent SGSR sur le GPU pour FSR comme pour SGSR.</string>

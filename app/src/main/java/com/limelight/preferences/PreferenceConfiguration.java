@@ -144,7 +144,9 @@ public class PreferenceConfiguration {
     static final String CONTENT_RATE_FRAME_RATE_PREF_STRING = "checkbox_content_rate_frame_rate";
     static final String UPSCALING_PREF_STRING = "upscaling_mode";
     static final String UPSCALING_SHARPNESS_PREF_STRING = "upscaling_sharpness";
-    static final String GL_RENDER_PREF_STRING = "checkbox_gl_render";
+    // "Render through OpenGL" is gone. Its key is only read once, to move its users to Vulkan, and
+    // must not be reused for anything else.
+    static final String RETIRED_GL_RENDER_PREF_STRING = "checkbox_gl_render";
     static final String VULKAN_RENDER_PREF_STRING = "checkbox_vulkan_render";
 
     static final String DEFAULT_RESOLUTION = "1280x720";
@@ -303,7 +305,6 @@ public class PreferenceConfiguration {
     public UpscalingPolicy.Mode upscalingMode = UpscalingPolicy.Mode.OFF;
     public int upscalingSharpness = 50;
     // Present MediaCodec frames through the GLES path even when nothing is upscaled.
-    public boolean glRender;
     // Present MediaCodec frames through the native Vulkan renderer, which paces them itself.
     public boolean vulkanRender;
 
@@ -944,6 +945,23 @@ public class PreferenceConfiguration {
         if (editor != null) editor.apply();
     }
 
+    /**
+     * "Render through OpenGL" is removed. A user who had it on gets "Render through Vulkan", the
+     * setting that replaced it for frame-generation overlays, unless they already chose a value
+     * for that. The old key is dropped either way.
+     *
+     * @return whether Vulkan was switched on
+     */
+    static boolean migrateRetiredGlRender(SharedPreferences prefs) {
+        if (!prefs.contains(RETIRED_GL_RENDER_PREF_STRING)) return false;
+        boolean switchOn = prefs.getBoolean(RETIRED_GL_RENDER_PREF_STRING, false) &&
+                !prefs.contains(VULKAN_RENDER_PREF_STRING);
+        SharedPreferences.Editor editor = prefs.edit().remove(RETIRED_GL_RENDER_PREF_STRING);
+        if (switchOn) editor.putBoolean(VULKAN_RENDER_PREF_STRING, true);
+        editor.apply();
+        return switchOn;
+    }
+
     /** Automatic bitrate's minimum and maximum are gone; their saved values must not linger. */
     static void dropAutoBitrateLimits(SharedPreferences prefs) {
         SharedPreferences.Editor editor = null;
@@ -964,6 +982,9 @@ public class PreferenceConfiguration {
 
         // Migrate legacy preferences to the new locations
         migrateOverlayMode(prefs);
+        if (migrateRetiredGlRender(prefs)) {
+            com.limelight.LimeLog.info("\"Render through OpenGL\" was on; it is now \"Render through Vulkan\"");
+        }
         if (migrateRustEngineDefault(prefs)) {
             com.limelight.LimeLog.info("New streaming engine switched to its new default: on");
         }
@@ -1204,7 +1225,6 @@ public class PreferenceConfiguration {
         config.vrr = prefs.getBoolean(VRR_PREF_STRING, false);
         config.upscalingMode = UpscalingPolicy.Mode.fromPreference(prefs.getString(UPSCALING_PREF_STRING, "off"));
         config.upscalingSharpness = Math.max(0, Math.min(100, prefs.getInt(UPSCALING_SHARPNESS_PREF_STRING, 50)));
-        config.glRender = prefs.getBoolean(GL_RENDER_PREF_STRING, false);
         config.vulkanRender = prefs.getBoolean(VULKAN_RENDER_PREF_STRING, false);
         if (config.vrr) {
             // VRR streams arrive at the game's own cadence: show each frame as soon as it is

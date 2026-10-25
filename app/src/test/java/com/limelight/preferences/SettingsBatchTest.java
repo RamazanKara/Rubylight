@@ -297,11 +297,11 @@ public class SettingsBatchTest {
     }
 
     @Test
-    public void glRenderingAndFullRangeMoveToAdvancedAndKeepTheirValues() {
+    public void vulkanRenderingAndFullRangeMoveToAdvancedAndKeepTheirValues() {
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
             PreferenceScreen display = section(controller, "display");
             PreferenceScreen advanced = section(controller, "advanced");
-            for (String key : new String[] {"checkbox_gl_render", "checkbox_full_range"}) {
+            for (String key : new String[] {"checkbox_vulkan_render", "checkbox_full_range"}) {
                 assertNull(key, display.findPreference(key));
                 assertNotNull(key, advanced.findPreference(key));
                 assertEquals("category_advanced_decoder", groupOf(advanced, key).getKey());

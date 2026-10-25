@@ -20,6 +20,16 @@ const option = (name, fallback) => { const i = args.indexOf('--' + name); return
 const ALL_LEGS = ['pair', 'apps', 'browser', 'av1', 'hevc', 'surround51', 'surround71'];
 const legs = option('legs', ALL_LEGS.join(',')).split(',');
 const seconds = Number(option('seconds', 60));
+// `--runs 3` repeats every streaming leg; `--system` starts the test host as SYSTEM in the console
+// session (the virtual display driver accepts nothing else); `--host-config a=b,c=d` adds lines to
+// the test host's sunshine.conf, so one invocation measures one host configuration.
+const runs = Number(option('runs', 1));
+const system = args.includes('--system');
+const hostConfig = Object.fromEntries(option('host-config', '').split(',').filter(Boolean).map(pair => {
+  const at = pair.indexOf('=');
+  assert(at > 0, `--host-config wants key=value pairs, not "${pair}"`);
+  return [pair.slice(0, at), pair.slice(at + 1)];
+}));
 const WEB_PORT = 48570, STATIC_PORT = 48571;
 const client = path.join(__dirname, 'webrtc_client');
 const script = name => fs.readFileSync(path.join(client, name), 'utf8');
@@ -299,16 +309,67 @@ function recoverFromEarlierRun() {
   return notes;
 }
 
+const FFPROBE = process.env.BUTTERPOLLO_TEST_FFPROBE || 'ffprobe';
+
+// What the host's bitstream says about itself, read by ffprobe from the encoded frames the client
+// kept: the proof that HDR is in the stream and not only in the host's settings. AV1 frames come
+// off the wire without temporal delimiters, which the OBU demuxer wants in front of every unit.
+function probeBitstream(codec, base64, name, sizes) {
+  let data = Buffer.from(base64, 'base64');
+  if (codec === 'av1') {
+    const units = [];
+    let at = 0;
+    for (const size of sizes) { units.push(Buffer.from([0x12, 0x00]), data.subarray(at, at + size)); at += size; }
+    data = Buffer.concat(units);
+  }
+  const format = {av1: 'obu', hevc: 'hevc', h264: 'h264'}[codec];
+  const file = path.join(output, `${name}.${format}`);
+  fs.writeFileSync(file, data);
+  const out = JSON.parse(execFileSync(FFPROBE, ['-v', 'error', '-f', format, '-print_format', 'json',
+    '-show_streams', '-show_frames', '-select_streams', 'v:0', file], {encoding: 'utf8', maxBuffer: 1 << 28}));
+  const stream = out.streams?.[0] || {};
+  const sideData = [...new Set((out.frames || []).flatMap(f => (f.side_data_list || []).map(s => s.side_data_type)))];
+  return {file, codec: stream.codec_name, profile: stream.profile, pixFmt: stream.pix_fmt, bitsPerRawSample: stream.bits_per_raw_sample,
+    colorRange: stream.color_range, colorSpace: stream.color_space, colorTransfer: stream.color_transfer, colorPrimaries: stream.color_primaries,
+    size: `${stream.width}x${stream.height}`, frames: (out.frames || []).length, sideData};
+}
+
+// An HDR10 stream: 10-bit, BT.2020, PQ and the mastering display metadata. Content light levels
+// (MaxCLL, MaxFALL) are 0 from a virtual display, which knows neither, and are not sent; the host
+// log's `max_cll` says so.
+function hdrProblems(bitstream, configured) {
+  const problems = [];
+  if (!/10/.test(`${bitstream.pixFmt} ${bitstream.bitsPerRawSample}`)) problems.push(`not 10-bit (${bitstream.pixFmt})`);
+  if (bitstream.colorPrimaries !== 'bt2020') problems.push(`primaries ${bitstream.colorPrimaries}`);
+  if (bitstream.colorTransfer !== 'smpte2084') problems.push(`transfer ${bitstream.colorTransfer}`);
+  if (!/bt2020/.test(bitstream.colorSpace || '')) problems.push(`matrix ${bitstream.colorSpace}`);
+  if (!bitstream.sideData.some(s => /Mastering display/.test(s))) problems.push('no mastering display metadata');
+  if (String(configured?.hdr) !== 'true' || String(configured?.ten_bit) !== 'true') problems.push(`host log says hdr=${configured?.hdr} ten_bit=${configured?.ten_bit}`);
+  return problems;
+}
+
+// The monitors Windows has right now: a virtual display that outlives its stream shows up here.
+function monitorCount() {
+  return Number(execFileSync('powershell.exe', ['-NoProfile', '-Command',
+    'Add-Type -AssemblyName System.Windows.Forms; [Windows.Forms.Screen]::AllScreens.Count'], {encoding: 'utf8'}).trim());
+}
+
 // Our protocol v2 client (rust/tests/webrtc_client/client.js) streams with a
-// forced codec and channel count; the browser is Edge, or Chrome with the
+// forced codec, mode and channel count; the browser is Edge, or Chrome with the
 // H.265 receive flag for HEVC. `check` runs against the connected page.
-async function ourSession(host, {codec, channels = 2, kind = 'edge', browserArgs = []}) {
+// `clock: false` leaves the glass-to-glass clock out (the capture is not the display the clock
+// sits on), `tone: false` skips the audio check, `keyframeMs` asks the host for a keyframe at that
+// interval, `bitstream` keeps encoded frames for ffprobe and `refused` expects the host to end the
+// session instead of streaming.
+async function ourSession(host, {codec, channels = 2, kind = 'edge', browserArgs = [], width = 1920, height = 1080, fps = 60, bitrateKbps = 30000,
+  hdr = false, clock: useClock = true, tone: useTone = true, keyframeMs = 0, bitstream = false, refused = false}) {
   const credentials = storedCredentials(host);
   assert(credentials, 'run the pair leg first');
   await host.grantAll();
-  const result = {codec, channels, browser: kind};
+  const result = {codec, channels, browser: kind, mode: `${width}x${height}@${fps}`, bitrateKbps, hdr};
   const staticServer = await support.startStatic(STATIC_PORT);
   let clock, session, tone, sinkRestore, forgetSink, forgetTone;
+  const monitorsBefore = hdr ? monitorCount() : null;
   try {
     session = await launchClient(kind, browserArgs);
     const page = await session.context.newPage();
@@ -340,31 +401,51 @@ async function ourSession(host, {codec, channels = 2, kind = 'edge', browserArgs
           return result;
         }
       }
-      clock = await openClock();
+      if (useClock) clock = await openClock();
       const offset = fs.statSync(host.log).size;
       const t0 = Date.now();
-      const started = await page.evaluate(options => RlClient.start(options), {
-        url: signalling(host), clientId: credentials.clientId, secret: credentials.clientSecret,
-        codec, channels, width: 1920, height: 1080, fps: 60, bitrateKbps: 30000});
+      const options = {url: signalling(host), clientId: credentials.clientId, secret: credentials.clientSecret,
+        codec, channels, width, height, fps, bitrateKbps, hdr, dumpVideo: bitstream ? 40 : 0};
+      if (refused) return await refusedSession(host, page, result, options, offset);
+      const started = await page.evaluate(options => RlClient.start(options), options);
       result.startMs = Date.now() - t0;
       Object.assign(result, started);
       await page.waitForFunction(async () => ((await RlProbe.sample()).video || {}).framesDecoded > 30, null, {timeout: 30000, polling: 500});
-      await page.evaluate(() => { RlProbe.collect(1000); RlProbe.startG2g(document.getElementById('video')); });
-      tone = spawn(TONE_EXE, [String(seconds + 30)], {stdio: 'ignore', windowsHide: true});
-      forgetTone = onExit(() => killTree(tone.pid));
+      await page.evaluate(clocked => { RlProbe.collect(1000); if (clocked) RlProbe.startG2g(document.getElementById('video')); }, useClock);
+      if (useTone) {
+        tone = spawn(TONE_EXE, [String(seconds + 30)], {stdio: 'ignore', windowsHide: true});
+        forgetTone = onExit(() => killTree(tone.pid));
+      }
       await wait(4000);
       const first = await page.evaluate(() => RlProbe.sample());
       await page.evaluate(() => { RlProbe.g2g.length = 0; RlProbe.g2gRejected = 0; });
-      pinClock(clock);
+      if (keyframeMs) await page.evaluate(ms => RlClient.requestKeyframes(ms), keyframeMs);
+      if (clock) pinClock(clock);
       await wait(seconds * 1000 - 4000);
-      result.check = await toneCheck(page, channels);
-      await saveFrame(page, `${codec}-${channels}ch`);
+      if (useTone) result.check = await toneCheck(page, channels);
+      await saveFrame(page, `${codec}-${width}x${height}-${fps}${hdr ? '-hdr' : ''}-${channels}ch`);
       const last = await page.evaluate(() => RlProbe.sample());
       const g2g = await page.evaluate(() => RlProbe.g2gSummary());
+      if (keyframeMs) result.keyframeRequests = await page.evaluate(() => RlClient.stopKeyframes());
       Object.assign(result, streamResult({first, last, g2g, host, offset, extra: {pageErrors}}));
       result.offers = await page.evaluate(() => ({offer: RlClient.offerSdp.split(/\r?\n/).filter(l => /^a=(rtpmap|fmtp):/.test(l)), answer: RlClient.answerSdp.split(/\r?\n/).filter(l => /^a=(rtpmap|fmtp):/.test(l))}));
-      const good = result.video.codec === MIME[codec] && result.video.decodedOverReceived > .98 && g2g.samples >= 50 && result.check.status === 'passed';
-      result.status = good ? 'passed' : 'failed';
+      const problems = [];
+      if (result.video.codec !== MIME[codec]) problems.push(`codec ${result.video.codec}`);
+      if (!(result.video.decodedOverReceived > .98)) problems.push(`decoded ${result.video.decodedOverReceived} of the frames received`);
+      if (result.video.size !== `${width}x${height}`) problems.push(`size ${result.video.size}`);
+      if (useClock && g2g.samples < 50) problems.push(`${g2g.samples} glass-to-glass samples`);
+      if (useTone && result.check.status !== 'passed') problems.push('audio check');
+      if (bitstream) {
+        const dump = await page.evaluate(() => RlClient.videoDump());
+        result.dump = {frames: dump.frames, keyFrames: dump.keyFrames};
+        const configured = support.fields(support.hostLog(host.log, offset).text.split(/\r?\n/).find(l => l.includes('stream configured')) || '');
+        result.streamConfigured = {hdr: configured.hdr, ten_bit: configured.ten_bit, full_range: configured.full_range, color_matrix: configured.color_matrix,
+          codec: configured.codec, width: configured.width, height: configured.height, fps: configured.fps, encoder: configured.encoder, source_pixel: configured.source_pixel};
+        result.bitstream = probeBitstream(codec, dump.base64, `bitstream-${codec}${hdr ? "-hdr" : ""}-${width}x${height}`, dump.sizes);
+        if (hdr) problems.push(...hdrProblems(result.bitstream, configured));
+      }
+      if (problems.length) result.problems = problems;
+      result.status = problems.length ? 'failed' : 'passed';
       // Stop the stream and the app, then wait for the host to go idle.
       const stopped = Date.now();
       await page.evaluate(() => RlClient.stop());
@@ -386,7 +467,40 @@ async function ourSession(host, {codec, channels = 2, kind = 'edge', browserArgs
     await clock?.browser.close().catch(() => {});
     session?.forget(); clock?.forget();
     staticServer.stop();
+    if (monitorsBefore !== null) {
+      // The virtual display goes with its session; a monitor left behind is a failure of the leg.
+      for (let i = 0; i < 40 && monitorCount() > monitorsBefore; i++) await wait(500);
+      result.monitorsBefore = monitorsBefore; result.monitorsAfter = monitorCount();
+      if (result.monitorsAfter > monitorsBefore) { result.status = 'failed'; (result.problems ||= []).push('the virtual display outlived its session'); }
+    }
   }
+  return result;
+}
+
+// `hdr: true` on a display that is not in HDR: the host must say so and end the session, never
+// stream SDR as HDR. The leg passes when no video arrives and the host log names the refusal.
+async function refusedSession(host, page, result, options, offset) {
+  const started = Date.now();
+  result.outcome = await page.evaluate(options => RlClient.start(options).then(() => 'connected', e => String(e.message || e)), options);
+  let log;
+  for (let i = 0; i < 40; i++) {
+    log = support.hostLog(host.log, offset);
+    if (/HDR was requested but the display is not in HDR/.test(log.text)) break;
+    await wait(500);
+  }
+  result.framesDecoded = await page.evaluate(async () => ((await RlProbe.sample().catch(() => ({}))).video || {}).framesDecoded || 0);
+  result.hostRefusal = (log.text.split(/\r?\n/).find(l => /HDR was requested/.test(l)) || '').replace(/^.*?(HDR was requested)/, '$1');
+  result.states = await page.evaluate(() => RlClient.states.map(s => `${s.state}: ${s.message || ''}`));
+  await page.evaluate(() => RlClient.stop()).catch(() => {});
+  for (let i = 0; i < 50 && !idle(await serverinfo(host)); i++) await wait(200);
+  result.stoppedIdle = idle(await serverinfo(host));
+  const problems = [];
+  if (!result.hostRefusal) problems.push('the host log has no HDR refusal');
+  if (result.framesDecoded > 0) problems.push(`${result.framesDecoded} frames were decoded`);
+  if (!result.stoppedIdle) problems.push('the host is not idle afterwards');
+  if (problems.length) result.problems = problems;
+  result.status = problems.length ? 'failed' : 'passed';
+  result.seconds = (Date.now() - started) / 1000;
   return result;
 }
 
@@ -436,34 +550,57 @@ async function surroundCheck(page, channels, tracks, playout) {
     windows: windows.length, channels: verdict, playout: playout.map(v => ({channel: v.channel, peaks: v.peaks, isolationDb: v.isolationDb})), trackSettings: tracks};
 }
 
+const H265_RECEIVE = ['--enable-features=WebRtcAllowH265Receive'];
 const ourLegs = {
   av1: {codec: 'av1'},
-  hevc: {codec: 'hevc', kind: 'chrome', browserArgs: ['--enable-features=WebRtcAllowH265Receive']},
+  hevc: {codec: 'hevc', kind: 'chrome', browserArgs: H265_RECEIVE},
   surround51: {codec: 'h264', channels: 6},
   surround71: {codec: 'h264', channels: 8},
+  // B5b measurements (docs/webrtc-design.md, rust/PERFORMANCE.md). The 1080p legs keep the clock
+  // and the tone; 4K and the frame rates above 60 are measured on the same capture.
+  h264: {codec: 'h264'},
+  'hevc-4k-idr': {codec: 'hevc', kind: 'chrome', browserArgs: H265_RECEIVE, width: 3840, height: 2160, bitrateKbps: 50000, keyframeMs: 500, tone: false},
+  'av1-4k-idr': {codec: 'av1', width: 3840, height: 2160, bitrateKbps: 50000, keyframeMs: 500, tone: false},
+  'h264-90': {codec: 'h264', fps: 90},
+  'h264-120': {codec: 'h264', fps: 120},
+  'av1-90': {codec: 'av1', fps: 90},
+  'av1-120': {codec: 'av1', fps: 120},
+  // The same 4K on the virtual display in SDR, to tell the display's cost from HDR's.
+  'av1-4k-vd': {codec: 'av1', width: 3840, height: 2160, bitrateKbps: 50000, clock: false, tone: false},
+  // HDR needs a virtual display that is in HDR (--system with virtual_display_mode and
+  // dd_hdr_option=auto); the clock sits on the physical monitor, so these have no glass-to-glass.
+  'hevc-hdr-4k': {codec: 'hevc', kind: 'chrome', browserArgs: H265_RECEIVE, width: 3840, height: 2160, bitrateKbps: 50000, hdr: true, clock: false, tone: false, bitstream: true},
+  'av1-hdr-4k': {codec: 'av1', width: 3840, height: 2160, bitrateKbps: 50000, hdr: true, clock: false, tone: false, bitstream: true},
+  // With dd_hdr_option=disabled the virtual display is SDR, and the host must refuse hdr:true.
+  'hdr-refused': {codec: 'hevc', kind: 'chrome', browserArgs: H265_RECEIVE, width: 3840, height: 2160, bitrateKbps: 50000, hdr: true, clock: false, tone: false, refused: true},
 };
 
 (async () => {
   fs.mkdirSync(output, {recursive: true});
   await hostSupport.assertRealHostIdle();
   ctx.notes.push(...recoverFromEarlierRun());
-  const settings = hostSupport.prepare();
+  const settings = hostSupport.prepare({system}, {config: hostConfig});
+  if (Object.keys(hostConfig).length) ctx.notes.push(`host config: ${JSON.stringify(hostConfig)}${system ? ', as SYSTEM' : ''}`);
   const host = new hostSupport.TestHost(settings);
   const forgetHost = onExit(() => host.kill());
   let failed = false;
   try {
     await host.start();
     for (const name of legs) {
-      const started = Date.now();
-      try {
-        if (name === 'browser') Object.assign(ctx.results, await browserSession(host));
-        else if (ourLegs[name]) ctx.results[name] = await ourSession(host, ourLegs[name]);
-        else ctx.results[name] = {status: 'passed', ...await legImplementations[name](host, ctx)};
-      } catch (error) {
-        ctx.results[name] = {status: 'failed', error: String(error && error.stack || error)};
+      for (let run = 1; run <= (ourLegs[name] ? runs : 1); run++) {
+        const key = run === 1 ? name : `${name}#${run}`;
+        const started = Date.now();
+        try {
+          if (name === 'browser') Object.assign(ctx.results, await browserSession(host));
+          else if (ourLegs[name]) ctx.results[key] = await ourSession(host, ourLegs[name]);
+          else ctx.results[name] = {status: 'passed', ...await legImplementations[name](host, ctx)};
+        } catch (error) {
+          ctx.results[key] = {status: 'failed', error: String(error && error.stack || error)};
+        }
+        for (const result of Object.values(ctx.results)) { if (!['passed', 'not-established'].includes(result.status)) failed = true; result.seconds ??= (Date.now() - started) / 1000; }
+        console.log(key, Object.entries(ctx.results).map(([k, v]) => `${k}:${v.status}`).join(' '));
+        if (failed && ctx.results[key]?.status === 'failed' && /exit 3|encoder hang/i.test(JSON.stringify(ctx.results[key]))) throw new Error('an encoder hang: stopping, never retrying');
       }
-      for (const result of Object.values(ctx.results)) { if (!['passed', 'not-established'].includes(result.status)) failed = true; result.seconds ??= (Date.now() - started) / 1000; }
-      console.log(name, Object.entries(ctx.results).map(([k, v]) => `${k}:${v.status}`).join(' '));
     }
   } finally {
     await host.stop();

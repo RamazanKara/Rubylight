@@ -17,7 +17,7 @@
     // Signs in, starts a session and answers the host's offer; resolves once
     // the peer connection is connected. `options`: url, clientId, secret,
     // appId (default: the first app), codec, width, height, fps,
-    // bitrateKbps, channels, hdr.
+    // bitrateKbps, channels, hdr, dumpVideo (how many encoded frames to keep for ffprobe).
     async start(options) {
       const o = {width: 1920, height: 1080, fps: 60, bitrateKbps: 30000, channels: 2, hdr: false, codec: 'h264', ...options};
       const sig = this.sig = new root.RlSignalling.Signalling(o.url);
@@ -51,6 +51,7 @@
             video.srcObject = event.streams[0] || new MediaStream([event.track]);
             // The host sends frames the moment they exist: no playout delay, like the reference client.
             try { event.receiver.jitterBufferTarget = 0; } catch {}
+            if (o.dumpVideo) this.keepVideoFrames(event.receiver, o.dumpVideo);
           }
           if (event.track.kind === 'audio' && SURROUND[o.channels]) this.decodeAudio(event.receiver, o.channels);
           if (seen.video && seen.audio) resolve(seen);
@@ -102,6 +103,36 @@
       }
       return {sessionId: this.sessionId, hasVideo: !!this.tracks.video, hasAudio: !!this.tracks.audio};
     }
+
+    /** The first `count` encoded video frames, kept for `videoDump()`. */
+    keepVideoFrames(receiver, count) {
+      this.videoFrames = [];
+      const worker = new Worker('video_frames.js');
+      worker.onmessage = ({data}) => { if (data.type === 'frame') this.videoFrames.push({key: data.key, data: new Uint8Array(data.data)}); };
+      receiver.transform = new RTCRtpScriptTransform(worker, {frames: count});
+    }
+
+    /** The kept frames, one after the other, as base64 (Annex B for H.264 and HEVC, OBUs for AV1). */
+    async videoDump() {
+      const frames = this.videoFrames || [];
+      const url = await new Promise(resolve => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.readAsDataURL(new Blob(frames.map(f => f.data)));
+      });
+      return {frames: frames.length, keyFrames: frames.filter(f => f.key).length, sizes: frames.map(f => f.data.length), base64: url.split(',')[1] || ''};
+    }
+
+    /** Asks for a keyframe on the control channel every `ms` until `stopKeyframes()`: the recovery a
+     * client with losses would trigger, at a rate that keeps the pacer's burst handling in use. */
+    requestKeyframes(ms) {
+      this.keyframeRequests = 0;
+      this.keyframeTimer = setInterval(() => {
+        const channel = this.channels.control;
+        if (channel && channel.readyState === 'open') { channel.send('{"type":"request-keyframe"}'); this.keyframeRequests++; }
+      }, ms);
+    }
+    stopKeyframes() { clearInterval(this.keyframeTimer); return this.keyframeRequests || 0; }
 
     /** The encoded surround packets, decoded in a worker with the mapping this client answered. */
     decodeAudio(receiver, channels) {

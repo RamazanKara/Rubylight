@@ -7,6 +7,7 @@ const https = require('node:https');
 const http = require('node:http');
 const path = require('node:path');
 const {spawn, execFileSync} = require('node:child_process');
+const support = require('./support.cjs');
 
 const REAL_SERVERINFO = 'http://127.0.0.1:47989/serverinfo';
 const REAL_LOG = 'C:\\ProgramData\\Butterpollo\\config\\logs\\butterpollo.log';
@@ -42,6 +43,16 @@ const defaults = {
   // The release build, its codec libraries and the console assets.
   binary: process.env.BUTTERPOLLO_TEST_BINARY || 'C:\\src\\butterpollo-release\\wr\\target\\release\\butterpollo.exe',
   package: process.env.BUTTERPOLLO_TEST_PACKAGE || 'C:\\src\\butterpollo-release\\dc\\pkg',
+  // Starts the test host as SYSTEM in the console session (`system: true`), which the virtual
+  // display driver requires. An example of butterpollo-windows.
+  launcher: process.env.BUTTERPOLLO_TEST_LAUNCHER || 'C:\\src\\butterpollo-release\\wr\\target\\release\\examples\\system_launch.exe',
+  task: 'RubylightWebrtcE2eHost',
+  // The elevation helper: an on-demand task registered for the user with highest privileges
+  // (rust/release/elevation.ps1 registers the release one). Its script is copied from
+  // elevated_tasks.ps1 before each request.
+  elevatedTask: 'ButterpolloRenameTest',
+  elevatedScript: 'C:\\src\\butterpollo-release\\rename-test\\test.ps1',
+  elevateDir: 'C:\\src\\butterpollo-release\\wr\\elevate',
   port: 48140, webrtcPort: 48545, mediaPort: 48546,
 };
 
@@ -83,10 +94,50 @@ function prepare(options = {}, {config = {}} = {}) {
   return {...o, ...harness};
 }
 
+const isAdmin = () => { try { execFileSync('net', ['session'], {stdio: 'ignore'}); return true; } catch { return false; } };
+const pause = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+// Runs steps that need administrator rights: directly in an elevated shell, otherwise through the
+// elevation task, whose script (elevated_tasks.ps1) accepts only this harness's own task and
+// staging directory. A step is {args: [...schtasks arguments]} or {kill: true}; a failing step
+// throws unless it is `optional`. Synchronous, because the exit handlers use it.
+function elevate(o, steps) {
+  const results = [];
+  if (isAdmin()) {
+    for (const step of steps) {
+      if (step.kill) { support.killLeftovers({hostDir: o.staging, toneExe: '', webPort: 0}); results.push({exit: 0, output: ''}); continue; }
+      try { results.push({exit: 0, output: execFileSync('schtasks', step.args, {encoding: 'utf8', stdio: 'pipe'})}); }
+      catch (error) { results.push({exit: error.status ?? 1, output: String(error.stdout || error.message)}); }
+    }
+  } else {
+    fs.mkdirSync(o.elevateDir, {recursive: true});
+    fs.mkdirSync(path.dirname(o.elevatedScript), {recursive: true});
+    fs.copyFileSync(path.join(__dirname, 'elevated_tasks.ps1'), o.elevatedScript);
+    const id = crypto.randomBytes(8).toString('hex');
+    fs.rmSync(path.join(o.elevateDir, 'result.json'), {force: true});
+    fs.writeFileSync(path.join(o.elevateDir, 'request.json'), JSON.stringify({id, steps}));
+    execFileSync('schtasks', ['/Run', '/TN', o.elevatedTask], {stdio: 'pipe'});
+    const deadline = Date.now() + 90000;
+    for (;;) {
+      try {
+        const done = JSON.parse(fs.readFileSync(path.join(o.elevateDir, 'result.json'), 'utf8').replace(/^\uFEFF/, ''));
+        if (done.id === id) { results.push(...[].concat(done.results)); break; }
+      } catch {}
+      if (Date.now() > deadline) throw new Error(`the elevation task ${o.elevatedTask} did not answer in 90 s`);
+      pause(250);
+    }
+  }
+  steps.forEach((step, i) => {
+    if (!step.optional && results[i]?.exit !== 0) throw new Error(`${step.kill ? 'kill' : 'schtasks ' + step.args.join(' ')} failed (${results[i]?.exit}): ${results[i]?.output}`);
+  });
+  return results;
+}
+
 function stage(o) {
   fs.mkdirSync(o.staging, {recursive: true});
   fs.copyFileSync(o.binary, path.join(o.staging, 'butterpollo.exe'));
   for (const name of fs.readdirSync(o.package)) if (name.endsWith('.dll')) fs.copyFileSync(path.join(o.package, name), path.join(o.staging, name));
+  if (o.system) fs.copyFileSync(o.launcher, path.join(o.staging, 'system_launch.exe'));
   return path.join(o.staging, 'butterpollo.exe');
 }
 
@@ -95,32 +146,69 @@ class TestHost {
   get log() { return path.join(this.o.root, 'logs', 'butterpollo.log'); }
   readLog() { return fs.existsSync(this.log) ? fs.readFileSync(this.log, 'utf8') : ''; }
 
+  // Whether the host is still running: its own process, or for a SYSTEM host the task's.
+  alive() {
+    if (this.o.system) return this.started && !this.gone;
+    return this.child.exitCode === null;
+  }
+
   async start() {
     const exe = stage(this.o);
     fs.writeFileSync(this.log, '');
-    this.child = spawn(exe, ['--config-dir', this.o.root, '--assets', path.join(this.o.package, 'assets', 'web'),
-      '--port', String(this.o.port), '--bind', '127.0.0.1', '--no-tray'], {
-      env: {...process.env, RUST_LOG: process.env.BUTTERPOLLO_E2E_RUST_LOG || 'info', NO_PROXY: '*', PATH: `${path.dirname(exe)};${process.env.PATH}`},
-      stdio: 'ignore', windowsHide: true});
-    this.exited = new Promise(resolve => this.child.on('exit', code => resolve(code)));
+    const args = ['--config-dir', this.o.root, '--assets', path.join(this.o.package, 'assets', 'web'),
+      '--port', String(this.o.port), '--bind', '127.0.0.1', '--no-tray'];
+    if (this.o.system) {
+      // The virtual display driver accepts only SYSTEM, and a task runs in session 0: the launcher
+      // starts the host as SYSTEM in the console session. The task is deleted in `stop`.
+      const command = [path.join(this.o.staging, 'system_launch.exe'), exe, ...args].join(' ');
+      if (command.length > 261) throw new Error(`the task command line is ${command.length} characters; schtasks takes 261`);
+      this.started = true;
+      elevate(this.o, [
+        {args: ['/End', '/TN', this.o.task], optional: true}, {args: ['/Delete', '/TN', this.o.task, '/F'], optional: true},
+        {args: ['/Create', '/TN', this.o.task, '/TR', command, '/SC', 'ONCE', '/ST', '23:59', '/RU', 'SYSTEM', '/RL', 'HIGHEST', '/F']},
+        {args: ['/Run', '/TN', this.o.task]}]);
+    } else {
+      this.child = spawn(exe, args, {
+        env: {...process.env, RUST_LOG: process.env.BUTTERPOLLO_E2E_RUST_LOG || 'info', NO_PROXY: '*', PATH: `${path.dirname(exe)};${process.env.PATH}`},
+        stdio: 'ignore', windowsHide: true});
+      this.exited = new Promise(resolve => this.child.on('exit', code => resolve(code)));
+    }
     const deadline = Date.now() + 60000;
     while (!/encoder capability probe completed/.test(this.readLog())) {
-      if (this.child.exitCode !== null) throw new Error(`the test host exited with ${this.child.exitCode}`);
+      if (!this.alive()) throw new Error(`the test host exited with ${this.child ? this.child.exitCode : 'its task'}`);
       if (Date.now() > deadline) throw new Error('the test host did not become ready');
       await new Promise(r => setTimeout(r, 250));
     }
     await this.login();
   }
 
+  // Ends and deletes the SYSTEM task and stops what it left running.
+  cleanTask() {
+    elevate(this.o, [{args: ['/End', '/TN', this.o.task], optional: true}, {args: ['/Delete', '/TN', this.o.task, '/F'], optional: true}, {kill: true, optional: true}]);
+  }
+
   async stop() {
+    if (this.o.system) {
+      if (!this.started || this.gone) return;
+      try { await this.api('POST', '/api/quit', {}); } catch {}
+      await new Promise(r => setTimeout(r, 6000));
+      this.kill();
+      return;
+    }
     if (!this.child || this.child.exitCode !== null) return;
     try { await this.api('POST', '/api/quit', {}); } catch {}
     const code = await Promise.race([this.exited, new Promise(r => setTimeout(() => r(null), 8000))]);
     if (code === null) this.kill();
   }
 
-  // Synchronous, for the exit handlers.
+  // Synchronous, for the exit handlers. A SYSTEM host is stopped with its task and whatever it
+  // left running from the staging directory.
   kill() {
+    if (this.o.system) {
+      this.gone = true;
+      try { this.cleanTask(); } catch (error) { console.error(`could not clean up the SYSTEM task: ${error.message}`); }
+      return;
+    }
     if (!this.child || this.child.exitCode !== null) return;
     try { execFileSync('taskkill', ['/PID', String(this.child.pid), '/T', '/F'], {stdio: 'ignore'}); } catch {}
   }

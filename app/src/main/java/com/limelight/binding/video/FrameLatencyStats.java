@@ -387,6 +387,18 @@ class FrameLatencyStats {
         }
     }
 
+    /**
+     * The renderer dropped or replaced a frame it was given, so it never reached the screen:
+     * counted as a present drop now, instead of when its report fails to arrive.
+     */
+    synchronized void onFrameReplaced(long ptsUs) {
+        Frame frame = pending.get(ptsUs);
+        if (frame != null) {
+            if (frame.awaitingRender) presentDrops++;
+            finish(frame, "replaced");
+        }
+    }
+
     synchronized void discard(long ptsUs, String reason) {
         Frame frame = pending.get(ptsUs);
         if (frame != null) {

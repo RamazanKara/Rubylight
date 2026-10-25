@@ -247,6 +247,32 @@ public class FrameLatencyStatsTest {
     }
 
     @Test
+    public void aFrameTheRendererReplacedCountsAsADropAtOnceAndOnlyOnce() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        stats.onDecoderInput(1, 123, 1000000, 1500000, 2000000, (char) 0);
+        stats.onDecoderOutput(0, 123, 3000000);
+        stats.onOutputReleased(0, 4000000, true, true);
+        stats.onFrameReplaced(123);
+        assertEquals(1, stats.getPresentDrops());
+        // A second report, or the timeout, finds the frame finished
+        stats.onFrameReplaced(123);
+        stats.expire(10000000000L);
+        assertEquals(1, stats.getPresentDrops());
+    }
+
+    @Test
+    public void aReportedFrameIsNotADropWhenItsTimeoutPasses() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        stats.onDecoderInput(1, 123, 1000000, 1500000, 2000000, (char) 0);
+        stats.onDecoderOutput(0, 123, 3000000);
+        stats.onOutputReleased(0, 4000000, true, true);
+        stats.onFrameRendered(123, 9000000, 9100000);
+        stats.onFrameReplaced(123);
+        stats.expire(10000000000L);
+        assertEquals(0, stats.getPresentDrops());
+    }
+
+    @Test
     public void supportedThousandFpsStreamKeepsFramesUntilTheCallbackTimeout() {
         FrameLatencyStats stats = new FrameLatencyStats(true);
         for (int i = 1; i <= 8000; i++) {

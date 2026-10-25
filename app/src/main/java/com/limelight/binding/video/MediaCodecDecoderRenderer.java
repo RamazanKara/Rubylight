@@ -255,7 +255,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 updateDecoderDiagnostics();
             }
             pyroWaveRenderer.pollRenderedFrames(frameLatencyStats);
-            pollVulkanPresents();
+            pollVulkan();
             frameLatencyStats.expire(System.nanoTime());
             flushLatencyCsv();
             if (prefs.enablePerfOverlay) {
@@ -274,16 +274,25 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
     };
 
-    // The time each frame reached the screen takes the place of MediaCodec's frame rendered
-    // callback, which on this path only says a frame was handed to the renderer.
-    private void pollVulkanPresents() {
+    // Once a second, from the latency thread, which runs whether or not frames arrive (a frozen
+    // picture is exactly when the renderer has given up).
+    private void pollVulkan() {
         VulkanRendererBridge vulkan = vulkanRenderer;
-        if (vulkan == null || !vulkanPresentReports) return;
+        if (vulkan == null) return;
+        String fatal = vulkan.getFatalReason();
+        if (fatal != null) failVulkan(fatal);
+        if (!vulkanPresentReports) return;
+        // How each frame ended up takes the place of MediaCodec's frame rendered callback, which
+        // on this path only says a frame was handed to the renderer. Time 0: it was never shown.
         long nowNs = System.nanoTime();
         int n;
         while ((n = vulkan.takePresentReports(vulkanReports)) > 0) {
             for (int i = 0; i < n; i++) {
-                frameLatencyStats.onFrameRendered(vulkanReports[2 * i], vulkanReports[2 * i + 1], nowNs);
+                if (vulkanReports[2 * i + 1] == 0) {
+                    frameLatencyStats.onFrameReplaced(vulkanReports[2 * i]);
+                } else {
+                    frameLatencyStats.onFrameRendered(vulkanReports[2 * i], vulkanReports[2 * i + 1], nowNs);
+                }
             }
             if (n < vulkanReports.length / 2) break;
         }
@@ -3375,8 +3384,6 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 activeWindowVideoStats.totalFramesRendered += vulkan.takePresentedFrames();
                 // The display mode can change mid-stream
                 vulkan.setVsyncOffset(outputDisplay.getAppVsyncOffsetNanos());
-                String fatal = vulkan.getFatalReason();
-                if (fatal != null) failVulkan(fatal);
             }
             decodeTimeMs = frameLatencyStats.takeDecodeTimeMs();
             boolean pyroWave = (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0;

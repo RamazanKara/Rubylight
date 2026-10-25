@@ -953,6 +953,42 @@ public class GameRecoveryTest {
 
     @Test
     @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void aFullChromaRefusalOnAResumeOrRunningGameTileAlsoReconnectsWithoutIt() throws Exception {
+        // Resume (2147483501) and Running Game (2147483507) tiles resolve to a game only once the
+        // stream has started; a refusal comes before that.
+        for (int tile : new int[] {2147483501, 2147483507}) {
+            for (boolean running : new boolean[] {true, false}) {
+                Game game = recoveryGame();
+                NvApp app = new NvApp("Tile", tile, false);
+                assertNotEquals(NvApp.Control.NONE, app.getControl());
+                ReflectionHelpers.setField(game, "app", app);
+                if (running) {
+                    NvConnection connection = ReflectionHelpers.getField(game, "conn");
+                    ComputerDetails host = new ComputerDetails();
+                    host.runningGameId = 73;
+                    host.runningGameUuid = "game-uuid";
+                    ReflectionHelpers.setField(connection, "hostDetails", host);
+                }
+                game.setIntent(new Intent().putExtra(Game.EXTRA_APP_ID, tile));
+                PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
+                config.autoReconnect = false;
+                try {
+                    refuseFullChromaAtStart(game);
+                    assertNull("no error dialog", ReflectionHelpers.getField(game, "streamMenu"));
+                    Intent retry = awaitRecoveryLaunch(game, 1);
+                    assertTrue(retry.getBooleanExtra("PackedChromaOff", false));
+                    // The game the PC reported running, as a started stream resolves it; else the tile again.
+                    assertEquals(running ? 73 : tile, retry.getIntExtra(Game.EXTRA_APP_ID, 0));
+                    if (running) assertEquals("game-uuid", retry.getStringExtra(Game.EXTRA_APP_UUID));
+                } finally {
+                    cleanupRecovery(game);
+                }
+            }
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
     public void aSecondFullChromaRefusalShowsTheConnectionErrorWithoutAnotherRetry() {
         Game game = recoveryGame();
         // The session the first refusal started: already without full chroma.

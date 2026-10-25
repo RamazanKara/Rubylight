@@ -369,8 +369,18 @@ fn run_to_error(
 fn packed_hdr_against_a_host_without_ten_bit_packed_starts_in_eight_bit() {
     let hdr = VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10;
     for (modes, expected, dropped) in [
-        (1, VIDEO_FORMAT_H265, true),
-        (3, VIDEO_FORMAT_H265_MAIN10, false),
+        (
+            1,
+            VIDEO_FORMAT_H265,
+            Some("host doesn't offer 10-bit full chroma"),
+        ),
+        (3, VIDEO_FORMAT_H265_MAIN10, None),
+        // 10-bit AV1 on the host, but this client offers HEVC only.
+        (
+            1 | 8,
+            VIDEO_FORMAT_H265,
+            Some("no 10-bit full chroma mode in common"),
+        ),
     ] {
         let mut handshake = packed_handshake(hdr);
         let sent = run(&mut handshake, |method, target| {
@@ -383,8 +393,17 @@ fn packed_hdr_against_a_host_without_ten_bit_packed_starts_in_eight_bit() {
         let outcome = handshake.finish().unwrap();
         assert_eq!(outcome.negotiated_video_format, expected);
         assert_eq!(outcome.packed_ten_bit_dropped(), dropped);
-        assert!(sent.iter().any(|message| message.starts_with("ANNOUNCE ")
-            && message.contains("a=x-rl-video[0].chromaPacking:1")));
+        let announce = sent
+            .iter()
+            .find(|message| message.starts_with("ANNOUNCE "))
+            .unwrap();
+        assert!(announce.contains("a=x-rl-video[0].chromaPacking:1"));
+        // 8-bit packed asks the host for SDR, not HDR.
+        let range = if dropped.is_some() { 0 } else { 1 };
+        assert!(
+            announce.contains(&format!("x-nv-video[0].dynamicRangeMode:{range}")),
+            "{announce}"
+        );
     }
     // An SDR request that streams 8-bit dropped nothing.
     let mut handshake = packed_handshake(VIDEO_FORMAT_H265);
@@ -395,7 +414,7 @@ fn packed_hdr_against_a_host_without_ten_bit_packed_starts_in_eight_bit() {
             sunshine_host(method, target)
         }
     });
-    assert!(!handshake.finish().unwrap().packed_ten_bit_dropped());
+    assert_eq!(handshake.finish().unwrap().packed_ten_bit_dropped(), None);
 }
 
 #[test]
@@ -408,13 +427,13 @@ fn packed_refusals_at_describe_and_announce_are_packed_refused() {
         matches!(&error, RtspError::PackedRefused(m) if m.contains("does not offer packed")),
         "{error:?}"
     );
-    let announce_refusal = |body: &'static str| {
+    let announce_refusal_with = |status: &'static str, body: &'static str| {
         move |method: &str, target: &str| {
             if method == "DESCRIBE" {
                 ok(2, "", &format!("{DESCRIBE}a=x-rl-video.packed444Version:1\r\na=x-rl-video.packed444Modes:3\r\n"))
             } else if method == "ANNOUNCE" {
                 format!(
-                    "RTSP/1.0 400 Bad Request\r\nCSeq: 7\r\nContent-Length: {}\r\n\r\n{body}",
+                    "RTSP/1.0 {status}\r\nCSeq: 7\r\nContent-Length: {}\r\n\r\n{body}",
                     body.len()
                 )
                 .into_bytes()
@@ -423,12 +442,29 @@ fn packed_refusals_at_describe_and_announce_are_packed_refused() {
             }
         }
     };
+    let announce_refusal = |body: &'static str| announce_refusal_with("400 Bad Request", body);
     let geometry =
         "packed encoder cannot support the requested dimensions and frame rate: 1920x1080 at 120";
+    for body in [
+        geometry,
+        "Experimental Packed 4:4:4 is disabled on the host",
+    ] {
+        let mut handshake = packed_handshake(hdr);
+        let error = run_to_error(&mut handshake, announce_refusal(body)).unwrap();
+        assert!(
+            matches!(&error, RtspError::PackedRefused(m) if m.contains(body)),
+            "{error:?}"
+        );
+    }
+    // Only a 400 is a refusal of packing; a server error naming it stays a server error.
     let mut handshake = packed_handshake(hdr);
-    let error = run_to_error(&mut handshake, announce_refusal(geometry)).unwrap();
+    let error = run_to_error(
+        &mut handshake,
+        announce_refusal_with("500 Internal Server Error", geometry),
+    )
+    .unwrap();
     assert!(
-        matches!(&error, RtspError::PackedRefused(m) if m.contains(geometry)),
+        matches!(error, RtspError::Status { code: 500, .. }),
         "{error:?}"
     );
     // Any other ANNOUNCE refusal keeps its status, packed or not.

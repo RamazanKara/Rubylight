@@ -3857,6 +3857,17 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         int resumeId = recoveryAppId != 0 ? recoveryAppId :
                 app.getControl() == NvApp.Control.NONE ? app.getAppId() : 0;
         String resumeUuid = recoveryAppId != 0 ? recoveryAppUuid : app.getAppUuid();
+        if (resumeId == 0 && packedOff) {
+            // Full chroma refused before connectionStarted resolved a Resume or Running Game tile:
+            // resume the game the PC reported running, as connectionStarted would, else repeat the tile.
+            ComputerDetails host = conn != null ? conn.getHostDetails() : null;
+            if (host != null && host.runningGameId != 0) {
+                resumeId = host.runningGameId;
+                resumeUuid = host.runningGameUuid;
+            } else {
+                resumeId = app.getAppId();
+            }
+        }
         if (resumeId == 0) return false;
         Intent retry = createStreamHandoffIntent()
                 .putExtra(EXTRA_APP_ID, resumeId).putExtra(EXTRA_APP_UUID, resumeUuid);

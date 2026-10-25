@@ -736,8 +736,8 @@ fn start(
         }
     }
     let outcome = handshake.finish().map_err(rtsp_fail)?;
-    if outcome.packed_ten_bit_dropped() {
-        listener.warn("Packed 4:4:4: no 10-bit mode both endpoints offer; streaming 8-bit SDR");
+    if let Some(reason) = outcome.packed_ten_bit_dropped() {
+        listener.warn(&format!("Packed 4:4:4: {reason}; streaming 8-bit SDR"));
     }
     listener.host_control_messages(&outcome.host_control_messages);
     listener.stage_complete(Stage::RtspHandshake);

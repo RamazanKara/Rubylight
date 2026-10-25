@@ -281,6 +281,8 @@ pub struct RtspOutcome {
     pub control_connect_data: u32,
     /// The ANNOUNCE body.
     pub sdp: String,
+    /// The packed 4:4:4 modes the host's DESCRIBE offered (`packed444::mode_bit`), 0 without.
+    pub host_packed444_modes: u8,
 }
 
 impl RtspOutcome {
@@ -290,11 +292,23 @@ impl RtspOutcome {
             && sdp::decoder_supports_rfi(self.negotiated_video_format, self.video_capabilities)
     }
 
-    /// Packed 4:4:4 was asked for in 10-bit and streams 8-bit: no 10-bit mode in common.
-    pub fn packed_ten_bit_dropped(&self) -> bool {
-        self.config.experimental_packed_444
-            && self.config.supported_video_formats & sdp::VIDEO_FORMAT_MASK_10BIT != 0
-            && self.negotiated_video_format & sdp::VIDEO_FORMAT_MASK_10BIT == 0
+    /// Why packed 4:4:4 asked for in 10-bit streams 8-bit (no 10-bit mode in common), or None:
+    /// the host offers no 10-bit packed mode at all, or only for a codec this client lacks.
+    pub fn packed_ten_bit_dropped(&self) -> Option<&'static str> {
+        if !self.config.experimental_packed_444
+            || self.config.supported_video_formats & sdp::VIDEO_FORMAT_MASK_10BIT == 0
+            || self.negotiated_video_format & sdp::VIDEO_FORMAT_MASK_10BIT != 0
+        {
+            return None;
+        }
+        use rubylight_protocol::packed444::mode_bit;
+        Some(
+            if self.host_packed444_modes & (mode_bit(1, true) | mode_bit(2, true)) == 0 {
+                "host doesn't offer 10-bit full chroma"
+            } else {
+                "no 10-bit full chroma mode in common"
+            },
+        )
     }
 }
 
@@ -483,6 +497,7 @@ impl Handshake {
                 video_ping_payload: None,
                 control_connect_data: 0,
                 sdp: String::new(),
+                host_packed444_modes: 0,
             },
         })
     }
@@ -788,10 +803,13 @@ impl Handshake {
             Stage::Announce => {
                 if !ok {
                     let error = failed();
-                    // Rubylight names packed 4:4:4 in each of its ANNOUNCE refusals of it (disabled,
-                    // a mode that failed its probe, a geometry its encoder cannot take).
+                    // Rubylight answers 400 naming packed 4:4:4 in each of its ANNOUNCE refusals of
+                    // it (disabled, a mode that failed its probe, a geometry its encoder cannot take).
                     if let RtspError::Status { code, reason, .. } = &error {
-                        if self.out.config.experimental_packed_444 && reason.contains("packed") {
+                        if self.out.config.experimental_packed_444
+                            && *code == 400
+                            && reason.to_ascii_lowercase().contains("packed")
+                        {
                             return Err(RtspError::PackedRefused(format!(
                                 "host refused packed 4:4:4 at ANNOUNCE: {code} {reason}"
                             )));
@@ -861,6 +879,7 @@ impl Handshake {
         if config.experimental_packed_444 {
             self.out.config.packed444_version = info.packed_version(format);
         }
+        self.out.host_packed444_modes = info.packed444_modes;
         self.out.pyrowave_records_enabled = pyrowave && config.pyrowave_records_supported;
         if pyrowave {
             self.out.video_capabilities &= !sdp::CAPABILITY_DIRECT_SUBMIT;

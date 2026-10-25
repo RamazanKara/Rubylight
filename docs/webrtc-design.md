@@ -8,7 +8,7 @@ protocol (Samsung Tizen TV app and the browser client). Target: Rubylight 3.0.0.
 
 | What | Pin | Licence | Use |
 |---|---|---|---|
-| Protocol and TV app, [mlopezsegura/Monlight-Tizen-WebRtc-Client](https://github.com/mlopezsegura/Monlight-Tizen-WebRtc-Client) | `193ef539c3cf` (2026-10-19); `docs/protocol.md` last changed `c292eaf8c69e`, protocol version 2 | GPL-3.0 | The contract we implement |
+| Protocol and TV app, [mlopezsegura/Monlight-Tizen-WebRtc-Client](https://github.com/mlopezsegura/Monlight-Tizen-WebRtc-Client) | `193ef539c3cf` (2026-10-19); `docs/protocol.md` last changed `fdc5f9e98162` (2026-10-24: the client's `request-keyframe` on the control channel and `client-log`, both handled), protocol version 2; checked again 2026-10-25 against `cc1e8dae0c60`, no protocol change | GPL-3.0 | The contract we implement |
 | Browser client, [mlopezsegura/moonlight-webrtc-web](https://github.com/mlopezsegura/moonlight-webrtc-web) | `225a7ef54457` (2026-10-19) | none stated | Test client, fetched at test time and never vendored |
 | Reference host, [mlopezsegura/Sunshine-Web-RTC](https://github.com/mlopezsegura/Sunshine-Web-RTC) | `2bc1989107c9` (2026-10-24) | GPL-3.0 | We read its source and docs only. We never build or run it, and we cite none of its numbers as ours |
 

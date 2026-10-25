@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- PCs on TV: no column cap, and the grid reaches back over AdaptiveLayout's 24dp TV margin to the 48dp overscan,
+         so a 1080p TV gives it 864dp, three 280dp cells in one centred row. Nothing clips the tiles' glow at the edges. -->
+    <dimen name="pcs_max_width">4096dp</dimen>
+    <dimen name="pcs_grid_bleed">-24dp</dimen>
+    <bool name="pcs_clip">false</bool>
+</resources>

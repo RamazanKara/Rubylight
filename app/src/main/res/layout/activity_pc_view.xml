@@ -1,13 +1,18 @@
+<!-- On TV (values-television/dimens_tile.xml) the column has no cap and the PCs grid bleeds past the screen margin to
+     the overscan, so three tiles fit one row; the bars and Add PC keep the margin. Elsewhere the values change nothing. -->
 <com.limelight.ui.ContentFrame xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_width="match_parent" android:layout_height="match_parent">
+    android:layout_width="match_parent" android:layout_height="match_parent" android:maxWidth="@dimen/pcs_max_width">
     <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical"
+        android:clipToPadding="@bool/pcs_clip" android:clipChildren="@bool/pcs_clip"
         android:paddingStart="@dimen/shell_overscan_horizontal" android:paddingEnd="@dimen/shell_overscan_horizontal"
         android:paddingTop="@dimen/shell_overscan_vertical" android:paddingBottom="@dimen/shell_overscan_vertical">
         <include android:id="@+id/home_toolbar" layout="@layout/view_top_app_bar" />
         <include layout="@layout/view_shell_bar" />
-        <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+        <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+            android:clipChildren="@bool/pcs_clip">
             <FrameLayout android:id="@+id/pcFragmentContainer"
-                android:layout_width="match_parent" android:layout_height="match_parent" />
+                android:layout_width="match_parent" android:layout_height="match_parent"
+                android:layout_marginStart="@dimen/pcs_grid_bleed" android:layout_marginEnd="@dimen/pcs_grid_bleed" />
             <ScrollView android:id="@+id/no_pc_found_layout" android:layout_width="match_parent"
                 android:layout_height="match_parent" android:fillViewport="true" android:clipToPadding="false"
                 android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter"

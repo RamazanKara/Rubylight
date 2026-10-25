@@ -504,6 +504,50 @@ public class PcViewLifecycleTest {
         }
     }
 
+    /** Three PCs on a 1080p TV: one centred row across the width inside the overscan, with Add PC clear of it and still reachable. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionThreePcsSitInOneRowAndAddPcStaysClearAndReachable() {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            report(pc("b", "Beta", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED));
+            report(pc("c", "Gamma", ComputerDetails.State.OFFLINE, PairingManager.PairState.PAIRED));
+            GridView grid = screen.findViewById(R.id.fragmentView);
+            assertEquals(3, grid.getCount());
+            android.view.View root = screen.findViewById(android.R.id.content);
+            int w = screen.getResources().getDisplayMetrics().widthPixels;
+            int h = screen.getResources().getDisplayMetrics().heightPixels;
+            root.measure(android.view.View.MeasureSpec.makeMeasureSpec(w, android.view.View.MeasureSpec.EXACTLY),
+                    android.view.View.MeasureSpec.makeMeasureSpec(h, android.view.View.MeasureSpec.EXACTLY));
+            root.layout(0, 0, w, h);
+            assertEquals("one row", 3, grid.getNumColumns());
+            int[] at = new int[2];
+            grid.getLocationInWindow(at);
+            int overscan = screen.getResources().getDimensionPixelSize(R.dimen.shell_overscan_horizontal);
+            assertTrue("the grid stays inside the overscan", at[0] >= overscan && at[0] + grid.getWidth() <= w - overscan);
+            android.view.View add = screen.findViewById(R.id.manuallyAddPc);
+            android.graphics.Rect addRect = new android.graphics.Rect();
+            add.getGlobalVisibleRect(addRect);
+            for (int i = 0; i < grid.getChildCount(); i++) {
+                android.view.View card = grid.getChildAt(i).findViewById(R.id.grid_card);
+                android.graphics.Rect cardRect = new android.graphics.Rect();
+                card.getGlobalVisibleRect(cardRect);
+                assertFalse("Add PC clear of tile " + i, android.graphics.Rect.intersects(addRect, cardRect));
+            }
+            assertTrue(grid.requestFocusFromTouch());
+            grid.setSelection(2);
+            root.measure(android.view.View.MeasureSpec.makeMeasureSpec(w, android.view.View.MeasureSpec.EXACTLY),
+                    android.view.View.MeasureSpec.makeMeasureSpec(h, android.view.View.MeasureSpec.EXACTLY));
+            root.layout(0, 0, w, h);
+            grid.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_RIGHT));
+            grid.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_RIGHT));
+            assertTrue("Right past the last tile reaches Add PC", add.hasFocus());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     @Test
     public void theOptionsHintStaysInItsPlaceWhilePointerAndKeysTakeTurns() {
         ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);

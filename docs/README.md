@@ -23,6 +23,7 @@ Rubylight runs on your Windows gaming PC; Moonlight runs on the device you play 
 | Keep the stream from stalling on a slow link, or pick a latency or quality preset | [Link-rate adaptation](configuration.md#lower-bitrate-when-the-link-cannot-carry-it) · [Stream presets](configuration.md#stream-presets) |
 | Send frames earlier, or record where each frame's time goes | [Slice delivery](b2-slice-delivery.md) · [Timing record](timing-record.md) |
 | Set up a controller or use my client's microphone | [Controllers](configuration.md#controllers) · [DualSense USB audio and haptics](dualsense-haptics.md) · [Microphone](microphone.md) |
+| Stream to a Samsung TV or a browser | [WebRTC server (Experimental)](webrtc.md): setup, pairing, what streams, and the protocol extensions for client authors. |
 | Launch Steam games from Steam Deck with MoonDeck | [MoonDeck setup](configuration.md#moondeck) |
 | Understand an away-from-home Tailscale connection | [Remote connection route](network-path.md): paired route diagnostics and what an unknown result means. |
 | **Fix a stream that will not start or feels wrong** | [Troubleshooting](troubleshooting.md): pairing, black screens, HDR colour, audio, controllers and smoothness. |

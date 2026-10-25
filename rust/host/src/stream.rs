@@ -401,6 +401,36 @@ fn expects_enet_control(session: &Session) -> bool {
     session.launch.transport != butterpollo_core::session::Transport::WebRtc
 }
 
+/// Ends the sessions that expect an ENet control peer, have had none for longer than
+/// `ping_timeout`, and are not attended now (`attended` says by session id). Drains `sessions`.
+fn end_unattended_sessions(
+    sessions: &mut Vec<Arc<Session>>,
+    attended: impl Fn(&str) -> bool,
+    unattended: &mut HashMap<String, Instant>,
+    ping_timeout: Duration,
+) {
+    for s in sessions.drain(..) {
+        let id = &s.launch.id;
+        if s.stopping() || !expects_enet_control(&s) || attended(id) {
+            unattended.remove(id);
+            continue;
+        }
+        let since = match unattended.get(id) {
+            Some(since) => *since,
+            None => {
+                let since = Instant::now();
+                unattended.insert(id.clone(), since);
+                since
+            }
+        };
+        if since.elapsed() > ping_timeout {
+            tracing::warn!(client=%s.launch.client.name,"session has no control connection; ending it");
+            s.fail();
+            s.stop();
+        }
+    }
+}
+
 /// Whether `overrides` set the peak brightness, under its name before or
 /// after it moved out of RTX HDR.
 fn sets_peak(overrides: &serde_json::Map<String, serde_json::Value>) -> bool {
@@ -3905,27 +3935,12 @@ impl Media {
             // encoder, capture and display forever (Sunshine times it out).
             active_sessions.extend(h.sessions.lock().unwrap().active.values().cloned());
             unattended.retain(|id, _| active_sessions.iter().any(|s| &s.launch.id == id));
-            for s in active_sessions.drain(..) {
-                let id = &s.launch.id;
-                if s.stopping() || !expects_enet_control(&s) || peers.values().any(|p| &p.id == id)
-                {
-                    unattended.remove(id);
-                    continue;
-                }
-                let since = match unattended.get(id) {
-                    Some(since) => *since,
-                    None => {
-                        let since = Instant::now();
-                        unattended.insert(id.clone(), since);
-                        since
-                    }
-                };
-                if since.elapsed() > ping_timeout {
-                    tracing::warn!(client=%s.launch.client.name,"session has no control connection; ending it");
-                    s.fail();
-                    s.stop();
-                }
-            }
+            end_unattended_sessions(
+                &mut active_sessions,
+                |id| peers.values().any(|p| p.id == id),
+                &mut unattended,
+                ping_timeout,
+            );
             host.flush();
             if peers.is_empty() {
                 priority = None;
@@ -4083,6 +4098,37 @@ mod tests {
         let webrtc = Session::new(launch, Default::default());
         assert!(!super::expects_enet_control(&webrtc));
     }
+    #[test]
+    fn the_control_watchdog_ends_a_moonlight_session_without_a_peer_but_not_a_webrtc_one() {
+        let f = crate::state::test_support::Fixture::new();
+        let client = f.client(u32::MAX);
+        let moonlight = f.session(client.clone(), Role::Stream);
+        let mut launch = f.launch(client, Role::Stream);
+        launch.transport = butterpollo_core::session::Transport::WebRtc;
+        let webrtc = Session::new(launch, Default::default());
+        assert_ne!(moonlight.launch.id, webrtc.launch.id);
+        let timeout = Duration::from_millis(20);
+        let mut unattended = HashMap::new();
+        let sweep = |unattended: &mut HashMap<String, Instant>| {
+            let mut sessions = vec![moonlight.clone(), webrtc.clone()];
+            super::end_unattended_sessions(&mut sessions, |_| false, unattended, timeout);
+        };
+        // The clock starts at the first sweep, so nothing ends yet.
+        sweep(&mut unattended);
+        assert!(!moonlight.stopping() && !webrtc.stopping());
+        std::thread::sleep(timeout * 3);
+        sweep(&mut unattended);
+        assert!(
+            moonlight.stopping(),
+            "a GameStream session with no control peer must end"
+        );
+        assert!(
+            !webrtc.stopping(),
+            "a WebRTC session carries control on its DataChannels and has no ENet peer"
+        );
+        assert!(!unattended.contains_key(&webrtc.launch.id));
+    }
+
     #[test]
     fn webrtc_launches_take_whole_frames_whatever_the_host_asks_for() {
         let f = crate::state::test_support::Fixture::new();

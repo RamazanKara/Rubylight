@@ -51,5 +51,10 @@ windows = { version = "0.62.2", features = ["Win32_Graphics_Direct3D_Fxc"] }
 tempfile = "3.23"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
+# Its check of what it may start runs with `cargo test`; examples skip their tests otherwise.
+[[example]]
+name = "system_launch"
+test = true
+
 [lints]
 workspace = true

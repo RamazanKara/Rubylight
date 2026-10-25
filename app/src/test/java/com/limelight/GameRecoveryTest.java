@@ -405,6 +405,7 @@ public class GameRecoveryTest {
         assertFalse(Game.terminationDescription(-1).contains("reported by the PC"));
         assertTrue(Game.terminationDescription(-1).startsWith("-1 ("));
         assertTrue(Game.terminationDescription(0x80030042).contains("reported by the PC"));
+        assertTrue(Game.terminationDescription(MoonBridge.CLIENT_ERROR_VULKAN_RENDERER).contains("Vulkan"));
     }
 
     @Test

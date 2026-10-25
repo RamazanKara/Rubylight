@@ -13,6 +13,7 @@ import com.limelight.LimeLog;
  */
 public class VulkanRendererBridge {
     private static Boolean supported;
+    private static String unsupportedReason;
 
     private long handle;
     private Surface decoderSurface;
@@ -27,17 +28,33 @@ public class VulkanRendererBridge {
      */
     public static synchronized boolean isSupported() {
         if (supported == null) {
+            long startNs = System.nanoTime();
             boolean result = false;
             try {
                 System.loadLibrary("vulkan_renderer");
                 result = nativeProbe();
+                if (!result) {
+                    unsupportedReason = nativeLastError();
+                }
             } catch (UnsatisfiedLinkError e) {
-                LimeLog.warning("Vulkan renderer library unavailable: " + e.getMessage());
+                unsupportedReason = "native library unavailable: " + e.getMessage();
             }
-            LimeLog.info("Vulkan renderer supported: " + result);
+            LimeLog.info("Vulkan renderer supported: " + result + " (probe took " +
+                    (System.nanoTime() - startNs) / 1000000 + " ms)" +
+                    (result || unsupportedReason == null ? "" : ", " + unsupportedReason));
             supported = result;
         }
         return supported;
+    }
+
+    /** Why {@link #isSupported()} is false, or null if it is true or not yet known. */
+    public static synchronized String getUnsupportedReason() {
+        return unsupportedReason;
+    }
+
+    /** The native layer's last error text, or null; for the reason a start failed. */
+    public static synchronized String getLastError() {
+        return supported == null || !supported ? null : nativeLastError();
     }
 
     /**
@@ -66,12 +83,14 @@ public class VulkanRendererBridge {
         long handle = nativeCreate(output, streamWidth, streamHeight, streamFps, framePacing, jitterBuffer, ditherMode,
                 colorspace, fullRange, tenBit, displayRefreshHz, codec, decoderName, traceDirectory, frontBuffer);
         if (handle == 0) {
+            LimeLog.warning("Vulkan renderer could not start: " + nativeLastError());
             return null;
         }
 
         VulkanRendererBridge bridge = new VulkanRendererBridge(handle);
         bridge.decoderSurface = nativeGetDecoderSurface(handle);
         if (bridge.decoderSurface == null) {
+            LimeLog.warning("Vulkan renderer has no decoder surface: " + nativeLastError());
             bridge.destroy();
             return null;
         }
@@ -85,11 +104,12 @@ public class VulkanRendererBridge {
 
     /**
      * Notes a frame's network timing as it's handed to the decoder, for the capture latency
-     * statistics and the frame pacing trace, if one is being recorded. All times in
-     * microseconds; receive and enqueue times are moonlight-common-c's. hostProcessingLatency is
+     * statistics and the frame pacing trace, if one is being recorded. hostPtsUs is the
+     * timestamp the frame is queued to the decoder with, which comes back on the decoded image.
+     * All times in microseconds; receive and enqueue times are moonlight-common-c's. hostProcessingLatency is
      * the host's, in tenths of a millisecond (0 if the host doesn't report it).
      */
-    public void noteFrameReceived(long hostPtsUs, long receiveTimeUs, long enqueueTimeUs, char hostProcessingLatency) {
+    public synchronized void noteFrameReceived(long hostPtsUs, long receiveTimeUs, long enqueueTimeUs, char hostProcessingLatency) {
         if (handle != 0) {
             nativeNoteReceived(handle, hostPtsUs, receiveTimeUs, enqueueTimeUs, hostProcessingLatency);
         }
@@ -99,7 +119,7 @@ public class VulkanRendererBridge {
      * Switches the jitter buffer for the rest of the stream.
      * @param jitterBuffer one of PreferenceConfiguration.JITTER_BUFFER_*
      */
-    public void setJitterBuffer(int jitterBuffer) {
+    public synchronized void setJitterBuffer(int jitterBuffer) {
         if (handle != 0) {
             nativeSetJitterBuffer(handle, jitterBuffer);
         }
@@ -109,20 +129,20 @@ public class VulkanRendererBridge {
      * How long after the display's vsync Choreographer's frame times are
      * ({@link android.view.Display#getAppVsyncOffsetNanos()}), which changes with the display mode
      */
-    public void setVsyncOffset(long offsetNs) {
+    public synchronized void setVsyncOffset(long offsetNs) {
         if (handle != 0) {
             nativeSetVsyncOffset(handle, offsetNs);
         }
     }
 
-    public void setHdrMode(boolean enabled, byte[] hdrMetadata) {
+    public synchronized void setHdrMode(boolean enabled, byte[] hdrMetadata) {
         if (handle != 0) {
             nativeSetHdrMode(handle, enabled, hdrMetadata);
         }
     }
 
     /** Frames presented since the last call */
-    public int takePresentedFrames() {
+    public synchronized int takePresentedFrames() {
         return handle != 0 ? nativeTakePresentedFrames(handle) : 0;
     }
 
@@ -130,12 +150,12 @@ public class VulkanRendererBridge {
      * Whether a front buffer was asked for but the device couldn't give one, so frames go
      * through the compositor's queue as usual. Known once the first frame is drawn.
      */
-    public boolean isFrontBufferUnavailable() {
+    public synchronized boolean isFrontBufferUnavailable() {
         return handle != 0 && nativeIsFrontBufferUnavailable(handle);
     }
 
     /** Whether frames are drawn into a front buffer. Known once the first frame is drawn. */
-    public boolean isFrontBufferActive() {
+    public synchronized boolean isFrontBufferActive() {
         return handle != 0 && nativeIsFrontBufferActive(handle);
     }
 
@@ -145,14 +165,44 @@ public class VulkanRendererBridge {
      * measured without clock sync (and so without the network transit), then the same three
      * for until they reached the screen.
      */
-    public void takeCaptureLatency(long[] out) {
+    public synchronized void takeCaptureLatency(long[] out) {
         if (handle != 0) {
             nativeTakeCaptureLatency(handle, out);
         }
     }
 
+    /**
+     * Whether the screen reports when frames are shown, so {@link #takePresentReports(long[])} has
+     * something to say. Without it there is no honest time to the screen.
+     */
+    public synchronized boolean reportsPresentTimes() {
+        return handle != 0 && nativeReportsPresentTimes(handle);
+    }
+
+    /**
+     * When frames reached the screen since the last call. out gets pairs of the timestamp a frame
+     * was queued to the decoder with (microseconds) and the time it was shown (System.nanoTime()
+     * clock); the result is the number of pairs. Frames dropped or replaced never appear.
+     */
+    public synchronized int takePresentReports(long[] out) {
+        if (handle == 0) return 0;
+        int n = nativeTakePresentReports(handle, out);
+        for (int i = 0; i < n; i++) {
+            out[2 * i] /= 1000;
+        }
+        return n;
+    }
+
+    /**
+     * Why the renderer gave up (device lost, or submits, imports or the swapchain kept failing),
+     * or null while it is healthy. Once set, no further frames are presented.
+     */
+    public synchronized String getFatalReason() {
+        return handle != 0 ? nativeFatalReason(handle) : null;
+    }
+
     /** One line for the performance overlay */
-    public String getRendererText() {
+    public synchronized String getRendererText() {
         return handle != 0 ? nativeGetRendererText(handle) : null;
     }
 
@@ -160,7 +210,7 @@ public class VulkanRendererBridge {
      * Pacing numbers for the performance overlay: a headline and details, separated by a
      * newline. Either may be empty.
      */
-    public String getPacingText() {
+    public synchronized String getPacingText() {
         return handle != 0 ? nativeGetPacingText(handle) : null;
     }
 
@@ -168,14 +218,14 @@ public class VulkanRendererBridge {
      * Stops presenting and lets go of the output surface. Must be called before the output
      * surface is destroyed.
      */
-    public void stop() {
+    public synchronized void stop() {
         if (handle != 0) {
             nativeStop(handle);
         }
     }
 
     /** Frees the renderer. The decoder must be released first. */
-    public void destroy() {
+    public synchronized void destroy() {
         if (decoderSurface != null) {
             decoderSurface.release();
             decoderSurface = null;
@@ -187,6 +237,8 @@ public class VulkanRendererBridge {
     }
 
     private static native boolean nativeProbe();
+    private static native String nativeLastError();
+    private static native String nativeFatalReason(long handle);
     private static native long nativeCreate(Surface output, int streamWidth, int streamHeight, int streamFps,
                                             int framePacing, int jitterBuffer, int ditherMode, int colorspace,
                                             boolean fullRange, boolean tenBit, float displayRefreshHz,
@@ -202,6 +254,8 @@ public class VulkanRendererBridge {
     private static native boolean nativeIsFrontBufferUnavailable(long handle);
     private static native boolean nativeIsFrontBufferActive(long handle);
     private static native void nativeTakeCaptureLatency(long handle, long[] out);
+    private static native boolean nativeReportsPresentTimes(long handle);
+    private static native int nativeTakePresentReports(long handle, long[] out);
     private static native String nativeGetRendererText(long handle);
     private static native String nativeGetPacingText(long handle);
     private static native void nativeStop(long handle);

@@ -113,8 +113,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // The renderer's Lowest latency jitter buffer, which only matters to its host-timed pacing
     private static final int VULKAN_JITTER_BUFFER = 3;
     private volatile VulkanRendererBridge vulkanRenderer;
-    // "Render through OpenGL" is routing the frames, with nothing to scale
-    private volatile boolean glPresentOnly;
+    // Set once the renderer reports it gave up; the stream is then ended with a dialog that says so
+    private volatile String vulkanFailure;
+    // The screen tells the renderer when frames are shown, so frames wait for that report to count
+    // as rendered, like MediaCodec's frame rendered callbacks on the direct path
+    private boolean vulkanPresentReports;
+    private final long[] vulkanReports = new long[2 * 256];
+    // The Vulkan notice (why it is unused, or that it replaces the upscaler) is shown once per stream
+    private boolean vulkanNoticeShown;
     private volatile boolean stopping;
     private CrashListener crashListener;
     private boolean reportedCrash;
@@ -249,6 +255,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 updateDecoderDiagnostics();
             }
             pyroWaveRenderer.pollRenderedFrames(frameLatencyStats);
+            pollVulkanPresents();
             frameLatencyStats.expire(System.nanoTime());
             flushLatencyCsv();
             if (prefs.enablePerfOverlay) {
@@ -266,6 +273,35 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             latencyHandler.postDelayed(this, 1000);
         }
     };
+
+    // The time each frame reached the screen takes the place of MediaCodec's frame rendered
+    // callback, which on this path only says a frame was handed to the renderer.
+    private void pollVulkanPresents() {
+        VulkanRendererBridge vulkan = vulkanRenderer;
+        if (vulkan == null || !vulkanPresentReports) return;
+        long nowNs = System.nanoTime();
+        int n;
+        while ((n = vulkan.takePresentReports(vulkanReports)) > 0) {
+            for (int i = 0; i < n; i++) {
+                frameLatencyStats.onFrameRendered(vulkanReports[2 * i], vulkanReports[2 * i + 1], nowNs);
+            }
+            if (n < vulkanReports.length / 2) break;
+        }
+    }
+
+    /** Why the Vulkan renderer gave up, or null while it has not. */
+    public String getVulkanFailure() {
+        return vulkanFailure;
+    }
+
+    // The renderer can no longer show frames (device lost, or submits kept failing). A frozen
+    // picture would look like a network problem, so end the stream and say what happened.
+    private void failVulkan(String reason) {
+        if (vulkanFailure != null) return;
+        vulkanFailure = reason;
+        LimeLog.severe("Vulkan renderer failed, ending the stream: " + reason);
+        MoonBridge.bridgeClConnectionTerminated(MoonBridge.CLIENT_ERROR_VULKAN_RENDERER);
+    }
 
     @Override
     public void onHostTiming(HostTimingReport report) {
@@ -888,6 +924,21 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         float panelHz = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
                 display.getMode().getRefreshRate() : display.getRefreshRate();
         upscalingPolicy = new UpscalingPolicy(Math.max(1, Math.min(refreshRate, Math.round(panelHz))));
+        wantVulkan = false;
+        VideoRendererChoice choice = VideoRendererChoice.choose(prefs.vulkanRender,
+                (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0, Build.VERSION.SDK_INT,
+                VulkanRendererBridge::isSupported, packing != null, prefs.upscalingMode);
+        if (choice.renderer == VideoRendererChoice.Renderer.VULKAN) {
+            wantVulkan = true;
+            upscalingPolicy.fail(UpscalingPolicy.Reason.DISABLED);
+            if (choice.upscalingOverridden) {
+                notifyVulkan(context.getString(R.string.vulkan_overrides_upscaling));
+            }
+            return;
+        }
+        if (choice.reason != VideoRendererChoice.Reason.NONE) {
+            notifyVulkanUnused(vulkanUnusedReason(choice.reason));
+        }
         if (packing != null) {
             upscaler = new GlesUpscaler(context, renderTarget, UpscalingPolicy.Mode.BILINEAR,
                     initialWidth, initialHeight, prefs.stretchVideo, 0, upscalingPolicy, packing,
@@ -895,28 +946,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if (currentHdrMode != null) upscaler.setHdrMode(currentHdrMode, currentHdrMetadata);
             return;
         }
-        glPresentOnly = false;
-        wantVulkan = false;
-        if (prefs.vulkanRender && (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && VulkanRendererBridge.isSupported()) {
-                wantVulkan = true;
-                upscalingPolicy.fail(UpscalingPolicy.Reason.DISABLED);
-                return;
-            }
-            notifyVulkanFallback();
-        }
-        if (prefs.upscalingMode == UpscalingPolicy.Mode.OFF && !prefs.glRender) {
+        if (prefs.upscalingMode == UpscalingPolicy.Mode.OFF) {
             upscalingPolicy.fail(UpscalingPolicy.Reason.DISABLED);
             return;
         }
         if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
             // The Vulkan renderer runs SGSR itself; the GLES upscaler only serves MediaCodec.
             upscalingPolicy.fail(UpscalingPolicy.Reason.PYROWAVE);
-            if (prefs.upscalingMode == UpscalingPolicy.Mode.OFF) {
-                // Only the OpenGL setting asked for the GL path; PyroWave keeps its own renderer.
-                glPresentOnly = true;
-                notifyUpscalingFallback();
-            }
             return;
         }
         int[] viewport = UpscalingPolicy.viewport(initialWidth, initialHeight, renderWidth, renderHeight, prefs.stretchVideo);
@@ -925,29 +961,41 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         UpscalingPolicy.Reason reason = UpscalingPolicy.colorReason(UpscalingPolicy.unavailableReason(
                 prefs.upscalingMode, initialWidth, initialHeight, viewport[2], viewport[3], hdrOrTenBit, false, true),
                 hostHdr, sdr10);
-        if (prefs.glRender && (reason == UpscalingPolicy.Reason.DISABLED || reason == UpscalingPolicy.Reason.NO_UPSCALE)) {
-            // Nothing to scale, but the frames still go through OpenGL.
-            glPresentOnly = true;
-            reason = UpscalingPolicy.colorReason(UpscalingPolicy.unavailableReason(UpscalingPolicy.Mode.BILINEAR,
-                    initialWidth, initialHeight, viewport[2], viewport[3], hdrOrTenBit, false, true, true),
-                    hostHdr, sdr10);
-        }
         upscalingPolicy.fail(reason);
         if (reason == UpscalingPolicy.Reason.NONE) {
-            upscaler = glPresentOnly ?
-                    new GlesUpscaler(context, renderTarget, initialWidth, initialHeight, prefs.stretchVideo, upscalingPolicy) :
-                    new GlesUpscaler(context, renderTarget, prefs.upscalingMode, initialWidth, initialHeight,
-                            prefs.stretchVideo, prefs.upscalingSharpness, upscalingPolicy);
+            upscaler = new GlesUpscaler(context, renderTarget, prefs.upscalingMode, initialWidth, initialHeight,
+                    prefs.stretchVideo, prefs.upscalingSharpness, upscalingPolicy);
             if (upscalingPolicy.getReason() != UpscalingPolicy.Reason.NONE) closeUpscaler();
         } else {
             notifyUpscalingFallback();
         }
     }
 
-    private void notifyVulkanFallback() {
-        LimeLog.warning("Vulkan renderer unavailable; using the direct renderer");
+    private String vulkanUnusedReason(VideoRendererChoice.Reason reason) {
+        switch (reason) {
+            case PYROWAVE: return context.getString(R.string.vulkan_reason_pyrowave);
+            case API_LEVEL: return context.getString(R.string.vulkan_reason_api);
+            case PACKED_444: return context.getString(R.string.vulkan_reason_packed);
+            case UNSUPPORTED: {
+                String detail = VulkanRendererBridge.getUnsupportedReason();
+                return context.getString(R.string.vulkan_reason_unsupported) +
+                        (detail == null || detail.isEmpty() ? "" : " (" + detail + ")");
+            }
+            default: return "";
+        }
+    }
+
+    // Vulkan was asked for but is not the renderer: say why, in the log and once on screen.
+    private void notifyVulkanUnused(String reason) {
+        notifyVulkan(context.getString(R.string.vulkan_render_fallback, reason));
+    }
+
+    private void notifyVulkan(String message) {
+        LimeLog.warning(message);
+        if (vulkanNoticeShown) return;
+        vulkanNoticeShown = true;
         activity.runOnUiThread(() -> {
-            if (!stopping) Toast.makeText(context, R.string.vulkan_render_fallback, Toast.LENGTH_LONG).show();
+            if (!stopping) Toast.makeText(context, message, Toast.LENGTH_LONG).show();
         });
     }
 
@@ -961,7 +1009,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                         outputDisplay.getMode().getRefreshRate() : outputDisplay.getRefreshRate(),
                 vulkanCodecName(), videoDecoder.getName(), null, false);
         if (renderer != null) {
-            LimeLog.info("Using Vulkan renderer");
+            vulkanPresentReports = renderer.reportsPresentTimes();
+            LimeLog.info("Using Vulkan renderer; the screen " + (vulkanPresentReports ?
+                    "reports when frames are shown" : "does not report when frames are shown"));
             renderer.setVsyncOffset(outputDisplay.getAppVsyncOffsetNanos());
             if (Boolean.TRUE.equals(currentHdrMode)) {
                 renderer.setHdrMode(true, currentHdrMetadata);
@@ -988,8 +1038,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         UpscalingPolicy.Reason reason = upscalingPolicy.getReason();
         if (reason != UpscalingPolicy.Reason.NONE && reason != UpscalingPolicy.Reason.DISABLED &&
                 reason != UpscalingPolicy.Reason.NO_UPSCALE) {
-            String message = context.getString(glPresentOnly ? R.string.gl_render_fallback : R.string.upscaling_fallback,
-                    upscalingReason(reason));
+            String message = context.getString(R.string.upscaling_fallback, upscalingReason(reason));
             LimeLog.info(message);
             activity.runOnUiThread(() -> {
                 if (!stopping) Toast.makeText(context, message, Toast.LENGTH_LONG).show();
@@ -1025,8 +1074,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             return explanation.isEmpty() ? text : text + '\n' + explanation;
         }
         boolean active = upscaler != null;
-        String mode = active ? (glPresentOnly ? context.getString(R.string.upscaling_gl_only) :
-                context.getResources().getStringArray(R.array.upscaling_names)[prefs.upscalingMode.ordinal()]) :
+        String mode = active ? context.getResources().getStringArray(R.array.upscaling_names)[prefs.upscalingMode.ordinal()] :
                 context.getString(R.string.upscaling_direct);
         float addedMs = upscalingPolicy == null ? -1 : upscalingPolicy.getAddedMs();
         String text = context.getString(R.string.perf_overlay_upscaling, mode, metric(active ? addedMs : 0, " ms"));
@@ -1655,7 +1703,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             vulkanRenderer = createVulkanRenderer();
             if (vulkanRenderer == null) {
                 wantVulkan = false;
-                notifyVulkanFallback();
+                String detail = VulkanRendererBridge.getLastError();
+                notifyVulkanUnused(context.getString(R.string.vulkan_reason_start) +
+                        (detail == null || detail.isEmpty() ? "" : " (" + detail + ")"));
             }
         }
         videoDecoder.configure(format, vulkanRenderer != null ? vulkanRenderer.getDecoderSurface() :
@@ -2656,7 +2706,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                 if (vulkanRenderer != null) {
                                     // The Vulkan renderer paces and drops frames itself, so hand each
                                     // one over as soon as it is decoded. It counts those it presents.
-                                    frameLatencyStats.onOutputReleased(lastIndex, System.nanoTime(), true, false);
+                                    frameLatencyStats.onOutputReleased(lastIndex, System.nanoTime(), true,
+                                            vulkanPresentReports);
                                     videoDecoder.releaseOutputBuffer(lastIndex, true);
                                     frameLatencyStats.onArtemisDecodeCounted(lastPtsUs);
                                 }
@@ -2869,7 +2920,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         hostFrameClock.start(hostFrameTimes ? maxDisplayRefreshRate() : 0, hostFrameTimes,
                 hostAnnouncesClockSync(), trackContentRate || hostFrameTimes);
         startRendererThread();
-        startChoreographerThread();
+        // The Vulkan renderer follows vsync itself; nothing here needs the display callbacks
+        if (vulkanRenderer == null) startChoreographerThread();
     }
 
     private static boolean hostAnnouncesClockSync() {
@@ -2891,7 +2943,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     public void prepareForStop() {
         // Let the decoding code know to ignore codec exceptions now
         stopping = true;
-        if (vulkanRenderer == null && UpscalingPolicy.mayUseGles(prefs.upscalingMode, prefs.glRender) &&
+        if (vulkanRenderer == null && prefs.upscalingMode != UpscalingPolicy.Mode.OFF &&
                 Looper.myLooper() == Looper.getMainLooper()) {
             // stop() repeats this on the shutdown worker, away from EGL startup/recovery on the UI.
             return;
@@ -3323,6 +3375,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 activeWindowVideoStats.totalFramesRendered += vulkan.takePresentedFrames();
                 // The display mode can change mid-stream
                 vulkan.setVsyncOffset(outputDisplay.getAppVsyncOffsetNanos());
+                String fatal = vulkan.getFatalReason();
+                if (fatal != null) failVulkan(fatal);
             }
             decodeTimeMs = frameLatencyStats.takeDecodeTimeMs();
             boolean pyroWave = (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0;
@@ -3673,6 +3727,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         // Copy data from our buffer list into the input buffer
         nextInputBuffer.put(decodeUnitData, 0, decodeUnitLength);
+
+        // The queued timestamp comes back on the decoded image, which is how the renderer finds
+        // the frame again
+        VulkanRendererBridge vulkan = vulkanRenderer;
+        if (vulkan != null) {
+            vulkan.noteFrameReceived(timestampUs, receiveTimeUs, enqueueTimeUs, frameHostProcessingLatency);
+        }
 
         // Before queuing: the decoder may hand the frame back before queueInputBuffer returns.
         if (hostFrameTimes || trackContentRate) hostFrameClock.onQueued(timestampUs, presentationTimeUs);

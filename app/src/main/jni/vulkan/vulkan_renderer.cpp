@@ -927,7 +927,8 @@ void VulkanRenderer::stop() {
         waitIdle();
     }
     // A GPU that never finished is left alone; destroying what it is using would be worse. The
-    // destructor waits for it without a limit and then releases these.
+    // destructor waits for it up to kWedgedWaitSeconds and then releases these, or leaks them if
+    // it still has not finished.
     if (!wedged_) {
         releaseOutput();
     }

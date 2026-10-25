@@ -76,6 +76,13 @@ final class HomeAmbience implements ShelfAdapter.FocusListener, Choreographer.Fr
         return pending == null ? null : pending.key;
     }
 
+    /** The backdrop's key for a game on a host: Home and the game's page use the same one, so the page opens on Home's picture. */
+    static String gameKey(String hostUuid, int appId, String title) {
+        // A game not added has no app id yet: its title tells it from the others.
+        String id = appId != 0 ? String.valueOf(appId) : "title:" + title;
+        return "game:" + hostUuid + ":" + id;
+    }
+
     /** A cover that was still loading has arrived: if it is the focused game's, the backdrop can have it. */
     void onArt(com.limelight.nvstream.http.NvApp app) {
         ShelfAdapter.Item item = pending;
@@ -93,9 +100,7 @@ final class HomeAmbience implements ShelfAdapter.FocusListener, Choreographer.Fr
         CoverLoaders loaders = covers.get();
         ComputerDetails host = hosts.apply(card.hostUuid);
         com.limelight.nvstream.http.NvApp app = CoverLoaders.appOf(card.title, card.appId, card.source);
-        // A game not added has no app id yet: its title tells it from the others.
-        String id = card.appId != 0 ? String.valueOf(card.appId) : "title:" + card.title;
-        backdrop.focus("game:" + card.hostUuid + ":" + id, loaders == null ? null : loaders.peek(host, app),
+        backdrop.focus(gameKey(card.hostUuid, card.appId, card.title), loaders == null ? null : loaders.peek(host, app),
                 loaders != null && loaders.lacksArt(host, app), fast.getAsBoolean());
     }
 

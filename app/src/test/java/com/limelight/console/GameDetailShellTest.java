@@ -155,9 +155,9 @@ public class GameDetailShellTest {
             assertSame(settings, HomeShellTest.focusAfter(page, pcs, View.FOCUS_RIGHT));
             View below = HomeShellTest.focusAfter(page, home, View.FOCUS_DOWN);
             assertSame("down from the bar reaches Play first", play, below);
-            assertSame("then the star", page.findViewById(R.id.detail_favourite),
-                    HomeShellTest.focusAfter(page, play, View.FOCUS_DOWN));
-            assertSame("and back up", play, HomeShellTest.focusAfter(page, page.findViewById(R.id.detail_favourite), View.FOCUS_UP));
+            assertSame("then the star, beside Play in the TV action row", page.findViewById(R.id.detail_favourite),
+                    HomeShellTest.focusAfter(page, play, View.FOCUS_RIGHT));
+            assertSame("and back", play, HomeShellTest.focusAfter(page, page.findViewById(R.id.detail_favourite), View.FOCUS_LEFT));
         } finally {
             controller.pause().stop().destroy();
         }

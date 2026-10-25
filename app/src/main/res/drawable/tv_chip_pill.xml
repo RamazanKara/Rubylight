@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A chip on the TV screens: a 72%-black pill (see TvChip in styles_detail.xml). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@color/tv_chip_scrim" />
+    <corners android:radius="999dp" />
+</shape>

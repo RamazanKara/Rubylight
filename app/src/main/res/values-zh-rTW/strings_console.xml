@@ -57,4 +57,6 @@
     <plurals name="console_filter_description">
         <item quantity="other">%1$s，%2$d 款遊戲</item>
     </plurals>
+    <!-- tv-redesign-5 -->
+    <string name="console_detail_installed">已安裝</string>
 </resources>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The TV game page's 2:3 poster is 220 x 330 dp. -->
+    <dimen name="detail_cover_width">220dp</dimen>
+    <dimen name="detail_cover_height">330dp</dimen>
+</resources>

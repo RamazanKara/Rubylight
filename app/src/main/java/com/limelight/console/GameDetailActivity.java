@@ -1,12 +1,16 @@
 package com.limelight.console;
 
+import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.Toast;
 import android.widget.ImageView;
 import android.widget.TextView;
+
+import androidx.core.content.ContextCompat;
 
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -17,6 +21,8 @@ import com.limelight.nativeapi.NativeCapabilities;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
+import com.limelight.ui.AppTheme;
+import com.limelight.ui.BackdropView;
 import com.limelight.ui.NightjarActivity;
 import com.limelight.ui.ShellBar;
 import com.limelight.ui.TopAppBar;
@@ -40,7 +46,6 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     public static final String EXTRA_HOST_NAME = "com.limelight.console.HOST_NAME";
 
     private static final long DEBOUNCE_MS = 250;
-    private static final int COVER_WIDTH_DP = 132;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
@@ -73,6 +78,12 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     private MaterialButton favourite;
     private TextView profileValues;
     private TextView profileLayers;
+    /** TV only (null on a phone): the backdrop, and the chip line with the installed and HDR chips. */
+    private BackdropView backdrop;
+    private View chips;
+    private TextView installed;
+    private TextView hdr;
+    private ComputerDetails shownComputer;
 
     private final Runnable reload = this::reloadNow;
 
@@ -128,6 +139,11 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         favourite = findViewById(R.id.detail_favourite);
         profileValues = findViewById(R.id.detail_profile_values);
         profileLayers = findViewById(R.id.detail_profile_layers);
+        chips = findViewById(R.id.detail_chips);
+        installed = findViewById(R.id.detail_installed);
+        hdr = findViewById(R.id.detail_hdr);
+        backdrop = findViewById(R.id.detail_backdrop);
+        if (backdrop != null) setUpAmbience();
         play.setOnClickListener(v -> onPlay());
         end.setOnClickListener(v -> onEnd());
         favourite.setOnClickListener(v -> onFavourite());
@@ -137,6 +153,29 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
 
         feed = new HostFeed(this, this);
         feed.bind();
+    }
+
+    /**
+     * The TV page sits on the game's backdrop. Opened from Home, it is the picture Home was showing for the game,
+     * shown at once, so the page change keeps the screen's light; otherwise it fades in when the cover is loaded.
+     */
+    private void setUpAmbience() {
+        int canvas = ContextCompat.getColor(this, R.color.tv_canvas);
+        getWindow().setBackgroundDrawable(new ColorDrawable(canvas));
+        ((ViewGroup) findViewById(android.R.id.content)).setClipChildren(false);
+        backdrop.setCanvasColor(canvas);
+        backdrop.setDim(AppTheme.isHighContrast(this) ? 0.85f : 1f);
+        backdrop.setOnCovered(() -> getWindow().setBackgroundDrawable(null));
+        backdrop.adopt(HomeAmbience.gameKey(hostUuid, appId, titleExtra));
+    }
+
+    /** Asks the backdrop for this game's cover; a cover still loading asks again when it arrives (see the art listener). */
+    private void askBackdrop() {
+        GameDetailModel m = model;
+        if (backdrop == null || covers == null || m == null) return;
+        NvApp app = CoverLoaders.appOf(m.title, m.appId, m.source);
+        backdrop.focus(HomeAmbience.gameKey(hostUuid, appId, titleExtra), covers.peek(shownComputer, app),
+                covers.lacksArt(shownComputer, app), false);
     }
 
     @Override
@@ -193,7 +232,13 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         }
         if (repository == null) {
             repository = createRepository(uniqueId);
-            covers = new CoverLoaders(this, uniqueId, COVER_WIDTH_DP);
+            covers = new CoverLoaders(this, uniqueId, Math.round(
+                    getResources().getDimension(R.dimen.detail_cover_width) / getResources().getDisplayMetrics().density));
+            if (backdrop != null) {
+                covers.setArtListener(app -> {
+                    if (app.getAppId() == appId) askBackdrop();
+                });
+            }
         }
         final ConsoleRepository repo = repository;
         final ComputerDetails computer = new ComputerDetails(current);
@@ -288,6 +333,11 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         }
         status.setText(chip);
         status.setVisibility(chip == null ? View.GONE : View.VISIBLE);
+        if (chips != null) {
+            shownComputer = computer;
+            renderChips(m, chip != null);
+            askBackdrop();
+        }
 
         play.setText(m.resumes() ? R.string.applist_menu_resume : R.string.library_play);
         play.setEnabled(m.canStart());
@@ -326,6 +376,18 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
             focusPending = false;
             play.requestFocus();
         }
+    }
+
+    /** The TV chip line: the state with its dot, installed or not when the host says, and HDR when the game has it. */
+    private void renderChips(GameDetailModel m, boolean hasState) {
+        int dot = m.state == GameDetailModel.State.RUNNING ? R.drawable.tv_dot_live : R.drawable.tv_dot_suspended;
+        status.setCompoundDrawablesRelativeWithIntrinsicBounds(hasState ? dot : 0, 0, 0, 0);
+        Boolean isInstalled = m.source != null ? m.source.installed : null;
+        installed.setText(Boolean.FALSE.equals(isInstalled) ? R.string.console_chip_not_installed : R.string.console_detail_installed);
+        installed.setVisibility(isInstalled == null ? View.GONE : View.VISIBLE);
+        hdr.setVisibility(m.source != null && m.source.hdrSupported ? View.VISIBLE : View.GONE);
+        boolean any = hasState || isInstalled != null || hdr.getVisibility() == View.VISIBLE;
+        chips.setVisibility(any ? View.VISIBLE : View.GONE);
     }
 
     private void renderFavourite() {

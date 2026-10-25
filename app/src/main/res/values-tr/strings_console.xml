@@ -60,4 +60,6 @@
         <item quantity="one">%1$s, %2$d oyun</item>
         <item quantity="other">%1$s, %2$d oyun</item>
     </plurals>
+    <!-- tv-redesign-5 -->
+    <string name="console_detail_installed">Yüklü</string>
 </resources>

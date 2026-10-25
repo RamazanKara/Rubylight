@@ -42,6 +42,7 @@ public class BackdropViewTest {
         org.robolectric.util.ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
                 org.robolectric.util.ReflectionHelpers.ClassParameter.from(float.class, 1f));
         PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication()).edit().clear().commit();
+        BackdropView.clearHandoff();
         controller = Robolectric.buildActivity(UiNavigationTest.Screen.class).setup().visible();
         backdrop = new BackdropView(controller.get());
         backdrop.setWorker(Runnable::run);
@@ -213,6 +214,48 @@ public class BackdropViewTest {
         backdrop.focus("b", cover(), false);
         pass(SETTLE_AND_FADE);
         assertEquals("told once", 1, covered[0]);
+    }
+
+    /** A second screen's backdrop in the same window, as a game's page over Home has. */
+    private BackdropView nextScreen() {
+        BackdropView next = new BackdropView(controller.get());
+        next.setWorker(Runnable::run);
+        controller.get().addContentView(next, new FrameLayout.LayoutParams(1920, 1080));
+        return next;
+    }
+
+    @Test
+    public void theGamesPageOpensOnTheBackdropHomeShowedForItWithNoChange() {
+        Bitmap cover = cover();
+        backdrop.focus("game:pc:2", cover, false);
+        pass(SETTLE_AND_FADE);
+        Bitmap homes = ((BitmapDrawable) back().getDrawable()).getBitmap();
+
+        BackdropView page = nextScreen();
+        int[] covered = {0};
+        page.setOnCovered(() -> covered[0]++);
+        assertTrue(page.adopt("game:pc:2"));
+        ImageView pageBack = (ImageView) page.getChildAt(0);
+        assertSame("the same picture, at once", homes, ((BitmapDrawable) pageBack.getDrawable()).getBitmap());
+        assertEquals("it covers the window from the start", 1, covered[0]);
+        // The page then asks for its game's backdrop with the cover it loaded, which is Home's: nothing changes.
+        page.focus("game:pc:2", cover, false);
+        pass(SETTLE_AND_FADE);
+        assertEquals(0, page.changeCount());
+        assertSame(homes, ((BitmapDrawable) pageBack.getDrawable()).getBitmap());
+    }
+
+    @Test
+    public void anotherGamesBackdropIsNotAdopted() {
+        backdrop.focus("game:pc:12", cover(), false);
+        pass(SETTLE_AND_FADE);
+        BackdropView page = nextScreen();
+        assertEquals("game 1 is not game 12", false, page.adopt("game:pc:1"));
+        assertNull(((ImageView) page.getChildAt(0)).getDrawable());
+        // It fades in its own game's backdrop instead.
+        page.focus("game:pc:1", cover(), false);
+        pass(SETTLE_AND_FADE);
+        assertEquals(1, page.changeCount());
     }
 
     private static final long SETTLE_AND_FADE = BackdropView.SETTLE_MS + BackdropView.ZOOM_MS + 100;

@@ -34,6 +34,10 @@ import java.util.concurrent.TimeUnit;
  * a small LruCache. With Reduce motion the new backdrop is swapped in at once.
  *
  * <p>It lays itself out over the whole window, under the safe-area padding and the TV overscan of its parents.
+ *
+ * <p>The last backdrop shown on any screen is kept (a 96 px thumbnail), so the next screen that is about the same
+ * game, such as its game page opened from Home, can open on the same picture with {@link #adopt} instead of fading
+ * in from the canvas.
  */
 public class BackdropView extends FrameLayout {
     /** A backdrop starts changing this long after the last request. */
@@ -48,6 +52,9 @@ public class BackdropView extends FrameLayout {
     private static final LinearInterpolator LINEAR = new LinearInterpolator();
 
     private static final Executor WORKER = worker();
+    /** The cache key and thumbnail of the backdrop the last screen showed, for {@link #adopt}. Main thread only. */
+    private static String handoffKey;
+    private static Bitmap handoffBitmap;
 
     private final ImageView back;
     private final ImageView front;
@@ -147,6 +154,32 @@ public class BackdropView extends FrameLayout {
         handler.postDelayed(apply, fast ? FAST_SETTLE_MS : SETTLE_MS);
     }
 
+    /**
+     * Shows at once, with no fade, the backdrop the last screen showed for {@code key}, when that is what it showed.
+     * A later {@link #focus} with the same key and cover then changes nothing.
+     *
+     * @return false when the last backdrop was of something else, and this one stays as it is
+     */
+    public boolean adopt(String key) {
+        String last = handoffKey;
+        Bitmap bitmap = handoffBitmap;
+        if (key == null || last == null || bitmap == null || !last.startsWith(key + "@")) return false;
+        handler.removeCallbacks(apply);
+        endTransition();
+        cache.put(last, bitmap);
+        shownKey = last;
+        back.setImageBitmap(bitmap);
+        shown = bitmap;
+        covered();
+        return true;
+    }
+
+    /** For tests: forgets the backdrop the last screen showed. */
+    static void clearHandoff() {
+        handoffKey = null;
+        handoffBitmap = null;
+    }
+
     private void applyWanted() {
         if (wantedCover == null && !wantedNoArt) {
             // Still loading: keep what is shown rather than flashing the canvas, and drop a blur that is in flight.
@@ -178,6 +211,8 @@ public class BackdropView extends FrameLayout {
 
     private void display(String key, Bitmap bitmap) {
         shownKey = key;
+        handoffKey = key;
+        handoffBitmap = bitmap;
         changes++;
         endTransition();
         if (Motion.reduced(getContext()) || getWindowToken() == null) {

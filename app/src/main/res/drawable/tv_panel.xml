@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A panel over the TV backdrop: 20dp corners, 60% black. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@color/tv_panel_fill" />
+    <corners android:radius="20dp" />
+</shape>

@@ -60,4 +60,6 @@
         <item quantity="one">%1$s, %2$d Spiel</item>
         <item quantity="other">%1$s, %2$d Spiele</item>
     </plurals>
+    <!-- tv-redesign-5 -->
+    <string name="console_detail_installed">Installiert</string>
 </resources>

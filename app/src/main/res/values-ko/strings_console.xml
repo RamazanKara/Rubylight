@@ -57,4 +57,6 @@
     <plurals name="console_filter_description">
         <item quantity="other">%1$s, 게임 %2$d개</item>
     </plurals>
+    <!-- tv-redesign-5 -->
+    <string name="console_detail_installed">설치됨</string>
 </resources>

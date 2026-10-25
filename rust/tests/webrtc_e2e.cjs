@@ -432,7 +432,10 @@ async function ourSession(host, {codec, channels = 2, kind = 'edge', browserArgs
       const problems = [];
       if (result.video.codec !== MIME[codec]) problems.push(`codec ${result.video.codec}`);
       if (!(result.video.decodedOverReceived > .98)) problems.push(`decoded ${result.video.decodedOverReceived} of the frames received`);
-      if (result.video.size !== `${width}x${height}`) problems.push(`size ${result.video.size}`);
+      // AMD's AV1 encoder pads 1080p by two rows, which the browser reports as 1920x1082
+      // (rust/PERFORMANCE.md, AMF AV1 alignment); the sizes measured so far are otherwise exact.
+      const padded = codec === 'av1' && height === 1080 ? `${width}x${height + 2}` : null;
+      if (![`${width}x${height}`, padded].includes(result.video.size)) problems.push(`size ${result.video.size}`);
       if (useClock && g2g.samples < 50) problems.push(`${g2g.samples} glass-to-glass samples`);
       if (useTone && result.check.status !== 'passed') problems.push('audio check');
       if (bitstream) {

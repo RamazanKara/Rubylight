@@ -1,7 +1,7 @@
 # Run elevated by the harness (host.cjs, `system: true`) through an on-demand task that is registered
 # for the signed-in user with highest privileges. Does the few things that need administrator rights
 # and nothing else: create, run, end and delete the one-shot SYSTEM task that starts the test host,
-# and stop what is left of that host. The request is a JSON file; every step is checked against the
+# stop what is left of that host, and allow it through the firewall. The request is a JSON file; every step is checked against the
 # test host's own task name and staging directory before it runs.
 $ErrorActionPreference = 'Continue'
 $dir = 'C:\src\butterpollo-release\wr\elevate'
@@ -17,6 +17,17 @@ foreach ($step in $request.steps) {
             if ($p.ExecutablePath -and $p.ExecutablePath.StartsWith($staging + '\', [StringComparison]::OrdinalIgnoreCase)) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue; $verdict += "killed $($p.Name) " }
         }
         $results += [pscustomobject]@{exit = 0; output = "$verdict"}
+        continue
+    }
+    if ($step.firewall) {
+        # An inbound allow rule for the staged host, so that Windows does not ask (a modal dialog
+        # dims the clock window and the glass-to-glass probe cannot find it).
+        $name = 'Rubylight WebRTC e2e test host'
+        $program = Join-Path $staging 'butterpollo.exe'
+        $rule = Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue
+        if ($rule -and (($rule | Get-NetFirewallApplicationFilter).Program -ne $program)) { $rule | Remove-NetFirewallRule; $rule = $null }
+        if (-not $rule) { New-NetFirewallRule -DisplayName $name -Direction Inbound -Action Allow -Profile Any -Program $program | Out-Null }
+        $results += [pscustomobject]@{exit = 0; output = 'firewall rule present'}
         continue
     }
     $valid = $a.Count -ge 3 -and $a[0] -in '/Create', '/Run', '/End', '/Delete' -and $a[1] -eq '/TN' -and $a[2] -eq $taskName

@@ -60,6 +60,9 @@ const defaults = {
 // generated console password and sink. The password stays in harness.json.
 function prepare(options = {}, {config = {}} = {}) {
   const o = {...defaults, ...options};
+  // A SYSTEM host locks its credentials folder to SYSTEM and the administrators, which the next
+  // host of the signed-in user then cannot read: each kind keeps its own profile.
+  if (o.system && o.root === defaults.root) o.root = `${defaults.root}-system`;
   // Audio goes to Steam Streaming Speakers, captured only: the host never
   // changes the system's default devices, so the user's headset stays theirs.
   const probe = process.env.BUTTERPOLLO_TEST_AUDIO_PROBE || 'C:\\src\\butterpollo-release\\fixtures\\audio_probe.exe';
@@ -94,6 +97,7 @@ function prepare(options = {}, {config = {}} = {}) {
   return {...o, ...harness};
 }
 
+const FIREWALL_RULE = 'Rubylight WebRTC e2e test host';
 const isAdmin = () => { try { execFileSync('net', ['session'], {stdio: 'ignore'}); return true; } catch { return false; } };
 const pause = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
@@ -105,6 +109,12 @@ function elevate(o, steps) {
   const results = [];
   if (isAdmin()) {
     for (const step of steps) {
+      if (step.firewall) {
+        const script = `if (-not (Get-NetFirewallRule -DisplayName '${FIREWALL_RULE}' -ErrorAction SilentlyContinue)) { New-NetFirewallRule -DisplayName '${FIREWALL_RULE}' -Direction Inbound -Action Allow -Profile Any -Program '${path.join(o.staging, 'butterpollo.exe')}' | Out-Null }`;
+        execFileSync('powershell.exe', ['-NoProfile', '-Command', script], {stdio: 'pipe'});
+        results.push({exit: 0, output: ''});
+        continue;
+      }
       if (step.kill) { support.killLeftovers({hostDir: o.staging, toneExe: '', webPort: 0}); results.push({exit: 0, output: ''}); continue; }
       try { results.push({exit: 0, output: execFileSync('schtasks', step.args, {encoding: 'utf8', stdio: 'pipe'})}); }
       catch (error) { results.push({exit: error.status ?? 1, output: String(error.stdout || error.message)}); }
@@ -128,7 +138,7 @@ function elevate(o, steps) {
     }
   }
   steps.forEach((step, i) => {
-    if (!step.optional && results[i]?.exit !== 0) throw new Error(`${step.kill ? 'kill' : 'schtasks ' + step.args.join(' ')} failed (${results[i]?.exit}): ${results[i]?.output}`);
+    if (!step.optional && results[i]?.exit !== 0) throw new Error(`${step.kill ? 'kill' : step.firewall ? 'firewall' : 'schtasks ' + step.args.join(' ')} failed (${results[i]?.exit}): ${results[i]?.output}`);
   });
   return results;
 }
@@ -154,6 +164,7 @@ class TestHost {
 
   async start() {
     const exe = stage(this.o);
+    elevate(this.o, [{firewall: true}]);
     fs.writeFileSync(this.log, '');
     const args = ['--config-dir', this.o.root, '--assets', path.join(this.o.package, 'assets', 'web'),
       '--port', String(this.o.port), '--bind', '127.0.0.1', '--no-tray'];

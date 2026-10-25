@@ -6,6 +6,7 @@
 //! checked before str0m parses it. See `docs/webrtc-design.md` ("Library").
 use anyhow::{Context, Result, anyhow, bail};
 use butterpollo_core::audio::OpusLayout;
+use butterpollo_core::webrtc::capabilities::{av1_level, hevc_level};
 use str0m::change::{SdpAnswer, SdpPendingOffer};
 use str0m::channel::{ChannelConfig, ChannelId, Reliability};
 use str0m::format::{Codec, FormatParams};
@@ -55,6 +56,8 @@ pub struct VideoMode {
     pub height: u32,
     pub fps: u32,
     pub hdr: bool,
+    /// The stream bitrate, which decides the level's tier.
+    pub bitrate_kbps: u32,
 }
 
 impl VideoMode {
@@ -76,6 +79,18 @@ impl AudioMode {
             channels: 2,
             layout: None,
         }
+    }
+
+    /// Chromium's canonical 5.1 and 7.1 `multiopus` parameters, which is what a browser answers
+    /// with (libwebrtc's own table, so no mapping surprise). The encoder is fed in that channel
+    /// order: input channel `i` is the decoder's output channel `i`.
+    pub fn chrome_surround(channels: usize) -> Result<Self> {
+        let custom = match channels {
+            6 => "642041235",
+            8 => "85306123457",
+            _ => bail!("multiopus needs 6 or 8 channels, got {channels}"),
+        };
+        Self::surround(OpusLayout::select(channels, false, Some(custom))?)
     }
 
     /// `layout` is the one the encoder uses (`OpusLayout::select`), so the mapping in the fmtp is
@@ -127,72 +142,39 @@ pub struct Offer {
 pub struct AnswerInfo {
     pub playout_delay: bool,
     pub video_level: Option<u32>,
+    /// The `multiopus` layout the client answered with, for 6 and 8 channels. The client picks its
+    /// own parameters (libwebrtc answers with its canonical table, not necessarily the offered
+    /// mapping), and the Opus encoder must be built with exactly these: input channel `i` is the
+    /// decoder's output channel `i`. `None` for stereo.
+    pub audio_layout: Option<OpusLayout>,
 }
 
-// TODO(B4): use core's level helper (rust/core/src/webrtc/capabilities.rs) once B1a has landed.
-/// The lowest Main-tier HEVC level (as `level-id`, 30 times the level) whose picture size and luma
-/// sample rate hold the mode (H.265 table A.8).
-pub fn hevc_level_id(width: u32, height: u32, fps: u32) -> u8 {
-    // (level-id, MaxLumaPs, MaxLumaSr)
-    const LEVELS: [(u8, u64, u64); 13] = [
-        (30, 36_864, 552_960),
-        (60, 122_880, 3_686_400),
-        (63, 245_760, 7_372_800),
-        (90, 552_960, 16_588_800),
-        (93, 983_040, 33_177_600),
-        (120, 2_228_224, 66_846_720),
-        (123, 2_228_224, 133_693_440),
-        (150, 8_912_896, 267_386_880),
-        (153, 8_912_896, 534_773_760),
-        (156, 8_912_896, 1_069_547_520),
-        (180, 35_651_584, 1_069_547_520),
-        (183, 35_651_584, 2_139_095_040),
-        (186, 35_651_584, 4_278_190_080),
-    ];
-    let size = u64::from(width) * u64::from(height);
-    let rate = size * u64::from(fps);
-    let max_dimension = |max_ps: u64| ((max_ps * 8) as f64).sqrt() as u64;
-    LEVELS
-        .iter()
-        .find(|(_, ps, sr)| {
-            size <= *ps
-                && rate <= *sr
-                && u64::from(width) <= max_dimension(*ps)
-                && u64::from(height) <= max_dimension(*ps)
-        })
-        .map_or(LEVELS[LEVELS.len() - 1].0, |l| l.0)
+/// The HEVC `level-id` and `tier-flag` for the mode, from core's table (never below level 4.1).
+fn hevc_params(mode: &VideoMode) -> Result<(u8, u8)> {
+    let (level, tier) = hevc_level(mode.width, mode.height, mode.fps, mode.bitrate_kbps)
+        .with_context(|| {
+            format!(
+                "no HEVC level holds {}x{}@{} at {} kbps",
+                mode.width, mode.height, mode.fps, mode.bitrate_kbps
+            )
+        })?;
+    Ok((u8::try_from(level.level_id)?, u8::try_from(tier.flag())?))
 }
 
-// TODO(B4): use core's level helper (rust/core/src/webrtc/capabilities.rs) once B1a has landed.
-/// The lowest AV1 `level-idx` (`seq_level_idx`, Tier 0) whose limits hold the mode (AV1 Annex A).
-pub fn av1_level_idx(width: u32, height: u32, fps: u32) -> u8 {
-    // (level-idx, MaxPicSize, MaxHSize, MaxVSize, MaxDisplayRate)
-    const LEVELS: [(u8, u64, u64, u64, u64); 14] = [
-        (0, 147_456, 2048, 1152, 4_423_680),
-        (1, 278_784, 2816, 1584, 8_363_520),
-        (4, 665_856, 4352, 2448, 19_975_680),
-        (5, 1_065_024, 5504, 3096, 31_950_720),
-        (8, 2_359_296, 6144, 3456, 70_778_880),
-        (9, 2_359_296, 6144, 3456, 141_557_760),
-        (12, 8_912_896, 8192, 4352, 267_386_880),
-        (13, 8_912_896, 8192, 4352, 534_773_760),
-        (14, 8_912_896, 8192, 4352, 1_069_547_520),
-        (16, 35_651_584, 16_384, 8704, 1_069_547_520),
-        (17, 35_651_584, 16_384, 8704, 2_139_095_040),
-        (18, 35_651_584, 16_384, 8704, 4_278_190_080),
-        (19, 35_651_584, 16_384, 8704, 4_278_190_080),
-        (31, u64::MAX, u64::MAX, u64::MAX, u64::MAX),
-    ];
-    let (w, h) = (u64::from(width), u64::from(height));
-    let rate = w * h * u64::from(fps);
-    LEVELS
-        .iter()
-        .find(|(_, ps, hs, vs, dr)| w * h <= *ps && w <= *hs && h <= *vs && rate <= *dr)
-        .map_or(LEVELS[LEVELS.len() - 2].0, |l| l.0)
+/// The AV1 `level-idx` and `tier` for the mode.
+fn av1_params(mode: &VideoMode) -> Result<(u8, u8)> {
+    let (level, tier) = av1_level(mode.width, mode.height, mode.fps, mode.bitrate_kbps)
+        .with_context(|| {
+            format!(
+                "no AV1 level holds {}x{}@{} at {} kbps",
+                mode.width, mode.height, mode.fps, mode.bitrate_kbps
+            )
+        })?;
+    Ok((u8::try_from(level.level_idx)?, u8::try_from(tier.flag())?))
 }
 
-fn video_codec_and_format(mode: &VideoMode) -> (Codec, FormatParams) {
-    match mode.codec {
+fn video_codec_and_format(mode: &VideoMode) -> Result<(Codec, FormatParams)> {
+    Ok(match mode.codec {
         VideoCodec::H264 => (
             Codec::H264,
             FormatParams {
@@ -202,35 +184,28 @@ fn video_codec_and_format(mode: &VideoMode) -> (Codec, FormatParams) {
                 ..Default::default()
             },
         ),
-        VideoCodec::Hevc => (
-            Codec::H265,
+        VideoCodec::Hevc => (Codec::H265, {
+            let (level, tier) = hevc_params(mode)?;
             FormatParams {
-                h265_profile_tier_level: Some(
-                    (
-                        mode.hevc_profile_id(),
-                        0,
-                        hevc_level_id(mode.width, mode.height, mode.fps),
-                    )
-                        .into(),
-                ),
+                h265_profile_tier_level: Some((mode.hevc_profile_id(), tier, level).into()),
                 ..Default::default()
-            },
-        ),
-        VideoCodec::Av1 => (
-            Codec::Av1,
+            }
+        }),
+        VideoCodec::Av1 => (Codec::Av1, {
+            let (level, tier) = av1_params(mode)?;
             FormatParams {
                 profile: Some(0),
-                tier: Some(0),
-                level_idx: Some(av1_level_idx(mode.width, mode.height, mode.fps)),
+                tier: Some(tier),
+                level_idx: Some(level),
                 ..Default::default()
-            },
-        ),
-    }
+            }
+        }),
+    })
 }
 
 /// The Rtc configuration both for the host and, with `set_ice_lite(false)`, for a test client: one
 /// video codec and Opus at fixed payload types, and no transport-cc, REMB or (unless asked) RTX.
-pub fn rtc_config(spec: &OfferSpec) -> RtcConfig {
+pub fn rtc_config(spec: &OfferSpec) -> Result<RtcConfig> {
     let mut exts = ExtensionMap::empty();
     exts.set(MID_EXT_ID, Extension::RtpMid);
     exts.set(PLAYOUT_DELAY_EXT_ID, Extension::PlayoutDelay);
@@ -244,7 +219,7 @@ pub fn rtc_config(spec: &OfferSpec) -> RtcConfig {
         .set_extension_map(exts)
         // A 4K keyframe is a few thousand packets; the default keeps 1000.
         .set_send_buffer_video(4096);
-    let (codec, format) = video_codec_and_format(&spec.video);
+    let (codec, format) = video_codec_and_format(&spec.video)?;
     let codecs = config.codec_config();
     codecs.add_config(
         Pt::new_with_value(VIDEO_PT),
@@ -277,7 +252,7 @@ pub fn rtc_config(spec: &OfferSpec) -> RtcConfig {
             params.set_fb_nack(spec.rtx);
         }
     }
-    config
+    Ok(config)
 }
 
 /// Add the media and the two host-created DataChannels to a fresh Rtc and return the edited offer.
@@ -465,7 +440,8 @@ pub fn check_answer(sdp: &str, spec: &OfferSpec) -> Result<(String, AnswerInfo)>
             if param("profile-id").unwrap_or("1") != want {
                 bail!("the answer changed the HEVC profile-id (wanted {want})");
             }
-            if param("tier-flag").unwrap_or("0") != "0" {
+            let (_, tier) = hevc_params(&spec.video)?;
+            if param("tier-flag").unwrap_or("0") != tier.to_string() {
                 bail!("the answer changed the HEVC tier");
             }
             info.video_level = param("level-id").and_then(|v| v.parse().ok());
@@ -474,7 +450,8 @@ pub fn check_answer(sdp: &str, spec: &OfferSpec) -> Result<(String, AnswerInfo)>
             if param("profile").unwrap_or("0") != "0" {
                 bail!("the answer changed the AV1 profile");
             }
-            if param("tier").unwrap_or("0") != "0" {
+            let (_, tier) = av1_params(&spec.video)?;
+            if param("tier").unwrap_or("0") != tier.to_string() {
                 bail!("the answer changed the AV1 tier");
             }
             info.video_level = param("level-idx").and_then(|v| v.parse().ok());
@@ -503,17 +480,7 @@ pub fn check_answer(sdp: &str, spec: &OfferSpec) -> Result<(String, AnswerInfo)>
             let fmtp = attribute_line(&lines, &audio, &format!("a=fmtp:{AUDIO_PT} "))
                 .map(|i| lines[i].clone())
                 .unwrap_or_default();
-            let params = fmtp_params(&fmtp);
-            let param = |name: &str| params.iter().find(|(k, _)| *k == name).map(|(_, v)| *v);
-            let mapping: Vec<String> = layout.mapping.iter().map(u8::to_string).collect();
-            if param("channel_mapping") != Some(mapping.join(",").as_str()) {
-                bail!("the answer changed the multiopus channel mapping");
-            }
-            if param("num_streams") != Some(layout.streams.to_string().as_str())
-                || param("coupled_streams") != Some(layout.coupled.to_string().as_str())
-            {
-                bail!("the answer changed the multiopus stream counts");
-            }
+            info.audio_layout = Some(answered_layout(&fmtp, layout)?);
             lines[i] = format!("a=rtpmap:{AUDIO_PT} opus/48000/2");
             if let Some(f) = attribute_line(&lines, &audio, &format!("a=fmtp:{AUDIO_PT} ")) {
                 lines[f] = format!("a=fmtp:{AUDIO_PT} minptime=10;useinbandfec=0");
@@ -531,6 +498,63 @@ pub fn check_answer(sdp: &str, spec: &OfferSpec) -> Result<(String, AnswerInfo)>
         bail!("the answer rejected the DataChannels");
     }
     Ok((join(&lines), info))
+}
+
+/// The layout in a `multiopus` answer's fmtp. The answerer chooses its own parameters, so they
+/// need not echo the offer; they only have to describe a valid RFC 7845-style multistream layout
+/// for the channel count that was offered.
+fn answered_layout(fmtp: &str, offered: &OpusLayout) -> Result<OpusLayout> {
+    let params = fmtp_params(fmtp);
+    let param = |name: &str| params.iter().find(|(k, _)| *k == name).map(|(_, v)| *v);
+    let number = |name: &str| -> Result<i32> {
+        param(name)
+            .with_context(|| format!("the multiopus answer has no {name}"))?
+            .parse::<u8>()
+            .map(i32::from)
+            .map_err(|_| anyhow!("the multiopus answer's {name} is not a number from 0 to 255"))
+    };
+    let streams = number("num_streams")?;
+    let coupled = number("coupled_streams")?;
+    if streams < 1 || coupled > streams {
+        bail!(
+            "the multiopus answer's stream counts are invalid ({streams} streams, {coupled} coupled)"
+        );
+    }
+    let decoded = streams + coupled;
+    if decoded > 255 {
+        bail!("the multiopus answer has too many decoded channels ({decoded})");
+    }
+    let mapping = param("channel_mapping")
+        .context("the multiopus answer has no channel_mapping")?
+        .split(',')
+        .map(|v| {
+            v.trim()
+                .parse::<u8>()
+                .map_err(|_| anyhow!("the multiopus channel_mapping entry {v:?} is not a number"))
+        })
+        .collect::<Result<Vec<u8>>>()?;
+    if mapping.len() != offered.channels {
+        bail!(
+            "the multiopus channel_mapping has {} entries for {} channels",
+            mapping.len(),
+            offered.channels
+        );
+    }
+    if let Some(bad) = mapping
+        .iter()
+        .find(|&&m| m != 255 && i32::from(m) >= decoded)
+    {
+        bail!(
+            "the multiopus channel_mapping entry {bad} is outside the {decoded} decoded channels"
+        );
+    }
+    Ok(OpusLayout {
+        channels: offered.channels,
+        streams,
+        coupled,
+        mapping,
+        bitrate: offered.bitrate,
+    })
 }
 
 fn is_rtx_rtpmap(line: &str, rtx: bool) -> bool {
@@ -578,6 +602,7 @@ pub(crate) mod testing {
                 height: 1080,
                 fps: 60,
                 hdr,
+                bitrate_kbps: 20_000,
             },
             audio: AudioMode::stereo(),
             rtx: false,
@@ -586,7 +611,7 @@ pub(crate) mod testing {
 
     pub fn surround_spec(channels: usize) -> OfferSpec {
         OfferSpec {
-            audio: AudioMode::surround(OpusLayout::select(channels, false, None).unwrap()).unwrap(),
+            audio: AudioMode::chrome_surround(channels).unwrap(),
             ..spec(VideoCodec::H264, false)
         }
     }
@@ -594,7 +619,7 @@ pub(crate) mod testing {
     /// The host's Rtc (ICE-lite) and the offer text for it.
     pub fn host_offer(spec: &OfferSpec, addr: SocketAddr) -> (Rtc, Offer) {
         install_crypto();
-        let mut rtc = rtc_config(spec).build(Instant::now());
+        let mut rtc = rtc_config(spec).unwrap().build(Instant::now());
         rtc.add_local_candidate(Candidate::host(addr, "udp").unwrap());
         let offer = create_offer(&mut rtc, spec).unwrap();
         (rtc, offer)
@@ -604,6 +629,7 @@ pub(crate) mod testing {
     pub fn client(spec: &OfferSpec, addr: SocketAddr) -> Rtc {
         install_crypto();
         let mut rtc = rtc_config(spec)
+            .unwrap()
             .set_ice_lite(false)
             .enable_raw_packets(true)
             .build(Instant::now());
@@ -730,59 +756,113 @@ mod tests {
             .unwrap_or_default()
     }
 
+    fn param_of(line: &str, name: &str) -> Option<String> {
+        fmtp_params(line)
+            .into_iter()
+            .find(|(k, _)| *k == name)
+            .map(|(_, v)| v.to_string())
+    }
+
     #[test]
-    fn hevc_fmtp_levels_for_main_and_main10() {
+    fn hevc_fmtp_levels_and_tier_come_from_core() {
+        // (width, height, fps, kbps, level-id, tier-flag); core's table, never below level 4.1.
         let cases = [
-            (1280, 720, 60, 120),
-            (1920, 1080, 60, 123),
-            (1920, 1080, 120, 150),
-            (2560, 1440, 60, 150),
-            (2560, 1440, 120, 153),
-            (3840, 2160, 60, 153),
-            (3840, 2160, 120, 156),
+            (1280, 720, 60, 10_000, 123, 0),
+            (1920, 1080, 60, 10_000, 123, 0),
+            (1920, 1080, 60, 20_001, 150, 0),
+            (1920, 1080, 120, 10_000, 150, 0),
+            (2560, 1440, 60, 10_000, 150, 0),
+            (2560, 1440, 120, 10_000, 153, 0),
+            (3840, 2160, 60, 10_000, 153, 0),
+            (3840, 2160, 120, 10_000, 156, 0),
+            (3840, 2160, 120, 100_000, 156, 1),
         ];
-        for (w, h, f, level) in cases {
-            assert_eq!(hevc_level_id(w, h, f), level, "{w}x{h}@{f}");
+        for (w, h, f, kbps, level, tier) in cases {
             for (hdr, profile) in [(false, 1), (true, 2)] {
                 let mut s = spec(VideoCodec::Hevc, hdr);
-                (s.video.width, s.video.height, s.video.fps) = (w, h, f);
+                s.video.width = w;
+                s.video.height = h;
+                s.video.fps = f;
+                s.video.bitrate_kbps = kbps;
                 let line = fmtp(&offer_for(&s));
-                assert!(
-                    line.contains(&format!("profile-id={profile}"))
-                        && line.contains("tier-flag=0")
-                        && line.contains(&format!("level-id={level}")),
-                    "{w}x{h}@{f} hdr={hdr}: {line}"
+                let p = |n: &str| param_of(&line, n);
+                assert_eq!(p("profile-id"), Some(profile.to_string()), "{line}");
+                assert_eq!(
+                    p("tier-flag"),
+                    Some(tier.to_string()),
+                    "{w}x{h}@{f} {kbps}: {line}"
+                );
+                assert_eq!(
+                    p("level-id"),
+                    Some(level.to_string()),
+                    "{w}x{h}@{f} {kbps}: {line}"
                 );
             }
         }
     }
 
     #[test]
+    fn a_mode_no_level_holds_cannot_be_offered() {
+        let mut s = spec(VideoCodec::Hevc, false);
+        s.video.fps = 240;
+        s.video.width = 3840;
+        s.video.height = 2160;
+        let Err(err) = rtc_config(&s) else {
+            panic!("a mode no HEVC level holds was offered");
+        };
+        assert!(err.to_string().contains("no HEVC level"), "{err}");
+        s.video.codec = VideoCodec::Av1;
+        let Err(err) = rtc_config(&s) else {
+            panic!("a mode no AV1 level holds was offered");
+        };
+        assert!(err.to_string().contains("no AV1 level"), "{err}");
+    }
+
+    #[test]
     fn av1_fmtp_matches_the_mode() {
-        for (w, h, f, idx) in [
-            (1920, 1080, 60, 9),
-            (2560, 1440, 60, 12),
-            (3840, 2160, 60, 13),
-            (3840, 2160, 120, 14),
+        for (w, h, f, kbps) in [
+            (1920, 1080, 60, 20_000),
+            (2560, 1440, 60, 20_000),
+            (3840, 2160, 60, 20_000),
+            (3840, 2160, 120, 20_000),
+            (3840, 2160, 120, 200_000),
         ] {
-            assert_eq!(av1_level_idx(w, h, f), idx, "{w}x{h}@{f}");
+            let (level, tier) = av1_level(w, h, f, kbps).unwrap();
             let mut s = spec(VideoCodec::Av1, true);
-            (s.video.width, s.video.height, s.video.fps) = (w, h, f);
+            s.video.width = w;
+            s.video.height = h;
+            s.video.fps = f;
+            s.video.bitrate_kbps = kbps;
             let line = fmtp(&offer_for(&s));
-            assert!(
-                line.contains("profile=0")
-                    && line.contains("tier=0")
-                    && line.contains(&format!("level-idx={idx}")),
+            assert_eq!(param_of(&line, "profile").as_deref(), Some("0"), "{line}");
+            assert_eq!(
+                param_of(&line, "tier"),
+                Some(tier.flag().to_string()),
+                "{line}"
+            );
+            assert_eq!(
+                param_of(&line, "level-idx"),
+                Some(level.level_idx.to_string()),
                 "{line}"
             );
         }
     }
 
     #[test]
-    fn h264_fmtp_is_packetization_mode_one() {
+    fn h264_fmtp_is_packetization_mode_one_with_asymmetric_levels() {
         let line = fmtp(&offer_for(&spec(VideoCodec::H264, false)));
-        assert!(
-            line.contains("packetization-mode=1") && line.contains("profile-level-id=42e01f"),
+        let mut params: Vec<(String, String)> = fmtp_params(&line)
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        params.sort();
+        assert_eq!(
+            params,
+            [
+                ("level-asymmetry-allowed".to_string(), "1".to_string()),
+                ("packetization-mode".to_string(), "1".to_string()),
+                ("profile-level-id".to_string(), "42e01f".to_string()),
+            ],
             "{line}"
         );
     }
@@ -808,9 +888,9 @@ mod tests {
     }
 
     #[test]
-    fn multiopus_offer_for_six_and_eight_channels() {
+    fn multiopus_offer_for_six_and_eight_channels_is_chromes_canonical_layout() {
         for (channels, mapping, streams, coupled) in
-            [(6, "0,1,4,5,2,3", 4, 2), (8, "0,1,4,5,6,7,2,3", 5, 3)]
+            [(6, "0,4,1,2,3,5", 4, 2), (8, "0,6,1,2,3,4,5,7", 5, 3)]
         {
             let sdp = offer_for(&surround_spec(channels));
             assert!(
@@ -975,47 +1055,180 @@ mod tests {
         }
     }
 
+    /// A Chromium-style answer to the surround offer with these multiopus parameters.
+    fn chrome_answer(s: &OfferSpec, rtpmap_channels: usize, fmtp: &str) -> String {
+        let stereo = answer_to(s, &offer_for(s));
+        stereo
+            .replace(
+                "a=rtpmap:111 opus/48000/2",
+                &format!("a=rtpmap:111 multiopus/48000/{rtpmap_channels}"),
+            )
+            .lines()
+            .map(|l| {
+                if l.starts_with("a=fmtp:111 ") {
+                    format!("a=fmtp:111 {fmtp}")
+                } else {
+                    l.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\r\n")
+            + "\r\n"
+    }
+
+    const CHROME_51: &str =
+        "channel_mapping=0,4,1,2,3,5;num_streams=4;coupled_streams=2;minptime=10;useinbandfec=1";
+    const CHROME_71: &str = "channel_mapping=0,6,1,2,3,4,5,7;num_streams=5;coupled_streams=3;minptime=10;useinbandfec=1";
+
     #[test]
-    fn multiopus_answer_validation_rejects_a_dropped_or_changed_layout() {
+    fn a_dropped_multiopus_is_refused() {
         let s = surround_spec(6);
-        let offer = offer_for(&s);
-        let stereo = answer_to(&s, &offer);
+        let stereo = answer_to(&s, &offer_for(&s));
         let err = check_answer(&stereo, &s).unwrap_err().to_string();
         assert!(err.contains("dropped multiopus/48000/6"), "{err}");
+        let wrong_count = chrome_answer(&s, 8, CHROME_71);
+        let err = check_answer(&wrong_count, &s).unwrap_err().to_string();
+        assert!(err.contains("dropped multiopus/48000/6"), "{err}");
+    }
 
-        let with = |rtpmap: &str, fmtp: &str| {
-            stereo
-                .replace("a=rtpmap:111 opus/48000/2", rtpmap)
-                .lines()
-                .map(|l| {
-                    if l.starts_with("a=fmtp:111 ") {
-                        format!("a=fmtp:111 {fmtp}")
-                    } else {
-                        l.to_string()
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join("\r\n")
-                + "\r\n"
+    #[test]
+    fn chrome_shaped_answers_are_accepted_and_their_layout_returned() {
+        for (channels, fmtp, streams, coupled, mapping) in [
+            (6, CHROME_51, 4, 2, vec![0u8, 4, 1, 2, 3, 5]),
+            (8, CHROME_71, 5, 3, vec![0u8, 6, 1, 2, 3, 4, 5, 7]),
+        ] {
+            let s = surround_spec(channels);
+            let answer = chrome_answer(&s, channels, fmtp);
+            let (text, info) = check_answer(&answer, &s).unwrap();
+            assert!(text.contains("a=rtpmap:111 opus/48000/2") && !text.contains("multiopus"));
+            let layout = info.audio_layout.expect("a negotiated layout");
+            assert_eq!(
+                (
+                    layout.channels,
+                    layout.streams,
+                    layout.coupled,
+                    &layout.mapping
+                ),
+                (channels, streams, coupled, &mapping)
+            );
+            // The same layout core would build from its custom string.
+            let digits: String = mapping.iter().map(u8::to_string).collect();
+            let custom = format!("{channels}{streams}{coupled}{digits}");
+            assert_eq!(
+                layout,
+                OpusLayout::select(channels, false, Some(&custom)).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn an_answer_need_not_echo_the_offered_mapping() {
+        // The offer carries Chromium's table; a receiver that answers with core's Moonlight
+        // mapping, or one with a silent channel (255), is taken at its word.
+        let s = surround_spec(6);
+        for (fmtp, mapping) in [
+            (
+                "channel_mapping=0,1,4,5,2,3;num_streams=4;coupled_streams=2",
+                vec![0u8, 1, 4, 5, 2, 3],
+            ),
+            (
+                "channel_mapping=0,1,2,3,255,5;num_streams=4;coupled_streams=2;minptime=10",
+                vec![0, 1, 2, 3, 255, 5],
+            ),
+            (
+                "channel_mapping=0,1,2,3,4,5;num_streams=6;coupled_streams=0",
+                vec![0, 1, 2, 3, 4, 5],
+            ),
+        ] {
+            let (_, info) = check_answer(&chrome_answer(&s, 6, fmtp), &s).unwrap();
+            assert_eq!(info.audio_layout.unwrap().mapping, mapping, "{fmtp}");
+        }
+    }
+
+    #[test]
+    fn invalid_multiopus_parameters_are_refused_clearly() {
+        let s = surround_spec(6);
+        let refused = |fmtp: &str| {
+            check_answer(&chrome_answer(&s, 6, fmtp), &s)
+                .unwrap_err()
+                .to_string()
         };
-        let good = "channel_mapping=0,1,4,5,2,3;num_streams=4;coupled_streams=2;minptime=10;useinbandfec=0";
-        assert!(check_answer(&with("a=rtpmap:111 multiopus/48000/6", good), &s).is_ok());
-        let err = |a: String| check_answer(&a, &s).unwrap_err().to_string();
-        assert!(
-            err(with(
-                "a=rtpmap:111 multiopus/48000/6",
-                &good.replace("0,1,4,5,2,3", "0,1,2,3,4,5")
-            ))
-            .contains("channel mapping")
-        );
-        assert!(
-            err(with(
-                "a=rtpmap:111 multiopus/48000/6",
-                &good.replace("num_streams=4", "num_streams=3")
-            ))
-            .contains("stream counts")
-        );
-        assert!(err(with("a=rtpmap:111 multiopus/48000/8", good)).contains("dropped multiopus"));
+        // Mapping length is not the channel count.
+        let err = refused("channel_mapping=0,1,2,3,4;num_streams=4;coupled_streams=2");
+        assert!(err.contains("5 entries for 6 channels"), "{err}");
+        // An entry beyond the decoded channels.
+        let err = refused("channel_mapping=0,1,2,3,4,6;num_streams=4;coupled_streams=2");
+        assert!(err.contains("outside the 6 decoded channels"), "{err}");
+        // More coupled streams than streams, and no streams at all.
+        let err = refused("channel_mapping=0,1,2,3,4,5;num_streams=2;coupled_streams=3");
+        assert!(err.contains("stream counts are invalid"), "{err}");
+        let err = refused("channel_mapping=0,1,2,3,4,5;num_streams=0;coupled_streams=0");
+        assert!(err.contains("stream counts are invalid"), "{err}");
+        // Too many decoded channels.
+        let err = refused("channel_mapping=0,1,2,3,4,5;num_streams=200;coupled_streams=100");
+        assert!(err.contains("too many decoded channels"), "{err}");
+        // Missing or unreadable parameters.
+        let err = refused("minptime=10");
+        assert!(err.contains("no num_streams"), "{err}");
+        let err = refused("num_streams=4;coupled_streams=2");
+        assert!(err.contains("no channel_mapping"), "{err}");
+        let err = refused("channel_mapping=0,1,x,3,4,5;num_streams=4;coupled_streams=2");
+        assert!(err.contains("not a number"), "{err}");
+        let err = refused("channel_mapping=0,1,2,3,4,5;num_streams=lots;coupled_streams=2");
+        assert!(err.contains("num_streams is not a number"), "{err}");
+    }
+
+    #[test]
+    fn garbage_answers_are_errors_not_panics() {
+        let s = spec(VideoCodec::H264, false);
+        let good = answer_to(&s, &offer_for(&s));
+        let mut cases: Vec<String> = vec![
+            String::new(),
+            "\r\n\r\n".into(),
+            "not sdp at all".into(),
+            "v=0\r\n".into(),
+            "m=video 9 UDP/TLS/RTP/SAVPF 96\r\n".into(),
+            "m=video 9 UDP/TLS/RTP/SAVPF 96\r\na=rtpmap:96 H264/90000\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n".into(),
+            "\u{0}\u{1}\u{2}\u{ff}".into(),
+            "a=rtpmap:96".into(),
+            "a=fmtp:96\r\na=fmtp:111 ;;;===;\r\n".into(),
+        ];
+        // Every prefix of a real answer, cut at line boundaries and mid-line.
+        for end in (0..good.len()).step_by(37) {
+            if good.is_char_boundary(end) {
+                cases.push(good[..end].to_string());
+            }
+        }
+        for case in &cases {
+            // Whatever the verdict, it is an Ok or an Err, never a panic.
+            let _ = check_answer(case, &s);
+            let (mut rtc, offer) = host_offer(&s, HOST.parse().unwrap());
+            let verdict = accept_answer(&mut rtc, offer, case, &s);
+            if !case.contains("m=application") {
+                assert!(verdict.is_err(), "accepted {case:?}");
+            }
+        }
+        for (case, want) in [
+            ("", "no video section"),
+            ("v=0\r\n", "no video section"),
+            (
+                "m=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+                "changed the video codec",
+            ),
+            (
+                "m=video 9 UDP/TLS/RTP/SAVPF 96\r\na=rtpmap:96 H264/90000\r\n",
+                "no audio section",
+            ),
+        ] {
+            let err = check_answer(case, &s).unwrap_err().to_string();
+            assert!(err.contains(want), "{case:?}: {err}");
+        }
+        // Valid to the checks but not to str0m.
+        let broken = good.replace("v=0", "v=banana");
+        let (mut rtc, offer) = host_offer(&s, HOST.parse().unwrap());
+        if let Err(e) = accept_answer(&mut rtc, offer, &broken, &s) {
+            assert!(!e.to_string().is_empty());
+        }
     }
 
     #[test]

@@ -7,6 +7,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import android.app.Application;
+import android.content.Intent;
 import android.graphics.Rect;
 import android.preference.PreferenceManager;
 import android.view.View;
@@ -168,5 +169,48 @@ public class SettingsRailTest {
         StreamSettings screen = open(Motion.FULL);
         assertNull(screen.findViewById(R.id.settings_rail_bar));
         assertNull(ReflectionHelpers.getField(screen, "rail"));
+    }
+
+    private static java.util.List<Integer> headingLayouts(android.preference.PreferenceGroup group, java.util.List<Integer> into) {
+        for (int i = 0; i < group.getPreferenceCount(); i++) {
+            android.preference.Preference preference = group.getPreference(i);
+            if (preference instanceof android.preference.PreferenceCategory && !android.text.TextUtils.isEmpty(preference.getTitle())) {
+                into.add(preference.getLayoutResource());
+            }
+            if (preference instanceof android.preference.PreferenceGroup) {
+                headingLayouts((android.preference.PreferenceGroup) preference, into);
+            }
+        }
+        return into;
+    }
+
+    @Test
+    public void theRailsPaneHeadsItsGroupsInSentenceCaseAndTheHostPagesKeepTheirHeadings() {
+        StreamSettings screen = open(Motion.FULL);
+        screen.showSection("display");
+        settle(screen);
+        android.preference.PreferenceFragment pane =
+                (android.preference.PreferenceFragment) screen.getFragmentManager().findFragmentById(R.id.stream_settings);
+        java.util.List<Integer> layouts = headingLayouts(pane.getPreferenceScreen(), new java.util.ArrayList<>());
+        assertTrue("the display section has headed groups", !layouts.isEmpty());
+        for (int layout : layouts) assertEquals(R.layout.settings_category_tv, layout);
+
+        android.widget.TextView heading = (android.widget.TextView) screen.getLayoutInflater()
+                .inflate(R.layout.settings_category_tv, null, false);
+        assertNull("no capitals", heading.getTransformationMethod());
+        assertEquals(0f, heading.getLetterSpacing(), 0f);
+        assertEquals(16 * screen.getResources().getDisplayMetrics().scaledDensity, heading.getTextSize(), 0.5f);
+
+        Intent intent = new Intent(screen, HostStreamSettings.class).putExtra("host_uuid", "den").putExtra("host_name", "Den PC");
+        ActivityController<HostStreamSettings> host = Robolectric.buildActivity(HostStreamSettings.class, intent).setup();
+        try {
+            android.preference.PreferenceFragment settings = (android.preference.PreferenceFragment)
+                    host.get().getFragmentManager().findFragmentById(R.id.host_profile_settings);
+            java.util.List<Integer> hostLayouts = headingLayouts(settings.getPreferenceScreen(), new java.util.ArrayList<>());
+            assertTrue(!hostLayouts.isEmpty());
+            for (int layout : hostLayouts) assertEquals(R.layout.settings_category, layout);
+        } finally {
+            host.pause().stop().destroy();
+        }
     }
 }

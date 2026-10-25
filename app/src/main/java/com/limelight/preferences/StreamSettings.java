@@ -2,6 +2,7 @@ package com.limelight.preferences;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
+import android.app.Activity;
 import android.content.Context;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
@@ -835,19 +836,28 @@ public class StreamSettings extends NightjarActivity {
         }
     }
 
-    private static void stylePreferences(PreferenceGroup group) {
+    /** Whether this is TV Settings with its rail, whose group headings are settings_category_tv. */
+    static boolean hasRail(Activity activity) {
+        return activity != null && activity.findViewById(R.id.settings_rail) != null;
+    }
+
+    private static void stylePreferences(PreferenceGroup group, Activity activity) {
+        stylePreferences(group, hasRail(activity) ? R.layout.settings_category_tv : R.layout.settings_category);
+    }
+
+    private static void stylePreferences(PreferenceGroup group, int categoryLayout) {
         for (int i = 0; i < group.getPreferenceCount(); i++) {
             Preference preference = group.getPreference(i);
             if (preference instanceof PresetPreference) continue;
             if (preference instanceof PreferenceCategory) {
                 // A group without a title continues the section heading above it.
                 preference.setLayoutResource(TextUtils.isEmpty(preference.getTitle()) ?
-                        R.layout.settings_category_spacer : R.layout.settings_category);
+                        R.layout.settings_category_spacer : categoryLayout);
             } else {
                 preference.setLayoutResource(R.layout.settings_preference);
             }
             if (preference instanceof PreferenceGroup) {
-                stylePreferences((PreferenceGroup) preference);
+                stylePreferences((PreferenceGroup) preference, categoryLayout);
             }
         }
     }
@@ -949,7 +959,7 @@ public class StreamSettings extends NightjarActivity {
             if (isTelevision(getActivity())) {
                 findPreference("input").setOrder(-1);
             }
-            stylePreferences(getPreferenceScreen());
+            stylePreferences(getPreferenceScreen(), getActivity());
             for (String key : SECTIONS.keySet()) {
                 Preference row = findPreference(key);
                 if (row == null) continue;
@@ -1145,7 +1155,7 @@ public class StreamSettings extends NightjarActivity {
                 empty.setLayoutResource(R.layout.settings_preference);
                 screen.addPreference(empty);
             }
-            stylePreferences(screen);
+            stylePreferences(screen, getActivity());
             setPreferenceScreen(screen);
             displayedResultCount = resultCount;
             TextView label = ((StreamSettings) getActivity()).contextLabel;
@@ -2182,7 +2192,7 @@ public class StreamSettings extends NightjarActivity {
                 }
             }
             updateCodecSummary(codec, codec.getValue(), hdr.isChecked());
-            stylePreferences(screen);
+            stylePreferences(screen, getActivity());
             for (int i = 0; i < screen.getPreferenceCount(); i++) {
                 PreferenceCategory category = (PreferenceCategory) screen.getPreference(i);
                 List<Preference> preferences = new ArrayList<>();

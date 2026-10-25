@@ -5,6 +5,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import android.app.Application;
 
@@ -139,12 +140,41 @@ public class NativeLibraryFieldsTest {
     }
 
     @Test
-    public void addingAGameSendsItsIdAndReadsTheLibraryBack() throws Exception {
-        transport.reply("pc", "library_add", ok("{\"revision\":\"r2\",\"games\":[" + BARE + "]}"));
-        NativeLibrary library = client().addToLibrary("gog:c");
+    public void addingAGameSendsItsIdAndReadsTheEntryTheHostAdded() throws Exception {
+        transport.reply("pc", "library_add", ok("{\"install_id\":\"i9\",\"app_id\":9,\"title\":\"Celeste\","
+                + "\"game_id\":\"gog:c\",\"added\":true}"));
+        NativeLibrary.Game game = client().addToLibrary("gog:c");
         assertEquals("pc|library_add", transport.calls.get(0));
         assertEquals("gog:c", new JSONObject(transport.arguments.get(0)).getString("game_id"));
-        assertEquals("r2", library.revision);
+        assertEquals("i9", game.installId);
+        assertEquals(9, game.appId);
+        assertEquals("Celeste", game.title);
+    }
+
+    @Test
+    public void anAddedEntryNeedsOnlyItsIdsAndMayComeWrappedOrAsTheLibrary() throws Exception {
+        NativeLibrary.Game bare = NativeLibrary.parseAdded(new JSONObject("{\"install_id\":\"i9\",\"app_id\":9}"), "gog:c");
+        assertEquals(9, bare.appId);
+        assertEquals("no title: the card's is shown", "", bare.title);
+        NativeLibrary.Game wrapped = NativeLibrary.parseAdded(new JSONObject("{\"game\":" + BARE + "}"), "x");
+        assertEquals(5, wrapped.appId);
+        NativeLibrary.Game listed = NativeLibrary.parseAdded(new JSONObject("{\"revision\":\"r\",\"games\":["
+                + BARE + ",{\"install_id\":\"i9\",\"app_id\":9,\"title\":\"Celeste\",\"game_id\":\"gog:c\"}]}"), "gog:c");
+        assertEquals(9, listed.appId);
+        assertNull("a library that does not list it as added",
+                NativeLibrary.parseAdded(new JSONObject("{\"revision\":\"r\",\"games\":[" + UNADDED + "]}"), "gog:c"));
+        assertNull(NativeLibrary.parseAdded(new JSONObject(UNADDED), "gog:c"));
+    }
+
+    @Test
+    public void anAddReplyWithoutItsIdsIsMalformed() {
+        transport.reply("pc", "library_add", ok("{\"title\":\"Celeste\",\"added\":true}"));
+        try {
+            client().addToLibrary("gog:c");
+            fail("an added entry without ids");
+        } catch (NativeApiException e) {
+            assertEquals(NativeApiException.Kind.MALFORMED, e.getKind());
+        }
     }
 
     @Test

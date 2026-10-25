@@ -147,6 +147,25 @@ public final class NativeLibrary {
         return new JSONObject().put("revision", revision).put("games", array);
     }
 
+    /**
+     * The reply to library_add: the one entry the host added, with its install and app ids, as such or under
+     * {@code "game"}. A host that answers with its whole library instead gives the entry for {@code gameId} from it.
+     * Null when the entry is not listed as added; a reply without the ids is malformed.
+     */
+    public static Game parseAdded(JSONObject reply, String gameId) throws JSONException {
+        if (reply.has("games")) {
+            for (Game game : parse(reply).games) {
+                if (gameId.equals(game.gameId) && game.added) return game;
+            }
+            return null;
+        }
+        JSONObject entry = reply.optJSONObject("game");
+        if (entry == null) entry = reply;
+        if (!entry.has("title")) entry = new JSONObject(entry.toString()).put("title", "");
+        Game game = Game.parse(entry);
+        return game.added ? game : null;
+    }
+
     public static NativeLibrary parse(JSONObject json) throws JSONException {
         JSONArray array = json.getJSONArray("games");
         List<Game> games = new ArrayList<>(array.length());

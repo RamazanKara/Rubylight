@@ -170,12 +170,13 @@ final class DemoConsole {
         return "{\"ok\":{\"revision\":\"demo-" + added.size() + "\",\"games\":[" + games + "]}}";
     }
 
-    /** library_add: the game is added with the next app id after the library's. */
+    /** library_add: the game is added with the next app id after the library's; the reply is that one entry. */
     private static String add(String argument) throws NativeApiException {
         for (int i = 0; i < NOT_ADDED.length; i++) {
             if (argument != null && argument.contains("\"" + NOT_ADDED[i][1] + ":n" + i + "\"")) {
                 added.putIfAbsent(i, LIBRARY.length + 1 + i);
-                return library("include=unadded");
+                return "{\"ok\":{\"install_id\":\"demo-n" + i + "\",\"app_id\":" + added.get(i) + ",\"title\":\""
+                        + NOT_ADDED[i][0] + "\",\"game_id\":\"" + NOT_ADDED[i][1] + ":n" + i + "\",\"added\":true}}";
             }
         }
         throw new NativeApiException(NativeApiException.Kind.UNAVAILABLE, "the demo has no such game");

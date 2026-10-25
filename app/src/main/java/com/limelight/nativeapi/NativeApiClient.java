@@ -64,14 +64,16 @@ public final class NativeApiClient {
     }
 
     /**
-     * Adds a game the host found but has not added, and returns the library as it stands afterwards. Only for a host that
+     * Adds a game the host found but has not added, and returns the entry the host added (see
+     * {@link NativeLibrary#parseAdded}), or null when the reply does not list it as added. Only for a host that
      * advertises {@link NativeCapabilities#LIBRARY_ADD}.
      */
-    public NativeLibrary addToLibrary(String gameId) throws NativeApiException {
+    public NativeLibrary.Game addToLibrary(String gameId) throws NativeApiException {
         try {
-            return NativeLibrary.parse(call("library_add", new JSONObject().put("game_id", gameId).toString()));
+            return NativeLibrary.parseAdded(call("library_add", new JSONObject().put("game_id", gameId).toString()),
+                    gameId);
         } catch (JSONException e) {
-            throw malformed("library", e);
+            throw malformed("library_add", e);
         }
     }
 

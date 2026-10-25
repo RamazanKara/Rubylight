@@ -12,6 +12,7 @@
 //! transport closes, or the stream fails; the actor says `idle` (or `error`) when it notices.
 
 use super::{
+    input::{self, InputHandle},
     media::{
         self, AudioSender, Hooks, IdrReason, MediaHandle, Pacing, Submit, TransportEvent,
         TransportOptions, VideoFrame,
@@ -221,6 +222,9 @@ struct Bridge {
     /// The transport connected, which may be before the session was bound.
     connected: AtomicBool,
     events: UnboundedSender<Event>,
+    /// The session's input worker, attached before the transport starts so no frame the client
+    /// sends early is lost.
+    input: Mutex<Option<InputHandle>>,
 }
 
 impl Bridge {
@@ -230,11 +234,23 @@ impl Bridge {
             closed: AtomicBool::new(false),
             connected: AtomicBool::new(false),
             events,
+            input: Mutex::new(None),
         })
+    }
+
+    fn attach_input(&self, input: InputHandle) {
+        *self.input.lock().unwrap() = Some(input);
+    }
+
+    fn input(&self) -> Option<InputHandle> {
+        self.input.lock().unwrap().clone()
     }
 
     fn bind(&self, session: &Arc<Session>) {
         *self.session.lock().unwrap() = Some(Arc::downgrade(session));
+        if let Some(input) = self.input() {
+            input.bind(session.clone());
+        }
         if self.closed.load(Ordering::SeqCst) {
             session.stop();
         } else if self.connected.load(Ordering::SeqCst) {
@@ -276,6 +292,10 @@ impl Bridge {
                 if let Some(session) = self.session() {
                     session.stop();
                 }
+                // Releases what the client still holds.
+                if let Some(input) = self.input() {
+                    input.closed();
+                }
             }
             TransportEvent::Disconnected => {
                 tracing::warn!("WebRTC path down; the session ends if it does not come back")
@@ -291,7 +311,23 @@ impl Bridge {
                     session.request_client_keyframe();
                 }
             }
-            _ => {}
+            TransportEvent::Gamepad { data, binary } => {
+                if let Some(input) = self.input() {
+                    input.gamepad(data, binary, Instant::now());
+                }
+            }
+            TransportEvent::Input { data, binary } => {
+                if let Some(input) = self.input() {
+                    input.input(data, binary);
+                }
+            }
+            TransportEvent::ChannelClosed { label } => {
+                if let Some(input) = self.input() {
+                    input.channel_closed(&label);
+                }
+            }
+            TransportEvent::ChannelOpen(_) | TransportEvent::ChannelRejected(_) => {}
+            TransportEvent::Control { .. } => {}
         }
     }
 
@@ -1092,6 +1128,9 @@ fn start_live(
         },
         ..TransportOptions::default()
     };
+    // Before the transport, so the client's first frame has somewhere to go.
+    let input = input::spawn(h.clone()).map_err(Rejected::Host)?;
+    bridge.attach_input(input.clone());
     let handle = MediaHandle::spawn(
         socket,
         prepared.local,
@@ -1106,6 +1145,7 @@ fn start_live(
         bridge.hooks(),
     )
     .map_err(Rejected::Host)?;
+    input.control(handle.control_sender());
     h.webrtc_links
         .put(launch.id.clone(), handle.with_audio_layout(audio_layout));
     let negotiated = Negotiated::webrtc(

@@ -1,0 +1,1 @@
+Experimentelles volles Chroma mit HDR endet nicht mehr mit einem Verbindungsfehler. Kann dein PC volles Chroma nicht in 10 Bit senden, streamt Nightjar es in 8 Bit SDR und das Overlay nennt den Grund; lehnt der PC volles Chroma ganz ab, verbindet sich Nightjar einmal ohne neu. Mit Rubylight 3.0 klappt volles Chroma jetzt auch in 10-Bit-HDR mit 120 fps.

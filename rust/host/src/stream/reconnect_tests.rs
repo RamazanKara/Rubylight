@@ -43,6 +43,8 @@ pub(crate) struct Fixture {
     resume_rtsp_cleanup: AtomicBool,
     /// A WebRTC worker that fails before it takes its media link.
     webrtc_fails_before_its_link: AtomicBool,
+    /// The fixture's display is not in HDR: its WebRTC worker sees 8-bit frames.
+    display_in_sdr: AtomicBool,
     /// How long releasing a launch's fake audio takes, as a driver that blocks does.
     audio_release_ms: Arc<AtomicU64>,
 }
@@ -195,13 +197,29 @@ impl Fixture {
             self.reset_done.store(true, Ordering::Release);
         }
     }
-    /// A WebRTC session's stream worker: the production `Sender` and synthetic access units, the
-    /// keyframe flag honoured as the encoder does.
+    /// What the display hands the capture: HDR's float surface, or 8-bit when it is not in HDR.
+    fn pixel(&self) -> butterpollo_windows::capture::Pixel {
+        if self.display_in_sdr.load(Ordering::Acquire) {
+            butterpollo_windows::capture::Pixel::Bgra8
+        } else {
+            butterpollo_windows::capture::Pixel::RgbaF16
+        }
+    }
+    /// A WebRTC session's stream worker: the production `Sender` and audio sink, with synthetic
+    /// access units and Opus packets. The keyframe flag is honoured as the encoder does, and the
+    /// display check is the production one.
     fn stream_webrtc(&self, h: &Shared, s: &Session) -> Result<()> {
         let _audio = s.launch.audio_preparation.lock().unwrap().take();
         anyhow::ensure!(
             !self.webrtc_fails_before_its_link.load(Ordering::Acquire),
             "the fixture's WebRTC worker failed before taking its link"
+        );
+        require_hdr_source(s, self.pixel(), false)?;
+        // As `spawn_audio`: the audio end first, then the video worker takes the link.
+        let mut audio = super::audio_sink::WebRtcAudio(
+            h.webrtc_links
+                .audio_sender(&s.launch.id)
+                .context("the WebRTC audio link is missing")?,
         );
         let sender = crate::webrtc::session::Sender::new(
             h.webrtc_links
@@ -210,31 +228,46 @@ impl Fixture {
         );
         *s.encoder.write().unwrap() = "reconnect fixture".into();
         let mut claims = butterpollo_core::performance::Claims::default();
-        let hevc = s.config.codec == 1;
+        let codec = s.config.codec;
         let mut first = true;
-        while !h.stop.load(Ordering::Acquire) && !s.stopping() {
-            let idr = s.idr.swap(false, Ordering::AcqRel) || first;
-            first = false;
-            let frame = webrtc_tests::access_unit(hevc, idr);
-            let started = Instant::now();
-            sender.submit(
-                s,
-                vec![butterpollo_windows::encoder::Encoded {
-                    bytes: frame,
-                    unit: butterpollo_windows::encoder::Unit::Whole,
-                    idr,
-                    after_invalidation: false,
-                    frame_cap_bytes: None,
-                    latency: Some(Duration::from_millis(2)),
-                    presentation: Some(started),
-                }],
-                Duration::from_millis(2),
-                started,
-                &mut claims,
-            )?;
-            thread::sleep(Duration::from_millis(10));
+        let result = (|| -> Result<()> {
+            while !h.stop.load(Ordering::Acquire) && !s.stopping() {
+                require_hdr_source(s, self.pixel(), true)?;
+                // Two 5 ms packets per tick; the payload names the layout the encoder would use.
+                let payload = webrtc_tests::audio_payload(audio.0.layout());
+                for _ in 0..2 {
+                    super::audio_sink::AudioSink::send(&mut audio, &payload, Instant::now())?;
+                }
+                let idr = s.idr.swap(false, Ordering::AcqRel) || first;
+                first = false;
+                let frame = webrtc_tests::access_unit(codec, idr);
+                let started = Instant::now();
+                sender.submit(
+                    s,
+                    vec![butterpollo_windows::encoder::Encoded {
+                        bytes: frame,
+                        unit: butterpollo_windows::encoder::Unit::Whole,
+                        idr,
+                        after_invalidation: false,
+                        frame_cap_bytes: None,
+                        latency: Some(Duration::from_millis(2)),
+                        presentation: Some(started),
+                    }],
+                    Duration::from_millis(2),
+                    started,
+                    &mut claims,
+                )?;
+                thread::sleep(Duration::from_millis(10));
+            }
+            Ok(())
+        })();
+        // The production worker marks the session failed while it still holds its sender, so the
+        // client hears an error and not the idle that dropping the link would cause.
+        if result.is_err() {
+            s.fail();
         }
-        Ok(())
+        drop(sender);
+        result
     }
     pub(super) fn stream(&self, media: &Media, h: &Shared, s: &Session) -> Result<()> {
         if s.launch.transport == butterpollo_core::session::Transport::WebRtc {

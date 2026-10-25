@@ -1660,4 +1660,50 @@ pub(crate) mod tests {
             assert!(!local_network(peer.parse().unwrap()), "{peer}");
         }
     }
+
+    /// The capabilities list follows the host's AMF probe bits, not the protocol table.
+    #[test]
+    fn capabilities_follow_the_amf_probe_bits() {
+        let listed = |bits: u32| {
+            let body = HostCapabilities::new(encoder_probe(bits), FrameRateOffer::default())
+                .capabilities();
+            let value: Value =
+                serde_json::from_str(&ServerMessage::Capabilities(body).to_json()).unwrap();
+            let all = |field: &str| -> Vec<(String, Vec<String>)> {
+                value["videoModes"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|m| {
+                        (
+                            m["height"].to_string(),
+                            m[field]
+                                .as_array()
+                                .map(|a| a.iter().map(|c| c.as_str().unwrap().into()).collect())
+                                .unwrap_or_default(),
+                        )
+                    })
+                    .collect()
+            };
+            (all("codecs"), all("hdrCodecs"))
+        };
+        let has = |modes: &[(String, Vec<String>)], codec: &str| {
+            modes
+                .iter()
+                .any(|(_, codecs)| codecs.iter().any(|c| c == codec))
+        };
+        // H.264 and HEVC only: no AV1 anywhere.
+        let (codecs, hdr) = listed(0x101);
+        assert!(has(&codecs, "hevc") && !has(&codecs, "av1"));
+        assert!(!has(&hdr, "av1") && !has(&hdr, "hevc"), "no Main10, no HDR");
+        // HEVC Main10 adds HEVC HDR only.
+        let (_, hdr) = listed(0x301);
+        assert!(has(&hdr, "hevc") && !has(&hdr, "av1"));
+        // AV1 8-bit lists AV1 but not as HDR.
+        let (codecs, hdr) = listed(0x10101);
+        assert!(has(&codecs, "av1") && !has(&hdr, "av1"));
+        // AV1 with 10-bit is HDR too.
+        let (codecs, hdr) = listed(0x30101);
+        assert!(has(&codecs, "av1") && has(&hdr, "av1"));
+    }
 }

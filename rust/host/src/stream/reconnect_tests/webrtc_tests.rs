@@ -3,10 +3,10 @@
 //! synthetic; the client is a str0m peer on a loopback UDP socket.
 use super::*;
 use crate::webrtc::{
-    sdp::{VideoCodec, testing as peer_sdp},
+    sdp::{AudioMode, OfferSpec, VideoCodec, testing as peer_sdp},
     server::{self, tests::Ws},
 };
-use butterpollo_core::webrtc::auth::proof_hex;
+use butterpollo_core::{audio::OpusLayout, webrtc::auth::proof_hex};
 use serde_json::{Value, json};
 use str0m::{
     Event, Input, Output,
@@ -29,24 +29,121 @@ fn nal(header: &[u8], seed: u8, len: usize) -> Vec<u8> {
         .collect()
 }
 
-/// An Annex B access unit of a few RTP packets: parameter sets and an IDR slice, or a delta slice.
-pub(super) fn access_unit(hevc: bool, idr: bool) -> Vec<u8> {
-    match (hevc, idr) {
-        (false, true) => [
+/// One AV1 OBU with a size field.
+fn obu(kind: u8, seed: u8, len: usize) -> Vec<u8> {
+    let mut out = vec![kind << 3 | 0b10];
+    let mut size = len;
+    loop {
+        let byte = (size & 0x7f) as u8;
+        size >>= 7;
+        if size == 0 {
+            out.push(byte);
+            break;
+        }
+        out.push(byte | 0x80);
+    }
+    out.extend((0..len).map(|i| (i as u8).wrapping_add(seed)));
+    out
+}
+
+/// The access unit the encoder hands over (`codec` is the negotiated 0 H.264, 1 HEVC, 2 AV1):
+/// Annex B of a few RTP packets, parameter sets and an IDR slice or a delta slice; for AV1 the
+/// low-overhead OBUs, a temporal delimiter first, a sequence header on a keyframe.
+pub(super) fn access_unit(codec: u8, idr: bool) -> Vec<u8> {
+    match (codec, idr) {
+        (0, true) => [
             nal(&[0x67], 3, 20),
             nal(&[0x68], 5, 6),
             nal(&[0x65], 7, 3000),
         ]
         .concat(),
-        (false, false) => nal(&[0x41], 9, 1500),
-        (true, true) => [
+        (0, false) => nal(&[0x41], 9, 1500),
+        (1, true) => [
             nal(&[0x40, 0x01], 3, 20),
             nal(&[0x42, 0x01], 4, 30),
             nal(&[0x44, 0x01], 5, 6),
             nal(&[0x26, 0x01], 7, 3000),
         ]
         .concat(),
-        (true, false) => nal(&[0x02, 0x01], 9, 1500),
+        (1, false) => nal(&[0x02, 0x01], 9, 1500),
+        (_, true) => [vec![0x12, 0], obu(1, 3, 12), obu(6, 9, 3000)].concat(),
+        (_, false) => [vec![0x12, 0], obu(6, 9, 1500)].concat(),
+    }
+}
+
+/// What the receiver gets for [`access_unit`]: the same, but AV1 travels without its temporal
+/// delimiter.
+fn received(codec: u8, idr: bool) -> Vec<u8> {
+    let unit = access_unit(codec, idr);
+    if codec == 2 { unit[2..].to_vec() } else { unit }
+}
+
+/// The audio packet the fixture's encoder stands in with: it names the layout it was built with,
+/// so the receiver can tell which one the session encoded. The fixture's worker sends two per tick.
+pub(super) fn audio_payload(layout: &OpusLayout) -> Vec<u8> {
+    let mut payload = vec![
+        layout.channels as u8,
+        layout.streams as u8,
+        layout.coupled as u8,
+    ];
+    payload.extend_from_slice(&layout.mapping);
+    payload.extend_from_slice(&((layout.bitrate / 1000) as u16).to_be_bytes());
+    payload
+}
+
+/// What the client asks for and what its answer agrees to.
+#[derive(Clone, Copy)]
+struct Case {
+    video: VideoCodec,
+    name: &'static str,
+    /// The negotiated codec number: 0 H.264, 1 HEVC, 2 AV1.
+    codec: u8,
+    hdr: bool,
+    channels: u32,
+}
+
+impl Case {
+    const fn new(video: VideoCodec, name: &'static str, codec: u8) -> Self {
+        Self {
+            video,
+            name,
+            codec,
+            hdr: false,
+            channels: 2,
+        }
+    }
+
+    const fn hdr(self) -> Self {
+        Self { hdr: true, ..self }
+    }
+
+    const fn surround(self, channels: u32) -> Self {
+        Self { channels, ..self }
+    }
+
+    /// The codecs and audio the peer answers with.
+    fn spec(&self) -> OfferSpec {
+        OfferSpec {
+            audio: match self.channels {
+                2 => AudioMode::stereo(),
+                channels => AudioMode::chrome_surround(channels as usize).unwrap(),
+            },
+            ..peer_sdp::spec(self.video, self.hdr)
+        }
+    }
+
+    /// The payload of the audio the host sends for this case: Chromium's canonical layouts at
+    /// GameStream's surround bitrates, and the protocol's 128 kbps stereo.
+    fn audio(&self) -> Vec<u8> {
+        let (streams, coupled, mapping, kbps): (u8, u8, &[u8], u16) = match self.channels {
+            2 => (1, 1, &[0, 1], 128),
+            6 => (4, 2, &[0, 4, 1, 2, 3, 5], 256),
+            _ => (5, 3, &[0, 6, 1, 2, 3, 4, 5, 7], 450),
+        };
+        let mut payload = vec![self.channels as u8, streams, coupled];
+        payload.extend_from_slice(mapping);
+        payload.extend_from_slice(&kbps.to_be_bytes());
+        payload
     }
 }
 
@@ -55,6 +152,7 @@ pub(super) fn access_unit(hevc: bool, idr: bool) -> Vec<u8> {
 struct Peer {
     stop: Arc<AtomicBool>,
     units: Arc<Mutex<Vec<Vec<u8>>>>,
+    audio: Arc<Mutex<Vec<Vec<u8>>>>,
     pli: Arc<AtomicUsize>,
     control: Arc<Mutex<Vec<String>>>,
     thread: Option<thread::JoinHandle<()>>,
@@ -62,26 +160,29 @@ struct Peer {
 
 impl Peer {
     /// The peer and the answer SDP for `offer`.
-    fn answer(offer: &str, codec: VideoCodec) -> (Self, String) {
+    fn answer(offer: &str, spec: &OfferSpec) -> (Self, String) {
         let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
         let local = socket.local_addr().unwrap();
-        let mut rtc = peer_sdp::client(&peer_sdp::spec(codec, false), local);
-        let answer = peer_sdp::answer(&mut rtc, offer);
+        let mut rtc = peer_sdp::client(spec, local);
+        let answer = peer_sdp::answer_for(&mut rtc, offer, spec);
         let mut peer = Self {
             stop: Arc::new(AtomicBool::new(false)),
             units: Arc::default(),
+            audio: Arc::default(),
             pli: Arc::default(),
             control: Arc::default(),
             thread: None,
         };
-        let (stop, units, pli, control) = (
+        let (stop, units, audio, pli, control) = (
             peer.stop.clone(),
             peer.units.clone(),
+            peer.audio.clone(),
             peer.pli.clone(),
             peer.control.clone(),
         );
         peer.thread = Some(thread::spawn(move || {
             let mut video: Option<Mid> = None;
+            let mut sound: Option<Mid> = None;
             let mut control_channel: Option<ChannelId> = None;
             let mut buffer = vec![0u8; 2048];
             while !stop.load(Ordering::Acquire) {
@@ -95,8 +196,14 @@ impl Peer {
                         Ok(Output::Event(Event::MediaAdded(added))) if added.kind.is_video() => {
                             video = Some(added.mid)
                         }
+                        Ok(Output::Event(Event::MediaAdded(added))) if added.kind.is_audio() => {
+                            sound = Some(added.mid)
+                        }
                         Ok(Output::Event(Event::MediaData(data))) if Some(data.mid) == video => {
                             units.lock().unwrap().push(data.data.to_vec())
+                        }
+                        Ok(Output::Event(Event::MediaData(data))) if Some(data.mid) == sound => {
+                            audio.lock().unwrap().push(data.data.to_vec())
                         }
                         Ok(Output::Event(Event::ChannelOpen(id, label))) if label == "control" => {
                             control_channel = Some(id)
@@ -144,8 +251,8 @@ impl Peer {
         self.units.lock().unwrap().len()
     }
 
-    fn keyframes(&self, hevc: bool) -> usize {
-        let key = access_unit(hevc, true);
+    fn keyframes(&self, codec: u8) -> usize {
+        let key = received(codec, true);
         self.units
             .lock()
             .unwrap()
@@ -332,12 +439,16 @@ async fn error(ws: &mut Ws, request: &str, code: &str) {
 
 /// Offer, answer and the first video, from the start of `status(.., "starting-webrtc")` on.
 async fn answer(ws: &mut Ws, codec: VideoCodec) -> (u64, Peer) {
+    answer_case(ws, &Case::new(codec, "", 0)).await
+}
+
+async fn answer_case(ws: &mut Ws, case: &Case) -> (u64, Peer) {
     let starting = status(ws, "session-status", "starting-webrtc").await;
     let offer = next(ws).await;
     assert_eq!(offer["type"], "offer", "{offer}");
     let id = offer["sessionId"].as_u64().unwrap();
     assert_eq!(starting["sessionId"], id);
-    let (peer, sdp) = Peer::answer(offer["sdp"].as_str().unwrap(), codec);
+    let (peer, sdp) = Peer::answer(offer["sdp"].as_str().unwrap(), &case.spec());
     ws.send(json!({"version":2,"type":"answer","sessionId":id,"sdp":sdp}))
         .await;
     (id, peer)
@@ -349,40 +460,79 @@ async fn streaming(ws: &mut Ws, id: u64) {
     assert!(message["video"].is_object() && message["audio"].is_object());
 }
 
-async fn stream_and_stop(codec: VideoCodec, name: &str, hevc: bool) -> Result<()> {
+/// A host that has every encoder the cases ask for: AV1, AV1 10-bit and HEVC Main10 as well.
+async fn web_with_every_codec() -> Result<Web> {
     let web = Web::new().await?;
+    web.harness
+        .h
+        .codecs
+        .fetch_or(0x10000 | 0x20000 | 0x200, Ordering::AcqRel);
+    Ok(web)
+}
+
+async fn stream_and_stop(case: Case) -> Result<()> {
+    let web = web_with_every_codec().await?;
     let mut ws = web.device("TV", u32::MAX).await;
-    ws.send(web.request("start-session", name, false, 2)).await;
+    ws.send(web.request("start-session", case.name, case.hdr, case.channels))
+        .await;
     status(&mut ws, "session-status", "starting").await;
-    let (id, peer) = answer(&mut ws, codec).await;
+    let (id, peer) = answer_case(&mut ws, &case).await;
     streaming(&mut ws, id).await;
 
     // Video arrives as the encoder produced it, starting with a keyframe.
     until("video received", WAIT, || peer.count() >= 5).await;
-    let (key, delta) = (access_unit(hevc, true), access_unit(hevc, false));
+    let codec = case.codec;
+    let (key, delta) = (received(codec, true), received(codec, false));
     {
         let units = peer.units.lock().unwrap();
         assert_eq!(units[0], key);
         assert!(units.iter().all(|u| *u == key || *u == delta));
+    }
+    // So does the audio, in the layout the answer agreed to.
+    until("audio received", WAIT, || {
+        peer.audio.lock().unwrap().len() >= 10
+    })
+    .await;
+    {
+        let audio = peer.audio.lock().unwrap();
+        let want = case.audio();
+        assert!(
+            audio.iter().all(|p| *p == want),
+            "{} channels: {:?} but expected {want:?}",
+            case.channels,
+            audio.iter().find(|p| **p != want)
+        );
     }
     let session = web.session();
     assert_eq!(
         session.launch.transport,
         butterpollo_core::session::Transport::WebRtc
     );
+    // The stream is configured as the GameStream path would for the same request.
+    assert_eq!(session.config.codec, codec);
+    assert_eq!(session.config.hdr, case.hdr);
+    assert_eq!(session.config.audio_channels as u32, case.channels);
+    assert_eq!(session.config.ten_bit(), case.hdr);
+    if case.hdr {
+        // 10-bit BT.2020 PQ in limited range: what the HEVC VUI and the AV1 sequence header carry.
+        assert_eq!(session.config.color_matrix(), 2);
+        assert!(!session.config.full_range());
+    } else {
+        assert_eq!(session.config.color_matrix(), 1);
+    }
     assert!(session.stats.frames.load(Ordering::Acquire) >= 5);
     assert!(session.stats.bytes.load(Ordering::Acquire) > 0);
 
     // A PLI is a keyframe request, as Moonlight's 0x0302.
     let requests = session.stats.idr_requests.load(Ordering::Acquire);
-    let keyframes = peer.keyframes(hevc);
+    let keyframes = peer.keyframes(codec);
     peer.pli.store(1, Ordering::Release);
     until("the PLI reached the session", WAIT, || {
         session.stats.idr_requests.load(Ordering::Acquire) > requests
     })
     .await;
     until("a keyframe followed the PLI", WAIT, || {
-        peer.keyframes(hevc) > keyframes
+        peer.keyframes(codec) > keyframes
     })
     .await;
 
@@ -408,35 +558,181 @@ async fn stream_and_stop(codec: VideoCodec, name: &str, hevc: bool) -> Result<()
     Ok(())
 }
 
+const H264: Case = Case::new(VideoCodec::H264, "h264", 0);
+const HEVC: Case = Case::new(VideoCodec::Hevc, "hevc", 1);
+const AV1: Case = Case::new(VideoCodec::Av1, "av1", 2);
+
 #[tokio::test(flavor = "multi_thread")]
 async fn h264_sdr_streams_to_a_webrtc_client_and_stops() -> Result<()> {
-    stream_and_stop(VideoCodec::H264, "h264", false).await
+    stream_and_stop(H264).await
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn hevc_sdr_streams_to_a_webrtc_client_and_stops() -> Result<()> {
-    stream_and_stop(VideoCodec::Hevc, "hevc", true).await
+    stream_and_stop(HEVC).await
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn hdr_av1_and_surround_are_refused_not_streamed_as_something_else() -> Result<()> {
+async fn av1_sdr_streams_to_a_webrtc_client_without_temporal_delimiters() -> Result<()> {
+    // `received` is the access unit minus its temporal delimiter, so the whole run is checked.
+    assert_eq!(
+        access_unit(2, false)[..2],
+        [0x12, 0],
+        "the encoder's AV1 starts with a temporal delimiter"
+    );
+    stream_and_stop(AV1).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn hevc_main10_hdr_streams_to_a_webrtc_client() -> Result<()> {
+    stream_and_stop(HEVC.hdr()).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn av1_10_bit_hdr_streams_to_a_webrtc_client() -> Result<()> {
+    stream_and_stop(AV1.hdr()).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn five_one_surround_streams_to_a_webrtc_client() -> Result<()> {
+    stream_and_stop(HEVC.surround(6)).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn seven_one_surround_streams_to_a_webrtc_client() -> Result<()> {
+    stream_and_stop(H264.surround(8)).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn hdr_surround_and_av1_together_stream_to_a_webrtc_client() -> Result<()> {
+    stream_and_stop(AV1.hdr().surround(8)).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn av1_and_hdr_are_refused_without_the_encoder_probe() -> Result<()> {
+    // No AV1, no Main10: the base table (H.264, HEVC) only.
     let web = Web::new().await?;
-    web.harness.h.codecs.fetch_or(0x10000, Ordering::AcqRel);
+    web.harness.h.codecs.store(1 | 0x100, Ordering::Release);
     let mut ws = web.device("TV", u32::MAX).await;
-    for (codec, hdr, channels) in [("hevc", true, 2), ("av1", false, 2), ("h264", false, 6)] {
-        ws.send(web.request("start-session", codec, hdr, channels))
-            .await;
+    for (codec, hdr) in [
+        ("av1", false),
+        ("av1", true),
+        ("hevc", true),
+        ("h264", true),
+    ] {
+        ws.send(web.request("start-session", codec, hdr, 2)).await;
         error(&mut ws, "start-session", "unsupported-settings").await;
     }
     // A switch asks the same, and nothing was started or stopped.
-    ws.send(web.request("switch-session", "hevc", true, 2))
+    ws.send(web.request("switch-session", "av1", false, 2))
         .await;
     error(&mut ws, "switch-session", "unsupported-settings").await;
+    // AV1 8-bit alone does not make AV1 HDR; HEVC Main10 does not either.
+    web.harness.h.codecs.fetch_or(0x10000, Ordering::AcqRel);
+    ws.send(web.request("start-session", "av1", true, 2)).await;
+    error(&mut ws, "start-session", "unsupported-settings").await;
+    web.harness.h.codecs.fetch_or(0x200, Ordering::AcqRel);
+    ws.send(web.request("start-session", "av1", true, 2)).await;
+    error(&mut ws, "start-session", "unsupported-settings").await;
     let sessions = web.harness.h.sessions.lock().unwrap();
     assert!(sessions.idle() && sessions.pending.is_empty());
     drop(sessions);
     assert_eq!(web.harness.h.webrtc_links.len(), 0);
     assert!(web.harness.h.current_app.lock().unwrap().is_some());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn hdr_on_an_sdr_display_ends_the_session_with_an_error() -> Result<()> {
+    let web = web_with_every_codec().await?;
+    web.harness
+        .fixture
+        .display_in_sdr
+        .store(true, Ordering::Release);
+    let mut ws = web.device("TV", u32::MAX).await;
+    ws.send(web.request("start-session", "hevc", true, 2)).await;
+    status(&mut ws, "session-status", "starting").await;
+    let (id, peer) = answer_case(&mut ws, &HEVC.hdr()).await;
+    // The worker refuses before it sends a frame: the client hears an error, not SDR as HDR.
+    let message = next(&mut ws).await;
+    assert_eq!(message["type"], "session-status", "{message}");
+    assert_eq!(message["state"], "error", "{message}");
+    assert_eq!(message["sessionId"], id);
+    web.idle().await;
+    assert_eq!(peer.count(), 0, "no frame went out");
+    assert!(UdpSocket::bind(address(web.media_port)).is_ok());
+    drop(peer);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_display_that_leaves_hdr_ends_the_stream_with_an_error() -> Result<()> {
+    let web = web_with_every_codec().await?;
+    let mut ws = web.device("TV", u32::MAX).await;
+    ws.send(web.request("start-session", "av1", true, 2)).await;
+    status(&mut ws, "session-status", "starting").await;
+    let (id, peer) = answer_case(&mut ws, &AV1.hdr()).await;
+    streaming(&mut ws, id).await;
+    until("video received", WAIT, || peer.count() >= 3).await;
+
+    // Windows drops out of HDR: the stream ends, it does not carry on as SDR.
+    web.harness
+        .fixture
+        .display_in_sdr
+        .store(true, Ordering::Release);
+    let message = next(&mut ws).await;
+    assert_eq!(message["type"], "session-status", "{message}");
+    assert_eq!(message["state"], "error", "{message}");
+    web.idle().await;
+    drop(peer);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_sdr_stream_does_not_care_about_the_display_mode() -> Result<()> {
+    let web = web_with_every_codec().await?;
+    web.harness
+        .fixture
+        .display_in_sdr
+        .store(true, Ordering::Release);
+    let mut ws = web.device("TV", u32::MAX).await;
+    ws.send(web.request("start-session", "hevc", false, 2))
+        .await;
+    status(&mut ws, "session-status", "starting").await;
+    let (id, peer) = answer_case(&mut ws, &HEVC).await;
+    streaming(&mut ws, id).await;
+    until("video received", WAIT, || peer.count() >= 3).await;
+    drop(peer);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_session_whose_launch_was_hdr_asks_for_hdr_display_mode() -> Result<()> {
+    let web = web_with_every_codec().await?;
+    let mut ws = web.device("TV", u32::MAX).await;
+    ws.send(web.request("start-session", "hevc", true, 2)).await;
+    status(&mut ws, "session-status", "starting").await;
+    let (id, peer) = answer_case(&mut ws, &HEVC.hdr()).await;
+    streaming(&mut ws, id).await;
+    let session = web.session();
+    assert_eq!(
+        session.launch.options.get("hdrMode").map(String::as_str),
+        Some("1")
+    );
+    drop(peer);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unsupported_channel_count_is_still_refused() -> Result<()> {
+    let web = Web::new().await?;
+    let mut ws = web.device("TV", u32::MAX).await;
+    for channels in [1, 4, 7] {
+        ws.send(web.request("start-session", "h264", false, channels))
+            .await;
+        error(&mut ws, "start-session", "unsupported-settings").await;
+    }
+    assert!(web.harness.h.sessions.lock().unwrap().idle());
     Ok(())
 }
 
@@ -492,10 +788,7 @@ async fn switch_session_resumes_the_running_app_and_stop_host_ends_it() -> Resul
     let (second, peer) = answer(&mut ws, VideoCodec::Hevc).await;
     assert_ne!(first, second);
     streaming(&mut ws, second).await;
-    until("video of the new session", WAIT, || {
-        peer.keyframes(true) >= 1
-    })
-    .await;
+    until("video of the new session", WAIT, || peer.keyframes(1) >= 1).await;
     assert!(web.harness.h.current_app.lock().unwrap().is_some());
 
     // stop-host-session ends the stream and the app.

@@ -663,6 +663,42 @@ pub(crate) mod testing {
             .expect("an answer")
             .to_sdp_string()
     }
+
+    /// The answer a Chromium receiver gives to this offer: for surround, str0m's stereo answer
+    /// re-labelled as multiopus with Chromium's canonical stream layout (str0m has no multiopus).
+    pub fn answer_for(client: &mut Rtc, offer_sdp: &str, spec: &OfferSpec) -> String {
+        let Some(layout) = spec.audio.layout() else {
+            return answer(client, offer_sdp);
+        };
+        let channels = layout.channels;
+        let stereo = answer(
+            client,
+            &offer_sdp.replace(&format!("multiopus/48000/{channels}"), "opus/48000/2"),
+        );
+        let mapping: Vec<String> = layout.mapping.iter().map(u8::to_string).collect();
+        let fmtp = format!(
+            "channel_mapping={};num_streams={};coupled_streams={};minptime=10;useinbandfec=0",
+            mapping.join(","),
+            layout.streams,
+            layout.coupled
+        );
+        stereo
+            .replace(
+                "a=rtpmap:111 opus/48000/2",
+                &format!("a=rtpmap:111 multiopus/48000/{channels}"),
+            )
+            .lines()
+            .map(|l| {
+                if l.starts_with("a=fmtp:111 ") {
+                    format!("a=fmtp:111 {fmtp}")
+                } else {
+                    l.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\r\n")
+            + "\r\n"
+    }
 }
 
 #[cfg(test)]

@@ -1422,6 +1422,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             return 0;
         }
         int baseFormat = videoFormatsForProfiles(mime, new int[0], false, false);
+        // A software decoder (kept on emulators by SHOULD_BYPASS_SOFTWARE_BLOCK) renders 10-bit
+        // output corrupt, so it never offers a 10-bit format.
+        if ((hdr || sdr10) && MediaCodecHelper.isSoftwareDecoder(decoder)) {
+            LimeLog.info("Not offering 10-bit or HDR for software decoder " + decoder.getName());
+            hdr = false;
+            sdr10 = false;
+        }
         if (!hdr && !sdr10 && !yuv444) {
             return baseFormat;
         }

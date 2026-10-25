@@ -1171,6 +1171,18 @@ public class MediaCodecHelper {
         return null;
     }
 
+    /**
+     * The decoder runs on the CPU: isSoftwareOnly() or not hardware accelerated on Android Q and
+     * later, the stock software decoders' name prefixes below that.
+     */
+    public static boolean isSoftwareDecoder(MediaCodecInfo codecInfo) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            return codecInfo.isSoftwareOnly() || !codecInfo.isHardwareAccelerated();
+        }
+        String name = codecInfo.getName().toLowerCase(java.util.Locale.ROOT);
+        return name.startsWith("c2.android.") || name.startsWith("omx.google.") || name.startsWith("c2.google.");
+    }
+
     private static boolean isCodecBlacklisted(MediaCodecInfo codecInfo) {
         // Use the new isSoftwareOnly() function on Android Q
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

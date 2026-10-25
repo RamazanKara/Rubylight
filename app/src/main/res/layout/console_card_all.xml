@@ -18,7 +18,7 @@
         <LinearLayout android:id="@+id/console_all_frame" android:layout_width="match_parent" android:layout_height="160dp"
             android:orientation="vertical" android:gravity="center" android:padding="@dimen/space_m">
             <ImageView android:id="@+id/console_all_glyph" android:layout_width="28dp" android:layout_height="28dp"
-                android:layout_marginBottom="@dimen/space_m" android:tint="?attr/colorOnSurfaceVariant"
+                android:layout_marginBottom="@dimen/space_m" app:tint="?attr/colorOnSurfaceVariant"
                 android:visibility="gone" android:importantForAccessibility="no" />
             <TextView android:id="@+id/console_all_label" android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:textAppearance="@style/TextAppearance.Nightjar.Label" android:textColor="?attr/colorOnSurfaceVariant"
@@ -31,7 +31,7 @@
                 android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurfaceVariant"
                 android:importantForAccessibility="no" />
             <ImageView android:layout_width="24dp" android:layout_height="24dp" android:layout_marginTop="@dimen/space_m"
-                android:src="@drawable/settings_chevron" android:tint="@color/night_primary"
+                android:src="@drawable/settings_chevron" app:tint="@color/night_primary"
                 android:importantForAccessibility="no" />
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>

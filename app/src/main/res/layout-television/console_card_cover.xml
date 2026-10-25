@@ -35,7 +35,7 @@
                     <ImageView android:id="@+id/console_star" android:layout_width="@dimen/card_chip_height"
                         android:layout_height="@dimen/card_chip_height" android:layout_gravity="top|end"
                         android:layout_margin="@dimen/space_s" android:padding="5dp" android:background="@drawable/bg_card_star"
-                        android:src="@drawable/ic_star_filled" android:tint="@color/night_primary"
+                        android:src="@drawable/ic_star_filled" app:tint="@color/night_primary"
                         android:visibility="gone" android:importantForAccessibility="no" />
                     <!-- The store's glyph (or name), and Not installed or what adding takes. -->
                     <TextView android:id="@+id/console_store" style="@style/Widget.Nightjar.CardChip"

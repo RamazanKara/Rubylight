@@ -279,8 +279,13 @@ audio() ── Opus packet ──▶ webrtc sink (instead of the GameStream audi
   - B5 A/B tests paced against unpaced on a 4K keyframe and keeps whichever measures better.
 - **Bitrate.** Video gets the requested bitrate minus the audio layout's bitrate (128 kbps for stereo)
   and the RTP/SRTP overhead. Valid requests are 10,000 to 100,000 kbps.
-- **Input.** Keyboard and mouse messages go straight from the media thread into the input dispatcher
-  with no batching. Mouse motion is not coalesced on the host.
+- **Input.** Keyboard, mouse and gamepad messages go from the media thread to a dedicated input thread
+  over a channel, with no batching, so a slow `SendInput` can never stall the media thread's pacing.
+  That is the same arrangement as ENet's control thread, which injects on its own thread. Mouse motion
+  is not coalesced on the host. The queue delay, from the transport receiving a frame to the injector
+  having been handed its events, is recorded per message and its maximum and 99th percentile are logged
+  in the stream's "WebRTC input summary" (`queue_max_us`, `queue_p99_us`) next to the unknown-code count,
+  so B5 can report the cost of the hop.
 - **Recovery.**
   - PLI, FIR and the control channel's `request-keyframe` set `Session.idr` and wake recovery, the same
     as a Moonlight IDR request.

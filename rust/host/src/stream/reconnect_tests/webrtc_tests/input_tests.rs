@@ -367,3 +367,48 @@ async fn a_client_that_drops_away_releases_held_input() -> Result<()> {
     web.idle().await;
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_without_the_controller_bit_gets_no_pad_and_no_mouse_mode() -> Result<()> {
+    let web = Web::new().await?;
+    let rec = recorder(&web);
+    let (_ws, peer) = live(&web, !(PAD | KEYBOARD)).await;
+    peer.gamepad(&connected(0));
+    peer.gamepad(&state(0, 1, START, 0.));
+    tokio::time::sleep(Duration::from_millis(850)).await;
+    peer.gamepad(&state(0, 2, START, 1.));
+    peer.gamepad(&state(0, 3, 0, 1.));
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    // The mouse it may use works, so the gamepad frames had their chance to arrive.
+    peer.input(r#"{"v":1,"type":"mouse-move","dx":5,"dy":0}"#);
+    injected(&rec, Input::Relative { x: 5, y: 0 }).await;
+    assert_eq!(rec.events(), vec![Input::Relative { x: 5, y: 0 }]);
+    assert!(peer.heard("mouse-mode").is_empty());
+    assert!(peer.heard("rumble").is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_moonlight_launch_that_supersedes_a_webrtc_stream_releases_its_held_keys() -> Result<()> {
+    let web = Web::new().await?;
+    let rec = recorder(&web);
+    let mut ws = web.device("TV", u32::MAX).await;
+    let peer = stream(&web, &mut ws).await;
+    peer.open_input();
+    peer.input(&key("KeyW", true));
+    peer.input(r#"{"v":1,"type":"mouse-button","button":0,"down":true}"#);
+    injected(&rec, key_event(0x57, true)).await;
+    injected(&rec, button_event(1, true)).await;
+    let webrtc = web.session();
+
+    let launch = web.harness.launch(0, false).await?;
+    status(&mut ws, "session-status", "idle").await;
+    assert!(webrtc.stopping());
+    injected(&rec, key_event(0x57, false)).await;
+    injected(&rec, button_event(1, false)).await;
+    until("the WebRTC injector dropped", WAIT, || rec.sinks().1 == 0).await;
+    let (session, client) = web.harness.play(&launch).await?;
+    web.harness.end(&session, client).await?;
+    drop(peer);
+    Ok(())
+}

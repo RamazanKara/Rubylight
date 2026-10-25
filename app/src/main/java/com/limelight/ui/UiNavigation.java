@@ -67,6 +67,12 @@ public final class UiNavigation {
         // The explanation opens when the key is released on the row it was pressed on. A press that moved focus
         // onto this list (Right from the section list) is released here too, and must not open anything.
         boolean[] pressed = new boolean[1];
+        // A press that was armed here but released elsewhere must not arm a later release.
+        View.OnFocusChangeListener previous = list.getOnFocusChangeListener();
+        list.setOnFocusChangeListener((view, hasFocus) -> {
+            if (!hasFocus) pressed[0] = false;
+            if (previous != null) previous.onFocusChange(view, hasFocus);
+        });
         list.setOnKeyListener((view, key, event) -> {
             int helpDirection = ViewCompat.getLayoutDirection(list) == ViewCompat.LAYOUT_DIRECTION_RTL ?
                     KeyEvent.KEYCODE_DPAD_LEFT : KeyEvent.KEYCODE_DPAD_RIGHT;

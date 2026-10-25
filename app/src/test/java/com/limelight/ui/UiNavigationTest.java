@@ -181,6 +181,52 @@ public class UiNavigationTest {
     }
 
     @Test
+    public void aKeyPressedOnAnotherViewOrLeftArmedHereNeverOpensTheExplanation() {
+        ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup().visible();
+        try {
+            Screen screen = controller.get();
+            android.widget.LinearLayout container = new android.widget.LinearLayout(screen);
+            container.setOrientation(android.widget.LinearLayout.VERTICAL);
+            android.widget.Button other = new android.widget.Button(screen);
+            ListView list = new ListView(screen);
+            View row = screen.getLayoutInflater().inflate(R.layout.settings_preference, list, false);
+            AtomicInteger helpCount = new AtomicInteger();
+            row.setTag(R.id.preference_help, (Runnable) helpCount::incrementAndGet);
+            list.setAdapter(new BaseAdapter() {
+                @Override public int getCount() { return 1; }
+                @Override public Object getItem(int position) { return position; }
+                @Override public long getItemId(int position) { return position; }
+                @Override public View getView(int position, View recycled, ViewGroup parent) { return row; }
+            });
+            UiNavigation.bindPreferences(list);
+            container.addView(other, new android.widget.LinearLayout.LayoutParams(200, 100));
+            container.addView(list, new android.widget.LinearLayout.LayoutParams(600, 400));
+            screen.setContentView(container);
+            other.requestFocus();
+            layout(screen);
+            // Pressed on the other view, which takes the key and moves focus to the list, then released there.
+            other.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT));
+            list.requestFocus();
+            list.setSelection(0);
+            layout(screen);
+            list.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_RIGHT));
+            assertEquals(0, helpCount.get());
+            // Pressed here, then focus left before the release: the release that comes back is not a press.
+            list.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT));
+            other.requestFocus();
+            list.requestFocus();
+            list.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_RIGHT));
+            assertEquals(0, helpCount.get());
+            // A whole press still explains the row.
+            list.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT));
+            list.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_RIGHT));
+            assertEquals(1, helpCount.get());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
     public void f1OpensTheBundledHelp() {
         ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup();
         try {

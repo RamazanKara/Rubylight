@@ -3,6 +3,7 @@
     <dimen name="grid_padding_top">16dp</dimen>
     <dimen name="grid_padding_bottom">32dp</dimen>
     <dimen name="settings_section_padding">10dp</dimen>
+    <dimen name="settings_section_min_height">64dp</dimen>
     <integer name="settings_section_summary_lines">1</integer>
     <integer name="settings_summary_lines">2</integer>
 </resources>

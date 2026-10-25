@@ -146,7 +146,9 @@ public class StreamSettings extends NightjarActivity {
     private final Handler navigationHandler = new Handler();
     private final Runnable searchUpdate = this::renderSearch;
     private final Runnable sectionPreview = () -> {
-        if (previewSection != null && searchQuery.isEmpty()) showSection(previewSection);
+        String key = previewSection;
+        previewSection = null;
+        if (key != null && searchQuery.isEmpty()) showSection(key);
     };
 
     /** The intent for {@link #open}; {@code section} and {@code focusKey} may be null. */
@@ -221,6 +223,7 @@ public class StreamSettings extends NightjarActivity {
     void reloadSettings() {
         navigationHandler.removeCallbacks(searchUpdate);
         navigationHandler.removeCallbacks(sectionPreview);
+        previewSection = null;
         searchPending = false;
         if (isFinishing() || isDestroyed()) return;
         if (stateSaved) {
@@ -302,15 +305,17 @@ public class StreamSettings extends NightjarActivity {
 
     /** Called when a section row is selected: the right pane follows after a short pause, so a fast scroll does not rebuild it per row. */
     void previewSection(String key) {
-        if (!twoPane || !searchQuery.isEmpty() || key.equals(section)) return;
-        previewSection = key;
+        if (!twoPane || !searchQuery.isEmpty()) return;
         navigationHandler.removeCallbacks(sectionPreview);
-        navigationHandler.postDelayed(sectionPreview, 100);
+        // Back on the section already shown: nothing is pending any more.
+        previewSection = key.equals(section) ? null : key;
+        if (previewSection != null) navigationHandler.postDelayed(sectionPreview, 100);
     }
 
     /** Opens a section from its row; {@code enter} moves focus into it, which is what Center does after the D-pad. */
     void activateSection(String key, boolean enter) {
         navigationHandler.removeCallbacks(sectionPreview);
+        previewSection = null;
         if (twoPane && enter) {
             enterPane = true;
             if (key.equals(section) && searchQuery.isEmpty()) {
@@ -757,7 +762,11 @@ public class StreamSettings extends NightjarActivity {
                 ListView content = listOf(R.id.stream_settings);
                 if (owner != null && sections != null && content != null && owner == sections && searchQuery.isEmpty()) {
                     swallowEnterKeyUp = true;
-                    if (event.getRepeatCount() == 0) focusContentPane(content);
+                    if (event.getRepeatCount() == 0) {
+                        // The pane follows the selected row after a pause: a press inside it opens the row's section.
+                        if (previewSection != null && !previewSection.equals(section)) activateSection(previewSection, true);
+                        else focusContentPane(content);
+                    }
                     return true;
                 }
             } else if (event.getAction() == android.view.KeyEvent.ACTION_UP && swallowEnterKeyUp) {
@@ -857,6 +866,11 @@ public class StreamSettings extends NightjarActivity {
             list.requestFocus();
             // The window may hand focus to the first focusable (the toolbar) once it is laid out; take it back.
             list.post(() -> {
+                // A pane that was opened to be entered is not attached when it asks, so it did not get focus.
+                if (contentPane && !list.hasFocus() && list.isAttachedToWindow()) {
+                    ((StreamSettings) activity).focusContentPane(list);
+                    return;
+                }
                 View owner = activity.findViewById(android.R.id.content).findFocus();
                 View toolbar = activity.findViewById(R.id.settings_toolbar);
                 boolean onToolbar = owner != null && toolbar instanceof ViewGroup && isWithin((ViewGroup) toolbar, owner);

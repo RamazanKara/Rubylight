@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Landscape and TV: the prompt on the left, the pad on the right. Same ids as the portrait layout. -->
 <com.limelight.ui.ContentFrame xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent" android:layout_height="match_parent">
     <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent"
         android:orientation="horizontal" android:baselineAligned="false"
@@ -12,7 +13,7 @@
                 android:padding="@dimen/space_l">
                 <ImageView android:id="@+id/pin_icon"
                     android:layout_width="@dimen/pin_icon_size" android:layout_height="@dimen/pin_icon_size"
-                    android:src="@drawable/ic_lock" android:tint="?attr/colorPrimary"
+                    android:src="@drawable/ic_lock" app:tint="?attr/colorPrimary"
                     android:importantForAccessibility="no" />
                 <TextView android:id="@+id/pin_title"
                     android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -48,7 +49,8 @@
             android:fillViewport="true" android:clipToPadding="false">
             <FrameLayout android:layout_width="match_parent" android:layout_height="match_parent"
                 android:padding="@dimen/space_l">
-                <include layout="@layout/view_pin_pad" android:layout_gravity="center" />
+                <include layout="@layout/view_pin_pad" android:layout_width="@dimen/pin_pad_width"
+                    android:layout_height="wrap_content" android:layout_gravity="center" />
             </FrameLayout>
         </ScrollView>
     </LinearLayout>

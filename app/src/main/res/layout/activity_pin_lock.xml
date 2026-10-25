@@ -2,6 +2,7 @@
 <!-- The PIN screen on phones in portrait: the prompt and dots above, the pad below. Landscape (TVs too) puts
      the prompt left of the pad: layout-land/activity_pin_lock.xml has the same ids. -->
 <com.limelight.ui.ContentFrame xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent" android:layout_height="match_parent">
     <ScrollView android:layout_width="match_parent" android:layout_height="match_parent"
         android:fillViewport="true" android:clipToPadding="false">
@@ -11,7 +12,7 @@
             android:paddingTop="@dimen/space_l" android:paddingBottom="@dimen/space_l">
             <ImageView android:id="@+id/pin_icon"
                 android:layout_width="@dimen/pin_icon_size" android:layout_height="@dimen/pin_icon_size"
-                android:src="@drawable/ic_lock" android:tint="?attr/colorPrimary"
+                android:src="@drawable/ic_lock" app:tint="?attr/colorPrimary"
                 android:importantForAccessibility="no" />
             <TextView android:id="@+id/pin_title"
                 android:layout_width="match_parent" android:layout_height="wrap_content"

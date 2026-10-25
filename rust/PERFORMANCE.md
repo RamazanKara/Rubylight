@@ -7,7 +7,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | Find a result | Recorded evidence |
 | --- | --- |
 | Wi-Fi clients paced from the first frame (`clientWireless`): Nightjar desktop over 5 GHz and 2.4 GHz, with and without the hint | [October 25, Wi-Fi pacing hint](#october-25-wi-fi-pacing-hint-on-a-real-laptop) |
-| WebRTC in a browser on the real host: send pacing on and off, RTX at 0.1% loss, 90 and 120 fps at 1080p, 4K keyframe-heavy, 4K60 HDR from the virtual display | [October 25, WebRTC on the real host (B5b)](#october-25-webrtc-on-the-real-host-pacing-rtx-90-and-120-fps-4k-and-hdr-b5b) |
+| WebRTC in a browser on the real host: send pacing on and off, RTX at 0.1% loss, 90 and 120 fps at 1080p, 1440p and 4K, 4K keyframe-heavy, 4K60 HDR from the virtual display | [October 25, WebRTC on the real host (B5b)](#october-25-webrtc-on-the-real-host-pacing-rtx-90-and-120-fps-4k-and-hdr-b5b) |
 | Behaviour across client link speeds: 1000 to 10 Mbit/s, step changes, Wi-Fi profile, what breaks above the link | [October 23, behaviour across client link speeds](#october-23-behaviour-across-client-link-speeds) |
 | Near-link tuning of the link-rate controller: pace above the delivered rate, headroom 0.80, tight AMF buffer (all reverted) | [October 24, near-link tuning (L6)](#october-24-near-link-tuning-three-steps-tried-and-reverted-l6) |
 | Nightjar desktop PyroWave decode: stage split, single upload (kept), batched passes (reverted), the present clock holding every frame 50 ms at the start | [October 23, PyroWave desktop decode stage split (brief 1)](#october-23-pyrowave-desktop-decode-stage-split-brief-1) |
@@ -75,7 +75,7 @@ On the clean 5 GHz link the hint changes nothing measurable: no loss in either a
 
 ## October 25: WebRTC on the real host, pacing, RTX, 90 and 120 fps, 4K and HDR (B5b)
 
-The browser transport (`docs/webrtc-design.md`) measured against the real host with real browsers: send pacing on and off, NACK with RTX at 0.1 % datagram loss, 1080p at 90 and 120 fps, 4K with a keyframe every 500 ms, and HDR at 4K60 from the virtual display. Three decisions follow from the numbers: send pacing stays on, RTX and NACK are now in the default offer, and 90 and 120 fps are offered at 1080p only.
+The browser transport (`docs/webrtc-design.md`) measured against the real host with real browsers: send pacing on and off, NACK with RTX at 0.1 % datagram loss, 1080p at 90 and 120 fps, 4K with a keyframe every 500 ms, and HDR at 4K60 from the virtual display. Three decisions follow from the numbers: send pacing stays on, RTX and NACK are now in the default offer, and 90 and 120 fps are offered at every mode the encoder's throughput allows.
 
 **Fixture.** This PC: RX 7900 XT (AMF), Windows 11, physical monitor 5120x1440 at 240 Hz as the primary display, release build of branch `wr-b5h` (the host with the switches below). Test host on an isolated profile (`butterpollo.exe --config-dir C:\tests\webrtc --port 48140 --bind 127.0.0.1`, WebRTC media on 48545/48546), `virtual_display_layout = extended` throughout. The client is `rust/tests/webrtc_e2e.cjs` driving our protocol v2 harness client (`rust/tests/webrtc_client/client.js`) with Playwright: Microsoft Edge 155.0.4283.62 for H.264 and AV1, Chrome 155.0.8059.85 with `WebRtcAllowH265Receive` for HEVC. The browser runs on the same PC over loopback, so these runs show the host and the transport, not a network. Content is the harness clock window (a magenta-bordered clock on the physical desktop) plus a tone; 1080p60 at the default 20 Mbit/s, 4K at 50 Mbit/s requested. The desktop is nearly static, so the encoders send far less than the requested rate (H.264 3 to 4 Mbit/s, AV1 0.3 Mbit/s at 1080p60); every number below is for that content.
 
@@ -128,7 +128,20 @@ Arm A is loss only (the earlier default: a lost packet is recovered by a PLI and
 | AV1 120 | 120.3 / 120.3 / 120.4 | 119.9 to 120.1 | 24 / 28 / 30, 17 / 23 / 26, 17 / 23 / 26 | 0.4 to 0.5 |
 
 - Encode time stayed 2.5 to 2.7 ms and present-to-send p99 7.0 to 9.4 ms at 90 and 120 fps. At 60 fps the same fixture gave g2g median / p95 of 21.0 / 24.0 (H.264) and 17.0 / 19.5 (AV1) in the clean pacing pairs, so 90 and 120 fps are not slower end to end.
-- Verdict: the offer now includes 90 and 120 fps for 1080p. 720p, 1440p and 4K stay at 30 and 60, because they were not measured above 60.
+- Verdict: 90 and 120 fps measured clean at 1080p with all three codecs.
+
+### 90 and 120 fps at every mode, gated by the AMF throughput (1 run per leg, 40 s)
+
+The default offer is 30, 60, 90 and 120 fps at every mode. The host reads the throughput caps of its H.264, HEVC and AV1 encoders at startup (16x16 macroblocks per second) and lists and accepts only the rates they take: on this RX 7900 XT they report 6,125,260 (H.264), 6,099,792 (HEVC) and 8,264,788 (AV1), against 3,888,000 needed for 4K120, so nothing is dropped here; a lower-throughput GPU drops what it cannot do, and a request beyond the cap is refused with the codec, size and rate. One run each on the physical monitor (the default offer, no `webrtc_frame_rates`); loss, freezes, NACK, PLI and key frames were 0.
+
+| Leg | Decoded fps | Host fps | g2g median / p95 / p99 (ms) | Encode (ms) | Mbit/s |
+| --- | --- | --- | --- | --- | --- |
+| HEVC 1440p120 | 120.3 | 119.9 | 23 / 31 / 38 | 3.3 | 5.7 |
+| HEVC 4K120 | 120.3 | 120.0 | 25 / 32 / 36 | 6.1 | 13.0 |
+| AV1 4K120 | 120.4 | 119.9 | 28 / 36 / 40 | 5.8 | 6.3 |
+
+- H.264 is not offered at 4K, where 4K120 would need level 6.0, which browsers refuse. H.264 1440p120 was not measured. 720p at 90 and 120 was not measured either.
+- The signalled levels hold every offered mode: HEVC 5.2 and AV1 level 5.2 (seq_level_idx 14, which has 5.3's limits) at 4K120, checked by a unit test across all modes and rates.
 
 ### 4K60 HDR from the virtual display (3 runs per codec, 40 s)
 
@@ -156,7 +169,7 @@ Virtual display in HDR (`virtual_display_mode = per_client`, `dd_hdr_option = au
 
 - Send pacing: kept on. It costs no latency at 1080p and takes 7 to 14 ms off p95 at 4K with frequent keyframes.
 - RTX and NACK: on by default. At 0.1 % loss it kept 60 fps and no freeze where PLI recovery alone gave 36 to 43 fps and 3 to 18 freezes in 40 s, and on a clean link it changed nothing.
-- Frame rates: 1080p offers 30, 60, 90 and 120 fps. Every other mode stays at 30 and 60 until it is measured.
+- Frame rates: every mode offers 30, 60, 90 and 120 fps, each gated by the encoder's AMF throughput. Measured clean here at 1080p (all three codecs), 1440p120 (HEVC) and 4K120 (HEVC, AV1); 720p and H.264 at 1440p above 60 were not measured.
 - HDR at 4K60 works with HEVC Main10 and AV1 10-bit, with BT.2020, PQ and mastering display metadata in the bitstream, and is refused when the display is SDR.
 
 ## October 23: behaviour across client link speeds

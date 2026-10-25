@@ -5,6 +5,13 @@ https://github.com/joemossjr16/artemis-android-pyrowave/tree/387d3a5ce1e3df8d4a4
 GPL-3.0, as is this Moonlight-derived application (see LICENSE.txt).
 Nightjar changes: protocol, capability checks, 10-bit/HDR, timing and lifecycle.
 
+Vulkan renderer for MediaCodec streams (app/src/main/jni/vulkan)
+Adapted from MoreOrLessSoftware/moonlight-android
+https://github.com/MoreOrLessSoftware/moonlight-android/tree/3e6665e7d192ac5e7f639f8f8172cda04701924e
+GPL-3.0, as is this Moonlight-derived application (see LICENSE.txt).
+Nightjar changes: PyroWave decoding and the GPU keep-busy work left out, built against upstream
+moonlight-common-c, and wired in as the "Render through Vulkan" setting.
+
 PyroWave a0d2e71e98b85f6a23f62407df21a39e9745b875 (MIT)
 https://github.com/Themaister/pyrowave
 Includes the short-block fix, attributed to Punktfunk.

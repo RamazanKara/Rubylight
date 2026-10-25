@@ -14,9 +14,11 @@ import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 import org.xmlpull.v1.XmlPullParser;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
@@ -113,6 +115,76 @@ public class SettingsKeysTest {
             }
         }
         return keys;
+    }
+
+    // Keys of settings that were removed. They must not come back as a setting of another meaning.
+    private static final Set<String> RETIRED = new HashSet<>(Arrays.asList(
+            "checkbox_gl_render")); // "Render through OpenGL", replaced by Render through Vulkan
+
+    @Test
+    public void everyKeyInPreferencesXmlIsUniqueAndNoRetiredKeyIsBack() throws Exception {
+        List<String> all = new ArrayList<>();
+        try (XmlResourceParser parser = RuntimeEnvironment.getApplication().getResources().getXml(R.xml.preferences)) {
+            for (int event = parser.getEventType(); event != XmlPullParser.END_DOCUMENT; event = parser.next()) {
+                if (event == XmlPullParser.START_TAG) {
+                    String key = parser.getAttributeValue("http://schemas.android.com/apk/res/android", "key");
+                    if (key != null) all.add(key);
+                }
+            }
+        }
+        Set<String> seen = new HashSet<>();
+        for (String key : all) assertTrue("Duplicate preference key: " + key, seen.add(key));
+        for (String key : RETIRED) assertFalse("Retired key is back: " + key, seen.contains(key));
+    }
+
+    @Test
+    public void renderThroughOpenGlUsersMoveToVulkanOnce() {
+        SharedPreferences p = prefs();
+        p.edit().putBoolean("checkbox_gl_render", true).commit();
+        assertTrue(PreferenceConfiguration.migrateRetiredGlRender(p, 33));
+        assertFalse(p.contains("checkbox_gl_render"));
+        assertTrue(p.getBoolean("checkbox_vulkan_render", false));
+        assertTrue(PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication()).vulkanRender);
+
+        // Turning Vulkan off afterwards sticks: the old key is gone, so nothing switches it back on.
+        p.edit().putBoolean("checkbox_vulkan_render", false).commit();
+        assertFalse(PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication()).vulkanRender);
+    }
+
+    @Test
+    public void openGlUsersWithAnUpscalerOrAnOldAndroidDoNotGetVulkan() {
+        SharedPreferences p = prefs();
+        p.edit().putBoolean("checkbox_gl_render", true).putString("upscaling_mode", "fsr1").commit();
+        assertFalse(PreferenceConfiguration.migrateRetiredGlRender(p, 33));
+        assertFalse(p.contains("checkbox_gl_render"));
+        assertFalse(p.contains("checkbox_vulkan_render"));
+
+        p.edit().putBoolean("checkbox_gl_render", true).remove("upscaling_mode").commit();
+        assertFalse(PreferenceConfiguration.migrateRetiredGlRender(p, 28));
+        assertFalse(p.contains("checkbox_gl_render"));
+        assertFalse(p.contains("checkbox_vulkan_render"));
+
+        // Android 10 is the first that can run it, with no upscaler selected
+        p.edit().putBoolean("checkbox_gl_render", true).putString("upscaling_mode", "off").commit();
+        assertTrue(PreferenceConfiguration.migrateRetiredGlRender(p, 29));
+        assertTrue(p.getBoolean("checkbox_vulkan_render", false));
+    }
+
+    @Test
+    public void anExplicitVulkanChoiceBeatsTheOldOpenGlSwitch() {
+        SharedPreferences p = prefs();
+        p.edit().putBoolean("checkbox_gl_render", true).putBoolean("checkbox_vulkan_render", false).commit();
+        assertFalse(PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication()).vulkanRender);
+        assertFalse(p.contains("checkbox_gl_render"));
+    }
+
+    @Test
+    public void anOffOpenGlSwitchLeavesVulkanUnsetAndIsDropped() {
+        SharedPreferences p = prefs();
+        p.edit().putBoolean("checkbox_gl_render", false).commit();
+        assertFalse(PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication()).vulkanRender);
+        assertFalse(p.contains("checkbox_gl_render"));
+        assertFalse(p.contains("checkbox_vulkan_render"));
     }
 
     @Test
@@ -239,7 +311,7 @@ public class SettingsKeysTest {
         reads.put("checkbox_gpu_max_clocks", new Read(false, true, c -> c.gpuMaxClocks));
         reads.put("checkbox_drop_late_frames", new Read(true, false, c -> c.dropLateFrames));
         reads.put("checkbox_texture_view", new Read(false, true, c -> c.useTextureView));
-        reads.put("checkbox_gl_render", new Read(false, true, c -> c.glRender));
+        reads.put("checkbox_vulkan_render", new Read(false, true, c -> c.vulkanRender));
         reads.put("checkbox_unlock_fps", new Read(false, true, c -> c.unlockFps));
         reads.put("checkbox_unbatched_input", new Read(true, false, c -> c.unbatchedInput));
         reads.put("checkbox_network_priority", new Read(true, false, c -> c.networkPriority));

@@ -377,10 +377,18 @@
     <string name="summary_upscaling_sharpness" formatted="false">Підвищення різкості FSR/SGSR: 0% — вимкнено, 100% — максимум; діє з наступної трансляції, відновлення SGSR завжди активне.</string>
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">Вимкнено (прямий вивід)</string>
-    <string name="title_gl_render">Рендеринг через OpenGL</string>
-    <string name="summary_gl_render">Надсилає відео через OpenGL, щоб оверлеї генерації кадрів могли до нього підключитися. Змінює темп кадрів, збільшує затримку, а оверлей затримки показує менше значень. Використовуйте лише для таких оверлеїв.</string>
-    <string name="upscaling_gl_only">OpenGL (без масштабування)</string>
-    <string name="gl_render_fallback">Рендеринг OpenGL: пряме виведення. %1$s</string>
+    <string name="title_vulkan_render">Рендеринг через Vulkan</string>
+    <string name="summary_vulkan_render">Експериментально. Виводить відео через Vulkan із власним керуванням темпом кадрів, для оверлеїв генерації кадрів, які підключаються до Vulkan. Додає прохід рендерингу, тому затримка трохи зростає. Потрібен Android 10 або новіший. З PyroWave не використовується. Поки ввімкнено, масштабування вимкнене.</string>
+    <string name="vulkan_render_fallback">Рендеринг через Vulkan не використовується. %1$s</string>
+    <string name="vulkan_reason_pyrowave">Відео PyroWave його не використовує.</string>
+    <string name="vulkan_reason_api">Потрібен Android 10 або новіший.</string>
+    <string name="vulkan_reason_unsupported">Цей пристрій його не підтримує.</string>
+    <string name="vulkan_reason_packed">Відео 4:4:4 його не використовує.</string>
+    <string name="vulkan_reason_start">Не вдалося запустити рендерер.</string>
+    <string name="vulkan_overrides_upscaling">Рендеринг через Vulkan увімкнено, тому масштабування не використовується.</string>
+    <string name="upscaling_vulkan_short">Вимкнено під час рендерингу через Vulkan</string>
+    <string name="vulkan_renderer_failed">Рендерер Vulkan припинив працювати: %1$s\n\nВимкніть «Рендеринг через Vulkan» у налаштуваннях відео та запустіть трансляцію знову.</string>
+    <string name="vulkan_failure_unknown">невідома помилка</string>
     <string name="upscaling_fallback">Масштабування: прямий вивід. %1$s</string>
     <string name="upscaling_hdr">HDR/10-біт використовує прямий вивід, щоб зберегти колір і точність.</string>
     <string name="upscaling_pyrowave">Трансляції PyroWave використовують SGSR на GPU і для FSR, і для SGSR.</string>

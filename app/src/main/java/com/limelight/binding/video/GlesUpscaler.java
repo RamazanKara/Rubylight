@@ -33,7 +33,6 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
     private final Packed444 packing;
     private final boolean tenBit;
     private final boolean stretch;
-    private final boolean presentOnly;
     private boolean hdr;
     private byte[] hdrMetadata;
     private final UpscalingFrameQueue frames = new UpscalingFrameQueue();
@@ -58,25 +57,13 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
 
     GlesUpscaler(Context context, Surface output, UpscalingPolicy.Mode mode, int width, int height,
                  boolean stretch, int sharpness, UpscalingPolicy policy) {
-        this(context, output, mode, width, height, stretch, sharpness, policy, null, false, null, false);
-    }
-
-    // Bilinear at the stream's own size, only to present through EGL.
-    GlesUpscaler(Context context, Surface output, int width, int height, boolean stretch, UpscalingPolicy policy) {
-        this(context, output, UpscalingPolicy.Mode.BILINEAR, width, height, stretch, 0, policy, null, false, null, true);
+        this(context, output, mode, width, height, stretch, sharpness, policy, null, false, null);
     }
 
     GlesUpscaler(Context context, Surface output, UpscalingPolicy.Mode mode, int width, int height,
                  boolean stretch, int sharpness, UpscalingPolicy policy, Packed444 packing,
                  boolean tenBit, byte[] hdrMetadata) {
-        this(context, output, mode, width, height, stretch, sharpness, policy, packing, tenBit, hdrMetadata, false);
-    }
-
-    GlesUpscaler(Context context, Surface output, UpscalingPolicy.Mode mode, int width, int height,
-                 boolean stretch, int sharpness, UpscalingPolicy policy, Packed444 packing,
-                 boolean tenBit, byte[] hdrMetadata, boolean presentOnly) {
         this.mode = mode;
-        this.presentOnly = presentOnly;
         this.policy = policy;
         this.packing = packing;
         this.tenBit = tenBit;
@@ -172,7 +159,7 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
         viewport = UpscalingPolicy.viewport(packing == null ? width : packing.width,
                 packing == null ? height : packing.height, surfaceWidth, surfaceHeight, stretch);
         if (packing == null) policy.fail(UpscalingPolicy.unavailableReason(mode, width, height, viewport[2], viewport[3],
-                false, false, true, presentOnly));
+                false, false, true));
         if (policy.getReason() != UpscalingPolicy.Reason.NONE) return;
 
         String vertex = shaderSource(context, "upscale.vert");

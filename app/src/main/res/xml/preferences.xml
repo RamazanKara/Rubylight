@@ -658,9 +658,9 @@
             android:dialogMessage="@string/summary_texture_view"
             android:defaultValue="false" />
         <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_gl_render"
-            android:title="@string/title_gl_render"
-            android:dialogMessage="@string/summary_gl_render"
+            android:key="checkbox_vulkan_render"
+            android:title="@string/title_vulkan_render"
+            android:dialogMessage="@string/summary_vulkan_render"
             android:defaultValue="false" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_full_range"

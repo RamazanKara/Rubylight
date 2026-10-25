@@ -19,6 +19,7 @@ import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.binding.video.DisplayFrameRatePolicy;
 import com.limelight.binding.video.PerformanceOverlay;
 import com.limelight.binding.video.UpscalingPolicy;
+import com.limelight.binding.video.VideoRendererChoice;
 import com.limelight.ui.StreamOrientation;
 import com.limelight.ui.VideoScaling;
 
@@ -144,7 +145,10 @@ public class PreferenceConfiguration {
     static final String CONTENT_RATE_FRAME_RATE_PREF_STRING = "checkbox_content_rate_frame_rate";
     static final String UPSCALING_PREF_STRING = "upscaling_mode";
     static final String UPSCALING_SHARPNESS_PREF_STRING = "upscaling_sharpness";
-    static final String GL_RENDER_PREF_STRING = "checkbox_gl_render";
+    // "Render through OpenGL" is gone. Its key is only read once, to move its users to Vulkan, and
+    // must not be reused for anything else.
+    static final String RETIRED_GL_RENDER_PREF_STRING = "checkbox_gl_render";
+    static final String VULKAN_RENDER_PREF_STRING = "checkbox_vulkan_render";
 
     static final String DEFAULT_RESOLUTION = "1280x720";
     static final String DEFAULT_FPS = "60";
@@ -302,7 +306,8 @@ public class PreferenceConfiguration {
     public UpscalingPolicy.Mode upscalingMode = UpscalingPolicy.Mode.OFF;
     public int upscalingSharpness = 50;
     // Present MediaCodec frames through the GLES path even when nothing is upscaled.
-    public boolean glRender;
+    // Present MediaCodec frames through the native Vulkan renderer, which paces them itself.
+    public boolean vulkanRender;
 
     public static boolean isNativeResolution(int width, int height) {
         // It's not a native resolution if it matches an existing resolution option
@@ -941,6 +946,33 @@ public class PreferenceConfiguration {
         if (editor != null) editor.apply();
     }
 
+    /**
+     * "Render through OpenGL" is removed. A user who had it on gets "Render through Vulkan", the
+     * setting that replaced it for frame-generation overlays, only if that can take its place:
+     * they never chose a value for it, no upscaler is selected (Vulkan would override it) and the
+     * device runs Android 10 or later. The old key is dropped either way.
+     *
+     * @return whether Vulkan was switched on
+     */
+    static boolean migrateRetiredGlRender(SharedPreferences prefs, int sdkInt) {
+        if (!prefs.contains(RETIRED_GL_RENDER_PREF_STRING)) return false;
+        boolean wasOn = prefs.getBoolean(RETIRED_GL_RENDER_PREF_STRING, false);
+        boolean chosen = prefs.contains(VULKAN_RENDER_PREF_STRING);
+        boolean upscaling = UpscalingPolicy.Mode.fromPreference(
+                prefs.getString(UPSCALING_PREF_STRING, "off")) != UpscalingPolicy.Mode.OFF;
+        boolean supported = sdkInt >= VideoRendererChoice.MIN_SDK;
+        boolean switchOn = wasOn && !chosen && !upscaling && supported;
+        SharedPreferences.Editor editor = prefs.edit().remove(RETIRED_GL_RENDER_PREF_STRING);
+        if (switchOn) editor.putBoolean(VULKAN_RENDER_PREF_STRING, true);
+        editor.apply();
+        if (wasOn && !switchOn) {
+            com.limelight.LimeLog.info("\"Render through OpenGL\" was on and is gone; Vulkan stays off (" +
+                    (chosen ? "a Vulkan choice exists" : upscaling ? "an upscaler is selected" :
+                            "Android " + sdkInt + " is too old") + ")");
+        }
+        return switchOn;
+    }
+
     /** Automatic bitrate's minimum and maximum are gone; their saved values must not linger. */
     static void dropAutoBitrateLimits(SharedPreferences prefs) {
         SharedPreferences.Editor editor = null;
@@ -961,6 +993,9 @@ public class PreferenceConfiguration {
 
         // Migrate legacy preferences to the new locations
         migrateOverlayMode(prefs);
+        if (migrateRetiredGlRender(prefs, Build.VERSION.SDK_INT)) {
+            com.limelight.LimeLog.info("\"Render through OpenGL\" was on; it is now \"Render through Vulkan\"");
+        }
         if (migrateRustEngineDefault(prefs)) {
             com.limelight.LimeLog.info("New streaming engine switched to its new default: on");
         }
@@ -1201,7 +1236,7 @@ public class PreferenceConfiguration {
         config.vrr = prefs.getBoolean(VRR_PREF_STRING, false);
         config.upscalingMode = UpscalingPolicy.Mode.fromPreference(prefs.getString(UPSCALING_PREF_STRING, "off"));
         config.upscalingSharpness = Math.max(0, Math.min(100, prefs.getInt(UPSCALING_SHARPNESS_PREF_STRING, 50)));
-        config.glRender = prefs.getBoolean(GL_RENDER_PREF_STRING, false);
+        config.vulkanRender = prefs.getBoolean(VULKAN_RENDER_PREF_STRING, false);
         if (config.vrr) {
             // VRR streams arrive at the game's own cadence: show each frame as soon as it is
             // decoded; Game votes for ARR where supported, or the highest refresh rate otherwise.

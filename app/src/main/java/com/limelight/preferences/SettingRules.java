@@ -28,8 +28,18 @@ final class SettingRules {
                 "balanced".equals(prefs.getString(FRAME_PACING, PreferenceConfiguration.DEFAULT_FRAME_PACING));
     }
 
+    /**
+     * The Vulkan renderer scales the picture itself and replaces the upscaler, so the choice does
+     * nothing while it is on. It does not apply on Android 9 and older, where the setting is ignored.
+     */
+    static boolean upscalingApplies(SharedPreferences prefs) {
+        return !prefs.getBoolean(PreferenceConfiguration.VULKAN_RENDER_PREF_STRING, false) ||
+                android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q;
+    }
+
     /** Only FSR and SGSR sharpen; Off and Smooth have nothing to adjust. */
     static boolean upscalingUsesSharpness(SharedPreferences prefs) {
+        if (!upscalingApplies(prefs)) return false;
         String mode = prefs.getString(PreferenceConfiguration.UPSCALING_PREF_STRING, "off");
         return "fsr1".equals(mode) || "sgsr1".equals(mode);
     }

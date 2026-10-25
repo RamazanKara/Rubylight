@@ -52,7 +52,7 @@ public class AdvancedOptionsTest {
     /** The controls Advanced shows without any further tap. The individual decoding switches sit behind Customize. */
     private static final String[] ADVANCED_CONTROLS = {
             "low_latency_customize", "checkbox_unbatched_input",
-            "checkbox_network_priority", "checkbox_texture_view", "checkbox_gl_render", "checkbox_full_range",
+            "checkbox_network_priority", "checkbox_texture_view", "checkbox_vulkan_render", "checkbox_full_range",
             "checkbox_enable_sops", "export_latency_csv", "latency_benchmark", "checkbox_enable_post_stream_toast",
             "checkbox_rust_engine"
     };

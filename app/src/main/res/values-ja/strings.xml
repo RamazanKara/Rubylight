@@ -377,10 +377,18 @@
     <string name="summary_upscaling_sharpness" formatted="false">FSR/SGSR のシャープ化: 0% でオフ、100% で最大。次回のストリームから適用され、SGSR の再構成は常に有効です。</string>
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">オフ（直接出力）</string>
-    <string name="title_gl_render">OpenGL で描画</string>
-    <string name="summary_gl_render">フレーム生成オーバーレイがフックできるよう、映像を OpenGL 経由で送ります。フレームペーシングが変わり、遅延が増え、遅延オーバーレイの表示項目が減ります。そのようなオーバーレイにのみ使用してください。</string>
-    <string name="upscaling_gl_only">OpenGL（拡大なし）</string>
-    <string name="gl_render_fallback">OpenGL 描画: 直接出力になりました。%1$s</string>
+    <string name="title_vulkan_render">Vulkanで描画</string>
+    <string name="summary_vulkan_render">試験的機能です。独自のフレームペーシングでVulkan経由で映像を表示します。Vulkanにフックするフレーム生成オーバーレイ向けです。描画パスが1つ増えるため、遅延がやや増えます。Android 10以降が必要です。PyroWaveでは使われません。有効な間はアップスケーリングは無効になります。</string>
+    <string name="vulkan_render_fallback">Vulkan描画は使われません。%1$s</string>
+    <string name="vulkan_reason_pyrowave">PyroWaveの映像では使われません。</string>
+    <string name="vulkan_reason_api">Android 10以降が必要です。</string>
+    <string name="vulkan_reason_unsupported">この端末は対応していません。</string>
+    <string name="vulkan_reason_packed">4:4:4の映像では使われません。</string>
+    <string name="vulkan_reason_start">レンダラーを開始できませんでした。</string>
+    <string name="vulkan_overrides_upscaling">Vulkan描画が有効なため、アップスケーリングは使われません。</string>
+    <string name="upscaling_vulkan_short">Vulkan描画中はオフ</string>
+    <string name="vulkan_renderer_failed">Vulkanレンダラーが動作しなくなりました: %1$s\n\n映像設定で「Vulkanで描画」をオフにして、ストリームを開始し直してください。</string>
+    <string name="vulkan_failure_unknown">不明なエラー</string>
     <string name="upscaling_fallback">アップスケーリング: 直接出力。%1$s</string>
     <string name="upscaling_hdr">HDR/10 ビットでは、色と精度を保つため直接出力のままにします。</string>
     <string name="upscaling_pyrowave">PyroWave のストリームでは、FSR と SGSR のどちらでも GPU で SGSR を使用します。</string>

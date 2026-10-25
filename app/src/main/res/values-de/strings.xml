@@ -377,10 +377,18 @@
     <string name="summary_upscaling_sharpness" formatted="false">FSR/SGSR-Schärfe: 0% aus, 100% maximal; gilt ab dem nächsten Stream, SGSR-Bildrekonstruktion bleibt aktiv.</string>
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">Aus (direkte Ausgabe)</string>
-    <string name="title_gl_render">Über OpenGL rendern</string>
-    <string name="summary_gl_render">Leitet das Video über OpenGL, damit Frame-Generation-Overlays es abgreifen können. Ändert das Frame-Pacing, erhöht die Latenz, und das Latenz-Overlay zeigt weniger Werte. Nur für solche Overlays verwenden.</string>
-    <string name="upscaling_gl_only">OpenGL (ohne Skalierung)</string>
-    <string name="gl_render_fallback">OpenGL-Rendering: direkte Ausgabe. %1$s</string>
+    <string name="title_vulkan_render">Über Vulkan rendern</string>
+    <string name="summary_vulkan_render">Experimentell. Gibt das Video über Vulkan mit eigenem Frame-Pacing aus, für Frame-Generation-Overlays, die Vulkan abgreifen. Fügt einen Render-Durchgang hinzu, daher etwas mehr Latenz. Benötigt Android 10 oder neuer. Wird mit PyroWave nicht verwendet. Hochskalierung ist dabei aus.</string>
+    <string name="vulkan_render_fallback">Vulkan-Rendering wird nicht verwendet. %1$s</string>
+    <string name="vulkan_reason_pyrowave">PyroWave-Video nutzt es nicht.</string>
+    <string name="vulkan_reason_api">Es benötigt Android 10 oder neuer.</string>
+    <string name="vulkan_reason_unsupported">Dieses Gerät unterstützt es nicht.</string>
+    <string name="vulkan_reason_packed">4:4:4-Video nutzt es nicht.</string>
+    <string name="vulkan_reason_start">Der Renderer konnte nicht gestartet werden.</string>
+    <string name="vulkan_overrides_upscaling">Vulkan-Rendering ist aktiv, daher wird keine Hochskalierung verwendet.</string>
+    <string name="upscaling_vulkan_short">Aus bei Vulkan-Rendering</string>
+    <string name="vulkan_renderer_failed">Der Vulkan-Renderer funktioniert nicht mehr: %1$s\n\nSchalte „Über Vulkan rendern“ in den Videoeinstellungen aus und starte den Stream neu.</string>
+    <string name="vulkan_failure_unknown">unbekannter Fehler</string>
     <string name="upscaling_fallback">Hochskalierung: direkte Ausgabe. %1$s</string>
     <string name="upscaling_hdr">HDR/10-Bit nutzt direkte Ausgabe für volle Farbpräzision.</string>
     <string name="upscaling_pyrowave">PyroWave-Streams nutzen für FSR und SGSR immer SGSR auf der GPU.</string>

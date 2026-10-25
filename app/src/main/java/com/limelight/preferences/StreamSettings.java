@@ -1174,6 +1174,8 @@ public class StreamSettings extends NightjarActivity {
         private void applySettingRules(SharedPreferences prefs) {
             Preference pacing = allPreferences.get(SettingRules.FRAME_PACING);
             if (pacing != null) pacing.setEnabled(SettingRules.framePacingApplies(prefs));
+            Preference upscaling = allPreferences.get(PreferenceConfiguration.UPSCALING_PREF_STRING);
+            if (upscaling != null) upscaling.setEnabled(SettingRules.upscalingApplies(prefs));
             setShown(SettingRules.DROP_LATE_FRAMES, SettingRules.dropLateFramesApplies(prefs));
             setShown(PreferenceConfiguration.UPSCALING_SHARPNESS_PREF_STRING, SettingRules.upscalingUsesSharpness(prefs));
             boolean limits = SettingRules.qualityLimitsApply(prefs);
@@ -1251,7 +1253,9 @@ public class StreamSettings extends NightjarActivity {
                 if (PreferenceConfiguration.UPSCALING_PREF_STRING.equals(pref.getKey()) &&
                         !"off".equals(((ListPreference) pref).getValue())) {
                     // Say in the value line when the chosen upscaler is not the one used.
-                    if (prefs.getBoolean("checkbox_enable_hdr", false)) {
+                    if (!SettingRules.upscalingApplies(prefs)) {
+                        value = getString(R.string.settings_joined, value, getString(R.string.upscaling_vulkan_short));
+                    } else if (prefs.getBoolean("checkbox_enable_hdr", false)) {
                         value = getString(R.string.settings_joined, value, getString(R.string.upscaling_hdr_short));
                     } else if ("forcepyrowave".equals(prefs.getString("video_format", "auto"))) {
                         value = getString(R.string.settings_joined, value, getString(R.string.upscaling_pyrowave_short));

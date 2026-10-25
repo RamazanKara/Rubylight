@@ -43,7 +43,7 @@ public class StreamRecoveryPolicyTest {
     }
 
     @Test public void gracefulPermanentAndUnknownErrorsDoNotRetry() {
-        for (int code : new int[] {0, -103, -104, 401, 403, 409, 470, 525, -999, 123456}) {
+        for (int code : new int[] {0, -103, -104, -105, 401, 403, 409, 470, 525, -999, 123456}) {
             assertFalse("code " + code, StreamRecoveryPolicy.transientTermination(code));
         }
         for (int code : new int[] {-100, -101, -102, -1, 104, 110, 10054, 10060}) {

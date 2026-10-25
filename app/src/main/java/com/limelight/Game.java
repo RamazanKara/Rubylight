@@ -6025,6 +6025,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             case MoonBridge.ML_ERROR_UNEXPECTED_EARLY_TERMINATION: return code + " (ended right after starting)";
             case MoonBridge.ML_ERROR_PROTECTED_CONTENT: return code + " (protected content)";
             case MoonBridge.ML_ERROR_FRAME_CONVERSION: return code + " (frame conversion failed on the PC)";
+            case MoonBridge.CLIENT_ERROR_VULKAN_RENDERER: return code + " (Vulkan renderer failed on this device)";
             // This device's own code for a connection that ended without any reason from the PC.
             case -1: return code + " (connection lost, no reason from the PC)";
             default: return code + " (reported by the PC)";
@@ -6059,7 +6060,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (endedSession) LimeLog.info("Connection terminated: the PC ended the previous session");
         final int portFlags = MoonBridge.getPortFlagsFromTerminationErrorCode(errorCode);
         final boolean transientFailure = StreamRecoveryPolicy.transientTermination(errorCode);
+        // A renderer failure on this device says nothing about the network
         final int portTestResult = errorCode == MoonBridge.ML_ERROR_GRACEFUL_TERMINATION ||
+                errorCode == MoonBridge.CLIENT_ERROR_VULKAN_RENDERER ||
                 (transientFailure && prefConfig != null && prefConfig.autoReconnect) ?
                 MoonBridge.ML_TEST_RESULT_INCONCLUSIVE :
                 MoonBridge.testClientConnectivity(ServerHelper.CONNECTION_TEST_SERVER,443, portFlags);
@@ -6124,6 +6127,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
                                 case MoonBridge.ML_ERROR_FRAME_CONVERSION:
                                     message = getResources().getString(R.string.frame_conversion_error);
+                                    break;
+
+                                case MoonBridge.CLIENT_ERROR_VULKAN_RENDERER:
+                                    MediaCodecDecoderRenderer renderer = decoderRenderer;
+                                    String failure = renderer != null ? renderer.getVulkanFailure() : null;
+                                    message = getResources().getString(R.string.vulkan_renderer_failed,
+                                            failure != null ? failure : getResources().getString(R.string.vulkan_failure_unknown));
                                     break;
 
                                 default:

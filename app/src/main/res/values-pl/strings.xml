@@ -377,10 +377,18 @@
     <string name="summary_upscaling_sharpness" formatted="false">Wyostrzanie FSR/SGSR: 0% wyłączone, 100% maksymalne; obowiązuje od następnego strumienia, rekonstrukcja SGSR jest zawsze aktywna.</string>
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">Wyłączone (wyjście bezpośrednie)</string>
-    <string name="title_gl_render">Renderuj przez OpenGL</string>
-    <string name="summary_gl_render">Przesyła obraz przez OpenGL, aby nakładki generowania klatek mogły się do niego podpiąć. Zmienia tempo klatek, zwiększa opóźnienie, a nakładka opóźnień pokazuje mniej wartości. Używaj tylko do takich nakładek.</string>
-    <string name="upscaling_gl_only">OpenGL (bez skalowania)</string>
-    <string name="gl_render_fallback">Renderowanie OpenGL: wyjście bezpośrednie. %1$s</string>
+    <string name="title_vulkan_render">Renderowanie przez Vulkan</string>
+    <string name="summary_vulkan_render">Funkcja eksperymentalna. Wyświetla wideo przez Vulkan z własnym sterowaniem tempem klatek, dla nakładek generowania klatek, które podpinają się pod Vulkan. Dodaje przebieg renderowania, więc opóźnienie jest nieco większe. Wymaga Androida 10 lub nowszego. Nie jest używane z PyroWave. Gdy jest włączone, skalowanie jest wyłączone.</string>
+    <string name="vulkan_render_fallback">Renderowanie przez Vulkan nie jest używane. %1$s</string>
+    <string name="vulkan_reason_pyrowave">Wideo PyroWave go nie używa.</string>
+    <string name="vulkan_reason_api">Wymaga Androida 10 lub nowszego.</string>
+    <string name="vulkan_reason_unsupported">To urządzenie go nie obsługuje.</string>
+    <string name="vulkan_reason_packed">Wideo 4:4:4 go nie używa.</string>
+    <string name="vulkan_reason_start">Nie udało się uruchomić renderera.</string>
+    <string name="vulkan_overrides_upscaling">Renderowanie przez Vulkan jest włączone, więc skalowanie nie jest używane.</string>
+    <string name="upscaling_vulkan_short">Wyłączone przy renderowaniu przez Vulkan</string>
+    <string name="vulkan_renderer_failed">Renderer Vulkan przestał działać: %1$s\n\nWyłącz „Renderowanie przez Vulkan” w ustawieniach wideo i uruchom strumień ponownie.</string>
+    <string name="vulkan_failure_unknown">nieznany błąd</string>
     <string name="upscaling_fallback">Skalowanie: wyjście bezpośrednie. %1$s</string>
     <string name="upscaling_hdr">HDR/10-bit używa wyjścia bezpośredniego, aby zachować kolory i precyzję.</string>
     <string name="upscaling_pyrowave">Strumienie PyroWave używają SGSR na GPU zarówno dla FSR, jak i SGSR.</string>

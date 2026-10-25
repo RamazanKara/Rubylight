@@ -377,10 +377,18 @@
     <string name="summary_upscaling_sharpness" formatted="false">Làm sắc nét FSR/SGSR: 0% là tắt, 100% là tối đa; áp dụng cho stream tiếp theo, quá trình tái tạo SGSR luôn hoạt động.</string>
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">Tắt (xuất trực tiếp)</string>
-    <string name="title_gl_render">Kết xuất qua OpenGL</string>
-    <string name="summary_gl_render">Gửi video qua OpenGL để lớp phủ tạo khung hình có thể móc vào. Thay đổi nhịp khung hình, tăng độ trễ và lớp phủ độ trễ hiển thị ít số liệu hơn. Chỉ dùng cho các lớp phủ đó.</string>
-    <string name="upscaling_gl_only">OpenGL (không phóng đại)</string>
-    <string name="gl_render_fallback">Kết xuất OpenGL: xuất trực tiếp. %1$s</string>
+    <string name="title_vulkan_render">Kết xuất qua Vulkan</string>
+    <string name="summary_vulkan_render">Thử nghiệm. Hiển thị video qua Vulkan với cơ chế điều nhịp khung hình riêng, dành cho lớp phủ tạo khung hình bám vào Vulkan. Thêm một lượt kết xuất nên độ trễ tăng đôi chút. Cần Android 10 trở lên. Không dùng với PyroWave. Khi bật, nâng tỷ lệ bị tắt.</string>
+    <string name="vulkan_render_fallback">Không dùng kết xuất Vulkan. %1$s</string>
+    <string name="vulkan_reason_pyrowave">Video PyroWave không dùng nó.</string>
+    <string name="vulkan_reason_api">Cần Android 10 trở lên.</string>
+    <string name="vulkan_reason_unsupported">Thiết bị này không hỗ trợ.</string>
+    <string name="vulkan_reason_packed">Video 4:4:4 không dùng nó.</string>
+    <string name="vulkan_reason_start">Không thể khởi động bộ kết xuất.</string>
+    <string name="vulkan_overrides_upscaling">Kết xuất Vulkan đang bật nên không dùng nâng tỷ lệ.</string>
+    <string name="upscaling_vulkan_short">Tắt khi kết xuất qua Vulkan</string>
+    <string name="vulkan_renderer_failed">Bộ kết xuất Vulkan đã ngừng hoạt động: %1$s\n\nHãy tắt “Kết xuất qua Vulkan” trong cài đặt video rồi bắt đầu lại luồng.</string>
+    <string name="vulkan_failure_unknown">lỗi không xác định</string>
     <string name="upscaling_fallback">Nâng cấp độ phân giải: xuất trực tiếp. %1$s</string>
     <string name="upscaling_hdr">HDR/10-bit giữ xuất trực tiếp để bảo toàn màu sắc và độ chính xác.</string>
     <string name="upscaling_pyrowave">Stream PyroWave dùng SGSR trên GPU cho cả FSR và SGSR.</string>

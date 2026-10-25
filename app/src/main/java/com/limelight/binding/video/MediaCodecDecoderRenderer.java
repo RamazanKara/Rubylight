@@ -2658,7 +2658,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                     // one over as soon as it is decoded. It counts those it presents.
                                     frameLatencyStats.onOutputReleased(lastIndex, System.nanoTime(), true, false);
                                     videoDecoder.releaseOutputBuffer(lastIndex, true);
-                                    frameLatencyStats.onArtemisDecodeCounted(lastPtsUs, System.nanoTime());
+                                    frameLatencyStats.onArtemisDecodeCounted(lastPtsUs);
                                 }
                                 // Render the latest frame now if frame pacing isn't in balanced mode
                                 else if (prefs.framePacing != PreferenceConfiguration.FRAME_PACING_BALANCED) {

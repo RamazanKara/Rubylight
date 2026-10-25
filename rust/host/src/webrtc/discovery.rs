@@ -9,13 +9,25 @@ use crate::{
 use anyhow::{Context, Result};
 use butterpollo_core::webrtc::protocol::{ServerMessage, is_discovery_request};
 use socket2::{Domain, Socket, Type};
-use std::net::{IpAddr, SocketAddr, UdpSocket};
+use std::{
+    collections::HashMap,
+    net::{IpAddr, SocketAddr, UdpSocket},
+    time::{Duration, Instant},
+};
 
 /// The port every TV sends its broadcast to.
 pub const PORT: u16 = 8000;
 
 /// A datagram longer than this is not a `discover` message.
 const MAX_DATAGRAM: usize = 512;
+
+/// Whether `datagram` from `peer` is a `discover` message from the local
+/// network, which gets a reply.
+fn is_request(peer: IpAddr, datagram: &[u8]) -> bool {
+    reach(peer) <= Reach::Lan
+        && datagram.len() <= MAX_DATAGRAM
+        && std::str::from_utf8(datagram).is_ok_and(is_discovery_request)
+}
 
 /// The reply to a datagram, if the peer is on the local network and the
 /// datagram is a `discover` message.
@@ -26,13 +38,27 @@ pub fn reply(
     port: u16,
     mac_address: impl FnOnce() -> Option<String>,
 ) -> Option<String> {
-    if reach(peer) > Reach::Lan || datagram.len() > MAX_DATAGRAM {
+    is_request(peer, datagram)
+        .then(|| ServerMessage::discovery(name, port, mac_address()).to_json())
+}
+
+/// [`reply`] with the name and Wake-on-LAN address taken from `answers`,
+/// looked up only for a datagram that gets an answer.
+fn reply_with(
+    peer: IpAddr,
+    datagram: &[u8],
+    port: u16,
+    answers: &mut Answers,
+    now: Instant,
+    name: impl FnOnce() -> String,
+    mac: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    if !is_request(peer, datagram) {
         return None;
     }
-    if !is_discovery_request(std::str::from_utf8(datagram).ok()?) {
-        return None;
-    }
-    Some(ServerMessage::discovery(name, port, mac_address()).to_json())
+    let name = answers.name(now, name);
+    let mac = answers.mac(now, peer, mac);
+    reply(peer, datagram, &name, port, || mac)
 }
 
 /// The UDP socket on `address`, shared with any other listener on the port
@@ -71,6 +97,52 @@ pub fn mac_address(local: IpAddr) -> Option<String> {
     (mac != "00:00:00:00:00:00").then_some(mac)
 }
 
+/// How long a looked-up host name or Wake-on-LAN address is reused. A
+/// datagram flood must not cost a configuration read and an adapter lookup each.
+const CACHE_FOR: Duration = Duration::from_secs(5);
+/// Peers whose route is remembered at once.
+const CACHE_PEERS: usize = 256;
+
+/// The host name and per-peer Wake-on-LAN addresses answered lately.
+#[derive(Default)]
+struct Answers {
+    name: Option<(Instant, String)>,
+    macs: HashMap<IpAddr, (Instant, Option<String>)>,
+}
+
+impl Answers {
+    fn name(&mut self, now: Instant, lookup: impl FnOnce() -> String) -> String {
+        match &self.name {
+            Some((at, name)) if now.duration_since(*at) < CACHE_FOR => name.clone(),
+            _ => {
+                let name = lookup();
+                self.name = Some((now, name.clone()));
+                name
+            }
+        }
+    }
+
+    fn mac(
+        &mut self,
+        now: Instant,
+        peer: IpAddr,
+        lookup: impl FnOnce() -> Option<String>,
+    ) -> Option<String> {
+        if let Some((at, mac)) = self.macs.get(&peer)
+            && now.duration_since(*at) < CACHE_FOR
+        {
+            return mac.clone();
+        }
+        self.macs
+            .retain(|_, (at, _)| now.duration_since(*at) < CACHE_FOR);
+        let mac = lookup();
+        if self.macs.len() < CACHE_PEERS {
+            self.macs.insert(peer, (now, mac.clone()));
+        }
+        mac
+    }
+}
+
 pub async fn serve(h: Shared, socket: UdpSocket, port: u16) {
     let socket = match tokio::net::UdpSocket::from_std(socket) {
         Ok(socket) => socket,
@@ -80,6 +152,7 @@ pub async fn serve(h: Shared, socket: UdpSocket, port: u16) {
         }
     };
     let mut buffer = [0u8; MAX_DATAGRAM + 1];
+    let mut answers = Answers::default();
     loop {
         let (length, peer) = match socket.recv_from(&mut buffer).await {
             Ok(received) => received,
@@ -90,10 +163,16 @@ pub async fn serve(h: Shared, socket: UdpSocket, port: u16) {
             }
         };
         let ip = peer.ip().to_canonical();
-        let name = crate::network::host_name(&h.config.read().unwrap());
-        let reply = reply(ip, &buffer[..length], &name, port, || {
-            mac_address_towards(ip)
-        });
+        // Only a datagram that gets an answer costs a lookup, and only once in a while.
+        let reply = reply_with(
+            ip,
+            &buffer[..length],
+            port,
+            &mut answers,
+            Instant::now(),
+            || crate::network::host_name(&h.config.read().unwrap()),
+            || mac_address_towards(ip),
+        );
         match reply {
             Some(reply) => {
                 if let Err(error) = socket.send_to(reply.as_bytes(), peer).await {
@@ -189,6 +268,55 @@ mod tests {
         })
         .unwrap();
         assert!(!text.contains("macAddress"));
+    }
+
+    #[test]
+    fn the_name_and_mac_are_looked_up_once_in_five_seconds() {
+        let start = Instant::now();
+        let mut answers = Answers::default();
+        let looked_up = std::cell::Cell::new((0, 0));
+        let mut ask = |peer: &str, datagram: &[u8], at: Duration| {
+            reply_with(
+                peer.parse().unwrap(),
+                datagram,
+                8000,
+                &mut answers,
+                start + at,
+                || {
+                    looked_up.set((looked_up.get().0 + 1, looked_up.get().1));
+                    "Den PC".into()
+                },
+                || {
+                    looked_up.set((looked_up.get().0, looked_up.get().1 + 1));
+                    Some("2C:F0:5D:7B:E6:D0".into())
+                },
+            )
+        };
+        for n in 0..100 {
+            assert!(ask("192.168.1.2", DISCOVER, Duration::from_millis(n)).is_some());
+        }
+        assert_eq!(looked_up.get(), (1, 1));
+        // Another route has its own address, but the same name.
+        assert!(ask("192.168.2.2", DISCOVER, Duration::from_secs(1)).is_some());
+        assert_eq!(looked_up.get(), (1, 2));
+        // Datagrams that get no answer cost nothing.
+        assert!(ask("8.8.8.8", DISCOVER, Duration::from_secs(1)).is_none());
+        assert!(ask("192.168.1.2", b"hello", Duration::from_secs(1)).is_none());
+        assert_eq!(looked_up.get(), (1, 2));
+        // After five seconds both are looked up again.
+        assert!(ask("192.168.1.2", DISCOVER, Duration::from_secs(6)).is_some());
+        assert_eq!(looked_up.get(), (2, 3));
+    }
+
+    #[test]
+    fn the_route_cache_stays_bounded() {
+        let start = Instant::now();
+        let mut answers = Answers::default();
+        for n in 0..(CACHE_PEERS as u32 * 2) {
+            let peer = IpAddr::from(std::net::Ipv4Addr::from(0xc0a8_0000 + n));
+            answers.mac(start, peer, || None);
+        }
+        assert_eq!(answers.macs.len(), CACHE_PEERS);
     }
 
     #[tokio::test]

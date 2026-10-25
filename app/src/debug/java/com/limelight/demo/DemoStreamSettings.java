@@ -11,6 +11,7 @@ import android.preference.PreferenceFragment;
 
 import androidx.annotation.RequiresApi;
 
+import com.limelight.pin.PinLockSettingsActivity;
 import com.limelight.preferences.ControllerMappingActivity;
 import com.limelight.preferences.StreamSettings;
 
@@ -55,7 +56,8 @@ public final class DemoStreamSettings extends StreamSettings {
         String target = intent.getComponent() != null ? intent.getComponent().getClassName() : null;
         if (ControllerMappingActivity.class.getName().equals(target)) {
             super.startActivityForResult(new Intent(this, DemoControllerMappingActivity.class), requestCode, options);
-        } else if (DemoGpuDriverSettings.class.getName().equals(target)) {
+        } else if (DemoGpuDriverSettings.class.getName().equals(target)
+                || PinLockSettingsActivity.class.getName().equals(target)) {
             super.startActivityForResult(intent, requestCode, options);
         }
     }

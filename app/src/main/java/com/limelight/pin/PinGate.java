@@ -143,11 +143,12 @@ public final class PinGate {
         }
         app.registerActivityLifecycleCallbacks(new Application.ActivityLifecycleCallbacks() {
             @Override public void onActivityStarted(Activity activity) {
-                PinGate.onStarted(activity, new PinStore(activity));
+                // The Application's store: an activity may wrap its context (the debug demo redirects its prefs).
+                PinGate.onStarted(activity, new PinStore(app));
             }
 
             @Override public void onActivityStopped(Activity activity) {
-                PinGate.onStopped(activity, new PinStore(activity));
+                PinGate.onStopped(activity, new PinStore(app));
             }
 
             @Override public void onActivityCreated(Activity activity, Bundle state) { }

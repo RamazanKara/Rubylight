@@ -32,6 +32,10 @@ import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.http.PairingManager.PairState;
+import com.limelight.pin.PinGate;
+import com.limelight.pin.PinLockActivity;
+import com.limelight.pin.PinLockSettingsActivity;
+import com.limelight.pin.PinStore;
 import com.limelight.preferences.GlPreferences;
 import com.limelight.preferences.StreamSettings;
 import com.limelight.ui.StreamMenu;
@@ -257,6 +261,44 @@ public class DemoModeTest {
             driver.getOnPreferenceClickListener().onPreferenceClick(driver);
             assertEquals(DemoGpuDriverSettings.class.getName(), shadowOf(screen).getNextStartedActivity().getComponent().getClassName());
         } finally { controller.pause().stop().destroy(); }
+    }
+
+    @Test public void settingsOpenThePinLockPage() {
+        var controller = Robolectric.buildActivity(DemoStreamSettings.class).setup();
+        try {
+            StreamSettings screen = controller.get();
+            ReflectionHelpers.callInstanceMethod(screen, "showSection", ReflectionHelpers.ClassParameter.from(String.class, "app"));
+            ShadowLooper.idleMainLooper(150, TimeUnit.MILLISECONDS);
+            screen.getFragmentManager().executePendingTransactions();
+            PreferenceFragment app = (PreferenceFragment) screen.getFragmentManager().findFragmentById(R.id.stream_settings);
+            Preference row = app.findPreference("pin_lock");
+            row.getOnPreferenceClickListener().onPreferenceClick(row);
+            Intent next = shadowOf(screen).getNextStartedActivity();
+            assertNotNull("the demo dropped the PIN lock page", next);
+            assertEquals(PinLockSettingsActivity.class.getName(), next.getComponent().getClassName());
+        } finally { controller.pause().stop().destroy(); }
+    }
+
+    @Test public void launcherPinStatesSetAndClearTheDemoPin() {
+        Context context = RuntimeEnvironment.getApplication();
+        PinStore store = new PinStore(context);
+        Robolectric.buildActivity(DemoLauncherActivity.class,
+                new Intent(context, DemoLauncherActivity.class).putExtra("state", "pin-lock")).setup();
+        assertTrue(store.hasPin());
+        assertEquals(PinStore.Mode.APP, store.mode());
+        assertEquals(0, store.graceMinutes());
+        assertTrue(PinGate.needsPinForApp(context));
+
+        var set = Robolectric.buildActivity(DemoLauncherActivity.class,
+                new Intent(context, DemoLauncherActivity.class).putExtra("state", "pin-set")).setup();
+        assertFalse(store.hasPin());
+        assertEquals(PinLockActivity.class.getName(), shadowOf(set.get()).getNextStartedActivity().getComponent().getClassName());
+
+        Robolectric.buildActivity(DemoLauncherActivity.class,
+                new Intent(context, DemoLauncherActivity.class).putExtra("state", "pin-off")).setup();
+        assertFalse(store.hasPin());
+        assertEquals(PinStore.Mode.OFF, store.mode());
+        PinGate.resetForTests();
     }
 
     @Test public void driverScreenReadsAsOnASupportedPhoneAndImportsNothing() {

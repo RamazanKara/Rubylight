@@ -9,6 +9,9 @@ import android.os.Bundle;
 
 import com.limelight.AppView;
 import com.limelight.console.GameDetailActivity;
+import com.limelight.pin.PinGate;
+import com.limelight.pin.PinLockActivity;
+import com.limelight.pin.PinStore;
 import com.limelight.ui.AppTheme;
 
 import java.io.IOException;
@@ -64,12 +67,31 @@ public final class DemoLauncherActivity extends Activity {
             throw new IllegalStateException("Demo assets missing; run scripts/demo/generate-assets.ps1", e);
         }
         String screen = getIntent().getStringExtra("state");
+        // PIN lock (real pin_lock prefs of this install): "pin-set" opens the set-PIN pad; "pin-lock" sets the PIN
+        // 1234 for opening the app (asked every time) and opens Home behind the app-entry pad; "pin-off" removes it.
+        PinStore pin = new PinStore(getApplication());
+        if ("pin-set".equals(screen) || "pin-off".equals(screen)) {
+            pin.removePin();
+            pin.setMode(PinStore.Mode.OFF);
+            if ("pin-set".equals(screen)) {
+                startActivity(PinLockActivity.forSet(this).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
+            }
+            finish();
+            return;
+        }
+        if ("pin-lock".equals(screen)) {
+            pin.removePin();
+            pin.setPin(new byte[] {'1', '2', '3', '4'});
+            pin.setMode(PinStore.Mode.APP);
+            pin.setGraceMinutes(0);
+            PinGate.resetForTests();
+        }
         // "--es state pair" taps the Studio PC (not paired) to show the PIN; "--es state options" opens a PC card's
         // options on Home (use --es host native for both Home states).
         DemoFixtures.studioAddress = "pair".equals(screen);
         Class<?> target;
         DemoConsole.hostAdds = getIntent().getBooleanExtra("add", true);
-        if ("home".equals(screen) || "options".equals(screen) || "choose".equals(screen)) target = DemoConsoleHome.class;
+        if ("home".equals(screen) || "options".equals(screen) || "choose".equals(screen) || "pin-lock".equals(screen)) target = DemoConsoleHome.class;
         // "--es state allgames --es filter store:steam": All games under a filter (with --es host native).
         else if ("allgames".equals(screen)) target = DemoAllGames.class;
         else if ("detail".equals(screen)) target = DemoGameDetail.class;

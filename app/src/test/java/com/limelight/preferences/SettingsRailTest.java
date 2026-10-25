@@ -157,6 +157,7 @@ public class SettingsRailTest {
             assertNotNull(key, row);
             ImageView icon = row.findViewById(android.R.id.icon);
             assertNotNull(key, icon.getDrawable());
+            assertNotNull(key + " is tinted with the rail's colour", androidx.core.widget.ImageViewCompat.getImageTintList(icon));
         }
         reveal(screen, "input");
         assertTrue("the shown section's row is the filled pill", list.getChildAt(

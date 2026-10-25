@@ -186,13 +186,18 @@ public class MediaCodecOutputFormatTest {
         int hevc10 = com.limelight.nvstream.jni.MoonBridge.VIDEO_FORMAT_H265_MAIN10;
         String host = MediaCodecDecoderRenderer.ISSUE_HOST_NO_TEN_BIT;
         assertEquals("host doesn't offer 10-bit full chroma", host);
-        // 10-bit offered, the handshake picked 8-bit packed: the PC had no 10-bit mode.
-        assertEquals(host, MediaCodecDecoderRenderer.hostTenBitDrop(true, null, hevc));
-        assertNull(MediaCodecDecoderRenderer.hostTenBitDrop(true, null, hevc | hevc10));
+        String common = MediaCodecDecoderRenderer.ISSUE_NO_TEN_BIT_IN_COMMON;
+        assertEquals("no 10-bit full chroma mode in common", common);
+        // 10-bit offered, the handshake picked 8-bit packed: the PC had no 10-bit mode, or none
+        // this device has (AV1 10-bit only, here), or its modes are unknown.
+        assertEquals(host, MediaCodecDecoderRenderer.hostTenBitDrop(true, null, hevc, 0b0101));
+        assertEquals(host, MediaCodecDecoderRenderer.hostTenBitDrop(true, null, hevc, -1));
+        assertEquals(common, MediaCodecDecoderRenderer.hostTenBitDrop(true, null, hevc, 0b1001));
+        assertNull(MediaCodecDecoderRenderer.hostTenBitDrop(true, null, hevc | hevc10, 0b1111));
         // Never offered, or already left out at the launch for this device's own reason.
-        assertNull(MediaCodecDecoderRenderer.hostTenBitDrop(false, null, hevc));
+        assertNull(MediaCodecDecoderRenderer.hostTenBitDrop(false, null, hevc, 0b0001));
         assertEquals(MediaCodecDecoderRenderer.ISSUE_NO_HDR10_DISPLAY, MediaCodecDecoderRenderer.hostTenBitDrop(
-                true, MediaCodecDecoderRenderer.ISSUE_NO_HDR10_DISPLAY, hevc));
+                true, MediaCodecDecoderRenderer.ISSUE_NO_HDR10_DISPLAY, hevc, 0b1001));
 
         // The preparation marks a verified 10-bit mode as offered.
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
@@ -209,6 +214,45 @@ public class MediaCodecOutputFormatTest {
             prefs.experimentalPacked444 = false;
             renderer.prepareVideoFormats(hevc | hevc10, 1920, 1080, 60);
             assertEquals(false, ReflectionHelpers.getField(renderer, "packedTenBitOffered"));
+        }
+    }
+
+    @Test
+    public void aPcKnownToLackTenBitPackedModesGetsAnSdrLaunch() {
+        int hevc = com.limelight.nvstream.jni.MoonBridge.VIDEO_FORMAT_H265;
+        int hevc10 = com.limelight.nvstream.jni.MoonBridge.VIDEO_FORMAT_H265_MAIN10;
+        int av1 = com.limelight.nvstream.jni.MoonBridge.VIDEO_FORMAT_AV1_MAIN8;
+        int av110 = com.limelight.nvstream.jni.MoonBridge.VIDEO_FORMAT_AV1_MAIN10;
+        int formats = hevc | hevc10 | av1 | av110;
+        // {device's verified modes, the PC's modes, expected reason (null: 10-bit kept)}
+        Object[][] cases = {
+                {0b0011, -1, null},                     // unknown PC: as before
+                {0b0011, 0b0011, null},                 // HEVC 10-bit in common
+                {0b1111, 0b1001, null},                 // AV1 10-bit in common
+                {0b0011, 0b0001, MediaCodecDecoderRenderer.ISSUE_HOST_NO_TEN_BIT},
+                {0b1111, 0b0100, MediaCodecDecoderRenderer.ISSUE_HOST_NO_TEN_BIT},
+                // No mode in common: packed is refused and the retry without it keeps HDR.
+                {0b0011, 0, null},
+                {0b0011, 0b1100, null},
+                {0b0111, 0b1101, MediaCodecDecoderRenderer.ISSUE_NO_TEN_BIT_IN_COMMON},
+        };
+        for (Object[] c : cases) {
+            try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+                ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);
+                PreferenceConfiguration prefs = new PreferenceConfiguration();
+                prefs.videoFormat = PreferenceConfiguration.FormatOption.AUTO;
+                prefs.experimentalPacked444 = true;
+                prefs.rustEngine = true;
+                int device = (int) c[0];
+                MediaCodecDecoderRenderer renderer = packedRenderer(activity.get(), prefs, fps -> device);
+                renderer.setHostPacked444Modes((int) c[1]);
+                int launch = renderer.prepareVideoFormats(formats, 1920, 1080, 60);
+                String reason = (String) c[2];
+                String label = "device " + device + " host " + c[1];
+                assertEquals(label, reason, renderer.packedHdrDropReason());
+                assertEquals(label, reason == null ? formats : hevc | av1, launch);
+                assertEquals(label, reason == null, ReflectionHelpers.getField(renderer, "packedTenBitOffered"));
+            }
         }
     }
 

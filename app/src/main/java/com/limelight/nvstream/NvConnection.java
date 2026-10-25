@@ -44,6 +44,7 @@ import com.limelight.binding.audio.MicrophoneStatus;
 import com.limelight.binding.input.InputBatcher;
 import com.limelight.binding.video.Sdr10Policy;
 import com.limelight.computers.HostNotices;
+import com.limelight.computers.HostPackedModes;
 import com.limelight.nativeapi.HostEndpoint;
 import com.limelight.nativeapi.JniNativeApiTransport;
 import com.limelight.nativeapi.NativeApiClient;
@@ -576,6 +577,20 @@ public class NvConnection {
         }
     }
 
+    /**
+     * The packed modes a launch can count on, before DESCRIBE: the PC's serverinfo when it says,
+     * else what its last DESCRIBE offered, else -1.
+     */
+    static int hostPackedModesBeforeLaunch(Context appContext, ComputerDetails details) {
+        int cached = HostPackedModes.cached(appContext, details.uuid);
+        int modes = HostPackedModes.known(details.packed444Modes, cached);
+        if (modes >= 0) {
+            LimeLog.info("Packed full chroma: the PC offers modes 0x" + Integer.toHexString(modes) +
+                    (details.packed444Modes >= 0 ? " (serverinfo)" : " (last DESCRIBE)"));
+        }
+        return modes;
+    }
+
     private boolean startApp(VideoDecoderRenderer renderer) throws XmlPullParserException, IOException
     {
         NvHTTP h = new NvHTTP(context.serverAddress, context.httpsPort, uniqueId, context.serverCert, cryptoProvider);
@@ -751,6 +766,9 @@ public class NvConnection {
                 }
             }
             renderer.setStreamFrameRateMilliHz(NvHTTP.getStreamFrameRateMilliHz(context));
+            if (context.streamConfig.isPacked444()) {
+                renderer.setHostPacked444Modes(hostPackedModesBeforeLaunch(appContext, details));
+            }
             int preparedFormats = renderer.prepareVideoFormats(commonFormats, context.negotiatedWidth,
                     context.negotiatedHeight, context.streamConfig.getRefreshRate());
             context.negotiatedVideoFormats = negotiateVideoFormats(preparedFormats, context.serverCodecModeSupport);
@@ -1117,6 +1135,7 @@ public class NvConnection {
                             return;
                         }
                         if (context.streamConfig.isPacked444()) {
+                            HostPackedModes.store(appContext, hostDetails.uuid, MoonBridge.getHostPacked444Modes());
                             noticePackedAfterStart(appContext, hostDetails.uuid, context.connListener,
                                     context.negotiatedHdr, packedHdrDropAtLaunch,
                                     videoDecoderRenderer.packedHdrDropReason());

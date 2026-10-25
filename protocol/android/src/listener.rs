@@ -102,6 +102,10 @@ impl Listener for Events {
         engine::announce_host_messages(messages);
     }
 
+    fn host_packed444_modes(&self, modes: u8) {
+        engine::announce_host_packed444_modes(modes);
+    }
+
     fn connection_started(&self) {
         self.started.store(true, Ordering::SeqCst);
     }

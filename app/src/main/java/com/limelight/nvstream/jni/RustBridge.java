@@ -106,6 +106,7 @@ final class RustBridge {
     static native boolean hostSupportsControlMessage(int messageType);
     static native boolean sendDisplayCaps(boolean hdr, float maxNits, float maxAverageNits, float minNits);
     static native int getMicrophoneState();
+    static native int getHostPacked444Modes();
     static native int sendMicrophonePcm(short[] pcm, int samples);
     static native boolean requestReconfigure(int width, int height, int fpsMillihz);
     static native boolean sendHostTimingRequest(boolean enabled);

@@ -114,6 +114,11 @@ public class ComputerDetails {
     public boolean pyroWaveBurstProbe;
     public int pyroWaveCriticalFecPercentage;
     public int pyroWaveMinParityShards;
+    /**
+     * The packed full-chroma modes the host offers (Rubylight's {@code Packed444Modes}: HEVC 8-bit 1,
+     * HEVC 10-bit 2, AV1 8-bit 4, AV1 10-bit 8), or -1 when its serverinfo does not say.
+     */
+    public int packed444Modes = -1;
 
     /**
      * Whether the host reports a running game. Apollo hides the game while its input-only mode is
@@ -262,6 +267,7 @@ public class ComputerDetails {
         this.pyroWaveBurstProbe = details.pyroWaveBurstProbe;
         this.pyroWaveCriticalFecPercentage = details.pyroWaveCriticalFecPercentage;
         this.pyroWaveMinParityShards = details.pyroWaveMinParityShards;
+        this.packed444Modes = details.packed444Modes;
     }
 
     private static void appendIfKnown(StringBuilder str, String label, Object value) {

@@ -106,6 +106,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // prepareVideoFormats kept 10-bit for packed full chroma: a verified 10-bit mode went to the PC.
     private volatile boolean packedTenBitOffered;
     private String packedTenBitIssue;
+    // The PC's packed modes (preparePacked444Modes' numbering), -1 when unknown.
+    private volatile int hostPacked444Modes = -1;
     private int[] packedProbe;
     private int videoFormat;
     private Surface renderTarget;
@@ -1556,26 +1558,52 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         int modes = preparePacked444Modes(formats, width, height, fps);
         if (modes == 0) return formats;
         if ((modes & PACKED_10BIT_MODES) != 0) {
-            packedTenBitOffered = true;
-            return formats;
+            // A PC known to have no 10-bit mode this device verified would make the handshake fall
+            // back to 8-bit packed after a launch that asked for HDR: ask for SDR right away.
+            String host = hostTenBitIssue(modes, hostPacked444Modes);
+            if (host == null) {
+                packedTenBitOffered = true;
+                return formats;
+            }
+            packedHdrDrop = host;
+        } else {
+            packedHdrDrop = packedTenBitIssue != null ? packedTenBitIssue :
+                    "no 10-bit full-chroma decoder path could be verified on this device";
         }
-        packedHdrDrop = packedTenBitIssue != null ? packedTenBitIssue :
-                "no 10-bit full-chroma decoder path could be verified on this device";
         LimeLog.warning("Packed full chroma without HDR: " + packedHdrDrop);
         return formats & ~MoonBridge.VIDEO_FORMAT_MASK_10BIT;
     }
 
     static final String ISSUE_HOST_NO_TEN_BIT = "host doesn't offer 10-bit full chroma";
+    static final String ISSUE_NO_TEN_BIT_IN_COMMON = "no 10-bit full chroma mode in common";
+
+    /**
+     * Why the PC's packed modes {@code hostModes} leave this device's verified {@code deviceModes}
+     * an 8-bit mode but no 10-bit one, or null: one is in common, the PC's modes are unknown (-1),
+     * or no mode is in common at all (the handshake refuses packed and the stream reconnects
+     * without it, where HDR still works).
+     */
+    static String hostTenBitIssue(int deviceModes, int hostModes) {
+        if (hostModes < 0 || (hostModes & deviceModes) == 0 ||
+                (hostModes & deviceModes & PACKED_10BIT_MODES) != 0) return null;
+        return (hostModes & PACKED_10BIT_MODES) == 0 ? ISSUE_HOST_NO_TEN_BIT : ISSUE_NO_TEN_BIT_IN_COMMON;
+    }
 
     /**
      * Why a packed stream that offered 10-bit got {@code negotiatedFormat}: the RTSP handshake picks
-     * 8-bit packed when the PC advertises no 10-bit packed mode this device also has. Null when it
-     * is 10-bit, when 10-bit was never offered, or when the launch already left HDR out.
+     * 8-bit packed when the PC advertises no 10-bit packed mode this device also has ({@code hostModes},
+     * -1 when unknown). Null when it is 10-bit, when 10-bit was never offered, or when the launch
+     * already left HDR out.
      */
-    static String hostTenBitDrop(boolean tenBitOffered, String dropAtLaunch, int negotiatedFormat) {
+    static String hostTenBitDrop(boolean tenBitOffered, String dropAtLaunch, int negotiatedFormat, int hostModes) {
         if (!tenBitOffered || dropAtLaunch != null ||
                 (negotiatedFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0) return dropAtLaunch;
-        return ISSUE_HOST_NO_TEN_BIT;
+        return hostModes >= 0 && (hostModes & PACKED_10BIT_MODES) != 0 ? ISSUE_NO_TEN_BIT_IN_COMMON : ISSUE_HOST_NO_TEN_BIT;
+    }
+
+    @Override
+    public void setHostPacked444Modes(int modes) {
+        hostPacked444Modes = modes;
     }
 
     /**
@@ -2178,7 +2206,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             this.refreshRate = redrawRate;
             this.streamFrameRateMilliHz = FramePacingPolicy.negotiatedFrameRateMilliHz(
                     streamFrameRateMilliHz, redrawRate);
-            String drop = hostTenBitDrop(packedTenBitOffered, packedHdrDrop, format);
+            String drop = hostTenBitDrop(packedTenBitOffered, packedHdrDrop, format, hostPacked444Modes);
             if (drop != null && !drop.equals(packedHdrDrop)) {
                 LimeLog.warning("Packed full chroma without HDR: " + drop);
                 packedHdrDrop = drop;

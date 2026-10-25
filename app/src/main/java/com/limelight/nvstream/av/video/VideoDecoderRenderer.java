@@ -17,6 +17,12 @@ public abstract class VideoDecoderRenderer {
 
     public int preparePacked444Modes(int formats, int width, int height, int fps) { return 0; }
 
+    /**
+     * The packed full-chroma modes the PC offers (serverinfo, else its last DESCRIBE, later this
+     * stream's DESCRIBE), or -1 when unknown. Set before prepareVideoFormats and again before setup.
+     */
+    public void setHostPacked444Modes(int modes) {}
+
     public int setChromaPacking(int version, int width, int height, int colorSpace, int colorRange) {
         return version == 0 ? 0 : -1;
     }

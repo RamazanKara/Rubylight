@@ -36,6 +36,8 @@ public class NvConnectionHostNoticeTest {
     private static NvConnection lastConnection;
     // What the stream's configuration says about packed 4:4:4 (Game's per-session choice).
     private static boolean sessionPacked;
+    // What the launch told the renderer about the PC's packed modes, null when it said nothing.
+    private static Integer hostPackedModesSeen;
 
     private static int negotiatedFormats() {
         ConnectionContext context = ReflectionHelpers.getField(lastConnection, "context");
@@ -72,7 +74,9 @@ public class NvConnectionHostNoticeTest {
                     return null;
                 });
         lastConnection = connection;
+        hostPackedModesSeen = null;
         connection.start(null, new VideoDecoderRenderer() {
+            @Override public void setHostPacked444Modes(int modes) { hostPackedModesSeen = modes; }
             @Override public int setup(int format, int width, int height, int rate) { return -1; }
             @Override public void start() {}
             @Override public void stop() {}
@@ -264,6 +268,43 @@ public class NvConnectionHostNoticeTest {
 
     private static boolean hdrMode(String query, String value) {
         return query.contains("&hdrMode=" + value + "&") || query.endsWith("&hdrMode=" + value);
+    }
+
+    @Test
+    public void aPackedLaunchKnowsThePcsModesFromServerinfoElseItsLastDescribe() throws Exception {
+        Application app = RuntimeEnvironment.getApplication();
+        String uuid = "3c0e9b6e-6d8b-4a43-9c2e-5f1d1a2b3c4d";
+        String withModes = SUNSHINE.replace("</root>", "<Packed444Modes>1</Packed444Modes></root>");
+        int offered = MoonBridge.VIDEO_FORMAT_H264 | MoonBridge.VIDEO_FORMAT_H265 | MoonBridge.VIDEO_FORMAT_H265_MAIN10;
+        try {
+            com.limelight.computers.HostPackedModes.store(app, uuid, 0);
+            sessionPacked = true;
+            // Nothing known: the renderer keeps today's behaviour.
+            stream(SUNSHINE, false, offered, false);
+            assertEquals(Integer.valueOf(-1), hostPackedModesSeen);
+            // The last DESCRIBE, when serverinfo does not say...
+            com.limelight.computers.HostPackedModes.store(app, uuid, 0b1111);
+            stream(SUNSHINE, false, offered, false);
+            assertEquals(Integer.valueOf(0b1111), hostPackedModesSeen);
+            // ...and serverinfo over it when it does.
+            stream(withModes, false, offered, false);
+            assertEquals(Integer.valueOf(0b0001), hostPackedModesSeen);
+            // A session without packed chroma does not ask.
+            sessionPacked = false;
+            stream(withModes, false, offered, false);
+            assertNull(hostPackedModesSeen);
+        } finally {
+            sessionPacked = false;
+            com.limelight.computers.HostPackedModes.store(app, uuid, 0);
+        }
+
+        ComputerDetails details = new ComputerDetails();
+        details.uuid = "packed-modes-host";
+        assertEquals(-1, NvConnection.hostPackedModesBeforeLaunch(app, details));
+        com.limelight.computers.HostPackedModes.store(app, details.uuid, 0b0011);
+        assertEquals(0b0011, NvConnection.hostPackedModesBeforeLaunch(app, details));
+        details.packed444Modes = 0;
+        assertEquals(0, NvConnection.hostPackedModesBeforeLaunch(app, details));
     }
 
     @Test

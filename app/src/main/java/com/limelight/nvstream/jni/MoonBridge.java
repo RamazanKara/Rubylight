@@ -215,6 +215,9 @@ public class MoonBridge {
 
     public static int bridgeDrSetup(int videoFormat, int width, int height, int redrawRate) {
         if (videoRenderer != null) {
+            // This stream's DESCRIBE has the PC's packed modes now: they name why 10-bit was not picked.
+            int packedModes = getHostPacked444Modes();
+            if (packedModes > 0) videoRenderer.setHostPacked444Modes(packedModes);
             return videoRenderer.setup(videoFormat, width, height, redrawRate);
         }
         else {
@@ -708,6 +711,14 @@ public class MoonBridge {
     public static final int MIC_STATE_NOT_OFFERED = 1;
     public static final int MIC_STATE_UNAVAILABLE = 2;
     public static final int MIC_STATE_READY = 3;
+
+    /**
+     * The packed full-chroma modes the PC's DESCRIBE offered this stream (0 without), from the end
+     * of the RTSP handshake on; -1 before it and with the C engine, which does not read them.
+     */
+    public static int getHostPacked444Modes() {
+        return rustStream ? RustBridge.getHostPacked444Modes() : -1;
+    }
 
     public static int getMicrophoneState() {
         return rustStream ? RustBridge.getMicrophoneState() : cGetMicrophoneState();

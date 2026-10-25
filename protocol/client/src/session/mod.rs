@@ -222,6 +222,11 @@ pub trait Listener: Send + Sync {
     /// the decoder and audio renderer start, so their `start` can already ask what the host
     /// supports (the session is not returned until every stage has run).
     fn host_control_messages(&self, _messages: &[u16]) {}
+    /// The packed 4:4:4 modes the host's DESCRIBE offered (`packed444::mode_bit`, 0 without),
+    /// called with [`Listener::host_control_messages`]: before the decoder's setup, so it can
+    /// name why a 10-bit packed request streams 8-bit, and so the client can remember them for
+    /// its next launch (which comes before DESCRIBE).
+    fn host_packed444_modes(&self, _modes: u8) {}
     /// The stream ended without [`Session::stop`]: the host's reason, a control stream
     /// failure, a video timeout or a socket error. Called once, on its own thread, so it may
     /// stop the session.
@@ -740,6 +745,7 @@ fn start(
         listener.warn(&format!("Packed 4:4:4: {reason}; streaming 8-bit SDR"));
     }
     listener.host_control_messages(&outcome.host_control_messages);
+    listener.host_packed444_modes(outcome.host_packed444_modes);
     listener.stage_complete(Stage::RtspHandshake);
     check_interrupt(Stage::RtspHandshake)?;
 

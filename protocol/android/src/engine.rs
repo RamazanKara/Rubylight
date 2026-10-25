@@ -46,6 +46,9 @@ struct Engine {
     /// renderer starts. The session is stored only after every stage ran, and the renderer's
     /// `start` already asks what the host supports (to run the clock sync for the timing CSV).
     host_messages: Mutex<Vec<u16>>,
+    /// The packed 4:4:4 modes the host's DESCRIBE offered, -1 until the handshake has them.
+    /// Set with `host_messages`, so the video setup can read it before the session is stored.
+    host_packed444_modes: AtomicI32,
 }
 
 static ENGINE: LazyLock<Engine> = LazyLock::new(|| Engine {
@@ -57,6 +60,7 @@ static ENGINE: LazyLock<Engine> = LazyLock::new(|| Engine {
     microphone_state: AtomicI32::new(MIC_STATE_OFF),
     present_clock: Mutex::new(None),
     host_messages: Mutex::new(Vec::new()),
+    host_packed444_modes: AtomicI32::new(-1),
 });
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -143,6 +147,7 @@ pub fn start(bridge: &'static Bridge, params: StartParams) -> i32 {
     let interrupt = Interrupt::default();
     *lock(&ENGINE.interrupt) = interrupt.clone();
     set_host_messages(&[]);
+    ENGINE.host_packed444_modes.store(-1, Ordering::SeqCst);
 
     let microphone_requested = params.config.stream.microphone;
     let events = Arc::new(Events::new(bridge));
@@ -228,6 +233,7 @@ pub fn start(bridge: &'static Bridge, params: StartParams) -> i32 {
 pub fn stop() {
     let session = lock(&ENGINE.session).take();
     set_host_messages(&[]);
+    ENGINE.host_packed444_modes.store(-1, Ordering::SeqCst);
     if let Some(microphone) = lock(&ENGINE.microphone).take() {
         platform::info(&format!(
             "Microphone: stopped after {} packets sent ({} errors)",
@@ -251,6 +257,22 @@ pub fn interrupt() {
 /// Records the control messages the host announced (`Listener::host_control_messages`).
 pub fn set_host_messages(messages: &[u16]) {
     *lock(&ENGINE.host_messages) = messages.to_vec();
+}
+
+/// The listener's side of [`host_packed444_modes`]: like [`announce_host_messages`], nothing is
+/// kept once the start was interrupted.
+pub fn announce_host_packed444_modes(modes: u8) {
+    if lock(&ENGINE.interrupt).is_interrupted() {
+        return;
+    }
+    ENGINE
+        .host_packed444_modes
+        .store(i32::from(modes), Ordering::SeqCst);
+}
+
+/// `MoonBridge.getHostPacked444Modes`: what this stream's DESCRIBE offered, -1 before it.
+pub fn host_packed444_modes() -> i32 {
+    ENGINE.host_packed444_modes.load(Ordering::SeqCst)
 }
 
 /// The listener's side of [`set_host_messages`]: ignores the announcement once the start was
@@ -442,6 +464,32 @@ mod tests {
         announce_host_messages(&[CLOCK_SYNC]);
         assert!(!host_supports(CLOCK_SYNC), "an interrupted start must not record messages");
 
+        *lock(&ENGINE.interrupt) = Interrupt::default();
+    }
+
+    #[test]
+    fn the_host_packed_modes_last_from_the_handshake_until_stop() {
+        let _serial = lock(&ENGINE_TESTS);
+        *lock(&ENGINE.interrupt) = Interrupt::default();
+        stop();
+        assert_eq!(host_packed444_modes(), -1, "unknown before a handshake");
+        announce_host_packed444_modes(0b0101);
+        assert_eq!(
+            host_packed444_modes(),
+            0b0101,
+            "known before the session is stored"
+        );
+        stop();
+        assert_eq!(
+            host_packed444_modes(),
+            -1,
+            "a stopped stream leaves none behind"
+        );
+
+        // A DESCRIBE answered after an interrupt is not kept for the next stream.
+        interrupt();
+        announce_host_packed444_modes(0b1111);
+        assert_eq!(host_packed444_modes(), -1);
         *lock(&ENGINE.interrupt) = Interrupt::default();
     }
 

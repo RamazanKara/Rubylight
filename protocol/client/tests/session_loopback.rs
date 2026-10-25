@@ -299,6 +299,8 @@ struct Record {
     lifecycle: Vec<&'static str>,
     /// What the listener and the renderers saw, in order, up to the first frame.
     startup: Vec<String>,
+    /// The DESCRIBE's packed modes as the listener got them, and whether the decoder was set up.
+    packed_modes: Option<(u8, bool)>,
 }
 
 struct Recorder {
@@ -368,6 +370,11 @@ impl Listener for Recorder {
             .unwrap()
             .startup
             .push(format!("control messages {messages:x?}"));
+    }
+
+    fn host_packed444_modes(&self, modes: u8) {
+        let mut r = self.record.lock().unwrap();
+        r.packed_modes = Some((modes, r.setup.is_some()));
     }
 
     fn connection_started(&self) {
@@ -441,6 +448,11 @@ fn run_session(direct_submit: bool, packed_format: Option<u32>) {
         let r = record.lock().unwrap();
         assert!(r.started);
         assert_eq!(r.stages.len(), 11);
+        // Before the decoder's setup, which names from them why 10-bit packed went 8-bit.
+        assert_eq!(
+            r.packed_modes,
+            Some((if packed_format.is_some() { 15 } else { 0 }, false))
+        );
         assert_eq!(
             r.setup,
             Some(VideoSetup {

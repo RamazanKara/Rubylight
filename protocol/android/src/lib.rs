@@ -522,6 +522,14 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_getMicrophoneS
 }
 
 #[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_getHostPacked444Modes(
+    _: JNIEnv,
+    _: JClass,
+) -> jint {
+    engine::host_packed444_modes()
+}
+
+#[no_mangle]
 pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_sendMicrophonePcm(
     env: JNIEnv,
     _: JClass,

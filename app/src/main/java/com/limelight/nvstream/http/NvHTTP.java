@@ -496,6 +496,7 @@ public class NvHTTP {
                 getXmlString(serverInfo, "PyroWaveCriticalFecPercentage", false), 100);
         details.pyroWaveMinParityShards = (int) readUnsignedValue(
                 getXmlString(serverInfo, "PyroWaveMinParityShards", false), 255);
+        details.packed444Modes = readPacked444Modes(getXmlString(serverInfo, "Packed444Modes", false));
 
         XmlPullParser parser = XmlPullParserFactory.newInstance().newPullParser();
         parser.setInput(new StringReader(serverInfo));
@@ -519,6 +520,17 @@ public class NvHTTP {
             }
         }
         details.encoderBitrateSupported = encoderBitratePresent && initialEncoderBitratePresent;
+    }
+
+    /** {@code Packed444Modes} from serverinfo: its mode mask, or -1 when absent or not a mask. */
+    static int readPacked444Modes(String value) {
+        if (value == null) return -1;
+        try {
+            int parsed = Integer.parseInt(value.trim());
+            return parsed >= 0 && parsed <= 0xF ? parsed : -1;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
     }
 
     private static long readUnsignedValue(String value, long max) {

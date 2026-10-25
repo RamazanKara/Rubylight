@@ -38,6 +38,59 @@ public class OverlayPlacementTest {
     }
 
     @Test
+    public void eachPreferredCornerIsKeptWhenNothingCoversIt() {
+        OverlayPlacement.Spot[] ltr = {OverlayPlacement.Spot.TOP_START, OverlayPlacement.Spot.TOP_END,
+                OverlayPlacement.Spot.BOTTOM_START, OverlayPlacement.Spot.BOTTOM_END};
+        OverlayPlacement.Corner[] corners = OverlayPlacement.Corner.values();
+        for (int i = 0; i < corners.length; i++) {
+            assertEquals(corners[i].toString(), ltr[i], OverlayPlacement.choose(AREA, WIDTH, HEIGHT,
+                    Collections.emptyList(), corners[i].spot(false), false));
+            // Left and right are the screen's own: a right-to-left layout swaps the start and end spots.
+            OverlayPlacement.Spot rtl = corners[i].spot(true);
+            assertEquals(corners[i].toString(), ltr[i ^ 1], rtl);
+            assertEquals(corners[i].toString(), rtl, OverlayPlacement.choose(AREA, WIDTH, HEIGHT,
+                    Collections.emptyList(), rtl, true));
+        }
+    }
+
+    @Test
+    public void cornersParseTheirStoredValuesAndUnknownOnesAreTopLeft() {
+        for (OverlayPlacement.Corner corner : OverlayPlacement.Corner.values()) {
+            assertEquals(corner, OverlayPlacement.Corner.parse(corner.key));
+        }
+        assertEquals(OverlayPlacement.Corner.TOP_LEFT, OverlayPlacement.Corner.parse(null));
+        assertEquals(OverlayPlacement.Corner.TOP_LEFT, OverlayPlacement.Corner.parse("center"));
+    }
+
+    @Test
+    public void aCoveredPreferredCornerFallsBackThroughTheOtherSpotsWithoutRepeating() {
+        // Bottom end is wanted but a control sits there: top start, the first of the usual order, is free.
+        Rect bottomEnd = OverlayPlacement.bounds(OverlayPlacement.Spot.BOTTOM_END, AREA, WIDTH, HEIGHT, false);
+        assertEquals(OverlayPlacement.Spot.TOP_START, OverlayPlacement.choose(AREA, WIDTH, HEIGHT,
+                Collections.singletonList(bottomEnd), OverlayPlacement.Spot.BOTTOM_END, false));
+        // Every spot covered, the preferred one the least: it stays.
+        List<Rect> all = new ArrayList<>();
+        for (OverlayPlacement.Spot spot : OverlayPlacement.Spot.values()) {
+            Rect bounds = OverlayPlacement.bounds(spot, AREA, WIDTH, HEIGHT, false);
+            bounds.inset(spot == OverlayPlacement.Spot.BOTTOM_END ? 20 : 0, 0);
+            all.add(bounds);
+        }
+        assertEquals(OverlayPlacement.Spot.BOTTOM_END, OverlayPlacement.choose(AREA, WIDTH, HEIGHT, all,
+                OverlayPlacement.Spot.BOTTOM_END, false));
+    }
+
+    @Test
+    public void rightCornersHugTheSafeAreasRightEdgeBesideACutout() {
+        Rect area = new Rect(118, 16, 2268, 1064);
+        Rect topRight = OverlayPlacement.bounds(OverlayPlacement.Corner.TOP_RIGHT.spot(false), area, WIDTH, HEIGHT, false);
+        assertEquals(new Rect(2268 - WIDTH, 16, 2268, 16 + HEIGHT), topRight);
+        Rect bottomRight = OverlayPlacement.bounds(OverlayPlacement.Corner.BOTTOM_RIGHT.spot(false), area, WIDTH, HEIGHT, false);
+        assertEquals(new Rect(2268 - WIDTH, 1064 - HEIGHT, 2268, 1064), bottomRight);
+        Rect bottomLeft = OverlayPlacement.bounds(OverlayPlacement.Corner.BOTTOM_LEFT.spot(false), area, WIDTH, HEIGHT, false);
+        assertEquals(new Rect(118, 1064 - HEIGHT, 118 + WIDTH, 1064), bottomLeft);
+    }
+
+    @Test
     public void theLayoutGearAndLeftStickMoveItToAFreeCorner() {
         List<Rect> controls = Arrays.asList(new Rect(15, 15, 111, 111), new Rect(100, 120, 460, 480));
         assertEquals(OverlayPlacement.Spot.TOP_END, OverlayPlacement.choose(AREA, WIDTH, HEIGHT, controls, false));
@@ -118,5 +171,12 @@ public class OverlayPlacementTest {
         assertEquals(OverlayPlacement.Spot.TOP_START, OverlayPlacement.place(overlay, parent,
                 out -> OverlayPlacement.addVisible(gear, parent, out), 8));
         assertEquals(Gravity.TOP | Gravity.START, ((FrameLayout.LayoutParams) overlay.getLayoutParams()).gravity);
+        // The chosen corner is taken at once, and its margins keep it inside the safe area.
+        assertEquals(OverlayPlacement.Spot.BOTTOM_END, OverlayPlacement.place(overlay, parent, null, 8,
+                OverlayPlacement.Corner.BOTTOM_RIGHT));
+        FrameLayout.LayoutParams corner = (FrameLayout.LayoutParams) overlay.getLayoutParams();
+        assertEquals(Gravity.BOTTOM | Gravity.END, corner.gravity);
+        assertEquals(8, corner.bottomMargin);
+        assertEquals(8, corner.getMarginEnd());
     }
 }

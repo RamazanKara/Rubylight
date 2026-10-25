@@ -13,6 +13,7 @@ import androidx.core.view.WindowInsetsCompat;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * Keeps the performance overlay (and other small stream overlays) in a free corner of the stream's
@@ -20,6 +21,32 @@ import java.util.List;
  */
 public final class OverlayPlacement {
     public enum Spot { TOP_START, TOP_END, TOP_CENTER, BOTTOM_START, BOTTOM_END }
+
+    /** The corner the user wants the overlay in, as the screen shows it: left stays left in a right-to-left layout. */
+    public enum Corner {
+        TOP_LEFT("top_left"), TOP_RIGHT("top_right"), BOTTOM_LEFT("bottom_left"), BOTTOM_RIGHT("bottom_right");
+
+        /** The value stored under {@code performance_overlay_position}. */
+        public final String key;
+
+        Corner(String key) {
+            this.key = key;
+        }
+
+        /** The stored value's corner; a missing or unknown one is top left, where the overlay always was. */
+        public static Corner parse(String key) {
+            for (Corner corner : values()) {
+                if (corner.key.equals(key)) return corner;
+            }
+            return TOP_LEFT;
+        }
+
+        Spot spot(boolean rtl) {
+            boolean top = this == TOP_LEFT || this == TOP_RIGHT;
+            boolean start = (this == TOP_LEFT || this == BOTTOM_LEFT) != rtl;
+            return top ? (start ? Spot.TOP_START : Spot.TOP_END) : (start ? Spot.BOTTOM_START : Spot.BOTTOM_END);
+        }
+    }
 
     /** Rectangles, in the overlay parent's coordinates, that the overlay must not cover. */
     public interface Obstacles {
@@ -32,15 +59,22 @@ public final class OverlayPlacement {
     private OverlayPlacement() {
     }
 
-    /**
-     * Top-start, where the overlay always was, unless something covers it there; then the first spot
-     * that covers nothing, in the order top-end, top centre, bottom-start, bottom-end. When every spot
-     * covers a control, the one covering the least.
-     */
+    /** Top-start, where the overlay always was, unless something covers it there. */
     static Spot choose(Rect area, int width, int height, List<Rect> obstacles, boolean rtl) {
-        Spot best = Spot.TOP_START;
+        return choose(area, width, height, obstacles, Spot.TOP_START, rtl);
+    }
+
+    /**
+     * The preferred spot unless something covers it there; then the first spot that covers nothing, in the
+     * order top-start, top-end, top centre, bottom-start, bottom-end. When every spot covers a control, the
+     * one covering the least (the preferred spot on a tie).
+     */
+    static Spot choose(Rect area, int width, int height, List<Rect> obstacles, Spot preferred, boolean rtl) {
+        Spot best = preferred;
         long bestCovered = Long.MAX_VALUE;
-        for (Spot spot : PREFERENCE) {
+        for (int i = -1; i < PREFERENCE.length; i++) {
+            Spot spot = i < 0 ? preferred : PREFERENCE[i];
+            if (i >= 0 && spot == preferred) continue;
             Rect bounds = bounds(spot, area, width, height, rtl);
             long covered = 0;
             for (Rect obstacle : obstacles) {
@@ -76,19 +110,37 @@ public final class OverlayPlacement {
                 parent.getHeight() - Math.max(parent.getPaddingBottom(), cutout.bottom) - margin);
     }
 
+    /** Called after each placement with the spot taken, so the overlay can align its text to that side. */
+    public interface OnPlaced {
+        void placed(Spot spot);
+    }
+
     /**
      * Places {@code overlay}, a direct child of the FrameLayout {@code parent}, after every layout of the
      * window: rotation, a fold, the cutout, the overlay's own size and on-screen controls moving or
-     * showing all change where it goes.
+     * showing all change where it goes. {@code corner} is read on each placement, so a new choice only
+     * needs a layout; {@code onPlaced} may be null.
      */
-    public static void attach(View overlay, ViewGroup parent, Obstacles obstacles) {
+    public static void attach(View overlay, ViewGroup parent, Obstacles obstacles, Supplier<Corner> corner, OnPlaced onPlaced) {
         int margin = Math.round(8 * parent.getResources().getDisplayMetrics().density);
-        ViewTreeObserver.OnGlobalLayoutListener listener = () -> place(overlay, parent, obstacles, margin);
+        ViewTreeObserver.OnGlobalLayoutListener listener = () -> {
+            Spot spot = place(overlay, parent, obstacles, margin, corner.get());
+            if (spot != null && onPlaced != null) onPlaced.placed(spot);
+        };
         parent.getViewTreeObserver().addOnGlobalLayoutListener(listener);
     }
 
-    /** Places the overlay now; returns the spot it took. */
+    public static void attach(View overlay, ViewGroup parent, Obstacles obstacles) {
+        attach(overlay, parent, obstacles, () -> Corner.TOP_LEFT, null);
+    }
+
+    /** Places the overlay now, top left unless something covers it; returns the spot it took. */
     public static Spot place(View overlay, ViewGroup parent, Obstacles obstacles, int margin) {
+        return place(overlay, parent, obstacles, margin, Corner.TOP_LEFT);
+    }
+
+    /** Places the overlay now, in {@code corner} unless something covers it; returns the spot it took. */
+    public static Spot place(View overlay, ViewGroup parent, Obstacles obstacles, int margin, Corner corner) {
         if (overlay.getVisibility() != View.VISIBLE || parent.getWidth() == 0 || overlay.getWidth() == 0) {
             return null;
         }
@@ -98,7 +150,7 @@ public final class OverlayPlacement {
         List<Rect> covered = new ArrayList<>();
         if (obstacles != null) obstacles.collect(covered);
         boolean rtl = ViewCompat.getLayoutDirection(parent) == ViewCompat.LAYOUT_DIRECTION_RTL;
-        Spot spot = choose(area, overlay.getWidth(), overlay.getHeight(), covered, rtl);
+        Spot spot = choose(area, overlay.getWidth(), overlay.getHeight(), covered, corner.spot(rtl), rtl);
         FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) overlay.getLayoutParams();
         int gravity = (spot == Spot.BOTTOM_START || spot == Spot.BOTTOM_END ? Gravity.BOTTOM : Gravity.TOP) |
                 (spot == Spot.TOP_CENTER ? Gravity.CENTER_HORIZONTAL :

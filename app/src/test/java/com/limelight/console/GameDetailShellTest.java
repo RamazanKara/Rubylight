@@ -162,4 +162,20 @@ public class GameDetailShellTest {
             controller.pause().stop().destroy();
         }
     }
+
+    @Test
+    @Config(qualifiers = "television")
+    public void onTelevisionTheHostLinesIconIsTheSizeOfItsText() {
+        ActivityController<Detail> controller = detail();
+        try {
+            Detail page = controller.get();
+            android.widget.TextView host = page.findViewById(R.id.detail_host);
+            android.graphics.drawable.Drawable icon = host.getCompoundDrawablesRelative()[0];
+            float density = page.getResources().getDisplayMetrics().density;
+            assertTrue("ic_computer itself is 512dp", icon.getIntrinsicWidth() <= Math.round(24 * density));
+            assertTrue(icon.getIntrinsicHeight() <= Math.round(24 * density));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
 }

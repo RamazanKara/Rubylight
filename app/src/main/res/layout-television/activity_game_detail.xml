@@ -60,7 +60,7 @@
                         android:maxLines="2" android:ellipsize="end" android:accessibilityHeading="true" />
                     <TextView android:id="@+id/detail_host" android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:layout_marginTop="@dimen/space_xs"
-                        android:drawableStart="@drawable/ic_computer" android:drawablePadding="@dimen/space_s"
+                        android:drawableStart="@drawable/tv_ic_host_line" android:drawablePadding="@dimen/space_s"
                         app:drawableTint="?attr/colorOnSurfaceVariant" android:gravity="center_vertical"
                         android:textAppearance="@style/TextAppearance.Nightjar.Body" android:textColor="?attr/colorOnSurfaceVariant"
                         android:maxLines="1" android:ellipsize="end" />

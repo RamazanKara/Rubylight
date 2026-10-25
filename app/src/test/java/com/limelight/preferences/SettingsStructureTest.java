@@ -146,9 +146,9 @@ public class SettingsStructureTest {
             assertEquals(Arrays.asList("checkbox_usb_driver", "checkbox_usb_bind_all", "checkbox_usb_dualsense",
                     "checkbox_usb_dualsense_haptics", "checkbox_usb_switch_pro"), keys((PreferenceGroup) controls.getPreference(1)));
             PreferenceGroup image = (PreferenceGroup) open(screen, "display").getPreferenceScreen().findPreference("category_upscaling");
-            assertTrue(keys(image).containsAll(Arrays.asList("checkbox_yuv444", "checkbox_full_range")));
+            assertTrue(keys(image).contains("checkbox_yuv444"));
             PreferenceScreen advanced = open(screen, "advanced").getPreferenceScreen();
-            assertEquals(Arrays.asList(StreamSettings.LOW_LATENCY_DECODING_KEY, "checkbox_enable_sops"),
+            assertEquals(Arrays.asList(StreamSettings.LOW_LATENCY_DECODING_KEY, StreamSettings.LOW_LATENCY_CUSTOMIZE_KEY),
                     keys((PreferenceGroup) advanced.getPreference(0)));
         }
     }
@@ -159,6 +159,11 @@ public class SettingsStructureTest {
             StreamSettings screen = controller.get();
             StreamSettings.SettingsFragment results = search(screen, "language");
             assertEquals(screen.getString(R.string.settings_section_app), resultGroup(results, "list_languages").toString());
+            // Sharpness only exists while a sharp upscaler is chosen.
+            assertNull(resultGroup(search(screen, "sharpness"), "upscaling_sharpness"));
+            ((SearchView) screen.findViewById(R.id.settings_search)).setQuery("", false);
+            settle(screen);
+            prefs().edit().putString("upscaling_mode", "fsr1").commit();
             results = search(screen, "sharpness");
             assertEquals(screen.getString(R.string.settings_section_display) + " · " + screen.getString(R.string.settings_category_image),
                     resultGroup(results, "upscaling_sharpness").toString());
@@ -170,26 +175,22 @@ public class SettingsStructureTest {
     @Test
     public void automaticQualityMinimumsFollowTheMode() {
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
-            StreamSettings.SettingsFragment video = open(controller.get(), "video");
+            PreferenceScreen video = open(controller.get(), "video").getPreferenceScreen();
             ListPreference mode = (ListPreference) video.findPreference("adaptive_quality_mode");
-            Preference resolution = video.findPreference("adaptive_quality_min_resolution");
-            Preference fps = video.findPreference("adaptive_quality_min_fps");
             assertEquals("off", mode.getValue());
-            assertFalse(resolution.isEnabled());
-            assertFalse(fps.isEnabled());
-            assertTrue(mode.getOnPreferenceChangeListener().onPreferenceChange(mode, "motion"));
+            assertNull(video.findPreference("adaptive_quality_min_resolution"));
+            assertNull(video.findPreference("adaptive_quality_min_fps"));
             mode.setValue("motion");
-            assertTrue(resolution.isEnabled());
-            assertTrue(fps.isEnabled());
-            assertTrue(mode.getOnPreferenceChangeListener().onPreferenceChange(mode, "off"));
+            assertTrue(video.findPreference("adaptive_quality_min_resolution").isEnabled());
+            assertTrue(video.findPreference("adaptive_quality_min_fps").isEnabled());
             mode.setValue("off");
-            assertFalse(resolution.isEnabled());
-            assertFalse(fps.isEnabled());
+            assertNull(video.findPreference("adaptive_quality_min_resolution"));
+            assertNull(video.findPreference("adaptive_quality_min_fps"));
         }
-        // A stored mode enables them when the screen opens.
+        // A stored mode shows them when the screen opens.
         prefs().edit().putString("adaptive_quality_mode", "detail").commit();
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
-            assertTrue(open(controller.get(), "video").findPreference("adaptive_quality_min_fps").isEnabled());
+            assertTrue(open(controller.get(), "video").getPreferenceScreen().findPreference("adaptive_quality_min_fps").isEnabled());
         }
     }
 
@@ -212,6 +213,8 @@ public class SettingsStructureTest {
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
             StreamSettings screen = controller.get();
             StreamSettings.SettingsFragment advanced = open(screen, "advanced");
+            Preference customize = advanced.findPreference(StreamSettings.LOW_LATENCY_CUSTOMIZE_KEY);
+            customize.getOnPreferenceClickListener().onPreferenceClick(customize);
             SwitchPreference merged = (SwitchPreference) advanced.findPreference(StreamSettings.LOW_LATENCY_DECODING_KEY);
             assertTrue(merged.isChecked());
             assertNull(merged.getSummary());
@@ -246,18 +249,21 @@ public class SettingsStructureTest {
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
             StreamSettings screen = controller.get();
             StreamSettings.SettingsFragment advanced = open(screen, "advanced");
+            Preference customize = advanced.findPreference(StreamSettings.LOW_LATENCY_CUSTOMIZE_KEY);
+            customize.getOnPreferenceClickListener().onPreferenceClick(customize);
             SwitchPreference master = (SwitchPreference) advanced.findPreference(StreamSettings.LOW_LATENCY_DECODING_KEY);
+            // The switch reads "use the flags"; off stores the older "disable" choice.
             SwitchPreference override = (SwitchPreference) advanced.findPreference(
                     PreferenceConfiguration.DISABLE_HEVC_LOW_LATENCY_PREF_STRING);
-            override.setChecked(true);
+            override.setChecked(false);
             assertEquals(screen.getString(R.string.settings_low_latency_partial), master.getSummary());
             master.getOnPreferenceChangeListener().onPreferenceChange(master, false);
             assertNull(master.getSummary());
             master.getOnPreferenceChangeListener().onPreferenceChange(master, true);
             assertEquals(screen.getString(R.string.settings_low_latency_partial), master.getSummary());
-            assertTrue(override.isChecked());
+            assertFalse(override.isChecked());
             assertTrue(prefs().getBoolean(PreferenceConfiguration.DISABLE_HEVC_LOW_LATENCY_PREF_STRING, false));
-            override.setChecked(false);
+            override.setChecked(true);
             assertNull(master.getSummary());
         }
     }

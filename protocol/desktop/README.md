@@ -147,6 +147,7 @@ Why this combination:
 | `src/stream/mod.rs` | launch, session start, input, statistics |
 | `src/stream/pipeline.rs` | the session's decoder, audio renderer and listener |
 | `src/stream/present.rs` | video texture, pacing |
+| `src/logfile.rs`, `src/logpipe.rs` | the persistent log file, and the diversion of stderr into it |
 | `src/timing_csv.rs` | the client timing CSV (below) |
 | `src/gamepad.rs` | controllers |
 | `src/keymap.rs` | SDL scancodes to Windows virtual keys |
@@ -155,6 +156,12 @@ Why this combination:
 Config lives in `%APPDATA%\Nightjar\config` or `~/.config/nightjar` (`NIGHTJAR_CONFIG_DIR`
 overrides it). F12 saves a screenshot of the window to the config directory's
 `screenshots/` (or `NIGHTJAR_SCREENSHOT_DIR`).
+
+Logs: everything the client writes to stderr is kept, with UTC timestamps, in `logs/nightjar.log` in the config
+directory (release builds on Windows have no console); the previous run is `nightjar.prev.log`. Settings, App,
+"Open logs folder" opens it. `src/logpipe.rs` diverts stderr into a pipe, so the stream threads pay no more than for
+`eprintln!`. A separate thread writes the file; the reader holds back up to 4 MB for it, and only a disk that stalls past
+that drops log lines (the log says how many) instead of stalling the stream. `src/logfile.rs` holds rotation (also at 4 MB) and stamping.
 
 `NIGHTJAR_TIMING_CSV=<file or folder>` writes one row per picture shown, in the format of the
 Android app's `nightjar-latency.csv` (a folder gets that file name): times in nanoseconds on the

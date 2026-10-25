@@ -118,7 +118,7 @@
     <string name="game_preset_smoothness">Akıcılık</string>
     <string name="game_preset_smoothness_summary">Kareleri geciktirip gecikmeyi artıran en akıcı kare hızlandırmayı ayarlar ve bu oyun için uyarlanabilir yenilemeyi kapatır. Bit hızı değişmez.</string>
     <string name="game_preset_quality">Kalite</string>
-    <string name="game_preset_quality_summary" formatted="false">Bit hızını bilgisayarın değerinin (bilgisayarda yoksa ana ayarların) %150’sine ayarlar; üst sınır ana bilgisayar sınırı ve otomatik bit hızı azamisidir. Kare hızlandırma ve uyarlanabilir yenileme değişmez; zayıf bağlantıda büyüyen kareler gecikmeyi artırabilir.</string>
+    <string name="game_preset_quality_summary" formatted="false">Bit hızını bilgisayarın değerinin (bilgisayarda yoksa ana ayarların) %150’sine ayarlar; üst sınır ana bilgisayar sınırıdır. Kare hızlandırma ve uyarlanabilir yenileme değişmez; zayıf bağlantıda büyüyen kareler gecikmeyi artırabilir.</string>
     <string name="game_preset_custom">Özel</string>
     <string name="game_preset_custom_summary">Aşağıda ayarladığınız kendi değerleriniz.</string>
 </resources>

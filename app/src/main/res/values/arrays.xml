@@ -174,42 +174,4 @@
         <item>fsr1</item>
         <item>sgsr1</item>
     </string-array>
-    <string-array name="auto_bitrate_min_names" translatable="false">
-        <item>@string/auto_bitrate_min_default</item>
-        <item>5 Mbps</item>
-        <item>10 Mbps</item>
-        <item>15 Mbps</item>
-        <item>20 Mbps</item>
-        <item>30 Mbps</item>
-        <item>50 Mbps</item>
-    </string-array>
-    <string-array name="auto_bitrate_min_values" translatable="false">
-        <item>0</item>
-        <item>5000</item>
-        <item>10000</item>
-        <item>15000</item>
-        <item>20000</item>
-        <item>30000</item>
-        <item>50000</item>
-    </string-array>
-    <string-array name="auto_bitrate_max_names" translatable="false">
-        <item>@string/auto_bitrate_max_default</item>
-        <item>10 Mbps</item>
-        <item>15 Mbps</item>
-        <item>20 Mbps</item>
-        <item>30 Mbps</item>
-        <item>50 Mbps</item>
-        <item>80 Mbps</item>
-        <item>150 Mbps</item>
-    </string-array>
-    <string-array name="auto_bitrate_max_values" translatable="false">
-        <item>0</item>
-        <item>10000</item>
-        <item>15000</item>
-        <item>20000</item>
-        <item>30000</item>
-        <item>50000</item>
-        <item>80000</item>
-        <item>150000</item>
-    </string-array>
 </resources>

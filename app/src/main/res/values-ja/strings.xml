@@ -190,11 +190,10 @@
     <string name="summary_checkbox_small_icon_mode">ライブラリの画面により多くのゲームを表示します。</string>
     <string name="title_quick_resume">クイック再開</string>
     <string name="summary_quick_resume">ゲームを実行中の PC をタップすると、ライブラリを開かずにそのままゲームに戻ります。</string>
-    <string name="title_checkbox_enable_sops">ゲーム設定の最適化</string>
-    <string name="summary_checkbox_enable_sops">ストリーム用にホストがゲームの設定を調整できるようにします。変更内容はホストが決定します。</string>
+    <string name="title_checkbox_enable_sops">ゲーム最適化のヒント</string>
+    <string name="summary_checkbox_enable_sops">このストリーム向けにゲームの設定を最適化してよいかを PC に伝えます。PC がどう扱うかはホストによって異なり、ゲームの設定を自分で変更するものもあれば、PC で実行するコマンドに選択を渡すだけのものもあります。</string>
     <string name="title_checkbox_host_audio">ホスト PC で音声を再生</string>
-    <string name="title_unlock_fps">すべてのフレームレートを解除</string>
-    <string name="summary_unlock_fps">90 FPS と 120 FPS を許可します。カクつく場合があります。</string>
+    <string name="title_unlock_fps">すべてのフレームレートを表示</string>
     <string name="title_checkbox_reduce_refresh_rate">低いリフレッシュレートを許可</string>
     <string name="summary_checkbox_reduce_refresh_rate">多少の遅延と引き換えに電力を節約します。</string>
     <string name="title_checkbox_disable_warnings">接続の警告を非表示</string>
@@ -221,8 +220,6 @@
     <string name="summary_enable_hdr">このデバイスの画面が HDR に対応し、PC のディスプレイで HDR がオンになっている必要があります。</string>
     <string name="title_full_range">フルレンジ映像を強制</string>
     <string name="summary_full_range">PC とこの画面の両方がフルレンジの色を使う場合にのみ使用してください。それ以外の場合、暗い部分と明るい部分のディテールが失われます。</string>
-    <string name="title_enable_perf_overlay">パフォーマンス オーバーレイを表示</string>
-    <string name="summary_enable_perf_overlay">ストリームの速度、遅延、フレーム損失をリアルタイムで表示します。ストリームメニューから表示することもできます。</string>
     <string name="title_enable_post_stream_toast">ストリーミング後にデコード時間を表示</string>
     <string name="summary_enable_post_stream_toast">ストリーム終了時に平均デコード時間を表示します。</string>
     <string name="title_rust_engine">新しいストリーミングエンジン</string>
@@ -275,8 +272,8 @@
     <string name="summary_host_frame_times">各フレームを数ミリ秒保持し、ネットワークが届けた時点ではなくゲームが描画した時点で表示します。特に可変リフレッシュレートで揺らぎを抑えます。フレームペーシングの代わりに使われます。PyroWaveでは使われません。</string>
     <string name="title_content_rate_frame_rate">画面をゲームのフレームレートに合わせる</string>
     <string name="summary_content_rate_frame_rate">ゲームが実際に動作しているフレームレートを Android に伝え、対応するモードを持つ画面が、画面が真っ暗にならずにそのモードへ切り替えられるようにします。フレームタイミングを送信する PC と「低いリフレッシュレートを許可」が必要です。変更は 2 秒に 1 回までです。PyroWave と可変リフレッシュレートでは使用されません。</string>
-    <string name="title_virtual_display_scale">ホストのレンダリング倍率</string>
-    <string name="summary_virtual_display_scale">PC のレンダリング解像度を変更します。送信される映像のサイズは変わりません。送信するピクセル数を減らしてこのデバイスでアップスケーリングするには、ストリーム解像度を下げてください。</string>
+    <string name="title_virtual_display_scale">PC のレンダリング解像度</string>
+    <string name="summary_virtual_display_scale">PC がレンダリングする解像度を、ストリーム解像度に対する割合で指定します。送信される映像のサイズは変わりません。送るピクセル数を減らしてこの端末でアップスケールするには、ストリーム解像度を下げてください。</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f（n=%4$d）</string>
     <string name="latency_unavailable">データなし</string>
     <string name="title_export_latency_csv">遅延の CSV をエクスポート</string>
@@ -298,7 +295,7 @@
     <string name="title_drop_late_frames">最新のフレームのみ表示</string>
     <string name="summary_drop_late_frames">画面に間に合わないフレームをスキップします。フレームペーシングが [バランス] のときに適用されます。</string>
     <string name="title_texture_view">互換性の高い映像表示</string>
-    <string name="summary_texture_view">映像が黒い、またはちらつく場合にお試しください。HDR と PyroWave では使用されません。</string>
+    <string name="summary_texture_view">映像が黒い、またはちらつく場合にお試しください。HDR、10 ビット SDR、PyroWave では使用されません。</string>
     <string name="title_unbatched_input">マウスとペンの即時入力</string>
     <string name="summary_unbatched_input">マウスとペンの動きをすぐに送信します。</string>
     <string name="title_network_priority">ストリームの通信を優先</string>
@@ -372,9 +369,9 @@
     <string name="pip_disconnect_description">切断して PC のアプリは実行したままにする</string>
     <string name="title_upscaling">クライアント側のアップスケーリング</string>
     <string name="upscaling_off">オフ</string>
-    <string name="upscaling_bilinear">バイリニア</string>
-    <string name="upscaling_fsr1">FSR 1.0</string>
-    <string name="upscaling_sgsr1">SGSR 1（Snapdragon Game Super Resolution）</string>
+    <string name="upscaling_bilinear">スムーズ</string>
+    <string name="upscaling_fsr1">シャープ（FSR）</string>
+    <string name="upscaling_sgsr1">シャープ、Snapdragon（SGSR）</string>
     <string name="summary_upscaling">低解像度の SDR 映像を画面サイズに合わせて再構成します。先にストリーム解像度を下げてください。PyroWave では FSR と SGSR のどちらを選んでも SGSR を使用します。バッテリー消費が増えます。</string>
     <string name="title_upscaling_sharpness">アップスケーリングのシャープネス</string>
     <string name="summary_upscaling_sharpness" formatted="false">FSR/SGSR のシャープ化: 0% でオフ、100% で最大。次回のストリームから適用され、SGSR の再構成は常に有効です。</string>
@@ -419,10 +416,7 @@
     <string name="keyboard_shortcuts_replace_button">置き換え</string>
     <string name="keyboard_shortcuts_exported">ショートカットをエクスポートしました。</string>
     <string name="keyboard_shortcuts_file_error">ショートカットのファイルを読み書きできませんでした。ファイルへのアクセスを確認し、ショートカットが 32 個以下の有効なエクスポート ファイルを使用してください。</string>
-    <string name="title_disable_hevc_low_latency">HEVCの低遅延フラグを無効化</string>
-    <string name="summary_disable_hevc_low_latency">HEVC映像がカクついたり停止したりする場合にお試しください。すべての端末で、HEVC用のAndroidとチップセットの低遅延フラグを無効にします。他のコーデックとデコーダーのパフォーマンス設定は変更しません。次回のストリームから適用されます。</string>
-    <string name="title_always_dark">常にダーク</string>
-    <string name="summary_always_dark">システムがライトテーマでも、アプリ、メニュー、ダイアログにダークグレーのテーマを使います。OLEDブラックにすると真っ黒になります。</string>
+    <string name="title_disable_hevc_low_latency">HEVC の低遅延フラグ</string>
+    <string name="summary_disable_hevc_low_latency">HEVC 映像がカクついたり止まったりする場合はオフにします。オフにすると、HEVC では Android とチップセットの任意の低遅延フラグと参照フレームの無効化を使いません。古い Fire TV のデコーダーでは、必須の互換性フラグは維持されます。ほかのコーデックとデコーダーのパフォーマンスヒントは、それぞれの設定に従います。次のストリームから適用されます。</string>
     <string name="title_oled_black">OLEDブラック</string>
-    <string name="summary_oled_black">システムがライトテーマでも、アプリ、メニュー、ダイアログの背景を完全な黒にします。</string>
 </resources>

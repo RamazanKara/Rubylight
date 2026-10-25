@@ -28,8 +28,6 @@ public final class AdaptiveBitrateController {
         return (int) Math.max(DEFAULT_FLOOR_KBPS, Math.min(kbps, StreamConfiguration.MAX_BITRATE_KBPS));
     }
 
-    // A request to come down to a person's maximum may repeat this often, like any other change.
-    private static final long LIMIT_RETRY_MS = 3000;
     // A rate with no poor sample for this long counts as stable and is what recovery steps back to.
     private static final long STABLE_MS = 10000;
     // Healthy time before stepping back toward the stable rate, and the pause after a step back failed.
@@ -44,10 +42,6 @@ public final class AdaptiveBitrateController {
     private static final long INSENSITIVE_CLEAR_MS = 5000;
 
     private int ceilingKbps;
-    private final int maxLimitKbps;
-    // Set only when the maximum lowered the ceiling, so a host rounding above the ceiling is left alone.
-    private final boolean maximumLowersCeiling;
-    private final int minLimitKbps;
     private final int startKbps;
     private int currentKbps;
     private int floorKbps;
@@ -86,32 +80,18 @@ public final class AdaptiveBitrateController {
     private int stepBackFailures;
 
     public AdaptiveBitrateController(int ceilingKbps, int currentKbps, int fps, long nowMs) {
-        this(ceilingKbps, currentKbps, fps, nowMs, 0, 0);
-    }
-
-    public AdaptiveBitrateController(int ceilingKbps, int currentKbps, int fps, long nowMs, int minKbps, int maxKbps) {
-        this(ceilingKbps, currentKbps, fps, nowMs, minKbps, maxKbps, 0, 0, null);
+        this(ceilingKbps, currentKbps, fps, nowMs, 0, 0, null);
     }
 
     /**
-     * minKbps and maxKbps are the person's limits for the automatic rate, 0 for none. The minimum
-     * replaces the built-in floor and the maximum lowers the ceiling, but neither is raised above
-     * what the host allows. A minimum above the maximum yields to the minimum. Without a minimum the
-     * floor follows the stream's size, rate and codec (see builtInFloorKbps), but never goes above
-     * half the starting rate, so congestion can still bring the rate down.
+     * The ceiling is the rate the stream starts at. The floor follows the stream's size, rate and
+     * codec (see builtInFloorKbps), but never goes above half the starting rate, so congestion can
+     * still bring the rate down.
      */
-    public AdaptiveBitrateController(int ceilingKbps, int currentKbps, int fps, long nowMs, int minKbps, int maxKbps,
+    public AdaptiveBitrateController(int ceilingKbps, int currentKbps, int fps, long nowMs,
                                      int width, int height, Codec codec) {
         this.ceilingKbps = Math.min(StreamConfiguration.MAX_BITRATE_KBPS, ceilingKbps);
         this.currentKbps = Math.min(currentKbps, this.ceilingKbps);
-        maxLimitKbps = maxKbps > 0 ? Math.max(maxKbps, minKbps) : 0;
-        maximumLowersCeiling = maxLimitKbps > 0 && this.ceilingKbps > maxLimitKbps;
-        if (maximumLowersCeiling) {
-            // The stream may start above the maximum; sample() brings it down.
-            this.currentKbps = Math.min(currentKbps, StreamConfiguration.MAX_BITRATE_KBPS);
-            this.ceilingKbps = maxLimitKbps;
-        }
-        minLimitKbps = minKbps;
         startKbps = Math.min(this.currentKbps, this.ceilingKbps);
         this.width = width;
         this.height = height;
@@ -123,12 +103,7 @@ public final class AdaptiveBitrateController {
     }
 
     private void updateFloor() {
-        int nominal;
-        if (minLimitKbps > 0) {
-            nominal = minLimitKbps;
-        } else {
-            nominal = Math.min(builtInFloorKbps(width, height, fps, codec), Math.max(DEFAULT_FLOOR_KBPS, startKbps / 2));
-        }
+        int nominal = Math.min(builtInFloorKbps(width, height, fps, codec), Math.max(DEFAULT_FLOOR_KBPS, startKbps / 2));
         floorKbps = Math.min(Math.min(nominal, Math.min(startKbps, ceilingKbps)), hostFloorCapKbps);
     }
 
@@ -146,9 +121,6 @@ public final class AdaptiveBitrateController {
     // lowers the bitrate (and with it the host's pacing rate) before losses pile up.
     public int sample(long nowMs, boolean recentVideo, boolean poorConnection, float lossPercent, float decodeMs,
                       float jitterMs, float queueMs) {
-        if (maximumLowersCeiling && currentKbps > ceilingKbps && nowMs - lastChangeMs >= LIMIT_RETRY_MS) {
-            return ceilingKbps;
-        }
         if (!recentVideo && !poorConnection) {
             healthySinceMs = -1;
             calmSinceMs = -1;

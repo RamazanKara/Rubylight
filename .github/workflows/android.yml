@@ -28,8 +28,9 @@ jobs:
         run: |
           python3 scripts/generate-settings.py
           git diff --exit-code -- docs/settings.md
-          node --test scripts/check-doc-links.test.mjs scripts/build-release.test.mjs scripts/add-device-results.test.mjs
+          node --test scripts/check-doc-links.test.mjs scripts/build-release.test.mjs scripts/add-device-results.test.mjs scripts/device-docs.test.mjs scripts/device-results-issue.test.mjs
           node scripts/check-doc-links.mjs
+          node scripts/device-docs.mjs --check
   desktop:
     # The Windows/Linux client: Linux build, unit tests and clippy (SDL3 is built from source).
     runs-on: ubuntu-latest

@@ -118,7 +118,7 @@
     <string name="game_preset_smoothness">Smoothness</string>
     <string name="game_preset_smoothness_summary">Sets the smoothest frame pacing, which holds frames back and adds delay, and turns adaptive refresh off for this game. Bitrate is unchanged.</string>
     <string name="game_preset_quality">Quality</string>
-    <string name="game_preset_quality_summary" formatted="false">Sets the bitrate to 150% of the PC’s, or of the main settings’ if the PC has none, up to the host limit and the automatic bitrate maximum. Frame pacing and adaptive refresh are unchanged; on a weak connection the larger frames can add delay.</string>
+    <string name="game_preset_quality_summary" formatted="false">Sets the bitrate to 150% of the PC’s, or of the main settings’ if the PC has none, up to the host limit. Frame pacing and adaptive refresh are unchanged; on a weak connection the larger frames can add delay.</string>
     <string name="game_preset_custom">Custom</string>
     <string name="game_preset_custom_summary">Your own values, set below.</string>
 </resources>

@@ -20,7 +20,14 @@ public final class UpscalingPolicy {
 
     public enum Reason {
         NONE, DISABLED, HDR, PYROWAVE, NO_UPSCALE, UNSUPPORTED,
-        GPU_ERROR, SLOW, DROPPED, SIZE_CHANGED
+        GPU_ERROR, SLOW, DROPPED, SIZE_CHANGED,
+        // 10-bit SDR: direct output for precision, not because the picture is HDR.
+        TEN_BIT
+    }
+
+    /** The reason an HDR/10-bit decline is told as: 10-bit for a 10-bit SDR stream the PC does not send as HDR. */
+    public static Reason colorReason(Reason reason, boolean hostHdr, boolean sdr10) {
+        return reason == Reason.HDR && sdr10 && !hostHdr ? Reason.TEN_BIT : reason;
     }
 
     static final int WARMUP_FRAMES = 8;

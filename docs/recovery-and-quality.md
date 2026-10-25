@@ -18,7 +18,7 @@ Android 0.4.9 preserves microphone mute for the current session through automati
 
 ## Choosing automatic quality
 
-**Settings → Video → Automatic stream quality** is off by default. Choose the mode, then the minimum short edge and FPS, which are available while it is on. The selected stream resolution and FPS are the upper bounds; a floor above those bounds is clamped to the starting value. Aspect ratio and decoder alignment are preserved. For a stream set to follow the native display, its ceiling follows fold, window and panel changes.
+**Settings → Video → Lower resolution or frame rate when needed**, next to Automatic bitrate, is off by default. Choose the mode, then the minimum short edge and FPS, which appear once it is on. The selected stream resolution and FPS are the upper bounds; a floor above those bounds is clamped to the starting value. Aspect ratio and decoder alignment are preserved. For a stream set to follow the native display, its ceiling follows fold, window and panel changes.
 
 | Mode | Behavior |
 | --- | --- |
@@ -36,7 +36,7 @@ Resolution/FPS reductions are at least 15 seconds apart. Decoder/thermal pressur
 
 Decode timing allows two frame intervals for pipeline latency before treating a frame as late; recovery requires the average below one and a half intervals. A quiet host can recover while sending fewer frames than the requested FPS: each timing window still needs at least 12 fresh outputs spread over half a second, with its newest output no more than half a second old. Pauses, brief bursts and reused timing windows cannot count as recovery.
 
-The quality request keeps the negotiated codec, HDR/color mode and host display selection. The host controls what display mode it can apply. If a requested size is rejected or has not appeared in decoded frames within ten seconds, automatic quality stops with a visible explanation and leaves the stream connected. FPS is shown as a requested target because this protocol has no separate frame-rate acknowledgement; received/shown FPS in the existing overlay remains the measurement. A MediaCodec upscaler may fall back to direct output after a size change, as described in [upscaling](video-and-latency.md#upscaling).
+The quality request keeps the negotiated codec, HDR/color mode and host display selection. The host controls what display mode it can apply. If a requested size is rejected or has not appeared in decoded frames within ten seconds, automatic quality stops with a visible explanation and leaves the stream connected. FPS is shown as a requested target because this protocol has no separate frame-rate acknowledgement; received/rendered FPS in the existing overlay remains the measurement. A MediaCodec upscaler may fall back to direct output after a size change, as described in [upscaling](video-and-latency.md#upscaling).
 
 ## Automatic bitrate
 
@@ -44,7 +44,7 @@ Automatic bitrate sends one bitrate request per change through the same host pat
 
 - **Cuts must help.** Loss of 3% or more, or the native connection warning, cuts 20% every 3 seconds. Jitter or queueing alone also cuts, but each cut is checked: if jitter or queueing is not at least 15% lower after a cut than before it, and two cuts in a row did not help, the rate is held instead of ratcheted down. Holding ends after 5 healthy seconds, and loss clears it at once. Wi-Fi jitter that does not follow the bitrate therefore stops above the floor, while loss still cuts to the floor.
 - **Fast recovery.** A rate with no poor sample for 10 seconds is remembered as stable. After trouble, once the link has been healthy for 5 seconds, the rate steps back toward the stable one by half the remaining gap (at least 250 kbps) every 3 seconds, so 2 to 50 Mbps takes about 30 seconds. Above the stable rate it probes by 5% every 15 seconds. If a step back brings poor samples again within 10 seconds, the rate returns to the one before it, the stable rate drops to halfway between the two, and the next try waits for 15 healthy seconds.
-- **Floor.** Without a minimum in Settings, the floor is 2 Mbps or the stream's pixels per second times a per-codec budget (H.264 0.10, HEVC 0.07, AV1 0.065 bits per pixel), whichever is higher: about 8.7 Mbps for 1080p60 HEVC, 2 Mbps for 720p30. It never exceeds half the starting bitrate and follows resolution and frame rate changes from Automatic stream quality. A minimum set in Settings replaces it.
+- **Floor.** The floor is 2 Mbps or the stream's pixels per second times a per-codec budget (H.264 0.10, HEVC 0.07, AV1 0.065 bits per pixel), whichever is higher: about 8.7 Mbps for 1080p60 HEVC, 2 Mbps for 720p30. It never exceeds half the starting bitrate and follows resolution and frame rate changes from Automatic stream quality. The ceiling is the video bitrate the stream started at.
 
 ## Verification limits
 

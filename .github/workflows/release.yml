@@ -417,12 +417,15 @@ jobs:
           mkdir out
           cp desktop/nightjar-desktop-* out/
           cp app/build/outputs/apk/nonRoot/release/app-nonRoot-release.apk "out/nightjar-$VERSION.apk"
+          # Same APK under a fixed name, so .../releases/latest/download/nightjar.apk always serves
+          # the newest release (the TV install link in the README and the Downloader code use it).
+          cp app/build/outputs/apk/nonRoot/release/app-nonRoot-release.apk out/nightjar.apk
           cp app/build/outputs/apk/root/release/app-root-release.apk "out/nightjar-$VERSION-root.apk"
           cp app/build/outputs/bundle/nonRootRelease/app-nonRoot-release.aab "out/nightjar-$VERSION.aab"
           # R8 map and native symbols of the non-root build, for reading this release's crash traces.
           cp app/build/outputs/mapping/nonRootRelease/mapping.txt "out/nightjar-$VERSION-mapping.txt"
           cp app/build/outputs/native-debug-symbols/nonRootRelease/native-debug-symbols.zip "out/nightjar-$VERSION-native-debug-symbols.zip"
-          (cd out && sha256sum nightjar-* > "SHA256SUMS-$VERSION.txt")
+          (cd out && sha256sum nightjar-* nightjar.apk >"SHA256SUMS-$VERSION.txt")
           flags=()
           if [[ $VERSION == *-* ]]; then flags+=(--prerelease --latest=false); fi
           if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then

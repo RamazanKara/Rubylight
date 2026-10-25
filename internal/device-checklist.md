@@ -20,7 +20,7 @@ Record the app build, host version, phone/tablet/TV model, SoC, Android build, c
 
 - [ ] Compare H.264, HEVC and AV1 at 720p, 1080p and native resolution; 60/120 FPS and higher where supported. Record decoder name, profile, accepted low-latency keys and all stage timings.
 - [ ] Compare all four pacing modes at matched and mixed panel rates, including 60→90, 60→120, 90→120 and fractional rates. Check first-frame output, bounded queues, starvation, static-to-motion transitions and recovery.
-- [ ] Compare received, released and callback-observed shown FPS. Check delayed/missing render callbacks, estimated drops after five seconds and unavailable fields. Use a trace/camera to measure physical presentation separately.
+- [ ] Compare received, rendered (submitted) and on-screen (callback-observed) FPS. Check delayed/missing render callbacks, estimated drops after five seconds and unavailable fields. Use a trace/camera to measure physical presentation separately.
 - [ ] Enable VRR on Android 15, Android 16 with and without confirmed adaptive refresh, and an older fixed-rate device. Vary cadence through 30/59.94/60/90/119.88/120 FPS, idle, resume and surface recreation.
 - [ ] Compare SurfaceView and compatibility TextureView where allowed. Record physical panel Hz, app render-rate override, cadence hints, battery saver and thermal restrictions.
 - [ ] Test HDR10 PQ highlights, gradients, black/white patches, metadata changes, HDR↔SDR transitions and 10-bit SDR. Confirm no stale metadata, clipping or eight-bit intermediate output.

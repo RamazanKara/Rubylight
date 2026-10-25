@@ -8,10 +8,6 @@
     <string name="stream_auto_bitrate_unavailable">此电脑不报告串流码率。此串流的自动码率已关闭。</string>
     <string name="stream_auto_bitrate_status">自动码率：%1$.1f Mbps</string>
     <string name="stream_bitrate_busy">主机繁忙。请稍后重试。</string>
-    <string name="title_auto_bitrate_min">自动码率下限</string>
-    <string name="summary_auto_bitrate_min">自动码率会降到的最低编码器码率。默认为 2 Mbps。高于串流起始编码器码率的值会让该起始码率作为下限。PyroWave 不使用。</string>
-    <string name="auto_bitrate_min_default">默认 (2 Mbps)</string>
-    <string name="title_auto_bitrate_max">自动码率上限</string>
-    <string name="summary_auto_bitrate_max">自动码率使用的最高编码器码率。以更高的编码器码率起始的串流会被降到此值。无限制则保持串流起始的编码器码率。PyroWave 不使用。</string>
-    <string name="auto_bitrate_max_default">无限制</string>
+    <string name="title_auto_bitrate">自动码率</string>
+    <string name="dialog_auto_bitrate">连接或设备跟不上时降低码率，恢复后再提高。不会超过串流码率。这是所有电脑的默认设置；可在串流菜单中为单台电脑更改。</string>
 </resources>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_enable_sdr10">10 位色彩 (SDR)</string>
+    <string name="summary_enable_sdr10">以 10 位 HEVC 或 AV1 传输 SDR，以减少色带。需要此设备具有 Main10 解码器，且电脑的显示器必须处于 SDR 模式。</string>
+    <string name="startup_sdr10_not_accepted">此电脑不接受 10 位，因此串流为 8 位。</string>
+    <string name="stream_sdr10_host_hdr">电脑正在发送 HDR。请将其显示器切换为 SDR 以使用 10 位 SDR。</string>
+    <string name="stream_sdr10_unavailable">未使用 10 位 SDR，因此串流为 8 位：%1$s</string>
+    <string name="stream_sdr10_reason_decoder">当前编解码器设置下没有可用的 Main10 HEVC 或 AV1 解码器。</string>
+    <string name="stream_sdr10_reason_pyrowave">已选择 PyroWave，其 10 位输出仅用于 HDR。</string>
+    <string name="stream_sdr10_reason_packed">打包的 4:4:4 使用自己的 10 位处理。</string>
+    <string name="upscaling_tenbit_short">不与 10 位同时使用</string>
+    <string name="stream_sdr10_reason_yuv444">已开启 4:4:4，而电脑只能提供 4:4:4 或 10 位之一。</string>
+    <string name="upscaling_tenbit">10 位视频保持直接输出，以保留精度。</string>
+</resources>

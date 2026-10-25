@@ -35,6 +35,12 @@ public abstract class VideoDecoderRenderer {
 
     public abstract int getCapabilities();
 
+    // The capabilities once the video format is negotiated: a renderer whose decoder depends on the
+    // format reports those of the decoder that will run it.
+    public int getCapabilities(int negotiatedFormat) {
+        return getCapabilities();
+    }
+
     public abstract void setHdrMode(boolean enabled, byte[] hdrMetadata);
 
     // A host timing report (control message 0x5536). Called on the native control thread, only

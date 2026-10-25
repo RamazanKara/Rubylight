@@ -14,8 +14,7 @@
     <string name="stream_presets_help">「原生」會以這個螢幕的解析度和更新率串流，並開啟所有延遲設定。\n「省電模式」會以該解析度維持 30 fps。\n電腦設定檔仍然優先。</string>
     <string name="summary_frame_pacing">在 VRR 關閉時平衡回應時間和流暢度。</string>
     <string name="summary_language">選擇應用程式使用的語言。</string>
-    <string name="overlay_mode">效能覆蓋層模式</string>
-    <string name="overlay_mode_help">「精簡」會顯示一行資訊：顯示的 FPS、網路來回時間 (RTT) 和影格遺失，前方的圓點會在串流不穩時變成琥珀色或紅色。「統計資料」會顯示即時的串流測量結果。「偵錯」會加入時間百分位數和解碼器診斷資訊；捲動即可查看所有詳細資料。這三種模式隨時都可使用。</string>
+    <string name="overlay_mode_help">「關閉」會隱藏覆蓋層。「精簡」會顯示一行資訊：渲染的 FPS、網路來回時間 (RTT) 和影格遺失，前方的圓點會在串流不穩時變成琥珀色或紅色。「統計資料」會顯示即時的串流測量結果。「偵錯」會加入時間百分位數和解碼器診斷資訊；捲動即可查看所有詳細資料。也可以在串流選單中變更。</string>
     <string name="overlay_statistics">統計資料</string>
     <string name="overlay_debug">偵錯</string>
     <string name="overlay_copy">複製統計資料</string>
@@ -25,8 +24,8 @@
     <string name="overlay_network">網路</string>
     <string name="overlay_decode">解碼</string>
     <string name="overlay_host">主機</string>
-    <string name="perf_overlay_releasedfps">釋出至顯示：%1$.2f FPS</string>
-    <string name="perf_overlay_shownfps">已顯示：%1$s</string>
+    <string name="perf_overlay_onscreenfps">螢幕顯示：%1$s</string>
+    <string name="perf_overlay_shownfps">已渲染：%1$s</string>
     <string name="perf_overlay_presentdrops">估計顯示掉格：%1$d</string>
     <string name="perf_overlay_low_latency">低延遲模式：%1$s</string>
     <string name="perf_overlay_low_latency_android_vendor">Android + 晶片廠商</string>

@@ -76,6 +76,42 @@ public class NvConnectionHapticsFlagTest {
     }
 
     private static void startStream() throws Exception {
+        startStream(new VideoDecoderRenderer() {
+            @Override public int setup(int format, int width, int height, int rate) { return -1; }
+            @Override public void start() {}
+            @Override public void stop() {}
+            @Override public void cleanup() {}
+            @Override public int getCapabilities() { return 0; }
+            @Override public void setHdrMode(boolean enabled, byte[] metadata) {}
+            @Override public int submitDecodeUnit(byte[] data, int length, int type, int frame, int frameType,
+                    char latency, long received, long queued, long receivedNs, long presentationUs) { return 0; }
+        });
+    }
+
+    // The reference-frame and slice capabilities are those of the decoder for the negotiated format,
+    // asked once the format is known, not the ones read before the launch.
+    @Test public void theNativeStreamGetsTheCapabilitiesForTheNegotiatedFormat() throws Exception {
+        int[] asked = {-1};
+        CapturingBridge.videoCapabilities = -1;
+        startStream(new VideoDecoderRenderer() {
+            @Override public int setup(int format, int width, int height, int rate) { return -1; }
+            @Override public void start() {}
+            @Override public void stop() {}
+            @Override public void cleanup() {}
+            @Override public int getCapabilities() { return 0x11; }
+            @Override public int getCapabilities(int negotiatedFormat) {
+                asked[0] = negotiatedFormat;
+                return 0x22 | negotiatedFormat;
+            }
+            @Override public void setHdrMode(boolean enabled, byte[] metadata) {}
+            @Override public int submitDecodeUnit(byte[] data, int length, int type, int frame, int frameType,
+                    char latency, long received, long queued, long receivedNs, long presentationUs) { return 0; }
+        });
+        assertEquals(MoonBridge.VIDEO_FORMAT_H264, asked[0]);
+        assertEquals(0x22 | MoonBridge.VIDEO_FORMAT_H264, CapturingBridge.videoCapabilities);
+    }
+
+    private static void startStream(VideoDecoderRenderer renderer) throws Exception {
         NvConnectionRecoveryTest.FakeHost.initial = "<root status_code=\"200\"><appversion>7.1.431.0</appversion>" +
                 "<uniqueid>test-host</uniqueid><HttpsPort>47984</HttpsPort><state>SUNSHINE_SERVER_FREE</state>" +
                 "<currentgame>0</currentgame><currentgameuuid></currentgameuuid><PairStatus>1</PairStatus></root>";
@@ -91,16 +127,7 @@ public class NvConnectionHapticsFlagTest {
         NvConnectionListener listener = (NvConnectionListener) Proxy.newProxyInstance(
                 NvConnectionListener.class.getClassLoader(), new Class<?>[] {NvConnectionListener.class},
                 (proxy, method, args) -> null);
-        connection.start(null, new VideoDecoderRenderer() {
-            @Override public int setup(int format, int width, int height, int rate) { return -1; }
-            @Override public void start() {}
-            @Override public void stop() {}
-            @Override public void cleanup() {}
-            @Override public int getCapabilities() { return 0; }
-            @Override public void setHdrMode(boolean enabled, byte[] metadata) {}
-            @Override public int submitDecodeUnit(byte[] data, int length, int type, int frame, int frameType,
-                    char latency, long received, long queued, long receivedNs, long presentationUs) { return 0; }
-        }, listener);
+        connection.start(null, renderer, listener);
         Thread worker = ReflectionHelpers.getField(connection, "connectionThread");
         worker.join(5000);
         assertFalse("Connection startup did not finish", worker.isAlive());
@@ -131,6 +158,7 @@ public class NvConnectionHapticsFlagTest {
         static int serverCodecModeSupport, hostFeatures;
         static int linkMbps = -1, paceMbps = -1;
         static Integer gracePeriodMs;
+        static int videoCapabilities = -1;
 
         @Implementation protected static void __staticInitializer__() {}
 
@@ -155,6 +183,7 @@ public class NvConnectionHapticsFlagTest {
             CapturingBridge.hapticsPcm = hapticsPcm;
             CapturingBridge.serverCodecModeSupport = serverCodecModeSupport;
             CapturingBridge.hostFeatures = hostFeatures;
+            CapturingBridge.videoCapabilities = videoCapabilities;
             CapturingBridge.linkMbps = pyrowaveLinkMbps;
             CapturingBridge.paceMbps = pyrowavePaceMbps;
             // Stop here: no native stream exists in this test.

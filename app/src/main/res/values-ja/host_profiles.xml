@@ -11,7 +11,7 @@
     <string name="host_profile_native">画面サイズ（この画面に従う）</string>
     <string name="host_profile_refresh">フレームレート（FPS）</string>
     <string name="host_profile_bitrate">ビットレート（Mbps）</string>
-    <string name="host_profile_scale">ホストのレンダリング倍率（%）</string>
+    <string name="host_profile_scale">PC のレンダリング解像度（%）</string>
     <string name="host_profile_codec">動画コーデック</string>
     <string name="host_profile_virtual_display">ホストの仮想ディスプレイ</string>
     <string name="host_profile_hdr">HDR</string>

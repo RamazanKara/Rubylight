@@ -28,18 +28,24 @@ public class ContentRateFrameRateGatingTest {
 
     @Test public void theSettingIsOffByDefaultAndFollowsTheSwitch() {
         assertFalse(PreferenceConfiguration.readPreferences(app()).contentRateFrameRate);
-        edit().putBoolean(KEY, true).commit();
+        edit().putBoolean(KEY, true).putBoolean("checkbox_reduce_refresh_rate", true).commit();
         assertTrue(PreferenceConfiguration.readPreferences(app()).contentRateFrameRate);
     }
 
+    @Test public void withoutTheLowerRefreshRateTheStoredChoiceDoesNothing() {
+        // The settings screen greys the switch without Allow lower refresh rate, so it must not act on its own.
+        edit().putBoolean(KEY, true).putBoolean("checkbox_reduce_refresh_rate", false).commit();
+        assertFalse(PreferenceConfiguration.readPreferences(app()).contentRateFrameRate);
+    }
+
     @Test public void vrrTakesTheVoteAwaySoTheRendererDoesNotTrackTheRate() {
-        edit().putBoolean(KEY, true)
+        edit().putBoolean(KEY, true).putBoolean("checkbox_reduce_refresh_rate", true)
                 .putBoolean("checkbox_vrr", true).commit();
         assertFalse(PreferenceConfiguration.readPreferences(app()).contentRateFrameRate);
     }
 
     @Test public void textureViewTakesTheVoteAway() {
-        edit().putBoolean(KEY, true)
+        edit().putBoolean(KEY, true).putBoolean("checkbox_reduce_refresh_rate", true)
                 .putBoolean("checkbox_texture_view", true).commit();
         assertFalse(PreferenceConfiguration.readPreferences(app()).contentRateFrameRate);
     }

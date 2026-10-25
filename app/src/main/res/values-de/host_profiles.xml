@@ -11,7 +11,7 @@
     <string name="host_profile_native">Bildschirmgröße (folgt diesem Display)</string>
     <string name="host_profile_refresh">Bildrate (FPS)</string>
     <string name="host_profile_bitrate">Bitrate (Mbit/s)</string>
-    <string name="host_profile_scale">Host-Skalierung (%)</string>
+    <string name="host_profile_scale">Render-Auflösung des PCs (%)</string>
     <string name="host_profile_codec">Videocodec</string>
     <string name="host_profile_virtual_display">Virtuelles Host-Display</string>
     <string name="host_profile_hdr">HDR</string>

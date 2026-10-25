@@ -16,7 +16,7 @@ import java.util.Locale;
 import java.util.Map;
 
 public final class PerformanceOverlay {
-    /** One line: displayed FPS, network round trip and frame loss behind a health dot. The default. */
+    /** One line: rendered FPS, network round trip and frame loss behind a health dot. The default. */
     public static final String MODE_COMPACT = "compact";
     /** Six lines of stream measurements. */
     public static final String MODE_STATISTICS = "statistics";
@@ -114,9 +114,29 @@ public final class PerformanceOverlay {
      * "● 119.9 FPS · 8 ms RTT · 0.1% loss": frames shown on this screen, the network round trip and the
      * video frames lost on the way. Each value only appears once it was measured.
      */
-    @SuppressWarnings("deprecation")
     public static CharSequence compactText(Context context, float shownFps, float receivedFps, float networkMs,
                                            float frameLossPercent, float decodeMs) {
+        return compactText(context, shownFps, shownFps, receivedFps, networkMs, frameLossPercent, decodeMs);
+    }
+
+    /** The FPS the overlays show: frames submitted for display, which needs no render callbacks. */
+    public static float renderedFps(float[] rates) {
+        return rates[FrameLatencyStats.RENDERED_STAGE];
+    }
+
+    /**
+     * The FPS the compact dot judges: the compositor-confirmed rate when the device reports it, so
+     * frames dropped on screen still turn the dot amber or red, otherwise the rendered rate.
+     */
+    public static float healthFps(float[] rates) {
+        float confirmed = rates[FrameLatencyStats.PRESENTED_STAGE];
+        return available(confirmed) ? confirmed : renderedFps(rates);
+    }
+
+    /** As above, with the FPS the dot judges given apart from the one shown. */
+    @SuppressWarnings("deprecation")
+    public static CharSequence compactText(Context context, float shownFps, float healthFps, float receivedFps,
+                                           float networkMs, float frameLossPercent, float decodeMs) {
         Locale locale = context.getResources().getConfiguration().locale;
         ArrayList<String> values = new ArrayList<>();
         if (available(shownFps)) {
@@ -130,7 +150,7 @@ public final class PerformanceOverlay {
         }
         if (values.isEmpty()) return "";
         SpannableString text = new SpannableString("● " + android.text.TextUtils.join(" · ", values));
-        text.setSpan(new HealthSpan(health(shownFps, receivedFps, networkMs, frameLossPercent, decodeMs)),
+        text.setSpan(new HealthSpan(health(healthFps, receivedFps, networkMs, frameLossPercent, decodeMs)),
                 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         return text;
     }

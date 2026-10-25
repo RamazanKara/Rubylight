@@ -14,8 +14,7 @@
     <string name="stream_presets_help">«Нативный» транслирует в разрешении и с частотой обновления этого экрана со всеми настройками задержки.\n«Экономия заряда» сохраняет это разрешение при 30 FPS.\nПрофили ПК по-прежнему имеют приоритет.</string>
     <string name="summary_frame_pacing">Баланс между отзывчивостью и плавностью, когда VRR выключен.</string>
     <string name="summary_language">Выберите язык приложения.</string>
-    <string name="overlay_mode">Режим оверлея производительности</string>
-    <string name="overlay_mode_help">«Компактный» показывает одну строку: выводимый FPS, время отклика сети (RTT) и потери кадров, за точкой, которая становится жёлтой или красной при проблемах с трансляцией. «Статистика» показывает измерения трансляции в реальном времени. «Отладка» добавляет перцентили таймингов и диагностику декодера; прокрутите, чтобы увидеть все данные. Все три режима доступны всегда.</string>
+    <string name="overlay_mode_help">«Выкл.» скрывает оверлей. «Компактный» показывает одну строку: отрисованный FPS, время отклика сети (RTT) и потери кадров, за точкой, которая становится жёлтой или красной при проблемах с трансляцией. «Статистика» показывает измерения трансляции в реальном времени. «Отладка» добавляет перцентили таймингов и диагностику декодера; прокрутите, чтобы увидеть все данные. Это можно изменить и в меню трансляции.</string>
     <string name="overlay_statistics">Статистика</string>
     <string name="overlay_debug">Отладка</string>
     <string name="overlay_copy">Копировать статистику</string>
@@ -25,8 +24,8 @@
     <string name="overlay_network">Сеть</string>
     <string name="overlay_decode">Декодирование</string>
     <string name="overlay_host">Хост</string>
-    <string name="perf_overlay_releasedfps">Передано на вывод: %1$.2f FPS</string>
-    <string name="perf_overlay_shownfps">Показано: %1$s</string>
+    <string name="perf_overlay_onscreenfps">На экране: %1$s</string>
+    <string name="perf_overlay_shownfps">Отрисовано: %1$s</string>
     <string name="perf_overlay_presentdrops">Оценка пропусков вывода: %1$d</string>
     <string name="perf_overlay_low_latency">Режим низкой задержки: %1$s</string>
     <string name="perf_overlay_low_latency_android_vendor">Android + производитель чипа</string>

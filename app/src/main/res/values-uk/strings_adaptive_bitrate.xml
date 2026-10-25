@@ -8,10 +8,6 @@
     <string name="stream_auto_bitrate_unavailable">Цей ПК не повідомляє бітрейт трансляції. Автоматичний бітрейт для цієї трансляції вимкнено.</string>
     <string name="stream_auto_bitrate_status">Автоматичний бітрейт: %1$.1f Мбіт/с</string>
     <string name="stream_bitrate_busy">Хост зайнятий. Спробуйте ще раз за мить.</string>
-    <string name="title_auto_bitrate_min">Мінімум автоматичного бітрейту</string>
-    <string name="summary_auto_bitrate_min">Найнижчий бітрейт енкодера, до якого знижується автоматичний бітрейт. Типово 2 Мбіт/с. Значення вище за бітрейт енкодера, з якого починається потік, залишає нижньою межею цей початковий бітрейт. Не діє з PyroWave.</string>
-    <string name="auto_bitrate_min_default">Типово (2 Мбіт/с)</string>
-    <string name="title_auto_bitrate_max">Максимум автоматичного бітрейту</string>
-    <string name="summary_auto_bitrate_max">Найвищий бітрейт енкодера, який використовує автоматичний бітрейт. Потік, що почався з вищим бітрейтом енкодера, знижується до цього значення. Без обмеження зберігається бітрейт енкодера, з якого починається потік. Не діє з PyroWave.</string>
-    <string name="auto_bitrate_max_default">Без обмежень</string>
+    <string name="title_auto_bitrate">Автоматичний бітрейт</string>
+    <string name="dialog_auto_bitrate">Знижує бітрейт, коли з’єднання або пристрій не встигає, і піднімає його знову, коли все налагоджується. Вище за бітрейт трансляції він не підіймається. Це значення за замовчуванням для всіх ПК; у меню трансляції його можна змінити для одного ПК.</string>
 </resources>

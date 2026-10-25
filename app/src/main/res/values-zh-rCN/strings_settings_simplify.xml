@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="fps_show_supported">仅显示支持的帧率</string>
+    <string name="title_adaptive_quality_setting">必要时降低分辨率或帧率</string>
+    <string name="summary_adaptive_quality_setting">当网络、解码缓慢或发热影响串流时，会降低分辨率或帧率，恢复后再逐步提高。不适用于 PyroWave。</string>
+    <string name="title_low_latency_customize">自定义</string>
+    <string name="low_latency_customize_closed">选择开启哪些低延迟部分</string>
+    <string name="low_latency_customize_open">隐藏各个开关</string>
+    <string name="settings_category_compatibility">兼容性</string>
+    <string name="summary_sops_short">允许电脑调整游戏设置</string>
+    <string name="theme_high_contrast_note">高对比度开启时，应用保持黑色</string>
+    <string name="title_performance_overlay">性能叠加层</string>
+    <string name="overlay_off">关闭</string>
+    <string name="title_theme">主题</string>
+    <string name="theme_system">跟随系统</string>
+    <string name="theme_dark">深色</string>
+</resources>

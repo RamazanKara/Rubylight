@@ -14,8 +14,7 @@
     <string name="stream_presets_help">Nativo trasmette alla risoluzione e alla frequenza di aggiornamento di questo schermo con tutte le impostazioni di latenza attive.\nRisparmio batteria mantiene quella risoluzione a 30 fps.\nI profili dei PC hanno comunque la priorità.</string>
     <string name="summary_frame_pacing">Bilancia tempo di risposta e fluidità quando il VRR è disattivato.</string>
     <string name="summary_language">Scegli la lingua usata dall’app.</string>
-    <string name="overlay_mode">Modalità overlay prestazioni</string>
-    <string name="overlay_mode_help">Compatto mostra una riga: FPS visualizzati, tempo di andata e ritorno di rete (RTT) e perdita di frame, accanto a un punto che diventa ambra o rosso quando lo stream è in difficoltà. Statistiche mostra le misurazioni dello stream in tempo reale. Debug aggiunge percentili di temporizzazione e diagnostica del decoder; scorri per vedere tutti i dettagli. Tutte e tre le modalità sono sempre disponibili.</string>
+    <string name="overlay_mode_help">Disattivato nasconde l’overlay. Compatto mostra una riga: FPS renderizzati, tempo di andata e ritorno di rete (RTT) e perdita di frame, accanto a un punto che diventa ambra o rosso quando lo stream è in difficoltà. Statistiche mostra le misurazioni dello stream in tempo reale. Debug aggiunge percentili di temporizzazione e diagnostica del decoder; scorri per vedere tutti i dettagli. Puoi cambiarla anche dal menu dello stream.</string>
     <string name="overlay_statistics">Statistiche</string>
     <string name="overlay_debug">Debug</string>
     <string name="overlay_copy">Copia statistiche</string>
@@ -25,8 +24,8 @@
     <string name="overlay_network">Rete</string>
     <string name="overlay_decode">Decodifica</string>
     <string name="overlay_host">Host</string>
-    <string name="perf_overlay_releasedfps">Inviati al display: %1$.2f FPS</string>
-    <string name="perf_overlay_shownfps">Visualizzati: %1$s</string>
+    <string name="perf_overlay_onscreenfps">Sullo schermo: %1$s</string>
+    <string name="perf_overlay_shownfps">Renderizzati: %1$s</string>
     <string name="perf_overlay_presentdrops">Frame persi stimati al display: %1$d</string>
     <string name="perf_overlay_low_latency">Modalità bassa latenza: %1$s</string>
     <string name="perf_overlay_low_latency_android_vendor">Android + produttore del chip</string>

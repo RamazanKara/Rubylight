@@ -190,11 +190,10 @@
     <string name="summary_checkbox_small_icon_mode">Affiche plus de jeux à l’écran dans la bibliothèque.</string>
     <string name="title_quick_resume">Reprise rapide</string>
     <string name="summary_quick_resume">Toucher un PC sur lequel un jeu tourne vous ramène directement dans le jeu au lieu d’ouvrir sa bibliothèque.</string>
-    <string name="title_checkbox_enable_sops">Optimiser les paramètres du jeu</string>
-    <string name="summary_checkbox_enable_sops">Laisse l’hôte ajuster les paramètres d’un jeu pour le stream. L’hôte décide de ce qui change.</string>
+    <string name="title_checkbox_enable_sops">Indication d’optimisation des jeux</string>
+    <string name="summary_checkbox_enable_sops">Indique au PC s’il peut optimiser les paramètres d’un jeu pour ce stream. Ce qu’il en fait dépend de l’hôte : certains modifient eux-mêmes les paramètres du jeu, d’autres transmettent seulement le choix aux commandes que vous lancez sur le PC.</string>
     <string name="title_checkbox_host_audio">Lire l’audio sur le PC hôte</string>
-    <string name="title_unlock_fps">Débloquer toutes les fréquences</string>
-    <string name="summary_unlock_fps">Autorise 90 et 120 FPS, avec de possibles saccades.</string>
+    <string name="title_unlock_fps">Afficher toutes les fréquences d’images</string>
     <string name="title_checkbox_reduce_refresh_rate">Autoriser un rafraîchissement réduit</string>
     <string name="summary_checkbox_reduce_refresh_rate">Économise de l’énergie au prix d’un peu de délai.</string>
     <string name="title_checkbox_disable_warnings">Masquer les alertes de connexion</string>
@@ -221,8 +220,6 @@
     <string name="summary_enable_hdr">Nécessite un écran HDR sur cet appareil et le HDR activé pour l’écran du PC.</string>
     <string name="title_full_range">Forcer la vidéo en plage complète</string>
     <string name="summary_full_range">À utiliser uniquement si le PC et cet écran utilisent tous deux des couleurs en plage complète. Sinon, les zones sombres et claires perdent des détails.</string>
-    <string name="title_enable_perf_overlay">Afficher la superposition des performances</string>
-    <string name="summary_enable_perf_overlay">Affiche en direct la vitesse, le délai et la perte d’images du stream. Vous pouvez aussi l’afficher depuis le menu du stream.</string>
     <string name="title_enable_post_stream_toast">Afficher le temps de décodage après le stream</string>
     <string name="summary_enable_post_stream_toast">Affiche le temps de décodage moyen à la fin d’un stream.</string>
     <string name="title_rust_engine">Nouveau moteur de streaming</string>
@@ -275,8 +272,8 @@
     <string name="summary_host_frame_times">Retient chaque image quelques millisecondes pour qu’elle apparaisse quand le jeu l’a dessinée, et non quand le réseau l’a livrée. Lisse les variations, surtout avec le rafraîchissement adaptatif. Remplace le rythme d’images. Non utilisé avec PyroWave.</string>
     <string name="title_content_rate_frame_rate">Adapter l’écran à la cadence du jeu</string>
     <string name="summary_content_rate_frame_rate">Indique à Android la cadence réelle du jeu, pour qu’un écran doté d’un mode correspondant puisse y passer sans écran noir. Nécessite un PC qui envoie les temps d’image et « Autoriser un rafraîchissement réduit » ; change au plus une fois toutes les 2 secondes. Non utilisé avec PyroWave ni avec le rafraîchissement adaptatif.</string>
-    <string name="title_virtual_display_scale">Échelle de rendu de l’hôte</string>
-    <string name="summary_virtual_display_scale">Modifie la résolution de rendu du PC, pas la taille de la vidéo transmise. Pour envoyer moins de pixels et mettre à l’échelle sur cet appareil, baissez la résolution du stream.</string>
+    <string name="title_virtual_display_scale">Résolution de rendu du PC</string>
+    <string name="summary_virtual_display_scale">Pourcentage de la résolution du stream auquel le PC effectue le rendu. La taille de la vidéo transmise ne change pas. Pour envoyer moins de pixels et upscaler sur cet appareil, baissez la résolution du stream.</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">pas encore de données</string>
     <string name="title_export_latency_csv">Exporter la latence en CSV</string>
@@ -298,7 +295,7 @@
     <string name="title_drop_late_frames">Garder uniquement l’image la plus récente</string>
     <string name="summary_drop_late_frames">Ignore les images que l’écran ne peut plus afficher à temps. S’applique avec le frame pacing Équilibré.</string>
     <string name="title_texture_view">Vue vidéo de compatibilité</string>
-    <string name="summary_texture_view">Essayez en cas de vidéo noire ou qui scintille. Non utilisé avec le HDR ou PyroWave.</string>
+    <string name="summary_texture_view">Essayez en cas de vidéo noire ou qui scintille. Non utilisé avec le HDR, le SDR 10 bits ou PyroWave.</string>
     <string name="title_unbatched_input">Souris et stylet instantanés</string>
     <string name="summary_unbatched_input">Envoie immédiatement les mouvements de la souris et du stylet.</string>
     <string name="title_network_priority">Prioriser le trafic du stream</string>
@@ -372,9 +369,9 @@
     <string name="pip_disconnect_description">Se déconnecter et laisser l’application du PC tourner</string>
     <string name="title_upscaling">Mise à l’échelle côté client</string>
     <string name="upscaling_off">Désactivée</string>
-    <string name="upscaling_bilinear">Bilinéaire</string>
-    <string name="upscaling_fsr1">FSR 1.0</string>
-    <string name="upscaling_sgsr1">SGSR 1 (Snapdragon Game Super Resolution)</string>
+    <string name="upscaling_bilinear">Lisse</string>
+    <string name="upscaling_fsr1">Net (FSR)</string>
+    <string name="upscaling_sgsr1">Net, Snapdragon (SGSR)</string>
     <string name="summary_upscaling">Reconstruit une vidéo SDR de plus faible résolution à la taille de votre écran. Baissez d’abord la résolution du stream. PyroWave utilise SGSR pour les choix FSR comme SGSR. Consomme plus de batterie.</string>
     <string name="title_upscaling_sharpness">Netteté de la mise à l’échelle</string>
     <string name="summary_upscaling_sharpness" formatted="false">Accentuation FSR/SGSR (0 % = désactivée, 100 % = maximale) ; s’applique au prochain stream, la reconstruction SGSR restant toujours active.</string>
@@ -419,10 +416,7 @@
     <string name="keyboard_shortcuts_replace_button">Remplacer</string>
     <string name="keyboard_shortcuts_exported">Raccourcis exportés.</string>
     <string name="keyboard_shortcuts_file_error">Impossible de lire ou d’écrire le fichier de raccourcis. Vérifiez l’accès aux fichiers et utilisez un export de raccourcis valide de 32 raccourcis au maximum.</string>
-    <string name="title_disable_hevc_low_latency">Désactiver les options HEVC à faible latence</string>
-    <string name="summary_disable_hevc_low_latency">À essayer si la vidéo HEVC saccade ou se fige. Désactive les options Android et du chipset à faible latence pour HEVC sur tout appareil. Les autres codecs et les options de performance du décodeur conservent leurs réglages. Prend effet à la prochaine session.</string>
-    <string name="title_always_dark">Toujours sombre</string>
-    <string name="summary_always_dark">Utilise le thème gris foncé dans l’application, les menus et les boîtes de dialogue, même avec le thème clair du système. Noir OLED le rend noir pur.</string>
+    <string name="title_disable_hevc_low_latency">Options HEVC à faible latence</string>
+    <string name="summary_disable_hevc_low_latency">Désactivez si la vidéo HEVC saccade ou se fige. Désactivé ignore les options facultatives de faible latence d’Android et du chipset ainsi que l’invalidation des images de référence pour HEVC. Les options de compatibilité requises sont conservées sur les anciens décodeurs Fire TV. Les autres codecs et les conseils de performance du décodeur gardent leurs propres réglages. S’applique au prochain stream.</string>
     <string name="title_oled_black">Noir OLED</string>
-    <string name="summary_oled_black">Utilise des fonds noirs dans l’application, les menus et les boîtes de dialogue, même avec le thème clair du système.</string>
 </resources>

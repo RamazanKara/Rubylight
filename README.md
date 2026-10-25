@@ -101,7 +101,7 @@ All of these are our own runs on an RX 7900 XT host, with the method and raw res
 - Desktop tools: a compact keyboard and trackpad panel with key banks and shortcuts, pinch zoom, and video on an external display with the phone as a touchpad
 - Settings per PC, Native and Battery saver presets, Wake-on-LAN and automatic discovery
 - Phones, foldables, tablets, Android TV and Fire TV with D-pad navigation, plus picture-in-picture; TV remote Back and Menu open stream controls, and D-pad/Select send arrow keys/Enter to the PC ([controls](docs/controls.md#tv-and-fire-tv-remotes))
-- Optional OLED black appearance for app screens, menus and dialogs, even with a light system theme
+- System, Dark or OLED black appearance for app screens, menus and dialogs, even with a light system theme
 - Built-in help that works offline, and problem reports that stay on your phone until you share them
 - In 15 languages; native speakers can [help translate](docs/TRANSLATIONS.md#help-translate)
 - No ads, no analytics, no accounts
@@ -116,6 +116,8 @@ Requires **Android 5.0 or newer**. PyroWave needs Android 10+, a 64-bit device a
 2. [Download the APK](https://github.com/RamazanKara/nightjar/releases/latest), open it and allow installation from your browser or file manager when prompted.
 3. Select your PC on the same network and enter the PIN shown on your phone in your host's settings or web UI.
 4. If your host has per-device permissions, enable your device and allow application listing, viewing, launching and the input types you use. Open your library and tap a game. With a Rubylight 3.0 host, Nightjar opens on [Home](docs/console.md) and you can turn on Host control for the device to close games and change Radeon settings. See [pairing and permissions](docs/pairing.md).
+
+**Android TV and Fire TV.** Install AFTVnews' [Downloader](https://www.aftvnews.com/downloader/) from your TV's app store, enter the code **`3815143`** in its URL field and install the APK it downloads. You can also type the link directly: `https://github.com/RamazanKara/nightjar/releases/latest/download/nightjar.apk`. Both always fetch the latest release. Allow Downloader to install unknown apps when prompted. If neither works, sideload the APK from the [releases page](https://github.com/RamazanKara/nightjar/releases/latest).
 
 Coming from Rubylight Android? Nightjar is the same app under a new name. It installs over Rubylight Android 0.5.0 and keeps your PCs, pairings and settings.
 

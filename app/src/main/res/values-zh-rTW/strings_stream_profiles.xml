@@ -116,7 +116,7 @@
     <string name="game_preset_smoothness">流暢</string>
     <string name="game_preset_smoothness_summary">將影格排程設為最流暢（會暫存影格並增加延遲），並為這個遊戲關閉自適應更新率。位元率不變。</string>
     <string name="game_preset_quality">畫質</string>
-    <string name="game_preset_quality_summary" formatted="false">將位元率設為電腦位元率的 150%（電腦未設定時取主設定的位元率），上限為主機限制和自動位元率的最大值。影格排程和自適應更新率不變；連線較弱時，更大的影格可能增加延遲。</string>
+    <string name="game_preset_quality_summary" formatted="false">將位元率設為電腦位元率的 150%（電腦未設定時取主設定的位元率），上限為主機限制。影格排程和自適應更新率不變；連線較弱時，更大的影格可能增加延遲。</string>
     <string name="game_preset_custom">自訂</string>
     <string name="game_preset_custom_summary">你在下方設定的自訂值。</string>
 </resources>

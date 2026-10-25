@@ -265,6 +265,10 @@ public class NvConnectionRecoveryTest {
         static String initial, probed;
         static IOException probeFailure, resumeFailure;
         static boolean resumeResult;
+        // Whether the last launch or resume asked for HDR.
+        static boolean lastHdr;
+        // The query the last launch or resume would send.
+        static String lastQuery;
         static int probes;
         static final List<String> requests = new ArrayList<>();
 
@@ -282,6 +286,15 @@ public class NvConnectionRecoveryTest {
         @Implementation public boolean launchApp(ConnectionContext context, String verb, int id, boolean hdr)
                 throws IOException {
             requests.add(verb);
+            lastHdr = hdr;
+            try {
+                java.lang.reflect.Method query = NvHTTP.class.getDeclaredMethod("getLaunchQuery",
+                        ConnectionContext.class, int.class, boolean.class);
+                query.setAccessible(true);
+                lastQuery = (String) query.invoke(null, context, id, hdr);
+            } catch (ReflectiveOperationException e) {
+                throw new AssertionError(e);
+            }
             if (resumeFailure != null) throw resumeFailure;
             return resumeResult;
         }

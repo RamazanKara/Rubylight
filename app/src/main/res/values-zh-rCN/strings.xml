@@ -190,11 +190,10 @@
     <string name="summary_checkbox_small_icon_mode">在游戏库中显示更多游戏。</string>
     <string name="title_quick_resume">快速继续</string>
     <string name="summary_quick_resume">点按正在运行游戏的电脑会直接回到游戏，而不是打开它的游戏库。</string>
-    <string name="title_checkbox_enable_sops">优化游戏设置</string>
-    <string name="summary_checkbox_enable_sops">允许主机为串流调整游戏的设置。具体更改由主机决定。</string>
+    <string name="title_checkbox_enable_sops">游戏优化提示</string>
+    <string name="summary_checkbox_enable_sops">告知电脑是否可以为此串流优化游戏设置。电脑如何处理取决于主机：有的会自行更改游戏设置，有的只会把选择传给你在电脑上运行的命令。</string>
     <string name="title_checkbox_host_audio">在主机电脑上播放音频</string>
-    <string name="title_unlock_fps">解锁所有帧率</string>
-    <string name="summary_unlock_fps">允许 90 和 120 FPS，可能会出现卡顿。</string>
+    <string name="title_unlock_fps">显示所有帧率</string>
     <string name="title_checkbox_reduce_refresh_rate">允许降低刷新率</string>
     <string name="summary_checkbox_reduce_refresh_rate">以少许延迟为代价节省电量。</string>
     <string name="title_checkbox_disable_warnings">隐藏连接警告</string>
@@ -221,8 +220,6 @@
     <string name="summary_enable_hdr">需要此设备具有 HDR 屏幕，并为电脑的显示器开启 HDR。</string>
     <string name="title_full_range">强制使用全范围视频</string>
     <string name="summary_full_range">仅当电脑和此屏幕都使用全范围色彩时才使用。否则暗部和亮部会丢失细节。</string>
-    <string name="title_enable_perf_overlay">显示性能叠加层</string>
-    <string name="summary_enable_perf_overlay">实时显示串流速度、延迟和丢帧情况。也可以从串流菜单中显示。</string>
     <string name="title_enable_post_stream_toast">串流结束后显示解码时间</string>
     <string name="summary_enable_post_stream_toast">串流结束时显示平均解码时间。</string>
     <string name="title_rust_engine">新串流引擎</string>
@@ -275,8 +272,8 @@
     <string name="summary_host_frame_times">将每一帧保留几毫秒，使其在游戏绘制它的时刻显示，而不是在网络送达时显示。可平滑抖动，自适应刷新率下效果尤佳。将取代帧节奏设置。PyroWave 不使用此功能。</string>
     <string name="title_content_rate_frame_rate">让屏幕匹配游戏帧率</string>
     <string name="summary_content_rate_frame_rate">把游戏实际运行的帧率告知 Android，使具有匹配刷新模式的屏幕可以切换到该模式而不会黑屏。需要会发送帧时间的电脑，并需开启“允许降低刷新率”；最多每 2 秒更改一次。不适用于 PyroWave 和自适应刷新。</string>
-    <string name="title_virtual_display_scale">主机渲染缩放</string>
-    <string name="summary_virtual_display_scale">更改电脑的渲染分辨率，而不是传输的视频尺寸。如需发送更少的像素并在此设备上放大，请降低“串流分辨率”。</string>
+    <string name="title_virtual_display_scale">电脑渲染分辨率</string>
+    <string name="summary_virtual_display_scale">电脑渲染所用分辨率占串流分辨率的百分比。传输的视频大小不变。若要发送更少像素并在此设备上放大，请降低串流分辨率。</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">暂无数据</string>
     <string name="title_export_latency_csv">导出延迟 CSV</string>
@@ -298,7 +295,7 @@
     <string name="title_drop_late_frames">仅保留最新的帧</string>
     <string name="summary_drop_late_frames">跳过屏幕已无法及时显示的帧。在“平衡”帧速调节下适用。</string>
     <string name="title_texture_view">兼容视频视图</string>
-    <string name="summary_texture_view">如果视频黑屏或闪烁，请尝试此项。HDR 或 PyroWave 下不使用。</string>
+    <string name="summary_texture_view">如果视频黑屏或闪烁，请尝试此项。HDR、10 位 SDR 或 PyroWave 下不使用。</string>
     <string name="title_unbatched_input">即时鼠标和触控笔输入</string>
     <string name="summary_unbatched_input">立即发送鼠标和触控笔的移动。</string>
     <string name="title_network_priority">优先处理串流流量</string>
@@ -372,9 +369,9 @@
     <string name="pip_disconnect_description">断开连接并让电脑上的应用继续运行</string>
     <string name="title_upscaling">客户端放大</string>
     <string name="upscaling_off">关闭</string>
-    <string name="upscaling_bilinear">双线性</string>
-    <string name="upscaling_fsr1">FSR 1.0</string>
-    <string name="upscaling_sgsr1">SGSR 1（骁龙游戏超级分辨率）</string>
+    <string name="upscaling_bilinear">平滑</string>
+    <string name="upscaling_fsr1">锐利（FSR）</string>
+    <string name="upscaling_sgsr1">锐利，骁龙（SGSR）</string>
     <string name="summary_upscaling">将较低分辨率的 SDR 视频重建为屏幕尺寸。请先降低“串流分辨率”。选择 FSR 或 SGSR 时，PyroWave 均使用 SGSR。耗电更多。</string>
     <string name="title_upscaling_sharpness">放大锐度</string>
     <string name="summary_upscaling_sharpness" formatted="false">FSR/SGSR 锐化：0% 为关闭，100% 为最大；从下次串流开始生效，SGSR 重建始终启用。</string>
@@ -419,10 +416,7 @@
     <string name="keyboard_shortcuts_replace_button">替换</string>
     <string name="keyboard_shortcuts_exported">已导出快捷键。</string>
     <string name="keyboard_shortcuts_file_error">无法读取或写入快捷键文件。请检查文件访问权限，并使用有效的快捷键导出文件（最多 32 个快捷键）。</string>
-    <string name="title_disable_hevc_low_latency">禁用 HEVC 低延迟标志</string>
-    <string name="summary_disable_hevc_low_latency">如果 HEVC 视频卡顿或冻结，可尝试启用。在任何设备上禁用 HEVC 的 Android 和芯片组低延迟标志。其他编解码器和解码器性能提示保留各自的设置。从下次串流开始生效。</string>
-    <string name="title_always_dark">始终深色</string>
-    <string name="summary_always_dark">即使系统使用浅色主题，应用、菜单和对话框也使用深灰色主题。开启 OLED 纯黑后变为纯黑。</string>
+    <string name="title_disable_hevc_low_latency">HEVC 低延迟标志</string>
+    <string name="summary_disable_hevc_low_latency">如果 HEVC 视频卡顿或冻结，请关闭。关闭后，HEVC 会跳过可选的 Android 和芯片组低延迟标志以及参考帧失效。在较旧的 Fire TV 解码器上会保留必需的兼容性标志。其他编解码器和解码器性能提示保持各自的设置。下次串流时生效。</string>
     <string name="title_oled_black">OLED 纯黑</string>
-    <string name="summary_oled_black">在应用、菜单和对话框中使用纯黑背景，即使系统使用浅色主题。</string>
 </resources>

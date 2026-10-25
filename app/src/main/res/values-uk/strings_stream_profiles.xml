@@ -122,7 +122,7 @@
     <string name="game_preset_smoothness">Плавність</string>
     <string name="game_preset_smoothness_summary">Встановлює найплавніший pacing кадрів, який утримує кадри й додає затримку, і вимикає адаптивну частоту оновлення для цієї гри. Бітрейт не змінюється.</string>
     <string name="game_preset_quality">Якість</string>
-    <string name="game_preset_quality_summary" formatted="false">Встановлює бітрейт на 150% від значення ПК (або основних налаштувань, якщо в ПК його немає) у межах ліміту хоста й максимуму автоматичного бітрейту. Pacing кадрів і адаптивна частота оновлення не змінюються; за слабкого з’єднання більші кадри можуть додати затримку.</string>
+    <string name="game_preset_quality_summary" formatted="false">Встановлює бітрейт на 150% від значення ПК (або основних налаштувань, якщо в ПК його немає) у межах ліміту хоста. Pacing кадрів і адаптивна частота оновлення не змінюються; за слабкого з’єднання більші кадри можуть додати затримку.</string>
     <string name="game_preset_custom">Власний</string>
     <string name="game_preset_custom_summary">Ваші власні значення, задані нижче.</string>
 </resources>

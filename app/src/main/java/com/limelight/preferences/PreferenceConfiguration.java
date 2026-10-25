@@ -46,8 +46,8 @@ public class PreferenceConfiguration {
     // Set only when the user picks a bitrate; defaults keep following resolution and frame rate.
     static final String BITRATE_USER_SET_PREF_STRING = "bitrate_user_set";
     static final String MOBILE_BITRATE_PREF_STRING = "list_mobile_bitrate_kbps";
-    static final String AUTO_BITRATE_MIN_PREF_STRING = "list_auto_bitrate_min_kbps";
-    static final String AUTO_BITRATE_MAX_PREF_STRING = "list_auto_bitrate_max_kbps";
+    // Removed settings: the slider is the ceiling and the built-in floor is the minimum.
+    static final String[] REMOVED_AUTO_BITRATE_LIMIT_PREFS = {"list_auto_bitrate_min_kbps", "list_auto_bitrate_max_kbps"};
     static final String PREFS_VERSION_PREF_STRING = "prefs_version";
     static final int NATIVE_DEFAULTS_VERSION = 2;
     // From version 3 "native" is the screen a stream starts on, not a size saved earlier.
@@ -76,6 +76,7 @@ public class PreferenceConfiguration {
     private static final String SHOW_GUIDE_BUTTON_PREF_STRING = "checkbox_show_guide_button";
     private static final String LEGACY_DISABLE_FRAME_DROP_PREF_STRING = "checkbox_disable_frame_drop";
     private static final String ENABLE_HDR_PREF_STRING = "checkbox_enable_hdr";
+    private static final String ENABLE_SDR10_PREF_STRING = "checkbox_enable_sdr_10bit";
     private static final String ENABLE_PIP_PREF_STRING = "checkbox_enable_pip";
     private static final String AUTO_RECONNECT_PREF_STRING = "checkbox_auto_reconnect";
     private static final String NETWORK_GRACE_PREF_STRING = "list_network_grace";
@@ -164,6 +165,7 @@ public class PreferenceConfiguration {
     private static final boolean ONLY_L3_R3_DEFAULT = false;
     private static final boolean SHOW_GUIDE_BUTTON_DEFAULT = true;
     private static final boolean DEFAULT_ENABLE_HDR = false;
+    private static final boolean DEFAULT_ENABLE_SDR10 = false;
     private static final boolean DEFAULT_ENABLE_PIP = false;
     private static final boolean DEFAULT_ENABLE_PERF_OVERLAY = false;
     private static final boolean DEFAULT_BIND_ALL_USB = false;
@@ -223,6 +225,8 @@ public class PreferenceConfiguration {
     public boolean onlyL3R3;
     public boolean showGuideButton;
     public boolean enableHdr;
+    /** Ask for 10-bit SDR when HDR is not streamed (see Sdr10Policy). Global only: not part of a PC's profile. */
+    public boolean enableSdr10Bit;
     public boolean enablePip;
     public boolean autoReconnect;
     /** Seconds a stream waits for a silent network; 0 is off (see NetworkGrace). */
@@ -231,8 +235,12 @@ public class PreferenceConfiguration {
     public com.limelight.nvstream.AdaptiveQualityController.Mode adaptiveQualityMode =
             com.limelight.nvstream.AdaptiveQualityController.Mode.OFF;
     public int qualityMinShortEdge = 720, qualityMinFps = 30;
-    /** Limits for the automatic bitrate in Kbps; 0 keeps the built-in floor and the stream bitrate as ceiling. */
-    public int autoBitrateMinKbps, autoBitrateMaxKbps;
+    /** Automatic bitrate for PCs without a choice of their own; see {@link AutoBitrateChoice}. */
+    /**
+     * A snapshot of the Settings switch, read for the settings-keys test. Production code must use
+     * {@link AutoBitrateChoice#isOn}, which also honours a PC's own choice.
+     */
+    public boolean autoBitrate;
     public volatile boolean enablePerfOverlay;
     public boolean enableLatencyToast;
     public boolean rustEngine;
@@ -604,6 +612,7 @@ public class PreferenceConfiguration {
                 .remove(FPS_PREF_STRING)
                 .remove(VIDEO_FORMAT_PREF_STRING)
                 .remove(ENABLE_HDR_PREF_STRING)
+                .remove(ENABLE_SDR10_PREF_STRING)
                 .remove(UNLOCK_FPS_STRING)
                 .remove(FULL_RANGE_PREF_STRING)
                 .apply();
@@ -690,7 +699,7 @@ public class PreferenceConfiguration {
             config.reduceRefreshRate = !config.vrr && prefs.getBoolean(REDUCE_REFRESH_RATE_PREF_STRING, DEFAULT_REDUCE_REFRESH_RATE);
             if (config.hostFrameTimes) config.framePacing = FRAME_PACING_MIN_LATENCY;
             config.enableHdr &= !isShieldAtvFirmwareWithBrokenHdr();
-            config.useTextureView = prefs.getBoolean(TEXTURE_VIEW_PREF_STRING, false) && !config.enableHdr &&
+            config.useTextureView = prefs.getBoolean(TEXTURE_VIEW_PREF_STRING, false) && !config.enableHdr && !config.enableSdr10Bit &&
                     config.videoFormat != FormatOption.FORCE_PYROWAVE;
         }
         // Forcing PyroWave on a PC without it would still cost TextureView and keep HDR looking
@@ -700,9 +709,9 @@ public class PreferenceConfiguration {
             config.pyroWaveUnavailable = true;
             config.videoFormat = codecWithoutPyroWave(allPcsFormat);
             config.useTextureView = PreferenceManager.getDefaultSharedPreferences(context)
-                    .getBoolean(TEXTURE_VIEW_PREF_STRING, false) && !config.enableHdr;
+                    .getBoolean(TEXTURE_VIEW_PREF_STRING, false) && !config.enableHdr && !config.enableSdr10Bit;
         }
-        config.contentRateFrameRate &= !config.vrr && !config.useTextureView;
+        config.contentRateFrameRate &= !config.vrr && !config.useTextureView && config.reduceRefreshRate;
         return config;
     }
 
@@ -935,6 +944,15 @@ public class PreferenceConfiguration {
         if (editor != null) editor.apply();
     }
 
+    /** Automatic bitrate's minimum and maximum are gone; their saved values must not linger. */
+    static void dropAutoBitrateLimits(SharedPreferences prefs) {
+        SharedPreferences.Editor editor = null;
+        for (String key : REMOVED_AUTO_BITRATE_LIMIT_PREFS) {
+            if (prefs.contains(key)) editor = (editor != null ? editor : prefs.edit()).remove(key);
+        }
+        if (editor != null) editor.apply();
+    }
+
     public static PreferenceConfiguration readPreferences(Context context) {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
         migrateToNativeDefaults(context);
@@ -1102,6 +1120,7 @@ public class PreferenceConfiguration {
         config.onlyL3R3 = prefs.getBoolean(ONLY_L3_R3_PREF_STRING, ONLY_L3_R3_DEFAULT);
         config.showGuideButton = prefs.getBoolean(SHOW_GUIDE_BUTTON_PREF_STRING, SHOW_GUIDE_BUTTON_DEFAULT);
         config.enableHdr = prefs.getBoolean(ENABLE_HDR_PREF_STRING, DEFAULT_ENABLE_HDR) && !isShieldAtvFirmwareWithBrokenHdr();
+        config.enableSdr10Bit = prefs.getBoolean(ENABLE_SDR10_PREF_STRING, DEFAULT_ENABLE_SDR10);
         config.enablePip = prefs.getBoolean(ENABLE_PIP_PREF_STRING, DEFAULT_ENABLE_PIP);
         config.autoReconnect = prefs.getBoolean(AUTO_RECONNECT_PREF_STRING, false);
         config.networkGraceSeconds = com.limelight.utils.NetworkGrace.parseSeconds(
@@ -1114,8 +1133,8 @@ public class PreferenceConfiguration {
                 "1080".equals(qualityFloor) ? 1080 : 720;
         String qualityFps = prefs.getString("adaptive_quality_min_fps", "30");
         config.qualityMinFps = "45".equals(qualityFps) ? 45 : "60".equals(qualityFps) ? 60 : 30;
-        config.autoBitrateMinKbps = mobileBitrateLimit(prefs.getString(AUTO_BITRATE_MIN_PREF_STRING, "0"));
-        config.autoBitrateMaxKbps = mobileBitrateLimit(prefs.getString(AUTO_BITRATE_MAX_PREF_STRING, "0"));
+        dropAutoBitrateLimits(prefs);
+        config.autoBitrate = prefs.getBoolean(AutoBitrateChoice.SETTINGS_KEY, false);
         config.enablePerfOverlay = prefs.getBoolean(ENABLE_PERF_OVERLAY_STRING, DEFAULT_ENABLE_PERF_OVERLAY);
         config.bindAllUsb = prefs.getBoolean(BIND_ALL_USB_STRING, DEFAULT_BIND_ALL_USB);
         config.mouseEmulation = prefs.getBoolean(MOUSE_EMULATION_STRING, DEFAULT_MOUSE_EMULATION);
@@ -1174,8 +1193,8 @@ public class PreferenceConfiguration {
             prefs.edit().remove("checkbox_pyrowave_front_buffer").apply();
         }
         config.dropLateFrames = prefs.getBoolean(DROP_LATE_FRAMES_PREF_STRING, true);
-        // SurfaceView preserves HDR metadata and avoids TextureView's extra composition step.
-        config.useTextureView = prefs.getBoolean(TEXTURE_VIEW_PREF_STRING, false) && !config.enableHdr &&
+        // SurfaceView preserves HDR metadata (and 10-bit output: a SurfaceTexture takes 8-bit) and avoids TextureView's extra composition step.
+        config.useTextureView = prefs.getBoolean(TEXTURE_VIEW_PREF_STRING, false) && !config.enableHdr && !config.enableSdr10Bit &&
                 config.videoFormat != FormatOption.FORCE_PYROWAVE;
         config.unbatchedInput = prefs.getBoolean(UNBATCHED_INPUT_PREF_STRING, true);
         config.networkPriority = prefs.getBoolean(NETWORK_PRIORITY_PREF_STRING, true);
@@ -1195,8 +1214,9 @@ public class PreferenceConfiguration {
         }
         config.hostFrameTimes = prefs.getBoolean(HOST_FRAME_TIMES_PREF_STRING, false);
         config.contentRateFrameRate = prefs.getBoolean(CONTENT_RATE_FRAME_RATE_PREF_STRING, false);
-        // The vote is for a SurfaceView on a fixed-rate panel; VRR has its own vote.
-        config.contentRateFrameRate &= !config.vrr && !config.useTextureView;
+        // The vote is for a SurfaceView on a fixed-rate panel; VRR has its own vote. It needs the lower refresh
+        // rate switch: the settings screen greys it without that, so a stored choice must not act on its own.
+        config.contentRateFrameRate &= !config.vrr && !config.useTextureView && config.reduceRefreshRate;
         if (config.hostFrameTimes) {
             // Each frame is released at its scheduled time and the compositor shows it then.
             config.framePacing = FRAME_PACING_MIN_LATENCY;

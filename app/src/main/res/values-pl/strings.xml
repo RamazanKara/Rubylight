@@ -190,11 +190,10 @@
     <string name="summary_checkbox_small_icon_mode">Mieści więcej gier na ekranie biblioteki.</string>
     <string name="title_quick_resume">Szybkie wznawianie</string>
     <string name="summary_quick_resume">Dotknięcie komputera, na którym działa gra, od razu przenosi do gry zamiast otwierać jego bibliotekę.</string>
-    <string name="title_checkbox_enable_sops">Optymalizuj ustawienia gry</string>
-    <string name="summary_checkbox_enable_sops">Pozwala hostowi dostosować ustawienia gry do strumienia. Host decyduje, co zmienić.</string>
+    <string name="title_checkbox_enable_sops">Wskazówka optymalizacji gier</string>
+    <string name="summary_checkbox_enable_sops">Informuje komputer, czy może optymalizować ustawienia gry na potrzeby tego strumienia. Co z tym zrobi, zależy od hosta: niektóre same zmieniają ustawienia gry, inne tylko przekazują wybór poleceniom uruchamianym na komputerze.</string>
     <string name="title_checkbox_host_audio">Odtwarzaj dźwięk na komputerze</string>
-    <string name="title_unlock_fps">Odblokuj wszystkie liczby klatek</string>
-    <string name="summary_unlock_fps">Zezwala na 90 i 120 FPS, z możliwymi przycięciami.</string>
+    <string name="title_unlock_fps">Pokaż wszystkie liczby klatek</string>
     <string name="title_checkbox_reduce_refresh_rate">Zezwalaj na niższe odświeżanie</string>
     <string name="summary_checkbox_reduce_refresh_rate">Oszczędza energię kosztem pewnego opóźnienia.</string>
     <string name="title_checkbox_disable_warnings">Ukryj ostrzeżenia o połączeniu</string>
@@ -221,8 +220,6 @@
     <string name="summary_enable_hdr">Wymaga ekranu HDR na tym urządzeniu i włączonego HDR na ekranie komputera.</string>
     <string name="title_full_range">Wymuś wideo w pełnym zakresie</string>
     <string name="summary_full_range">Używaj tylko wtedy, gdy zarówno komputer, jak i ten ekran używają kolorów w pełnym zakresie. W przeciwnym razie ciemne i jasne obszary tracą szczegóły.</string>
-    <string name="title_enable_perf_overlay">Pokaż nakładkę wydajności</string>
-    <string name="summary_enable_perf_overlay">Pokazuje na żywo szybkość strumienia, opóźnienie i utratę klatek. Możesz ją też włączyć z menu strumienia.</string>
     <string name="title_enable_post_stream_toast">Pokaż czas dekodowania po strumieniowaniu</string>
     <string name="summary_enable_post_stream_toast">Pokazuje średni czas dekodowania po zakończeniu strumienia.</string>
     <string name="title_rust_engine">Nowy silnik strumieniowania</string>
@@ -275,8 +272,8 @@
     <string name="summary_host_frame_times">Przytrzymuje każdą klatkę kilka milisekund, aby pojawiła się wtedy, gdy gra ją narysowała, a nie gdy dostarczyła ją sieć. Wygładza wahania, zwłaszcza przy adaptacyjnym odświeżaniu. Zastępuje tempo klatek. Nie działa z PyroWave.</string>
     <string name="title_content_rate_frame_rate">Dopasuj ekran do liczby klatek gry</string>
     <string name="summary_content_rate_frame_rate">Informuje Androida, z jaką liczbą klatek gra naprawdę działa, aby ekran z pasującym trybem mógł się na nią przełączyć bez czarnego ekranu. Wymaga komputera wysyłającego czasy klatek oraz opcji „Zezwalaj na niższe odświeżanie”; zmienia się najwyżej raz na 2 sekundy. Nie działa z PyroWave ani z adaptacyjnym odświeżaniem.</string>
-    <string name="title_virtual_display_scale">Skala renderowania hosta</string>
-    <string name="summary_virtual_display_scale">Zmienia rozdzielczość renderowania komputera, a nie rozmiar przesyłanego wideo. Aby wysyłać mniej pikseli i skalować na tym urządzeniu, obniż rozdzielczość strumienia.</string>
+    <string name="title_virtual_display_scale">Rozdzielczość renderowania komputera</string>
+    <string name="summary_virtual_display_scale">Procent rozdzielczości strumienia, w jakim komputer renderuje obraz. Rozmiar przesyłanego obrazu się nie zmienia. Aby wysyłać mniej pikseli i skalować obraz na tym urządzeniu, obniż rozdzielczość strumienia.</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">brak danych</string>
     <string name="title_export_latency_csv">Eksportuj CSV opóźnień</string>
@@ -298,7 +295,7 @@
     <string name="title_drop_late_frames">Zachowuj tylko najnowszą klatkę</string>
     <string name="summary_drop_late_frames">Pomija klatki, których ekran nie zdąży już wyświetlić. Działa ze zrównoważonym tempem klatek.</string>
     <string name="title_texture_view">Zgodny widok wideo</string>
-    <string name="summary_texture_view">Wypróbuj przy czarnym lub migającym obrazie. Nieużywane z HDR ani PyroWave.</string>
+    <string name="summary_texture_view">Wypróbuj przy czarnym lub migającym obrazie. Nieużywane z HDR, 10-bitowym SDR ani PyroWave.</string>
     <string name="title_unbatched_input">Natychmiastowe sterowanie myszą i rysikiem</string>
     <string name="summary_unbatched_input">Wysyła ruchy myszy i rysika natychmiast.</string>
     <string name="title_network_priority">Priorytet dla ruchu strumienia</string>
@@ -372,9 +369,9 @@
     <string name="pip_disconnect_description">Rozłącz i pozostaw aplikację uruchomioną na komputerze</string>
     <string name="title_upscaling">Skalowanie po stronie urządzenia</string>
     <string name="upscaling_off">Wyłączone</string>
-    <string name="upscaling_bilinear">Dwuliniowe</string>
-    <string name="upscaling_fsr1">FSR 1.0</string>
-    <string name="upscaling_sgsr1">SGSR 1 (Snapdragon Game Super Resolution)</string>
+    <string name="upscaling_bilinear">Gładkie</string>
+    <string name="upscaling_fsr1">Ostre (FSR)</string>
+    <string name="upscaling_sgsr1">Ostre, Snapdragon (SGSR)</string>
     <string name="summary_upscaling">Rekonstruuje wideo SDR o niższej rozdzielczości do rozmiaru ekranu. Najpierw obniż rozdzielczość strumienia. PyroWave używa SGSR zarówno dla FSR, jak i SGSR. Zużywa więcej baterii.</string>
     <string name="title_upscaling_sharpness">Ostrość skalowania</string>
     <string name="summary_upscaling_sharpness" formatted="false">Wyostrzanie FSR/SGSR: 0% wyłączone, 100% maksymalne; obowiązuje od następnego strumienia, rekonstrukcja SGSR jest zawsze aktywna.</string>
@@ -419,10 +416,7 @@
     <string name="keyboard_shortcuts_replace_button">Zastąp</string>
     <string name="keyboard_shortcuts_exported">Skróty wyeksportowane.</string>
     <string name="keyboard_shortcuts_file_error">Nie udało się odczytać ani zapisać pliku skrótów. Sprawdź dostęp do plików i użyj prawidłowego eksportu skrótów zawierającego maksymalnie 32 skróty.</string>
-    <string name="title_disable_hevc_low_latency">Wyłącz flagi niskich opóźnień HEVC</string>
-    <string name="summary_disable_hevc_low_latency">Wypróbuj, jeśli obraz HEVC zacina się lub zawiesza. Wyłącza flagi niskich opóźnień Androida i chipsetu dla HEVC na każdym urządzeniu. Inne kodeki i wskazówki wydajności dekodera zachowują własne ustawienia. Zmiana działa od następnej transmisji.</string>
-    <string name="title_always_dark">Zawsze ciemny</string>
-    <string name="summary_always_dark">Używaj ciemnoszarego motywu w aplikacji, menu i oknach dialogowych, także przy jasnym motywie systemu. Czerń OLED zmienia go na czysto czarny.</string>
+    <string name="title_disable_hevc_low_latency">Flagi niskich opóźnień HEVC</string>
+    <string name="summary_disable_hevc_low_latency">Wyłącz, jeśli obraz HEVC się zacina lub zawiesza. Po wyłączeniu pomijane są opcjonalne flagi niskich opóźnień Androida i układu oraz unieważnianie klatek referencyjnych dla HEVC. Wymagane flagi zgodności pozostają na starszych dekoderach Fire TV. Inne kodeki i wskazówki wydajności dekodera zachowują własne ustawienia. Dotyczy następnego strumienia.</string>
     <string name="title_oled_black">Czerń OLED</string>
-    <string name="summary_oled_black">Używaj całkowicie czarnego tła w aplikacji, menu i oknach dialogowych, także przy jasnym motywie systemu.</string>
 </resources>

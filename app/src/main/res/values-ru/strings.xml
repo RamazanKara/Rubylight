@@ -190,11 +190,10 @@
     <string name="summary_checkbox_small_icon_mode">Больше игр на экране библиотеки.</string>
     <string name="title_quick_resume">Быстрое продолжение</string>
     <string name="summary_quick_resume">Нажатие на ПК, на котором запущена игра, сразу возвращает в игру вместо открытия библиотеки.</string>
-    <string name="title_checkbox_enable_sops">Оптимизировать настройки игр</string>
-    <string name="summary_checkbox_enable_sops">Хост может менять настройки игры под трансляцию. Что менять, решает хост.</string>
+    <string name="title_checkbox_enable_sops">Подсказка об оптимизации игр</string>
+    <string name="summary_checkbox_enable_sops">Сообщает ПК, можно ли оптимизировать настройки игры для этой трансляции. Что он с этим сделает, зависит от хоста: одни сами меняют настройки игры, другие лишь передают выбор командам, которые вы запускаете на ПК.</string>
     <string name="title_checkbox_host_audio">Воспроизводить звук на ПК</string>
-    <string name="title_unlock_fps">Разблокировать все частоты кадров</string>
-    <string name="summary_unlock_fps">Разрешить 90 и 120 FPS; возможны рывки.</string>
+    <string name="title_unlock_fps">Показывать все частоты кадров</string>
     <string name="title_checkbox_reduce_refresh_rate">Разрешить пониженную частоту обновления</string>
     <string name="summary_checkbox_reduce_refresh_rate">Экономит энергию ценой небольшой задержки.</string>
     <string name="title_checkbox_disable_warnings">Скрывать предупреждения о подключении</string>
@@ -221,8 +220,6 @@
     <string name="summary_enable_hdr">Нужен HDR-экран на этом устройстве и включённый HDR на дисплее ПК.</string>
     <string name="title_full_range">Принудительно полный диапазон видео</string>
     <string name="summary_full_range">Включайте, только если ПК и этот экран оба используют полный цветовой диапазон. Иначе в тёмных и светлых областях теряется детализация.</string>
-    <string name="title_enable_perf_overlay">Показывать оверлей производительности</string>
-    <string name="summary_enable_perf_overlay">Показывает скорость трансляции, задержку и потери кадров в реальном времени. Его также можно включить из меню трансляции.</string>
     <string name="title_enable_post_stream_toast">Показывать время декодирования после трансляции</string>
     <string name="summary_enable_post_stream_toast">Показывает среднее время декодирования после окончания трансляции.</string>
     <string name="title_rust_engine">Новый движок трансляции</string>
@@ -275,8 +272,8 @@
     <string name="summary_host_frame_times">Задерживает каждый кадр на несколько миллисекунд, чтобы он появился тогда, когда игра его нарисовала, а не когда его доставила сеть. Сглаживает колебания, особенно с адаптивной частотой. Заменяет темп кадров. Не используется с PyroWave.</string>
     <string name="title_content_rate_frame_rate">Подстраивать экран под частоту кадров игры</string>
     <string name="summary_content_rate_frame_rate">Сообщает Android, с какой частотой кадров на самом деле работает игра, чтобы экран с подходящим режимом мог переключиться на нее без чёрного экрана. Нужен ПК, который передает время кадров, и параметр «Разрешить пониженную частоту обновления»; меняется не чаще раза в 2 секунды. Не используется с PyroWave и адаптивной частотой.</string>
-    <string name="title_virtual_display_scale">Масштаб рендеринга на хосте</string>
-    <string name="summary_virtual_display_scale">Меняет разрешение рендеринга на ПК, а не размер передаваемого видео. Чтобы передавать меньше пикселей и масштабировать на этом устройстве, снизьте разрешение трансляции.</string>
+    <string name="title_virtual_display_scale">Разрешение рендеринга на ПК</string>
+    <string name="summary_virtual_display_scale">Доля разрешения трансляции в процентах, с которой ПК выполняет рендеринг. Размер передаваемого видео не меняется. Чтобы отправлять меньше пикселей и масштабировать изображение на этом устройстве, снизьте разрешение трансляции.</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">данных пока нет</string>
     <string name="title_export_latency_csv">Экспорт задержки в CSV</string>
@@ -298,7 +295,7 @@
     <string name="title_drop_late_frames">Оставлять только новейший кадр</string>
     <string name="summary_drop_late_frames">Пропускать кадры, которые экран уже не успеет показать вовремя. Действует при сбалансированной синхронизации кадров.</string>
     <string name="title_texture_view">Совместимый режим видео</string>
-    <string name="summary_texture_view">Попробуйте, если видео чёрное или мерцает. Не используется с HDR и PyroWave.</string>
+    <string name="summary_texture_view">Попробуйте, если видео чёрное или мерцает. Не используется с HDR, 10-битным SDR и PyroWave.</string>
     <string name="title_unbatched_input">Мгновенный ввод мыши и пера</string>
     <string name="summary_unbatched_input">Отправлять движения мыши и пера сразу.</string>
     <string name="title_network_priority">Приоритет трафика трансляции</string>
@@ -372,9 +369,9 @@
     <string name="pip_disconnect_description">Отключиться, оставив приложение на ПК запущенным</string>
     <string name="title_upscaling">Масштабирование на клиенте</string>
     <string name="upscaling_off">Выкл.</string>
-    <string name="upscaling_bilinear">Билинейное</string>
-    <string name="upscaling_fsr1">FSR 1.0</string>
-    <string name="upscaling_sgsr1">SGSR 1 (Snapdragon Game Super Resolution)</string>
+    <string name="upscaling_bilinear">Сглаженное</string>
+    <string name="upscaling_fsr1">Чёткое (FSR)</string>
+    <string name="upscaling_sgsr1">Чёткое, Snapdragon (SGSR)</string>
     <string name="summary_upscaling">Восстанавливать SDR-видео низкого разрешения до размера экрана. Сначала снизьте разрешение трансляции. PyroWave использует SGSR при выборе как FSR, так и SGSR. Расходует больше заряда.</string>
     <string name="title_upscaling_sharpness">Резкость масштабирования</string>
     <string name="summary_upscaling_sharpness" formatted="false">Повышение резкости FSR/SGSR: 0% — выкл., 100% — максимум; применяется со следующей трансляции, реконструкция SGSR всегда активна.</string>
@@ -419,10 +416,7 @@
     <string name="keyboard_shortcuts_replace_button">Заменить</string>
     <string name="keyboard_shortcuts_exported">Сочетания экспортированы.</string>
     <string name="keyboard_shortcuts_file_error">Не удалось прочитать или записать файл сочетаний. Проверьте доступ к файлам и используйте корректный экспорт, содержащий не более 32 сочетаний.</string>
-    <string name="title_disable_hevc_low_latency">Отключить флаги низкой задержки HEVC</string>
-    <string name="summary_disable_hevc_low_latency">Попробуйте, если видео HEVC дёргается или зависает. Отключает флаги низкой задержки Android и чипсета для HEVC на любом устройстве. Другие кодеки и подсказки производительности декодера сохраняют свои настройки. Применяется со следующего сеанса.</string>
-    <string name="title_always_dark">Всегда тёмная</string>
-    <string name="summary_always_dark">Тёмно-серая тема в приложении, меню и диалогах, даже при светлой теме системы. Чёрный OLED делает её полностью чёрной.</string>
+    <string name="title_disable_hevc_low_latency">Флаги низкой задержки HEVC</string>
+    <string name="summary_disable_hevc_low_latency">Отключите, если видео HEVC подтормаживает или зависает. Если выключено, для HEVC не используются необязательные флаги низкой задержки Android и чипсета и сброс опорных кадров. Обязательные флаги совместимости сохраняются на старых декодерах Fire TV. Другие кодеки и подсказки производительности декодера сохраняют свои настройки. Применяется со следующей трансляции.</string>
     <string name="title_oled_black">Чёрный OLED</string>
-    <string name="summary_oled_black">Полностью чёрный фон в приложении, меню и диалогах, даже при светлой теме системы.</string>
 </resources>

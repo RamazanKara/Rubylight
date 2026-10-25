@@ -705,7 +705,7 @@ def capture_debug_checks():
         time.sleep(1)
         node = find(f"{PACKAGE}:id/performanceOverlay")
         text = node.get("text", "")
-        assert "Displayed: 119.9 FPS" in text and "Video payload: 14.2 Mbps" in text, node.attrib
+        assert "Rendered: 119.9 FPS" in text and "Video payload: 14.2 Mbps" in text, node.attrib
         assert "Host processing: 2.10 ms" in text and "Display wait: 1.20 ms" in text, node.attrib
         assert "Host CPU: 41.6%" in text and "Host GPU 11520: 42.0%" in text, node.attrib
         width, height = screenshot("overlay-statistics" + suffix)

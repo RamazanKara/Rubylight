@@ -14,8 +14,7 @@
     <string name="stream_presets_help">[ネイティブ] は、この画面の解像度とリフレッシュレートで、遅延に関する設定をすべてオンにしてストリーミングします。\n[バッテリー セーバー] は同じ解像度で 30 fps に抑えます。\nPC ごとのプロファイルが引き続き優先されます。</string>
     <string name="summary_frame_pacing">VRR がオフのときの応答速度と滑らかさのバランスを調整します。</string>
     <string name="summary_language">アプリで使用する言語を選択します。</string>
-    <string name="overlay_mode">パフォーマンス オーバーレイのモード</string>
-    <string name="overlay_mode_help">[コンパクト] は、表示 FPS、ネットワークの往復時間（RTT）、フレーム損失を 1 行で表示し、ストリームが不安定になると先頭の点が黄色または赤に変わります。[統計] はストリームの測定値をリアルタイムで表示します。[デバッグ] はタイミングのパーセンタイルとデコーダーの診断情報を追加します。すべての詳細を見るにはスクロールしてください。3 つのモードはいつでも利用できます。</string>
+    <string name="overlay_mode_help">[オフ] はオーバーレイを非表示にします。[コンパクト] は、描画 FPS、ネットワークの往復時間（RTT）、フレーム損失を 1 行で表示し、ストリームが不安定になると先頭の点が黄色または赤に変わります。[統計] はストリームの測定値をリアルタイムで表示します。[デバッグ] はタイミングのパーセンタイルとデコーダーの診断情報を追加します。すべての詳細を見るにはスクロールしてください。ストリームメニューからも変更できます。</string>
     <string name="overlay_statistics">統計</string>
     <string name="overlay_debug">デバッグ</string>
     <string name="overlay_copy">統計をコピー</string>
@@ -25,8 +24,8 @@
     <string name="overlay_network">ネットワーク</string>
     <string name="overlay_decode">デコード</string>
     <string name="overlay_host">ホスト</string>
-    <string name="perf_overlay_releasedfps">表示へ送出: %1$.2f FPS</string>
-    <string name="perf_overlay_shownfps">表示: %1$s</string>
+    <string name="perf_overlay_onscreenfps">画面表示: %1$s</string>
+    <string name="perf_overlay_shownfps">描画: %1$s</string>
     <string name="perf_overlay_presentdrops">推定表示ドロップ数: %1$d</string>
     <string name="perf_overlay_low_latency">低遅延モード: %1$s</string>
     <string name="perf_overlay_low_latency_android_vendor">Android + チップベンダー</string>

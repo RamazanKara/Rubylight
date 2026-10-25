@@ -11,6 +11,7 @@ import android.view.WindowManager;
 
 import com.limelight.binding.input.KeyboardTranslator;
 import com.limelight.binding.video.UpscalingPolicy;
+import com.limelight.preferences.AutoBitrateChoice;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.StreamView;
 import com.limelight.ui.VideoScaling;
@@ -260,15 +261,13 @@ public class GameLifecycleTest {
     }
 
     @Test
-    public void controllerReceivesTheMinimumAndMaximumInThatOrder() throws Exception {
+    public void theStreamsBitrateIsTheCeilingAndTheBuiltInFloorApplies() throws Exception {
         Game activity = Robolectric.buildActivity(Game.class).get();
         PreferenceConfiguration prefs = new PreferenceConfiguration();
-        prefs.autoBitrateMinKbps = 5000;
-        prefs.autoBitrateMaxKbps = 30000;
         RetryConnection connection = new RetryConnection();
         connection.fail = false;
         connection.details.encoderBitrateSupported = true;
-        connection.details.encoderBitrateKbps = 45000;
+        connection.details.encoderBitrateKbps = 38988;
         connection.details.initialEncoderBitrateKbps = 38988;
         ReflectionHelpers.setField(activity, "prefConfig", prefs);
         ReflectionHelpers.setField(activity, "adaptiveBitrate",
@@ -280,10 +279,162 @@ public class GameLifecycleTest {
                 ReflectionHelpers.ClassParameter.from(int.class, 0));
         awaitBitrateRequest(activity);
         com.limelight.nvstream.AdaptiveBitrateController controller = ReflectionHelpers.getField(activity, "adaptiveBitrate");
-        // Swapped arguments would put the floor at 30000 and the limit at 5000 or 30000.
-        assertEquals(5000, (int) ReflectionHelpers.getField(controller, "floorKbps"));
-        assertEquals(30000, (int) ReflectionHelpers.getField(controller, "maxLimitKbps"));
-        assertEquals(30000, (int) ReflectionHelpers.getField(controller, "ceilingKbps"));
+        // No minimum or maximum any more: the bitrate the stream started at is the ceiling, the floor the built-in one.
+        assertEquals(38988, (int) ReflectionHelpers.getField(controller, "ceilingKbps"));
+        assertEquals(com.limelight.nvstream.AdaptiveBitrateController.DEFAULT_FLOOR_KBPS,
+                (int) ReflectionHelpers.getField(controller, "floorKbps"));
+    }
+
+    @Test
+    public void theStreamMenuToggleAndTheSettingsSwitchShareOneChoicePerPc() throws Exception {
+        for (boolean pyroWave : new boolean[] {false, true}) {
+            Game activity = Robolectric.buildActivity(Game.class).get();
+            activity.setIntent(new Intent().putExtra(Game.EXTRA_PC_UUID, "pc"));
+            PreferenceConfiguration prefs = new PreferenceConfiguration();
+            prefs.videoFormat = PreferenceConfiguration.FormatOption.AUTO;
+            ReflectionHelpers.setStaticField(com.limelight.binding.video.MediaCodecHelper.class, "initialized", true);
+            com.limelight.binding.video.MediaCodecDecoderRenderer renderer =
+                    new com.limelight.binding.video.MediaCodecDecoderRenderer(activity, prefs, null, 0,
+                            false, false, "", null);
+            ReflectionHelpers.setField(renderer, "videoFormat", pyroWave ?
+                    com.limelight.nvstream.jni.MoonBridge.VIDEO_FORMAT_PYROWAVE :
+                    com.limelight.nvstream.jni.MoonBridge.VIDEO_FORMAT_H264);
+            RetryConnection connection = new RetryConnection();
+            connection.fail = false;
+            connection.details.encoderBitrateKbps = 20000;
+            connection.details.initialEncoderBitrateKbps = 20000;
+            ReflectionHelpers.setField(activity, "decoderRenderer", renderer);
+            ReflectionHelpers.setField(activity, "prefConfig", prefs);
+            ReflectionHelpers.setField(activity, "streamFps", 60);
+            ReflectionHelpers.setField(activity, "conn", connection);
+            ReflectionHelpers.setField(activity, "connected", true);
+            String store = pyroWave ? "PyroWaveBitrate" : "AdaptiveBitrate";
+            android.preference.PreferenceManager.getDefaultSharedPreferences(activity).edit()
+                    .putBoolean("checkbox_auto_bitrate", true).commit();
+            // The Settings switch is the default; the menu's toggle then chooses for this PC alone.
+            assertTrue(AutoBitrateChoice.isOn(activity, store, "pc"));
+            try {
+                ReflectionHelpers.callInstanceMethod(activity, "setAdaptiveBitrateEnabled",
+                        ReflectionHelpers.ClassParameter.from(boolean.class, false),
+                        ReflectionHelpers.ClassParameter.from(boolean.class, true));
+                assertFalse(AutoBitrateChoice.isOn(activity, store, "pc"));
+                assertTrue(AutoBitrateChoice.isOn(activity, store, "other"));
+                ReflectionHelpers.callInstanceMethod(activity, "setAdaptiveBitrateEnabled",
+                        ReflectionHelpers.ClassParameter.from(boolean.class, true),
+                        ReflectionHelpers.ClassParameter.from(boolean.class, true));
+                awaitBitrateRequest(activity);
+                assertTrue(AutoBitrateChoice.isOn(activity, store, "pc"));
+            } finally {
+                ReflectionHelpers.callInstanceMethod(activity, "setAdaptiveBitrateEnabled",
+                        ReflectionHelpers.ClassParameter.from(boolean.class, false),
+                        ReflectionHelpers.ClassParameter.from(boolean.class, false));
+                android.preference.PreferenceManager.getDefaultSharedPreferences(activity).edit().clear().commit();
+                activity.getSharedPreferences(store, Context.MODE_PRIVATE).edit().clear().commit();
+            }
+        }
+    }
+
+    @Test
+    public void theStreamStartsWithAutomaticBitrateFromThisPcsChoiceElseTheSettingsSwitch() {
+        for (boolean pyroWave : new boolean[] {false, true}) {
+            Game activity = Robolectric.buildActivity(Game.class).get();
+            activity.setIntent(new Intent().putExtra(Game.EXTRA_PC_UUID, "pc"));
+            PreferenceConfiguration prefs = new PreferenceConfiguration();
+            prefs.videoFormat = PreferenceConfiguration.FormatOption.AUTO;
+            ReflectionHelpers.setStaticField(com.limelight.binding.video.MediaCodecHelper.class, "initialized", true);
+            com.limelight.binding.video.MediaCodecDecoderRenderer renderer =
+                    new com.limelight.binding.video.MediaCodecDecoderRenderer(activity, prefs, null, 0,
+                            false, false, "", null);
+            ReflectionHelpers.setField(renderer, "videoFormat", pyroWave ?
+                    com.limelight.nvstream.jni.MoonBridge.VIDEO_FORMAT_PYROWAVE :
+                    com.limelight.nvstream.jni.MoonBridge.VIDEO_FORMAT_H264);
+            RetryConnection connection = new RetryConnection();
+            com.limelight.nvstream.http.ComputerDetails details = connection.getHostDetails();
+            details.caps = com.limelight.nvstream.http.TestHosts.rubylight();
+            details.permission = com.limelight.nvstream.http.ComputerDetails.PERMISSION_VIEW |
+                    com.limelight.nvstream.http.ComputerDetails.PERMISSION_LAUNCH;
+            details.encoderBitrateSupported = true;
+            ReflectionHelpers.setField(activity, "app", new com.limelight.nvstream.http.NvApp());
+            ReflectionHelpers.setField(activity, "conn", connection);
+            ReflectionHelpers.setField(activity, "decoderRenderer", renderer);
+            String store = pyroWave ? "PyroWaveBitrate" : "AdaptiveBitrate";
+            String other = pyroWave ? "AdaptiveBitrate" : "PyroWaveBitrate";
+            android.content.SharedPreferences settings =
+                    android.preference.PreferenceManager.getDefaultSharedPreferences(activity);
+            try {
+                assertFalse("off by default", activity.autoBitrateAtStart());
+                settings.edit().putBoolean("checkbox_auto_bitrate", true).commit();
+                assertTrue("the switch is the default", activity.autoBitrateAtStart());
+                // This PC chose off in the stream menu.
+                activity.getSharedPreferences(store, Context.MODE_PRIVATE).edit().putBoolean("pc", false).commit();
+                assertFalse("the PC's own choice wins", activity.autoBitrateAtStart());
+                // Only the store of the stream's codec counts.
+                activity.getSharedPreferences(store, Context.MODE_PRIVATE).edit().clear().commit();
+                activity.getSharedPreferences(other, Context.MODE_PRIVATE).edit().putBoolean("pc", false).commit();
+                assertTrue(activity.autoBitrateAtStart());
+                // A host without runtime bitrate support never starts it.
+                details.encoderBitrateSupported = false;
+                assertFalse(activity.autoBitrateAtStart());
+            } finally {
+                settings.edit().clear().commit();
+                activity.getSharedPreferences("AdaptiveBitrate", Context.MODE_PRIVATE).edit().clear().commit();
+                activity.getSharedPreferences("PyroWaveBitrate", Context.MODE_PRIVATE).edit().clear().commit();
+            }
+        }
+    }
+
+    @Test
+    public void aManualBitrateStopsAutomaticBitrateForTheSessionButKeepsTheChoice() throws Exception {
+        Game activity = Robolectric.buildActivity(Game.class).get();
+        activity.setTheme(com.limelight.R.style.AppTheme);
+        activity.setIntent(new Intent().putExtra(Game.EXTRA_PC_UUID, "pc"));
+        PreferenceConfiguration prefs = new PreferenceConfiguration();
+        prefs.videoFormat = PreferenceConfiguration.FormatOption.AUTO;
+        prefs.bitrate = 20000;
+        ReflectionHelpers.setStaticField(com.limelight.binding.video.MediaCodecHelper.class, "initialized", true);
+        com.limelight.binding.video.MediaCodecDecoderRenderer renderer =
+                new com.limelight.binding.video.MediaCodecDecoderRenderer(activity, prefs, null, 0,
+                        false, false, "", null);
+        ReflectionHelpers.setField(renderer, "videoFormat", com.limelight.nvstream.jni.MoonBridge.VIDEO_FORMAT_H264);
+        RetryConnection connection = new RetryConnection();
+        connection.fail = false;
+        ReflectionHelpers.setField(activity, "decoderRenderer", renderer);
+        ReflectionHelpers.setField(activity, "prefConfig", prefs);
+        ReflectionHelpers.setField(activity, "conn", connection);
+        ReflectionHelpers.setField(activity, "connected", true);
+        ReflectionHelpers.setField(activity, "foreground", true);
+        ReflectionHelpers.setField(activity, "adaptiveBitrate",
+                new com.limelight.nvstream.AdaptiveBitrateController(20000, 20000, 60, 0));
+        android.content.SharedPreferences settings =
+                android.preference.PreferenceManager.getDefaultSharedPreferences(activity);
+        settings.edit().putBoolean("checkbox_auto_bitrate", true).commit();
+        ReflectionHelpers.callInstanceMethod(activity, "showBitrateDialog");
+        androidx.appcompat.app.AlertDialog dialog = ReflectionHelpers.getField(activity, "streamMenu");
+        try {
+            java.util.ArrayDeque<View> views = new java.util.ArrayDeque<>();
+            views.add(dialog.getWindow().getDecorView());
+            android.widget.EditText input = null;
+            while (!views.isEmpty() && input == null) {
+                View view = views.remove();
+                if (view instanceof android.widget.EditText) {
+                    input = (android.widget.EditText) view;
+                } else if (view instanceof android.view.ViewGroup) {
+                    android.view.ViewGroup group = (android.view.ViewGroup) view;
+                    for (int i = 0; i < group.getChildCount(); i++) views.add(group.getChildAt(i));
+                }
+            }
+            assertNotNull(input);
+            input.setText("30");
+            dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).performClick();
+            awaitBitrateRequest(activity);
+            assertEquals(30000, connection.lastWrite);
+            assertNull("automatic bitrate stops for this session", ReflectionHelpers.getField(activity, "adaptiveBitrate"));
+            assertTrue("the choice stays on", AutoBitrateChoice.isOn(activity, "AdaptiveBitrate", "pc"));
+        } finally {
+            dialog.dismiss();
+            settings.edit().clear().commit();
+            activity.getSharedPreferences("AdaptiveBitrate", Context.MODE_PRIVATE).edit().clear().commit();
+        }
     }
 
     @Test

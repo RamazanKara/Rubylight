@@ -23,7 +23,13 @@ public final class HostNotices {
         // GeForce Experience too old for 4K.
         HOST_4K_UNAVAILABLE,
         // Multi-touch the host does not take, so touch drives the mouse.
-        NATIVE_TOUCH_UNAVAILABLE
+        NATIVE_TOUCH_UNAVAILABLE,
+        // 10-bit SDR is on but this device cannot offer it.
+        SDR10_UNAVAILABLE,
+        // 10-bit SDR was offered and this PC streams 8-bit.
+        SDR10_NOT_ACCEPTED,
+        // 10-bit SDR was asked for and the PC sends HDR because its display is in HDR.
+        SDR10_HOST_HDR
     }
 
     static final String PREFERENCES = "HostNotices";

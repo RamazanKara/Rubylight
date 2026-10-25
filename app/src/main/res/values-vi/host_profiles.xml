@@ -11,7 +11,7 @@
     <string name="host_profile_native">Kích thước màn hình (theo màn hình này)</string>
     <string name="host_profile_refresh">Tốc độ khung hình (FPS)</string>
     <string name="host_profile_bitrate">Tốc độ bit (Mbps)</string>
-    <string name="host_profile_scale">Tỷ lệ kết xuất trên máy chủ (%)</string>
+    <string name="host_profile_scale">Độ phân giải kết xuất trên PC (%)</string>
     <string name="host_profile_codec">Codec video</string>
     <string name="host_profile_virtual_display">Màn hình ảo trên máy chủ</string>
     <string name="host_profile_hdr">HDR</string>

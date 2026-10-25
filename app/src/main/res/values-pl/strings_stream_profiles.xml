@@ -122,7 +122,7 @@
     <string name="game_preset_smoothness">Płynność</string>
     <string name="game_preset_smoothness_summary">Ustawia najpłynniejszy frame pacing, który wstrzymuje klatki i zwiększa opóźnienie, oraz wyłącza adaptacyjne odświeżanie dla tej gry. Bitrate się nie zmienia.</string>
     <string name="game_preset_quality">Jakość</string>
-    <string name="game_preset_quality_summary" formatted="false">Ustawia bitrate na 150% wartości z komputera lub, jeśli komputer jej nie ma, z ustawień głównych, do limitu hosta i maksimum automatycznego bitrate. Frame pacing i adaptacyjne odświeżanie się nie zmieniają; przy słabym połączeniu większe klatki mogą zwiększyć opóźnienie.</string>
+    <string name="game_preset_quality_summary" formatted="false">Ustawia bitrate na 150% wartości z komputera lub, jeśli komputer jej nie ma, z ustawień głównych, do limitu hosta. Frame pacing i adaptacyjne odświeżanie się nie zmieniają; przy słabym połączeniu większe klatki mogą zwiększyć opóźnienie.</string>
     <string name="game_preset_custom">Własne</string>
     <string name="game_preset_custom_summary">Twoje własne wartości, ustawione poniżej.</string>
 </resources>

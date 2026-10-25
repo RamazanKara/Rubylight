@@ -595,6 +595,23 @@ public class NvHTTPParityTest {
     }
 
     @Test
+    public void tenBitSdrSaysHdrModeZeroAndOtherStreamsKeepTheirQuery() throws Exception {
+        ConnectionContext context = context("butterpollo-serverinfo.xml");
+        // Plain 8-bit and HDR are as before.
+        assertNull(query(context, false).queryParameter("hdrMode"));
+        assertEquals("1", query(context, true).queryParameter("hdrMode"));
+        // 10-bit SDR that the PC accepted says 0 outright, on launch and resume alike.
+        context.streamConfig = new StreamConfiguration.Builder().setLaunchRefreshRate(60).setSdr10Bit(true).build();
+        context.negotiated10Bit = true;
+        assertEquals("0", query(context, false).queryParameter("hdrMode"));
+        // Real HDR is not weakened by the setting.
+        assertEquals("1", query(context, true).queryParameter("hdrMode"));
+        // A PC that landed on 8-bit is a plain 8-bit stream.
+        context.negotiated10Bit = false;
+        assertNull(query(context, false).queryParameter("hdrMode"));
+    }
+
+    @Test
     public void renderScaleDoesNotChangeTheStreamViewport() throws Exception {
         ConnectionContext context = context("butterpollo-serverinfo.xml");
         context.streamConfig = new StreamConfiguration.Builder().setLaunchRefreshRate(144)

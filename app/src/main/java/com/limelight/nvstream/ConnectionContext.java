@@ -33,7 +33,9 @@ public class ConnectionContext {
     public String preparedControllers = "";
     
     public int negotiatedWidth, negotiatedHeight;
+    // HDR is asked for in the launch only when this is set; 10-bit SDR negotiates 10-bit without it.
     public boolean negotiatedHdr;
+    public boolean negotiated10Bit;
     public int negotiatedVideoFormats;
 
     public int negotiatedRemoteStreaming;

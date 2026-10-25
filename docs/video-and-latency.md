@@ -26,6 +26,8 @@ HDR10 needs an HDR10 display, Android 7+ and a compatible HEVC Main10 or AV1 10-
 
 Nightjar handles BT.2020/PQ and static mastering metadata. Debug stats show the negotiated format, so you can confirm HDR is active.
 
+**10-bit color (SDR)** is for screens without HDR, or with HDR off, where gradients show banding. It streams SDR in 10-bit HEVC or AV1 and needs a Main10 decoder on this device. The PC must offer 10-bit; if it does not, the stream is 8-bit and a message says so once per PC. The PC's display has to be in SDR, because a PC whose display is in HDR sends HDR whatever you chose here, and the status line says so. It is not used with PyroWave, and when HDR is on, HDR wins. The overlay's stream line reads "10-bit SDR" while it is active.
+
 **Prefer YUV 4:4:4** can improve colored text. It applies when the host and decoder both support it, with 4:2:0 used otherwise. HDR takes priority over a conflicting chroma preference. **Force full-range video** is an explicit override: mismatched range can crush blacks or clip highlights.
 
 ## Refresh rate and VRR
@@ -50,7 +52,7 @@ The Debug overlay's **ARR** or **max Hz** label identifies the refresh policy se
 
 **Match the screen to the game's frame rate** (off by default) makes the frame rate vote follow the game. From the host's frame timestamps Nightjar measures the rate the game presents at (the median interval over one second). After it has held within 3% for two seconds, the rate is voted to Android with `Surface.setFrameRate`, seamless changes only, so the screen can move to a mode that divides it evenly (60 Hz for a 60 fps game in a 120 fps stream) without going blank. A new rate must also hold for two seconds, differ by more than 3% from the last vote and arrive at least two seconds after it. It needs a host that announces clock sync (Rubylight) and Android 11 or newer, and is skipped with VRR, a TextureView and PyroWave. With **Allow lower refresh rate** off the vote never goes below the rate that setting keeps, so the game's rate can then only raise it; turn that option on (or choose Balanced with FPS limit or Smoothest video) for the vote to lower the screen. A screen with no matching seamless mode stays where it is, and `Display refresh` entries in Report a problem show each vote.
 
-Per-PC profiles accept rates to 0.01 Hz, such as 59.94 or 119.88. Hosts that support fractional rates (currently Rubylight) receive them as set; other hosts receive a whole-number rate. The overlay reports received, released and shown FPS separately from panel refresh.
+Per-PC profiles accept rates to 0.01 Hz, such as 59.94 or 119.88. Hosts that support fractional rates (currently Rubylight) receive them as set; other hosts receive a whole-number rate. The overlay reports received, rendered and on-screen FPS separately from panel refresh.
 
 ## Video scaling
 
@@ -90,14 +92,14 @@ PyroWave handles display rotation during its existing color-conversion or upscal
 
 ## Upscaling
 
-Choose **Settings → Display & image → Client-side upscaling** or override it in a PC profile. First lower **Stream resolution**, for example to 720p on a 1080p screen. A PC profile also accepts a custom stream resolution. This reduces transmitted pixels and decode work; upscaling reconstructs that smaller video at the Android output size. **Host render scale** changes the PC's render resolution, not the transmitted video size.
+Choose **Settings → Display & image → Client-side upscaling** or override it in a PC profile. First lower **Stream resolution**, for example to 720p on a 1080p screen. A PC profile also accepts a custom stream resolution. This reduces transmitted pixels and decode work; upscaling reconstructs that smaller video at the Android output size. **PC render resolution** changes the PC's render resolution, not the transmitted video size.
 
 | Mode | Processing |
 | --- | --- |
 | Off (default) | Direct output without FSR/SGSR reconstruction. |
-| Bilinear | Bilinear scaling through GLES for MediaCodec or Vulkan for PyroWave. |
-| FSR 1.0 | AMD EASU reconstruction followed by RCAS sharpening. |
-| SGSR 1 | Qualcomm's single-pass spatial reconstruction. |
+| Smooth | Bilinear scaling through GLES for MediaCodec or Vulkan for PyroWave. |
+| Sharp (FSR) | AMD FSR 1.0: EASU reconstruction followed by RCAS sharpening. |
+| Sharp, Snapdragon (SGSR) | Qualcomm SGSR 1: single-pass spatial reconstruction. |
 
 MediaCodec GPU upscaling requires lower-resolution SDR video, GLES 3.0 and the required external-image support. Native/larger input, HDR and 10-bit use direct output. Under GPU overload or after a resize, this path switches to direct output for the rest of the session; reconnect to retry.
 
@@ -117,9 +119,9 @@ If loading, capability checks or initialization fail, Nightjar tries the system 
 
 ## Performance overlay
 
-Show or hide the overlay with **Overlay** in the stream menu's top row or **Ctrl+Alt+Shift+S**, and choose **Compact**, **Statistics** or **Debug** under **stream menu → Display → Overlay and diagnostics**. The saved default is under **Settings → Streaming → Performance overlay mode**, where all three modes are always available. **Copy stats** copies the full Debug text regardless of visible mode. The overlay hides in picture in picture.
+Show or hide the overlay with **Overlay** in the stream menu's top row or **Ctrl+Alt+Shift+S**, and choose **Compact**, **Statistics** or **Debug** under **stream menu → Display → Overlay and diagnostics**. The saved default is under **Settings → Streaming → Performance overlay**, a picker with Off, Compact, Statistics and Debug, all always available. **Copy stats** copies the full Debug text regardless of visible mode. The overlay hides in picture in picture.
 
-Compact is the default: one line such as `● 119.9 FPS · 8 ms RTT · 0.1% loss`, with displayed FPS, the measured network round trip (labelled RTT, not end-to-end latency) and frame loss. The dot is green, turns amber from 1% loss, a 40 ms round trip, a tenth of the received frames not shown or decoding slower than a frame, and red from 5% loss, an 80 ms round trip or a quarter of the frames not shown. Compact sits top-start, moves to a free corner or the top centre when on-screen controls would sit under it, and keeps clear of camera cutouts. Statistics shows stream resolution/codec/color, displayed and received FPS, received video payload Mbps, network frame loss, network RTT and variation, host processing, decode time and display wait. These are separate measurements: adding network RTT and decode time does not measure end-to-end latency. Payload Mbps excludes audio, protocol overhead and retransmissions, so it is not the configured bitrate or total link traffic.
+Compact is the default: one line such as `● 119.9 FPS · 8 ms RTT · 0.1% loss`, with rendered FPS, the measured network round trip (labelled RTT, not end-to-end latency) and frame loss. The dot is green, turns amber from 1% loss, a 40 ms round trip, a tenth of the received frames not rendered or decoding slower than a frame, and red from 5% loss, an 80 ms round trip or a quarter of the frames not rendered. Compact sits top-start, moves to a free corner or the top centre when on-screen controls would sit under it, and keeps clear of camera cutouts. Statistics shows stream resolution/codec/color, rendered and received FPS, received video payload Mbps, network frame loss, network RTT and variation, host processing, decode time and display wait. These are separate measurements: adding network RTT and decode time does not measure end-to-end latency. Payload Mbps excludes audio, protocol overhead and retransmissions, so it is not the configured bitrate or total link traffic.
 
 Unavailable measurements display **—**, not zero. Some devices or rendering paths cannot report display callbacks, and host processing requires host-provided data. **Measure input latency** runs a separate input-to-rendered-frame probe; neither overlay mode infers that measurement from the displayed stages. Optional [host hardware metrics](#host-hardware-metrics) appear separately from these timings.
 
@@ -128,12 +130,13 @@ Debug groups diagnostics into Video, Network and Decode and scrolls on smaller s
 | Debug metric | Meaning and interpretation |
 | --- | --- |
 | Resolution, codec, HDR/chroma, decoder | Actual negotiated stream and selected decoder; compare with requested settings. |
-| Received / released / shown FPS | Frames received, outputs released and presentation callbacks observed. Low shown FPS with healthy receive/decode rates points toward presentation. |
+| Received / rendered FPS | Frames received and frames submitted for display. Rendered FPS counts every frame released for rendering, whether or not the platform reports a render callback, so it is available on devices without callbacks. Low rendered FPS with healthy receive/decode rates points toward frames dropped before display. |
+| On screen FPS | Frames the platform confirmed through render callbacks. Shown only when the device reports them. Rendered FPS well above on screen FPS points toward frames the compositor dropped or delayed; the compact overlay's dot also uses this rate when it is available. |
 | Estimated display drops / present drops | Released frames without an observed presentation callback after five seconds. |
 | Network latency / variation | Control-channel round-trip time and its variation in milliseconds. |
 | Network frame loss | Frames lost through the transport/recovery path, expressed as a percentage; separate from local decoder/display drops. |
 | Queue wait | Enqueue-to-decoder-input time. High values suggest submission or input-buffer backlog. |
-| Decode time (conventional codecs) | Each frame passed on for display is timed from input submission to its hand-off, including driver scheduling, in whole milliseconds. The total over the last two seconds is divided by all frames received in that time; the figure after streaming does the same over the whole stream. It excludes pre-input queue wait and later display wait. The p95/p99 beside it, and the frame-timing CSV, use exact per-frame times from input submission to decoder output. |
+| Decode time (conventional codecs) | Each frame passed on for display is timed from input submission to the decoder returning it, including driver scheduling, in whole milliseconds. The total over the last two seconds is divided by all frames received in that time; the figure after streaming does the same over the whole stream. It excludes pre-input queue wait and later display wait. The p95/p99 beside it, and the frame-timing CSV, use exact per-frame times from input submission to decoder output. |
 | CPU submission time (PyroWave) | CPU wall time around the native submission call, divided by all received frames, including skipped frames. Fractional milliseconds carry across frames and reporting windows; the displayed average combines the last two one-second windows. The stream-end average includes closed reporting windows only. This measures preparation and submission, not GPU completion or display wait. |
 | Completed decode (PyroWave) | Input submission to observed GPU completion. Its mean, p95 and p99 use the same completed-frame samples. Automatic bitrate, stream-health indicators and the frame-timing CSV continue to use completed decode timings. |
 | Display wait | Decoder output to the render timestamp supplied by the presentation callback. For direct MediaCodec output this is Android's `OnFrameRenderedListener.nanoTime`, rather than the time Nightjar receives the callback. It is a platform-reported surface timing, not a physical input-to-screen or panel-scanout measurement. |
@@ -175,7 +178,7 @@ The setting covers the network path staying the same, which is the case for roam
 
 For bounded reconnects and opt-in resolution/FPS adaptation, see [stream recovery and automatic quality](recovery-and-quality.md).
 
-Enable **Automatic bitrate** in the stream menu's **Quality** section on a host that supports it (currently Rubylight). It is opt-in and saved per PC, separately for conventional codecs and PyroWave. Loss, RTT variation and completed decode headroom inform adaptation; PyroWave also considers queue delay. After trouble, the bitrate steps back toward the last rate that ran without poor samples in big steps once the link is healthy, and probes above it slowly. Jitter or queueing that does not drop after two cuts is not cut further (loss still is). See [stream recovery and automatic quality](recovery-and-quality.md#automatic-bitrate). Manual session bitrate changes turn it off.
+Turn on **Automatic bitrate** under Settings → Video, directly below Video bitrate, or in the stream menu's **Quality** section, on a host that supports it (currently Rubylight). It is off by default. The Settings switch is the default for every PC and the bitrate setting is the most it uses; the stream menu saves a choice for one PC, separately for conventional codecs and PyroWave. Changing the Settings switch makes every PC follow it again. Loss, RTT variation and completed decode headroom inform adaptation; PyroWave also considers queue delay. After trouble, the bitrate steps back toward the last rate that ran without poor samples in big steps once the link is healthy, and probes above it slowly. Jitter or queueing that does not drop after two cuts is not cut further (loss still is). See [stream recovery and automatic quality](recovery-and-quality.md#automatic-bitrate). Manual session bitrate changes turn it off.
 
 Use **Settings → Advanced → Export latency CSV** to save the latest local frame timings. `queue_wait_ms`, `input_to_output_ms` and `output_to_render_ms` correspond to the stages above; The appended FPS sample separates received/released/shown FPS and estimated presentation drops.
 

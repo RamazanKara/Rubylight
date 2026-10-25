@@ -59,7 +59,12 @@ public class SettingsKeysTest {
             "gpu_driver", "host_display_location", "keyboard_shortcuts_editor", "controller_button_mapping",
             "controller_test", "stream_profiles", "reset_osc", "check_updates_now", "help", "latency_benchmark", "report_problem", "about_app", "reset_all", "export_latency_csv",
             // The merged switch writes the three decoder switches and stores nothing itself.
-            StreamSettings.LOW_LATENCY_DECODING_KEY));
+            StreamSettings.LOW_LATENCY_DECODING_KEY, StreamSettings.LOW_LATENCY_CUSTOMIZE_KEY));
+    // Stored settings that a picker or a dialog writes without a row of their own.
+    private static final Set<String> WRITTEN_BY_PICKERS = new HashSet<>(Arrays.asList(
+            "checkbox_unlock_fps", // the frame rate picker's button
+            "performance_overlay_mode", // the performance overlay picker
+            com.limelight.ui.AppTheme.OLED_BLACK)); // the theme picker
     // Stored settings that are read outside PreferenceConfiguration.
     private static final Set<String> READ_ELSEWHERE = new HashSet<>(Arrays.asList(
             "performance_overlay_mode", // Game and the overlay
@@ -126,7 +131,7 @@ public class SettingsKeysTest {
     public void everyKeyFromBeforeTheRestructureIsStillASetting() throws Exception {
         Map<String, String> keys = keysInXml();
         for (String key : KEYS_BEFORE) {
-            assertTrue("Missing or renamed: " + key, keys.containsKey(key));
+            assertTrue("Missing or renamed: " + key, keys.containsKey(key) || WRITTEN_BY_PICKERS.contains(key));
         }
         assertEquals(KEYS_BEFORE.length, new HashSet<>(Arrays.asList(KEYS_BEFORE)).size());
     }
@@ -153,9 +158,9 @@ public class SettingsKeysTest {
         reads.put("adaptive_quality_mode", new Read("off", "motion", c -> c.adaptiveQualityMode));
         reads.put("adaptive_quality_min_resolution", new Read("720", "360", c -> c.qualityMinShortEdge));
         reads.put("adaptive_quality_min_fps", new Read("30", "60", c -> c.qualityMinFps));
-        reads.put("list_auto_bitrate_min_kbps", new Read("0", "20000", c -> c.autoBitrateMinKbps));
-        reads.put("list_auto_bitrate_max_kbps", new Read("0", "50000", c -> c.autoBitrateMaxKbps));
+        reads.put("checkbox_auto_bitrate", new Read(false, true, c -> c.autoBitrate));
         reads.put("checkbox_enable_hdr", new Read(false, true, c -> c.enableHdr));
+        reads.put("checkbox_enable_sdr_10bit", new Read(false, true, c -> c.enableSdr10Bit));
         reads.put("checkbox_vrr", new Read(false, true, c -> c.vrr));
         reads.put("checkbox_host_frame_times", new Read(false, true, c -> c.hostFrameTimes));
         reads.put("checkbox_content_rate_frame_rate", new Read(false, true, c -> c.contentRateFrameRate));
@@ -280,6 +285,7 @@ public class SettingsKeysTest {
         assertTrue("Stored settings PreferenceConfiguration no longer reads: " + unread, unread.isEmpty());
         Set<String> checked = new HashSet<>(reads().keySet());
         checked.add(PreferenceConfiguration.AUDIO_CONFIG_PREF_STRING);
+        checked.removeAll(WRITTEN_BY_PICKERS);
         assertEquals("Each stored setting needs a value check below", stored, checked);
     }
 
@@ -292,7 +298,9 @@ public class SettingsKeysTest {
         PreferenceConfiguration.readPreferences(app);
         prefs().edit().putBoolean(PreferenceConfiguration.RESOLUTION_FOLLOWS_SCREEN_PREF_STRING, false)
                 .putBoolean(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING, true)
-                .putBoolean("checkbox_usb_dualsense", true).commit();
+                .putBoolean("checkbox_usb_dualsense", true)
+                // The content-rate vote needs the lower refresh rate switch; its own row resets it to off later.
+                .putBoolean("checkbox_reduce_refresh_rate", true).commit();
         for (Map.Entry<String, Read> entry : reads.entrySet()) {
             String key = entry.getKey();
             Read read = entry.getValue();

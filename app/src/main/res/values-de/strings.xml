@@ -190,11 +190,10 @@
     <string name="summary_checkbox_small_icon_mode">Zeigt mehr Spiele gleichzeitig in der Bibliothek.</string>
     <string name="title_quick_resume">Schnell fortsetzen</string>
     <string name="summary_quick_resume">Ein Tipp auf einen PC, auf dem ein Spiel läuft, setzt das Spiel direkt fort, statt seine Bibliothek zu öffnen.</string>
-    <string name="title_checkbox_enable_sops">Spieleinstellungen optimieren</string>
-    <string name="summary_checkbox_enable_sops">Lässt den Host die Einstellungen eines Spiels an den Stream anpassen. Der Host entscheidet, was sich ändert.</string>
+    <string name="title_checkbox_enable_sops">Hinweis zur Spieloptimierung</string>
+    <string name="summary_checkbox_enable_sops">Teilt dem PC mit, ob er die Einstellungen eines Spiels für diesen Stream optimieren darf. Was der PC daraus macht, hängt vom Host ab: Manche ändern die Spieleinstellungen selbst, andere geben die Wahl nur an Befehle weiter, die du auf dem PC ausführst.</string>
     <string name="title_checkbox_host_audio">Ton am PC wiedergeben</string>
-    <string name="title_unlock_fps">Alle Bildraten freigeben</string>
-    <string name="summary_unlock_fps">Erlaube 90 und 120 FPS mit möglichem Ruckeln.</string>
+    <string name="title_unlock_fps">Alle Bildraten anzeigen</string>
     <string name="title_checkbox_reduce_refresh_rate">Niedrigere Display-Bildrate</string>
     <string name="summary_checkbox_reduce_refresh_rate">Spare Akku auf Kosten einer höheren Latenz.</string>
     <string name="title_checkbox_disable_warnings">Warnungen ausblenden</string>
@@ -221,8 +220,6 @@
     <string name="summary_enable_hdr">Braucht ein HDR-Display auf diesem Gerät und eingeschaltetes HDR am Display des PCs.</string>
     <string name="title_full_range">Vollen Farbbereich erzwingen</string>
     <string name="summary_full_range">Nur nutzen, wenn PC und Display beide den vollen Farbbereich verwenden. Sonst gehen in dunklen und hellen Bereichen Details verloren.</string>
-    <string name="title_enable_perf_overlay">Leistungsanzeige</string>
-    <string name="summary_enable_perf_overlay">Zeigt Bildrate, Latenz und Bildverluste live. Lässt sich auch im Stream-Menü einblenden.</string>
     <string name="title_enable_post_stream_toast">Dekodierzeit nach dem Stream</string>
     <string name="summary_enable_post_stream_toast">Zeigt die mittlere Dekodierzeit, wenn ein Stream endet.</string>
     <string name="title_rust_engine">Neue Streaming-Engine</string>
@@ -275,8 +272,8 @@
     <string name="summary_host_frame_times">Hält jedes Bild einige Millisekunden zurück, damit es erscheint, wann das Spiel es gezeichnet hat, statt wann das Netzwerk es geliefert hat. Gleicht Schwankungen aus, besonders mit adaptiver Bildwiederholrate. Ersetzt das Frame-Pacing. Nicht mit PyroWave.</string>
     <string name="title_content_rate_frame_rate">Bildwiederholrate an die Spielrate anpassen</string>
     <string name="summary_content_rate_frame_rate">Meldet Android die Bildrate, mit der das Spiel tatsächlich läuft, damit ein Display mit passendem Modus ohne schwarzen Bildschirm darauf umschalten kann. Braucht einen PC, der Bildzeiten sendet, und „Niedrigere Display-Bildrate“; ändert höchstens alle 2 Sekunden. Nicht mit PyroWave oder adaptiver Bildwiederholrate.</string>
-    <string name="title_virtual_display_scale">Host-Skalierung</string>
-    <string name="summary_virtual_display_scale">Ändert die Renderauflösung des PCs, nicht die übertragene Videogröße. Senke die Stream-Auflösung, um weniger Pixel zu übertragen und auf diesem Gerät hochzuskalieren.</string>
+    <string name="title_virtual_display_scale">Render-Auflösung des PCs</string>
+    <string name="summary_virtual_display_scale">Prozent der Stream-Auflösung, mit der der PC rendert. Die Größe des übertragenen Videos ändert sich nicht. Senke die Stream-Auflösung, um weniger Pixel zu übertragen und auf diesem Gerät hochzuskalieren.</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">Noch keine Daten</string>
     <string name="title_export_latency_csv">Latenz als CSV exportieren</string>
@@ -298,7 +295,7 @@
     <string name="title_drop_late_frames">Nur neueste Frames behalten</string>
     <string name="summary_drop_late_frames">Überspringt Frames, die nicht mehr rechtzeitig angezeigt werden können. Gilt mit dem Frame-Pacing „Ausgewogen“.</string>
     <string name="title_texture_view">Alternative Videoanzeige</string>
-    <string name="summary_texture_view">Probiere dies bei schwarzem oder flackerndem Bild. Nicht mit HDR oder PyroWave.</string>
+    <string name="summary_texture_view">Probiere dies bei schwarzem oder flackerndem Bild. Nicht mit HDR, 10-Bit-SDR oder PyroWave.</string>
     <string name="title_unbatched_input">Maus und Stift ohne Wartezeit</string>
     <string name="summary_unbatched_input">Sende Maus- und Stiftbewegungen sofort.</string>
     <string name="title_network_priority">Stream-Daten bevorzugen</string>
@@ -372,9 +369,9 @@
     <string name="pip_disconnect_description">Trennen und die PC-App weiterlaufen lassen</string>
     <string name="title_upscaling">Hochskalierung auf dem Gerät</string>
     <string name="upscaling_off">Aus</string>
-    <string name="upscaling_bilinear">Bilinear</string>
-    <string name="upscaling_fsr1">FSR 1.0</string>
-    <string name="upscaling_sgsr1">SGSR 1 (Snapdragon Game Super Resolution)</string>
+    <string name="upscaling_bilinear">Weich</string>
+    <string name="upscaling_fsr1">Scharf (FSR)</string>
+    <string name="upscaling_sgsr1">Scharf, Snapdragon (SGSR)</string>
     <string name="summary_upscaling">Rekonstruiert SDR-Video mit niedriger Auflösung in Displaygröße. Senke zuerst die Stream-Auflösung. PyroWave nutzt SGSR für FSR und SGSR. Braucht mehr Akku.</string>
     <string name="title_upscaling_sharpness">Schärfe der Hochskalierung</string>
     <string name="summary_upscaling_sharpness" formatted="false">FSR/SGSR-Schärfe: 0% aus, 100% maximal; gilt ab dem nächsten Stream, SGSR-Bildrekonstruktion bleibt aktiv.</string>
@@ -419,10 +416,7 @@
     <string name="keyboard_shortcuts_replace_button">Ersetzen</string>
     <string name="keyboard_shortcuts_exported">Tastenkombinationen exportiert.</string>
     <string name="keyboard_shortcuts_file_error">Die Datei konnte nicht gelesen oder geschrieben werden. Prüfe den Dateizugriff und verwende einen gültigen Export mit höchstens 32 Tastenkombinationen.</string>
-    <string name="title_disable_hevc_low_latency">HEVC-Latenzflags deaktivieren</string>
-    <string name="summary_disable_hevc_low_latency">Bei ruckelndem oder eingefrorenem HEVC-Video ausprobieren. Deaktiviert Android- und Chipsatz-Latenzflags für HEVC auf jedem Gerät. Andere Codecs und Decoder-Leistungshinweise behalten ihre eigenen Einstellungen. Gilt ab dem nächsten Stream.</string>
-    <string name="title_always_dark">Immer dunkel</string>
-    <string name="summary_always_dark">Verwendet das dunkelgraue Design in der App, in Menüs und Dialogen, auch bei hellem Systemdesign. OLED-Schwarz macht es rein schwarz.</string>
+    <string name="title_disable_hevc_low_latency">HEVC-Latenzflags</string>
+    <string name="summary_disable_hevc_low_latency">Ausschalten, wenn HEVC-Video ruckelt oder einfriert. Aus überspringt die optionalen Android- und Chipsatz-Latenzflags sowie die Referenzbild-Invalidierung für HEVC. Erforderliche Kompatibilitätsflags bleiben auf älteren Fire-TV-Decodern erhalten. Andere Codecs und Decoder-Leistungshinweise behalten ihre eigenen Einstellungen. Gilt ab dem nächsten Stream.</string>
     <string name="title_oled_black">OLED-Schwarz</string>
-    <string name="summary_oled_black">Verwendet rein schwarze Hintergründe in der App, in Menüs und Dialogen, auch bei hellem Systemdesign.</string>
 </resources>

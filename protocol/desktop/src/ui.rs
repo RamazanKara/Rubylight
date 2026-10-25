@@ -44,6 +44,8 @@ pub enum Command {
     SaveShortcuts,
     ImportShortcuts,
     ExportShortcuts,
+    /// Show the folder with Nightjar's log files in the file manager.
+    OpenLogs,
     CancelPair,
     AddHost(String),
     Unpair(u64),
@@ -1996,6 +1998,11 @@ impl Launcher {
                             }
                         })
                         .response
+                });
+                row(ui, "Logs", "Nightjar keeps a log of the last two runs. Attach nightjar.log, and nightjar.prev.log if the problem was before a restart, to a bug report.", |ui| {
+                    let button = quiet_button(ui, "Open logs folder");
+                    if button.clicked() { commands.push(Command::OpenLogs); }
+                    button
                 });
                 row(ui, "High contrast", "Black surfaces, white text and thicker outlines and focus rings.", |ui| {
                     toggle(ui, &mut s.high_contrast)

@@ -93,8 +93,8 @@ Capture direction:
    PyroWave (host support required), then goes back to Display & image, where Adaptive
    refresh (ARR / VRR) is on. The take does not choose PyroWave, so the emulator's
    readiness check (it has no Adreno GPU) never shows.
-7. `09-upscaling` taps Client-side upscaling on the same page: Off, Bilinear, FSR 1.0
-   and SGSR 1 (Snapdragon Game Super Resolution).
+7. `09-upscaling` taps Client-side upscaling on the same page: Off, Smooth, Sharp (FSR)
+   and Sharp, Snapdragon (SGSR, Snapdragon Game Super Resolution).
 8. `18-gpu-driver` taps Snapdragon GPU driver in Advanced. The emulator is x86_64, so
    the release app hides this row and screen there; the debug demo shows them as on an
    arm64 Adreno phone (see the [demo README](README.md)), with the system driver

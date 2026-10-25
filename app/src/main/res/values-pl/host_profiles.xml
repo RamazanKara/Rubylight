@@ -11,7 +11,7 @@
     <string name="host_profile_native">Rozmiar ekranu (zgodnie z tym ekranem)</string>
     <string name="host_profile_refresh">Liczba klatek (FPS)</string>
     <string name="host_profile_bitrate">Szybkość transmisji (Mbps)</string>
-    <string name="host_profile_scale">Skala renderowania hosta (%)</string>
+    <string name="host_profile_scale">Rozdzielczość renderowania komputera (%)</string>
     <string name="host_profile_codec">Kodek wideo</string>
     <string name="host_profile_virtual_display">Wirtualny ekran hosta</string>
     <string name="host_profile_hdr">HDR</string>

@@ -3,7 +3,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import test from 'node:test';
-import { addEntry, emptyTable, main, parseResults, validateResults } from './add-device-results.mjs';
+import { addEntry, emptyTable, main, parseResults, replaceEntry, validateResults } from './add-device-results.mjs';
+import { END, START } from './device-docs.mjs';
 
 // The layout DeviceResultsTest pins for the app's export.
 const sample = `{
@@ -164,4 +165,47 @@ test('the command line appends to the data file and the checked-in file is valid
   assert.equal(table.entries.length, 1);
   assert.equal(table.entries[0].results.device.socModel, 'SM8550');
   assert.throws(() => main(['pasted.txt', '--issue', '8', '--data', 'table.json'], root), /exact results/);
+});
+
+test('replaceEntry updates an issue in place and keeps the added date', () => {
+  const { results } = validateResults(parsed());
+  const table = emptyTable();
+  assert.equal(replaceEntry(table, results, { issue: 12, name: 'Galaxy S23', added: '2026-10-15' }), 'added');
+  assert.equal(replaceEntry(table, results, { issue: 12, name: 'Galaxy S23', added: '2026-11-01' }), 'unchanged');
+  assert.equal(replaceEntry(table, results, { issue: 12, added: '2026-11-01' }), 'unchanged');
+
+  const faster = structuredClone(results);
+  faster.decoderBenchmark.results[0].medianDecodeMs = 1.5;
+  assert.equal(replaceEntry(table, faster, { issue: 12, name: 'Galaxy S23 Plus', added: '2026-11-01' }), 'updated');
+  assert.equal(table.entries.length, 1);
+  assert.deepEqual(table.entries[0], { issue: 12, added: '2026-10-15', name: 'Galaxy S23 Plus', results: faster });
+
+  // Another issue may not publish the same text, and plain addEntry still refuses a known issue.
+  assert.throws(() => replaceEntry(table, faster, { issue: 13, added: '2026-11-01' }), /exact results/);
+  assert.throws(() => addEntry(table, faster, { issue: 12, added: '2026-11-01' }), /already in the table/);
+  const other = structuredClone(results);
+  other.device.model = 'SM-X';
+  replaceEntry(table, other, { issue: 13, added: '2026-11-02' });
+  assert.throws(() => replaceEntry(table, other, { issue: 12, added: '2026-11-03' }), /under another issue/);
+});
+
+test('--replace and --docs update the table data and the docs together', t => {
+  const parent = resolve(tmpdir());
+  const root = mkdtempSync(join(parent, 'nightjar-device-results-'));
+  t.after(() => {
+    assert.ok(resolve(root).startsWith(parent + sep + 'nightjar-device-results-'));
+    rmSync(root, { recursive: true });
+  });
+  writeFileSync(join(root, 'table.json'), JSON.stringify(emptyTable()));
+  writeFileSync(join(root, 'devices.md'), '# Devices\n\n' + START + '\nold\n' + END + '\n\n| To measure |\n');
+  writeFileSync(join(root, 'pasted.txt'), sample);
+  const args = ['pasted.txt', '--issue', '7', '--name', 'Galaxy S23', '--data', 'table.json', '--docs', 'devices.md', '--replace'];
+  main([...args, '--date', '2026-10-15'], root);
+  const docs = readFileSync(join(root, 'devices.md'), 'utf8');
+  assert.match(docs, /\| Galaxy S23 \| Snapdragon 8 Gen 2 \(SM8550\) \| 14 \| 2\.10 \| 2\.45 \| — \|/);
+  assert.ok(docs.endsWith('\n\n| To measure |\n'));
+  // The same issue again replaces instead of failing, and nothing changes when the text is identical.
+  main([...args, '--date', '2026-12-01'], root);
+  assert.equal(readFileSync(join(root, 'devices.md'), 'utf8'), docs);
+  assert.equal(JSON.parse(readFileSync(join(root, 'table.json'), 'utf8')).entries[0].added, '2026-10-15');
 });

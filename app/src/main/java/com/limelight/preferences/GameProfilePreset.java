@@ -14,8 +14,8 @@ import com.limelight.R;
  * <li>Smoothness sets the smoothest frame pacing, which holds frames back and adds delay, and turns
  * adaptive refresh off for the game because it replaces frame pacing. Bitrate is not touched.</li>
  * <li>Quality sets the bitrate to 150% of what the PC or the main settings use, up to the highest
- * bitrate the host accepts and, with automatic bitrate on, up to its maximum. Frame pacing and
- * adaptive refresh are not touched. On a weak link the larger frames can add delay.</li>
+ * bitrate the host accepts. Frame pacing and adaptive refresh are not touched. On a weak link the
+ * larger frames can add delay.</li>
  * <li>Custom: any other combination, including two presets' values together.</li>
  * </ul>
  *
@@ -52,18 +52,11 @@ public enum GameProfilePreset {
 
     /**
      * The bitrate Quality sets: 150% of {@code baseBitrateKbps}, at most what the host accepts and
-     * the bitrate slider offers ({@link HostStreamProfile#MAX_BITRATE_KBPS}) and, when automatic
-     * bitrate is on and has a maximum, at most that maximum.
-     *
-     * @param autoMaxKbps the automatic bitrate maximum, or 0 for none; it counts only when {@code autoBitrate}
+     * the bitrate slider offers ({@link HostStreamProfile#MAX_BITRATE_KBPS}).
      */
-    static int qualityBitrate(int baseBitrateKbps, boolean autoBitrate, int autoMaxKbps) {
-        long cap = HostStreamProfile.MAX_BITRATE_KBPS;
-        if (autoBitrate && autoMaxKbps > 0) {
-            cap = Math.min(cap, autoMaxKbps);
-        }
+    static int qualityBitrate(int baseBitrateKbps) {
         long wanted = (long) baseBitrateKbps * QUALITY_BITRATE_PERCENT / 100;
-        return (int) Math.max(500, Math.min(cap, wanted));
+        return (int) Math.max(500, Math.min(HostStreamProfile.MAX_BITRATE_KBPS, wanted));
     }
 
     /**

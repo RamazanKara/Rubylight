@@ -11,7 +11,7 @@
     <string name="host_profile_native">Розмір екрана (як цей екран)</string>
     <string name="host_profile_refresh">Частота кадрів (FPS)</string>
     <string name="host_profile_bitrate">Бітрейт (Мбіт/с)</string>
-    <string name="host_profile_scale">Масштаб рендерингу на хості (%)</string>
+    <string name="host_profile_scale">Роздільність рендерингу на ПК (%)</string>
     <string name="host_profile_codec">Відеокодек</string>
     <string name="host_profile_virtual_display">Віртуальний дисплей хоста</string>
     <string name="host_profile_hdr">HDR</string>

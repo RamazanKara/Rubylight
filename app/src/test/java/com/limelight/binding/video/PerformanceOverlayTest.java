@@ -32,7 +32,7 @@ public class PerformanceOverlayTest {
         String text = PerformanceOverlay.statisticsText(context(Locale.US), "1920×1080 · AV1 · HDR",
                 59.94f, 60, 20.4f, 0.14f, 8, 1, 2.1f, -1, 4.6f, 1.2f, false).toString();
         assertEquals("1920×1080 · AV1 · HDR\n" +
-                "Displayed: 59.9 FPS · Received: 60.0 FPS\n" +
+                "Rendered: 59.9 FPS · Received: 60.0 FPS\n" +
                 "Video payload: 20.4 Mbps · Loss: 0.14%\n" +
                 "Network RTT: 8 ms (±1 ms)\n" +
                 "Host processing: 2.1 ms\n" +
@@ -68,7 +68,7 @@ public class PerformanceOverlayTest {
         for (float missing : new float[] {-1, Float.NaN, Float.NEGATIVE_INFINITY, Float.POSITIVE_INFINITY}) {
             String text = PerformanceOverlay.statisticsText(context(Locale.US), "1280×720 · PyroWave · SDR",
                     missing, 60, missing, missing, missing, missing, missing, missing, missing, missing, false).toString();
-            assertTrue(text.contains("Displayed: — FPS · Received: 60.0 FPS"));
+            assertTrue(text.contains("Rendered: — FPS · Received: 60.0 FPS"));
             assertTrue(text.contains("Video payload: — Mbps · Loss: —%"));
             assertTrue(text.contains("Network RTT: — ms (±— ms)"));
             assertTrue(text.contains("Host processing: — ms"));
@@ -82,13 +82,13 @@ public class PerformanceOverlayTest {
     public void germanUsesLocalizedLabelsAndMeasurements() {
         String text = PerformanceOverlay.statisticsText(context(Locale.GERMANY), "1920×1080 · HEVC · SDR",
                 59.94f, 60, 20.4f, 0.14f, 8, 1, 2.1f, -1, 4.6f, 1.2f, false).toString();
-        assertTrue(text.contains("Angezeigt: 59,9 FPS"));
+        assertTrue(text.contains("Gerendert: 59,9 FPS"));
         assertTrue(text.contains("Videodaten: 20,4 Mbit/s · Verlust: 0,14%"));
         assertTrue(text.contains("Host-Verarbeitung: 2,1 ms"));
     }
 
     @Test
-    public void displayedFpsTracksPresentationInsteadOfReceivedFrames() {
+    public void renderedFpsTracksSubmittedFramesInsteadOfReceivedOrConfirmedFrames() {
         FrameLatencyStats stats = new FrameLatencyStats();
         long startNs = 1000000000L;
         stats.onFrameReceived(startNs);
@@ -103,12 +103,38 @@ public class PerformanceOverlayTest {
         float[] rates = stats.getFrameRates(startNs + 2020000000L);
         double[][] summary = stats.summarize();
         String text = PerformanceOverlay.statisticsText(context(Locale.US), "1280×720 · PyroWave · SDR",
-                rates[2], rates[0], 12, 1.2f, 8, 1, PerformanceOverlay.average(summary, 4),
+                PerformanceOverlay.renderedFps(rates), rates[0], 12, 1.2f, 8, 1, PerformanceOverlay.average(summary, 4),
                 PerformanceOverlay.average(summary, 7), stats.takeDecodeTimeMs(),
                 PerformanceOverlay.average(summary, 2), false).toString();
-        assertTrue(text.contains("Displayed: 30.0 FPS"));
+        // Every frame is released for rendering; only half get a render callback (rates[2] is 30).
+        assertEquals(30, rates[2], 0.5f);
+        assertTrue(text.contains("Rendered: 60.0 FPS"));
         assertTrue(text.contains("Host processing: 2.1 ms"));
         assertTrue(text.contains("Decode: 4.00 ms · Display wait: 4.00 ms"));
+    }
+
+    @Test
+    public void compactDotJudgesCompositorConfirmedFramesWhenReported() {
+        float[] confirmed = {60, 60, 30};
+        float[] unreported = {60, 60, -1};
+        assertEquals(60, PerformanceOverlay.renderedFps(confirmed), 0);
+        assertEquals(30, PerformanceOverlay.healthFps(confirmed), 0);
+        assertEquals(60, PerformanceOverlay.healthFps(unreported), 0);
+        // The number shown is the rendered rate; on-screen drops still turn the dot red.
+        CharSequence poor = PerformanceOverlay.compactText(context(Locale.US),
+                PerformanceOverlay.renderedFps(confirmed), PerformanceOverlay.healthFps(confirmed), 60, 8, 0, 4);
+        assertTrue(poor.toString().contains("60.0 FPS"));
+        assertEquals(PerformanceOverlay.Health.POOR, healthOf(poor));
+        CharSequence good = PerformanceOverlay.compactText(context(Locale.US),
+                PerformanceOverlay.renderedFps(unreported), PerformanceOverlay.healthFps(unreported), 60, 8, 0, 4);
+        assertEquals(PerformanceOverlay.Health.GOOD, healthOf(good));
+    }
+
+    private static PerformanceOverlay.Health healthOf(CharSequence compact) {
+        PerformanceOverlay.HealthSpan[] spans = ((android.text.Spanned) compact)
+                .getSpans(0, 1, PerformanceOverlay.HealthSpan.class);
+        assertEquals(1, spans.length);
+        return spans[0].health;
     }
 
     @Test

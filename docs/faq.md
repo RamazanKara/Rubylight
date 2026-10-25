@@ -38,6 +38,10 @@ A PC's own values override the preset for that PC. In that PC's settings, set th
 
 Begin with Automatic codec and upscaling Off. Compare measured decode time and image quality on your device before changing them. [Video and latency](video-and-latency.md) explains the choices, HDR and VRR.
 
+## Why do I see banding in gradients and skies?
+
+8-bit video can show visible steps in smooth gradients. If your screen has no HDR, or you keep HDR off, turn on **10-bit color (SDR)** in Stream settings. It needs a Main10 HEVC or AV1 decoder on this device and a PC that offers 10-bit; otherwise the stream stays 8-bit and Nightjar says so. The PC's display must be in SDR. See [HDR and color](video-and-latency.md#hdr-and-color).
+
 ## Is the overlay latency the delay I feel?
 
 Statistics shows network round-trip time, available host processing, decode time and display wait separately. Debug adds detailed stage timings. These values do not measure physical input sampling through display scanout; physical end-to-end latency needs an external measurement. Choose the view through **stream menu → Display → Overlay and diagnostics**.

@@ -11,7 +11,7 @@
     <string name="host_profile_native">屏幕尺寸（跟随此屏幕）</string>
     <string name="host_profile_refresh">帧率（FPS）</string>
     <string name="host_profile_bitrate">码率（Mbps）</string>
-    <string name="host_profile_scale">主机渲染缩放（%）</string>
+    <string name="host_profile_scale">电脑渲染分辨率 (%)</string>
     <string name="host_profile_codec">视频编解码器</string>
     <string name="host_profile_virtual_display">主机虚拟显示器</string>
     <string name="host_profile_hdr">HDR</string>

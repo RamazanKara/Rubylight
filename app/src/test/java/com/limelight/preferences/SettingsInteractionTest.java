@@ -48,9 +48,10 @@ public class SettingsInteractionTest {
         SharedPreferences prefs = android.preference.PreferenceManager.getDefaultSharedPreferences(app);
         prefs.edit().clear().commit();
         android.preference.PreferenceManager.setDefaultValues(app, R.xml.preferences, true);
-        assertEquals("compact", prefs.getString("performance_overlay_mode", null));
+        // The overlay picker has no default of its own; nothing is stored until it is used, and that reads as Off.
+        assertEquals(0, OverlayChoice.read(prefs));
         PreferenceConfiguration.readPreferences(app);
-        assertEquals("compact", prefs.getString("performance_overlay_mode", null));
+        assertEquals("compact", prefs.getString("performance_overlay_mode", "compact"));
     }
 
     @Test

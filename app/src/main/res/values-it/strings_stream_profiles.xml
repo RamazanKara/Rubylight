@@ -118,7 +118,7 @@
     <string name="game_preset_smoothness">Fluidità</string>
     <string name="game_preset_smoothness_summary">Imposta il frame pacing più fluido, che trattiene i fotogrammi e aggiunge ritardo, e disattiva la frequenza adattiva per questo gioco. Il bitrate non cambia.</string>
     <string name="game_preset_quality">Qualità</string>
-    <string name="game_preset_quality_summary" formatted="false">Imposta il bitrate al 150% di quello del PC, o delle impostazioni principali se il PC non ne ha uno, fino al limite dell’host e al massimo del bitrate automatico. Il frame pacing e la frequenza adattiva non cambiano; con una connessione debole i fotogrammi più grandi possono aggiungere ritardo.</string>
+    <string name="game_preset_quality_summary" formatted="false">Imposta il bitrate al 150% di quello del PC, o delle impostazioni principali se il PC non ne ha uno, fino al limite dell’host. Il frame pacing e la frequenza adattiva non cambiano; con una connessione debole i fotogrammi più grandi possono aggiungere ritardo.</string>
     <string name="game_preset_custom">Personalizzato</string>
     <string name="game_preset_custom_summary">I tuoi valori, impostati qui sotto.</string>
 </resources>

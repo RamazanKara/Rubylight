@@ -24,6 +24,7 @@ import com.limelight.binding.input.driver.UsbDriverService;
 import com.limelight.binding.input.evdev.EvdevListener;
 import com.limelight.binding.input.touch.TouchContext;
 import com.limelight.binding.input.virtual_controller.VirtualController;
+import com.limelight.binding.video.CrashAccounting;
 import com.limelight.binding.video.CrashListener;
 import com.limelight.binding.video.DecoderSetupFailure;
 import com.limelight.binding.video.DiscardingDecoderRenderer;
@@ -36,6 +37,8 @@ import com.limelight.binding.video.MediaCodecDecoderRenderer;
 import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.binding.video.PerfOverlayListener;
 import com.limelight.binding.video.PerformanceOverlay;
+import com.limelight.binding.video.Sdr10Policy;
+import com.limelight.binding.video.StagedStreamExit;
 import com.limelight.binding.video.StreamResizePolicy;
 import com.limelight.binding.video.UpscalingPolicy;
 import com.limelight.computers.HostCapabilityCache;
@@ -59,6 +62,7 @@ import com.limelight.nvstream.input.KeyboardPacket;
 import com.limelight.nvstream.input.MouseButtonPacket;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.AppQuitOnLeave;
+import com.limelight.preferences.AutoBitrateChoice;
 import com.limelight.preferences.GlPreferences;
 import com.limelight.preferences.HostDisplayChoice;
 import com.limelight.preferences.PreferenceConfiguration;
@@ -236,7 +240,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private com.limelight.ui.AdaptiveLayout adaptiveLayout;
     private boolean surfaceCreated = false;
     private boolean attemptedConnection = false;
-    private Thread connectionStopThread;
+    private volatile Thread connectionStopThread;
     private StreamRecoveryPolicy recoveryPolicy = new StreamRecoveryPolicy(0, 0);
     private long connectedAt = -1;
     private int recoveryAppId;
@@ -411,12 +415,15 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             new android.hardware.display.DisplayManager.DisplayListener() {
                 @Override public void onDisplayAdded(int displayId) {}
                 @Override public void onDisplayRemoved(int displayId) {
+                    Display video = getVideoDisplay();
+                    if (video.getDisplayId() == displayId) noteVideoDisplay(video, true);
                     if (externalPresentation != null && externalPresentation.getDisplay().getDisplayId() == displayId) {
                         returnVideoToDevice();
                     }
                 }
                 @Override public void onDisplayChanged(int displayId) {
                     Display display = getVideoDisplay();
+                    if (display.getDisplayId() == displayId) noteVideoDisplay(display, false);
                     if (conn != null && display.getDisplayId() == displayId) {
                         updateInputPollingRate();
                         // Also fires when a foldable moves the stream to its other screen.
@@ -427,6 +434,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             };
     // Whether this stream asked for HDR (setting on, HDR10 display and decoder).
     private boolean streamHdr;
+    // 10-bit formats offered for 10-bit SDR (the setting), without asking the PC for HDR.
+    private boolean streamSdr10;
+    private Boolean sdr10LastHostHdr;
     private HdrPolicy.Status lastHdrStatus = HdrPolicy.Status.QUIET;
     private DisplayCapsReporter displayCapsReporter;
 
@@ -580,6 +590,155 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     private MediaCodecDecoderRenderer decoderRenderer;
     private boolean reportedCrash;
+    // The PC (or this device) ended the stream. A decoder failure after that is the stream going
+    // away, not a decoder crash.
+    private volatile boolean streamTerminated;
+    // Experimental: a TV that loses its HDMI signal takes the decoder down with it. Whether the
+    // video display is off, invalid or gone, as of its last change.
+    private volatile boolean videoDisplayOff;
+    private volatile Boolean androidTv;
+
+    private boolean isAndroidTv() {
+        Boolean tv = androidTv;
+        if (tv == null) {
+            tv = getPackageManager().hasSystemFeature(PackageManager.FEATURE_TELEVISION) ||
+                    getPackageManager().hasSystemFeature(PackageManager.FEATURE_LEANBACK);
+            androidTv = tv;
+        }
+        return tv;
+    }
+
+    private boolean streamEnding() {
+        // hostExitRequested is left out: a failed quit keeps it set for 15 s while still streaming.
+        return streamTerminated || exiting || connectionStopThread != null;
+    }
+
+    private void noteVideoDisplay(Display display, boolean removed) {
+        videoDisplayOff = removed || !display.isValid() || display.getState() != Display.STATE_ON;
+        stagedExit.onDisplayChanged(SystemClock.uptimeMillis());
+    }
+
+    // Experimental: on Android TV, an HDR stream ends in stages (stop and release the decoder and
+    // video output, let the display settle, give the display mode back, settle again, then finish)
+    // so the HDR to SDR switch and the mode revert never overlap and wedge the TV's HDMI link.
+    // Everything else finishes at once, as always. See StagedStreamExit.
+    private final StagedStreamExit stagedExit = new StagedStreamExit();
+    private final Handler exitHandler = new Handler(Looper.getMainLooper());
+    private final Runnable stagedExitRunnable = this::stagedExitTick;
+    // True from the first finish() of a staged exit on; isFinishing() reports it so every
+    // "is this stream ending" check in this class holds while the exit is staged.
+    private volatile boolean exiting;
+    private boolean exitFinished;
+    private boolean stagedExitStopDone;
+
+    @Override
+    public boolean isFinishing() {
+        return exiting || super.isFinishing();
+    }
+
+    @Override
+    public void finish() {
+        if (exitFinished) {
+            super.finish();
+        } else if (exiting) {
+            LimeLog.info("Exit: already in progress, ignoring finish()");
+        } else if (stagedExitApplies()) {
+            beginStagedExit();
+        } else {
+            exitFinished = true;
+            super.finish();
+        }
+    }
+
+    // For a hand-off to a new stream activity (reconnect, new intent): the stream is not ending.
+    private void finishNow() {
+        exitFinished = true;
+        super.finish();
+    }
+
+    private boolean stagedExitApplies() {
+        return !isDestroyed() && attemptedConnection && decoderRenderer != null &&
+                StagedStreamExit.applies(isAndroidTv(),
+                        streamHdr || Boolean.TRUE.equals(decoderRenderer.getHostHdrReport()));
+    }
+
+    private void beginStagedExit() {
+        if (!stagedExit.begin(SystemClock.uptimeMillis())) return;
+        exiting = true;
+        LimeLog.info("Exit: staged (Android TV, HDR stream, Experimental)");
+        setInputGrabState(false);
+        if (streamMenu != null) streamMenu.dismiss();
+        LimeLog.info("Exit: stopping the connection and releasing the decoder");
+        stopConnection();
+        exitHandler.post(stagedExitRunnable);
+    }
+
+    private void stagedExitTick() {
+        if (exitFinished || isDestroyed()) return;
+        long now = SystemClock.uptimeMillis();
+        Thread stopping = connectionStopThread;
+        if ((stopping == null || !stopping.isAlive()) && !stagedExitStopDone) {
+            stagedExitStopDone = true;
+            stagedExit.onStopFinished();
+            if (stagedExit.stopTimedOut()) LimeLog.info("Exit: connection stop finished late");
+        }
+        switch (stagedExit.poll(now)) {
+            case RELEASE_OUTPUT:
+                LimeLog.info(stagedExit.stopTimedOut() ?
+                        "Exit: connection stop still running after " + StagedStreamExit.STOP_TIMEOUT_MS +
+                                " ms, releasing the video output anyway and waiting for it before the mode restore" :
+                        "Exit: decoder released, releasing the video output");
+                releaseVideoOutput();
+                break;
+            case RESTORE_DISPLAY_MODE:
+                LimeLog.info("Exit: display settled, restoring the display mode");
+                restoreDisplayMode();
+                break;
+            case FINISH:
+                LimeLog.info("Exit: display settled, finishing");
+                exitFinished = true;
+                super.finish();
+                return;
+            default:
+                break;
+        }
+        exitHandler.postDelayed(stagedExitRunnable, StagedStreamExit.POLL_MS);
+    }
+
+    // Tears the video surface down, which ends the HDR output. The stop thread has released
+    // the decoder by now (or timed out; the surface callbacks then stop it as they always do).
+    private void releaseVideoOutput() {
+        // Where the display is now stays requested until RESTORE_DISPLAY_MODE: on Android 12+ the
+        // refresh rate may have been switched by the surface's frame-rate vote, which would
+        // otherwise be dropped together with the HDR output.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                android.view.Window window = getVideoWindow();
+                WindowManager.LayoutParams attributes = window.getAttributes();
+                attributes.preferredDisplayModeId = getVideoDisplay().getMode().getModeId();
+                window.setAttributes(attributes);
+            } catch (RuntimeException e) {
+                LimeLog.warning("Exit: could not pin the display mode: " + e);
+            }
+        }
+        if (streamView != null) streamView.setVisibility(View.GONE);
+        if (renderView != null && renderView != streamView) renderView.setVisibility(View.GONE);
+    }
+
+    // Gives back what prepareDisplayForRendering() and the pin above asked of the display, instead
+    // of leaving it to the window going away at the same time as something else. The surface is
+    // gone by now, so its frame-rate vote went with it.
+    private void restoreDisplayMode() {
+        try {
+            android.view.Window window = getVideoWindow();
+            WindowManager.LayoutParams attributes = window.getAttributes();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) attributes.preferredDisplayModeId = 0;
+            attributes.preferredRefreshRate = 0;
+            window.setAttributes(attributes);
+        } catch (RuntimeException e) {
+            LimeLog.warning("Exit: could not restore the display mode: " + e);
+        }
+    }
 
     private WifiManager.WifiLock highPerfWifiLock;
     private WifiManager.WifiLock lowLatencyWifiLock;
@@ -888,6 +1047,17 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         // The MediaCodec instance is going down due to a crash
                         // let's tell the user something when they open the app again
 
+                        // A stream that is ending, or a TV that just lost its display, is not a decoder
+                        // crash: counting it would disable features and reset settings next time.
+                        CrashAccounting.Verdict verdict = CrashAccounting.classify(streamEnding(),
+                                isAndroidTv(), videoDisplayOff);
+                        if (verdict != CrashAccounting.Verdict.COUNT) {
+                            LimeLog.warning("Decoder failure not counted as a crash (" +
+                                    (verdict == CrashAccounting.Verdict.DISPLAY_LOST ? "display lost" : "stream ending") +
+                                    "): " + e);
+                            return;
+                        }
+
                         // We must use commit because the app will crash when we return from this function
                         synchronized (tombstonePrefs) {
                             if (reportedCrash) {
@@ -952,7 +1122,25 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             hostNotice(HostNotices.Notice.CODEC_UNAVAILABLE, R.string.stream_av1_decoder_missing);
         }
 
-        int supportedVideoFormats = mediaStream ? decoderRenderer.getSupportedVideoFormats(willStreamHdr) : MoonBridge.VIDEO_FORMAT_H264;
+        // 10-bit SDR: the 10-bit formats without HDR. HDR, when granted, wins.
+        boolean sdr10Hevc = mediaStream && decoderRenderer.isHevcMain10Supported();
+        boolean sdr10Av1 = mediaStream && decoderRenderer.isAv1Main10SdrSupported();
+        Sdr10Policy.Refusal sdr10Refusal = Sdr10Policy.refusal(mediaStream, prefConfig.enableSdr10Bit, willStreamHdr,
+                sdr10Hevc, sdr10Av1, prefConfig.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE,
+                prefConfig.experimentalPacked444);
+        streamSdr10 = Sdr10Policy.formats(sdr10Refusal, sdr10Hevc, sdr10Av1) != 0;
+        decoderRenderer.setSdr10Requested(streamSdr10);
+        if (Sdr10Policy.worthSaying(sdr10Refusal)) {
+            LimeLog.warning("10-bit SDR enabled but not used: " + sdr10Refusal);
+            int reason = sdr10Refusal == Sdr10Policy.Refusal.PYROWAVE ? R.string.stream_sdr10_reason_pyrowave :
+                    sdr10Refusal == Sdr10Policy.Refusal.PACKED_444 ? R.string.stream_sdr10_reason_packed :
+                            R.string.stream_sdr10_reason_decoder;
+            messages.notice(getIntent().getStringExtra(EXTRA_PC_UUID), HostNotices.Notice.SDR10_UNAVAILABLE,
+                    getString(R.string.stream_sdr10_unavailable, getString(reason)));
+        }
+        // Native 4:4:4 over 10-bit SDR depends on the PC, so the connection decides it (and re-arms the notice).
+
+        int supportedVideoFormats = mediaStream ? decoderRenderer.getSupportedVideoFormats(willStreamHdr, streamSdr10) : MoonBridge.VIDEO_FORMAT_H264;
 
         int gamepadMask = ControllerHandler.getAttachedControllerMask(this);
         if (!prefConfig.multiController) {
@@ -1022,6 +1210,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .setMaxPacketSize(1392)
                 .setRemoteConfiguration(StreamConfiguration.STREAM_CFG_AUTO) // NvConnection will perform LAN and VPN detection
                 .setSupportedVideoFormats(supportedVideoFormats)
+                .setSdr10Bit(streamSdr10)
                 .setAttachedGamepadMask(gamepadMask)
                 .setClientRefreshRateX100(Math.round(desiredRefreshRate * 100))
                 .setVirtualDisplay(!smallStream && prefConfig.virtualDisplay, prefConfig.virtualDisplayScale)
@@ -2238,6 +2427,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     protected void onDestroy() {
         if (nativeMenuThread != null) nativeMenuThread.shutdownNow();
+        // A staged exit still waiting on the display ends here with the activity.
+        exitHandler.removeCallbacksAndMessages(null);
+        exitFinished = true;
         stopConnection();
         if (externalPresentation != null) {
             externalPresentation.setOnDismissListener(null);
@@ -2284,7 +2476,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         // singleTask can deliver a new shortcut launch to a stream still visible in PiP.
         setInputGrabState(false);
         stopConnection();
-        finish();
+        finishNow();
         startActivity(new Intent(intent));
     }
 
@@ -2411,7 +2603,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     }
 
                     if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0) {
-                        message += " HDR";
+                        message += streamSdr10 && !Boolean.TRUE.equals(decoderRenderer.getHostHdrReport()) ?
+                                " 10-bit SDR" : " HDR";
                     }
 
                     message += "]";
@@ -3493,7 +3686,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 if (foreground && generation == foregroundGeneration && recovery == recoveryGeneration &&
                         !isFinishing() && !isDestroyed()) {
                     recoveryHandoffInProgress = false;
-                    finish();
+                    finishNow();
                     startActivity(retry);
                 }
             });
@@ -3601,7 +3794,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         return;
                     }
                     recoveryHandoffInProgress = false;
-                    finish();
+                    finishNow();
                     startActivity(retry);
                 });
             }, "Automatic stream recovery").start();
@@ -3772,7 +3965,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             if (!foreground || !connected || hostActionInProgress) {
                 return;
             }
-            setAdaptiveBitrateEnabled(false, true);
+            // A manual bitrate stops automatic bitrate for this session only; the saved choice stays.
+            setAdaptiveBitrateEnabled(false, false);
+            qualityAutoBitrate = false;
             bitrateDialog.dismiss();
             hostActionInProgress = true;
             final int generation = foregroundGeneration;
@@ -3937,13 +4132,19 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     private String adaptiveBitratePreferences() {
         return (decoderRenderer.getActiveVideoFormat() & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 ?
-                "PyroWaveBitrate" : "AdaptiveBitrate";
+                AutoBitrateChoice.PYROWAVE_STORE : AutoBitrateChoice.CODEC_STORE;
+    }
+
+    /** Whether the stream starts with automatic bitrate: this PC's choice, else the Settings switch. */
+    boolean autoBitrateAtStart() {
+        return supportsAdaptiveBitrate() &&
+                AutoBitrateChoice.isOn(this, adaptiveBitratePreferences(), getIntent().getStringExtra(EXTRA_PC_UUID));
     }
 
     private void setAdaptiveBitrateEnabled(boolean enabled, boolean remember) {
         if (remember) {
-            getSharedPreferences(adaptiveBitratePreferences(), MODE_PRIVATE).edit()
-                    .putBoolean(getIntent().getStringExtra(EXTRA_PC_UUID), enabled).apply();
+            AutoBitrateChoice.setForPc(this, adaptiveBitratePreferences(),
+                    getIntent().getStringExtra(EXTRA_PC_UUID), enabled);
             // The person chose it themselves; Automatic quality no longer owns it.
             qualityAutoBitrate = false;
         }
@@ -3958,7 +4159,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 pyroWaveBitrate = new PyroWaveBitrateController(0, 0, streamFps,
                         SystemClock.uptimeMillis());
             } else {
-                adaptiveBitrate = new AdaptiveBitrateController(0, 0, streamFps, SystemClock.uptimeMillis(), 0, 0,
+                adaptiveBitrate = new AdaptiveBitrateController(0, 0, streamFps, SystemClock.uptimeMillis(),
                         prefConfig.width, prefConfig.height, adaptiveBitrateCodec());
             }
             // The preference includes FEC/audio, while runtime changes use encoder Kbps.
@@ -4000,9 +4201,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                             adaptiveBitrateClaimFailures = 0;
                             long now = SystemClock.uptimeMillis();
                             if (details != null) {
+                                // The bitrate the stream started at (the bitrate setting, after profiles) is the
+                                // ceiling; the built-in floor applies.
                                 int ceiling = Math.max(details.initialEncoderBitrateKbps, applied);
                                 if (controller != null) adaptiveBitrate = new AdaptiveBitrateController(ceiling, applied, streamFps, now,
-                                        prefConfig.autoBitrateMinKbps, prefConfig.autoBitrateMaxKbps,
                                         prefConfig.width, prefConfig.height, adaptiveBitrateCodec());
                                 if (pyroController != null) pyroWaveBitrate = new PyroWaveBitrateController(ceiling, applied, streamFps, now);
                             } else {
@@ -5827,6 +6029,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     public void connectionTerminated(final int reportedErrorCode) {
         LimeLog.info("Stream disconnected");
+        streamTerminated = true;
         final boolean exitRequested = hostExitRequested;
         if (reportedErrorCode == MoonBridge.ML_ERROR_GRACEFUL_TERMINATION) {
             LimeLog.info("Connection terminated: the PC ended the stream");
@@ -6051,8 +6254,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         app.getRole() == NvApp.Role.INPUT_ONLY || externalPresentation != null ? View.VISIBLE : View.GONE);
                 currentBitrate = prefConfig.bitrate;
                 warnIfBelowPyroWaveFloor(currentBitrate);
-                if (supportsAdaptiveBitrate() && getSharedPreferences(adaptiveBitratePreferences(), MODE_PRIVATE)
-                        .getBoolean(getIntent().getStringExtra(EXTRA_PC_UUID), false)) {
+                if (autoBitrateAtStart()) {
                     setAdaptiveBitrateEnabled(true, false);
                 }
                 startAdaptiveQuality();
@@ -6430,6 +6632,23 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 lastHdrStatus = status;
                 if (res != 0) LimeLog.warning("HDR requested but " + status);
             }
+        }
+        if (streamSdr10 && decoderRenderer != null) {
+            int format = decoderRenderer.getActiveVideoFormat();
+            boolean tenBit = (format & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
+            Boolean report = decoderRenderer.getHostHdrReport();
+            if (Sdr10Policy.status(tenBit, report) == Sdr10Policy.Status.HOST_HDR) {
+                text = getString(R.string.stream_sdr10_host_hdr);
+            }
+            Sdr10Policy.HostHdrStep step = Sdr10Policy.hostHdrStep(tenBit, report, sdr10LastHostHdr);
+            if (step == Sdr10Policy.HostHdrStep.SAY) {
+                LimeLog.warning("10-bit SDR requested but the PC sends HDR");
+                hostNotice(HostNotices.Notice.SDR10_HOST_HDR, R.string.stream_sdr10_host_hdr);
+            } else if (step == Sdr10Policy.HostHdrStep.REARM) {
+                // The PC's display is in SDR now; if it goes to HDR again, say so again.
+                HostNotices.reset(this, getIntent().getStringExtra(EXTRA_PC_UUID), HostNotices.Notice.SDR10_HOST_HDR);
+            }
+            if (tenBit && report != null) sdr10LastHostHdr = report;
         }
         if (messages.status("hdr", text)) updatePerformanceOverlay();
     }

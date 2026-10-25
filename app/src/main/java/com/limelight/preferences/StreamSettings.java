@@ -12,6 +12,7 @@ import android.media.MediaCodecInfo;
 import android.os.Build;
 import android.os.Bundle;
 import androidx.appcompat.app.AlertDialog;
+import com.limelight.ui.AppTheme;
 import com.limelight.ui.NightjarActivity;
 import androidx.appcompat.widget.SearchView;
 import androidx.activity.OnBackPressedCallback;
@@ -74,16 +75,25 @@ import java.io.OutputStream;
 import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 public class StreamSettings extends NightjarActivity {
     private static final int EXPORT_LATENCY_REQUEST = 1;
     private static final String STATE_SECTION = "section";
+    private static final String STATE_CUSTOMIZE = "customize_open";
     /** Opens this section of {@link #SECTIONS} instead of the list; an unknown name opens the list. */
     public static final String EXTRA_SECTION = "com.limelight.preferences.SECTION";
     /** The key of the setting to scroll to and select once the section shows; see {@link #open}. */
     public static final String EXTRA_FOCUS_KEY = "com.limelight.preferences.FOCUS_KEY";
     static final String LOW_LATENCY_DECODING_KEY = "low_latency_decoding";
+    /** The row that shows and hides the individual decoding switches under the Low-latency decoding master. */
+    static final String LOW_LATENCY_CUSTOMIZE_KEY = "low_latency_customize";
+    /** The individual decoding switches, behind Customize. Search still finds them. */
+    static final List<String> LOW_LATENCY_CUSTOMIZED = Arrays.asList(
+            "checkbox_codec_low_latency", "checkbox_vendor_low_latency", "checkbox_phone_performance_hints",
+            "checkbox_codec_performance", PreferenceConfiguration.DISABLE_HEVC_LOW_LATENCY_PREF_STRING);
     // Top-level screen keys (preferences_root.xml) and the preference categories each one shows
     static final Map<String, String[]> SECTIONS = new LinkedHashMap<>();
     static {
@@ -95,7 +105,7 @@ public class StreamSettings extends NightjarActivity {
         SECTIONS.put("streaming", new String[] {"category_streaming"});
         SECTIONS.put("app", new String[] {"category_ui_settings", "category_accessibility"});
         SECTIONS.put("advanced", new String[] {"category_advanced_settings", "category_advanced_decoder",
-                "category_advanced_input", "category_advanced_diagnostics"});
+                "category_advanced_compatibility", "category_advanced_input", "category_advanced_diagnostics"});
     }
     // Kept by a reset: the language is applied by the OS, the others are actions
     private static final List<String> RESET_EXCLUDED_KEYS = Arrays.asList(
@@ -107,6 +117,8 @@ public class StreamSettings extends NightjarActivity {
     private boolean fromShell;
     private int previousDisplayPixelCount;
     private String section;
+    /** Customize under Low-latency decoding is open: the individual switches show. */
+    private boolean customizeOpen;
     /** The two-pane screen shows a section before one is picked; this one is only that default, not the user's choice. */
     private boolean sectionDefaulted;
     private MaterialToolbar toolbar;
@@ -370,6 +382,7 @@ public class StreamSettings extends NightjarActivity {
             sectionDefaulted = true;
         }
         searchResultKey = key;
+        if (LOW_LATENCY_CUSTOMIZED.contains(key)) customizeOpen = true;
         enterPane = focusRow = twoPane && inContentPane(focusOwner());
         setSearchQuery("");
     }
@@ -471,7 +484,11 @@ public class StreamSettings extends NightjarActivity {
             LimeLog.warning("Unable to read preference keys: " + e);
             return;
         }
+        // Stored by the frame rate, overlay and theme pickers, which have no row of their own for them.
         editor.remove("checkbox_native_touch")
+                .remove(PreferenceConfiguration.UNLOCK_FPS_STRING)
+                .remove(PreferenceConfiguration.OVERLAY_MODE_PREF_STRING)
+                .remove(com.limelight.ui.AppTheme.OLED_BLACK)
                 .remove(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING)
                 .remove(PreferenceConfiguration.BITRATE_PREF_OLD_STRING)
                 .remove(PreferenceConfiguration.PREFS_VERSION_PREF_STRING)
@@ -490,6 +507,7 @@ public class StreamSettings extends NightjarActivity {
             returnSearchQuery = savedInstanceState.getString("return_search");
             returnSearchSection = normalizeSection(savedInstanceState.getString("return_section"));
             searchResultKey = savedInstanceState.getString("search_result");
+            customizeOpen = savedInstanceState.getBoolean(STATE_CUSTOMIZE, false);
         } else {
             String named = getIntent().getStringExtra(EXTRA_SECTION);
             String focusKey = getIntent().getStringExtra(EXTRA_FOCUS_KEY);
@@ -501,6 +519,7 @@ public class StreamSettings extends NightjarActivity {
             else if (named != null && normalizeSection(named) == null) LimeLog.warning("Settings link to an unknown section: " + named);
             // A deep link names the setting to land on; it only makes sense inside a section.
             if (section != null) searchResultKey = focusKey;
+            if (LOW_LATENCY_CUSTOMIZED.contains(focusKey)) customizeOpen = true;
             enterPane = focusRow = searchResultKey != null;
         }
         super.onCreate(savedInstanceState);
@@ -591,6 +610,7 @@ public class StreamSettings extends NightjarActivity {
         outState.putString("return_search", returnSearchQuery);
         outState.putString("return_section", returnSearchSection);
         outState.putString("search_result", searchResultKey);
+        outState.putBoolean(STATE_CUSTOMIZE, customizeOpen);
     }
 
     @Override
@@ -976,6 +996,12 @@ public class StreamSettings extends NightjarActivity {
         private static final int MIC_PERMISSION_REQUEST = 2;
         private final Map<PreferenceCategory, List<Preference>> searchCategories = new LinkedHashMap<>();
         private final Map<String, Preference> allPreferences = new HashMap<>();
+        /** The category each setting belongs to, so a setting taken out of it can go back to its place. */
+        private final Map<String, PreferenceGroup> homes = new HashMap<>();
+        /** Settings that do not apply right now: out of the list and out of search. */
+        private final Set<String> hidden = new HashSet<>();
+        /** Settings behind Customize while it is closed: out of the list, still found by search. */
+        private final Set<String> folded = new HashSet<>();
         private int displayedResultCount;
 
         @Override
@@ -1025,6 +1051,7 @@ public class StreamSettings extends NightjarActivity {
                         getString(R.string.settings_search_breadcrumb, sectionTitle, category.getTitle()));
                 screen.addPreference(results);
                 for (Preference pref : entry.getValue()) {
+                    if (hidden.contains(pref.getKey())) continue;
                     if (SettingsSearch.matches(query, pref.getTitle(), pref.getSummary(),
                             results.getTitle() + " " + java.util.Objects.toString(descriptions.get(pref.getKey()), ""))) {
                         // Search rows navigate to the original setting so dependency and dialog behavior stay intact.
@@ -1065,7 +1092,50 @@ public class StreamSettings extends NightjarActivity {
         private final Map<String, CharSequence> descriptions = new HashMap<>();
         private int codecSummaryGeneration;
         private final SharedPreferences.OnSharedPreferenceChangeListener summaryUpdater =
-                (prefs, key) -> updateValueSummaries(getPreferenceScreen());
+                (prefs, key) -> refreshState();
+
+        /** Values and summaries follow the stored settings; so do the settings that apply only given the others. */
+        private void refreshState() {
+            // Rules first: a setting that comes back shows the stored value.
+            applySettingRules(getPreferenceManager().getSharedPreferences());
+            updateValueSummaries(getPreferenceScreen());
+        }
+
+        private void setShown(String key, boolean shown) {
+            if (shown) hidden.remove(key);
+            else hidden.add(key);
+            place(key, shown);
+        }
+
+        private void place(String key, boolean attached) {
+            Preference pref = allPreferences.get(key);
+            PreferenceGroup home = homes.get(key);
+            if (pref == null || home == null) return;
+            if (attached) home.addPreference(pref);
+            else home.removePreference(pref);
+        }
+
+        /**
+         * Frame pacing is greyed while adaptive refresh or host frame times replace it. A setting that does
+         * nothing for the current choices is hidden, not greyed: the frame-drop choice shows only with Balanced
+         * pacing, the sharpness only with an upscaler that sharpens, the two minimums only while automatic
+         * quality is on. Hidden settings stay out of search, and come back in their place.
+         */
+        private void applySettingRules(SharedPreferences prefs) {
+            Preference pacing = allPreferences.get(SettingRules.FRAME_PACING);
+            if (pacing != null) pacing.setEnabled(SettingRules.framePacingApplies(prefs));
+            setShown(SettingRules.DROP_LATE_FRAMES, SettingRules.dropLateFramesApplies(prefs));
+            setShown(PreferenceConfiguration.UPSCALING_SHARPNESS_PREF_STRING, SettingRules.upscalingUsesSharpness(prefs));
+            boolean limits = SettingRules.qualityLimitsApply(prefs);
+            setShown(SettingRules.ADAPTIVE_QUALITY_MIN_RESOLUTION, limits);
+            setShown(SettingRules.ADAPTIVE_QUALITY_MIN_FPS, limits);
+            boolean open = customizeOpen();
+            for (String key : LOW_LATENCY_CUSTOMIZED) {
+                if (open) folded.remove(key);
+                else folded.add(key);
+                place(key, open);
+            }
+        }
 
         /** Which profile streams use: none, the one in use, or the network's choice. */
         static String profilesSummary(Context context) {
@@ -1098,6 +1168,16 @@ public class StreamSettings extends NightjarActivity {
                     value = getResources().getStringArray(R.array.stream_touch_modes)[mode];
                 } else if (VideoScaling.STRETCH_PREF.equals(pref.getKey())) {
                     value = getResources().getStringArray(R.array.video_scaling_modes)[storedVideoScaling(prefs)];
+                } else if (OverlayChoice.ENABLED_KEY.equals(pref.getKey())) {
+                    value = getResources().getStringArray(R.array.overlay_choice_names)[OverlayChoice.read(prefs)];
+                } else if (AppTheme.ALWAYS_DARK.equals(pref.getKey())) {
+                    value = getResources().getStringArray(R.array.theme_choice_names)[ThemeChoice.read(prefs)];
+                    // High contrast is always black, whatever the picker says.
+                    if (prefs.getBoolean(AppTheme.HIGH_CONTRAST, false)) {
+                        value = value + "\n" + getString(R.string.theme_high_contrast_note);
+                    }
+                } else if (LOW_LATENCY_CUSTOMIZE_KEY.equals(pref.getKey())) {
+                    value = getString(customizeOpen() ? R.string.low_latency_customize_open : R.string.low_latency_customize_closed);
                 } else if (Arrays.asList(PreferenceConfiguration.LOW_LATENCY_DECODING_KEYS).contains(pref.getKey())) {
                     // The master switch and profiles write preferences without going through these views.
                     ((SwitchPreference) pref).setChecked(prefs.getBoolean(pref.getKey(), true));
@@ -1118,10 +1198,6 @@ public class StreamSettings extends NightjarActivity {
                 } else {
                     continue;
                 }
-                if (PreferenceConfiguration.UPSCALING_SHARPNESS_PREF_STRING.equals(pref.getKey())) {
-                    String mode = prefs.getString(PreferenceConfiguration.UPSCALING_PREF_STRING, "off");
-                    pref.setEnabled("fsr1".equals(mode) || "sgsr1".equals(mode));
-                }
                 if (PreferenceConfiguration.UPSCALING_PREF_STRING.equals(pref.getKey()) &&
                         !"off".equals(((ListPreference) pref).getValue())) {
                     // Say in the value line when the chosen upscaler is not the one used.
@@ -1129,10 +1205,13 @@ public class StreamSettings extends NightjarActivity {
                         value = getString(R.string.settings_joined, value, getString(R.string.upscaling_hdr_short));
                     } else if ("forcepyrowave".equals(prefs.getString("video_format", "auto"))) {
                         value = getString(R.string.settings_joined, value, getString(R.string.upscaling_pyrowave_short));
+                    } else if (prefs.getBoolean("checkbox_enable_sdr_10bit", false) &&
+                            // Only when 10-bit SDR is not refused by settings alone (HDR and PyroWave are above).
+                            com.limelight.binding.video.Sdr10Policy.refusal(true, true, false, true, true, false,
+                                    prefs.getBoolean("experimental_packed_444", false)) ==
+                                    com.limelight.binding.video.Sdr10Policy.Refusal.NONE) {
+                        value = getString(R.string.settings_joined, value, getString(R.string.upscaling_tenbit_short));
                     }
-                }
-                if ("adaptive_quality_min_resolution".equals(pref.getKey()) || "adaptive_quality_min_fps".equals(pref.getKey())) {
-                    pref.setEnabled(!"off".equals(prefs.getString("adaptive_quality_mode", "off")));
                 }
                 if (value != null) {
                     pref.setSummary(pref instanceof ListPreference ? value.toString().replace("%", "%%") : value);
@@ -1187,7 +1266,7 @@ public class StreamSettings extends NightjarActivity {
                 updateCodecSummary(codec, codec.getValue(), getPreferenceManager().getSharedPreferences()
                         .getBoolean("checkbox_enable_hdr", false));
             }
-            updateValueSummaries(getPreferenceScreen());
+            refreshState();
             // The fragment is replaced after the window got its insets, so ask for them again
             // to keep the last settings clear of the navigation bar.
             if (getView() != null) {
@@ -1454,6 +1533,25 @@ public class StreamSettings extends NightjarActivity {
                     prefs.getBoolean(TouchMode.TRACKPAD_PREF, true), prefs.getBoolean(TouchMode.NATIVE_TOUCH_PREF, false));
         }
 
+        /** A one-of-several picker for a row that is not a list preference; Help explains the choices when given. */
+        private void showChoices(int title, int names, int selected, int help, java.util.function.IntConsumer onPick) {
+            com.google.android.material.dialog.MaterialAlertDialogBuilder builder = new NavigationDialogBuilder(getActivity()).setTitle(title)
+                    .setSingleChoiceItems(names, selected, (dialog, which) -> {
+                        onPick.accept(which);
+                        dialog.dismiss();
+                    }).setNegativeButton(android.R.string.cancel, null);
+            if (help != 0) builder.setNeutralButton(R.string.help, null);
+            AlertDialog picker = builder.create();
+            UiHelper.showDialog(getActivity(), picker);
+            if (help != 0) {
+                picker.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view -> showInfo(title, help));
+            }
+        }
+
+        private boolean customizeOpen() {
+            return getActivity() != null && ((StreamSettings) getActivity()).customizeOpen;
+        }
+
         private static int storedVideoScaling(SharedPreferences prefs) {
             return VideoScaling.resolve(prefs.getString(VideoScaling.PREF, null),
                     prefs.getBoolean(VideoScaling.STRETCH_PREF, false));
@@ -1509,31 +1607,28 @@ public class StreamSettings extends NightjarActivity {
                 PreferenceConfiguration.setLowLatencyDecoding(getPreferenceManager().getSharedPreferences(), (Boolean) value);
                 return true;
             });
-            ListPreference pacing = (ListPreference) findPreference("frame_pacing");
-            findPreference("checkbox_drop_late_frames").setEnabled("balanced".equals(pacing.getValue()));
-            pacing.setOnPreferenceChangeListener((preference, value) -> {
-                findPreference("checkbox_drop_late_frames").setEnabled("balanced".equals(value));
-                return true;
-            });
-            ListPreference quality = (ListPreference) findPreference("adaptive_quality_mode");
-            quality.setOnPreferenceChangeListener((preference, value) -> {
-                // The minimums only apply while automatic quality runs.
-                findPreference("adaptive_quality_min_resolution").setEnabled(!"off".equals(value));
-                findPreference("adaptive_quality_min_fps").setEnabled(!"off".equals(value));
+            findPreference(AutoBitrateChoice.SETTINGS_KEY).setOnPreferenceChangeListener((preference, value) -> {
+                // Every PC follows the switch again, including PCs that chose otherwise in the stream menu.
+                AutoBitrateChoice.clearPcChoices(getActivity());
                 return true;
             });
             ListPreference codec = (ListPreference) findPreference("video_format");
             SwitchPreference hdr = (SwitchPreference) findPreference("checkbox_enable_hdr");
+            SwitchPreference sdr10 = (SwitchPreference) findPreference("checkbox_enable_sdr_10bit");
             Preference texture = findPreference("checkbox_texture_view");
-            texture.setEnabled(!hdr.isChecked() && !"forcepyrowave".equals(codec.getValue()));
+            texture.setEnabled(!hdr.isChecked() && !sdr10.isChecked() && !"forcepyrowave".equals(codec.getValue()));
             codec.setOnPreferenceChangeListener((preference, value) -> {
-                texture.setEnabled(!hdr.isChecked() && !"forcepyrowave".equals(value));
+                texture.setEnabled(!hdr.isChecked() && !sdr10.isChecked() && !"forcepyrowave".equals(value));
                 updateCodecSummary(codec, (String) value, hdr.isChecked());
                 return true;
             });
             hdr.setOnPreferenceChangeListener((preference, value) -> {
-                texture.setEnabled(!(Boolean) value && !"forcepyrowave".equals(codec.getValue()));
+                texture.setEnabled(!(Boolean) value && !sdr10.isChecked() && !"forcepyrowave".equals(codec.getValue()));
                 updateCodecSummary(codec, codec.getValue(), (Boolean) value);
+                return true;
+            });
+            sdr10.setOnPreferenceChangeListener((preference, value) -> {
+                texture.setEnabled(!hdr.isChecked() && !(Boolean) value && !"forcepyrowave".equals(codec.getValue()));
                 return true;
             });
             findPreference("about_app").setSummary(getString(R.string.settings_version, BuildConfig.VERSION_NAME));
@@ -1608,6 +1703,31 @@ public class StreamSettings extends NightjarActivity {
                 UiHelper.showDialog(getActivity(), picker);
                 picker.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view ->
                         showInfo(R.string.video_scaling_title, R.string.video_scaling_help));
+                return true;
+            });
+            findPreference(OverlayChoice.ENABLED_KEY).setOnPreferenceClickListener(preference -> {
+                SharedPreferences prefs = getPreferenceManager().getSharedPreferences();
+                showChoices(R.string.title_performance_overlay, R.array.overlay_choice_names, OverlayChoice.read(prefs),
+                        R.string.overlay_mode_help, which -> {
+                            SharedPreferences.Editor editor = prefs.edit();
+                            OverlayChoice.save(editor, which);
+                            editor.apply();
+                        });
+                return true;
+            });
+            findPreference(AppTheme.ALWAYS_DARK).setOnPreferenceClickListener(preference -> {
+                SharedPreferences prefs = getPreferenceManager().getSharedPreferences();
+                showChoices(R.string.title_theme, R.array.theme_choice_names, ThemeChoice.read(prefs), 0, which -> {
+                    SharedPreferences.Editor editor = prefs.edit();
+                    ThemeChoice.save(editor, which);
+                    editor.apply();
+                });
+                return true;
+            });
+            findPreference(LOW_LATENCY_CUSTOMIZE_KEY).setOnPreferenceClickListener(preference -> {
+                StreamSettings activity = (StreamSettings) getActivity();
+                activity.customizeOpen = !activity.customizeOpen;
+                refreshState();
                 return true;
             });
             findPreference("controller_button_mapping").setOnPreferenceClickListener(preference -> {
@@ -1920,30 +2040,6 @@ public class StreamSettings extends NightjarActivity {
             }
             addNativeFrameRateEntry(maxSupportedFps);
 
-            // Android L introduces the drop duplicate behavior of releaseOutputBuffer()
-            // that the unlock FPS option relies on to not massively increase latency.
-            findPreference(PreferenceConfiguration.UNLOCK_FPS_STRING).setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
-                @Override
-                public boolean onPreferenceChange(Preference preference, Object newValue) {
-                    // HACK: We need to let the preference change succeed before reinitializing to ensure
-                    // it's reflected in the new layout.
-                    final Handler h = new Handler();
-                    h.postDelayed(new Runnable() {
-                        @Override
-                        public void run() {
-                            // Ensure the activity is still open when this timeout expires
-                            StreamSettings settingsActivity = (StreamSettings) SettingsFragment.this.getActivity();
-                            if (settingsActivity != null) {
-                                settingsActivity.reloadSettings();
-                            }
-                        }
-                    }, 500);
-
-                    // Allow the original preference change to take place
-                    return true;
-                }
-            });
-
             // Remove HDR preference for devices below Nougat
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
                 LimeLog.info("Excluding HDR toggle based on OS");
@@ -2012,7 +2108,6 @@ public class StreamSettings extends NightjarActivity {
             }
             updateCodecSummary(codec, codec.getValue(), hdr.isChecked());
             stylePreferences(screen);
-            updateValueSummaries(screen);
             for (int i = 0; i < screen.getPreferenceCount(); i++) {
                 PreferenceCategory category = (PreferenceCategory) screen.getPreference(i);
                 List<Preference> preferences = new ArrayList<>();
@@ -2021,12 +2116,14 @@ public class StreamSettings extends NightjarActivity {
                     Preference pref = category.getPreference(j);
                     preferences.add(pref);
                     allPreferences.put(pref.getKey(), pref);
+                    homes.put(pref.getKey(), category);
                 }
                 // A group whose settings this device cannot use is left out entirely.
                 if (!preferences.isEmpty()) {
                     searchCategories.put(category, preferences);
                 }
             }
+            refreshState();
             screen.removeAll();
             filterPreferences();
         }

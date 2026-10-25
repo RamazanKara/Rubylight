@@ -14,8 +14,7 @@
     <string name="stream_presets_help">Native streams at this screen\'s resolution and refresh rate with every latency setting on.\nBattery saver keeps that resolution at 30 fps.\nPC profiles still take priority.</string>
     <string name="summary_frame_pacing">Balance response time and smoothness when VRR is off.</string>
     <string name="summary_language">Choose the language used by the app.</string>
-    <string name="overlay_mode">Performance overlay mode</string>
-    <string name="overlay_mode_help">Compact shows one line: displayed FPS, network round trip (RTT) and frame loss, behind a dot that turns amber or red when the stream struggles. Statistics shows live stream measurements. Debug adds timing percentiles and decoder diagnostics; scroll to see all details. All three modes are always available.</string>
+    <string name="overlay_mode_help">Off hides the overlay. Compact shows one line: rendered FPS, network round trip (RTT) and frame loss, behind a dot that turns amber or red when the stream struggles. Statistics shows live stream measurements. Debug adds timing percentiles and decoder diagnostics; scroll to see all details. You can also change it from the stream menu.</string>
     <string name="overlay_statistics">Statistics</string>
     <string name="overlay_debug">Debug</string>
     <string name="overlay_copy">Copy stats</string>
@@ -25,8 +24,8 @@
     <string name="overlay_network">Network</string>
     <string name="overlay_decode">Decode</string>
     <string name="overlay_host">Host</string>
-    <string name="perf_overlay_releasedfps">Released to display: %1$.2f FPS</string>
-    <string name="perf_overlay_shownfps">Displayed: %1$s</string>
+    <string name="perf_overlay_onscreenfps">On screen: %1$s</string>
+    <string name="perf_overlay_shownfps">Rendered: %1$s</string>
     <string name="perf_overlay_presentdrops">Estimated display drops: %1$d</string>
     <string name="perf_overlay_low_latency">Low latency mode: %1$s</string>
     <string name="perf_overlay_low_latency_android_vendor">Android + chip vendor</string>
@@ -40,8 +39,6 @@
     <string name="perf_overlay_thermal_normal">normal</string>
     <string name="perf_overlay_thermal_warm">warm, holding bitrate</string>
     <string name="perf_overlay_thermal_hot">hot, easing load</string>
-    <string-array name="overlay_mode_names"><item>@string/overlay_compact</item><item>@string/overlay_statistics</item><item>@string/overlay_debug</item></string-array>
-    <string-array name="overlay_mode_values" translatable="false"><item>compact</item><item>statistics</item><item>debug</item></string-array>
     <string name="connection_test_title">Connection test</string>
     <string name="connection_test_intro">Test speed and delay to your PC.\nUses up to 32 MiB, including mobile data.</string>
     <string name="connection_test_running">Testing… Tap Cancel to stop.</string>

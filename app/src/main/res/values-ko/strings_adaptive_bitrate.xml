@@ -8,10 +8,6 @@
     <string name="stream_auto_bitrate_unavailable">이 PC는 스트림 비트레이트를 알려주지 않습니다. 이 스트림에서는 자동 비트레이트가 꺼집니다.</string>
     <string name="stream_auto_bitrate_status">자동 비트레이트: %1$.1f Mbps</string>
     <string name="stream_bitrate_busy">호스트가 사용 중입니다. 잠시 후 다시 시도하세요.</string>
-    <string name="title_auto_bitrate_min">자동 비트레이트 최솟값</string>
-    <string name="summary_auto_bitrate_min">자동 비트레이트가 내려가는 가장 낮은 인코더 비트레이트입니다. 기본값은 2 Mbps입니다. 스트림이 시작하는 인코더 비트레이트보다 높은 값이면 그 시작 비트레이트가 하한이 됩니다. PyroWave에서는 사용하지 않습니다.</string>
-    <string name="auto_bitrate_min_default">기본값 (2 Mbps)</string>
-    <string name="title_auto_bitrate_max">자동 비트레이트 최댓값</string>
-    <string name="summary_auto_bitrate_max">자동 비트레이트가 사용하는 가장 높은 인코더 비트레이트입니다. 이보다 높은 인코더 비트레이트로 시작한 스트림은 이 값으로 낮춥니다. 제한 없음은 스트림이 시작하는 인코더 비트레이트를 유지합니다. PyroWave에서는 사용하지 않습니다.</string>
-    <string name="auto_bitrate_max_default">제한 없음</string>
+    <string name="title_auto_bitrate">자동 비트레이트</string>
+    <string name="dialog_auto_bitrate">연결이나 기기가 따라가지 못하면 비트레이트를 낮추고, 좋아지면 다시 높입니다. 스트림 비트레이트를 넘지 않습니다. 모든 PC의 기본값이며, 스트림 메뉴에서 PC별로 바꿀 수 있습니다.</string>
 </resources>

@@ -11,7 +11,7 @@
     <string name="host_profile_native">Tamanho da tela (segue esta tela)</string>
     <string name="host_profile_refresh">Taxa de quadros (FPS)</string>
     <string name="host_profile_bitrate">Taxa de bits (Mbps)</string>
-    <string name="host_profile_scale">Escala de renderização do host (%)</string>
+    <string name="host_profile_scale">Resolução de renderização do PC (%)</string>
     <string name="host_profile_codec">Codec de vídeo</string>
     <string name="host_profile_virtual_display">Tela virtual do host</string>
     <string name="host_profile_hdr">HDR</string>

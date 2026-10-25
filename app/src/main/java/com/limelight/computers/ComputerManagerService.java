@@ -554,9 +554,7 @@ public class ComputerManagerService extends Service {
             HostNames.forget(this, computer.uuid);
             com.limelight.preferences.AppQuitOnLeave.forget(this, computer.uuid);
             com.limelight.preferences.AppStreamSettings.forget(this, computer.uuid);
-            for (String preferences : new String[] {"AdaptiveBitrate", "PyroWaveBitrate"}) {
-                getSharedPreferences(preferences, MODE_PRIVATE).edit().remove(computer.uuid).apply();
-            }
+            com.limelight.preferences.AutoBitrateChoice.forget(this, computer.uuid);
             getSharedPreferences(AppView.HIDDEN_APPS_PREF_FILENAME, MODE_PRIVATE)
                     .edit().remove(computer.uuid).apply();
             CacheHelper.deleteCacheFile(getCacheDir(), "applist", computer.uuid);

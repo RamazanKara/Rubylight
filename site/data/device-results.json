@@ -1,5 +1,661 @@
 {
   "format": "nightjar-device-table",
   "version": 1,
-  "entries": []
+  "entries": [
+    {
+      "issue": 6,
+      "added": "2026-10-17",
+      "name": "OnePlus 13",
+      "results": {
+        "format": "nightjar-device-results",
+        "version": 1,
+        "app": {
+          "name": "Nightjar",
+          "version": "0.7.6",
+          "build": 338
+        },
+        "device": {
+          "manufacturer": "OnePlus",
+          "model": "CPH2653",
+          "codename": "OP5D55L1",
+          "socManufacturer": "QTI",
+          "socModel": "SM8750",
+          "hardware": "qcom",
+          "board": "sun",
+          "android": "16",
+          "sdk": 36,
+          "gpu": "Adreno (TM) 830"
+        },
+        "decoderBenchmark": {
+          "measured": true,
+          "clip": "1920x1080@60",
+          "results": [
+            {
+              "codec": "H.264",
+              "mime": "video/avc",
+              "decoder": "c2.qti.avc.decoder.low_latency",
+              "medianDecodeMs": 0.88,
+              "featureLowLatency": true,
+              "vendorLowLatencyKeys": [
+                "vendor.qti-ext-dec-picture-order.enable",
+                "vendor.qti-ext-output-fence.enable",
+                "vendor.qti-ext-output-fence.fence_type"
+              ]
+            },
+            {
+              "codec": "HEVC",
+              "mime": "video/hevc",
+              "decoder": "c2.qti.hevc.decoder.low_latency",
+              "medianDecodeMs": 0.73,
+              "featureLowLatency": true,
+              "vendorLowLatencyKeys": [
+                "vendor.qti-ext-dec-picture-order.enable",
+                "vendor.qti-ext-output-fence.enable",
+                "vendor.qti-ext-output-fence.fence_type"
+              ]
+            },
+            {
+              "codec": "AV1",
+              "mime": "video/av01",
+              "decoder": "c2.qti.av1.decoder.low_latency",
+              "medianDecodeMs": 1.58,
+              "featureLowLatency": true,
+              "vendorLowLatencyKeys": [
+                "vendor.qti-ext-dec-picture-order.enable",
+                "vendor.qti-ext-output-fence.enable",
+                "vendor.qti-ext-output-fence.fence_type"
+              ]
+            }
+          ]
+        },
+        "latencyTest": {
+          "panelHz": 120,
+          "audioSampleRate": 48000,
+          "audioFramesPerBuffer": 144,
+          "frameIntervalMs": {
+            "samples": 1189,
+            "mean": 8.4,
+            "p95": 8.3,
+            "p99": 16.6
+          },
+          "frameCallbackDelayMs": {
+            "samples": 1190,
+            "mean": 0.84,
+            "p95": 1.54,
+            "p99": 2.99
+          },
+          "inputDispatchAgeMs": {
+            "samples": 673,
+            "mean": 5.74,
+            "p95": 8,
+            "p99": 11
+          },
+          "timerWakeupDelayMs": {
+            "samples": 99,
+            "mean": 0.73,
+            "p95": 2,
+            "p99": 31
+          }
+        }
+      }
+    },
+    {
+      "issue": 10,
+      "added": "2026-10-21",
+      "name": "Alldocube iPlay 70 Mini Ultra",
+      "results": {
+        "format": "nightjar-device-results",
+        "version": 1,
+        "app": {
+          "name": "Nightjar",
+          "version": "0.7.13",
+          "build": 345
+        },
+        "device": {
+          "manufacturer": "ALLDOCUBE",
+          "model": "iPlay 70 mini Ultra",
+          "codename": "iPlay_70_mini_Ultra",
+          "socManufacturer": "QTI",
+          "socModel": "SM7675",
+          "hardware": "qcom",
+          "board": "Alldocube",
+          "android": "14",
+          "sdk": 34,
+          "gpu": "Adreno (TM) 732"
+        },
+        "decoderBenchmark": {
+          "measured": true,
+          "clip": "1920x1080@60",
+          "results": [
+            {
+              "codec": "H.264",
+              "mime": "video/avc",
+              "decoder": "c2.qti.avc.decoder.low_latency",
+              "medianDecodeMs": 1.35,
+              "featureLowLatency": true,
+              "vendorLowLatencyKeys": [
+                "vendor.qti-ext-dec-picture-order.enable",
+                "vendor.qti-ext-output-fence.enable",
+                "vendor.qti-ext-output-fence.fence_type"
+              ]
+            },
+            {
+              "codec": "HEVC",
+              "mime": "video/hevc",
+              "decoder": "c2.qti.hevc.decoder.low_latency",
+              "medianDecodeMs": 1.1,
+              "featureLowLatency": true,
+              "vendorLowLatencyKeys": [
+                "vendor.qti-ext-dec-picture-order.enable",
+                "vendor.qti-ext-output-fence.enable",
+                "vendor.qti-ext-output-fence.fence_type"
+              ]
+            }
+          ]
+        },
+        "latencyTest": {
+          "panelHz": 144,
+          "audioSampleRate": 48000,
+          "audioFramesPerBuffer": 144,
+          "frameIntervalMs": {
+            "samples": 1436,
+            "mean": 6.96,
+            "p95": 6.96,
+            "p99": 6.96
+          },
+          "frameCallbackDelayMs": {
+            "samples": 1437,
+            "mean": 1.16,
+            "p95": 1.89,
+            "p99": 2.41
+          },
+          "inputDispatchAgeMs": null,
+          "timerWakeupDelayMs": {
+            "samples": 99,
+            "mean": 0.26,
+            "p95": 1,
+            "p99": 5
+          }
+        }
+      }
+    },
+    {
+      "issue": 11,
+      "added": "2026-10-19",
+      "name": "Samsung Galaxy S25 Ultra",
+      "results": {
+        "format": "nightjar-device-results",
+        "version": 1,
+        "app": {
+          "name": "Nightjar",
+          "version": "0.7.13",
+          "build": 345
+        },
+        "device": {
+          "manufacturer": "samsung",
+          "model": "SCG32",
+          "codename": "SCG32",
+          "socManufacturer": "QTI",
+          "socModel": "SM8750",
+          "hardware": "qcom",
+          "board": "sun",
+          "android": "16",
+          "sdk": 36,
+          "gpu": "Adreno (TM) 830"
+        },
+        "decoderBenchmark": {
+          "measured": true,
+          "clip": "1920x1080@60",
+          "results": [
+            {
+              "codec": "H.264",
+              "mime": "video/avc",
+              "decoder": "c2.qti.avc.decoder.low_latency",
+              "medianDecodeMs": 0.6,
+              "featureLowLatency": true,
+              "vendorLowLatencyKeys": [
+                "vendor.qti-ext-dec-picture-order.enable",
+                "vendor.qti-ext-output-fence.enable",
+                "vendor.qti-ext-output-fence.fence_type"
+              ]
+            },
+            {
+              "codec": "HEVC",
+              "mime": "video/hevc",
+              "decoder": "c2.qti.hevc.decoder.low_latency",
+              "medianDecodeMs": 0.55,
+              "featureLowLatency": true,
+              "vendorLowLatencyKeys": [
+                "vendor.qti-ext-dec-picture-order.enable",
+                "vendor.qti-ext-output-fence.enable",
+                "vendor.qti-ext-output-fence.fence_type"
+              ]
+            },
+            {
+              "codec": "AV1",
+              "mime": "video/av01",
+              "decoder": "c2.qti.av1.decoder.low_latency",
+              "medianDecodeMs": 0.39,
+              "featureLowLatency": true,
+              "vendorLowLatencyKeys": [
+                "vendor.qti-ext-dec-picture-order.enable",
+                "vendor.qti-ext-output-fence.enable",
+                "vendor.qti-ext-output-fence.fence_type"
+              ]
+            }
+          ]
+        },
+        "latencyTest": {
+          "panelHz": 120,
+          "audioSampleRate": 48000,
+          "audioFramesPerBuffer": 144,
+          "frameIntervalMs": {
+            "samples": 1200,
+            "mean": 8.32,
+            "p95": 8.32,
+            "p99": 8.33
+          },
+          "frameCallbackDelayMs": {
+            "samples": 1201,
+            "mean": 1.41,
+            "p95": 2.14,
+            "p99": 2.7
+          },
+          "inputDispatchAgeMs": {
+            "samples": 1179,
+            "mean": 5.61,
+            "p95": 6,
+            "p99": 7
+          },
+          "timerWakeupDelayMs": {
+            "samples": 99,
+            "mean": 0.22,
+            "p95": 1,
+            "p99": 6
+          }
+        }
+      }
+    },
+    {
+      "issue": 18,
+      "added": "2026-10-21",
+      "name": "Realme GT 7T",
+      "results": {
+        "format": "nightjar-device-results",
+        "version": 1,
+        "app": {
+          "name": "Nightjar",
+          "version": "0.7.18",
+          "build": 350
+        },
+        "device": {
+          "manufacturer": "realme",
+          "model": "RMX5085",
+          "codename": "RE6090L1",
+          "socManufacturer": "Mediatek",
+          "socModel": "MT6899",
+          "hardware": "mt6899",
+          "board": "k6899v1_64",
+          "android": "16",
+          "sdk": 36,
+          "gpu": "Mali-G720 MC7"
+        },
+        "decoderBenchmark": {
+          "measured": true,
+          "clip": "1920x1080@60",
+          "results": [
+            {
+              "codec": "H.264",
+              "mime": "video/avc",
+              "decoder": "c2.mtk.avc.decoder.lowlatency",
+              "medianDecodeMs": 4.87,
+              "featureLowLatency": true,
+              "vendorLowLatencyKeys": [
+                "vendor.mtk.vdec.cpu.boost.mode.value"
+              ]
+            },
+            {
+              "codec": "HEVC",
+              "mime": "video/hevc",
+              "decoder": "c2.mtk.hevc.decoder.lowlatency",
+              "medianDecodeMs": 4.27,
+              "featureLowLatency": true,
+              "vendorLowLatencyKeys": [
+                "vendor.mtk.vdec.cpu.boost.mode.value"
+              ]
+            },
+            {
+              "codec": "AV1",
+              "mime": "video/av01",
+              "decoder": "c2.mtk.av1.decoder.lowlatency",
+              "medianDecodeMs": 8.31,
+              "featureLowLatency": true,
+              "vendorLowLatencyKeys": [
+                "vendor.mtk.vdec.cpu.boost.mode.value"
+              ]
+            }
+          ]
+        },
+        "latencyTest": {
+          "panelHz": 120,
+          "audioSampleRate": 48000,
+          "audioFramesPerBuffer": 256,
+          "frameIntervalMs": {
+            "samples": 1191,
+            "mean": 8.39,
+            "p95": 8.33,
+            "p99": 8.79
+          },
+          "frameCallbackDelayMs": {
+            "samples": 1192,
+            "mean": 1.74,
+            "p95": 3.27,
+            "p99": 5.61
+          },
+          "inputDispatchAgeMs": {
+            "samples": 75,
+            "mean": 3.77,
+            "p95": 7,
+            "p99": 12
+          },
+          "timerWakeupDelayMs": {
+            "samples": 98,
+            "mean": 1.11,
+            "p95": 7,
+            "p99": 9
+          }
+        }
+      }
+    },
+    {
+      "issue": 23,
+      "added": "2026-10-23",
+      "name": "OPPO Reno 10 Pro+",
+      "note": "Slower than the Snapdragon 870 phone (#25); being looked into.",
+      "results": {
+        "format": "nightjar-device-results",
+        "version": 1,
+        "app": {
+          "name": "Nightjar",
+          "version": "0.8.0",
+          "build": 351
+        },
+        "device": {
+          "manufacturer": "OPPO",
+          "model": "CPH2521",
+          "codename": "OP56D3L1",
+          "socManufacturer": "QTI",
+          "socModel": "SM8475",
+          "hardware": "qcom",
+          "board": "taro",
+          "android": "16",
+          "sdk": 36,
+          "gpu": "Adreno (TM) 730"
+        },
+        "decoderBenchmark": {
+          "measured": true,
+          "clip": "1920x1080@60",
+          "results": [
+            {
+              "codec": "H.264",
+              "mime": "video/avc",
+              "decoder": "c2.qti.avc.decoder.low_latency",
+              "medianDecodeMs": 4.48,
+              "featureLowLatency": true,
+              "vendorLowLatencyKeys": [
+                "vendor.qti-ext-dec-picture-order.enable"
+              ]
+            },
+            {
+              "codec": "HEVC",
+              "mime": "video/hevc",
+              "decoder": "c2.qti.hevc.decoder.low_latency",
+              "medianDecodeMs": 4.26,
+              "featureLowLatency": true,
+              "vendorLowLatencyKeys": [
+                "vendor.qti-ext-dec-picture-order.enable"
+              ]
+            }
+          ]
+        },
+        "latencyTest": null
+      }
+    },
+    {
+      "issue": 24,
+      "added": "2026-10-23",
+      "name": "Samsung Galaxy A37",
+      "results": {
+        "format": "nightjar-device-results",
+        "version": 1,
+        "app": {
+          "name": "Nightjar",
+          "version": "0.8.0",
+          "build": 351
+        },
+        "device": {
+          "manufacturer": "samsung",
+          "model": "SM-A376E",
+          "codename": "a37x",
+          "socManufacturer": "Samsung",
+          "socModel": "s5e8845",
+          "hardware": "s5e8845",
+          "board": "s5e8845",
+          "android": "16",
+          "sdk": 36,
+          "gpu": "ANGLE ((Samsung Xclipse 530) on Vulkan 1.3.279)"
+        },
+        "decoderBenchmark": {
+          "measured": true,
+          "clip": "1920x1080@60",
+          "results": [
+            {
+              "codec": "H.264",
+              "mime": "video/avc",
+              "decoder": "c2.exynos.h264.decoder",
+              "medianDecodeMs": 11.17,
+              "featureLowLatency": true,
+              "vendorLowLatencyKeys": [
+                "vendor.rtc-ext-dec-low-latency.enable"
+              ]
+            },
+            {
+              "codec": "HEVC",
+              "mime": "video/hevc",
+              "decoder": "c2.exynos.hevc.decoder",
+              "medianDecodeMs": 11.53,
+              "featureLowLatency": true,
+              "vendorLowLatencyKeys": []
+            }
+          ]
+        },
+        "latencyTest": {
+          "panelHz": 120,
+          "audioSampleRate": 48000,
+          "audioFramesPerBuffer": 192,
+          "frameIntervalMs": {
+            "samples": 1198,
+            "mean": 8.34,
+            "p95": 8.34,
+            "p99": 8.9
+          },
+          "frameCallbackDelayMs": {
+            "samples": 1199,
+            "mean": 0.99,
+            "p95": 2.09,
+            "p99": 2.88
+          },
+          "inputDispatchAgeMs": {
+            "samples": 578,
+            "mean": 1.42,
+            "p95": 3,
+            "p99": 5
+          },
+          "timerWakeupDelayMs": {
+            "samples": 99,
+            "mean": 0.16,
+            "p95": 1,
+            "p99": 5
+          }
+        }
+      }
+    },
+    {
+      "issue": 25,
+      "added": "2026-10-24",
+      "name": "iQOO 7",
+      "results": {
+        "format": "nightjar-device-results",
+        "version": 1,
+        "app": {
+          "name": "Nightjar",
+          "version": "0.8.0",
+          "build": 351
+        },
+        "device": {
+          "manufacturer": "vivo",
+          "model": "I2012",
+          "codename": "2012",
+          "socManufacturer": "Qualcomm",
+          "socModel": "SM8250",
+          "hardware": "qcom",
+          "board": "kona",
+          "android": "14",
+          "sdk": 34,
+          "gpu": "Adreno (TM) 650"
+        },
+        "decoderBenchmark": {
+          "measured": true,
+          "clip": "1920x1080@60",
+          "results": [
+            {
+              "codec": "H.264",
+              "mime": "video/avc",
+              "decoder": "OMX.qcom.video.decoder.avc",
+              "medianDecodeMs": 2.42,
+              "featureLowLatency": false,
+              "vendorLowLatencyKeys": []
+            },
+            {
+              "codec": "HEVC",
+              "mime": "video/hevc",
+              "decoder": "OMX.qcom.video.decoder.hevc",
+              "medianDecodeMs": 2.83,
+              "featureLowLatency": false,
+              "vendorLowLatencyKeys": []
+            }
+          ]
+        },
+        "latencyTest": {
+          "panelHz": 120,
+          "audioSampleRate": 48000,
+          "audioFramesPerBuffer": 192,
+          "frameIntervalMs": {
+            "samples": 1190,
+            "mean": 8.4,
+            "p95": 8.38,
+            "p99": 8.64
+          },
+          "frameCallbackDelayMs": {
+            "samples": 1191,
+            "mean": 0.72,
+            "p95": 1.52,
+            "p99": 5.44
+          },
+          "inputDispatchAgeMs": {
+            "samples": 102,
+            "mean": 3.17,
+            "p95": 6,
+            "p99": 8
+          },
+          "timerWakeupDelayMs": {
+            "samples": 99,
+            "mean": 0.23,
+            "p95": 1,
+            "p99": 2
+          }
+        }
+      }
+    },
+    {
+      "issue": 26,
+      "added": "2026-10-24",
+      "name": "Samsung Galaxy A37",
+      "note": "No change from 0.8.0. 3.1.0 sends more Exynos keys; retest pending.",
+      "results": {
+        "format": "nightjar-device-results",
+        "version": 1,
+        "app": {
+          "name": "Nightjar",
+          "version": "3.0.0",
+          "build": 352
+        },
+        "device": {
+          "manufacturer": "samsung",
+          "model": "SM-A376E",
+          "codename": "a37x",
+          "socManufacturer": "Samsung",
+          "socModel": "s5e8845",
+          "hardware": "s5e8845",
+          "board": "s5e8845",
+          "android": "16",
+          "sdk": 36,
+          "gpu": "ANGLE ((Samsung Xclipse 530) on Vulkan 1.3.279)"
+        },
+        "decoderBenchmark": {
+          "measured": true,
+          "clip": "1920x1080@60",
+          "results": [
+            {
+              "codec": "H.264",
+              "mime": "video/avc",
+              "decoder": "c2.exynos.h264.decoder",
+              "medianDecodeMs": 12.26,
+              "featureLowLatency": true,
+              "vendorLowLatencyKeys": [
+                "vendor.rtc-ext-dec-low-latency.enable"
+              ]
+            },
+            {
+              "codec": "HEVC",
+              "mime": "video/hevc",
+              "decoder": "c2.exynos.hevc.decoder",
+              "medianDecodeMs": 11.55,
+              "featureLowLatency": true,
+              "vendorLowLatencyKeys": []
+            }
+          ]
+        },
+        "latencyTest": {
+          "panelHz": 120,
+          "audioSampleRate": 48000,
+          "audioFramesPerBuffer": 192,
+          "frameIntervalMs": {
+            "samples": 1172,
+            "mean": 8.52,
+            "p95": 8.38,
+            "p99": 16.67
+          },
+          "frameCallbackDelayMs": {
+            "samples": 1173,
+            "mean": 1.66,
+            "p95": 3.27,
+            "p99": 4.64
+          },
+          "inputDispatchAgeMs": {
+            "samples": 541,
+            "mean": 2.34,
+            "p95": 5,
+            "p99": 6
+          },
+          "timerWakeupDelayMs": {
+            "samples": 99,
+            "mean": 0.77,
+            "p95": 3,
+            "p99": 9
+          }
+        }
+      }
+    }
+  ]
 }

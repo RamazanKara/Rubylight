@@ -187,6 +187,7 @@ fn video_codec_and_format(mode: &VideoMode) -> Result<(Codec, FormatParams)> {
         VideoCodec::Hevc => (Codec::H265, {
             let (level, tier) = hevc_params(mode)?;
             FormatParams {
+                level_asymmetry_allowed: Some(true),
                 h265_profile_tier_level: Some((mode.hevc_profile_id(), tier, level).into()),
                 ..Default::default()
             }
@@ -548,6 +549,23 @@ fn answered_layout(fmtp: &str, offered: &OpusLayout) -> Result<OpusLayout> {
             "the multiopus channel_mapping entry {bad} is outside the {decoded} decoded channels"
         );
     }
+    // What libopus's multistream encoder demands: every stream's channels are mapped, the left
+    // one of each stream and the right one too for a coupled stream.
+    for stream in 0..streams {
+        let (left, right) = if stream < coupled {
+            (2 * stream, Some(2 * stream + 1))
+        } else {
+            (stream + coupled, None)
+        };
+        for channel in std::iter::once(left).chain(right) {
+            if !mapping.iter().any(|&m| i32::from(m) == channel) {
+                bail!(
+                    "the multiopus channel_mapping never uses decoded channel {channel} \
+                     (stream {stream} of {streams}, {coupled} coupled)"
+                );
+            }
+        }
+    }
     Ok(OpusLayout {
         channels: offered.channels,
         streams,
@@ -787,6 +805,7 @@ mod tests {
                 let line = fmtp(&offer_for(&s));
                 let p = |n: &str| param_of(&line, n);
                 assert_eq!(p("profile-id"), Some(profile.to_string()), "{line}");
+                assert_eq!(p("level-asymmetry-allowed"), Some("1".into()), "{line}");
                 assert_eq!(
                     p("tier-flag"),
                     Some(tier.to_string()),
@@ -1132,8 +1151,8 @@ mod tests {
                 vec![0u8, 1, 4, 5, 2, 3],
             ),
             (
-                "channel_mapping=0,1,2,3,255,5;num_streams=4;coupled_streams=2;minptime=10",
-                vec![0, 1, 2, 3, 255, 5],
+                "channel_mapping=0,1,2,3,4,255;num_streams=3;coupled_streams=2;minptime=10",
+                vec![0, 1, 2, 3, 4, 255],
             ),
             (
                 "channel_mapping=0,1,2,3,4,5;num_streams=6;coupled_streams=0",
@@ -1167,6 +1186,14 @@ mod tests {
         // Too many decoded channels.
         let err = refused("channel_mapping=0,1,2,3,4,5;num_streams=200;coupled_streams=100");
         assert!(err.contains("too many decoded channels"), "{err}");
+        // Layouts libopus's encoder cannot be created with: a stream with no channel, or a
+        // coupled stream missing one of its two.
+        let err = refused("channel_mapping=0,0,0,0,0,0;num_streams=4;coupled_streams=2");
+        assert!(err.contains("never uses decoded channel 1"), "{err}");
+        let err = refused("channel_mapping=0,1,2,3,4,255;num_streams=4;coupled_streams=2");
+        assert!(err.contains("never uses decoded channel 5"), "{err}");
+        let err = refused("channel_mapping=0,1,2,2,4,5;num_streams=4;coupled_streams=2");
+        assert!(err.contains("never uses decoded channel 3"), "{err}");
         // Missing or unreadable parameters.
         let err = refused("minptime=10");
         assert!(err.contains("no num_streams"), "{err}");

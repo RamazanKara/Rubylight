@@ -464,18 +464,27 @@ impl Engine {
             }
             Event::IceConnectionStateChange(state) => {
                 tracing::debug!("webrtc: ICE {state:?}");
-                if state == IceConnectionState::Disconnected {
-                    // Before `Connected` this is only ICE not having found a pair yet.
-                    if self.connected && self.disconnected_since.is_none() {
-                        tracing::warn!("webrtc: the ICE path is down");
-                        self.disconnected_since = Some(now);
-                        self.events.push(TransportEvent::Disconnected);
+                match state {
+                    // Before `Connected` these are only ICE not having found a pair yet. After
+                    // it, Disconnected is an outage and Checking is ICE searching for a new pair
+                    // (a handover): the path is down until a pair is back.
+                    IceConnectionState::Disconnected | IceConnectionState::Checking => {
+                        if self.connected && self.disconnected_since.is_none() {
+                            tracing::warn!("webrtc: the ICE path is down");
+                            self.disconnected_since = Some(now);
+                            self.events.push(TransportEvent::Disconnected);
+                        }
                     }
-                } else if self.disconnected_since.take().is_some() {
-                    tracing::info!("webrtc: the ICE path is back");
-                    self.events.push(TransportEvent::Reconnected);
-                    // Whatever was written meanwhile went nowhere: start again from a keyframe.
-                    self.idr.push(IdrReason::Reconnected);
+                    IceConnectionState::Connected | IceConnectionState::Completed
+                        if self.disconnected_since.take().is_some() =>
+                    {
+                        tracing::info!("webrtc: the ICE path is back");
+                        self.events.push(TransportEvent::Reconnected);
+                        // Whatever was written meanwhile went nowhere: start again from a
+                        // keyframe.
+                        self.idr.push(IdrReason::Reconnected);
+                    }
+                    _ => {}
                 }
             }
             Event::KeyframeRequest(request) => {
@@ -1031,21 +1040,21 @@ impl MediaHandle {
             local.is_ipv6(),
             Instant::now(),
         );
-        let mut threads = Vec::new();
         let (shared_rx, tx_rx) = (shared.clone(), tx.clone());
-        threads.push(
-            std::thread::Builder::new()
-                .name("webrtc-recv".into())
-                .spawn(move || receive_loop(recv_socket, tx_rx, shared_rx))
-                .context("starting the receive thread")?,
-        );
         let shared_media = shared.clone();
-        threads.push(
-            std::thread::Builder::new()
-                .name("webrtc-media".into())
-                .spawn(move || media_loop(engine, queue, socket, rx, shared_media))
-                .context("starting the media thread")?,
-        );
+        let threads = start_threads(
+            &shared,
+            || {
+                std::thread::Builder::new()
+                    .name("webrtc-recv".into())
+                    .spawn(move || receive_loop(recv_socket, tx_rx, shared_rx))
+            },
+            || {
+                std::thread::Builder::new()
+                    .name("webrtc-media".into())
+                    .spawn(move || media_loop(engine, queue, socket, rx, shared_media))
+            },
+        )?;
         Ok(Self {
             tx,
             shared,
@@ -1097,17 +1106,19 @@ impl MediaHandle {
             shared.pending_video.fetch_sub(1, Ordering::AcqRel);
             return self.drop_video(IdrReason::QueueFull);
         }
-        let keyframe = frame.keyframe;
+        // Cleared before the send: the media thread may drop this very keyframe at once and set
+        // the flag again, and that must win over this store.
+        if frame.keyframe {
+            shared.need_keyframe.store(false, Ordering::Release);
+        }
         if !self.queue(Command::Video(frame)) {
             shared.pending_video.fetch_sub(1, Ordering::AcqRel);
+            shared.need_keyframe.store(true, Ordering::Release);
             shared
                 .counters
                 .video_dropped
                 .fetch_add(1, Ordering::Relaxed);
             return Submit::Dropped;
-        }
-        if keyframe {
-            shared.need_keyframe.store(false, Ordering::Release);
         }
         Submit::Queued
     }
@@ -1212,11 +1223,42 @@ impl Drop for MediaHandle {
     }
 }
 
+/// Start the receive and media threads. If the media thread cannot start, the receive thread is
+/// stopped and joined so the socket (and its port) is released before the error returns.
+fn start_threads(
+    shared: &Shared,
+    receive: impl FnOnce() -> std::io::Result<JoinHandle<()>>,
+    media: impl FnOnce() -> std::io::Result<JoinHandle<()>>,
+) -> Result<Vec<JoinHandle<()>>> {
+    let receive = receive().context("starting the receive thread")?;
+    match media() {
+        Ok(media) => Ok(vec![receive, media]),
+        Err(e) => {
+            shared.stop.store(true, Ordering::Release);
+            let _ = receive.join();
+            Err(anyhow::Error::new(e).context("starting the media thread"))
+        }
+    }
+}
+
+/// Consecutive receive errors tolerated before the receive thread backs off: a lone error costs
+/// one datagram and no latency, a persistent one must not spin the thread.
+const RECV_ERRORS_BEFORE_BACKOFF: u32 = 8;
+const RECV_ERROR_BACKOFF: Duration = Duration::from_millis(5);
+
+/// Count one more consecutive receive error; the pause to take, if any.
+fn recv_error_backoff(consecutive: &mut u32) -> Option<Duration> {
+    *consecutive = consecutive.saturating_add(1);
+    (*consecutive >= RECV_ERRORS_BEFORE_BACKOFF).then_some(RECV_ERROR_BACKOFF)
+}
+
 fn receive_loop(socket: UdpSocket, tx: Sender<Command>, shared: Arc<Shared>) {
     let mut buf = vec![0u8; RECV_DATAGRAM_BYTES];
+    let mut consecutive_errors = 0u32;
     while !shared.stop.load(Ordering::Acquire) {
         match socket.recv_from(&mut buf) {
             Ok((len, from)) => {
+                consecutive_errors = 0;
                 let counters = &shared.counters;
                 counters.datagrams_received.fetch_add(1, Ordering::Relaxed);
                 if shared.pending_datagrams.fetch_add(1, Ordering::AcqRel)
@@ -1248,7 +1290,10 @@ fn receive_loop(socket: UdpSocket, tx: Sender<Command>, shared: Arc<Shared>) {
                 if matches!(
                     e.kind(),
                     std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) => {}
+                ) =>
+            {
+                consecutive_errors = 0
+            }
             // Windows reports an ICMP port-unreachable for an earlier send as a receive error.
             Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => {}
             // Anything else costs the datagram, not the session: whoever can reach this port
@@ -1261,8 +1306,9 @@ fn receive_loop(socket: UdpSocket, tx: Sender<Command>, shared: Arc<Shared>) {
                         n + 1
                     );
                 }
-                // A persistent error must not spin this thread.
-                std::thread::sleep(Duration::from_millis(5));
+                if let Some(pause) = recv_error_backoff(&mut consecutive_errors) {
+                    std::thread::sleep(pause);
+                }
             }
         }
     }
@@ -2961,6 +3007,142 @@ mod tests {
         assert_eq!(rx.try_iter().count(), 3, "only the first three are queued");
         handle.shared.stop.store(true, Ordering::Release);
         thread.join().unwrap();
+    }
+
+    fn ice(link: &mut Link, state: IceConnectionState) {
+        link.host
+            .on_event(link.now, Event::IceConnectionStateChange(state));
+    }
+
+    #[test]
+    fn checking_after_an_outage_is_not_back_and_does_not_reset_the_timeout() {
+        let mut link = Link::connected(spec(VideoCodec::H264, false));
+        link.collect_host();
+        link.host_events.clear();
+        link.idr.clear();
+        ice(&mut link, IceConnectionState::Disconnected);
+        let down_at = link.host.disconnected_since.expect("down");
+        link.now += Duration::from_secs(1);
+        ice(&mut link, IceConnectionState::Checking);
+        assert_eq!(
+            link.host.disconnected_since,
+            Some(down_at),
+            "the clock runs on"
+        );
+        assert!(link.host.is_disconnected());
+        link.collect_host();
+        assert_eq!(link.host_events, [TransportEvent::Disconnected]);
+        assert!(link.idr.is_empty(), "{:?}", link.idr);
+        // Only a usable pair is back, and it asks for exactly one keyframe.
+        ice(&mut link, IceConnectionState::Completed);
+        ice(&mut link, IceConnectionState::Connected);
+        link.collect_host();
+        assert!(!link.host.is_disconnected());
+        assert_eq!(
+            link.host_events,
+            [TransportEvent::Disconnected, TransportEvent::Reconnected]
+        );
+        assert_eq!(link.idr, [IdrReason::Reconnected]);
+    }
+
+    #[test]
+    fn checking_after_connecting_counts_as_down() {
+        let mut link = Link::connected(spec(VideoCodec::H264, false));
+        link.collect_host();
+        link.host_events.clear();
+        // A Wi-Fi handover: Completed, then ICE goes looking for a new pair.
+        ice(&mut link, IceConnectionState::Completed);
+        ice(&mut link, IceConnectionState::Checking);
+        assert!(link.host.is_disconnected());
+        assert!(!link.host.is_connected());
+        link.collect_host();
+        assert_eq!(link.host_events, [TransportEvent::Disconnected]);
+        // The timeout runs from the first sign of trouble and ends the session.
+        link.now += DISCONNECT_TIMEOUT + Duration::from_millis(1);
+        link.host.advance(link.now).unwrap();
+        assert!(link.host.is_closed());
+    }
+
+    #[test]
+    fn checking_before_the_session_connected_is_not_an_outage() {
+        let mut link = Link::new(spec(VideoCodec::H264, false));
+        ice(&mut link, IceConnectionState::Checking);
+        ice(&mut link, IceConnectionState::Disconnected);
+        assert!(!link.host.is_disconnected());
+        link.collect_host();
+        assert!(link.host_events.is_empty());
+    }
+
+    #[test]
+    fn a_keyframe_cannot_overwrite_the_threads_demand_for_the_next_one() {
+        let (handle, rx, _idr) = detached(TransportOptions::default());
+        let shared = handle.shared.clone();
+        let processed = Arc::new(AtomicUsize::new(0));
+        let thread = {
+            let (shared, processed) = (shared.clone(), processed.clone());
+            std::thread::spawn(move || {
+                // The media thread, discarding every keyframe at once.
+                while let Ok(Command::Video(_)) = rx.recv() {
+                    shared.pending_video.fetch_sub(1, Ordering::AcqRel);
+                    shared.need_keyframe.store(true, Ordering::Release);
+                    processed.fetch_add(1, Ordering::Release);
+                }
+            })
+        };
+        for i in 1..=20_000 {
+            shared.need_keyframe.store(true, Ordering::Release);
+            assert_eq!(handle.submit_video(frame(true)), Submit::Queued);
+            while processed.load(Ordering::Acquire) < i {
+                std::hint::spin_loop();
+            }
+            assert!(
+                shared.need_keyframe.load(Ordering::Acquire),
+                "round {i}: the clear overwrote the thread's demand"
+            );
+        }
+        drop(handle);
+        thread.join().unwrap();
+    }
+
+    #[test]
+    fn receive_errors_only_back_off_when_they_persist() {
+        let mut consecutive = 0;
+        for _ in 1..RECV_ERRORS_BEFORE_BACKOFF {
+            assert_eq!(recv_error_backoff(&mut consecutive), None);
+        }
+        assert_eq!(
+            recv_error_backoff(&mut consecutive),
+            Some(RECV_ERROR_BACKOFF)
+        );
+        assert_eq!(
+            recv_error_backoff(&mut consecutive),
+            Some(RECV_ERROR_BACKOFF)
+        );
+        // A datagram (or a quiet timeout) in between starts the count again.
+        consecutive = 0;
+        assert_eq!(recv_error_backoff(&mut consecutive), None);
+    }
+
+    #[test]
+    fn a_media_thread_that_cannot_start_releases_the_port() {
+        let (handle, _rx, _idr) = detached(TransportOptions::default());
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_millis(50)))
+            .unwrap();
+        let port = socket.local_addr().unwrap().port();
+        let (tx, _keep) = mpsc::channel::<Command>();
+        let shared = handle.shared.clone();
+        let result = start_threads(
+            &handle.shared,
+            || std::thread::Builder::new().spawn(move || receive_loop(socket, tx, shared)),
+            || Err(std::io::Error::other("no threads left")),
+        );
+        let err = format!("{:#}", result.expect_err("the media thread failed"));
+        assert!(err.contains("starting the media thread"), "{err}");
+        // The receive thread was stopped and joined, so its socket is closed.
+        UdpSocket::bind(("127.0.0.1", port)).expect("the port is free again");
+        assert!(handle.shared.stop.load(Ordering::Acquire));
     }
 
     /// A real MediaHandle on loopback, against a peer that never answers.

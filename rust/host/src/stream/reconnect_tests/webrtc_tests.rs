@@ -843,6 +843,31 @@ async fn a_held_streaming_status_goes_out_once_the_source_is_checked() -> Result
     Ok(())
 }
 
+/// The worker that waits for its first frame stops waiting when the session is stopped, as the
+/// real one does; the client sees the stop, not an error.
+#[tokio::test(flavor = "multi_thread")]
+async fn stopping_a_held_session_ends_it_without_an_error() -> Result<()> {
+    let web = web_with_every_codec().await?;
+    web.harness
+        .fixture
+        .hold_first_frame
+        .store(true, Ordering::Release);
+    let mut ws = web.device("TV", u32::MAX).await;
+    ws.send(web.request("start-session", "hevc", true, 2)).await;
+    status(&mut ws, "session-status", "starting").await;
+    let (_, peer) = answer_case(&mut ws, &HEVC.hdr()).await;
+    until("transport connected", WAIT, || peer.connected()).await;
+    nothing_for(&mut ws, Duration::from_millis(300)).await;
+
+    ws.send(json!({"version":2,"type":"stop-session"})).await;
+    status(&mut ws, "session-status", "stopping").await;
+    status(&mut ws, "session-status", "idle").await;
+    // The held worker returned on the stop: nothing is left running.
+    web.idle().await;
+    drop(peer);
+    Ok(())
+}
+
 /// A worker stuck before its first frame (in `prepare_stream` or `open_session_capture`) never
 /// vouches for the HDR source: the held "streaming" status must end in an error, not wait for good.
 #[tokio::test(flavor = "multi_thread")]

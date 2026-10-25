@@ -219,7 +219,10 @@ impl Fixture {
             !self.webrtc_fails_before_its_link.load(Ordering::Acquire),
             "the fixture's WebRTC worker failed before taking its link"
         );
-        while self.hold_first_frame.load(Ordering::Acquire) && !h.stop.load(Ordering::Acquire) {
+        while self.hold_first_frame.load(Ordering::Acquire)
+            && !h.stop.load(Ordering::Acquire)
+            && !s.stopping()
+        {
             thread::sleep(Duration::from_millis(5));
         }
         require_hdr_source(s, || self.display_in_hdr(), false)?;

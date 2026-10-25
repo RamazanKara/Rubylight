@@ -196,9 +196,13 @@ impl FrameRateOffer {
 
 impl Default for FrameRateOffer {
     /// 30 and 60 fps everywhere: 90 and 120 are offered only for modes that
-    /// have been measured clean.
+    /// have been measured clean. 1080p measured clean at 90 and 120 with
+    /// H.264, HEVC and AV1 (rust/PERFORMANCE.md); the others have not been
+    /// measured above 60.
     fn default() -> Self {
-        Self::uniform(&[30, 60])
+        let mut offer = Self::uniform(&[30, 60]);
+        offer.set(1920, 1080, &[30, 60, 90, 120]);
+        offer
     }
 }
 
@@ -885,11 +889,12 @@ mod tests {
         offer.set(2560, 1440, &[]);
         let body = HostCapabilities::new(FULL, offer).capabilities();
         assert_eq!(mode(&body, 720).frame_rates, vec![30, 60]);
+        assert_eq!(mode(&body, 1080).frame_rates, vec![30, 60, 90, 120]);
         assert_eq!(mode(&body, 2160).frame_rates, vec![30, 60]);
         // A mode without rates isn't offered at all.
         assert!(body.video_modes.iter().all(|m| m.height != 1440));
         assert_eq!(body.resolutions.len(), 3);
-        assert_eq!(body.frame_rates, vec![30, 60]);
+        assert_eq!(body.frame_rates, vec![30, 60, 90, 120]);
         // Nothing offered: nothing listed.
         let empty = HostCapabilities::new(FULL, FrameRateOffer::uniform(&[])).capabilities();
         assert!(empty.video_modes.is_empty() && empty.codecs.is_empty() && !empty.hdr);
@@ -1030,9 +1035,19 @@ mod tests {
         refuse(&host, video(1921, 1080, 60, "h264", 20000, false), 2);
         refuse(&host, video(1920, 1080, 144, "h264", 20000, false), 2);
         refuse(&host, video(1920, 1080, 0, "h264", 20000, false), 2);
+        // 90 and 120 fps are offered at 1080p, which measured clean, and nowhere else.
         let limited = HostCapabilities::new(FULL, FrameRateOffer::default());
-        let m = refuse(&limited, video(1920, 1080, 120, "h264", 20000, false), 2);
-        assert!(m.contains("frame rate"));
+        for fps in [90, 120] {
+            assert!(
+                limited
+                    .validate(&video(1920, 1080, fps, "h264", 20000, false), &stereo())
+                    .is_ok()
+            );
+            for (width, height) in [(1280, 720), (2560, 1440), (3840, 2160)] {
+                let m = refuse(&limited, video(width, height, fps, "hevc", 20000, false), 2);
+                assert!(m.contains("frame rate"), "{height}p {fps}: {m}");
+            }
+        }
         let m = refuse(&limited, video(1000, 1080, 60, "h264", 20000, false), 2);
         assert!(m.contains("resolution"));
         // A mode with no rates is an unsupported resolution.

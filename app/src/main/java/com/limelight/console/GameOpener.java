@@ -10,7 +10,6 @@ import com.limelight.nativeapi.NativeApiException;
 import com.limelight.nativeapi.NativeLibrary;
 import com.limelight.nvstream.http.ComputerDetails;
 
-import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.Executor;
 
@@ -22,12 +21,9 @@ final class GameOpener {
     private GameOpener() {
     }
 
-    /** The games being added now, by host and game id; touched on the UI thread only. */
-    private static final Set<String> ADDING = new HashSet<>();
-
-    /** True while the host is adding this game for a press; another press then does nothing. */
-    static boolean adding(String hostUuid, String gameId) {
-        return ADDING.contains(hostUuid + "|" + gameId);
+    /** True while the host is adding this game for a press on this screen; another press then does nothing. */
+    static boolean adding(Screen screen, String hostUuid, String gameId) {
+        return screen.adding().contains(hostUuid + "|" + gameId);
     }
 
     /** What opening needs from the screen: its data, the host behind a card and what to do once a game was added. */
@@ -42,6 +38,12 @@ final class GameOpener {
 
         /** The library changed on the host: load it again. */
         void onAdded();
+
+        /**
+         * The games this screen is adding now, by host and game id; touched on the UI thread only. The screen owns
+         * it, so an add its worker drops on destroy never blocks a later screen's press.
+         */
+        Set<String> adding();
     }
 
     static void open(Screen screen, Executor worker, HomeModel.GameCard card) {
@@ -59,7 +61,8 @@ final class GameOpener {
         }
         String gameId = card.source.gameId;
         String addKey = card.hostUuid + "|" + gameId;
-        if (!ADDING.add(addKey)) {
+        Set<String> adding = screen.adding();
+        if (!adding.add(addKey)) {
             return;
         }
         Toast.makeText(activity, activity.getString(R.string.console_adding, card.title), Toast.LENGTH_SHORT).show();
@@ -73,7 +76,7 @@ final class GameOpener {
             }
             final NativeLibrary.Game game = added;
             activity.runOnUiThread(() -> {
-                ADDING.remove(addKey);
+                adding.remove(addKey);
                 if (activity.isFinishing() || activity.isDestroyed()) {
                     return;
                 }
@@ -90,7 +93,7 @@ final class GameOpener {
         try {
             worker.execute(add);
         } catch (java.util.concurrent.RejectedExecutionException e) {
-            ADDING.remove(addKey);
+            adding.remove(addKey);
         }
     }
 

@@ -97,11 +97,14 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
         return GameDetailActivity.class;
     }
 
+    /** The games this screen is adding on a host now; see {@link GameOpener.Screen#adding}. */
+    private final Set<String> adding = new HashSet<>();
     private final GameOpener.Screen opener = new GameOpener.Screen() {
         @Override public android.app.Activity activity() { return AllGamesActivity.this; }
         @Override public ConsoleRepository repository() { return repository; }
         @Override public ComputerDetails host(String uuid) { return feed.host(uuid); }
         @Override public Class<? extends GameDetailActivity> detailActivity() { return AllGamesActivity.this.detailActivity(); }
+        @Override public Set<String> adding() { return adding; }
         @Override public void onAdded() {
             refreshedSignature = null;
             scheduleReload();

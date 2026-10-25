@@ -36,6 +36,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /** Opening a card: a game in the library opens its page, one the host found is added first or sent to the PC. */
 @RunWith(RobolectricTestRunner.class)
@@ -51,13 +52,20 @@ public class GameOpenerTest {
     private final List<Runnable> queued = new ArrayList<>();
     private int added;
 
-    private final GameOpener.Screen screen = new GameOpener.Screen() {
-        @Override public Activity activity() { return activity; }
-        @Override public ConsoleRepository repository() { return rig.repository; }
-        @Override public ComputerDetails host(String uuid) { return "tower".equals(uuid) ? tower : null; }
-        @Override public Class<? extends GameDetailActivity> detailActivity() { return GameDetailActivity.class; }
-        @Override public void onAdded() { added++; }
-    };
+    private final GameOpener.Screen screen = screen();
+
+    /** A screen as Home and All games are: each its own set of games being added. */
+    private GameOpener.Screen screen() {
+        Set<String> adding = new HashSet<>();
+        return new GameOpener.Screen() {
+            @Override public Activity activity() { return activity; }
+            @Override public ConsoleRepository repository() { return rig.repository; }
+            @Override public ComputerDetails host(String uuid) { return "tower".equals(uuid) ? tower : null; }
+            @Override public Class<? extends GameDetailActivity> detailActivity() { return GameDetailActivity.class; }
+            @Override public void onAdded() { added++; }
+            @Override public Set<String> adding() { return adding; }
+        };
+    }
 
     @Before
     public void setUp() throws Exception {
@@ -127,14 +135,14 @@ public class GameOpenerTest {
         GameOpener.open(screen, queued::add, hades);
         assertEquals(activity.getString(com.limelight.R.string.console_adding, "Hades"),
                 ShadowToast.getTextOfLatestToast());
-        assertTrue(GameOpener.adding("tower", "found:Hades"));
+        assertTrue(GameOpener.adding(screen, "tower", "found:Hades"));
 
         // A second press while the host is still adding it does nothing.
         GameOpener.open(screen, queued::add, hades);
         assertEquals(1, queued.size());
 
         queued.remove(0).run();
-        assertFalse(GameOpener.adding("tower", "found:Hades"));
+        assertFalse(GameOpener.adding(screen, "tower", "found:Hades"));
         assertEquals(1, added);
         assertEquals(1, java.util.Collections.frequency(rig.transport.calls, "tower|library_add"));
         Intent page = shadowOf(activity).getNextStartedActivity();
@@ -154,5 +162,23 @@ public class GameOpenerTest {
         GameOpener.open(screen, queued::add, hades);
         assertEquals(1, queued.size());
         queued.remove(0).run();
+    }
+
+    @Test
+    public void anAddDroppedWithItsScreenDoesNotBlockTheNextPress() throws Exception {
+        HomeModel.GameCard hades = card(model(Arrays.asList("library.unadded", "library.add")), "Hades");
+        rig.transport.reply("tower", "library_add", ok("{\"install_id\":\"i9\",\"app_id\":9,\"title\":\"Hades\","
+                + "\"game_id\":\"found:Hades\"}"));
+        // All games queues the add behind its opening refresh; Back destroys it and its worker drops the add unrun.
+        GameOpener.open(screen, queued::add, hades);
+        assertEquals(1, queued.size());
+        queued.clear();
+
+        GameOpener.Screen next = screen();
+        assertFalse(GameOpener.adding(next, "tower", "found:Hades"));
+        GameOpener.open(next, queued::add, hades);
+        assertEquals("the press on the next screen adds the game", 1, queued.size());
+        queued.remove(0).run();
+        assertEquals(9, shadowOf(activity).getNextStartedActivity().getIntExtra(GameDetailActivity.EXTRA_APP_ID, -1));
     }
 }

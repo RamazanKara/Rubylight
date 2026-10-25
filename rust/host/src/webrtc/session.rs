@@ -1,0 +1,1189 @@
+//! WebRTC sessions on the stream pipeline: `start-session`, `stop-session`, `switch-session` and
+//! `stop-host-session` (`docs/webrtc-design.md`).
+//!
+//! One actor per signalling connection runs the requests in order. It validates a request
+//! against the host's capabilities, launches the app and display through the same back half as a
+//! Moonlight launch (`nvhttp::launch_webrtc`), offers the str0m session over the socket, and on
+//! the client's answer starts the media transport and the stream worker. The worker takes the
+//! transport from [`Links`] and sends each encoded access unit through a [`Sender`]; the
+//! GameStream video, audio and ENet paths do not run for the session.
+//!
+//! A session ends when the client sends `stop-session`, the signalling socket closes, the media
+//! transport closes, or the stream fails; the actor says `idle` (or `error`) when it notices.
+
+use super::{
+    media::{
+        self, Hooks, IdrReason, MediaHandle, Pacing, Submit, TransportEvent, TransportOptions,
+        VideoFrame,
+    },
+    sdp::{self, AudioMode, OfferSpec, VideoCodec, VideoMode},
+    server,
+};
+use crate::{
+    nvhttp::{self, WebRtcLaunch, WebRtcLaunchError},
+    state::{Launch, Session, Shared},
+    stream::Media,
+};
+use anyhow::{Context, Result, anyhow, ensure};
+use butterpollo_core::{
+    performance::{Claims, Timing},
+    rtsp::Negotiated,
+    webrtc::{
+        capabilities::{Codec, FrameRateOffer, HostCapabilities, StreamSettings},
+        protocol::{
+            AudioSettings, ErrorCode, HostSessionState, ServerMessage, SessionState, VideoSettings,
+            is_keyframe_request,
+        },
+    },
+};
+use butterpollo_windows::encoder::{Encoded, Unit};
+use std::{
+    cell::Cell,
+    collections::HashMap,
+    net::{IpAddr, SocketAddr, UdpSocket},
+    sync::{
+        Arc, Mutex, Weak,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+    },
+    time::{Duration, Instant},
+};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+
+/// The permission to start and end streams, as for a Moonlight launch.
+const LAUNCH: u32 = 1 << 26;
+/// How long the client has to answer the offer. The launch it holds expires after 30 s.
+const ANSWER_TIMEOUT: Duration = Duration::from_secs(15);
+/// How long an answered session may take to connect before it is ended.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+/// How long a new session waits for the media port of the one before it.
+const BIND_WAIT: Duration = Duration::from_secs(3);
+/// How often the actor looks for a session that ended.
+const WATCH: Duration = Duration::from_millis(100);
+/// Capture instants of consecutive frames differ by at least one 90 kHz tick (11.1 us).
+const MIN_STEP: Duration = Duration::from_micros(12);
+
+fn micros(duration: Duration) -> u64 {
+    duration.as_micros().min(u128::from(u64::MAX)) as u64
+}
+
+/// The media transport of each session between its signalling task and its stream worker, and
+/// the session ids the host hands out.
+#[derive(Default)]
+pub struct Links {
+    media: Mutex<HashMap<String, MediaHandle>>,
+    ids: AtomicU64,
+}
+
+impl Links {
+    /// A positive id, unique for the life of the host.
+    pub fn next_session_id(&self) -> u64 {
+        self.ids.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    pub fn put(&self, launch: String, media: MediaHandle) {
+        let replaced = self.media.lock().unwrap().insert(launch, media);
+        // Joins the old transport's threads: never under the lock.
+        drop(replaced);
+    }
+
+    pub fn take(&self, launch: &str) -> Option<MediaHandle> {
+        self.media.lock().unwrap().remove(launch)
+    }
+
+    /// Drop a transport nobody took, freeing its port.
+    pub fn discard(&self, launch: &str) {
+        drop(self.take(launch));
+    }
+
+    pub fn len(&self) -> usize {
+        self.media.lock().unwrap().len()
+    }
+}
+
+/// A capture instant no earlier than one RTP tick after the last one: the transport maps the
+/// instant to the 90 kHz timestamp and does not repair a frame that steps back or repeats.
+fn monotonic(last: &Cell<Option<Instant>>, capture: Instant) -> Instant {
+    let capture = match last.get() {
+        Some(previous) => capture.max(previous + MIN_STEP),
+        None => capture,
+    };
+    last.set(Some(capture));
+    capture
+}
+
+/// The stream worker's end of a WebRTC session: hands each encoded access unit to the transport,
+/// which packetizes, paces and sends it from its own thread. Dropping it closes the transport.
+pub struct Sender {
+    media: MediaHandle,
+    last: Cell<Option<Instant>>,
+}
+
+impl Sender {
+    pub fn new(media: MediaHandle) -> Self {
+        Self {
+            media,
+            last: Cell::new(None),
+        }
+    }
+
+    /// The client's address on the pair ICE selected, once it has answered.
+    pub fn peer(&self) -> Option<SocketAddr> {
+        self.media.peer()
+    }
+
+    /// Queue frames the encoder returned. A frame the transport cannot take is dropped and a
+    /// keyframe requested by the transport; the stream goes on.
+    pub fn submit(
+        &self,
+        session: &Session,
+        frames: Vec<Encoded>,
+        call_latency: Duration,
+        processing_started: Instant,
+        claims: &mut Claims,
+    ) -> Result<()> {
+        if frames.is_empty() {
+            return Ok(());
+        }
+        if !self.media.is_running() {
+            // Closing the transport stops the session first; anything else is a failure.
+            ensure!(
+                session.stopping(),
+                "the WebRTC transport stopped without closing"
+            );
+            return Ok(());
+        }
+        let polled = Instant::now();
+        for frame in frames {
+            ensure!(
+                matches!(frame.unit, Unit::Whole),
+                "WebRTC takes whole access units, not slices"
+            );
+            let latency = frame.latency.unwrap_or(call_latency);
+            let claimed = polled.checked_sub(latency).unwrap_or(polled);
+            let claim = claims.take(frame.presentation);
+            let capture = monotonic(&self.last, frame.presentation.unwrap_or(claimed));
+            let bytes = frame.bytes.len() as u64;
+            let submitted = self.media.submit_video(VideoFrame {
+                data: frame.bytes,
+                capture,
+                keyframe: frame.idr,
+            });
+            let stats = &session.stats;
+            match submitted {
+                Submit::Queued => {
+                    let sent_at = Instant::now();
+                    stats.latency_us.store(micros(latency), Ordering::Relaxed);
+                    stats.frames.fetch_add(1, Ordering::Relaxed);
+                    stats.bytes.fetch_add(bytes, Ordering::Relaxed);
+                    let age = claim.as_ref().map_or(0, |claim| {
+                        micros(claim.claimed.saturating_duration_since(claim.presented))
+                    });
+                    stats.performance.lock().unwrap().record_timing(
+                        sent_at,
+                        Timing {
+                            period: session.stream_mode().period(),
+                            encode: micros(latency),
+                            host: micros(polled.saturating_duration_since(processing_started)),
+                            age,
+                            sent: micros(sent_at.saturating_duration_since(claimed)),
+                        },
+                        bytes,
+                    );
+                }
+                Submit::Dropped => {
+                    stats.frames_replaced.fetch_add(1, Ordering::Relaxed);
+                    tracing::debug!(bytes, keyframe = frame.idr, "WebRTC video frame dropped");
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// What the actor learns from the transport.
+enum Event {
+    Connected,
+}
+
+/// The transport's hooks run on its threads and know the session only through this: the session
+/// is set once it exists, which is after the transport started.
+struct Bridge {
+    session: Mutex<Option<Weak<Session>>>,
+    /// The transport closed before the session was bound.
+    closed: AtomicBool,
+    /// The transport connected, which may be before the session was bound.
+    connected: AtomicBool,
+    events: UnboundedSender<Event>,
+}
+
+impl Bridge {
+    fn new(events: UnboundedSender<Event>) -> Arc<Self> {
+        Arc::new(Self {
+            session: Mutex::new(None),
+            closed: AtomicBool::new(false),
+            connected: AtomicBool::new(false),
+            events,
+        })
+    }
+
+    fn bind(&self, session: &Arc<Session>) {
+        *self.session.lock().unwrap() = Some(Arc::downgrade(session));
+        if self.closed.load(Ordering::SeqCst) {
+            session.stop();
+        } else if self.connected.load(Ordering::SeqCst) {
+            // Its keyframe request had no session to reach.
+            session.request_host_keyframe();
+        }
+    }
+
+    fn session(&self) -> Option<Arc<Session>> {
+        self.session.lock().unwrap().as_ref()?.upgrade()
+    }
+
+    /// A PLI or FIR is the client's keyframe request, like Moonlight's; the transport's own
+    /// reasons are the host's.
+    fn idr(&self, reason: IdrReason) {
+        let Some(session) = self.session() else {
+            return;
+        };
+        match reason {
+            IdrReason::Pli | IdrReason::Fir => session.request_client_keyframe(),
+            IdrReason::Connected => session.request_host_keyframe(),
+            IdrReason::Reconnected
+            | IdrReason::QueueFull
+            | IdrReason::PacerBacklog
+            | IdrReason::WaitingForKeyframe
+            | IdrReason::WriteFailed => session.request_idr(),
+        }
+    }
+
+    fn event(&self, event: TransportEvent) {
+        match event {
+            TransportEvent::Connected => {
+                self.connected.store(true, Ordering::SeqCst);
+                let _ = self.events.send(Event::Connected);
+            }
+            TransportEvent::Closed => {
+                self.closed.store(true, Ordering::SeqCst);
+                tracing::info!("WebRTC transport closed; ending the session");
+                if let Some(session) = self.session() {
+                    session.stop();
+                }
+            }
+            TransportEvent::Disconnected => {
+                tracing::warn!("WebRTC path down; the session ends if it does not come back")
+            }
+            TransportEvent::Reconnected => tracing::info!("WebRTC path restored"),
+            TransportEvent::Control {
+                data,
+                binary: false,
+            } => {
+                if std::str::from_utf8(&data).is_ok_and(is_keyframe_request)
+                    && let Some(session) = self.session()
+                {
+                    session.request_client_keyframe();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn hooks(self: &Arc<Self>) -> Hooks {
+        let (idr, event) = (self.clone(), self.clone());
+        Hooks::new(move |reason| idr.idr(reason), move |e| event.event(e))
+    }
+}
+
+/// A request to start or switch to an app.
+pub struct Request {
+    pub app_id: String,
+    pub video: VideoSettings,
+    pub audio: AudioSettings,
+}
+
+pub enum Command {
+    Start(Request),
+    Switch(Request),
+    Stop,
+    StopHost,
+    Answer { session_id: u64, sdp: String },
+}
+
+/// The connection's end of its session actor. Dropping it ends the actor and stops its session.
+pub struct Commands(UnboundedSender<Command>);
+
+impl Commands {
+    pub fn send(&self, command: Command) -> bool {
+        self.0.send(command).is_ok()
+    }
+}
+
+/// Run the session actor of one signalling connection. Its replies arrive on `out`. `peer` is the
+/// signalling peer and `local` the address it connected to, which the media socket binds.
+pub fn spawn(
+    h: Shared,
+    media: Arc<Media>,
+    client_id: String,
+    peer: SocketAddr,
+    local: IpAddr,
+    out: UnboundedSender<ServerMessage>,
+) -> Commands {
+    let (commands, inbox) = unbounded_channel();
+    let actor = Actor {
+        h,
+        media,
+        client_id,
+        peer,
+        local,
+        inbox,
+        out,
+        live: None,
+    };
+    tokio::spawn(actor.run());
+    Commands(commands)
+}
+
+/// A session the actor started and has not reported as ended.
+struct Live {
+    id: u64,
+    session: Arc<Session>,
+    settings: StreamSettings,
+    events: UnboundedReceiver<Event>,
+    /// Keeps the event channel open for as long as the session is live.
+    _bridge: Arc<Bridge>,
+    connected: bool,
+    since: Instant,
+}
+
+/// A checked request.
+struct Checked {
+    client: butterpollo_core::state::Client,
+    settings: StreamSettings,
+    app_id: u32,
+}
+
+/// What the actor does after a request.
+enum Flow {
+    Done,
+    /// The request ended because another one arrived; run that next.
+    Again(Command),
+    /// The connection is gone.
+    Closed,
+}
+
+/// What came of waiting for the answer.
+enum Waited {
+    Answer(String),
+    Interrupted(Command),
+    TimedOut,
+    Closed,
+}
+
+struct Actor {
+    h: Shared,
+    media: Arc<Media>,
+    client_id: String,
+    peer: SocketAddr,
+    local: IpAddr,
+    inbox: UnboundedReceiver<Command>,
+    out: UnboundedSender<ServerMessage>,
+    live: Option<Live>,
+}
+
+/// Resolves with the live session's next event; never when there is none.
+async fn next_event(live: &mut Option<Live>) -> Option<Event> {
+    match live {
+        Some(live) => live.events.recv().await,
+        None => std::future::pending().await,
+    }
+}
+
+fn running_app(h: &Shared) -> Option<u32> {
+    h.current_app.lock().unwrap().as_ref().map(|app| app.id)
+}
+
+fn host_status(
+    state: HostSessionState,
+    running: Option<u32>,
+    target: Option<u32>,
+    message: Option<String>,
+) -> ServerMessage {
+    ServerMessage::HostSessionStatus {
+        state,
+        running_app_id: running.map(|id| id.to_string()),
+        target_app_id: target.map(|id| id.to_string()),
+        message,
+    }
+}
+
+impl Actor {
+    async fn run(mut self) {
+        let mut watch = tokio::time::interval(WATCH);
+        watch.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            tokio::select! {
+                command = self.inbox.recv() => match command {
+                    Some(command) => {
+                        if matches!(self.handle(command).await, Flow::Closed) {
+                            break;
+                        }
+                    }
+                    None => break,
+                },
+                Some(event) = next_event(&mut self.live) => self.on_event(event),
+                _ = watch.tick() => self.watch(),
+            }
+        }
+        // The signalling connection is gone: the stream goes with it, as with stop-session.
+        if let Some(live) = self.live.take() {
+            tracing::info!(
+                session = live.id,
+                "WebRTC signalling closed; stopping its session"
+            );
+            live.session.stop();
+        }
+    }
+
+    fn say(&self, message: ServerMessage) {
+        let _ = self.out.send(message);
+    }
+
+    fn refuse(&self, kind: &str, code: ErrorCode, message: impl Into<String>, host_op: bool) {
+        let message = message.into();
+        // Once the host operation began the client sees it end, not a request fail.
+        self.say(if host_op {
+            host_status(
+                HostSessionState::Failed,
+                running_app(&self.h),
+                None,
+                Some(message),
+            )
+        } else {
+            ServerMessage::error(kind, code, message)
+        });
+    }
+
+    async fn handle(&mut self, command: Command) -> Flow {
+        let mut next = command;
+        loop {
+            let flow = match next {
+                Command::Start(request) => self.start(request, "start-session").await,
+                Command::Switch(request) => self.switch(request).await,
+                Command::StopHost => self.stop_host().await,
+                Command::Stop => {
+                    self.stop();
+                    Flow::Done
+                }
+                Command::Answer { session_id, .. } => {
+                    tracing::debug!(session_id, "WebRTC answer without an offer ignored");
+                    Flow::Done
+                }
+            };
+            match flow {
+                Flow::Again(command) => next = command,
+                other => return other,
+            }
+        }
+    }
+
+    fn on_event(&mut self, event: Event) {
+        let Some(live) = &mut self.live else {
+            return;
+        };
+        match event {
+            Event::Connected => {
+                live.connected = true;
+                let (video, audio) = live.settings.to_wire();
+                let message = ServerMessage::SessionStatus {
+                    state: SessionState::Streaming,
+                    session_id: Some(live.id),
+                    video: Some(video),
+                    audio: Some(audio),
+                    message: None,
+                };
+                self.say(message);
+            }
+        }
+    }
+
+    /// Report a session that ended by itself, and end one that never connected.
+    fn watch(&mut self) {
+        let Some(live) = &self.live else {
+            return;
+        };
+        if live.session.stopping() {
+            let (id, failed) = (live.id, live.session.failed());
+            self.live = None;
+            self.say(if failed {
+                ServerMessage::SessionStatus {
+                    state: SessionState::Error,
+                    session_id: Some(id),
+                    video: None,
+                    audio: None,
+                    message: Some(
+                        "The stream stopped because of an error on the host; the host log has the reason".into(),
+                    ),
+                }
+            } else {
+                ServerMessage::session_status(SessionState::Idle, Some(id))
+            });
+        } else if !live.connected && live.since.elapsed() > CONNECT_TIMEOUT {
+            tracing::warn!(session = live.id, "WebRTC session did not connect in time");
+            live.session.fail();
+        }
+    }
+
+    /// `stop-session`: the stream ends, the app keeps running.
+    fn stop(&mut self) {
+        match self.live.take() {
+            Some(live) => {
+                live.session.stop();
+                self.say(ServerMessage::session_status(
+                    SessionState::Stopping,
+                    Some(live.id),
+                ));
+                self.say(ServerMessage::session_status(
+                    SessionState::Idle,
+                    Some(live.id),
+                ));
+            }
+            None => self.say(ServerMessage::session_status(SessionState::Idle, None)),
+        }
+    }
+
+    /// The request, if the device may make it and the host can serve it. Nothing is adjusted or
+    /// substituted: a request outside the capabilities is `unsupported-settings`.
+    fn check(&self, kind: &str, request: &Request) -> Result<Checked, Box<ServerMessage>> {
+        let error =
+            |kind: &str, code, message: &str| Box::new(ServerMessage::error(kind, code, message));
+        let client = self
+            .h
+            .webrtc
+            .verify(&self.h, &self.client_id)
+            .map_err(|code| error(kind, code, "This device is not allowed to stream"))?;
+        if !client.allows(LAUNCH) {
+            return Err(error(
+                kind,
+                ErrorCode::NotAuthenticated,
+                "This device may not start streams",
+            ));
+        }
+        let codecs = self.h.codecs.load(Ordering::Acquire);
+        let capabilities =
+            HostCapabilities::new(server::encoder_probe(codecs), FrameRateOffer::default());
+        let settings = capabilities
+            .validate(&request.video, &request.audio)
+            .map_err(|invalid| Box::new(invalid.into_message(kind)))?;
+        // HDR, AV1 and surround arrive with the transport's HDR, AV1 and audio paths (B4b). Until
+        // then they are refused here, never streamed as something else.
+        let unsupported = |message: &str| error(kind, ErrorCode::UnsupportedSettings, message);
+        if settings.hdr {
+            return Err(unsupported("HDR is not available over WebRTC yet"));
+        }
+        if settings.codec == Codec::Av1 {
+            return Err(unsupported("AV1 is not available over WebRTC yet"));
+        }
+        if settings.audio_channels != 2 {
+            return Err(unsupported(
+                "Surround audio is not available over WebRTC yet",
+            ));
+        }
+        // The codec must also be there now, not only in the protocol's table.
+        let (codec, bit) = match settings.codec {
+            Codec::H264 => (0, 1),
+            _ => (1, 0x100),
+        };
+        if codecs & bit == 0 {
+            let detail = butterpollo_core::codec_support::refusal_for(
+                &self.h.codec_missing.lock().unwrap(),
+                codec,
+                false,
+                false,
+            );
+            return Err(unsupported(&detail));
+        }
+        let app_id = request.app_id.parse::<u32>().map_err(|_| {
+            error(
+                kind,
+                ErrorCode::InvalidApplication,
+                "The application does not exist",
+            )
+        })?;
+        Ok(Checked {
+            client,
+            settings,
+            app_id,
+        })
+    }
+
+    async fn start(&mut self, request: Request, kind: &'static str) -> Flow {
+        self.watch();
+        if self.live.is_some() {
+            self.refuse(
+                kind,
+                ErrorCode::SessionActive,
+                "This connection already has a session; stop it first",
+                false,
+            );
+            return Flow::Done;
+        }
+        match self.check(kind, &request) {
+            Ok(checked) => {
+                self.say(ServerMessage::session_status(SessionState::Starting, None));
+                self.start_checked(checked, kind, false).await
+            }
+            Err(message) => {
+                self.say(*message);
+                Flow::Done
+            }
+        }
+    }
+
+    /// `switch-session`: end the current stream, and the app unless it is the target, then start.
+    async fn switch(&mut self, request: Request) -> Flow {
+        const KIND: &str = "switch-session";
+        let checked = match self.check(KIND, &request) {
+            Ok(checked) => checked,
+            Err(message) => {
+                self.say(*message);
+                return Flow::Done;
+            }
+        };
+        let running = running_app(&self.h);
+        let same = running == Some(checked.app_id);
+        self.say(host_status(
+            if same {
+                HostSessionState::Resuming
+            } else {
+                HostSessionState::Switching
+            },
+            running,
+            Some(checked.app_id),
+            None,
+        ));
+        if self.live.is_some() {
+            self.stop();
+        }
+        if !self.stop_streams(!same).await {
+            self.refuse(
+                KIND,
+                ErrorCode::InternalError,
+                "The previous stream did not stop in time",
+                true,
+            );
+            return Flow::Done;
+        }
+        self.say(host_status(
+            HostSessionState::Starting,
+            running_app(&self.h),
+            Some(checked.app_id),
+            None,
+        ));
+        self.start_checked(checked, KIND, true).await
+    }
+
+    /// `stop-host-session`: every stream and the app end.
+    async fn stop_host(&mut self) -> Flow {
+        const KIND: &str = "stop-host-session";
+        let allowed = self
+            .h
+            .webrtc
+            .verify(&self.h, &self.client_id)
+            .is_ok_and(|client| client.allows(LAUNCH));
+        if !allowed {
+            self.say(ServerMessage::error(
+                KIND,
+                ErrorCode::NotAuthenticated,
+                "This device may not stop the host session",
+            ));
+            return Flow::Done;
+        }
+        let running = running_app(&self.h);
+        let busy = running.is_some() || !self.h.sessions.lock().unwrap().idle();
+        if !busy && self.live.is_none() {
+            self.say(host_status(HostSessionState::Stopped, None, None, None));
+            return Flow::Done;
+        }
+        self.say(host_status(HostSessionState::Stopping, running, None, None));
+        if self.live.is_some() {
+            self.stop();
+        }
+        if self.stop_streams(true).await {
+            self.say(host_status(HostSessionState::Stopped, running, None, None));
+        } else {
+            self.say(host_status(
+                HostSessionState::Failed,
+                running,
+                None,
+                Some("A stream did not stop in time".into()),
+            ));
+        }
+        Flow::Done
+    }
+
+    /// Stop every stream on the blocking pool, and the app when asked. False on a timeout.
+    async fn stop_streams(&self, terminate_app: bool) -> bool {
+        let h = self.h.clone();
+        tokio::task::spawn_blocking(move || nvhttp::stop_streams(&h, terminate_app))
+            .await
+            .unwrap_or(false)
+    }
+
+    /// Cancel a launch no stream took, leaving its app running as an abandoned Moonlight launch does.
+    fn cancel(&self, launch: &Launch) {
+        self.h.webrtc_links.discard(&launch.id);
+        let canceled = self
+            .h
+            .sessions
+            .lock()
+            .unwrap()
+            .request_stop(Some(&launch.id));
+        drop(canceled);
+    }
+
+    async fn wait_for_answer(&mut self, session_id: u64) -> Waited {
+        let deadline = tokio::time::Instant::now() + ANSWER_TIMEOUT;
+        loop {
+            match tokio::time::timeout_at(deadline, self.inbox.recv()).await {
+                Err(_) => return Waited::TimedOut,
+                Ok(None) => return Waited::Closed,
+                Ok(Some(Command::Answer {
+                    session_id: id,
+                    sdp,
+                })) if id == session_id => {
+                    return Waited::Answer(sdp);
+                }
+                Ok(Some(Command::Answer { session_id: id, .. })) => {
+                    tracing::debug!(session_id = id, "WebRTC answer for another session ignored");
+                }
+                Ok(Some(Command::Start(_))) => self.say(ServerMessage::error(
+                    "start-session",
+                    ErrorCode::SessionActive,
+                    "A session is already starting",
+                )),
+                Ok(Some(other)) => return Waited::Interrupted(other),
+            }
+        }
+    }
+
+    async fn start_checked(&mut self, checked: Checked, kind: &'static str, host_op: bool) -> Flow {
+        let Checked {
+            client,
+            settings,
+            app_id,
+        } = checked;
+        let request = WebRtcLaunch {
+            client,
+            peer: self.peer.ip(),
+            app_id,
+            width: settings.width,
+            height: settings.height,
+            fps: settings.fps,
+        };
+        let h = self.h.clone();
+        let launched =
+            tokio::task::spawn_blocking(move || nvhttp::launch_webrtc(&h, request)).await;
+        let launch = match launched {
+            Ok(Ok(launch)) => launch,
+            Ok(Err(error)) => {
+                let (code, message) = match error {
+                    WebRtcLaunchError::InvalidApplication => (
+                        ErrorCode::InvalidApplication,
+                        "The application does not exist".to_owned(),
+                    ),
+                    WebRtcLaunchError::SessionActive(message) => {
+                        (ErrorCode::SessionActive, message.to_owned())
+                    }
+                    WebRtcLaunchError::HostBusy => (
+                        ErrorCode::HostOperationActive,
+                        "The host is busy; try again shortly".to_owned(),
+                    ),
+                    WebRtcLaunchError::Failed(message) => (ErrorCode::InternalError, message),
+                };
+                tracing::warn!(%code, %message, "WebRTC launch refused");
+                self.refuse(kind, code, message, host_op);
+                return Flow::Done;
+            }
+            Err(error) => {
+                tracing::error!(%error, "WebRTC launch panicked");
+                self.refuse(kind, ErrorCode::InternalError, "The launch failed", host_op);
+                return Flow::Done;
+            }
+        };
+        let session_id = self.h.webrtc_links.next_session_id();
+        let mut prepared = match self.prepare(&settings).await {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                tracing::error!(error = %format!("{error:#}"), "WebRTC session could not be prepared");
+                self.cancel(&launch);
+                self.refuse(
+                    kind,
+                    ErrorCode::InternalError,
+                    format!("{error:#}"),
+                    host_op,
+                );
+                return Flow::Done;
+            }
+        };
+        self.say(ServerMessage::session_status(
+            SessionState::StartingWebrtc,
+            Some(session_id),
+        ));
+        self.say(ServerMessage::offer(session_id, prepared.offer_sdp()));
+        let answer = match self.wait_for_answer(session_id).await {
+            Waited::Answer(answer) => answer,
+            Waited::Interrupted(command) => {
+                self.cancel(&launch);
+                return Flow::Again(command);
+            }
+            Waited::TimedOut => {
+                self.cancel(&launch);
+                self.refuse(
+                    kind,
+                    ErrorCode::InternalError,
+                    "The client did not answer the offer in time",
+                    host_op,
+                );
+                return Flow::Done;
+            }
+            Waited::Closed => {
+                self.cancel(&launch);
+                return Flow::Closed;
+            }
+        };
+        let (events, receiver) = unbounded_channel();
+        let bridge = Bridge::new(events);
+        let started = self.go_live(&launch, &settings, &mut prepared, &answer, &bridge);
+        match started {
+            Ok(session) => {
+                self.live = Some(Live {
+                    id: session_id,
+                    session,
+                    settings,
+                    events: receiver,
+                    _bridge: bridge,
+                    connected: false,
+                    since: Instant::now(),
+                });
+                Flow::Done
+            }
+            Err(rejected) => {
+                let (code, error) = match rejected {
+                    Rejected::Answer(error) => (ErrorCode::InvalidMessage, error),
+                    Rejected::Host(error) => (ErrorCode::InternalError, error),
+                };
+                tracing::error!(error = %format!("{error:#}"), "WebRTC session could not start");
+                self.cancel(&launch);
+                self.refuse(kind, code, format!("{error:#}"), host_op);
+                Flow::Done
+            }
+        }
+    }
+
+    /// Bind the media socket and build the offer.
+    async fn prepare(&self, settings: &StreamSettings) -> Result<Prepared> {
+        let port = self.h.config.read().unwrap().webrtc_media_port();
+        // The previous session's worker frees the port as it ends, which can be moments after the
+        // client was told the session is over.
+        let deadline = tokio::time::Instant::now() + BIND_WAIT;
+        let socket = loop {
+            match media::bind_socket((self.local, port).into()) {
+                Ok(socket) => break socket,
+                Err(error)
+                    if tokio::time::Instant::now() < deadline
+                        && error
+                            .downcast_ref::<std::io::Error>()
+                            .is_some_and(|e| e.kind() == std::io::ErrorKind::AddrInUse) =>
+                {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+                Err(error) => return Err(error),
+            }
+        };
+        let local = socket.local_addr().context("reading the media address")?;
+        let spec = OfferSpec {
+            video: VideoMode {
+                codec: match settings.codec {
+                    Codec::H264 => VideoCodec::H264,
+                    Codec::Hevc => VideoCodec::Hevc,
+                    Codec::Av1 => VideoCodec::Av1,
+                },
+                width: settings.width,
+                height: settings.height,
+                fps: settings.fps,
+                hdr: settings.hdr,
+                bitrate_kbps: settings.bitrate_kbps,
+            },
+            audio: AudioMode::stereo(),
+            // NACK and RTX are compared with keyframe recovery alone in B5.
+            rtx: false,
+        };
+        let mut rtc = sdp::rtc_config(&spec)?.build(Instant::now());
+        rtc.add_local_candidate(
+            str0m::Candidate::host(local, "udp").context("the host candidate")?,
+        );
+        let offer = sdp::create_offer(&mut rtc, &spec)?;
+        Ok(Prepared {
+            socket: Some(socket),
+            local,
+            rtc: Some(rtc),
+            offer: Some(offer),
+            spec,
+        })
+    }
+
+    /// Accept the answer, start the transport and the stream worker.
+    fn go_live(
+        &self,
+        launch: &Launch,
+        settings: &StreamSettings,
+        prepared: &mut Prepared,
+        answer: &str,
+        bridge: &Arc<Bridge>,
+    ) -> Result<Arc<Session>, Rejected> {
+        let (Some(socket), Some(mut rtc), Some(offer)) = (
+            prepared.socket.take(),
+            prepared.rtc.take(),
+            prepared.offer.take(),
+        ) else {
+            return Err(Rejected::Answer(anyhow!("the offer was already answered")));
+        };
+        let (ids, _) = sdp::accept_answer(&mut rtc, offer, answer, &prepared.spec)
+            .map_err(Rejected::Answer)?;
+        let link = butterpollo_windows::net::routed_link(self.peer);
+        let configured_kbps = self
+            .h
+            .config
+            .read()
+            .unwrap()
+            .integer("pacing_max_bitrate_kbps", 0);
+        let options = TransportOptions {
+            pacing: Pacing::Paced {
+                configured_kbps,
+                link_bps: link.bps,
+                wireless: link.wireless,
+            },
+            ..TransportOptions::default()
+        };
+        let handle = MediaHandle::spawn(
+            socket,
+            prepared.local,
+            media::Session {
+                rtc,
+                ids,
+                spec: &prepared.spec,
+                // The signalling connection authenticated the device.
+                authenticated: Arc::new(AtomicBool::new(true)),
+            },
+            options,
+            bridge.hooks(),
+        )
+        .map_err(Rejected::Host)?;
+        self.h.webrtc_links.put(launch.id.clone(), handle);
+        let negotiated = Negotiated::webrtc(
+            settings.width,
+            settings.height,
+            settings.fps,
+            settings.codec,
+            settings.hdr,
+            settings.bitrate_kbps,
+            settings.audio_channels as u8,
+        );
+        let started = self
+            .h
+            .sessions
+            .lock()
+            .unwrap()
+            .start(launch.clone(), negotiated);
+        let session = match started {
+            Ok(session) => session,
+            Err(error) => {
+                self.h.webrtc_links.discard(&launch.id);
+                return Err(Rejected::Host(error.context("starting the session")));
+            }
+        };
+        bridge.bind(&session);
+        self.media.start(self.h.clone(), session.clone());
+        Ok(session)
+    }
+}
+
+/// Why an answered session did not start.
+enum Rejected {
+    /// The answer was not one for this offer.
+    Answer(anyhow::Error),
+    /// The host could not start the transport or the session, which may have been replaced.
+    Host(anyhow::Error),
+}
+
+/// The transport pieces between building the offer and the client's answer.
+struct Prepared {
+    socket: Option<UdpSocket>,
+    local: SocketAddr,
+    rtc: Option<str0m::Rtc>,
+    offer: Option<sdp::Offer>,
+    spec: OfferSpec,
+}
+
+impl Prepared {
+    fn offer_sdp(&self) -> String {
+        self.offer
+            .as_ref()
+            .map(|offer| offer.sdp.clone())
+            .unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::test_support::Fixture;
+    use butterpollo_core::session::Role;
+
+    fn bridge() -> (Arc<Bridge>, UnboundedReceiver<Event>) {
+        let (events, received) = unbounded_channel();
+        (Bridge::new(events), received)
+    }
+
+    fn session(f: &Fixture) -> Arc<Session> {
+        let session = f.session(f.client(u32::MAX), Role::Stream);
+        // A new session starts with its first keyframe pending.
+        assert!(session.idr.swap(false, Ordering::AcqRel));
+        session
+    }
+
+    fn requested(session: &Session) -> (bool, u64) {
+        (
+            session.idr.load(Ordering::Acquire),
+            session.stats.idr_requests.load(Ordering::Acquire),
+        )
+    }
+
+    #[test]
+    fn session_ids_are_positive_and_never_repeat() {
+        let links = Links::default();
+        let ids: Vec<u64> = (0..4).map(|_| links.next_session_id()).collect();
+        assert_eq!(ids, [1, 2, 3, 4]);
+        // A launch nobody put a transport for has nothing to take or discard.
+        assert!(links.take("nothing").is_none());
+        links.discard("nothing");
+        assert_eq!(links.len(), 0);
+    }
+
+    #[test]
+    fn capture_instants_never_repeat_or_step_back() {
+        let last = Cell::new(None);
+        let base = Instant::now();
+        let first = monotonic(&last, base);
+        assert_eq!(first, base);
+        // The same instant, and an earlier one, each move on by at least a tick.
+        let repeated = monotonic(&last, base);
+        assert!(repeated >= first + MIN_STEP);
+        let earlier = monotonic(&last, base - Duration::from_millis(5));
+        assert!(earlier >= repeated + MIN_STEP);
+        // A later one is kept as it is.
+        let later = base + Duration::from_secs(1);
+        assert_eq!(monotonic(&last, later), later);
+    }
+
+    #[test]
+    fn a_pli_or_fir_is_the_clients_keyframe_request_and_the_rest_are_the_hosts() {
+        let f = Fixture::new();
+        let session = session(&f);
+        let (bridge, _events) = bridge();
+        bridge.bind(&session);
+        assert_eq!(requested(&session), (false, 0));
+        for (n, reason) in [IdrReason::Pli, IdrReason::Fir].into_iter().enumerate() {
+            session.idr.store(false, Ordering::Release);
+            bridge.idr(reason);
+            assert_eq!(requested(&session), (true, n as u64 + 1), "{reason:?}");
+        }
+        let before = requested(&session).1;
+        for reason in [
+            IdrReason::Connected,
+            IdrReason::Reconnected,
+            IdrReason::QueueFull,
+            IdrReason::PacerBacklog,
+            IdrReason::WaitingForKeyframe,
+            IdrReason::WriteFailed,
+        ] {
+            session.idr.store(false, Ordering::Release);
+            bridge.idr(reason);
+            assert!(session.idr.load(Ordering::Acquire), "{reason:?}");
+        }
+        assert_eq!(requested(&session).1, before + 6);
+    }
+
+    #[test]
+    fn a_request_before_the_session_exists_is_ignored() {
+        let f = Fixture::new();
+        let session = session(&f);
+        let (bridge, _events) = bridge();
+        bridge.idr(IdrReason::Pli);
+        bridge.event(TransportEvent::Control {
+            data: br#"{"type":"request-keyframe"}"#.to_vec(),
+            binary: false,
+        });
+        assert_eq!(requested(&session), (false, 0));
+    }
+
+    #[test]
+    fn the_control_channels_request_keyframe_asks_for_one_and_other_text_does_not() {
+        let f = Fixture::new();
+        let session = session(&f);
+        let (bridge, _events) = bridge();
+        bridge.bind(&session);
+        for text in [&br#"{"type":"idr"}"#[..], b"not json", b"{}"] {
+            bridge.event(TransportEvent::Control {
+                data: text.to_vec(),
+                binary: false,
+            });
+        }
+        // Binary frames on the control channel are not the JSON protocol.
+        bridge.event(TransportEvent::Control {
+            data: br#"{"type":"request-keyframe"}"#.to_vec(),
+            binary: true,
+        });
+        assert_eq!(requested(&session), (false, 0));
+        bridge.event(TransportEvent::Control {
+            data: br#"{"type":"request-keyframe"}"#.to_vec(),
+            binary: false,
+        });
+        assert_eq!(requested(&session), (true, 1));
+    }
+
+    #[test]
+    fn a_transport_that_closes_ends_the_session_even_before_it_is_bound() {
+        let f = Fixture::new();
+        let (bound, _events) = bridge();
+        let session = session(&f);
+        bound.bind(&session);
+        bound.event(TransportEvent::Closed);
+        assert!(session.stopping());
+
+        // Closed first: the session is stopped the moment it is bound.
+        let (early, _events) = bridge();
+        let late = Fixture::new();
+        let session = self::session(&late);
+        early.event(TransportEvent::Closed);
+        assert!(!session.stopping());
+        early.bind(&session);
+        assert!(session.stopping());
+    }
+
+    #[test]
+    fn a_transport_that_connected_before_the_session_gets_its_keyframe_when_bound() {
+        let f = Fixture::new();
+        let session = session(&f);
+        let (bridge, mut events) = bridge();
+        bridge.event(TransportEvent::Connected);
+        assert!(matches!(events.try_recv(), Ok(Event::Connected)));
+        assert_eq!(requested(&session), (false, 0));
+        bridge.bind(&session);
+        assert_eq!(requested(&session), (true, 1));
+        // A path that drops and returns changes nothing by itself.
+        bridge.event(TransportEvent::Disconnected);
+        bridge.event(TransportEvent::Reconnected);
+        assert!(!session.stopping());
+    }
+}

@@ -1,8 +1,9 @@
 //! The WebRTC signalling server: a WebSocket on `webrtc_port`, on its own
 //! listener, for TVs and browsers that speak the Moonlight WebRTC protocol
 //! (version 2). It pairs devices, authenticates them, lists apps and answers
-//! `capabilities`. `start-session` and `switch-session` are not wired to a
-//! stream yet and answer `unsupported-settings`.
+//! `capabilities`. `start-session`, `switch-session`, `stop-session`,
+//! `stop-host-session` and the SDP answer go to the connection's session actor
+//! (`session.rs`), which streams over the str0m media transport.
 //!
 //! The WebSocket is plain `ws://`. Authentication keeps other devices on the
 //! network from using or interrupting a stream; it hides nothing. Peers
@@ -11,10 +12,12 @@
 use super::{
     clients::{Close, Registered, Status},
     discovery,
+    session::{self, Command, Commands, Request},
 };
 use crate::{
     network::{Reach, reach},
     state::{Host, Shared},
+    stream::Media,
 };
 use axum::{
     Extension, Router,
@@ -46,7 +49,13 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::{sync::oneshot, task::JoinHandle};
+use tokio::{
+    sync::{
+        mpsc::{UnboundedSender, unbounded_channel},
+        oneshot,
+    },
+    task::JoinHandle,
+};
 
 /// The console warning code for a server that could not start.
 pub const WARNING: &str = "webrtc_server";
@@ -104,20 +113,27 @@ impl Drop for Running {
 
 /// Start the server if `webrtc_server` is on; otherwise open no socket and
 /// start no thread. A port that can't be bound is reported in the console and
-/// the log, never moved.
-pub fn start(h: Shared, bind: IpAddr) -> Option<Running> {
+/// the log, never moved. Without `media` the server pairs and lists apps but
+/// cannot stream.
+pub fn start(h: Shared, bind: IpAddr, media: Option<Arc<Media>>) -> Option<Running> {
     let config = h.config.read().unwrap().clone();
     if !config.webrtc_server() {
         h.webrtc.set_status(Status::default());
         h.warnings.clear(WARNING);
         return None;
     }
-    start_on(h, bind, config.webrtc_port(), discovery::PORT)
+    start_on(h, bind, config.webrtc_port(), discovery::PORT, media)
 }
 
 /// [`start`] on chosen ports (tests use ephemeral ones; `0` picks one).
-pub fn start_on(h: Shared, bind: IpAddr, port: u16, discovery_port: u16) -> Option<Running> {
-    start_with(h, bind, port, discovery_port, Limits::default())
+pub fn start_on(
+    h: Shared,
+    bind: IpAddr,
+    port: u16,
+    discovery_port: u16,
+    media: Option<Arc<Media>>,
+) -> Option<Running> {
+    start_with(h, bind, port, discovery_port, media, Limits::default())
 }
 
 fn start_with(
@@ -125,6 +141,7 @@ fn start_with(
     bind: IpAddr,
     port: u16,
     discovery_port: u16,
+    media: Option<Arc<Media>>,
     limits: Limits,
 ) -> Option<Running> {
     let mut status = Status {
@@ -172,7 +189,7 @@ fn start_with(
     status.discovery = discovery_address;
     h.webrtc.set_status(status);
     tracing::info!(%signalling, discovery = ?discovery_address, "WebRTC server listening (unencrypted ws://, local network only)");
-    tasks.push(tokio::spawn(accept(h, listener, limits)));
+    tasks.push(tokio::spawn(accept(h, listener, media, limits)));
     Some(Running { tasks })
 }
 
@@ -180,6 +197,7 @@ fn start_with(
 struct Context {
     h: Shared,
     limits: Limits,
+    media: Option<Arc<Media>>,
 }
 
 /// Where a connection came from and arrived at.
@@ -220,10 +238,15 @@ fn local_network(peer: IpAddr) -> bool {
     reach(peer.to_canonical()) <= Reach::Lan
 }
 
-async fn accept(h: Shared, listener: tokio::net::TcpListener, limits: Limits) {
+async fn accept(
+    h: Shared,
+    listener: tokio::net::TcpListener,
+    media: Option<Arc<Media>>,
+    limits: Limits,
+) {
     let router = Router::new()
         .fallback(get(upgrade))
-        .with_state(Context { h, limits });
+        .with_state(Context { h, limits, media });
     let sockets = Arc::new(tokio::sync::Semaphore::new(MAX_SOCKETS));
     let mut refused = Throttle {
         last: None,
@@ -279,7 +302,9 @@ async fn upgrade(
     socket
         .max_message_size(MAX_MESSAGE)
         .max_frame_size(MAX_MESSAGE)
-        .on_upgrade(move |socket| connection(context.h, context.limits, peer, socket))
+        .on_upgrade(move |socket| {
+            connection(context.h, context.limits, context.media, peer, socket)
+        })
 }
 
 /// What a connection does after a message.
@@ -317,6 +342,15 @@ struct Connection {
     limits: Limits,
     /// When a connection that has not authenticated is closed.
     unauthenticated_until: tokio::time::Instant,
+    /// The stream pipeline, and where the session actor's replies go.
+    streaming: Option<Streaming>,
+    /// The session actor, started with the first session request.
+    session: Option<Commands>,
+}
+
+struct Streaming {
+    media: Arc<Media>,
+    replies: UnboundedSender<ServerMessage>,
 }
 
 impl Connection {
@@ -331,11 +365,19 @@ impl Connection {
             probe: None,
             limits,
             unauthenticated_until: tokio::time::Instant::now() + limits.unauthenticated,
+            streaming: None,
+            session: None,
         }
     }
 }
 
-async fn connection(h: Shared, limits: Limits, peer: Peer, mut socket: WebSocket) {
+async fn connection(
+    h: Shared,
+    limits: Limits,
+    media: Option<Arc<Media>>,
+    peer: Peer,
+    mut socket: WebSocket,
+) {
     let Some(Registered { id, mut closed }) = h.webrtc.open(peer.address.ip().to_canonical())
     else {
         tracing::debug!(peer = %peer.address, "WebRTC connection refused: this peer has all the unauthenticated connections the host allows");
@@ -345,6 +387,8 @@ async fn connection(h: Shared, limits: Limits, peer: Peer, mut socket: WebSocket
     // Dropping the state frees the connection's slots and pairing request,
     // however the task ends: a normal exit, a panic or an abort.
     let mut state = Connection::new(h.clone(), limits, peer, id);
+    let (replies, mut replied) = unbounded_channel();
+    state.streaming = media.map(|media| Streaming { media, replies });
     tracing::debug!(peer = %peer.address, id, "WebRTC connection opened");
     let mut changed = h.webrtc.subscribe();
     let mut tick = tokio::time::interval(PROBE_CHECK);
@@ -373,6 +417,7 @@ async fn connection(h: Shared, limits: Limits, peer: Peer, mut socket: WebSocket
                     Close::Replaced | Close::TooManyUnauthenticated => flow = Flow::Close,
                 }
             }
+            Some(message) = replied.recv() => out.push(message),
             outcome = state.pairing_outcome() => flow = state.finish_pairing(outcome, &mut out),
             _ = idle(idle_until) => {
                 tracing::debug!(peer = %peer.address, id, "WebRTC connection closed: not authenticated in time");
@@ -534,28 +579,56 @@ impl Connection {
                     });
                 }
             }
-            ClientMessage::StartSession { .. } | ClientMessage::SwitchSession { .. } => {
-                out.push(Self::error(
-                    ErrorCode::UnsupportedSettings,
-                    kind,
-                    "Streaming over WebRTC is not available in this build yet",
-                ));
-            }
-            ClientMessage::StopSession => {
-                out.push(ServerMessage::session_status(SessionState::Idle, None));
-            }
-            ClientMessage::StopHostSession => out.push(Self::error(
-                ErrorCode::UnsupportedMessage,
+            ClientMessage::StartSession {
+                app_id,
+                video,
+                audio,
+            } => self.command(
                 kind,
-                "stop-host-session is not available in this build yet",
-            )),
-            // Late signalling for a session that is not there.
-            ClientMessage::Answer { .. } | ClientMessage::Candidate { .. } => {
-                tracing::debug!(
-                    id = self.id,
-                    kind,
-                    "WebRTC signalling without a session ignored"
-                );
+                Command::Start(Request {
+                    app_id,
+                    video,
+                    audio,
+                }),
+                out,
+            ),
+            ClientMessage::SwitchSession {
+                app_id,
+                video,
+                audio,
+            } => self.command(
+                kind,
+                Command::Switch(Request {
+                    app_id,
+                    video,
+                    audio,
+                }),
+                out,
+            ),
+            ClientMessage::StopSession => match &self.session {
+                Some(session) => {
+                    session.send(Command::Stop);
+                }
+                None => out.push(ServerMessage::session_status(SessionState::Idle, None)),
+            },
+            ClientMessage::StopHostSession => self.command(kind, Command::StopHost, out),
+            ClientMessage::Answer { session_id, sdp } => {
+                // An answer with no session behind it is late signalling.
+                match &self.session {
+                    Some(session) => {
+                        session.send(Command::Answer { session_id, sdp });
+                    }
+                    None => tracing::debug!(
+                        id = self.id,
+                        kind,
+                        "WebRTC signalling without a session ignored"
+                    ),
+                }
+            }
+            // The host is ICE-lite: it never needs the client's candidates, which it learns from
+            // the checks it receives.
+            ClientMessage::Candidate { .. } => {
+                tracing::debug!(id = self.id, kind, "WebRTC client candidate ignored");
             }
             ClientMessage::ClientLog { lines } => {
                 let name = self.client.as_ref().map_or("", |c| c.name.as_str());
@@ -565,6 +638,35 @@ impl Connection {
             }
         }
         Flow::Continue
+    }
+
+    /// Hand a session request to the connection's actor, starting it on first use.
+    fn command(&mut self, kind: &str, command: Command, out: &mut Vec<ServerMessage>) {
+        let (Some(streaming), Some(client)) = (&self.streaming, &self.client) else {
+            out.push(Self::error(
+                ErrorCode::InternalError,
+                kind,
+                "Streaming is not available on this host",
+            ));
+            return;
+        };
+        let session = self.session.get_or_insert_with(|| {
+            session::spawn(
+                self.h.clone(),
+                streaming.media.clone(),
+                client.client_id.clone(),
+                self.peer.address,
+                self.peer.local.ip(),
+                streaming.replies.clone(),
+            )
+        });
+        if !session.send(command) {
+            out.push(Self::error(
+                ErrorCode::InternalError,
+                kind,
+                "The session manager stopped",
+            ));
+        }
     }
 
     fn allows(&self, permission: u32) -> bool {
@@ -811,7 +913,7 @@ fn gateway_status(h: &Host, local: IpAddr) -> ServerMessage {
 }
 
 /// The encoder probe from the host's codec probe: AV1, AV1 10-bit and HEVC Main10.
-fn encoder_probe(codecs: u32) -> EncoderProbe {
+pub(super) fn encoder_probe(codecs: u32) -> EncoderProbe {
     EncoderProbe {
         av1: codecs & 0x10000 != 0,
         av1_10bit: codecs & 0x20000 != 0,
@@ -876,7 +978,7 @@ fn artwork(h: &Host, app_id: &str) -> Option<(&'static str, String)> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::state::test_support::Fixture;
     use butterpollo_core::webrtc::auth::proof_hex;
@@ -887,12 +989,12 @@ mod tests {
     };
 
     /// A minimal WebSocket client: enough to talk to the server in tests.
-    struct Ws {
+    pub(crate) struct Ws {
         stream: TcpStream,
     }
 
     impl Ws {
-        async fn connect(address: SocketAddr) -> Self {
+        pub(crate) async fn connect(address: SocketAddr) -> Self {
             let mut stream = TcpStream::connect(address).await.unwrap();
             stream
                 .write_all(
@@ -912,7 +1014,7 @@ mod tests {
             Self { stream }
         }
 
-        async fn send(&mut self, message: Value) {
+        pub(crate) async fn send(&mut self, message: Value) {
             self.send_text(message.to_string().into_bytes()).await;
         }
 
@@ -938,7 +1040,7 @@ mod tests {
         }
 
         /// The next message; None once the server closed the socket.
-        async fn next(&mut self) -> Option<Value> {
+        pub(crate) async fn next(&mut self) -> Option<Value> {
             tokio::time::timeout(Duration::from_secs(10), async {
                 loop {
                     let first = self.stream.read_u8().await.ok()?;
@@ -962,7 +1064,7 @@ mod tests {
         }
 
         /// The next message, which must have this type.
-        async fn expect(&mut self, kind: &str) -> Value {
+        pub(crate) async fn expect(&mut self, kind: &str) -> Value {
             let message = self
                 .next()
                 .await
@@ -993,8 +1095,8 @@ mod tests {
 
         fn start_with(limits: Limits) -> Self {
             let f = Fixture::new();
-            let running =
-                start_with(f.host.clone(), [127, 0, 0, 1].into(), 0, 0, limits).expect("starts");
+            let running = start_with(f.host.clone(), [127, 0, 0, 1].into(), 0, 0, None, limits)
+                .expect("starts");
             let address = f.host.webrtc.status().signalling.expect("listening");
             Self {
                 f,
@@ -1462,15 +1564,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn streaming_requests_say_not_yet_and_bad_messages_get_errors() {
+    async fn a_server_without_a_stream_pipeline_refuses_session_requests_and_bad_messages_get_errors()
+     {
         let server = Server::start();
         let (client_id, secret) = server.pair("TV").await;
         let mut ws = sign_in(&server, &client_id, &secret).await;
         ws.send(json!({"version":2,"type":"start-session","appId":"0","video":{"width":1920,"height":1080,"fps":60,"codec":"hevc","bitrateKbps":20000,"hdr":false},"audio":{"channels":2}}))
             .await;
         let error = ws.expect("error").await;
-        assert_eq!(error["code"], "unsupported-settings");
+        assert_eq!(error["code"], "internal-error");
         assert_eq!(error["requestType"], "start-session");
+        ws.send(json!({"version":2,"type":"stop-host-session"}))
+            .await;
+        let error = ws.expect("error").await;
+        assert_eq!(error["code"], "internal-error");
+        assert_eq!(error["requestType"], "stop-host-session");
+        // Nothing is running, so stopping reports idle.
+        ws.send(json!({"version":2,"type":"stop-session"})).await;
+        assert_eq!(ws.expect("session-status").await["state"], "idle");
         ws.send(json!({"version":2,"type":"no-such-message"})).await;
         ws.expect("error").await;
         ws.send(json!({"version":2,"type":"get-app-artwork","appId":"999999"}))
@@ -1504,7 +1615,7 @@ mod tests {
         let taken = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = taken.local_addr().unwrap().port();
         let f = Fixture::new();
-        assert!(start_on(f.host.clone(), [127, 0, 0, 1].into(), port, 0).is_none());
+        assert!(start_on(f.host.clone(), [127, 0, 0, 1].into(), port, 0, None).is_none());
         let status = f.host.webrtc.status();
         assert!(status.enabled);
         assert!(status.signalling.is_none());
@@ -1516,7 +1627,7 @@ mod tests {
     async fn with_the_setting_off_nothing_listens() {
         let f = Fixture::new();
         assert!(!f.host.config.read().unwrap().webrtc_server());
-        assert!(start(f.host.clone(), [127, 0, 0, 1].into()).is_none());
+        assert!(start(f.host.clone(), [127, 0, 0, 1].into(), None).is_none());
         let status = f.host.webrtc.status();
         assert!(!status.enabled);
         assert!(status.signalling.is_none() && status.discovery.is_none());

@@ -9,15 +9,20 @@
 #     WH_MOUSE_LL instead, as the first version of this window did;
 #   * window messages: WM_KEYDOWN/UP, WM_SYSKEYDOWN/UP and WM_CHAR, so text is seen as characters;
 #   * raw input: the relative mouse deltas before pointer acceleration.
-# One JSON object per line goes to -Log and to a tiny HTTP server on -Port (/lines?from=N,
-# /state, /stop), so the harness reads it over the LAN without a copy step.
+# One JSON object per line goes to -Log and to a tiny HTTP server on -Bind:-Port (/lines?from=N,
+# /state, /arm?ms=N, /release, /stop), so the harness reads it over the LAN without a copy step.
+# The window records real keystrokes and mouse moves only while the harness has armed it (/arm) for an
+# injected sequence, and closes itself after -MaxSeconds so a killed harness leaves nothing behind.
+# /release sends key-ups for Shift, Ctrl, Alt, Win and Q and button-ups for all five buttons.
 param(
   [Parameter(Mandatory)][string]$Log,
   [int]$Port = 48150,
   [string]$Bind = '0.0.0.0',
   [int]$Width = 1000,
   [int]$Height = 640,
-  [switch]$Hooks
+  [switch]$Hooks,
+  [int]$MaxSeconds = 900,
+  [string]$Nonce = ''
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -ReferencedAssemblies System.Windows.Forms, System.Drawing -TypeDefinition @'
@@ -44,6 +49,8 @@ public class EchoForm : Form, IMessageFilter {
   [DllImport("kernel32.dll")] static extern IntPtr GetModuleHandle(string name);
   [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
   [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
+  [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+  [DllImport("user32.dll")] static extern void mouse_event(uint flags, int dx, int dy, uint data, UIntPtr extra);
   [DllImport("user32.dll")] static extern bool RegisterRawInputDevices(RAWDEV[] devices, uint count, uint size);
   [DllImport("user32.dll")] static extern uint GetRawInputData(IntPtr raw, uint command, byte[] data, ref uint size, uint header);
   [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
@@ -64,18 +71,22 @@ public class EchoForm : Form, IMessageFilter {
   HookProc keyProc, mouseProc;
   bool hadFocus;
   readonly bool hooks;
+  readonly string nonce;
+  long armedUntil; // clock milliseconds: real keystrokes and mouse moves are recorded only before this
   readonly System.Windows.Forms.Timer keeper = new System.Windows.Forms.Timer();
+  readonly System.Windows.Forms.Timer life = new System.Windows.Forms.Timer();
   TcpListener server;
 
-  public static void Run(string log, string bind, int port, int width, int height, bool hooks) {
+  public static void Run(string log, string bind, int port, int width, int height, bool hooks, int maxSeconds, string nonce) {
     SetProcessDPIAware(); // positions are physical pixels, like the injector's
     Application.EnableVisualStyles();
-    var form = new EchoForm(log, bind, port, width, height, hooks);
+    var form = new EchoForm(log, bind, port, width, height, hooks, maxSeconds, nonce);
     Application.Run(form);
   }
 
-  EchoForm(string log, string bind, int port, int width, int height, bool hooks) {
+  EchoForm(string log, string bind, int port, int width, int height, bool hooks, int maxSeconds, string nonce) {
     this.hooks = hooks;
+    this.nonce = nonce;
     file = new StreamWriter(new FileStream(log, FileMode.Create, FileAccess.Write, FileShare.ReadWrite), new UTF8Encoding(false)) { AutoFlush = true };
     Text = "rl-input-echo";
     TopMost = true;
@@ -103,7 +114,12 @@ public class EchoForm : Form, IMessageFilter {
     keeper.Interval = 250;
     keeper.Tick += delegate { Keep(); };
     keeper.Start();
+    life.Interval = Math.Max(maxSeconds, 1) * 1000;
+    life.Tick += delegate { life.Stop(); Emit("{{\"src\":\"echo\",\"ev\":\"expired\"}}"); Close(); };
+    life.Start();
   }
+
+  bool Armed() { return clock.ElapsedMilliseconds < armedUntil; }
 
   protected override void OnHandleCreated(EventArgs e) {
     base.OnHandleCreated(e);
@@ -124,9 +140,9 @@ public class EchoForm : Form, IMessageFilter {
         s.DeviceName.Replace("\\", "\\\\"), s.Bounds.Left, s.Bounds.Top, s.Bounds.Width, s.Bounds.Height, s.Primary ? "true" : "false");
     }
     var v = SystemInformation.VirtualScreen;
-    Emit("{{\"src\":\"echo\",\"ev\":\"ready\",\"pid\":{0},\"screens\":[{1}],\"virtual\":{{\"left\":{2},\"top\":{3},\"width\":{4},\"height\":{5}}},\"window\":{{\"left\":{6},\"top\":{7},\"width\":{8},\"height\":{9}}},\"layout\":{10}}}",
+    Emit("{{\"src\":\"echo\",\"ev\":\"ready\",\"pid\":{0},\"screens\":[{1}],\"virtual\":{{\"left\":{2},\"top\":{3},\"width\":{4},\"height\":{5}}},\"window\":{{\"left\":{6},\"top\":{7},\"width\":{8},\"height\":{9}}},\"layout\":{10},\"nonce\":\"{11}\"}}",
       Process.GetCurrentProcess().Id, screens, v.Left, v.Top, v.Width, v.Height, Bounds.Left, Bounds.Top, Bounds.Width, Bounds.Height,
-      (int)((long)InputLanguage.CurrentInputLanguage.Handle & 0xFFFF));
+      (int)((long)InputLanguage.CurrentInputLanguage.Handle & 0xFFFF), nonce);
     Keep();
   }
 
@@ -200,7 +216,7 @@ public class EchoForm : Form, IMessageFilter {
           if (m.Msg == 0x100 || m.Msg == 0x104) packet = true;
           else Emit("{{\"src\":\"ll\",\"ev\":\"ku\",\"vk\":231,\"scan\":{0},\"ext\":false}}", packetUnit);
         }
-        Emit("{{\"src\":\"wnd\",\"ev\":\"{0}\",\"vk\":{1}}}",
+        if (Armed()) Emit("{{\"src\":\"wnd\",\"ev\":\"{0}\",\"vk\":{1}}}",
           m.Msg == 0x100 ? "WM_KEYDOWN" : m.Msg == 0x101 ? "WM_KEYUP" : m.Msg == 0x104 ? "WM_SYSKEYDOWN" : "WM_SYSKEYUP", m.WParam.ToInt64());
         break;
       case 0x102: case 0x106:
@@ -209,7 +225,7 @@ public class EchoForm : Form, IMessageFilter {
           packetUnit = m.WParam.ToInt64();
           Emit("{{\"src\":\"ll\",\"ev\":\"kd\",\"vk\":231,\"scan\":{0},\"ext\":false}}", packetUnit);
         }
-        Emit("{{\"src\":\"wnd\",\"ev\":\"{0}\",\"char\":{1}}}", m.Msg == 0x102 ? "WM_CHAR" : "WM_SYSCHAR", m.WParam.ToInt64());
+        if (Armed()) Emit("{{\"src\":\"wnd\",\"ev\":\"{0}\",\"char\":{1}}}", m.Msg == 0x102 ? "WM_CHAR" : "WM_SYSCHAR", m.WParam.ToInt64());
         break;
       case 0xFF: {
         uint size = 0;
@@ -232,7 +248,7 @@ public class EchoForm : Form, IMessageFilter {
     int dx = BitConverter.ToInt32(data, 24 + 12), dy = BitConverter.ToInt32(data, 24 + 16);
     ushort flags = BitConverter.ToUInt16(data, 24);
     bool absolute = (flags & 1) != 0;
-    if (dx != 0 || dy != 0 || absolute) Emit("{{\"src\":\"raw\",\"ev\":\"mm\",\"dx\":{0},\"dy\":{1},\"absolute\":{2}}}", dx, dy, absolute ? "true" : "false");
+    if (injected && Armed() && (dx != 0 || dy != 0 || absolute)) Emit("{{\"src\":\"raw\",\"ev\":\"mm\",\"dx\":{0},\"dy\":{1},\"absolute\":{2}}}", dx, dy, absolute ? "true" : "false");
     if (hooks || !injected) return;
     POINT p;
     GetCursorPos(out p);
@@ -292,6 +308,21 @@ public class EchoForm : Form, IMessageFilter {
     if (other != 0 && other != mine) AttachThreadInput(mine, other, false);
   }
 
+  // Key-ups for both Shift, Ctrl, Alt and Win keys and Q, and button-ups for all five buttons: what a
+  // killed run can leave held on the desktop. Sent after the host is gone.
+  void ReleaseAll() {
+    Emit("{{\"src\":\"echo\",\"ev\":\"release\"}}");
+    foreach (byte vk in new byte[] { 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0x5B, 0x5C, 0x51 }) {
+      bool ext = vk == 0xA3 || vk == 0xA5 || vk == 0x5B || vk == 0x5C;
+      keybd_event(vk, 0, 2u | (ext ? 1u : 0u), UIntPtr.Zero);
+    }
+    mouse_event(0x4, 0, 0, 0, UIntPtr.Zero);
+    mouse_event(0x10, 0, 0, 0, UIntPtr.Zero);
+    mouse_event(0x40, 0, 0, 0, UIntPtr.Zero);
+    mouse_event(0x100, 0, 0, 1, UIntPtr.Zero);
+    mouse_event(0x100, 0, 0, 2, UIntPtr.Zero);
+  }
+
   // ---- reading the log over HTTP ------------------------------------------------------------------
   void Serve() {
     while (true) {
@@ -314,6 +345,15 @@ public class EchoForm : Form, IMessageFilter {
           body = sb.ToString();
         } else if (path.StartsWith("/state")) {
           lock (gate) body = "{\"lines\":" + lines.Count + ",\"focus\":" + (hadFocus ? "true" : "false") + "}";
+        } else if (path.StartsWith("/arm")) {
+          int ms = 0;
+          var a = path.IndexOf("ms=");
+          if (a >= 0) int.TryParse(path.Substring(a + 3).Split('&')[0], out ms);
+          armedUntil = ms > 0 ? clock.ElapsedMilliseconds + Math.Min(ms, 120000) : 0;
+          body = "armed " + ms;
+        } else if (path.StartsWith("/release")) {
+          ReleaseAll();
+          body = "released";
         } else if (path.StartsWith("/stop")) {
           body = "stopping";
           BeginInvoke(new MethodInvoker(delegate { Close(); }));
@@ -328,6 +368,7 @@ public class EchoForm : Form, IMessageFilter {
 
   protected override void OnFormClosed(FormClosedEventArgs e) {
     keeper.Stop();
+    life.Stop();
     if (keyHook != IntPtr.Zero) UnhookWindowsHookEx(keyHook);
     if (mouseHook != IntPtr.Zero) UnhookWindowsHookEx(mouseHook);
     try { server.Stop(); } catch { }
@@ -337,4 +378,4 @@ public class EchoForm : Form, IMessageFilter {
   }
 }
 '@
-[EchoForm]::Run($Log, $Bind, $Port, $Width, $Height, [bool]$Hooks)
+[EchoForm]::Run($Log, $Bind, $Port, $Width, $Height, [bool]$Hooks, $MaxSeconds, $Nonce)

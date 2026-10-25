@@ -6,7 +6,10 @@
 //
 // Needs PLAYWRIGHT_MODULE (playwright-core) like webrtc_e2e.cjs, ssh access to the laptop
 // (BUTTERPOLLO_LAPTOP, default ramaz@192.168.4.12) and its console user logged in. Writes result.json
-// and the laptop's echo and host logs to --out. Exit 0 on pass, 1 on a failed check, 2 on an error.
+// and the laptop's echo and host logs to --out. Exit 0 on pass, 1 on a failed check, 2 on an error or
+// if anything of the run is left on the laptop. A run starts by cleaning up after an earlier one that
+// was killed (its host, its echo window, held keys and buttons, tasks, firewall rules) and stops if
+// that leaves anything behind; Ctrl+C and a normal exit clean up too.
 'use strict';
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -41,6 +44,10 @@ async function main() {
   await hostSupport.assertRealHostIdle(); // this PC's own host: the browser decodes a stream here
   result.laptop = laptop.verify();
   console.log('laptop ok:', JSON.stringify(result.laptop.realHost));
+  // An earlier run that was killed leaves its host, echo window and maybe held keys behind.
+  result.sweep = laptop.cleanup();
+  if (!result.sweep.clean) throw new Error(`the laptop still has leftovers from an earlier run: ${JSON.stringify(result.sweep.left)} ${result.sweep.notes.join('; ')}`);
+  if (result.sweep.notes.length) console.log('cleanup notes:', result.sweep.notes.join('; '));
   const credentialsFile = path.join(laptop.root, 'clients.json');
   const binary = option('binary', hostSupport.defaults.binary);
   const packageDir = option('package', hostSupport.defaults.package);
@@ -103,9 +110,12 @@ async function main() {
       const phase = async (name, fn) => {
         await ensureFocus();
         const from = await laptop.echoCount();
-        const extra = await fn();
-        await sleep(SETTLE);
-        return {events: await laptop.echoLines(from), extra, from};
+        await laptop.arm(60000); // real keystrokes and mouse moves are recorded only while a sequence is in flight
+        try {
+          const extra = await fn();
+          await sleep(SETTLE);
+          return {events: await laptop.echoLines(from), extra, from};
+        } finally { await laptop.arm(0).catch(() => {}); }
       };
       const run = steps => ev(s => RlInput.run(s), steps);
       const hold = (state, ms) => ev(([s, m]) => RlInput.hold(s, m), [state, ms]);
@@ -235,7 +245,7 @@ async function main() {
       result.hostInput = summary;
       if (summary) {
         const parts = ['queue', 'wait', 'refresh', 'apply'].map(k => `${k}_max_us=${summary[`${k}_max_us`]} ${k}_p99_us=${summary[`${k}_p99_us`]}`);
-        console.log(`WebRTC input summary: ${parts.join(' ')}`);
+        console.log(`WebRTC input summary: ${parts.join(' ')}${summary.slow_calls === undefined ? '' : ' slow_calls=' + summary.slow_calls}`);
       }
       else result.notes.push('the host logged no "WebRTC input summary" line');
       result.hostWarnings = support.hostLog(host.log, offset).errors;
@@ -251,18 +261,25 @@ async function main() {
   }
 }
 
+let swept = false;
+const sweep = () => { if (swept) return; swept = true; try { laptop.cleanup(); } catch {} };
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK']) process.on(signal, () => { console.log('ERROR', signal); sweep(); process.exit(2); });
+process.on('exit', sweep);
+
 (async () => {
   let code = 0;
   try { await main(); } catch (error) { result.error = String(error.stack || error).slice(0, 1500); console.log('ERROR', error.message); code = 2; }
   try {
-    result.cleanup = await laptop.cleanup();
+    result.cleanup = laptop.cleanup();
+    swept = true;
     result.logs = laptop.fetchLogs(output);
+    if (!result.cleanup.clean) { code = 2; console.log('ERROR the laptop still has leftovers:', JSON.stringify(result.cleanup.left)); }
   } catch (error) { result.cleanup = {error: error.message}; code = code || 2; }
   const failed = result.checks.filter(c => !c.ok);
   result.passed = result.checks.length - failed.length; result.failed = failed.length;
   result.status = code === 0 && !failed.length && result.checks.length ? 'passed' : 'failed';
   fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(result, null, 2));
   console.log(`${result.status}: ${result.passed} passed, ${result.failed} failed; ${path.join(output, 'result.json')}`);
-  console.log('cleanup:', JSON.stringify(result.cleanup && (result.cleanup.left || result.cleanup)));
+  console.log('cleanup:', JSON.stringify(result.cleanup && (result.cleanup.leftover || result.cleanup)));
   process.exit(code || (failed.length ? 1 : 0));
 })();

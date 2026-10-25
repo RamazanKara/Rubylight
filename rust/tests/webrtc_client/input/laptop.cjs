@@ -14,7 +14,9 @@ const {TestHost} = require('../host.cjs');
 const SSH = 'C:\\Windows\\System32\\OpenSSH\\ssh.exe';
 const SCP = 'C:\\Windows\\System32\\OpenSSH\\scp.exe';
 const TARGET = process.env.BUTTERPOLLO_LAPTOP || 'ramaz@192.168.4.12';
-const ADDRESS = TARGET.split('@').pop();
+// The address the echo window and the test host answer on. It is the ssh target's host unless
+// BUTTERPOLLO_LAPTOP_ADDRESS says otherwise (ssh through a name or a jump host, the LAN address here).
+const ADDRESS = process.env.BUTTERPOLLO_LAPTOP_ADDRESS || TARGET.split('@').pop();
 const HOSTNAME = process.env.BUTTERPOLLO_LAPTOP_NAME || 'ramazansIdeaPad';
 const SSH_OPTS = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=15'];
 
@@ -24,6 +26,7 @@ const REMOTE = {
 };
 const PORTS = {http: 48140, webrtc: 48545, media: 48546, echo: 48150};
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+const sleepSync = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 const q = text => `'${String(text).replace(/'/g, "''")}'`;
 
 // Runs a PowerShell 5.1 script on the laptop and returns its stdout.
@@ -149,12 +152,13 @@ class Laptop {
     return {...harness, conf: lines};
   }
 
+  // Inbound rules for the test ports, for private and domain networks and the laptop's own subnet only.
   firewall(on) {
     if (on) {
       remote(`Get-NetFirewallRule -DisplayName ${q(REMOTE.firewall)} -ErrorAction SilentlyContinue | Remove-NetFirewallRule; ` +
-        `New-NetFirewallRule -DisplayName ${q(REMOTE.firewall)} -Direction Inbound -Action Allow -Profile Any -Protocol TCP -LocalPort ${PORTS.http},${PORTS.http + 1},${PORTS.webrtc},${PORTS.echo} | Out-Null; ` +
-        `New-NetFirewallRule -DisplayName ${q(REMOTE.firewall + '-udp')} -Direction Inbound -Action Allow -Profile Any -Protocol UDP -LocalPort ${PORTS.media} | Out-Null; ` +
-        `New-NetFirewallRule -DisplayName ${q(REMOTE.firewall + '-exe')} -Direction Inbound -Action Allow -Profile Any -Program ${q(REMOTE.host + '\\butterpollo.exe')} | Out-Null`);
+        `New-NetFirewallRule -DisplayName ${q(REMOTE.firewall)} -Direction Inbound -Action Allow -Profile Private,Domain -RemoteAddress LocalSubnet -Protocol TCP -LocalPort ${PORTS.http},${PORTS.http + 1},${PORTS.webrtc},${PORTS.echo} | Out-Null; ` +
+        `New-NetFirewallRule -DisplayName ${q(REMOTE.firewall + '-udp')} -Direction Inbound -Action Allow -Profile Private,Domain -RemoteAddress LocalSubnet -Protocol UDP -LocalPort ${PORTS.media} | Out-Null; ` +
+        `New-NetFirewallRule -DisplayName ${q(REMOTE.firewall + '-exe')} -Direction Inbound -Action Allow -Profile Private,Domain -RemoteAddress LocalSubnet -Program ${q(REMOTE.host + '\\butterpollo.exe')} | Out-Null`);
       this.started.firewall = true;
     } else {
       remote(`Get-NetFirewallRule -DisplayName ${q(REMOTE.firewall + '*')} -ErrorAction SilentlyContinue | Remove-NetFirewallRule`);
@@ -162,23 +166,25 @@ class Laptop {
     }
   }
 
-  // Starts `exe` in the logged-in user's interactive session through a one-shot scheduled task.
+  // Starts `exe` in the logged-in user's interactive session through a one-shot scheduled task. The
+  // task is stopped after 20 minutes, so a killed harness cannot leave its process running for good.
   startTask(name, exe, argument, directory) {
     this.started[name === REMOTE.echoTask ? 'echo' : 'host'] = true;
     remote(`$user = (Get-CimInstance Win32_ComputerSystem).UserName; ` +
       `Unregister-ScheduledTask -TaskName ${q(name)} -Confirm:$false -ErrorAction SilentlyContinue; ` +
       `$action = New-ScheduledTaskAction -Execute ${q(exe)} -Argument ${q(argument)} -WorkingDirectory ${q(directory)}; ` +
       `$principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive; ` +
-      `$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Seconds 0); ` +
+      `$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 20); ` +
       `Register-ScheduledTask -TaskName ${q(name)} -Action $action -Principal $principal -Settings $settings -Force | Out-Null; ` +
       `Start-ScheduledTask -TaskName ${q(name)}`);
   }
 
   async startEcho() {
     this.echoLog = REMOTE.echo + '\\echo.jsonl';
+    this.nonce = crypto.randomBytes(6).toString('hex');
     remote(`Remove-Item -Force ${q(this.echoLog)} -ErrorAction SilentlyContinue`);
     this.startTask(REMOTE.echoTask, 'powershell.exe',
-      `-STA -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ${REMOTE.echo}\\echo.ps1 -Log ${this.echoLog} -Port ${PORTS.echo}${process.env.BUTTERPOLLO_ECHO_HOOKS ? ' -Hooks' : ''}`, REMOTE.echo);
+      `-STA -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ${REMOTE.echo}\\echo.ps1 -Log ${this.echoLog} -Port ${PORTS.echo} -MaxSeconds 900 -Nonce ${this.nonce}${process.env.BUTTERPOLLO_ECHO_HOOKS ? ' -Hooks' : ''}`, REMOTE.echo);
     const deadline = Date.now() + 40000;
     for (;;) {
       try { const state = JSON.parse(await httpGet(PORTS.echo, '/state')); if (state.lines > 0) break; } catch {}
@@ -188,6 +194,8 @@ class Laptop {
     this.echoCursor = 0;
     const ready = (await this.echoLines()).find(e => e.ev === 'ready');
     if (!ready) throw new Error('the echo window logged no ready line');
+    // An echo window left by an earlier run keeps the port and answers instead of ours.
+    if (ready.nonce !== this.nonce) throw new Error('a stale echo window answered on the laptop (nonce mismatch); not sending input');
     return ready;
   }
 
@@ -198,17 +206,26 @@ class Laptop {
     if (from === this.echoCursor) this.echoCursor += lines.length;
     return lines;
   }
+  // Records real keystrokes and mouse moves for `ms` (0 stops); injected input is always recorded.
+  async arm(ms) { await httpGet(PORTS.echo, '/arm?ms=' + ms); }
   async echoCount() { return JSON.parse(await httpGet(PORTS.echo, '/state')).lines; }
   async echoState() { return JSON.parse(await httpGet(PORTS.echo, '/state')); }
 
   async startHost() {
-    remote(`Remove-Item -Force ${q(REMOTE.config + '\\logs\\butterpollo.log')} -ErrorAction SilentlyContinue`);
+    const log = q(REMOTE.config + '\\logs\\butterpollo.log');
+    // The laptop's own clock: a log counts only if it was written after this moment.
+    this.hostMarker = remote(`Remove-Item -Force ${log} -ErrorAction SilentlyContinue; ` +
+      `if (Test-Path ${log}) { throw 'the old host log could not be removed' }; [DateTime]::UtcNow.ToString('o')`);
     this.startTask(REMOTE.hostTask, REMOTE.host + '\\butterpollo.exe',
       `--config-dir ${REMOTE.config} --assets ${REMOTE.host}\\assets\\web --port ${PORTS.http} --bind ${ADDRESS} --no-tray`, REMOTE.host);
   }
 
   hostLogText() {
-    try { return remote(`Get-Content -Raw -Encoding UTF8 ${q(REMOTE.config + '\\logs\\butterpollo.log')}`); } catch { return ''; }
+    const log = q(REMOTE.config + '\\logs\\butterpollo.log');
+    try {
+      return remote(`$f = Get-Item ${log} -ErrorAction SilentlyContinue; ` +
+        `if ($f -and $f.LastWriteTimeUtc -ge [DateTime]::Parse(${q(this.hostMarker)}, $null, 'RoundtripKind')) { Get-Content -Raw -Encoding UTF8 ${log} }`);
+    } catch { return ''; }
   }
   async waitReady(timeout = 90000) {
     const deadline = Date.now() + timeout;
@@ -227,27 +244,37 @@ class Laptop {
     return out;
   }
 
-  // Stops the echo window and the test host, removes the tasks and firewall rules, and reports what
-  // is still running. Safe to call twice and after any failure.
-  async cleanup() {
+  // Stops the test host, lets the echo window release every key and button the host may have left held,
+  // stops the echo window, removes the tasks and firewall rules, and reports what is still there. It is
+  // synchronous so an exit handler can run it, and safe to call twice and after any failure. `clean` is
+  // false if anything of the harness's is left.
+  cleanup() {
     const notes = [];
-    const step = async (what, fn) => { try { await fn(); } catch (error) { notes.push(`${what}: ${String(error.message).slice(0, 200)}`); } };
-    await step('echo stop', async () => { await httpGet(PORTS.echo, '/stop', 3000); await sleep(800); });
-    await step('tasks', async () => remote(
-      `foreach ($n in ${q(REMOTE.hostTask)}, ${q(REMOTE.echoTask)}) { Stop-ScheduledTask -TaskName $n -ErrorAction SilentlyContinue; Unregister-ScheduledTask -TaskName $n -Confirm:$false -ErrorAction SilentlyContinue }`));
-    await step('processes', async () => remote(
-      `Get-Process butterpollo -ErrorAction SilentlyContinue | Where-Object { $_.Path -like 'C:\\tests\\*' } | Stop-Process -Force; ` +
+    const step = (what, fn) => { try { fn(); } catch (error) { notes.push(`${what}: ${String(error.message).slice(0, 200)}`); } };
+    const echoCall = route => remote(`try { Invoke-WebRequest http://127.0.0.1:${PORTS.echo}${route} -UseBasicParsing -TimeoutSec 3 | Out-Null } catch { }`);
+    const hostPath = `${REMOTE.host}\\*`;
+    // The host first: nothing may inject while the echo window releases what is held.
+    step('host', () => remote(
+      `Stop-ScheduledTask -TaskName ${q(REMOTE.hostTask)} -ErrorAction SilentlyContinue; Unregister-ScheduledTask -TaskName ${q(REMOTE.hostTask)} -Confirm:$false -ErrorAction SilentlyContinue; ` +
+      `Get-Process butterpollo -ErrorAction SilentlyContinue | Where-Object { $_.Path -like ${q(hostPath)} } | Stop-Process -Force`));
+    sleepSync(400);
+    step('release', () => echoCall('/release'));
+    sleepSync(300);
+    step('echo stop', () => { echoCall('/stop'); sleepSync(800); });
+    step('echo task', () => remote(
+      `Stop-ScheduledTask -TaskName ${q(REMOTE.echoTask)} -ErrorAction SilentlyContinue; Unregister-ScheduledTask -TaskName ${q(REMOTE.echoTask)} -Confirm:$false -ErrorAction SilentlyContinue; ` +
       `Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*webrtc-echo*echo.ps1*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`));
-    await step('firewall', async () => this.firewall(false));
+    step('firewall', () => this.firewall(false));
     let left = null;
-    await step('check', async () => {
-      left = remoteJson(`@{procs=@(Get-Process butterpollo -ErrorAction SilentlyContinue | Where-Object { $_.Path -like 'C:\\tests\\*' } | ForEach-Object { $_.Id }); ` +
-        `echo=@(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*echo.ps1*' } | ForEach-Object { $_.ProcessId }); ` +
+    step('check', () => {
+      left = remoteJson(`@{procs=@(Get-Process butterpollo -ErrorAction SilentlyContinue | Where-Object { $_.Path -like ${q(hostPath)} } | ForEach-Object { $_.Id }); ` +
+        `echo=@(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*webrtc-echo*echo.ps1*' } | ForEach-Object { $_.ProcessId }); ` +
         `tasks=@(Get-ScheduledTask -TaskName 'rl-webrtc-input-*' -ErrorAction SilentlyContinue | ForEach-Object { $_.TaskName }); ` +
         `rules=@(Get-NetFirewallRule -DisplayName 'rl-webrtc-input-test*' -ErrorAction SilentlyContinue | ForEach-Object { $_.DisplayName }); ` +
-        `real=@(Get-Process butterpollo -ErrorAction SilentlyContinue | Where-Object { $_.Path -notlike 'C:\\tests\\*' } | ForEach-Object { $_.Path })} | ConvertTo-Json -Compress`);
+        `real=@(Get-Process butterpollo -ErrorAction SilentlyContinue | Where-Object { $_.Path -notlike ${q(hostPath)} } | ForEach-Object { $_.Path })} | ConvertTo-Json -Compress`);
     });
-    return {notes, left};
+    const ours = left ? ['procs', 'echo', 'tasks', 'rules'].filter(k => [].concat(left[k] || []).length) : ['check'];
+    return {notes, left, clean: ours.length === 0, leftover: ours};
   }
 }
 

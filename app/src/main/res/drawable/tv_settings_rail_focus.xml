@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The TV settings rail's selector: the amber ring around the D-pad's row, on the pill's shape. No scale. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:exitFadeDuration="@android:integer/config_shortAnimTime">
+    <item android:state_pressed="true">
+        <inset android:insetLeft="4dp" android:insetRight="4dp" android:insetTop="2dp" android:insetBottom="2dp">
+            <shape android:shape="rectangle">
+                <corners android:radius="16dp" />
+                <solid android:color="?attr/colorControlHighlight" />
+            </shape>
+        </inset>
+    </item>
+    <item android:state_focused="true">
+        <inset android:insetLeft="4dp" android:insetRight="4dp" android:insetTop="2dp" android:insetBottom="2dp">
+            <shape android:shape="rectangle">
+                <corners android:radius="16dp" />
+                <stroke android:width="?attr/nightjarFocusRingWidth" android:color="?attr/colorPrimary" />
+            </shape>
+        </inset>
+    </item>
+    <item>
+        <color android:color="@android:color/transparent" />
+    </item>
+</selector>

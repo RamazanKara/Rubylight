@@ -1,6 +1,7 @@
 <com.limelight.ui.ContentFrame xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_width="match_parent" android:layout_height="match_parent">
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@drawable/tv_settings_canvas">
     <LinearLayout
         android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical"
         android:paddingStart="@dimen/shell_overscan_horizontal" android:paddingEnd="@dimen/shell_overscan_horizontal"
@@ -24,9 +25,16 @@
         <!-- Two panes: the sections on the left (RootFragment), the chosen section or the search results on the right. -->
         <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
             android:orientation="horizontal">
-            <FrameLayout android:id="@+id/settings_sections"
-                android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="2"
-                android:nextFocusRight="@id/stream_settings" />
+            <!-- The rail: its list, and over it the amber bar of the current section (StreamSettings.RailIndicator). -->
+            <FrameLayout android:id="@+id/settings_rail"
+                android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="2">
+                <FrameLayout android:id="@+id/settings_sections"
+                    android:layout_width="match_parent" android:layout_height="match_parent"
+                    android:nextFocusRight="@id/stream_settings" />
+                <View android:id="@+id/settings_rail_bar" android:layout_width="3dp" android:layout_height="24dp"
+                    android:layout_marginStart="14dp" android:background="@drawable/tv_rail_bar"
+                    android:visibility="invisible" android:importantForAccessibility="no" />
+            </FrameLayout>
             <View android:layout_width="1dp" android:layout_height="match_parent"
                 android:layout_marginTop="@dimen/space_s" android:layout_marginBottom="@dimen/space_s"
                 android:background="?attr/colorOutlineVariant" android:importantForAccessibility="no" />

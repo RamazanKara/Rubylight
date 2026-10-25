@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The TV settings content pane's selector: the D-pad's row gets a fill and the amber ring. No scale. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:exitFadeDuration="@android:integer/config_shortAnimTime">
+    <item android:state_pressed="true">
+        <inset android:insetLeft="4dp" android:insetRight="4dp" android:insetTop="2dp" android:insetBottom="2dp">
+            <shape android:shape="rectangle">
+                <corners android:radius="12dp" />
+                <solid android:color="?attr/colorControlHighlight" />
+                <stroke android:width="?attr/nightjarFocusRingWidth" android:color="?attr/colorPrimary" />
+            </shape>
+        </inset>
+    </item>
+    <item android:state_focused="true">
+        <inset android:insetLeft="4dp" android:insetRight="4dp" android:insetTop="2dp" android:insetBottom="2dp">
+            <shape android:shape="rectangle">
+                <corners android:radius="12dp" />
+                <solid android:color="@color/tv_rail_fill" />
+                <stroke android:width="?attr/nightjarFocusRingWidth" android:color="?attr/colorPrimary" />
+            </shape>
+        </inset>
+    </item>
+    <item>
+        <color android:color="@android:color/transparent" />
+    </item>
+</selector>

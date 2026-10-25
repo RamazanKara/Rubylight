@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A group heading in TV Settings' right pane: a small spaced label over the rows, quieter than the rows themselves. -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@android:id/title"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:minHeight="48dp"
+    android:gravity="bottom"
+    android:paddingStart="@dimen/screen_gutter"
+    android:paddingEnd="@dimen/screen_gutter"
+    android:paddingTop="@dimen/space_l"
+    android:paddingBottom="@dimen/space_xs"
+    android:textAppearance="@style/TextAppearance.Nightjar.Label"
+    android:textSize="13sp"
+    android:letterSpacing="0.08"
+    android:textAllCaps="true"
+    android:textColor="?attr/colorOnSurfaceVariant"
+    android:accessibilityHeading="true" tools:targetApi="p" />

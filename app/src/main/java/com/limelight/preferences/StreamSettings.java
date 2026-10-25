@@ -243,6 +243,8 @@ public class StreamSettings extends NightjarActivity {
         if (twoPane && getFragmentManager().findFragmentById(R.id.settings_sections) == null) {
             transaction.add(R.id.settings_sections, new RootFragment());
         }
+        // Search results count as one page, so typing does not bring the pane in again on every key.
+        if (rail != null) rail.enterPane(searchQuery.isEmpty() ? String.valueOf(section) : "");
         transaction.replace(R.id.stream_settings, section == null && searchQuery.isEmpty() ?
                 new RootFragment() : SettingsFragment.forSection(section)).commit();
         updateHeader();
@@ -277,7 +279,15 @@ public class StreamSettings extends NightjarActivity {
     private void markSection() {
         android.app.Fragment fragment = getFragmentManager().findFragmentById(R.id.settings_sections);
         if (twoPane && fragment instanceof RootFragment) ((RootFragment) fragment).mark(section);
+        if (rail != null) {
+            ListView list = listOf(R.id.settings_sections);
+            rail.setList(list);
+            rail.mark(list == null ? -1 : RootFragment.positionOf(list, section));
+        }
     }
+
+    /** TV Settings' rail bar and pane motion; null without the TV layout. */
+    private SettingsRail rail;
 
     /** Moves focus from the content pane back to the section it shows. */
     private void focusSectionList() {
@@ -554,6 +564,7 @@ public class StreamSettings extends NightjarActivity {
 
         setContentView(R.layout.activity_stream_settings);
         twoPane = findViewById(R.id.settings_sections) != null;
+        rail = SettingsRail.attach(this);
         dropMisplacedPanes();
         toolbar = TopAppBar.configure(this, R.id.settings_toolbar, getString(R.string.settings), R.menu.settings);
         TopAppBar.setUpNavigation(toolbar, R.id.settings_back, v -> navigateBack());
@@ -650,6 +661,7 @@ public class StreamSettings extends NightjarActivity {
     protected void onDestroy() {
         Dialog.closeDialogs(this);
         navigationHandler.removeCallbacksAndMessages(null);
+        if (rail != null) rail.detach();
         super.onDestroy();
     }
 
@@ -879,7 +891,10 @@ public class StreamSettings extends NightjarActivity {
         }
         list.setDivider(null);
         list.setDividerHeight(0);
-        list.setSelector(R.drawable.list_focus_row);
+        // TV Settings: the rail's ring takes its pill shape, and the right pane's focused row is filled as well as ringed.
+        boolean tvRail = activity.findViewById(R.id.settings_rail) != null;
+        list.setSelector(!tvRail ? R.drawable.list_focus_row :
+                contentPane ? R.drawable.tv_settings_row_focus : R.drawable.tv_settings_rail_focus);
         // Rows reach the edges and carry the screen gutter themselves (layout/settings_*.xml).
         list.setPadding(0, 0, 0, view.getResources().getDimensionPixelSize(R.dimen.grid_padding_bottom));
         list.setClipToPadding(false);
@@ -939,6 +954,8 @@ public class StreamSettings extends NightjarActivity {
                 Preference row = findPreference(key);
                 if (row == null) continue;
                 row.setLayoutResource(R.layout.settings_section);
+                // Only the TV rail's rows have a place for an icon (layout-television/settings_section).
+                if (isTelevision(getActivity())) row.setIcon(SettingsRail.iconOf(key));
                 row.setOnPreferenceClickListener(preference -> {
                     ListView list = (ListView) getView().findViewById(android.R.id.list);
                     ((StreamSettings) getActivity()).activateSection(key, list.hasFocus());

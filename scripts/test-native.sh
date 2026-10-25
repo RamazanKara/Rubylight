@@ -45,7 +45,7 @@ for mode in plain sanitized; do
         "$out/$test-$mode"
         echo "$test ($mode): passed"
     done
-    for test in aaudio_queue control_negotiation controller_haptics dualsense_usb_audio networking rtsp_parser rtsp_receive evdev_ipc stun sdp_feature_flags; do
+    for test in aaudio_queue control_negotiation controller_haptics dualsense_usb_audio networking rtsp_parser rtsp_receive evdev_ipc stun sdp_feature_flags input_only_ping; do
         cc "${flags[@]}" "${extra[@]}" -fno-builtin "$tests/${test}_test.c" -o "$out/$test-$mode"
     done
     cc "${flags[@]}" "${extra[@]}" -c "$tests/control_packet_types_test.c" -o "$out/control_packet_types-$mode.o"
@@ -72,7 +72,7 @@ for mode in plain sanitized; do
         "$common/src/Platform.c" "$common/src/PlatformCrypto.c" -lcrypto -lpthread -o "$out/input_queue-$mode"
     cc "${flags[@]}" "${extra[@]}" "$tests/input_contact_test.c" "$common/src/LinkedBlockingQueue.c" \
         "$common/src/Platform.c" "$common/src/PlatformCrypto.c" -lcrypto -lpthread -o "$out/input_contact-$mode"
-    for test in aaudio_queue aaudio_output control_negotiation controller_haptics dualsense_usb_audio networking rtsp_parser rtsp_receive evdev_ipc stun sdp_feature_flags rtsp_duplicate audio_reorder video_shutdown pyrowave_depacketizer control_termination enet_termination network_grace control_send microphone_packet input_queue input_contact; do
+    for test in aaudio_queue aaudio_output control_negotiation controller_haptics dualsense_usb_audio networking rtsp_parser rtsp_receive evdev_ipc stun sdp_feature_flags rtsp_duplicate audio_reorder video_shutdown pyrowave_depacketizer control_termination enet_termination network_grace control_send microphone_packet input_queue input_contact input_only_ping; do
         "$out/$test-$mode"
         echo "$test ($mode): passed"
     done

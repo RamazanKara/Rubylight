@@ -109,6 +109,12 @@ function elevate(o, steps) {
   const results = [];
   if (isAdmin()) {
     for (const step of steps) {
+      if (step.firewall && step.remove) {
+        const script = `Get-NetFirewallRule -DisplayName '${FIREWALL_RULE}' -ErrorAction SilentlyContinue | Remove-NetFirewallRule`;
+        execFileSync('powershell.exe', ['-NoProfile', '-Command', script], {stdio: 'pipe'});
+        results.push({exit: 0, output: ''});
+        continue;
+      }
       if (step.firewall) {
         const script = `if (-not (Get-NetFirewallRule -DisplayName '${FIREWALL_RULE}' -ErrorAction SilentlyContinue)) { New-NetFirewallRule -DisplayName '${FIREWALL_RULE}' -Direction Inbound -Action Allow -Profile Any -Program '${path.join(o.staging, 'butterpollo.exe')}' | Out-Null }`;
         execFileSync('powershell.exe', ['-NoProfile', '-Command', script], {stdio: 'pipe'});
@@ -164,7 +170,9 @@ class TestHost {
 
   async start() {
     const exe = stage(this.o);
+    // The firewall rule lives for this run only: `stop` and `kill` remove it.
     elevate(this.o, [{firewall: true}]);
+    this.firewall = true;
     fs.writeFileSync(this.log, '');
     const args = ['--config-dir', this.o.root, '--assets', path.join(this.o.package, 'assets', 'web'),
       '--port', String(this.o.port), '--bind', '127.0.0.1', '--no-tray'];
@@ -195,7 +203,21 @@ class TestHost {
 
   // Ends and deletes the SYSTEM task and stops what it left running.
   cleanTask() {
-    elevate(this.o, [{args: ['/End', '/TN', this.o.task], optional: true}, {args: ['/Delete', '/TN', this.o.task, '/F'], optional: true}, {kill: true, optional: true}]);
+    elevate(this.o, [{args: ['/End', '/TN', this.o.task], optional: true}, {args: ['/Delete', '/TN', this.o.task, '/F'], optional: true}, {kill: true, optional: true},
+      ...this.closeFirewallSteps()]);
+  }
+
+  // The step that removes this run's firewall rule, once.
+  closeFirewallSteps() {
+    if (!this.firewall) return [];
+    this.firewall = false;
+    return [{firewall: true, remove: true, optional: true}];
+  }
+
+  closeFirewall() {
+    const steps = this.closeFirewallSteps();
+    if (!steps.length) return;
+    try { elevate(this.o, steps); } catch (error) { console.error(`could not remove the firewall rule: ${error.message}`); }
   }
 
   async stop() {
@@ -210,6 +232,7 @@ class TestHost {
     try { await this.api('POST', '/api/quit', {}); } catch {}
     const code = await Promise.race([this.exited, new Promise(r => setTimeout(() => r(null), 8000))]);
     if (code === null) this.kill();
+    this.closeFirewall();
   }
 
   // Synchronous, for the exit handlers. A SYSTEM host is stopped with its task and whatever it
@@ -220,8 +243,10 @@ class TestHost {
       try { this.cleanTask(); } catch (error) { console.error(`could not clean up the SYSTEM task: ${error.message}`); }
       return;
     }
-    if (!this.child || this.child.exitCode !== null) return;
-    try { execFileSync('taskkill', ['/PID', String(this.child.pid), '/T', '/F'], {stdio: 'ignore'}); } catch {}
+    if (this.child && this.child.exitCode === null) {
+      try { execFileSync('taskkill', ['/PID', String(this.child.pid), '/T', '/F'], {stdio: 'ignore'}); } catch {}
+    }
+    this.closeFirewall();
   }
 
   request(method, route, body, headers = {}) {

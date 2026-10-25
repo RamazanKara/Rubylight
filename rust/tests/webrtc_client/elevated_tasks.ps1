@@ -19,8 +19,13 @@ foreach ($step in $request.steps) {
         $results += [pscustomobject]@{exit = 0; output = "$verdict"}
         continue
     }
+    if ($step.firewall -and $step.remove) {
+        Get-NetFirewallRule -DisplayName 'Rubylight WebRTC e2e test host' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+        $results += [pscustomobject]@{exit = 0; output = 'firewall rule removed'}
+        continue
+    }
     if ($step.firewall) {
-        # An inbound allow rule for the staged host, so that Windows does not ask (a modal dialog
+        # An inbound allow rule, for this run only (the harness removes it when the host stops), for the staged host, so that Windows does not ask (a modal dialog
         # dims the clock window and the glass-to-glass probe cannot find it).
         $name = 'Rubylight WebRTC e2e test host'
         $program = Join-Path $staging 'butterpollo.exe'

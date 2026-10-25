@@ -263,6 +263,24 @@ public class GameDetailShellTest {
     }
 
     @Test
+    public void outsideTvAStoreGameNotInstalledRendersWithItsNoteAndNoStoreChip() throws Exception {
+        // The handheld page has no chip line: a store-owned game must still render and say why Play is off.
+        ActivityController<Detail> controller = detail();
+        try {
+            Detail page = loaded(controller);
+            assertNull(page.findViewById(R.id.detail_chips));
+            assertNull(page.findViewById(R.id.detail_store));
+            page.render(portal(",\"installed\":false,\"store\":{\"source\":\"steam\",\"id\":\"400\"}"), tower());
+            android.widget.TextView note = page.findViewById(R.id.detail_note);
+            assertEquals(View.VISIBLE, note.getVisibility());
+            assertEquals("Not installed on Tower", note.getText().toString());
+            assertFalse(page.findViewById(R.id.detail_play).isEnabled());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
     @Config(qualifiers = "television")
     public void onTelevisionTheChipLineNamesTheStoreWithItsGlyph() throws Exception {
         ActivityController<Detail> controller = detail();

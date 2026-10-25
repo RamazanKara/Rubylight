@@ -395,13 +395,14 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         installed.setText(Boolean.FALSE.equals(isInstalled) ? R.string.console_chip_not_installed : R.string.console_detail_installed);
         installed.setVisibility(isInstalled == null ? View.GONE : View.VISIBLE);
         hdr.setVisibility(m.source != null && m.source.hdrSupported ? View.VISIBLE : View.GONE);
-        renderStore(m.source);
-        boolean any = hasState || isInstalled != null || hdr.getVisibility() == View.VISIBLE || store.getVisibility() == View.VISIBLE;
+        if (store != null) renderStore(m.source);
+        boolean any = hasState || isInstalled != null || hdr.getVisibility() == View.VISIBLE
+                || (store != null && store.getVisibility() == View.VISIBLE);
         chips.setVisibility(any ? View.VISIBLE : View.GONE);
         chips.setContentDescription(chipsDescription((ViewGroup) chips));
     }
 
-    /** The store chip: the store's glyph, at the chip text's size, beside its name; gone for a game no store owns. */
+    /** The store chip (TV layout only): the store's glyph, at the chip text's size, beside its name; gone for a game no store owns. */
     private void renderStore(ConsoleSnapshot.Source source) {
         String key = source == null ? null : source.storeSource;
         String name = source == null ? null : Stores.name(key, source.storeName);

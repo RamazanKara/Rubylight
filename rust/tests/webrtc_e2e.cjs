@@ -22,7 +22,8 @@ const {chromium} = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const args = process.argv.slice(2);
 const option = (name, fallback) => { const i = args.indexOf('--' + name); return i >= 0 ? args[i + 1] : fallback; };
 const ALL_LEGS = ['pair', 'apps', 'browser', 'av1', 'hevc', 'surround51', 'surround71'];
-const legs = args.includes('--console') ? ['console'] : option('legs', ALL_LEGS.join(',')).split(',');
+// `--console` runs the browser leg first: the console's glass-to-glass is compared with it.
+const legs = args.includes('--console') ? ['browser', 'console'] : option('legs', ALL_LEGS.join(',')).split(',');
 const seconds = Number(option('seconds', 60));
 // `--runs 3` repeats every streaming leg; `--system` starts the test host as SYSTEM in the console
 // session (the virtual display driver accepts nothing else); `--host-config a=b,c=d` (a value may hold commas: 30,60) adds lines to
@@ -284,7 +285,10 @@ async function browserSession(host) {
 // The console's Stream page (Experimental): signs in to the console, streams H.264 1080p60 from
 // the first app for `seconds`, presses F24 (a key no game uses) and quits the app. A release host
 // has no fake input sink, so the key counts as arrived when the host's input summary says it
-// injected the press and the release without an unknown code.
+// injected the press and the release, and nothing else: the mouse stays off the picture. The
+// leg fails on any page error, and when its glass-to-glass median is more than
+// CONSOLE_G2G_SLACK_MS worse than the browser leg's.
+const CONSOLE_G2G_SLACK_MS = 5;
 async function consoleSession(host) {
   const consoleUrl = `https://127.0.0.1:${host.o.port + 1}`;
   const staticServer = await support.startStatic(STATIC_PORT);
@@ -301,7 +305,8 @@ async function consoleSession(host) {
       await page.fill('#password', host.o.password);
       await page.click('button[type=submit]');
       await page.waitForURL(url => url.pathname === '/stream', {timeout: 20000});
-      // The app list shows once the stream socket is open and the host answered get-apps.
+      // The stream socket opens on Connect; the app list shows once the host answered get-apps.
+      await page.click('button:has-text("Connect")', {timeout: 20000});
       await page.waitForSelector('.apps button, .notice.danger', {timeout: 20000});
       assert(!(await page.locator('.notice.danger').count()), `the Stream page failed: ${await page.textContent('.notice.danger').catch(() => '')}`);
       await hostSupport.assertRealHostIdle();
@@ -309,6 +314,8 @@ async function consoleSession(host) {
       const offset = fs.statSync(host.log).size;
       const t0 = Date.now();
       await page.click('.apps button >> nth=0');
+      // Park the mouse on the nav: Chromium sends a move when the picture appears under it.
+      await page.mouse.move(1, 1);
       // Streaming: connected, a picture, and the picture holds the keyboard focus.
       await page.waitForFunction(() => {
         const pc = RlProbe.peers.at(-1), video = document.getElementById('stream-video');
@@ -331,12 +338,25 @@ async function consoleSession(host) {
       const stop = result.stop = {};
       for (let i = 0; i < 50 && !stop.status; i++) { if (idle(await serverinfo(host))) stop.status = 'passed'; else await wait(200); }
       stop.status ||= 'failed'; stop.ms = Date.now() - stopped;
+      // Quitting ends with the app list again, and no error when the host said it stopped.
+      await page.waitForSelector('.apps button', {timeout: 20000});
+      await page.waitForFunction(() => !document.body.textContent.includes('Quitting the app'), null, {timeout: 60000});
+      const quitError = await page.locator('.notice.danger').count() ? await page.textContent('.notice.danger') : '';
       await wait(500);
       // The summary is written when the session ends.
       const input = result.hostInput = support.hostLog(host.log, offset).inputs.at(-1) || null;
-      const keyArrived = !!input && input.injected >= 2 && input.unknown_codes === 0;
-      result.status = result.video.codec === 'video/H264' && result.video.decodedOverReceived > .98 && keyArrived && stop.status === 'passed' ? 'passed' : 'failed';
-      if (!keyArrived) result.error = `the host's input summary does not show F24 injected: ${JSON.stringify(input)}`;
+      const keyArrived = !!input && input.input_messages === 2 && input.injected === 2 && input.unknown_codes === 0;
+      const browserG2g = ctx.results.h264?.glassToGlass?.median_ms;
+      if (Number.isFinite(browserG2g) && Number.isFinite(g2g?.median_ms)) result.g2gVsBrowserMs = Math.round((g2g.median_ms - browserG2g) * 10) / 10;
+      else ctx.notes.push('console: no browser-leg glass-to-glass median to compare with');
+      const errors = [
+        !keyArrived && `the host's input summary does not show F24 alone injected: ${JSON.stringify(input)}`,
+        quitError && `Quit app showed an error: ${quitError}`,
+        pageErrors.length && `page errors: ${pageErrors.slice(0, 5).join(' | ')}`,
+        result.g2gVsBrowserMs > CONSOLE_G2G_SLACK_MS && `glass-to-glass is ${result.g2gVsBrowserMs} ms worse than the browser leg's (over ${CONSOLE_G2G_SLACK_MS} ms)`,
+      ].filter(Boolean);
+      result.status = result.video.codec === 'video/H264' && result.video.decodedOverReceived > .98 && !errors.length && stop.status === 'passed' ? 'passed' : 'failed';
+      if (errors.length) result.error = errors.join('; ');
       return result;
     } catch (error) {
       error.message += ` [page: ${pageErrors.slice(0, 5).join(' | ')}] [status: ${await page.textContent('.player [role=status]').catch(() => '')}]`;

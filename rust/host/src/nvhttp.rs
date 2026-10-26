@@ -244,6 +244,12 @@ pub fn router(h: Shared, https: bool) -> Router {
                 "/actions/clipboard",
                 get(clipboard_read).post(clipboard_write),
             )
+            // Sleep PC, as Vibepollo serves it; only POST spends a token.
+            .route("/power-actions/v1", get(crate::power_action::capabilities))
+            .route(
+                "/power-actions/v1/sleep",
+                axum::routing::post(crate::power_action::sleep),
+            )
             .merge(crate::native_api::router())
     } else {
         r
@@ -588,6 +594,18 @@ fn serverinfo_response(
                 .to_string(),
         ),
     ];
+    // Sleep PC (`/power-actions/v1`), for paired HTTPS clients only, as in
+    // Vibepollo. Stock Moonlight ignores these.
+    if let Some(client) = client {
+        fields.extend([
+            (
+                "PowerActionVersion",
+                butterpollo_core::power_action::VERSION.to_string(),
+            ),
+            ("SleepSupported", u8::from(h.power.supported()).to_string()),
+            ("SleepAllowed", u8::from(client.allows_sleep()).to_string()),
+        ]);
+    }
     // DESCRIBE's `packed444Modes` mask, from the startup probe, so a client
     // can leave out a packed mode before /launch instead of after it.
     if config.boolean("experimental_packed_444", false) {

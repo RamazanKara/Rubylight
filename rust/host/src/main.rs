@@ -12,6 +12,7 @@ mod network;
 mod network_path;
 mod nvhttp;
 mod playnite;
+mod power_action;
 mod process;
 mod pyrowave_probe;
 mod pyrowave_send;

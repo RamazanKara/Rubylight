@@ -278,6 +278,51 @@ async fn host_control_is_granted_only_as_a_boolean_and_revoking_keeps_the_stream
 }
 
 #[tokio::test]
+async fn sleep_is_granted_only_as_a_boolean() {
+    let f = Fixture::new();
+    let client = f.client(u32::MAX);
+    assert!(!f.host.paired.read().unwrap().clients[0].allows_sleep());
+    for bad in [json!("true"), json!(1), json!([true]), json!({})] {
+        value(
+            request(
+                &f,
+                "POST",
+                "/api/clients/update",
+                json!({"uuid":client.uuid,"name":"Renamed","allow_sleep":bad}),
+            )
+            .await,
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+        let paired = f.host.paired.read().unwrap();
+        assert!(!paired.clients[0].allows_sleep(), "{bad}");
+        assert!(!paired.clients[0].extra.contains_key("allow_sleep"));
+        assert_eq!(paired.clients[0].name, client.name, "nothing else changed");
+    }
+    let update = |allow: Value| {
+        request(
+            &f,
+            "POST",
+            "/api/clients/update",
+            json!({"uuid":client.uuid,"allow_sleep":allow}),
+        )
+    };
+    value(update(json!(true)).await, StatusCode::OK).await;
+    let saved = butterpollo_core::state::PairedState::load(&f.host.paired_path).unwrap();
+    assert!(saved.clients[0].allows_sleep());
+    let listed = value(
+        request(&f, "GET", "/api/clients/list", json!({})).await,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(listed["clients"][0]["allow_sleep"], true);
+    value(update(json!(null)).await, StatusCode::OK).await;
+    assert!(!f.host.paired.read().unwrap().clients[0].allows_sleep());
+    let saved = butterpollo_core::state::PairedState::load(&f.host.paired_path).unwrap();
+    assert!(!saved.clients[0].extra.contains_key("allow_sleep"));
+}
+
+#[tokio::test]
 async fn host_control_cannot_be_granted_without_the_update_route() {
     let f = Fixture::new();
     let client = f.client(u32::MAX);

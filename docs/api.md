@@ -101,6 +101,7 @@ Useful response and request details:
 
 - `/api/clients/list` includes read-only `network_loss_routes` for each paired device: address, seconds until expiry, and eligible sessions until a fast-rate probe. Authenticated `POST /api/clients/reset-network-history` with `{"uuid": "device-id"}` clears those routes for subsequent streams; it does not change a running stream. Client updates cannot set this telemetry.
 - `POST /api/clients/update` takes `host_control` per device. Only `true`, `false` or `null` are accepted, and a missing key means off. Only the console path grants it ([host control](configuration.md#host-control-for-a-device)).
+- `POST /api/clients/update` takes `allow_sleep` (Sleep PC) the same way: only `true`, `false` or `null`, and anything but a JSON `true` means off.
 - Configuration writes merge submitted fields and return `restart_required: true`. Treat the response as a saved configuration, not confirmation that every active stream has adopted it.
 - Applications are updated by their `uuid`; deletion accepts the UUID or numeric app ID. Read `/api/apps` before making changes rather than treating an array index as the identity.
 - `/api/logs` and `/api/logs/export` return up to the last 8 MiB of the current log as text. `/api/logs/export_crash` creates the support ZIP. The ordinary log export is not a ZIP.

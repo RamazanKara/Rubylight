@@ -71,6 +71,15 @@ impl Pool {
         );
         Ok(pads)
     }
+    /// Whether a stream still holds any controller session; parked ones
+    /// waiting for a reconnect do not count.
+    pub fn in_use(&self) -> bool {
+        self.0
+            .lock()
+            .unwrap()
+            .values()
+            .any(|entry| Arc::strong_count(&entry.pads) > 1)
+    }
     pub fn expire(&self, app_running: bool) {
         self.0.lock().unwrap().retain(|_, entry| {
             if Arc::strong_count(&entry.pads) > 1 {

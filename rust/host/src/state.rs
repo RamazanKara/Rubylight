@@ -187,6 +187,8 @@ pub struct Host {
     pub warnings: Warnings,
     pub current_app: Mutex<Option<crate::process::RunningApp>>,
     pub launch_transition: Mutex<()>,
+    /// Sleep PC tokens and the suspend backend.
+    pub power: crate::power_action::PowerActions,
     /// The session state machine and its journal.
     pub session: Mutex<crate::session_control::Control>,
     pub confirmations: Mutex<butterpollo_core::remote::Confirmations>,
@@ -427,6 +429,7 @@ impl Host {
             warnings,
             current_app: Mutex::new(None),
             launch_transition: Mutex::new(()),
+            power: Default::default(),
             session: Mutex::new(session),
             confirmations: Mutex::new(Default::default()),
             app_audio: Mutex::new(None),

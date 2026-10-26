@@ -894,6 +894,38 @@ fn finish_startup_probe_later(f: &Fixture, codecs: u32) -> std::thread::JoinHand
 }
 
 #[tokio::test]
+async fn serverinfo_offers_sleep_fields_to_paired_https_clients_only() {
+    let f = Fixture::new();
+    for https in [false, true] {
+        let root = document(request(&f, https, "GET", "/serverinfo").await).await;
+        for name in ["PowerActionVersion", "SleepSupported", "SleepAllowed"] {
+            assert!(root.get_child(name).is_none(), "{name} https={https}");
+        }
+    }
+    let mut client = f.client(u32::MAX);
+    let info = |client: &Client| {
+        let config = f.host.config.read().unwrap().clone();
+        serverinfo_response(
+            &f.host,
+            &f.connection(true),
+            &config,
+            Some(client),
+            false,
+            "00:00:00:00:00:00".into(),
+            0,
+            false,
+        )
+    };
+    // Tests have no sleep backend.
+    let root = document(info(&client)).await;
+    assert_eq!(field(&root, "PowerActionVersion"), "1");
+    assert_eq!(field(&root, "SleepSupported"), "0");
+    assert_eq!(field(&root, "SleepAllowed"), "0");
+    client.extra.insert("allow_sleep".into(), true.into());
+    assert_eq!(field(&document(info(&client)).await, "SleepAllowed"), "1");
+}
+
+#[tokio::test]
 async fn discovery_during_the_startup_probe_reports_its_codecs() {
     let f = Fixture::new();
     let probe = finish_startup_probe_later(&f, 0x1 | 0x100 | 0x200);

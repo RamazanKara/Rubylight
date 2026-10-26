@@ -1114,3 +1114,30 @@ fn on_a_metered_network_without_the_opt_in_the_grace_period_decides() {
     });
     assert_eq!(record.lock().unwrap().terminated, None);
 }
+
+/// With client roaming off, a host that advertises it is never probed: not on a network
+/// change, not on a simulated roam, not through a silence.
+#[test]
+fn with_roaming_off_nothing_is_probed() {
+    let host = start_host_with(None, true);
+    let record = Arc::new(Mutex::new(Record::default()));
+    let mut config = roaming_config();
+    config.roaming.enabled = false;
+    let session = start_session(&host, config, &record);
+
+    assert!(!session.network_changed(NetworkHint::default()));
+    for local in [None, Some(IpAddr::from(Ipv4Addr::LOCALHOST))] {
+        let refused = session.roam_to(local).unwrap_err();
+        assert_eq!(refused.kind(), io::ErrorKind::Unsupported, "{refused}");
+    }
+    silence_host(&host);
+    input_arrives(&session, &host);
+
+    assert!(roam_events(&record).is_empty());
+    assert_eq!(*host.roaming.lock().unwrap(), []);
+    session.stop();
+    until("the disconnect", || {
+        host.control_disconnected.load(Ordering::SeqCst)
+    });
+    assert_eq!(record.lock().unwrap().terminated, None);
+}

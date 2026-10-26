@@ -136,18 +136,29 @@ public class SleepFlowTest {
         assertEquals(Arrays.asList("confirm"), ui.events);
         assertEquals(Arrays.asList("power.capabilities"), calls);
 
-        clock.addAndGet(SleepFlow.TOKEN_REFRESH_MS);
+        clock.addAndGet(SleepFlow.TOKEN_REFRESH_MS - 1);
         ui.confirm.run();
         assertEquals(Arrays.asList("power.capabilities", "power.sleep " + TOKEN_A), calls);
         assertEquals(Arrays.asList("confirm", "accepted"), ui.events);
     }
 
     @Test
-    public void aTokenOlderThan25SecondsIsFetchedAgainBeforeItIsSpent() {
+    public void aSecondConfirmationSpendsNothing() {
+        script("power.capabilities", offer(TOKEN_A));
+        script("power.sleep", ACCEPTED);
+        flow().start();
+        ui.confirm.run();
+        ui.confirm.run();
+        assertEquals(Arrays.asList("power.capabilities", "power.sleep " + TOKEN_A), calls);
+        assertEquals(Arrays.asList("confirm", "accepted"), ui.events);
+    }
+
+    @Test
+    public void aTokenOf25SecondsOrOlderIsFetchedAgainBeforeItIsSpent() {
         script("power.capabilities", offer(TOKEN_A), offer(TOKEN_B));
         script("power.sleep", ACCEPTED);
         flow().start();
-        clock.addAndGet(SleepFlow.TOKEN_REFRESH_MS + 1);
+        clock.addAndGet(SleepFlow.TOKEN_REFRESH_MS);
         ui.confirm.run();
         assertEquals(25_000, SleepFlow.TOKEN_REFRESH_MS);
         assertEquals(Arrays.asList("power.capabilities", "power.capabilities", "power.sleep " + TOKEN_B), calls);

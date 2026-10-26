@@ -5,15 +5,16 @@ import com.limelight.nativeapi.NativeApiClient.PowerReply;
 import com.limelight.nativeapi.NativeApiException;
 
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.LongSupplier;
 
 /**
- * Sleep PC: ask the host for a token, let the person confirm, ask again when the token is older than
- * {@link #TOKEN_REFRESH_MS} (the host keeps it 30 s), then spend it. Host calls run on {@code worker} and
+ * Sleep PC: ask the host for a token, let the person confirm, ask again when the token is
+ * {@link #TOKEN_REFRESH_MS} old or older (the host keeps it 30 s), then spend it once. Host calls run on {@code worker} and
  * every outcome reaches {@link Ui} on {@code main}; none is dropped.
  */
 final class SleepFlow {
-    /** A token older than this when the person confirms is fetched again: it could expire on the way. */
+    /** A token this old when the person confirms is fetched again: it could expire on the way. */
     static final long TOKEN_REFRESH_MS = 25_000;
 
     interface Client {
@@ -22,7 +23,7 @@ final class SleepFlow {
     }
 
     interface Ui {
-        /** The host offered a token: ask the person and run {@code sleep} on yes. */
+        /** The host offered a token: ask the person and run {@code sleep} on yes; it acts only the first time. */
         void confirm(Runnable sleep);
 
         /** The host accepted (202) and is going to sleep. */
@@ -71,12 +72,18 @@ final class SleepFlow {
             ui.unavailable(offer);
             return;
         }
-        ui.confirm(() -> worker.execute(() -> sleep(api, offer.token, asked)));
+        // A double tap or a key repeat must not spend the token twice.
+        AtomicBoolean confirmed = new AtomicBoolean();
+        ui.confirm(() -> {
+            if (confirmed.compareAndSet(false, true)) {
+                worker.execute(() -> sleep(api, offer.token, asked));
+            }
+        });
     }
 
     private void sleep(NativeApiClient api, String token, long asked) {
         try {
-            if (clockMs.getAsLong() - asked > TOKEN_REFRESH_MS) {
+            if (clockMs.getAsLong() - asked >= TOKEN_REFRESH_MS) {
                 PowerReply fresh = api.powerCapabilities();
                 if (fresh.token == null) {
                     main.execute(() -> ui.unavailable(fresh));

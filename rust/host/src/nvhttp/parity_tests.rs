@@ -583,7 +583,10 @@ async fn otp_handshake_persists_the_device_name_and_consumes_the_pin_once() {
     let saved = butterpollo_core::state::PairedState::load(&f.host.paired_path).unwrap();
     assert_eq!(saved.clients.len(), 1);
     assert_eq!(saved.clients[0].name, "Console name");
-    assert_eq!(saved.clients[0].perm, 0x071f1f00);
+    assert_eq!(
+        saved.clients[0].perm,
+        butterpollo_core::state::FIRST_DEVICE_PERMISSION
+    );
     assert!(saved.clients[0].enabled);
     // Pairing never grants Host control, even to the first device.
     assert!(!saved.clients[0].extra.contains_key("host_control"));

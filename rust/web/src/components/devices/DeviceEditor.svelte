@@ -4,10 +4,11 @@
   import Field from '../Field.svelte';
   import Toggle from '../Toggle.svelte';
   import CommandList from './CommandList.svelte';
-  import { api, PERM_ALL, type Client, type DisplayDevice } from '../../lib/api';
+  import { api, type Client, type DisplayDevice } from '../../lib/api';
   import { failed, notify } from '../../lib/feedback.svelte';
   import {
     changes,
+    fullControl,
     permissionSummary,
     PERMISSION_GROUPS,
     savingEndsStream,
@@ -175,12 +176,13 @@
       <h3>Permissions</h3>
       <div class="row">
         <span class="muted presets">Set to</span>
-        <Button size="sm" onclick={() => (draft.perm = PERM_ALL)}>Full control</Button>
+        <Button size="sm" onclick={() => (draft.perm = fullControl(draft.perm))}>Full control</Button>
         <Button size="sm" onclick={() => (draft.perm = VIEW_ONLY)}>View only</Button>
       </div>
     </div>
     <p class="note">
       The first paired device gets full control. Later devices can only list apps and view streams.
+      File transfer is granted on its own, never with full control.
     </p>
     <p class="note">Current access: <strong>{permissionSummary(draft.perm)}</strong></p>
     <details bind:open={permissionsOpen}><summary>Custom permissions</summary>

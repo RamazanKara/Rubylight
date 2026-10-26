@@ -274,6 +274,8 @@ export const PERM = {
   SERVER_CMD: 0x100000,
 } as const;
 export const PERM_ALL = 0x071f1f00;
+/** Full control: everything but file transfer, which a device is granted on its own. */
+export const FULL_CONTROL = PERM_ALL & ~(PERM.FILE_UPLOAD | PERM.FILE_DOWNLOAD);
 
 // Per-device settings: null clears one, so the host setting applies.
 export interface Client {

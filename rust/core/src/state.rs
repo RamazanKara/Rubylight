@@ -66,8 +66,13 @@ pub fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
 fn default_permission() -> u32 {
     FIRST_DEVICE_PERMISSION
 }
-/// What the first device paired to a host may do: everything.
-pub const FIRST_DEVICE_PERMISSION: u32 = 0x071f1f00;
+/// What the first device paired to a host may do: everything but file
+/// transfer, which the administrator grants a device on its own.
+pub const FIRST_DEVICE_PERMISSION: u32 = 0x07131f00;
+/// The paired state's migrations, counted in `root.rubylight_state_version`.
+/// 1: Upload files and Download files, which test builds gave the first
+/// device with everything else, are taken back once.
+const STATE_VERSION: u64 = 1;
 /// What every later device may do until the administrator grants more: view only.
 pub const LATER_DEVICE_PERMISSION: u32 = 0x03000000;
 fn enabled() -> bool {
@@ -343,9 +348,21 @@ impl PairedState {
             }
             unique.push(c);
         }
-        let clients = unique;
+        let mut clients = unique;
         if clients.len() > 256 {
             bail!("too many paired clients");
+        }
+        let version = root
+            .get("rubylight_state_version")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        if version < 1 {
+            for c in &mut clients {
+                c.perm &= !(crate::native::FILE_UPLOAD | crate::native::FILE_DOWNLOAD);
+            }
+        }
+        if version < STATE_VERSION {
+            root["rubylight_state_version"] = json!(STATE_VERSION);
         }
         Ok(Self {
             document,
@@ -830,6 +847,41 @@ mod tests {
         assert_eq!(perm_of(&s, "Two"), LATER_DEVICE_PERMISSION);
         let reloaded = PairedState::load(&p).unwrap();
         assert_eq!(perm_of(&reloaded, "Two"), LATER_DEVICE_PERMISSION);
+    }
+    const FILE_BITS: u32 = crate::native::FILE_UPLOAD | crate::native::FILE_DOWNLOAD;
+    #[test]
+    fn file_transfer_is_granted_on_its_own_never_with_everything() {
+        assert_eq!(FIRST_DEVICE_PERMISSION & FILE_BITS, 0);
+        assert_eq!(LATER_DEVICE_PERMISSION & FILE_BITS, 0);
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("state.json");
+        let mut s = PairedState::load(&p).unwrap();
+        s.add(&p, phone("Phone")).unwrap();
+        assert_eq!(perm_of(&s, "Phone") & FILE_BITS, 0);
+    }
+    #[test]
+    fn file_transfer_given_by_a_test_build_is_taken_back_once() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("state.json");
+        let mut tested = phone("Tested");
+        tested.perm = 0x071f1f00;
+        write_json(&p, &json!({"root":{"named_devices":[tested]}})).unwrap();
+        let mut s = PairedState::load(&p).unwrap();
+        assert_eq!(perm_of(&s, "Tested"), 0x07131f00);
+        // Ticked again in the console, the bits stay.
+        s.clients[0].perm |= FILE_BITS;
+        s.save(&p).unwrap();
+        let saved = load_json(&p, Value::Null).unwrap();
+        assert_eq!(saved["root"]["rubylight_state_version"], 1);
+        let reloaded = PairedState::load(&p).unwrap();
+        assert_eq!(perm_of(&reloaded, "Tested"), 0x071f1f00);
+        // A later version's file is left as it is.
+        let mut later = saved;
+        later["root"]["rubylight_state_version"] = json!(7);
+        write_json(&p, &later).unwrap();
+        let s = PairedState::load(&p).unwrap();
+        assert_eq!(perm_of(&s, "Tested"), 0x071f1f00);
+        assert_eq!(s.document["root"]["rubylight_state_version"], 7);
     }
     #[test]
     fn a_repeated_webrtc_client_id_is_skipped_but_kept_in_the_file() {

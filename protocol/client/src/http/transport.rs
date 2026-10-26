@@ -196,9 +196,9 @@ fn send_inner(request: &Request<'_>, cancel: &Cancel, body: Option<Body<'_>>, ti
         return Err(Error::Cancelled);
     }
     let started = std::time::Instant::now();
-    let tcp = connect(request.host, request.port, request.timeouts.connect)?;
-    let id = cancel.register(&tcp)?;
     let deadline = timeout.map(|timeout| started + timeout);
+    let tcp = connect(request.host, request.port, request.timeouts.connect, deadline)?;
+    let id = cancel.register(&tcp)?;
     let result = exchange(request, tcp, body, headers, deadline);
     cancel.unregister(id);
     match result {
@@ -207,10 +207,24 @@ fn send_inner(request: &Request<'_>, cancel: &Cancel, body: Option<Body<'_>>, ti
     }
 }
 
-fn connect(host: &Host, port: u16, timeout: Duration) -> Result<TcpStream, Error> {
+fn connect(host: &Host, port: u16, timeout: Duration, deadline: Option<std::time::Instant>) -> Result<TcpStream, Error> {
+    connect_each(&host.socket_addrs(port)?, timeout, deadline, TcpStream::connect_timeout)
+}
+
+/// Tries the addresses in turn, each for `timeout` but never past `deadline`; a deadline that
+/// runs out before an address answers fails with `TimedOut`.
+fn connect_each<S>(addresses: &[SocketAddr], timeout: Duration, deadline: Option<std::time::Instant>,
+    mut attempt: impl FnMut(&SocketAddr, Duration) -> std::io::Result<S>) -> Result<S, Error> {
     let mut last = None;
-    for address in host.socket_addrs(port)? {
-        match TcpStream::connect_timeout(&address, timeout) {
+    for address in addresses {
+        let budget = match deadline {
+            None => timeout,
+            Some(deadline) => match deadline.checked_duration_since(std::time::Instant::now()).filter(|left| !left.is_zero()) {
+                Some(left) => timeout.min(left),
+                None => return Err(Error::Io(ErrorKind::TimedOut.into())),
+            },
+        };
+        match attempt(address, budget) {
             Ok(stream) => return Ok(stream),
             Err(e) => last = Some(e),
         }
@@ -605,6 +619,31 @@ mod tests {
         assert!(headers_seen && result.is_err());
         assert!(started.elapsed() < Duration::from_secs(2));
         server.join().unwrap();
+    }
+
+    #[test]
+    fn connect_attempts_share_the_probe_deadline() {
+        // Two addresses that never answer: each attempt spends its whole budget.
+        let addresses: [SocketAddr; 2] = ["192.0.2.1:47984".parse().unwrap(), "192.0.2.2:47984".parse().unwrap()];
+        let mut budgets = Vec::new();
+        let started = std::time::Instant::now();
+        let deadline = started + Duration::from_millis(150);
+        let result = connect_each(&addresses, Duration::from_secs(3), Some(deadline), |_, budget| -> std::io::Result<()> {
+            budgets.push(budget);
+            std::thread::sleep(budget);
+            Err(ErrorKind::TimedOut.into())
+        });
+        assert!(matches!(&result, Err(Error::Io(e)) if e.kind() == ErrorKind::TimedOut), "{result:?}");
+        assert!(budgets.iter().sum::<Duration>() <= Duration::from_millis(150), "{budgets:?}");
+        assert!(started.elapsed() < Duration::from_secs(1));
+        // Without a deadline every address gets the connect timeout.
+        let mut budgets = Vec::new();
+        let result = connect_each(&addresses, Duration::from_secs(3), None, |_, budget| -> std::io::Result<()> {
+            budgets.push(budget);
+            Err(ErrorKind::ConnectionRefused.into())
+        });
+        assert!(matches!(&result, Err(Error::Io(e)) if e.kind() == ErrorKind::ConnectionRefused));
+        assert_eq!(budgets, [Duration::from_secs(3); 2]);
     }
 
     #[test]

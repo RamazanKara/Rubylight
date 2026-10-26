@@ -565,14 +565,14 @@ Off by default. With **WebRTC server (Experimental)** (`webrtc_server`) on, Ruby
 
 ## File transfer (Experimental)
 
-Off by default. With **File transfer (Experimental)** (`file_transfer`) on, paired devices can send files to this PC and download them again over the streaming HTTPS port ([Native API, Files](native-api.md#files)). Each device also needs **Upload files** or **Download files** under its permissions on **Devices**. Files are written as the Windows user who is signed in; with nobody signed in, transfers are refused.
+Off by default. With **File transfer (Experimental)** (`file_transfer`) on, paired devices can send files to this PC and download them again over the streaming HTTPS port ([Native API, Files](native-api.md#files)). Each device also needs **Upload files** or **Download files** under its permissions on **Devices**; no device has them until you tick them, and **Full control** leaves them as they are. Files are written as the Windows user who is signed in; with nobody signed in, transfers are refused.
 
 | Key | Default | What it means |
 | --- | --- | --- |
 | `file_transfer` | `false` | Turns file transfer on. Applies to the next request. |
-| `file_transfer_dir` | empty | The folder files go to and come from, as an absolute path. Empty means `Downloads\Rubylight` of the signed-in user. |
+| `file_transfer_dir` | empty | The folder uploads go to and downloads come from, as an absolute path. Empty means `Downloads\Rubylight` of the signed-in user. |
 | `file_transfer_max_mb` | `4096` | The largest upload in MiB, refused before it starts. |
-| `file_transfer_stream_mbps` | `50` | While a stream runs or starts, all uploads together are written at this many Mbit/s, so the stream keeps the network and disk. `0` lets them run at full speed. |
+| `file_transfer_stream_mbps` | `50` | While a stream runs or starts, all uploads and downloads together move at this many Mbit/s. `0` lets them run at full speed. Applies to running transfers within a second. |
 
 ## Multiple instances
 

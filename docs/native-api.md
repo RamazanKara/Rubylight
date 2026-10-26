@@ -371,7 +371,9 @@ POST /api/native/v1/audio/settings
 
 ## Files
 
-File transfer (Experimental) lets a paired device send files to the PC and fetch them back. It needs the host's `file_transfer` setting (off by default) and the device's Upload files or Download files bit, both read on every request. Files go to `file_transfer_dir`, or the signed-in user's `Downloads\Rubylight` when that is empty, and are written as that Windows user.
+File transfer (Experimental) lets a paired device send files to the PC and fetch them back. It needs the host's `file_transfer` setting (off by default) and the device's Upload files or Download files bit, which no device has until the console grants it. Both are read on every request and every 250 ms while a transfer runs: turning either off ends a running upload with `403` and deletes its `.part` file, and ends a running download before its last byte. Files go to and come from `file_transfer_dir`, or the signed-in user's `Downloads\Rubylight` when that is empty, and are read and written as that Windows user.
+
+While a stream runs or starts, uploads and downloads together move at `file_transfer_stream_mbps` (50 Mbit/s by default; 0 for full speed); the rate is read again every 250 ms. Otherwise they run at full speed.
 
 ```http
 GET /api/native/v1/files
@@ -386,7 +388,7 @@ GET /api/native/v1/files
 }
 ```
 
-Only plain files are listed: no folders, links or `.part` files.
+Only plain files are listed: no folders, links or `.part` files. `free_bytes` is what an upload may use: the volume's free space less a reserve of 1 GiB, or 2 % of a volume over 50 GiB, and less what the uploads running still have to write. A device with Upload files but not Download files gets `folder`, `free_bytes` and `max_file_bytes` with an empty `files`.
 
 ```http
 POST /api/native/v1/files?name=clip.mp4
@@ -394,19 +396,18 @@ Content-Type: application/octet-stream
 Content-Length: 52428800
 ```
 
-- `name` is percent-encoded UTF-8: a file name without a path, at most 200 UTF-16 units, with nothing Windows refuses (`\ / : * ? " < > |`, control characters, a trailing dot or space, device names such as `CON`). Anything else is `invalid_name`.
-- `Content-Length` is required (`length_required`), and checked against `max_file_bytes` (`file_transfer_max_mb`, 4096 MiB by default, `too_large`) and the free space (`insufficient_storage`) before a byte is written. The 1 MiB limit of the other HTTPS routes does not apply.
+- `name` is percent-encoded UTF-8 as RFC 3986 has it (`+` is a plus; a space is `%20`): a file name without a path, at most 200 UTF-16 units, with nothing Windows refuses (`\ / : * ? " < > |`, control characters, a trailing dot or space, device names such as `CON`). Anything else is `invalid_name`, and so is a name ending in `.part`.
+- `Content-Length` is required (`length_required`), and checked against `max_file_bytes` (`file_transfer_max_mb`, 4096 MiB by default, `too_large`) and `free_bytes` (`insufficient_storage`) before a byte is written. The 1 MiB limit of the other HTTPS routes does not apply.
 - The body goes to `<name>.part` and is renamed only once all of it arrived. A taken name gets the next free number, as Explorer numbers copies: `clip (1).mp4`. The answer is `201` with `{ "name": "clip (1).mp4", "size": 52428800 }`, where `size` is the bytes received.
-- A body that ends early, or sends nothing for 30 s, is `incomplete_upload`, and the `.part` file is deleted. A longer body than its `Content-Length` is `invalid_request`.
+- A body that ends early, sends nothing for 30 s, or after its first 30 s averages less than 64 KiB/s (time spent waiting for the stream rate doesn't count) is `incomplete_upload`, and the `.part` file is deleted. A longer body than its `Content-Length` is `invalid_request`.
 - One upload per device at a time: a second one is `transfer_busy`. Other devices are not held up.
-- A refused upload is answered at once; the host then reads and drops the rest of the body, so a client that sends the whole body before reading gets the answer, not a reset.
-- While a stream runs or starts, uploads together are written at `file_transfer_stream_mbps` (50 Mbit/s by default; 0 for full speed), so the stream keeps the network and disk. Otherwise they run at full speed.
+- A refused upload is answered at once with `Connection: close`. For a paired device the host then reads and drops up to 8 MiB or 5 s of the rest of the body before it closes, so a client that sends a small body before reading gets the answer, not a reset. A caller that isn't a paired device gets no such grace: the connection closes right after the answer.
 
 ```http
 GET /api/native/v1/files/content?name=clip%20(1).mp4
 ```
 
-The answer is `application/octet-stream` with the file's exact `Content-Length`. If the file grows or shrinks while it is sent, the host ends the connection before the last byte, so the client never keeps a short or mixed file. A name the folder doesn't hold as a plain file is `not_found`.
+The answer is `application/octet-stream` with the file's exact `Content-Length`. If the file grows or shrinks while it is sent, or the client takes nothing for 30 s, the host ends the connection before the last byte, so the client never keeps a short or mixed file. A name the folder doesn't hold as a plain file is `not_found`. A device runs at most two downloads at once and the PC eight; another is `transfer_busy`, as is a file another program on the PC holds open without sharing it.
 
 ## The host control permission
 
@@ -441,7 +442,7 @@ Every non-2xx answer has the same body:
 | 411 | `length_required` | An upload without `Content-Length` |
 | 413 | `too_large` | An upload over `max_file_bytes` |
 | 507 | `insufficient_storage` | The PC has no room for the upload |
-| 409 | `no_console_user` / `transfer_busy` | Files: nobody is signed in to Windows / the device already has an upload running |
+| 409 | `no_console_user` / `transfer_busy` | Files: nobody is signed in to Windows / the device already has an upload or two downloads running, the PC eight downloads, or another program holds the file |
 | 503 | `temporarily_unavailable` | ADLX is busy or reinitialising, with `retry_after_ms` |
 | 500 | `internal` | A bug. The message is logged on the host too |
 

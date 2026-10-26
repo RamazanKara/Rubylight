@@ -355,7 +355,7 @@ const network: Setting[] = [
   {
     key: 'file_transfer_dir',
     label: 'File transfer folder',
-    description: "Where uploads go. Leave it empty for Downloads\\Rubylight of the signed-in user.",
+    description: "Where uploads go and downloads come from. Leave it empty for Downloads\\Rubylight of the signed-in user.",
     category: 'network',
     group: 'File transfer',
     control: { kind: 'text', placeholder: 'Downloads\\Rubylight', mono: true, browse: 'directory' },
@@ -374,8 +374,8 @@ const network: Setting[] = [
   },
   {
     key: 'file_transfer_stream_mbps',
-    label: 'Upload speed while streaming',
-    description: 'Uploads slow to this rate while a stream runs, so the stream keeps the network and disk. 0 lets them run at full speed.',
+    label: 'Transfer speed while streaming',
+    description: 'Uploads and downloads together slow to this rate while a stream runs. 0 lets them run at full speed.',
     category: 'network',
     group: 'File transfer',
     control: { kind: 'number', min: 0, step: 1, unit: 'Mbit/s' },

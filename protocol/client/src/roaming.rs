@@ -273,12 +273,19 @@ impl LaunchSeq {
 
     /// Takes the next seq; None once exhausted.
     fn next(&self) -> Option<u32> {
-        self.0
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |seq| {
-                seq.checked_add(1)
-            })
-            .ok()
-            .map(|last| last + 1)
+        // A compare-exchange loop: fetch_update is deprecated on new toolchains, and its
+        // replacement try_update is newer than the MSRV.
+        let mut seq = self.0.load(Ordering::Relaxed);
+        loop {
+            let next = seq.checked_add(1)?;
+            match self
+                .0
+                .compare_exchange_weak(seq, next, Ordering::Relaxed, Ordering::Relaxed)
+            {
+                Ok(_) => return Some(next),
+                Err(current) => seq = current,
+            }
+        }
     }
 }
 

@@ -25,6 +25,7 @@ import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.AdapterFragment;
 import com.limelight.ui.AdapterFragmentCallbacks;
 import com.limelight.console.HomeSettings;
+import com.limelight.ui.KeyCaps;
 import com.limelight.ui.ShellBar;
 import com.limelight.ui.TopAppBar;
 import com.limelight.update.UpdateFlow;
@@ -170,6 +171,8 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         ShellBar.install(this, ShellBar.Destination.PCS);
         ShellBar.installBack(this, ShellBar.Destination.PCS);
         findViewById(R.id.manuallyAddPc).setOnClickListener(v -> startActivity(new Intent(this, AddComputerManually.class)));
+        android.widget.TextView optionsHint = findViewById(R.id.pc_options_hint);
+        optionsHint.setText(KeyCaps.mark(this, getString(R.string.host_options_hint), "X", "⋮"));
 
         getFragmentManager().beginTransaction()
             .replace(R.id.pcFragmentContainer, new AdapterFragment())

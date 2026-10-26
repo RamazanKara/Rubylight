@@ -162,6 +162,11 @@ public final class ActionSheet extends BottomSheetDialog {
     public LinearLayout addToggleRow() {
         LinearLayout row = new ToggleRow(getContext(), spacing);
         row.setPadding(spacing, spacing, spacing, spacing);
+        // A focused toggle grows past the row's padding on TV; clipping there cut off its rounded ends.
+        if (television) {
+            row.setClipToPadding(false);
+            row.setClipChildren(false);
+        }
         content.addView(row, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
         return row;

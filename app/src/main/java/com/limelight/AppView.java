@@ -461,7 +461,7 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
     private void setUpAmbience() {
         BackdropView backdrop = findViewById(R.id.library_backdrop);
         if (backdrop == null) return;
-        int canvas = androidx.core.content.ContextCompat.getColor(this, R.color.tv_canvas);
+        int canvas = com.limelight.ui.AppTheme.tvCanvas(this);
         // The window shows the canvas until the first backdrop covers it, then stops painting under it.
         getWindow().setBackgroundDrawable(new ColorDrawable(canvas));
         // The TV's safe-area padding sits on the content view, which would otherwise clip the backdrop that reaches past it.

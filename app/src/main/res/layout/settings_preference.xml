@@ -1,14 +1,14 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:minHeight="72dp"
+    android:minHeight="@dimen/settings_row_min_height"
     android:descendantFocusability="blocksDescendants"
     android:background="?android:attr/selectableItemBackground"
     android:gravity="center_vertical"
     android:paddingStart="@dimen/screen_gutter"
     android:paddingEnd="@dimen/screen_gutter"
-    android:paddingTop="@dimen/space_m"
-    android:paddingBottom="@dimen/space_m">
+    android:paddingTop="@dimen/settings_row_padding"
+    android:paddingBottom="@dimen/settings_row_padding">
 
     <LinearLayout
         android:layout_width="0dp"

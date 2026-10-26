@@ -16,6 +16,9 @@
     <dimen name="grid_padding_top">4dp</dimen>
     <dimen name="grid_padding_bottom">16dp</dimen>
     <dimen name="settings_section_padding">16dp</dimen>
+    <!-- A setting row (layout/settings_preference); TVs pack them tighter so more fit on the screen. -->
+    <dimen name="settings_row_min_height">72dp</dimen>
+    <dimen name="settings_row_padding">@dimen/space_m</dimen>
     <dimen name="settings_section_min_height">80dp</dimen>
     <!-- Phones show a summary whole; the television layouts cap it until the row is selected. -->
     <integer name="settings_section_summary_lines">2147483647</integer>

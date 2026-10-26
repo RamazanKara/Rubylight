@@ -9,6 +9,7 @@ import android.widget.TextView;
 import com.limelight.R;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.ui.BackdropView;
+import com.limelight.ui.KeyCaps;
 import com.limelight.ui.Motion;
 
 import java.util.function.BooleanSupplier;
@@ -159,7 +160,7 @@ final class HomeAmbience implements ShelfAdapter.FocusListener, Choreographer.Fr
     private void write(ShelfAdapter.Item item) {
         setText(meta, metaOf(item));
         setText(title, titleOf(item));
-        setText(hints, hints(context, gamepad, item.game != null));
+        setText(hints, hintText(item.game != null));
         written = text(item);
     }
 
@@ -174,12 +175,19 @@ final class HomeAmbience implements ShelfAdapter.FocusListener, Choreographer.Fr
         return context.getString(R.string.console_hint_line, select, open, menu, context.getString(R.string.console_hint_options));
     }
 
+    /** The hint line with its keys drawn as keycaps. */
+    private CharSequence hintText(boolean game) {
+        return KeyCaps.mark(context, hints(context, gamepad, game),
+                gamepad ? "A" : context.getString(R.string.console_hint_key_ok),
+                gamepad ? "X" : context.getString(R.string.console_hint_key_menu));
+    }
+
     /** The last key came from a gamepad (A and X), or from a remote or keyboard (OK and Menu). */
     void setGamepad(boolean gamepad) {
         if (this.gamepad == gamepad) return;
         this.gamepad = gamepad;
         ShelfAdapter.Item item = pending;
-        if (item != null) setText(hints, hints(context, gamepad, item.game != null));
+        if (item != null) setText(hints, hintText(item.game != null));
     }
 
     /** Drops the pending frame callback: the screen is going away. */

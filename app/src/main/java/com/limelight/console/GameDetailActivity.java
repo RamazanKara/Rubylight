@@ -177,7 +177,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
      * shown at once, so the page change keeps the screen's light; otherwise it fades in when the cover is loaded.
      */
     private void setUpAmbience() {
-        int canvas = ContextCompat.getColor(this, R.color.tv_canvas);
+        int canvas = AppTheme.tvCanvas(this);
         getWindow().setBackgroundDrawable(new ColorDrawable(canvas));
         ((ViewGroup) findViewById(android.R.id.content)).setClipChildren(false);
         backdrop.setCanvasColor(canvas);

@@ -38,6 +38,12 @@ public final class AppTheme {
         return prefs.getBoolean(OLED_BLACK, false) || prefs.getBoolean(HIGH_CONTRAST, false);
     }
 
+    /** The TV screens' canvas under their backdrops: tv_canvas, or black under OLED black. */
+    public static int tvCanvas(Context context) {
+        return isOledBlack(context) ? android.graphics.Color.BLACK
+                : androidx.core.content.ContextCompat.getColor(context, R.color.tv_canvas);
+    }
+
     public static boolean isHighContrast(Context context) {
         return PreferenceManager.getDefaultSharedPreferences(context).getBoolean(HIGH_CONTRAST, false);
     }

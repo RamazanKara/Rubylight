@@ -9,7 +9,6 @@ import android.os.Looper;
 import android.view.View;
 import android.view.ViewGroup;
 
-import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -265,7 +264,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     private void setUpAmbience() {
         BackdropView backdrop = findViewById(R.id.home_backdrop);
         View hero = findViewById(R.id.home_hero);
-        int canvas = ContextCompat.getColor(this, R.color.tv_canvas);
+        int canvas = AppTheme.tvCanvas(this);
         // The window shows the canvas until the first backdrop covers it, then stops painting under it.
         getWindow().setBackgroundDrawable(new ColorDrawable(canvas));
         // The TV's safe-area padding sits on the content view, which would otherwise clip the backdrop that reaches past it.

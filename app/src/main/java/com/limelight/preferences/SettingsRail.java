@@ -11,6 +11,7 @@ import android.view.animation.Interpolator;
 import android.widget.ListView;
 
 import com.limelight.R;
+import com.limelight.ui.AppTheme;
 import com.limelight.ui.Motion;
 
 /**
@@ -64,7 +65,8 @@ final class SettingsRail implements ViewTreeObserver.OnPreDrawListener {
         this.bar = bar;
         this.pane = pane;
         // The still radial light is the window's, so it reaches the screen's edges past the content's TV margin.
-        activity.getWindow().setBackgroundDrawableResource(R.drawable.tv_settings_canvas);
+        // OLED black keeps the theme's black window: the light would lift it to grey.
+        if (!AppTheme.isOledBlack(activity)) activity.getWindow().setBackgroundDrawableResource(R.drawable.tv_settings_canvas);
         rail.getViewTreeObserver().addOnPreDrawListener(this);
     }
 

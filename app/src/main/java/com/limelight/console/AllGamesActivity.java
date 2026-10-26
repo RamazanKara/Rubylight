@@ -16,7 +16,6 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
-import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -26,6 +25,7 @@ import com.limelight.R;
 import com.limelight.nativeapi.ConsoleRepository;
 import com.limelight.nativeapi.ConsoleSnapshot;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.ui.AppTheme;
 import com.limelight.ui.NightjarActivity;
 import com.limelight.ui.ShellBar;
 import com.limelight.ui.TopAppBar;
@@ -124,7 +124,7 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
         ShellBar.install(this, ShellBar.Destination.HOME);
         findViewById(R.id.shell_home).setOnClickListener(v -> finish());
         if (isTelevision()) {
-            getWindow().setBackgroundDrawable(new ColorDrawable(ContextCompat.getColor(this, R.color.tv_canvas)));
+            getWindow().setBackgroundDrawable(new ColorDrawable(AppTheme.tvCanvas(this)));
         }
 
         loading = findViewById(R.id.all_games_loading);

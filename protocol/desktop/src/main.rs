@@ -16,6 +16,7 @@ mod controller_audio;
 mod controller_mouse;
 mod gamepad;
 mod gui;
+mod host_page;
 mod hosts;
 mod keymap;
 mod logfile;
@@ -499,6 +500,7 @@ impl App {
     fn launcher_frame(&mut self) {
         // Wait for input or a worker; animate the spinner while something runs.
         let busy = self.connecting.is_some() || self.waking.host().is_some() || self.network_launch.is_some() || self.network_test.is_some()
+            || self.launcher.remote.running()
             || matches!(self.launcher.dialog, Dialog::Pairing { .. })
             || self.identity.is_some() || self.autostream.is_some();
         let timeout = if busy { 16 } else { 250 };
@@ -918,6 +920,29 @@ impl App {
             Command::OpenLogs => {
                 if let Err(e) = logfile::open_folder() {
                     self.launcher.message(tr("Could not open the logs folder"), e);
+                }
+            }
+            Command::RemoteCheck(id) => {
+                if self.launcher.remote.running() { return; }
+                let Some(host) = self.hosts.get(id) else { return; };
+                let client = match self.hosts.identity() {
+                    Some(identity) => hosts::client_for(identity, &host.record, &host.record.address),
+                    None => Err(tr("Nightjar has no client identity yet. Restart Nightjar and try again.").to_owned()),
+                };
+                match client {
+                    Ok(client) => {
+                        let unique_id = host.record.unique_id.clone();
+                        self.launcher.remote.start(id, std::sync::Arc::new(client), unique_id, self.waker.clone());
+                    }
+                    Err(error) => self.launcher.remote.fail(id, error),
+                }
+            }
+            Command::OpenWebUi(url) => {
+                if let Err(e) = sdl::open_url(&url) {
+                    self.launcher.message(
+                        tr("No browser could open the host's web UI. Copy its address and open it on another device."),
+                        format!("{url}\n\n{e}"),
+                    );
                 }
             }
             Command::CancelPair => self.hosts.cancel_pairing(),

@@ -204,8 +204,9 @@ mod tests {
     // ---- The table against the sources. ----
 
     /// The UI sources, up to their test modules.
-    const SOURCES: [(&str, &str); 10] = [
+    const SOURCES: [(&str, &str); 11] = [
         ("ui.rs", include_str!("ui.rs")),
+        ("host_page.rs", include_str!("host_page.rs")),
         ("session_ui.rs", include_str!("session_ui.rs")),
         ("session_page.rs", include_str!("session_page.rs")),
         ("main.rs", include_str!("main.rs")),

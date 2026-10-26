@@ -40,6 +40,17 @@ pub fn error() -> String {
         .into_owned()
 }
 
+/// Opens `url` in the default browser.
+pub fn open_url(url: &str) -> Result<(), String> {
+    let url = std::ffi::CString::new(url).map_err(|e| e.to_string())?;
+    // SAFETY: a NUL-terminated string that outlives the call.
+    if unsafe { SDL_OpenURL(url.as_ptr()) } {
+        Ok(())
+    } else {
+        Err(error())
+    }
+}
+
 pub type FileChoice = std::sync::mpsc::Receiver<Result<Option<std::path::PathBuf>, String>>;
 
 pub fn choose_json_file(window: *mut SDL_Window, save: bool) -> FileChoice {

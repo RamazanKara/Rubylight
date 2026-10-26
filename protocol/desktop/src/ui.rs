@@ -53,6 +53,10 @@ pub enum Command {
     ExportShortcuts,
     /// Show the folder with Nightjar's log files in the file manager.
     OpenLogs,
+    /// Check that the PC answers at its saved address (the details page's remote access test).
+    RemoteCheck(u64),
+    /// Open a PC's web UI in the default browser.
+    OpenWebUi(String),
     CancelPair,
     AddHost(String),
     Unpair(u64),
@@ -77,6 +81,8 @@ pub enum Screen {
     Game { host: u64, app: u32 },
     Hosts,
     Apps(u64),
+    /// A PC's host software, web UI and remote access check.
+    HostDetails(u64),
     Settings,
     HostSettings(u64),
     AppSettings(u64),
@@ -154,6 +160,7 @@ pub enum HostOption {
     Wake,
     Sleep,
     Settings,
+    Details,
     Rename,
     Unpair,
     PairingHelp,
@@ -172,6 +179,7 @@ impl HostOption {
             Self::Wake => en("Wake up"),
             Self::Sleep => en("Sleep PC"),
             Self::Settings => en("PC settings"),
+            Self::Details => en("View details"),
             Self::Rename => en("Rename"),
             Self::Unpair => en("Unpair"),
             Self::PairingHelp => en("Pairing help"),
@@ -208,6 +216,7 @@ pub fn host_options(host: &Host) -> Vec<HostOption> {
     }
     options.push(HostOption::Settings);
     options.push(HostOption::Rename);
+    options.push(HostOption::Details);
     // Unpairing asks the PC to forget this device, so it needs the PC to be reachable.
     if host.paired() && host.reach == Reach::Online {
         options.push(HostOption::Unpair);
@@ -276,6 +285,8 @@ pub struct Launcher {
     pub system_languages: Vec<String>,
     /// The palette and motion egui's style was last built for.
     look: Option<(bool, bool)>,
+    /// The details page's remote access check.
+    pub remote: crate::host_page::RemoteAccess,
 }
 
 /// What the launcher shows, borrowed from the app each frame.
@@ -430,6 +441,7 @@ impl Launcher {
             identity_ready: false,
             system_languages: Vec::new(),
             look: None,
+            remote: Default::default(),
         }
     }
 
@@ -500,7 +512,7 @@ impl Launcher {
             Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => self.go(Screen::Settings),
             // A library or game page is not a destination: Settings opens over it, and Back
             // returns to the page with its item focused.
-            Screen::Apps(_) | Screen::Game { .. } => self.open(Screen::Settings),
+            Screen::Apps(_) | Screen::Game { .. } | Screen::HostDetails(_) => self.open(Screen::Settings),
             _ => self.switch(Screen::Settings),
         }
     }
@@ -631,7 +643,7 @@ impl Launcher {
                         self.pop(root);
                     }
                 }
-                Screen::Apps(_) | Screen::Game { .. } => {
+                Screen::Apps(_) | Screen::Game { .. } | Screen::HostDetails(_) => {
                     let root = self.root();
                     self.pop(root);
                 }
@@ -666,6 +678,11 @@ impl Launcher {
             commands.push(Command::SaveSettings);
         }
         self.sync_look(&ctx);
+        // A check whose page was left is cancelled here.
+        self.remote.poll(match self.screen {
+            Screen::HostDetails(id) => Some(id),
+            _ => None,
+        });
         let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
         self.home_ready = console::has_library(&sources);
         let escape = ctx.input(|i| i.key_pressed(Key::Escape));
@@ -710,6 +727,7 @@ impl Launcher {
                 Screen::Game { host, app } => self.game(ui, &view, host, app, &mut commands),
                 Screen::Hosts => self.hosts(ui, &view, &mut commands, logo),
                 Screen::Apps(id) => self.apps(ui, &view, id, &mut commands),
+                Screen::HostDetails(id) => self.host_details(ui, &view, id, &mut commands),
                 Screen::Settings | Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => self.settings_page(ui, &view, &mut commands),
                 Screen::Profiles => self.profiles_page(ui, &mut commands),
                 Screen::Controllers => self.controllers_page(ui, view.pads, &mut commands),
@@ -759,6 +777,13 @@ impl Launcher {
                 }
                 Screen::Apps(id) => {
                     if text_button(ui, "‹  PCs").clicked() {
+                        self.back(commands);
+                    }
+                    let name = view.hosts.get(id).map_or("", |h| h.display_name()).to_owned();
+                    ui.label(RichText::new(name).font(semibold(22.0)).color(PAPER));
+                }
+                Screen::HostDetails(id) => {
+                    if text_button(ui, "‹  Back").clicked() {
                         self.back(commands);
                     }
                     let name = view.hosts.get(id).map_or("", |h| h.display_name()).to_owned();
@@ -831,7 +856,7 @@ impl Launcher {
                                 commands.push(Command::HostSettings(id));
                             }
                         }
-                        Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::Profiles | Screen::ProfileSettings(_) | Screen::Controllers | Screen::Shortcuts => {}
+                        Screen::HostDetails(_) | Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::Profiles | Screen::ProfileSettings(_) | Screen::Controllers | Screen::Shortcuts => {}
                     }
                     ui.min_rect().width()
                 })
@@ -1482,6 +1507,65 @@ impl Launcher {
         });
     }
 
+    /// A PC's details: its host software, its web UI where it has one, and the remote access
+    /// check. What the PC can do decides what is shown, never its brand.
+    fn host_details(&mut self, ui: &mut Ui, view: &View<'_>, id: u64, commands: &mut Vec<Command>) {
+        use crate::host_page::{software_label, web_ui_url, CheckState};
+        let Some(host) = view.hosts.get(id) else {
+            self.go(Screen::Hosts);
+            return;
+        };
+        let caps = host.info.as_ref().map_or(&nightjar_core::http::HostCapabilities::UNKNOWN, |i| &i.capabilities);
+        let software = software_label(caps);
+        let web_ui = web_ui_url(host);
+        let state = self.remote.state_for(id).cloned();
+        let running = state == Some(CheckState::Running);
+        scroll(ui, "host-details", |ui| {
+            section(ui, "Host");
+            detail(ui, tr("Host software"), &software);
+            ui.add_space(8.0);
+            if let Some(url) = &web_ui {
+                let button = row(ui, "Host web UI", "Manage the host's applications, paired devices and settings in its web UI. Sign in with the web UI's own account; pairing does not sign you in. Remote access requires a reachable web UI port.", |ui| {
+                    quiet_button(ui, "Open in browser")
+                });
+                self.focus_item(&button, "web-ui", true);
+                if button.clicked() {
+                    commands.push(Command::OpenWebUi(url.clone()));
+                }
+                ui.label(RichText::new(url).font(regular(13.0)).color(OUTLINE));
+            }
+            section(ui, "Play away from home");
+            let button = row(ui, "Remote access", "Checks the paired PC's identity with five small HTTPS requests. It does not start a stream or download a speed-test file.", |ui| {
+                if running {
+                    quiet_button(ui, "Cancel")
+                } else {
+                    primary_button(ui, "Test this PC")
+                }
+            });
+            self.focus_item(&button, "remote-check", web_ui.is_none());
+            if button.clicked() {
+                if running {
+                    self.remote.cancel();
+                } else {
+                    commands.push(Command::RemoteCheck(id));
+                }
+            }
+            match &state {
+                None => {}
+                Some(CheckState::Running) => {
+                    ui.horizontal(|ui| {
+                        spinner(ui, 10.0);
+                        ui.label(RichText::new(tr("Checking your paired PC…")).color(ON_SURFACE_VARIANT));
+                    });
+                }
+                Some(CheckState::Cancelled) => {
+                    ui.label(RichText::new(tr("Test cancelled. No host or network settings were changed.")).color(ON_SURFACE_VARIANT));
+                }
+                Some(CheckState::Done(report)) => remote_report(ui, report),
+            }
+        });
+    }
+
     fn profiles_page(&mut self, ui: &mut Ui, commands: &mut Vec<Command>) {
         ui.label(tr("Profiles change the settings used for your next stream. Each PC and game can override them."));
         let before_profiles = self.profiles.clone();
@@ -2116,35 +2200,44 @@ impl Launcher {
                             ui.set_width(340.0);
                             ui.label(RichText::new(host.display_name()).font(semibold(22.0)));
                             ui.add_space(6.0);
-                            for (n, option) in options.iter().enumerate() {
-                                if *option == HostOption::Remove {
-                                    ui.separator();
+                            // The longest list scrolls in a small window (1280x720 at 150 %): room
+                            // for the name, the frame and the Wake note.
+                            let room = ui.ctx().content_rect().height() - 160.0;
+                            egui::ScrollArea::vertical().id_salt("host-options").max_height(room).content_margin(Margin::same(6)).show(ui, |ui| {
+                                let follow = Id::unique("host-options-focus");
+                                let mut last = ui.ctx().data(|d| d.get_temp::<Option<Id>>(follow)).flatten();
+                                crate::gui::follow_focus(ui, &mut last);
+                                ui.ctx().data_mut(|d| d.insert_temp(follow, last));
+                                for (n, option) in options.iter().enumerate() {
+                                    if *option == HostOption::Remove {
+                                        ui.separator();
+                                    }
+                                    let label = RichText::new(tr(option.label())).font(semibold(16.0));
+                                    let label = if *option == HostOption::Remove { label.color(ERROR) } else { label };
+                                    let blocked = match option {
+                                        HostOption::Sleep => host.sleep_option().and_then(Result::err),
+                                        _ => None,
+                                    };
+                                    let button = ui.add_enabled_ui(blocked.is_none(), |ui| {
+                                        ui.add_sized(
+                                            [ui.available_width(), 38.0],
+                                            egui::Button::new(label).frame(false).fill(Color32::TRANSPARENT),
+                                        )
+                                    })
+                                    .inner;
+                                    if let Some(why) = blocked {
+                                        ui.label(RichText::new(tr(why)).font(regular(13.0)).color(OUTLINE));
+                                    }
+                                    focus_ring(ui, button.rect, &button, 8);
+                                    if n == 0 && focus_first {
+                                        button.request_focus();
+                                        focused = true;
+                                    }
+                                    if button.clicked() {
+                                        chosen = Some(*option);
+                                    }
                                 }
-                                let label = RichText::new(tr(option.label())).font(semibold(16.0));
-                                let label = if *option == HostOption::Remove { label.color(ERROR) } else { label };
-                                let blocked = match option {
-                                    HostOption::Sleep => host.sleep_option().and_then(Result::err),
-                                    _ => None,
-                                };
-                                let button = ui.add_enabled_ui(blocked.is_none(), |ui| {
-                                    ui.add_sized(
-                                        [ui.available_width(), 38.0],
-                                        egui::Button::new(label).frame(false).fill(Color32::TRANSPARENT),
-                                    )
-                                })
-                                .inner;
-                                if let Some(why) = blocked {
-                                    ui.label(RichText::new(tr(why)).font(regular(13.0)).color(OUTLINE));
-                                }
-                                focus_ring(ui, button.rect, &button, 8);
-                                if n == 0 && focus_first {
-                                    button.request_focus();
-                                    focused = true;
-                                }
-                                if button.clicked() {
-                                    chosen = Some(*option);
-                                }
-                            }
+                            });
                             if host.reach == Reach::Offline && host.record.mac.is_none() {
                                 ui.add_space(6.0);
                                 ui.label(
@@ -2792,6 +2885,7 @@ impl Launcher {
                 }
             }
             HostOption::Settings => commands.push(Command::HostSettings(id)),
+            HostOption::Details => self.open(Screen::HostDetails(id)),
             HostOption::Rename => return Some(Dialog::Rename { host: id, text: host.rename_prefill().to_owned() }),
             HostOption::Unpair => return Some(Dialog::ConfirmUnpair { host: id, name }),
             HostOption::PairingHelp => return Some(Dialog::PairingHelp),
@@ -2930,6 +3024,41 @@ fn scroll(ui: &mut Ui, id: &str, add: impl FnOnce(&mut Ui)) {
             .content_margin(Margin::same(6))
             .show(ui, add);
     });
+}
+
+/// A line of a details page: what it is, and its value.
+fn detail(ui: &mut Ui, label: &str, value: &str) {
+    ui.horizontal_wrapped(|ui| {
+        ui.label(RichText::new(label).font(semibold(15.0)).color(ON_SURFACE));
+        ui.label(RichText::new(value).font(regular(15.0)).color(ON_SURFACE_VARIANT));
+    });
+}
+
+/// What the remote access check found; an error as it came.
+fn remote_report(ui: &mut Ui, report: &crate::host_page::Report) {
+    ui.label(RichText::new(tr(report.summary)).color(ON_SURFACE));
+    if let Some(error) = &report.error {
+        ui.label(RichText::new(error).color(ERROR));
+    }
+    if !report.verified {
+        return;
+    }
+    if let Some(route) = report.route {
+        ui.add_space(6.0);
+        ui.label(RichText::new(tr(route)).color(ON_SURFACE_VARIANT));
+    }
+    ui.add_space(6.0);
+    let unmeasured = || tr("Not measured").to_owned();
+    let ms = |v: Option<f64>| v.map_or_else(unmeasured, |v| trf("{} ms", &[&format!("{v:.1}")]));
+    detail(ui, tr("Network path"), tr(report.path.unwrap_or(en("Unavailable"))));
+    detail(ui, tr("HTTPS request average"), &ms(report.latency_ms));
+    detail(ui, tr("Jitter"), &ms(report.jitter_ms));
+    detail(ui, tr("Failed requests"), &report.loss_percent.map_or_else(unmeasured, |v| trf("{} %", &[&format!("{v:.0}")])));
+    ui.label(
+        RichText::new(tr("These are application-request measurements, not video packet loss or input latency."))
+            .font(regular(13.0))
+            .color(OUTLINE),
+    );
 }
 
 fn host_display_name(mode: HostDisplay) -> &'static str {
@@ -3727,6 +3856,24 @@ mod tests {
     }
 
     #[test]
+    fn at_150_percent_the_longest_options_list_scrolls_to_the_option_with_focus() {
+        let mut f = every_state().into_iter().find(|s| s.name == "sleep not allowed").unwrap().frames();
+        fit_150(&mut f);
+        f.press(Key::F2);
+        assert!(f.options_open());
+        let screen = Rect::from_min_size(Pos2::ZERO, f.size);
+        // Sleep is listed but cannot take focus here.
+        for _ in 2..host_options(&f.hosts.list[0]).len() {
+            f.press(Key::ArrowDown);
+            let focused = f.ctx.memory(|m| m.focused()).expect("an option has focus");
+            let rect = f.ctx.read_response(focused).expect("the option was laid out").rect;
+            assert!(screen.contains_rect(rect), "the option with focus is in the window: {rect:?} in {screen:?}");
+        }
+        f.press(Key::Enter);
+        assert!(matches!(f.l.dialog, Dialog::ConfirmRemove { .. }), "the last option is Remove");
+    }
+
+    #[test]
     fn at_150_percent_in_german_every_settings_page_fits_the_width() {
         let mut f = Frames::new(record("PC", true, false), Reach::Online);
         fit_150(&mut f);
@@ -3832,7 +3979,7 @@ mod tests {
         let mut host = Frames::new(record("PC", false, false), Reach::Online).hosts.list.remove(0);
         assert_eq!(
             host_options(&host),
-            [HostOption::Pair, HostOption::Settings, HostOption::Rename, HostOption::PairingHelp, HostOption::CheckAgain, HostOption::Remove]
+            [HostOption::Pair, HostOption::Settings, HostOption::Rename, HostOption::Details, HostOption::PairingHelp, HostOption::CheckAgain, HostOption::Remove]
         );
         host.record.server_certificate = Some("pem".into());
         host.reach = Reach::Offline;
@@ -3844,6 +3991,7 @@ mod tests {
                 HostOption::Wake,
                 HostOption::Settings,
                 HostOption::Rename,
+                HostOption::Details,
                 HostOption::CheckAgain,
                 HostOption::Remove
             ]
@@ -3951,6 +4099,7 @@ mod tests {
                         said(|c| matches!(c, Command::SleepOffer { .. })) && matches!(f.l.dialog, Dialog::ConfirmSleep { offer: None, .. })
                     }
                     HostOption::Settings => said(|c| matches!(c, Command::HostSettings(_))),
+                    HostOption::Details => matches!(f.l.screen, Screen::HostDetails(_)) && f.no_dialog(),
                     HostOption::CheckAgain => said(|c| matches!(c, Command::Refresh(_))),
                     HostOption::Rename => matches!(f.l.dialog, Dialog::Rename { .. }),
                     HostOption::Unpair => matches!(f.l.dialog, Dialog::ConfirmUnpair { .. }),
@@ -3962,8 +4111,166 @@ mod tests {
             }
         }
         use HostOption::*;
-        for option in [OpenLibrary, Resume, QuitApp, Pair, PairOtp, Wake, Sleep, Settings, Rename, Unpair, PairingHelp, CheckAgain, Remove] {
+        for option in [OpenLibrary, Resume, QuitApp, Pair, PairOtp, Wake, Sleep, Settings, Details, Rename, Unpair, PairingHelp, CheckAgain, Remove] {
             assert!(seen.contains(&option), "no state reaches {}", option.label());
+        }
+    }
+
+    // ---- A PC's details page. ----
+
+    use crate::host_page::tests::{info as host_answer, FakeProbe};
+    use crate::host_page::CheckState;
+    use std::sync::atomic::Ordering;
+
+    const RUBYLIGHT: &str = "<RustHostVersion>3.0.0</RustHostVersion>";
+
+    /// A paired PC's details page; `state` is its serverinfo state, `extra` more of its fields.
+    fn details(reach: Reach, state: &str, extra: &str) -> Frames {
+        let mut f = Frames::with(record("uid", true, false), reach, Some(host_answer(state, extra)), Vec::new());
+        let id = f.hosts.list[0].id;
+        f.l.open(Screen::HostDetails(id));
+        f.settle();
+        f
+    }
+
+    fn shows(f: &Frames, text: &str) -> bool {
+        f.drawn.iter().any(|t| t == text)
+    }
+
+    /// Frames until the check is no longer running, as the app's waker would bring them.
+    fn finish_check(f: &mut Frames) {
+        for _ in 0..500 {
+            f.frame(Vec::new());
+            if !f.l.remote.running() {
+                f.settle();
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        panic!("the check did not finish");
+    }
+
+    fn relay_check() -> Result<nightjar_core::http::RemoteCheck, nightjar_core::http::Error> {
+        use nightjar_core::http::{ConnectionTestStats, NetworkPath, RemoteCheck, RemoteOutcome};
+        let mut stats = ConnectionTestStats::default();
+        [10.0, 14.0, f64::NAN, 12.0, 12.0].into_iter().for_each(|ms| stats.add(ms));
+        let server_info = Box::new(host_answer("SUNSHINE_SERVER_FREE", RUBYLIGHT));
+        Ok(RemoteCheck { outcome: RemoteOutcome::Verified { server_info, path: Ok(NetworkPath::Relay) }, stats })
+    }
+
+    #[test]
+    fn the_details_page_shows_what_the_pc_offers_not_its_brand() {
+        let f = details(Reach::Online, "SUNSHINE_SERVER_FREE", RUBYLIGHT);
+        assert!(shows(&f, "Rubylight 3.0.0") && shows(&f, "Open in browser") && shows(&f, "https://192.0.2.7:47990"), "{:?}", f.drawn);
+        assert!(shows(&f, "Test this PC"));
+        let f = details(Reach::Online, "SUNSHINE_SERVER_FREE", "<Permission>1</Permission>");
+        assert!(shows(&f, "Apollo-compatible host") && shows(&f, "Open in browser"), "a known host has a web UI: {:?}", f.drawn);
+        // A stock host: the generic details and the check, no web UI.
+        let f = details(Reach::Online, "MJOLNIR_STATE_FREE", "");
+        assert!(shows(&f, "NVIDIA GameStream") && shows(&f, "Test this PC"), "{:?}", f.drawn);
+        assert!(!shows(&f, "Open in browser"));
+        let f = details(Reach::Online, "SUNSHINE_SERVER_FREE", "");
+        assert!(shows(&f, "Moonlight-compatible host") && !shows(&f, "Open in browser"), "an unknown host's web UI is not guessed");
+        let f = details(Reach::Offline, "SUNSHINE_SERVER_FREE", RUBYLIGHT);
+        assert!(!shows(&f, "Open in browser"), "an offline PC's web UI cannot be reached");
+    }
+
+    #[test]
+    fn view_details_opens_the_page_and_back_returns_to_the_card() {
+        let mut f = Frames::with(record("uid", true, false), Reach::Online, Some(host_answer("SUNSHINE_SERVER_FREE", RUBYLIGHT)), Vec::new());
+        let card = f.ctx.memory(|m| m.focused());
+        f.press(Key::F2);
+        let at = host_options(&f.hosts.list[0]).iter().position(|o| *o == HostOption::Details).unwrap();
+        for _ in 0..at {
+            f.press(Key::ArrowDown);
+        }
+        f.press(Key::Enter);
+        assert_eq!(f.l.screen, Screen::HostDetails(f.hosts.list[0].id));
+        // The web UI is the first item; Enter opens it.
+        let commands = f.press(Key::Enter);
+        assert!(commands.iter().any(|c| matches!(c, Command::OpenWebUi(url) if url == "https://192.0.2.7:47990")));
+        f.press(Key::Escape);
+        assert_eq!(f.l.screen, Screen::Hosts);
+        assert_eq!(f.ctx.memory(|m| m.focused()), card, "the card that opened it has focus again");
+    }
+
+    #[test]
+    fn the_remote_check_runs_shows_its_measurements_and_errors_verbatim() {
+        let mut f = details(Reach::Online, "MJOLNIR_STATE_FREE", "");
+        let id = f.hosts.list[0].id;
+        // Without a web UI the check is the first item.
+        let commands = f.press(Key::Enter);
+        assert!(commands.iter().any(|c| matches!(c, Command::RemoteCheck(h) if *h == id)), "Test asks the app to start it");
+        let probe = FakeProbe::answering(relay_check());
+        f.l.remote.start(id, probe.clone(), "uid".into(), Arc::new(|| {}));
+        f.settle();
+        assert!(shows(&f, "Checking your paired PC…") && shows(&f, "Cancel"), "{:?}", f.drawn);
+        probe.release();
+        finish_check(&mut f);
+        assert!(f.drawn.iter().any(|t| t.starts_with("The paired PC responded on this network.")), "{:?}", f.drawn);
+        for text in ["Relay (DERP)", "12.0 ms", "2.0 ms", "20 %", "Test this PC"] {
+            assert!(shows(&f, text), "{text}: {:?}", f.drawn);
+        }
+
+        // A failure says what the client said, word for word.
+        let refused = std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "No connection could be made (os error 10061)");
+        let probe = FakeProbe::answering(Ok(nightjar_core::http::RemoteCheck {
+            outcome: nightjar_core::http::RemoteOutcome::Unreachable(nightjar_core::http::Error::Io(refused)),
+            stats: Default::default(),
+        }));
+        f.l.remote.start(id, probe.clone(), "uid".into(), Arc::new(|| {}));
+        probe.release();
+        finish_check(&mut f);
+        assert!(shows(&f, "No connection could be made (os error 10061)"), "{:?}", f.drawn);
+        assert!(f.drawn.iter().any(|t| t.starts_with("The paired PC could not be verified.")));
+        assert!(!shows(&f, "Relay (DERP)"), "the last check's route is gone");
+    }
+
+    #[test]
+    fn cancel_and_leaving_the_page_stop_the_check() {
+        let mut f = details(Reach::Online, "MJOLNIR_STATE_FREE", "");
+        let id = f.hosts.list[0].id;
+        let probe = FakeProbe::answering(relay_check());
+        f.l.remote.start(id, probe.clone(), "uid".into(), Arc::new(|| {}));
+        f.settle();
+        // The button with focus is Cancel now.
+        let commands = f.press(Key::Enter);
+        assert!(!commands.iter().any(|c| matches!(c, Command::RemoteCheck(_))));
+        assert_eq!(probe.cancels.load(Ordering::SeqCst), 1, "the requests in flight are cancelled");
+        assert!(shows(&f, "Test cancelled. No host or network settings were changed."), "{:?}", f.drawn);
+        assert!(!f.l.remote.running());
+
+        let probe = FakeProbe::answering(relay_check());
+        f.l.remote.start(id, probe.clone(), "uid".into(), Arc::new(|| {}));
+        f.settle();
+        f.press(Key::Escape);
+        assert_eq!(f.l.screen, Screen::Hosts);
+        assert_eq!(probe.cancels.load(Ordering::SeqCst), 1, "leaving the page cancels it");
+        assert!(!f.l.remote.running() && f.l.remote.state.is_none());
+        f.l.open(Screen::HostDetails(id));
+        f.settle();
+        assert!(!shows(&f, "Test cancelled. No host or network settings were changed."), "the page opens fresh");
+    }
+
+    #[test]
+    fn at_150_percent_in_german_the_details_page_fits_the_width() {
+        let mut f = details(Reach::Online, "SUNSHINE_SERVER_FREE", RUBYLIGHT);
+        fit_150(&mut f);
+        let id = f.hosts.list[0].id;
+        let mut failed = crate::host_page::report(Err(nightjar_core::http::Error::NotPaired));
+        failed.error = Some("A rather long error the host gave, word for word, about why it did not answer".into());
+        for state in [
+            None,
+            Some(CheckState::Running),
+            Some(CheckState::Cancelled),
+            Some(CheckState::Done(crate::host_page::report(relay_check()))),
+            Some(CheckState::Done(failed)),
+        ] {
+            let name = format!("{state:?}");
+            f.l.remote.state = state.map(|s| (id, s));
+            f.settle();
+            assert!(shows(&f, "Im Browser öffnen"), "German is in use: {:?}", f.drawn);
+            assert_fits(&f, &format!("details page, {name}"), false);
         }
     }
 

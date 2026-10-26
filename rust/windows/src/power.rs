@@ -1,6 +1,7 @@
 //! Sleep PC: whether Windows can sleep, and the suspend itself, as
-//! Vibepollo does it (`src/power_action_native.cpp`). Sleep, never
-//! hibernate; wake events stay enabled so Wake-on-LAN still works.
+//! Vibepollo does it (`src/power_action_native.cpp`). It asks Windows for
+//! sleep, not hibernate, with wake events enabled so Wake-on-LAN still
+//! works. What a Modern Standby PC does with that request is not measured.
 use anyhow::{Result, bail};
 use windows::{
     Win32::{
@@ -20,12 +21,40 @@ use windows::{
     core::{HRESULT, w},
 };
 
-/// Whether the PC has a sleep state: S1 to S3, or Modern Standby.
-pub fn sleep_supported() -> bool {
+fn capabilities() -> Option<SYSTEM_POWER_CAPABILITIES> {
     let mut caps = SYSTEM_POWER_CAPABILITIES::default();
     // SAFETY: caps is a writable, correctly sized structure for this call.
-    let ok = unsafe { GetPwrCapabilities(&mut caps) };
-    ok && (caps.SystemS1 || caps.SystemS2 || caps.SystemS3 || caps.AoAc)
+    unsafe { GetPwrCapabilities(&mut caps) }.then_some(caps)
+}
+fn can_sleep(caps: &SYSTEM_POWER_CAPABILITIES) -> bool {
+    caps.SystemS1 || caps.SystemS2 || caps.SystemS3 || caps.AoAc
+}
+/// The sleep states Windows reports, for the log: "S3, hibernate on".
+fn describe(caps: &SYSTEM_POWER_CAPABILITIES) -> String {
+    let states: Vec<_> = [
+        (caps.SystemS1, "S1"),
+        (caps.SystemS2, "S2"),
+        (caps.SystemS3, "S3"),
+        (caps.AoAc, "Modern Standby"),
+    ]
+    .into_iter()
+    .filter_map(|(present, name)| present.then_some(name))
+    .collect();
+    let hibernate = caps.SystemS4 && caps.HiberFilePresent;
+    format!(
+        "{}, hibernate {}",
+        if states.is_empty() {
+            "no sleep state".to_owned()
+        } else {
+            states.join(", ")
+        },
+        if hibernate { "on" } else { "off" }
+    )
+}
+
+/// Whether the PC has a sleep state: S1 to S3, or Modern Standby.
+pub fn sleep_supported() -> bool {
+    capabilities().is_some_and(|caps| can_sleep(&caps))
 }
 
 /// The calling thread's token with shutdown privilege enabled, restored
@@ -124,13 +153,20 @@ fn shutdown_privilege() -> Result<ShutdownPrivilege> {
     Ok(guard)
 }
 
-/// Put the PC to sleep. Windows may still refuse; the call returns after
-/// the PC wakes.
+/// Ask Windows to sleep, not hibernate. Windows may still refuse; the call
+/// returns after the PC wakes.
 pub fn suspend() -> Result<()> {
-    if !sleep_supported() {
-        bail!("this PC has no sleep state");
+    let Some(caps) = capabilities() else {
+        bail!(
+            "could not read this PC's power capabilities: {}",
+            windows::core::Error::from_thread()
+        );
+    };
+    if !can_sleep(&caps) {
+        bail!("this PC has no sleep state ({})", describe(&caps));
     }
     let _privilege = shutdown_privilege()?;
+    tracing::warn!(states = %describe(&caps), "Sleep PC asks Windows for sleep, not hibernate");
     // SAFETY: plain call; sleep, not hibernate, not forced, wake events kept.
     if !unsafe { SetSuspendState(false, false, false) } {
         bail!(
@@ -139,4 +175,36 @@ pub fn suspend() -> Result<()> {
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_log_names_the_sleep_states_and_hibernate() {
+        let caps = |s3, aoac, s4, file| SYSTEM_POWER_CAPABILITIES {
+            SystemS3: s3,
+            AoAc: aoac,
+            SystemS4: s4,
+            HiberFilePresent: file,
+            ..Default::default()
+        };
+        let desktop = caps(true, false, true, true);
+        assert_eq!(describe(&desktop), "S3, hibernate on");
+        assert!(can_sleep(&desktop));
+        // Modern Standby only, still offered; hibernate needs its file.
+        let standby = caps(false, true, true, false);
+        assert_eq!(describe(&standby), "Modern Standby, hibernate off");
+        assert!(can_sleep(&standby));
+        let none = caps(false, false, false, false);
+        assert_eq!(describe(&none), "no sleep state, hibernate off");
+        assert!(!can_sleep(&none));
+        let all = SYSTEM_POWER_CAPABILITIES {
+            SystemS1: true,
+            SystemS2: true,
+            ..caps(true, true, true, true)
+        };
+        assert_eq!(describe(&all), "S1, S2, S3, Modern Standby, hibernate on");
+    }
 }

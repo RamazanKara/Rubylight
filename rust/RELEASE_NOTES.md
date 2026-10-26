@@ -9,7 +9,7 @@ Rubylight, called Butterpollo until rc.29, is written in Rust: host, native help
 ## Unreleased
 
 - **A launch that fails to start its app no longer leaves a pending session.** When the app or its settings could not be loaded after the display was prepared, the client got an error but the host kept the launch, its display lease and `RustHostPendingSessionCount` for up to 30 seconds. Such a launch is now released at once.
-- **Sleep PC (Experimental).** A paired device you allow can put the host PC to sleep while nothing is streaming, through the same `/power-actions/v1` requests as Vibepollo, so a client needs one code path for both hosts. It is off for every device until you tick Sleep PC under the device's permissions in the console; a device imported from Vibepollo keeps its `allow_sleep` grant. The host refuses while a stream, an app or a controller session is active, uses a single-use token that expires after 30 seconds, and suspends only after its answer has been sent. The host never hibernates for it.
+- **Sleep PC (Experimental).** A paired device you allow can put the host PC to sleep while nothing is streaming, through the same `/power-actions/v1` requests as Vibepollo, so a client needs one code path for both hosts. It is off for every device until you tick Sleep PC under the device's permissions in the console; a device imported from Vibepollo keeps its `allow_sleep` grant. The host refuses while a stream, an app or a controller session is active, uses a single-use token that expires after 30 seconds, and suspends only after its answer has been sent and the connection closed. It asks Windows for sleep, not hibernation; the host log names the sleep states the PC reports.
 
 ## New in 3.0.0-rc.3
 

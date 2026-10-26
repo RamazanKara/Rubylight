@@ -360,10 +360,10 @@ pub fn centre_weight(
     };
     let nx = axis(2 * cx - width as i32, width / 2);
     let ny = axis(2 * cy - height as i32, height / 2);
-    if nx.min(65_535).pow(2).saturating_add(ny.min(65_535).pow(2)) <= 1024 * 1024 {
+    if nx.min(2048).pow(2) + ny.min(2048).pow(2) <= 1024 * 1024 {
         return 256;
     }
-    if let Some((px, py)) = cursor {
+    if let Some((px, py)) = cursor.map(clamp_cursor) {
         let dx = (cx - px).unsigned_abs().min(32_767);
         let dy = (cy - py).unsigned_abs().min(32_767);
         if dx * dx + dy * dy <= 128 * 128 {
@@ -371,6 +371,12 @@ pub fn centre_weight(
         }
     }
     0
+}
+
+/// The cursor position the shader gets, kept far from `i32` overflow.
+pub fn clamp_cursor((x, y): (i32, i32)) -> (i32, i32) {
+    const LIMIT: i32 = 1 << 20;
+    (x.clamp(-LIMIT, LIMIT), y.clamp(-LIMIT, LIMIT))
 }
 
 /// A 64x64 block's age from the ages of its 16x16 blocks: the k-th largest,
@@ -635,6 +641,10 @@ mod tests {
         assert_eq!(centre_weight(0, 0, 16, 1920, 1080, Some((40, 40))), 256);
         assert_eq!(centre_weight(10, 0, 16, 1920, 1080, Some((8, 8))), 0);
         assert_eq!(centre_weight(0, 0, 64, 3840, 2160, Some((-5000, -5000))), 0);
+        assert_eq!(
+            centre_weight(0, 0, 16, 1920, 1080, Some((i32::MIN, i32::MAX))),
+            0
+        );
     }
 
     #[test]

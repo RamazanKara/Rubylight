@@ -356,3 +356,111 @@ void pyro_cs(uint3 id : SV_DispatchThreadID) {
         pyroV[id.xy] = c.y;
     }
 }
+// Encoder focus (docs/encoder-focus-design.md): `yuv420_cs` plus a still-age
+// per 16x16 block, then the codec blocks' importances AMF reads as its ROI
+// map. Kept apart so the focus-off pipeline stays the shader it was.
+cbuffer Focus : register(b1) {
+    uint focusMode, focusMoving, focusStill, focusRamp;
+    uint focusCentre, focusCtbStill, focusNoiseBits, focusBlock;
+    uint2 focusAgeGrid, focusGrid;
+    int2 focusCursor;
+    uint focusCursorVisible, focusReset;
+};
+// {signature, age} per 16x16 block; the map is {min, max} then the importances.
+RWStructuredBuffer<uint2> focusAges : register(u5);
+RWStructuredBuffer<uint> focusMap : register(u6);
+groupshared uint focusSum;
+uint focusHash(uint v) {
+    uint state = v * 747796405u + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+// The integer code `lumaCode` or `chromaCode` wrote, less the ignored bits.
+uint focusCode(float v) {
+    return (tenBit != 0 ? uint(v * (65535.0 / 64.0) + 0.5) : uint(v * 255.0 + 0.5)) >> focusNoiseBits;
+}
+[numthreads(8, 8, 1)]
+void yuv420_focus_cs(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint index : SV_GroupIndex) {
+    if (index == 0) {
+        focusSum = 0;
+        if (all(group.xy == 0)) {
+            focusMap[0] = 0xffffffff;
+            focusMap[1] = 0;
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (all(id.xy < targetSize / 2)) {
+        uint2 at = id.xy * 2;
+        float3 c00 = nonlinear(float2(at));
+        float3 c10 = nonlinear(float2(at + uint2(1, 0)));
+        float3 c01 = nonlinear(float2(at + uint2(0, 1)));
+        float3 c11 = nonlinear(float2(at + uint2(1, 1)));
+        float y00 = lumaCode(c00);
+        float y10 = lumaCode(c10);
+        float y01 = lumaCode(c01);
+        float y11 = lumaCode(c11);
+        float2 uv = chromaCode(leftChroma(float2(at), c00, c10, c01, c11));
+        lumaPlane[at] = y00;
+        lumaPlane[at + uint2(1, 0)] = y10;
+        lumaPlane[at + uint2(0, 1)] = y01;
+        lumaPlane[at + uint2(1, 1)] = y11;
+        chromaPlane[id.xy] = uv;
+        uint h = focusHash(index * 0x9e3779b9u ^ focusCode(y00));
+        h = focusHash(h ^ focusCode(y10));
+        h = focusHash(h ^ focusCode(y01));
+        h = focusHash(h ^ focusCode(y11));
+        h = focusHash(h ^ focusCode(uv.x));
+        InterlockedAdd(focusSum, focusHash(h ^ focusCode(uv.y)));
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (index == 0) {
+        uint at = group.y * focusAgeGrid.x + group.x;
+        uint2 previous = focusAges[at];
+        bool same = focusReset == 0 && previous.x == focusSum;
+        focusAges[at] = uint2(focusSum, same ? min(previous.y + 1, 255) : 0);
+    }
+}
+// A 64x64 block's age is the k-th largest of its 16x16 blocks' ages, so it
+// counts as still once `focusCtbStill`/256 of them are (`encoder_focus::ctb_age`).
+uint focusBlockAge(uint2 block) {
+    if (focusBlock == 16) return focusAges[block.y * focusAgeGrid.x + block.x].y;
+    uint2 first = block * 4;
+    uint2 last = min(first + 4, focusAgeGrid);
+    uint ages[16];
+    uint n = 0;
+    for (uint y = first.y; y < last.y; y++)
+        for (uint x = first.x; x < last.x; x++) ages[n++] = focusAges[y * focusAgeGrid.x + x].y;
+    uint k = max(1, (min(focusCtbStill, 256) * n + 255) / 256);
+    uint age = 0;
+    for (uint i = 0; i < n; i++) {
+        uint above = 0;
+        for (uint j = 0; j < n; j++) above += ages[j] >= ages[i] ? 1 : 0;
+        if (above >= k) age = max(age, ages[i]);
+    }
+    return age;
+}
+// `encoder_focus::centre_weight`, in the same integer steps.
+uint focusCentreWeight(uint2 block) {
+    int2 c = int2(block * focusBlock + focusBlock / 2);
+    uint2 n = min(min(uint2(abs(2 * c - int2(targetSize))), 65535) * 1024 / max(targetSize / 2, 1), 2048);
+    if (n.x * n.x + n.y * n.y <= 1024 * 1024) return 256;
+    if (focusCursorVisible != 0) {
+        uint2 d = min(uint2(abs(c - focusCursor)), 32767);
+        if (d.x * d.x + d.y * d.y <= 128 * 128) return 256;
+    }
+    return 0;
+}
+// One thread per codec block: `encoder_focus::importance`.
+[numthreads(8, 8, 1)]
+void focus_map_cs(uint3 id : SV_DispatchThreadID) {
+    if (any(id.xy >= focusGrid)) return;
+    int ramp = int(clamp(focusRamp, 1, 255));
+    int moving = int(min(focusMoving, 10));
+    int still = int(min(focusStill, 10));
+    int age = int(min(focusBlockAge(id.xy), uint(ramp)));
+    uint value = uint(clamp(moving + (still - moving) * age / ramp, 0, 10));
+    if (focusMode == 1) value = min(value + (min(focusCentre, 10) * focusCentreWeight(id.xy) + 128) / 256, 10);
+    focusMap[2 + id.y * focusGrid.x + id.x] = value;
+    InterlockedMin(focusMap[0], value);
+    InterlockedMax(focusMap[1], value);
+}

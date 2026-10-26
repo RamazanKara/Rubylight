@@ -27,6 +27,8 @@ pub fn compile(out: &Path) {
         ("chroma_pack_y", "ps_5_0"),
         ("chroma_pack_uv", "ps_5_0"),
         ("pyro_cs", "cs_5_0"),
+        ("yuv420_focus_cs", "cs_5_0"),
+        ("focus_map_cs", "cs_5_0"),
     ] {
         let name = CString::new(entry).unwrap();
         let profile = CString::new(target).unwrap();

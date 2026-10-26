@@ -7885,6 +7885,41 @@ says why in the log and on the stats overlay. The host's row order (`pyrowaveRow
 `rust/core` behind the RTSP key, default off. Record: Nightjar `docs/pyrowave-decode.md`, "Beam racing:
 measured, opt-in", and `docs/beam-racing.md`.
 
+## October 26: beam-raced PyroWave over Wi-Fi 6E to the 780M laptop (B10, quick pass)
+
+The first run on a separate client. Host: this PC (RX 7900 XT), installed 3.0.0-rc.2 with an isolated
+profile on 192.168.4.69:48123, wired. Client: the 780M laptop (Ryzen 7 8845HS) on Wi-Fi 6E (RZ616,
+5 GHz channel 116, 802.11ax, 2402 Mbps both ways, signal 98% before every run), Nightjar desktop release
+build of 2026-10-25, GPU decode, borderless fullscreen on its 2880x1800 120 Hz panel, tearing on.
+1080p60 PyroWave 4:2:0 at 399 Mbps (the host sent 339 to 341 Mbps), `NIGHTJAR_PYROWAVE_LINK_MBPS=2500`
+and `NIGHTJAR_PYROWAVE_PACE_MBPS=900` (the client sees a wireless route and would not ask for the row
+order without them), `NIGHTJAR_STREAM_LOCATION=local`. ABBA, 60 s legs, the first 300 frames of each
+dropped. A is `beam_race` off (index order, whole decodes), B is `beam_race` on.
+
+**It did not race.** The laptop's panel scans all the time: the probe measured 8.37 ms over 1800 rows
+and 31 blanking lines (119.5 Hz), 1% of the readings in the blanking, and over 300 presents no present
+found the display idle, so the verdict was "no VRR" and every frame was presented whole. The panel's
+EDID has no refresh range in its base block. Racing needs a present to restart the scan, so this laptop
+cannot measure the raced presenter as it is. What the run does show is the row order and the slice
+decodes over real Wi-Fi:
+
+| Leg | Row order | Frames | Row ordered | `first_slice_ready - receive` p50 | `last_slice_ready - receive` p50 | Late slices | `receive_to_present` p50 / p95 |
+|---|---|---|---|---|---|---|---|
+| 1 A | off | 3294 | 0 | | | | 8.36 / 9.63 ms |
+| 2 B | on | 3294 | 100% | 2.44 ms | 8.38 ms | 0 of 13176 | 9.29 / 10.55 ms |
+| 3 B | on | 3293 | 100% | 2.60 ms | 8.74 ms | 0 of 13172 | 9.64 / 10.90 ms |
+| 4 A | off | 3294 | 0 | | | | 10.37 / 11.87 ms |
+
+Pooled, `receive_to_present` p50 / p95 was 8.82 / 11.45 ms with the row order off and 9.46 / 10.77 ms
+with it on. The two A legs differ by 2 ms at the median, more than A against B, so one ABBA set
+shows no cost or gain from the row order on this link. Every leg exited 0, with no frames dropped at
+the decoder and no early-decode fallbacks. Over Wi-Fi the first of the four slices was ready 0.8 to
+0.95 ms later than on loopback (1.65 ms) and the last 1.2 to 1.5 ms later (7.20 ms), and no frame
+broke the row order.
+
+Not shown: any presented-picture gain. That still needs a client with a VRR display, on Wi-Fi or on
+the wired NUC legs.
+
 ## Hardware covered
 
 Measurements ran with AMD AMF on an RX 7900 XT host, with real-client Wi-Fi

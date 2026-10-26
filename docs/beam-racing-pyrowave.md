@@ -278,10 +278,21 @@ Things we tried that did not move the numbers: a raw `Present1` with `ALLOW_TEAR
 `SDL_RenderPresent`, and skipping the flush. Drawing consecutive slices of one plane set in a single pass
 helped a little and is in the numbers above.
 
+## A second PC over Wi-Fi
+
+On October 26 we ran the same stream from this PC to a laptop (Radeon 780M, Wi-Fi 6E at 2402 Mbps, 5 GHz)
+to get off loopback. It did not race. The laptop's 120 Hz panel scans all the time and a present never
+found it idle, so the probe said "no VRR" and presented whole pictures, which is the designed behaviour.
+What the run did show is the row order over real Wi-Fi: in one ABBA set at 399 Mbps every frame stayed in
+row order, no slice was late, the first slice was ready 2.4 to 2.6 ms after the frame's first packet (1.65 ms
+on loopback), and turning the row order on cost nothing we could separate from the 2 ms spread between
+runs. The numbers are in [PERFORMANCE.md](../rust/PERFORMANCE.md#october-26-beam-raced-pyrowave-over-wi-fi-6e-to-the-780m-laptop-b10-quick-pass).
+
 ## Status and how to try it
 
 The case the idea was built for, a separate PC on wired 1 GbE or 2.5 GbE, has not been measured yet, and
-neither has a margin sweep. Until it is, beam racing is Experimental and off by default.
+neither has a margin sweep or a raced run on any client but this PC. Until they are, beam racing is
+Experimental and off by default.
 
 - **Host:** Rubylight 3.0 sends the row order when a client asks for it. Nothing to configure.
 - **Client:** Nightjar desktop on Windows, the `beam_race` setting (or `NIGHTJAR_BEAM_RACE=1`). It needs
@@ -291,7 +302,8 @@ neither has a margin sweep. Until it is, beam racing is Experimental and off by 
 - **Off means off.** With the setting off the client asks for no row order, starts no probe and decodes
   whole frames; tests pin all of that.
 
-Wi-Fi and Android are out of scope: the race needs a steady wired link. On Linux, Wayland compositors cannot race the beam either; it would need direct scan-out through a
+Android is out of scope. The client asks for the row order on Wi-Fi only when told to (the Wi-Fi run
+above forced it with `NIGHTJAR_PYROWAVE_LINK_MBPS`), and a raced present over Wi-Fi has not been measured. On Linux, Wayland compositors cannot race the beam either; it would need direct scan-out through a
 KMS lease or similar.
 
 The full records are in Rubylight's [PERFORMANCE.md](../rust/PERFORMANCE.md#october-24-beam-raced-pyrowave-gate-b10-step-4-opt-in-missed-its-default-on-gate)

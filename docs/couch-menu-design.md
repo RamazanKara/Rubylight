@@ -79,11 +79,14 @@ All time is the host's receive time (`Instant`). A chord that is pending sets a 
 - After `couch_menu_hold_ms` (default 1000 ms) the chord fires. The pad then waits for a button change before it can arm again; a pad whose hold was cancelled by an open or close waits the same way, so a second pad still holding the chord does not fire a second later.
 - A single button held alone is a valid chord and follows the same rules.
 - The game has already seen the chord's presses. That is acceptable; the alternative is buffering, which adds latency.
-- `PadButtons::parse` refuses a chord containing all of one set Moonlight keeps, with one message per set, most specific first: Start+Select+L1+R1 (quit), Start+Select (becomes Guide), Start (a 750 ms hold toggles mouse mode, so no hold may include Start), Select+L1+R1+X (stats). `guide` parses, with a warning that many clients hand Guide to the OS.
+- `PadButtons::parse` refuses a chord containing all of one set Moonlight keeps, with one message per set, most specific first: Start+Select+L1+R1 (quit), Start+Select (becomes Guide), Start (a 750 ms hold toggles mouse mode, so no hold may include Start), Select+L1+R1+X (stats), Select+Guide and Select+L1 (moonlight-qt and Moonlight Android turn both into a clickpad press).
+- It also refuses A, B and each D-pad direction, one message each, because `Filter::pad_nav` reads them while the menu is open: holding a chord with A to close the menu would press Accept on the focused row, and Disconnect has no confirm step.
+- `guide` parses, with a warning that many clients hand Guide to the OS and that a Guide press reaching the host opens Xbox Game Bar. A chord with Select gets a warning (`OpenWith::select_conflict`, from `Config::update` and `OpenWith::from_config`) when `back_button_timeout` is in `[0, couch_menu_hold_ms)`: the host's Back button emulation presses Guide first.
 
 **Keyboard.**
-- Fires on a key-down of the chord's key (`couch_menu_keyboard_chord`, default VK_BACK 0x08) with the Ctrl and Alt modifier bits set and Shift clear.
+- Fires on a key-down of the chord's key (`couch_menu_keyboard_chord`, default VK_BACK 0x08) with the Ctrl and Alt modifier bits set and Shift clear. `KeyChord::parse` takes the modifiers in any order.
 - The key event that fires it is consumed.
+- Only the first key-down after the key was up counts: auto-repeats of the held key neither toggle the menu again nor go Back.
 
 **Touch and mouse.**
 - A contact, pen tip or mouse button goes down inside the corner box, in stream coordinates.
@@ -545,6 +548,11 @@ This brief may exceed 500 lines. If it does, run it as two sequential halves on 
 **Test.**
 - `C:\src\rl-quick.ps1 -Repo <wt> -Crates butterpollo-core,butterpollo -TargetDir C:\src\rl-target-menu-host`
 - `python -m unittest discover -s rust/release -p test_timing_report.py`
+
+**Open controls, notes for the wiring.**
+- A `Filter` cannot swap its `OpenWith` while it runs, so an override changed during a session needs a setter on the filter or a new filter.
+- `apply_overrides` drops `""` values, so a device cannot set `couch_menu_open_with` to "nothing"; it has to turn the `couch_menu` master switch off.
+- The console must send `couch_menu_open_with` as a comma-joined string, not a JSON array.
 
 **Cost check, hardware (runner, user idle, isolated profile on port 48123).** Run the closed A/B and the open toggle run of section 9 against a release build, and append the numbers to `rust/PERFORMANCE.md`. Exit code 3 from the harness means stop and investigate; never retry.
 

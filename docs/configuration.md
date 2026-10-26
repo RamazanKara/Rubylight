@@ -409,7 +409,7 @@ The couch menu is a host menu drawn into the stream, so any Moonlight client can
 | Setting | Default | Values |
 | --- | --- | --- |
 | `couch_menu_open_with` | `controller,keyboard,touch` | Which ways open it; leave one out to turn that way off. |
-| `couch_menu_controller_chord` | `l3+r3` | The buttons one pad holds, joined by `+`: `up`, `down`, `left`, `right`, `start`, `select`, `l3`, `r3`, `l1`, `r1`, `guide`, `a`, `b`, `x`, `y`, `paddle1` to `paddle4`, `touchpad`, `misc`. One button alone works, such as `select`. |
+| `couch_menu_controller_chord` | `l3+r3` | The buttons one pad holds, joined by `+`: `select`, `l3`, `r3`, `l1`, `r1`, `guide`, `x`, `y`, `paddle1` to `paddle4`, `touchpad`, `misc`. One button alone works, such as `select`. |
 | `couch_menu_hold_ms` | `1000` | How long the pad holds the chord, 300 to 3000 ms. |
 | `couch_menu_corner_hold_ms` | `1500` | How long a touch, pen or mouse button holds the top-left corner, 500 to 3000 ms. |
 | `couch_menu_keyboard_chord` | `ctrl+alt+backspace` | `ctrl+alt+backspace`, `ctrl+alt+home`, `ctrl+alt+end` or `ctrl+alt+insert`. |
@@ -424,7 +424,11 @@ Moonlight clients keep some buttons for themselves, so the host refuses a chord 
 - Select+L1+R1+X, which shows the statistics;
 - Select+Guide and Select+L1, which moonlight-qt and Moonlight Android turn into a clickpad press.
 
-`guide` is accepted with a warning: many clients hand Guide to their OS (Android TV's home, the Steam button, iOS), so the hold may never reach the host. The keyboard chords leave out Ctrl+Alt+Shift, which Moonlight keeps for its shortcuts, and letters, which AltGr types on many layouts.
+It also refuses A, B and the D-pad directions, because the open menu reads them: holding a chord with A to close the menu would also press the focused row, such as Disconnect.
+
+`guide` is accepted with a warning: many clients hand Guide to their OS (Android TV's home, the Steam button, iOS), so the hold may never reach the host, and where it does, the Guide press reaches Windows too and opens Xbox Game Bar. A chord with `select` gets a warning when `back_button_timeout` (Hold Back to press Guide) is 0 or more and shorter than `couch_menu_hold_ms`: the host presses Guide before the menu opens. Set `back_button_timeout` to -1 or to at least the hold; a device's override of either setting counts too.
+
+The keyboard chords leave out Ctrl+Alt+Shift, which Moonlight keeps for its shortcuts, and letters, which AltGr types on many layouts. The modifiers can be written in any order, so `alt+ctrl+home` is `ctrl+alt+home`. Holding the keys down does not toggle the menu again; let go of the key and press it again.
 
 `couch_menu_open_with` and the four chord and hold settings can be set per device or app in their overrides, so a phone can open the menu by touch and a TV only by controller. A value the host refuses to save is refused with a message; one edited into the file by hand is reported in the host log and its default is used.
 

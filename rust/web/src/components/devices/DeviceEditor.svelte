@@ -23,11 +23,20 @@
 
   let {
     client,
+    sleepUnavailable = null,
     dirty = $bindable(false),
     saving = $bindable(false),
     disabled = false,
     onsaved,
-  }: { client: Client; dirty?: boolean; saving?: boolean; disabled?: boolean; onsaved?: () => Promise<void> } = $props();
+  }: {
+    client: Client;
+    /** Why this PC offers no Sleep PC; null when it does. */
+    sleepUnavailable?: string | null;
+    dirty?: boolean;
+    saving?: boolean;
+    disabled?: boolean;
+    onsaved?: () => Promise<void>;
+  } = $props();
 
   const uid = $props.id();
 
@@ -206,10 +215,14 @@
               <input type="checkbox" bind:checked={draft.host_control} />
               Host control: change Radeon settings and close games from this device
             </label>
-            <label class="check">
-              <input type="checkbox" bind:checked={draft.allow_sleep} />
-              Sleep PC: put this PC to sleep from this device while nothing is running (Experimental)
-            </label>
+            {#if sleepUnavailable}
+              <p class="note">Sleep PC is unavailable: {sleepUnavailable}.</p>
+            {:else}
+              <label class="check">
+                <input type="checkbox" bind:checked={draft.allow_sleep} />
+                Sleep PC: put this PC to sleep from this device while nothing is running (Experimental)
+              </label>
+            {/if}
           {/if}
         </fieldset>
       {/each}

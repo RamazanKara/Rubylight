@@ -656,7 +656,8 @@ export const api = {
     launch: () => post<Ok>('/api/playnite/launch', {}, ACTION_TIMEOUT_MS),
   },
   clients: {
-    list: () => get<{ status: true; clients: Client[] }>('/api/clients/list'),
+    /** `sleep_unavailable`: why this PC offers no Sleep PC, null when it does. */
+    list: () => get<{ status: true; clients: Client[]; sleep_unavailable?: string | null }>('/api/clients/list'),
     pending: () => get<{ status: true; requests: PendingPairing[] }>('/api/clients/pending'),
     update: (client: Partial<Client> & { uuid: string }) => {
       const { connected: _connected, ...rest } = client;

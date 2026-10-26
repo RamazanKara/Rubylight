@@ -17,6 +17,8 @@
 
   let clients = $state<Client[] | null>(null);
   let loadError = $state('');
+  /** Why this PC offers no Sleep PC; null when it does. */
+  let sleepUnavailable = $state<string | null>(null);
   let editing = $state<string | null>(null);
   let editorDirty = $state(false);
   let editorSaving = $state(false);
@@ -30,7 +32,8 @@
     // A poll that started before a save must not put the old values back.
     const id = ++latestLoad;
     try {
-      const list = (await api.clients.list()).clients;
+      const result = await api.clients.list();
+      const list = result.clients;
       if (id !== latestLoad) return;
       if (knownDevices) {
         for (const client of list) {
@@ -42,6 +45,7 @@
       }
       knownDevices = new Set(list.map(client => client.uuid));
       clients = list;
+      sleepUnavailable = result.sleep_unavailable ?? null;
       loadError = '';
       if (editing && !list.some((client) => client.uuid === editing)) closeEditor();
     } catch (error) {
@@ -244,7 +248,7 @@
             </div>
           </div>
           {#if open}
-            <DeviceEditor {client} bind:dirty={editorDirty} bind:saving={editorSaving} disabled={busy !== ''} onsaved={load} />
+            <DeviceEditor {client} {sleepUnavailable} bind:dirty={editorDirty} bind:saving={editorSaving} disabled={busy !== ''} onsaved={load} />
           {/if}
         </li>
       {/each}

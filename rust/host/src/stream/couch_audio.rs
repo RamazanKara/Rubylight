@@ -260,6 +260,62 @@ mod tests {
     }
 
     #[test]
+    fn active_surround_is_logged_and_the_opus_layout_stays_stereo() {
+        let f = crate::state::test_support::Fixture::new();
+        let mut launch = f.launch(f.client(u32::MAX), butterpollo_core::session::Role::Stream);
+        launch
+            .options
+            .insert(Key::HeadphoneSurround.parameter().into(), "on".into());
+        let s = crate::state::Session::new(
+            launch,
+            butterpollo_core::rtsp::Negotiated {
+                audio_channels: 2,
+                ..Default::default()
+            },
+        );
+        let path = f.host.directory.join("couch-audio.log");
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::INFO)
+            .without_time()
+            .with_ansi(false)
+            .with_target(false)
+            .with_writer(std::sync::Mutex::new(std::fs::File::create(&path).unwrap()))
+            .finish();
+        let memory = Memory::default();
+        let warnings = Warnings::default();
+        tracing::subscriber::with_default(subscriber, || {
+            let config = Config::parse("").unwrap();
+            let mut audio = CouchAudio::start(&s, &config, &memory, false, false).unwrap();
+            assert_eq!(audio.capture_channels(), 8);
+            audio.set_source(SEVEN_ONE).unwrap();
+            let mut packet = noise(240 * 8, 21);
+            audio.process(&s.audio, &warnings, &mut packet);
+            assert_eq!(packet.len(), 480);
+        });
+        let log = std::fs::read_to_string(path).unwrap();
+        assert!(
+            log.contains("headphone surround captures 8 channels for a stereo client"),
+            "{log}"
+        );
+        assert_eq!(
+            log.matches("headphone surround active (8 to 2)").count(),
+            1,
+            "{log}"
+        );
+        // The wire stays stereo Opus.
+        let layout = crate::stream::audio_layout(&s, None).unwrap();
+        assert_eq!(
+            (
+                layout.channels,
+                layout.streams,
+                layout.coupled,
+                &layout.mapping[..]
+            ),
+            (2, 1, 1, &[0, 1][..])
+        );
+    }
+
+    #[test]
     fn a_live_choice_carries_to_the_clients_next_session_of_the_app() {
         let f = crate::state::test_support::Fixture::new();
         let config = Config::parse("").unwrap();

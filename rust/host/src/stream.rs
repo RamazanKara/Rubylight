@@ -3,6 +3,7 @@ use butterpollo_core::{controller_audio, haptics};
 mod audio_sink;
 mod background;
 mod capture;
+mod couch_audio;
 mod device_recovery;
 #[cfg(test)]
 mod encoder_tests;
@@ -3103,6 +3104,9 @@ impl Media {
         let muted = !config.boolean("stream_audio", true)
             || (s.launch.role == Role::RemoteMonitor
                 && config.boolean("remote_monitor_mute_audio", false));
+        // Night mode and headphone surround; with both off the packets pass untouched.
+        let mut couch = couch_audio::CouchAudio::start(&s, &config, game_audio, muted)?;
+        let capture_channels = couch.capture_channels();
         let mut route = s
             .launch
             .audio_preparation
@@ -3152,7 +3156,7 @@ impl Media {
         let mut last_loss = None;
         let mut upkeep: Option<RouteUpkeep> = None;
         let timer = butterpollo_windows::timing::Timer::new()?;
-        let silence = vec![0.; frames * s.config.audio_channels as usize];
+        let silence = vec![0.; frames * capture_channels];
         while !s.stopping() && !h.stop.load(Ordering::Acquire) {
             match capture
                 .as_ref()
@@ -3184,7 +3188,7 @@ impl Media {
                         &config,
                         &h.directory,
                         s.launch.host_audio,
-                        s.config.audio_channels as usize,
+                        capture_channels,
                     ) {
                         Ok(value) => {
                             let value = Arc::new(value);
@@ -3241,14 +3245,15 @@ impl Media {
                     // default. Even a fixed endpoint must reopen after a
                     // driver reset, format change or temporary disconnect.
                     if capture.is_none() {
-                        match route.set_channels(s.config.audio_channels as usize) {
+                        match route.set_channels(capture_channels) {
                             Ok(()) => s.launch.warnings.clear("audio_surround"),
                             Err(error) => s.launch.warnings.set("audio_surround", format!("Virtual surround format could not be applied ({error:#}); channels may be downmixed. Select stereo or check the virtual audio driver.")),
                         }
-                        match Loopback::new_sink(s.config.audio_channels as usize, &sink) {
+                        match Loopback::new_sink(capture_channels, &sink) {
                             Ok(value) => {
                                 tracing::info!(
-                                    channels = s.config.audio_channels,
+                                    channels = capture_channels,
+                                    source_channels = value.source().0,
                                     event_driven = value.event_driven(),
                                     "WASAPI audio capture started"
                                 );
@@ -3267,11 +3272,14 @@ impl Media {
                     }
                 }
             }
+            if let Some(capturing) = &capture {
+                couch.set_source(capturing.source())?;
+            }
             let ready = output.ready();
             // Every whole packet the endpoint has delivered goes out at once, as
             // Sunshine sends them. On a fixed tick each waited up to a packet,
             // and a tick just before a late chunk sent silence in its place.
-            let (packets, positions) = audio_sink::collect(
+            let (mut packets, positions) = audio_sink::collect(
                 &mut capture,
                 frames,
                 &mut loss,
@@ -3292,7 +3300,8 @@ impl Media {
             );
             let now = Instant::now();
             if ready {
-                for (samples, at) in packets.iter().zip(positions) {
+                for (samples, at) in packets.iter_mut().zip(positions) {
+                    couch.process(&s.audio, &s.launch.warnings, samples);
                     for _ in 0..output.send(&opus.encode(samples)?, now, at)? {
                         loss.unsent();
                     }

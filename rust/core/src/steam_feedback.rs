@@ -117,12 +117,14 @@ impl SteamRumble {
         (self.left.at(now), self.right.at(now))
     }
 
-    /// When the rumble next changes on its own: poll [`Self::rumble`] then.
-    pub fn deadline(&self) -> Option<Instant> {
+    /// When after `now` the rumble next changes on its own: poll
+    /// [`Self::rumble`] then. `None` once every hold has run out.
+    pub fn deadline(&self, now: Instant) -> Option<Instant> {
         [self.left, self.right]
             .into_iter()
             .filter(|motor| motor.magnitude != 0)
             .filter_map(|motor| motor.until)
+            .filter(|&until| until > now)
             .min()
     }
 
@@ -217,7 +219,7 @@ mod tests {
         let report = [0x80, 0, 0xff, 0xff, 0x34, 0x12, 0, 0xcd, 0xab, 0];
         assert_eq!(rumble.apply(&haptic(&report), now), LEFT | RIGHT);
         assert_eq!(rumble.rumble(now), (0x1234, 0xabcd));
-        assert_eq!(rumble.deadline(), Some(now + RUMBLE_TIMEOUT));
+        assert_eq!(rumble.deadline(now), Some(now + RUMBLE_TIMEOUT));
         let late = now + RUMBLE_TIMEOUT - Duration::from_millis(1);
         assert_eq!(rumble.rumble(late), (0x1234, 0xabcd));
         assert_eq!(rumble.rumble(now + RUMBLE_TIMEOUT), (0, 0));
@@ -226,7 +228,7 @@ mod tests {
         assert_eq!(rumble.rumble(now + RUMBLE_TIMEOUT), (0x1234, 0xabcd));
         rumble.apply(&haptic(&[0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0]), late);
         assert_eq!(rumble.rumble(late), (0, 0));
-        assert_eq!(rumble.deadline(), None);
+        assert_eq!(rumble.deadline(now), None);
     }
 
     #[test]
@@ -240,7 +242,7 @@ mod tests {
         assert_eq!(rumble.rumble(now + Duration::from_millis(400)), (0, 0));
         // The 400 us UI pulse is held for the minimum a motor can show.
         rumble.apply(&haptic(&[0x81, 0, 0x90, 0x01, 0, 0, 1, 0]), now);
-        assert_eq!(rumble.deadline(), Some(now + MIN_HOLD));
+        assert_eq!(rumble.deadline(now), Some(now + MIN_HOLD));
         assert_eq!(rumble.rumble(now + MIN_HOLD), (16383, 0));
         // A zero-repeat stop silences its side only.
         rumble.apply(&haptic(&[0x81, 1, 0x90, 0x01, 0, 0, 0, 0]), now);
@@ -260,7 +262,7 @@ mod tests {
         rumble.apply(&haptic(&[0x82, 0, 0x01, 0xfd]), now);
         rumble.apply(&haptic(&[0x82, 1, 0x02, 0xf2]), now);
         assert_eq!(rumble.rumble(now), (46395, 13076));
-        assert_eq!(rumble.deadline(), Some(now + CLICK_HOLD));
+        assert_eq!(rumble.deadline(now), Some(now + CLICK_HOLD));
         assert_eq!(rumble.rumble(now + CLICK_HOLD), (0, 0));
         // A rumble command (4) at +6 dB clips and runs until its off, each
         // re-send holding it up to MAX_HOLD again.
@@ -274,6 +276,21 @@ mod tests {
     }
 
     #[test]
+    fn deadlines_move_on_once_a_hold_has_run_out() {
+        let now = Instant::now();
+        let mut rumble = SteamRumble::default();
+        // A click on the left pad, a 400 ms pulse train on the right.
+        rumble.apply(&haptic(&[0x82, 0, 0x02, 0x00]), now);
+        rumble.apply(&haptic(&[0x81, 0, 0xe8, 0x03, 0xb8, 0x0b, 100, 0]), now);
+        let train = now + Duration::from_millis(400);
+        assert_eq!(rumble.deadline(now), Some(now + CLICK_HOLD));
+        assert_eq!(rumble.deadline(now + CLICK_HOLD), Some(train));
+        assert_eq!(rumble.rumble(now + CLICK_HOLD), (0, 16383));
+        assert_eq!(rumble.deadline(train), None);
+        assert_eq!(rumble.rumble(train), (0, 0));
+    }
+
+    #[test]
     fn no_command_leaves_the_motors_on_past_the_longest_hold() {
         let now = Instant::now();
         for command in 0..=u8::MAX {
@@ -283,7 +300,7 @@ mod tests {
                 // Scripts, sweeps and unknown commands change nothing.
                 assert_eq!(sides == 0, command > 5, "command {command}");
                 if rumble.rumble(now) != (0, 0) {
-                    assert!(rumble.deadline().is_some(), "command {command}");
+                    assert!(rumble.deadline(now).is_some(), "command {command}");
                 }
                 assert_eq!(rumble.rumble(now + MAX_HOLD), (0, 0), "command {command}");
             }

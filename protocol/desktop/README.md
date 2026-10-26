@@ -153,6 +153,7 @@ Why this combination:
 | File | Role |
 | --- | --- |
 | `src/main.rs` | SDL setup, the main loop, launcher/stream switching, the overlay |
+| `src/cli.rs` | `--host`/`--app`/`--quit-on-exit` starts from game frontends |
 | `src/gui.rs` | egui input from SDL events, painting with `SDL_RenderGeometryRaw` |
 | `src/theme.rs` | palette, Figtree type, the brand mark rasterised from its vector path |
 | `src/ui.rs` | the launcher: PCs, pairing, library, settings, dialogs |
@@ -244,6 +245,12 @@ Done, on Windows and Linux unless noted:
   traffic".
 - Performance overlay with host processing; "Export statistics (last hour)" in the stream
   menu writes to the config directory's `statistics/`.
+- Starting from a game frontend (ES-DE, Pegasus, Playnite and the like):
+  `nightjar --host <name|uuid> [--app <name|uuid>] [--quit-on-exit]` (`src/cli.rs`). The PC
+  must be saved and paired; names match the PC's own name or the one given here, ignoring
+  case. Without `--app` the PC's app list opens. `--quit-on-exit` closes Nightjar when the
+  stream ends. An unknown or ambiguous PC or app, or a stream that cannot start, ends with
+  an error message and exit code 1; a wrong command line with 64.
 - Shortcuts (from moonlight-qt): Ctrl+Alt+Shift+Q leaves, +Z releases/captures input,
   +S overlay, +M mouse mode, +X fullscreen, +D minimize; Start+Select+LB+RB on a controller
   leaves. Saved key chords are sent from the stream menu and import and export in the

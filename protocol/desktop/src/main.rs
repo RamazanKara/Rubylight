@@ -9,6 +9,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod autostream;
+mod cli;
 mod config;
 mod console;
 mod controller_audio;
@@ -109,6 +110,7 @@ struct App {
     stick_held: [bool; 4],
     running: bool,
     autostream: Option<autostream::Autostream>,
+    cli: Option<cli::CliLaunch>,
 }
 
 fn display_of(window: *mut SDL_Window) -> Display {
@@ -143,24 +145,37 @@ fn main() {
         };
         std::process::exit(stream::pyrowave_mode::package_check(std::path::Path::new(&report)));
     }
+    // Frontends start a stream directly (see `cli`); a release build has no console to print to.
+    let launch = match cli::parse(std::env::args_os().skip(1)) {
+        Ok(cli::Parsed::Gui) => None,
+        Ok(cli::Parsed::Launch(launch)) => Some(launch),
+        Ok(cli::Parsed::Help) => {
+            println!("{}", cli::USAGE);
+            message_box(SDL_MESSAGEBOX_INFORMATION, cli::USAGE);
+            return;
+        }
+        Err(e) => {
+            let text = format!("{e}\n{}", cli::USAGE);
+            eprintln!("nightjar: {text}");
+            message_box(SDL_MESSAGEBOX_ERROR, &text);
+            std::process::exit(64);
+        }
+    };
     // After the package check, which must not write to the user's log.
     logpipe::start();
     let _log = logpipe::Guard;
-    if let Err(e) = run() {
+    if let Err(e) = run(launch) {
         eprintln!("nightjar: {e}");
-        let text = std::ffi::CString::new(e).unwrap_or_default();
-        // SAFETY: NUL-terminated strings; a null parent window is allowed.
-        unsafe {
-            SDL_ShowSimpleMessageBox(
-                SDL_MESSAGEBOX_ERROR,
-                c"Nightjar".as_ptr(),
-                text.as_ptr(),
-                std::ptr::null_mut(),
-            )
-        };
+        message_box(SDL_MESSAGEBOX_ERROR, &e);
         logpipe::shutdown();
         std::process::exit(1);
     }
+}
+
+fn message_box(flags: SDL_MessageBoxFlags, text: &str) {
+    let text = std::ffi::CString::new(text).unwrap_or_default();
+    // SAFETY: NUL-terminated strings; a null parent window is allowed.
+    unsafe { SDL_ShowSimpleMessageBox(flags, c"Nightjar".as_ptr(), text.as_ptr(), std::ptr::null_mut()) };
 }
 
 /// The renderer's device PyroWave GPU decoding is tied to: the Direct3D 11 device on Windows, the
@@ -176,7 +191,7 @@ fn renderer_gpu_device(renderer: *mut SDL_Renderer) -> Option<stream::pipeline::
     (!device.is_null()).then_some(stream::pipeline::GpuDevice(device))
 }
 
-fn run() -> Result<(), String> {
+fn run(launch: Option<cli::Launch>) -> Result<(), String> {
     sdl::set_hint(SDL_HINT_APP_NAME, c"Nightjar");
     sdl::set_hint(SDL_HINT_APP_ID, c"io.github.ramazankara.nightjar");
     #[cfg(windows)]
@@ -267,6 +282,13 @@ fn run() -> Result<(), String> {
     );
 
     let mut hosts = Hosts::new(store.hosts(), waker.clone());
+    let cli = match launch {
+        Some(_) if std::env::var_os("NIGHTJAR_AUTOSTREAM").is_some() => {
+            return Err("--host and NIGHTJAR_AUTOSTREAM both ask for a stream; give one".into());
+        }
+        Some(launch) => Some(cli::CliLaunch::new(launch, &hosts)?),
+        None => None,
+    };
     hosts.load_cached_libraries(&store);
     {
         // Open on Home when it is on and some PC has a library to show.
@@ -319,6 +341,7 @@ fn run() -> Result<(), String> {
         stick_held: [false; 4],
         running: true,
         autostream: autostream::Autostream::from_env(),
+        cli,
     };
     match identity {
         Some(identity) => {
@@ -349,7 +372,10 @@ fn run() -> Result<(), String> {
         logpipe::shutdown();
         std::process::exit(2);
     }
-    Ok(())
+    match app.cli.and_then(|c| c.failed) {
+        Some(why) => Err(why),
+        None => Ok(()),
+    }
 }
 
 impl App {
@@ -630,6 +656,7 @@ impl App {
             }
         }
         self.autostream_step();
+        self.cli_step();
         if let Some(c) = &mut self.connecting {
             match c.poll() {
                 Ok(Some((session, facts))) => {
@@ -986,6 +1013,34 @@ impl App {
         }
     }
 
+    /// Drives a `--host` start from the command line (see `cli`); does nothing otherwise.
+    fn cli_step(&mut self) {
+        let Some(cli) = self.cli.as_mut() else { return };
+        if cli.failed.is_some() {
+            return;
+        }
+        let message = match &self.launcher.dialog {
+            Dialog::Message { title, body } => Some(format!("{title}: {body}")),
+            _ => None,
+        };
+        // The stream and any reconnect are over: --quit-on-exit closes Nightjar.
+        if self.streaming.is_none() && self.connecting.is_none() && cli.stream_ended(message.clone()) {
+            self.running = false;
+            return;
+        }
+        let seen = cli::Seen { identity: self.hosts.identity().is_some(), host: cli.host_seen(&self.hosts), message };
+        match cli.next(&seen) {
+            cli::Step::Wait => {}
+            cli::Step::OpenApps(id) => self.command(Command::OpenApps(id)),
+            cli::Step::LoadApps(id) => self.hosts.load_apps(id),
+            cli::Step::Launch(host, app) => self.launch(host, app, false),
+            cli::Step::Fail(why) => {
+                cli.fail(&why);
+                self.running = false;
+            }
+        }
+    }
+
     fn launch(&mut self, host_id: u64, app_id: i32, resume: bool) {
         if self.connecting.is_some() || self.network_launch.is_some() { return; }
         self.network_launch = Some((host_id, app_id, resume));
@@ -1114,6 +1169,7 @@ impl App {
 
     fn begin_stream(&mut self, connecting: Connecting, session: nightjar_core::session::Session, facts: stream::Facts) {
         if let Some(auto) = self.autostream.as_mut() { auto.streaming_began(); }
+        if let Some(cli) = self.cli.as_mut() { cli.streaming_began(); }
         let settings = connecting.settings.clone();
         self.pads.configure(&settings);
         let display = display_of(self.window);

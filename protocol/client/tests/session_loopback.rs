@@ -1,26 +1,29 @@
 //! A whole session against an in-process host on loopback: the Rubylight host's RTSP
 //! helpers answer the handshake, a rusty_enet host plays the control stream with the host's
-//! own sealing, and UDP sockets answer the video and audio pings with packetized frames and
-//! Opus packets.
+//! own sealing and answers roaming, and UDP sockets answer the video and audio pings with
+//! packetized frames and Opus packets and take the microphone.
 
-use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpListener, UdpSocket};
+use std::io::{self, Read, Write};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use butterpollo_core::mic as host_mic;
 use butterpollo_core::packet::{decrypt_control, encrypted_control};
 use butterpollo_core::rtsp as host_rtsp;
 use nightjar_core::control::{ptype, ControlEvent};
 use nightjar_core::fec::{ReedSolomon, AUDIO_PARITY_MATRIX};
+use nightjar_core::roaming::RoamEvent;
 use nightjar_core::sdp::*;
 use nightjar_core::session::{
     AudioRenderer, AudioSetup, DecodeStatus, HostInfo, Interrupt, Listener, Location, Session,
     SessionConfig, Stage, VideoDecoder, VideoSetup,
 };
 use nightjar_core::video::{Frame, FrameType};
-use rusty_enet::{Event, Host, HostSettings, Packet};
+use rubylight_protocol::roaming::{is_roaming, Datagram, Header, Payload, SDP_ATTRIBUTE};
+use rusty_enet::{Event, Host, HostSettings, Packet, PacketReceived, MTU_MAX};
 
 const KEY: [u8; 16] = *b"session-test-key";
 const PING: &[u8; 16] = b"0123456789abcdef";
@@ -147,24 +150,127 @@ fn await_ping(socket: &UdpSocket) -> SocketAddr {
     }
 }
 
+/// Waits for a ping carrying the RTSP payload from `ip` and returns its sender.
+fn await_ping_from(socket: &UdpSocket, ip: IpAddr) -> SocketAddr {
+    loop {
+        let from = await_ping(socket);
+        if from.ip() == ip {
+            return from;
+        }
+    }
+}
+
+/// The host's control socket, as the Rubylight host's: roaming datagrams are set aside, and
+/// once a client roamed its new address stands in for the old one its ENet peer has.
+struct Roamable {
+    socket: UdpSocket,
+    roaming: Vec<(SocketAddr, Vec<u8>)>,
+    /// (new, old): where a roamed client is now, and the address ENet knows it by.
+    moved: Option<(SocketAddr, SocketAddr)>,
+}
+
+impl rusty_enet::Socket for Roamable {
+    type Address = SocketAddr;
+    type Error = io::Error;
+
+    fn init(&mut self, _: rusty_enet::SocketOptions) -> io::Result<()> {
+        self.socket.set_nonblocking(true)
+    }
+
+    fn send(&mut self, address: SocketAddr, buffer: &[u8]) -> io::Result<usize> {
+        let to = match self.moved {
+            Some((new, old)) if address == old => new,
+            _ => address,
+        };
+        self.socket.send_to(buffer, to)
+    }
+
+    fn receive(
+        &mut self,
+        buffer: &mut [u8; MTU_MAX],
+    ) -> io::Result<Option<(SocketAddr, PacketReceived)>> {
+        loop {
+            match self.socket.recv_from(buffer) {
+                Ok((length, from)) if is_roaming(&buffer[..length]) => {
+                    self.roaming.push((from, buffer[..length].to_vec()));
+                }
+                Ok((length, from)) => {
+                    let from = match self.moved {
+                        Some((new, old)) if from == new => old,
+                        _ => from,
+                    };
+                    return Ok(Some((from, PacketReceived::Complete(length))));
+                }
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::ConnectionReset
+                    ) =>
+                {
+                    return Ok(None)
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+}
+
+fn roam_gcm() -> aes_gcm::Aes128Gcm {
+    use aes_gcm::KeyInit;
+    let (key, _) = nightjar_core::roaming::derive(&KEY);
+    aes_gcm::Aes128Gcm::new(&key.into())
+}
+
+fn roam_reply(
+    socket: &UdpSocket,
+    to: SocketAddr,
+    gcm: &aes_gcm::Aes128Gcm,
+    seq: u32,
+    payload: Payload,
+) {
+    let (_, session_tag) = nightjar_core::roaming::derive(&KEY);
+    let header = Header {
+        kind: payload.kind(),
+        session_tag,
+        seq,
+    };
+    let datagram = nightjar_core::roaming::seal(gcm, header, payload);
+    socket.send_to(&datagram, to).unwrap();
+}
+
+/// The challenge the fake host hands out.
+const CHALLENGE: u64 = 77;
+
 struct FakeHost {
     rtsp_port: u16,
     video: UdpSocket,
     audio: UdpSocket,
+    /// The microphone port, offered with roaming.
+    mic: UdpSocket,
     /// Message types the control stream received, in order.
     control_messages: Arc<Mutex<Vec<u16>>>,
     control_disconnected: Arc<AtomicBool>,
     terminate: Arc<AtomicBool>,
+    /// The roaming payloads the control port received, opened, with their senders.
+    roaming: Arc<Mutex<Vec<(SocketAddr, Payload)>>>,
 }
 
 fn start_host(packed_format: Option<u32>) -> FakeHost {
+    start_host_with(packed_format, false)
+}
+
+/// With `roaming`, the host advertises client roaming, answers PROBE and CONFIRM, and offers
+/// the microphone.
+fn start_host_with(packed_format: Option<u32>, roaming: bool) -> FakeHost {
     let video = UdpSocket::bind("127.0.0.1:0").unwrap();
     let audio = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let mic = UdpSocket::bind("127.0.0.1:0").unwrap();
     let control_socket = UdpSocket::bind("127.0.0.1:0").unwrap();
     let ports = (
         video.local_addr().unwrap().port(),
         audio.local_addr().unwrap().port(),
         control_socket.local_addr().unwrap().port(),
+        mic.local_addr().unwrap().port(),
     );
 
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -187,12 +293,23 @@ fn start_host(packed_format: Option<u32>) -> FakeHost {
             match request.method.as_str() {
                 "DESCRIBE" => {
                     // Control encryption v2 only: plain audio and video.
-                    let mut describe =
-                        host_rtsp::describe(0, 1, 0, false, packed_format.is_some(), false, false);
+                    let mut describe = host_rtsp::describe(
+                        0,
+                        1,
+                        0,
+                        false,
+                        packed_format.is_some(),
+                        false,
+                        roaming,
+                    );
                     if packed_format.is_some() {
                         describe.push_str(
                             "a=x-rl-video.packed444Version:1\r\na=x-rl-video.packed444Modes:15\r\n",
                         );
+                    }
+                    if roaming {
+                        describe.push_str(&format!("{SDP_ATTRIBUTE}\r\n"));
+                        describe.push_str(&host_mic::sdp(ports.3));
                     }
                     body = describe.into_bytes();
                     headers.push(("Content-Type", "application/sdp".into()));
@@ -202,6 +319,8 @@ fn start_host(packed_format: Option<u32>) -> FakeHost {
                         (ports.1, false)
                     } else if request.target.contains("=video") {
                         (ports.0, false)
+                    } else if request.target.contains("=mic") {
+                        (ports.3, false)
                     } else {
                         (ports.2, true)
                     };
@@ -223,10 +342,12 @@ fn start_host(packed_format: Option<u32>) -> FakeHost {
     let control_messages = Arc::new(Mutex::new(Vec::new()));
     let control_disconnected = Arc::new(AtomicBool::new(false));
     let terminate = Arc::new(AtomicBool::new(false));
-    let (messages, disconnected, terminating) = (
+    let roamed = Arc::new(Mutex::new(Vec::new()));
+    let (messages, disconnected, terminating, roam_log) = (
         control_messages.clone(),
         control_disconnected.clone(),
         terminate.clone(),
+        roamed.clone(),
     );
     thread::spawn(move || {
         let settings = HostSettings {
@@ -234,9 +355,16 @@ fn start_host(packed_format: Option<u32>) -> FakeHost {
             channel_limit: 255,
             ..Default::default()
         };
-        let mut host = Host::new(control_socket, settings).unwrap();
+        let socket = Roamable {
+            socket: control_socket,
+            roaming: Vec::new(),
+            moved: None,
+        };
+        let mut host = Host::new(socket, settings).unwrap();
         let mut peer = None;
         let mut sequence = 0u32;
+        let gcm = roam_gcm();
+        let mut roam_seq = 0u32;
         loop {
             while let Some(event) = host.service().unwrap() {
                 match event {
@@ -272,6 +400,27 @@ fn start_host(packed_format: Option<u32>) -> FakeHost {
                     host.flush();
                 }
             }
+            // A CHALLENGE for each PROBE; a CONFIRM moves the peer, then MIGRATED.
+            for (from, data) in std::mem::take(&mut host.socket_mut().roaming) {
+                let datagram = Datagram::decode(&data).unwrap();
+                let payload = nightjar_core::roaming::open(&gcm, &datagram).unwrap();
+                roam_log.lock().unwrap().push((from, payload));
+                let reply = match payload {
+                    Payload::Probe { nonce_c, .. } => Payload::Challenge {
+                        nonce_c,
+                        challenge: CHALLENGE,
+                    },
+                    Payload::Confirm { challenge } => {
+                        if let Some(old) = peer.and_then(|id| host.peer(id).address()) {
+                            host.socket_mut().moved = Some((from, old));
+                        }
+                        Payload::Migrated { challenge }
+                    }
+                    _ => continue,
+                };
+                roam_seq += 1;
+                roam_reply(&host.socket().socket, from, &gcm, roam_seq, reply);
+            }
             thread::sleep(Duration::from_millis(1));
         }
     });
@@ -280,9 +429,11 @@ fn start_host(packed_format: Option<u32>) -> FakeHost {
         rtsp_port,
         video,
         audio,
+        mic,
         control_messages,
         control_disconnected,
         terminate,
+        roaming: roamed,
     }
 }
 
@@ -707,4 +858,183 @@ fn input_only_pings_the_video_port_until_stop() {
         .unwrap();
     assert!(host.video.recv_from(&mut buffer).is_err(), "pings continued after stop");
     assert_eq!(record.lock().unwrap().terminated, None);
+}
+
+/// Waits for a microphone packet from `ip` and returns the Opus packet inside.
+fn await_mic_from(socket: &UdpSocket, ip: IpAddr) -> Vec<u8> {
+    socket
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    let mut buffer = [0u8; 2048];
+    loop {
+        let (n, from) = socket.recv_from(&mut buffer).expect("a microphone packet");
+        if from.ip() == ip {
+            let packet = host_mic::parse(&buffer[..n]).expect("a microphone packet");
+            return host_mic::open(&KEY, 0, &packet).unwrap();
+        }
+    }
+}
+
+/// A 720p60 stream with the microphone, in 1024-byte packets as on loopback.
+fn roaming_config() -> SessionConfig {
+    SessionConfig {
+        stream: StreamConfig {
+            width: 1280,
+            height: 720,
+            fps: 60,
+            packet_size: PACKET_SIZE as i32,
+            remote_input_aes_key: KEY,
+            microphone: true,
+            ..Default::default()
+        },
+        location: Location::Auto,
+        ..Default::default()
+    }
+}
+
+fn start_session(host: &FakeHost, config: SessionConfig, record: &Arc<Mutex<Record>>) -> Session {
+    let recorder = || {
+        Box::new(Recorder {
+            record: record.clone(),
+            need_idr_at: None,
+        })
+    };
+    Session::start(
+        &HostInfo {
+            address: "127.0.0.1".into(),
+            app_version: "7.1.431.-1".into(),
+            rtsp_session_url: Some(format!("rtsp://127.0.0.1:{}", host.rtsp_port)),
+            server_codec_mode_support: SCM_H264,
+        },
+        config,
+        recorder(),
+        recorder(),
+        Arc::new(Recorder {
+            record: record.clone(),
+            need_idr_at: None,
+        }),
+        &Interrupt::default(),
+    )
+    .unwrap()
+}
+
+fn roam_events(record: &Mutex<Record>) -> Vec<RoamEvent> {
+    record
+        .lock()
+        .unwrap()
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            ControlEvent::Roam(event) => Some(*event),
+            _ => None,
+        })
+        .collect()
+}
+
+fn count(messages: &Mutex<Vec<u16>>, kind: u16) -> usize {
+    messages
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|&&t| t == kind)
+        .count()
+}
+
+/// A roam onto another local address: PROBE, CONFIRM and MIGRATED move the control stream,
+/// and video, audio and the microphone carry on to and from the new address.
+#[test]
+fn a_session_roams_control_and_media_to_a_new_address() {
+    let (old, new) = (
+        IpAddr::from(Ipv4Addr::LOCALHOST),
+        IpAddr::from(Ipv4Addr::new(127, 0, 0, 2)),
+    );
+    if UdpSocket::bind((new, 0)).is_err() {
+        eprintln!("skipped: {new} cannot be bound here");
+        return;
+    }
+    let host = start_host_with(None, true);
+    let record = Arc::new(Mutex::new(Record::default()));
+    let session = start_session(&host, roaming_config(), &record);
+    assert!(session.microphone_available());
+
+    // Before the roam everything runs from the first address.
+    let mut packetizer = Packetizer {
+        seq: 100,
+        spi: 0,
+        frame: 1,
+    };
+    let client = await_ping_from(&host.video, old);
+    for packet in packetizer.frame(&h264_idr(), 2) {
+        host.video.send_to(&packet, client).unwrap();
+    }
+    until("a frame", || record.lock().unwrap().frames.len() == 1);
+    let audio = audio_stream(400);
+    let (before, after) = audio.split_at(300);
+    let client = await_ping_from(&host.audio, old);
+    for packet in before {
+        host.audio.send_to(packet, client).unwrap();
+        thread::sleep(Duration::from_micros(200));
+    }
+    until("audio", || record.lock().unwrap().audio.len() >= 90);
+    session.send_microphone(b"before").unwrap();
+    assert_eq!(await_mic_from(&host.mic, old), b"before");
+
+    session.roam_to(Some(new)).unwrap();
+    until("the roam", || {
+        roam_events(&record)
+            .iter()
+            .any(|e| matches!(e, RoamEvent::Roamed { .. }))
+    });
+    let roaming = host.roaming.lock().unwrap().clone();
+    assert!(
+        matches!(roaming[0].1, Payload::Probe { flags: 1, .. }),
+        "a PROBE with the media rebound flag first: {roaming:?}"
+    );
+    assert!(roaming.contains(&(
+        roaming[0].0,
+        Payload::Confirm {
+            challenge: CHALLENGE
+        }
+    )));
+    assert!(
+        roaming.iter().all(|(from, _)| from.ip() == new),
+        "{roaming:?}"
+    );
+
+    // Video, audio and the microphone resume on the new address.
+    let client = await_ping_from(&host.video, new);
+    for packet in packetizer.frame(&h264_idr(), 2) {
+        host.video.send_to(&packet, client).unwrap();
+    }
+    until("a frame after the roam", || {
+        record.lock().unwrap().frames.len() == 2
+    });
+    let played = record.lock().unwrap().audio.len();
+    let client = await_ping_from(&host.audio, new);
+    for packet in after {
+        host.audio.send_to(packet, client).unwrap();
+        thread::sleep(Duration::from_micros(200));
+    }
+    until("audio after the roam", || {
+        record.lock().unwrap().audio.len() >= played + 50
+    });
+    session.send_microphone(b"after").unwrap();
+    assert_eq!(await_mic_from(&host.mic, new), b"after");
+    // So does the control stream.
+    let inputs = count(&host.control_messages, ptype::INPUT_DATA);
+    session
+        .input(|q| q.send_keyboard(0x41, true, 0, 0))
+        .unwrap();
+    until("input after the roam", || {
+        count(&host.control_messages, ptype::INPUT_DATA) > inputs
+    });
+
+    session.stop();
+    until("the disconnect", || {
+        host.control_disconnected.load(Ordering::SeqCst)
+    });
+    let r = record.lock().unwrap();
+    assert_eq!(r.frames, [(1, FrameType::Idr), (2, FrameType::Idr)]);
+    assert!(r.audio.iter().all(Option::is_some));
+    assert_eq!(r.terminated, None);
 }

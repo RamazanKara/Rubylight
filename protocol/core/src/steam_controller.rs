@@ -79,8 +79,15 @@ pub enum SteamError {
     Short { len: usize },
     /// A haptic report longer than [`STEAM_HAPTIC_REPORT_MAX`].
     ReportTooLong { len: usize },
+    /// A haptic report of no bytes: every report starts with its id.
+    EmptyReport,
     /// More than [`STEAM_SETTINGS_TRIPLES_MAX`] settings triples.
     TooManyTriples { count: usize },
+    /// A settings command other than [`STEAM_SETTINGS_SET_VALUES`] or
+    /// [`STEAM_SETTINGS_LOAD_DEFAULTS`].
+    UnknownCommand { command: u8 },
+    /// [`STEAM_SETTINGS_LOAD_DEFAULTS`] carrying triples, which it never does.
+    TriplesWithDefaults { count: usize },
     /// An attributes packet whose input header is not length 80 with the attributes magic.
     BadHeader { length: u32, magic: u32 },
 }
@@ -100,6 +107,9 @@ impl SteamHaptic {
     pub fn new(controller: u16, report: &[u8]) -> Result<Self, SteamError> {
         if report.len() > STEAM_HAPTIC_REPORT_MAX {
             return Err(SteamError::ReportTooLong { len: report.len() });
+        }
+        if report.is_empty() {
+            return Err(SteamError::EmptyReport);
         }
         let mut padded = [0; STEAM_HAPTIC_REPORT_MAX];
         padded[..report.len()].copy_from_slice(report);
@@ -156,6 +166,16 @@ impl SteamSettings {
             return Err(SteamError::TooManyTriples {
                 count: triples.len(),
             });
+        }
+        match command {
+            STEAM_SETTINGS_SET_VALUES => {}
+            STEAM_SETTINGS_LOAD_DEFAULTS if triples.is_empty() => {}
+            STEAM_SETTINGS_LOAD_DEFAULTS => {
+                return Err(SteamError::TriplesWithDefaults {
+                    count: triples.len(),
+                })
+            }
+            _ => return Err(SteamError::UnknownCommand { command }),
         }
         let mut padded = [[0; 3]; STEAM_SETTINGS_TRIPLES_MAX];
         padded[..triples.len()].copy_from_slice(triples);
@@ -337,6 +357,14 @@ mod tests {
     }
 
     #[test]
+    fn haptic_rejects_an_empty_report() {
+        assert_eq!(SteamHaptic::new(0, &[]), Err(SteamError::EmptyReport));
+        let mut bytes = SteamHaptic::new(0, &[0x80]).unwrap().encode();
+        bytes[2] = 0;
+        assert_eq!(SteamHaptic::decode(&bytes), Err(SteamError::EmptyReport));
+    }
+
+    #[test]
     fn haptic_ignores_bytes_past_its_length() {
         let mut bytes = SteamHaptic::new(1, &[0x80, 7]).unwrap().encode();
         bytes[10] = 0xff;
@@ -393,6 +421,40 @@ mod tests {
         assert_eq!(
             SteamSettings::decode(&bytes[..30]),
             Err(SteamError::Short { len: 30 })
+        );
+    }
+
+    #[test]
+    fn settings_reject_unknown_commands() {
+        for command in [0x00, 0x86, 0x88, 0x8d, 0x8f, 0xff] {
+            assert_eq!(
+                SteamSettings::new(0, command, &[]),
+                Err(SteamError::UnknownCommand { command })
+            );
+        }
+        let mut bytes = SteamSettings::new(0, STEAM_SETTINGS_SET_VALUES, &[[1, 2, 3]])
+            .unwrap()
+            .encode();
+        bytes[2] = 0x86;
+        assert_eq!(
+            SteamSettings::decode(&bytes),
+            Err(SteamError::UnknownCommand { command: 0x86 })
+        );
+    }
+
+    #[test]
+    fn settings_reject_load_defaults_with_triples() {
+        assert_eq!(
+            SteamSettings::new(0, STEAM_SETTINGS_LOAD_DEFAULTS, &[[1, 2, 3]]),
+            Err(SteamError::TriplesWithDefaults { count: 1 })
+        );
+        let mut bytes = SteamSettings::new(0, STEAM_SETTINGS_SET_VALUES, &[[1, 2, 3]])
+            .unwrap()
+            .encode();
+        bytes[2] = STEAM_SETTINGS_LOAD_DEFAULTS;
+        assert_eq!(
+            SteamSettings::decode(&bytes),
+            Err(SteamError::TriplesWithDefaults { count: 1 })
         );
     }
 

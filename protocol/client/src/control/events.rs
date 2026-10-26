@@ -695,4 +695,45 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn empty_steam_haptic_report_is_rejected() {
+        // Java's steamHaptic gets the report id first; an empty array has none.
+        let mut haptic = SteamHaptic::new(3, &[0x80]).unwrap().encode();
+        haptic[2] = 0;
+        assert_eq!(
+            steam_haptic(&haptic),
+            ControlEvent::SteamRejected {
+                message_type: 0x5504,
+                error: SteamError::EmptyReport
+            }
+        );
+    }
+
+    #[test]
+    fn unknown_steam_settings_command_is_rejected() {
+        let mut settings = [0u8; 31];
+        settings[2] = 0x86;
+        assert_eq!(
+            steam_settings(&settings),
+            ControlEvent::SteamRejected {
+                message_type: 0x5505,
+                error: SteamError::UnknownCommand { command: 0x86 }
+            }
+        );
+    }
+
+    #[test]
+    fn steam_load_defaults_with_triples_is_rejected() {
+        let mut settings = [0u8; 31];
+        settings[2] = 0x8e;
+        settings[3] = 1;
+        assert_eq!(
+            steam_settings(&settings),
+            ControlEvent::SteamRejected {
+                message_type: 0x5505,
+                error: SteamError::TriplesWithDefaults { count: 1 }
+            }
+        );
+    }
 }

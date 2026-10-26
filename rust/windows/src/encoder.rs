@@ -6,7 +6,7 @@
 
 use crate::capture::{GpuImage, Image};
 use anyhow::{Context, Result};
-use butterpollo_core::{amd_gpu, rtsp::Negotiated, session::Warnings};
+use butterpollo_core::{amd_gpu, encoder_focus, rtsp::Negotiated, session::Warnings};
 
 /// How `Encoded::bytes` relates to a picture. Only AMF in slice output mode
 /// (`video_slice_delivery`) returns anything but `Whole`: a P-frame then comes
@@ -378,6 +378,54 @@ impl Encoder {
             Self::Pyrowave(e) => e.overlay.is_some(),
         }
     }
+}
+// Encoder focus (docs/encoder-focus-design.md): AMF's ROI map. PyroWave has
+// none: it refuses a map and reports `Reason::Pyrowave`.
+impl Encoder {
+    /// The map's settings for the next frames, or `None` for no map.
+    pub fn set_focus(&mut self, settings: Option<crate::compute::FocusSettings>) -> Result<()> {
+        match self {
+            Self::Amf(e) => e.set_focus(settings),
+            Self::Pyrowave(_) if settings.is_some() => Err(anyhow::anyhow!(
+                "encoder focus: {}",
+                encoder_focus::Reason::Pyrowave.message()
+            )),
+            Self::Pyrowave(_) => Ok(()),
+        }
+    }
+    pub fn set_focus_verify(&mut self, every: Option<u32>) {
+        if let Self::Amf(e) = self {
+            e.set_focus_verify(every);
+        }
+    }
+    pub fn focus_stats(&self) -> std::result::Result<encoder_focus::Stats, encoder_focus::Reason> {
+        match self {
+            Self::Amf(e) => Ok(e.focus_stats()),
+            Self::Pyrowave(_) => Err(encoder_focus::Reason::Pyrowave),
+        }
+    }
+    /// The startup check (design section 7). An error is the encoder's.
+    pub fn probe_focus(&mut self) -> Result<encoder_focus::Support> {
+        match self {
+            Self::Amf(e) => Ok(e.probe_focus()?.support),
+            Self::Pyrowave(_) => Ok(encoder_focus::Support::Unsupported {
+                reason: encoder_focus::Reason::Pyrowave,
+                message: encoder_focus::Reason::Pyrowave.message().into(),
+            }),
+        }
+    }
+}
+/// The visible cursor's centre in `target` pixels, for `centre` focus.
+pub fn focus_cursor(image: &GpuImage, (width, height): (u32, u32)) -> Option<(i32, i32)> {
+    let cursor = image.cursor.as_ref()?;
+    let scale = |position: i32, size: u32, source: u32, target: u32| {
+        ((i64::from(position) + i64::from(size / 2)) * i64::from(target) / i64::from(source.max(1)))
+            as i32
+    };
+    Some((
+        scale(cursor.position[0], cursor.width, image.width, width),
+        scale(cursor.position[1], cursor.height, image.height, height),
+    ))
 }
 #[cfg(test)]
 mod tests {

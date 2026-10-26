@@ -24,6 +24,9 @@ pub enum NameError {
     /// `..`, the parent folder.
     ParentFolder,
     ControlCharacter,
+    /// An invisible formatting character, such as a bidirectional override
+    /// that shows `exe.txt` for `txt.exe`, or a zero-width space.
+    FormatCharacter,
     /// `:`, which would name an alternate data stream.
     StreamSeparator,
     /// `<`, `>`, `"`, `|`, `?` or `*`, which Windows refuses in a name.
@@ -33,6 +36,8 @@ pub enum NameError {
     /// Windows strips a trailing dot or space, so the file would not keep
     /// the name it was sent with.
     TrailingDotOrSpace,
+    /// Ends in `.part`, the suffix of uploads in progress.
+    PartSuffix,
 }
 impl std::fmt::Display for NameError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -42,10 +47,12 @@ impl std::fmt::Display for NameError {
             Self::PathSeparator => "the file name contains a path separator",
             Self::ParentFolder => "the file name names the parent folder",
             Self::ControlCharacter => "the file name contains a control character",
+            Self::FormatCharacter => "the file name contains an invisible formatting character",
             Self::StreamSeparator => "the file name contains a colon",
             Self::InvalidCharacter => "the file name contains a character Windows refuses",
             Self::ReservedDeviceName => "the file name is a reserved Windows device name",
             Self::TrailingDotOrSpace => "the file name ends with a dot or a space",
+            Self::PartSuffix => "the file name ends with .part",
         })
     }
 }
@@ -56,6 +63,28 @@ const RESERVED: &[&str] = &[
     "COM5", "COM6", "COM7", "COM8", "COM9", "COM¹", "COM²", "COM³", "LPT0", "LPT1", "LPT2", "LPT3",
     "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9", "LPT¹", "LPT²", "LPT³",
 ];
+
+/// Invisible formatting characters (Unicode category Cf) that can make a
+/// name look like another: bidirectional marks, embeddings, overrides and
+/// isolates, zero-width spaces and joiners of words, the byte order mark.
+/// The zero-width joiner and non-joiner stay allowed: emoji sequences and
+/// Persian and Indic words need them.
+fn format_character(c: char) -> bool {
+    matches!(
+        c,
+        '\u{ad}'
+            | '\u{61c}'
+            | '\u{180e}'
+            | '\u{200b}'
+            | '\u{200e}'
+            | '\u{200f}'
+            | '\u{202a}'..='\u{202e}'
+            | '\u{2060}'..='\u{2064}'
+            | '\u{2066}'..='\u{206f}'
+            | '\u{feff}'
+            | '\u{fff9}'..='\u{fffb}'
+    )
+}
 
 /// Checks a client's file name, which must name a file directly in the
 /// transfer folder. Names are refused, never rewritten, so the client
@@ -76,6 +105,9 @@ pub fn check_name(name: &str) -> Result<(), NameError> {
     if name.chars().any(char::is_control) {
         return Err(NameError::ControlCharacter);
     }
+    if name.chars().any(format_character) {
+        return Err(NameError::FormatCharacter);
+    }
     if name.contains(':') {
         return Err(NameError::StreamSeparator);
     }
@@ -93,7 +125,16 @@ pub fn check_name(name: &str) -> Result<(), NameError> {
     {
         return Err(NameError::ReservedDeviceName);
     }
+    if has_part_suffix(name) {
+        return Err(NameError::PartSuffix);
+    }
     Ok(())
+}
+
+/// Whether `name` ends in [`PART_SUFFIX`], in any case.
+pub fn has_part_suffix(name: &str) -> bool {
+    name.get(name.len().saturating_sub(PART_SUFFIX.len())..)
+        .is_some_and(|end| end.eq_ignore_ascii_case(PART_SUFFIX))
 }
 
 /// The name an upload takes on its `n`th collision: `name (n).ext`, the
@@ -235,6 +276,22 @@ mod tests {
             (".", NameError::TrailingDotOrSpace),
             ("...", NameError::TrailingDotOrSpace),
             ("photo.jpg.", NameError::TrailingDotOrSpace),
+            // Shows as `invoice_exe.pdf` but ends in `.exe`.
+            ("invoice_\u{202e}fdp.exe", NameError::FormatCharacter),
+            ("a\u{202a}b", NameError::FormatCharacter),
+            ("a\u{2066}b\u{2069}", NameError::FormatCharacter),
+            ("a\u{200e}.txt", NameError::FormatCharacter),
+            ("a\u{200f}.txt", NameError::FormatCharacter),
+            ("a\u{61c}.txt", NameError::FormatCharacter),
+            ("photo\u{200b}.jpg", NameError::FormatCharacter),
+            ("photo\u{2060}.jpg", NameError::FormatCharacter),
+            ("\u{feff}photo.jpg", NameError::FormatCharacter),
+            ("pho\u{ad}to.jpg", NameError::FormatCharacter),
+            ("x.part", NameError::PartSuffix),
+            ("x.PART", NameError::PartSuffix),
+            ("photo.jpg.Part", NameError::PartSuffix),
+            (".part", NameError::PartSuffix),
+            ("日本.part", NameError::PartSuffix),
         ];
         for (name, error) in cases {
             assert_eq!(check_name(name), Err(*error), "{name:?}");
@@ -262,6 +319,13 @@ mod tests {
             "emoji 🎮.zip",
             " leading space.txt",
             "tab-free name (1).txt",
+            // Joiners stay: a family emoji and a Persian word use them.
+            "family 👨\u{200d}👩\u{200d}👧.png",
+            "می\u{200c}خواهم.txt",
+            "x.parts",
+            "partial.txt",
+            "part",
+            "x.par",
         ] {
             assert_eq!(check_name(name), Ok(()), "{name:?}");
         }

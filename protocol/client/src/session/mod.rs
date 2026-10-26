@@ -349,6 +349,13 @@ impl Shared {
             ));
         }
     }
+
+    /// Raises the queued video decode thread; a refusal is logged, not fatal.
+    pub(crate) fn prioritize_decode_thread(&self) {
+        if let Err(e) = priority::prioritize_decode_thread() {
+            self.warn(&format!("Could not raise the priority of VideoDec: {e}"));
+        }
+    }
 }
 
 struct Microphone {

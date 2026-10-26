@@ -46,12 +46,12 @@
 
     <div class="stats">
       <div class="stat">
-        <p class="stat-value">7.41<span> ms</span></p>
-        <p class="stat-label">median from capture to client present, H.264 1080p60</p>
-        <p class="stat-note">HEVC 8.81 ms · AV1 8.82 ms · PyroWave 13.34 ms · loopback</p>
+        <p class="stat-value">5.89<span> ms</span></p>
+        <p class="stat-label">median from capture to client present, AV1 1080p60</p>
+        <p class="stat-note">H.264 6.92 ms · HEVC 8.37 ms · loopback</p>
       </div>
       <div class="stat">
-        <p class="stat-value">0.27<span> ms</span></p>
+        <p class="stat-value">0.25<span> ms</span></p>
         <p class="stat-label">median age of the picture at the encoder with VRR</p>
         <p class="stat-note">down from 4.68 ms · 120 Hz game in a 60 fps stream</p>
       </div>
@@ -86,8 +86,8 @@
           <tr><th>What</th><th>Result</th></tr>
         </thead>
         <tbody>
-          <tr><td>Frame timing record, 1080p60, loopback</td><td><b>7.41 ms</b> median from capture to client present with H.264, <b>8.81 ms</b> with HEVC, <b>8.82 ms</b> with AV1, <b>13.34 ms</b> with PyroWave. <a href="rust/PERFORMANCE.html#october-23-per-frame-timing-record-baselines">Baselines</a></td></tr>
-          <tr><td>VRR-aware capture</td><td>A 120 Hz game in a 60 fps stream: median age at the encoder <b>4.68 to 0.27 ms</b>, present to sent <b>7.27 to 3.80 ms</b>, shown frame rate unchanged. <a href="rust/PERFORMANCE.html#october-24-predictive-claim-waits-under-vrr">VRR</a></td></tr>
+          <tr><td>Frame timing record, 1080p60, loopback</td><td><b>5.89 ms</b> median from capture to client present with AV1, <b>6.92 ms</b> with H.264, <b>8.37 ms</b> with HEVC on 3.0.0-rc.2, and <b>13.34 ms</b> with PyroWave (October 23). <a href="rust/PERFORMANCE.html#october-26-300-rc2-against-the-published-numbers">rc.2 record</a>, <a href="rust/PERFORMANCE.html#october-23-per-frame-timing-record-baselines">baselines</a></td></tr>
+          <tr><td>VRR-aware capture</td><td>A 120 Hz game in a 60 fps stream: median age at the encoder <b>4.68 to 0.25 ms</b>, present to sent <b>7.27 to 3.50 ms</b> on 3.0.0-rc.2, shown frame rate unchanged. <a href="rust/PERFORMANCE.html#october-26-300-rc2-against-the-published-numbers">rc.2 record</a>, <a href="rust/PERFORMANCE.html#october-24-predictive-claim-waits-under-vrr">VRR</a></td></tr>
           <tr><td>Link-rate adaptation</td><td>75 Mbps asked of a 50 Mbit/s link: <b>under 2 %</b> of frames lost after the start-up, against 6.7 % before the fix, and no change on an emulated 150 Mbit/s Wi-Fi link with 0.5 % loss. <a href="rust/PERFORMANCE.html#october-24-link-rate-false-cuts-and-the-knee-hold-link-fix">Link-rate fix</a></td></tr>
           <tr><td>Stream presets</td><td>Lowest latency makes the first keyframe <b>29 %</b> smaller on HEVC and <b>38 to 40 %</b> smaller on H.264. The median end to end time of the three presets stayed within <b>0.15 ms</b>. <a href="rust/PERFORMANCE.html#october-23-stream-presets-b3">Presets</a></td></tr>
           <tr><td>Slice delivery (experimental)</td><td>On the Nightjar desktop client, 4K60 HEVC at 80 Mbps arrives <b>1.3 to 1.5 ms</b> sooner on loopback and <b>1.2 to 1.4 ms</b> sooner over Wi-Fi 6E. <a href="rust/PERFORMANCE.html#october-23-slice-delivery-b2-step-2f">Slice delivery</a></td></tr>

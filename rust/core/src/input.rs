@@ -1,6 +1,10 @@
 //! Decoding Moonlight's input packets (keyboard, mouse, pen, touch, gamepad
 //! and haptics) into [`Input`] events.
 use anyhow::{Result, bail};
+use rubylight_protocol::steam_controller::{
+    STEAM_ATTRIBUTES_BYTES, STEAM_ATTRIBUTES_MAGIC, SteamAttributes, SteamError,
+};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Input {
@@ -83,6 +87,58 @@ pub enum Input {
         percent: u8,
     },
     Haptics(bool),
+    /// The real Steam Controller's firmware attributes (0x55000008), sent
+    /// after its arrival. Nothing consumes them until a driver with the
+    /// Steam Controller profile is pinned.
+    SteamAttributes(SteamAttributes),
+}
+/// A Steam Controller attributes packet (0x55000008) the host refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SteamAttributesError {
+    /// Not the codec's 84 bytes, header included.
+    Length { len: usize },
+    /// A controller number past the 16 the protocol has.
+    Controller { id: u8 },
+    /// The shared codec refused the bytes.
+    Codec(SteamError),
+}
+impl std::fmt::Display for SteamAttributesError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Length { len } => write!(
+                f,
+                "Steam Controller attributes packet of {len} bytes, not {STEAM_ATTRIBUTES_BYTES}"
+            ),
+            Self::Controller { id } => {
+                write!(f, "Steam Controller attributes for controller {id}")
+            }
+            Self::Codec(error) => write!(f, "Steam Controller attributes refused: {error:?}"),
+        }
+    }
+}
+impl std::error::Error for SteamAttributesError {}
+/// Warn about the first refused attributes packet only: a client that sends
+/// them malformed sends them with every arrival.
+static STEAM_ATTRIBUTES_REFUSED: AtomicBool = AtomicBool::new(false);
+fn steam_attributes(b: &[u8]) -> Result<Input> {
+    let refused = |error: SteamAttributesError| {
+        if !STEAM_ATTRIBUTES_REFUSED.swap(true, Ordering::Relaxed) {
+            tracing::warn!(%error, "ignoring Steam Controller attributes");
+        }
+        Err(error.into())
+    };
+    if b.len() != STEAM_ATTRIBUTES_BYTES {
+        return refused(SteamAttributesError::Length { len: b.len() });
+    }
+    match SteamAttributes::decode(b) {
+        Ok(attributes) if attributes.controller >= 16 => {
+            refused(SteamAttributesError::Controller {
+                id: attributes.controller,
+            })
+        }
+        Ok(attributes) => Ok(Input::SteamAttributes(attributes)),
+        Err(error) => refused(SteamAttributesError::Codec(error)),
+    }
 }
 fn be16(b: &[u8], n: usize) -> i16 {
     i16::from_be_bytes([b[n], b[n + 1]])
@@ -103,6 +159,10 @@ fn float(b: &[u8], n: usize) -> Result<f32> {
 pub fn decode(b: &[u8]) -> Result<Input> {
     if b.len() < 8 {
         bail!("short input header");
+    }
+    // Before the framing check, so every wrong length is the typed error.
+    if le32(b, 4) == STEAM_ATTRIBUTES_MAGIC {
+        return steam_attributes(b);
     }
     let declared = u32::from_be_bytes(b[..4].try_into().unwrap()) as usize;
     if declared != b.len() - 4 {
@@ -576,6 +636,7 @@ mod tests {
                 0x55000003,
                 0x55000005,
                 0x55000006,
+                STEAM_ATTRIBUTES_MAGIC,
                 u32::MAX,
             ] {
                 let mut b = vec![0; len];
@@ -687,6 +748,109 @@ mod tests {
                     }
                 );
             }
+        }
+    }
+
+    /// The codec's golden attributes packet, byte for byte.
+    fn steam_attributes_packet() -> Vec<u8> {
+        let mut packet = vec![0; 84];
+        packet[..8].copy_from_slice(&[0, 0, 0, 80, 0x08, 0x00, 0x00, 0x55]);
+        packet[8..12].copy_from_slice(&[1, 2, 0xff, 0]);
+        packet[12..16].copy_from_slice(&[0xe3, 0x85, 0x4d, 0x6a]);
+        packet[16..20].copy_from_slice(&[0x2e, 0xf9, 0xd2, 0x68]);
+        packet[20..24].copy_from_slice(&[74, 0, 0, 0]);
+        packet[24..28].copy_from_slice(&[0x04, 0x03, 0x02, 0x01]);
+        packet[28..32].copy_from_slice(&[0x14, 0x13, 0x12, 0x11]);
+        packet[32..36].copy_from_slice(&[0x24, 0x23, 0x22, 0x21]);
+        packet[36..48].copy_from_slice(b"26e1f7ef1955");
+        packet[52..59].copy_from_slice(b"FXA0001");
+        packet[68..75].copy_from_slice(b"MXA0002");
+        packet
+    }
+
+    fn steam_attributes_error(packet: &[u8]) -> SteamAttributesError {
+        *decode(packet)
+            .unwrap_err()
+            .downcast_ref::<SteamAttributesError>()
+            .expect("typed Steam attributes error")
+    }
+
+    #[test]
+    fn steam_attributes_decode_the_codecs_golden_packet() {
+        let Input::SteamAttributes(attributes) = decode(&steam_attributes_packet()).unwrap() else {
+            panic!("not Steam attributes");
+        };
+        let padded = |text: &[u8]| {
+            let mut out = [0; 16];
+            out[..text.len()].copy_from_slice(text);
+            out
+        };
+        assert_eq!(
+            attributes,
+            SteamAttributes {
+                controller: 1,
+                transport: rubylight_protocol::steam_controller::LI_SCATTR_TRANSPORT_PUCK,
+                valid_mask: 0xff,
+                firmware_build_time: 0x6a4d_85e3,
+                bootloader_build_time: 0x68d2_f92e,
+                board_revision: 74,
+                capabilities: 0x0102_0304,
+                radio_firmware_build_time: 0x1112_1314,
+                dongle_firmware_build_time: 0x2122_2324,
+                build_id: padded(b"26e1f7ef1955"),
+                unit_serial: padded(b"FXA0001"),
+                board_serial: padded(b"MXA0002"),
+            }
+        );
+        // Shares the controller permission; never coalesced with anything.
+        let event = Input::SteamAttributes(attributes);
+        assert_eq!(event.required_permission(), 1 << 8);
+        assert_eq!(event.clone().merge(&event), Batch::Stop);
+    }
+
+    #[test]
+    fn steam_attributes_of_the_wrong_length_are_a_typed_error() {
+        let golden = steam_attributes_packet();
+        for len in [8, 12, 80, 83, 85, 120] {
+            let mut packet = golden.clone();
+            packet.resize(len, 0);
+            // A consistent framing header must not let a wrong length through.
+            packet[..4].copy_from_slice(&((len - 4) as u32).to_be_bytes());
+            assert_eq!(
+                steam_attributes_error(&packet),
+                SteamAttributesError::Length { len }
+            );
+            packet[..4].copy_from_slice(&80u32.to_be_bytes());
+            assert_eq!(
+                steam_attributes_error(&packet),
+                SteamAttributesError::Length { len }
+            );
+        }
+        let mut header = golden.clone();
+        header[..4].copy_from_slice(&84u32.to_be_bytes());
+        assert_eq!(
+            steam_attributes_error(&header),
+            SteamAttributesError::Codec(SteamError::BadHeader {
+                length: 84,
+                magic: STEAM_ATTRIBUTES_MAGIC
+            })
+        );
+        let mut controller = golden;
+        controller[8] = 16;
+        assert_eq!(
+            steam_attributes_error(&controller),
+            SteamAttributesError::Controller { id: 16 }
+        );
+    }
+
+    #[test]
+    fn refused_or_unknown_steam_packets_leave_other_input_alone() {
+        let mouse = hex::decode("0000000807000000fffb0004").unwrap();
+        let mut unknown = steam_attributes_packet();
+        unknown[4] = 0x09;
+        for refused in [vec![0, 0, 0, 4, 0x08, 0, 0, 0x55], unknown] {
+            assert!(decode(&refused).is_err());
+            assert_eq!(decode(&mouse).unwrap(), Input::Relative { x: -5, y: 4 });
         }
     }
 

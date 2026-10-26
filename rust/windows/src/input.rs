@@ -734,6 +734,9 @@ impl Injector {
                 tilt,
             } => self.pen(*event, *tool, *buttons, *x, *y, *pressure, *rotation, *tilt)?,
             Haptics(enabled) => self.haptics = *enabled,
+            // Only the VHF Steam Controller profile takes them, and no pinned
+            // driver has it yet.
+            SteamAttributes(_) => {}
             Controller { .. }
             | Arrival { .. }
             | ControllerTouch { .. }

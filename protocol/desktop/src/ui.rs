@@ -1975,6 +1975,15 @@ impl Launcher {
                         }
                     }).response
             });
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["unbatched_input"], "Instant mouse and pen input", "Send mouse and pen movements immediately.", |ui, s| {
+                toggle(ui, &mut s.unbatched_input)
+            });
+            // The engine sets socket and thread priorities on Linux only; on Windows the switch would do nothing.
+            if cfg!(target_os = "linux") {
+                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["network_priority"], "Prioritize stream traffic", "Give stream traffic priority on this device.", |ui, s| {
+                    toggle(ui, &mut s.network_priority)
+                });
+            }
 
             if !layered {
                 section_at(ui, "App", &mut jump);

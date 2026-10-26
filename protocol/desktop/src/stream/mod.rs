@@ -655,6 +655,20 @@ fn location_override() -> Location {
     }
 }
 
+/// The engine's session flags for this role and these settings. A Remote Monitor session is
+/// view-only: the engine starts no input stream and does not wiggle the host's mouse.
+fn session_config(settings: &Settings, role: AppRole, stream: StreamConfig, location: Location) -> SessionConfig {
+    SessionConfig {
+        stream,
+        location,
+        network_grace: Duration::from_millis(u64::from(settings.network_grace_ms)),
+        input_only: role == AppRole::InputOnly,
+        remote_monitor: role == AppRole::RemoteMonitor,
+        unbatched_input: settings.unbatched_input,
+        network_priority: settings.network_priority,
+    }
+}
+
 /// The setting, unless `NIGHTJAR_EARLY_DECODE` is `1` or `0` (for measurement runs).
 fn early_decode(setting: bool) -> bool {
     match std::env::var("NIGHTJAR_EARLY_DECODE").as_deref() {
@@ -834,13 +848,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
     let (early, slices) = (race_ask.early_decode, race_ask.slices);
     let session = Session::start(
         &host,
-        SessionConfig {
-            stream,
-            location: location_override(),
-            network_grace: Duration::from_millis(u64::from(settings.network_grace_ms)),
-            input_only: role == AppRole::InputOnly,
-            ..Default::default()
-        },
+        session_config(settings, role, stream, location_override()),
         Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early).with_beam_race(slices).with_gpu_decoder(plan.gpu_decoder)),
         Box::new(pipeline::Audio::new(shared.clone())),
         Arc::new(pipeline::Events { shared }),
@@ -2711,6 +2719,31 @@ mod tests {
         // A variable naming the speed wins over the setting, and the pace variable over the measurement.
         let forced = link_hints(false, 2500, Some(1000), 2100, Some(900));
         assert_eq!(forced, LinkHints { link_mbps: 1000, sent_link_mbps: 1000, pace_mbps: 900 });
+    }
+
+    #[test]
+    fn only_a_remote_monitor_session_is_view_only() {
+        let settings = Settings::default();
+        let config = |role| session_config(&settings, role, StreamConfig::default(), Location::Auto);
+        let monitor = config(AppRole::RemoteMonitor);
+        assert!(monitor.remote_monitor && !monitor.input_only);
+        let stream = config(AppRole::Stream);
+        assert!(!stream.remote_monitor && !stream.input_only);
+        let input = config(AppRole::InputOnly);
+        assert!(!input.remote_monitor && input.input_only);
+    }
+
+    #[test]
+    fn the_input_and_priority_settings_reach_the_engine() {
+        let on = session_config(&Settings::default(), AppRole::Stream, StreamConfig::default(), Location::Local);
+        assert!(on.unbatched_input && on.network_priority);
+        assert_eq!((on.location, on.network_grace), (Location::Local, Duration::from_millis(3000)));
+        for (unbatched_input, network_priority) in [(false, true), (true, false), (false, false)] {
+            let settings = Settings { unbatched_input, network_priority, network_grace_ms: 0, ..Default::default() };
+            let config = session_config(&settings, AppRole::Stream, StreamConfig::default(), Location::Auto);
+            assert_eq!((config.unbatched_input, config.network_priority), (unbatched_input, network_priority));
+            assert_eq!(config.network_grace, Duration::ZERO);
+        }
     }
 
     #[test]

@@ -213,6 +213,12 @@ pub struct Settings {
     /// (`x-ss-video[0].pyrowaveLinkMbps`, any codec, any host). On by default. The calibrated pace
     /// is looked up with the real link speed either way.
     pub tell_host_link_speed: bool,
+    /// Send mouse and pen motion at once instead of batching it for 1 ms (Android's "Instant
+    /// mouse and pen input"). On by default, as on Android.
+    pub unbatched_input: bool,
+    /// "Prioritize stream traffic": socket and thread priority for the stream, which the engine
+    /// sets on Linux only. On by default, as on Android.
+    pub network_priority: bool,
     pub auto_reconnect: bool,
     pub virtual_display: bool,
     pub virtual_display_scale: u32,
@@ -344,6 +350,8 @@ impl Default for Settings {
             network_grace_ms: 3000,
             tell_host_wireless: true,
             tell_host_link_speed: true,
+            unbatched_input: true,
+            network_priority: true,
             auto_reconnect: false,
             virtual_display: false,
             virtual_display_scale: 100,
@@ -1285,6 +1293,19 @@ mod tests {
         assert!(old.tell_host_link_speed && !old.tell_host_wireless);
         let off: Settings = serde_json::from_str(r#"{"tell_host_link_speed":false}"#).unwrap();
         assert!(!off.tell_host_link_speed);
+    }
+
+    #[test]
+    fn instant_input_and_stream_priority_are_on_by_default_and_round_trip() {
+        let defaults = Settings::default();
+        assert!(defaults.unbatched_input && defaults.network_priority);
+        // A settings file from before the fields existed turns both on, as Android does.
+        let old: Settings = serde_json::from_str(r#"{"fps":60,"network_grace_ms":5000}"#).unwrap();
+        assert!(old.unbatched_input && old.network_priority);
+        let off = Settings { unbatched_input: false, network_priority: false, ..Settings::default() };
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&off).unwrap()).unwrap();
+        assert_eq!(back, off);
+        assert_eq!(serde_json::from_str::<Settings>(&serde_json::to_string(&defaults).unwrap()).unwrap(), defaults);
     }
 
     #[test]

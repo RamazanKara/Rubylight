@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_client_roaming">Chuyển vùng máy khách (Thử nghiệm)</string>
+    <string name="summary_client_roaming">Giữ luồng phát khi thiết bị này đổi mạng. Hoạt động với PC Rubylight có hỗ trợ.</string>
+    <string name="title_roaming_metered">Tiếp tục bằng dữ liệu di động</string>
+    <string name="summary_roaming_metered">Cho phép luồng phát chuyển sang dữ liệu di động hoặc mạng tính phí theo dung lượng khác. Phát trực tuyến dùng nhiều dữ liệu.</string>
+</resources>

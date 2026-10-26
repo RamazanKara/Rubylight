@@ -195,6 +195,28 @@ public class SettingsStructureTest {
     }
 
     @Test
+    public void mobileDataShowsOnlyWhileClientRoamingIsOn() {
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            PreferenceScreen streaming = open(controller.get(), "streaming").getPreferenceScreen();
+            SwitchPreference roaming = (SwitchPreference) streaming.findPreference("checkbox_client_roaming");
+            assertTrue(roaming.isChecked());
+            SwitchPreference metered = (SwitchPreference) streaming.findPreference("checkbox_roaming_metered");
+            assertFalse(metered.isChecked());
+            roaming.setChecked(false);
+            assertNull(streaming.findPreference("checkbox_roaming_metered"));
+            roaming.setChecked(true);
+            assertNotNull(streaming.findPreference("checkbox_roaming_metered"));
+        }
+        // The C engine does not roam: both rows are hidden.
+        prefs().edit().putBoolean("checkbox_rust_engine", false).commit();
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            PreferenceScreen streaming = open(controller.get(), "streaming").getPreferenceScreen();
+            assertNull(streaming.findPreference("checkbox_client_roaming"));
+            assertNull(streaming.findPreference("checkbox_roaming_metered"));
+        }
+    }
+
+    @Test
     public void adaptiveRefreshDisablesFramePacingAndTheLowerRefreshRate() {
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
             StreamSettings.SettingsFragment display = open(controller.get(), "display");

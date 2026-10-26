@@ -48,4 +48,15 @@ final class SettingRules {
     static boolean qualityLimitsApply(SharedPreferences prefs) {
         return !"off".equals(prefs.getString(ADAPTIVE_QUALITY, "off"));
     }
+
+    /** Only the new streaming engine roams; the C engine ignores the choice. */
+    static boolean clientRoamingApplies(SharedPreferences prefs) {
+        return prefs.getBoolean(PreferenceConfiguration.RUST_ENGINE_PREF_STRING, true);
+    }
+
+    /** Continuing on mobile data is a roaming choice, so it shows only while roaming is on. */
+    static boolean roamingMeteredApplies(SharedPreferences prefs) {
+        return clientRoamingApplies(prefs) &&
+                prefs.getBoolean(PreferenceConfiguration.CLIENT_ROAMING_PREF_STRING, true);
+    }
 }

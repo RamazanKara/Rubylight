@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_client_roaming">客户端漫游（实验性）</string>
+    <string name="summary_client_roaming">此设备切换网络时保持串流。适用于支持此功能的 Rubylight PC。</string>
+    <string name="title_roaming_metered">使用移动数据继续</string>
+    <string name="summary_roaming_metered">允许串流切换到移动数据或其他按流量计费的网络。串流会消耗大量数据。</string>
+</resources>

@@ -534,6 +534,17 @@
             android:entries="@array/network_grace_names"
             android:entryValues="@array/network_grace_values"
             android:defaultValue="0" />
+        <!-- Rust engine only (SettingRules.clientRoamingApplies); mobile data only while roaming is on. -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_client_roaming"
+            android:title="@string/title_client_roaming"
+            android:dialogMessage="@string/summary_client_roaming"
+            android:defaultValue="true" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_roaming_metered"
+            android:title="@string/title_roaming_metered"
+            android:dialogMessage="@string/summary_roaming_metered"
+            android:defaultValue="false" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_tell_host_wireless"
             android:title="@string/title_tell_host_wireless"

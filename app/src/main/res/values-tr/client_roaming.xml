@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_client_roaming">İstemci dolaşımı (Deneysel)</string>
+    <string name="summary_client_roaming">Bu cihaz ağ değiştirdiğinde yayını sürdürür. Bunu destekleyen Rubylight PC\'lerle çalışır.</string>
+    <string name="title_roaming_metered">Mobil veriyle devam et</string>
+    <string name="summary_roaming_metered">Yayının mobil veriye veya başka bir ölçülü ağa geçmesine izin verir. Yayın çok veri kullanır.</string>
+</resources>

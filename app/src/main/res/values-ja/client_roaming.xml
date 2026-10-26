@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_client_roaming">クライアントローミング（試験運用）</string>
+    <string name="summary_client_roaming">このデバイスがネットワークを切り替えてもストリームを継続します。対応する Rubylight PC で動作します。</string>
+    <string name="title_roaming_metered">モバイルデータで続行</string>
+    <string name="summary_roaming_metered">ストリームをモバイルデータや他の従量制ネットワークに移行できるようにします。ストリーミングは大量のデータを使用します。</string>
+</resources>

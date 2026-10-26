@@ -70,6 +70,15 @@ public class SettingsBatchTest {
         assertFalse(SettingRules.qualityLimitsApply(p));
         p.edit().putString("adaptive_quality_mode", "balanced").commit();
         assertTrue(SettingRules.qualityLimitsApply(p));
+        // Roaming is on by default with the new engine; mobile data follows roaming.
+        assertTrue(SettingRules.clientRoamingApplies(p));
+        assertTrue(SettingRules.roamingMeteredApplies(p));
+        p.edit().putBoolean("checkbox_client_roaming", false).commit();
+        assertTrue(SettingRules.clientRoamingApplies(p));
+        assertFalse(SettingRules.roamingMeteredApplies(p));
+        p.edit().putBoolean("checkbox_client_roaming", true).putBoolean("checkbox_rust_engine", false).commit();
+        assertFalse(SettingRules.clientRoamingApplies(p));
+        assertFalse(SettingRules.roamingMeteredApplies(p));
     }
 
     @Test

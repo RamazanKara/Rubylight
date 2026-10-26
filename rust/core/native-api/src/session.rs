@@ -159,8 +159,15 @@ mod tests {
         assert_eq!(request, CouchMenuRequest { open: true });
         let text = serde_json::to_string(&CouchMenuRequest { open: false }).unwrap();
         assert_eq!(text, r#"{"open":false}"#);
-        for bad in [r#"{"open":true,"page":"radeon"}"#, "{}", r#"{"open":"yes"}"#] {
-            assert!(serde_json::from_str::<CouchMenuRequest>(bad).is_err(), "{bad}");
+        for bad in [
+            r#"{"open":true,"page":"radeon"}"#,
+            "{}",
+            r#"{"open":"yes"}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<CouchMenuRequest>(bad).is_err(),
+                "{bad}"
+            );
         }
     }
 
@@ -180,7 +187,10 @@ mod tests {
             "features":["library","session","session.close_game","radeon.read","radeon.write"],
             "permissions":{"list":true,"view":true,"launch":true,"host_control":false}}"#;
         let capabilities: Capabilities = serde_json::from_str(old).unwrap();
-        assert!(!capabilities.features.iter().any(|f| f == feature::COUCH_MENU));
+        assert!(!capabilities
+            .features
+            .iter()
+            .any(|f| f == feature::COUCH_MENU));
         assert_eq!(feature::COUCH_MENU, "session.couch_menu");
     }
 }

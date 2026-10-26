@@ -18,6 +18,9 @@ import com.limelight.LimeLog;
 import com.limelight.binding.PlatformBinding;
 import com.limelight.discovery.DiscoveryService;
 import com.limelight.grid.assets.DiskAssetLoader;
+import com.limelight.nativeapi.HostEndpoint;
+import com.limelight.nativeapi.JniNativeApiTransport;
+import com.limelight.nativeapi.NativeApiClient;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
@@ -25,6 +28,8 @@ import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.http.PairingManager;
 import com.limelight.nvstream.mdns.MdnsComputer;
 import com.limelight.nvstream.mdns.MdnsDiscoveryListener;
+import com.limelight.nvstream.wol.WakeTargets;
+import com.limelight.nvstream.wol.WakeTargetsPoll;
 import com.limelight.preferences.HostDisplayChoice;
 import com.limelight.preferences.HostStreamProfile;
 import com.limelight.utils.CacheHelper;
@@ -63,6 +68,8 @@ public class ComputerManagerService extends Service {
     private final AtomicInteger dbRefCount = new AtomicInteger(0);
 
     private IdentityManager idManager;
+    // Keeps the wake targets of the polled PCs, for wakes from the PC list and shortcuts.
+    private WakeTargetsPoll wakeTargets;
     private final LinkedList<PollingTuple> pollingTuples = new LinkedList<>();
     private volatile ComputerManagerListener listener;
     private final AtomicInteger activePolls = new AtomicInteger(0);
@@ -172,6 +179,8 @@ public class ComputerManagerService extends Service {
                 currentListener.notifyComputerUpdated(details);
             }
 
+            // After the listener, so a PC that answers is shown before its native API is asked.
+            wakeTargets.polled(details);
             return true;
         } finally {
             releaseLocalDatabaseReference();
@@ -759,6 +768,12 @@ public class ComputerManagerService extends Service {
         return null;
     }
 
+    /** The PC's native API, or null before it is paired (no address or pinned certificate). */
+    NativeApiClient nativeClient(ComputerDetails computer) {
+        HostEndpoint endpoint = HostEndpoint.of(computer, idManager.getUniqueId(), PlatformBinding.getCryptoProvider(this));
+        return endpoint == null ? null : new NativeApiClient(new JniNativeApiTransport(), endpoint);
+    }
+
     boolean pollComputer(ComputerDetails details) throws InterruptedException {
         RedactedLog.addComputerSecrets(details);
         // Poll all addresses in parallel to speed up the process
@@ -785,6 +800,7 @@ public class ComputerManagerService extends Service {
 
         // Lookup or generate this device's UID
         idManager = new IdentityManager(this);
+        wakeTargets = new WakeTargetsPoll(new WakeTargets(this), this::nativeClient, SystemClock::elapsedRealtime);
 
         // Initialize the DB
         dbManager = new ComputerDatabaseManager(this);

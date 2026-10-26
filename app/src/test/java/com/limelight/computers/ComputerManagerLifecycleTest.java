@@ -6,7 +6,11 @@ import android.content.ServiceConnection;
 
 import com.limelight.AppView;
 import com.limelight.discovery.DiscoveryService;
+import com.limelight.nativeapi.HostEndpoint;
+import com.limelight.nativeapi.NativeApiClient;
+import com.limelight.nativeapi.NativeApiFixtures;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.wol.WakeTargets;
 import com.limelight.nvstream.mdns.MdnsComputer;
 import com.limelight.nvstream.mdns.MdnsDiscoveryAgent;
 import com.limelight.nvstream.mdns.MdnsDiscoveryListener;
@@ -271,6 +275,40 @@ public class ComputerManagerLifecycleTest {
             assertEquals(computer.uuid, restored.uuid);
             assertEquals(com.limelight.nvstream.http.HostCapabilities.Family.VIBEPOLLO, restored.caps.family());
             assertTrue(restored.caps.has(com.limelight.nvstream.http.HostCapabilities.Feature.VIRTUAL_DISPLAY));
+        } finally {
+            controller.destroy();
+        }
+    }
+
+    /** Answers every poll and has a scripted native API. */
+    public static class NativeManager extends OnlineManager {
+        final NativeApiFixtures.FakeTransport transport = new NativeApiFixtures.FakeTransport();
+
+        @Override NativeApiClient nativeClient(ComputerDetails computer) {
+            return new NativeApiClient(transport, HostEndpoint.of(computer, "unique", NativeApiFixtures.crypto()));
+        }
+    }
+
+    @Test
+    public void aPollOfAPcThatListsWakeKeepsItsTargetsForThePcListAndShortcuts() {
+        ServiceController<NativeManager> controller = Robolectric.buildService(NativeManager.class).create();
+        NativeManager service = controller.get();
+        try {
+            service.transport.reply("tower", "capabilities", NativeApiFixtures.ok("{\"api_version\":1,"
+                    + "\"features\":[\"wake\"],\"permissions\":{\"list\":true,\"view\":true,\"launch\":true,"
+                    + "\"host_control\":false}}"));
+            service.transport.reply("tower", "wake", NativeApiFixtures.ok("{\"revision\":1,\"targets\":["
+                    + "{\"mac\":\"02:e0:4c:68:00:01\",\"broadcasts\":[\"10.0.0.255\"]}]}"));
+            ComputerDetails found = NativeApiFixtures.nativeHost("tower", "Tower", false);
+            found.remoteAddress = found.activeAddress;
+            ReflectionHelpers.callInstanceMethod(service, "runPoll",
+                    ReflectionHelpers.ClassParameter.from(ComputerDetails.class, found),
+                    ReflectionHelpers.ClassParameter.from(boolean.class, true),
+                    ReflectionHelpers.ClassParameter.from(int.class, 0));
+
+            WakeTargets.Targets targets = new WakeTargets(service).load("tower");
+            assertEquals(Collections.singletonList("02:e0:4c:68:00:01"), targets.macs);
+            assertEquals(Collections.singletonList("10.0.0.255"), targets.broadcasts);
         } finally {
             controller.destroy();
         }

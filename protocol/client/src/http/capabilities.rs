@@ -612,8 +612,14 @@ impl Evidence {
             // Rubylight and Vibepollo send the power fields only to a paired HTTPS client.
             Feature::Sleep => {
                 if self.power_action_version == -1 {
+                    // A paired HTTPS serverinfo always carries the power fields when the
+                    // host has them, so their absence there rules Sleep out.
                     if !rubylight {
-                        self.absent(true)
+                        if self.paired {
+                            Availability::NEVER
+                        } else {
+                            self.absent(true)
+                        }
                     } else if !self.paired {
                         pair
                     } else {

@@ -295,10 +295,15 @@ public class HostCapabilitiesTest {
     public void unrecognizedHostsRuleNothingOutAndNeverSeenHostsKnowNothing() {
         HostCapabilities other = caps("<appversion>7.1.431.0</appversion><PairStatus>1</PairStatus>");
         for (Feature feature : Feature.values()) {
-            assertTrue(feature.name(), other.availability(feature).isUnknown());
-            assertTrue(other.mayHave(feature));
             assertFalse(other.has(feature));
             assertTrue(HostCapabilities.UNKNOWN.availability(feature).isUnknown());
+            if (feature == SLEEP) {
+                // Paired: a host with Sleep PC would have sent its power fields.
+                assertTrue(other.availability(feature).isNever());
+                continue;
+            }
+            assertTrue(feature.name(), other.availability(feature).isUnknown());
+            assertTrue(other.mayHave(feature));
         }
         assertFalse(HostCapabilities.UNKNOWN.isKnown());
         assertTrue(other.isKnown());

@@ -668,7 +668,8 @@ public final class HostCapabilities {
                 case SLEEP:
                     // Rubylight and Vibepollo send the power fields only to a paired HTTPS client.
                     if (powerActionVersion == -1) {
-                        if (rustHostVersion == null) return absent(true);
+                        // A paired HTTPS serverinfo always carries the power fields when the host has them.
+                        if (rustHostVersion == null) return paired ? Availability.NEVER : absent(true);
                         return Availability.unsupported(paired ? Reason.UPDATE_HOST : Reason.PAIR);
                     }
                     if (!paired) return Availability.unsupported(Reason.PAIR);

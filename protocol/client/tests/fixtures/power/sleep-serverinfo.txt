@@ -14,4 +14,4 @@ update_host|<root status_code="200"><hostname>RL</hostname><appversion>7.1.431.-
 pair|<root status_code="200"><hostname>RL</hostname><appversion>7.1.431.-1</appversion><uniqueid>rl</uniqueid><HttpsPort>47984</HttpsPort><PairStatus>0</PairStatus><currentgame>0</currentgame><state>SUNSHINE_SERVER_FREE</state><RustHostVersion>3.0.0</RustHostVersion></root>
 never|<root status_code="200"><hostname>S</hostname><appversion>7.1.431.-1</appversion><uniqueid>s</uniqueid><HttpsPort>47984</HttpsPort><PairStatus>1</PairStatus><currentgame>0</currentgame><state>SUNSHINE_SERVER_FREE</state></root>
 never|<root status_code="200"><appversion>7.1.431.0</appversion><uniqueid>gfe</uniqueid><PairStatus>1</PairStatus><currentgame>0</currentgame><state>MJOLNIR_STATE_SERVER_AVAILABLE</state></root>
-unknown|<root status_code="200"><hostname>X</hostname><uniqueid>x</uniqueid><PairStatus>1</PairStatus><currentgame>0</currentgame><state>FREE</state></root>
+never|<root status_code="200"><hostname>X</hostname><uniqueid>x</uniqueid><PairStatus>1</PairStatus><currentgame>0</currentgame><state>FREE</state></root>

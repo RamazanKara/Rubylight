@@ -60,6 +60,7 @@ pub mod telemetry;
 mod text;
 pub mod timing;
 pub mod tray;
+pub mod user_folder;
 pub mod vulkan;
 pub mod wake;
 pub mod window_list;

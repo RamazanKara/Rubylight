@@ -92,7 +92,7 @@ Recorded on an RX 7900 XT. Each row links to its method, build and raw results i
 
 | Result | Measured |
 | :-- | :-- |
-| **5.89 ms** | median from capture to client present, loopback, AV1 1080p60 (H.264 6.92 ms, HEVC 8.37 ms), from the frame timing record of 3.0.0-rc.2 ([timing record](rust/PERFORMANCE.md#october-26-300-rc2-against-the-published-numbers)) |
+| **5.89 ms** | median from capture to client present, loopback, AV1 1080p60 (H.264 6.92 ms, HEVC 8.37 ms, PyroWave 11.14 ms), from the frame timing record of 3.0.0-rc.2 ([timing record](rust/PERFORMANCE.md#october-26-300-rc2-against-the-published-numbers)) |
 | **42 ms against 96 ms** | mean picture age under game-like GPU load, Rubylight 2.0.0-rc.2 against Vibepollo 2.0, HEVC 10-bit HDR 1080p60 at 20 Mbps, Desktop Duplication, a 120 Hz virtual display, three runs each, same PC and settings ([comparison](rust/PERFORMANCE.md#against-vibepollo-20)) |
 | **0.25 ms** | median age of the picture at the encoder with VRR, against 4.68 ms without VRR-aware capture, for a 120 Hz game in a 60 fps stream, p95 2.34 ms since 3.0.0-rc.3 ([VRR](rust/PERFORMANCE.md#october-26-300-rc2-against-the-published-numbers), [p95](rust/PERFORMANCE.md#october-26-vrr-claims-follow-the-games-pictures), [method](rust/PERFORMANCE.md#october-24-predictive-claim-waits-under-vrr)) |
 | **4× cleaner Wi-Fi** | unrecoverable frames per run from 61 to 15.7 on 2.4 GHz with Wi-Fi pacing, HEVC 1080p60 at 47 Mbit/s, and the same 4.7 ms median on 5 GHz ([Wi-Fi pacing](rust/PERFORMANCE.md#october-25-wi-fi-pacing-hint-on-a-real-laptop)) |

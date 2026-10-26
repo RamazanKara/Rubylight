@@ -6,6 +6,10 @@
 
 Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 3.0.0-rc.3 installer is named `rubylight-setup-3.0.0-rc.3.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
 
+## Unreleased
+
+- **A host started without administrator rights offers PyroWave again, and starts apps with your own environment.** Such a host gave the programs it started (apps, client commands and the PyroWave check) the system's environment instead of yours: the profile folder `C:\Users\Default`, user name SYSTEM, `C:\Windows\Temp` and the system `PATH` only. The AMD driver keeps its shader cache in the profile folder, so the PyroWave check compiled every shader again, took 24 s instead of 1.4 s on an RX 7900 XT, ran past its 15 s limit, and clients were not offered PyroWave. Programs now get the host's own environment. The installed service and a host started as administrator were not affected.
+
 ## New in 3.0.0-rc.3
 
 - **Fresher frames under VRR.** With variable refresh, Windows can capture each frame of a fast game twice or three times, a fraction of a millisecond to 4 ms apart. The host now times the game's own frames instead of each capture, so it waits for the game's next frame when it is close instead of taking an older copy. A 120 Hz game on a 60 fps VRR stream reaches the encoder with an age p95 of 2.3 ms instead of 3.7 ms (the October 24 measurement), and present to sent p95 is 4.7 ms instead of 6.4, at the same median and the same 60 fps. A 60 Hz game took a stale frame less often too, and a 240 Hz game measured the same; the 1000 Hz virtual display has no frame interval to wait for and works as before. [Numbers](PERFORMANCE.md#october-26-vrr-claims-follow-the-games-pictures).

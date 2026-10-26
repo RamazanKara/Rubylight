@@ -169,7 +169,11 @@ fn main() -> anyhow::Result<()> {
     let mut bitstream = std::io::BufWriter::new(std::fs::File::create(&out)?);
     let (mut latencies, mut sizes, mut idr_bytes) = (Vec::new(), Vec::new(), Vec::new());
     let mut image = Some(first);
+    // The first frame that carries a map, which the rate control did not plan.
+    let mut first_map: Option<(u32, usize)> = None;
+    let maps = |encoder: &Encoder| encoder.focus_stats().map_or(0, |stats| stats.maps);
     for index in 0..frames {
+        let maps_before = maps(&encoder);
         let picture = match image.take() {
             Some(picture) => picture,
             None => read(index)?,
@@ -181,6 +185,9 @@ fn main() -> anyhow::Result<()> {
             if Instant::now() >= deadline {
                 bail!("frame {index} was not encoded within two seconds");
             }
+        }
+        if first_map.is_none() && maps_before == 0 && maps(&encoder) > 0 {
+            first_map = Some((index, output.iter().map(|frame| frame.bytes.len()).sum()));
         }
         for frame in output {
             bitstream.write_all(&frame.bytes)?;
@@ -201,10 +208,7 @@ fn main() -> anyhow::Result<()> {
     all_sizes.sort_unstable();
     latencies.sort_by(f64::total_cmp);
     sizes.sort_unstable();
-    let focus_stats = match &encoder {
-        Encoder::Amf(amf) => amf.focus_stats(),
-        _ => Default::default(),
-    };
+    let focus_stats = encoder.focus_stats().unwrap_or_default();
     let percentile = |values: &[f64], p: usize| {
         values
             .get(values.len().saturating_sub(1) * p / 100)
@@ -241,6 +245,9 @@ fn main() -> anyhow::Result<()> {
             "focus_uniform": focus_stats.uniform,
             "focus_stale": focus_stats.stale,
             "focus_qp_delta": focus_stats.qp_delta,
+            "focus_first_map_frame": first_map.map(|(index, _)| index),
+            "focus_first_map_bytes": first_map.map(|(_, bytes)| bytes),
+            "frame_cap_bytes": encoder.frame_cap(),
         })
     );
     Ok(())

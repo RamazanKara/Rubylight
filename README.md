@@ -141,6 +141,9 @@ The [performance guide](docs/performance.md) explains each metric and links ever
 | **Native API** | Clients browse your library with covers, follow the session and drive the Radeon controls. [Contract](docs/native-api.md) |
 | **Live GPU readings** | Clients can show the PC's CPU load and the Radeon's usage, temperatures, power, clocks and VRAM in their overlay. [Protocol](docs/hardware-metrics.md) |
 | **WebRTC server** (Experimental) | Pair a Samsung Tizen TV or a browser with a PIN and stream H.264, HEVC or AV1, with HDR, surround, gamepads, keyboard and mouse. [More](docs/webrtc.md) |
+| **Stream in the console** (Experimental) | Play a game in a browser tab from the console's Stream page, signed in instead of paired: H.264 1080p60, stereo, keyboard and mouse. [More](docs/webrtc.md#stream-in-the-console-experimental) |
+| **Sleep PC** (Experimental) | A device you allow puts the PC to sleep while nothing is streaming, with the same requests as Vibepollo, on a PC with S1, S2 or S3 sleep. |
+| **File transfer** (Experimental) | Devices you allow send files to the PC and fetch them back, into your Downloads\Rubylight or a folder you choose, paced while a stream runs. [More](docs/configuration.md#file-transfer-experimental) |
 
 **Controllers and audio**
 

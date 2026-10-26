@@ -435,6 +435,41 @@ mod tests {
     }
 
     #[test]
+    fn nan_or_infinite_samples_raise_one_session_warning_per_stream() {
+        let bad = |warnings: &Warnings| {
+            warnings
+                .snapshot()
+                .into_iter()
+                .filter(|w| w.code == audio_dsp::BAD_SAMPLES_WARNING)
+                .count()
+        };
+        for (start, client, source) in [(NIGHT, 2, (2, 3)), (SURROUND, 2, SEVEN_ONE)] {
+            let controls = Controls::default();
+            let warnings = Warnings::default();
+            let mut audio = CouchAudio::new(&controls, start, client, false, false).unwrap();
+            audio.set_source(source).unwrap();
+            let channels = audio.capture_channels();
+            let mut packet = noise(240 * channels, 11);
+            audio.process(&controls, &warnings, &mut packet);
+            assert_eq!(bad(&warnings), 0);
+            let mut packet = noise(240 * channels, 12);
+            packet[1] = f32::NAN;
+            packet[7] = f32::NEG_INFINITY;
+            audio.process(&controls, &warnings, &mut packet);
+            assert!(packet.iter().all(|v| v.is_finite()));
+            // The packet after the bad one reports it.
+            audio.process(&controls, &warnings, &mut noise(240 * channels, 13));
+            assert_eq!(bad(&warnings), 1, "{start:?}");
+            // Once per stream: more bad samples don't raise it again.
+            warnings.clear(audio_dsp::BAD_SAMPLES_WARNING);
+            for _ in 0..2 {
+                audio.process(&controls, &warnings, &mut vec![f32::NAN; 240 * channels]);
+            }
+            assert_eq!(bad(&warnings), 0, "{start:?}");
+        }
+    }
+
+    #[test]
     fn the_silence_packet_is_sized_for_the_capture_channels() {
         let controls = Controls::default();
         let warnings = Warnings::default();

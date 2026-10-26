@@ -319,7 +319,7 @@ The chain keeps per-channel state across packets. It never holds back or waits f
   - It holds while the input RMS is below -60 dBFS, so silence and noise floors aren't boosted.
 - **Soft clipper:** memoryless. Unity below -3 dBFS, then a smooth approach to 0.98. It catches the attack overshoot that a compressor without lookahead lets through.
 - **Turning it on or off:** turning it on starts from unity gain. Turning it off ramps the gain to unity over 10 ms within the packet, then bypasses. Neither direction clicks.
-- **Bad samples:** NaN or infinite input samples become 0. The stream gets one warning naming the problem.
+- **Bad samples:** NaN or infinite input samples become 0. The stream gets one session warning, `audio_bad_samples`, naming the problem.
 
 ### B.4 Headphone surround
 

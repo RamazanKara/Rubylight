@@ -25,6 +25,8 @@ pub const SURROUND_CHANNELS: usize = 8;
 /// A switch between the HRIRs and the plain downmix crossfades over one 5 ms
 /// packet.
 const CROSSFADE_FRAMES: u32 = 240;
+/// The session warning code once capture delivered NaN or infinite samples.
+pub const BAD_SAMPLES_WARNING: &str = "audio_bad_samples";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Settings {
@@ -502,9 +504,11 @@ impl Report {
             }
             self.rendering = rendering;
         }
+        // Once per stream: the warning stays for the rest of it.
         if chain.take_bad_samples() && !self.bad_samples {
-            tracing::warn!(
-                "audio capture delivered NaN or infinite samples; they were replaced with silence"
+            warnings.set(
+                BAD_SAMPLES_WARNING,
+                "Audio capture delivered NaN or infinite samples; they were replaced with silence. Check the playback device or its audio enhancements.",
             );
             self.bad_samples = true;
         }

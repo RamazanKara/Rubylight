@@ -85,7 +85,7 @@ A receiver drops a datagram that is not exactly 52 bytes, has another version or
 ## Host rules
 
 - **PROBE** is accepted only for a running session that is not stopping and has an ENet peer. The GCM tag must verify and seq must be greater than the last seq seen from the client. At most 10 PROBEs per second per session are handled, under a global cap as well.
-- **Pending candidate.** A PROBE from an address that is not the current one makes it the pending candidate, with a fresh random challenge. A newer candidate replaces an older one; a candidate expires after 3 seconds.
+- **Pending candidate.** A PROBE from an address that is not the current one makes it the pending candidate, with a fresh random challenge. A repeated PROBE from the pending address with the same `nonce_c` gets the same challenge again, so PROBEs still in flight on a long round trip do not replace the challenge the client is confirming. A newer candidate replaces an older one; a candidate expires after 3 seconds.
 - **CONFIRM** must come from exactly the pending IP and port and carry the pending challenge. At most one commit per second per session.
 - **Answers.** A duplicate CONFIRM for the address already committed is answered with MIGRATED again. A PROBE from the current address is answered with CHALLENGE but commits nothing.
 - **Timeouts.** Roaming never extends the host's client timeout (`ping_timeout`).
@@ -96,6 +96,7 @@ Only when the DESCRIBE answer carried `a=x-rl-roaming:1` and the client's roamin
 
 - **Triggers:** the local address toward the host changes (checked every 500 ms, or at once when the platform reports a network change), or the host has been silent for 1 second or more (a NAT rebinding).
 - **On a trigger:** rebind the video, audio and microphone sockets if their bound IP changed and ping at once; send PROBE every 250 ms (12 times, then once a second); send CONFIRM on a CHALLENGE that echoes the current `nonce_c`; ping at once on MIGRATED.
+- **Confirming:** once it sent a CONFIRM, the client stops probing and resends the CONFIRM for the newest challenge every 250 ms until MIGRATED arrives. After 3 seconds without one it probes again. Older hosts answer every PROBE with a new challenge, so probing on would keep replacing the challenge being confirmed whenever the round trip is longer than the probe interval.
 - **Giving up:** after the smaller of the drop tolerance and 10 seconds, the stream ends with a clear message as today, or bounded recovery reconnects if it is on.
 - **Metered networks:** moving onto a metered network carries the stream on only with "Continue on mobile data" on (default off).
 

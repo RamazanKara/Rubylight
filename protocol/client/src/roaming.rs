@@ -9,9 +9,12 @@
 //!
 //! An attempt sends PROBE every 250 ms twelve times, then once a second; answers each
 //! CHALLENGE that echoes its `nonce_c` with CONFIRM; and ends on a MIGRATED that names a
-//! challenge it confirmed. Without one it gives up after the drop tolerance (at most 10 s)
-//! and leaves the stream to its usual paths: the control peer's timeout ends it, or bounded
-//! recovery reconnects.
+//! challenge it confirmed. Once it confirmed, it resends the CONFIRM for the newest challenge
+//! every 250 ms instead of probing, so a round trip longer than the probe interval does not
+//! keep asking the host for new challenges; after 3 s without a MIGRATED it probes again.
+//! Without a MIGRATED it gives up after the drop tolerance (at most 10 s) and leaves the
+//! stream to its usual paths: the control peer's timeout ends it, or bounded recovery
+//! reconnects.
 
 use std::collections::VecDeque;
 use std::fmt;
@@ -37,6 +40,9 @@ pub const FAST_PROBES: u32 = 12;
 pub const SLOW_PROBE_INTERVAL: Duration = Duration::from_secs(1);
 /// The longest an attempt runs.
 pub const MAX_ATTEMPT: Duration = Duration::from_secs(10);
+/// How long CONFIRM is resent for the newest challenge, at [`FAST_PROBE_INTERVAL`], before
+/// the attempt probes again; the host's pending candidate lasts as long.
+pub const CONFIRM_WINDOW: Duration = Duration::from_secs(3);
 /// Confirmed challenges an attempt remembers for the MIGRATED.
 const MAX_CONFIRMED: usize = 8;
 /// Datagrams queued for the socket at most; an attempt sends one per timer or CHALLENGE.
@@ -168,9 +174,19 @@ struct Attempt {
     nonce_c: u64,
     flags: u32,
     probes: u32,
-    next_probe: Instant,
+    /// When the next PROBE, or CONFIRM while confirming, is due.
+    next_send: Instant,
     /// Challenges answered with CONFIRM, oldest first.
     confirmed: VecDeque<u64>,
+    /// The newest challenge, resent in CONFIRM instead of probing.
+    confirming: Option<Confirming>,
+}
+
+#[derive(Clone, Copy)]
+struct Confirming {
+    challenge: u64,
+    /// The first CONFIRM for it; probing resumes [`CONFIRM_WINDOW`] later.
+    since: Instant,
 }
 
 /// The client's roaming state for one session.
@@ -216,7 +232,8 @@ impl Roaming {
             attempt.nonce_c = nonce_c;
             attempt.flags |= flags;
             attempt.probes = 0;
-            attempt.next_probe = now;
+            attempt.next_send = now;
+            attempt.confirming = None;
             return;
         }
         self.attempt = Some(Attempt {
@@ -225,8 +242,9 @@ impl Roaming {
             nonce_c,
             flags,
             probes: 0,
-            next_probe: now,
+            next_send: now,
             confirmed: VecDeque::new(),
+            confirming: None,
         });
         self.events.push(RoamEvent::Started { trigger });
     }
@@ -245,32 +263,52 @@ impl Roaming {
         self.fail(now);
     }
 
-    /// Sends due PROBEs and gives up when the time is over. Returns the next deadline.
+    /// Sends due PROBEs or CONFIRMs and gives up when the time is over. Returns the next
+    /// deadline.
     pub fn poll(&mut self, now: Instant) -> Option<Instant> {
-        let attempt = self.attempt.as_ref()?;
+        let attempt = self.attempt.as_mut()?;
         let give_up_at = attempt.started + self.give_up;
         if now >= give_up_at {
             return self.fail(now);
         }
-        if now >= attempt.next_probe {
-            let probe = Payload::Probe {
-                nonce_c: attempt.nonce_c,
-                flags: attempt.flags,
+        if attempt
+            .confirming
+            .is_some_and(|confirming| now >= confirming.since + CONFIRM_WINDOW)
+        {
+            // No MIGRATED for the newest challenge: probe for a fresh one.
+            attempt.confirming = None;
+            attempt.next_send = now;
+        }
+        if now >= attempt.next_send {
+            let payload = match attempt.confirming {
+                Some(Confirming { challenge, .. }) => Payload::Confirm { challenge },
+                None => Payload::Probe {
+                    nonce_c: attempt.nonce_c,
+                    flags: attempt.flags,
+                },
             };
-            if !self.send(probe) {
+            if !self.send(payload) {
                 return self.fail(now);
             }
             let attempt = self.attempt.as_mut().expect("running");
-            attempt.probes += 1;
-            attempt.next_probe = now
-                + if attempt.probes < FAST_PROBES {
+            attempt.next_send = now
+                + if attempt.confirming.is_some() {
                     FAST_PROBE_INTERVAL
                 } else {
-                    SLOW_PROBE_INTERVAL
+                    attempt.probes += 1;
+                    if attempt.probes < FAST_PROBES {
+                        FAST_PROBE_INTERVAL
+                    } else {
+                        SLOW_PROBE_INTERVAL
+                    }
                 };
         }
-        let next_probe = self.attempt.as_ref()?.next_probe;
-        Some(next_probe.min(give_up_at))
+        let attempt = self.attempt.as_ref()?;
+        let mut next = attempt.next_send.min(give_up_at);
+        if let Some(confirming) = attempt.confirming {
+            next = next.min(confirming.since + CONFIRM_WINDOW);
+        }
+        Some(next)
     }
 
     /// Handles a datagram that starts with the roaming magic.
@@ -294,10 +332,22 @@ impl Roaming {
                 if nonce_c != attempt.nonce_c {
                     return Err(Rejected::Nonce);
                 }
-                if attempt.confirmed.len() == MAX_CONFIRMED {
-                    attempt.confirmed.pop_front();
+                // A host that answers each PROBE with the same challenge sends it many times.
+                if !attempt.confirmed.contains(&challenge) {
+                    if attempt.confirmed.len() == MAX_CONFIRMED {
+                        attempt.confirmed.pop_front();
+                    }
+                    attempt.confirmed.push_back(challenge);
                 }
-                attempt.confirmed.push_back(challenge);
+                // The newest challenge is the one the host holds pending: confirm it from now
+                // on, and stop probing so the host keeps it.
+                if attempt.confirming.map(|c| c.challenge) != Some(challenge) {
+                    attempt.confirming = Some(Confirming {
+                        challenge,
+                        since: now,
+                    });
+                }
+                attempt.next_send = now + FAST_PROBE_INTERVAL;
                 if !self.send(Payload::Confirm { challenge }) {
                     self.fail(now);
                 }
@@ -734,5 +784,228 @@ mod tests {
             roaming.take_events()[..],
             [RoamEvent::Started { .. }, RoamEvent::Failed { .. }]
         ));
+    }
+
+    /// The payloads of `wires`, in order.
+    fn opened(host: &FakeHost, wires: &[[u8; DATAGRAM_BYTES]]) -> Vec<Payload> {
+        wires.iter().map(|wire| host.open(wire).1).collect()
+    }
+
+    #[test]
+    fn confirms_are_resent_for_the_newest_challenge_then_probing_resumes() {
+        let now = Instant::now();
+        let (mut roaming, mut host) = probing(now);
+        let at = |ms| now + Duration::from_millis(ms);
+        let first = host.send(Payload::Challenge {
+            nonce_c: NONCE,
+            challenge: 5,
+        });
+        roaming.handle_datagram(at(100), &first).unwrap();
+        assert_eq!(
+            opened(&host, &sent(&mut roaming)),
+            [Payload::Confirm { challenge: 5 }]
+        );
+        // The next timer resends the CONFIRM, not a PROBE.
+        assert_eq!(roaming.poll(at(100)), Some(at(350)));
+        assert!(sent(&mut roaming).is_empty());
+        assert_eq!(roaming.poll(at(350)), Some(at(600)));
+        assert_eq!(
+            opened(&host, &sent(&mut roaming)),
+            [Payload::Confirm { challenge: 5 }]
+        );
+        // A newer challenge (a PROBE still in flight) is confirmed from then on.
+        let newer = host.send(Payload::Challenge {
+            nonce_c: NONCE,
+            challenge: 8,
+        });
+        roaming.handle_datagram(at(400), &newer).unwrap();
+        assert_eq!(
+            opened(&host, &sent(&mut roaming)),
+            [Payload::Confirm { challenge: 8 }]
+        );
+        let mut t = at(400);
+        let mut resent = Vec::new();
+        loop {
+            let next = roaming.poll(t).unwrap();
+            resent.extend(opened(&host, &sent(&mut roaming)));
+            if next >= at(400) + CONFIRM_WINDOW {
+                break;
+            }
+            t = next;
+        }
+        assert_eq!(resent.len(), 11, "every 250 ms for 3 s: {resent:?}");
+        assert!(resent
+            .iter()
+            .all(|p| *p == Payload::Confirm { challenge: 8 }));
+        // No MIGRATED within the window: probing resumes.
+        let resumed = at(400) + CONFIRM_WINDOW;
+        assert_eq!(roaming.poll(resumed), Some(resumed + FAST_PROBE_INTERVAL));
+        assert_eq!(
+            opened(&host, &sent(&mut roaming)),
+            [Payload::Probe {
+                nonce_c: NONCE,
+                flags: 0
+            }]
+        );
+        // A late MIGRATED for a confirmed challenge still completes the attempt.
+        let migrated = host.send(Payload::Migrated { challenge: 5 });
+        roaming.handle_datagram(resumed, &migrated).unwrap();
+        assert!(matches!(
+            roaming.take_events()[..],
+            [RoamEvent::Roamed { .. }]
+        ));
+    }
+
+    /// The challenge a [`SimHost`] gives a PROBE.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum HostRule {
+        /// A repeated PROBE with the pending `nonce_c` gets the pending challenge again.
+        SameChallenge,
+        /// Every PROBE gets a fresh challenge that replaces the pending one (the first host).
+        FreshChallenge,
+    }
+
+    /// The host's rules for one candidate address: CHALLENGE per PROBE, MIGRATED for a
+    /// CONFIRM of the pending challenge, and again for one already committed.
+    struct SimHost {
+        host: FakeHost,
+        rule: HostRule,
+        client_seq: u32,
+        /// `nonce_c` and challenge.
+        pending: Option<(u64, u64)>,
+        committed: Option<u64>,
+        challenges: u64,
+    }
+
+    impl SimHost {
+        fn new(rule: HostRule) -> Self {
+            Self {
+                host: FakeHost::new(),
+                rule,
+                client_seq: 0,
+                pending: None,
+                committed: None,
+                challenges: 0,
+            }
+        }
+
+        fn receive(&mut self, wire: &[u8; DATAGRAM_BYTES]) -> Option<[u8; DATAGRAM_BYTES]> {
+            let (header, payload) = self.host.open(wire);
+            if header.seq <= self.client_seq {
+                return None;
+            }
+            self.client_seq = header.seq;
+            match payload {
+                Payload::Probe { nonce_c, .. } => {
+                    let challenge = match self.pending {
+                        Some((pending, challenge))
+                            if self.rule == HostRule::SameChallenge && pending == nonce_c =>
+                        {
+                            challenge
+                        }
+                        _ => {
+                            self.challenges += 1;
+                            self.challenges
+                        }
+                    };
+                    self.pending = Some((nonce_c, challenge));
+                    Some(self.host.send(Payload::Challenge { nonce_c, challenge }))
+                }
+                Payload::Confirm { challenge } => {
+                    if self
+                        .pending
+                        .is_some_and(|(_, pending)| pending == challenge)
+                    {
+                        self.pending = None;
+                        self.committed = Some(challenge);
+                    }
+                    (self.committed == Some(challenge))
+                        .then(|| self.host.send(Payload::Migrated { challenge }))
+                }
+                other => panic!("the client sent {other:?}"),
+            }
+        }
+    }
+
+    /// Runs a network-change attempt against a [`SimHost`] over a path with round trip `rtt`,
+    /// on a simulated clock, until it ends. Returns how it ended and what the client sent.
+    fn simulate(rule: HostRule, rtt: Duration) -> (RoamEvent, Vec<Kind>) {
+        let start = Instant::now();
+        let mut roaming = Roaming::new(&vectors::RIKEY, MAX_ATTEMPT);
+        let mut host = SimHost::new(rule);
+        let one_way = rtt / 2;
+        // In flight: arrival, whether toward the host, datagram.
+        let mut flight: Vec<(Instant, bool, [u8; DATAGRAM_BYTES])> = Vec::new();
+        let mut sent_kinds = Vec::new();
+        roaming.start(start, RoamTrigger::NetworkChanged, 0, NONCE);
+        let mut now = start;
+        let mut timer = roaming.poll(now);
+        loop {
+            while let Some(wire) = roaming.poll_transmit() {
+                sent_kinds.push(Datagram::decode(&wire).unwrap().header.kind);
+                flight.push((now + one_way, true, wire));
+            }
+            let events = roaming.take_events();
+            if let Some(end) = events
+                .into_iter()
+                .find(|e| !matches!(e, RoamEvent::Started { .. }))
+            {
+                return (end, sent_kinds);
+            }
+            let arrival = flight.iter().map(|(at, ..)| *at).min();
+            now = timer
+                .into_iter()
+                .chain(arrival)
+                .min()
+                .expect("a timer runs");
+            loop {
+                flight.sort_by_key(|(at, ..)| *at);
+                if !flight.first().is_some_and(|(at, ..)| *at <= now) {
+                    break;
+                }
+                let (_, toward_host, wire) = flight.remove(0);
+                if toward_host {
+                    if let Some(answer) = host.receive(&wire) {
+                        flight.push((now + one_way, false, answer));
+                    }
+                } else {
+                    let _ = roaming.handle_datagram(now, &wire);
+                }
+            }
+            timer = roaming.poll(now);
+        }
+    }
+
+    fn roamed_within(end: RoamEvent, limit: Duration) {
+        match end {
+            RoamEvent::Roamed { elapsed } => assert!(elapsed <= limit, "{elapsed:?}"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_400_ms_round_trip_roams_within_about_a_second() {
+        let (end, sent) = simulate(HostRule::SameChallenge, Duration::from_millis(400));
+        roamed_within(end, Duration::from_millis(1200));
+        // Once the client confirmed, it stopped asking for challenges.
+        let first_confirm = sent.iter().position(|k| *k == Kind::Confirm).unwrap();
+        assert!(!sent[first_confirm..].contains(&Kind::Probe), "{sent:?}");
+    }
+
+    #[test]
+    fn a_1500_ms_round_trip_roams() {
+        let (end, _) = simulate(HostRule::SameChallenge, Duration::from_millis(1500));
+        // The first CHALLENGE after one round trip, MIGRATED after the second.
+        roamed_within(end, Duration::from_millis(3250));
+    }
+
+    #[test]
+    fn a_host_that_challenges_every_probe_anew_still_roams() {
+        // Without the CONFIRM resends the probes kept replacing the pending challenge.
+        let (end, sent) = simulate(HostRule::FreshChallenge, Duration::from_millis(400));
+        roamed_within(end, Duration::from_millis(1500));
+        assert!(sent.contains(&Kind::Confirm));
+        let (end, _) = simulate(HostRule::FreshChallenge, Duration::from_millis(1500));
+        roamed_within(end, Duration::from_millis(5000));
     }
 }

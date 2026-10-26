@@ -515,6 +515,39 @@ fn connects_to_a_host_that_replies_from_another_ip() {
 struct Roamable {
     socket: UdpSocket,
     roaming: Vec<(SocketAddr, Vec<u8>)>,
+    /// When ENet datagrams carrying a PING arrived.
+    pings: Vec<Instant>,
+}
+
+/// Whether an ENet datagram carries a PING command.
+fn has_enet_ping(data: &[u8]) -> bool {
+    const SENT_TIME: u16 = 0x8000;
+    const PING: u8 = 5;
+    let Some(peer) = data.get(..2) else {
+        return false;
+    };
+    let sent_time = u16::from_be_bytes([peer[0], peer[1]]) & SENT_TIME != 0;
+    let mut at = if sent_time { 4 } else { 2 };
+    let length = |offset: usize| {
+        data.get(offset..offset + 2)
+            .map(|bytes| usize::from(u16::from_be_bytes([bytes[0], bytes[1]])))
+    };
+    while let Some(&header) = data.get(at) {
+        let size = match header & 0x0F {
+            1 | 4 => 8,
+            2 => 48,
+            3 => 44,
+            PING => return true,
+            6 => 6 + length(at + 4).unwrap_or(usize::MAX / 2),
+            7 | 9 => 8 + length(at + 6).unwrap_or(usize::MAX / 2),
+            8 | 12 => 24 + length(at + 6).unwrap_or(usize::MAX / 2),
+            10 => 12,
+            11 => 16,
+            _ => return false,
+        };
+        at += size;
+    }
+    false
 }
 
 impl rusty_enet::Socket for Roamable {
@@ -538,7 +571,12 @@ impl rusty_enet::Socket for Roamable {
                 Ok((length, from)) if is_roaming(&buffer[..length]) => {
                     self.roaming.push((from, buffer[..length].to_vec()));
                 }
-                Ok((length, from)) => return Ok(Some((from, PacketReceived::Complete(length)))),
+                Ok((length, from)) => {
+                    if has_enet_ping(&buffer[..length]) {
+                        self.pings.push(Instant::now());
+                    }
+                    return Ok(Some((from, PacketReceived::Complete(length))));
+                }
                 Err(e)
                     if matches!(
                         e.kind(),
@@ -558,6 +596,7 @@ impl TestHost<Roamable> {
         Self::on(Roamable {
             socket: UdpSocket::bind("127.0.0.1:0").unwrap(),
             roaming: Vec::new(),
+            pings: Vec::new(),
         })
     }
 
@@ -705,11 +744,26 @@ fn a_network_change_roams_through_the_control_port() {
         .find(|(_, p)| p.kind() == Kind::Confirm)
         .unwrap();
     assert_eq!(confirm, (from, Payload::Confirm { challenge: 77 }));
+    // A host message first: ENet's own ping is then not due for half a second.
+    let mut seen = Vec::new();
+    host.send(0x010b, &[0, 0, 0, 0, 2, 0, 0x00, 0x80, 0xff, 0xff]);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        assert!(Instant::now() < deadline, "no rumble: {seen:?}");
+        host.pump();
+        match events.recv_timeout(Duration::from_millis(5)) {
+            Ok(ControlEvent::Roam(event)) => seen.push(event),
+            Ok(ControlEvent::Rumble { .. }) => break,
+            _ => {}
+        }
+    }
+    host.host.socket_mut().pings.clear();
+    let migrated_at = Instant::now();
     host.roam_reply(from, &gcm, 2, Payload::Migrated { challenge: 77 });
 
-    let seen = roam_events(&mut host, &events, |e| {
+    seen.extend(roam_events(&mut host, &events, |e| {
         matches!(e, RoamEvent::Roamed { .. })
-    });
+    }));
     assert_eq!(
         seen[0],
         RoamEvent::Started {
@@ -717,6 +771,13 @@ fn a_network_change_roams_through_the_control_port() {
         }
     );
     assert_eq!(seen.len(), 2, "{seen:?}");
+    // The client pings ENet at once so its backed-off resend timers recover.
+    host.until("an ENet ping", |h| !h.host.socket().pings.is_empty());
+    let ping = host.host.socket().pings[0] - migrated_at;
+    assert!(
+        ping < Duration::from_millis(250),
+        "ENet pinged {ping:?} after MIGRATED"
+    );
 
     // ENet runs on over the same port.
     handle.stop();
@@ -928,6 +989,60 @@ fn a_reconnect_under_the_same_key_roams_with_higher_seqs() {
     let after = second.roam_seqs();
     assert!(increasing(&after), "{after:?}");
     assert!(after[0] > last, "{before:?} then {after:?}");
+}
+
+#[test]
+fn without_roaming_magic_datagrams_leave_enet_alone() {
+    let mut host = TestHost::roamable();
+    let (running, handle, events) = run_roamable(&mut host, caps());
+    let client = host
+        .host
+        .peer(host.peer.unwrap())
+        .address()
+        .expect("connected");
+    // A sealed CHALLENGE and junk behind the magic reach the client's ENet socket.
+    host.roam_reply(
+        client,
+        &roam_gcm(),
+        1,
+        Payload::Challenge {
+            nonce_c: 1,
+            challenge: 2,
+        },
+    );
+    let junk = [0x0F, 0xFE, 0x52, 0x4D, 1, 2, 3];
+    host.host.socket().socket.send_to(&junk, client).unwrap();
+
+    // ENet carries on both ways.
+    host.send(0x010b, &[0, 0, 0, 0, 2, 0, 0x00, 0x80, 0xff, 0xff]);
+    handle
+        .send(ClientMessage::Reconfigure(Reconfigure {
+            width: 1280,
+            height: 720,
+            fps_millihz: 60_000,
+        }))
+        .unwrap();
+    host.until("reconfigure", |h| h.has(0x5532));
+    let mut seen = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !seen
+        .iter()
+        .any(|e| matches!(e, ControlEvent::Rumble { .. }))
+    {
+        assert!(Instant::now() < deadline, "no rumble: {seen:?}");
+        host.pump();
+        seen.extend(events.recv_timeout(Duration::from_millis(5)));
+    }
+    seen.extend(events.try_iter());
+    assert!(
+        !seen.iter().any(|e| matches!(e, ControlEvent::Roam(_))),
+        "{seen:?}"
+    );
+    assert!(host.host.socket().roaming.is_empty());
+
+    handle.stop();
+    host.until("disconnect", |h| h.disconnected);
+    assert_eq!(running.join().unwrap(), Outcome::Stopped);
 }
 
 #[test]

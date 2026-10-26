@@ -79,6 +79,9 @@ pub enum RoamEvent {
     Unneeded {
         elapsed: Duration,
     },
+    /// The client may not roam onto its network (a metered one without the opt-in): a running
+    /// attempt ended and none starts until the hold lifts. Not a failure.
+    Held,
 }
 
 impl fmt::Display for RoamEvent {
@@ -108,6 +111,9 @@ impl fmt::Display for RoamEvent {
                 f,
                 "Roaming: the PC answered on the old path after {} ms",
                 elapsed.as_millis()
+            ),
+            Self::Held => f.write_str(
+                "Roaming: held on a metered network without \"Continue on mobile data\"",
             ),
         }
     }
@@ -366,6 +372,14 @@ impl Roaming {
     /// metered network it may not use.
     pub fn give_up(&mut self, now: Instant) {
         self.fail(now);
+    }
+
+    /// Holds roaming: the client may not roam onto its network. Ends the running attempt
+    /// without a failure and reports [`RoamEvent::Held`].
+    pub fn hold(&mut self) {
+        self.attempt = None;
+        self.outgoing.clear();
+        self.events.push(RoamEvent::Held);
     }
 
     /// Sends due PROBEs or CONFIRMs and gives up when the time is over. Returns the next

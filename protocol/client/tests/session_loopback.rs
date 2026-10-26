@@ -1341,6 +1341,7 @@ fn on_a_metered_network_without_the_opt_in_the_grace_period_decides() {
     let client = host.peer(Media::Video);
 
     assert!(!session.network_changed(NetworkHint { metered: true }));
+    until("the hold", || roam_events(&record) == [RoamEvent::Held]);
     silence_host(&host);
     {
         let r = record.lock().unwrap();
@@ -1352,7 +1353,7 @@ fn on_a_metered_network_without_the_opt_in_the_grace_period_decides() {
             r.logs
         );
     }
-    assert!(roam_events(&record).is_empty());
+    assert_eq!(roam_events(&record), [RoamEvent::Held]);
     assert_eq!(*host.roaming.lock().unwrap(), []);
 
     // The same video port, and the control stream, carry on.

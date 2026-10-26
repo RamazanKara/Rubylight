@@ -313,8 +313,9 @@ impl ControlHandle {
     }
 
     /// Holds roaming off while the client is on a network it may not roam onto (a metered
-    /// one without the opt-in): the running attempt fails, none starts, and the network
-    /// grace period decides. False lets roaming run again.
+    /// one without the opt-in): the running attempt ends with [`RoamEvent::Held`], not as a
+    /// failure, none starts, and the network grace period decides. False lets roaming run
+    /// again.
     pub fn hold_roaming(&self, held: bool) {
         self.shared.roam_held.store(held, Ordering::Release);
         self.shared.waker.wake();
@@ -638,6 +639,8 @@ struct RoamTriggers {
     contact: Option<Instant>,
     /// After a failed attempt, no silence starts another before this.
     retry_at: Option<Instant>,
+    /// Roaming is held ([`ControlHandle::hold_roaming`]).
+    held: bool,
 }
 
 impl RoamTriggers {
@@ -651,10 +654,15 @@ impl RoamTriggers {
         request: Option<u32>,
         held: bool,
     ) {
+        let hold_starts = held && !self.held;
+        self.held = held;
         if held {
-            // No probes from a network roaming may not use: the grace period decides.
-            if roaming.trigger().is_some() {
-                roaming.give_up(now);
+            // No probes from a network roaming may not use: the grace period decides. Not a
+            // failure, so no backoff after it.
+            if hold_starts {
+                roaming.hold();
+                // Once lifted, a silence that lasts starts an attempt again.
+                self.contact = None;
             }
         } else if let Some(flags) = request {
             self.contact = contact;
@@ -1415,6 +1423,28 @@ mod tests {
                 trigger: RoamTrigger::NetworkChanged
             }]
         );
+    }
+
+    #[test]
+    fn a_metered_hold_is_held_not_failed_and_arms_no_backoff() {
+        let heard = Instant::now();
+        let at = |ms| heard + Duration::from_millis(ms);
+        let mut roaming = Roaming::new(&[7; 16], MAX_ATTEMPT);
+        let mut triggers = RoamTriggers::default();
+        let mut step = |now, contact, held| {
+            triggers.update(&mut roaming, now, Some(contact), None, held);
+            roaming.poll(now);
+            let sent = std::iter::from_fn(|| roaming.poll_transmit()).count();
+            let events = roaming.take_events();
+            triggers.ended(now, &events);
+            (events, sent)
+        };
+        assert_eq!(step(at(1000), heard, false), (vec![SILENT], 1));
+        // The hold ends the attempt once, as Held, and nothing goes out while it lasts.
+        assert_eq!(step(at(1100), heard, true), (vec![RoamEvent::Held], 0));
+        assert_eq!(step(at(3000), heard, true), (vec![], 0));
+        // Lifted, a silence starts an attempt at once: no failure's backoff holds it back.
+        assert_eq!(step(at(3100), heard, false), (vec![SILENT], 1));
     }
 
     #[test]

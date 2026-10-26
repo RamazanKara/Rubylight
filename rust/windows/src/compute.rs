@@ -1105,6 +1105,9 @@ pub struct Converted {
     pub texture: Arc<ID3D12Resource>,
     pub fence: ID3D12Fence,
     pub value: u64,
+    /// The compute queue's fence value after this conversion: its focus
+    /// map's [`MapView::value`], a different timeline from `value`.
+    pub conversion: u64,
 }
 impl Converted {
     /// Block until the conversion is done.
@@ -1785,6 +1788,7 @@ impl Converter {
             texture: target.texture.clone(),
             fence: target.fence.clone(),
             value: target.value,
+            conversion: fence,
         })
     }
     /// Convert `source` into PyroWave's Y, Cb and Cr planes, full size or

@@ -379,6 +379,11 @@ fn latest_map_never_waits_for_an_unfinished_conversion() -> Result<()> {
     let luid = unsafe { rig.compute.device.GetAdapterLuid() };
     let compute = Compute::new(luid)?;
     let image = bgra(64, 32, 5);
+    // Move the queue's fence past the fresh target's, so the two timelines differ.
+    let mut other = rig.converter(&compute, &image)?;
+    for _ in 0..3 {
+        rig.convert(&mut other, &image)?;
+    }
     let mut converter = rig.converter(&compute, &image)?;
     converter.enable_focus(16)?;
     converter.set_focus(Some(settings(Mode::Static, Levels::default(), None)))?;
@@ -401,8 +406,9 @@ fn latest_map_never_waits_for_an_unfinished_conversion() -> Result<()> {
     let map = converter
         .latest_map(0)
         .context("finished conversion has no map")?;
-    assert_eq!(map.value, converted.value);
-    assert!(converter.latest_map(converted.value).is_none());
+    assert_ne!(converted.conversion, converted.value);
+    assert_eq!(map.value, converted.conversion);
+    assert!(converter.latest_map(converted.conversion).is_none());
     Ok(())
 }
 

@@ -631,6 +631,14 @@ impl Config {
         {
             bail!("sleep_after_idle_minutes must be 0 (off) or between 5 and 1440");
         }
+        for key in crate::couch_menu::chord::SETTINGS {
+            if changed(key)
+                && let Some(warning) = crate::couch_menu::chord::check(key, &next.values[key])
+                    .map_err(anyhow::Error::msg)?
+            {
+                tracing::warn!("{warning}");
+            }
+        }
         if changed("hardware_metrics_selection") {
             for metric in next.list("hardware_metrics_selection") {
                 if !HARDWARE_METRICS.contains(&metric.as_str()) {
@@ -852,6 +860,10 @@ pub fn override_allowed(key: &str) -> bool {
         "high_resolution_scrolling",
         "native_pen_touch",
         "keybindings",
+        "couch_menu_controller_chord",
+        "couch_menu_hold_ms",
+        "couch_menu_corner_hold_ms",
+        "couch_menu_keyboard_chord",
         // Audio, video and display automation
         "audio_sink",
         "audio_capture_mode",
@@ -1670,6 +1682,109 @@ webrtc_media_port = 99999
         assert!(!config.boolean("audio_night_mode", true));
         assert!(layer(&mut config, "audio_headphone_surround", "loud".into()).is_err());
         assert!(!config.values.contains_key("audio_headphone_surround"));
+    }
+    #[test]
+    fn couch_menu_controls_are_checked_on_save_with_one_message_each() {
+        let mut config = super::Config::default();
+        for (key, value) in [
+            ("couch_menu_controller_chord", "l1+r1+y"),
+            ("couch_menu_controller_chord", "guide"),
+            ("couch_menu_hold_ms", "300"),
+            ("couch_menu_hold_ms", "3000"),
+            ("couch_menu_corner_hold_ms", "500"),
+            ("couch_menu_corner_hold_ms", "3000"),
+            ("couch_menu_keyboard_chord", "ctrl+alt+insert"),
+            ("couch_menu_open_with", "controller,touch"),
+        ] {
+            change(&mut config, key, value).unwrap();
+            assert_eq!(config.get(key, ""), value);
+        }
+        for (key, value, message) in [
+            (
+                "couch_menu_controller_chord",
+                "start+select+l1+r1",
+                "quits the stream",
+            ),
+            ("couch_menu_controller_chord", "start", "mouse mode"),
+            ("couch_menu_controller_chord", "start+select", "into Guide"),
+            (
+                "couch_menu_controller_chord",
+                "select+l1+r1+x",
+                "statistics",
+            ),
+            ("couch_menu_controller_chord", "a+start", "mouse mode"),
+            ("couch_menu_controller_chord", "l3+r2", "unknown button"),
+            ("couch_menu_hold_ms", "299", "between 300 and 3000"),
+            ("couch_menu_hold_ms", "3001", "between 300 and 3000"),
+            ("couch_menu_corner_hold_ms", "499", "between 500 and 3000"),
+            ("couch_menu_corner_hold_ms", "3001", "between 500 and 3000"),
+            (
+                "couch_menu_keyboard_chord",
+                "ctrl+alt+shift+home",
+                "Ctrl+Alt+Shift",
+            ),
+            ("couch_menu_keyboard_chord", "ctrl+alt+del", "unknown chord"),
+            ("couch_menu_open_with", "pad", "unknown entry"),
+        ] {
+            let error = change(&mut config, key, value).unwrap_err().to_string();
+            assert!(error.starts_with(key), "{key}={value}: {error}");
+            assert!(error.contains(message), "{key}={value}: {error}");
+        }
+        // Nothing refused was kept.
+        assert_eq!(config.get("couch_menu_controller_chord", ""), "guide");
+        assert_eq!(config.integer("couch_menu_hold_ms", 0), 3000);
+        assert_eq!(config.integer("couch_menu_corner_hold_ms", 0), 3000);
+        assert_eq!(
+            config.get("couch_menu_keyboard_chord", ""),
+            "ctrl+alt+insert"
+        );
+        // A JSON number from the console is checked the same way.
+        let mut object = serde_json::Map::new();
+        object.insert("couch_menu_hold_ms".into(), 299.into());
+        assert!(config.update(&object).is_err());
+        object.insert("couch_menu_hold_ms".into(), 750.into());
+        config.update(&object).unwrap();
+        let open_with = crate::couch_menu::chord::OpenWith::from_config(&config);
+        assert_eq!(open_with.pad_hold, std::time::Duration::from_millis(750));
+        assert!(!open_with.keyboard);
+    }
+    #[test]
+    fn a_device_couch_menu_override_beats_the_host_and_a_bad_one_is_refused() {
+        use crate::couch_menu::chord::{KeyChord, OpenWith, PadButtons};
+        for key in [
+            "couch_menu_controller_chord",
+            "couch_menu_hold_ms",
+            "couch_menu_corner_hold_ms",
+            "couch_menu_keyboard_chord",
+        ] {
+            assert!(super::override_allowed(key), "{key}");
+        }
+        let mut config = super::Config::parse(
+            "couch_menu_controller_chord = l1+r1+y\ncouch_menu_hold_ms = 2000\n",
+        )
+        .unwrap();
+        let layer = |config: &mut super::Config, key: &str, value: serde_json::Value| {
+            config.update(&serde_json::Map::from_iter([(key.to_owned(), value)]))
+        };
+        layer(&mut config, "couch_menu_controller_chord", "select".into()).unwrap();
+        layer(&mut config, "couch_menu_hold_ms", 400.into()).unwrap();
+        layer(
+            &mut config,
+            "couch_menu_keyboard_chord",
+            "ctrl+alt+end".into(),
+        )
+        .unwrap();
+        let open_with = OpenWith::from_config(&config);
+        assert_eq!(open_with.pad_chord, PadButtons::parse("select").unwrap());
+        assert_eq!(open_with.pad_hold, std::time::Duration::from_millis(400));
+        assert_eq!(
+            open_with.key_chord,
+            KeyChord::parse("ctrl+alt+end").unwrap()
+        );
+        assert!(layer(&mut config, "couch_menu_controller_chord", "start".into()).is_err());
+        assert!(layer(&mut config, "couch_menu_corner_hold_ms", 100.into()).is_err());
+        assert_eq!(config.get("couch_menu_controller_chord", ""), "select");
+        assert!(!config.values.contains_key("couch_menu_corner_hold_ms"));
     }
     use super::*;
     /// A change saved to sunshine.conf, as the settings API does it.

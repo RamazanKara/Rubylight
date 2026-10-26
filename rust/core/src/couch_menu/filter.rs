@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use super::chord::{
     CornerHold, MOUSE_LEFT, OpenWith, PadChord, TOUCH_CANCEL, TOUCH_CANCEL_ALL, TOUCH_DOWN,
-    TOUCH_UP, is_key_chord,
+    TOUCH_UP,
 };
 use super::{Nav, Shared};
 use crate::input::Input;
@@ -169,15 +169,16 @@ pub struct Filter {
 }
 
 impl Filter {
-    /// For a stream of `width`×`height` target pixels.
+    /// For a stream of `width`×`height` target pixels, opened the ways and
+    /// with the chords `open_with` sets.
     pub fn new(shared: Arc<Shared>, open_with: OpenWith, width: u32, height: u32) -> Self {
         Self {
             shared,
             open_with,
             open: false,
             seen_opens: 0,
-            pads: PadChord::default(),
-            corner: CornerHold::new(width, height),
+            pads: PadChord::new(open_with.pad_chord, open_with.pad_hold),
+            corner: CornerHold::new(width, height, open_with.corner_hold),
             held: Held::default(),
             masked: Held::default(),
             masking: false,
@@ -342,7 +343,10 @@ impl Filter {
                 Input::Arrival { .. } | Input::Battery { .. } | Input::Haptics(_)
             );
         }
-        if self.open_with.keyboard && is_key_chord(event) && self.request_open(out) {
+        if self.open_with.keyboard
+            && self.open_with.key_chord.matches(event)
+            && self.request_open(out)
+        {
             return false;
         }
         !self.masking || self.unmask(event)
@@ -364,7 +368,7 @@ impl Filter {
             Input::Keyboard {
                 key, down: true, ..
             } => {
-                if is_key_chord(event) {
+                if self.open_with.key_chord.matches(event) {
                     self.request_close(out);
                     return;
                 }

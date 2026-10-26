@@ -3,7 +3,8 @@ use std::cell::Cell;
 
 use super::*;
 use crate::couch_menu::chord::{
-    MODIFIER_ALT, MODIFIER_CTRL, MODIFIER_SHIFT, PAD_CHORD, TOUCH_MOVE,
+    KeyChord, MODIFIER_ALT, MODIFIER_CTRL, MODIFIER_SHIFT, PAD_CHORD, PAD_HOLD_MS, PadButtons,
+    TOUCH_MOVE, parse_hold,
 };
 
 const MS: Duration = Duration::from_millis(1);
@@ -681,4 +682,84 @@ fn couch_menu_filter_a_second_pad_holding_the_chord_waits_for_a_change() {
     run(&mut filter, t0 + 3300 * MS, &[pad(1, PAD_CHORD)]);
     run(&mut filter, t0 + 4300 * MS, &[]);
     assert!(!filter.is_open());
+}
+
+fn custom(controller: &str, hold_ms: &str, keyboard: &str) -> Filter {
+    let open_with = OpenWith {
+        pad_chord: PadButtons::parse(controller).unwrap(),
+        pad_hold: parse_hold("couch_menu_hold_ms", hold_ms, PAD_HOLD_MS).unwrap(),
+        key_chord: KeyChord::parse(keyboard).unwrap(),
+        ..OpenWith::default()
+    };
+    Filter::new(Arc::new(Shared::new()), open_with, 1920, 1080)
+}
+
+#[test]
+fn couch_menu_filter_custom_single_button_hold_opens_at_its_time_and_closes() {
+    const SELECT: u32 = 0x0020;
+    let t0 = Instant::now();
+    let mut filter = custom("select", "300", "ctrl+alt+backspace");
+    // L3+R3 is an ordinary press now.
+    run(&mut filter, t0, &[pad(0, PAD_CHORD)]);
+    assert_eq!(filter.next_due(), None);
+    let (passed, _) = run(&mut filter, t0, &[pad(0, SELECT)]);
+    assert_eq!(passed, [pad(0, SELECT)], "the game sees the press");
+    assert_eq!(filter.next_due(), Some(t0 + 300 * MS));
+    let (_, out) = run(&mut filter, t0 + 299 * MS, &[]);
+    assert_eq!(out, Outcome::default());
+    let (_, out) = run(&mut filter, t0 + 300 * MS, &[]);
+    assert!(out.release_game && filter.is_open());
+    // Still held: no close until it is let go and held again.
+    run(&mut filter, t0 + 900 * MS, &[pad(0, SELECT)]);
+    assert!(filter.is_open());
+    run(&mut filter, t0 + 1000 * MS, &[pad(0, 0)]);
+    run(&mut filter, t0 + 1100 * MS, &[pad(0, SELECT)]);
+    run(&mut filter, t0 + 1399 * MS, &[]);
+    assert!(filter.is_open());
+    let (_, out) = run(&mut filter, t0 + 1400 * MS, &[]);
+    assert_eq!(out.nav, [Nav::Closed]);
+    // An extra button cancels a hold.
+    run(&mut filter, t0 + 2000 * MS, &[pad(0, 0), pad(0, SELECT)]);
+    run(&mut filter, t0 + 2100 * MS, &[pad(0, SELECT | BUTTON_A)]);
+    let (_, out) = run(&mut filter, t0 + 3000 * MS, &[]);
+    assert_eq!(out, Outcome::default());
+    assert!(!filter.is_open());
+}
+
+#[test]
+fn couch_menu_filter_custom_key_chord_replaces_the_default() {
+    const VK_HOME: u16 = 0x24;
+    let t0 = Instant::now();
+    let mut filter = custom("l3+r3", "1000", "ctrl+alt+home");
+    let old = key(VK_BACK, CTRL_ALT, true);
+    let (passed, out) = run(&mut filter, t0, std::slice::from_ref(&old));
+    assert_eq!(passed, [old], "Ctrl+Alt+Backspace goes to the game");
+    assert!(!out.release_game && !filter.is_open());
+    let shifted = key(VK_HOME, CTRL_ALT | MODIFIER_SHIFT, true);
+    let (passed, _) = run(&mut filter, t0, std::slice::from_ref(&shifted));
+    assert_eq!(passed, [shifted]);
+    let (passed, out) = run(&mut filter, t0, &[key(VK_HOME, CTRL_ALT, true)]);
+    assert!(passed.is_empty());
+    assert!(out.release_game && filter.is_open());
+    // In the open menu Backspace is Back, and the custom chord closes.
+    let (_, out) = run(&mut filter, t0, &[key(VK_BACK, CTRL_ALT, true)]);
+    assert_eq!(out.nav, [Nav::Back]);
+    let (_, out) = run(&mut filter, t0, &[key(VK_HOME, CTRL_ALT, true)]);
+    assert_eq!(out.nav, [Nav::Closed]);
+}
+
+#[test]
+fn couch_menu_filter_custom_corner_hold() {
+    let t0 = Instant::now();
+    let open_with = OpenWith {
+        corner_hold: 500 * MS,
+        ..OpenWith::default()
+    };
+    let mut filter = Filter::new(Arc::new(Shared::new()), open_with, 1920, 1080);
+    run(&mut filter, t0, &[touch(TOUCH_DOWN, 1, 0.01, 0.01)]);
+    assert_eq!(filter.next_due(), Some(t0 + 500 * MS));
+    let (_, out) = run(&mut filter, t0 + 499 * MS, &[]);
+    assert_eq!(out, Outcome::default());
+    let (_, out) = run(&mut filter, t0 + 500 * MS, &[]);
+    assert!(out.release_game && filter.is_open());
 }

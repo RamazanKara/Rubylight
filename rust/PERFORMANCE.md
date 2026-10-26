@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| 3.0.0-rc.2 against the published numbers: timing record stages, VRR capture age, the laptop over Wi-Fi; what could not be rerun | [October 26, 3.0.0-rc.2 against the published numbers](#october-26-300-rc2-against-the-published-numbers) |
 | Wi-Fi clients paced from the first frame (`clientWireless`): Nightjar desktop over 5 GHz and 2.4 GHz, with and without the hint | [October 25, Wi-Fi pacing hint](#october-25-wi-fi-pacing-hint-on-a-real-laptop) |
 | WebRTC in a browser on the real host: send pacing on and off, RTX at 0.1% loss, 90 and 120 fps at 1080p, 1440p and 4K, 4K keyframe-heavy, 4K60 HDR from the virtual display | [October 25, WebRTC on the real host (B5b)](#october-25-webrtc-on-the-real-host-pacing-rtx-90-and-120-fps-4k-and-hdr-b5b) |
 | Behaviour across client link speeds: 1000 to 10 Mbit/s, step changes, Wi-Fi profile, what breaks above the link | [October 23, behaviour across client link speeds](#october-23-behaviour-across-client-link-speeds) |
@@ -44,6 +45,51 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## October 26: 3.0.0-rc.2 against the published numbers
+
+The 3.0.0-rc.2 release package (`v3.0.0-rc.2`, `56dffeeb4`) on the RX 7900 XT (5120x1440 240 Hz display), each case run the way the published number was measured. Isolated test hosts on their own profiles and ports; the installed service (also rc.2) was idle before every run and never touched. One stream at a time, no encoder hang (no exit code 3).
+
+**Timing record, loopback 1080p60, default bitrate** (as [October 23](#october-23-per-frame-timing-record-baselines): `e2e.py --record`, 60 s per run, `shared_clock` join with bound 0.0 ms, every host row matched a client row). Each figure is the median over the runs of each run's median / p95 / p99, in ms. The rc.2 records stamp the game's own Present call through ETW (`present_source=etw`), so their `end_to_end` starts about 2.09 ms earlier than the October 23 records, which started at the capture's present stamp (`game_to_present` is 2.089 / 2.094 / 2.094 ms in every run). The like-for-like row subtracts each frame's `game_to_present`.
+
+| Stage | H.264, 3 runs (Oct 23: 2) | HEVC, 3 runs (Oct 23: 2) | AV1, 2 runs (Oct 23: 3) |
+| --- | --- | --- | --- |
+| Encode | 2.49 / 2.97 / 3.36 (2.59 / 3.35 / 3.80) | 2.42 / 2.88 / 3.09 (2.56 / 3.38 / 3.85) | 2.26 / 2.63 / 2.84 (2.28 / 2.85 / 3.28) |
+| Host total (present to last sent) | 3.03 / 10.52 / 11.42 (3.67 / 10.62 / 11.64) | 2.90 / 8.89 / 11.29 (3.63 / 10.54 / 11.65) | 2.70 / 3.18 / 9.68 (4.24 / 10.85 / 11.67) |
+| Decode | 3.72 / 4.48 / 4.65 (3.54 / 4.75 / 5.33) | 5.12 / 6.69 / 7.18 (5.02 / 6.96 / 8.12) | 3.17 / 4.23 / 4.99 (4.36 / 6.51 / 8.11) |
+| End to end from the capture present, as Oct 23 | **6.92 / 13.97 / 15.66** (7.41 / 14.04 / 15.73) | **8.37 / 14.01 / 17.50** (8.81 / 15.64 / 17.78) | **5.89 / 7.21 / 12.90** (8.82 / 15.68 / 17.70) |
+| End to end from the game's Present (new) | 9.01 / 16.05 / 17.74 | 10.46 / 16.10 / 19.56 | 7.98 / 9.30 / 14.96 |
+
+- **Median end to end is 0.5 ms lower on H.264, 0.4 ms on HEVC and 2.9 ms on AV1.** The host total is 0.6 to 1.5 ms lower at the median, and AV1's decode on the receiver 1.2 ms lower. H.264 and HEVC p95 and p99 are equal within the run spread; AV1's p95 fell from 15.68 to 7.21 ms.
+- **The runs disagree at p95.** The host total is bimodal: in some runs more than 5 % of frames wait close to a frame period between present and send, in others almost none (H.264 per-run medians 6.06, 7.40, 6.92 ms and p95 6.83, 14.84, 13.97; HEVC medians 7.06, 9.54, 8.37). Two H.264 and two HEVC runs disagreed, so each got a third. The two AV1 runs agreed (medians 5.82 and 5.96) and both landed in the low mode, so AV1's p95 gain is not claimed beyond these two runs.
+- **PyroWave was not measured.** Two runs and a rerun of both failed the same way (02:58 to 03:06 local): the isolated host's optional PyroWave probe timed out after 15 s (`optional PyroWave probe failed ... optional codec probe timed out`), the host did not offer PyroWave, and `e2e.py` stopped before streaming. The same package's PyroWave case passed in the rc.2 release check at 01:38 local, and the configs match; the cause is not found. Previous: 13.34 / 20.01 / 20.87.
+
+**VRR, 120 Hz game on a 60 fps stream** (as [October 24](#october-24-predictive-claim-waits-under-vrr): HEVC 2560x720, VRR hint on, `minimum_fps_target=20`, `motion_probe` at 120 Hz, timing record on for the cadence error, 25 s per run, the first 5 s `stream timings` line dropped, means of the remaining lines and of the runs). Previous is leg B of October 24.
+
+| | Age p50 / p95 / p99 | Present-to-sent p50 / p95 / p99 | Cadence error p50 / p99 | Shown fps |
+| --- | --- | --- | --- | --- |
+| rc.2, 2 runs | 0.25 / 6.24 / 8.35 | 3.50 / 8.62 / 10.79 | 0.37 / 8.58 | 60.10 |
+| October 24, B | 0.27 / 3.71 / 8.91 | 3.80 / 6.39 / 11.43 | 0.24 / 8.83 | 60.10 |
+
+p50 and p99 are equal or slightly lower; **p95 is worse** (age 6.24 against 3.71 ms, present-to-sent 8.62 against 6.39 ms). Four more runs without the timing record agree (age 0.26 / 7.65 / 8.25, present-to-sent 3.56 / 9.79 / 10.65), so it is not run-to-run noise. The VRR claim-wait change (`abb803c67`) is in rc.2, and the pacing commits after it are for wireless clients; the cause is not found. October 24 kept two `stream timings` lines a run, these runs three, so the p95 columns are noisy on both sides.
+
+**The laptop over Wi-Fi** (`smoke.ps1`, as in the release checks: Moonlight-qt 6.2.0 on the Radeon 780M laptop, 5 GHz Wi-Fi at 2402 Mbit/s, client "lap" on its Extended virtual display against the installed rc.2 host, `motion_probe` at 240 Hz on the streamed display, 1968x2184 HDR 120 fps 80 Mbps, 30 s per codec, Moonlight's whole-session averages). Previous: the October 8 rc.24 runs, one 35 s run each ([PERFORMANCE_WORK.md](PERFORMANCE_WORK.md#first-remote-client-the-laptop-over-wi-fi)).
+
+| Codec | Received fps, run 1 / run 2 (Oct 8) | Host processing avg, run 1 / run 2 (Oct 8) | Decode avg | Jitter drops |
+| --- | --- | --- | --- | --- |
+| AV1 | 115.4 / 120.1 (121.2) | 0.7 / 0.5 ms (2.9) | 0.54 / 0.34 ms | 0.11 / 0.10 % |
+| HEVC | 119.9 / 120.2 (121.0) | 0.6 / 0.6 ms (3.5) | 0.33 / 0.54 ms | 0.10 / 0.10 % |
+
+Both runs passed. AV1's 115.4 fps in run 1 is Moonlight's session average, start included; the host's own 5 s lines in that session show 119.7 to 119.9 fps throughout, and run 2 got 120.1. Moonlight's host processing field dropped from about 3 ms to 0.5 to 0.7 ms; the host's present-to-sent p50 in run 1 was 3.5 ms (AV1) and 4.1 ms (HEVC), so the field's lower value is not claimed as a latency gain.
+
+**Not rerun.**
+
+- **Link adaptation, `r50-hevc-hi`** (previous 1.17 and 1.08 % frames lost): `linkspeed.py` lets the NUC client in through a firewall rule it adds for the package's exe, and this shell was not elevated, so the rule was not created and the client could not reach the host (`ConnectTimeout` on `/applist`). The harness then picked up client files left in the container from an earlier run; both rows were rejected (`no host record`).
+- **WebRTC glass to glass** (H.264 and AV1 1080p60, HEVC and AV1 4K120): `webrtc_e2e.cjs` needs its elevated helper, which is not installed on this PC (`rust/release/elevation.ps1` from an elevated shell sets it up).
+- **Picture age under GPU load** (2.2.9: HEVC 14.34 / 16.03, AV1 13.65 / 18.00): the October 12 harness (native HDR virtual display as SYSTEM) is not in the repository, and SYSTEM runs need the same elevated helper.
+- **Real-client picture age over Wi-Fi** (October 8: 13.5 ms render to received): it used a laptop-side decoder with a UDP clock map that is not in the repository.
+
+Raw runs are under `C:\src\butterpollo-release\perf-rc2` (`timing`, `vrr`, `laptop`, `link`; the failed PyroWave runs under `timing\failed` and `timing\e2e-pyrowave-*`).
 
 ## October 25: WebRTC input delay on the 780M laptop
 

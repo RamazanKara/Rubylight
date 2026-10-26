@@ -15,8 +15,8 @@
 <p align="center">
   <a href="https://github.com/RamazanKara/nightjar/releases/latest/download/nightjar.apk"><b>Android</b></a> ·
   <a href="#android-tv-and-fire-tv"><b>Android TV and Fire TV</b></a> ·
-  <a href="https://github.com/RamazanKara/nightjar/releases/latest"><b>Windows</b></a> ·
-  <a href="https://github.com/RamazanKara/nightjar/releases/latest"><b>Linux</b></a>
+  <a href="https://github.com/RamazanKara/nightjar/releases/latest"><b>Windows (Alpha)</b></a> ·
+  <a href="https://github.com/RamazanKara/nightjar/releases/latest"><b>Linux (Alpha)</b></a>
 </p>
 
 <p align="center">

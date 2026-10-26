@@ -343,6 +343,15 @@ impl UserFolder {
         Self::at(path, token)
     }
 
+    /// The folder at `path`, opened as this process rather than as the
+    /// signed-in user. Only for tests of the callers (the `test-folder`
+    /// feature): a test host may run elevated without a desktop shell,
+    /// where [`UserFolder::open`] refuses.
+    #[cfg(feature = "test-folder")]
+    pub fn unimpersonated(path: &Path) -> Result<Self, UserFolderError> {
+        Self::at(path.to_path_buf(), None)
+    }
+
     fn at(path: PathBuf, token: Option<Arc<OwnedHandle>>) -> Result<Self, UserFolderError> {
         let folder = Self { path, token };
         folder.as_user(|| {
@@ -532,6 +541,24 @@ impl UserFolder {
             // writable u64.
             unsafe { GetDiskFreeSpaceExW(&path, Some(&mut free), None, None) }.map_err(os_error)?;
             Ok(free)
+        })
+    }
+
+    /// The bytes the user may still write to the folder's volume and the
+    /// volume's size as the user sees it, both after any disk quota.
+    pub fn volume_bytes(&self) -> Result<(u64, u64), UserFolderError> {
+        let mut path = verbatim(&self.path)?;
+        if path.last() != Some(&u16::from(b'\\')) {
+            path.push(u16::from(b'\\'));
+        }
+        let path = HSTRING::from_wide(&path);
+        self.as_user(|| {
+            let (mut free, mut total) = (0u64, 0u64);
+            // SAFETY: path is NUL-terminated and outlives the call; free and
+            // total are writable u64s.
+            unsafe { GetDiskFreeSpaceExW(&path, Some(&mut free), Some(&mut total), None) }
+                .map_err(os_error)?;
+            Ok((free, total))
         })
     }
 }
@@ -826,6 +853,8 @@ mod tests {
         assert_eq!(folder.list().unwrap().len(), 2);
         assert_eq!(folder.open_file(&numbered).unwrap().1, 6);
         assert!(folder.free_bytes().unwrap() > 0);
+        let (free, total) = folder.volume_bytes().unwrap();
+        assert!(0 < free && free <= total, "{free} of {total}");
         drop(file);
         // An incomplete one is deleted there too.
         let mut part = folder.create_part(&name).unwrap();

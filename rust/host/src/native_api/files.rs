@@ -29,7 +29,7 @@ use butterpollo_windows::user_folder::{PartFile, UserFolder, UserFolderError};
 use std::{
     collections::HashSet,
     io::{self, Read, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     pin::Pin,
     sync::{Mutex, PoisonError},
     task::{Context, Poll},
@@ -156,6 +156,15 @@ fn transfer_dir(h: &Shared) -> Option<PathBuf> {
         .unwrap_or_else(PoisonError::into_inner)
         .file_transfer_dir()
 }
+/// The transfer folder, as the signed-in user. Tests open theirs as the
+/// developer: an elevated test runner without a desktop shell has no user
+/// to act as.
+fn open_folder(dir: Option<&Path>) -> Result<UserFolder, UserFolderError> {
+    #[cfg(not(test))]
+    return UserFolder::open(dir);
+    #[cfg(test)]
+    UserFolder::unimpersonated(dir.expect("a test names its transfer folder"))
+}
 
 /// The `name` query argument, percent-decoded. The name itself is checked
 /// where the folder opens the file.
@@ -242,7 +251,7 @@ pub(super) async fn list(State(h): State<Shared>, Extension(c): Extension<Connec
         .unwrap_or_else(PoisonError::into_inner)
         .file_transfer_max_bytes();
     let list = blocking("list the transfer folder", move || {
-        let folder = UserFolder::open(dir.as_deref())?;
+        let folder = open_folder(dir.as_deref())?;
         Ok(FileList {
             folder: folder.path().display().to_string(),
             free_bytes: folder.free_bytes()?,
@@ -274,7 +283,7 @@ pub(super) async fn content(
     let name = name_of(request.uri().query())?;
     let dir = transfer_dir(&h);
     let opened =
-        tokio::task::spawn_blocking(move || UserFolder::open(dir.as_deref())?.open_file(&name))
+        tokio::task::spawn_blocking(move || open_folder(dir.as_deref())?.open_file(&name))
             .await
             .map_err(|error| Failure::internal("open the file", error))?;
     let (file, length) = match opened {
@@ -590,7 +599,7 @@ fn write_part(
     mut rx: mpsc::Receiver<ToDisk>,
 ) -> Result<Option<String>, UserFolderError> {
     let _slot = slot;
-    let created = UserFolder::open(dir.as_deref()).and_then(|folder| {
+    let created = open_folder(dir.as_deref()).and_then(|folder| {
         if length > folder.free_bytes()? {
             return Err(io::Error::from(io::ErrorKind::StorageFull).into());
         }

@@ -310,8 +310,8 @@ impl HostClient {
         decode(transport::get(&request, &self.cancel)?, &path, 200)
     }
 
-    /// Uploads exactly `length` bytes of `file` as `name`, reporting progress after every
-    /// chunk. Setting `stop` ends the upload before its next chunk with `Error::Cancelled`; the
+    /// Uploads exactly `length` bytes of `file` as `name`, reporting progress at 0, at most
+    /// every 256 KiB and 100 ms, and at `length`. Setting `stop` ends the upload before its next chunk with `Error::Cancelled`; the
     /// host then drops the partial file. Needs the device's `file_upload` permission.
     pub fn upload_file(
         &self,
@@ -335,8 +335,8 @@ impl HostClient {
         }
     }
 
-    /// Downloads `name` into `sink` and returns its length, reporting progress after every
-    /// chunk. A body shorter than its Content-Length is an error, as is setting `stop`; the
+    /// Downloads `name` into `sink` and returns its length, reporting progress like
+    /// `upload_file`. A body shorter than its Content-Length is an error, as is setting `stop`; the
     /// caller then discards what `sink` got. Needs the device's `file_download` permission.
     pub fn download_file(
         &self,

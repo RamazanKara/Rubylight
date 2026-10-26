@@ -220,8 +220,43 @@ pub(crate) struct Upload<'a> {
     pub content_type: &'static str,
 }
 
-/// Bytes moved so far and the total, after every chunk.
+/// Bytes moved so far and the total: once at 0, then at most every `PROGRESS_BYTES` and
+/// `PROGRESS_INTERVAL`, whichever comes later, and once at the total.
 pub(crate) type Progress<'a> = dyn FnMut(u64, u64) + 'a;
+
+const PROGRESS_BYTES: u64 = 256 * 1024;
+const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
+
+/// Spaces the progress calls, so a fast link does not call into the app for every chunk.
+struct Throttle {
+    total: u64,
+    reported: u64,
+    at: std::time::Instant,
+}
+
+impl Throttle {
+    /// Reports 0 of `total`.
+    fn start(progress: &mut Progress<'_>, total: u64) -> Self {
+        progress(0, total);
+        Self { total, reported: 0, at: std::time::Instant::now() }
+    }
+
+    fn update(&mut self, progress: &mut Progress<'_>, done: u64) {
+        if self.due(done, std::time::Instant::now()) {
+            progress(done, self.total);
+        }
+    }
+
+    fn due(&mut self, done: u64, now: std::time::Instant) -> bool {
+        let due = done > self.reported && (done == self.total
+            || (done - self.reported >= PROGRESS_BYTES && now.saturating_duration_since(self.at) >= PROGRESS_INTERVAL));
+        if due {
+            self.reported = done;
+            self.at = now;
+        }
+        due
+    }
+}
 
 /// The most an upload reads from its file at a time.
 const UPLOAD_CHUNK: usize = 64 * 1024;
@@ -261,7 +296,7 @@ fn write_upload<W: Write + ?Sized>(stream: &mut W, upload: Upload<'_>, progress:
     let Upload { reader, length, .. } = upload;
     let mut chunk = vec![0; UPLOAD_CHUNK];
     let mut sent = 0;
-    progress(0, length);
+    let mut throttle = Throttle::start(progress, length);
     while sent < length {
         if stop.load(Ordering::SeqCst) {
             return Err(Unsent::Local(Error::Cancelled));
@@ -276,7 +311,7 @@ fn write_upload<W: Write + ?Sized>(stream: &mut W, upload: Upload<'_>, progress:
         };
         stream.write_all(&chunk[..read]).map_err(Unsent::Write)?;
         sent += read as u64;
-        progress(sent, length);
+        throttle.update(progress, sent);
     }
     stream.flush().map_err(Unsent::Write)
 }
@@ -305,7 +340,7 @@ fn receive(stream: &mut dyn Stream, body_limit: usize, sink: &mut dyn Write, pro
         .content_length()?
         .ok_or_else(|| Error::Malformed("a download without a Content-Length".into()))?;
     let mut done = 0;
-    progress(0, length);
+    let mut throttle = Throttle::start(progress, length);
     while done < length {
         if stop.load(Ordering::SeqCst) {
             return Err(Error::Cancelled);
@@ -317,7 +352,7 @@ fn receive(stream: &mut dyn Stream, body_limit: usize, sink: &mut dyn Write, pro
         sink.write_all(&reader.buffer[..n])?;
         reader.buffer.drain(..n);
         done += n as u64;
-        progress(done, length);
+        throttle.update(progress, done);
     }
     // Bytes past the Content-Length mean the host and this client disagree on the file.
     if !reader.buffer.is_empty() || reader.fill()? {
@@ -941,10 +976,71 @@ mod tests {
         |done, total| calls.push((done, total))
     }
 
+    /// From 0 to the total, rising by at least `PROGRESS_BYTES` between the ends.
     fn assert_progress(calls: &[(u64, u64)], total: u64) {
         assert_eq!(calls.first(), Some(&(0, total)));
         assert_eq!(calls.last(), Some(&(total, total)));
-        assert!(calls.windows(2).all(|w| w[0].0 < w[1].0 && w[1].1 == total), "{calls:?}");
+        assert!(calls.iter().all(|call| call.1 == total), "{calls:?}");
+        assert!(calls.windows(2).all(|w| w[0].0 < w[1].0), "{calls:?}");
+        assert!(calls[1..calls.len() - 1].windows(2).all(|w| w[1].0 - w[0].0 >= PROGRESS_BYTES), "{calls:?}");
+    }
+
+    #[test]
+    fn progress_waits_for_both_bytes_and_time_and_always_reports_the_end() {
+        let mut calls = Vec::new();
+        let mut throttle = Throttle::start(&mut recorder(&mut calls), 1024 * 1024);
+        let start = throttle.at;
+        let ms = |ms| start + Duration::from_millis(ms);
+        // Enough bytes, too soon; then enough time, too few bytes.
+        assert!(!throttle.due(PROGRESS_BYTES, ms(50)));
+        assert!(!throttle.due(PROGRESS_BYTES - 1, ms(150)));
+        assert!(throttle.due(PROGRESS_BYTES, ms(150)));
+        // Both again, counted from the last report.
+        assert!(!throttle.due(2 * PROGRESS_BYTES - 1, ms(400)));
+        assert!(!throttle.due(3 * PROGRESS_BYTES, ms(249)));
+        assert!(throttle.due(3 * PROGRESS_BYTES, ms(250)));
+        // The end goes out at once, and only once.
+        assert!(throttle.due(1024 * 1024, ms(251)));
+        assert!(!throttle.due(1024 * 1024, ms(900)));
+        assert_eq!(calls, [(0, 1024 * 1024)]);
+        // An empty transfer reports only its start.
+        let mut calls = Vec::new();
+        let mut throttle = Throttle::start(&mut recorder(&mut calls), 0);
+        assert!(!throttle.due(0, std::time::Instant::now()));
+        assert_eq!(calls, [(0, 0)]);
+    }
+
+    /// Passes bytes through and calls `trip` once `after` of them went by.
+    struct Trip<T, F: FnMut()> {
+        inner: T,
+        after: usize,
+        trip: Option<F>,
+    }
+
+    impl<T, F: FnMut()> Trip<T, F> {
+        fn new(inner: T, after: usize, trip: F) -> Self { Self { inner, after, trip: Some(trip) } }
+
+        fn count(&mut self, n: usize) {
+            self.after = self.after.saturating_sub(n);
+            if self.after == 0 { if let Some(mut trip) = self.trip.take() { trip(); } }
+        }
+    }
+
+    impl<T: Read, F: FnMut()> Read for Trip<T, F> {
+        fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+            let n = self.inner.read(bytes)?;
+            self.count(n);
+            Ok(n)
+        }
+    }
+
+    impl<T: Write, F: FnMut()> Write for Trip<T, F> {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            let n = self.inner.write(bytes)?;
+            self.count(n);
+            Ok(n)
+        }
+        fn flush(&mut self) -> std::io::Result<()> { self.inner.flush() }
     }
 
     #[test]
@@ -971,7 +1067,6 @@ mod tests {
         assert!(head.contains("Content-Type: application/octet-stream\r\nContent-Length: 5242887\r\n"), "{head}");
         assert!(body == sent);
         assert_progress(&calls, sent.len() as u64);
-        assert!(calls.len() > 80, "64 KiB chunks: {}", calls.len());
     }
 
     #[test]
@@ -987,12 +1082,12 @@ mod tests {
         // Stopped mid-transfer: no further chunk goes out.
         let (port, server) = host(|mut socket| { read_head_of(&mut socket); read_rest(&mut socket).len() });
         let stop = AtomicBool::new(false);
-        let mut calls = Vec::new();
+        let data = file(4 * 1024 * 1024);
+        let mut reader = Trip::new(&data[..], 1024 * 1024, || stop.store(true, Ordering::SeqCst));
         let result = upload(&transfer(&host_name, port, "files"), &Cancel::default(),
-            Upload { reader: &mut &file(4 * 1024 * 1024)[..], length: 4 * 1024 * 1024, content_type: "application/octet-stream" },
-            &mut |done, total| { calls.push((done, total)); if done >= 1024 * 1024 { stop.store(true, Ordering::SeqCst); } }, &stop);
+            Upload { reader: &mut reader, length: 4 * 1024 * 1024, content_type: "application/octet-stream" },
+            &mut |_, _| {}, &stop);
         assert!(matches!(result, Err(Error::Cancelled)), "{result:?}");
-        assert_eq!(calls.last(), Some(&(1024 * 1024, 4 * 1024 * 1024)));
         assert_eq!(server.join().unwrap(), 1024 * 1024);
     }
 
@@ -1097,12 +1192,12 @@ mod tests {
         let length = 16 * 1024 * 1024;
         let (port, server) = serve_download(format!("HTTP/1.1 200 OK\r\nContent-Length: {length}\r\n\r\n"), file(length));
         let stop = AtomicBool::new(false);
-        let mut sink = Vec::new();
-        let mut last = 0;
-        let result = download(&transfer(&host_name, port, "f"), &Cancel::default(), &mut sink,
-            &mut |done, _| { last = done; if done >= 1024 * 1024 { stop.store(true, Ordering::SeqCst); } }, &stop);
+        let mut sink = Trip::new(Vec::new(), 1024 * 1024, || stop.store(true, Ordering::SeqCst));
+        let result = download(&transfer(&host_name, port, "f"), &Cancel::default(), &mut sink, &mut |_, _| {}, &stop);
         assert!(matches!(result, Err(Error::Cancelled)), "{result:?}");
-        assert!(sink.len() as u64 == last && last < 2 * 1024 * 1024, "{last}");
+        // It stops before the next piece it reads.
+        let got = sink.inner.len();
+        assert!((1024 * 1024..1024 * 1024 + 16 * 1024).contains(&got), "{got}");
         server.join().unwrap();
     }
 }

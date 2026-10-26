@@ -2,6 +2,7 @@
 //! HostCapabilities.java: the family names the host for labels and protocol quirks; features
 //! alone decide what a client offers.
 
+use super::native::NativeCapabilities;
 use super::xml::Element;
 
 /// The host software, for labels and wire-format quirks. Never gates a feature.
@@ -46,10 +47,15 @@ pub enum Feature {
     NativeApi,
     /// Sleep PC (`/power-actions/v1`, Vibepollo's wire format): suspend an idle host.
     Sleep,
+    /// Upload files to the host (`/api/native/v1/files`). Known only after
+    /// [`HostCapabilities::with_native`].
+    FileUpload,
+    /// List and download the host's files. Known only after [`HostCapabilities::with_native`].
+    FileDownload,
 }
 
 impl Feature {
-    pub const ALL: [Feature; 26] = [
+    pub const ALL: [Feature; 28] = [
         Feature::Permissions,
         Feature::OtpPairing,
         Feature::Clipboard,
@@ -76,6 +82,8 @@ impl Feature {
         Feature::CursorShape,
         Feature::NativeApi,
         Feature::Sleep,
+        Feature::FileUpload,
+        Feature::FileDownload,
     ];
 }
 
@@ -97,6 +105,8 @@ pub enum Reason {
     HardwareMetricsOff,
     /// The host supports sleep but has not allowed it for this paired client.
     SleepPermission,
+    /// The host offers file transfer but has not allowed it for this device.
+    FilePermission,
 }
 
 /// Whether a host offers a feature; an unsupported one may carry what would change that.
@@ -166,6 +176,16 @@ pub struct Evidence {
     pub sleep_supported: bool,
     /// The host lets this paired client put it to sleep.
     pub sleep_allowed: bool,
+    /// The native API's capabilities were read (see [`HostCapabilities::with_native`]); the
+    /// fields below come from them, not from serverinfo.
+    pub native_capabilities: bool,
+    /// `files.upload` and `files.download` in the native features: on only while the host's
+    /// file transfer setting is.
+    pub files_upload: bool,
+    pub files_download: bool,
+    /// The device's `file_upload` and `file_download` permissions.
+    pub file_upload_permission: bool,
+    pub file_download_permission: bool,
 }
 
 /// A host's capabilities. [`HostCapabilities::UNKNOWN`] is a host never reached.
@@ -635,6 +655,26 @@ impl Evidence {
                     Supported
                 }
             }
+            // From the native capabilities: the host's features, then the device's permission.
+            Feature::FileUpload | Feature::FileDownload => {
+                let (offered, allowed) = if feature == Feature::FileUpload {
+                    (self.files_upload, self.file_upload_permission)
+                } else {
+                    (self.files_download, self.file_download_permission)
+                };
+                let native = self.availability(Feature::NativeApi);
+                if !native.is_supported() {
+                    native
+                } else if !self.native_capabilities {
+                    Unknown
+                } else if !offered {
+                    Availability::NEVER
+                } else if !allowed {
+                    Unsupported(Some(Reason::FilePermission))
+                } else {
+                    Supported
+                }
+            }
         }
     }
 }
@@ -651,6 +691,23 @@ impl HostCapabilities {
 
     pub fn evidence(&self) -> Option<&Evidence> {
         self.evidence.as_ref()
+    }
+
+    /// These capabilities with what the native API's `GET /capabilities` adds: the file
+    /// transfer features and permissions. Read it again after every serverinfo refresh; until
+    /// then the file features are unknown. A host never reached stays unknown.
+    pub fn with_native(&self, native: &NativeCapabilities) -> Self {
+        let Some(mut evidence) = self.evidence.clone() else {
+            return Self::UNKNOWN;
+        };
+        let features = &native.capabilities.features;
+        let listed = |name: &str| features.iter().any(|f| f == name);
+        evidence.native_capabilities = true;
+        evidence.files_upload = listed("files.upload");
+        evidence.files_download = listed("files.download");
+        evidence.file_upload_permission = native.files.file_upload;
+        evidence.file_download_permission = native.files.file_download;
+        Self::from_evidence(evidence)
     }
 
     pub fn is_known(&self) -> bool {
@@ -734,5 +791,43 @@ mod tests {
         assert!(caps.may_have(Feature::RemoteSessionTiles));
         assert!(!caps.has(Feature::PyroWave));
         assert_eq!(caps.trusted_codec_mode_support(0x0180_0101), 0x0000_0101);
+    }
+
+    #[test]
+    fn file_transfer_follows_the_native_features_and_permissions() {
+        let cases = include_str!("../../tests/fixtures/files/files-capabilities.txt");
+        let availability = |name: &str| match name {
+            "supported" => Availability::Supported,
+            "never" => Availability::Unsupported(None),
+            "unknown" => Availability::Unknown,
+            "pair" => Availability::Unsupported(Some(Reason::Pair)),
+            "update_host" => Availability::Unsupported(Some(Reason::UpdateHost)),
+            "file_permission" => Availability::Unsupported(Some(Reason::FilePermission)),
+            other => panic!("unknown availability {other}"),
+        };
+        let mut count = 0;
+        for line in cases.lines().filter(|l| !l.is_empty() && !l.starts_with('#')) {
+            let fields: Vec<&str> = line.splitn(4, '|').collect();
+            let mut caps = super::super::serverinfo::ServerInfo::parse(fields[3], 47989)
+                .unwrap()
+                .capabilities;
+            // Serverinfo alone never decides file transfer on a host with the native API.
+            for feature in [Feature::FileUpload, Feature::FileDownload] {
+                assert_ne!(caps.availability(feature), Availability::Supported, "{line}");
+            }
+            if fields[2] != "-" {
+                caps = caps.with_native(&serde_json::from_str(fields[2]).unwrap());
+            }
+            for (feature, expected) in [(Feature::FileUpload, fields[0]), (Feature::FileDownload, fields[1])] {
+                let expected = availability(expected);
+                assert_eq!(caps.availability(feature), expected, "{feature:?} {line}");
+                assert_eq!(caps.supported().contains(&feature), expected.is_supported());
+            }
+            count += 1;
+        }
+        assert_eq!(count, 13);
+        // Without serverinfo there is nothing to add to.
+        let native = serde_json::from_str(cases.lines().nth(4).unwrap().split('|').nth(2).unwrap()).unwrap();
+        assert_eq!(HostCapabilities::UNKNOWN.with_native(&native), HostCapabilities::UNKNOWN);
     }
 }

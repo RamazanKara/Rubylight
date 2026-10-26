@@ -78,6 +78,8 @@ fn feature_name(feature: Feature) -> &'static str {
         Feature::CursorShape => "cursor_shape",
         Feature::NativeApi => "native_api",
         Feature::Sleep => "sleep",
+        Feature::FileUpload => "file_upload",
+        Feature::FileDownload => "file_download",
     }
 }
 
@@ -93,6 +95,7 @@ fn reason_name(reason: Reason) -> &'static str {
         Reason::VirtualDisplayDriver => "virtual_display_driver",
         Reason::HardwareMetricsOff => "hardware_metrics_off",
         Reason::SleepPermission => "sleep_permission",
+        Reason::FilePermission => "file_permission",
     }
 }
 

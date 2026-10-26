@@ -462,6 +462,8 @@ pub const CONTROL_MESSAGES: &str =
 /// The `DESCRIBE` answer. `mic` is set when the host takes a client's
 /// microphone: its encryption is then supported and requested, and the
 /// caller ends the answer with `mic::sdp`, whose `m=` line must come last.
+/// `roaming` offers client roaming (`config.client_roaming()`).
+#[allow(clippy::too_many_arguments)]
 pub fn describe(
     feature_flags: u32,
     supported: u32,
@@ -470,6 +472,7 @@ pub fn describe(
     av1: bool,
     pyrowave: bool,
     mic: bool,
+    roaming: bool,
 ) -> String {
     let (supported, requested) = if mic {
         (
@@ -485,6 +488,11 @@ pub fn describe(
     // Rubylight's own control messages (rubylight-protocol); a client sends them
     // only to a host that lists them.
     s.push_str(CONTROL_MESSAGES);
+    // Client roaming, wire format v1; clients that don't know it ignore it.
+    if roaming {
+        s.push_str(crate::roaming::SDP_ATTRIBUTE);
+        s.push_str("\r\n");
+    }
     if hevc {
         s.push_str("sprop-parameter-sets=AAAAAU\r\n");
     }
@@ -739,7 +747,7 @@ mod tests {
             (0, 0)
         );
         assert!(
-            describe(0, 7, 0, true, true, true, false)
+            describe(0, 7, 0, true, true, true, false, false)
                 .contains("a=x-ss-pyrowave.bitstream:186f0393\r\n")
         );
     }
@@ -790,7 +798,7 @@ mod tests {
     #[test]
     fn rubylight_control_messages_are_advertised_once_before_the_microphone() {
         for mic in [false, true] {
-            let sdp = describe(0, 7, 1, true, true, true, mic);
+            let sdp = describe(0, 7, 1, true, true, true, mic, true);
             assert_eq!(
                 sdp.lines()
                     .filter(|line| line.starts_with("a=x-rl-control:"))
@@ -820,11 +828,27 @@ mod tests {
         );
     }
     #[test]
+    fn roaming_is_offered_once_only_when_on_and_changes_nothing_else() {
+        for mic in [false, true] {
+            let on = describe(0, 7, 1, true, true, true, mic, true);
+            let off = describe(0, 7, 1, true, true, true, mic, false);
+            assert_eq!(
+                on.lines()
+                    .filter(|line| line.starts_with("a=x-rl-roaming"))
+                    .collect::<Vec<_>>(),
+                ["a=x-rl-roaming:1"]
+            );
+            assert!(!off.contains("x-rl-roaming"));
+            // Stock clients see the same answer plus one line they ignore.
+            assert_eq!(on.replace("a=x-rl-roaming:1\r\n", ""), off);
+        }
+    }
+    #[test]
     fn the_microphone_is_offered_encrypted_only_when_the_host_takes_it() {
-        let without = describe(0, 5, 1, false, false, false, false);
+        let without = describe(0, 5, 1, false, false, false, false, false);
         assert!(without.contains("encryptionSupported:5\r\n"));
         assert!(without.contains("encryptionRequested:1\r\n"));
-        let with = describe(0, 7, 7, false, false, false, true);
+        let with = describe(0, 7, 7, false, false, false, true, false);
         assert!(with.contains("encryptionSupported:15\r\n"));
         assert!(with.contains("encryptionRequested:15\r\n"));
         // A client that encrypts its microphone negotiates bit 8.

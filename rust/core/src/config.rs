@@ -477,6 +477,12 @@ impl Config {
     pub fn ports(&self) -> Result<Ports> {
         Ok(Ports::from_base(self.port()?))
     }
+    /// Client roaming (`client_roaming`, on by default): DESCRIBE offers it, and a client
+    /// that proves a new address keeps its stream. Nothing happens until an authenticated
+    /// probe arrives (`roaming`).
+    pub fn client_roaming(&self) -> bool {
+        self.boolean("client_roaming", true)
+    }
     /// The WebRTC server for TV and browser clients (off by default).
     pub fn webrtc_server(&self) -> bool {
         self.boolean("webrtc_server", false)
@@ -1210,6 +1216,22 @@ mod tests {
         config.update(saved.as_object().unwrap()).unwrap();
         assert!(!config.webrtc_rtx());
         assert_eq!(config.webrtc_loss_permille(), 1000);
+    }
+
+    #[test]
+    fn client_roaming_is_on_unless_turned_off() {
+        assert!(super::Config::default().client_roaming());
+        for (text, on) in [
+            ("client_roaming = true\n", true),
+            ("client_roaming = off\n", false),
+            ("client_roaming = 0\n", false),
+        ] {
+            assert_eq!(
+                super::Config::parse(text).unwrap().client_roaming(),
+                on,
+                "{text}"
+            );
+        }
     }
 
     #[test]

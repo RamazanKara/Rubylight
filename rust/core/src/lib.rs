@@ -81,6 +81,7 @@ pub mod pyrowave_probe;
 pub mod radeon_profile;
 pub mod reconfigure;
 pub mod remote;
+pub mod roaming;
 pub mod rtsp;
 pub mod session;
 pub mod session_state;

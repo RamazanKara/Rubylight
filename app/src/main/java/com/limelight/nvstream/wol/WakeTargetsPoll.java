@@ -35,7 +35,7 @@ public final class WakeTargetsPoll {
     /** The last ask of each PC that answers; a PC that went away is asked again once it answers. */
     private final Map<String, Ask> asks = new HashMap<>();
 
-    /** One ask of one PC. */
+    /** One ask of one PC: what it reads is kept only while it is still the PC's last ask. */
     private static final class Ask {
         final long at;
 
@@ -83,6 +83,13 @@ public final class WakeTargetsPoll {
         }
     }
 
+    /** A removed PC is asked nothing more, and an ask still in flight for it keeps nothing. */
+    public void forget(String uuid) {
+        synchronized (asks) {
+            asks.remove(uuid);
+        }
+    }
+
     private void ask(String uuid, ComputerDetails computer, Ask ask) {
         NativeApiClient client = clients.open(computer);
         if (client == null) {
@@ -93,10 +100,16 @@ public final class WakeTargetsPoll {
         try {
             NativeCapabilities capabilities = client.capabilities();
             NativeWake wake = capabilities.has(NativeCapabilities.WAKE) ? client.wake() : null;
-            if (wake == null) {
-                targets.forget(uuid);
-            } else {
-                targets.store(uuid, wake);
+            synchronized (asks) {
+                // Stored under the lock, so a PC removed meanwhile keeps nothing of this ask.
+                if (asks.get(uuid) != ask) {
+                    return;
+                }
+                if (wake == null) {
+                    targets.forget(uuid);
+                } else {
+                    targets.store(uuid, wake);
+                }
             }
         } catch (NativeApiException e) {
             // A failed read keeps what is stored: those adapters still belong to the PC.

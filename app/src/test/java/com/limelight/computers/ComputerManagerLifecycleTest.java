@@ -378,6 +378,25 @@ public class ComputerManagerLifecycleTest {
     }
 
     @Test
+    public void aPcRemovedWhileItsWakeTargetsAreReadKeepsNone() throws Exception {
+        ServiceController<SlowNativeManager> controller = Robolectric.buildService(SlowNativeManager.class).create();
+        SlowNativeManager service = controller.get();
+        try {
+            ComputerDetails found = service.pollNewPc();
+            assertTrue(service.asked.await(10, TimeUnit.SECONDS));
+            service.removeComputer(found);
+
+            service.release.countDown();
+            awaitWakeRequests(service);
+            assertTrue(service.answered);
+            assertSame(WakeTargets.Targets.NONE, new WakeTargets(service).load("tower"));
+        } finally {
+            service.release.countDown();
+            controller.destroy();
+        }
+    }
+
+    @Test
     public void failingPollListenerStillReleasesTheDatabaseReference() throws Exception {
         ServiceController<Manager> controller = Robolectric.buildService(Manager.class).create();
         ComputerManagerService service = controller.get();

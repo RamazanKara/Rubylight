@@ -133,4 +133,19 @@ public class WakeTargetsPollTest {
         runQueued();
         assertEquals(1, asks());
     }
+
+    @Test
+    public void aRemovedPcKeepsNothingOfAnAskStillOnItsWay() {
+        queue = true;
+        ComputerDetails pc = NativeApiFixtures.nativeHost("pc", "PC", true);
+        poll.polled(pc);
+        poll.forget("pc");
+        targets.forget("pc");
+        runQueued();
+        assertEquals(1, asks());
+        assertSame(WakeTargets.Targets.NONE, targets.load("pc"));
+
+        poll.polled(pc);
+        assertEquals("a PC added again is asked at once", 1, queued.size());
+    }
 }

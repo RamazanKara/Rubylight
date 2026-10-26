@@ -559,6 +559,8 @@ public class ComputerManagerService extends Service {
         try {
             // Remove it from the database
             dbManager.deleteComputer(computer);
+            // Before its stored targets go, so an ask still in flight can't store them again.
+            wakeTargets.forget(computer.uuid);
             HostStreamProfile.reset(this, computer.uuid);
             HostDisplayChoice.save(this, computer.uuid, HostDisplayChoice.HOST_DEFAULT);
             HostCapabilityCache.forget(this, computer.uuid);

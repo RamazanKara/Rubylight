@@ -18,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 import static org.junit.Assert.assertThrows;
@@ -33,13 +34,42 @@ import static org.junit.Assert.assertTrue;
 public class PolicyTraceTest {
     // Gradle runs unit tests in the app module.
     private static final File TRACES = new File("../protocol/policy/tests/traces");
+    /** Every module folder, each with at least one Java trace, so a renamed or emptied folder fails. */
+    private static final List<String> MODULES = Arrays.asList("bitrate", "health", "launch", "pyrowave", "quality", "recovery");
+    private static final String RECOVERY = "{\"rust\": \"recovery::StreamRecoveryPolicy\", \"java\": \"com.limelight.StreamRecoveryPolicy\","
+            + " \"new\": [0, 0], \"calls\": [{\"call\": \"next_delay\", \"args\": [%s, -1], \"expect\": 1000}]}";
 
     @Test public void everyTraceMatchesTheJavaPolicy() throws Exception {
-        assertTrue("no Java traces under " + TRACES, replayAll(TRACES) > 0);
+        assertTrue("no Java traces under " + TRACES, replayAll(TRACES, MODULES) > 0);
     }
 
     @Test public void aMissingTraceFolderFails() {
-        assertThrows(AssertionError.class, () -> replayAll(new File("../protocol/policy/tests/no-traces")));
+        assertThrows(AssertionError.class, () -> replayAll(new File("../protocol/policy/tests/no-traces"), MODULES));
+    }
+
+    @Test public void missingModulesAndOtherFilesFail() throws Exception {
+        File root = Files.createTempDirectory("policy-traces").toFile();
+        File recovery = new File(root, "recovery");
+        assertTrue(recovery.mkdir());
+        Files.write(new File(recovery, "a.json").toPath(), String.format(RECOVERY, 5).getBytes(StandardCharsets.UTF_8));
+        List<String> recoveryOnly = Collections.singletonList("recovery");
+        assertTrue(replayAll(root, recoveryOnly) == 1);
+        assertThrows(AssertionError.class, () -> replayAll(root, Arrays.asList("bitrate", "recovery")));
+        File bitrate = new File(root, "bitrate");
+        assertTrue(bitrate.mkdir());
+        assertThrows(AssertionError.class, () -> replayAll(root, Arrays.asList("bitrate", "recovery")));
+        assertTrue(bitrate.delete());
+        Files.write(new File(recovery, "b.JSON").toPath(), String.format(RECOVERY, 5).getBytes(StandardCharsets.UTF_8));
+        AssertionError error = assertThrows(AssertionError.class, () -> replayAll(root, recoveryOnly));
+        assertTrue(error.getMessage(), error.getMessage().contains("b.JSON: not a .json trace"));
+        for (File file : sorted(recovery)) assertTrue(file.delete());
+        assertTrue(recovery.delete() && root.delete());
+    }
+
+    @Test public void aFractionalIntegerFails() {
+        AssertionError error = assertThrows(AssertionError.class,
+                () -> replay(new JSONObject(String.format(RECOVERY, "5.5"))));
+        assertTrue(error.getMessage(), error.getMessage().contains("argument 0 is not an integer: 5.5"));
     }
 
     @Test public void aWrongExpectationFails() throws Exception {
@@ -52,26 +82,39 @@ public class PolicyTraceTest {
     }
 
     /** Replays every trace with a Java class and returns how many ran. */
-    private static int replayAll(File root) throws Exception {
+    private static int replayAll(File root, List<String> modules) throws Exception {
         assertTrue("missing trace folder " + root.getCanonicalPath(), root.isDirectory());
         List<String> failures = new ArrayList<>();
+        List<String> found = new ArrayList<>();
         int replayed = 0;
         for (File module : sorted(root)) {
-            assertTrue(module + " is not a module folder", module.isDirectory());
+            if (!module.isDirectory()) {
+                failures.add(module + " is not a module folder");
+                continue;
+            }
+            int traces = 0;
             for (File file : sorted(module)) {
-                if (!file.getName().endsWith(".json")) continue;
+                // Only exactly .json: a trace named .JSON or .json.bak would silently not run.
+                if (!file.getName().endsWith(".json")) {
+                    failures.add(file + ": not a .json trace");
+                    continue;
+                }
                 try {
                     JSONObject trace = new JSONObject(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
                     // Desktop-only policy has no Java class; cargo replays it.
                     if (!trace.has("java")) throw new AssertionError("no java class (use null for desktop-only policy)");
                     if (trace.isNull("java")) continue;
                     replay(trace);
-                    replayed++;
+                    traces++;
                 } catch (Exception | AssertionError e) {
                     failures.add(file + ": " + e);
                 }
             }
+            if (traces == 0) failures.add(module + ": no Java traces");
+            replayed += traces;
+            found.add(module.getName());
         }
+        if (!found.equals(modules)) failures.add("module folders under " + root + " are " + found + ", expected " + modules);
         assertTrue(String.join("\n", failures), failures.isEmpty());
         return replayed;
     }
@@ -149,12 +192,18 @@ public class PolicyTraceTest {
             if (value == JSONObject.NULL) {
                 if (type.isPrimitive()) throw new AssertionError("argument " + i + " is null for " + type);
                 values[i] = null;
-            } else if (type == int.class) {
+            } else if (type == int.class || type == long.class) {
+                // longValue() would truncate 1.5; Rust's Args::int refuses it too.
+                if (!(value instanceof Integer || value instanceof Long)) {
+                    throw new AssertionError("argument " + i + " is not an integer: " + value);
+                }
                 long number = ((Number) value).longValue();
-                if (number != (int) number) throw new AssertionError("argument " + i + " is not an int: " + value);
-                values[i] = (int) number;
-            } else if (type == long.class) {
-                values[i] = ((Number) value).longValue();
+                if (type == long.class) {
+                    values[i] = number;
+                } else {
+                    if (number != (int) number) throw new AssertionError("argument " + i + " is not an int: " + value);
+                    values[i] = (int) number;
+                }
             } else if (type == double.class) {
                 values[i] = ((Number) value).doubleValue();
             } else if (type == float.class) {

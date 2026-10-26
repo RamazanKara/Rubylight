@@ -222,7 +222,7 @@ const GUIDE: u32 = 0x0400;
 const X: u32 = 0x4000;
 /// Buttons Moonlight clients take for themselves, most specific first. A
 /// chord holding all of one set never reaches the host as a hold.
-const RESERVED: [(u32, &str); 4] = [
+const RESERVED: [(u32, &str); 6] = [
     (
         START | SELECT | L1 | R1,
         "Start+Select+L1+R1 quits the stream in every Moonlight client",
@@ -238,6 +238,14 @@ const RESERVED: [(u32, &str); 4] = [
     (
         SELECT | L1 | R1 | X,
         "Select+L1+R1+X shows Moonlight's statistics",
+    ),
+    (
+        SELECT | GUIDE,
+        "moonlight-qt and Moonlight Android turn Select+Guide into a clickpad press",
+    ),
+    (
+        SELECT | L1,
+        "moonlight-qt and Moonlight Android turn Select+L1 into a clickpad press",
     ),
 ];
 
@@ -738,11 +746,18 @@ mod tests {
         let guide = refused("select+start");
         let mouse = refused("start");
         let stats = refused("select+l1+r1+x");
+        let clickpad_guide = refused("select+guide");
+        let clickpad_l1 = refused("select+l1");
         assert!(quit.contains("quits the stream"), "{quit}");
         assert!(guide.contains("into Guide"), "{guide}");
         assert!(mouse.contains("mouse mode"), "{mouse}");
         assert!(stats.contains("statistics"), "{stats}");
+        assert!(clickpad_guide.contains("Select+Guide into a clickpad"));
+        assert!(clickpad_l1.contains("Select+L1 into a clickpad"));
         for (superset, message) in [
+            ("guide+select+a", &clickpad_guide),
+            ("select+l1+r1", &clickpad_l1),
+            ("l1+select+up", &clickpad_l1),
             ("start+select+l1+r1+a", &quit),
             ("r1+l1+select+start+l3", &quit),
             ("start+select+y", &guide),
@@ -759,7 +774,7 @@ mod tests {
         // Subsets of a reserved set are fine.
         for value in [
             "select",
-            "select+l1+r1",
+            "select+r1",
             "l1+r1+x",
             "select+x",
             "l3+r3",

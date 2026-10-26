@@ -860,6 +860,7 @@ pub fn override_allowed(key: &str) -> bool {
         "high_resolution_scrolling",
         "native_pen_touch",
         "keybindings",
+        "couch_menu_open_with",
         "couch_menu_controller_chord",
         "couch_menu_hold_ms",
         "couch_menu_corner_hold_ms",
@@ -1752,6 +1753,7 @@ webrtc_media_port = 99999
     fn a_device_couch_menu_override_beats_the_host_and_a_bad_one_is_refused() {
         use crate::couch_menu::chord::{KeyChord, OpenWith, PadButtons};
         for key in [
+            "couch_menu_open_with",
             "couch_menu_controller_chord",
             "couch_menu_hold_ms",
             "couch_menu_corner_hold_ms",
@@ -1774,7 +1776,9 @@ webrtc_media_port = 99999
             "ctrl+alt+end".into(),
         )
         .unwrap();
+        layer(&mut config, "couch_menu_open_with", "controller".into()).unwrap();
         let open_with = OpenWith::from_config(&config);
+        assert!(open_with.controller && !open_with.keyboard && !open_with.touch);
         assert_eq!(open_with.pad_chord, PadButtons::parse("select").unwrap());
         assert_eq!(open_with.pad_hold, std::time::Duration::from_millis(400));
         assert_eq!(

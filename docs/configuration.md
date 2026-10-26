@@ -421,11 +421,12 @@ Moonlight clients keep some buttons for themselves, so the host refuses a chord 
 - Start+Select+L1+R1, which quits the stream;
 - Start, because holding it for 750 ms toggles mouse mode;
 - Start+Select, which becomes Guide on pads without a Home button;
-- Select+L1+R1+X, which shows the statistics.
+- Select+L1+R1+X, which shows the statistics;
+- Select+Guide and Select+L1, which moonlight-qt and Moonlight Android turn into a clickpad press.
 
 `guide` is accepted with a warning: many clients hand Guide to their OS (Android TV's home, the Steam button, iOS), so the hold may never reach the host. The keyboard chords leave out Ctrl+Alt+Shift, which Moonlight keeps for its shortcuts, and letters, which AltGr types on many layouts.
 
-All four chord and hold settings can be set per device or app in their overrides. A value the host refuses to save is refused with a message; one edited into the file by hand is reported in the host log and its default is used.
+`couch_menu_open_with` and the four chord and hold settings can be set per device or app in their overrides, so a phone can open the menu by touch and a TV only by controller. A value the host refuses to save is refused with a message; one edited into the file by hand is reported in the host log and its default is used.
 
 ## Stream presets
 

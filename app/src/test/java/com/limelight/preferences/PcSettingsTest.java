@@ -14,10 +14,12 @@ import androidx.appcompat.app.AlertDialog;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.limelight.R;
 import com.limelight.computers.HostCapabilityCache;
+import com.limelight.nativeapi.NativeApiFixtures;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.PairingManager;
 import com.limelight.nvstream.http.TestHosts;
+import com.limelight.nvstream.wol.WakeTargets;
 import com.limelight.utils.CacheHelper;
 import com.limelight.utils.FrontendLauncher;
 import com.limelight.utils.FrontendExportStore;
@@ -233,6 +235,21 @@ public class PcSettingsTest {
             assertEquals(app.getString(R.string.pcview_menu_send_wol),
                     dialog.getButton(AlertDialog.BUTTON_POSITIVE).getText().toString());
             dialog.dismiss();
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void wakeHelpCountsTheMacsAnOfflinePcsWakeListed() throws Exception {
+        ActivityController<HostStreamSettings> controller = open("asleep-pc", TestHosts.rubylight());
+        try {
+            HostStreamSettings screen = controller.get();
+            new WakeTargets(app).store("asleep-pc", NativeApiFixtures.wake("02:e0:4c:68:00:01"));
+            ComputerDetails computer = pc("asleep-pc", TestHosts.rubylight(), false);
+            computer.macAddress = null;
+            screen.showComputer(computer);
+            assertEquals(app.getString(R.string.pc_settings_wake_ready), summary(row(screen, "wake")));
         } finally {
             controller.pause().stop().destroy();
         }

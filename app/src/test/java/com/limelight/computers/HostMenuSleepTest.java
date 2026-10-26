@@ -11,9 +11,11 @@ import android.view.ViewGroup;
 import com.limelight.R;
 import com.limelight.computers.HostMenu.SleepEntry;
 import com.limelight.grid.PcGridAdapter;
+import com.limelight.nativeapi.NativeApiFixtures;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.TestHosts;
+import com.limelight.nvstream.wol.WakeTargets;
 import com.limelight.ui.ActionSheet;
 import com.limelight.ui.ToolbarIconTintTest;
 
@@ -135,6 +137,24 @@ public class HostMenuSleepTest {
             allowed.show();
             assertEquals(1f, sleepRow((ViewGroup) allowed.findViewById(android.R.id.content), label).getAlpha(), 0f);
             allowed.dismiss();
+        }
+    }
+
+    @Test
+    public void anAwayPcWithOnlyTheMacsItsWakeListedOffersWake() throws Exception {
+        try (ActivityController<ToolbarIconTintTest.Screen> controller =
+                     Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible()) {
+            ToolbarIconTintTest.Screen screen = controller.get();
+            new WakeTargets(screen).store("pc", NativeApiFixtures.wake("02:e0:4c:68:00:01"));
+            List<Integer> chosen = new ArrayList<>();
+            ActionSheet menu = HostMenu.build(screen, pc(power(1, 1), ComputerDetails.State.OFFLINE),
+                    PcGridAdapter.RowState.OFFLINE, null, chosen::add);
+            menu.show();
+            MaterialButton wake = sleepRow((ViewGroup) menu.findViewById(android.R.id.content),
+                    screen.getString(R.string.pcview_menu_send_wol));
+            wake.performClick();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertEquals(List.of(HostMenu.WAKE), chosen);
         }
     }
 }

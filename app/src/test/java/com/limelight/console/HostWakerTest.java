@@ -12,7 +12,9 @@ import android.os.Handler;
 import android.os.Looper;
 
 import com.limelight.PcViewLifecycleTest;
+import com.limelight.nativeapi.NativeApiFixtures;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.wol.WakeTargets;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -77,6 +79,15 @@ public class HostWakerTest {
         ComputerDetails up = nativeHost("up", "Up", true);
         up.macAddress = "aa:bb:cc:dd:ee:ff";
         assertFalse("An online PC is not woken", HostWaker.canWake(app, up));
+    }
+
+    @Test
+    public void anAwayPcWithOnlyTheMacsItsWakeListedCanBeWoken() throws Exception {
+        // The gate of Play in the game page and of the console home.
+        Application app = RuntimeEnvironment.getApplication();
+        host.macAddress = null;
+        new WakeTargets(app).store("tower", NativeApiFixtures.wake("02:e0:4c:68:00:01"));
+        assertTrue(HostWaker.canWake(app, host));
     }
 
     @Test

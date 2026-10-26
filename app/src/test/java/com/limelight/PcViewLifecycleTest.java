@@ -12,9 +12,11 @@ import androidx.appcompat.app.AlertDialog;
 
 import com.limelight.computers.ComputerManagerListener;
 import com.limelight.computers.ComputerManagerService;
+import com.limelight.nativeapi.NativeApiFixtures;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.PairingManager;
 import com.limelight.nvstream.jni.MoonBridge;
+import com.limelight.nvstream.wol.WakeTargets;
 import com.limelight.preferences.GlPreferences;
 
 import org.junit.Test;
@@ -263,6 +265,28 @@ public class PcViewLifecycleTest {
             }
             assertEquals(screen.getString(R.string.pc_status_playing, "Racing Game"),
                     com.limelight.grid.PcGridAdapter.statusText(screen, (PcView.ComputerObject) grid.getItemAtPosition(0)));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void tappingAnOfflinePcWithOnlyTheMacsItsWakeListedWakesIt() throws Exception {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            new WakeTargets(screen).store("asleep", NativeApiFixtures.wake("02:e0:4c:68:00:01"));
+            ComputerDetails asleep = pc("asleep", "Attic", ComputerDetails.State.OFFLINE, PairingManager.PairState.PAIRED);
+            asleep.macAddress = null;
+            report(asleep);
+            GridView grid = screen.findViewById(R.id.fragmentView);
+            int row = grid.getCount() - 1;
+            PcView.ComputerObject computer = (PcView.ComputerObject) grid.getItemAtPosition(row);
+            assertSame(asleep, computer.details);
+            assertEquals(screen.getString(R.string.pcview_menu_send_wol),
+                    screen.getString(com.limelight.grid.PcGridAdapter.mainActionLabel(screen, computer)));
+            grid.performItemClick(null, row, row);
+            assertEquals(java.util.List.of(asleep), screen.woken);
         } finally {
             controller.pause().stop().destroy();
         }

@@ -163,6 +163,10 @@ public class ShortcutTrampoline extends Activity {
                             return;
                         }
                         sendWake(host);
+                        // Nor does a send the shortcut stopped during.
+                        if (stopped) {
+                            return;
+                        }
                         binder.invalidateStateForComputer(host.uuid);
                     }, () -> latest, SystemClock::elapsedRealtime, new HostWaker.Listener() {
                         @Override

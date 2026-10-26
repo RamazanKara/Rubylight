@@ -48,9 +48,14 @@ public class ShortcutTrampolineLifecycleTest {
         int databaseOpens;
         int launches;
         final List<ComputerDetails> wakes = new CopyOnWriteArrayList<>();
+        volatile Runnable duringSend;
 
         @Override protected void sendWake(ComputerDetails host) {
             wakes.add(host);
+            Runnable during = duringSend;
+            if (during != null) {
+                during.run();
+            }
         }
 
         @Override public boolean bindService(Intent intent, ServiceConnection connection, int flags) {
@@ -275,6 +280,21 @@ public class ShortcutTrampolineLifecycleTest {
         sender.send(polled.computer);
         assertEquals(1, polled.activity.wakes.size());
         assertEquals(1, polled.invalidated.size());
+        polled.controller.destroy();
+    }
+
+    @Test
+    public void aSendTheShortcutStopsDuringPollsNothing() throws Exception {
+        Polled polled = new Polled();
+        polled.poll(ComputerDetails.State.OFFLINE);
+        polled.awaitWakes(1);
+        HostWaker waker = ReflectionHelpers.getField(polled.activity, "waker");
+        HostWaker.Sender sender = ReflectionHelpers.getField(waker, "sender");
+        polled.activity.duringSend = () -> polled.controller.pause().stop();
+
+        sender.send(polled.computer);
+        assertEquals("the packets were on their way", 2, polled.activity.wakes.size());
+        assertEquals("but the stopped shortcut has the PC polled no more", 1, polled.invalidated.size());
         polled.controller.destroy();
     }
 }

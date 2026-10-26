@@ -198,8 +198,11 @@ Done, on Windows and Linux unless noted:
 
 - PCs found by mDNS (`_nvstream._tcp`) and added by address (`host`, `host:port`, IPv6);
   online state, paired state and the running app polled every 4 s; addresses learned and
-  merged by the host's unique ID. Wake-on-LAN sends the magic packet to the broadcast
-  address and every address the PC was known by.
+  merged by the host's unique ID. Wake-on-LAN sends a magic packet for every MAC the PC
+  lists (serverinfo's, and its other adapters from a native `GET /wake`) on ports 7, 9,
+  47009 and the Moonlight ports to every address the PC was known by, 255.255.255.255,
+  each adapter's subnet broadcast, the PC's own subnet broadcasts and `ff02::1` (best
+  effort). "Waking <PC>…" resends every 8 s until the PC answers, up to 90 s, or Cancel.
 - PIN pairing with the PIN shown in large type, and one-time PIN pairing (PIN and
   passphrase) on hosts that report device permissions. The host certificate is pinned and
   stored.

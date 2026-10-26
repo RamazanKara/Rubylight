@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use nightjar_core::http::native_api::capabilities::Capabilities;
+use nightjar_core::http::native_api::feature;
 use nightjar_core::http::native_api::library::Library;
 use nightjar_core::http::native_api::session::{ActionId, Session};
 use nightjar_core::http::{
@@ -85,6 +86,10 @@ pub struct NativeRead {
     capabilities: Option<Capabilities>,
     library: Option<Library>,
     session: Result<Session, String>,
+    /// The PC's wake targets (`wol::targets`) to keep in place of the stored ones: empty for a
+    /// PC without `wake`; None when they were not read, or the read failed (those adapters
+    /// still belong to the PC).
+    wake: Option<(Vec<String>, Vec<String>)>,
 }
 
 pub struct Host {
@@ -878,12 +883,24 @@ impl Hosts {
                 } else {
                     (None, None)
                 };
+                let wake = capabilities.as_ref().and_then(|c| {
+                    if !c.features.iter().any(|f| f == feature::WAKE) {
+                        return Some((Vec::new(), Vec::new()));
+                    }
+                    match client.wake() {
+                        Ok(wake) => Some(crate::wol::targets(&wake)),
+                        Err(e) => {
+                            eprintln!("nightjar: wake targets not read: {}", describe(&e));
+                            None
+                        }
+                    }
+                });
                 let session = client.session().map_err(|e| describe(&e));
                 // Without a library in this read, a failed session is the whole failure; with
                 // one, Home still has the games and shows the session error beside them.
                 match (&session, full) {
                     (Err(e), false) => Err(e.clone()),
-                    _ => Ok(Box::new(NativeRead { capabilities, library, session })),
+                    _ => Ok(Box::new(NativeRead { capabilities, library, session, wake })),
                 }
             });
             Some(Event::Native { id, epoch, seq, result })
@@ -1118,6 +1135,13 @@ impl Hosts {
                                 if let Some(capabilities) = read.capabilities {
                                     host.native.capabilities = Some(capabilities);
                                 }
+                                if let Some((macs, broadcasts)) = read.wake {
+                                    if host.record.wake_macs != macs || host.record.wake_broadcasts != broadcasts {
+                                        host.record.wake_macs = macs;
+                                        host.record.wake_broadcasts = broadcasts;
+                                        changed = true;
+                                    }
+                                }
                                 if let Some(library) = read.library {
                                     // The classic list a launch goes through follows the library.
                                     reload_apps = !host.native.library_live
@@ -1227,6 +1251,10 @@ impl Hosts {
                     kept.alias = dropped.alias;
                 }
                 if kept.pace.is_none() { kept.pace = dropped.pace; }
+                if kept.wake_macs.is_empty() && kept.wake_broadcasts.is_empty() {
+                    kept.wake_macs = dropped.wake_macs;
+                    kept.wake_broadcasts = dropped.wake_broadcasts;
+                }
                 if kept.settings.is_none() {
                     kept.settings = dropped.settings;
                 }
@@ -1354,6 +1382,8 @@ mod tests {
             other_addresses: Vec::new(),
             server_certificate: Some("pem".into()),
             mac: None,
+            wake_macs: Vec::new(),
+            wake_broadcasts: Vec::new(),
             manual: true,
             settings: None,
             app_settings: Default::default(),
@@ -1371,7 +1401,25 @@ mod tests {
     }
 
     fn full_read(session: Session) -> Box<NativeRead> {
-        Box::new(NativeRead { capabilities: None, library: Some(library()), session: Ok(session) })
+        Box::new(NativeRead { capabilities: None, library: Some(library()), session: Ok(session), wake: None })
+    }
+
+    #[test]
+    fn wake_targets_follow_the_pc_and_stay_when_they_could_not_be_read() {
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
+        let id = hosts.list[0].id;
+        let mut read = |wake: Option<(Vec<String>, Vec<String>)>| {
+            let mut native = full_read(session("idle"));
+            native.wake = wake;
+            hosts.sender.send(Event::Native { id, epoch: 0, seq: 1, result: Ok(native) }).unwrap();
+            let changed = hosts.drain(&egui::Context::default()).1;
+            (changed, hosts.list[0].record.wake_macs.clone(), hosts.list[0].record.wake_broadcasts.clone())
+        };
+        let targets = (vec!["0a:00:27:00:00:05".to_string()], vec!["10.0.0.255".to_string()]);
+        assert_eq!(read(Some(targets.clone())), (true, targets.0.clone(), targets.1.clone()), "kept, and saved");
+        assert_eq!(read(Some(targets.clone())), (false, targets.0.clone(), targets.1.clone()), "the same ones save nothing");
+        assert_eq!(read(None), (false, targets.0.clone(), targets.1.clone()), "a failed read keeps them");
+        assert_eq!(read(Some((Vec::new(), Vec::new()))), (true, Vec::new(), Vec::new()), "a PC without wake has none");
     }
 
     fn send(hosts: &mut Hosts, event: Event) {

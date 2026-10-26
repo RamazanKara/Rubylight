@@ -25,6 +25,8 @@ pub enum Command {
     Pair(u64),
     PairOtp { host: u64, pin: String, passphrase: String },
     Wake(u64),
+    /// Stop waking the PC ("Waking <PC>…").
+    CancelWake,
     /// Ask the PC for a sleep token, which the confirmation then spends. `ask` numbers the
     /// request, so a late answer to an earlier one is not taken for it.
     SleepOffer { host: u64, ask: u64 },
@@ -281,6 +283,8 @@ pub struct View<'a> {
     pub hosts: &'a Hosts,
     pub pads: &'a crate::gamepad::Gamepads,
     pub connecting: Option<ConnectingView>,
+    /// The name of the PC being woken.
+    pub waking: Option<String>,
 }
 
 const CARD_W: f32 = 300.0;
@@ -665,12 +669,13 @@ impl Launcher {
         let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
         self.home_ready = console::has_library(&sources);
         let escape = ctx.input(|i| i.key_pressed(Key::Escape));
-        if escape && view.connecting.is_none() {
+        if escape && view.connecting.is_none() && view.waking.is_none() {
             self.back(&mut commands);
         }
         if self.screen == Screen::Hosts
             && matches!(self.dialog, Dialog::None)
             && view.connecting.is_none()
+            && view.waking.is_none()
             && ctx.input(|i| i.modifiers.command && i.key_pressed(Key::N))
         {
             self.add_host_dialog();
@@ -691,7 +696,7 @@ impl Launcher {
         );
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(content).layout(Layout::top_down(Align::Min)));
         let ui = &mut child;
-        let blocked = !matches!(self.dialog, Dialog::None) || view.connecting.is_some();
+        let blocked = !matches!(self.dialog, Dialog::None) || view.connecting.is_some() || view.waking.is_some();
         // Screens take focus only when nothing covers them.
         let held_focus = self.focus_screen;
         if blocked {
@@ -720,6 +725,8 @@ impl Launcher {
         self.dialogs(&ctx, &view, &mut commands);
         if let Some(c) = &view.connecting {
             self.connecting(&ctx, c, &mut commands);
+        } else if let Some(host) = &view.waking {
+            waking(&ctx, host, &mut commands);
         }
         commands
     }
@@ -2885,6 +2892,33 @@ impl Launcher {
     }
 }
 
+/// "Waking <PC>…" while the wake packets go out, with a way to stop.
+fn waking(ctx: &egui::Context, host: &str, commands: &mut Vec<Command>) {
+    let frame = Frame::new()
+        .fill(*SURFACE_HIGH)
+        .corner_radius(CornerRadius::same(16))
+        .inner_margin(Margin::same(28))
+        .stroke(Stroke::new(1.0, OUTLINE_VARIANT));
+    egui::Modal::new(Id::unique("waking"))
+        .frame(frame)
+        .backdrop_color(Color32::from_black_alpha(170))
+        .show(ctx, |ui| {
+            ui.set_width(400.0);
+            ui.label(RichText::new(trf("Waking {}…", &[&host])).font(semibold(24.0)));
+            ui.add_space(16.0);
+            ui.horizontal(|ui| {
+                spinner(ui, 10.0);
+                ui.label(RichText::new(tr("Sending Wake-on-LAN until the PC answers.")).color(ON_SURFACE));
+            });
+            ui.add_space(14.0);
+            let r = quiet_button(ui, "Cancel");
+            r.request_focus();
+            if r.clicked() {
+                commands.push(Command::CancelWake);
+            }
+        });
+}
+
 /// A vertical scroll area with room for focus rings at its edges.
 fn scroll(ui: &mut Ui, id: &str, add: impl FnOnce(&mut Ui)) {
     let rect = ui.available_rect_before_wrap();
@@ -3375,6 +3409,7 @@ mod tests {
         drawn: Vec<String>,
         /// The same text with where it landed and the clip it was drawn in.
         placed: Vec<(String, Rect, Rect)>,
+        waking: Option<String>,
     }
 
     impl Frames {
@@ -3395,7 +3430,7 @@ mod tests {
             if !apps.is_empty() {
                 hosts.list[0].apps = Apps::Loaded(apps);
             }
-            let mut frames = Self { ctx, l, hosts, pads: Gamepads::default(), time: 0.0, size: vec2(1280.0, 720.0), drawn: Vec::new(), placed: Vec::new() };
+            let mut frames = Self { ctx, l, hosts, pads: Gamepads::default(), time: 0.0, size: vec2(1280.0, 720.0), drawn: Vec::new(), placed: Vec::new(), waking: None };
             frames.settle();
             frames
         }
@@ -3411,7 +3446,7 @@ mod tests {
             };
             let mut commands = Vec::new();
             let mut output = self.ctx.run_ui(input, |ui| {
-                commands = self.l.ui(ui, View { hosts: &self.hosts, pads: &self.pads, connecting: None });
+                commands = self.l.ui(ui, View { hosts: &self.hosts, pads: &self.pads, connecting: None, waking: self.waking.clone() });
             });
             output.textures_delta.clear();
             self.drawn.clear();
@@ -3819,6 +3854,19 @@ mod tests {
         host.reach = Reach::Online;
         assert!(host_options(&host).contains(&HostOption::Unpair));
         assert!(!host_options(&host).contains(&HostOption::PairingHelp), "the help is for a PC that is not paired");
+    }
+
+    #[test]
+    fn waking_shows_the_pc_and_cancel_stops_it() {
+        let mut f = Frames::new(record("Den", true, true), Reach::Offline);
+        f.waking = Some("Den".into());
+        f.settle();
+        assert!(f.drawn.iter().any(|t| t == "Waking Den…"), "{:?}", f.drawn);
+        assert!(f.press(Key::Escape).is_empty(), "Back does not leave the PC half woken");
+        assert!(matches!(f.press(Key::Enter)[..], [Command::CancelWake]), "Cancel has focus");
+        f.l.settings.language = Language::German;
+        f.settle();
+        assert!(f.drawn.iter().any(|t| t == "Den wird aufgeweckt…"), "{:?}", f.drawn);
     }
 
     #[test]

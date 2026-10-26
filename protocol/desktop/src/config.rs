@@ -406,6 +406,10 @@ pub struct HostRecord {
     /// The certificate pinned at pairing (PEM); None while unpaired.
     pub server_certificate: Option<String>,
     pub mac: Option<String>,
+    /// The MACs of the PC's other adapters and the subnet broadcasts that reach them, from its
+    /// native `GET /wake` (`wol::targets`); kept so a PC that sleeps can be woken through them.
+    pub wake_macs: Vec<String>,
+    pub wake_broadcasts: Vec<String>,
     /// Added by hand rather than found on the network.
     pub manual: bool,
     pub settings: Option<Overrides>,

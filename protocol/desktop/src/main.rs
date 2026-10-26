@@ -95,6 +95,8 @@ struct App {
     pads: Gamepads,
     connecting: Option<Connecting>,
     cancelled: bool,
+    /// The PC being woken and the clock of its resends ("Waking <PC>…").
+    waking: Option<(u64, wol::WakeWait)>,
     streaming: Option<(Streaming, TimerResolution)>,
     pending_launch: Option<(u64, i32)>,
     identity: Option<Receiver<Result<ClientIdentity, String>>>,
@@ -329,6 +331,7 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
         pads,
         connecting: None,
         cancelled: false,
+        waking: None,
         streaming: None,
         pending_launch: None,
         identity: None,
@@ -495,7 +498,7 @@ impl App {
 
     fn launcher_frame(&mut self) {
         // Wait for input or a worker; animate the spinner while something runs.
-        let busy = self.connecting.is_some() || self.network_launch.is_some() || self.network_test.is_some()
+        let busy = self.connecting.is_some() || self.waking.is_some() || self.network_launch.is_some() || self.network_test.is_some()
             || matches!(self.launcher.dialog, Dialog::Pairing { .. })
             || self.identity.is_some() || self.autostream.is_some();
         let timeout = if busy { 16 } else { 250 };
@@ -614,10 +617,13 @@ impl App {
                         self.launcher.message(tr("Could not quit the app"), e);
                     }
                 },
-                HostEvent::Wake { result, .. } => match result {
-                    Ok(()) => self.launcher.message(tr("Wake request sent"), tr("The PC should appear online shortly if Wake-on-LAN is enabled.")),
-                    Err(e) => self.launcher.message(tr("Could not wake the PC"), e),
-                },
+                // A packet that could not be sent at all (no network, no route) ends the wait.
+                HostEvent::Wake { id, result: Err(e) } => {
+                    if self.waking.as_ref().is_some_and(|(host, _)| *host == id) {
+                        self.waking = None;
+                        self.launcher.message(tr("Could not wake the PC"), e);
+                    }
+                }
                 HostEvent::Sleep { id, ask, name, confirmed, result } => self.launcher.sleep_answered(id, ask, &name, confirmed, result),
                 HostEvent::Unpaired { id, result } => {
                     if crate::hosts::now_unpaired(&result) {
@@ -659,6 +665,7 @@ impl App {
                 }
             }
         }
+        self.wake_step();
         self.autostream_step();
         self.cli_step();
         if let Some(c) = &mut self.connecting {
@@ -692,6 +699,7 @@ impl App {
             host: self.hosts.get(host).map_or(String::new(), |h| h.display_name().to_owned()),
             stage: tr("Checking network profile").into(),
         }));
+        let waking = self.waking.as_ref().and_then(|(id, _)| self.hosts.get(*id)).map(|h| h.display_name().to_owned());
         let mut commands = Vec::new();
         let launcher = &mut self.launcher;
         let hosts = &self.hosts;
@@ -707,6 +715,7 @@ impl App {
                         host: c.host.clone(),
                         stage: c.stage.clone(),
                     }),
+                    waking: waking.clone(),
                 },
             );
         });
@@ -785,7 +794,13 @@ impl App {
                 self.launcher.dialog = Dialog::Pairing { host, pin: String::new() };
                 self.hosts.pair(host, pin, Some(passphrase));
             }
-            Command::Wake(host) => self.hosts.wake(host),
+            Command::Wake(host) => {
+                if self.waking.is_none() {
+                    self.waking = Some((host, wol::WakeWait::new(Instant::now())));
+                    self.wake_step();
+                }
+            }
+            Command::CancelWake => self.waking = None,
             Command::SleepOffer { host, ask } => self.hosts.sleep_offer(host, ask),
             Command::Sleep { host, ask, token, at } => self.hosts.sleep(host, ask, token, at),
             Command::Rename { host, alias } => rename_host(&mut self.hosts, &self.store, host, &alias),
@@ -979,6 +994,34 @@ impl App {
             Hardware::None
         } else {
             Hardware::Vaapi
+        }
+    }
+
+    /// Resends the wake packets while the PC stays away, and ends the wait when it answers or the
+    /// time is up.
+    fn wake_step(&mut self) {
+        let Some((id, wait)) = &mut self.waking else { return };
+        let id = *id;
+        // A PC removed meanwhile has nothing left to wake.
+        let Some(host) = self.hosts.get(id) else {
+            self.waking = None;
+            return;
+        };
+        match wait.next(host.reach == hosts::Reach::Online, Instant::now()) {
+            wol::Step::Send => self.hosts.wake(id),
+            wol::Step::Wait => {}
+            wol::Step::Online => self.waking = None,
+            wol::Step::TimedOut => {
+                let name = host.display_name().to_owned();
+                self.waking = None;
+                self.launcher.message(
+                    tr("The PC did not wake up"),
+                    trf(
+                        "{} did not answer within {} seconds. Check that Wake-on-LAN is on in its firmware and its network adapter settings.",
+                        &[&name, &wol::WakeWait::TIMEOUT.as_secs()],
+                    ),
+                );
+            }
         }
     }
 

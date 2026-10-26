@@ -18,6 +18,8 @@ rubylight-protocol = { path = "../core" }
 egui = { version = "0.37", default-features = false, features = ["default_fonts"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 mdns-sd = { version = "0.21", default-features = false }
+# Each adapter's broadcast and IPv6 link for Wake-on-LAN; mdns-sd builds on the same version.
+if-addrs = "0.15"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 directories = "6"

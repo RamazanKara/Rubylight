@@ -299,6 +299,15 @@ impl RoamWatch {
     /// that never come.
     pub fn start(remote: SocketAddr, on_change: impl Fn(bool) -> bool + Send + 'static) -> Result<RoamWatch, String> {
         let start = link(remote)?.ok_or("no route toward the PC")?;
+        Self::spawn(start, move || link(remote), on_change)
+    }
+
+    /// The watcher's thread from the first link on, taking each look from `look`.
+    fn spawn(
+        start: Link,
+        mut look: impl FnMut() -> Result<Option<Link>, String> + Send + 'static,
+        on_change: impl Fn(bool) -> bool + Send + 'static,
+    ) -> Result<RoamWatch, String> {
         let (stop, stopped) = channel::<()>();
         std::thread::Builder::new()
             .name("RoamWatch".into())
@@ -306,7 +315,7 @@ impl RoamWatch {
                 let mut watch = LinkWatch::new(start);
                 let mut unreadable = false;
                 while let Err(RecvTimeoutError::Timeout) = stopped.recv_timeout(LOOK_EVERY) {
-                    let look = match link(remote) {
+                    let look = match look() {
                         Ok(look) => look,
                         Err(error) => {
                             if !unreadable {
@@ -324,6 +333,16 @@ impl RoamWatch {
             })
             .map_err(|e| e.to_string())?;
         Ok(RoamWatch { _stop: stop })
+    }
+
+    /// A watcher that never sees a change, and a receiver that disconnects once its thread ends.
+    #[cfg(test)]
+    pub fn idle() -> (RoamWatch, Receiver<()>) {
+        let (alive, ended) = channel::<()>();
+        let start = Link { local: IpAddr::from([127, 0, 0, 1]), wifi: false, cellular: false, ssid: None, metered: false };
+        let link = start.clone();
+        let watch = Self::spawn(start, move || { let _ = &alive; Ok(Some(link.clone())) }, |_| true).unwrap();
+        (watch, ended)
     }
 }
 

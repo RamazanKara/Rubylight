@@ -700,6 +700,12 @@ fn roam_watch(settings: &Settings, address: &str, shared: &Arc<Shared>) -> Optio
         .ok()
 }
 
+/// Keeps the watcher for the stream only when the host roams; otherwise its hints go nowhere, so
+/// it stops instead of looking at the network every second.
+fn keep_roam_watch(shared: &Shared, watch: Option<crate::network::RoamWatch>, host_roaming: bool) {
+    *lock(&shared.roam_watch) = watch.filter(|_| host_roaming);
+}
+
 /// The setting, unless `NIGHTJAR_EARLY_DECODE` is `1` or `0` (for measurement runs).
 fn early_decode(setting: bool) -> bool {
     match std::env::var("NIGHTJAR_EARLY_DECODE").as_deref() {
@@ -889,8 +895,8 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         interrupt,
     )
     .map_err(|e| ConnectError { retryable: recovery::transient_start(e.stage, e.code), message: format!("Could not start the stream: {e}") })?;
-    *lock(&roam_shared.roam_watch) = watch;
     let outcome = session.outcome();
+    keep_roam_watch(&roam_shared, watch, outcome.host_roaming);
     let facts = Facts {
         role,
         width: outcome.config.width,
@@ -2861,6 +2867,23 @@ mod tests {
         assert_eq!(roaming_config(&metered, false), RoamingConfig { enabled: true, metered: true, platform_hints: false });
         let off = Settings { client_roaming: false, roaming_metered: true, ..Default::default() };
         assert!(!roaming_config(&off, true).enabled && !roaming_config(&off, false).enabled);
+    }
+
+    #[test]
+    fn the_roaming_watcher_stops_when_the_host_does_not_roam() {
+        use std::sync::mpsc::RecvTimeoutError;
+        let shared = Shared::new(Arc::new(|| {}), 8);
+        let (watch, ended) = crate::network::RoamWatch::idle();
+        keep_roam_watch(&shared, Some(watch), false);
+        assert!(lock(&shared.roam_watch).is_none());
+        assert_eq!(ended.recv_timeout(Duration::from_secs(5)), Err(RecvTimeoutError::Disconnected), "the thread ended");
+        // A roaming host keeps it running for the stream.
+        let (watch, ended) = crate::network::RoamWatch::idle();
+        keep_roam_watch(&shared, Some(watch), true);
+        assert!(lock(&shared.roam_watch).is_some());
+        assert_eq!(ended.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty));
+        lock(&shared.roam_watch).take();
+        assert_eq!(ended.recv_timeout(Duration::from_secs(5)), Err(RecvTimeoutError::Disconnected));
     }
 
     #[test]

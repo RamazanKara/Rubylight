@@ -423,6 +423,8 @@ struct ControlSocket {
     socket: UdpSocket,
     /// Roaming datagrams for [`Roaming::handle_datagram`]; ENet would drop them.
     roam_inbox: VecDeque<Vec<u8>>,
+    /// Both sides have roaming on; otherwise roaming datagrams are dropped, not kept.
+    roaming: bool,
     intercept: bool,
     held_disconnect: Option<(SocketAddr, Vec<u8>)>,
     held_unsequenced: bool,
@@ -595,7 +597,7 @@ impl rusty_enet::Socket for ControlSocket {
             }
             // Roaming datagrams are not ENet's, and count as the host only once they open.
             if is_roaming(&buffer[..length]) {
-                if self.roam_inbox.len() < MAX_ROAM_INBOX {
+                if self.roaming && self.roam_inbox.len() < MAX_ROAM_INBOX {
                     self.roam_inbox.push_back(buffer[..length].to_vec());
                 }
                 continue;
@@ -711,9 +713,11 @@ pub fn connect(
     let marking = mark_for_connect(&socket, local.is_ipv6(), &config.warn);
     let bound = socket.local_addr()?;
     let waker = Waker::new(bound)?;
+    let roaming = config.roaming && caps.client_roaming;
     let control_socket = ControlSocket {
         socket,
         roam_inbox: VecDeque::new(),
+        roaming,
         intercept: true,
         held_disconnect: None,
         held_unsequenced: false,
@@ -744,7 +748,6 @@ pub fn connect(
     if config.input_disabled {
         input.disable();
     }
-    let roaming = config.roaming && caps.client_roaming;
     let shared = Arc::new(Shared {
         input: Mutex::new(input),
         session: Mutex::new(ControlSession::new(caps, key, options)),
@@ -920,11 +923,12 @@ impl ControlClient {
     /// Runs roaming: the datagrams set aside, a network change or a host silence, the
     /// timers, and the datagrams to send. Returns the next timer.
     fn roam(&mut self, now: Instant) -> Option<Instant> {
+        // With roaming off no socket moves, no roaming datagram is kept and none goes out.
+        let roaming = self.roaming.as_mut()?;
         if let Some(socket) = lock(&self.shared.next_socket).take() {
             self.host.socket_mut().replace(socket);
         }
         let inbox = std::mem::take(&mut self.host.socket_mut().roam_inbox);
-        let roaming = self.roaming.as_mut()?;
         for datagram in inbox {
             // A dropped datagram is never answered; an attempt left without answers fails.
             let _ = roaming.handle_datagram(now, &datagram);
@@ -1108,6 +1112,7 @@ mod tests {
         let control = ControlSocket {
             socket,
             roam_inbox: VecDeque::new(),
+            roaming: false,
             intercept: false,
             held_disconnect: None,
             held_unsequenced: false,
@@ -1323,6 +1328,35 @@ mod tests {
         assert!(control.last_receive.is_none());
         assert_eq!(receive(&mut control), 2);
         assert!(control.last_receive.is_some());
+    }
+
+    #[test]
+    fn roaming_datagrams_are_kept_only_with_roaming_on() {
+        use rusty_enet::Socket as _;
+        let mut roaming = [0u8; rubylight_protocol::roaming::DATAGRAM_BYTES];
+        roaming[..4].copy_from_slice(&rubylight_protocol::roaming::MAGIC);
+        for on in [false, true] {
+            let (mut control, _) = control_socket(UdpSocket::bind("127.0.0.1:0").unwrap(), None);
+            control.roaming = on;
+            control.socket.set_nonblocking(true).unwrap();
+            let ours = control.socket.local_addr().unwrap();
+            let host = UdpSocket::bind("127.0.0.1:0").unwrap();
+            host.send_to(&roaming, ours).unwrap();
+            host.send_to(&[0, 0], ours).unwrap();
+            let mut buffer = [0u8; MTU_MAX];
+            let length = (0..50)
+                .find_map(|_| match control.receive(&mut buffer).unwrap() {
+                    Some((_, PacketReceived::Complete(length))) => Some(length),
+                    _ => {
+                        std::thread::sleep(Duration::from_millis(10));
+                        None
+                    }
+                })
+                .expect("nothing arrived");
+            // The roaming datagram never reaches ENet either way.
+            assert_eq!(length, 2);
+            assert_eq!(control.roam_inbox.len(), usize::from(on), "roaming {on}");
+        }
     }
 
     #[test]

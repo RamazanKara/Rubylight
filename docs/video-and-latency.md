@@ -172,7 +172,7 @@ The host has its own timeout for a silent client, usually also 10 seconds, and i
 
 If the network does not come back in time, the stream ends with an error that says the drop tolerance ran out (or that the host may have ended the session first). With [**Recover interrupted streams**](recovery-and-quality.md#recovering-a-connection) also on, Nightjar then reconnects to the same running game within its usual one-minute budget.
 
-The setting covers the network path staying the same, which is the case for roaming within one Wi-Fi network and for a VPN that keeps its address. A change of the device's address that the host can see, such as leaving Wi-Fi for mobile data without a VPN, needs the host to accept the client from its new address; that is a [proposal for hosts](protocol/client-roaming.md), not something Nightjar can do alone.
+The setting covers the network path staying the same, which is the case for roaming within one Wi-Fi network and for a VPN that keeps its address. A change of the device's address that the host can see, such as leaving Wi-Fi for mobile data without a VPN, needs the host to accept the client from its new address, which Nightjar cannot do alone. The [roaming protocol](protocol/client-roaming.md) for this is Experimental and in progress in hosts and in Nightjar.
 
 ## Automatic bitrate and diagnostics
 

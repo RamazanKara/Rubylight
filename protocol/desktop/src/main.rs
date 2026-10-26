@@ -618,6 +618,7 @@ impl App {
                     Ok(()) => self.launcher.message(tr("Wake request sent"), tr("The PC should appear online shortly if Wake-on-LAN is enabled.")),
                     Err(e) => self.launcher.message(tr("Could not wake the PC"), e),
                 },
+                HostEvent::Sleep { id, confirmed, result } => self.launcher.sleep_answered(id, confirmed, result),
                 HostEvent::Unpaired { id, result } => {
                     if crate::hosts::now_unpaired(&result) {
                         self.forget_library(id);
@@ -785,6 +786,8 @@ impl App {
                 self.hosts.pair(host, pin, Some(passphrase));
             }
             Command::Wake(host) => self.hosts.wake(host),
+            Command::SleepOffer(host) => self.hosts.sleep_offer(host),
+            Command::Sleep { host, token, at } => self.hosts.sleep(host, token, at),
             Command::Rename { host, alias } => rename_host(&mut self.hosts, &self.store, host, &alias),
             Command::HostSettings(id) => {
                 if let Some(host) = self.hosts.get(id) {

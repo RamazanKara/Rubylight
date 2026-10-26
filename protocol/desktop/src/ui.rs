@@ -11,7 +11,7 @@ use crate::config::{
     ReduceMotion, Settings, WindowMode, UI_ZOOM_STEPS,
 };
 use crate::console::{self, EndAction, GameState, Playing, Source};
-use crate::hosts::{Apps, Art, Host, Hosts, Reach};
+use crate::hosts::{Apps, Art, Host, Hosts, Reach, SleepStep};
 use crate::strings::{en, tr, trf};
 use crate::stream::{stream_mode, Display};
 use crate::theme::*;
@@ -25,6 +25,10 @@ pub enum Command {
     Pair(u64),
     PairOtp { host: u64, pin: String, passphrase: String },
     Wake(u64),
+    /// Ask the PC for a sleep token, which the confirmation then spends.
+    SleepOffer(u64),
+    /// Put the PC to sleep with the token it handed out at `at`.
+    Sleep { host: u64, token: String, at: std::time::Instant },
     /// Name a PC on this device only; empty brings back the PC's own name.
     Rename { host: u64, alias: String },
     HostSettings(u64),
@@ -114,6 +118,8 @@ pub enum Dialog {
     Rename { host: u64, text: String },
     ConfirmRemove { host: u64, name: String },
     ConfirmUnpair { host: u64, name: String },
+    /// Sleep PC: waiting for the PC's token (`offer` None), then asking to confirm.
+    ConfirmSleep { host: u64, name: String, offer: Option<(String, std::time::Instant)> },
     /// Pairing did not work: what to do about it, and a way to try again.
     PairError { host: u64, body: String, one_time: bool },
     /// How to pair, for a PC that is not paired yet.
@@ -142,6 +148,7 @@ pub enum HostOption {
     Pair,
     PairOtp,
     Wake,
+    Sleep,
     Settings,
     Rename,
     Unpair,
@@ -159,6 +166,7 @@ impl HostOption {
             Self::Pair => en("Pair"),
             Self::PairOtp => en("Pair with one-time PIN"),
             Self::Wake => en("Wake up"),
+            Self::Sleep => en("Sleep PC"),
             Self::Settings => en("PC settings"),
             Self::Rename => en("Rename"),
             Self::Unpair => en("Unpair"),
@@ -189,6 +197,10 @@ pub fn host_options(host: &Host) -> Vec<HostOption> {
     // Not reached yet counts too: a PC that is asleep has not answered since this started.
     if host.reach != Reach::Online && host.record.mac.is_some() {
         options.push(HostOption::Wake);
+    }
+    // Only where the PC offers it; listed but not selectable when it does not allow this device.
+    if host.sleep_option().is_some() {
+        options.push(HostOption::Sleep);
     }
     options.push(HostOption::Settings);
     options.push(HostOption::Rename);
@@ -2089,10 +2101,20 @@ impl Launcher {
                                 }
                                 let label = RichText::new(tr(option.label())).font(semibold(16.0));
                                 let label = if *option == HostOption::Remove { label.color(ERROR) } else { label };
-                                let button = ui.add_sized(
-                                    [ui.available_width(), 38.0],
-                                    egui::Button::new(label).frame(false).fill(Color32::TRANSPARENT),
-                                );
+                                let blocked = match option {
+                                    HostOption::Sleep => host.sleep_option().and_then(Result::err),
+                                    _ => None,
+                                };
+                                let button = ui.add_enabled_ui(blocked.is_none(), |ui| {
+                                    ui.add_sized(
+                                        [ui.available_width(), 38.0],
+                                        egui::Button::new(label).frame(false).fill(Color32::TRANSPARENT),
+                                    )
+                                })
+                                .inner;
+                                if let Some(why) = blocked {
+                                    ui.label(RichText::new(tr(why)).font(regular(13.0)).color(OUTLINE));
+                                }
                                 focus_ring(ui, button.rect, &button, 8);
                                 if n == 0 && focus_first {
                                     button.request_focus();
@@ -2214,6 +2236,45 @@ impl Launcher {
                             if primary_button(ui, "Unpair").clicked() {
                                 commands.push(Command::Unpair(id));
                                 close = true;
+                            }
+                        });
+                    });
+            }
+            Dialog::ConfirmSleep { host, name, offer } => {
+                let id = *host;
+                egui::Modal::new(Id::unique("confirm-sleep"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(440.0);
+                        ui.label(RichText::new(trf("Put {} to sleep?", &[&name])).font(semibold(22.0)));
+                        ui.label(
+                            RichText::new(tr("Experimental. The PC sleeps only while no app or stream runs on it. Wake it with Wake up."))
+                                .color(ON_SURFACE_VARIANT),
+                        );
+                        ui.add_space(12.0);
+                        if offer.is_none() {
+                            ui.horizontal(|ui| {
+                                spinner(ui, 9.0);
+                                ui.label(RichText::new(tr("Asking the PC…")).color(ON_SURFACE_VARIANT));
+                            });
+                            ui.add_space(10.0);
+                        }
+                        ui.horizontal(|ui| {
+                            // Cancel first: putting the PC to sleep is never one stray press away.
+                            let cancel = quiet_button(ui, "Cancel");
+                            if focus_first {
+                                cancel.request_focus();
+                                focused = true;
+                            }
+                            if cancel.clicked() {
+                                close = true;
+                            }
+                            if let Some((token, at)) = offer {
+                                if primary_button(ui, "Sleep PC").clicked() {
+                                    commands.push(Command::Sleep { host: id, token: token.clone(), at: *at });
+                                    close = true;
+                                }
                             }
                         });
                     });
@@ -2671,6 +2732,7 @@ impl Launcher {
                 | Dialog::Rename { .. }
                 | Dialog::ConfirmRemove { .. }
                 | Dialog::ConfirmUnpair { .. }
+                | Dialog::ConfirmSleep { .. }
                 | Dialog::PairError { .. }
                 | Dialog::PairingHelp
         );
@@ -2700,6 +2762,12 @@ impl Launcher {
                 return Some(Dialog::Otp { host: id, pin: String::new(), passphrase: String::new(), error: None });
             }
             HostOption::Wake => commands.push(Command::Wake(id)),
+            HostOption::Sleep => {
+                if host.sleep_option() == Some(Ok(())) {
+                    commands.push(Command::SleepOffer(id));
+                    return Some(Dialog::ConfirmSleep { host: id, name, offer: None });
+                }
+            }
             HostOption::Settings => commands.push(Command::HostSettings(id)),
             HostOption::Rename => return Some(Dialog::Rename { host: id, text: host.rename_prefill().to_owned() }),
             HostOption::Unpair => return Some(Dialog::ConfirmUnpair { host: id, name }),
@@ -2727,6 +2795,29 @@ impl Launcher {
                 self.pair_failed(host, e, one_time);
                 false
             }
+        }
+    }
+
+    /// A Sleep PC step came back. The offer fills the confirmation that waits for it; an offer
+    /// or failure the user has walked away from (Cancel) says nothing. The confirmed request's
+    /// answer is always shown.
+    pub fn sleep_answered(&mut self, host: u64, confirmed: bool, result: Result<SleepStep, String>) {
+        let waiting = matches!(&self.dialog, Dialog::ConfirmSleep { host: asked, offer: None, .. } if *asked == host);
+        if !confirmed && !waiting {
+            return;
+        }
+        match result {
+            Ok(SleepStep::Offer { token, at }) => {
+                if let Dialog::ConfirmSleep { offer, .. } = &mut self.dialog {
+                    *offer = Some((token, at));
+                    // The buttons moved: Cancel takes focus again.
+                    self.focus_dialog = true;
+                }
+            }
+            Ok(SleepStep::Accepted) => {
+                self.message(tr("PC is going to sleep"), tr("The PC took the request. It shows as offline once it sleeps."))
+            }
+            Err(e) => self.message(tr("Could not put the PC to sleep"), e),
         }
     }
 
@@ -3415,7 +3506,19 @@ mod tests {
             state("paired", record("Paired", true, false), Reach::Online, Some(answer(true, 0)), Vec::new()),
             // Has Resume and Quit.
             state("running a game", record("Busy", true, false), Reach::Online, Some(answer(true, 7)), vec![game(7)]),
+            state("can sleep", record("Sleepy", true, false), Reach::Online, Some(sleep_answer(true)), Vec::new()),
+            // Lists Sleep PC, not selectable, with the reason.
+            state("sleep not allowed", record("Guarded", true, false), Reach::Online, Some(sleep_answer(false)), Vec::new()),
         ]
+    }
+
+    /// A paired PC's answer with the power-action fields, sleep allowed for this device or not.
+    fn sleep_answer(allowed: bool) -> nightjar_core::http::ServerInfo {
+        let xml = format!(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?><root status_code=\"200\"><hostname>PC</hostname><uniqueid>uid</uniqueid>             <HttpsPort>47984</HttpsPort><ExternalPort>47989</ExternalPort><PairStatus>1</PairStatus><currentgame>0</currentgame>             <state>SUNSHINE_SERVER_FREE</state><PowerActionVersion>1</PowerActionVersion><SleepSupported>1</SleepSupported>             <SleepAllowed>{}</SleepAllowed></root>",
+            u8::from(allowed),
+        );
+        nightjar_core::http::ServerInfo::parse(&xml, 47989).expect("the answer parses")
     }
 
     fn removes(commands: &[Command]) -> bool {
@@ -3544,6 +3647,8 @@ mod tests {
                 Dialog::ConfirmQuit { host: id, start: Some((8, "Another long game title".into())), running: "A game with a rather long title".into(), resume: Some(7), named: None },
                 Dialog::PairError { host: id, body: "PIN rejected. Generate a new one-time PIN in your host's web UI and check the passphrase.".into(), one_time: true },
                 Dialog::Message { title: "Network test failed".into(), body: "The PC did not answer.".into() },
+                Dialog::ConfirmSleep { host: id, name: "A long name for a gaming PC".into(), offer: None },
+                Dialog::ConfirmSleep { host: id, name: "A long name for a gaming PC".into(), offer: Some(("t".into(), std::time::Instant::now())) },
             ];
             for dialog in dialogs {
                 let name = format!("{:?}", std::mem::discriminant(&dialog));
@@ -3743,9 +3848,13 @@ mod tests {
         let mut seen: Vec<HostOption> = Vec::new();
         for scenario in every_state() {
             let state = scenario.name;
-            let options = host_options(&scenario.frames().hosts.list[0]);
-            for (n, option) in options.iter().enumerate() {
-                seen.push(*option);
+            let frames = scenario.frames();
+            let host = &frames.hosts.list[0];
+            let options = host_options(host);
+            seen.extend(&options);
+            // Sleep PC listed for a device the PC does not allow cannot take focus.
+            let reachable = options.iter().filter(|o| **o != HostOption::Sleep || host.sleep_option() == Some(Ok(())));
+            for (n, option) in reachable.enumerate() {
                 let mut f = scenario.frames();
                 f.press(Key::F2);
                 assert!(f.options_open(), "{state}");
@@ -3760,6 +3869,9 @@ mod tests {
                     HostOption::PairingHelp => matches!(f.l.dialog, Dialog::PairingHelp),
                     HostOption::Pair => said(|c| matches!(c, Command::Pair(_))),
                     HostOption::Wake => said(|c| matches!(c, Command::Wake(_))),
+                    HostOption::Sleep => {
+                        said(|c| matches!(c, Command::SleepOffer(_))) && matches!(f.l.dialog, Dialog::ConfirmSleep { offer: None, .. })
+                    }
                     HostOption::Settings => said(|c| matches!(c, Command::HostSettings(_))),
                     HostOption::CheckAgain => said(|c| matches!(c, Command::Refresh(_))),
                     HostOption::Rename => matches!(f.l.dialog, Dialog::Rename { .. }),
@@ -3772,9 +3884,72 @@ mod tests {
             }
         }
         use HostOption::*;
-        for option in [OpenLibrary, Resume, QuitApp, Pair, PairOtp, Wake, Settings, Rename, Unpair, PairingHelp, CheckAgain, Remove] {
+        for option in [OpenLibrary, Resume, QuitApp, Pair, PairOtp, Wake, Sleep, Settings, Rename, Unpair, PairingHelp, CheckAgain, Remove] {
             assert!(seen.contains(&option), "no state reaches {}", option.label());
         }
+    }
+
+    #[test]
+    fn sleep_pc_waits_for_the_offer_and_spends_it_only_when_confirmed() {
+        let mut f = every_state().into_iter().find(|s| s.name == "can sleep").unwrap().frames();
+        let id = f.hosts.list[0].id;
+        let at = std::time::Instant::now();
+        let offer = || Ok(SleepStep::Offer { token: "tok".into(), at });
+        let sleeps = |commands: &[Command]| commands.iter().any(|c| matches!(c, Command::Sleep { .. }));
+        let waiting = || Dialog::ConfirmSleep { host: id, name: "PC".into(), offer: None };
+
+        // Cancelled while the PC is asked: its offer, or its failure, says nothing afterwards.
+        f.l.dialog = waiting();
+        f.l.focus_dialog = true;
+        f.settle();
+        assert!(!sleeps(&f.press(Key::Enter)), "Cancel has focus");
+        assert!(f.no_dialog());
+        f.l.sleep_answered(id, false, offer());
+        f.l.sleep_answered(id, false, Err("The PC did not answer.".into()));
+        assert!(f.no_dialog(), "the user walked away from it");
+
+        // The offer fills the confirmation; one for another PC does not.
+        f.l.dialog = waiting();
+        f.l.focus_dialog = true;
+        f.settle();
+        f.l.sleep_answered(id + 1, false, offer());
+        assert!(matches!(f.l.dialog, Dialog::ConfirmSleep { offer: None, .. }));
+        f.l.sleep_answered(id, false, offer());
+        assert!(matches!(&f.l.dialog, Dialog::ConfirmSleep { offer: Some((token, _)), .. } if token == "tok"));
+        f.settle();
+        assert!(!sleeps(&f.press(Key::Enter)), "Cancel still has focus once the offer is in");
+        f.l.dialog = waiting();
+        f.l.sleep_answered(id, false, offer());
+        f.settle();
+        f.press(Key::ArrowRight);
+        let commands = f.press(Key::Enter);
+        assert!(commands.iter().any(|c| matches!(c, Command::Sleep { host, token, at: when } if *host == id && token == "tok" && *when == at)));
+        assert!(f.no_dialog());
+
+        // The answers to the confirmed request are shown, the host's refusal word for word.
+        f.l.sleep_answered(id, true, Ok(SleepStep::Accepted));
+        assert!(matches!(&f.l.dialog, Dialog::Message { title, .. } if title == "PC is going to sleep"));
+        let refusal = "End all applications and sessions before requesting sleep";
+        f.l.sleep_answered(id, true, Err(refusal.into()));
+        assert!(matches!(&f.l.dialog, Dialog::Message { body, .. } if body == refusal));
+        // A failed offer the user still waits for is shown too.
+        f.l.dialog = waiting();
+        f.l.sleep_answered(id, false, Err(crate::hosts::SLEEP_BUSY.into()));
+        assert!(matches!(&f.l.dialog, Dialog::Message { body, .. } if body == crate::hosts::SLEEP_BUSY));
+    }
+
+    #[test]
+    fn sleep_pc_not_allowed_is_listed_with_the_reason_and_does_nothing() {
+        let mut f = every_state().into_iter().find(|s| s.name == "sleep not allowed").unwrap().frames();
+        assert!(host_options(&f.hosts.list[0]).contains(&HostOption::Sleep));
+        f.press(Key::F2);
+        assert!(f.drawn.iter().any(|t| t == crate::hosts::SLEEP_NOT_ALLOWED), "the reason is shown");
+        let mut commands = Vec::new();
+        let next = f.l.choose_host_option(&f.hosts.list[0], HostOption::Sleep, &mut commands);
+        assert!(next.is_none() && commands.is_empty(), "nothing is asked of the PC");
+        // A stock host never lists it.
+        let stock = every_state().into_iter().find(|s| s.name == "paired").unwrap().frames();
+        assert!(!host_options(&stock.hosts.list[0]).contains(&HostOption::Sleep));
     }
 
     #[test]

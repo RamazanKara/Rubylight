@@ -13,7 +13,8 @@ use nightjar_core::http::native_api::capabilities::Capabilities;
 use nightjar_core::http::native_api::library::Library;
 use nightjar_core::http::native_api::session::{ActionId, Session};
 use nightjar_core::http::{
-    App, AppControl, ClientIdentity, Feature, HostClient, PairResult, ServerInfo, DEFAULT_HTTP_PORT,
+    App, AppControl, Availability, ClientIdentity, Feature, HostClient, PairResult, PowerError, PowerReply, Reason,
+    ServerInfo, DEFAULT_HTTP_PORT,
 };
 
 use crate::strings::{en, trf};
@@ -31,6 +32,8 @@ const RECHECK_LIBRARY_INTERVAL: Duration = Duration::from_secs(3);
 /// The native library and permissions are read this often; the session on every poll.
 const NATIVE_FULL_INTERVAL: Duration = Duration::from_secs(30);
 const MDNS_SERVICE: &str = "_nvstream._tcp.local.";
+/// A sleep token older than this is asked for again before it is spent: the PC keeps it 30 s.
+const SLEEP_TOKEN_REFRESH: Duration = Duration::from_secs(25);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Reach {
@@ -183,6 +186,19 @@ impl Host {
             .filter(|i| i.current_game != 0)
             .map(|i| i.current_game)
     }
+
+    /// Sleep PC for a paired PC that answers: None when the PC does not offer it (stock hosts
+    /// never do), `Some(Err(why))` when it does but not for this device.
+    pub fn sleep_option(&self) -> Option<Result<(), &'static str>> {
+        if self.reach != Reach::Online || !self.paired() {
+            return None;
+        }
+        match self.info.as_ref()?.capabilities.availability(Feature::Sleep) {
+            Availability::Supported => Some(Ok(())),
+            Availability::Unsupported(Some(Reason::SleepPermission)) => Some(Err(SLEEP_NOT_ALLOWED)),
+            _ => None,
+        }
+    }
 }
 
 // The pairing and unpairing errors, worded like Nightjar Android's.
@@ -197,6 +213,11 @@ pub const PAIR_DECLINED: &str = en("Cancel the old request in your host's settin
 pub const PAIR_NETWORK: &str = en("Use the same network and start the host. Check its firewall, then retry.");
 pub const UNPAIR_FAILED: &str = en("Failed to unpair. The PC may still list this device.");
 pub const UNPAIR_NOT_PAIRED: &str = en("Device was not paired.");
+// Why the PC handed out no sleep token. A refusal shows the host's own words instead.
+pub const SLEEP_NOT_ALLOWED: &str = en("The PC does not let this device put it to sleep. Allow it in the host's device settings.");
+pub const SLEEP_UNSUPPORTED: &str = en("The PC cannot sleep.");
+pub const SLEEP_BUSY: &str = en("End all apps and streams on the PC, then try again.");
+pub const SLEEP_NO_TOKEN: &str = en("The PC did not offer to sleep. Try again.");
 
 pub enum Event {
     Info {
@@ -243,6 +264,12 @@ pub enum Event {
     Wake {
         id: u64,
         result: Result<(), String>,
+    },
+    /// A Sleep PC step: the offer to confirm, or (`confirmed`) the answer to the request.
+    Sleep {
+        id: u64,
+        confirmed: bool,
+        result: Result<SleepStep, String>,
     },
     /// The PC answered (or not) to being asked to drop this device. The pin is gone either way.
     Unpaired {
@@ -374,6 +401,58 @@ fn describe(error: &nightjar_core::http::Error) -> String {
             }
         }
     }
+}
+
+pub enum SleepStep {
+    /// The PC offers to sleep: confirm, then spend `token`, which the PC handed out at `at`.
+    Offer { token: String, at: Instant },
+    /// The PC took the request (202). It does not confirm that the PC suspended.
+    Accepted,
+}
+
+/// The power-action calls Sleep PC makes; a fake PC in the tests.
+trait PowerHost {
+    fn power_capabilities(&self) -> Result<PowerReply, PowerError>;
+    fn sleep(&self, token: &str) -> Result<PowerReply, PowerError>;
+}
+
+impl PowerHost for HostClient {
+    fn power_capabilities(&self) -> Result<PowerReply, PowerError> {
+        HostClient::power_capabilities(self)
+    }
+    fn sleep(&self, token: &str) -> Result<PowerReply, PowerError> {
+        HostClient::sleep(self, token)
+    }
+}
+
+/// A refusal in the host's own words; anything else said like the other host errors.
+fn power_error(error: &PowerError) -> String {
+    match error {
+        PowerError::Refused { reply, .. } if !reply.message.is_empty() => reply.message.clone(),
+        PowerError::Refused { reply, .. } => trf("The PC refused with status {}.", &[&reply.status]),
+        PowerError::Host(e) => describe(e),
+    }
+}
+
+/// Asks the PC for a sleep token; the time is taken before asking, so the token's age is never
+/// under-counted.
+fn sleep_token(host: &impl PowerHost) -> Result<(String, Instant), String> {
+    let at = Instant::now();
+    let reply = host.power_capabilities().map_err(|e| power_error(&e))?;
+    match reply.token {
+        Some(token) => Ok((token, at)),
+        None if !reply.sleep_supported => Err(SLEEP_UNSUPPORTED.into()),
+        None if !reply.sleep_allowed => Err(SLEEP_NOT_ALLOWED.into()),
+        None if !reply.sleep_available => Err(SLEEP_BUSY.into()),
+        None => Err(SLEEP_NO_TOKEN.into()),
+    }
+}
+
+/// Spends the confirmed token, asking for a new one first when it is about to expire.
+fn sleep_confirmed(host: &impl PowerHost, token: String, at: Instant) -> Result<SleepStep, String> {
+    let token = if at.elapsed() >= SLEEP_TOKEN_REFRESH { sleep_token(host)?.0 } else { token };
+    host.sleep(&token).map_err(|e| power_error(&e))?;
+    Ok(SleepStep::Accepted)
 }
 
 impl Hosts {
@@ -654,6 +733,34 @@ impl Hosts {
         let Some(host) = self.get(id) else { return };
         let record = host.record.clone();
         self.spawn("wake", move || Some(Event::Wake { id, result: crate::wol::wake(&record) }));
+    }
+
+    /// Sleep PC, first step: asks the PC for the token the confirmation spends.
+    pub fn sleep_offer(&self, id: u64) {
+        self.sleep_step(id, false, |client| sleep_token(client).map(|(token, at)| SleepStep::Offer { token, at }));
+    }
+
+    /// Sleep PC, confirmed: spends `token` (handed out at `at`), or a fresh one when it is old.
+    pub fn sleep(&self, id: u64, token: String, at: Instant) {
+        self.sleep_step(id, true, move |client| sleep_confirmed(client, token, at));
+    }
+
+    fn sleep_step(
+        &self,
+        id: u64,
+        confirmed: bool,
+        work: impl FnOnce(&HostClient) -> Result<SleepStep, String> + Send + 'static,
+    ) {
+        let Some(host) = self.get(id) else { return };
+        let record = host.record.clone();
+        let identity = self.identity.clone();
+        self.spawn("sleep", move || {
+            let result = identity
+                .ok_or_else(|| en("Nightjar has no client identity yet. Restart Nightjar and try again.").to_owned())
+                .and_then(|identity| client_for(&identity, &record, &record.address))
+                .and_then(|client| work(&client));
+            Some(Event::Sleep { id, confirmed, result })
+        });
     }
 
     /// Asks the PC to forget this device. The local certificate stays until the PC has
@@ -1032,6 +1139,7 @@ impl Hosts {
                     self.poll_one(id);
                     out.push(Event::Wake { id, result });
                 }
+                Event::Sleep { id, confirmed, result } => out.push(Event::Sleep { id, confirmed, result }),
                 Event::Action { id, result } => {
                     self.refresh_after_exit(id);
                     self.load_apps(id);
@@ -1447,5 +1555,168 @@ mod tests {
         assert!(!completed_action(AppControl::DisconnectInput, &terminated));
         assert!(!completed_action(AppControl::Terminate, &Error::Status { code: 410, message: "Confirm termination".into() }));
         assert!(!completed_action(AppControl::Terminate, &Error::Status { code: 500, message: "Application terminated".into() }));
+    }
+
+    const TOKEN_A: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const TOKEN_B: &str = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
+
+    /// A reply as the PC sends it: supported, allowed and available, then the token.
+    fn power_reply(status: u16, message: &str, flags: [bool; 3], token: Option<&str>) -> PowerReply {
+        PowerReply {
+            status,
+            message: message.into(),
+            version: 1,
+            sleep_supported: flags[0],
+            sleep_allowed: flags[1],
+            sleep_available: flags[2],
+            active_session_policy: "idle-only".into(),
+            token: token.map(Into::into),
+            token_lifetime_seconds: 30,
+            accepted: status == 202,
+        }
+    }
+
+    /// A PC that hands out `tokens` in turn and answers each sleep request with `sleep`.
+    struct FakePc {
+        tokens: std::cell::RefCell<Vec<&'static str>>,
+        sleep: fn() -> Result<PowerReply, PowerError>,
+        calls: std::cell::RefCell<Vec<String>>,
+    }
+
+    impl FakePc {
+        fn new(tokens: &[&'static str], sleep: fn() -> Result<PowerReply, PowerError>) -> Self {
+            Self { tokens: std::cell::RefCell::new(tokens.to_vec()), sleep, calls: Default::default() }
+        }
+        fn calls(&self) -> Vec<String> {
+            self.calls.borrow().clone()
+        }
+    }
+
+    impl PowerHost for FakePc {
+        fn power_capabilities(&self) -> Result<PowerReply, PowerError> {
+            self.calls.borrow_mut().push("GET".into());
+            let mut tokens = self.tokens.borrow_mut();
+            let token = (!tokens.is_empty()).then(|| tokens.remove(0));
+            Ok(power_reply(200, "", [true, true, token.is_some()], token))
+        }
+        fn sleep(&self, token: &str) -> Result<PowerReply, PowerError> {
+            self.calls.borrow_mut().push(format!("POST {token}"));
+            (self.sleep)()
+        }
+    }
+
+    fn accepted() -> Result<PowerReply, PowerError> {
+        Ok(power_reply(202, "Sleep request accepted; native completion is not confirmed", [true, true, false], None))
+    }
+
+    #[test]
+    fn sleep_spends_the_offered_token_and_the_answer_reaches_the_ui() {
+        let pc = FakePc::new(&[TOKEN_A], accepted);
+        let (token, at) = sleep_token(&pc).unwrap();
+        assert_eq!(token, TOKEN_A);
+        assert!(matches!(sleep_confirmed(&pc, token, at), Ok(SleepStep::Accepted)));
+        assert_eq!(pc.calls(), ["GET".to_owned(), format!("POST {TOKEN_A}")], "one offer, one request");
+
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
+        let id = hosts.list[0].id;
+        hosts.sender.send(Event::Sleep { id, confirmed: true, result: Ok(SleepStep::Accepted) }).unwrap();
+        let (events, changed) = hosts.drain(&egui::Context::default());
+        assert!(!changed);
+        assert!(matches!(events[..], [Event::Sleep { confirmed: true, result: Ok(SleepStep::Accepted), .. }]));
+    }
+
+    #[test]
+    fn a_token_older_than_25_seconds_is_asked_for_again_before_it_is_spent() {
+        let ago = |s| Instant::now().checked_sub(Duration::from_secs(s)).unwrap();
+        let pc = FakePc::new(&[TOKEN_B], accepted);
+        assert!(sleep_confirmed(&pc, TOKEN_A.into(), ago(24)).is_ok());
+        assert_eq!(pc.calls(), [format!("POST {TOKEN_A}")], "a young token is spent as it is");
+
+        let pc = FakePc::new(&[TOKEN_B], accepted);
+        assert!(sleep_confirmed(&pc, TOKEN_A.into(), ago(26)).is_ok());
+        assert_eq!(pc.calls(), ["GET".to_owned(), format!("POST {TOKEN_B}")], "the fresh token is spent");
+
+        // A PC that no longer offers a token (busy by now) says so, and nothing is spent.
+        let pc = FakePc::new(&[], accepted);
+        assert_eq!(sleep_confirmed(&pc, TOKEN_A.into(), ago(26)).err().as_deref(), Some(SLEEP_BUSY));
+        assert_eq!(pc.calls(), ["GET"]);
+    }
+
+    #[test]
+    fn a_refusal_shows_the_hosts_words_and_a_failed_request_says_what_failed() {
+        use nightjar_core::http::{Error, Refusal};
+        let busy = || Err(PowerError::Refused {
+            refusal: Refusal::Conflict,
+            reply: power_reply(409, "End all applications and sessions before requesting sleep", [true, true, false], None),
+        });
+        let pc = FakePc::new(&[TOKEN_A], busy);
+        assert_eq!(
+            sleep_confirmed(&pc, TOKEN_A.into(), Instant::now()).err().as_deref(),
+            Some("End all applications and sessions before requesting sleep"),
+            "exactly as sent"
+        );
+        let silent = || Err(PowerError::Refused { refusal: Refusal::Unauthorized, reply: power_reply(401, "", [false; 3], None) });
+        assert_eq!(
+            sleep_confirmed(&FakePc::new(&[], silent), TOKEN_A.into(), Instant::now()).err().as_deref(),
+            Some("The PC refused with status 401.")
+        );
+        let timeout = || Err(PowerError::Host(Error::Io(std::io::ErrorKind::TimedOut.into())));
+        assert_eq!(
+            sleep_confirmed(&FakePc::new(&[], timeout), TOKEN_A.into(), Instant::now()).err().as_deref(),
+            Some("The PC did not answer.")
+        );
+    }
+
+    /// The PC's last answer, with the power fields when `power` is (supported, allowed).
+    fn sleep_info(rubylight: bool, power: Option<(bool, bool)>) -> ServerInfo {
+        let mut extra = String::new();
+        if rubylight {
+            extra.push_str("<RustHostVersion>3.0.0</RustHostVersion>");
+        }
+        if let Some((supported, allowed)) = power {
+            extra.push_str(&format!(
+                "<PowerActionVersion>1</PowerActionVersion><SleepSupported>{}</SleepSupported><SleepAllowed>{}</SleepAllowed>",
+                u8::from(supported),
+                u8::from(allowed)
+            ));
+        }
+        ServerInfo::parse(&INFO.replace("</root>", &format!("{extra}</root>")), 47989).unwrap()
+    }
+
+    #[test]
+    fn sleep_is_offered_only_by_a_pc_that_says_so() {
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
+        let host = &mut hosts.list[0];
+        host.reach = Reach::Online;
+        host.info = Some(sleep_info(false, None));
+        assert_eq!(host.sleep_option(), None, "a stock host never shows Sleep PC");
+        host.info = Some(sleep_info(true, None));
+        assert_eq!(host.sleep_option(), None, "nor a Rubylight without the power API");
+        host.info = Some(sleep_info(true, Some((false, true))));
+        assert_eq!(host.sleep_option(), None, "nor a PC that cannot sleep");
+        host.info = Some(sleep_info(false, Some((true, false))));
+        assert_eq!(host.sleep_option(), Some(Err(SLEEP_NOT_ALLOWED)), "not for this device: shown with the reason");
+        host.info = Some(sleep_info(false, Some((true, true))));
+        assert_eq!(host.sleep_option(), Some(Ok(())));
+        host.reach = Reach::Offline;
+        assert_eq!(host.sleep_option(), None, "a PC that does not answer is not asked");
+    }
+
+    #[test]
+    fn an_offer_without_a_token_says_why() {
+        let reply = |flags| move || -> Result<PowerReply, PowerError> { Ok(power_reply(200, "", flags, None)) };
+        struct Offer(Box<dyn Fn() -> Result<PowerReply, PowerError>>);
+        impl PowerHost for Offer {
+            fn power_capabilities(&self) -> Result<PowerReply, PowerError> { (self.0)() }
+            fn sleep(&self, _: &str) -> Result<PowerReply, PowerError> { unreachable!("nothing to spend") }
+        }
+        for (flags, why) in [
+            ([false, true, false], SLEEP_UNSUPPORTED),
+            ([true, false, false], SLEEP_NOT_ALLOWED),
+            ([true, true, false], SLEEP_BUSY),
+            ([true, true, true], SLEEP_NO_TOKEN),
+        ] {
+            assert_eq!(sleep_token(&Offer(Box::new(reply(flags)))).err().as_deref(), Some(why));
+        }
     }
 }

@@ -76,6 +76,31 @@ fn video_peer(h: &Harness, launch: &Launch) -> Option<SocketAddr> {
     peers.get(&(launch.id.clone(), false)).copied()
 }
 
+/// PROBE, CHALLENGE, CONFIRM and MIGRATED from `control`: the session's client is at
+/// its address from now on.
+async fn roam(roamer: &mut Roamer, session: &Session, control: &UdpSocket) -> Result<()> {
+    let roams = session.roams();
+    let probe = Payload::Probe {
+        nonce_c: 7,
+        flags: 0,
+    };
+    let Some(Payload::Challenge { nonce_c, challenge }) =
+        roamer.exchange(control, probe, WAIT).await?
+    else {
+        panic!("no CHALLENGE");
+    };
+    assert_eq!(nonce_c, 7);
+    assert_eq!(
+        roamer
+            .exchange(control, Payload::Confirm { challenge }, WAIT)
+            .await?,
+        Some(Payload::Migrated { challenge })
+    );
+    assert_eq!(session.client_ip(), control.local_addr()?.ip());
+    assert_eq!(session.roams(), roams + 1);
+    Ok(())
+}
+
 /// PROBE, CHALLENGE, CONFIRM, MIGRATED from 127.0.0.2: ENet input, video and the host's
 /// control messages follow the client there.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -124,6 +149,40 @@ async fn a_client_that_proves_its_new_address_keeps_its_stream() -> Result<()> {
     .await;
     assert!(!session.stopping());
     // The termination message reaches the client at its new address.
+    h.end(&session, client).await?;
+    h.finish().await
+}
+
+/// After a roam a legacy 4-byte ping from the client's new IP does not take its video:
+/// behind a CGNAT another device may share that IP. The session's own ping does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn after_a_roam_only_the_sessions_own_ping_takes_its_video() -> Result<()> {
+    let h = Harness::new(10_000, 1).await?;
+    let launch = h.launch(0, false).await?;
+    let (session, client) = h.play(&launch).await?;
+    let control = moved_udp()?;
+    let mut roamer = Roamer::new(h.ports, &launch);
+    roam(&mut roamer, &session, &control).await?;
+    let video = moved_udp()?;
+    let moved_video = video.local_addr()?;
+    let host_video = address(h.ports.video);
+    let deadline = Instant::now() + Duration::from_millis(500);
+    while Instant::now() < deadline {
+        video.send_to(b"PING", host_video)?;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(video_peer(&h, &launch), None);
+    video.send_to(launch.ping.as_bytes(), host_video)?;
+    until("the session's ping takes the video", WAIT, || {
+        video_peer(&h, &launch) == Some(moved_video)
+    })
+    .await;
+    client.move_to(control, video);
+    let frames = client.frames.load(Ordering::Acquire);
+    until("video on the new address", WAIT, || {
+        client.frames.load(Ordering::Acquire) > frames + 2
+    })
+    .await;
     h.end(&session, client).await?;
     h.finish().await
 }

@@ -1038,7 +1038,16 @@ impl Media {
                                                     s.client_ip() == peer.ip().to_canonical()
                                                 })
                                                 .count()
-                                                == 1);
+                                                == 1
+                                            // After a roam only the session's own ping
+                                            // proves a new address: behind a CGNAT
+                                            // anyone may share the client's IP.
+                                            && (s.roams() == 0
+                                                || m.peers
+                                                    .lock()
+                                                    .unwrap()
+                                                    .get(&(s.launch.id.clone(), is_audio))
+                                                    == Some(&peer)));
                                     if valid {
                                         // Answer from the address the client reached:
                                         // Windows may route a reply out of a VPN address.

@@ -219,7 +219,8 @@ pub enum CheckState {
 #[derive(Default)]
 pub struct RemoteAccess {
     check: Option<Check>,
-    /// The PC the last check was for and where it stands; cleared when its page is left.
+    /// The PC the last check was for and where it stands; cleared when its page is left (not
+    /// when Settings opens over it).
     pub state: Option<(u64, CheckState)>,
 }
 
@@ -263,8 +264,8 @@ impl RemoteAccess {
         self.state.as_ref().filter(|(h, _)| *h == host).map(|(_, s)| s)
     }
 
-    /// Takes in a finished check. `page` is the PC whose details page is open: leaving it
-    /// cancels a running check and forgets the last result.
+    /// Takes in a finished check. `page` is the PC whose details page is open or on the way
+    /// back: leaving it cancels a running check and forgets the last result.
     pub fn poll(&mut self, page: Option<u64>) {
         if self.state.as_ref().is_some_and(|(host, _)| page != Some(*host)) {
             self.check = None;

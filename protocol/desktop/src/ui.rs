@@ -678,11 +678,13 @@ impl Launcher {
             commands.push(Command::SaveSettings);
         }
         self.sync_look(&ctx);
-        // A check whose page was left is cancelled here.
-        self.remote.poll(match self.screen {
-            Screen::HostDetails(id) => Some(id),
+        // A check whose page was left is cancelled here. Settings opened over the page does not
+        // leave it: Back returns to the page and its check.
+        let page = std::iter::once(&self.screen).chain(self.trail.iter().map(|(screen, _)| screen)).find_map(|screen| match screen {
+            Screen::HostDetails(id) => Some(*id),
             _ => None,
         });
+        self.remote.poll(page);
         let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
         self.home_ready = console::has_library(&sources);
         let escape = ctx.input(|i| i.key_pressed(Key::Escape));
@@ -4307,6 +4309,47 @@ mod tests {
         f.l.open(Screen::HostDetails(id));
         f.settle();
         assert!(!shows(&f, "Test cancelled. No host or network settings were changed."), "the page opens fresh");
+    }
+
+    #[test]
+    fn settings_opened_over_the_page_keep_its_check() {
+        let mut f = details(Reach::Online, "MJOLNIR_STATE_FREE", "");
+        let id = f.hosts.list[0].id;
+        let probe = FakeProbe::answering(relay_check());
+        f.l.remote.start(id, probe.clone(), "uid".into(), Arc::new(|| {}));
+        probe.release();
+        finish_check(&mut f);
+        assert!(shows(&f, "Relay (DERP)"), "{:?}", f.drawn);
+        // Start, then Back: the result is still there.
+        f.l.open_settings();
+        f.settle();
+        assert_eq!(f.l.screen, Screen::Settings);
+        f.press(Key::Escape);
+        assert_eq!(f.l.screen, Screen::HostDetails(id));
+        assert!(shows(&f, "Relay (DERP)"), "the result survives Settings: {:?}", f.drawn);
+
+        // A running check goes on meanwhile and reports on the page.
+        let probe = FakeProbe::answering(relay_check());
+        f.l.remote.start(id, probe.clone(), "uid".into(), Arc::new(|| {}));
+        f.settle();
+        f.l.open_settings();
+        f.settle();
+        assert!(f.l.remote.running() && probe.cancels.load(Ordering::SeqCst) == 0, "Settings do not cancel it");
+        f.press(Key::Escape);
+        assert!(shows(&f, "Checking your paired PC…"), "{:?}", f.drawn);
+        probe.release();
+        finish_check(&mut f);
+        assert!(shows(&f, "Relay (DERP)"), "{:?}", f.drawn);
+
+        // Settings that replace the page (PCs from there) leave it: the check is cancelled.
+        let probe = FakeProbe::answering(relay_check());
+        f.l.remote.start(id, probe.clone(), "uid".into(), Arc::new(|| {}));
+        f.l.open_settings();
+        f.settle();
+        f.l.switch(Screen::Hosts);
+        f.settle();
+        assert_eq!(probe.cancels.load(Ordering::SeqCst), 1);
+        assert!(!f.l.remote.running() && f.l.remote.state.is_none());
     }
 
     #[test]

@@ -277,7 +277,7 @@ public class AdvancedOptionsTest {
 
     @Test
     @Config(shadows = {com.limelight.PcViewLifecycleTest.NoNativeMoonBridge.class, AdrenoGpu.class})
-    public void gpuBoostIsOneAdvancedControlOnByDefaultWithTheExistingStoredKey() {
+    public void gpuBoostIsOneOptInAdvancedControlWithTheExistingStoredKey() {
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
             StreamSettings screen = controller.get();
             PreferenceScreen advanced = open(screen, "advanced").getPreferenceScreen();
@@ -288,17 +288,17 @@ public class AdvancedOptionsTest {
             assertEquals("Can reduce decoding time, but uses more power and produces more heat.",
                     boost.getSummary().toString());
             assertNull(boost.getExplanation());
-            assertTrue(boost.isChecked());
-            assertTrue(PreferenceConfiguration.readPreferences(screen).gpuMaxClocks);
-
-            boost.setChecked(false);
-            assertFalse(prefs().getBoolean(GPU_BOOST, true));
-            assertEquals(screen.getString(R.string.summary_gpu_max_clocks), boost.getSummary().toString());
-            boost = (MaterialSwitchPreference) open(screen, "advanced").findPreference(GPU_BOOST);
             assertFalse(boost.isChecked());
             assertFalse(PreferenceConfiguration.readPreferences(screen).gpuMaxClocks);
+
             boost.setChecked(true);
+            assertTrue(prefs().getBoolean(GPU_BOOST, false));
+            assertEquals(screen.getString(R.string.summary_gpu_max_clocks), boost.getSummary().toString());
+            boost = (MaterialSwitchPreference) open(screen, "advanced").findPreference(GPU_BOOST);
+            assertTrue(boost.isChecked());
             assertTrue(PreferenceConfiguration.readPreferences(screen).gpuMaxClocks);
+            boost.setChecked(false);
+            assertFalse(PreferenceConfiguration.readPreferences(screen).gpuMaxClocks);
 
             for (String section : new String[] {"video", "display", "input", "audio", "streaming", "app"}) {
                 assertNull(section, open(screen, section).getPreferenceScreen().findPreference(GPU_BOOST));

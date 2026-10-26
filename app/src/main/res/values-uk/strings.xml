@@ -2,8 +2,6 @@
 <resources>
     <string name="title_packed_444">Експериментальна повна кольоровість</string>
     <string name="summary_packed_444">Потрібні експериментальна опція повної кольоровості в Rubylight, новий рушій стримінгу та сумісний апаратний декодер HEVC/AV1. Непідтримувані режими переривають з’єднання. Для HDR також потрібна сумісна 10-бітна поверхня виведення HDR.</string>
-    <string name="title_experimental_chipset_tuning">Експериментальне налаштування чипсета</string>
-    <string name="summary_experimental_chipset_tuning">Додаткові налаштування низької затримки для декодерів MediaTek Dimensity і Samsung Exynos. Якщо відео зупиняється або смикається, вимкніть цю функцію.</string>
     <string name="scut_deleted_pc">ПК видалено</string>
     <string name="scut_not_paired">ПК не сполучено</string>
     <string name="scut_pc_not_found">ПК не знайдено</string>

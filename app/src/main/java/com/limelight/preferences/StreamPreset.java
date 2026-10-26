@@ -10,13 +10,11 @@ public enum StreamPreset {
     // The phone's own resolution at 30 fps, with the panel slowed to match and the GPU left alone.
     BATTERY_SAVER;
 
-    // Switches that cut latency. All are on by default, and Native turns them back on. Battery saver
-    // turns Max GPU clocks off and leaves the others.
+    // Switches that cut latency. All are on by default, and Native turns them back on. Max GPU clocks
+    // is not one of them: it is opt-in, and only Battery saver changes it (to off).
     static final String[] LATENCY_SWITCHES = {
             "checkbox_codec_low_latency",
             "checkbox_vendor_low_latency",
-            PreferenceConfiguration.CHIPSET_TUNING_PREF_STRING,
-            PreferenceConfiguration.GPU_MAX_CLOCKS_PREF_STRING,
             "checkbox_phone_performance_hints",
             "checkbox_drop_late_frames",
             "checkbox_unbatched_input",

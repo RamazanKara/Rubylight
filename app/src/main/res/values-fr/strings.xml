@@ -2,8 +2,6 @@
 <resources>
     <string name="title_packed_444">Chroma complet expérimental</string>
     <string name="summary_packed_444">Nécessite l’option expérimentale de chroma complet de Rubylight, le nouveau moteur de streaming et un décodeur matériel HEVC/AV1 compatible. Les modes non pris en charge interrompent la connexion. Le HDR nécessite aussi une surface d’affichage HDR 10 bits compatible.</string>
-    <string name="title_experimental_chipset_tuning">Réglage expérimental du chipset</string>
-    <string name="summary_experimental_chipset_tuning">Réglages supplémentaires de faible latence pour les décodeurs MediaTek Dimensity et Samsung Exynos. Si la vidéo se fige ou saccade, désactivez cette option.</string>
     <string name="scut_deleted_pc">PC supprimé</string>
     <string name="scut_not_paired">PC non associé</string>
     <string name="scut_pc_not_found">PC introuvable</string>

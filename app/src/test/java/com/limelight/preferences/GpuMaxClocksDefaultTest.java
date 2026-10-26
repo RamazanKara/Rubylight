@@ -34,17 +34,17 @@ public class GpuMaxClocksDefaultTest {
         prefs().edit().clear().commit();
     }
 
-    @Test public void aNewInstallBoostsTheGpu() {
+    @Test public void aNewInstallLeavesTheGpuAlone() {
         // What the PC list stores on its first launch, followed by the native-defaults migration.
         PreferenceManager.setDefaultValues(app(), R.xml.preferences, true);
-        assertTrue(PreferenceConfiguration.readPreferences(app()).gpuMaxClocks);
-        assertTrue(prefs().getBoolean(KEY, false));
-        assertTrue(PreferenceConfiguration.readPreferences(app()).gpuMaxClocks);
+        assertFalse(PreferenceConfiguration.readPreferences(app()).gpuMaxClocks);
+        assertFalse(prefs().getBoolean(KEY, true));
+        assertFalse(PreferenceConfiguration.readPreferences(app()).gpuMaxClocks);
     }
 
-    @Test public void anInstallThatNeverStoredItReadsOn() {
+    @Test public void anInstallThatNeverStoredItReadsOff() {
         assertFalse(prefs().contains(KEY));
-        assertTrue(PreferenceConfiguration.readPreferences(app()).gpuMaxClocks);
+        assertFalse(PreferenceConfiguration.readPreferences(app()).gpuMaxClocks);
     }
 
     @Test public void anExistingChoiceIsKept() {
@@ -58,10 +58,10 @@ public class GpuMaxClocksDefaultTest {
         }
     }
 
-    @Test public void resettingAllSettingsTurnsItOn() {
-        prefs().edit().putBoolean(KEY, false).commit();
+    @Test public void resettingAllSettingsTurnsItOff() {
+        prefs().edit().putBoolean(KEY, true).commit();
         StreamSettings.resetAllSettings(app());
-        assertTrue(PreferenceConfiguration.readPreferences(app()).gpuMaxClocks);
+        assertFalse(PreferenceConfiguration.readPreferences(app()).gpuMaxClocks);
         // The latency switches the reset turns back on stay on.
         assertTrue(PreferenceConfiguration.readPreferences(app()).networkPriority);
     }

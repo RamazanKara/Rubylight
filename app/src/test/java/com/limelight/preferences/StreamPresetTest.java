@@ -101,14 +101,14 @@ public class StreamPresetTest {
     }
 
     @Test
-    public void nativeTurnsTheGpuClocksOnAndBatterySaverTurnsThemOff() {
+    public void nativeLeavesTheOptInGpuClocksAloneAndBatterySaverTurnsThemOff() {
         String gpu = PreferenceConfiguration.GPU_MAX_CLOCKS_PREF_STRING;
         for (Boolean stored : new Boolean[] {null, true, false}) {
             Map<String, Object> values = new HashMap<>();
             if (stored != null) values.put(gpu, stored);
             SharedPreferences preferences = preferences(values, new int[1]);
             StreamPreset.NATIVE.apply(preferences, PHONE, 120);
-            assertEquals(true, values.get(gpu));
+            assertEquals(stored, values.get(gpu));
             assertTrue(StreamPreset.NATIVE.matches(preferences, PHONE, 120));
 
             StreamPreset.BATTERY_SAVER.apply(preferences, PHONE, 120);
@@ -117,7 +117,7 @@ public class StreamPresetTest {
             values.put(gpu, true);
             assertFalse(StreamPreset.BATTERY_SAVER.matches(preferences, PHONE, 120));
         }
-        assertTrue(java.util.Arrays.asList(StreamPreset.LATENCY_SWITCHES).contains(gpu));
+        assertFalse(java.util.Arrays.asList(StreamPreset.LATENCY_SWITCHES).contains(gpu));
     }
 
     @Test
@@ -156,9 +156,8 @@ public class StreamPresetTest {
         assertEquals(true, values.get("checkbox_vrr"));
         assertEquals(PreferenceConfiguration.FOLLOW_SCREEN_VERSION, values.get("prefs_version"));
         assertEquals(true, values.get(PreferenceConfiguration.RESOLUTION_FOLLOWS_SCREEN_PREF_STRING));
-        // Max GPU clocks and chipset tuning are latency switches too: the migration turns them on.
-        assertEquals(true, values.get(PreferenceConfiguration.GPU_MAX_CLOCKS_PREF_STRING));
-        assertEquals(true, values.get(PreferenceConfiguration.CHIPSET_TUNING_PREF_STRING));
+        // Max GPU clocks is opt-in: the migration does not turn it on.
+        assertFalse(values.containsKey(PreferenceConfiguration.GPU_MAX_CLOCKS_PREF_STRING));
 
         // Later changes stick.
         values.put("list_resolution", "1920x1080");

@@ -119,7 +119,7 @@ public class PreferenceConfiguration {
     // Off: streams use the C engine. The Rust engine is a beta and falls back per stream.
     static final String RUST_ENGINE_PREF_STRING = "checkbox_rust_engine";
     private static final String PACKED_444_PREF_STRING = "experimental_packed_444";
-    public static final String CHIPSET_TUNING_PREF_STRING = "checkbox_experimental_chipset_tuning";
+    private static final String CHIPSET_TUNING_PREF_STRING = "checkbox_experimental_chipset_tuning";
     static final String FRAME_PACING_PREF_STRING = "frame_pacing";
     private static final String ABSOLUTE_MOUSE_MODE_PREF_STRING = "checkbox_absolute_mouse_mode";
     private static final String ENABLE_AUDIO_FX_PREF_STRING = "checkbox_enable_audiofx";
@@ -135,7 +135,7 @@ public class PreferenceConfiguration {
     private static final String PHONE_PERFORMANCE_HINTS_PREF_STRING = "checkbox_phone_performance_hints";
     static final String GPU_MAX_CLOCKS_PREF_STRING = "checkbox_gpu_max_clocks";
     // Opt-in: holding the GPU at full speed costs battery. Installs that stored a value keep it.
-    static final boolean DEFAULT_GPU_MAX_CLOCKS = true;
+    static final boolean DEFAULT_GPU_MAX_CLOCKS = false;
     private static final String DROP_LATE_FRAMES_PREF_STRING = "checkbox_drop_late_frames";
     private static final String TEXTURE_VIEW_PREF_STRING = "checkbox_texture_view";
     private static final String UNBATCHED_INPUT_PREF_STRING = "checkbox_unbatched_input";
@@ -259,7 +259,7 @@ public class PreferenceConfiguration {
     public boolean enableLatencyToast;
     public boolean rustEngine;
     public boolean experimentalPacked444;
-    // Experimental per-chip decoder keys, on by default (docs/devices.md, Per-chip tuning)
+    // Opt-in decoder keys still being measured (docs/devices.md, Candidate per-chip changes)
     public boolean experimentalChipsetTuning;
     public boolean bindAllUsb;
     public boolean mouseEmulation;
@@ -875,7 +875,6 @@ public class PreferenceConfiguration {
     // Settings › Advanced › Low-latency decoding sets these together; the individual switches follow it.
     static final String[] LOW_LATENCY_DECODING_KEYS = {
             CODEC_LOW_LATENCY_PREF_STRING, VENDOR_LOW_LATENCY_PREF_STRING, PHONE_PERFORMANCE_HINTS_PREF_STRING,
-            CHIPSET_TUNING_PREF_STRING,
     };
 
     /** How many of the low-latency decoding switches are on; each one defaults to on. */
@@ -1227,7 +1226,7 @@ public class PreferenceConfiguration {
         config.enableLatencyToast = prefs.getBoolean(LATENCY_TOAST_PREF_STRING, DEFAULT_LATENCY_TOAST);
         config.rustEngine = prefs.getBoolean(RUST_ENGINE_PREF_STRING, true);
         config.experimentalPacked444 = prefs.getBoolean(PACKED_444_PREF_STRING, false);
-        config.experimentalChipsetTuning = prefs.getBoolean(CHIPSET_TUNING_PREF_STRING, true);
+        config.experimentalChipsetTuning = prefs.getBoolean(CHIPSET_TUNING_PREF_STRING, false);
         config.absoluteMouseMode = prefs.getBoolean(ABSOLUTE_MOUSE_MODE_PREF_STRING, DEFAULT_ABSOLUTE_MOUSE_MODE);
         config.enableAudioFx = prefs.getBoolean(ENABLE_AUDIO_FX_PREF_STRING, DEFAULT_ENABLE_AUDIO_FX);
         config.reduceRefreshRate = prefs.getBoolean(REDUCE_REFRESH_RATE_PREF_STRING, DEFAULT_REDUCE_REFRESH_RATE);

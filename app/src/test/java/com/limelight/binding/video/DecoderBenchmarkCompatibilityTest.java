@@ -28,8 +28,7 @@ public class DecoderBenchmarkCompatibilityTest {
         android.media.MediaCodecInfo decoder = MediaCodecInfoBuilder.newBuilder().setName(name).build();
         for (boolean measuredWithFlagsDisabled : new boolean[] {false, true}) {
             String key = ReflectionHelpers.callStaticMethod(DecoderBenchmark.class, "key",
-                    ClassParameter.from(boolean.class, measuredWithFlagsDisabled),
-                    ClassParameter.from(boolean.class, true));
+                    ClassParameter.from(boolean.class, measuredWithFlagsDisabled));
             app.getSharedPreferences("decoder_benchmark", Context.MODE_PRIVATE).edit().clear()
                     .putString("key", key).putLong(name + "|video/hevc", 2500L).commit();
             PreferenceManager.getDefaultSharedPreferences(app).edit()
@@ -52,33 +51,5 @@ public class DecoderBenchmarkCompatibilityTest {
             assertFalse(stale.decoderBenchmarkMeasured);
             assertTrue(stale.decoders.isEmpty());
         }
-    }
-
-    @Test
-    public void changingChipsetTuningInvalidatesTimingsInBothDirections() {
-        Application app = RuntimeEnvironment.getApplication();
-        String name = "c2.mtk.hevc.decoder";
-        android.media.MediaCodecInfo decoder = MediaCodecInfoBuilder.newBuilder().setName(name).build();
-        for (boolean measuredWithTuning : new boolean[] {true, false}) {
-            String key = ReflectionHelpers.callStaticMethod(DecoderBenchmark.class, "key",
-                    ClassParameter.from(boolean.class, false),
-                    ClassParameter.from(boolean.class, measuredWithTuning));
-            app.getSharedPreferences("decoder_benchmark", Context.MODE_PRIVATE).edit().clear()
-                    .putString("key", key).putLong(name + "|video/hevc", 2500L).commit();
-            PreferenceManager.getDefaultSharedPreferences(app).edit().clear()
-                    .putBoolean(PreferenceConfiguration.CHIPSET_TUNING_PREF_STRING, measuredWithTuning).commit();
-            assertEquals(2500L, DecoderBenchmark.result(app, decoder, "video/hevc"));
-
-            PreferenceManager.getDefaultSharedPreferences(app).edit()
-                    .putBoolean(PreferenceConfiguration.CHIPSET_TUNING_PREF_STRING, !measuredWithTuning).commit();
-            assertEquals(0L, DecoderBenchmark.result(app, decoder, "video/hevc"));
-        }
-        // Unset means on, the default.
-        String onKey = ReflectionHelpers.callStaticMethod(DecoderBenchmark.class, "key",
-                ClassParameter.from(boolean.class, false), ClassParameter.from(boolean.class, true));
-        app.getSharedPreferences("decoder_benchmark", Context.MODE_PRIVATE).edit().clear()
-                .putString("key", onKey).putLong(name + "|video/hevc", 2500L).commit();
-        PreferenceManager.getDefaultSharedPreferences(app).edit().clear().commit();
-        assertEquals(2500L, DecoderBenchmark.result(app, decoder, "video/hevc"));
     }
 }

@@ -609,7 +609,7 @@ public class MediaCodecHelper {
     }
 
     /**
-     * Experimental chipset tuning (on by default, a setting turns it off): Codec2 MediaTek decoders also get
+     * Experimental chipset tuning (opt-in, off by default): Codec2 MediaTek decoders also get
      * "vdec-lowlatency", which MediaTek's ACodec only reads for OMX today, and Exynos decoders get
      * the attainable operating rate next to real-time priority, like Tensor. Both leave after the
      * first try so a decoder that rejects them falls back to the default ladder.

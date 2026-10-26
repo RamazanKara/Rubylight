@@ -2,8 +2,6 @@
 <resources>
     <string name="title_packed_444">실험적 전체 크로마</string>
     <string name="summary_packed_444">Rubylight의 실험적 전체 크로마 옵션, 새 스트리밍 엔진, 호환되는 HEVC/AV1 하드웨어 디코더가 필요합니다. 지원하지 않는 모드는 연결을 중단합니다. HDR에는 호환되는 10비트 HDR 디스플레이 서피스도 필요합니다.</string>
-    <string name="title_experimental_chipset_tuning">실험적 칩셋 튜닝</string>
-    <string name="summary_experimental_chipset_tuning">MediaTek Dimensity 및 Samsung Exynos 디코더용 추가 저지연 설정입니다. 영상이 멈추거나 끊기면 끄세요.</string>
     <string name="scut_deleted_pc">PC 삭제됨</string>
     <string name="scut_not_paired">PC와 페어링되지 않음</string>
     <string name="scut_pc_not_found">PC를 찾을 수 없음</string>

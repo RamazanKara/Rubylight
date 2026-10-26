@@ -2,8 +2,6 @@
 <resources>
     <string name="title_packed_444">実験的なフルクロマ</string>
     <string name="summary_packed_444">Rubylight の実験的なフルクロマ設定、新しいストリーミングエンジン、対応する HEVC/AV1 ハードウェアデコーダーが必要です。未対応のモードでは接続を停止します。HDR には対応する 10 ビット HDR 表示サーフェスも必要です。</string>
-    <string name="title_experimental_chipset_tuning">実験的なチップセット調整</string>
-    <string name="summary_experimental_chipset_tuning">MediaTek Dimensity と Samsung Exynos のデコーダー向けの追加の低遅延設定です。映像が止まったりカクついたりする場合はオフにしてください。</string>
     <string name="scut_deleted_pc">PC は削除されています</string>
     <string name="scut_not_paired">PC はペアリングされていません</string>
     <string name="scut_pc_not_found">PC が見つかりません</string>

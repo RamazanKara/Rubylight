@@ -103,7 +103,7 @@ The [Moonlight HEVC fix](https://github.com/Viktsolovevwork278/moonlight-android
 
 ## Candidate per-chip changes
 
-Nightjar already sets Android's standard low-latency flag and every vendor low-latency key a decoder declares (Qualcomm, Exynos and Tensor, Kirin, Amlogic, MediaTek Codec2 and NVIDIA keys), plus the MediaTek and Amazon `vdec-lowlatency` option on their older OMX decoders, subject to the [HEVC compatibility switch](#hevc-low-latency-compatibility) and other decoder settings. The decoder benchmark honors the HEVC switch too. The ideas below still need measurements before adding further chipset tuning. The first two ship as **Experimental chipset tuning** in Advanced settings, on by default and switchable off there: `vdec-lowlatency` on `c2.mtk` decoders, and on Exynos decoders the operating rate they declare for the stream size next to the realtime priority hint. Both are sent on the first configure try only.
+Nightjar already sets Android's standard low-latency flag and every vendor low-latency key a decoder declares (Qualcomm, Exynos and Tensor, Kirin, Amlogic, MediaTek Codec2 and NVIDIA keys), plus the MediaTek and Amazon `vdec-lowlatency` option on their older OMX decoders, subject to the [HEVC compatibility switch](#hevc-low-latency-compatibility) and other decoder settings. The decoder benchmark honors the HEVC switch too. The ideas below still need measurements before adding further chipset tuning. The first two ship as **Experimental chipset tuning** in Advanced settings, off by default: `vdec-lowlatency` on `c2.mtk` decoders, and on Exynos decoders the operating rate they declare for the stream size next to the realtime priority hint. Both are sent on the first configure try only.
 
 | Chip family | Idea to measure | How to tell |
 | --- | --- | --- |
@@ -113,7 +113,7 @@ Nightjar already sets Android's standard low-latency flag and every vendor low-l
 | MediaTek Pentonic TVs | Whether a different frame pacing mode avoids the compositor dropping frames. This is a display problem, not a decoder one. | `frameIntervalMs` in the latency test and estimated display drops in the Debug overlay. |
 | Android TV audio | Audio delay on Android TV 14. These tools do not measure audio delay. | A camera or an audio-video sync test against the host. |
 
-Any change that comes out of these measurements is limited to the matching decoders and has a setting that turns it off. Experimental chipset tuning is on by default; each of its keys leaves after the first configure try, so a decoder that rejects it still starts with the normal options.
+Any change that comes out of these measurements ships as an opt-in setting limited to the matching decoders, off by default. It becomes the default only after the decoder benchmark and the stutter report show a gain without freezes on several devices of that family.
 
 ## Format versions
 

@@ -2,8 +2,6 @@
 <resources>
     <string name="title_packed_444">Экспериментальная полная цветность</string>
     <string name="summary_packed_444">Требуются экспериментальная опция полной цветности в Rubylight, новый движок стриминга и совместимый аппаратный декодер HEVC/AV1. Неподдерживаемые режимы прерывают соединение. Для HDR также нужна совместимая 10-битная поверхность вывода HDR.</string>
-    <string name="title_experimental_chipset_tuning">Экспериментальная настройка чипсета</string>
-    <string name="summary_experimental_chipset_tuning">Дополнительные настройки низкой задержки для декодеров MediaTek Dimensity и Samsung Exynos. Если видео останавливается или подтормаживает, отключите эту функцию.</string>
     <string name="scut_deleted_pc">ПК удалён</string>
     <string name="scut_not_paired">ПК не сопряжён</string>
     <string name="scut_pc_not_found">ПК не найден</string>

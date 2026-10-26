@@ -9,6 +9,8 @@ import java.net.UnknownHostException;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -70,6 +72,8 @@ public class ComputerManagerService extends Service {
     private IdentityManager idManager;
     // Keeps the wake targets of the polled PCs, for wakes from the PC list and shortcuts.
     private WakeTargetsPoll wakeTargets;
+    // Its HTTPS requests, off the polling threads and their network locks.
+    private ExecutorService wakeRequests;
     private final LinkedList<PollingTuple> pollingTuples = new LinkedList<>();
     private volatile ComputerManagerListener listener;
     private final AtomicInteger activePolls = new AtomicInteger(0);
@@ -800,7 +804,9 @@ public class ComputerManagerService extends Service {
 
         // Lookup or generate this device's UID
         idManager = new IdentityManager(this);
-        wakeTargets = new WakeTargetsPoll(new WakeTargets(this), this::nativeClient, SystemClock::elapsedRealtime);
+        wakeRequests = Executors.newSingleThreadExecutor(task -> new Thread(task, "Wake targets"));
+        wakeTargets = new WakeTargetsPoll(new WakeTargets(this), this::nativeClient, wakeRequests,
+                SystemClock::elapsedRealtime);
 
         // Initialize the DB
         dbManager = new ComputerDatabaseManager(this);
@@ -874,6 +880,7 @@ public class ComputerManagerService extends Service {
             discoveryServiceBound = false;
         }
         discoveryBinder = null;
+        wakeRequests.shutdownNow();
 
         // FIXME: Should await termination here but we have timeout issues in HttpURLConnection
 

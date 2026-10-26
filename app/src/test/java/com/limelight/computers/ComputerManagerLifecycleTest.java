@@ -33,6 +33,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.*;
@@ -290,7 +293,7 @@ public class ComputerManagerLifecycleTest {
     }
 
     @Test
-    public void aPollOfAPcThatListsWakeKeepsItsTargetsForThePcListAndShortcuts() {
+    public void aPollOfAPcThatListsWakeKeepsItsTargetsForThePcListAndShortcuts() throws Exception {
         ServiceController<NativeManager> controller = Robolectric.buildService(NativeManager.class).create();
         NativeManager service = controller.get();
         try {
@@ -305,11 +308,71 @@ public class ComputerManagerLifecycleTest {
                     ReflectionHelpers.ClassParameter.from(ComputerDetails.class, found),
                     ReflectionHelpers.ClassParameter.from(boolean.class, true),
                     ReflectionHelpers.ClassParameter.from(int.class, 0));
+            awaitWakeRequests(service);
 
             WakeTargets.Targets targets = new WakeTargets(service).load("tower");
             assertEquals(Collections.singletonList("02:e0:4c:68:00:01"), targets.macs);
             assertEquals(Collections.singletonList("10.0.0.255"), targets.broadcasts);
         } finally {
+            controller.destroy();
+        }
+    }
+
+    private static void awaitWakeRequests(ComputerManagerService service) throws Exception {
+        ExecutorService requests = ReflectionHelpers.getField(service, "wakeRequests");
+        requests.submit(() -> { }).get(10, TimeUnit.SECONDS);
+    }
+
+    /** A native-API PC whose wake targets requests wait until the test releases them. */
+    public static class SlowNativeManager extends OnlineManager {
+        final NativeApiFixtures.FakeTransport replies = new NativeApiFixtures.FakeTransport();
+        final CountDownLatch asked = new CountDownLatch(1);
+        final CountDownLatch release = new CountDownLatch(1);
+        volatile boolean answered;
+
+        @Override NativeApiClient nativeClient(ComputerDetails computer) {
+            return new NativeApiClient((host, op, argument) -> {
+                asked.countDown();
+                try {
+                    release.await(10, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                answered = true;
+                return replies.request(host, op, argument);
+            }, HostEndpoint.of(computer, "unique", NativeApiFixtures.crypto()));
+        }
+
+        ComputerDetails pollNewPc() {
+            replies.reply("tower", "capabilities", NativeApiFixtures.ok("{\"api_version\":1,"
+                    + "\"features\":[\"wake\"],\"permissions\":{\"list\":true,\"view\":true,\"launch\":true,"
+                    + "\"host_control\":false}}"));
+            replies.reply("tower", "wake", NativeApiFixtures.ok("{\"revision\":1,\"targets\":["
+                    + "{\"mac\":\"02:e0:4c:68:00:01\",\"broadcasts\":[\"10.0.0.255\"]}]}"));
+            ComputerDetails found = NativeApiFixtures.nativeHost("tower", "Tower", false);
+            found.remoteAddress = found.activeAddress;
+            ReflectionHelpers.callInstanceMethod(this, "runPoll",
+                    ReflectionHelpers.ClassParameter.from(ComputerDetails.class, found),
+                    ReflectionHelpers.ClassParameter.from(boolean.class, true),
+                    ReflectionHelpers.ClassParameter.from(int.class, 0));
+            return found;
+        }
+    }
+
+    @Test
+    public void aPollReturnsWithoutWaitingForTheWakeTargetsRequests() throws Exception {
+        ServiceController<SlowNativeManager> controller = Robolectric.buildService(SlowNativeManager.class).create();
+        SlowNativeManager service = controller.get();
+        try {
+            service.pollNewPc();
+            assertFalse("the poll (and its network lock) never waits on /wake", service.answered);
+            assertTrue(service.asked.await(10, TimeUnit.SECONDS));
+
+            service.release.countDown();
+            awaitWakeRequests(service);
+            assertEquals(Collections.singletonList("02:e0:4c:68:00:01"), new WakeTargets(service).load("tower").macs);
+        } finally {
+            service.release.countDown();
             controller.destroy();
         }
     }

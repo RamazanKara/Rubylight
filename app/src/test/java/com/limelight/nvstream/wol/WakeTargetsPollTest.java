@@ -19,8 +19,10 @@ import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 
 /** The computer manager's polls keep the wake targets, so the PC list and shortcuts wake every adapter. */
 @RunWith(RobolectricTestRunner.class)
@@ -34,14 +36,29 @@ public class WakeTargetsPollTest {
     private WakeTargetsPoll poll;
     private long now;
     private boolean paired = true;
+    /** The requests handed to the executor; they run at once unless {@link #queue} holds them. */
+    private final List<Runnable> queued = new ArrayList<>();
+    private boolean queue;
 
     @Before
     public void setUp() {
         targets = new WakeTargets(RuntimeEnvironment.getApplication());
         poll = new WakeTargetsPoll(targets, computer -> paired ? new NativeApiClient(transport,
-                HostEndpoint.of(computer, "unique", NativeApiFixtures.crypto())) : null, () -> now);
+                HostEndpoint.of(computer, "unique", NativeApiFixtures.crypto())) : null, task -> {
+                    if (queue) {
+                        queued.add(task);
+                    } else {
+                        task.run();
+                    }
+                }, () -> now);
         transport.reply("pc", "capabilities", CAPABILITIES);
         transport.reply("pc", "wake", ok(WakeTargetsTest.WAKE));
+    }
+
+    private void runQueued() {
+        List<Runnable> tasks = new ArrayList<>(queued);
+        queued.clear();
+        tasks.forEach(Runnable::run);
     }
 
     private int asks() {
@@ -89,5 +106,31 @@ public class WakeTargetsPollTest {
         poll.polled(NativeApiFixtures.classicHost("pc", "PC"));
         assertTrue(transport.calls.isEmpty());
         assertSame(WakeTargets.Targets.NONE, targets.load("pc"));
+    }
+
+    @Test
+    public void anAskOnItsWayKeepsASecondCallerFromSendingAnother() {
+        queue = true;
+        ComputerDetails pc = NativeApiFixtures.nativeHost("pc", "PC", true);
+        poll.polled(pc);
+        poll.polled(pc);
+        assertEquals("the poll hands the request off and returns", 0, asks());
+        assertEquals(1, queued.size());
+        runQueued();
+        assertEquals(1, asks());
+    }
+
+    @Test
+    public void aPcThatCouldNotBeAskedIsAskedByTheNextPoll() {
+        queue = true;
+        paired = false;
+        ComputerDetails pc = NativeApiFixtures.nativeHost("pc", "PC", true);
+        poll.polled(pc);
+        runQueued();
+        paired = true;
+        poll.polled(pc);
+        assertEquals("no client gives the reservation back", 1, queued.size());
+        runQueued();
+        assertEquals(1, asks());
     }
 }

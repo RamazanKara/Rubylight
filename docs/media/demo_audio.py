@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Original, deterministic 112 BPM instrumental bed for the launch film.
+"""Original, deterministic 120 BPM instrumental bed for the product film.
 
 Only NumPy and Python's standard library are required. No recorded samples,
 external assets, soundfonts, or network requests are used. Outputs 48 kHz stereo
@@ -20,9 +20,18 @@ import numpy as np
 
 RATE = 48_000
 SEED = 20261019
-TRANSITIONS = [0, 6, 24, 38, 46, 53, 60]
-# The moment the cold open's picture reaches the laptop.
-ARRIVAL = 3.1
+BPM = 120
+# Scene starts in the film, and its end: render_demo.py checks these against
+# render_launch_film.TIMELINE. At 120 BPM every cut lands on a bar line.
+TRANSITIONS = [0, 8, 14, 18, 24, 30, 36, 42, 46, 50, 56, 62, 70]
+# A minor, F, C, G: one chord per bar; the ending resolves to C add9.
+LOOP = [([45, 52, 57, 60, 64], 33), ([41, 48, 53, 57, 60], 29),
+        ([48, 55, 60, 64, 67], 36), ([43, 50, 55, 59, 62], 31)]
+ENDING = ([48, 55, 62, 64, 67], 36)
+# (film second, notes): devices light, pairing, monitors back, numbers land.
+CUES = [(4.7, [69, 76]), (5.3, [72, 79]), (33.7, [72, 76, 79]), (44.8, [67, 72]),
+        (47.6, [69, 76]), (51.9, [64, 69]), (52.5, [69, 76, 81]),
+        (57.6, [72]), (57.85, [76]), (58.1, [79])]
 
 
 def smooth(value: np.ndarray) -> np.ndarray:
@@ -137,77 +146,83 @@ def noise(seconds: float, rng: np.random.Generator, decay: float, bright: int) -
 def render(duration: float) -> tuple[np.ndarray, dict]:
     rng = np.random.default_rng(SEED)
     count = round(duration * RATE)
-    scale = duration / 60
+    scale = duration / TRANSITIONS[-1]
     pads = np.zeros((count, 2), dtype=np.float32)
     pulses = np.zeros_like(pads)
     rhythm = np.zeros_like(pads)
     bass = np.zeros_like(pads)
     air = np.zeros_like(pads)
-    # One chord per scene. The console moves, the comparison stays
-    # restrained, compute and colour open out into the final C major chord.
-    chords = [([45, 52, 55, 59, 64], 33), ([41, 48, 52, 55, 60], 29),
-              ([45, 52, 55, 59, 64], 33), ([48, 55, 60, 62, 64], 36),
-              ([50, 53, 57, 60, 64], 38), ([48, 55, 59, 62, 67], 36)]
-    changes = TRANSITIONS
-    for index, (notes, _) in enumerate(chords):
-        begin = max(0, changes[index] * scale - .9)
-        end = min(duration, changes[index + 1] * scale + .9)
+    beat = 60 / BPM
+    bar = beat * 4
+    groove, proof, ending = (TRANSITIONS[i] * scale for i in (1, 8, 11))
+    calm = TRANSITIONS[6] * scale, TRANSITIONS[8] * scale
+
+    def chord(at: float) -> tuple[list[int], int]:
+        """The opening holds A minor then F; the rest loops one chord per bar."""
+        if at >= ending:
+            return ENDING
+        if at < groove:
+            return LOOP[0] if at < groove / 2 else LOOP[1]
+        return LOOP[int((at - groove) // bar) % len(LOOP)]
+
+    # Pads: a chord per bar (two in the opening), overlapping so changes glide.
+    edges = [0., groove / 2] + [groove + i * bar for i in range(math.ceil((ending - groove) / bar))] + [ending]
+    for begin, end in zip(edges, edges[1:] + [duration]):
+        notes, _ = chord(begin + .01)
+        a, b = max(0, begin - .7), min(duration, end + .9)
         for voice, note in enumerate(notes):
             pan = (voice - 2) * .25
             for detune in [-.03, .03]:
-                sound = tone(note + detune, end - begin, rng, "pad")
-                add(pads, sound * .028, begin, pan + detune * 2)
+                add(pads, tone(note + detune, b - a, rng, "pad") * .026, a, pan + detune * 2)
 
-    def scene(seconds: float) -> int:
-        return min(len(chords) - 1, max(0, int(np.searchsorted(changes, seconds / scale, side="right") - 1)))
-
-    beat = 60 / 112  # 112 BPM regardless of the requested film duration.
     eighth = beat / 2
-    for step in range(math.ceil(duration / eighth)):
+    for step in range(math.ceil(ending / eighth)):
         at = step * eighth
-        film_time = at / scale
-        part = scene(at)
-        notes, root = chords[part]
-        if film_time >= 59:
-            continue
-        # Arpeggio: sparse in the opening, the comparison and the ending,
-        # on every eighth where the film moves fastest.
-        every = {0: 4, 2: 2, 5: 4}.get(part, 1)
-        if step % every == 0 and film_time < 57:
+        notes, root = chord(at)
+        quiet = calm[0] <= at < calm[1]
+        # Arpeggio: quarters in the opening and the picture scenes, eighths elsewhere.
+        every = 2 if at < groove or quiet else 1
+        if step % every == 0:
             order = [0, 2, 4, 3, 1, 3, 2, 4]
-            note = notes[order[step % 8]] + (12 if part in (3, 4) and step % 8 == 6 else 0)
-            level = (.05 if part in (0, 5) else .068) * (1 + rng.uniform(-.06, .06))
-            add(pulses, tone(note, .7, rng) * level, at + (.007 if step % 2 else 0),
-                .3 * math.sin(step * .53))
-        if changes[1] <= film_time < changes[-2]:
-            if step % 2 == 0:
-                t = np.arange(round(.32 * RATE), dtype=np.float32) / RATE
-                phase = 2 * math.pi * (49 * t + 2.6 * (1 - np.exp(-t / .025)))
-                kick = np.sin(phase) * smooth(t / .006) * np.exp(-t / .09) * smooth((.32 - t) / .06)
-                add(rhythm, kick * (.1 if step % 8 == 0 else .08), at)
-                first = round(at * RATE)
-                length = min(round(.1 * RATE), count - first)
-                duck = .78 + .22 * smooth(np.arange(length) / max(1, length - 1))
-                bass[first:first + length] *= duck[:, None]
-            if step % 4 == 0:
-                add(bass, tone(root, beat * 1.9, rng, "bass") * .07, at)
-            if film_time >= changes[2] and step % 2 == 1:
-                add(air, noise(.06, rng, .018, 2) * .03 * (1 + rng.uniform(-.1, .1)), at,
-                    .35 if step % 4 == 1 else -.35)
-            if part in (3, 4) and step % 4 == 2:
+            note = notes[order[step % 8]] + (12 if at >= proof and step % 8 == 6 else 0)
+            level = (.05 if at < groove else .064) * (1 + rng.uniform(-.06, .06))
+            add(pulses, tone(note, .7, rng) * level, at + (.007 if step % 2 else 0), .3 * math.sin(step * .53))
+        if at < groove - beat:
+            continue
+        if step % 2 == 0 and (not quiet or step % 4 == 0):
+            t = np.arange(round(.32 * RATE), dtype=np.float32) / RATE
+            phase = 2 * math.pi * (49 * t + 2.6 * (1 - np.exp(-t / .025)))
+            kick = np.sin(phase) * smooth(t / .006) * np.exp(-t / .09) * smooth((.32 - t) / .06)
+            add(rhythm, kick * (.1 if step % 8 == 0 else .08) * (1 if at >= groove else .5), at)
+            first = round(at * RATE)
+            length = min(round(.1 * RATE), count - first)
+            duck = .78 + .22 * smooth(np.arange(length) / max(1, length - 1))
+            bass[first:first + length] *= duck[:, None]
+        if at < groove:
+            continue
+        if step % 4 == 0:
+            add(bass, tone(root, beat * 1.9, rng, "bass") * .07, at)
+        if step % 2 == 1 and not quiet:
+            add(air, noise(.06, rng, .018, 2) * .03 * (1 + rng.uniform(-.1, .1)), at,
+                .35 if step % 4 == 1 else -.35)
+        if at >= proof:
+            # The proof lifts: sixteenth hats and a clap on two and four.
+            add(air, noise(.04, rng, .012, 3) * .016, at + eighth / 2, -.2 if step % 2 else .2)
+            if step % 4 == 2:
                 add(air, noise(.22, rng, .06, 1) * .05, at, .08)
-    # A soft swish under each scene change, timed with the diagonal wipe.
-    for change in changes[1:-1]:
+    # A soft swish under each scene change, timed with the wipes and pushes.
+    for change in TRANSITIONS[1:-1]:
         t = np.arange(round(.9 * RATE), dtype=np.float32) / RATE
         swish = noise(.9, rng, 10, 1) * smooth(t / .45) * smooth((.9 - t) / .4)
-        add(air, lowpass(np.stack([swish, swish[::-1]], 1), 3200)[:, 0] * .05,
-            change * scale - .35, 0)
-    # A soft chime as the first picture lands on the laptop.
-    for i, note in enumerate([69, 76]):
-        add(pulses, tone(note + 12, 1.6, rng) * .045, ARRIVAL * scale + i * .06, (i - .5) * .3)
+        add(air, lowpass(np.stack([swish, swish[::-1]], 1), 3200)[:, 0] * .05, change * scale - .35, 0)
+    # Chimes where the picture does something: devices light, a PIN pairs,
+    # monitors come back, numbers land.
+    for at, notes in CUES:
+        for i, note in enumerate(notes):
+            add(pulses, tone(note + 12, 1.4, rng) * .04, at * scale + i * .06, (i - .5) * .4)
     # A last bell on the ending chord.
-    for i, note in enumerate([60, 64, 67, 71]):
-        add(pulses, tone(note + 12, 3.2, rng) * .05, (changes[-2] + .15) * scale + i * .09, (i - 1.5) * .25)
+    for i, note in enumerate(ENDING[0]):
+        add(pulses, tone(note + 12, 3.2, rng) * .045, ending + .15 + i * .09, (i - 2) * .2)
 
     send = pads * .22 + pulses * .5
     ambience = np.zeros_like(send)
@@ -236,7 +251,7 @@ def render(duration: float) -> tuple[np.ndarray, dict]:
     report = {
         "original_synthesis": True, "copyrighted_or_recorded_samples": False,
         "seed": SEED, "sample_rate": RATE, "channels": 2,
-        "pcm_bits": 24, "duration_seconds": count / RATE, "bpm": 112,
+        "pcm_bits": 24, "duration_seconds": count / RATE, "bpm": BPM,
         "transition_seconds": [v * scale for v in TRANSITIONS],
         "integrated_lufs_estimate": initial + 20 * math.log10(gain),
         "sample_peak_dbfs": 20 * math.log10(float(np.max(np.abs(mix)))),
@@ -251,7 +266,7 @@ def render(duration: float) -> tuple[np.ndarray, dict]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--duration", type=float, default=60)
+    parser.add_argument("--duration", type=float, default=TRANSITIONS[-1])
     args = parser.parse_args()
     if not 10 <= args.duration <= 180:
         parser.error("duration must be between 10 and 180 seconds")

@@ -56,4 +56,4 @@ The full [configuration guide](configuration.md) starts with the defaults. If a 
 | [Third-party components](../rust/THIRD_PARTY.md) | Codec SDKs, drivers and licensing. |
 | [Detailed performance record](../rust/PERFORMANCE.md) | Dated fixtures, raw results, rejected experiments and reproduction instructions. |
 
-The [60-second launch film](media/demo.mp4) introduces the frame pipeline and its measured results. The [project history](butterpollo-cpp.md) (the C++ fork that came before the Rust host) and [archived C++ references](https://github.com/RamazanKara/Rubylight/blob/2.0.0-rc.23/docs/legacy/README.md) cover the earlier implementation.
+The [70-second product film](media/demo.mp4) shows the console, pairing and the measured results. The [project history](butterpollo-cpp.md) (the C++ fork that came before the Rust host) and [archived C++ references](https://github.com/RamazanKara/Rubylight/blob/2.0.0-rc.23/docs/legacy/README.md) cover the earlier implementation.

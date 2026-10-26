@@ -187,14 +187,19 @@ does the file work.
 
 ## What works
 
-Done:
+Done, on Windows and Linux unless noted:
 
 - PCs found by mDNS (`_nvstream._tcp`) and added by address (`host`, `host:port`, IPv6);
   online state, paired state and the running app polled every 4 s; addresses learned and
-  merged by the host's unique ID.
-- PIN pairing with the PIN shown in large type; the host certificate is pinned and stored.
+  merged by the host's unique ID. Wake-on-LAN sends the magic packet to the broadcast
+  address and every address the PC was known by.
+- PIN pairing with the PIN shown in large type, and one-time PIN pairing (PIN and
+  passphrase) on hosts that report device permissions. The host certificate is pinned and
+  stored.
 - Library with box art (cached on disk) and placeholders; launch, resume the running app,
-  quit it (and "quit and start" another).
+  quit it (and "quit and start" another). Remote Monitor and Input-only tiles launch in
+  their role when the host publishes them: Remote Monitor sends no input and no microphone,
+  clipboard or commands; Input-only starts no decoders.
 - Home and the game page (Rubylight 3.0 hosts, through the native API; same rules as
   Nightjar Android's console): Home shows the games to continue (running or suspended on
   a PC that is online), the library of all PCs merged by game and sorted by title, and the
@@ -216,35 +221,65 @@ Done:
   and says they go back to Off when the session ends. The page reads the host only while it
   is open (the session every 2 s, the Radeon state at most once a second), on its own
   thread. A controller and the keyboard drive it; Esc or B closes it.
-- Settings: resolution (native or presets), frame rate (display or presets), automatic or
-  manual bitrate, codec (automatic/H.264/HEVC/AV1), HDR, decoder, window mode
-  (fullscreen/borderless/windowed), VRR with "Show frames at the PC's frame times",
-  V-Sync, performance overlay, audio channels (stereo/5.1/7.1), audio on the PC, mouse mode,
-  system keys, controllers (on/off, Nintendo layout, motion, background input).
-- Stream: hardware decoding (D3D11VA zero-copy, VAAPI) with software fallback, VRR host-time
-  pacing, Opus audio, keyboard with system-key capture, relative and absolute mouse, high-
-  resolution scrolling, controllers, overlay, error messages for the host's termination
-  reasons and for no video.
+- Settings in seven sections, in the Android app's order (Video, Display & image, Controls,
+  Audio, Streaming, App, Advanced). Every stream setting can be overridden per PC and per
+  game. Profiles are picked by hand or by network (mobile, home Wi-Fi, other Wi-Fi), with a
+  bitrate cap on mobile data. The launcher is in English and German.
+- Video: H.264, HEVC and AV1 with hardware decoding (D3D11VA zero-copy on Windows, VAAPI on
+  Linux). A fallback to software decoding is announced, never silent. PyroWave decodes on
+  the GPU or the CPU, with a bandwidth test and a frame pace calibration per network. The
+  stream follows the display's refresh, fractional rates included; virtual display, PC
+  display mode, full range and upscaling (bilinear, FSR 1 or SGSR 1) are settings.
+- HDR10 on Windows: Main10, BT.2020 PQ, shown in HDR on an HDR display with the host's
+  luminance metadata.
+- Stream: VRR host-time pacing, V-Sync, Opus audio, microphone, keyboard with system-key
+  capture, relative and absolute mouse, high-resolution scrolling, native touch and pen,
+  controllers, error messages for the host's termination reasons and for no video.
+- Host extras, each only when the host reports it: clipboard text in both directions and
+  the host's commands (with the device permission), host cursor shapes, automatic bitrate,
+  automatic resolution and frame rate, phase lock reports (Windows) and display caps (on
+  Windows with the display's luminance).
+- Reconnect after an interruption (off by default): up to five tries within one minute.
+  Network interruption grace, instant mouse and pen input, and on Linux "Prioritize stream
+  traffic".
+- Performance overlay with host processing; "Export statistics (last hour)" in the stream
+  menu writes to the config directory's `statistics/`.
 - Shortcuts (from moonlight-qt): Ctrl+Alt+Shift+Q leaves, +Z releases/captures input,
   +S overlay, +M mouse mode, +X fullscreen, +D minimize; Start+Select+LB+RB on a controller
-  leaves.
+  leaves. Saved key chords are sent from the stream menu and import and export in the
+  Android app's shortcut format.
+
+Experimental:
+
+- HDR on Linux: the SDL GPU renderer asks the compositor for an HDR swap chain. Not checked
+  on an HDR display yet.
+- Phase lock on Linux: X11 with the OpenGL renderer only. Wayland sends no phase reports
+  yet.
+- Beam race and early decode for PyroWave on a wired link (both off by default; see
+  [docs/beam-racing.md](../../docs/beam-racing.md) and
+  [docs/early-decode.md](../../docs/early-decode.md)).
 
 Partial:
 
-- HDR: the stream is negotiated in HDR10 (Main10, BT.2020 PQ) and shown tone-mapped by
-  SDL; true HDR output on an HDR display is not done.
 - Linux decoding reads VAAPI pictures back to memory before upload (no dmabuf import yet).
-- Controllers: rumble, trigger rumble, LEDs, motion, touchpad and battery are wired to SDL's
-  gamepad API but were not tried with physical controllers yet. DualSense adaptive triggers
-  and PCM haptics (Android has them) are not wired.
+- Controllers: rumble, trigger rumble, LEDs, motion, touchpad, battery, DualSense adaptive
+  triggers and controller audio and haptics are wired to SDL's gamepad API but were not
+  tried with physical controllers yet.
+- The performance overlay is on or off; Android's Compact, Statistics and Debug modes are
+  not there.
+- 4:4:4: only the experimental packed full chroma mode and PyroWave's chroma modes.
 
 Missing compared with the Android app:
 
-- Wake-on-LAN, one-time PIN pairing (`pair_with_passphrase` is in the engine), per-PC
-  settings, Remote Monitor/Input-only roles from the UI (the tiles are listed and launch),
-  microphone, PyroWave, cursor shapes, clipboard sync, phase lock and display caps
-  messages, statistics export. Strings are English only (there is no translation mechanism
-  yet).
+- PyroWave automatic bitrate, the stream health report and its bitrate trial, host CPU and
+  GPU telemetry, the network path and remote access check, and the delay test in the
+  connection test.
+- Host family and version in the PC's details, and a button for the host's web UI.
+- Quick resume, quit on leave per game, and Input-only on any PC.
+- Problem reports and crash records (the logs folder is there).
+- Frame pacing modes (Balanced, Smoothest, drop late) and 10-bit SDR.
+- Touch trackpad mode and on-screen controls, a command line for frontends, a screen reader,
+  settings search, presets, a PIN lock, more languages, and an updater on Windows.
 - A dedicated D3D11 renderer with a waitable swap chain (moonlight-qt's d3d11va/VRR pacer
   design) for frame-latency control beyond what SDL's renderer offers.
 

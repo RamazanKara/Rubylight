@@ -58,6 +58,42 @@ Nightjar decides from what each host reports about itself, not from its name. A 
 
 See [building](building.md) for reproducible checks.
 
+## Desktop client (Windows and Linux)
+
+Nightjar for Windows and Linux (`protocol/desktop`) uses the same Rust engine and host checks as the Android app. This table lists how far it matches the capabilities above. **Done** means as on Android, **Partial** names what is left, **Experimental** is written but not checked on our hardware, **Missing** is not there yet. The [desktop README](../protocol/desktop/README.md#what-works) has the details.
+
+| Capability | Windows | Linux | Notes |
+| --- | --- | --- | --- |
+| Discovery, Wake-on-LAN, PIN and one-time-PIN pairing | Done | Done | |
+| Library, launch, resume, quit, Home | Done | Done | |
+| Remote Monitor / Input-only | Done | Done | Input-only only for tiles the host publishes; **Input-only on any PC** is missing. |
+| Quick resume, quit on leave per game | Missing | Missing | |
+| Settings per PC and per game, profiles | Done | Done | Profiles also by network (mobile, home Wi-Fi, other Wi-Fi). |
+| H.264 / HEVC / AV1 | Done | Partial | Linux reads VAAPI pictures back to memory (no dmabuf import yet). A fallback to software decoding is announced. |
+| PyroWave, bandwidth test and frame pace calibration | Done | Done | |
+| HDR10 | Done | Experimental | Windows also sends the display's luminance. Linux asks the compositor for an HDR swap chain; not checked on an HDR display yet. |
+| YUV 4:4:4, 10-bit SDR | Partial | Partial | Only the experimental packed full chroma mode and PyroWave's chroma modes. No 10-bit SDR. |
+| Resolution, fractional refresh, virtual display, PC display mode | Done | Done | |
+| Phase-lock frame timing | Done | Experimental | Linux: X11 with the OpenGL renderer only; Wayland sends no phase reports yet. |
+| Pacing | Partial | Partial | VRR with host times and V-Sync; no Balanced, Smoothest or drop-late modes. |
+| Client upscaling | Done | Done | |
+| Automatic bitrate | Partial | Partial | An older port of Android's controller. No PyroWave bitrate control. |
+| Automatic resolution/FPS | Done | Done | |
+| Automatic recovery, network drop tolerance | Done | Done | |
+| Instant mouse and pen input | Done | Done | |
+| Prioritize stream traffic | Not applicable | Done | The engine sets socket and thread priorities on Linux and Android only, so Windows does not show the setting. |
+| Audio, microphone | Done | Done | |
+| Controllers, DualSense, controller audio | Partial | Partial | Wired to SDL's gamepad API; not tried with physical controllers yet. |
+| Touch, pen, mouse and keyboard | Done | Done | Native touch and pen. No touch trackpad mode or on-screen controls. |
+| Clipboard / server commands, host cursor shapes | Done | Done | Gated by the host's features and device permissions. |
+| Performance overlay / CSV | Partial | Partial | Overlay on or off with host processing, statistics export and the timing CSV; no Compact, Statistics and Debug modes. |
+| Stream health, host telemetry, remote access guide | Missing | Missing | The connection test has no delay test. |
+| Host identification, host web UI | Missing | Missing | |
+| Problem reports | Partial | Partial | The logs folder only. |
+| Settings / accessibility | Partial | Partial | English and German; no search, presets, PIN lock or screen reader. |
+| Command line for frontends, updater | Missing | Missing | The updater is Windows only; Linux uses distribution packages. |
+| PiP, rotation, Snapdragon drivers, USB drivers | Not applicable | Not applicable | SDL covers the controllers the Android USB drivers handle. |
+
 ## Rust streaming engine
 
 Nightjar ships two streaming engines. The C engine (moonlight-common-c with Nightjar's patches) is the default. The Rust engine (`nightjar-core` through `libnightjar_core.so`) is behind Settings › Advanced › Diagnostics › New streaming engine. Each stream picks one: the Rust engine runs only when the setting is on, the library loads and the host passes `RustBridge.fallbackReason`. Otherwise the stream runs on the C engine, and the stream overlays and the problem report say why ("Streaming engine: C (moonlight-common-c), Rust engine requested but unavailable: ..."). The Rust column below is what the code and its tests show; "device" means checked on a phone, which is the open part. Details of the Java and Rust split are in [internal/RUST_CORE.md](../internal/RUST_CORE.md).

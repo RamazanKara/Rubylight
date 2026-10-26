@@ -4,7 +4,8 @@
 //!
 //! The control, video, audio and microphone sockets are bound to the local address toward
 //! the host and move together to new ports on the new one: everything is bound before
-//! anything moves, so a failed bind leaves them all where they were. The host takes media
+//! anything moves, so a failed bind leaves them all where they were; a control socket that
+//! fails to follow the media is moved again with them, or the session ends. The host takes media
 //! pings only from the address the control stream roamed to, so on Roamed media left
 //! anywhere else follow it, or the session fails. The decoders, renderers and the session
 //! object stay. The host resets its link rate and pacing and asks for an IDR when the roam
@@ -101,6 +102,8 @@ struct State {
     held: bool,
     /// With platform hints: until when the route poll may move.
     armed_until: Option<Instant>,
+    /// A move left some sockets behind: the route poll moves them all again.
+    retry: bool,
 }
 
 impl State {
@@ -110,6 +113,20 @@ impl State {
             route: local,
             held: false,
             armed_until: None,
+            retry: false,
+        }
+    }
+
+    /// A socket move failed; `retrying` says it was the retry of one that moved only some,
+    /// `partly` that this one moved only some.
+    fn move_failed(&mut self, retrying: bool, partly: bool) -> MoveFailed {
+        if retrying {
+            MoveFailed::End
+        } else if partly {
+            self.retry = true;
+            MoveFailed::Retry
+        } else {
+            MoveFailed::Stays
         }
     }
 
@@ -121,8 +138,12 @@ impl State {
 
     /// The route poll found `route`: whether the media move there. Only a route the sockets
     /// do not already leave on ([`stays_on`]) moves, never while held, and with platform
-    /// hints only while armed.
+    /// hints only while armed. After a move that left some sockets behind, any route moves.
     fn route_moves(&mut self, route: SocketAddr, platform_hints: bool, now: Instant) -> bool {
+        if self.retry {
+            self.route = route;
+            return true;
+        }
         if same_address(route, self.route) {
             return false;
         }
@@ -267,9 +288,9 @@ impl Roamer {
     }
 
     /// Moves the control stream and the media to `local` and starts the roam. A move that
-    /// fails leaves everything where it was and starts nothing: the grace period runs.
+    /// fails starts nothing: the grace period runs ([`Roamer::move_all`]).
     fn roam(&self, state: &mut State, local: SocketAddr) -> bool {
-        match self.move_sockets(state, local, true) {
+        match self.move_all(state, local) {
             Ok(()) => self.shared.log(&format!(
                 "Roaming: the network changed, moved to {}",
                 local.ip()
@@ -289,7 +310,7 @@ impl Roamer {
     pub fn roam_to(&self, local: Option<IpAddr>) -> io::Result<()> {
         let mut state = lock(&self.state);
         let local = local.map_or(state.local, |ip| SocketAddr::new(ip, 0));
-        self.move_sockets(&mut state, local, true)?;
+        self.move_all(&mut state, local)?;
         self.shared.log(&format!(
             "Roaming: simulated a network change to {}",
             local.ip()
@@ -325,12 +346,12 @@ impl Roamer {
                  moved them to {}",
                 control.ip()
             )),
-            Err(e) => {
+            Err(MoveError { error, .. }) => {
                 self.shared.warn(&format!(
-                    "Roaming: the media cannot follow the control stream to {}: {e}",
+                    "Roaming: the media cannot follow the control stream to {}: {error}",
                     control.ip()
                 ));
-                self.shared.terminate(super::io_code(&e));
+                self.shared.terminate(super::io_code(&error));
             }
         }
     }
@@ -341,9 +362,41 @@ impl Roamer {
         }
     }
 
+    /// Moves the control stream and the media to `local`. A move that left some sockets
+    /// behind is made again at the route poll's next look, and if that fails too the session
+    /// ends: no stream stays on the old address unnoticed.
+    fn move_all(&self, state: &mut State, local: SocketAddr) -> io::Result<()> {
+        let retrying = std::mem::take(&mut state.retry);
+        let Err(MoveError { error, partly }) = self.move_sockets(state, local, true) else {
+            return Ok(());
+        };
+        match state.move_failed(retrying, partly) {
+            MoveFailed::Stays => {}
+            MoveFailed::Retry => self.shared.warn(&format!(
+                "Roaming: the media moved to {} but the control stream did not: {error}; \
+                 moving them all again",
+                local.ip()
+            )),
+            MoveFailed::End => {
+                self.shared.warn(&format!(
+                    "Roaming: could not move everything to {} again: {error}; ending the \
+                     session",
+                    local.ip()
+                ));
+                self.shared.terminate(super::io_code(&error));
+            }
+        }
+        Err(error)
+    }
+
     /// Binds the media sockets, and with `control` the control socket, anew on `local`, then
-    /// moves them all there. A bind that fails moves nothing.
-    fn move_sockets(&self, state: &mut State, local: SocketAddr, control: bool) -> io::Result<()> {
+    /// moves them all there. A bind that fails moves nothing; the control socket moves last.
+    fn move_sockets(
+        &self,
+        state: &mut State,
+        local: SocketAddr,
+        control: bool,
+    ) -> Result<(), MoveError> {
         let warn = |m: &str| self.shared.warn(m);
         let control_socket = control
             .then(|| self.control.bind_move(local.ip()))
@@ -380,10 +433,44 @@ impl Roamer {
         drop(microphone);
         state.local = local;
         match control_socket {
-            Some(socket) => self.control.move_to_socket(socket),
+            // The media moved already: the control stream is the one left behind.
+            Some(socket) => self
+                .control
+                .move_to_socket(socket)
+                .map_err(|error| MoveError {
+                    error,
+                    partly: true,
+                }),
             None => Ok(()),
         }
     }
+}
+
+/// A socket move that failed.
+struct MoveError {
+    error: io::Error,
+    /// Some sockets moved and some did not.
+    partly: bool,
+}
+
+impl From<io::Error> for MoveError {
+    fn from(error: io::Error) -> Self {
+        Self {
+            error,
+            partly: false,
+        }
+    }
+}
+
+/// What a failed socket move leaves to do.
+#[derive(Debug, PartialEq, Eq)]
+enum MoveFailed {
+    /// Nothing moved: the stream stays where it was and the grace period runs.
+    Stays,
+    /// Some sockets moved: the route poll moves them all again at its next look.
+    Retry,
+    /// The retry failed too: the session ends rather than keep streams on two addresses.
+    End,
 }
 
 #[cfg(test)]
@@ -434,6 +521,28 @@ mod tests {
         state.arm(seconds(20));
         state.held = true;
         assert!(!state.route_moves(at(6), true, seconds(21)));
+    }
+
+    #[test]
+    fn a_move_that_left_sockets_behind_is_made_again_then_ends_the_session() {
+        let at = |n: u8| SocketAddr::from(([10, 0, 0, n], 0));
+        let now = Instant::now();
+        let mut state = State::new(at(1));
+        // Nothing moved: the stream stays, and the same route does not move.
+        assert_eq!(state.move_failed(false, false), MoveFailed::Stays);
+        assert!(!state.route_moves(at(1), true, now));
+        // Some sockets moved: the next look moves them all again, held, unarmed and on the
+        // same route.
+        assert_eq!(state.move_failed(false, true), MoveFailed::Retry);
+        state.held = true;
+        assert!(state.route_moves(at(1), true, now));
+        // That retry failing too, partly or not, ends the session.
+        let retrying = std::mem::take(&mut state.retry);
+        assert_eq!(state.move_failed(retrying, false), MoveFailed::End);
+        let mut state = State::new(at(1));
+        state.move_failed(false, true);
+        let retrying = std::mem::take(&mut state.retry);
+        assert_eq!(state.move_failed(retrying, true), MoveFailed::End);
     }
 
     #[test]

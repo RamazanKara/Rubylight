@@ -3366,6 +3366,7 @@ impl Media {
                                     session: sessions.active.get(&l.id).cloned(),
                                     inputs: vec![],
                                     denied: 0,
+                                    steam_attributes_refused: false,
                                     controller_audio: [0; 16],
                                     controller_pcm: Default::default(),
                                     command_at: None,
@@ -3700,7 +3701,16 @@ impl Media {
                                             s.stop();
                                         }
                                     }
-                                    Err(e) => tracing::debug!(error=%e,"invalid input packet"),
+                                    Err(e) => {
+                                        if let Some(error) = first_steam_attributes_refusal(
+                                            &mut p.steam_attributes_refused,
+                                            &e,
+                                        ) {
+                                            tracing::warn!(client=%s.launch.client.name, %error, "ignoring Steam Controller attributes");
+                                        } else {
+                                            tracing::debug!(error=%e,"invalid input packet");
+                                        }
+                                    }
                                 }
                             }
                             _ => {}
@@ -4056,6 +4066,8 @@ struct ControlPeer {
     inputs: Vec<input::Input>,
     /// Input permissions this device lacked and was warned about.
     denied: u32,
+    /// Whether this device was warned about refused Steam Controller attributes.
+    steam_attributes_refused: bool,
     controller_audio: [u8; 16],
     controller_pcm: controller_audio::PcmTraffic,
     command_at: Option<Instant>,
@@ -4087,6 +4099,17 @@ const RUMBLE_MARKER: u32 = 0x00c0ffee;
 // Channel 0 is available even when an older Moonlight peer negotiates only
 // one channel. Sending on channel 1 then fails with InvalidChannel.
 const FEEDBACK_CHANNEL: u8 = 0;
+
+/// The refused Steam Controller attributes to warn about: only the first per
+/// device, since a client that sends them malformed does so on every arrival.
+/// Other invalid input stays a debug line.
+fn first_steam_attributes_refusal(
+    warned: &mut bool,
+    error: &anyhow::Error,
+) -> Option<input::SteamAttributesError> {
+    let refusal = *error.downcast_ref::<input::SteamAttributesError>()?;
+    (!std::mem::replace(warned, true)).then_some(refusal)
+}
 
 /// Ask the client for an arrived pad's accelerometer (kind 1) and gyroscope
 /// (kind 2) at 200 Hz, when it has them.
@@ -4994,6 +5017,23 @@ mod tests {
         control.release().unwrap();
         let (length, from) = observer.recv_from(&mut buffer).unwrap();
         assert_eq!((&buffer[..length], from), (&b"held"[..], reached));
+    }
+    #[test]
+    fn refused_steam_attributes_are_warned_about_once_per_device() {
+        let mut packet = [0u8; 84];
+        packet[4..8].copy_from_slice(&0x5500_0008u32.to_le_bytes());
+        let refused = input::decode(&packet[..80]).unwrap_err();
+        let other = input::decode(&[0; 8]).unwrap_err();
+        let mut warned = false;
+        assert_eq!(first_steam_attributes_refusal(&mut warned, &other), None);
+        assert!(!warned);
+        assert_eq!(
+            first_steam_attributes_refusal(&mut warned, &refused),
+            Some(input::SteamAttributesError::Length { len: 80 })
+        );
+        assert_eq!(first_steam_attributes_refusal(&mut warned, &refused), None);
+        let mut other_device = false;
+        assert!(first_steam_attributes_refusal(&mut other_device, &refused).is_some());
     }
     #[test]
     fn an_arrived_pad_is_asked_for_the_sensors_it_has() {

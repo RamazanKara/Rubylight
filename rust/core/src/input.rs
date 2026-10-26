@@ -4,7 +4,6 @@ use anyhow::{Result, bail};
 use rubylight_protocol::steam_controller::{
     STEAM_ATTRIBUTES_BYTES, STEAM_ATTRIBUTES_MAGIC, SteamAttributes, SteamError,
 };
-use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Input {
@@ -117,27 +116,18 @@ impl std::fmt::Display for SteamAttributesError {
     }
 }
 impl std::error::Error for SteamAttributesError {}
-/// Warn about the first refused attributes packet only: a client that sends
-/// them malformed sends them with every arrival.
-static STEAM_ATTRIBUTES_REFUSED: AtomicBool = AtomicBool::new(false);
+/// The caller warns about a refusal once per client: one that sends the
+/// attributes malformed sends them with every arrival.
 fn steam_attributes(b: &[u8]) -> Result<Input> {
-    let refused = |error: SteamAttributesError| {
-        if !STEAM_ATTRIBUTES_REFUSED.swap(true, Ordering::Relaxed) {
-            tracing::warn!(%error, "ignoring Steam Controller attributes");
-        }
-        Err(error.into())
-    };
     if b.len() != STEAM_ATTRIBUTES_BYTES {
-        return refused(SteamAttributesError::Length { len: b.len() });
+        bail!(SteamAttributesError::Length { len: b.len() });
     }
     match SteamAttributes::decode(b) {
-        Ok(attributes) if attributes.controller >= 16 => {
-            refused(SteamAttributesError::Controller {
-                id: attributes.controller,
-            })
-        }
+        Ok(attributes) if attributes.controller >= 16 => bail!(SteamAttributesError::Controller {
+            id: attributes.controller,
+        }),
         Ok(attributes) => Ok(Input::SteamAttributes(attributes)),
-        Err(error) => refused(SteamAttributesError::Codec(error)),
+        Err(error) => bail!(SteamAttributesError::Codec(error)),
     }
 }
 fn be16(b: &[u8], n: usize) -> i16 {

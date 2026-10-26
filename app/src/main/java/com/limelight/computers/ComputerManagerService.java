@@ -883,6 +883,7 @@ public class ComputerManagerService extends Service {
         }
         discoveryBinder = null;
         wakeRequests.shutdownNow();
+        wakeTargets.shutdown();
 
         // FIXME: Should await termination here but we have timeout issues in HttpURLConnection
 

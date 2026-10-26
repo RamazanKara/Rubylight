@@ -90,7 +90,20 @@ public final class WakeTargetsPoll {
         }
     }
 
+    /** The service is going away: an ask still queued or in flight stores nothing. */
+    public void shutdown() {
+        synchronized (asks) {
+            asks.clear();
+        }
+    }
+
     private void ask(String uuid, ComputerDetails computer, Ask ask) {
+        synchronized (asks) {
+            // A PC removed (or a service gone) while this ask waited in the queue is asked nothing.
+            if (asks.get(uuid) != ask) {
+                return;
+            }
+        }
         NativeApiClient client = clients.open(computer);
         if (client == null) {
             // A PC not paired yet is asked on the first poll after it is.
@@ -101,7 +114,7 @@ public final class WakeTargetsPoll {
             NativeCapabilities capabilities = client.capabilities();
             NativeWake wake = capabilities.has(NativeCapabilities.WAKE) ? client.wake() : null;
             synchronized (asks) {
-                // Stored under the lock, so a PC removed meanwhile keeps nothing of this ask.
+                // Stored under the lock, so a PC removed (or a service gone) meanwhile keeps nothing of this ask.
                 if (asks.get(uuid) != ask) {
                     return;
                 }

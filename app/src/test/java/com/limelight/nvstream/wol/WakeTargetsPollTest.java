@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.RejectedExecutionException;
 
 /** The computer manager's polls keep the wake targets, so the PC list and shortcuts wake every adapter. */
 @RunWith(RobolectricTestRunner.class)
@@ -39,18 +40,35 @@ public class WakeTargetsPollTest {
     /** The requests handed to the executor; they run at once unless {@link #queue} holds them. */
     private final List<Runnable> queued = new ArrayList<>();
     private boolean queue;
+    /** The executor refuses the requests, as one shut down does. */
+    private boolean rejecting;
+    private int handOffs;
+    private int opens;
+    /** Runs while the host answers /wake, so a test can act during the request. */
+    private Runnable duringWake;
 
     @Before
     public void setUp() {
         targets = new WakeTargets(RuntimeEnvironment.getApplication());
-        poll = new WakeTargetsPoll(targets, computer -> paired ? new NativeApiClient(transport,
-                HostEndpoint.of(computer, "unique", NativeApiFixtures.crypto())) : null, task -> {
-                    if (queue) {
-                        queued.add(task);
-                    } else {
-                        task.run();
-                    }
-                }, () -> now);
+        poll = new WakeTargetsPoll(targets, computer -> {
+            opens++;
+            return paired ? new NativeApiClient((host, op, argument) -> {
+                if (op.equals("wake") && duringWake != null) {
+                    duringWake.run();
+                }
+                return transport.request(host, op, argument);
+            }, HostEndpoint.of(computer, "unique", NativeApiFixtures.crypto())) : null;
+        }, task -> {
+            handOffs++;
+            if (rejecting) {
+                throw new RejectedExecutionException("shut down");
+            }
+            if (queue) {
+                queued.add(task);
+            } else {
+                task.run();
+            }
+        }, () -> now);
         transport.reply("pc", "capabilities", CAPABILITIES);
         transport.reply("pc", "wake", ok(WakeTargetsTest.WAKE));
     }
@@ -135,17 +153,53 @@ public class WakeTargetsPollTest {
     }
 
     @Test
-    public void aRemovedPcKeepsNothingOfAnAskStillOnItsWay() {
+    public void aPcRemovedWhileItsAskWaitsInTheQueueIsAskedNothing() {
         queue = true;
         ComputerDetails pc = NativeApiFixtures.nativeHost("pc", "PC", true);
         poll.polled(pc);
         poll.forget("pc");
-        targets.forget("pc");
         runQueued();
-        assertEquals(1, asks());
-        assertSame(WakeTargets.Targets.NONE, targets.load("pc"));
+        assertEquals("no client is opened", 0, opens);
+        assertTrue(transport.calls.isEmpty());
 
         poll.polled(pc);
         assertEquals("a PC added again is asked at once", 1, queued.size());
+    }
+
+    @Test
+    public void aRemovedPcKeepsNothingOfAnAskStillOnItsWay() {
+        duringWake = () -> {
+            poll.forget("pc");
+            targets.forget("pc");
+        };
+        poll.polled(NativeApiFixtures.nativeHost("pc", "PC", true));
+        assertEquals(1, asks());
+        assertSame(WakeTargets.Targets.NONE, targets.load("pc"));
+    }
+
+    @Test
+    public void anAskOnItsWayWhenTheServiceGoesAwayStoresNothing() {
+        duringWake = poll::shutdown;
+        poll.polled(NativeApiFixtures.nativeHost("pc", "PC", true));
+        assertEquals(1, asks());
+        assertSame(WakeTargets.Targets.NONE, targets.load("pc"));
+
+        queue = true;
+        duringWake = null;
+        now += WakeTargetsPoll.INTERVAL_MS;
+        poll.polled(NativeApiFixtures.nativeHost("pc", "PC", true));
+        poll.shutdown();
+        runQueued();
+        assertEquals("a queued ask is dropped too", 1, asks());
+    }
+
+    @Test
+    public void anAskTheExecutorRefusesGivesItsReservationBack() {
+        rejecting = true;
+        ComputerDetails pc = NativeApiFixtures.nativeHost("pc", "PC", true);
+        poll.polled(pc);
+        poll.polled(pc);
+        assertEquals("the next poll, at the same time, tries again", 2, handOffs);
+        assertEquals(0, opens);
     }
 }

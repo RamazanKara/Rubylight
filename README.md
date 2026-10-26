@@ -196,7 +196,7 @@ Also built in: a tray icon with notifications, automatic updates verified by SHA
 | Build or integrate Rubylight | [Build guide](docs/building.md) · [Developer guide](rust/README.md) · [HTTP API](docs/api.md) · [Native API](docs/native-api.md) |
 | See how 3.0 was planned | [3.0 roadmap](docs/rubylight-3.0-plan.md) |
 
-[Release notes](rust/RELEASE_NOTES.md) · Have feedback? [Open an issue](https://github.com/RamazanKara/Rubylight/issues/new/choose) with the support bundle from the console. If Rubylight makes your couch better, a ⭐ helps other Radeon owners find it.
+[Release notes](rust/RELEASE_NOTES.md) · Have feedback? [Open an issue](https://github.com/RamazanKara/Rubylight/issues/new/choose) with the support bundle from the console. If Rubylight makes your couch better, a ⭐ helps other Radeon owners find it, and [sponsoring](https://github.com/sponsors/RamazanKara) pays for a code signing certificate ([#55](https://github.com/RamazanKara/Rubylight/issues/55)).
 
 ## Credits and license
 

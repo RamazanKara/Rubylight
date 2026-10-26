@@ -405,7 +405,7 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
         (ports.web, true, true),
     ] {
         let router = if web {
-            web::router(h.clone())
+            web::router_with(h.clone(), webrtc::server::Console::new(Some(media.clone())))
         } else {
             nvhttp::router(h.clone(), https)
         };

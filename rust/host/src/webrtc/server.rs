@@ -23,7 +23,7 @@ use axum::{
     Extension, Router,
     extract::{
         State, WebSocketUpgrade,
-        ws::{Message, WebSocket},
+        ws::{CloseFrame, Message, WebSocket, close_code},
     },
     response::Response,
     routing::get,
@@ -234,7 +234,7 @@ impl Throttle {
 }
 
 /// Loopback, private, link-local, ULA and carrier-grade NAT addresses; nothing the internet can reach.
-fn local_network(peer: IpAddr) -> bool {
+pub(crate) fn local_network(peer: IpAddr) -> bool {
     reach(peer.to_canonical()) <= Reach::Lan
 }
 
@@ -303,8 +303,84 @@ async fn upgrade(
         .max_message_size(MAX_MESSAGE)
         .max_frame_size(MAX_MESSAGE)
         .on_upgrade(move |socket| {
-            connection(context.h, context.limits, context.media, peer, socket)
+            connection(context.h, context.limits, context.media, peer, None, socket)
         })
+}
+
+/// The WebSocket subprotocol of the console's signalling route.
+pub const CONSOLE_PROTOCOL: &str = "rubylight.signal.v2";
+/// How often a console connection checks that its console sign-in still holds.
+const SIGNED_IN_CHECK: Duration = Duration::from_secs(5);
+
+/// What the console's HTTPS listener needs to hand a signed-in browser to this server: the
+/// stream pipeline (None in tests, which then cannot stream) and how often the sign-in is checked.
+#[derive(Clone)]
+pub struct Console {
+    media: Option<Arc<Media>>,
+    signed_in_check: Duration,
+}
+
+impl Default for Console {
+    fn default() -> Self {
+        Self::new(None)
+    }
+}
+
+/// A console browser the console's own sign-in, origin and CSRF checks have let through, as the
+/// WebRTC device `client_id`.
+pub struct ConsoleSignIn {
+    pub client_id: String,
+    pub name: String,
+    pub peer: SocketAddr,
+    pub local: SocketAddr,
+    /// Whether the console sign-in that opened the socket still holds (not signed out, not
+    /// expired). The connection closes with "signed out" once it does not.
+    pub signed_in: SignedIn,
+}
+
+/// Whether a console sign-in still holds.
+pub type SignedIn = Box<dyn Fn() -> bool + Send>;
+
+impl Console {
+    pub fn new(media: Option<Arc<Media>>) -> Self {
+        Self {
+            media,
+            signed_in_check: SIGNED_IN_CHECK,
+        }
+    }
+
+    /// [`Self::new`] with a shorter sign-in check, for tests.
+    #[cfg(test)]
+    pub fn checking_every(mut self, every: Duration) -> Self {
+        self.signed_in_check = every;
+        self
+    }
+
+    /// Answer the upgrade with [`CONSOLE_PROTOCOL`] and run the connection as already
+    /// authenticated: it starts with `authenticated`, `gateway-status` and `capabilities`, and
+    /// everything after that is protocol v2 and its extensions, as on `webrtc_port`.
+    pub fn upgrade(&self, h: Shared, socket: WebSocketUpgrade, sign_in: ConsoleSignIn) -> Response {
+        let media = self.media.clone();
+        let every = self.signed_in_check;
+        let peer = Peer {
+            address: SocketAddr::new(sign_in.peer.ip().to_canonical(), sign_in.peer.port()),
+            local: SocketAddr::new(sign_in.local.ip().to_canonical(), sign_in.local.port()),
+        };
+        socket
+            .protocols([CONSOLE_PROTOCOL])
+            .max_message_size(MAX_MESSAGE)
+            .max_frame_size(MAX_MESSAGE)
+            .on_upgrade(move |socket| {
+                connection(
+                    h,
+                    Limits::default(),
+                    media,
+                    peer,
+                    Some((sign_in, every)),
+                    socket,
+                )
+            })
+    }
 }
 
 /// What a connection does after a message.
@@ -377,10 +453,15 @@ async fn connection(
     limits: Limits,
     media: Option<Arc<Media>>,
     peer: Peer,
+    console: Option<(ConsoleSignIn, Duration)>,
     mut socket: WebSocket,
 ) {
-    let Some(Registered { id, mut closed }) = h.webrtc.open(peer.address.ip().to_canonical())
-    else {
+    let ip = peer.address.ip().to_canonical();
+    let registered = match &console {
+        Some((sign_in, _)) => Some(h.webrtc.open_authenticated(ip, &sign_in.client_id)),
+        None => h.webrtc.open(ip),
+    };
+    let Some(Registered { id, mut closed }) = registered else {
         tracing::debug!(peer = %peer.address, "WebRTC connection refused: this peer has all the unauthenticated connections the host allows");
         let _ = socket.send(Message::Close(None)).await;
         return;
@@ -394,7 +475,24 @@ async fn connection(
     let mut changed = h.webrtc.subscribe();
     let mut tick = tokio::time::interval(PROBE_CHECK);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    let mut out = vec![state.auth_required()];
+    let mut out = Vec::new();
+    // A console connection is signed in already; its sign-in is checked every few seconds.
+    let mut signed_in = None;
+    match console {
+        Some((sign_in, every)) => {
+            tracing::info!(device = %sign_in.name, peer = %peer.address, "WebRTC console connection opened");
+            state.client = Some(Authenticated {
+                client_id: sign_in.client_id,
+                name: sign_in.name,
+            });
+            out.push(ServerMessage::Authenticated);
+            state.startup(&mut out);
+            let mut check = tokio::time::interval(every);
+            check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            signed_in = Some((sign_in.signed_in, check));
+        }
+        None => out.push(state.auth_required()),
+    }
     let mut flow = Flow::Continue;
     loop {
         if !send(&mut socket, &mut out).await {
@@ -438,10 +536,33 @@ async fn connection(
                 Some(Ok(_)) => {}
             },
             _ = tick.tick() => state.refresh_capabilities(&mut out),
+            false = still_signed_in(&mut signed_in) => {
+                tracing::info!(peer = %peer.address, id, "WebRTC console connection closed: signed out of the console");
+                let _ = send(&mut socket, &mut out).await;
+                let _ = socket
+                    .send(Message::Close(Some(CloseFrame {
+                        code: close_code::POLICY,
+                        reason: "signed out".into(),
+                    })))
+                    .await;
+                break;
+            }
         }
     }
     drop(state);
     tracing::debug!(peer = %peer.address, id, "WebRTC connection closed");
+}
+
+/// At the next check, whether the console sign-in still holds; never for a connection that came
+/// through `webrtc_port`.
+async fn still_signed_in(check: &mut Option<(SignedIn, tokio::time::Interval)>) -> bool {
+    match check {
+        Some((signed_in, every)) => {
+            every.tick().await;
+            signed_in()
+        }
+        None => std::future::pending().await,
+    }
 }
 
 /// Resolves at `until`; never for a connection that has authenticated.
@@ -1023,14 +1144,24 @@ pub(crate) mod tests {
     /// A minimal WebSocket client: enough to talk to the server in tests.
     pub(crate) struct Ws {
         stream: TcpStream,
+        /// The response to the upgrade request.
+        pub(crate) head: String,
+        /// The reason in the server's close frame, once it sent one.
+        pub(crate) close_reason: Option<String>,
     }
 
     impl Ws {
         pub(crate) async fn connect(address: SocketAddr) -> Self {
+            Self::connect_with(address, "/", "").await
+        }
+
+        /// Upgrade `path`, adding `headers` (each line ending in `\r\n`) to the request.
+        pub(crate) async fn connect_with(address: SocketAddr, path: &str, headers: &str) -> Self {
             let mut stream = TcpStream::connect(address).await.unwrap();
             stream
                 .write_all(
-                    b"GET / HTTP/1.1\r\nHost: test\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+                    format!("GET {path} HTTP/1.1\r\nHost: test\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n{headers}\r\n")
+                        .as_bytes(),
                 )
                 .await
                 .unwrap();
@@ -1038,12 +1169,13 @@ pub(crate) mod tests {
             while !head.ends_with(b"\r\n\r\n") {
                 head.push(stream.read_u8().await.unwrap());
             }
-            assert!(
-                head.starts_with(b"HTTP/1.1 101"),
-                "{}",
-                String::from_utf8_lossy(&head)
-            );
-            Self { stream }
+            let head = String::from_utf8_lossy(&head).into_owned();
+            assert!(head.starts_with("HTTP/1.1 101"), "{head}");
+            Self {
+                stream,
+                head,
+                close_reason: None,
+            }
         }
 
         pub(crate) async fn send(&mut self, message: Value) {
@@ -1086,7 +1218,12 @@ pub(crate) mod tests {
                     self.stream.read_exact(&mut payload).await.ok()?;
                     match first & 0x0f {
                         1 => return serde_json::from_slice(&payload).ok(),
-                        8 => return None,
+                        8 => {
+                            self.close_reason = payload
+                                .get(2..)
+                                .map(|r| String::from_utf8_lossy(r).into_owned());
+                            return None;
+                        }
                         _ => {}
                     }
                 }
@@ -1106,7 +1243,7 @@ pub(crate) mod tests {
             message
         }
 
-        async fn closed(&mut self) {
+        pub(crate) async fn closed(&mut self) {
             assert!(
                 self.next().await.is_none(),
                 "the socket should have been closed"

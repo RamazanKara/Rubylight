@@ -9,6 +9,8 @@ mod maintenance;
 #[cfg(test)]
 mod parity_tests;
 mod session;
+#[cfg(test)]
+mod webrtc_tests;
 
 use crate::{state::Shared, tls::Connection};
 use axum::{
@@ -273,8 +275,15 @@ fn token_catalog() -> Vec<auth::Scope> {
     })
     .collect()
 }
+/// The console without a stream pipeline: its stream page signs in but cannot stream.
+#[cfg(test)]
 pub fn router(h: Shared) -> Router {
+    router_with(h, crate::webrtc::server::Console::default())
+}
+/// The console. `console` is what its stream page needs from the WebRTC server.
+pub fn router_with(h: Shared, console: crate::webrtc::server::Console) -> Router {
     Router::new()
+        .route("/api/webrtc/signal", get(webrtc_signal))
         .route(
             "/api/{*path}",
             get(api).post(api).patch(api).put(api).delete(api),
@@ -289,7 +298,144 @@ pub fn router(h: Shared) -> Router {
         // Uploaded cover images are the largest requests.
         .layer(axum::extract::DefaultBodyLimit::max(16 * 1024 * 1024))
         .layer(middleware::from_fn_with_state(h.clone(), guard))
+        .layer(Extension(console))
         .with_state(h)
+}
+/// Whether `origin` is the console's own (`https://` and the request's Host) or one of
+/// `csrf_allowed_origins`.
+fn origin_allowed(h: &Shared, headers: &HeaderMap, origin: &str) -> bool {
+    let own = headers
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .map(|host| format!("https://{host}"));
+    if own.as_deref() == Some(origin) {
+        return true;
+    }
+    let configured = h
+        .config
+        .read()
+        .unwrap()
+        .get("csrf_allowed_origins", "[]")
+        .to_owned();
+    butterpollo_core::config::Config::parse(&format!("csrf_allowed_origins = {configured}\n"))
+        .map(|c| c.list("csrf_allowed_origins"))
+        .unwrap_or_default()
+        .iter()
+        .any(|allowed| allowed == origin)
+}
+/// The `extra` key of a browser session that stays the same when its tokens are refreshed, so a
+/// stream outlives a refresh but not a sign-out.
+const SIGN_IN_ID: &str = "sign_in_id";
+/// `GET /api/webrtc/signal`: WebRTC signalling for the console's own stream page, a WebSocket on
+/// the console's HTTPS listener. Only a browser signed in to the console gets it: the session
+/// cookie (not Basic credentials or API tokens), the console's origin and the session's CSRF
+/// token as the subprotocol `csrf.<token>` next to `rubylight.signal.v2`, as a cookie also goes
+/// out on a cross-site upgrade. The browser streams as the WebRTC device "Console (<username>)".
+async fn webrtc_signal(
+    State(h): State<Shared>,
+    Extension(connection): Extension<Connection>,
+    Extension(console): Extension<crate::webrtc::server::Console>,
+    headers: HeaderMap,
+    upgrade: Result<
+        axum::extract::WebSocketUpgrade,
+        axum::extract::ws::rejection::WebSocketUpgradeRejection,
+    >,
+) -> Response {
+    use crate::webrtc::server::{CONSOLE_PROTOCOL, ConsoleSignIn};
+    let signed_in = cookie(&headers, "__Host-apollo_session").and_then(|token| {
+        let mut sessions = h.web_sessions.lock().unwrap();
+        let key = crate::web_sessions::resolve_hash(&sessions, &token)?;
+        let session = sessions
+            .get_mut(&key)
+            .filter(|s| s.expires > Instant::now())?;
+        // A refresh carries it to the new tokens.
+        let id = session
+            .extra
+            .entry(SIGN_IN_ID)
+            .or_insert_with(|| hex::encode(crypto::random::<16>()).into())
+            .as_str()?
+            .to_owned();
+        Some((session.username.clone(), session.csrf.clone(), id))
+    });
+    let Some((username, csrf, sign_in)) = signed_in else {
+        return error(StatusCode::UNAUTHORIZED, "sign in to the console to stream");
+    };
+    if !headers
+        .get(header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|origin| origin_allowed(&h, &headers, origin))
+    {
+        return error(StatusCode::FORBIDDEN, "request origin is not allowed");
+    }
+    let protocols: Vec<&str> = headers
+        .get_all(header::SEC_WEBSOCKET_PROTOCOL)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(','))
+        .map(str::trim)
+        .collect();
+    let token = protocols.iter().find_map(|p| p.strip_prefix("csrf."));
+    if !token.is_some_and(|token| crypto::equal(token.as_bytes(), csrf.as_bytes())) {
+        return error(StatusCode::FORBIDDEN, "CSRF token required");
+    }
+    if !protocols.contains(&CONSOLE_PROTOCOL) {
+        return error(
+            StatusCode::BAD_REQUEST,
+            "the rubylight.signal.v2 subprotocol is required",
+        );
+    }
+    if !crate::webrtc::server::local_network(connection.peer.ip()) {
+        tracing::info!(peer = %connection.peer, "console stream refused: the browser is outside the local network");
+        return error(
+            StatusCode::FORBIDDEN,
+            "streaming in the console works on the local network and Tailscale only",
+        );
+    }
+    if !h.config.read().unwrap().webrtc_server() {
+        return error(
+            StatusCode::CONFLICT,
+            "turn on the WebRTC server in Settings to stream in the console",
+        );
+    }
+    let device = match h.webrtc.console_device(&h, &username) {
+        Ok(device) => device,
+        Err(butterpollo_core::webrtc::protocol::ErrorCode::ClientDisabled) => {
+            return error(
+                StatusCode::LOCKED,
+                "this console's device is disabled on the Devices page",
+            );
+        }
+        Err(_) => {
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "the console's device could not be saved",
+            );
+        }
+    };
+    let upgrade = match upgrade {
+        Ok(upgrade) => upgrade,
+        Err(rejection) => return rejection.into_response(),
+    };
+    let Some((client_id, _)) = device.webrtc() else {
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "not a WebRTC device");
+    };
+    let watched = h.clone();
+    console.upgrade(
+        h.clone(),
+        upgrade,
+        ConsoleSignIn {
+            client_id: client_id.to_owned(),
+            name: device.name.clone(),
+            peer: connection.peer,
+            local: connection.local,
+            signed_in: Box::new(move || {
+                watched.web_sessions.lock().unwrap().values().any(|s| {
+                    s.refresh_expires > Instant::now()
+                        && s.extra.get(SIGN_IN_ID).and_then(Value::as_str) == Some(sign_in.as_str())
+                })
+            }),
+        },
+    )
 }
 /// Allowed sources for the web app: covers come from IGDB and the cover
 /// search reads LizardByte's game database.
@@ -447,28 +593,9 @@ async fn guard(State(h): State<Shared>, mut request: Request, next: Next) -> Res
             .headers()
             .get(header::ORIGIN)
             .and_then(|v| v.to_str().ok())
+            && !origin_allowed(&h, request.headers(), origin)
         {
-            let allowed = request
-                .headers()
-                .get(header::HOST)
-                .and_then(|v| v.to_str().ok())
-                .map(|host| format!("https://{host}"));
-            let configured = h
-                .config
-                .read()
-                .unwrap()
-                .get("csrf_allowed_origins", "[]")
-                .to_owned();
-            let origins = butterpollo_core::config::Config::parse(&format!(
-                "csrf_allowed_origins = {configured}\n"
-            ))
-            .map(|c| c.list("csrf_allowed_origins"))
-            .unwrap_or_default();
-            if allowed.as_deref() != Some(origin)
-                && !origins.iter().any(|allowed| allowed == origin)
-            {
-                return error(StatusCode::FORBIDDEN, "request origin is not allowed");
-            }
+            return error(StatusCode::FORBIDDEN, "request origin is not allowed");
         }
         if path == "/api/auth/login"
             || fresh_password
@@ -848,6 +975,7 @@ pub(crate) async fn api(
                         let object = row.as_object_mut().unwrap();
                         object.remove("refresh_token_hash");
                         object.remove("rotation_id");
+                        object.remove(SIGN_IN_ID);
                         object.remove("hash");
                         object.insert("id".into(), json!(token));
                         object.insert(

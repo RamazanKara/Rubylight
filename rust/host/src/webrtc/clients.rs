@@ -10,7 +10,7 @@
 
 use crate::state::Host;
 use butterpollo_core::{
-    state::Client,
+    state::{Client, FIRST_DEVICE_PERMISSION},
     webrtc::{
         auth::{
             Challenge, ConnectionState, ConnectionTable, Credentials, Dropped, MAX_PAIRED,
@@ -240,6 +240,76 @@ impl Registry {
         self.inner.lock().unwrap().peers.len()
     }
 
+    /// A connection from `peer` that is authenticated as `client_id` from the start: the console's
+    /// own stream page, which signed in to the console. It takes no unauthenticated slot; the
+    /// device's older connections go.
+    pub fn open_authenticated(&self, peer: IpAddr, client_id: &str) -> Registered {
+        let mut inner = self.inner.lock().unwrap();
+        let id = inner.next;
+        inner.next += 1;
+        let (tx, closed) = mpsc::unbounded_channel();
+        inner.closers.insert(id, tx);
+        inner.peers.push((id, peer_group(peer)));
+        let dropped = inner.table.open_authenticated(id, client_id);
+        inner.tell(dropped, Close::Replaced);
+        Registered { id, closed }
+    }
+
+    /// The WebRTC device of the console user `username`, named "Console (<username>)" and created
+    /// on first use with every permission: a console sign-in is the administrator. It is listed on
+    /// Devices like any WebRTC device. `ClientDisabled` when the administrator disabled it,
+    /// `InternalError` when it could not be saved.
+    pub fn console_device(&self, h: &Host, username: &str) -> Result<Client, ErrorCode> {
+        let mut paired = h.paired.write().unwrap();
+        if let Some(client) = paired.clients.iter().find(|c| is_console(c, username)) {
+            return if client.enabled {
+                Ok(client.clone())
+            } else {
+                Err(ErrorCode::ClientDisabled)
+            };
+        }
+        let credentials = Credentials::generate(&mut OsRng);
+        let name = format!("Console ({username})");
+        let name = match butterpollo_core::pairing::validate_device_name(&name) {
+            Ok(()) => name,
+            Err(_) => "Console".to_owned(),
+        };
+        let mut client =
+            Client::paired_over_webrtc(name, &credentials.client_id, &credentials.secret);
+        if let Some(webrtc) = client.extra.get_mut("webrtc") {
+            webrtc[CONSOLE] = username.into();
+        }
+        let uuid = client.uuid.clone();
+        let saved = |error: anyhow::Error| {
+            tracing::error!(error = %format!("{error:#}"), "the console's WebRTC device could not be saved");
+            ErrorCode::InternalError
+        };
+        let surplus = paired
+            .add_webrtc(&h.paired_path, client, MAX_PAIRED)
+            .map_err(saved)?;
+        // Pairing gives a later device view only; the console's own device gets everything.
+        let mut next = paired.clone();
+        let device = next
+            .clients
+            .iter_mut()
+            .find(|c| c.uuid == uuid)
+            .ok_or(ErrorCode::InternalError)?;
+        device.perm = FIRST_DEVICE_PERMISSION;
+        let device = device.clone();
+        next.save(&h.paired_path).map_err(saved)?;
+        *paired = next;
+        drop(paired);
+        if !surplus.is_empty() {
+            tracing::info!(
+                count = surplus.len(),
+                "the oldest WebRTC devices were unpaired to stay at 32"
+            );
+        }
+        tracing::info!(device = %device.name, "console WebRTC device created");
+        self.clients_changed();
+        Ok(device)
+    }
+
     /// The connection proved itself as `client_id`; its older connections go.
     pub fn authenticate(&self, id: u64, client_id: &str) -> Result<(), ErrorCode> {
         let mut inner = self.inner.lock().unwrap();
@@ -372,6 +442,21 @@ impl Registry {
     pub fn challenge(&self) -> Challenge {
         Challenge::new(&mut OsRng)
     }
+}
+
+/// The key in `extra.webrtc` that names the console user a device stands for. Only the host writes
+/// `extra.webrtc`.
+const CONSOLE: &str = "console";
+
+/// Whether `client` is the WebRTC device of the console user `username`.
+fn is_console(client: &Client, username: &str) -> bool {
+    client.is_webrtc()
+        && client
+            .extra
+            .get("webrtc")
+            .and_then(|webrtc| webrtc.get(CONSOLE))
+            .and_then(Value::as_str)
+            == Some(username)
 }
 
 impl Inner {

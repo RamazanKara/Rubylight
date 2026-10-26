@@ -369,6 +369,31 @@ impl ConnectionTable {
         dropped
     }
 
+    /// A new connection that is authenticated as `client_id` from the start (the console's own
+    /// browser, which signed in to the console). It takes no unauthenticated slot, so it never
+    /// pushes out a waiting TV; any other connection of the same client is replaced, as in
+    /// [`Self::authenticate`].
+    pub fn open_authenticated(&mut self, id: u64, client_id: &str) -> Vec<Dropped> {
+        let mut dropped = Vec::new();
+        self.entries.retain(|(other, state)| {
+            let same_client = *other != id && state.client_id() == Some(client_id);
+            if same_client {
+                dropped.push(Dropped {
+                    id: *other,
+                    was_streaming: matches!(state, ConnectionState::Streaming { .. }),
+                });
+            }
+            !same_client
+        });
+        self.entries.push((
+            id,
+            ConnectionState::Authenticated {
+                client_id: client_id.to_string(),
+            },
+        ));
+        dropped
+    }
+
     /// The connection proved itself as `client_id`. Any other connection of
     /// the same client is replaced, and its stream, if any, stops. A
     /// connection that is already authenticated or streaming is refused with
@@ -807,6 +832,32 @@ mod tests {
         table.authenticate(8, "tv").unwrap();
         assert_eq!(table.unauthenticated(), 7);
         assert!(table.open(9).is_empty());
+    }
+
+    #[test]
+    fn a_connection_authenticated_from_the_start_takes_no_waiting_slot_and_replaces_its_own() {
+        let mut table = ConnectionTable::default();
+        for id in 1..=8 {
+            table.open(id);
+        }
+        // The unauthenticated slots are full; none of the waiting TVs goes.
+        assert!(table.open_authenticated(9, "console").is_empty());
+        assert_eq!(table.unauthenticated(), 8);
+        assert!(matches!(
+            table.state(9),
+            Some(ConnectionState::Authenticated { .. })
+        ));
+        table.set_streaming(9, true);
+        // A second tab of the same console replaces the first, stream and all.
+        assert_eq!(
+            table.open_authenticated(10, "console"),
+            vec![Dropped {
+                id: 9,
+                was_streaming: true
+            }]
+        );
+        assert!(table.state(9).is_none());
+        assert_eq!(table.len(), 9);
     }
 
     #[test]

@@ -43,6 +43,7 @@ pub mod encoder_backlog;
 pub mod encoder_focus;
 pub mod encoder_policy;
 pub mod fec_status;
+pub mod file_transfer;
 pub mod framegen;
 pub mod haptics;
 pub mod hdr;

@@ -34,6 +34,7 @@ mod timing_record;
 mod tls;
 mod updater;
 mod video_send;
+mod wake;
 mod web;
 mod web_sessions;
 mod webrtc;
@@ -114,6 +115,17 @@ struct Args {
     /// One Radeon read or write in a fresh process: stdin carries the request, stdout the answer.
     #[arg(long, hide = true)]
     radeon_helper: bool,
+    /// Seconds since the last input in this session, as the exit code (the
+    /// host runs it in the signed-in user's session).
+    #[arg(long, hide = true)]
+    idle_seconds: bool,
+    /// Apply the Wake-on-LAN settings to this PC's adapters and print what
+    /// changed as JSON; exits 1 if anything failed. Needs administrator rights.
+    #[arg(long, hide = true)]
+    apply_wake_settings: bool,
+    /// With --apply-wake-settings: also turn off Fast Startup.
+    #[arg(long, hide = true, requires = "apply_wake_settings")]
+    fast_startup_off: bool,
 }
 fn main() -> Result<()> {
     butterpollo_windows::capture::enable_dpi_awareness();
@@ -123,6 +135,12 @@ fn main() -> Result<()> {
     }
     if args.radeon_helper {
         std::process::exit(butterpollo_windows::radeon::helper::run());
+    }
+    if args.idle_seconds {
+        std::process::exit(wake::idle_seconds_exit_code());
+    }
+    if args.apply_wake_settings {
+        std::process::exit(wake::apply_settings_exit_code(args.fast_startup_off));
     }
     if let Some(paths) = &args.playnite_install {
         std::process::exit(playnite::helper_exit_code(&playnite::install_worker(
@@ -168,7 +186,7 @@ fn main() -> Result<()> {
         println!(
             "{}",
             serde_json::to_string_pretty(
-                &serde_json::json!({"version":env!("CARGO_PKG_VERSION"),"displays":butterpollo_windows::capture::displays()?,"monitors":butterpollo_windows::display::monitors()?,"virtual_display_driver":butterpollo_windows::display::virtual_display_available(),"virtual_display_status":butterpollo_windows::display::virtual_display_status(),"firewall":std::env::current_exe().map_err(anyhow::Error::from).and_then(|exe| butterpollo_windows::firewall::problems(&exe)).unwrap_or_else(|error| vec![format!("firewall rules could not be read: {error:#}")])})
+                &serde_json::json!({"version":env!("CARGO_PKG_VERSION"),"displays":butterpollo_windows::capture::displays()?,"monitors":butterpollo_windows::display::monitors()?,"virtual_display_driver":butterpollo_windows::display::virtual_display_available(),"virtual_display_status":butterpollo_windows::display::virtual_display_status(),"firewall":std::env::current_exe().map_err(anyhow::Error::from).and_then(|exe| butterpollo_windows::firewall::problems(&exe)).unwrap_or_else(|error| vec![format!("firewall rules could not be read: {error:#}")]),"wake":wake::diagnostics()})
             )?
         );
         return Ok(());

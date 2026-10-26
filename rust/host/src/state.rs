@@ -211,6 +211,8 @@ pub struct Host {
     pub radeon: crate::radeon_session::Radeon,
     /// The Radeon profile applied for the owner's game and a launcher prompt, for the session.
     pub notes: crate::session_notes::SessionNotes,
+    /// Wake-on-LAN readiness, the console's fix and sleep after idle.
+    pub wake: crate::wake::Wake,
     pub assets: PathBuf,
 }
 impl Host {
@@ -451,6 +453,7 @@ impl Host {
             codec_missing: Mutex::new(Vec::new()),
             radeon: crate::radeon_session::Radeon::default(),
             notes: crate::session_notes::SessionNotes::default(),
+            wake: Default::default(),
         }))
     }
     pub fn assign_apps(&self, apps: &mut [App]) -> Result<()> {

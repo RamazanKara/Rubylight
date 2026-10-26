@@ -230,6 +230,8 @@ pub async fn maintain(
     let mut steam_at = Instant::now() + Duration::from_secs(5);
     let mut launcher_at = Instant::now();
     let launcher_reading = Arc::new(AtomicBool::new(false));
+    let mut wake_at = Instant::now();
+    let waking = Arc::new(AtomicBool::new(false));
     let mut hotkey = RestoreHotkey::default();
     let mut tray = butterpollo_core::tray::Tracker::default();
     let mut housekeeping: Option<tokio::task::JoinHandle<()>> = None;
@@ -268,6 +270,11 @@ pub async fn maintain(
             launcher_at = Instant::now() + crate::launcher_watch::EVERY;
             let h = h.clone();
             spawn_exclusive(&launcher_reading, move || crate::launcher_watch::watch(&h));
+        }
+        if Instant::now() >= wake_at {
+            wake_at = Instant::now() + butterpollo_core::wake::idle::TICK;
+            let h = h.clone();
+            spawn_exclusive(&waking, move || crate::wake::tick(&h));
         }
         if Instant::now() >= steam_at {
             steam_at = Instant::now() + Duration::from_secs(30);

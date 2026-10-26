@@ -369,6 +369,27 @@ pub fn idle_seconds() -> Result<u32> {
     Ok((now.wrapping_sub(input.dwTime) / 1000).min(604_800))
 }
 
+/// Set in `--idle-seconds`' exit code when it failed; the low bits carry the
+/// Win32 error.
+pub const IDLE_FAILED: u32 = 0x8000_0000;
+
+/// `--idle-seconds`' exit code: [`idle_seconds`], or [`IDLE_FAILED`] with
+/// the Win32 error (1 when there is none).
+pub fn idle_exit_code() -> u32 {
+    match idle_seconds() {
+        Ok(seconds) => seconds,
+        Err(error) => {
+            IDLE_FAILED
+                | error
+                    .chain()
+                    .find_map(|cause| cause.downcast_ref::<windows::core::Error>())
+                    .map(|error| error.code().0 as u32 & 0xFFFF)
+                    .filter(|&code| code != 0)
+                    .unwrap_or(1)
+        }
+    }
+}
+
 /// Enables `SeShutdownPrivilege` and puts the PC to sleep (S3). Returns after
 /// it resumes.
 pub fn suspend() -> Result<()> {

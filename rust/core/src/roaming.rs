@@ -14,14 +14,16 @@ use aes::{
 };
 use aes_gcm::{Aes128Gcm, Nonce, Tag, aead::AeadInPlace};
 use rubylight_protocol::roaming::{
-    Datagram, DecodeError, KEY_BLOCK, Kind, PAYLOAD_BYTES, PROBE_FLAG_MEDIA_REBOUND,
-    SESSION_TAG_BYTES, TAG_BLOCK,
+    DecodeError, KEY_BLOCK, Kind, PAYLOAD_BYTES, PROBE_FLAG_MEDIA_REBOUND, SESSION_TAG_BYTES,
+    TAG_BLOCK,
 };
 use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
-pub use rubylight_protocol::roaming::{DATAGRAM_BYTES, Header, Payload, SDP_ATTRIBUTE, is_roaming};
+pub use rubylight_protocol::roaming::{
+    DATAGRAM_BYTES, Datagram, Header, Payload, SDP_ATTRIBUTE, is_roaming,
+};
 
 /// PROBEs and CONFIRMs handled per session and second; the client sends at most four of
 /// each.

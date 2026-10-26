@@ -207,3 +207,109 @@ impl Refusals {
 pub(super) fn canonical(address: SocketAddr) -> SocketAddr {
     SocketAddr::new(address.ip().to_canonical(), address.port())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use butterpollo_core::roaming::{Header, Payload, RoamKeys, seal};
+
+    const RIKEY: [u8; 16] = [7; 16];
+    const CHALLENGE: u64 = 0x1234;
+
+    fn client(seq: u32, payload: Payload) -> [u8; DATAGRAM_BYTES] {
+        let keys = RoamKeys::derive(&RIKEY);
+        let header = Header {
+            kind: payload.kind(),
+            session_tag: keys.session_tag,
+            seq,
+        };
+        seal(&keys.key, header, payload)
+    }
+
+    /// A move between IPv4-mapped addresses, as a dual-stack control socket reports
+    /// them: the aliases keep that form for ENet, and the log line has plain IPv4.
+    #[test]
+    fn a_move_maps_the_new_address_drops_the_old_and_ends_with_the_peer() {
+        let socket = ReplySocket::bind("127.0.0.1:0").unwrap();
+        let mut roaming = Roaming {
+            enabled: true,
+            table: RoamTable::with_challenges(|| CHALLENGE),
+            ..Default::default()
+        };
+        let peer: SocketAddr = "[::ffff:192.168.1.20]:50000".parse().unwrap();
+        let new: SocketAddr = "[::ffff:10.0.0.7]:41000".parse().unwrap();
+        roaming.insert("s", &RIKEY, peer);
+        let probe = client(
+            1,
+            Payload::Probe {
+                nonce_c: 1,
+                flags: 0,
+            },
+        );
+        assert!(roaming.intercepts(&probe));
+        assert!(!roaming.intercepts(&[0; DATAGRAM_BYTES]));
+        let now = Instant::now();
+        roaming.on_datagram(&socket, now, new, None, &probe);
+        assert!(roaming.take_commits().is_empty(), "a probe moves nothing");
+        assert_eq!(roaming.peer_of(new), Some(new));
+        assert_eq!(roaming.wire_of(peer), peer);
+        let confirm = client(
+            2,
+            Payload::Confirm {
+                challenge: CHALLENGE,
+            },
+        );
+        roaming.on_datagram(&socket, now, new, None, &confirm);
+        let commits = roaming.take_commits();
+        assert_eq!(commits.len(), 1);
+        let commit = &commits[0];
+        assert_eq!(
+            (commit.id.as_str(), commit.peer, commit.old, commit.new),
+            ("s", peer, peer, new)
+        );
+        assert_eq!(
+            canonical(commit.new),
+            "10.0.0.7:41000".parse::<SocketAddr>().unwrap()
+        );
+        assert_eq!(roaming.peer_of(new), Some(peer));
+        assert_eq!(roaming.peer_of(peer), None, "the address the client left");
+        assert_eq!(roaming.wire_of(peer), new);
+        let other: SocketAddr = "[::ffff:192.168.1.30]:50000".parse().unwrap();
+        assert_eq!(roaming.peer_of(other), Some(other));
+        assert_eq!(roaming.wire_of(other), other);
+
+        roaming.retain_peers(&socket, |live| live == other);
+        assert!(!roaming.has_peers());
+        assert_eq!(roaming.peer_of(new), Some(new));
+        assert_eq!(roaming.peer_of(peer), Some(peer));
+        assert_eq!(roaming.wire_of(peer), peer);
+    }
+
+    /// Off, roaming datagrams are ENet's, which drops them.
+    #[test]
+    fn turned_off_nothing_is_intercepted() {
+        let roaming = Roaming::default();
+        let probe = client(
+            1,
+            Payload::Probe {
+                nonce_c: 1,
+                flags: 0,
+            },
+        );
+        assert!(!roaming.intercepts(&probe));
+    }
+
+    #[test]
+    fn refusals_are_logged_once_in_ten_seconds() {
+        let mut refusals = Refusals::default();
+        let from: SocketAddr = "10.0.0.7:41000".parse().unwrap();
+        let now = Instant::now();
+        refusals.note(now, Refusal::UnknownSession, from);
+        refusals.note(now + Duration::from_secs(1), Refusal::UnknownSession, from);
+        refusals.note(now + Duration::from_secs(9), Refusal::UnknownSession, from);
+        assert_eq!(refusals.suppressed, 2);
+        refusals.note(now + REFUSAL_LOG_INTERVAL, Refusal::UnknownSession, from);
+        assert_eq!(refusals.suppressed, 0);
+        assert_eq!(refusals.logged, Some(now + REFUSAL_LOG_INTERVAL));
+    }
+}

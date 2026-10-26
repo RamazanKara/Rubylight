@@ -15,6 +15,7 @@ use std::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+mod roaming_tests;
 mod webrtc_tests;
 
 const CLOSED: u32 = 0x8003_0023;
@@ -437,6 +438,10 @@ struct Harness {
 }
 impl Harness {
     async fn new(timeout_ms: u32, clients: usize) -> Result<Self> {
+        Self::configured(timeout_ms, clients, "").await
+    }
+    /// A harness whose configuration also has the lines `extra`.
+    async fn configured(timeout_ms: u32, clients: usize, extra: &str) -> Result<Self> {
         let started = Instant::now();
         let directory =
             std::env::temp_dir().join(format!("butterpollo-reconnect-{}", uuid::Uuid::new_v4()));
@@ -445,7 +450,7 @@ impl Harness {
         std::fs::write(
             directory.join("sunshine.conf"),
             format!(
-                "port={}\nbind_address=127.0.0.1\nping_timeout={timeout_ms}\nstream_audio=false\nenable_discovery=false\nupnp=false\n",
+                "port={}\nbind_address=127.0.0.1\nping_timeout={timeout_ms}\nstream_audio=false\nenable_discovery=false\nupnp=false\n{extra}",
                 ports.http
             ),
         )?;
@@ -808,6 +813,15 @@ fn xml<'a>(text: &'a str, tag: &str) -> &'a str {
 struct LossySocket {
     socket: UdpSocket,
     blocked: Arc<AtomicBool>,
+    /// A socket that replaces `socket` from the next send or receive (`Client::move_to`).
+    moved: Arc<Mutex<Option<UdpSocket>>>,
+}
+impl LossySocket {
+    fn take_move(&mut self) {
+        if let Some(socket) = self.moved.lock().unwrap().take() {
+            self.socket = socket;
+        }
+    }
 }
 impl rusty_enet::Socket for LossySocket {
     type Address = SocketAddr;
@@ -816,6 +830,7 @@ impl rusty_enet::Socket for LossySocket {
         rusty_enet::Socket::init(&mut self.socket, options)
     }
     fn send(&mut self, address: SocketAddr, buffer: &[u8]) -> std::io::Result<usize> {
+        self.take_move();
         if self.blocked.load(Ordering::Acquire) {
             return Ok(buffer.len());
         }
@@ -828,6 +843,7 @@ impl rusty_enet::Socket for LossySocket {
         // As the host's control socket: a datagram the client sent before the host bound its
         // port comes back as an ICMP port unreachable, and Windows reports that as
         // WSAECONNRESET on this receive. rusty_enet would end the client's worker on it.
+        self.take_move();
         let packet = match rusty_enet::Socket::receive(&mut self.socket, buffer) {
             Err(error) if butterpollo_windows::net::datagram_lost(&error) => None,
             result => result?,
@@ -848,6 +864,7 @@ fn the_client_socket_outlives_a_datagram_to_a_closed_port() -> Result<()> {
     let mut socket = LossySocket {
         socket: udp(),
         blocked: Arc::default(),
+        moved: Arc::default(),
     };
     rusty_enet::Socket::send(&mut socket, closed, b"connect")?;
     let mut buffer = [0; rusty_enet::MTU_MAX];
@@ -875,6 +892,9 @@ struct Client {
     hdr_modes: Notices,
     /// Plain control messages for the worker to send, reliable.
     outbox: Arc<Mutex<Vec<Vec<u8>>>>,
+    /// Sockets ENet and the video pings move to (`move_to`).
+    control_move: Arc<Mutex<Option<UdpSocket>>>,
+    video_move: Arc<Mutex<Option<UdpSocket>>>,
     worker: Option<thread::JoinHandle<Result<()>>>,
 }
 impl Client {
@@ -888,10 +908,13 @@ impl Client {
         let notices = Arc::new(Mutex::new(Vec::new()));
         let hdr_modes = Notices::default();
         let outbox = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
+        let control_move = Arc::<Mutex<Option<UdpSocket>>>::default();
+        let video_move = Arc::<Mutex<Option<UdpSocket>>>::default();
         let mut host = Host::new(
             LossySocket {
                 socket: udp(),
                 blocked: control_down.clone(),
+                moved: control_move.clone(),
             },
             HostSettings {
                 peer_limit: 1,
@@ -902,7 +925,8 @@ impl Client {
         let peer = host.connect(address(ports.control), 48, launch.connect_data)?;
         peer.set_timeout(32, 60_000, 60_000);
         let peer_id = peer.id();
-        let video = udp();
+        let mut video = udp();
+        let worker_video_move = video_move.clone();
         let (worker_stop, worker_video, worker_frames, worker_reason) = (
             stop.clone(),
             video_down.clone(),
@@ -966,6 +990,9 @@ impl Client {
                             ),
                         )?;
                     }
+                    if let Some(socket) = worker_video_move.lock().unwrap().take() {
+                        video = socket;
+                    }
                     if !worker_video.load(Ordering::Acquire) {
                         video.send_to(launch.ping.as_bytes(), address(ports.video))?;
                     }
@@ -995,6 +1022,8 @@ impl Client {
             notices,
             hdr_modes,
             outbox,
+            control_move,
+            video_move,
             worker: Some(worker),
         })
     }
@@ -1017,6 +1046,12 @@ impl Client {
     fn network(&self, down: bool) {
         self.control_down.store(down, Ordering::Release);
         self.video_down.store(down, Ordering::Release);
+    }
+    /// Moves the client to other sockets, as when its address changes: ENet and the
+    /// video pings use `control` and `video` from the worker's next round.
+    fn move_to(&self, control: UdpSocket, video: UdpSocket) {
+        *self.control_move.lock().unwrap() = Some(control);
+        *self.video_move.lock().unwrap() = Some(video);
     }
 }
 impl Drop for Client {

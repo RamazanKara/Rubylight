@@ -1,0 +1,14 @@
+{
+  "source": "StreamHealthTest.staticVideoUnavailableCountersAndOneSpikeAreNotDiagnoses",
+  "note": "JSON has no NaN: 1e39 becomes infinity in both languages and stands in for the unavailable decode time",
+  "rust": "health::StreamHealth",
+  "java": "com.limelight.policy.StreamHealthTrace",
+  "new": [],
+  "calls": [
+    {"call": "add", "args": [1000, true, 60, 3, 1, 30, 40, 60, 60, 60, 20, 2, false], "expect": null},
+    {"call": "add_series", "args": [2000, 5, 1000, true, 60, -1, 1, 1e39, -1, -1, 4, 4, 4, 0, false], "expect": null},
+    {"call": "report_findings", "args": [6000], "expect": ""},
+    {"call": "report_samples", "args": [6000], "expect": 6},
+    {"call": "report_can_suggest_bitrate", "args": [9000], "expect": false}
+  ]
+}

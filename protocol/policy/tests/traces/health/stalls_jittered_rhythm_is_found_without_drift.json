@@ -1,0 +1,9 @@
+{
+  "source": "PeriodicStallsTest.jitteredRhythmIsFoundWithoutDrift",
+  "rust": "health::PeriodicStalls",
+  "java": "com.limelight.policy.PeriodicStallsTrace",
+  "new": null,
+  "calls": [
+    {"call": "period_ms", "args": ["0 122000 239000 362000 480000 602000 721000", 7], "expect": 120166}
+  ]
+}

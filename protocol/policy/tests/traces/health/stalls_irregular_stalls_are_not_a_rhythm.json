@@ -1,0 +1,9 @@
+{
+  "source": "PeriodicStallsTest.irregularStallsAreNotARhythm",
+  "rust": "health::PeriodicStalls",
+  "java": "com.limelight.policy.PeriodicStallsTrace",
+  "new": null,
+  "calls": [
+    {"call": "period_ms", "args": ["0 45000 160000 190000 400000 430000 700000", 7], "expect": 0}
+  ]
+}

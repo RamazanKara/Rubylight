@@ -1,0 +1,10 @@
+{
+  "source": "PeriodicStallsTest.periodsOutsideTheScanRangeAreIgnored",
+  "rust": "health::PeriodicStalls",
+  "java": "com.limelight.policy.PeriodicStallsTrace",
+  "new": null,
+  "calls": [
+    {"call": "period_ms", "args": ["0 10000 20000 30000 40000 50000", 6], "expect": 0},
+    {"call": "period_ms", "args": ["0 900000 1800000 2700000 3600000", 5], "expect": 0}
+  ]
+}

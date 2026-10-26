@@ -1,0 +1,9 @@
+{
+  "source": "PeriodicStallsTest.exactTwoMinuteRhythmIsFound",
+  "rust": "health::PeriodicStalls",
+  "java": "com.limelight.policy.PeriodicStallsTrace",
+  "new": null,
+  "calls": [
+    {"call": "period_ms", "args": ["10000 130000 250000 370000 490000", 5], "expect": 120000}
+  ]
+}

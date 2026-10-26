@@ -1,0 +1,22 @@
+{
+  "source": "StreamHealthTest.staleOrUnmeasuredSamplesAreNotStalls",
+  "note": "Ten minutes of healthy samples; every two minutes a stale one reports 50% loss",
+  "rust": "health::StreamHealth",
+  "java": "com.limelight.policy.StreamHealthTrace",
+  "new": [],
+  "calls": [
+    {"call": "add_series", "args": [1000, 29, 1000, true, 60, 0, 1, 1, 1, 1, 60, 60, 60, 0, false], "expect": null},
+    {"call": "add", "args": [30000, false, 60, 50, 1, 1, 1, 1, 60, 60, 60, 0, false], "expect": null},
+    {"call": "add_series", "args": [31000, 119, 1000, true, 60, 0, 1, 1, 1, 1, 60, 60, 60, 0, false], "expect": null},
+    {"call": "add", "args": [150000, false, 60, 50, 1, 1, 1, 1, 60, 60, 60, 0, false], "expect": null},
+    {"call": "add_series", "args": [151000, 119, 1000, true, 60, 0, 1, 1, 1, 1, 60, 60, 60, 0, false], "expect": null},
+    {"call": "add", "args": [270000, false, 60, 50, 1, 1, 1, 1, 60, 60, 60, 0, false], "expect": null},
+    {"call": "add_series", "args": [271000, 119, 1000, true, 60, 0, 1, 1, 1, 1, 60, 60, 60, 0, false], "expect": null},
+    {"call": "add", "args": [390000, false, 60, 50, 1, 1, 1, 1, 60, 60, 60, 0, false], "expect": null},
+    {"call": "add_series", "args": [391000, 119, 1000, true, 60, 0, 1, 1, 1, 1, 60, 60, 60, 0, false], "expect": null},
+    {"call": "add", "args": [510000, false, 60, 50, 1, 1, 1, 1, 60, 60, 60, 0, false], "expect": null},
+    {"call": "add_series", "args": [511000, 90, 1000, true, 60, 0, 1, 1, 1, 1, 60, 60, 60, 0, false], "expect": null},
+    {"call": "report_stalls", "args": [600000], "expect": 0},
+    {"call": "report_findings", "args": [600000], "expect": ""}
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "source": "docs/stream-health.md: the trial has a 500 Kbps floor",
+  "rust": "health::BitrateTrial",
+  "java": null,
+  "new": [],
+  "calls": [
+    {"call": "begin", "args": [false, 625], "expect": 500},
+    {"call": "begin", "args": [false, 600], "expect": 500},
+    {"call": "begin", "args": [false, 501], "expect": 500},
+    {"call": "applied", "args": [false, 600, 500], "expect": null},
+    {"call": "begin", "args": [false, 500], "expect": "minimum"},
+    {"call": "trial_kbps", "args": [], "expect": 0},
+    {"call": "offer", "args": [true, 500, true, false, false], "expect": "none"},
+    {"call": "offer", "args": [true, 501, true, false, false], "expect": "try"},
+    {"call": "begin", "args": [false, 400], "expect": "minimum"}
+  ]
+}

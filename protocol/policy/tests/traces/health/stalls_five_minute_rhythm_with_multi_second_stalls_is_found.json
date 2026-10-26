@@ -1,0 +1,9 @@
+{
+  "source": "PeriodicStallsTest.fiveMinuteRhythmWithMultiSecondStallsIsFound",
+  "rust": "health::PeriodicStalls",
+  "java": "com.limelight.policy.PeriodicStallsTrace",
+  "new": null,
+  "calls": [
+    {"call": "period_ms", "args": ["5000 6000 7000 305000 306000 307000 605000 606000 607000 905000 906000 907000", 12], "expect": 300000}
+  ]
+}

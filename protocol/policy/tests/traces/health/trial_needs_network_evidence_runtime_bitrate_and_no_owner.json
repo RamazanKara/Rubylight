@@ -1,0 +1,19 @@
+{
+  "source": "docs/stream-health.md: only for repeated network evidence and hosts with runtime bitrate; automatic bitrate or quality and manual changes own the bitrate",
+  "rust": "health::BitrateTrial",
+  "java": null,
+  "new": [],
+  "calls": [
+    {"call": "offer", "args": [false, 20000, true, false, false], "expect": "none"},
+    {"call": "offer", "args": [true, 20000, false, false, false], "expect": "none"},
+    {"call": "offer", "args": [true, 20000, true, true, false], "expect": "none"},
+    {"call": "offer", "args": [true, 20000, true, false, true], "expect": "none"},
+    {"call": "offer", "args": [true, 20000, true, false, false], "expect": "try"},
+    {"call": "applied", "args": [false, 20000, 16000], "expect": null},
+    {"call": "offer", "args": [true, 16000, true, true, false], "expect": "none"},
+    {"call": "offer", "args": [true, 18000, true, false, false], "expect": "try"},
+    {"call": "clear", "args": [], "expect": null},
+    {"call": "original_kbps", "args": [], "expect": 0},
+    {"call": "offer", "args": [false, 16000, true, false, false], "expect": "none"}
+  ]
+}

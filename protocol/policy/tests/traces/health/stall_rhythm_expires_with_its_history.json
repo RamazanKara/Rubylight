@@ -1,0 +1,26 @@
+{
+  "source": "StreamHealthTest.stallRhythmExpiresWithItsHistory",
+  "note": "Ten minutes of two-minute loss bursts, then one sample twenty minutes after the last",
+  "rust": "health::StreamHealth",
+  "java": "com.limelight.policy.StreamHealthTrace",
+  "new": [],
+  "calls": [
+    {"call": "add_series", "args": [1000, 29, 1000, true, 60, 0, 1, 4, 3, 2, 60, 60, 60, 0, false], "expect": null},
+    {"call": "add_series", "args": [30000, 3, 1000, true, 60, 6, 1, 4, 3, 2, 60, 60, 60, 0, false], "expect": null},
+    {"call": "add_series", "args": [33000, 117, 1000, true, 60, 0, 1, 4, 3, 2, 60, 60, 60, 0, false], "expect": null},
+    {"call": "add_series", "args": [150000, 3, 1000, true, 60, 6, 1, 4, 3, 2, 60, 60, 60, 0, false], "expect": null},
+    {"call": "add_series", "args": [153000, 117, 1000, true, 60, 0, 1, 4, 3, 2, 60, 60, 60, 0, false], "expect": null},
+    {"call": "add_series", "args": [270000, 3, 1000, true, 60, 6, 1, 4, 3, 2, 60, 60, 60, 0, false], "expect": null},
+    {"call": "add_series", "args": [273000, 117, 1000, true, 60, 0, 1, 4, 3, 2, 60, 60, 60, 0, false], "expect": null},
+    {"call": "add_series", "args": [390000, 3, 1000, true, 60, 6, 1, 4, 3, 2, 60, 60, 60, 0, false], "expect": null},
+    {"call": "add_series", "args": [393000, 117, 1000, true, 60, 0, 1, 4, 3, 2, 60, 60, 60, 0, false], "expect": null},
+    {"call": "add_series", "args": [510000, 3, 1000, true, 60, 6, 1, 4, 3, 2, 60, 60, 60, 0, false], "expect": null},
+    {"call": "add_series", "args": [513000, 88, 1000, true, 60, 0, 1, 4, 3, 2, 60, 60, 60, 0, false], "expect": null},
+    {"call": "stall_period_ms", "args": [], "expect": 120000},
+    {"call": "add", "args": [1800000, true, 60, 0, 1, 1, 1, 1, 60, 60, 60, 0, false], "expect": null},
+    {"call": "report_stalls", "args": [1800000], "expect": 0},
+    {"call": "report_stall_period_ms", "args": [1800000], "expect": 0},
+    {"call": "stall_period_ms", "args": [], "expect": 0},
+    {"call": "report_findings", "args": [1800000], "expect": ""}
+  ]
+}

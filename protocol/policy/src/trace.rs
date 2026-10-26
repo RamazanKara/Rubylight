@@ -26,6 +26,9 @@ fn subject(name: &str, args: &Value) -> Result<Box<dyn Subject>, String> {
         "quality::AdaptiveQualityController" => crate::quality::traced_controller(args),
         "pyrowave::BitrateController" => crate::pyrowave::traced_controller(args),
         "pyrowave::BitrateFloor" => crate::pyrowave::traced_floor(args),
+        "health::StreamHealth" => crate::health::traced_health(args),
+        "health::PeriodicStalls" => crate::health::traced_stalls(args),
+        "health::BitrateTrial" => crate::health::traced_trial(args),
         _ => Err(format!("unknown subject {name}")),
     }
 }

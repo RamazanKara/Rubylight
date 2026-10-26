@@ -1,0 +1,17 @@
+{
+  "source": "Game.applyHealthBitrate: undo only from the trial's own bitrate; an unknown live bitrate is an error that keeps the trial",
+  "rust": "health::BitrateTrial",
+  "java": null,
+  "new": [],
+  "calls": [
+    {"call": "applied", "args": [false, 20000, 16000], "expect": null},
+    {"call": "begin", "args": [true, 0], "expect": "unavailable"},
+    {"call": "begin", "args": [false, 0], "expect": "unavailable"},
+    {"call": "trial_kbps", "args": [], "expect": 16000},
+    {"call": "begin", "args": [true, 18000], "expect": "replaced"},
+    {"call": "original_kbps", "args": [], "expect": 0},
+    {"call": "trial_kbps", "args": [], "expect": 0},
+    {"call": "offer", "args": [false, 18000, true, false, false], "expect": "none"},
+    {"call": "begin", "args": [true, 18000], "expect": "replaced"}
+  ]
+}

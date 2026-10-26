@@ -1,0 +1,39 @@
+{
+  "cases": [
+    {
+      "name": "UUID before the PIN numbers",
+      "input": "Pairing failed for 3fa85f64-5717-4562-b3fc-2c963f66afa6 with PIN 1234",
+      "expect": "Pairing failed for [id] with PIN [omitted]"
+    },
+    {
+      "name": "long hex",
+      "input": "Certificate 0123456789abcdef0123 pinned",
+      "expect": "Certificate [hex] pinned"
+    },
+    {
+      "name": "short hex stays",
+      "input": "capabilities=0x803f",
+      "expect": "capabilities=0x803f"
+    },
+    {
+      "name": "long token",
+      "input": "cert MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA end",
+      "expect": "cert [data] end"
+    },
+    {
+      "name": "our own errors stay",
+      "input": "Connection terminated: -102 (ended right after starting)",
+      "expect": "Connection terminated: -102 (ended right after starting)"
+    },
+    {
+      "name": "decoder names stay",
+      "input": "Selected HEVC decoder: c2.qti.hevc.decoder",
+      "expect": "Selected HEVC decoder: c2.qti.hevc.decoder"
+    },
+    {
+      "name": "stream request stays",
+      "input": "Stream request: 2184x1968 at 120 fps (resolution native, PC profile)",
+      "expect": "Stream request: 2184x1968 at 120 fps (resolution native, PC profile)"
+    }
+  ]
+}

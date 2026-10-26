@@ -178,6 +178,9 @@ directory (release builds on Windows have no console); the previous run is `nigh
 "Open logs folder" opens it. `src/logpipe.rs` diverts stderr into a pipe, so the stream threads pay no more than for
 `eprintln!`. A separate thread writes the file; the reader holds back up to 4 MB for it, and only a disk that stalls past
 that drops log lines (the log says how many) instead of stalling the stream. `src/logfile.rs` holds rotation (also at 4 MB) and stamping.
+The file is redacted line by line with the Android app's problem-report rules (`nightjar-core`'s `report::redact`):
+the saved PCs' names and addresses, other IP and MAC addresses, URLs, UUIDs, keys and PINs become marks such as `[PC]`
+or `[address]`, so the log can be attached to an issue. The console keeps the raw output.
 
 `NIGHTJAR_TIMING_CSV=<file or folder>` writes one row per picture shown, in the format of the
 Android app's `nightjar-latency.csv` (a folder gets that file name): times in nanoseconds on the

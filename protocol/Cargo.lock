@@ -1201,6 +1201,7 @@ dependencies = [
  "cbc",
  "libc",
  "rand_core",
+ "regex",
  "ring",
  "rsa",
  "rubylight-native-api",

@@ -15,6 +15,8 @@ rusty_enet = "0.4"
 # Host HTTP, pairing and encrypted RTSP. Pure Rust plus ring, so the same code builds for
 # Android, Windows and Linux without OpenSSL.
 rand_core = { version = "0.6", features = ["getrandom"] }
+# Log redaction (report/redact.rs). No Unicode tables: the patterns use Java's ASCII classes.
+regex = { version = "1", default-features = false, features = ["std", "perf"] }
 ring = "0.17"
 rsa = { version = "0.9", default-features = false, features = ["std"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }

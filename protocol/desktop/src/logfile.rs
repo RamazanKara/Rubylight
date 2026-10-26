@@ -14,6 +14,8 @@
 //!   reader thread reads a chunk, not when the line was written, which is within a few
 //!   milliseconds. `\r\n` is stored as `\n`; a line that is still open when a chunk ends gets no
 //!   second stamp from the next chunk.
+//! - Lines are redacted before they reach the file (see [`Redactor`]), so a line is written, and
+//!   stamped, when its end arrives. The real stderr gets the bytes unchanged.
 //! - Two threads: the reader ([`pump_reader`]) only reads the pipe and forwards to the real
 //!   stderr, the writer ([`pump_writer`]) does the file work. A channel joins them and never
 //!   blocks the reader: what the writer has not taken yet is held back (up to
@@ -176,6 +178,64 @@ impl Stamper {
     }
 }
 
+/// Longest line held back for redaction; a longer one is redacted and written in parts.
+const OPEN_LINE_LIMIT: usize = 64 * 1024;
+
+/// Redacts the log a whole line at a time (`nightjar_core::report::redact::scrub`, the rules of
+/// the Android app's problem reports: the PCs' names and addresses, IDs, keys and PINs): a line
+/// is held back until its end arrives.
+#[derive(Default)]
+pub struct Redactor {
+    open: Vec<u8>,
+}
+
+impl Redactor {
+    /// Append the redacted lines that end in `chunk` to `out`; the rest waits for its line end.
+    pub fn push(&mut self, chunk: &[u8], out: &mut Vec<u8>) {
+        self.open.extend_from_slice(chunk);
+        let end = match self.open.iter().rposition(|&b| b == b'\n') {
+            Some(last) => last + 1,
+            None if self.open.len() >= OPEN_LINE_LIMIT => self.open.len(),
+            None => return,
+        };
+        let lines: Vec<u8> = self.open.drain(..end).collect();
+        for line in lines.split_inclusive(|&b| b == b'\n') {
+            redact_line(line, out);
+        }
+    }
+
+    /// Append what is held back, redacted, to `out`.
+    pub fn release(&mut self, out: &mut Vec<u8>) {
+        let open = std::mem::take(&mut self.open);
+        redact_line(&open, out);
+    }
+
+    pub fn holds_text(&self) -> bool {
+        !self.open.is_empty()
+    }
+}
+
+/// Keeps the saved PCs' names and addresses out of the log file from now on.
+pub fn add_secrets(records: &[crate::config::HostRecord]) {
+    for record in records {
+        let names = [&record.name, &record.unique_id, &record.address].into_iter().chain(&record.alias).chain(&record.mac);
+        for secret in names.chain(&record.other_addresses) {
+            nightjar_core::report::redact::add_secret(secret);
+        }
+    }
+}
+
+fn redact_line(line: &[u8], out: &mut Vec<u8>) {
+    let (text, end) = match line.split_last() {
+        Some((b'\n', text)) => (text, &b"\n"[..]),
+        _ => (line, &b""[..]),
+    };
+    if !text.is_empty() {
+        out.extend_from_slice(nightjar_core::report::redact::scrub(&String::from_utf8_lossy(text)).as_bytes());
+    }
+    out.extend_from_slice(end);
+}
+
 /// Decodes UTF-8 that arrives in arbitrary chunks (for a console that wants UTF-16): an
 /// incomplete sequence at the end of a chunk waits for the next one, bad bytes become U+FFFD.
 // Only the Windows console forwarder uses it.
@@ -230,7 +290,9 @@ pub struct LogFile {
     file: BufWriter<File>,
     written: u64,
     stamper: Stamper,
+    redactor: Redactor,
     scratch: Vec<u8>,
+    redacted: Vec<u8>,
     warnings: Vec<String>,
 }
 
@@ -245,7 +307,9 @@ impl LogFile {
             file: BufWriter::new(rotation.file),
             written: 0,
             stamper: Stamper::default(),
+            redactor: Redactor::default(),
             scratch: Vec::new(),
+            redacted: Vec::new(),
             warnings: rotation.warning.into_iter().collect(),
         })
     }
@@ -255,8 +319,28 @@ impl LogFile {
         std::mem::take(&mut self.warnings)
     }
 
-    /// Stamp and write one chunk read from the pipe (not flushed; see [`LogFile::flush`]).
+    /// Redact, stamp and write one chunk read from the pipe (not flushed; see [`LogFile::flush`]).
+    /// A line that has not ended yet is held back until it does (see [`Redactor`]).
     pub fn write_chunk(&mut self, chunk: &[u8], now: SystemTime) -> io::Result<()> {
+        let mut lines = std::mem::take(&mut self.redacted);
+        lines.clear();
+        self.redactor.push(chunk, &mut lines);
+        let written = self.write_lines(&lines, now);
+        self.redacted = lines;
+        written
+    }
+
+    /// Write the line held back for redaction, if any (at the end of the run).
+    pub fn finish(&mut self, now: SystemTime) -> io::Result<()> {
+        let mut open = Vec::new();
+        self.redactor.release(&mut open);
+        self.write_lines(&open, now)
+    }
+
+    fn write_lines(&mut self, chunk: &[u8], now: SystemTime) -> io::Result<()> {
+        if chunk.is_empty() {
+            return Ok(());
+        }
         let stamp = timestamp(now);
         self.scratch.clear();
         self.stamper.push(chunk, &stamp, &mut self.scratch);
@@ -289,13 +373,14 @@ impl LogFile {
 
     /// A line of the log's own (not from the pipe), on a line of its own.
     pub fn note(&mut self, text: &str, now: SystemTime) -> io::Result<()> {
+        self.finish(now)?;
         let mut line = String::new();
         if !self.stamper.at_line_start {
             line.push('\n');
         }
         line.push_str(text);
         line.push('\n');
-        self.write_chunk(line.as_bytes(), now)
+        self.write_lines(line.as_bytes(), now)
     }
 
     pub fn flush(&mut self) -> io::Result<()> {
@@ -304,7 +389,7 @@ impl LogFile {
 
     /// The next byte written starts a line.
     pub fn at_line_start(&self) -> bool {
-        self.stamper.at_line_start
+        self.stamper.at_line_start && !self.redactor.holds_text()
     }
 }
 
@@ -449,6 +534,9 @@ pub fn pump_writer(chunks: Receiver<Chunk>, backlog: &Backlog, mut log: LogFile,
     }
     if healthy && owed > 0 {
         let _ = note_dropped(&mut log, &mut owed, last);
+    }
+    if healthy {
+        let _ = log.finish(last);
     }
     let _ = log.flush();
 }
@@ -821,6 +909,39 @@ mod tests {
         let lines: Vec<&str> = text.lines().collect();
         assert_eq!(lines.len(), 2, "{text}");
         assert!(lines[1].ends_with("Z 9 bytes of log output were dropped, the disk was too slow"));
+    }
+
+    #[test]
+    fn lines_are_redacted_whole_before_they_reach_the_file() {
+        nightjar_core::report::redact::add_secret("Logfile test PC");
+        let dir = temp("redact");
+        let mut log = LogFile::open(&dir, CAP).unwrap();
+        // A PC name and an address cut by chunk ends, a PIN, and a line still open at the end.
+        log.write_chunk(b"nightjar: pairing with Logfile te", UNIX_EPOCH).unwrap();
+        log.write_chunk(b"st PC at 192.168.", UNIX_EPOCH).unwrap();
+        log.write_chunk(b"1.20, PIN 4711\r\nnightjar: stream ", UNIX_EPOCH).unwrap();
+        log.write_chunk(b"to fd01::5 ends", UNIX_EPOCH).unwrap();
+        log.finish(UNIX_EPOCH).unwrap();
+        log.flush().unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.join(CURRENT)).unwrap(),
+            "1970-01-01T00:00:00.000Z nightjar: pairing with [PC] at [address], PIN [omitted]\n\
+             1970-01-01T00:00:00.000Z nightjar: stream to [address] ends"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_line_longer_than_the_limit_is_written_in_parts() {
+        let mut redactor = Redactor::default();
+        let mut out = Vec::new();
+        redactor.push(&vec![b'z'; OPEN_LINE_LIMIT - 1], &mut out);
+        assert!(out.is_empty() && redactor.holds_text());
+        redactor.push(b"z b", &mut out);
+        assert_eq!(out, b"[data] b");
+        assert!(!redactor.holds_text());
+        redactor.push(b"\n", &mut out);
+        assert_eq!(out, b"[data] b\n");
     }
 
     #[test]

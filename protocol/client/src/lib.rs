@@ -8,6 +8,7 @@ pub mod fec;
 pub mod http;
 pub mod input;
 pub mod priority;
+pub mod report;
 pub mod rtsp;
 pub mod sdp;
 pub mod session;

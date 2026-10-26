@@ -281,7 +281,9 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
         launcher.tearing_supported
     );
 
-    let mut hosts = Hosts::new(store.hosts(), waker.clone());
+    let saved_hosts = store.hosts();
+    logfile::add_secrets(&saved_hosts);
+    let mut hosts = Hosts::new(saved_hosts, waker.clone());
     let cli = match launch {
         Some(_) if std::env::var_os("NIGHTJAR_AUTOSTREAM").is_some() => {
             return Err("--host and NIGHTJAR_AUTOSTREAM both ask for a stream; give one".into());
@@ -1701,7 +1703,9 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
 }
 
 fn save_hosts(store: &config::Store, hosts: &Hosts) {
-    if let Err(e) = store.save_hosts(&hosts.records()) {
+    let records = hosts.records();
+    logfile::add_secrets(&records);
+    if let Err(e) = store.save_hosts(&records) {
         eprintln!("nightjar: saving hosts failed: {e}");
     }
 }

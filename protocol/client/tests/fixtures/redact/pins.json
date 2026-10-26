@@ -1,0 +1,44 @@
+{
+  "cases": [
+    {
+      "name": "PIN",
+      "input": "Connection to PIN 1234 failed",
+      "expect": "Connection to PIN [omitted] failed"
+    },
+    {
+      "name": "passphrase",
+      "input": "Connection to passphrase hunter2 failed",
+      "expect": "Connection to passphrase [omitted] failed"
+    },
+    {
+      "name": "keyword in any case with separators",
+      "input": "Password=Secret1 token: abc.def",
+      "expect": "Password=[omitted] token: [omitted]"
+    },
+    {
+      "name": "a word that only starts with a keyword",
+      "input": "keyboard layout de",
+      "expect": "keyboard layout de"
+    },
+    {
+      "name": "PIN after a line break",
+      "input": "Stream connected\nPIN=0000",
+      "expect": "Stream connected PIN=[omitted]"
+    },
+    {
+      "name": "bare number in a pairing message",
+      "input": "Pairing succeeded 0123",
+      "expect": "Pairing succeeded [omitted]"
+    },
+    {
+      "name": "pairing in capitals",
+      "input": "PAIRING with 1920 1080",
+      "expect": "PAIRING with [omitted] [omitted]"
+    },
+    {
+      "name": "numbers outside pairing stay",
+      "input": "Decoded 12345 frames",
+      "expect": "Decoded 12345 frames"
+    }
+  ]
+}

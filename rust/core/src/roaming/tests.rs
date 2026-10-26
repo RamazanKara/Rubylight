@@ -498,6 +498,27 @@ fn a_session_moves_at_most_once_a_second() {
 }
 
 #[test]
+fn the_host_refuses_rather_than_wrap_its_seq() {
+    let mut table = table();
+    let now = Instant::now();
+    table.entries[0].host_seq = u32::MAX - 1;
+    let Ok(Action::Reply { datagram, .. }) = table.on_datagram(now, at(NEW), &probe(1)) else {
+        panic!("the last seq is still used");
+    };
+    assert_eq!(Datagram::decode(&datagram).unwrap().header.seq, u32::MAX);
+    assert_eq!(
+        table.on_datagram(now, at(NEW), &probe(2)),
+        Err(Refusal::SeqExhausted)
+    );
+    assert_eq!(
+        table.on_datagram(now, at(NEW), &confirm(3, vectors::CHALLENGE)),
+        Err(Refusal::SeqExhausted),
+        "nor does it move without its MIGRATED"
+    );
+    assert_eq!(table.current(&"s"), Some(at(OLD)));
+}
+
+#[test]
 fn a_repeated_confirm_hears_migrated_again_without_moving() {
     let mut table = table();
     let now = Instant::now();

@@ -1,7 +1,9 @@
 //! A whole session against an in-process host on loopback: the Rubylight host's RTSP
 //! helpers answer the handshake, a rusty_enet host plays the control stream with the host's
 //! own sealing and answers roaming, and UDP sockets answer the video and audio pings with
-//! packetized frames and Opus packets and take the microphone.
+//! packetized frames and Opus packets and take the microphone. Like the Rubylight host, it
+//! takes media pings only from the session's client address, moves the session only on a
+//! CONFIRM of its pending challenge, and forgets the old path's media peers when it does.
 
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
@@ -136,28 +138,47 @@ fn audio_stream(count: u16) -> Vec<Vec<u8>> {
     out
 }
 
-/// Waits for a ping carrying the RTSP payload and returns where it came from.
-fn await_ping(socket: &UdpSocket) -> SocketAddr {
-    socket
-        .set_read_timeout(Some(Duration::from_secs(10)))
-        .unwrap();
-    let mut buffer = [0u8; 64];
-    loop {
-        let (n, from) = socket.recv_from(&mut buffer).expect("a ping");
-        if n == 20 && &buffer[..16] == PING {
-            return from;
-        }
-    }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Media {
+    Video,
+    Audio,
 }
 
-/// Waits for a ping carrying the RTSP payload from `ip` and returns its sender.
-fn await_ping_from(socket: &UdpSocket, ip: IpAddr) -> SocketAddr {
-    loop {
-        let from = await_ping(socket);
-        if from.ip() == ip {
-            return from;
+/// The fake host's media side, as the Rubylight host's: pings count only from the session's
+/// client address, and a roam forgets the old path's peers until pings arrive on the new one.
+#[derive(Default)]
+struct MediaState {
+    /// The session's client address: the RTSP client's, then where it roamed.
+    client_ip: Option<IpAddr>,
+    /// Where video and audio go: the sender of the last ping taken.
+    peers: [Option<SocketAddr>; 2],
+    /// The pings taken: stream, sender, sequence number.
+    pings: Vec<(Media, SocketAddr, u32)>,
+}
+
+/// Takes the pings that reach `socket`: 20 bytes, the RTSP payload and a sequence number.
+fn serve_media(socket: UdpSocket, media: Media, state: Arc<Mutex<MediaState>>) {
+    thread::spawn(move || {
+        let mut buffer = [0u8; 2048];
+        loop {
+            let (n, from) = match socket.recv_from(&mut buffer) {
+                Ok(received) => received,
+                // A send to a port the client has closed since (Windows reports it here).
+                Err(e) if e.kind() == io::ErrorKind::ConnectionReset => continue,
+                Err(_) => return,
+            };
+            if n != 20 || &buffer[..16] != PING {
+                continue;
+            }
+            let mut state = state.lock().unwrap();
+            if state.client_ip != Some(from.ip()) {
+                continue;
+            }
+            state.peers[media as usize] = Some(from);
+            let sequence = u32::from_be_bytes(buffer[16..20].try_into().unwrap());
+            state.pings.push((media, from, sequence));
         }
-    }
+    });
 }
 
 /// The host's control socket, as the Rubylight host's: roaming datagrams are set aside, and
@@ -256,6 +277,28 @@ struct FakeHost {
     roaming: Arc<Mutex<Vec<(SocketAddr, Payload)>>>,
     /// The control stream stops servicing ENet while set.
     silent: Arc<AtomicBool>,
+    media: Arc<Mutex<MediaState>>,
+}
+
+impl FakeHost {
+    /// Waits for a ping the host takes on `media` and returns where it now sends that stream.
+    fn peer(&self, media: Media) -> SocketAddr {
+        self.peer_where(media, |_| true)
+    }
+
+    /// [`Self::peer`], once the stream's pings come from `ip`.
+    fn peer_from(&self, media: Media, ip: IpAddr) -> SocketAddr {
+        self.peer_where(media, |peer| peer.ip() == ip)
+    }
+
+    fn peer_where(&self, media: Media, wanted: impl Fn(SocketAddr) -> bool) -> SocketAddr {
+        let mut found = None;
+        until(&format!("a {media:?} ping"), || {
+            found = self.media.lock().unwrap().peers[media as usize].filter(|&p| wanted(p));
+            found.is_some()
+        });
+        found.unwrap()
+    }
 }
 
 fn start_host(packed_format: Option<u32>) -> FakeHost {
@@ -276,11 +319,19 @@ fn start_host_with(packed_format: Option<u32>, roaming: bool) -> FakeHost {
         mic.local_addr().unwrap().port(),
     );
 
+    let media = Arc::new(Mutex::new(MediaState::default()));
+    serve_media(video.try_clone().unwrap(), Media::Video, media.clone());
+    serve_media(audio.try_clone().unwrap(), Media::Audio, media.clone());
+
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let rtsp_port = listener.local_addr().unwrap().port();
+    let rtsp_media = media.clone();
     thread::spawn(move || {
         for socket in listener.incoming() {
             let mut socket = socket.unwrap();
+            // The session's client address is the RTSP client's.
+            let client = socket.peer_addr().unwrap().ip();
+            rtsp_media.lock().unwrap().client_ip.get_or_insert(client);
             let mut message = host_rtsp::MessageBuffer::default();
             let mut chunk = [0u8; 4096];
             loop {
@@ -347,12 +398,13 @@ fn start_host_with(packed_format: Option<u32>, roaming: bool) -> FakeHost {
     let terminate = Arc::new(AtomicBool::new(false));
     let roamed = Arc::new(Mutex::new(Vec::new()));
     let silent = Arc::new(AtomicBool::new(false));
-    let (messages, disconnected, terminating, roam_log, silenced) = (
+    let (messages, disconnected, terminating, roam_log, silenced, control_media) = (
         control_messages.clone(),
         control_disconnected.clone(),
         terminate.clone(),
         roamed.clone(),
         silent.clone(),
+        media.clone(),
     );
     thread::spawn(move || {
         let settings = HostSettings {
@@ -370,6 +422,15 @@ fn start_host_with(packed_format: Option<u32>, roaming: bool) -> FakeHost {
         let mut sequence = 0u32;
         let gcm = roam_gcm();
         let mut roam_seq = 0u32;
+        // Roaming as the host's `Roaming`: the client's control address, its last seq, the
+        // challenge (address, nonce_c, challenge) pending for a new address and the one for
+        // a probe from the current address, and the challenge the last move committed.
+        let mut current = None;
+        let mut client_seq = 0u32;
+        let mut challenges = CHALLENGE..;
+        let mut pending: Option<(SocketAddr, u64, u64)> = None;
+        let mut here: Option<(SocketAddr, u64, u64)> = None;
+        let mut committed = None;
         loop {
             if silenced.load(Ordering::SeqCst) {
                 thread::sleep(Duration::from_millis(1));
@@ -380,6 +441,7 @@ fn start_host_with(packed_format: Option<u32>, roaming: bool) -> FakeHost {
                     Event::Connect { peer: p, data } => {
                         assert_eq!(data, 305419896);
                         peer = Some(p.id());
+                        current = p.address();
                     }
                     Event::Receive { packet, .. } => {
                         let (_, kind, _) = decrypt_control(&KEY, packet.data(), true).unwrap();
@@ -409,20 +471,65 @@ fn start_host_with(packed_format: Option<u32>, roaming: bool) -> FakeHost {
                     host.flush();
                 }
             }
-            // A CHALLENGE for each PROBE; a CONFIRM moves the peer, then MIGRATED.
+            // A CHALLENGE for each PROBE, the same one for a repeat of a burst; a CONFIRM of
+            // the challenge pending for its address moves the session, then MIGRATED. Anything
+            // malformed, unauthentic, replayed or unmatched is dropped, as the host drops it.
             for (from, data) in std::mem::take(&mut host.socket_mut().roaming) {
-                let datagram = Datagram::decode(&data).unwrap();
-                let payload = nightjar_core::roaming::open(&gcm, &datagram).unwrap();
+                let Ok(datagram) = Datagram::decode(&data) else {
+                    continue;
+                };
+                let Some(payload) = nightjar_core::roaming::open(&gcm, &datagram) else {
+                    continue;
+                };
+                if datagram.header.seq <= client_seq {
+                    continue;
+                }
+                client_seq = datagram.header.seq;
                 roam_log.lock().unwrap().push((from, payload));
+                let (Some(id), Some(at)) = (peer, current) else {
+                    continue;
+                };
                 let reply = match payload {
-                    Payload::Probe { nonce_c, .. } => Payload::Challenge {
-                        nonce_c,
-                        challenge: CHALLENGE,
-                    },
-                    Payload::Confirm { challenge } => {
-                        if let Some(old) = peer.and_then(|id| host.peer(id).address()) {
-                            host.socket_mut().moved = Some((from, old));
+                    Payload::Probe { nonce_c, .. } => {
+                        let slot = if from == at { &mut here } else { &mut pending };
+                        let challenge = match *slot {
+                            Some((address, nonce, challenge))
+                                if address == from && nonce == nonce_c =>
+                            {
+                                challenge
+                            }
+                            _ => {
+                                let challenge = challenges.next().unwrap();
+                                *slot = Some((from, nonce_c, challenge));
+                                challenge
+                            }
+                        };
+                        Payload::Challenge { nonce_c, challenge }
+                    }
+                    // From where the session is: a repeat of the last move's CONFIRM, or one
+                    // answering a probe from here, hears MIGRATED and moves nothing.
+                    Payload::Confirm { challenge } if from == at => {
+                        if committed != Some(challenge) {
+                            if !matches!(here, Some((_, _, c)) if c == challenge) {
+                                continue;
+                            }
+                            here = None;
                         }
+                        Payload::Migrated { challenge }
+                    }
+                    Payload::Confirm { challenge } => {
+                        if !matches!(pending, Some((a, _, c)) if a == from && c == challenge) {
+                            continue;
+                        }
+                        pending = None;
+                        // ENet keeps the address it first knew the client by.
+                        let old = host.peer(id).address().unwrap();
+                        host.socket_mut().moved = Some((from, old));
+                        current = Some(from);
+                        committed = Some(challenge);
+                        let mut media = control_media.lock().unwrap();
+                        media.client_ip = Some(from.ip());
+                        media.peers = [None; 2];
                         Payload::Migrated { challenge }
                     }
                     _ => continue,
@@ -444,6 +551,7 @@ fn start_host_with(packed_format: Option<u32>, roaming: bool) -> FakeHost {
         terminate,
         roaming: roamed,
         silent,
+        media,
     }
 }
 
@@ -645,7 +753,7 @@ fn run_session(direct_submit: bool, packed_format: Option<u32>) {
 
     // Video: an IDR and P frames; the decoder needs a key frame at frame 3, so 4 and 5 are
     // dropped and the next IDR (6) recovers.
-    let client = await_ping(&host.video);
+    let client = host.peer(Media::Video);
     let mut packetizer = Packetizer {
         seq: 100,
         spi: 0,
@@ -688,7 +796,7 @@ fn run_session(direct_submit: bool, packed_format: Option<u32>) {
     });
 
     // Audio: 100 packets of backlog are dropped, the rest play in order.
-    let client = await_ping(&host.audio);
+    let client = host.peer(Media::Audio);
     for packet in audio_stream(200) {
         host.audio.send_to(&packet, client).unwrap();
         thread::sleep(Duration::from_micros(200));
@@ -840,17 +948,13 @@ fn input_only_pings_the_video_port_until_stop() {
     )
     .unwrap();
     // The payload from the RTSP SETUP and a sequence number that counts up.
-    host.video
-        .set_read_timeout(Some(Duration::from_secs(10)))
-        .unwrap();
-    let mut buffer = [0u8; 64];
-    let mut sequences = Vec::new();
-    while sequences.len() < 2 {
-        let (n, _) = host.video.recv_from(&mut buffer).expect("a video ping");
-        assert!(n == 20 && &buffer[..16] == PING, "{:?}", &buffer[..n]);
-        sequences.push(u32::from_be_bytes(buffer[16..20].try_into().unwrap()));
-    }
-    assert_eq!(sequences, [1, 2]);
+    let video_pings = || -> Vec<u32> {
+        let media = host.media.lock().unwrap();
+        let pings = media.pings.iter().filter(|(m, ..)| *m == Media::Video);
+        pings.map(|&(_, _, sequence)| sequence).collect()
+    };
+    until("two video pings", || video_pings().len() >= 2);
+    assert_eq!(video_pings()[..2], [1, 2]);
     // The session is up and decoder and renderer were never touched.
     session
         .input(|q| q.send_keyboard(0x41, true, 0, 0))
@@ -864,14 +968,10 @@ fn input_only_pings_the_video_port_until_stop() {
         host.control_disconnected.load(Ordering::SeqCst)
     });
     // Stop joined the ping thread: whatever was in flight is drained, then it is quiet.
-    host.video
-        .set_read_timeout(Some(Duration::from_millis(50)))
-        .unwrap();
-    while host.video.recv_from(&mut buffer).is_ok() {}
-    host.video
-        .set_read_timeout(Some(Duration::from_millis(1200)))
-        .unwrap();
-    assert!(host.video.recv_from(&mut buffer).is_err(), "pings continued after stop");
+    thread::sleep(Duration::from_millis(50));
+    let pinged = video_pings().len();
+    thread::sleep(Duration::from_millis(1200));
+    assert_eq!(video_pings().len(), pinged, "pings continued after stop");
     assert_eq!(record.lock().unwrap().terminated, None);
 }
 
@@ -964,6 +1064,8 @@ fn a_session_roams_control_and_media_to_a_new_address() {
         IpAddr::from(Ipv4Addr::new(127, 0, 0, 2)),
     );
     if UdpSocket::bind((new, 0)).is_err() {
+        // Windows answers on all of 127.0.0.0/8; elsewhere it may take an alias.
+        assert!(!cfg!(windows), "{new} cannot be bound");
         eprintln!("skipped: {new} cannot be bound here");
         return;
     }
@@ -978,14 +1080,14 @@ fn a_session_roams_control_and_media_to_a_new_address() {
         spi: 0,
         frame: 1,
     };
-    let client = await_ping_from(&host.video, old);
+    let client = host.peer_from(Media::Video, old);
     for packet in packetizer.frame(&h264_idr(), 2) {
         host.video.send_to(&packet, client).unwrap();
     }
     until("a frame", || record.lock().unwrap().frames.len() == 1);
     let audio = audio_stream(400);
     let (before, after) = audio.split_at(300);
-    let client = await_ping_from(&host.audio, old);
+    let client = host.peer_from(Media::Audio, old);
     for packet in before {
         host.audio.send_to(packet, client).unwrap();
         thread::sleep(Duration::from_micros(200));
@@ -1017,7 +1119,7 @@ fn a_session_roams_control_and_media_to_a_new_address() {
     );
 
     // Video, audio and the microphone resume on the new address.
-    let client = await_ping_from(&host.video, new);
+    let client = host.peer_from(Media::Video, new);
     for packet in packetizer.frame(&h264_idr(), 2) {
         host.video.send_to(&packet, client).unwrap();
     }
@@ -1025,7 +1127,7 @@ fn a_session_roams_control_and_media_to_a_new_address() {
         record.lock().unwrap().frames.len() == 2
     });
     let played = record.lock().unwrap().audio.len();
-    let client = await_ping_from(&host.audio, new);
+    let client = host.peer_from(Media::Audio, new);
     for packet in after {
         host.audio.send_to(packet, client).unwrap();
         thread::sleep(Duration::from_micros(200));
@@ -1080,7 +1182,7 @@ fn on_a_metered_network_without_the_opt_in_the_grace_period_decides() {
         ..roaming_config()
     };
     let session = start_session(&host, config, &record);
-    let client = await_ping(&host.video);
+    let client = host.peer(Media::Video);
 
     assert!(!session.network_changed(NetworkHint { metered: true }));
     silence_host(&host);

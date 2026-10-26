@@ -3637,6 +3637,23 @@ mod tests {
             commands
         }
 
+        /// Turns the mouse wheel down over the middle of the window, far enough to reach the end
+        /// of what scrolls there.
+        fn scroll_to_end(&mut self) {
+            let centre = (self.size / 2.0).to_pos2();
+            self.frame(vec![egui::Event::PointerMoved(centre)]);
+            self.frame(vec![egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Line,
+                delta: vec2(0.0, -1000.0),
+                phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
+                modifiers: egui::Modifiers::NONE,
+            }]);
+            for _ in 0..10 {
+                self.settle();
+            }
+        }
+
         /// The card (first stop) and its three dots, as laid out on screen.
         fn card_and_dots(&self) -> (Rect, Rect) {
             let focused = self.ctx.memory(|m| m.focused()).expect("the first PC has focus");
@@ -3864,9 +3881,16 @@ mod tests {
             ];
             for dialog in dialogs {
                 let name = format!("{:?}", std::mem::discriminant(&dialog));
+                let options = matches!(dialog, Dialog::HostOptions { .. });
                 f.l.dialog = dialog;
                 f.settle();
                 assert_fits(&f, &format!("dialog {name} on {}", state.name), true);
+                // The options a long list hides at first are checked too.
+                if options {
+                    f.scroll_to_end();
+                    assert!(f.drawn.iter().any(|t| t == tr(HostOption::Remove.label())), "{}: the list ends with Remove: {:?}", state.name, f.drawn);
+                    assert_fits(&f, &format!("dialog {name} on {}, scrolled to the end", state.name), true);
+                }
                 f.l.dialog = Dialog::None;
                 f.settle();
             }
@@ -3880,12 +3904,24 @@ mod tests {
         f.press(Key::F2);
         assert!(f.options_open());
         let screen = Rect::from_min_size(Pos2::ZERO, f.size);
+        let labels: Vec<&str> = host_options(&f.hosts.list[0]).iter().map(|o| tr(o.label())).collect();
         // Sleep is listed but cannot take focus here.
-        for _ in 2..host_options(&f.hosts.list[0]).len() {
+        for _ in 2..labels.len() {
             f.press(Key::ArrowDown);
+            // egui animates the scroll for up to 0.3 s; the frames keep coming until it ends.
+            f.settle();
+            f.settle();
             let focused = f.ctx.memory(|m| m.focused()).expect("an option has focus");
             let rect = f.ctx.read_response(focused).expect("the option was laid out").rect;
-            assert!(screen.contains_rect(rect), "the option with focus is in the window: {rect:?} in {screen:?}");
+            // The list's visible area is the clip its labels are drawn in.
+            let clip = f
+                .placed
+                .iter()
+                .find(|(text, at, _)| labels.contains(&text.as_str()) && rect.contains(at.center()))
+                .map(|(_, _, clip)| *clip)
+                .unwrap_or_else(|| panic!("the option's label was drawn: {rect:?}"));
+            assert!(clip.height() < screen.height() - 100.0 && screen.expand(1.0).contains_rect(clip), "the list scrolls inside the window: {clip:?}");
+            assert!(clip.expand(1.0).contains_rect(rect), "the option with focus is in the list's visible area: {rect:?} in {clip:?}");
         }
         f.press(Key::Enter);
         assert!(matches!(f.l.dialog, Dialog::ConfirmRemove { .. }), "the last option is Remove");

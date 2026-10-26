@@ -33,6 +33,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -393,6 +394,26 @@ public class ComputerManagerLifecycleTest {
         } finally {
             service.release.countDown();
             controller.destroy();
+        }
+    }
+
+    @Test
+    public void aPollStillRunningWhenTheServiceGoesAwayAsksNothingAndKeepsNoReservation() throws Exception {
+        ServiceController<SlowNativeManager> controller = Robolectric.buildService(SlowNativeManager.class).create();
+        SlowNativeManager service = controller.get();
+        service.release.countDown();
+        // The poll holds a database reference, so the service's destroy does not close the database under it.
+        assertTrue((Boolean) ReflectionHelpers.callInstanceMethod(service, "getLocalDatabaseReference"));
+        try {
+            controller.destroy();
+            service.pollNewPc();
+            service.pollNewPc();
+            assertEquals("no request goes out", 1, service.asked.getCount());
+            Object poll = ReflectionHelpers.getField(service, "wakeTargets");
+            Map<String, ?> asks = ReflectionHelpers.getField(poll, "asks");
+            assertTrue("the refused ask gives its reservation back", asks.isEmpty());
+        } finally {
+            ReflectionHelpers.callInstanceMethod(service, "releaseLocalDatabaseReference");
         }
     }
 

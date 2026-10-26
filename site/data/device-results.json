@@ -728,6 +728,57 @@
           }
         }
       }
+    },
+    {
+      "issue": 40,
+      "added": "2026-10-26",
+      "name": "Samsung  a37",
+      "results": {
+        "format": "nightjar-device-results",
+        "version": 1,
+        "app": {
+          "name": "Nightjar",
+          "version": "3.2.1",
+          "build": 355
+        },
+        "device": {
+          "manufacturer": "samsung",
+          "model": "SM-A376E",
+          "codename": "a37x",
+          "socManufacturer": "Samsung",
+          "socModel": "s5e8845",
+          "hardware": "s5e8845",
+          "board": "s5e8845",
+          "android": "16",
+          "sdk": 36,
+          "gpu": "ANGLE ((Samsung Xclipse 530) on Vulkan 1.3.279)"
+        },
+        "decoderBenchmark": {
+          "measured": true,
+          "clip": "1920x1080@60",
+          "results": [
+            {
+              "codec": "H.264",
+              "mime": "video/avc",
+              "decoder": "c2.exynos.h264.decoder",
+              "medianDecodeMs": 10.63,
+              "featureLowLatency": true,
+              "vendorLowLatencyKeys": [
+                "vendor.rtc-ext-dec-low-latency.enable"
+              ]
+            },
+            {
+              "codec": "HEVC",
+              "mime": "video/hevc",
+              "decoder": "c2.exynos.hevc.decoder",
+              "medianDecodeMs": 12.35,
+              "featureLowLatency": true,
+              "vendorLowLatencyKeys": []
+            }
+          ]
+        },
+        "latencyTest": null
+      }
     }
   ]
 }

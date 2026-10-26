@@ -4156,25 +4156,32 @@ fn follow_roam(
     socket: &ReplySocket,
     commit: roaming::Commit,
 ) {
-    let session = h.sessions.lock().unwrap().active.get(&commit.id).cloned();
-    if let Some(s) = &session {
-        s.roamed(commit.new.ip(), Instant::now());
-        // The old path's media addresses are stale; the first pings from the new path
-        // replace them.
-        let mut stale = Vec::new();
-        media.peers.lock().unwrap().retain(|(id, audio), peer| {
-            let keep = *id != commit.id;
-            if !keep {
-                stale.push((*audio, *peer));
-            }
-            keep
-        });
-        for (audio, peer) in stale {
-            if audio {
-                media.audio.forget(peer);
-            } else {
-                media.video.forget(peer);
-            }
+    let mut stale = Vec::new();
+    let session = {
+        // The ping thread's lock order. Holding the sessions lock until the session knows
+        // its new path keeps a new-path ping from landing between the two: its peer would be
+        // dropped below after it took the new path, and with it the keyframe.
+        let sessions = h.sessions.lock().unwrap();
+        let session = sessions.active.get(&commit.id).cloned();
+        if let Some(s) = &session {
+            // The old path's media addresses are stale; the first pings from the new path
+            // replace them.
+            media.peers.lock().unwrap().retain(|(id, audio), peer| {
+                let keep = *id != commit.id;
+                if !keep {
+                    stale.push((*audio, *peer));
+                }
+                keep
+            });
+            s.roamed(commit.new.ip(), Instant::now());
+        }
+        session
+    };
+    for (audio, peer) in stale {
+        if audio {
+            media.audio.forget(peer);
+        } else {
+            media.video.forget(peer);
         }
     }
     if let Some((peer_id, _)) = peers.iter().find(|(_, p)| p.id == commit.id) {

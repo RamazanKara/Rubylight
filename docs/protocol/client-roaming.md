@@ -59,7 +59,7 @@ Every datagram is 52 bytes, all integers little-endian, sealed with AES-128-GCM 
 | 5 | 1 | type: `1` PROBE (client to host), `2` CHALLENGE (host to client), `3` CONFIRM (client to host), `4` MIGRATED (host to client) |
 | 6 | 2 | reserved, `0` |
 | 8 | 8 | session tag |
-| 16 | 4 | seq: per sender, starts at 1, strictly increasing |
+| 16 | 4 | seq: per sender per launch key, starts at 1, strictly increasing |
 | 20 | 16 | GCM tag |
 | 36 | 16 | ciphertext of the payload |
 
@@ -98,6 +98,7 @@ Only when the DESCRIBE answer carried `a=x-rl-roaming:1` and the client's roamin
 - **On a trigger:** rebind the video, audio and microphone sockets if their bound IP changed and ping at once; send PROBE every 250 ms (12 times, then once a second); send CONFIRM on a CHALLENGE that echoes the current `nonce_c`; ping at once on MIGRATED.
 - **Confirming:** once it sent a CONFIRM, the client stops probing and resends the CONFIRM for the newest challenge every 250 ms until MIGRATED arrives. After 3 seconds without one it probes again. Older hosts answer every PROBE with a new challenge, so probing on would keep replacing the challenge being confirmed whenever the round trip is longer than the probe interval.
 - **Giving up:** after the smaller of the drop tolerance and 10 seconds, the stream ends with a clear message as today, or bounded recovery reconnects if it is on. While a longer drop tolerance keeps the stream alive, a silence may start another attempt, at least 10 seconds after the failed one; a network change starts one at once.
+- **Seqs:** a reconnect under the same launch key (the same `rikey`) continues the client's seq where the earlier connection left it, since the host keeps the last seq per launch key; a new launch starts at 1.
 - **Metered networks:** moving onto a metered network carries the stream on only with "Continue on mobile data" on (default off).
 
 ## Security

@@ -18,6 +18,8 @@
 
 use std::collections::VecDeque;
 use std::fmt;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use aes_gcm::aead::generic_array::GenericArray;
@@ -189,13 +191,36 @@ struct Confirming {
     since: Instant,
 }
 
-/// The client's roaming state for one session.
+/// The last seq a client sent under one launch key. The host keeps the last seq per sender
+/// per launch key, so a reconnect under the same `rikey` carries it on; a fresh one starts
+/// at 0.
+#[derive(Clone, Debug, Default)]
+pub struct LaunchSeq(Arc<AtomicU32>);
+
+impl LaunchSeq {
+    /// The last seq sent, 0 before the first.
+    pub fn last(&self) -> u32 {
+        self.0.load(Ordering::Relaxed)
+    }
+
+    /// Takes the next seq; None once exhausted.
+    fn next(&self) -> Option<u32> {
+        self.0
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |seq| {
+                seq.checked_add(1)
+            })
+            .ok()
+            .map(|last| last + 1)
+    }
+}
+
+/// The client's roaming state for one control connection.
 pub struct Roaming {
     gcm: Aes128Gcm,
     session_tag: [u8; SESSION_TAG_BYTES],
     give_up: Duration,
-    /// The last seq this client sent.
-    sent_seq: u32,
+    /// The last seq this client sent under the launch key.
+    sent_seq: LaunchSeq,
     /// The last seq accepted from the host.
     host_seq: u32,
     attempt: Option<Attempt>,
@@ -206,12 +231,17 @@ pub struct Roaming {
 impl Roaming {
     /// Attempts give up after `give_up`, at most [`MAX_ATTEMPT`].
     pub fn new(rikey: &Key, give_up: Duration) -> Self {
+        Self::with_seq(rikey, give_up, LaunchSeq::default())
+    }
+
+    /// [`Roaming::new`] continuing the seqs an earlier connection under `rikey` sent.
+    pub fn with_seq(rikey: &Key, give_up: Duration, sent_seq: LaunchSeq) -> Self {
         let (key, session_tag) = derive(rikey);
         Self {
             gcm: Aes128Gcm::new(GenericArray::from_slice(&key)),
             session_tag,
             give_up: give_up.min(MAX_ATTEMPT),
-            sent_seq: 0,
+            sent_seq,
             host_seq: 0,
             attempt: None,
             outgoing: VecDeque::new(),
@@ -388,10 +418,9 @@ impl Roaming {
 
     /// Seals `payload` under the next seq; false once seq is exhausted.
     fn send(&mut self, payload: Payload) -> bool {
-        let Some(seq) = self.sent_seq.checked_add(1) else {
+        let Some(seq) = self.sent_seq.next() else {
             return false;
         };
-        self.sent_seq = seq;
         let header = Header {
             kind: payload.kind(),
             session_tag: self.session_tag,
@@ -882,7 +911,7 @@ mod tests {
     fn an_exhausted_seq_fails_the_attempt() {
         let now = Instant::now();
         let mut roaming = Roaming::new(&vectors::RIKEY, MAX_ATTEMPT);
-        roaming.sent_seq = u32::MAX;
+        roaming.sent_seq.0.store(u32::MAX, Ordering::Relaxed);
         roaming.start(now, RoamTrigger::NetworkChanged, 0, NONCE);
         assert_eq!(roaming.poll(now), None);
         assert!(sent(&mut roaming).is_empty());
@@ -890,6 +919,28 @@ mod tests {
             roaming.take_events()[..],
             [RoamEvent::Started { .. }, RoamEvent::Failed { .. }]
         ));
+    }
+
+    #[test]
+    fn a_reconnect_under_the_same_key_continues_the_seqs() {
+        let now = Instant::now();
+        let seq = LaunchSeq::default();
+        let host = FakeHost::new();
+        let mut seqs = Vec::new();
+        for _ in 0..2 {
+            let mut roaming = Roaming::with_seq(&vectors::RIKEY, MAX_ATTEMPT, seq.clone());
+            roaming.start(now, RoamTrigger::NetworkChanged, 0, NONCE);
+            roaming.poll(now);
+            roaming.poll(now + FAST_PROBE_INTERVAL);
+            seqs.extend(sent(&mut roaming).iter().map(|wire| host.open(wire).0.seq));
+        }
+        assert_eq!(seqs, [1, 2, 3, 4]);
+        assert_eq!(seq.last(), 4);
+        // A fresh launch's seqs start over.
+        let mut roaming = Roaming::new(&vectors::RIKEY, MAX_ATTEMPT);
+        roaming.start(now, RoamTrigger::NetworkChanged, 0, NONCE);
+        roaming.poll(now);
+        assert_eq!(host.open(&sent(&mut roaming)[0]).0.seq, 1);
     }
 
     /// The payloads of `wires`, in order.

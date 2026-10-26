@@ -9,21 +9,46 @@
 //! commits, and the control stream pings ENet on Roamed, so nothing else is reset here. A
 //! roam that fails leaves the stream to the network grace period and the app's recovery.
 
+use std::collections::VecDeque;
 use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use rubylight_protocol::roaming::SESSION_TAG_BYTES;
+
 use super::net::{self, NextSocket, PingHandle, StopSignal};
 use super::{Microphone, Shared};
 use crate::control::driver::ControlHandle;
+use crate::crypto::Key;
 use crate::priority::Qos;
+use crate::roaming::{self, LaunchSeq};
 
 /// How often the route toward the host is looked up.
 const ROUTE_POLL: Duration = Duration::from_secs(1);
 /// With [`RoamingConfig::platform_hints`], how long after a hint the route poll may move.
 const HINT_WINDOW: Duration = Duration::from_secs(5);
+/// Launch keys whose roaming seqs are kept; a reconnect reuses one of the newest launches.
+const LAUNCH_SEQS: usize = 4;
+
+/// The roaming seqs sent under `rikey` by earlier connections of this process. The host
+/// keeps the last seq per sender per launch key, so a reconnect under the same key must
+/// continue above it or its PROBEs are dropped as replays.
+pub(super) fn launch_seq(rikey: &Key) -> LaunchSeq {
+    static SEQS: Mutex<VecDeque<([u8; SESSION_TAG_BYTES], LaunchSeq)>> =
+        Mutex::new(VecDeque::new());
+    // The session tag stands for the key, which stays out of the registry.
+    let (_, tag) = roaming::derive(rikey);
+    let mut seqs = lock(&SEQS);
+    let seq = match seqs.iter().position(|(known, _)| *known == tag) {
+        Some(index) => seqs.remove(index).expect("found").1,
+        None => LaunchSeq::default(),
+    };
+    seqs.truncate(LAUNCH_SEQS - 1);
+    seqs.push_front((tag, seq.clone()));
+    seq
+}
 
 /// Client roaming (Experimental): keep the stream across a network change. It acts only
 /// when the host advertised roaming.
@@ -248,5 +273,26 @@ impl Roamer {
         }
         state.local = local;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_launch_key_keeps_its_seqs_among_the_newest_launches() {
+        // Keys of their own: the registry is shared by the whole test process.
+        let key = |n: u8| [0xA0, n, 0x5E, 0x9C, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+        let now = Instant::now();
+        let mut first = roaming::Roaming::with_seq(&key(0), HINT_WINDOW, launch_seq(&key(0)));
+        first.start(now, roaming::RoamTrigger::HostSilent, 0, 1);
+        first.poll(now);
+        assert_eq!(launch_seq(&key(0)).last(), 1);
+        // Newer launches push the oldest out.
+        for n in 1..=LAUNCH_SEQS as u8 {
+            assert_eq!(launch_seq(&key(n)).last(), 0);
+        }
+        assert_eq!(launch_seq(&key(0)).last(), 0);
     }
 }

@@ -12,7 +12,7 @@ use butterpollo_core::packet::{decrypt_control, encrypted_control};
 use nightjar_core::control::driver::{connect, ConnectError, DriverConfig, Outcome, Warn};
 use nightjar_core::control::negotiation::encryption;
 use nightjar_core::control::{ClientMessage, ControlEvent, HostCapabilities, SessionOptions};
-use nightjar_core::roaming::{RoamEvent, RoamTrigger};
+use nightjar_core::roaming::{LaunchSeq, RoamEvent, RoamTrigger};
 use rubylight_protocol::control::{ClockSyncReply, Reconfigure};
 use rubylight_protocol::roaming::{is_roaming, Datagram, Header, Kind, Payload};
 use rusty_enet::{Event, Host, HostSettings, Packet, PacketReceived, PeerID, MTU_MAX};
@@ -575,6 +575,16 @@ impl TestHost<Roamable> {
             .collect()
     }
 
+    /// The seqs of the roaming datagrams received so far.
+    fn roam_seqs(&self) -> Vec<u32> {
+        self.host
+            .socket()
+            .roaming
+            .iter()
+            .map(|(_, data)| Datagram::decode(data).unwrap().header.seq)
+            .collect()
+    }
+
     fn roam_reply(&self, to: SocketAddr, gcm: &aes_gcm::Aes128Gcm, seq: u32, payload: Payload) {
         let (_, session_tag) = nightjar_core::roaming::derive(&KEY);
         let header = Header {
@@ -602,10 +612,25 @@ fn run_roamable(
     nightjar_core::control::driver::ControlHandle,
     mpsc::Receiver<ControlEvent>,
 ) {
+    run_roamable_after(host, caps, LaunchSeq::default())
+}
+
+/// [`run_roamable`] for a reconnect under the same key: `roam_seq` holds the seqs the
+/// earlier connections sent.
+fn run_roamable_after(
+    host: &mut TestHost<Roamable>,
+    caps: HostCapabilities,
+    roam_seq: LaunchSeq,
+) -> (
+    thread::JoinHandle<Outcome>,
+    nightjar_core::control::driver::ControlHandle,
+    mpsc::Receiver<ControlEvent>,
+) {
     let config = DriverConfig {
         connect_data: CONNECT_DATA,
         roaming: true,
         network_grace: Duration::from_secs(20),
+        roam_seq,
         ..DriverConfig::new(host.host.socket().socket.local_addr().unwrap())
     };
     let connecting =
@@ -817,6 +842,92 @@ fn a_network_change_during_a_silence_is_not_cancelled_by_a_straggler() {
     handle.stop();
     host.until("disconnect", |h| h.disconnected);
     assert_eq!(running.join().unwrap(), Outcome::Stopped);
+}
+
+/// Roams on a network change, answering like the Rubylight host only a PROBE whose seq is
+/// above `seen`, the last it accepted under the key, with replies at `host_seq` and the next.
+fn roam_above(
+    host: &mut TestHost<Roamable>,
+    handle: &nightjar_core::control::driver::ControlHandle,
+    events: &mpsc::Receiver<ControlEvent>,
+    seen: u32,
+    host_seq: u32,
+) {
+    let gcm = roam_gcm();
+    assert!(handle.network_changed(true));
+    host.until("a PROBE above the seqs seen", |h| {
+        h.roam_seqs().iter().any(|&seq| seq > seen)
+    });
+    let (from, nonce_c) = host
+        .roam_seqs()
+        .into_iter()
+        .zip(host.roam_payloads(&gcm))
+        .find_map(|(seq, (from, payload))| match payload {
+            Payload::Probe { nonce_c, .. } if seq > seen => Some((from, nonce_c)),
+            _ => None,
+        })
+        .unwrap();
+    host.roam_reply(
+        from,
+        &gcm,
+        host_seq,
+        Payload::Challenge {
+            nonce_c,
+            challenge: 55,
+        },
+    );
+    host.until("confirm", |h| {
+        h.roam_payloads(&gcm)
+            .contains(&(from, Payload::Confirm { challenge: 55 }))
+    });
+    host.roam_reply(
+        from,
+        &gcm,
+        host_seq + 1,
+        Payload::Migrated { challenge: 55 },
+    );
+    let seen = roam_events(host, events, |e| !matches!(e, RoamEvent::Started { .. }));
+    assert!(
+        matches!(
+            seen[..],
+            [RoamEvent::Started { .. }, RoamEvent::Roamed { .. }]
+        ),
+        "{seen:?}"
+    );
+}
+
+/// Strictly increasing.
+fn increasing(seqs: &[u32]) -> bool {
+    seqs.windows(2).all(|pair| pair[0] < pair[1])
+}
+
+#[test]
+fn a_reconnect_under_the_same_key_roams_with_higher_seqs() {
+    let caps = HostCapabilities {
+        client_roaming: true,
+        ..caps()
+    };
+    let roam_seq = LaunchSeq::default();
+    let mut first = TestHost::roamable();
+    let (running, handle, events) = run_roamable_after(&mut first, caps.clone(), roam_seq.clone());
+    roam_above(&mut first, &handle, &events, 0, 1);
+    handle.stop();
+    first.until("disconnect", |h| h.disconnected);
+    assert_eq!(running.join().unwrap(), Outcome::Stopped);
+    let before = first.roam_seqs();
+    assert!(increasing(&before), "{before:?}");
+    let last = *before.last().unwrap();
+
+    // The same launch again: the host still holds the seqs it saw under the key.
+    let mut second = TestHost::roamable();
+    let (running, handle, events) = run_roamable_after(&mut second, caps, roam_seq);
+    roam_above(&mut second, &handle, &events, last, 3);
+    handle.stop();
+    second.until("disconnect", |h| h.disconnected);
+    assert_eq!(running.join().unwrap(), Outcome::Stopped);
+    let after = second.roam_seqs();
+    assert!(increasing(&after), "{after:?}");
+    assert!(after[0] > last, "{before:?} then {after:?}");
 }
 
 #[test]

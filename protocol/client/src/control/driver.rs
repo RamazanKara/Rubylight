@@ -36,7 +36,7 @@ use super::wire::{channel, Delivery};
 use crate::crypto::Key;
 use crate::input::{InputPacket, InputQueue};
 use crate::priority;
-use crate::roaming::{RoamEvent, RoamTrigger, Roaming};
+use crate::roaming::{LaunchSeq, RoamEvent, RoamTrigger, Roaming};
 
 /// The ENet peer timeout without a network grace period.
 pub const CONTROL_PEER_TIMEOUT: Duration = Duration::from_secs(10);
@@ -101,6 +101,9 @@ pub struct DriverConfig {
     /// The client's roaming setting. Probes go out only when the host also advertised
     /// roaming ([`HostCapabilities::client_roaming`]).
     pub roaming: bool,
+    /// The roaming seqs sent under this launch key; a reconnect under the same key passes the
+    /// earlier connection's, since the host rejects seqs it has seen.
+    pub roam_seq: LaunchSeq,
     pub warn: Warn,
 }
 
@@ -116,6 +119,7 @@ impl DriverConfig {
             unbatched_input: false,
             input_disabled: false,
             roaming: false,
+            roam_seq: LaunchSeq::default(),
             warn: Warn::default(),
         }
     }
@@ -758,7 +762,8 @@ pub fn connect(
         host,
         peer,
         shared,
-        roaming: roaming.then(|| Roaming::new(key, config.peer_timeout())),
+        roaming: roaming
+            .then(|| Roaming::with_seq(key, config.peer_timeout(), config.roam_seq.clone())),
         config,
         disconnect_held_since: None,
         disconnect_released_at: None,

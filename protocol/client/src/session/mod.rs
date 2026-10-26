@@ -825,6 +825,9 @@ fn start(
     let roaming = config.roaming.enabled && outcome.host_roaming;
     driver_config.local = (!roaming).then_some(local);
     driver_config.roaming = config.roaming.enabled;
+    if roaming {
+        driver_config.roam_seq = roam::launch_seq(&outcome.config.remote_input_aes_key);
+    }
     driver_config.connect_data = outcome.control_connect_data;
     driver_config.network_grace = config.network_grace;
     driver_config.unbatched_input = config.unbatched_input;

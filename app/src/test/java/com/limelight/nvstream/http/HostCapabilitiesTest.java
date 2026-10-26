@@ -129,14 +129,18 @@ public class HostCapabilitiesTest {
     }
 
     @Test
-    public void currentRubylightSupportsEverythingButCursorShapesTheNativeApiAndSleep() {
+    public void currentRubylightSupportsEverythingButCursorShapesTheNativeApiSleepAndFiles() {
         HostCapabilities caps = TestHosts.rubylight();
         assertEquals(Family.RUBYLIGHT, caps.family());
         assertEquals("2.2.21", caps.hostVersion());
-        assertEquals(EnumSet.complementOf(EnumSet.of(CURSOR_SHAPE, NATIVE_API, SLEEP)), caps.supported());
+        assertEquals(EnumSet.complementOf(EnumSet.of(CURSOR_SHAPE, NATIVE_API, SLEEP, FILE_UPLOAD, FILE_DOWNLOAD)),
+                caps.supported());
         assertNever(caps, CURSOR_SHAPE);
         assertReason(caps, NATIVE_API, Reason.UPDATE_HOST);
         assertReason(caps, SLEEP, Reason.UPDATE_HOST);
+        // File transfer rides on the native API, which this version lacks.
+        assertReason(caps, FILE_UPLOAD, Reason.UPDATE_HOST);
+        assertReason(caps, FILE_DOWNLOAD, Reason.UPDATE_HOST);
         assertEquals(-1, caps.nativeApiVersion());
     }
 
@@ -213,6 +217,75 @@ public class HostCapabilitiesTest {
         older.remove("sleepSupported");
         older.remove("sleepAllowed");
         assertReason(HostCapabilities.fromJson(older.toString()), SLEEP, Reason.UPDATE_HOST);
+    }
+
+    private static void assertAvailability(String line, HostCapabilities caps, Feature feature, String expected) {
+        Availability availability = caps.availability(feature);
+        switch (expected) {
+            case "supported": assertTrue(line, availability.isSupported()); break;
+            case "never": assertTrue(line, availability.isNever()); break;
+            case "unknown": assertTrue(line, availability.isUnknown()); break;
+            case "pair": assertReason(caps, feature, Reason.PAIR); break;
+            case "update_host": assertReason(caps, feature, Reason.UPDATE_HOST); break;
+            case "file_permission": assertReason(caps, feature, Reason.FILE_PERMISSION); break;
+            default: fail("unknown availability " + expected);
+        }
+        assertEquals(line, availability.isSupported(), caps.supported().contains(feature));
+    }
+
+    /** The cases the Rust parser reads too (http/capabilities.rs), so both gate file transfer alike. */
+    @Test
+    public void nativeCapabilitiesDecideFileTransferLikeTheRustParser() throws IOException, JSONException {
+        Path cases = Paths.get("../protocol/client/tests/fixtures/files/files-capabilities.txt");
+        if (!Files.exists(cases)) {
+            cases = Paths.get("protocol/client/tests/fixtures/files/files-capabilities.txt");
+        }
+        String capabilities = null;
+        int count = 0;
+        for (String line : Files.readAllLines(cases, StandardCharsets.UTF_8)) {
+            if (line.isEmpty() || line.startsWith("#")) {
+                continue;
+            }
+            String[] fields = line.split("\\|", 4);
+            HostCapabilities caps = TestHosts.caps(fields[3]);
+            // Serverinfo alone never decides file transfer on a host with the native API.
+            assertFalse(line, caps.has(FILE_UPLOAD));
+            assertFalse(line, caps.has(FILE_DOWNLOAD));
+            if (!"-".equals(fields[2])) {
+                capabilities = fields[2];
+                caps = caps.withNativeCapabilities(fields[2]);
+            }
+            assertAvailability(line, caps, FILE_UPLOAD, fields[0]);
+            assertAvailability(line, caps, FILE_DOWNLOAD, fields[1]);
+            HostCapabilities restored = HostCapabilities.fromJson(caps.toJson());
+            assertEquals(line, caps, restored);
+            assertEquals(line, caps.availability(FILE_UPLOAD), restored.availability(FILE_UPLOAD));
+            assertEquals(line, caps.availability(FILE_DOWNLOAD), restored.availability(FILE_DOWNLOAD));
+            count++;
+        }
+        assertEquals(13, count);
+        // Without serverinfo there is nothing to add to.
+        assertSame(HostCapabilities.UNKNOWN, HostCapabilities.UNKNOWN.withNativeCapabilities(capabilities));
+        // A body that is not a capabilities object is an error, not a host without file transfer.
+        HostCapabilities rubylight = caps("<RustHostVersion>3.1.0</RustHostVersion><PairStatus>1</PairStatus>"
+                + "<NativeApiVersion>1</NativeApiVersion>");
+        for (String damaged : new String[] {"", "[]", "{}", "{\"features\":[]}", "{\"permissions\":{}}",
+                "{\"features\":[\"files.upload\"],\"permissions\":{\"file_upload\":\"true\"}}",
+                "{\"features\":[\"files.upload\"],\"permissions\":{\"file_upload\":1}}"}) {
+            try {
+                rubylight.withNativeCapabilities(damaged);
+                fail(damaged);
+            } catch (JSONException expected) {
+                // Thrown, as it should be.
+            }
+        }
+        // Capabilities stored before the fields existed still load, with file transfer unknown.
+        JSONObject older = new JSONObject(rubylight.withNativeCapabilities(capabilities).toJson());
+        for (String key : new String[] {"nativeCapabilities", "filesUpload", "filesDownload", "fileUploadPermission",
+                "fileDownloadPermission"}) {
+            assertNotNull(key, older.remove(key));
+        }
+        assertUnknown(HostCapabilities.fromJson(older.toString()), FILE_UPLOAD, FILE_DOWNLOAD);
     }
 
     @Test

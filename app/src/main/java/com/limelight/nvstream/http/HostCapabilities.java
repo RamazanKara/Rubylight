@@ -6,6 +6,7 @@ import androidx.annotation.StringRes;
 
 import com.limelight.R;
 
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.xmlpull.v1.XmlPullParser;
@@ -60,7 +61,11 @@ public final class HostCapabilities {
         /** Rubylight's /api/native/v1: library, session actions, Radeon state. The UI shows its results, not its name. */
         NATIVE_API(0),
         /** Sleep PC (/power-actions/v1, Vibepollo's wire format): suspend an idle host. */
-        SLEEP(0);
+        SLEEP(0),
+        /** Upload files to the host (/api/native/v1/files). Known only after {@link #withNativeCapabilities}. */
+        FILE_UPLOAD(0),
+        /** List and download the host's files. Known only after {@link #withNativeCapabilities}. */
+        FILE_DOWNLOAD(0);
 
         @StringRes public final int label;
 
@@ -80,7 +85,8 @@ public final class HostCapabilities {
         VIRTUAL_DISPLAY_OFF(R.string.host_feature_reason_virtual_display_off),
         VIRTUAL_DISPLAY_DRIVER(R.string.host_feature_reason_virtual_display_driver),
         HARDWARE_METRICS_OFF(R.string.host_feature_reason_hardware_metrics_off),
-        SLEEP_PERMISSION(R.string.host_feature_reason_sleep_permission);
+        SLEEP_PERMISSION(R.string.host_feature_reason_sleep_permission),
+        FILE_PERMISSION(R.string.host_feature_reason_file_permission);
 
         @StringRes public final int text;
 
@@ -264,6 +270,42 @@ public final class HostCapabilities {
         }
     }
 
+    /**
+     * These capabilities with what the native API's GET /capabilities adds: the file transfer features and this
+     * device's file permissions. Read it again after every serverinfo refresh; until then the file features are
+     * unknown. A host never reached stays unknown. Throws for a body that is not a capabilities object.
+     */
+    public HostCapabilities withNativeCapabilities(String json) throws JSONException {
+        if (evidence == null) {
+            return UNKNOWN;
+        }
+        JSONObject capabilities = new JSONObject(json);
+        JSONArray features = capabilities.getJSONArray("features");
+        JSONObject permissions = capabilities.getJSONObject("permissions");
+        Evidence native_ = Evidence.fromJson(evidence.toJson());
+        native_.nativeCapabilities = true;
+        for (int i = 0; i < features.length(); i++) {
+            String feature = features.getString(i);
+            native_.filesUpload |= "files.upload".equals(feature);
+            native_.filesDownload |= "files.download".equals(feature);
+        }
+        native_.fileUploadPermission = permission(permissions, "file_upload");
+        native_.fileDownloadPermission = permission(permissions, "file_download");
+        return new HostCapabilities(native_);
+    }
+
+    /** False when absent, as from a host without file transfer; a value that is not a boolean is an error. */
+    private static boolean permission(JSONObject permissions, String key) throws JSONException {
+        if (!permissions.has(key)) {
+            return false;
+        }
+        Object value = permissions.get(key);
+        if (!(value instanceof Boolean)) {
+            throw new JSONException(key + " is not a boolean");
+        }
+        return (Boolean) value;
+    }
+
     /** Stored capabilities, or {@link #UNKNOWN} for anything missing, damaged or in another format. */
     public static HostCapabilities fromJson(String json) {
         if (json == null) {
@@ -403,6 +445,14 @@ public final class HostCapabilities {
         boolean sleepSupported;
         /** The host lets this paired client put it to sleep. */
         boolean sleepAllowed;
+        /** The native API's capabilities were read; the fields below come from them, not from serverinfo. */
+        boolean nativeCapabilities;
+        /** files.upload and files.download in the native features: on only while the host's setting is. */
+        boolean filesUpload;
+        boolean filesDownload;
+        /** This device's file_upload and file_download permissions. */
+        boolean fileUploadPermission;
+        boolean fileDownloadPermission;
 
         static Evidence parse(String serverInfo) throws XmlPullParserException, IOException {
             Evidence evidence = new Evidence();
@@ -675,6 +725,17 @@ public final class HostCapabilities {
                     if (!paired) return Availability.unsupported(Reason.PAIR);
                     if (powerActionVersion < 1 || !sleepSupported) return Availability.NEVER;
                     return sleepAllowed ? Availability.SUPPORTED : Availability.unsupported(Reason.SLEEP_PERMISSION);
+                case FILE_UPLOAD:
+                case FILE_DOWNLOAD: {
+                    // From the native capabilities: the host's features, then this device's permission.
+                    Availability nativeApi = availability(Feature.NATIVE_API);
+                    if (!nativeApi.isSupported()) return nativeApi;
+                    if (!nativeCapabilities) return Availability.UNKNOWN;
+                    boolean upload = feature == Feature.FILE_UPLOAD;
+                    if (!(upload ? filesUpload : filesDownload)) return Availability.NEVER;
+                    return (upload ? fileUploadPermission : fileDownloadPermission) ? Availability.SUPPORTED :
+                            Availability.unsupported(Reason.FILE_PERMISSION);
+                }
                 default:
                     throw new IllegalArgumentException(feature.name());
             }
@@ -700,7 +761,10 @@ public final class HostCapabilities {
                     .put("controllerPreparation", controllerPreparation).put("currentGameUuid", currentGameUuid)
                     .put("cursorShapeVersion", cursorShapeVersion).put("nativeApiVersion", nativeApiVersion)
                     .put("powerActionVersion", powerActionVersion).put("sleepSupported", sleepSupported)
-                    .put("sleepAllowed", sleepAllowed);
+                    .put("sleepAllowed", sleepAllowed).put("nativeCapabilities", nativeCapabilities)
+                    .put("filesUpload", filesUpload).put("filesDownload", filesDownload)
+                    .put("fileUploadPermission", fileUploadPermission)
+                    .put("fileDownloadPermission", fileDownloadPermission);
             if (rustHostVersion != null) object.put("rustHostVersion", rustHostVersion);
             if (frameLimiter != null) object.put("frameLimiter", frameLimiter);
             if (virtualDisplayCapable != null) object.put("virtualDisplayCapable", virtualDisplayCapable);
@@ -735,6 +799,11 @@ public final class HostCapabilities {
             evidence.powerActionVersion = object.optInt("powerActionVersion", -1);
             evidence.sleepSupported = object.optBoolean("sleepSupported", false);
             evidence.sleepAllowed = object.optBoolean("sleepAllowed", false);
+            evidence.nativeCapabilities = object.optBoolean("nativeCapabilities", false);
+            evidence.filesUpload = object.optBoolean("filesUpload", false);
+            evidence.filesDownload = object.optBoolean("filesDownload", false);
+            evidence.fileUploadPermission = object.optBoolean("fileUploadPermission", false);
+            evidence.fileDownloadPermission = object.optBoolean("fileDownloadPermission", false);
             if (evidence.permission < -1 || evidence.permission > 0xFFFFFFFFL || evidence.serverCommands < 0 ||
                     (evidence.rustHostVersion != null && evidence.rustHostVersion.isEmpty())) {
                 throw new JSONException("Invalid stored capabilities");
@@ -767,7 +836,10 @@ public final class HostCapabilities {
                     controllerPreparation == that.controllerPreparation && currentGameUuid == that.currentGameUuid &&
                     cursorShapeVersion == that.cursorShapeVersion && nativeApiVersion == that.nativeApiVersion &&
                     powerActionVersion == that.powerActionVersion && sleepSupported == that.sleepSupported &&
-                    sleepAllowed == that.sleepAllowed;
+                    sleepAllowed == that.sleepAllowed && nativeCapabilities == that.nativeCapabilities &&
+                    filesUpload == that.filesUpload && filesDownload == that.filesDownload &&
+                    fileUploadPermission == that.fileUploadPermission &&
+                    fileDownloadPermission == that.fileDownloadPermission;
         }
 
         @Override
@@ -776,7 +848,8 @@ public final class HostCapabilities {
                     virtualDisplayCapable, virtualDisplayDriverReady, virtualDisplayHdrCapable, frameLimiter,
                     pyroWaveFields, pyroWaveProbeBytes, pyroWaveCodecs, encoderBitrate, hardwareMetricsVersion,
                     networkPathVersion, controllerPreparation, currentGameUuid, cursorShapeVersion,
-                    nativeApiVersion, powerActionVersion, sleepSupported, sleepAllowed);
+                    nativeApiVersion, powerActionVersion, sleepSupported, sleepAllowed, nativeCapabilities, filesUpload,
+                    filesDownload, fileUploadPermission, fileDownloadPermission);
         }
     }
 }

@@ -28,6 +28,7 @@
     <string name="host_feature_reason_virtual_display_driver">主机的虚拟显示器驱动尚未就绪</string>
     <string name="host_feature_reason_hardware_metrics_off">请在主机设置中开启硬件指标</string>
     <string name="host_feature_reason_sleep_permission">此设备无权让电脑睡眠</string>
+    <string name="host_feature_reason_file_permission">此设备没有文件权限，请在主机的网页界面中允许</string>
     <string name="host_feature_unknown">如果主机支持则适用</string>
     <string name="host_details_software_apollo">兼容 Apollo 的主机</string>
     <string name="host_details_software_vibepollo">兼容 Vibepollo 的主机</string>

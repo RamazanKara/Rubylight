@@ -29,6 +29,7 @@
     <string name="host_feature_reason_virtual_display_driver">Treiber des virtuellen Displays am Host nicht bereit</string>
     <string name="host_feature_reason_hardware_metrics_off">Schalte die Hardwarewerte am Host ein</string>
     <string name="host_feature_reason_sleep_permission">Dieses Gerät darf den PC nicht schlafen legen</string>
+    <string name="host_feature_reason_file_permission">Kein Dateizugriff: erlaube ihn diesem Gerät in der Web-UI</string>
     <string name="host_feature_unknown">Gilt, wenn der Host es unterstützt</string>
 
     <string name="host_details_software_apollo">Apollo-kompatibler Host</string>

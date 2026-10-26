@@ -28,6 +28,7 @@
     <string name="host_feature_reason_virtual_display_driver">主機的虛擬顯示器驅動程式尚未就緒</string>
     <string name="host_feature_reason_hardware_metrics_off">請在主機的設定中開啟硬體指標</string>
     <string name="host_feature_reason_sleep_permission">此裝置無權讓電腦睡眠</string>
+    <string name="host_feature_reason_file_permission">此裝置沒有檔案權限，請在主機的網頁 UI 中允許</string>
     <string name="host_feature_unknown">主機支援時才會套用</string>
     <string name="host_details_software_apollo">與 Apollo 相容的主機</string>
     <string name="host_details_software_vibepollo">與 Vibepollo 相容的主機</string>

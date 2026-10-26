@@ -28,6 +28,7 @@
     <string name="host_feature_reason_virtual_display_driver">Драйвер віртуального дисплея хоста не готовий</string>
     <string name="host_feature_reason_hardware_metrics_off">Увімкніть показники обладнання в налаштуваннях хоста</string>
     <string name="host_feature_reason_sleep_permission">Цьому пристрою не дозволено переводити ПК у режим сну</string>
+    <string name="host_feature_reason_file_permission">Немає доступу до файлів: дозвольте у вебінтерфейсі хоста</string>
     <string name="host_feature_unknown">Діє, якщо хост це підтримує</string>
     <string name="host_details_software_apollo">Хост, сумісний з Apollo</string>
     <string name="host_details_software_vibepollo">Хост, сумісний з Vibepollo</string>

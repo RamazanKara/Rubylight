@@ -28,6 +28,7 @@
     <string name="host_feature_reason_virtual_display_driver">Le pilote d’écran virtuel de l’hôte n’est pas prêt</string>
     <string name="host_feature_reason_hardware_metrics_off">Activez les mesures matérielles dans les paramètres de l’hôte</string>
     <string name="host_feature_reason_sleep_permission">Cet appareil n’est pas autorisé à mettre le PC en veille</string>
+    <string name="host_feature_reason_file_permission">Pas d’accès aux fichiers : autorisez cet appareil sur l’hôte</string>
     <string name="host_feature_unknown">S’applique si l’hôte le prend en charge</string>
     <string name="host_details_software_apollo">Hôte compatible Apollo</string>
     <string name="host_details_software_vibepollo">Hôte compatible Vibepollo</string>

@@ -181,6 +181,9 @@ pub struct Host {
     /// The macroblocks per second the H.264, HEVC and AV1 encoders take (AMF throughput caps), 0 until probed.
     pub encoder_mb_rates: [std::sync::atomic::AtomicU64; 3],
     pub packed_modes: std::sync::atomic::AtomicU8,
+    /// The encoder focus check per codec and bit depth, indexed by
+    /// [`butterpollo_core::encoder_focus::support_index`].
+    focus_support: Mutex<[butterpollo_core::encoder_focus::Support; 5]>,
     pub probing_codecs: std::sync::atomic::AtomicBool,
     codec_probe_requested: std::sync::atomic::AtomicBool,
     /// True once the startup probe has published its standard codecs, or
@@ -430,6 +433,9 @@ impl Host {
             codecs: std::sync::atomic::AtomicU32::new(0),
             encoder_mb_rates: Default::default(),
             packed_modes: std::sync::atomic::AtomicU8::new(0),
+            focus_support: Mutex::new(std::array::from_fn(|_| {
+                butterpollo_core::encoder_focus::Support::NotProbed
+            })),
             probing_codecs: std::sync::atomic::AtomicBool::new(true),
             codec_probe_requested: std::sync::atomic::AtomicBool::new(false),
             startup_codecs: tokio::sync::watch::channel(false).0,
@@ -549,6 +555,17 @@ impl Host {
             }
         });
     }
+    /// The encoder focus check's verdict for a codec and bit depth.
+    pub fn focus_support(
+        &self,
+        codec: u8,
+        ten_bit: bool,
+    ) -> butterpollo_core::encoder_focus::Support {
+        butterpollo_core::encoder_focus::support_index(codec, ten_bit).map_or(
+            butterpollo_core::encoder_focus::Support::NotProbed,
+            |index| self.focus_support.lock().unwrap()[index].clone(),
+        )
+    }
     /// Keeps the throughput the encoder reports for its codec, for the WebRTC frame-rate
     /// offer. A driver that reports none leaves it 0, which limits the codec to 60 fps.
     fn record_throughput(&self, codec: u8, encoder: &butterpollo_windows::encoder::Encoder) {
@@ -608,6 +625,8 @@ impl Host {
         // The GPU the first encoder opened on, which wording a missing codec
         // must name: the probe may encode on a card other than the biggest.
         let mut adapter = String::new();
+        let mut focus: [butterpollo_core::encoder_focus::Support; 5] =
+            std::array::from_fn(|_| butterpollo_core::encoder_focus::Support::NotProbed);
         // Bits follow moonlight-common-c's SCM_* values. AMF encodes 4:2:0
         // only, so H.264, HEVC and AV1 advertise no 4:4:4 mode.
         for (codec, hdr, bit) in [
@@ -679,6 +698,13 @@ impl Host {
                             _ => std::thread::sleep(Duration::from_millis(5)),
                         }
                     }
+                    if outcome == butterpollo_core::codec_support::Outcome::Available
+                        && !busy()
+                        && let Some(index) =
+                            butterpollo_core::encoder_focus::support_index(codec, hdr)
+                    {
+                        focus[index] = focus_verdict(encoder.probe_focus());
+                    }
                     outcomes.push((probed, outcome));
                 }
                 Err(error) => {
@@ -692,6 +718,8 @@ impl Host {
             }
         }
         self.explain_codecs(&adapter, &outcomes, flags & STANDARD_CODECS != 0);
+        tracing::info!("encoder focus check: {}", focus_summary(&focus));
+        *self.focus_support.lock().unwrap() = focus;
         // Publish standard codecs together before the optional Vulkan
         // probe. A driver/overlay failure in that child cannot kill them.
         self.codecs
@@ -1048,6 +1076,27 @@ impl Host {
         Ok((access, refresh, csrf, refresh_deadline.saturating_sub(wall)))
     }
 }
+/// The focus check's verdict. Its error marks only this codec unsupported:
+/// the codec itself passed and stays offered.
+fn focus_verdict(
+    probe: Result<butterpollo_core::encoder_focus::Support>,
+) -> butterpollo_core::encoder_focus::Support {
+    probe.unwrap_or_else(
+        |error| butterpollo_core::encoder_focus::Support::Unsupported {
+            reason: butterpollo_core::encoder_focus::Reason::CodecUnsupported,
+            message: format!("the focus check failed: {error:#}"),
+        },
+    )
+}
+/// `h264=verified(+10.0) hevc=... av1_10=not_probed`.
+fn focus_summary(support: &[butterpollo_core::encoder_focus::Support; 5]) -> String {
+    butterpollo_core::encoder_focus::SUPPORT_NAMES
+        .iter()
+        .zip(support)
+        .map(|(name, support)| format!("{name}={}", support.summary()))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
 /// Names of the packed 4:4:4 modes in a `packed444Modes` mask.
 fn packed_mode_names(modes: u8) -> String {
     let names: Vec<_> = [
@@ -1105,6 +1154,25 @@ fn load_library(path: &std::path::Path, default: Value) -> Result<Value> {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_focus_check_error_marks_only_that_codec_unsupported() {
+        use butterpollo_core::encoder_focus::{Reason, Support};
+        let mut support: [Support; 5] = std::array::from_fn(|_| Support::NotProbed);
+        support[0] = focus_verdict(Ok(Support::Verified { delta: 10.0 }));
+        support[1] = focus_verdict(Err(anyhow::anyhow!("frame 3 was not encoded")));
+        support[3] = focus_verdict(Ok(Support::Verified { delta: 50.0 }));
+        assert_eq!(
+            support[1],
+            Support::Unsupported {
+                reason: Reason::CodecUnsupported,
+                message: "the focus check failed: frame 3 was not encoded".into(),
+            }
+        );
+        assert_eq!(
+            focus_summary(&support),
+            "h264=verified(+10.0) hevc=unsupported(the focus check failed: frame 3 was not encoded) hevc10=not_probed av1=verified(+50.0) av1_10=not_probed"
+        );
+    }
     #[test]
     fn packed_modes_are_logged_by_name() {
         assert_eq!(super::packed_mode_names(0), "none");

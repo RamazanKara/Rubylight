@@ -18,7 +18,7 @@ use axum::{
     http::{HeaderMap, Method, Uri, header},
     response::{IntoResponse, Response},
 };
-use butterpollo_core::power_action::{self, Authority, Request, Tokens};
+use butterpollo_core::power_action::{self, Authority, Request, SleepStates, Tokens};
 use std::{
     sync::{Arc, Mutex, MutexGuard, RwLock, mpsc},
     time::{Duration, Instant},
@@ -30,17 +30,17 @@ const DELIVERY_WAIT: Duration = Duration::from_secs(2);
 /// A sleep request has an empty body; reading stops past this many bytes.
 const BODY_LIMIT: usize = 1024;
 
-/// Whether this PC can sleep, and the suspend itself.
+/// The sleep states this PC reports, and the suspend itself.
 pub trait Backend: Send + Sync {
-    fn supported(&self) -> bool;
+    fn states(&self) -> Result<SleepStates>;
     fn suspend(&self) -> Result<()>;
 }
 #[cfg(not(test))]
 struct Native;
 #[cfg(not(test))]
 impl Backend for Native {
-    fn supported(&self) -> bool {
-        butterpollo_windows::power::sleep_supported()
+    fn states(&self) -> Result<SleepStates> {
+        butterpollo_windows::power::sleep_states()
     }
     fn suspend(&self) -> Result<()> {
         butterpollo_windows::power::suspend()
@@ -52,11 +52,30 @@ impl Backend for Native {
 struct Native;
 #[cfg(test)]
 impl Backend for Native {
-    fn supported(&self) -> bool {
-        false
+    fn states(&self) -> Result<SleepStates> {
+        Ok(SleepStates::default())
     }
     fn suspend(&self) -> Result<()> {
         panic!("a test reached the native suspend")
+    }
+}
+/// A PC with these sleep states, for tests that never suspend.
+#[cfg(test)]
+pub struct FixedStates(pub SleepStates);
+#[cfg(test)]
+impl Backend for FixedStates {
+    fn states(&self) -> Result<SleepStates> {
+        Ok(self.0)
+    }
+    fn suspend(&self) -> Result<()> {
+        panic!("a test reached the suspend of a fixed backend")
+    }
+}
+/// Why Sleep PC is unavailable, `None` on a PC with S1, S2 or S3.
+fn unavailable(states: &Result<SleepStates>) -> Option<String> {
+    match states {
+        Ok(states) => states.unavailable().map(str::to_owned),
+        Err(error) => Some(format!("{error:#}")),
     }
 }
 
@@ -76,9 +95,25 @@ impl PowerActions {
     fn backend(&self) -> Arc<dyn Backend> {
         self.backend.read().unwrap().clone()
     }
-    /// `SleepSupported` in serverinfo.
+    /// `SleepSupported` in serverinfo: only a PC with S1, S2 or S3.
     pub fn supported(&self) -> bool {
-        self.backend().supported()
+        self.unavailable().is_none()
+    }
+    /// Why Sleep PC is unavailable here, for the console; `None` when it is.
+    pub fn unavailable(&self) -> Option<String> {
+        unavailable(&self.backend().states())
+    }
+    /// Once at startup: whether Sleep PC is available, and why not.
+    pub fn log_availability(&self) {
+        match self.backend().states() {
+            Err(error) => tracing::warn!("Sleep PC is unavailable: {error:#}"),
+            Ok(states) => match states.unavailable() {
+                Some(reason) => {
+                    tracing::info!(states = %states.describe(), "Sleep PC is unavailable: {reason}")
+                }
+                None => tracing::info!(states = %states.describe(), "Sleep PC is available"),
+            },
+        }
     }
     #[cfg(test)]
     pub fn set_backend(&self, backend: Arc<dyn Backend>) {
@@ -187,7 +222,7 @@ fn sleep_blocking(
     let decision = h.power.tokens.lock().unwrap().sleep(
         request,
         caller.as_ref(),
-        || backend.supported(),
+        || unavailable(&backend.states()).is_none(),
         || idle(h),
         Instant::now(),
     );

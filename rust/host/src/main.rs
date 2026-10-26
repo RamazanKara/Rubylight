@@ -431,6 +431,7 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
         web_port = ports.web,
         "Butterpollo Rust host started"
     );
+    h.power.log_availability();
     // A block rule, left when Windows' "allow access" prompt was dismissed,
     // overrides the installer's allow rule: say so rather than leave users to
     // open ports by hand. Only a host listening on the network is affected.

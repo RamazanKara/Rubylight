@@ -1,8 +1,9 @@
 //! Sleep PC: whether Windows can sleep, and the suspend itself, as
 //! Vibepollo does it (`src/power_action_native.cpp`). It asks Windows for
-//! sleep, not hibernate, with wake events enabled so Wake-on-LAN still
-//! works. What a Modern Standby PC does with that request is not measured.
+//! sleep with wake events enabled, and only on a PC with S1, S2 or S3: a
+//! Modern Standby laptop with hibernate on hibernated instead.
 use anyhow::{Result, bail};
+use butterpollo_core::power_action::SleepStates;
 use windows::{
     Win32::{
         Foundation::{
@@ -21,40 +22,27 @@ use windows::{
     core::{HRESULT, w},
 };
 
-fn capabilities() -> Option<SYSTEM_POWER_CAPABILITIES> {
-    let mut caps = SYSTEM_POWER_CAPABILITIES::default();
-    // SAFETY: caps is a writable, correctly sized structure for this call.
-    unsafe { GetPwrCapabilities(&mut caps) }.then_some(caps)
-}
-fn can_sleep(caps: &SYSTEM_POWER_CAPABILITIES) -> bool {
-    caps.SystemS1 || caps.SystemS2 || caps.SystemS3 || caps.AoAc
-}
-/// The sleep states Windows reports, for the log: "S3, hibernate on".
-fn describe(caps: &SYSTEM_POWER_CAPABILITIES) -> String {
-    let states: Vec<_> = [
-        (caps.SystemS1, "S1"),
-        (caps.SystemS2, "S2"),
-        (caps.SystemS3, "S3"),
-        (caps.AoAc, "Modern Standby"),
-    ]
-    .into_iter()
-    .filter_map(|(present, name)| present.then_some(name))
-    .collect();
-    let hibernate = caps.SystemS4 && caps.HiberFilePresent;
-    format!(
-        "{}, hibernate {}",
-        if states.is_empty() {
-            "no sleep state".to_owned()
-        } else {
-            states.join(", ")
-        },
-        if hibernate { "on" } else { "off" }
-    )
+fn states(caps: &SYSTEM_POWER_CAPABILITIES) -> SleepStates {
+    SleepStates {
+        s1: caps.SystemS1,
+        s2: caps.SystemS2,
+        s3: caps.SystemS3,
+        modern_standby: caps.AoAc,
+        hibernate: caps.SystemS4 && caps.HiberFilePresent,
+    }
 }
 
-/// Whether the PC has a sleep state: S1 to S3, or Modern Standby.
-pub fn sleep_supported() -> bool {
-    capabilities().is_some_and(|caps| can_sleep(&caps))
+/// The sleep states this PC reports.
+pub fn sleep_states() -> Result<SleepStates> {
+    let mut caps = SYSTEM_POWER_CAPABILITIES::default();
+    // SAFETY: caps is a writable, correctly sized structure for this call.
+    if !unsafe { GetPwrCapabilities(&mut caps) } {
+        bail!(
+            "could not read this PC's power capabilities: {}",
+            windows::core::Error::from_thread()
+        );
+    }
+    Ok(states(&caps))
 }
 
 /// The calling thread's token with shutdown privilege enabled, restored
@@ -153,21 +141,16 @@ fn shutdown_privilege() -> Result<ShutdownPrivilege> {
     Ok(guard)
 }
 
-/// Ask Windows to sleep, not hibernate. Windows may still refuse; the call
-/// returns after the PC wakes.
+/// Ask Windows to sleep, on a PC with S1, S2 or S3 only. Windows may still
+/// refuse; the call returns after the PC wakes.
 pub fn suspend() -> Result<()> {
-    let Some(caps) = capabilities() else {
-        bail!(
-            "could not read this PC's power capabilities: {}",
-            windows::core::Error::from_thread()
-        );
-    };
-    if !can_sleep(&caps) {
-        bail!("this PC has no sleep state ({})", describe(&caps));
+    let states = sleep_states()?;
+    if let Some(reason) = states.unavailable() {
+        bail!("Sleep PC is unavailable: {reason} ({})", states.describe());
     }
     let _privilege = shutdown_privilege()?;
-    tracing::warn!(states = %describe(&caps), "Sleep PC asks Windows for sleep, not hibernate");
-    // SAFETY: plain call; sleep, not hibernate, not forced, wake events kept.
+    tracing::warn!("Sleep PC suspending: {}", states.describe());
+    // SAFETY: plain call; hibernate not asked for, not forced, wake events kept.
     if !unsafe { SetSuspendState(false, false, false) } {
         bail!(
             "Windows refused to sleep: {}",
@@ -182,7 +165,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_log_names_the_sleep_states_and_hibernate() {
+    fn windows_capabilities_become_sleep_states() {
         let caps = |s3, aoac, s4, file| SYSTEM_POWER_CAPABILITIES {
             SystemS3: s3,
             AoAc: aoac,
@@ -190,21 +173,34 @@ mod tests {
             HiberFilePresent: file,
             ..Default::default()
         };
-        let desktop = caps(true, false, true, true);
-        assert_eq!(describe(&desktop), "S3, hibernate on");
-        assert!(can_sleep(&desktop));
-        // Modern Standby only, still offered; hibernate needs its file.
-        let standby = caps(false, true, true, false);
-        assert_eq!(describe(&standby), "Modern Standby, hibernate off");
-        assert!(can_sleep(&standby));
-        let none = caps(false, false, false, false);
-        assert_eq!(describe(&none), "no sleep state, hibernate off");
-        assert!(!can_sleep(&none));
+        let desktop = states(&caps(true, false, true, true));
+        assert_eq!(desktop.describe(), "S3 available, hibernate on");
+        assert_eq!(desktop.unavailable(), None);
+        // The 780M laptop: Modern Standby only, hibernate on.
+        let laptop = states(&caps(false, true, true, true));
+        assert_eq!(laptop.describe(), "Modern Standby available, hibernate on");
+        assert!(laptop.unavailable().is_some());
+        // Hibernate needs its file.
+        let standby = states(&caps(false, true, true, false));
+        assert_eq!(
+            standby.describe(),
+            "Modern Standby available, hibernate off"
+        );
+        assert!(standby.unavailable().is_some());
         let all = SYSTEM_POWER_CAPABILITIES {
             SystemS1: true,
             SystemS2: true,
             ..caps(true, true, true, true)
         };
-        assert_eq!(describe(&all), "S1, S2, S3, Modern Standby, hibernate on");
+        assert_eq!(
+            states(&all),
+            SleepStates {
+                s1: true,
+                s2: true,
+                s3: true,
+                modern_standby: true,
+                hibernate: true,
+            }
+        );
     }
 }

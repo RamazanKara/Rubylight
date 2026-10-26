@@ -40,7 +40,14 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                     v
                 })
                 .collect();
-            json!({"status":true,"clients":clients,"named_certs":clients})
+            // Sleep PC is the PC's: the console shows why it is unavailable
+            // instead of the device's toggle.
+            json!({
+                "status": true,
+                "clients": clients,
+                "named_certs": clients,
+                "sleep_unavailable": h.power.unavailable(),
+            })
         }
         ("POST", "/api/clients/unpair") => {
             let canceled = h.sessions.lock().unwrap().request_stop(Some(text("uuid")));
@@ -256,6 +263,7 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
 mod tests {
     use super::handle;
     use crate::state::test_support::Fixture;
+    use butterpollo_core::power_action::SleepStates;
     use serde_json::json;
 
     /// What the console grants an ordinary device.
@@ -385,6 +393,43 @@ mod tests {
             json!({"uuid": client.uuid, "virtual_display_layout": "exclusive"}),
         );
         assert_eq!(layout_settings(&f), (Some(json!("exclusive")), true, false));
+    }
+
+    #[test]
+    fn the_device_list_says_why_sleep_pc_is_unavailable() {
+        let f = Fixture::new();
+        f.client(PERM);
+        let reason = |states| {
+            f.host
+                .power
+                .set_backend(std::sync::Arc::new(crate::power_action::FixedStates(
+                    states,
+                )));
+            handle(&f.host, "GET", "/api/clients/list", &json!({})).unwrap()["sleep_unavailable"]
+                .clone()
+        };
+        let desktop = SleepStates {
+            s3: true,
+            hibernate: true,
+            ..Default::default()
+        };
+        assert_eq!(reason(desktop), json!(null));
+        for hibernate in [true, false] {
+            let laptop = SleepStates {
+                modern_standby: true,
+                hibernate,
+                ..Default::default()
+            };
+            assert_eq!(reason(laptop), json!(laptop.unavailable().unwrap()));
+        }
+        assert_eq!(
+            reason(SleepStates {
+                modern_standby: true,
+                hibernate: true,
+                ..Default::default()
+            }),
+            json!("this PC only has Modern Standby, so Windows would hibernate it")
+        );
     }
 
     #[test]

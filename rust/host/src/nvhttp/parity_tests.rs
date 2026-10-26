@@ -4,6 +4,7 @@ use axum::{
     body::{Body, to_bytes},
     http::Request,
 };
+use butterpollo_core::power_action::SleepStates;
 use std::sync::atomic::Ordering;
 use tower::ServiceExt;
 
@@ -926,6 +927,30 @@ async fn serverinfo_offers_sleep_fields_to_paired_https_clients_only() {
     assert_eq!(field(&root, "SleepAllowed"), "0");
     client.extra.insert("allow_sleep".into(), true.into());
     assert_eq!(field(&document(info(&client)).await, "SleepAllowed"), "1");
+    // Only S1 to S3 count: Modern Standby alone hibernated a laptop.
+    let supported = |states| {
+        f.host
+            .power
+            .set_backend(std::sync::Arc::new(crate::power_action::FixedStates(
+                states,
+            )));
+        let root = info(&client);
+        async move { field(&document(root).await, "SleepSupported") }
+    };
+    let s3 = SleepStates {
+        s3: true,
+        hibernate: true,
+        ..Default::default()
+    };
+    assert_eq!(supported(s3).await, "1");
+    for hibernate in [true, false] {
+        let laptop = SleepStates {
+            modern_standby: true,
+            hibernate,
+            ..Default::default()
+        };
+        assert_eq!(supported(laptop).await, "0", "hibernate {hibernate}");
+    }
 }
 
 #[tokio::test]

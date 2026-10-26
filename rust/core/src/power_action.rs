@@ -20,6 +20,55 @@ pub const MAX_TOKENS: usize = 256;
 
 const NO_IDENTITY: &str = "A paired TLS client identity is required";
 
+/// The sleep states Windows reports for this PC.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SleepStates {
+    pub s1: bool,
+    pub s2: bool,
+    pub s3: bool,
+    pub modern_standby: bool,
+    /// S4 with its hibernation file present.
+    pub hibernate: bool,
+}
+impl SleepStates {
+    /// Why Sleep PC is unavailable, `None` when the PC has S1, S2 or S3.
+    /// Modern Standby alone is not enough: Windows has no call to enter it,
+    /// and on such a laptop with hibernate on the request hibernated the PC.
+    pub fn unavailable(&self) -> Option<&'static str> {
+        if self.s1 || self.s2 || self.s3 {
+            return None;
+        }
+        Some(match (self.modern_standby, self.hibernate) {
+            (true, true) => "this PC only has Modern Standby, so Windows would hibernate it",
+            (true, false) => {
+                "this PC only has Modern Standby, which Windows offers no call to enter"
+            }
+            (false, _) => "this PC has no sleep state",
+        })
+    }
+    /// For the log: "S3 available, hibernate on".
+    pub fn describe(&self) -> String {
+        let states: Vec<_> = [
+            (self.s1, "S1"),
+            (self.s2, "S2"),
+            (self.s3, "S3"),
+            (self.modern_standby, "Modern Standby"),
+        ]
+        .into_iter()
+        .filter_map(|(present, name)| present.then_some(name))
+        .collect();
+        format!(
+            "{}, hibernate {}",
+            if states.is_empty() {
+                "no sleep state".to_owned()
+            } else {
+                format!("{} available", states.join(", "))
+            },
+            if self.hibernate { "on" } else { "off" }
+        )
+    }
+}
+
 /// The caller, as its paired TLS certificate identifies it.
 #[derive(Clone, Debug)]
 pub struct Authority {
@@ -548,6 +597,53 @@ mod tests {
             assert_eq!(r.status, 400);
         }
         assert!(!Request::parse(true, None, 0, false).valid_shape);
+    }
+
+    #[test]
+    fn sleep_pc_needs_s1_to_s3_and_says_why_not() {
+        let states = |s3, modern_standby, hibernate| SleepStates {
+            s3,
+            modern_standby,
+            hibernate,
+            ..Default::default()
+        };
+        let desktop = states(true, false, true);
+        assert_eq!(desktop.unavailable(), None);
+        assert_eq!(desktop.describe(), "S3 available, hibernate on");
+        // S3 beside Modern Standby still sleeps.
+        assert_eq!(states(true, true, false).unavailable(), None);
+        let s1 = SleepStates {
+            s1: true,
+            ..Default::default()
+        };
+        assert_eq!(s1.unavailable(), None);
+        let laptop = states(false, true, true);
+        assert_eq!(
+            laptop.unavailable(),
+            Some("this PC only has Modern Standby, so Windows would hibernate it")
+        );
+        assert_eq!(laptop.describe(), "Modern Standby available, hibernate on");
+        let no_hibernate = states(false, true, false);
+        assert_eq!(
+            no_hibernate.unavailable(),
+            Some("this PC only has Modern Standby, which Windows offers no call to enter")
+        );
+        assert_eq!(
+            no_hibernate.describe(),
+            "Modern Standby available, hibernate off"
+        );
+        let none = states(false, false, true);
+        assert_eq!(none.unavailable(), Some("this PC has no sleep state"));
+        assert_eq!(none.describe(), "no sleep state, hibernate on");
+        let all = SleepStates {
+            s1: true,
+            s2: true,
+            ..states(true, true, true)
+        };
+        assert_eq!(
+            all.describe(),
+            "S1, S2, S3, Modern Standby available, hibernate on"
+        );
     }
 
     #[test]

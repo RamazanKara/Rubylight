@@ -8,17 +8,19 @@ use butterpollo_core::{session::Role, state::Client};
 use std::sync::{Weak, atomic::AtomicUsize, atomic::Ordering};
 use tower::ServiceExt;
 
-/// Counts suspends and records whether the lifecycle gate was held. With
-/// `hold`, a suspend waits for the test to let it return.
+/// A desktop with S3, unless the test sets other states. Counts suspends
+/// and records whether the lifecycle gate was held. With `hold`, a suspend
+/// waits for the test to let it return.
 struct Fake {
     host: Weak<Host>,
+    states: Mutex<SleepStates>,
     suspends: AtomicUsize,
     gate_held: std::sync::atomic::AtomicBool,
     hold: Mutex<Option<(mpsc::Sender<()>, mpsc::Receiver<()>)>>,
 }
 impl Backend for Fake {
-    fn supported(&self) -> bool {
-        true
+    fn states(&self) -> Result<SleepStates> {
+        Ok(*self.states.lock().unwrap())
     }
     fn suspend(&self) -> Result<()> {
         self.suspends.fetch_add(1, Ordering::SeqCst);
@@ -36,6 +38,7 @@ impl Backend for Fake {
 fn fake(f: &Fixture) -> Arc<Fake> {
     let fake = Arc::new(Fake {
         host: Arc::downgrade(&f.host),
+        states: Mutex::new(DESKTOP),
         suspends: AtomicUsize::new(0),
         gate_held: Default::default(),
         hold: Mutex::new(None),
@@ -129,6 +132,13 @@ fn wait_for_gate(f: &Fixture) {
         std::thread::sleep(Duration::from_millis(5));
     }
 }
+const DESKTOP: SleepStates = SleepStates {
+    s1: false,
+    s2: false,
+    s3: true,
+    modern_standby: false,
+    hibernate: true,
+};
 const ANY_TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 #[tokio::test]
@@ -510,4 +520,85 @@ async fn every_busy_reason_refuses_sleep() {
     assert_eq!(sleep(&f, &token).await.status, StatusCode::ACCEPTED);
     wait_for_gate(&f);
     assert_eq!(fake.suspends.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn a_modern_standby_only_pc_offers_and_allows_no_sleep() {
+    let f = Fixture::new();
+    let fake = fake(&f);
+    device(&f, true);
+    // Taken while the PC still had S3: the refusal is not about the token.
+    let token = capabilities(&f).await.field("SleepToken");
+    let unsupported = "Native sleep control is unavailable on this host";
+    for hibernate in [true, false] {
+        *fake.states.lock().unwrap() = SleepStates {
+            modern_standby: true,
+            hibernate,
+            ..Default::default()
+        };
+        assert!(!f.host.power.supported());
+        let offer = capabilities(&f).await;
+        assert_eq!(
+            (
+                offer.status,
+                offer.field("SleepSupported"),
+                offer.field("SleepAllowed"),
+                offer.field("SleepAvailable"),
+                offer.field("SleepToken"),
+            ),
+            (
+                StatusCode::OK,
+                "0".into(),
+                "1".into(),
+                "0".into(),
+                String::new()
+            )
+        );
+        let refused = sleep(&f, &token).await;
+        assert_eq!(
+            (refused.status, refused.message()),
+            (StatusCode::NOT_IMPLEMENTED, unsupported)
+        );
+    }
+    assert_eq!(
+        f.host.power.unavailable().as_deref(),
+        Some("this PC only has Modern Standby, which Windows offers no call to enter")
+    );
+    *fake.states.lock().unwrap() = SleepStates {
+        modern_standby: true,
+        hibernate: true,
+        ..Default::default()
+    };
+    assert_eq!(
+        f.host.power.unavailable().as_deref(),
+        Some("this PC only has Modern Standby, so Windows would hibernate it")
+    );
+    assert_eq!(fake.suspends.load(Ordering::SeqCst), 0);
+    // S3 beside Modern Standby sleeps; the refusals did not spend the token.
+    fake.states.lock().unwrap().s3 = true;
+    assert_eq!(f.host.power.unavailable(), None);
+    assert_eq!(sleep(&f, &token).await.status, StatusCode::ACCEPTED);
+    wait_for_gate(&f);
+    assert_eq!(fake.suspends.load(Ordering::SeqCst), 1);
+    assert_eq!(capabilities(&f).await.field("SleepSupported"), "1");
+}
+
+#[test]
+fn unreadable_power_capabilities_make_sleep_unavailable() {
+    struct Unreadable;
+    impl Backend for Unreadable {
+        fn states(&self) -> Result<SleepStates> {
+            anyhow::bail!("could not read this PC's power capabilities: denied")
+        }
+        fn suspend(&self) -> Result<()> {
+            unreachable!()
+        }
+    }
+    let f = Fixture::new();
+    f.host.power.set_backend(Arc::new(Unreadable));
+    assert!(!f.host.power.supported());
+    assert_eq!(
+        f.host.power.unavailable().as_deref(),
+        Some("could not read this PC's power capabilities: denied")
+    );
 }

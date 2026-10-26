@@ -1,0 +1,1 @@
+Behebt ruckelnde Streams und PyroWave-Streams, die in 3.2.2 nach wenigen Sekunden abbrachen: Die Android-Decodier-Änderungen aus 3.2.2 sind zurückgenommen, bis sie auf Handys gemessen sind.

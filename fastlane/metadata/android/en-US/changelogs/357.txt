@@ -1,0 +1,1 @@
+Fixes laggy streams and PyroWave streams that dropped after a few seconds in 3.2.2: the Android decoding changes from 3.2.2 are undone until they are measured on phones.

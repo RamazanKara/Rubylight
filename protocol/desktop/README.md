@@ -121,10 +121,11 @@ Why this combination:
   On Windows the decoder uses D3D11VA on the renderer's own D3D11 device, and each decoded
   surface is copied on the GPU into the renderer's NV12/P010 texture under FFmpeg's device
   lock (no CPU copy). The device is made multithread-protected, since the decoder thread and
-  the renderer share the immediate context. On Linux the decoder uses VAAPI and reads
-  pictures back on the decoder thread. Either falls back to software decoding. Packets go to
-  FFmpeg in pooled, reused buffers: a fresh allocation per frame costs page faults once frames
-  reach about 1 MiB on Windows (high bitrates, key frames).
+  the renderer share the immediate context. On Linux the decoder uses VAAPI and maps each
+  picture for reading on the decoder thread (the driver copies the surface into an image); the
+  presenter uploads from that mapping, with no second copy into a new frame. Either falls back to
+  software decoding. Packets go to FFmpeg in pooled, reused buffers: a fresh allocation per frame
+  costs page faults once frames reach about 1 MiB on Windows (high bitrates, key frames).
 - Pacing (`src/stream/present.rs`), chosen at stream start:
   - VRR with "Show frames at the PC's frame times" (the default when the display path can
     present with tearing): `rubylight_protocol::present_clock::PresentClock` schedules each
@@ -276,7 +277,7 @@ Experimental:
 
 Partial:
 
-- Linux decoding reads VAAPI pictures back to memory before upload (no dmabuf import yet).
+- Linux decoding uploads VAAPI pictures from a CPU mapping (no dmabuf import yet).
 - Controllers: rumble, trigger rumble, LEDs, motion, touchpad, battery, DualSense adaptive
   triggers and controller audio and haptics are wired to SDL's gamepad API but were not
   tried with physical controllers yet.

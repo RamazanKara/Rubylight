@@ -333,7 +333,15 @@ impl VideoDecoder {
                     return Received::Error;
                 };
                 let memory = Frame { raw: memory, wavelet: false };
-                if av_hwframe_transfer_data(memory.raw.as_ptr(), raw.as_ptr(), 0) < 0
+                // Mapped for reading, not transferred: the driver's copy of the surface goes to
+                // the presenter's texture upload as it is, where a transfer copies it once more
+                // into a new frame first. The mapping holds the surface until the picture is
+                // dropped, as a D3D11 picture does.
+                if av_hwframe_map(
+                    memory.raw.as_ptr(),
+                    raw.as_ptr(),
+                    AV_HWFRAME_MAP_READ as c_int,
+                ) < 0
                     || av_frame_copy_props(memory.raw.as_ptr(), raw.as_ptr()) < 0
                 {
                     return Received::Error;

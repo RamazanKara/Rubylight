@@ -1,0 +1,732 @@
+//! Client roaming without sockets: the client's half of the path validation in
+//! [`rubylight_protocol::roaming`] (`docs/protocol/client-roaming.md`).
+//!
+//! [`Roaming`] is driven by triggers ([`Roaming::start`]), the roaming datagrams the control
+//! socket set aside ([`Roaming::handle_datagram`]) and its timer ([`Roaming::poll`]). It
+//! queues datagrams for the host's control port ([`Roaming::poll_transmit`]) and reports
+//! [`RoamEvent`]s ([`Roaming::take_events`]). The control driver runs it only when the host
+//! advertised roaming and the client's setting is on.
+//!
+//! An attempt sends PROBE every 250 ms twelve times, then once a second; answers each
+//! CHALLENGE that echoes its `nonce_c` with CONFIRM; and ends on a MIGRATED that names a
+//! challenge it confirmed. Without one it gives up after the drop tolerance (at most 10 s)
+//! and leaves the stream to its usual paths: the control peer's timeout ends it, or bounded
+//! recovery reconnects.
+
+use std::collections::VecDeque;
+use std::fmt;
+use std::time::{Duration, Instant};
+
+use aes_gcm::aead::generic_array::GenericArray;
+use aes_gcm::aead::{AeadInPlace, KeyInit};
+use aes_gcm::aes::cipher::BlockEncrypt;
+use aes_gcm::aes::Aes128;
+use aes_gcm::Aes128Gcm;
+use rubylight_protocol::roaming::{
+    Datagram, DecodeError, Direction, Header, Payload, DATAGRAM_BYTES, KEY_BLOCK,
+    SESSION_TAG_BYTES, TAG_BLOCK,
+};
+
+use crate::crypto::Key;
+
+/// PROBE interval at the start of an attempt.
+pub const FAST_PROBE_INTERVAL: Duration = Duration::from_millis(250);
+/// PROBEs sent at [`FAST_PROBE_INTERVAL`] before [`SLOW_PROBE_INTERVAL`].
+pub const FAST_PROBES: u32 = 12;
+/// PROBE interval once the fast ones went unanswered.
+pub const SLOW_PROBE_INTERVAL: Duration = Duration::from_secs(1);
+/// The longest an attempt runs.
+pub const MAX_ATTEMPT: Duration = Duration::from_secs(10);
+/// Confirmed challenges an attempt remembers for the MIGRATED.
+const MAX_CONFIRMED: usize = 8;
+/// Datagrams queued for the socket at most; an attempt sends one per timer or CHALLENGE.
+const MAX_QUEUED: usize = 8;
+
+/// What started an attempt.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RoamTrigger {
+    /// The platform or the route toward the host reported a new network.
+    NetworkChanged,
+    /// The host has been silent for a second (a NAT rebinding).
+    HostSilent,
+}
+
+/// An attempt's progress, for the UI and the log.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RoamEvent {
+    Started {
+        trigger: RoamTrigger,
+    },
+    /// The host moved the session to the client's current address.
+    Roamed {
+        elapsed: Duration,
+    },
+    /// No MIGRATED in time; the stream's timeout or recovery takes over.
+    Failed {
+        elapsed: Duration,
+    },
+    /// The host was heard again on the old path before it confirmed a move.
+    Unneeded {
+        elapsed: Duration,
+    },
+}
+
+impl fmt::Display for RoamEvent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Started {
+                trigger: RoamTrigger::NetworkChanged,
+            } => f.write_str("Roaming: the network changed, moving the stream"),
+            Self::Started {
+                trigger: RoamTrigger::HostSilent,
+            } => f.write_str("Roaming: the PC went silent, checking the path"),
+            Self::Roamed { elapsed } => {
+                write!(f, "Roaming: moved the stream in {} ms", elapsed.as_millis())
+            }
+            Self::Failed { elapsed } => write!(
+                f,
+                "Roaming: the PC did not confirm a move within {} ms",
+                elapsed.as_millis()
+            ),
+            Self::Unneeded { elapsed } => write!(
+                f,
+                "Roaming: the PC answered on the old path after {} ms",
+                elapsed.as_millis()
+            ),
+        }
+    }
+}
+
+/// Why a roaming datagram was dropped. None is answered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Rejected {
+    Decode(DecodeError),
+    /// A client-to-host type.
+    Direction,
+    /// Another session's tag.
+    Session,
+    /// Seq not above the host's last.
+    Replay,
+    /// The GCM tag did not verify, or the payload's padding was not zero.
+    Authentication,
+    /// No attempt is running.
+    Idle,
+    /// A CHALLENGE for another probe burst.
+    Nonce,
+    /// A MIGRATED for a challenge this attempt did not confirm.
+    Challenge,
+}
+
+/// The roaming key and session tag of a launch's `rikey`.
+pub fn derive(rikey: &Key) -> (Key, [u8; SESSION_TAG_BYTES]) {
+    let cipher = Aes128::new(GenericArray::from_slice(rikey));
+    let block = |input: &[u8; 16]| {
+        let mut block = GenericArray::clone_from_slice(input);
+        cipher.encrypt_block(&mut block);
+        <[u8; 16]>::from(block)
+    };
+    let mut tag = [0; SESSION_TAG_BYTES];
+    tag.copy_from_slice(&block(&TAG_BLOCK)[..SESSION_TAG_BYTES]);
+    (block(&KEY_BLOCK), tag)
+}
+
+/// Seals `payload` under `header`, whose kind must match.
+pub fn seal(gcm: &Aes128Gcm, header: Header, payload: Payload) -> [u8; DATAGRAM_BYTES] {
+    debug_assert_eq!(header.kind, payload.kind());
+    let mut ciphertext = payload.encode();
+    let gcm_tag = gcm
+        .encrypt_in_place_detached(
+            GenericArray::from_slice(&header.nonce()),
+            &header.aad(),
+            &mut ciphertext,
+        )
+        .expect("a 16-byte payload always seals");
+    Datagram {
+        header,
+        gcm_tag: gcm_tag.into(),
+        ciphertext,
+    }
+    .encode()
+}
+
+/// Opens a datagram already decoded.
+pub fn open(gcm: &Aes128Gcm, datagram: &Datagram) -> Option<Payload> {
+    let mut plaintext = datagram.ciphertext;
+    gcm.decrypt_in_place_detached(
+        GenericArray::from_slice(&datagram.header.nonce()),
+        &datagram.header.aad(),
+        &mut plaintext,
+        GenericArray::from_slice(&datagram.gcm_tag),
+    )
+    .ok()?;
+    Payload::decode(datagram.header.kind, &plaintext)
+}
+
+struct Attempt {
+    trigger: RoamTrigger,
+    started: Instant,
+    nonce_c: u64,
+    flags: u32,
+    probes: u32,
+    next_probe: Instant,
+    /// Challenges answered with CONFIRM, oldest first.
+    confirmed: VecDeque<u64>,
+}
+
+/// The client's roaming state for one session.
+pub struct Roaming {
+    gcm: Aes128Gcm,
+    session_tag: [u8; SESSION_TAG_BYTES],
+    give_up: Duration,
+    /// The last seq this client sent.
+    sent_seq: u32,
+    /// The last seq accepted from the host.
+    host_seq: u32,
+    attempt: Option<Attempt>,
+    outgoing: VecDeque<[u8; DATAGRAM_BYTES]>,
+    events: Vec<RoamEvent>,
+}
+
+impl Roaming {
+    /// Attempts give up after `give_up`, at most [`MAX_ATTEMPT`].
+    pub fn new(rikey: &Key, give_up: Duration) -> Self {
+        let (key, session_tag) = derive(rikey);
+        Self {
+            gcm: Aes128Gcm::new(GenericArray::from_slice(&key)),
+            session_tag,
+            give_up: give_up.min(MAX_ATTEMPT),
+            sent_seq: 0,
+            host_seq: 0,
+            attempt: None,
+            outgoing: VecDeque::new(),
+            events: Vec::new(),
+        }
+    }
+
+    /// What started the running attempt.
+    pub fn trigger(&self) -> Option<RoamTrigger> {
+        self.attempt.as_ref().map(|attempt| attempt.trigger)
+    }
+
+    /// Starts an attempt, or restarts the running one's fast probes for a new network under
+    /// a fresh `nonce_c` (its give-up time stays). `flags` are PROBE flags; the next
+    /// [`Roaming::poll`] sends the first PROBE.
+    pub fn start(&mut self, now: Instant, trigger: RoamTrigger, flags: u32, nonce_c: u64) {
+        if let Some(attempt) = &mut self.attempt {
+            attempt.nonce_c = nonce_c;
+            attempt.flags |= flags;
+            attempt.probes = 0;
+            attempt.next_probe = now;
+            return;
+        }
+        self.attempt = Some(Attempt {
+            trigger,
+            started: now,
+            nonce_c,
+            flags,
+            probes: 0,
+            next_probe: now,
+            confirmed: VecDeque::new(),
+        });
+        self.events.push(RoamEvent::Started { trigger });
+    }
+
+    /// Ends the running attempt: the host was heard on the old path.
+    pub fn cancel(&mut self, now: Instant) {
+        if let Some(attempt) = self.attempt.take() {
+            let elapsed = now.saturating_duration_since(attempt.started);
+            self.events.push(RoamEvent::Unneeded { elapsed });
+        }
+    }
+
+    /// Sends due PROBEs and gives up when the time is over. Returns the next deadline.
+    pub fn poll(&mut self, now: Instant) -> Option<Instant> {
+        let attempt = self.attempt.as_ref()?;
+        let give_up_at = attempt.started + self.give_up;
+        if now >= give_up_at {
+            return self.fail(now);
+        }
+        if now >= attempt.next_probe {
+            let probe = Payload::Probe {
+                nonce_c: attempt.nonce_c,
+                flags: attempt.flags,
+            };
+            if !self.send(probe) {
+                return self.fail(now);
+            }
+            let attempt = self.attempt.as_mut().expect("running");
+            attempt.probes += 1;
+            attempt.next_probe = now
+                + if attempt.probes < FAST_PROBES {
+                    FAST_PROBE_INTERVAL
+                } else {
+                    SLOW_PROBE_INTERVAL
+                };
+        }
+        let next_probe = self.attempt.as_ref()?.next_probe;
+        Some(next_probe.min(give_up_at))
+    }
+
+    /// Handles a datagram that starts with the roaming magic.
+    pub fn handle_datagram(&mut self, now: Instant, data: &[u8]) -> Result<(), Rejected> {
+        let datagram = Datagram::decode(data).map_err(Rejected::Decode)?;
+        let header = datagram.header;
+        if header.kind.direction() != Direction::HostToClient {
+            return Err(Rejected::Direction);
+        }
+        if header.session_tag != self.session_tag {
+            return Err(Rejected::Session);
+        }
+        if header.seq <= self.host_seq {
+            return Err(Rejected::Replay);
+        }
+        let payload = open(&self.gcm, &datagram).ok_or(Rejected::Authentication)?;
+        self.host_seq = header.seq;
+        let attempt = self.attempt.as_mut().ok_or(Rejected::Idle)?;
+        match payload {
+            Payload::Challenge { nonce_c, challenge } => {
+                if nonce_c != attempt.nonce_c {
+                    return Err(Rejected::Nonce);
+                }
+                if attempt.confirmed.len() == MAX_CONFIRMED {
+                    attempt.confirmed.pop_front();
+                }
+                attempt.confirmed.push_back(challenge);
+                if !self.send(Payload::Confirm { challenge }) {
+                    self.fail(now);
+                }
+                Ok(())
+            }
+            Payload::Migrated { challenge } => {
+                if !attempt.confirmed.contains(&challenge) {
+                    return Err(Rejected::Challenge);
+                }
+                let elapsed = now.saturating_duration_since(attempt.started);
+                self.attempt = None;
+                self.events.push(RoamEvent::Roamed { elapsed });
+                Ok(())
+            }
+            Payload::Probe { .. } | Payload::Confirm { .. } => Err(Rejected::Direction),
+        }
+    }
+
+    /// The next datagram for the host's control port.
+    pub fn poll_transmit(&mut self) -> Option<[u8; DATAGRAM_BYTES]> {
+        self.outgoing.pop_front()
+    }
+
+    pub fn take_events(&mut self) -> Vec<RoamEvent> {
+        std::mem::take(&mut self.events)
+    }
+
+    /// Seals `payload` under the next seq; false once seq is exhausted.
+    fn send(&mut self, payload: Payload) -> bool {
+        let Some(seq) = self.sent_seq.checked_add(1) else {
+            return false;
+        };
+        self.sent_seq = seq;
+        let header = Header {
+            kind: payload.kind(),
+            session_tag: self.session_tag,
+            seq,
+        };
+        if self.outgoing.len() == MAX_QUEUED {
+            self.outgoing.pop_front();
+        }
+        self.outgoing.push_back(seal(&self.gcm, header, payload));
+        true
+    }
+
+    fn fail(&mut self, now: Instant) -> Option<Instant> {
+        if let Some(attempt) = self.attempt.take() {
+            let elapsed = now.saturating_duration_since(attempt.started);
+            self.events.push(RoamEvent::Failed { elapsed });
+        }
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rubylight_protocol::roaming::{vectors, Kind, PROBE_FLAG_MEDIA_REBOUND};
+
+    const NONCE: u64 = 0x1111_2222_3333_4444;
+
+    /// The host's side: seals CHALLENGE and MIGRATED under the vectors' key.
+    struct FakeHost {
+        gcm: Aes128Gcm,
+        seq: u32,
+    }
+
+    impl FakeHost {
+        fn new() -> Self {
+            Self {
+                gcm: Aes128Gcm::new(GenericArray::from_slice(&vectors::KEY)),
+                seq: 0,
+            }
+        }
+
+        fn send(&mut self, payload: Payload) -> [u8; DATAGRAM_BYTES] {
+            self.seq += 1;
+            let header = Header {
+                kind: payload.kind(),
+                session_tag: vectors::SESSION_TAG,
+                seq: self.seq,
+            };
+            seal(&self.gcm, header, payload)
+        }
+
+        /// Opens a client datagram.
+        fn open(&self, wire: &[u8; DATAGRAM_BYTES]) -> (Header, Payload) {
+            let datagram = Datagram::decode(wire).unwrap();
+            (datagram.header, open(&self.gcm, &datagram).expect("opens"))
+        }
+    }
+
+    fn sent(roaming: &mut Roaming) -> Vec<[u8; DATAGRAM_BYTES]> {
+        std::iter::from_fn(|| roaming.poll_transmit()).collect()
+    }
+
+    /// A started attempt that has sent its first PROBE.
+    fn probing(now: Instant) -> (Roaming, FakeHost) {
+        let mut roaming = Roaming::new(&vectors::RIKEY, Duration::from_secs(60));
+        roaming.start(now, RoamTrigger::NetworkChanged, 0, NONCE);
+        roaming.poll(now);
+        let host = FakeHost::new();
+        let probes = sent(&mut roaming);
+        assert_eq!(probes.len(), 1);
+        assert_eq!(
+            host.open(&probes[0]).1,
+            Payload::Probe {
+                nonce_c: NONCE,
+                flags: 0
+            }
+        );
+        assert_eq!(
+            roaming.take_events(),
+            [RoamEvent::Started {
+                trigger: RoamTrigger::NetworkChanged
+            }]
+        );
+        (roaming, host)
+    }
+
+    #[test]
+    fn key_and_tag_derive_like_the_vectors() {
+        assert_eq!(
+            derive(&vectors::RIKEY),
+            (vectors::KEY, vectors::SESSION_TAG)
+        );
+    }
+
+    #[test]
+    fn the_known_answers_run_end_to_end() {
+        let now = Instant::now();
+        let mut roaming = Roaming::new(&vectors::RIKEY, MAX_ATTEMPT);
+        roaming.start(
+            now,
+            RoamTrigger::NetworkChanged,
+            vectors::PROBE_FLAGS,
+            vectors::NONCE_C,
+        );
+        roaming.poll(now);
+        assert_eq!(sent(&mut roaming), [vectors::PROBE_DATAGRAM]);
+        let later = now + Duration::from_millis(40);
+        roaming
+            .handle_datagram(later, &vectors::CHALLENGE_DATAGRAM)
+            .unwrap();
+        assert_eq!(sent(&mut roaming), [vectors::CONFIRM_DATAGRAM]);
+        roaming
+            .handle_datagram(later, &vectors::MIGRATED_DATAGRAM)
+            .unwrap();
+        assert!(sent(&mut roaming).is_empty());
+        assert_eq!(
+            roaming.take_events(),
+            [
+                RoamEvent::Started {
+                    trigger: RoamTrigger::NetworkChanged
+                },
+                RoamEvent::Roamed {
+                    elapsed: Duration::from_millis(40)
+                }
+            ]
+        );
+        assert_eq!(roaming.trigger(), None);
+        assert_eq!(roaming.poll(later), None, "nothing more to send");
+    }
+
+    #[test]
+    fn happy_path_confirms_and_roams() {
+        let now = Instant::now();
+        let (mut roaming, mut host) = probing(now);
+        let challenge = host.send(Payload::Challenge {
+            nonce_c: NONCE,
+            challenge: 77,
+        });
+        roaming.handle_datagram(now, &challenge).unwrap();
+        let confirm = sent(&mut roaming);
+        let (header, payload) = host.open(&confirm[0]);
+        assert_eq!((header.kind, header.seq), (Kind::Confirm, 2));
+        assert_eq!(payload, Payload::Confirm { challenge: 77 });
+        let migrated = host.send(Payload::Migrated { challenge: 77 });
+        let at = now + Duration::from_millis(90);
+        roaming.handle_datagram(at, &migrated).unwrap();
+        assert_eq!(
+            roaming.take_events(),
+            [RoamEvent::Roamed {
+                elapsed: Duration::from_millis(90)
+            }]
+        );
+        // A late MIGRATED finds nothing to finish.
+        let again = host.send(Payload::Migrated { challenge: 77 });
+        assert_eq!(roaming.handle_datagram(at, &again), Err(Rejected::Idle));
+        assert!(roaming.take_events().is_empty());
+    }
+
+    #[test]
+    fn a_bad_tag_is_dropped_without_an_answer() {
+        let now = Instant::now();
+        let (mut roaming, mut host) = probing(now);
+        let mut challenge = host.send(Payload::Challenge {
+            nonce_c: NONCE,
+            challenge: 5,
+        });
+        challenge[DATAGRAM_BYTES - 1] ^= 1;
+        assert_eq!(
+            roaming.handle_datagram(now, &challenge),
+            Err(Rejected::Authentication)
+        );
+        // Another key: the tag does not verify either.
+        let mut other = FakeHost::new();
+        other.gcm = Aes128Gcm::new(GenericArray::from_slice(&[9; 16]));
+        other.seq = 5;
+        let forged = other.send(Payload::Challenge {
+            nonce_c: NONCE,
+            challenge: 5,
+        });
+        assert_eq!(
+            roaming.handle_datagram(now, &forged),
+            Err(Rejected::Authentication)
+        );
+        assert!(sent(&mut roaming).is_empty());
+        // A failed open does not use up the host's seq.
+        let genuine = host.send(Payload::Challenge {
+            nonce_c: NONCE,
+            challenge: 5,
+        });
+        roaming.handle_datagram(now, &genuine).unwrap();
+        assert_eq!(sent(&mut roaming).len(), 1);
+    }
+
+    #[test]
+    fn other_sessions_and_client_types_are_dropped() {
+        let now = Instant::now();
+        let (mut roaming, mut host) = probing(now);
+        let mut wire = host.send(Payload::Challenge {
+            nonce_c: NONCE,
+            challenge: 5,
+        });
+        wire[8] ^= 1;
+        assert_eq!(roaming.handle_datagram(now, &wire), Err(Rejected::Session));
+        // Our own PROBE reflected back.
+        assert_eq!(
+            roaming.handle_datagram(now, &vectors::PROBE_DATAGRAM),
+            Err(Rejected::Direction)
+        );
+        assert_eq!(
+            roaming.handle_datagram(now, &wire[..51]),
+            Err(Rejected::Decode(DecodeError::Length))
+        );
+        assert!(sent(&mut roaming).is_empty());
+    }
+
+    #[test]
+    fn a_wrong_challenge_or_nonce_moves_nothing() {
+        let now = Instant::now();
+        let (mut roaming, mut host) = probing(now);
+        let stale = host.send(Payload::Challenge {
+            nonce_c: NONCE + 1,
+            challenge: 5,
+        });
+        assert_eq!(roaming.handle_datagram(now, &stale), Err(Rejected::Nonce));
+        assert!(
+            sent(&mut roaming).is_empty(),
+            "no CONFIRM for another burst"
+        );
+        let challenge = host.send(Payload::Challenge {
+            nonce_c: NONCE,
+            challenge: 5,
+        });
+        roaming.handle_datagram(now, &challenge).unwrap();
+        assert_eq!(sent(&mut roaming).len(), 1);
+        let wrong = host.send(Payload::Migrated { challenge: 6 });
+        assert_eq!(
+            roaming.handle_datagram(now, &wrong),
+            Err(Rejected::Challenge)
+        );
+        assert!(roaming.take_events().is_empty());
+        assert_eq!(roaming.trigger(), Some(RoamTrigger::NetworkChanged));
+    }
+
+    #[test]
+    fn a_duplicate_challenge_is_confirmed_once_per_datagram() {
+        let now = Instant::now();
+        let (mut roaming, mut host) = probing(now);
+        let first = host.send(Payload::Challenge {
+            nonce_c: NONCE,
+            challenge: 5,
+        });
+        roaming.handle_datagram(now, &first).unwrap();
+        assert_eq!(sent(&mut roaming).len(), 1);
+        // The same datagram again is a replay: no second CONFIRM.
+        assert_eq!(roaming.handle_datagram(now, &first), Err(Rejected::Replay));
+        assert!(sent(&mut roaming).is_empty());
+        // The host re-sends the challenge, and then challenges a later PROBE anew.
+        let resent = host.send(Payload::Challenge {
+            nonce_c: NONCE,
+            challenge: 5,
+        });
+        roaming.handle_datagram(now, &resent).unwrap();
+        let newer = host.send(Payload::Challenge {
+            nonce_c: NONCE,
+            challenge: 8,
+        });
+        roaming.handle_datagram(now, &newer).unwrap();
+        let confirms: Vec<_> = sent(&mut roaming)
+            .iter()
+            .map(|wire| host.open(wire))
+            .collect();
+        assert_eq!(confirms.len(), 2);
+        assert_eq!(confirms[0].0.seq + 1, confirms[1].0.seq, "fresh seqs");
+        assert_eq!(confirms[1].1, Payload::Confirm { challenge: 8 });
+        // The host committed the first challenge before the second arrived.
+        let migrated = host.send(Payload::Migrated { challenge: 5 });
+        roaming.handle_datagram(now, &migrated).unwrap();
+        assert!(matches!(
+            roaming.take_events()[..],
+            [RoamEvent::Roamed { .. }]
+        ));
+    }
+
+    #[test]
+    fn probes_back_off_then_give_up() {
+        let now = Instant::now();
+        let mut roaming = Roaming::new(&vectors::RIKEY, Duration::from_secs(60));
+        assert_eq!(
+            roaming.give_up, MAX_ATTEMPT,
+            "a long drop tolerance is capped"
+        );
+        roaming.start(now, RoamTrigger::HostSilent, 0, NONCE);
+        let mut probes = Vec::new();
+        let mut at = now;
+        while let Some(next) = roaming.poll(at) {
+            if !sent(&mut roaming).is_empty() {
+                probes.push(at - now);
+            }
+            assert!(next > at);
+            at = next;
+        }
+        assert_eq!(at - now, MAX_ATTEMPT);
+        let fast: Vec<_> = (0..FAST_PROBES).map(|i| FAST_PROBE_INTERVAL * i).collect();
+        assert_eq!(probes[..FAST_PROBES as usize], fast[..]);
+        let slow: Vec<_> = (0..7)
+            .map(|i| Duration::from_millis(3750) + SLOW_PROBE_INTERVAL * i)
+            .collect();
+        assert_eq!(probes[FAST_PROBES as usize..], slow[..]);
+        assert_eq!(
+            roaming.take_events(),
+            [
+                RoamEvent::Started {
+                    trigger: RoamTrigger::HostSilent
+                },
+                RoamEvent::Failed {
+                    elapsed: MAX_ATTEMPT
+                }
+            ]
+        );
+        assert_eq!(roaming.poll(at + MAX_ATTEMPT), None);
+        assert!(sent(&mut roaming).is_empty(), "nothing after giving up");
+    }
+
+    #[test]
+    fn a_short_drop_tolerance_gives_up_sooner() {
+        let now = Instant::now();
+        let mut roaming = Roaming::new(&vectors::RIKEY, Duration::from_secs(2));
+        roaming.start(now, RoamTrigger::NetworkChanged, 0, NONCE);
+        assert!(roaming.poll(now).is_some());
+        assert_eq!(roaming.poll(now + Duration::from_secs(2)), None);
+        assert!(matches!(
+            roaming.take_events()[..],
+            [
+                RoamEvent::Started { .. },
+                RoamEvent::Failed { elapsed }
+            ] if elapsed == Duration::from_secs(2)
+        ));
+    }
+
+    #[test]
+    fn a_new_network_restarts_the_probes_under_a_new_nonce() {
+        let now = Instant::now();
+        let (mut roaming, mut host) = probing(now);
+        let later = now + Duration::from_secs(4);
+        roaming.poll(later);
+        sent(&mut roaming);
+        roaming.start(
+            later,
+            RoamTrigger::NetworkChanged,
+            PROBE_FLAG_MEDIA_REBOUND,
+            NONCE + 1,
+        );
+        assert_eq!(
+            roaming.poll(later),
+            Some(later + FAST_PROBE_INTERVAL),
+            "fast again"
+        );
+        let probe = sent(&mut roaming);
+        assert_eq!(
+            host.open(&probe[0]).1,
+            Payload::Probe {
+                nonce_c: NONCE + 1,
+                flags: PROBE_FLAG_MEDIA_REBOUND
+            }
+        );
+        assert!(roaming.take_events().is_empty(), "the same attempt");
+        let old = host.send(Payload::Challenge {
+            nonce_c: NONCE,
+            challenge: 1,
+        });
+        assert_eq!(roaming.handle_datagram(later, &old), Err(Rejected::Nonce));
+    }
+
+    #[test]
+    fn cancel_reports_the_old_path_and_stops() {
+        let now = Instant::now();
+        let (mut roaming, _) = probing(now);
+        roaming.cancel(now + Duration::from_millis(300));
+        assert_eq!(
+            roaming.take_events(),
+            [RoamEvent::Unneeded {
+                elapsed: Duration::from_millis(300)
+            }]
+        );
+        assert_eq!(roaming.poll(now + Duration::from_secs(1)), None);
+        assert!(sent(&mut roaming).is_empty());
+        roaming.cancel(now);
+        assert!(roaming.take_events().is_empty());
+    }
+
+    #[test]
+    fn an_exhausted_seq_fails_the_attempt() {
+        let now = Instant::now();
+        let mut roaming = Roaming::new(&vectors::RIKEY, MAX_ATTEMPT);
+        roaming.sent_seq = u32::MAX;
+        roaming.start(now, RoamTrigger::NetworkChanged, 0, NONCE);
+        assert_eq!(roaming.poll(now), None);
+        assert!(sent(&mut roaming).is_empty());
+        assert!(matches!(
+            roaming.take_events()[..],
+            [RoamEvent::Started { .. }, RoamEvent::Failed { .. }]
+        ));
+    }
+}

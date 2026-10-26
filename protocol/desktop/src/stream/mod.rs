@@ -1615,6 +1615,7 @@ impl Streaming {
                     "nightjar: dropping Steam Controller message {message_type:#06x}: {error:?}"
                 );
             }
+            ControlEvent::Roam(event) => eprintln!("nightjar: {event}"),
             _ => {}
         }
     }

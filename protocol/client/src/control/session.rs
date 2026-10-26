@@ -508,6 +508,7 @@ mod tests {
             control_messages: vec![
                 0x5530, 0x5531, 0x5532, 0x5534, 0x5535, 0x5536, 0x5537, 0x5538, 0x5540,
             ],
+            client_roaming: false,
         }
     }
 

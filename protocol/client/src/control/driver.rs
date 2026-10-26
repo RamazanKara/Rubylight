@@ -9,13 +9,21 @@
 //! Teardown follows Nightjar's patched `stopControlStream`: queued input is drained, then the
 //! peer disconnects gracefully and lingers up to two seconds for the host's acknowledgement,
 //! unless the host already sent a disconnect or a termination message.
+//!
+//! When the host advertised roaming and [`DriverConfig::roaming`] is on, the driver also runs
+//! [`Roaming`] beside ENet on the same socket: it sets roaming datagrams aside before ENet
+//! sees them, and starts an attempt on [`ControlHandle::network_changed`] or after a second
+//! without a word from the host.
 
+use std::collections::VecDeque;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
+use rand_core::{OsRng, RngCore};
+use rubylight_protocol::roaming::{is_roaming, PROBE_FLAG_MEDIA_REBOUND};
 use rusty_enet::{
     Event, Host, HostSettings, Packet, PacketKind, PacketReceived, PeerID, PeerState, MTU_MAX,
 };
@@ -28,6 +36,7 @@ use super::wire::{channel, Delivery};
 use crate::crypto::Key;
 use crate::input::{InputPacket, InputQueue};
 use crate::priority;
+use crate::roaming::{RoamEvent, RoamTrigger, Roaming};
 
 /// The ENet peer timeout without a network grace period.
 pub const CONTROL_PEER_TIMEOUT: Duration = Duration::from_secs(10);
@@ -39,6 +48,8 @@ const DISCONNECT_RECEIVE_WAIT: Duration = Duration::from_millis(100);
 const DISCONNECT_PROCESS_WAIT: Duration = Duration::from_secs(1);
 /// Longest sleep between ENet services, for its resend and ping timers.
 const MAX_SERVICE_INTERVAL: Duration = Duration::from_millis(5);
+/// Roaming datagrams set aside between services at most; the host sends one per PROBE.
+const MAX_ROAM_INBOX: usize = 8;
 
 /// Where the driver reports a problem that does not stop the stream (a socket option the OS
 /// refused).
@@ -84,6 +95,9 @@ pub struct DriverConfig {
     pub unbatched_input: bool,
     /// Never send input ([`InputQueue::disable`]), for remote monitor sessions.
     pub input_disabled: bool,
+    /// The client's roaming setting. Probes go out only when the host also advertised
+    /// roaming ([`HostCapabilities::client_roaming`]).
+    pub roaming: bool,
     pub warn: Warn,
 }
 
@@ -98,6 +112,7 @@ impl DriverConfig {
             linger: Duration::from_secs(2),
             unbatched_input: false,
             input_disabled: false,
+            roaming: false,
             warn: Warn::default(),
         }
     }
@@ -184,6 +199,10 @@ struct Shared {
     stop: AtomicBool,
     contact_lost: AtomicBool,
     rtt: Mutex<Option<(Duration, Duration)>>,
+    /// Both sides have roaming on.
+    roaming: bool,
+    /// PROBE flags of a [`ControlHandle::network_changed`] the control thread has not taken.
+    roam_request: Mutex<Option<u32>>,
     waker: Waker,
 }
 
@@ -236,6 +255,25 @@ impl ControlHandle {
         self.shared.contact_lost.load(Ordering::Relaxed)
     }
 
+    /// The network toward the host changed: starts a roaming attempt, or restarts the
+    /// running one. `media_rebound` says the media sockets moved to new ports. Returns false,
+    /// and sends nothing, unless both the host and the client have roaming on.
+    pub fn network_changed(&self, media_rebound: bool) -> bool {
+        if !self.shared.roaming {
+            return false;
+        }
+        let flags = if media_rebound {
+            PROBE_FLAG_MEDIA_REBOUND
+        } else {
+            0
+        };
+        let mut request = lock(&self.shared.roam_request);
+        *request = Some(request.unwrap_or(0) | flags);
+        drop(request);
+        self.shared.waker.wake();
+        true
+    }
+
     /// Ends the stream: queued input is sent, then the peer disconnects.
     pub fn stop(&self) {
         self.shared.stop.store(true, Ordering::Release);
@@ -286,12 +324,14 @@ fn enet_disconnect(datagram: &[u8]) -> Option<bool> {
     Some(datagram[header] & COMMAND_FLAG_UNSEQUENCED != 0)
 }
 
-/// The ENet socket: drops wake datagrams, notes when the host was last heard, and holds back
-/// a host disconnect so receives queued before it are not lost (Nightjar's disconnect
-/// intercept), handing it to ENet once they are processed.
+/// The ENet socket: drops wake datagrams, sets roaming datagrams aside, notes when the host
+/// was last heard, and holds back a host disconnect so receives queued before it are not
+/// lost (Nightjar's disconnect intercept), handing it to ENet once they are processed.
 struct ControlSocket {
     socket: UdpSocket,
     wake_from: SocketAddr,
+    /// Roaming datagrams for [`Roaming::handle_datagram`]; ENet would drop them.
+    roam_inbox: VecDeque<Vec<u8>>,
     intercept: bool,
     held_disconnect: Option<(SocketAddr, Vec<u8>)>,
     held_unsequenced: bool,
@@ -443,6 +483,13 @@ impl rusty_enet::Socket for ControlSocket {
             if address == self.wake_from {
                 continue;
             }
+            // Roaming datagrams are not ENet's, and count as the host only once they open.
+            if is_roaming(&buffer[..length]) {
+                if self.roam_inbox.len() < MAX_ROAM_INBOX {
+                    self.roam_inbox.push_back(buffer[..length].to_vec());
+                }
+                continue;
+            }
             // Anything but a wake on this private socket is the host, from whichever of its
             // addresses it replies (ENet follows the source, as moonlight-common-c's does).
             // Shorter than ENet's 2-byte peer ID it is not ENet's (ENet drops it), so a stray
@@ -472,6 +519,12 @@ pub struct ControlClient {
     config: DriverConfig,
     disconnect_held_since: Option<Instant>,
     disconnect_released_at: Option<Instant>,
+    /// Present when both sides have roaming on.
+    roaming: Option<Roaming>,
+    /// When the host had last been heard as the latest attempt started: a silence starts at
+    /// most one attempt, and a host heard again ends one it started.
+    roam_contact: Option<Instant>,
+    roam_events: Vec<RoamEvent>,
 }
 
 /// Connects the control stream and queues Start A and B. Blocks up to the connect timeout.
@@ -493,6 +546,7 @@ pub fn connect(
     let control_socket = ControlSocket {
         socket,
         wake_from: waker.socket.local_addr()?,
+        roam_inbox: VecDeque::new(),
         intercept: true,
         held_disconnect: None,
         held_unsequenced: false,
@@ -522,12 +576,15 @@ pub fn connect(
     if config.input_disabled {
         input.disable();
     }
+    let roaming = config.roaming && caps.client_roaming;
     let shared = Arc::new(Shared {
         input: Mutex::new(input),
         session: Mutex::new(ControlSession::new(caps, key, options)),
         stop: AtomicBool::new(false),
         contact_lost: AtomicBool::new(false),
         rtt: Mutex::new(None),
+        roaming,
+        roam_request: Mutex::new(None),
         waker,
     });
     let handle = ControlHandle {
@@ -568,9 +625,12 @@ pub fn connect(
         host,
         peer,
         shared,
+        roaming: roaming.then(|| Roaming::new(key, config.peer_timeout())),
         config,
         disconnect_held_since: None,
         disconnect_released_at: None,
+        roam_contact: None,
+        roam_events: Vec::new(),
     };
     Ok((client, handle))
 }
@@ -671,7 +731,7 @@ impl ControlClient {
         Ok(any)
     }
 
-    fn deliver(&self, on_event: &mut impl FnMut(ControlEvent)) -> Option<i32> {
+    fn deliver(&mut self, on_event: &mut impl FnMut(ControlEvent)) -> Option<i32> {
         let (events, terminated) = {
             let mut session = lock(&self.shared.session);
             (session.take_events(), session.terminated())
@@ -679,7 +739,66 @@ impl ControlClient {
         for event in events {
             on_event(event);
         }
+        for event in self.roam_events.drain(..) {
+            on_event(ControlEvent::Roam(event));
+        }
         terminated
+    }
+
+    /// Runs roaming: the datagrams set aside, a network change or a host silence, the
+    /// timers, and the datagrams to send. Returns the next timer.
+    fn roam(&mut self, now: Instant) -> Option<Instant> {
+        let inbox = std::mem::take(&mut self.host.socket_mut().roam_inbox);
+        let roaming = self.roaming.as_mut()?;
+        for datagram in inbox {
+            // A dropped datagram is never answered; an attempt left without answers fails.
+            let _ = roaming.handle_datagram(now, &datagram);
+        }
+        let contact = self.host.socket().last_receive;
+        if let Some(flags) = lock(&self.shared.roam_request).take() {
+            self.roam_contact = contact;
+            roaming.start(now, RoamTrigger::NetworkChanged, flags, OsRng.next_u64());
+        } else if roaming.trigger() == Some(RoamTrigger::HostSilent) {
+            if contact != self.roam_contact {
+                roaming.cancel(now);
+            }
+        } else if roaming.trigger().is_none()
+            && contact != self.roam_contact
+            && contact.is_some_and(|at| now.duration_since(at) >= INPUT_CONTACT_LOST_AFTER)
+        {
+            self.roam_contact = contact;
+            roaming.start(now, RoamTrigger::HostSilent, 0, OsRng.next_u64());
+        }
+        let timer = roaming.poll(now);
+        // The host's control port, from whichever address it answers.
+        let to = self
+            .host
+            .peer(self.peer)
+            .address()
+            .unwrap_or(self.config.remote);
+        while let Some(datagram) = roaming.poll_transmit() {
+            match self.host.socket().socket.send_to(&datagram, to) {
+                Err(error)
+                    if !datagram_lost(&error) && error.kind() != io::ErrorKind::WouldBlock =>
+                {
+                    self.config.warn.say(&format!(
+                        "Could not send a roaming datagram to {to}: {error}"
+                    ));
+                }
+                // A lost datagram is retried with the next PROBE.
+                _ => {}
+            }
+        }
+        let events = roaming.take_events();
+        if events
+            .iter()
+            .any(|event| matches!(event, RoamEvent::Roamed { .. }))
+        {
+            // ENet's resend timers backed off during the outage; a ping gets traffic going.
+            self.host.peer_mut(self.peer).ping();
+        }
+        self.roam_events.extend(events);
+        timer
     }
 
     fn update_rtt(&self) {
@@ -727,6 +846,7 @@ impl ControlClient {
                     true
                 }
             };
+            let roam_timer = self.roam(Instant::now());
             if let Some(error) = self.deliver(&mut on_event) {
                 // The host will not acknowledge a graceful disconnect after terminating.
                 self.host.peer_mut(self.peer).disconnect_now(0);
@@ -741,7 +861,7 @@ impl ControlClient {
                 continue;
             }
             let mut wait = MAX_SERVICE_INTERVAL;
-            if let Some(timer) = timer {
+            for timer in [timer, roam_timer].into_iter().flatten() {
                 wait = wait.min(timer.saturating_duration_since(now));
             }
             if self.disconnect_held_since.is_some() {
@@ -821,6 +941,7 @@ mod tests {
         let control = ControlSocket {
             socket,
             wake_from: "127.0.0.1:1".parse().unwrap(),
+            roam_inbox: VecDeque::new(),
             intercept: false,
             held_disconnect: None,
             held_unsequenced: false,
@@ -1046,6 +1167,7 @@ mod tests {
             feature_flags: 3,
             encryption_enabled: super::super::negotiation::encryption::CONTROL_V2,
             control_messages: Vec::new(),
+            client_roaming: false,
         };
         inject_sends(Some(Err(UNREACHABLE)));
         let result = connect(config, caps, &[0; 16], SessionOptions::default());

@@ -42,6 +42,8 @@ pub struct HostCapabilities {
     pub encryption_enabled: u32,
     /// Rubylight control messages from `a=x-rl-control`.
     pub control_messages: Vec<u16>,
+    /// The host takes roaming probes (`a=x-rl-roaming`); without it the client sends none.
+    pub client_roaming: bool,
 }
 
 impl HostCapabilities {
@@ -154,6 +156,7 @@ mod tests {
             encryption_enabled: encryption::CONTROL_V2,
             feature_flags: feature::PEN_TOUCH_EVENTS,
             control_messages: vec![0x5531],
+            client_roaming: false,
         };
         assert!(caps.is_sunshine() && caps.encrypted_control() && caps.control_v2());
         assert!(caps.sunshine_extensions());

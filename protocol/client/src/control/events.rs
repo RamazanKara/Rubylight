@@ -12,6 +12,7 @@ use rubylight_protocol::steam_controller::{SteamError, SteamHaptic, SteamSetting
 
 use super::haptics::{self, Pcm};
 use super::messages::CURSOR_SHAPE_MAX_EDGE;
+use crate::roaming::RoamEvent;
 
 /// Termination codes (`ML_ERROR_*`) besides the host's own reasons.
 pub mod termination {
@@ -244,6 +245,8 @@ pub enum ControlEvent {
         error: SteamError,
     },
     ConnectionStatus(ConnectionStatus),
+    /// Client roaming started, moved the stream, gave up, or was not needed.
+    Roam(RoamEvent),
     /// The stream ended: the host's reason, or [`termination::DISCONNECTED`].
     Terminated {
         error: i32,

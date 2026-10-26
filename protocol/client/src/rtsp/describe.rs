@@ -31,6 +31,8 @@ pub struct DescribeInfo {
     pub control_messages: Vec<u16>,
     /// The host takes a microphone; the port its `m=audio` line names, 0 for none.
     pub microphone: Option<u16>,
+    /// The host takes client roaming probes (`a=x-rl-roaming`, version 1 or later).
+    pub roaming: bool,
 }
 
 /// moonlight-common-c's parseSdpAttributeToUInt: the first occurrence of `name` anywhere,
@@ -86,6 +88,21 @@ fn offers_pyrowave(sdp: &str) -> bool {
         }
     }
     codec && bitstream
+}
+
+/// `a=x-rl-roaming:<n>` names the highest roaming wire format the host speaks; this client
+/// speaks version 1.
+fn offers_roaming(sdp: &str) -> bool {
+    use rubylight_protocol::roaming::{SDP_ATTRIBUTE, VERSION};
+    let (name, _) = SDP_ATTRIBUTE
+        .rsplit_once(':')
+        .expect("the attribute has a value");
+    lines(sdp).any(|line| {
+        line.strip_prefix(name)
+            .and_then(|rest| rest.strip_prefix(':'))
+            .and_then(|version| version.trim().parse::<u8>().ok())
+            .is_some_and(|version| version >= VERSION)
+    })
 }
 
 /// The microphone offer: a mono (or stereo) Opus rtpmap; the port of the last `m=audio`
@@ -154,6 +171,7 @@ impl DescribeInfo {
                 .unwrap_or(0),
             control_messages: parse_control_messages(sdp),
             microphone: microphone_offer(sdp),
+            roaming: offers_roaming(sdp),
         }
     }
 
@@ -401,6 +419,23 @@ mod tests {
             [0x5530, 0x5531, 0x5532, 0x5533, 0x5534, 0x5535, 0x5536, 0x5537]
         );
         assert_eq!(info.microphone, Some(48012));
+        assert!(!info.roaming, "no advertisement, no roaming");
+    }
+
+    #[test]
+    fn roaming_needs_the_advertisement() {
+        let with = |line: &str| DescribeInfo::parse(&format!("{RUBYLIGHT}{line}\r\n")).roaming;
+        assert!(with(rubylight_protocol::roaming::SDP_ATTRIBUTE));
+        assert!(with("a=x-rl-roaming:1"));
+        assert!(
+            with("a=x-rl-roaming:2"),
+            "a newer host still speaks version 1"
+        );
+        assert!(!with("a=x-rl-roaming:0"));
+        assert!(!with("a=x-rl-roaming:"));
+        assert!(!with("a=x-rl-roaming:yes"));
+        assert!(!with("a=x-rl-roamingx:1"));
+        assert!(!with("b=x-rl-roaming:1"));
     }
 
     #[test]

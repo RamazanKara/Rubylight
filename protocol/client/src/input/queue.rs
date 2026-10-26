@@ -992,6 +992,7 @@ mod tests {
             feature_flags: feature::PEN_TOUCH_EVENTS | feature::CONTROLLER_TOUCH_EVENTS,
             encryption_enabled: encryption::CONTROL_V2,
             control_messages: vec![],
+            client_roaming: false,
         }
     }
 

@@ -265,6 +265,8 @@ pub struct RtspOutcome {
     /// GameStream audio encryption (featureFlags 0x20) or SS_ENC_AUDIO.
     pub audio_encryption_enabled: bool,
     pub host_control_messages: Vec<u16>,
+    /// The host takes client roaming probes (`a=x-rl-roaming`).
+    pub host_roaming: bool,
     pub microphone: MicrophoneState,
     pub opus: OpusConfigs,
     pub high_quality_surround_enabled: bool,
@@ -484,6 +486,7 @@ impl Handshake {
                 encryption_enabled: 0,
                 audio_encryption_enabled: false,
                 host_control_messages: Vec::new(),
+                host_roaming: false,
                 microphone: mic,
                 opus: OpusConfigs::default(),
                 high_quality_surround_enabled: false,
@@ -891,6 +894,7 @@ impl Handshake {
         self.out.encryption_requested = info.encryption_requested;
         self.out.encryption_enabled = 0;
         self.out.host_control_messages = info.control_messages.clone();
+        self.out.host_roaming = info.roaming;
         // A host takes a microphone only encrypted.
         if config.microphone {
             match info.microphone {

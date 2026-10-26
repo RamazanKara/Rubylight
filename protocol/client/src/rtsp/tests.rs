@@ -128,6 +128,7 @@ fn full_handshake_with_a_sunshine_family_host() {
     assert_eq!(outcome.video_ping_payload, None);
     assert_eq!(outcome.control_connect_data, 16);
     assert_eq!(outcome.host_control_messages, [0x5530, 0x5536]);
+    assert!(!outcome.host_roaming, "not advertised");
     assert_eq!(outcome.encryption_enabled, 15);
     assert!(outcome.audio_encryption_enabled);
     // 1400 rounds to 1392; encrypted video takes 32 more.
@@ -141,6 +142,23 @@ fn full_handshake_with_a_sunshine_family_host() {
         .sdp
         .contains("a=x-ss-general.encryptionEnabled:15 \r\n"));
     assert!(outcome.sdp.contains("m=video 48098  \r\n"));
+}
+
+#[test]
+fn the_roaming_advertisement_reaches_the_outcome() {
+    let mut handshake = Handshake::new(params(None)).unwrap();
+    run(&mut handshake, |method, target| {
+        if method == "DESCRIBE" {
+            let body = format!(
+                "{DESCRIBE}{}\r\n",
+                rubylight_protocol::roaming::SDP_ATTRIBUTE
+            );
+            ok(2, "", &body)
+        } else {
+            sunshine_host(method, target)
+        }
+    });
+    assert!(handshake.finish().unwrap().host_roaming);
 }
 
 #[test]

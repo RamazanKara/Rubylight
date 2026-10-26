@@ -4,6 +4,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use nightjar_core::control::{haptics, ConnectionStatus, ControlEvent};
+use nightjar_core::roaming::RoamEvent;
 use nightjar_core::session::{Listener, Stage};
 use rubylight_protocol::control::{HostTiming, HostTimingExtra, LinkNotice, LinkState};
 use rubylight_protocol::steam_controller::SteamSettings;
@@ -305,6 +306,10 @@ impl Listener for Events {
                 };
                 b.post(m.connection_status, &[bridge::int(code)]);
             }
+            ControlEvent::Roam(event @ RoamEvent::Failed { .. }) => {
+                platform::warn(&event.to_string());
+            }
+            ControlEvent::Roam(event) => platform::info(&event.to_string()),
             // The session reports terminations through connection_terminated.
             ControlEvent::Terminated { .. } => {}
         }

@@ -762,6 +762,7 @@ fn start(
         feature_flags: outcome.sunshine_feature_flags,
         encryption_enabled: outcome.encryption_enabled,
         control_messages: outcome.host_control_messages.clone(),
+        client_roaming: outcome.host_roaming,
     };
     if !caps.encrypted_control() {
         return Err(fail(

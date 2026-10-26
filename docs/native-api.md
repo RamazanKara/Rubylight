@@ -334,7 +334,7 @@ GET /api/native/v1/audio
     { "id": "audio.night_mode", "group": "sound", "kind": "toggle",
       "state": "configurable", "value": true },
     { "id": "audio.headphone_surround", "group": "sound", "kind": "toggle",
-      "state": "temporarily_unavailable", "value": true,
+      "state": "configurable", "value": true,
       "reason": "next_stream", "message": "Headphone surround applies from the next stream." }
   ]
 }
@@ -342,11 +342,11 @@ GET /api/native/v1/audio
 
 - The settings are Radeon `Setting` objects, `kind: toggle`, `group: sound`, with the ids `audio.night_mode` and `audio.headphone_surround`. Each appears only when the host lists its feature.
 - `value` is the caller's session choice, resolved highest first: a live change in this session, the session's launch parameter, the app, the device, then the host. `revision` goes up with every change.
-- A setting with a `reason` has `state: temporarily_unavailable`: `value` is still the choice, but this stream doesn't apply it, and the owner can still write it. `message` is plain English. The reasons:
+- A `reason` with `message` (plain English) is a note on a setting this stream doesn't apply. The owner can still write it, so it stays `state: configurable` with `value`, the choice. Only a setting the caller can't write is `temporarily_unavailable`, without a `value`: today that is `no_session`. The reasons:
 
 | `reason` | Meaning |
 |---|---|
-| `no_session` | The caller has no streaming or suspended session. `value` is the host plus device setting a stream would start with |
+| `no_session` | The caller has no streaming or suspended session. The setting is `temporarily_unavailable` with no `value` |
 | `client_surround` | The client asked for 5.1 or 7.1 and renders its own speakers (headphone surround only) |
 | `game_only_audio` | Capture uses Game only audio, which is stereo (headphone surround only) |
 | `stereo_endpoint` | The PC's playback device is stereo (headphone surround only) |

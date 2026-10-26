@@ -12,12 +12,13 @@ pub const HEADPHONE_SURROUND: &str = "audio.headphone_surround";
 /// `Setting::group` of both.
 pub const GROUP: &str = "sound";
 
-/// `Setting::reason` values. A setting with a reason has `state:
-/// temporarily_unavailable`: `value` is still the choice, but this stream
-/// doesn't apply it. Clients show reasons they don't know by `message`.
+/// `Setting::reason` values: a note on a setting this stream doesn't apply.
+/// The owner can still write it, so it stays `configurable` with its `value`;
+/// only [`reason::NO_SESSION`] comes with `temporarily_unavailable` and no
+/// `value`. Clients show reasons they don't know by `message`.
 pub mod reason {
-    /// The caller has no streaming or suspended session; `value` is the host,
-    /// device and app setting a stream would start with.
+    /// The caller has no streaming or suspended session, so nothing is
+    /// writable: `temporarily_unavailable`, without a `value`.
     pub const NO_SESSION: &str = "no_session";
     /// The client asked for 5.1 or 7.1 and renders its own speakers.
     pub const CLIENT_SURROUND: &str = "client_surround";

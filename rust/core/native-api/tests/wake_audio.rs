@@ -188,9 +188,38 @@ fn audio_round_trip() {
     assert_eq!(night.state, ControlState::Configurable);
     assert_eq!(night.value, Some(Value::Bool(true)));
     assert_eq!(surround.id, audio::HEADPHONE_SURROUND);
-    assert_eq!(surround.state, ControlState::TemporarilyUnavailable);
+    // Not applied in this stream, but still the owner's to change: a note.
+    assert_eq!(surround.state, ControlState::Configurable);
     assert_eq!(surround.value, Some(Value::Bool(true)));
     assert_eq!(surround.reason.as_deref(), Some(audio::reason::NEXT_STREAM));
+}
+
+#[test]
+fn without_a_session_the_audio_settings_carry_no_value() {
+    let setting = rubylight_native_api::radeon::Setting {
+        id: audio::NIGHT_MODE.into(),
+        group: audio::GROUP.into(),
+        kind: Kind::Toggle,
+        state: ControlState::TemporarilyUnavailable,
+        value: None,
+        range: None,
+        options: vec![],
+        unit: None,
+        restore: None,
+        reason: Some(audio::reason::NO_SESSION.into()),
+        message: Some("Start a stream to change this.".into()),
+    };
+    let value = serde_json::to_value(Audio {
+        revision: 1,
+        settings: vec![setting],
+    })
+    .unwrap();
+    assert_eq!(
+        value["settings"][0],
+        json!({ "id": "audio.night_mode", "group": "sound", "kind": "toggle",
+                "state": "temporarily_unavailable", "reason": "no_session",
+                "message": "Start a stream to change this." })
+    );
 }
 
 #[test]

@@ -4,7 +4,7 @@
     { "id": "audio.night_mode", "group": "sound", "kind": "toggle",
       "state": "configurable", "value": true },
     { "id": "audio.headphone_surround", "group": "sound", "kind": "toggle",
-      "state": "temporarily_unavailable", "value": true,
+      "state": "configurable", "value": true,
       "reason": "next_stream", "message": "Headphone surround applies from the next stream." }
   ]
 }

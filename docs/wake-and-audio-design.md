@@ -452,8 +452,8 @@ Validation: the audio keys and `sleep_while_suspended` are booleans. `sleep_afte
 
 - `GET /api/native/v1/audio` returns `{ revision, settings: [Setting] }`.
   - It reuses `radeon::Setting`, with ids `audio.night_mode` and `audio.headphone_surround`, kind `toggle` and group `sound`.
-  - Inactive reasons appear as `state: temporarily_unavailable` with a `reason`.
-  - With no session, it returns the host plus device values, with reason `no_session`.
+  - Inactive reasons appear as a `reason` and `message` note on a setting that stays `state: configurable` with its `value`, since the owner can still write it.
+  - With no session, the settings are `state: temporarily_unavailable` without a `value`, with reason `no_session`.
 - `POST /api/native/v1/audio/settings` takes `{ "changes": [{ "id": ..., "value": ... }] }` and returns the new state.
   - It's for the owner of a streaming or suspended session, with View or Launch.
   - Host control isn't required, because the change affects only the caller's own stream.
@@ -562,7 +562,7 @@ General rules for every brief:
 - `rust/core/native-api/src/lib.rs`: feature constants `WAKE = "wake"`, `AUDIO_NIGHT_MODE = "audio.night_mode"` and `AUDIO_HEADPHONE_SURROUND = "audio.headphone_surround"`, plus `pub mod audio; pub mod wake;`.
 - `rust/core/native-api/src/audio.rs` (new): `Audio { revision, settings: Vec<radeon::Setting> }`, `AudioWrite { changes: Vec<radeon::Change> }`, the setting-id constants and the reason constants (`no_session`, `client_surround`, `game_only_audio`, `stereo_endpoint`, `muted`, `next_stream`).
 - `rust/core/native-api/src/wake.rs` (new): `Wake`, `Target`, `Check`, `System` and `IdleSleep`, exactly as in A.6. Unknown enum values use `Lenient`.
-- `rust/core/native-api/tests/fixtures.rs` and `rust/core/native-api/tests/fixtures/{audio.json,audio-write.json,wake.json}`.
+- `rust/core/native-api/tests/wake_audio.rs` and `rust/core/native-api/tests/fixtures/{audio.json,audio_write.json,wake.json}`.
 - `rust/core/src/config.rs`:
   - add `audio_night_mode` and `audio_headphone_surround` to `override_allowed`;
   - validate the changed values: the four keys of B.6, with minutes 0 or 5 to 1440;

@@ -3105,7 +3105,8 @@ impl Media {
             || (s.launch.role == Role::RemoteMonitor
                 && config.boolean("remote_monitor_mute_audio", false));
         // Night mode and headphone surround; with both off the packets pass untouched.
-        let mut couch = couch_audio::CouchAudio::start(&s, &config, game_audio, muted)?;
+        let mut couch =
+            couch_audio::CouchAudio::start(&s, &config, &h.audio_memory, game_audio, muted)?;
         let capture_channels = couch.capture_channels();
         let mut route = s
             .launch

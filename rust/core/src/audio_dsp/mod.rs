@@ -185,9 +185,14 @@ impl Conditions {
 }
 
 /// The session's choice before live changes: the `/launch` or `/resume`
-/// parameter, then the effective app, device and host `config`. A parameter
-/// other than `on` or `off` is logged and ignored.
-pub fn resolve(config: &crate::config::Config, options: &BTreeMap<String, String>) -> Settings {
+/// parameter, then what the client last chose live for this app
+/// (`remembered`, from [`Memory`]), then the effective app, device and host
+/// `config`. A parameter other than `on` or `off` is logged and ignored.
+pub fn resolve(
+    config: &crate::config::Config,
+    options: &BTreeMap<String, String>,
+    remembered: Live,
+) -> Settings {
     let choice = |key: Key| {
         let parameter = options.get(key.parameter()).map(|value| value.trim());
         match parameter {
@@ -201,13 +206,60 @@ pub fn resolve(config: &crate::config::Config, options: &BTreeMap<String, String
                         "unknown audio launch value; the audio settings decide"
                     );
                 }
-                config.boolean(key.config(), false)
+                remembered
+                    .of(key)
+                    .unwrap_or_else(|| config.boolean(key.config(), false))
             }
         }
     };
     Settings {
         night_mode: choice(Key::NightMode),
         headphone_surround: choice(Key::HeadphoneSurround),
+    }
+}
+
+/// The settings a session changed live; `None` for one left as it started.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Live {
+    pub night_mode: Option<bool>,
+    pub headphone_surround: Option<bool>,
+}
+
+impl Live {
+    fn of(self, key: Key) -> Option<bool> {
+        match key {
+            Key::NightMode => self.night_mode,
+            Key::HeadphoneSurround => self.headphone_surround,
+        }
+    }
+}
+
+/// The last live choice of each client (its paired uuid) and app, which their
+/// next session starts with: so a choice that "applies from the next stream"
+/// does. In memory only: a host restart forgets it and no config is written.
+#[derive(Default)]
+pub struct Memory(std::sync::Mutex<BTreeMap<(String, u32), Live>>);
+
+impl Memory {
+    /// Keeps `live` for the client's next session of `app`; a setting it
+    /// didn't change keeps what was remembered before.
+    pub fn remember(&self, client: &str, app: u32, live: Live) {
+        if live == Live::default() {
+            return;
+        }
+        let mut choices = self.0.lock().unwrap();
+        let remembered = choices.entry((client.into(), app)).or_default();
+        remembered.night_mode = live.night_mode.or(remembered.night_mode);
+        remembered.headphone_surround = live.headphone_surround.or(remembered.headphone_surround);
+    }
+
+    pub fn recall(&self, client: &str, app: u32) -> Live {
+        self.0
+            .lock()
+            .unwrap()
+            .get(&(client.into(), app))
+            .copied()
+            .unwrap_or_default()
     }
 }
 
@@ -230,6 +282,14 @@ impl Control {
         match self.choice.load(Ordering::Relaxed) {
             UNRESOLVED => None,
             value => Some(matches!(value, START_ON | LIVE_ON)),
+        }
+    }
+
+    fn live(&self) -> Option<bool> {
+        match self.choice.load(Ordering::Relaxed) {
+            LIVE_OFF => Some(false),
+            LIVE_ON => Some(true),
+            _ => None,
         }
     }
 }
@@ -283,6 +343,14 @@ impl Controls {
                 .headphone_surround
                 .value()
                 .unwrap_or(base.headphone_surround),
+        }
+    }
+
+    /// The live changes made in this session, for [`Memory`].
+    pub fn live(&self) -> Live {
+        Live {
+            night_mode: self.night_mode.live(),
+            headphone_surround: self.headphone_surround.live(),
         }
     }
 
@@ -820,7 +888,7 @@ mod tests {
         let mut config = crate::config::Config::parse("audio_night_mode = on\n").unwrap();
         let mut options = BTreeMap::new();
         assert_eq!(
-            resolve(&config, &options),
+            resolve(&config, &options, Live::default()),
             Settings {
                 night_mode: true,
                 headphone_surround: false
@@ -830,10 +898,10 @@ mod tests {
         config
             .values
             .insert("audio_headphone_surround".into(), "true".into());
-        assert!(resolve(&config, &options).headphone_surround);
+        assert!(resolve(&config, &options, Live::default()).headphone_surround);
         options.insert("audioNightMode".into(), "off".into());
         options.insert("audioHeadphoneSurround".into(), "loud".into());
-        let start = resolve(&config, &options);
+        let start = resolve(&config, &options, Live::default());
         assert_eq!(
             start,
             Settings {
@@ -857,6 +925,50 @@ mod tests {
         );
         controls.set(Key::HeadphoneSurround, false);
         assert!(!controls.settings(BOTH).headphone_surround);
+    }
+
+    #[test]
+    fn a_remembered_live_choice_sits_between_the_launch_and_the_config() {
+        let config = crate::config::Config::parse("audio_night_mode = on\n").unwrap();
+        let mut options = BTreeMap::new();
+        let remembered = Live {
+            night_mode: Some(false),
+            headphone_surround: Some(true),
+        };
+        assert_eq!(
+            resolve(&config, &options, remembered),
+            Settings {
+                night_mode: false,
+                headphone_surround: true
+            }
+        );
+        options.insert("audioHeadphoneSurround".into(), "off".into());
+        assert!(!resolve(&config, &options, remembered).headphone_surround);
+
+        // Only live changes are remembered, merged per client and app.
+        let controls = Controls::default();
+        controls.start(BOTH);
+        assert_eq!(controls.live(), Live::default());
+        controls.set(Key::NightMode, false);
+        let memory = Memory::default();
+        memory.remember("a", 1, controls.live());
+        memory.remember(
+            "a",
+            1,
+            Live {
+                night_mode: None,
+                headphone_surround: Some(true),
+            },
+        );
+        assert_eq!(
+            memory.recall("a", 1),
+            Live {
+                night_mode: Some(false),
+                headphone_surround: Some(true)
+            }
+        );
+        assert_eq!(memory.recall("a", 2), Live::default());
+        assert_eq!(memory.recall("b", 1), Live::default());
     }
 
     #[test]

@@ -3,16 +3,20 @@
 
 use anyhow::Result;
 use butterpollo_core::{
-    audio_dsp::{self, Chain, Conditions, Controls, Report, Settings},
+    audio_dsp::{self, Chain, Conditions, Controls, Live, Memory, Report, Settings},
     config::Config,
     session::Warnings,
 };
 
 use crate::state::Session;
 
-pub(super) struct CouchAudio {
+pub(super) struct CouchAudio<'a> {
     /// The choice the stream started with; the session's live changes go on top.
     start: Settings,
+    /// Where the session's live changes are kept for the client's next session of the app.
+    memory: Option<(&'a Memory, String, u32)>,
+    /// The live changes last kept there.
+    remembered: Live,
     conditions: Conditions,
     chain: Chain,
     report: Report,
@@ -20,22 +24,27 @@ pub(super) struct CouchAudio {
     source: Option<(usize, u32)>,
 }
 
-impl CouchAudio {
-    /// Resolves the stream's choice from its launch and effective `config`, and picks the
-    /// capture channels from it.
+impl<'a> CouchAudio<'a> {
+    /// Resolves the stream's choice from its launch, the client's remembered live choice for
+    /// the app and the effective `config`, and picks the capture channels from it.
     pub(super) fn start(
         s: &Session,
         config: &Config,
+        memory: &'a Memory,
         game_audio: bool,
         muted: bool,
     ) -> Result<Self> {
-        Self::new(
+        let (client, app) = (s.launch.client.uuid.clone(), s.launch.app_id);
+        let remembered = memory.recall(&client, app);
+        let mut audio = Self::new(
             &s.audio,
-            audio_dsp::resolve(config, &s.launch.options),
+            audio_dsp::resolve(config, &s.launch.options, remembered),
             usize::from(s.config.audio_channels),
             game_audio,
             muted,
-        )
+        )?;
+        audio.memory = Some((memory, client, app));
+        Ok(audio)
     }
 
     fn new(
@@ -62,6 +71,8 @@ impl CouchAudio {
         }
         Ok(Self {
             start,
+            memory: None,
+            remembered: Live::default(),
             conditions: Conditions {
                 client_channels,
                 game_audio,
@@ -107,6 +118,13 @@ impl CouchAudio {
             &mut self.chain,
         );
         self.chain.process(packet, settings);
+        let live = controls.live();
+        if live != self.remembered {
+            if let Some((memory, client, app)) = &self.memory {
+                memory.remember(client, *app, live);
+            }
+            self.remembered = live;
+        }
     }
 }
 
@@ -220,7 +238,8 @@ mod tests {
                     ..Default::default()
                 },
             );
-            let audio = CouchAudio::start(&s, &config(host), game_audio, muted).unwrap();
+            let memory = Memory::default();
+            let audio = CouchAudio::start(&s, &config(host), &memory, game_audio, muted).unwrap();
             assert_eq!(
                 audio.capture_channels(),
                 want,
@@ -232,6 +251,53 @@ mod tests {
         controls.set(Key::HeadphoneSurround, true);
         let audio = CouchAudio::new(&controls, OFF, 2, false, false).unwrap();
         assert_eq!(audio.capture_channels(), 8);
+    }
+
+    #[test]
+    fn a_live_choice_carries_to_the_clients_next_session_of_the_app() {
+        let f = crate::state::test_support::Fixture::new();
+        let config = Config::parse("").unwrap();
+        let memory = Memory::default();
+        let warnings = Warnings::default();
+        let session = |client: butterpollo_core::state::Client, app: Option<u32>| {
+            let mut launch = f.launch(client, butterpollo_core::session::Role::Stream);
+            if let Some(app) = app {
+                launch.app_id = app;
+            }
+            crate::state::Session::new(
+                launch,
+                butterpollo_core::rtsp::Negotiated {
+                    audio_channels: 2,
+                    ..Default::default()
+                },
+            )
+        };
+        let client = f.client(u32::MAX);
+        let mut other = client.clone();
+        other.uuid = "another-device".into();
+
+        // Turned on live with stereo capture: it applies from the next stream.
+        let first = session(client.clone(), None);
+        let mut audio = CouchAudio::start(&first, &config, &memory, false, false).unwrap();
+        assert_eq!(audio.capture_channels(), 2);
+        audio.set_source((2, 3)).unwrap();
+        first.audio.set(Key::HeadphoneSurround, true);
+        audio.process(&first.audio, &warnings, &mut vec![0.; 480]);
+        drop(audio);
+
+        // The same client and app (a new launch or a resume): surround on, 8 channels.
+        let next = session(client.clone(), None);
+        let audio = CouchAudio::start(&next, &config, &memory, false, false).unwrap();
+        assert_eq!(audio.capture_channels(), 8);
+        assert!(next.audio.settings(OFF).headphone_surround);
+        // Another client, or another app of the same client, starts from its config.
+        let elsewhere = session(other, None);
+        let audio = CouchAudio::start(&elsewhere, &config, &memory, false, false).unwrap();
+        assert_eq!(audio.capture_channels(), 2);
+        let app = next.launch.app_id.wrapping_add(1);
+        let elsewhere = session(client, Some(app));
+        let audio = CouchAudio::start(&elsewhere, &config, &memory, false, false).unwrap();
+        assert_eq!(audio.capture_channels(), 2);
     }
 
     #[test]

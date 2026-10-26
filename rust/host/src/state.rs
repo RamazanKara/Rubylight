@@ -156,6 +156,8 @@ pub struct Host {
     pub paired: RwLock<PairedState>,
     /// Serializes route-memory writes with resets; epochs fence old sessions.
     keyframe_loss_epochs: Mutex<HashMap<String, u64>>,
+    /// Each client's last live audio choice per app, for its next session.
+    pub audio_memory: butterpollo_core::audio_dsp::Memory,
     pub credentials: RwLock<Option<Credentials>>,
     /// The credentials file as the sign-in was last read or written.
     credentials_stamp: Mutex<Option<FileStamp>>,
@@ -407,6 +409,7 @@ impl Host {
             console,
             paired: RwLock::new(paired),
             keyframe_loss_epochs: Default::default(),
+            audio_memory: Default::default(),
             credentials: RwLock::new(credentials),
             credentials_stamp: Mutex::new(credentials_stamp),
             app_document: RwLock::new(app_document),

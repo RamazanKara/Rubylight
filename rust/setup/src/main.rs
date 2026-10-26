@@ -5,7 +5,7 @@
 //!
 //! rubylight-setup.exe [--quiet] [--install-dir <folder>] [--no-gamepad-driver]
 //!                       [--no-display-driver] [--usbip-driver | --no-usbip-driver]
-//!                       [--no-start] [--end-streams]
+//!                       [--wake-on-lan | --no-wake-on-lan] [--no-start] [--end-streams]
 //! rubylight-setup.exe --uninstall [--quiet] [--factory-reset] [--remove-drivers]
 //! rubylight-setup.exe --repair-drivers [--now] (the service runs it without --now)
 #![warn(clippy::undocumented_unsafe_blocks)]
@@ -29,6 +29,7 @@ mod update_files;
 mod usbip;
 #[path = "../../core/src/version.rs"]
 mod version;
+mod wake;
 
 use std::path::PathBuf;
 
@@ -44,6 +45,7 @@ struct Arguments {
     no_gamepad_driver: bool,
     no_display_driver: bool,
     usbip_driver: Option<bool>,
+    wake_on_lan: Option<bool>,
     no_start: bool,
     /// Install even while the host streams, ending the stream. Without it a
     /// quiet setup refuses; the setup window asks instead.
@@ -83,6 +85,12 @@ fn arguments() -> Result<Arguments, String> {
                 }
                 parsed.usbip_driver = Some(arg.eq_ignore_ascii_case("--usbip-driver"));
             }
+            "--wake-on-lan" | "--no-wake-on-lan" => {
+                if parsed.wake_on_lan.is_some() {
+                    return Err("choose only one Wake-on-LAN option".into());
+                }
+                parsed.wake_on_lan = Some(arg.eq_ignore_ascii_case("--wake-on-lan"));
+            }
             "--no-start" => parsed.no_start = true,
             "--end-streams" => parsed.end_streams = true,
             "--factory-reset" => parsed.factory_reset = true,
@@ -102,12 +110,13 @@ fn arguments() -> Result<Arguments, String> {
     }
     Ok(parsed)
 }
-const USAGE: &str = "rubylight-setup.exe [--quiet] [--install-dir <folder>] [--no-gamepad-driver] [--no-display-driver] [--usbip-driver | --no-usbip-driver] [--no-start] [--end-streams]\n\
+const USAGE: &str = "rubylight-setup.exe [--quiet] [--install-dir <folder>] [--no-gamepad-driver] [--no-display-driver] [--usbip-driver | --no-usbip-driver] [--wake-on-lan | --no-wake-on-lan] [--no-start] [--end-streams]\n\
 rubylight-setup.exe --uninstall [--quiet] [--factory-reset] [--remove-drivers]\n\
 rubylight-setup.exe --repair-drivers [--now]\n\n\
 --repair-drivers sets the virtual display driver up again from this installation. The Rubylight service runs it by itself, at most once a day per version, never during a stream and never after --no-display-driver. --now is for a person: it shows progress and the result and ignores those limits, though it still refuses while a stream runs.\n\n\
 A quiet setup refuses to install while Rubylight is streaming; --end-streams ends the stream instead, and the client can reconnect once setup has finished.\n\n\
 --usbip-driver installs the bundled Steam Deck and DualSense USB audio and haptics driver. It is optional, off by default, and its choice is kept for updates. --no-usbip-driver skips it without removing a shared driver.\n\n\
+--wake-on-lan turns on the wake settings of the wired network adapters, so a client can wake this PC from sleep. It is optional, off by default, and its choice is kept for updates. --no-wake-on-lan leaves the adapters as they are.\n\n\
 Rubylight 3.0 needs an AMD Radeon GPU with its AMF video encoder; setup explains and stops on any other PC. NVIDIA and Intel graphics stay on Rubylight 2.6.x.\n\n\
 Exit codes: 0 done, 3010 done but Windows must restart, 1223 cancelled, 1 failed.";
 
@@ -199,6 +208,7 @@ fn main() {
                 let folder = folder.clone();
                 let end_streams = args.end_streams;
                 let usbip_driver = usbip::selected(&install::profile(), args.usbip_driver);
+                let wake_on_lan = wake::selected(&install::profile(), args.wake_on_lan);
                 match ui::progress(TITLE, "Updating Rubylight", true, move |progress| {
                     let mut notes = Vec::new();
                     let mut restart_needed = false;
@@ -229,6 +239,12 @@ fn main() {
                         ));
                     }
                     install::refresh_entries(&folder, &mut notes);
+                    // A NIC driver update can reset them; nothing runs while
+                    // they are still set.
+                    if wake_on_lan {
+                        wake_on_lan_notes(&folder, &mut notes);
+                    }
+                    wake::remember(&install::profile(), wake_on_lan)?;
                     for note in notes {
                         log::line(format!("note: {note}"));
                     }
@@ -259,6 +275,7 @@ fn run_install(args: &Arguments) -> i32 {
     let mut folder = detect::install_dir(&found, args.install_dir.clone());
     let mut gamepad_driver = !args.no_gamepad_driver;
     let mut usbip_driver = usbip::selected(&install::profile(), args.usbip_driver);
+    let mut wake_on_lan = wake::selected(&install::profile(), args.wake_on_lan);
     let mut end_streams = args.end_streams;
     if !args.quiet {
         // Updating from inside a stream is fine: the stream ends while
@@ -275,7 +292,7 @@ fn run_install(args: &Arguments) -> i32 {
                 TITLE,
                 &format!("Install Rubylight {}", env!("CARGO_PKG_VERSION")),
                 &text,
-                if args.usbip_driver.is_none() {
+                if args.usbip_driver.is_none() || args.wake_on_lan.is_none() {
                     "Next"
                 } else {
                     "Install"
@@ -312,7 +329,11 @@ fn run_install(args: &Arguments) -> i32 {
                 TITLE,
                 "Steam Deck and DualSense USB audio and haptics",
                 "The bundled usbip-win2 driver enables native Steam Deck controllers and DualSense USB audio for waveform haptics. A compatible client is required.\n\nInstalling it can reconnect USB devices and require a Windows restart. Setup never restarts Windows automatically. Existing USB/IP installations are kept, and this shared driver remains installed when Rubylight is removed.",
-                "Install",
+                if args.wake_on_lan.is_none() {
+                    "Next"
+                } else {
+                    "Install"
+                },
                 None,
                 Some(("Install USB audio and haptics support", usbip_driver)),
             );
@@ -320,6 +341,20 @@ fn run_install(args: &Arguments) -> i32 {
                 return 1223;
             }
             usbip_driver = choice.checked;
+        }
+        if args.wake_on_lan.is_none() {
+            let choice = ui::ask(
+                TITLE,
+                "Wake this PC from a client",
+                "Setup can turn on Wake-on-LAN for the wired network adapters, so a client can wake this PC from sleep. An adapter restarts briefly when its settings change. Turning off Fast Startup, which can keep a shut-down PC from waking, is offered in the Rubylight console.",
+                "Install",
+                None,
+                Some(("Turn on Wake-on-LAN", wake_on_lan)),
+            );
+            if !choice.accepted {
+                return 1223;
+            }
+            wake_on_lan = choice.checked;
         }
     }
     let options = install::Options {
@@ -334,7 +369,13 @@ fn run_install(args: &Arguments) -> i32 {
         install::install(&options, &progress)
     });
     match result {
-        Ok(outcome) => {
+        Ok(mut outcome) => {
+            if wake_on_lan {
+                wake_on_lan_notes(&outcome.install, &mut outcome.notes);
+            }
+            if let Err(error) = wake::remember(&install::profile(), wake_on_lan) {
+                outcome.notes.push(format!("{error:#}"));
+            }
             for note in &outcome.notes {
                 log::line(format!("note: {note}"));
             }
@@ -400,6 +441,17 @@ fn run_uninstall(args: &Arguments) -> i32 {
             0
         }
         Err(error) => failed(args.quiet, "Rubylight could not be removed", &error),
+    }
+}
+/// Apply the Wake-on-LAN settings after an install or update. A failure is a
+/// note for the log and the finished dialog; the installation itself stands.
+fn wake_on_lan_notes(install: &std::path::Path, notes: &mut Vec<String>) {
+    match wake::apply(install) {
+        Ok(changes) if changes.is_empty() => log::line("Wake-on-LAN: already set up"),
+        Ok(changes) => notes.push(format!("Wake-on-LAN is set up: {}.", changes.join("; "))),
+        Err(error) => notes.push(format!(
+            "Wake-on-LAN could not be set up: {error:#}. The Rubylight console can try again."
+        )),
     }
 }
 fn failed(quiet: bool, heading: &str, error: &anyhow::Error) -> i32 {

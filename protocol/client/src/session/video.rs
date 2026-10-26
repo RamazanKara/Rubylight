@@ -12,7 +12,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use super::net::{self, NextSocket, PingHandle, Pinger, UDP_RECV_POLL_TIMEOUT};
+use super::net::{self, NextSocket, PingHandle, Pinger, REBIND_WAIT, UDP_RECV_POLL_TIMEOUT};
 use super::{error, now_us, DecodeStatus, Shared, VideoDecoder};
 use crate::control::driver::ControlHandle;
 use crate::control::FrameFecStatus;
@@ -458,13 +458,17 @@ fn receive_thread(
                 continue;
             }
             Err(e) => {
-                // The old socket's address went away with the network.
-                if let Some(next) = next_socket.take() {
+                // The old socket's address went away with the network, maybe ahead of the
+                // rebind: wait a while for the roam's new socket, then fail.
+                if let Some(next) = next_socket.wait(REBIND_WAIT, &stop) {
                     session.log(&format!(
                         "Video receive failed on the old socket, moved to the roam's new one: {e}"
                     ));
                     socket = next;
                     continue;
+                }
+                if stop.load(Ordering::Acquire) {
+                    break;
                 }
                 session.log(&format!("Video receive failed: {e}"));
                 session.terminate(e.raw_os_error().unwrap_or(-1));

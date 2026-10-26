@@ -181,13 +181,17 @@ fn receive_thread(
                 continue;
             }
             Err(e) => {
-                // The old socket's address went away with the network.
-                if let Some(next) = next_socket.take() {
+                // The old socket's address went away with the network, maybe ahead of the
+                // rebind: wait a while for the roam's new socket, then fail.
+                if let Some(next) = next_socket.wait(net::REBIND_WAIT, &stop) {
                     session.log(&format!(
                         "Audio receive failed on the old socket, moved to the roam's new one: {e}"
                     ));
                     socket = next;
                     continue;
+                }
+                if stop.load(Ordering::Acquire) {
+                    break;
                 }
                 session.log(&format!("Audio receive failed: {e}"));
                 session.terminate(e.raw_os_error().unwrap_or(-1));

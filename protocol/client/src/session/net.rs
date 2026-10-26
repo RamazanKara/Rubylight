@@ -8,9 +8,10 @@
 
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream, ToSocketAddrs, UdpSocket};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use socket2::{Domain, Protocol, Socket, Type};
 
@@ -18,6 +19,9 @@ use crate::priority::{self, Qos};
 
 /// How long a media receive waits before checking for shutdown and timeouts.
 pub const UDP_RECV_POLL_TIMEOUT: Duration = Duration::from_millis(100);
+/// How long a media receive that failed waits for the roam's new socket before it ends the
+/// session: the rebind follows the route poll, which runs every second.
+pub const REBIND_WAIT: Duration = Duration::from_secs(1);
 const TEST_PORT_TIMEOUT: Duration = Duration::from_secs(3);
 const RCV_BUFFER_SIZE_MIN: usize = 32767;
 const RCV_BUFFER_SIZE_STEP: usize = 16384;
@@ -245,15 +249,40 @@ pub fn ping_datagram(payload: Option<[u8; 16]>, count: u32) -> Vec<u8> {
 /// thread looks only when a receive times out or fails, so the packet path is unchanged: it
 /// reads the old socket until the host stops sending there.
 #[derive(Default)]
-pub struct NextSocket(Mutex<Option<UdpSocket>>);
+pub struct NextSocket {
+    socket: Mutex<Option<UdpSocket>>,
+    set: Condvar,
+}
 
 impl NextSocket {
     pub fn set(&self, socket: UdpSocket) {
-        *self.0.lock().unwrap_or_else(|p| p.into_inner()) = Some(socket);
+        *self.socket.lock().unwrap_or_else(|p| p.into_inner()) = Some(socket);
+        self.set.notify_all();
     }
 
     pub fn take(&self) -> Option<UdpSocket> {
-        self.0.lock().unwrap_or_else(|p| p.into_inner()).take()
+        self.socket.lock().unwrap_or_else(|p| p.into_inner()).take()
+    }
+
+    /// The next socket once it is set, waiting up to `timeout` for it: a receive that failed
+    /// with the network may be ahead of the rebind. None after `timeout`, or soon after `stop`.
+    pub fn wait(&self, timeout: Duration, stop: &AtomicBool) -> Option<UdpSocket> {
+        let deadline = Instant::now() + timeout;
+        let mut socket = self.socket.lock().unwrap_or_else(|p| p.into_inner());
+        loop {
+            if let Some(next) = socket.take() {
+                return Some(next);
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() || stop.load(Ordering::Acquire) {
+                return None;
+            }
+            socket = self
+                .set
+                .wait_timeout(socket, left.min(UDP_RECV_POLL_TIMEOUT))
+                .unwrap_or_else(|p| p.into_inner())
+                .0;
+        }
     }
 }
 
@@ -467,6 +496,37 @@ mod tests {
         assert_eq!(from, new.local_addr().unwrap());
         assert_eq!(&buffer[..n], ping_datagram(payload, 2));
         pinger.stop();
+    }
+
+    #[test]
+    fn a_failed_receive_waits_a_while_for_the_next_socket_then_gives_up() {
+        let stop = AtomicBool::new(false);
+        let next = Arc::new(NextSocket::default());
+        // The rebind comes after the failure: the wait gets its socket when it is set.
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let address = socket.local_addr().unwrap();
+        let setter = {
+            let next = next.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(200));
+                next.set(socket);
+            })
+        };
+        let waiting = Instant::now();
+        let moved = next.wait(REBIND_WAIT, &stop).expect("the socket set meanwhile");
+        assert_eq!(moved.local_addr().unwrap(), address);
+        assert!(waiting.elapsed() < REBIND_WAIT, "waited out the timeout");
+        setter.join().unwrap();
+        // No rebind: about REBIND_WAIT, not forever.
+        let waiting = Instant::now();
+        assert!(next.wait(REBIND_WAIT, &stop).is_none());
+        let waited = waiting.elapsed();
+        assert!(waited >= REBIND_WAIT && waited < 2 * REBIND_WAIT, "{waited:?}");
+        // A stopping session does not wait.
+        stop.store(true, Ordering::Release);
+        let waiting = Instant::now();
+        assert!(next.wait(REBIND_WAIT, &stop).is_none());
+        assert!(waiting.elapsed() < UDP_RECV_POLL_TIMEOUT * 2);
     }
 
     #[test]

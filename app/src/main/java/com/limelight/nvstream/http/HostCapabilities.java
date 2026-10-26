@@ -62,9 +62,16 @@ public final class HostCapabilities {
         NATIVE_API(0),
         /** Sleep PC (/power-actions/v1, Vibepollo's wire format): suspend an idle host. */
         SLEEP(0),
-        /** Upload files to the host (/api/native/v1/files). Known only after {@link #withNativeCapabilities}. */
+        /**
+         * Upload files to the host (/api/native/v1/files). Known only after {@link #withNativeCapabilities}: gate
+         * the UI on {@link HostCapabilities#has}, never {@link HostCapabilities#mayHave}, which is true before the
+         * native API answered.
+         */
         FILE_UPLOAD(0),
-        /** List and download the host's files. Known only after {@link #withNativeCapabilities}. */
+        /**
+         * List and download the host's files. Known only after {@link #withNativeCapabilities}; gate it like
+         * FILE_UPLOAD.
+         */
         FILE_DOWNLOAD(0);
 
         @StringRes public final int label;
@@ -273,37 +280,62 @@ public final class HostCapabilities {
     /**
      * These capabilities with what the native API's GET /capabilities adds: the file transfer features and this
      * device's file permissions. Read it again after every serverinfo refresh; until then the file features are
-     * unknown. A host never reached stays unknown. Throws for a body that is not a capabilities object.
+     * unknown. A host never reached stays unknown. Throws for a body that is not a capabilities object, field by
+     * field as the Rust client reads it, even for a host never reached.
      */
     public HostCapabilities withNativeCapabilities(String json) throws JSONException {
+        JSONObject capabilities = new JSONObject(json);
+        Object apiVersion = capabilities.opt("api_version");
+        if (!(apiVersion instanceof Integer || apiVersion instanceof Long)
+                || ((Number) apiVersion).longValue() < 0 || ((Number) apiVersion).longValue() > 0xFFFFFFFFL) {
+            throw new JSONException("api_version is not a 32-bit unsigned integer");
+        }
+        JSONObject host = typed(capabilities, "host", JSONObject.class);
+        for (String key : new String[] {"name", "version", "unique_id"}) {
+            typed(host, key, String.class);
+        }
+        JSONArray features = typed(capabilities, "features", JSONArray.class);
+        JSONObject permissions = typed(capabilities, "permissions", JSONObject.class);
+        for (String key : new String[] {"list", "view", "launch", "host_control"}) {
+            typed(permissions, key, Boolean.class);
+        }
+        boolean upload = false;
+        boolean download = false;
+        for (int i = 0; i < features.length(); i++) {
+            Object feature = features.get(i);
+            if (!(feature instanceof String)) {
+                throw new JSONException("features[" + i + "] is not a string");
+            }
+            upload |= "files.upload".equals(feature);
+            download |= "files.download".equals(feature);
+        }
+        boolean uploadPermission = permission(permissions, "file_upload");
+        boolean downloadPermission = permission(permissions, "file_download");
         if (evidence == null) {
             return UNKNOWN;
         }
-        JSONObject capabilities = new JSONObject(json);
-        JSONArray features = capabilities.getJSONArray("features");
-        JSONObject permissions = capabilities.getJSONObject("permissions");
+        // Assigned, not added: a host that stopped offering a feature no longer has it.
         Evidence native_ = Evidence.fromJson(evidence.toJson());
         native_.nativeCapabilities = true;
-        for (int i = 0; i < features.length(); i++) {
-            String feature = features.getString(i);
-            native_.filesUpload |= "files.upload".equals(feature);
-            native_.filesDownload |= "files.download".equals(feature);
-        }
-        native_.fileUploadPermission = permission(permissions, "file_upload");
-        native_.fileDownloadPermission = permission(permissions, "file_download");
+        native_.filesUpload = upload;
+        native_.filesDownload = download;
+        native_.fileUploadPermission = uploadPermission;
+        native_.fileDownloadPermission = downloadPermission;
         return new HostCapabilities(native_);
+    }
+
+    /** {@code object.key} as a {@code type}; org.json's getters would convert "true" or 1 instead of failing. */
+    private static <T> T typed(JSONObject object, String key, Class<T> type) throws JSONException {
+        Object value = object.opt(key);
+        if (!type.isInstance(value)) {
+            throw new JSONException(key + " is not a " + type.getSimpleName());
+        }
+        return type.cast(value);
     }
 
     /** False when absent, as from a host without file transfer; a value that is not a boolean is an error. */
     private static boolean permission(JSONObject permissions, String key) throws JSONException {
-        if (!permissions.has(key)) {
-            return false;
-        }
-        Object value = permissions.get(key);
-        if (!(value instanceof Boolean)) {
-            throw new JSONException(key + " is not a boolean");
-        }
-        return (Boolean) value;
+        return permissions.has(key) && typed(permissions, key, Boolean.class);
     }
 
     /** Stored capabilities, or {@link #UNKNOWN} for anything missing, damaged or in another format. */

@@ -242,6 +242,7 @@ public class HostCapabilitiesTest {
         }
         String capabilities = null;
         int count = 0;
+        int invalid = 0;
         for (String line : Files.readAllLines(cases, StandardCharsets.UTF_8)) {
             if (line.isEmpty() || line.startsWith("#")) {
                 continue;
@@ -251,6 +252,19 @@ public class HostCapabilitiesTest {
             // Serverinfo alone never decides file transfer on a host with the native API.
             assertFalse(line, caps.has(FILE_UPLOAD));
             assertFalse(line, caps.has(FILE_DOWNLOAD));
+            if ("invalid".equals(fields[0])) {
+                // Refused like the Rust parser refuses it, even with no serverinfo to add to.
+                for (HostCapabilities base : new HostCapabilities[] {caps, HostCapabilities.UNKNOWN}) {
+                    try {
+                        base.withNativeCapabilities(fields[2]);
+                        fail(line);
+                    } catch (JSONException expected) {
+                        // Thrown, as it should be.
+                    }
+                }
+                invalid++;
+                continue;
+            }
             if (!"-".equals(fields[2])) {
                 capabilities = fields[2];
                 caps = caps.withNativeCapabilities(fields[2]);
@@ -264,6 +278,7 @@ public class HostCapabilitiesTest {
             count++;
         }
         assertEquals(13, count);
+        assertEquals(15, invalid);
         // Without serverinfo there is nothing to add to.
         assertSame(HostCapabilities.UNKNOWN, HostCapabilities.UNKNOWN.withNativeCapabilities(capabilities));
         // A body that is not a capabilities object is an error, not a host without file transfer.
@@ -286,6 +301,25 @@ public class HostCapabilitiesTest {
             assertNotNull(key, older.remove(key));
         }
         assertUnknown(HostCapabilities.fromJson(older.toString()), FILE_UPLOAD, FILE_DOWNLOAD);
+    }
+
+    /** Matches the Rust test of the same name: a second read replaces the file flags, it never adds to them. */
+    @Test
+    public void readingTheNativeCapabilitiesAgainDropsWhatTheHostStoppedOffering() throws JSONException {
+        String offered = "{\"api_version\":1,\"host\":{\"name\":\"RL\",\"version\":\"3.1.0\",\"unique_id\":\"rl\"},"
+                + "\"features\":[\"library\",\"files.upload\",\"files.download\"],\"permissions\":{\"list\":true,"
+                + "\"view\":true,\"launch\":true,\"host_control\":false,\"file_upload\":true,\"file_download\":true}}";
+        String withdrawn = offered.replace(",\"files.upload\",\"files.download\"", "")
+                .replace(",\"file_upload\":true,\"file_download\":true", "");
+        assertNotEquals(offered, withdrawn);
+        HostCapabilities caps = caps("<RustHostVersion>3.1.0</RustHostVersion><PairStatus>1</PairStatus>"
+                + "<NativeApiVersion>1</NativeApiVersion>").withNativeCapabilities(offered);
+        assertTrue(caps.has(FILE_UPLOAD));
+        assertTrue(caps.has(FILE_DOWNLOAD));
+        caps = caps.withNativeCapabilities(withdrawn);
+        assertNever(caps, FILE_UPLOAD, FILE_DOWNLOAD);
+        // Also after a round trip through the stored form.
+        assertNever(HostCapabilities.fromJson(caps.toJson()), FILE_UPLOAD, FILE_DOWNLOAD);
     }
 
     @Test

@@ -48,9 +48,11 @@ pub enum Feature {
     /// Sleep PC (`/power-actions/v1`, Vibepollo's wire format): suspend an idle host.
     Sleep,
     /// Upload files to the host (`/api/native/v1/files`). Known only after
-    /// [`HostCapabilities::with_native`].
+    /// [`HostCapabilities::with_native`]: gate the UI on [`HostCapabilities::has`], never
+    /// `may_have`, which is true before the native API answered.
     FileUpload,
-    /// List and download the host's files. Known only after [`HostCapabilities::with_native`].
+    /// List and download the host's files. Known only after [`HostCapabilities::with_native`];
+    /// gate it like `FileUpload`.
     FileDownload,
 }
 
@@ -805,9 +807,15 @@ mod tests {
             "file_permission" => Availability::Unsupported(Some(Reason::FilePermission)),
             other => panic!("unknown availability {other}"),
         };
-        let mut count = 0;
+        let (mut count, mut invalid) = (0, 0);
         for line in cases.lines().filter(|l| !l.is_empty() && !l.starts_with('#')) {
             let fields: Vec<&str> = line.splitn(4, '|').collect();
+            if fields[0] == "invalid" {
+                let parsed = serde_json::from_str::<super::super::native::NativeCapabilities>(fields[2]);
+                assert!(parsed.is_err(), "{line}");
+                invalid += 1;
+                continue;
+            }
             let mut caps = super::super::serverinfo::ServerInfo::parse(fields[3], 47989)
                 .unwrap()
                 .capabilities;
@@ -825,9 +833,27 @@ mod tests {
             }
             count += 1;
         }
-        assert_eq!(count, 13);
+        assert_eq!((count, invalid), (13, 15));
         // Without serverinfo there is nothing to add to.
-        let native = serde_json::from_str(cases.lines().nth(4).unwrap().split('|').nth(2).unwrap()).unwrap();
+        let native = serde_json::from_str(cases.lines().find(|l| l.starts_with("supported|supported|")).unwrap().split('|').nth(2).unwrap()).unwrap();
         assert_eq!(HostCapabilities::UNKNOWN.with_native(&native), HostCapabilities::UNKNOWN);
+    }
+
+    #[test]
+    fn reading_the_native_capabilities_again_drops_what_the_host_stopped_offering() {
+        let cases = include_str!("../../tests/fixtures/files/files-capabilities.txt");
+        let fields: Vec<&str> = cases.lines().find(|l| l.starts_with("supported|supported|")).unwrap().splitn(4, '|').collect();
+        let caps = super::super::serverinfo::ServerInfo::parse(fields[3], 47989)
+            .unwrap()
+            .capabilities;
+        let offered = caps.with_native(&serde_json::from_str(fields[2]).unwrap());
+        assert!(offered.has(Feature::FileUpload) && offered.has(Feature::FileDownload));
+        let withdrawn = fields[2]
+            .replace(r#","files.upload","files.download""#, "")
+            .replace(r#","file_upload":true,"file_download":true"#, "");
+        let withdrawn = offered.with_native(&serde_json::from_str(&withdrawn).unwrap());
+        for feature in [Feature::FileUpload, Feature::FileDownload] {
+            assert_eq!(withdrawn.availability(feature), Availability::Unsupported(None));
+        }
     }
 }

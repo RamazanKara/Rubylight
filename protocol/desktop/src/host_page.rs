@@ -7,11 +7,11 @@ use std::sync::mpsc::{channel, Receiver, TryRecvError};
 use std::sync::Arc;
 
 use nightjar_core::http::{
-    Error, Family, Feature, HostApiError, HostCapabilities, HostClient, NetworkPath, RemoteCheck, RemoteOutcome,
-    DEFAULT_HTTP_PORT,
+    ClientIdentity, Error, Family, Feature, HostApiError, HostCapabilities, HostClient, NetworkPath, RemoteCheck,
+    RemoteOutcome, DEFAULT_HTTP_PORT,
 };
 
-use crate::hosts::{Host, Reach, Waker};
+use crate::hosts::{client_for, Host, Reach, Waker};
 use crate::strings::{en, tr, trf};
 
 /// The host software as Android's HostCapabilities.familyLabel names it.
@@ -79,6 +79,30 @@ fn is_host_name(name: &str) -> bool {
     name.len() <= 253
         && name.split('.').all(label)
         && !name.rsplit('.').next().is_some_and(|last| last.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// Command::RemoteCheck: checks `host` unless a check is running. One that cannot start says
+/// why on the page.
+pub fn start_check(remote: &mut RemoteAccess, identity: Option<&Arc<ClientIdentity>>, host: &Host, waker: Waker) {
+    if remote.running() {
+        return;
+    }
+    let client = match identity {
+        Some(identity) => client_for(identity, &host.record, &host.record.address),
+        None => Err(tr("Nightjar has no client identity yet. Restart Nightjar and try again.").to_owned()),
+    };
+    match client {
+        Ok(client) => remote.start(host.id, Arc::new(client), host.record.unique_id.clone(), waker),
+        Err(error) => remote.fail(host.id, error),
+    }
+}
+
+/// Command::OpenWebUi: opens `url` with `open`. When it could not, the message to show: the
+/// address, so it can be opened elsewhere, and the error.
+pub fn open_web_ui(url: &str, open: impl FnOnce(&str) -> Result<(), String>) -> Option<(String, String)> {
+    open(url).err().map(|e| {
+        (tr("No browser could open the host's web UI. Copy its address and open it on another device.").to_owned(), format!("{url}\n\n{e}"))
+    })
 }
 
 /// The remote check against one PC; `HostClient` in the app, a fake in tests.
@@ -502,6 +526,52 @@ pub(crate) mod tests {
         remote.poll(None);
         assert!(!remote.running() && remote.state.is_none(), "the page was left");
         assert_eq!(probe.cancels.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn the_check_command_runs_one_check_and_says_why_one_cannot_start() {
+        let pc = host(None, Reach::Online, "192.0.2.7");
+        let mut remote = RemoteAccess::default();
+        // A check is running: a second Test does nothing to it.
+        let probe = FakeProbe::answering(verified(Ok(NetworkPath::Direct), &[8.0]));
+        remote.start(pc.id, probe.clone(), "uid".into(), Arc::new(|| {}));
+        start_check(&mut remote, None, &pc, Arc::new(|| {}));
+        assert!(remote.running() && remote.state_for(pc.id) == Some(&CheckState::Running));
+        assert_eq!(probe.cancels.load(Ordering::SeqCst), 0);
+        probe.release();
+        finish(&mut remote, Some(pc.id));
+
+        // No identity yet: the page says so.
+        start_check(&mut remote, None, &pc, Arc::new(|| {}));
+        let Some(CheckState::Done(r)) = remote.state_for(pc.id) else { panic!("{:?}", remote.state) };
+        assert_eq!((r.summary, r.error.as_deref()), (FAILED, Some("Nightjar has no client identity yet. Restart Nightjar and try again.")));
+
+        // A client that cannot be made: its error, word for word.
+        let identity = Arc::new(ClientIdentity::generate().expect("an identity"));
+        let mut broken = host(None, Reach::Online, "192.0.2.7");
+        broken.record.server_certificate = Some("not a certificate".into());
+        let Err(why) = client_for(&identity, &broken.record, &broken.record.address) else { panic!("the client was made") };
+        start_check(&mut remote, Some(&identity), &broken, Arc::new(|| {}));
+        let Some(CheckState::Done(r)) = remote.state_for(broken.id) else { panic!("{:?}", remote.state) };
+        assert_eq!((r.summary, r.error.as_deref()), (FAILED, Some(why.as_str())));
+
+        // A client: the real check runs, here against a PC never paired, so no request leaves.
+        start_check(&mut remote, Some(&identity), &pc, Arc::new(|| {}));
+        assert!(remote.running());
+        finish(&mut remote, Some(pc.id));
+        let Some(CheckState::Done(r)) = remote.state_for(pc.id) else { panic!("{:?}", remote.state) };
+        assert!(r.summary.starts_with("Pair this PC locally first") && !r.verified, "{r:?}");
+    }
+
+    #[test]
+    fn open_web_ui_opens_the_link_or_says_where_it_is_and_why_not() {
+        let url = "https://192.0.2.7:47990";
+        let mut opened = None;
+        assert_eq!(open_web_ui(url, |u| { opened = Some(u.to_owned()); Ok(()) }), None, "nothing to say");
+        assert_eq!(opened.as_deref(), Some(url));
+        let (title, body) = open_web_ui(url, |_| Err("No handler for https".into())).expect("a message");
+        assert!(title.starts_with("No browser could open the host's web UI."), "{title}");
+        assert_eq!(body, "https://192.0.2.7:47990\n\nNo handler for https", "the link to copy, then the error");
     }
 
     #[test]

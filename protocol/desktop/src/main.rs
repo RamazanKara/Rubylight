@@ -923,26 +923,13 @@ impl App {
                 }
             }
             Command::RemoteCheck(id) => {
-                if self.launcher.remote.running() { return; }
-                let Some(host) = self.hosts.get(id) else { return; };
-                let client = match self.hosts.identity() {
-                    Some(identity) => hosts::client_for(identity, &host.record, &host.record.address),
-                    None => Err(tr("Nightjar has no client identity yet. Restart Nightjar and try again.").to_owned()),
-                };
-                match client {
-                    Ok(client) => {
-                        let unique_id = host.record.unique_id.clone();
-                        self.launcher.remote.start(id, std::sync::Arc::new(client), unique_id, self.waker.clone());
-                    }
-                    Err(error) => self.launcher.remote.fail(id, error),
+                if let Some(host) = self.hosts.get(id) {
+                    host_page::start_check(&mut self.launcher.remote, self.hosts.identity(), host, self.waker.clone());
                 }
             }
             Command::OpenWebUi(url) => {
-                if let Err(e) = sdl::open_url(&url) {
-                    self.launcher.message(
-                        tr("No browser could open the host's web UI. Copy its address and open it on another device."),
-                        format!("{url}\n\n{e}"),
-                    );
+                if let Some((title, body)) = host_page::open_web_ui(&url, sdl::open_url) {
+                    self.launcher.message(title, body);
                 }
             }
             Command::CancelPair => self.hosts.cancel_pairing(),

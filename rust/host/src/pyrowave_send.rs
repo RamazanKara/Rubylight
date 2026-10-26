@@ -9,9 +9,9 @@ use butterpollo_core::{
     pyrowave::DetailFec,
     session::Warnings,
 };
-use butterpollo_windows::{encoder::Encoded, timing::Signal};
+use butterpollo_windows::{encoder::Encoded, net::ReplySocket, timing::Signal};
 use std::{
-    net::{SocketAddr, UdpSocket},
+    net::SocketAddr,
     sync::{
         Arc, Condvar, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -116,7 +116,7 @@ pub struct Sender {
 }
 impl Sender {
     pub fn new(
-        socket: Arc<UdpSocket>,
+        socket: Arc<ReplySocket>,
         session: Arc<Session>,
         config: Config,
         host: Shared,
@@ -305,6 +305,7 @@ impl Drop for Sender {
 mod tests {
     use super::*;
     use butterpollo_windows::{net::Batch, timing::Timer};
+    use std::net::UdpSocket;
 
     #[test]
     fn stopping_interrupts_a_paced_wait_without_sending_another_packet() -> Result<()> {
@@ -324,7 +325,7 @@ mod tests {
             .insert("pacing_max_bitrate_kbps".into(), "1".into());
         let client = UdpSocket::bind("127.0.0.1:0")?;
         client.set_read_timeout(Some(Duration::from_secs(2)))?;
-        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0")?);
+        let socket = Arc::new(ReplySocket::bind("127.0.0.1:0")?);
         let sender = Sender::new(
             socket,
             session,
@@ -391,7 +392,7 @@ mod tests {
         let (sink, rows) = butterpollo_core::timing_record::channel(8);
         *session.timing_record.write().unwrap() = Some(Arc::new(sink));
         let client = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").unwrap());
+        let socket = Arc::new(ReplySocket::bind("127.0.0.1:0").unwrap());
         // The media clock started 500 ms ago; the picture was presented 6 ms ago.
         let now = Instant::now();
         let ago = |ms: u64| now - Duration::from_millis(ms);
@@ -836,7 +837,7 @@ mod tests {
                 }
             })
         };
-        let socket = UdpSocket::bind("127.0.0.1:0")?;
+        let socket = ReplySocket::bind("127.0.0.1:0")?;
         socket.set_nonblocking(true)?;
         butterpollo_windows::net::configure_udp(&socket)?;
         let timer = Timer::new()?;

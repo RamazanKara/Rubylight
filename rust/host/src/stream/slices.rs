@@ -16,14 +16,9 @@ use butterpollo_core::{
 };
 use butterpollo_windows::{
     encoder::{Encoded, Unit},
-    net::Batch,
+    net::{Batch, ReplySocket},
 };
-use std::{
-    cell::Cell,
-    net::{SocketAddr, UdpSocket},
-    sync::atomic::Ordering,
-    time::Instant,
-};
+use std::{cell::Cell, net::SocketAddr, sync::atomic::Ordering, time::Instant};
 
 /// Whether slice delivery is still on for the stream. A frame past its byte
 /// cap turns it off for the rest of the stream, on whichever thread sends
@@ -288,7 +283,7 @@ impl Sent {
 /// `air` counted sent and lost after the socket. Returns the bytes counted sent.
 pub fn send_lossy(
     batch: &mut Batch,
-    socket: &UdpSocket,
+    socket: &ReplySocket,
     packets: &[Vec<u8>],
     peer: SocketAddr,
     drop: &mut SendDrop,
@@ -313,6 +308,7 @@ pub fn send_lossy(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::UdpSocket;
 
     fn unit(unit: Unit, bytes: &[u8]) -> Encoded {
         Encoded {
@@ -607,12 +603,12 @@ mod tests {
         assert_eq!((open.payload_bytes, open.last_polled), (350, later));
     }
 
-    fn sockets() -> (UdpSocket, UdpSocket) {
+    fn sockets() -> (ReplySocket, UdpSocket) {
         let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
         receiver
             .set_read_timeout(Some(std::time::Duration::from_millis(200)))
             .unwrap();
-        (UdpSocket::bind("127.0.0.1:0").unwrap(), receiver)
+        (ReplySocket::bind("127.0.0.1:0").unwrap(), receiver)
     }
     fn received(socket: &UdpSocket) -> usize {
         let mut buffer = [0u8; 64];

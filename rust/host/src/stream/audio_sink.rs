@@ -6,10 +6,10 @@ use super::qos::Tagged;
 use crate::webrtc::media::{AudioPacket, AudioSender, Submit};
 use anyhow::Result;
 use butterpollo_core::{audio::HostLoss, packet::AudioPacketizer};
-use butterpollo_windows::audio::Loopback;
+use butterpollo_windows::{audio::Loopback, net::ReplySocket};
 use std::{
     collections::HashMap,
-    net::{SocketAddr, UdpSocket},
+    net::SocketAddr,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -324,7 +324,7 @@ pub(super) fn collect<C: AudioCapture>(
 
 /// RTP with FEC on the client's audio port.
 pub(super) struct GameStreamAudio<'a> {
-    socket: &'a Arc<UdpSocket>,
+    socket: &'a Arc<ReplySocket>,
     peers: &'a Mutex<HashMap<(String, bool), SocketAddr>>,
     launch: &'a str,
     packetizer: AudioPacketizer,
@@ -335,7 +335,7 @@ pub(super) struct GameStreamAudio<'a> {
 
 impl<'a> GameStreamAudio<'a> {
     pub(super) fn new(
-        socket: &'a Arc<UdpSocket>,
+        socket: &'a Arc<ReplySocket>,
         peers: &'a Mutex<HashMap<(String, bool), SocketAddr>>,
         launch: &'a str,
         packetizer: AudioPacketizer,
@@ -408,6 +408,7 @@ impl AudioSink for WebRtcAudio {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::UdpSocket;
 
     #[test]
     fn the_audio_clock_counts_packets_sent_or_not_and_what_windows_dropped() {
@@ -751,7 +752,7 @@ mod tests {
             receiver
                 .set_read_timeout(Some(std::time::Duration::from_secs(2)))
                 .unwrap();
-            let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").unwrap());
+            let socket = Arc::new(ReplySocket::bind("127.0.0.1:0").unwrap());
             let peers = Mutex::new(HashMap::new());
             let mut sink = GameStreamAudio::new(
                 &socket,
@@ -908,7 +909,7 @@ mod tests {
             receiver
                 .set_read_timeout(Some(std::time::Duration::from_secs(2)))
                 .unwrap();
-            let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").unwrap());
+            let socket = Arc::new(ReplySocket::bind("127.0.0.1:0").unwrap());
             let peers = Mutex::new(HashMap::new());
             peers
                 .lock()

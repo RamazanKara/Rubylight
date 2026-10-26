@@ -403,11 +403,13 @@ fn expects_enet_control(session: &Session) -> bool {
 
 /// Ends the sessions that expect an ENet control peer, have had none for longer than
 /// `ping_timeout`, and are not attended now (`attended` says by session id). Drains `sessions`.
+/// The log names what `control` received from the client, if anything.
 fn end_unattended_sessions(
     sessions: &mut Vec<Arc<Session>>,
     attended: impl Fn(&str) -> bool,
     unattended: &mut HashMap<String, Instant>,
     ping_timeout: Duration,
+    control: &ReplySocket,
 ) {
     for s in sessions.drain(..) {
         let id = &s.launch.id;
@@ -424,7 +426,17 @@ fn end_unattended_sessions(
             }
         };
         if since.elapsed() > ping_timeout {
-            tracing::warn!(client=%s.launch.client.name,"session has no control connection; ending it");
+            let received: Vec<_> = control
+                .sources_from(s.launch.peer)
+                .iter()
+                .map(|(peer, local)| format!("{peer} on {local}"))
+                .collect();
+            tracing::warn!(
+                client = %s.launch.client.name,
+                peer = %s.launch.peer,
+                control_datagrams = if received.is_empty() { "none".into() } else { received.join(", ") },
+                "session has no control connection; ending it"
+            );
             s.fail();
             s.stop();
         }
@@ -606,6 +618,7 @@ use butterpollo_windows::{
     capture::{Capture, ComGuard, GpuImage, Priority},
     encoder::Encoder,
     input::{Injector, PadReport},
+    net::ReplySocket,
 };
 use rusty_enet::{Event, Host, HostSettings, Packet, PacketKind, PeerID};
 use std::{
@@ -752,8 +765,8 @@ impl Drop for RouteUpkeep {
     }
 }
 pub struct Media {
-    video: Arc<UdpSocket>,
-    audio: Arc<UdpSocket>,
+    video: Arc<ReplySocket>,
+    audio: Arc<ReplySocket>,
     control_wake: Arc<UdpSocket>,
     control_wake_receiver: UdpSocket,
     /// The microphone receiver's counts; None when its port could not be bound.
@@ -814,7 +827,9 @@ impl CaptureKey {
 /// session without input or control. These lose one datagram; ENet resends
 /// what was reliable.
 struct ControlSocket {
-    socket: UdpSocket,
+    /// Answers each client from the address its datagrams arrived on, as
+    /// moonlight-common-c's ENet does; shared so the worker can log it.
+    socket: Arc<ReplySocket>,
     /// Whether datagrams are held back, and those held, in order: ENet
     /// sends a packet's acknowledgement before it returns the packet, and
     /// that sendto delayed every input by its cost.
@@ -822,7 +837,7 @@ struct ControlSocket {
     held: Vec<(SocketAddr, Vec<u8>)>,
 }
 impl ControlSocket {
-    fn new(socket: UdpSocket) -> Self {
+    fn new(socket: Arc<ReplySocket>) -> Self {
         Self {
             socket,
             holding: false,
@@ -839,7 +854,7 @@ impl ControlSocket {
     fn release(&mut self) -> std::io::Result<()> {
         self.holding = false;
         for (address, buffer) in self.held.drain(..) {
-            if let Err(error) = rusty_enet::Socket::send(&mut self.socket, address, &buffer) {
+            if let Err(error) = self.socket.send_to(&buffer, address) {
                 if !butterpollo_windows::net::datagram_lost(&error) {
                     return Err(error);
                 }
@@ -852,15 +867,17 @@ impl ControlSocket {
 impl rusty_enet::Socket for ControlSocket {
     type Address = SocketAddr;
     type Error = std::io::Error;
-    fn init(&mut self, options: rusty_enet::SocketOptions) -> std::io::Result<()> {
-        rusty_enet::Socket::init(&mut self.socket, options)
+    fn init(&mut self, _options: rusty_enet::SocketOptions) -> std::io::Result<()> {
+        // What ENet's own UdpSocket adapter sets.
+        self.socket.set_nonblocking(true)?;
+        self.socket.set_broadcast(true)
     }
     fn send(&mut self, address: SocketAddr, buffer: &[u8]) -> std::io::Result<usize> {
         if self.holding {
             self.held.push((address, buffer.to_vec()));
             return Ok(buffer.len());
         }
-        match rusty_enet::Socket::send(&mut self.socket, address, buffer) {
+        match self.socket.send_to(buffer, address) {
             Err(error) if butterpollo_windows::net::datagram_lost(&error) => Ok(0),
             result => result,
         }
@@ -869,11 +886,20 @@ impl rusty_enet::Socket for ControlSocket {
         &mut self,
         buffer: &mut [u8; rusty_enet::MTU_MAX],
     ) -> std::io::Result<Option<(SocketAddr, rusty_enet::PacketReceived)>> {
-        match rusty_enet::Socket::receive(&mut self.socket, buffer) {
+        match self.socket.receive(buffer) {
+            Ok((size, peer, local)) => {
+                // ENet answers before it knows the session: learn from every datagram.
+                self.socket.answer_from(peer, local);
+                Ok(Some((peer, rusty_enet::PacketReceived::Complete(size))))
+            }
             Err(error) if butterpollo_windows::net::datagram_lost(&error) => Ok(None),
-            result => result,
+            Err(error) => Err(error),
         }
     }
+}
+/// The local address a client's datagrams arrived on, for logs.
+fn describe_local(local: Option<IpAddr>) -> String {
+    local.map_or_else(|| "unknown".into(), |local| local.to_string())
 }
 fn capture_config(config: &Config) -> Config {
     let mut capture = config.clone();
@@ -889,8 +915,8 @@ fn capture_config(config: &Config) -> Config {
 impl Media {
     pub fn new(h: Shared, bind: IpAddr) -> Result<Arc<Self>> {
         let ports = h.config.read().unwrap().ports()?;
-        let video = crate::network::udp((bind, ports.video).into())?;
-        let audio = crate::network::udp((bind, ports.audio).into())?;
+        let video = ReplySocket::new(crate::network::udp((bind, ports.video).into())?)?;
+        let audio = ReplySocket::new(crate::network::udp((bind, ports.audio).into())?)?;
         butterpollo_windows::net::configure_udp(&video)?;
         butterpollo_windows::net::configure_udp(&audio)?;
         video.set_nonblocking(true)?;
@@ -942,8 +968,8 @@ impl Media {
                                 continue;
                             }
                         }
-                        match socket.recv_from(&mut b) {
-                            Ok((n, peer)) => {
+                        match socket.receive(&mut b) {
+                            Ok((n, peer, local)) => {
                                 let sessions = h.sessions.lock().unwrap();
                                 for s in sessions.active.values() {
                                     if s.launch.peer != peer.ip().to_canonical() {
@@ -962,10 +988,26 @@ impl Media {
                                                 .count()
                                                 == 1);
                                     if valid {
-                                        m.peers
+                                        // Answer from the address the client reached:
+                                        // Windows may route a reply out of a VPN address.
+                                        socket.answer_from(peer, local);
+                                        let previous = m
+                                            .peers
                                             .lock()
                                             .unwrap()
                                             .insert((s.launch.id.clone(), is_audio), peer);
+                                        if previous != Some(peer) {
+                                            if let Some(previous) = previous {
+                                                socket.forget(previous);
+                                            }
+                                            tracing::info!(
+                                                client = %s.launch.client.name,
+                                                %peer,
+                                                local = %describe_local(local),
+                                                stream = if is_audio { "audio" } else { "video" },
+                                                "stream peer"
+                                            );
+                                        }
                                         break;
                                     }
                                 }
@@ -2925,10 +2967,13 @@ impl Media {
                 // A failed stream must not count as a healthy fast-rate probe.
                 drop(keyframe_loss_memory);
                 h.sessions.lock().unwrap().begin_teardown(&s);
-                m.peers
-                    .lock()
-                    .unwrap()
-                    .retain(|(id, _), _| id != &s.launch.id);
+                m.peers.lock().unwrap().retain(|(id, audio), peer| {
+                    let ended = id == &s.launch.id;
+                    if ended {
+                        if *audio { &m.audio } else { &m.video }.forget(*peer);
+                    }
+                    !ended
+                });
                 // Keep capture and display leases owned until the encoder has
                 // terminated, even if a driver blocks its drop indefinitely.
                 if let Some(audio) = audio {
@@ -3188,13 +3233,15 @@ impl Media {
         Ok(())
     }
     fn control(&self, h: Shared) -> Result<()> {
-        let socket = crate::network::udp((self.bind, self.control_port).into())?;
+        let socket = Arc::new(ReplySocket::new(crate::network::udp(
+            (self.bind, self.control_port).into(),
+        )?)?);
         butterpollo_windows::net::configure_udp(&socket)?;
-        let raw_socket = std::os::windows::io::AsRawSocket::as_raw_socket(&socket);
+        let raw_socket = std::os::windows::io::AsRawSocket::as_raw_socket(&*socket);
         let raw_wake =
             std::os::windows::io::AsRawSocket::as_raw_socket(&self.control_wake_receiver);
         let mut host = Host::new(
-            ControlSocket::new(socket),
+            ControlSocket::new(socket.clone()),
             HostSettings {
                 peer_limit: 32,
                 // Moonlight opens 48 channels (gamepads from 0x10, motion
@@ -3283,11 +3330,15 @@ impl Media {
                                     None
                                 }
                             });
+                        let local = describe_local(socket.source(address));
                         if let Some(l) = launch {
                             if peers.values().any(|p| p.id == l.id) {
+                                tracing::warn!(client = %l.client.name, %address, %local, "session already has a control connection; refused another");
                                 peer.disconnect_now(0);
+                                socket.forget(address);
                                 continue;
                             }
+                            tracing::info!(client = %l.client.name, %address, %local, "control connected");
                             // ENet's own peer timeout (about 5 s) would end a
                             // stream on a Wi-Fi drop the session itself
                             // tolerates; let ping_timeout decide instead.
@@ -3321,7 +3372,14 @@ impl Media {
                                 },
                             );
                         } else {
+                            tracing::warn!(
+                                %address,
+                                %local,
+                                sessions = candidates.len(),
+                                "control connection matches no session from this address; refused"
+                            );
                             peer.disconnect_now(0);
+                            socket.forget(address);
                         }
                         #[cfg(test)]
                         if let Some(fixture) = &h.reconnect_fixture
@@ -3333,6 +3391,9 @@ impl Media {
                         }
                     }
                     Event::Disconnect { peer, .. } => {
+                        if let Some(address) = peer.address() {
+                            socket.forget(address);
+                        }
                         let id = peer.id();
                         if let Some(p) = peers.remove(&id) {
                             let session = h.sessions.lock().unwrap().active.get(&p.id).cloned();
@@ -3946,6 +4007,7 @@ impl Media {
                 |id| peers.values().any(|p| p.id == id),
                 &mut unattended,
                 ping_timeout,
+                &socket,
             );
             host.flush();
             if peers.is_empty() {
@@ -4115,9 +4177,10 @@ mod tests {
         assert_ne!(moonlight.launch.id, webrtc.launch.id);
         let timeout = Duration::from_millis(20);
         let mut unattended = HashMap::new();
+        let control = ReplySocket::bind("127.0.0.1:0").unwrap();
         let sweep = |unattended: &mut HashMap<String, Instant>| {
             let mut sessions = vec![moonlight.clone(), webrtc.clone()];
-            super::end_unattended_sessions(&mut sessions, |_| false, unattended, timeout);
+            super::end_unattended_sessions(&mut sessions, |_| false, unattended, timeout, &control);
         };
         // The clock starts at the first sweep, so nothing ends yet.
         sweep(&mut unattended);
@@ -4627,7 +4690,7 @@ mod tests {
             channel_limit: 1,
             ..Default::default()
         };
-        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let socket = Arc::new(ReplySocket::bind("127.0.0.1:0").unwrap());
         let address = socket.local_addr().unwrap();
         let mut host = Host::new(ControlSocket::new(socket), settings()).unwrap();
         let mut client = Host::new(UdpSocket::bind("127.0.0.1:0").unwrap(), settings()).unwrap();
@@ -4831,7 +4894,7 @@ mod tests {
     fn held_control_datagrams_go_out_in_order_once_released() {
         let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
         let address = receiver.local_addr().unwrap();
-        let mut socket = ControlSocket::new(UdpSocket::bind("127.0.0.1:0").unwrap());
+        let mut socket = ControlSocket::new(Arc::new(ReplySocket::bind("127.0.0.1:0").unwrap()));
         let mut buffer = [0u8; 64];
         socket.hold();
         // The middle one is too large for UDP: it is lost, the rest go out.
@@ -4858,6 +4921,79 @@ mod tests {
         rusty_enet::Socket::send(&mut socket, address, b"three").unwrap();
         let (length, _) = receiver.recv_from(&mut buffer).unwrap();
         assert_eq!(&buffer[..length], b"three");
+    }
+    /// Issue #54: Moonlight's ENet, like rusty_enet, drops replies from any
+    /// address but the one it connected to. To one of its own addresses,
+    /// Windows replies from that address, so a client on one address of this
+    /// PC that reached another only connects when the host pins the reply
+    /// source. Skipped without two such addresses of one family.
+    #[test]
+    fn enet_control_answers_from_the_address_the_client_reached() {
+        let settings = || HostSettings {
+            peer_limit: 1,
+            channel_limit: 1,
+            ..Default::default()
+        };
+        let addresses = butterpollo_windows::net::unicast_addresses().unwrap();
+        // A client address that reaches another address of this PC.
+        let pair = addresses.iter().find_map(|&client_ip| {
+            addresses.iter().find_map(|&reached| {
+                let host = UdpSocket::bind((reached, 0)).ok()?;
+                host.set_read_timeout(Some(Duration::from_millis(300)))
+                    .ok()?;
+                let client = UdpSocket::bind((client_ip, 0)).ok()?;
+                (client_ip != reached && client_ip.is_ipv6() == reached.is_ipv6()).then_some(())?;
+                client.send_to(b"ping", host.local_addr().ok()?).ok()?;
+                host.recv_from(&mut [0u8; 16]).ok()?;
+                Some((client_ip, reached))
+            })
+        });
+        let Some((client_ip, reached)) = pair else {
+            println!("skipped: no two addresses of one family among {addresses:?}");
+            return;
+        };
+        let wildcard = if reached.is_ipv6() {
+            "[::]:0"
+        } else {
+            "0.0.0.0:0"
+        };
+        let socket = Arc::new(ReplySocket::bind(wildcard).unwrap());
+        let reached = SocketAddr::new(reached, socket.local_addr().unwrap().port());
+        let mut host = Host::new(ControlSocket::new(socket.clone()), settings()).unwrap();
+        let mut client = Host::new(UdpSocket::bind((client_ip, 0)).unwrap(), settings()).unwrap();
+        let client_address = client.socket().local_addr().unwrap();
+        client.connect(reached, 1, 0).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !host.peer(PeerID(0)).connected() || !client.peer(PeerID(0)).connected() {
+            host.service().unwrap();
+            client.service().unwrap();
+            assert!(
+                Instant::now() < deadline,
+                "ENet connect from {client_address} to {reached} timed out"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(socket.source(client_address), Some(reached.ip()));
+        // Held datagrams, sent on release, leave from the same address.
+        let observer = UdpSocket::bind((client_ip, 0)).unwrap();
+        observer
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        observer.send_to(b"hello", reached).unwrap();
+        let mut buffer = [0u8; rusty_enet::MTU_MAX];
+        let mut control = ControlSocket::new(socket);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let peer = loop {
+            match rusty_enet::Socket::receive(&mut control, &mut buffer).unwrap() {
+                Some((peer, _)) if peer == observer.local_addr().unwrap() => break peer,
+                _ => assert!(Instant::now() < deadline, "the datagram did not arrive"),
+            }
+        };
+        control.hold();
+        rusty_enet::Socket::send(&mut control, peer, b"held").unwrap();
+        control.release().unwrap();
+        let (length, from) = observer.recv_from(&mut buffer).unwrap();
+        assert_eq!((&buffer[..length], from), (&b"held"[..], reached));
     }
     #[test]
     fn an_arrived_pad_is_asked_for_the_sensors_it_has() {

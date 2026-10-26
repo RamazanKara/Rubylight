@@ -84,7 +84,7 @@ struct Sending {
 
 struct Transport<'a> {
     shared: &'a Slot,
-    socket: Arc<UdpSocket>,
+    socket: Arc<ReplySocket>,
     s: Arc<Session>,
     c: Config,
     h: Shared,
@@ -463,7 +463,7 @@ impl Transport<'_> {
 #[allow(clippy::too_many_arguments)]
 pub(super) fn run(
     shared: &Slot,
-    socket: Arc<UdpSocket>,
+    socket: Arc<ReplySocket>,
     s: Arc<Session>,
     c: Config,
     h: Shared,
@@ -488,7 +488,7 @@ pub(super) fn run(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn run_with(
     shared: &Slot,
-    socket: Arc<UdpSocket>,
+    socket: Arc<ReplySocket>,
     s: Arc<Session>,
     c: Config,
     h: Shared,

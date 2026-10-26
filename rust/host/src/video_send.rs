@@ -9,9 +9,12 @@ use butterpollo_core::{
     packet::{PacketBlock, VideoPacketizer},
     performance::{Claim, Claims},
 };
-use butterpollo_windows::encoder::{Encoded, Unit};
+use butterpollo_windows::{
+    encoder::{Encoded, Unit},
+    net::ReplySocket,
+};
 use std::{
-    net::{SocketAddr, UdpSocket},
+    net::SocketAddr,
     sync::{
         Arc, Condvar, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -235,7 +238,7 @@ pub struct Sender {
 }
 impl Sender {
     pub fn new(
-        socket: Arc<UdpSocket>,
+        socket: Arc<ReplySocket>,
         s: Arc<Session>,
         c: Config,
         h: Shared,

@@ -4,7 +4,7 @@ use butterpollo_windows::{net::Batch, timing::Timer};
 
 pub(super) fn run(
     shared: &Slot,
-    socket: Arc<UdpSocket>,
+    socket: Arc<ReplySocket>,
     current: Arc<Session>,
     config: Config,
     host: Shared,

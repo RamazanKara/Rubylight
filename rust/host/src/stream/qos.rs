@@ -1,19 +1,20 @@
 //! qWAVE setup and removal may wait for the Windows service. Keep both off
 //! the video/audio threads, including when a client changes its UDP port.
+use butterpollo_windows::net::ReplySocket;
 use std::{
-    net::{SocketAddr, UdpSocket},
+    net::SocketAddr,
     sync::{Arc, Condvar, Mutex},
     thread,
 };
 
 #[derive(Clone)]
 struct Request {
-    socket: Arc<UdpSocket>,
+    socket: Arc<ReplySocket>,
     peer: SocketAddr,
     voice: bool,
 }
 impl Request {
-    fn matches(&self, socket: &Arc<UdpSocket>, peer: SocketAddr, voice: bool) -> bool {
+    fn matches(&self, socket: &Arc<ReplySocket>, peer: SocketAddr, voice: bool) -> bool {
         self.peer == peer && self.voice == voice && Arc::ptr_eq(&self.socket, socket)
     }
 }
@@ -40,7 +41,7 @@ impl Worker {
             .spawn(move || {
                 // Tuple fields drop in order: remove the flow before closing
                 // its socket, even after the media session has already ended.
-                let mut active: Option<(F, Arc<UdpSocket>)> = None;
+                let mut active: Option<(F, Arc<ReplySocket>)> = None;
                 loop {
                     let request = {
                         let mut pending = worker.pending.lock().unwrap();
@@ -87,7 +88,7 @@ pub(super) struct Tagged {
     unavailable: bool,
 }
 impl Tagged {
-    pub(super) fn follow(&mut self, socket: &Arc<UdpSocket>, peer: SocketAddr, voice: bool) {
+    pub(super) fn follow(&mut self, socket: &Arc<ReplySocket>, peer: SocketAddr, voice: bool) {
         if self.unavailable
             || self
                 .requested
@@ -137,7 +138,7 @@ mod tests {
     use std::{sync::mpsc, time::Duration};
 
     enum Action {
-        Follow(Arc<UdpSocket>, SocketAddr, bool),
+        Follow(Arc<ReplySocket>, SocketAddr, bool),
         Stop,
     }
     fn media(
@@ -172,7 +173,7 @@ mod tests {
     #[test]
     fn slow_setup_does_not_block_media_or_teardown_and_keeps_the_socket_alive() -> Result<()> {
         struct Flow {
-            socket: std::sync::Weak<UdpSocket>,
+            socket: std::sync::Weak<ReplySocket>,
             removed: mpsc::Sender<bool>,
         }
         impl Drop for Flow {
@@ -195,7 +196,7 @@ mod tests {
             worker: Some(worker),
             ..Default::default()
         });
-        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0")?);
+        let socket = Arc::new(ReplySocket::bind("127.0.0.1:0")?);
         send.send(Action::Follow(
             socket.clone(),
             "192.0.2.1:1".parse()?,
@@ -222,7 +223,7 @@ mod tests {
     fn rebinding_coalesces_pending_peers_while_removal_is_blocked() -> Result<()> {
         struct Flow {
             peer: SocketAddr,
-            socket: std::sync::Weak<UdpSocket>,
+            socket: std::sync::Weak<ReplySocket>,
             removing: mpsc::Sender<SocketAddr>,
             removed: mpsc::Sender<(SocketAddr, bool)>,
             blocked: Option<mpsc::Receiver<()>>,
@@ -267,7 +268,7 @@ mod tests {
             worker: Some(worker),
             ..Default::default()
         });
-        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0")?);
+        let socket = Arc::new(ReplySocket::bind("127.0.0.1:0")?);
         send.send(Action::Follow(socket.clone(), first, false))?;
         completed(&done);
         let (peer, voice, worker_id) = creations.recv_timeout(Duration::from_secs(2))?;

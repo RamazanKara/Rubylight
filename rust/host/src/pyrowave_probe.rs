@@ -2,7 +2,7 @@
 //! from the address its HTTPS request reached, to that client's own address.
 use anyhow::{Context, Result, bail};
 use butterpollo_core::pyrowave_probe::{self, DURATION, Request, TOKEN_LEN};
-use butterpollo_windows::net::Batch;
+use butterpollo_windows::net::{Batch, ReplySocket};
 use std::{
     io::ErrorKind,
     net::{IpAddr, SocketAddr, UdpSocket},
@@ -22,7 +22,7 @@ pub struct Outcome {
 }
 
 /// The probe's socket on the address the client's request reached.
-pub fn bind(local: IpAddr) -> Result<UdpSocket> {
+pub fn bind(local: IpAddr) -> Result<ReplySocket> {
     let domain = if local.is_ipv6() {
         socket2::Domain::IPV6
     } else {
@@ -33,13 +33,13 @@ pub fn bind(local: IpAddr) -> Result<UdpSocket> {
     let _ = socket.set_send_buffer_size(4 * 1024 * 1024);
     socket.bind(&SocketAddr::new(local, 0).into())?;
     socket.set_nonblocking(true)?;
-    Ok(socket.into())
+    Ok(ReplySocket::new(UdpSocket::from(socket))?)
 }
 
 /// Wait for the client's token on `socket`, sending it ours every 100 ms, and
 /// return the address it came from: the client's own receiving port, through
 /// whatever its firewall or NAT made of it.
-fn handshake(socket: &UdpSocket, peer: SocketAddr, token: &str) -> Result<SocketAddr> {
+fn handshake(socket: &ReplySocket, peer: SocketAddr, token: &str) -> Result<SocketAddr> {
     let deadline = Instant::now() + Duration::from_millis(1500);
     let mut warmup = Instant::now();
     let mut buffer = [0u8; 64];
@@ -76,7 +76,7 @@ fn handshake(socket: &UdpSocket, peer: SocketAddr, token: &str) -> Result<Socket
 
 /// Send the probe to `peer` (the client's IP and the port it named), after the
 /// handshake when it asked for one.
-pub fn send(socket: &UdpSocket, peer: SocketAddr, request: &Request) -> Result<Outcome> {
+pub fn send(socket: &ReplySocket, peer: SocketAddr, request: &Request) -> Result<Outcome> {
     // Pace at the priority the stream's senders use, so calibration measures
     // the path and not this thread's scheduling beside busy threads (the
     // adaptive timer wait gives the CPU up between packets).

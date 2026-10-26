@@ -2,8 +2,13 @@
 
 use anyhow::Result;
 use std::{
-    net::{SocketAddr, UdpSocket},
-    os::windows::io::AsRawSocket,
+    collections::HashMap,
+    net::{IpAddr, SocketAddr, ToSocketAddrs, UdpSocket},
+    os::windows::io::{AsRawSocket, AsSocket, BorrowedSocket, RawSocket},
+    sync::{
+        RwLock,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 use windows::Win32::Networking::WinSock::*;
 /// The PC's DNS host name, which Vibepollo shows to clients by default.
@@ -109,6 +114,83 @@ pub fn local_mac(address: std::net::IpAddr) -> Result<String> {
         break;
     }
     Ok("00:00:00:00:00:00".into())
+}
+/// The unicast addresses of interfaces that are up, without loopback and
+/// link-local ones.
+pub fn unicast_addresses() -> Result<Vec<IpAddr>> {
+    use windows::Win32::{
+        Foundation::{ERROR_BUFFER_OVERFLOW, ERROR_SUCCESS},
+        NetworkManagement::IpHelper::*,
+    };
+    let mut size = 15000u32;
+    for _ in 0..3 {
+        anyhow::ensure!(
+            size <= 1024 * 1024,
+            "network interface table exceeds its limit"
+        );
+        let mut storage = vec![0u64; (size as usize).div_ceil(8)];
+        let first = storage.as_mut_ptr().cast::<IP_ADAPTER_ADDRESSES_LH>();
+        // SAFETY: `storage` is 8-byte aligned, at least `size` bytes long, and outlives the call.
+        let status = unsafe {
+            GetAdaptersAddresses(
+                AF_UNSPEC.0 as u32,
+                GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER,
+                None,
+                Some(first),
+                &mut size,
+            )
+        };
+        if status == ERROR_BUFFER_OVERFLOW.0 {
+            continue;
+        }
+        if status != ERROR_SUCCESS.0 {
+            return Err(std::io::Error::from_raw_os_error(status as i32).into());
+        }
+        let mut addresses = Vec::new();
+        // SAFETY: As in local_mac, the linked records live in `storage`, and each sockaddr is
+        // converted only within its reported length.
+        unsafe {
+            let mut adapter = first;
+            while let Some(row) = adapter.as_ref() {
+                let mut unicast = if row.OperStatus.0 == 1 {
+                    row.FirstUnicastAddress
+                } else {
+                    std::ptr::null_mut()
+                };
+                while let Some(ip) = unicast.as_ref() {
+                    let address = socket2::SockAddr::try_init(|storage, length| {
+                        let size =
+                            (ip.Address.iSockaddrLength.max(0) as usize).min(*length as usize);
+                        if !ip.Address.lpSockaddr.is_null() {
+                            std::ptr::copy_nonoverlapping(
+                                ip.Address.lpSockaddr.cast::<u8>(),
+                                storage.cast::<u8>(),
+                                size,
+                            );
+                        }
+                        *length = size as i32;
+                        Ok(())
+                    })
+                    .ok()
+                    .and_then(|(_, address)| address.as_socket());
+                    if let Some(address) = address.map(|a| a.ip().to_canonical())
+                        && !address.is_loopback()
+                        && !address.is_unspecified()
+                        && !matches!(address, IpAddr::V4(v4) if v4.is_link_local())
+                        && !matches!(address, IpAddr::V6(v6) if v6.is_unicast_link_local())
+                    {
+                        addresses.push(address);
+                    }
+                    unicast = ip.Next;
+                }
+                adapter = row.Next;
+            }
+        }
+        addresses.sort();
+        addresses.dedup();
+        return Ok(addresses);
+    }
+    anyhow::bail!("network interfaces changed during enumeration")
 }
 /// Active Ethernet/Wi-Fi IPv4 addresses for Moonlight's manual Add PC flow.
 pub fn lan_addresses() -> Result<Vec<String>> {
@@ -386,20 +468,17 @@ fn writable(
     }
     ready
 }
-/// One datagram, retried once when the socket buffer is full and frees up
-/// within `budget`. The inner error is Winsock's.
+/// One datagram from `source`, retried once when the socket buffer is full
+/// and frees up within `budget`. The inner error is Winsock's.
 fn send_one(
     socket: &UdpSocket,
     packet: &[u8],
     peer: SocketAddr,
+    source: Option<IpAddr>,
     budget: &mut WaitBudget,
     trace: Option<&mut WritableWaits>,
 ) -> Result<std::result::Result<(), WSA_ERROR>> {
-    let send = || {
-        socket
-            .send_to(packet, peer)
-            .map_err(|e| WSA_ERROR(e.raw_os_error().unwrap_or(WSAEINVAL.0)))
-    };
+    let send = || send_from(socket, packet, peer, source);
     let result = send_with_retry(send, |error| buffer_available(socket, error, budget, trace));
     Ok(match result {
         Ok(size) => {
@@ -412,9 +491,14 @@ fn send_one(
         Err(error) => Err(error),
     })
 }
-/// One datagram; `Ok(false)` when a transient error dropped it.
-pub fn send_datagram(socket: &UdpSocket, packet: &[u8], peer: SocketAddr) -> Result<bool> {
-    match send_one(socket, packet, peer, &mut WaitBudget::default(), None)? {
+/// One datagram, from the address `peer` reached; `Ok(false)` when a
+/// transient error dropped it.
+pub fn send_datagram(socket: &ReplySocket, packet: &[u8], peer: SocketAddr) -> Result<bool> {
+    let mut budget = WaitBudget::default();
+    let (result, _) = socket.send_pinned(peer, socket.source(peer), |source| {
+        send_one(socket, packet, peer, source, &mut budget, None)
+    })?;
+    match result {
         Ok(()) => Ok(true),
         Err(error) if transient(error) => Ok(false),
         Err(error) => Err(std::io::Error::from_raw_os_error(error.0).into()),
@@ -716,23 +800,29 @@ impl Batch {
     /// Bytes handed to Winsock. Datagrams that hit a transient error are
     /// dropped, as Vibepollo does, rather than ending the stream. The batch
     /// shares one writable wait: under congestion it drops rather than
-    /// holding the frame for a wait per datagram.
+    /// holding the frame for a wait per datagram. They leave from the
+    /// address `peer` reached.
     pub fn send(
         &mut self,
-        socket: &UdpSocket,
+        socket: &ReplySocket,
         packets: &[Vec<u8>],
         peer: SocketAddr,
     ) -> Result<usize> {
         if packets.is_empty() {
             return Ok(0);
         }
+        let mut source = socket.source(peer);
         let mut budget = WaitBudget::default();
         if self.offload
             && packets.len() > 1
             && packets.len() <= 64
             && packets.iter().all(|p| p.len() == packets[0].len())
         {
-            match self.send_segmented(socket, packets, peer, &mut budget)? {
+            let result;
+            (result, source) = socket.send_pinned(peer, source, |source| {
+                self.send_segmented(socket, packets, peer, source, &mut budget)
+            })?;
+            match result {
                 Ok(sent) => return Ok(sent),
                 Err(error)
                     if [WSAEINVAL, WSAENOPROTOOPT, WSAEOPNOTSUPP, WSAEMSGSIZE].contains(&error) =>
@@ -752,8 +842,19 @@ impl Batch {
         }
         let mut sent = 0;
         for packet in packets {
-            self.system_calls += 1;
-            match send_one(socket, packet, peer, &mut budget, self.waits.as_mut())? {
+            let result;
+            (result, source) = socket.send_pinned(peer, source, |source| {
+                self.system_calls += 1;
+                send_one(
+                    socket,
+                    packet,
+                    peer,
+                    source,
+                    &mut budget,
+                    self.waits.as_mut(),
+                )
+            })?;
+            match result {
                 Ok(()) => sent += packet.len(),
                 Err(error) if transient(error) => self.dropped(1, error),
                 Err(error) => return Err(std::io::Error::from_raw_os_error(error.0).into()),
@@ -761,30 +862,26 @@ impl Batch {
         }
         Ok(sent)
     }
-    /// One WSASendMsg with UDP segmentation, retried once when the socket
-    /// buffer is full and frees up within `budget`. The inner error is Winsock's.
+    /// One WSASendMsg with UDP segmentation from `source`, retried once when
+    /// the socket buffer is full and frees up within `budget`. The inner error
+    /// is Winsock's.
     fn send_segmented(
         &mut self,
         socket: &UdpSocket,
         packets: &[Vec<u8>],
         peer: SocketAddr,
+        source: Option<IpAddr>,
         budget: &mut WaitBudget,
     ) -> Result<std::result::Result<usize, WSA_ERROR>> {
-        #[repr(C)]
-        struct Control {
-            header: CMSGHDR,
-            size: u32,
-            padding: u32,
+        let mut control = Ancillary::default();
+        control.push(
+            IPPROTO_UDP,
+            UDP_SEND_MSG_SIZE,
+            u32::try_from(packets[0].len())?,
+        );
+        if let Some(source) = source {
+            control.source(source);
         }
-        let control = Control {
-            header: CMSGHDR {
-                cmsg_len: std::mem::size_of::<CMSGHDR>() + 4,
-                cmsg_level: IPPROTO_UDP.0,
-                cmsg_type: UDP_SEND_MSG_SIZE,
-            },
-            size: packets[0].len().try_into()?,
-            padding: 0,
-        };
         let address = socket2::SockAddr::from(peer);
         let mut buffers = [WSABUF {
             len: 0,
@@ -794,41 +891,14 @@ impl Batch {
             buffer.len = packet.len() as u32;
             buffer.buf = windows::core::PSTR(packet.as_ptr().cast_mut());
         }
-        let message = WSAMSG {
-            name: address.as_ptr().cast_mut().cast(),
-            namelen: address.len(),
-            lpBuffers: buffers.as_mut_ptr(),
-            dwBufferCount: packets.len() as u32,
-            Control: WSABUF {
-                len: std::mem::size_of::<Control>() as u32,
-                buf: windows::core::PSTR((&control as *const Control).cast_mut().cast()),
-            },
-            dwFlags: 0,
-        };
+        // The only caller limits packets to 64.
+        let buffers = &buffers[..packets.len()];
         let expected: usize = packets.iter().map(Vec::len).sum();
         let system_calls = &mut self.system_calls;
         let result = send_with_retry(
             || {
-                let mut sent = 0;
                 *system_calls += 1;
-                // SAFETY: `message` and all it points to outlive this synchronous call, and the only
-                // caller limits packets to 64, so dwBufferCount stays within `buffers`.
-                let result = unsafe {
-                    WSASendMsg(
-                        SOCKET(socket.as_raw_socket() as usize),
-                        &message,
-                        0,
-                        Some(&mut sent),
-                        None,
-                        None,
-                    )
-                };
-                if result == 0 {
-                    Ok(sent as usize)
-                } else {
-                    // SAFETY: WSAGetLastError only reads this thread's last Winsock error.
-                    Err(unsafe { WSAGetLastError() })
-                }
+                send_message(socket, buffers, &address, &control)
             },
             |error| buffer_available(socket, error, budget, self.waits.as_mut()),
         );
@@ -840,6 +910,665 @@ impl Batch {
             Err(error) => Err(error),
         })
     }
+}
+/// WSASendMsg control data: whole messages, each padded to 8 bytes as
+/// WSA_CMSG_SPACE pads them.
+#[repr(C, align(8))]
+struct Ancillary {
+    bytes: [u8; 64],
+    len: usize,
+}
+impl Default for Ancillary {
+    fn default() -> Self {
+        Self {
+            bytes: [0; 64],
+            len: 0,
+        }
+    }
+}
+impl Ancillary {
+    fn push<T: Copy>(&mut self, level: IPPROTO, kind: i32, data: T) {
+        let header = std::mem::size_of::<CMSGHDR>();
+        let size = header + std::mem::size_of::<T>();
+        let end = self.len + size.next_multiple_of(8);
+        assert!(end <= self.bytes.len(), "control data too large");
+        // SAFETY: the header and `data` end within `bytes` (asserted above), and unaligned writes
+        // need no alignment.
+        unsafe {
+            let at = self.bytes.as_mut_ptr().add(self.len);
+            at.cast::<CMSGHDR>().write_unaligned(CMSGHDR {
+                cmsg_len: size,
+                cmsg_level: level.0,
+                cmsg_type: kind,
+            });
+            at.add(header).cast::<T>().write_unaligned(data);
+        }
+        self.len = end;
+    }
+    /// Send from `source`, as Moonlight's ENet does: IP_PKTINFO for IPv4, also
+    /// on a dual-stack socket, IPV6_PKTINFO for IPv6.
+    fn source(&mut self, source: IpAddr) {
+        match source.to_canonical() {
+            IpAddr::V4(source) => self.push(
+                IPPROTO_IP,
+                IP_PKTINFO,
+                IN_PKTINFO {
+                    ipi_addr: IN_ADDR {
+                        S_un: IN_ADDR_0 {
+                            S_addr: u32::from_ne_bytes(source.octets()),
+                        },
+                    },
+                    ipi_ifindex: 0,
+                },
+            ),
+            IpAddr::V6(source) => self.push(
+                IPPROTO_IPV6,
+                IPV6_PKTINFO,
+                IN6_PKTINFO {
+                    ipi6_addr: IN6_ADDR {
+                        u: IN6_ADDR_0 {
+                            Byte: source.octets(),
+                        },
+                    },
+                    ipi6_ifindex: 0,
+                },
+            ),
+        }
+    }
+}
+/// One WSASendMsg of `buffers` to `peer` with `control`. The error is Winsock's.
+fn send_message(
+    socket: &UdpSocket,
+    buffers: &[WSABUF],
+    peer: &socket2::SockAddr,
+    control: &Ancillary,
+) -> std::result::Result<usize, WSA_ERROR> {
+    let message = WSAMSG {
+        name: peer.as_ptr().cast_mut().cast(),
+        namelen: peer.len(),
+        // WSASendMsg only reads the buffers.
+        lpBuffers: buffers.as_ptr().cast_mut(),
+        dwBufferCount: buffers.len() as u32,
+        Control: WSABUF {
+            len: control.len as u32,
+            buf: windows::core::PSTR(control.bytes.as_ptr().cast_mut()),
+        },
+        dwFlags: 0,
+    };
+    let mut sent = 0;
+    // SAFETY: `message` and all it points to outlive this synchronous call, and dwBufferCount and
+    // the control length stay within `buffers` and `control.bytes`.
+    let result = unsafe {
+        WSASendMsg(
+            SOCKET(socket.as_raw_socket() as usize),
+            &message,
+            0,
+            Some(&mut sent),
+            None,
+            None,
+        )
+    };
+    if result == 0 {
+        Ok(sent as usize)
+    } else {
+        // SAFETY: WSAGetLastError only reads this thread's last Winsock error.
+        Err(unsafe { WSAGetLastError() })
+    }
+}
+/// One datagram to `peer`, from `source` when it is known. The error is Winsock's.
+fn send_from(
+    socket: &UdpSocket,
+    packet: &[u8],
+    peer: SocketAddr,
+    source: Option<IpAddr>,
+) -> std::result::Result<usize, WSA_ERROR> {
+    let Some(source) = source else {
+        return socket
+            .send_to(packet, peer)
+            .map_err(|e| WSA_ERROR(e.raw_os_error().unwrap_or(WSAEINVAL.0)));
+    };
+    let mut control = Ancillary::default();
+    control.source(source);
+    let buffer = WSABUF {
+        len: packet.len() as u32,
+        buf: windows::core::PSTR(packet.as_ptr().cast_mut()),
+    };
+    send_message(socket, &[buffer], &socket2::SockAddr::from(peer), &control)
+}
+/// Spoofed senders cannot grow a ReplySocket's table without bound; a client
+/// still streaming is learned again from its next datagram.
+const REPLY_SOURCES: usize = 256;
+/// A UDP socket that answers each client from the local address the client's
+/// datagrams arrived on, as moonlight-common-c's ENet does. Bound to every
+/// address, Windows otherwise picks the source by route: on a PC where a VPN
+/// such as Tailscale also routes the LAN, replies to a LAN client could leave
+/// from the VPN's address, and the client drops them (issue #54).
+///
+/// Every send through it (`send_to`, `Batch::send`, `send_datagram`) uses
+/// what `answer_from` learned for that peer. A peer Windows already routes
+/// from the address it reached, as on a plain LAN, is answered as before,
+/// with plain sendto and without taking the table's lock while no peer is
+/// pinned.
+pub struct ReplySocket {
+    socket: UdpSocket,
+    receive_message: unsafe extern "system" fn(
+        SOCKET,
+        *mut WSAMSG,
+        *mut u32,
+        *mut windows::Win32::System::IO::OVERLAPPED,
+        LPWSAOVERLAPPED_COMPLETION_ROUTINE,
+    ) -> i32,
+    /// The address Windows sends to a peer from; `routed_source` but in tests.
+    route: fn(SOCKET, SocketAddr) -> std::io::Result<IpAddr>,
+    /// The time; `Instant::now` but in tests.
+    now: fn() -> std::time::Instant,
+    sources: RwLock<Sources>,
+    /// Whether any peer in `sources` is pinned, so sends skip the lock
+    /// while none is.
+    any_pinned: AtomicBool,
+    /// Whether a datagram without its local address was logged.
+    missing_reported: AtomicBool,
+    /// Whether a failed route lookup was logged.
+    route_reported: AtomicBool,
+}
+/// How often a peer's route is checked again while its datagrams arrive, so
+/// a VPN coming up or going down mid-stream is noticed.
+const ROUTE_CHECK: std::time::Duration = std::time::Duration::from_secs(1);
+/// How soon after the last check a failed send has the route checked again.
+const RECHECK: std::time::Duration = std::time::Duration::from_millis(100);
+/// How long an address Windows refused to send to a peer from is not pinned
+/// again; a refusal that lasts costs a failed send and its retry this often.
+const REFUSAL: std::time::Duration = std::time::Duration::from_secs(5);
+/// What a ReplySocket learned about one peer.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Reached {
+    /// The local address the peer's datagrams arrive on.
+    local: IpAddr,
+    /// Whether Windows routes replies from another address, so they must be
+    /// sent from `local`.
+    pinned: bool,
+    /// When the route was last checked.
+    checked: std::time::Instant,
+    /// Whether a send to the peer failed as unreachable since.
+    recheck: bool,
+}
+/// What a ReplySocket learned per peer, each table holding at most
+/// REPLY_SOURCES entries and evicting the oldest.
+#[derive(Default)]
+struct Sources {
+    /// What each peer last reached, and when it was learned.
+    pins: HashMap<SocketAddr, (Reached, u64)>,
+    /// The local addresses Windows refused to send to a peer from, and when;
+    /// not pinned again for REFUSAL, as a VPN that went down may come back.
+    refused: HashMap<(SocketAddr, IpAddr), (std::time::Instant, u64)>,
+    /// Orders both tables' entries.
+    clock: u64,
+}
+impl Sources {
+    /// Inserts into `table`, evicting its oldest entry when full; whether
+    /// `key` is new.
+    fn remember<K: Copy + Eq + std::hash::Hash, V>(
+        table: &mut HashMap<K, (V, u64)>,
+        clock: &mut u64,
+        key: K,
+        value: V,
+    ) -> bool {
+        if table.len() >= REPLY_SOURCES
+            && !table.contains_key(&key)
+            && let Some(oldest) = table.iter().min_by_key(|(_, (_, at))| *at).map(|(k, _)| *k)
+        {
+            table.remove(&oldest);
+        }
+        *clock += 1;
+        table.insert(key, (value, *clock)).is_none()
+    }
+    /// Whether Windows refused to send to `peer` from `local` less than
+    /// REFUSAL before `now`.
+    fn refusing(&self, peer: SocketAddr, local: IpAddr, now: std::time::Instant) -> bool {
+        self.refused
+            .get(&(peer, local))
+            .is_some_and(|(at, _)| now.duration_since(*at) < REFUSAL)
+    }
+    /// Whether a datagram from `peer` to `local` at `now` changes nothing:
+    /// the same address with a fresh route, or one refused for it.
+    fn settled(&self, peer: SocketAddr, local: Option<IpAddr>, now: std::time::Instant) -> bool {
+        let reached = self.pins.get(&peer).map(|(reached, _)| reached);
+        match local {
+            Some(local) if self.refusing(peer, local, now) => reached.is_none(),
+            Some(local) => reached.is_some_and(|reached| {
+                let age = now.duration_since(reached.checked);
+                reached.local == local && age < ROUTE_CHECK && !(reached.recheck && age >= RECHECK)
+            }),
+            None => reached.is_none(),
+        }
+    }
+}
+/// The errors with which Windows refuses to send from a pinned address: one
+/// it no longer has (WSAEADDRNOTAVAIL, or WSAEINVAL for one it never had),
+/// or one whose interface has no route to the peer (WSAENETUNREACH,
+/// WSAEHOSTUNREACH), as on a Hyper-V switch or a Tailscale subnet router.
+/// WSAEINVAL is also how a NIC without UDP segmentation fails.
+const REFUSED: [WSA_ERROR; 4] = [WSAEINVAL, WSAEADDRNOTAVAIL, WSAENETUNREACH, WSAEHOSTUNREACH];
+impl ReplySocket {
+    /// Ask Windows for each datagram's local address on `socket`.
+    pub fn new(socket: UdpSocket) -> std::io::Result<Self> {
+        let raw = SOCKET(socket.as_raw_socket() as usize);
+        let ipv6 = socket.local_addr()?.is_ipv6();
+        let mut options = Vec::with_capacity(2);
+        // An IPv6-only socket receives no IPv4 datagrams.
+        if !ipv6 || !socket2::SockRef::from(&socket).only_v6()? {
+            options.push((IPPROTO_IP, IP_PKTINFO));
+        }
+        if ipv6 {
+            options.push((IPPROTO_IPV6, IPV6_PKTINFO));
+        }
+        for (level, option) in options {
+            // SAFETY: the borrowed socket stays open, and the option takes this 4-byte BOOL.
+            if unsafe { setsockopt(raw, level.0, option, Some(&1u32.to_ne_bytes())) }
+                == SOCKET_ERROR
+            {
+                return Err(last_error());
+            }
+        }
+        let mut receive_message: LPFN_WSARECVMSG = None;
+        let mut returned = 0;
+        // SAFETY: the input is the GUID and the output the function pointer's own storage, both
+        // outliving this synchronous call on the open socket.
+        if unsafe {
+            WSAIoctl(
+                raw,
+                SIO_GET_EXTENSION_FUNCTION_POINTER,
+                Some((&WSAID_WSARECVMSG as *const windows::core::GUID).cast()),
+                std::mem::size_of::<windows::core::GUID>() as u32,
+                Some((&mut receive_message as *mut LPFN_WSARECVMSG).cast()),
+                std::mem::size_of::<LPFN_WSARECVMSG>() as u32,
+                &mut returned,
+                None,
+                None,
+            )
+        } == SOCKET_ERROR
+        {
+            return Err(last_error());
+        }
+        Ok(Self {
+            socket,
+            receive_message: receive_message
+                .ok_or_else(|| std::io::Error::other("Winsock returned no WSARecvMsg"))?,
+            sources: RwLock::default(),
+            route: routed_source,
+            now: std::time::Instant::now,
+            any_pinned: AtomicBool::new(false),
+            missing_reported: AtomicBool::new(false),
+            route_reported: AtomicBool::new(false),
+        })
+    }
+    pub fn bind(address: impl ToSocketAddrs) -> std::io::Result<Self> {
+        Self::new(UdpSocket::bind(address)?)
+    }
+    /// One datagram: its size, its sender, and the local address it arrived
+    /// on. A datagram larger than `buffer` is lost with WSAEMSGSIZE, as
+    /// recv_from loses it.
+    pub fn receive(
+        &self,
+        buffer: &mut [u8],
+    ) -> std::io::Result<(usize, SocketAddr, Option<IpAddr>)> {
+        #[repr(C, align(8))]
+        struct Control([u8; 128]);
+        let mut control = Control([0; 128]);
+        let mut data = WSABUF {
+            len: buffer.len().try_into().unwrap_or(u32::MAX),
+            buf: windows::core::PSTR(buffer.as_mut_ptr()),
+        };
+        // SAFETY: WSARecvMsg writes at most `length` bytes of sender address into the storage
+        // try_init provides and the length it wrote; `data`, `control` and `message` outlive this
+        // synchronous call on the open socket.
+        let ((size, flags, control_len), peer) = unsafe {
+            socket2::SockAddr::try_init(|storage, length| {
+                let mut message = WSAMSG {
+                    name: storage.cast(),
+                    namelen: *length,
+                    lpBuffers: &mut data,
+                    dwBufferCount: 1,
+                    Control: WSABUF {
+                        len: control.0.len() as u32,
+                        buf: windows::core::PSTR(control.0.as_mut_ptr()),
+                    },
+                    dwFlags: 0,
+                };
+                let mut size = 0;
+                if (self.receive_message)(
+                    SOCKET(self.socket.as_raw_socket() as usize),
+                    &mut message,
+                    &mut size,
+                    std::ptr::null_mut(),
+                    None,
+                ) == SOCKET_ERROR
+                {
+                    return Err(last_error());
+                }
+                *length = message.namelen;
+                Ok((size as usize, message.dwFlags, message.Control.len as usize))
+            })?
+        };
+        if flags & MSG_PARTIAL != 0 {
+            return Err(std::io::Error::from_raw_os_error(WSAEMSGSIZE.0));
+        }
+        let peer = peer
+            .as_socket()
+            .ok_or_else(|| std::io::Error::other("a datagram from a non-IP sender"))?;
+        let local = local_address(&control.0[..control_len.min(control.0.len())]);
+        if local.is_none() && !self.missing_reported.swap(true, Ordering::Relaxed) {
+            tracing::warn!(
+                %peer,
+                "Windows did not report which address a datagram arrived on; replies to it leave from the address Windows routes by"
+            );
+        }
+        Ok((size, peer, local))
+    }
+    /// Answer `peer` from `local`, the address its datagram arrived on,
+    /// unless Windows refused that within REFUSAL. Asks which address Windows routes
+    /// to `peer` from when `local` is new, and again at most every
+    /// ROUTE_CHECK, here on the receiving thread rather than on a send.
+    pub fn answer_from(&self, peer: SocketAddr, local: Option<IpAddr>) {
+        let now = (self.now)();
+        if self.sources.read().unwrap().settled(peer, local, now) {
+            return;
+        }
+        let local = local.filter(|local| !self.sources.read().unwrap().refusing(peer, *local, now));
+        let Some(local) = local else {
+            let mut sources = self.sources.write().unwrap();
+            sources.pins.remove(&peer);
+            self.note_pins(&sources);
+            return;
+        };
+        let previous = self
+            .sources
+            .read()
+            .unwrap()
+            .pins
+            .get(&peer)
+            .filter(|(reached, _)| reached.local == local)
+            .map(|(reached, _)| reached.pinned);
+        let pinned = self.routes_elsewhere(peer, local, previous);
+        let mut sources = self.sources.write().unwrap();
+        let Sources {
+            pins,
+            refused,
+            clock,
+        } = &mut *sources;
+        refused.remove(&(peer, local));
+        Sources::remember(
+            pins,
+            clock,
+            peer,
+            Reached {
+                local,
+                pinned,
+                checked: now,
+                recheck: false,
+            },
+        );
+        self.note_pins(&sources);
+    }
+    /// Forget what `peer` reached, once its connection or session ended.
+    pub fn forget(&self, peer: SocketAddr) {
+        let mut sources = self.sources.write().unwrap();
+        sources.pins.remove(&peer);
+        sources.refused.retain(|(refused, _), _| *refused != peer);
+        self.note_pins(&sources);
+    }
+    /// Records whether any peer is pinned, after `sources` changed under
+    /// its write lock.
+    fn note_pins(&self, sources: &Sources) {
+        let any = sources.pins.values().any(|(reached, _)| reached.pinned);
+        self.any_pinned.store(any, Ordering::Release);
+    }
+    /// The address replies to `peer` must leave from; None leaves it to
+    /// Windows, which routes them from the address the peer reached or
+    /// knows nothing better.
+    pub fn source(&self, peer: SocketAddr) -> Option<IpAddr> {
+        if !self.any_pinned.load(Ordering::Acquire) {
+            return None;
+        }
+        self.sources
+            .read()
+            .unwrap()
+            .pins
+            .get(&peer)
+            .filter(|(reached, _)| reached.pinned)
+            .map(|(reached, _)| reached.local)
+    }
+    /// The senders at `ip` and the address each reached, for logs.
+    pub fn sources_from(&self, ip: IpAddr) -> Vec<(SocketAddr, IpAddr)> {
+        let ip = ip.to_canonical();
+        let mut sources: Vec<_> = self
+            .sources
+            .read()
+            .unwrap()
+            .pins
+            .iter()
+            .filter(|(peer, _)| peer.ip().to_canonical() == ip)
+            .map(|(peer, (reached, _))| (*peer, reached.local))
+            .collect();
+        sources.sort();
+        sources
+    }
+    /// One datagram to `peer`, from the address it reached.
+    pub fn send_to(&self, buffer: &[u8], peer: SocketAddr) -> std::io::Result<usize> {
+        let Ok((result, _)) = self.send_pinned(peer, self.source(peer), |source| {
+            Ok::<_, std::convert::Infallible>(send_from(&self.socket, buffer, peer, source))
+        });
+        result.map_err(|error| std::io::Error::from_raw_os_error(error.0))
+    }
+    /// Sends with `send` from `source`, the address `peer` reached, and once
+    /// more from the address Windows routes by when Windows refuses it. Only
+    /// that second send succeeding shows the pin was at fault: a network
+    /// that is down, or a NIC without UDP segmentation, keeps it, and the
+    /// second send's error is the one the caller handles. Any other refusal
+    /// has the route checked again soon (`reroute`). Returns the result and
+    /// the source later sends to `peer` use.
+    fn send_pinned<T, E>(
+        &self,
+        peer: SocketAddr,
+        source: Option<IpAddr>,
+        mut send: impl FnMut(Option<IpAddr>) -> Result<Result<T, WSA_ERROR>, E>,
+    ) -> Result<(Result<T, WSA_ERROR>, Option<IpAddr>), E> {
+        let result = send(source)?;
+        let Err(error) = &result else {
+            return Ok((result, source));
+        };
+        let error = *error;
+        if !REFUSED.contains(&error) {
+            return Ok((result, source));
+        }
+        let Some(pinned) = source else {
+            self.reroute(peer);
+            return Ok((result, source));
+        };
+        match send(None)? {
+            Ok(sent) => {
+                self.refuse(peer, pinned, error);
+                Ok((Ok(sent), None))
+            }
+            Err(retry) => {
+                self.reroute(peer);
+                Ok((Err(retry), source))
+            }
+        }
+    }
+    /// Whether Windows routes replies to `peer` from an address other than
+    /// `local`. When Windows cannot say, `previous` stands, and a new peer is
+    /// answered from `local`, the address it expects.
+    fn routes_elsewhere(&self, peer: SocketAddr, local: IpAddr, previous: Option<bool>) -> bool {
+        match (self.route)(SOCKET(self.socket.as_raw_socket() as usize), peer) {
+            Ok(routed) => routed != local,
+            Err(error) => {
+                if !self.route_reported.swap(true, Ordering::Relaxed) {
+                    tracing::warn!(
+                        %peer,
+                        %local,
+                        %error,
+                        "Windows did not say which address it routes this client by; replying from the address the client reached"
+                    );
+                }
+                previous.unwrap_or(true)
+            }
+        }
+    }
+    /// Asks the receiving thread to check `peer`'s route again with its next
+    /// datagram, at most every RECHECK, after a send to it failed, as when a
+    /// VPN came up or went down. The sending thread asks Windows nothing.
+    fn reroute(&self, peer: SocketAddr) {
+        let flagged = |sources: &Sources| {
+            sources
+                .pins
+                .get(&peer)
+                .is_none_or(|(reached, _)| reached.recheck)
+        };
+        if flagged(&self.sources.read().unwrap()) {
+            return;
+        }
+        if let Some((reached, _)) = self.sources.write().unwrap().pins.get_mut(&peer) {
+            reached.recheck = true;
+        }
+    }
+    /// Stop answering `peer` from `source`, which Windows refused, as after a
+    /// VPN disconnects or when its interface has no route back; for REFUSAL,
+    /// replies leave from the address Windows routes by.
+    fn refuse(&self, peer: SocketAddr, source: IpAddr, error: WSA_ERROR) {
+        let now = (self.now)();
+        let new = {
+            let mut sources = self.sources.write().unwrap();
+            let new = !sources.refusing(peer, source, now);
+            let Sources {
+                pins,
+                refused,
+                clock,
+            } = &mut *sources;
+            if pins
+                .get(&peer)
+                .is_some_and(|(reached, _)| reached.local == source)
+            {
+                pins.remove(&peer);
+            }
+            Sources::remember(refused, clock, (peer, source), now);
+            self.note_pins(&sources);
+            new
+        };
+        if new {
+            tracing::warn!(
+                %peer,
+                %source,
+                code = error.0,
+                "Windows refused to send from the address the client reached; replying to this client from the address Windows routes by"
+            );
+        }
+    }
+}
+/// The local address Windows sends to `peer` from, by route.
+fn routed_source(socket: SOCKET, peer: SocketAddr) -> std::io::Result<IpAddr> {
+    let peer = socket2::SockAddr::from(peer);
+    // SAFETY: Winsock writes at most the storage's length into it, and the
+    // input is the peer's own sockaddr, both outliving this synchronous call
+    // on the open socket.
+    let ((), routed) = unsafe {
+        socket2::SockAddr::try_init(|storage, length| {
+            let mut returned = 0;
+            if WSAIoctl(
+                socket,
+                SIO_ROUTING_INTERFACE_QUERY,
+                Some(peer.as_ptr().cast()),
+                peer.len() as u32,
+                Some(storage.cast()),
+                *length as u32,
+                &mut returned,
+                None,
+                None,
+            ) == SOCKET_ERROR
+            {
+                return Err(last_error());
+            }
+            *length = returned as _;
+            Ok(())
+        })
+    }?;
+    routed
+        .as_socket()
+        .map(|routed| routed.ip().to_canonical())
+        .ok_or_else(|| std::io::Error::other("Windows returned no IP address for the route"))
+}
+impl std::ops::Deref for ReplySocket {
+    type Target = UdpSocket;
+    fn deref(&self) -> &UdpSocket {
+        &self.socket
+    }
+}
+impl AsRawSocket for ReplySocket {
+    fn as_raw_socket(&self) -> RawSocket {
+        self.socket.as_raw_socket()
+    }
+}
+impl AsSocket for ReplySocket {
+    fn as_socket(&self) -> BorrowedSocket<'_> {
+        self.socket.as_socket()
+    }
+}
+/// The local address in WSARecvMsg's control data: IP_PKTINFO or IPV6_PKTINFO.
+fn local_address(control: &[u8]) -> Option<IpAddr> {
+    let header = std::mem::size_of::<CMSGHDR>();
+    let mut offset = 0;
+    while offset + header <= control.len() {
+        // SAFETY: the header lies within `control`, and an unaligned read needs no alignment.
+        let message = unsafe {
+            control
+                .as_ptr()
+                .add(offset)
+                .cast::<CMSGHDR>()
+                .read_unaligned()
+        };
+        if message.cmsg_len < header || offset + message.cmsg_len > control.len() {
+            return None;
+        }
+        let data = &control[offset + header..offset + message.cmsg_len];
+        if message.cmsg_level == IPPROTO_IP.0
+            && message.cmsg_type == IP_PKTINFO
+            && data.len() >= std::mem::size_of::<IN_PKTINFO>()
+        {
+            // SAFETY: `data` holds an IN_PKTINFO (checked above), read unaligned; every bit
+            // pattern is a valid address.
+            let address = unsafe {
+                data.as_ptr()
+                    .cast::<IN_PKTINFO>()
+                    .read_unaligned()
+                    .ipi_addr
+                    .S_un
+                    .S_addr
+            };
+            return Some(std::net::Ipv4Addr::from(address.to_ne_bytes()).into());
+        }
+        if message.cmsg_level == IPPROTO_IPV6.0
+            && message.cmsg_type == IPV6_PKTINFO
+            && data.len() >= std::mem::size_of::<IN6_PKTINFO>()
+        {
+            // SAFETY: `data` holds an IN6_PKTINFO (checked above), read unaligned; every bit
+            // pattern is a valid address.
+            let address = unsafe {
+                data.as_ptr()
+                    .cast::<IN6_PKTINFO>()
+                    .read_unaligned()
+                    .ipi6_addr
+                    .u
+                    .Byte
+            };
+            return Some(IpAddr::from(address).to_canonical());
+        }
+        offset += message.cmsg_len.next_multiple_of(8);
+    }
+    None
+}
+fn last_error() -> std::io::Error {
+    // SAFETY: WSAGetLastError only reads this thread's last Winsock error.
+    std::io::Error::from_raw_os_error(unsafe { WSAGetLastError() }.0)
 }
 #[cfg(test)]
 mod tests {
@@ -1215,7 +1944,7 @@ mod tests {
     #[test]
     fn native_udp_batches_preserve_datagrams_destinations_and_short_tail() -> Result<()> {
         for host in ["127.0.0.1:0", "[::1]:0"] {
-            let sender = UdpSocket::bind(host)?;
+            let sender = ReplySocket::bind(host)?;
             let receiver = UdpSocket::bind(host)?;
             receiver.set_read_timeout(Some(std::time::Duration::from_secs(2)))?;
             let mut packets: Vec<_> = (0..7).map(|i| vec![i; 512]).collect();
@@ -1258,9 +1987,35 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn local_address_reads_pktinfo_after_other_control_messages() {
+        let mut control = Ancillary::default();
+        control.push(IPPROTO_UDP, UDP_SEND_MSG_SIZE, 1200u32);
+        control.source([10, 1, 2, 3].into());
+        assert_eq!(control.len, 48);
+        assert_eq!(
+            local_address(&control.bytes[..control.len]),
+            Some([10, 1, 2, 3].into())
+        );
+        let mut control = Ancillary::default();
+        let address: IpAddr = "fd7a:115c:a1e0::1".parse().unwrap();
+        control.source(address);
+        assert_eq!(control.len, 40);
+        assert_eq!(local_address(&control.bytes[..control.len]), Some(address));
+        // A v4-mapped source is sent, and read back, as IPv4.
+        let mut control = Ancillary::default();
+        control.source("::ffff:100.64.0.1".parse().unwrap());
+        assert_eq!(
+            local_address(&control.bytes[..control.len]),
+            Some([100, 64, 0, 1].into())
+        );
+        // Truncated or malformed control data has no address.
+        assert_eq!(local_address(&control.bytes[..20]), None);
+        assert_eq!(local_address(&[0u8; 32]), None);
+    }
+    #[test]
     #[ignore = "sends to a documentation address; run under a packet capture to see the marks"]
     fn qos_flows_tag_a_network_client() -> Result<()> {
-        let socket = UdpSocket::bind("0.0.0.0:0")?;
+        let socket = ReplySocket::bind("0.0.0.0:0")?;
         for (port, voice) in [(9, false), (10, true)] {
             let peer: SocketAddr = format!("192.0.2.10:{port}").parse()?;
             let flow = QosFlow::new(&socket, peer, voice)?;
@@ -1287,7 +2042,7 @@ mod tests {
         )));
         // Without SIO_UDP_CONNRESET disabled, the ICMP reply from a closed
         // port turns later sends into WSAECONNRESET on Windows.
-        let sender = UdpSocket::bind("127.0.0.1:0")?;
+        let sender = ReplySocket::bind("127.0.0.1:0")?;
         let closed = UdpSocket::bind("127.0.0.1:0")?.local_addr()?;
         let packets = vec![vec![7u8; 256]; 4];
         let mut batch = Batch::default();
@@ -1298,6 +2053,534 @@ mod tests {
         }
         configure_udp(&sender)?;
         assert!(socket2::SockRef::from(&sender).send_buffer_size()? >= 1 << 20);
+        Ok(())
+    }
+    /// The send path's own cost on loopback, per call: a 64-datagram video
+    /// batch and one audio datagram, to a peer never heard from ("routed"),
+    /// one Windows routes from the address it reached ("matched", a LAN
+    /// client) and one it does not ("pinned"). Run with --release.
+    #[test]
+    #[ignore = "timing; run with --release --ignored --nocapture"]
+    fn send_path_cost() -> Result<()> {
+        let receiver = UdpSocket::bind("127.0.0.1:0")?;
+        socket2::SockRef::from(&receiver).set_recv_buffer_size(64 << 20)?;
+        receiver.set_read_timeout(Some(std::time::Duration::from_millis(200)))?;
+        let peer = receiver.local_addr()?;
+        let drain = std::thread::spawn(move || {
+            let mut buffer = [0u8; 2048];
+            while receiver.recv(&mut buffer).is_ok() {}
+        });
+        let video = vec![vec![7u8; 1200]; 64];
+        let audio = vec![9u8; 400];
+        // "before" makes the calls 848095f08 made, without a ReplySocket
+        // lookup.
+        let modes = ["before", "routed", "matched", "pinned"];
+        let mut senders = Vec::new();
+        for mode in modes {
+            let mut sender = ReplySocket::bind("0.0.0.0:0")?;
+            configure_udp(&sender)?;
+            if mode == "pinned" {
+                sender.route = |_, _| Ok(IpAddr::from([192, 0, 2, 9]));
+            }
+            if mode == "matched" || mode == "pinned" {
+                sender.answer_from(peer, Some(peer.ip()));
+                assert_eq!(sender.sources_from(peer.ip()), [(peer, peer.ip())]);
+            }
+            senders.push((mode, sender, Batch::default(), Vec::new(), Vec::new()));
+        }
+        // Short turns in a rotating order: this PC's send cost changes over
+        // seconds, so each mode sees the same mix.
+        for round in 0..40 {
+            for i in 0..modes.len() {
+                let (mode, sender, batch, batches, datagrams) =
+                    &mut senders[(i + round) % modes.len()];
+                let started = std::time::Instant::now();
+                for _ in 0..200 {
+                    if *mode == "before" {
+                        let mut budget = WaitBudget::default();
+                        batch
+                            .send_segmented(sender, &video, peer, None, &mut budget)?
+                            .unwrap();
+                    } else {
+                        batch.send(sender, &video, peer)?;
+                    }
+                }
+                batches.push(started.elapsed().as_nanos() / 200);
+                let started = std::time::Instant::now();
+                for _ in 0..2000 {
+                    if *mode == "before" {
+                        send_one(sender, &audio, peer, None, &mut WaitBudget::default(), None)?
+                            .unwrap();
+                    } else {
+                        send_datagram(sender, &audio, peer)?;
+                    }
+                }
+                datagrams.push(started.elapsed().as_nanos() / 2000);
+            }
+        }
+        for (mode, sender, batch, batches, datagrams) in &mut senders {
+            // A refused pin would have measured the unpinned path.
+            assert_eq!(
+                sender.source(peer),
+                (*mode == "pinned").then_some(peer.ip()),
+                "{mode}"
+            );
+            assert_eq!(batch.dropped, 0, "{mode}");
+            assert!(batch.offload, "{mode}");
+            let mean = |values: &[u128]| values.iter().sum::<u128>() / values.len() as u128;
+            batches.sort();
+            datagrams.sort();
+            println!(
+                "{mode}: batch mean {} ns, median {} ns; datagram mean {} ns, median {} ns",
+                mean(batches),
+                batches[batches.len() / 2],
+                mean(datagrams),
+                datagrams[datagrams.len() / 2]
+            );
+        }
+        drop(senders);
+        drain.join().unwrap();
+        Ok(())
+    }
+    fn dual_stack() -> std::io::Result<UdpSocket> {
+        let socket = socket2::Socket::new(
+            socket2::Domain::IPV6,
+            socket2::Type::DGRAM,
+            Some(socket2::Protocol::UDP),
+        )?;
+        socket.set_only_v6(false)?;
+        socket.bind(&"[::]:0".parse::<SocketAddr>().unwrap().into())?;
+        Ok(socket.into())
+    }
+    /// Sends `host`'s replies to `peer` on every path, each freshly pinned to
+    /// `pin`: control, audio, a segmented video batch and video datagrams,
+    /// calling `sent` after each. Returns the senders they came from at
+    /// `client`.
+    fn reply_sources(
+        host: &ReplySocket,
+        client: &UdpSocket,
+        peer: SocketAddr,
+        pin: Option<IpAddr>,
+        sent: &dyn Fn(&str),
+    ) -> Result<Vec<IpAddr>> {
+        use anyhow::Context;
+        let video: Vec<_> = (0..3).map(|i| vec![i; 256]).collect();
+        let mut expected = Vec::new();
+        let pin = || {
+            host.forget(peer);
+            host.answer_from(peer, pin);
+        };
+        pin();
+        host.send_to(b"control", peer).context("control")?;
+        sent("control");
+        expected.push(b"control".to_vec());
+        pin();
+        assert!(send_datagram(host, b"audio", peer).context("audio")?);
+        sent("audio");
+        expected.push(b"audio".to_vec());
+        let mut batch = Batch::default();
+        pin();
+        assert_eq!(
+            batch.send(host, &video, peer).context("segmented")?,
+            3 * 256
+        );
+        sent("segmented");
+        assert!(batch.offload, "segmentation stays on");
+        expected.extend(video.iter().cloned());
+        batch.offload = false;
+        pin();
+        assert_eq!(
+            batch.send(host, &video, peer).context("datagrams")?,
+            3 * 256
+        );
+        sent("datagrams");
+        expected.extend(video.iter().cloned());
+        let mut sources = Vec::new();
+        let mut buffer = [0u8; 2048];
+        for expected in expected {
+            let (size, from) = client.recv_from(&mut buffer)?;
+            assert_eq!(&buffer[..size], expected);
+            sources.push(from.ip().to_canonical());
+        }
+        Ok(sources)
+    }
+    /// Issue #54: a host on every address answers each client from the
+    /// address the client reached, not the one Windows routes by. To one of
+    /// its own addresses, Windows replies from that address, so a client on
+    /// one address of this PC that reached another sees the wrong source
+    /// without pinning. Skipped without two such addresses of one family.
+    #[test]
+    fn replies_leave_from_the_address_the_client_reached() -> Result<()> {
+        let addresses = unicast_addresses()?;
+        let mut tested = Vec::new();
+        type Bind = fn() -> std::io::Result<UdpSocket>;
+        let hosts: [(&str, Bind, bool); 3] = [
+            ("IPv4", || UdpSocket::bind("0.0.0.0:0"), false),
+            ("dual-stack IPv4", dual_stack, false),
+            ("IPv6", || UdpSocket::bind("[::]:0"), true),
+        ];
+        for (name, bind, v6) in hosts {
+            let same: Vec<_> = addresses.iter().filter(|a| a.is_ipv6() == v6).collect();
+            'pairs: for client_ip in &same {
+                for reached in &same {
+                    if client_ip == reached {
+                        continue;
+                    }
+                    let host = ReplySocket::new(bind()?)?;
+                    let Ok(client) = UdpSocket::bind((**client_ip, 0)) else {
+                        continue;
+                    };
+                    host.set_read_timeout(Some(std::time::Duration::from_millis(300)))?;
+                    client.set_read_timeout(Some(std::time::Duration::from_secs(2)))?;
+                    let target = SocketAddr::new(**reached, host.local_addr()?.port());
+                    if client.send_to(b"ping", target).is_err() {
+                        continue;
+                    }
+                    let mut buffer = [0u8; 64];
+                    let Ok((size, peer, local)) = host.receive(&mut buffer) else {
+                        continue;
+                    };
+                    assert_eq!(&buffer[..size], b"ping", "{name}");
+                    assert_eq!(local, Some(**reached), "{name}");
+                    host.answer_from(peer, local);
+                    assert_eq!(host.sources_from(peer.ip()), [(peer, **reached)], "{name}");
+                    let sources = reply_sources(&host, &client, peer, local, &|_| {})?;
+                    assert!(
+                        sources.iter().all(|source| source == *reached),
+                        "{name}: {client_ip} reached {reached}; replies came from {sources:?}"
+                    );
+                    tested.push(name);
+                    break 'pairs;
+                }
+            }
+        }
+        println!("tested {tested:?} among {addresses:?}");
+        if tested.len() < hosts.len() {
+            println!(
+                "skipped {:?}: no two addresses of one family reach each other",
+                hosts
+                    .iter()
+                    .map(|(name, ..)| *name)
+                    .filter(|name| !tested.contains(name))
+                    .collect::<Vec<_>>()
+            );
+        }
+        Ok(())
+    }
+    /// A source Windows refuses, such as an address a VPN took away, is
+    /// dropped: the reply leaves from the routed address, segmentation stays
+    /// on, and the client's next datagram does not pin it again within
+    /// REFUSAL. Loopback receives on 127.0.0.2, which Windows does
+    /// not send from, so this also shows that every path sends from the
+    /// pinned address.
+    #[test]
+    fn a_refused_source_is_forgotten_and_the_reply_still_sent() -> Result<()> {
+        type Bind = fn() -> std::io::Result<UdpSocket>;
+        let hosts: [(&str, Bind); 2] = [
+            ("IPv4", || UdpSocket::bind("0.0.0.0:0")),
+            ("dual-stack IPv4", dual_stack),
+        ];
+        for (name, bind) in hosts {
+            let mut host = ReplySocket::new(bind()?)?;
+            fake_clock(&mut host);
+            let client = UdpSocket::bind("127.0.0.1:0")?;
+            host.set_read_timeout(Some(std::time::Duration::from_secs(2)))?;
+            client.set_read_timeout(Some(std::time::Duration::from_secs(2)))?;
+            let reached: IpAddr = [127, 0, 0, 2].into();
+            client.send_to(b"ping", (reached, host.local_addr()?.port()))?;
+            let mut buffer = [0u8; 64];
+            let (_, peer, local) = host.receive(&mut buffer)?;
+            assert_eq!(local, Some(reached), "{name}");
+            // Each path tried the pin, and forgot it when refused.
+            let sources = reply_sources(&host, &client, peer, local, &|path| {
+                assert_eq!(
+                    host.source(peer),
+                    None,
+                    "{name}: {path} never tried the pin"
+                )
+            })?;
+            assert_eq!(
+                sources,
+                vec![IpAddr::from([127, 0, 0, 1]); sources.len()],
+                "{name}"
+            );
+            host.answer_from(peer, local);
+            assert_eq!(host.source(peer), None, "{name}: pinned a refused source");
+            host.forget(peer);
+            host.answer_from(peer, local);
+            assert_eq!(host.source(peer), local, "{name}: forgetting the peer");
+        }
+        Ok(())
+    }
+    /// The one loopback source Windows sends from stays pinned on every
+    /// path, so Windows accepted each path's pktinfo message: IPv4, a
+    /// dual-stack socket answering a v4-mapped peer, and IPv6. The route is
+    /// faked to leave from elsewhere, or loopback would not be pinned.
+    #[test]
+    fn every_path_keeps_an_accepted_pin() -> Result<()> {
+        loopback_replies(Some(|_, _| Ok(IpAddr::from([192, 0, 2, 9]))))
+    }
+    /// A client Windows already routes replies to from the address it
+    /// reached, as on a plain LAN, is answered as before the fix: unpinned,
+    /// on every path, with Windows's real route lookup.
+    #[test]
+    fn a_client_routed_from_the_address_it_reached_is_not_pinned() -> Result<()> {
+        loopback_replies(None)
+    }
+    /// Replies on every path to loopback clients, with `route` faked or
+    /// Windows's own; pinned exactly when the route is faked.
+    fn loopback_replies(
+        route: Option<fn(SOCKET, SocketAddr) -> std::io::Result<IpAddr>>,
+    ) -> Result<()> {
+        type Bind = fn() -> std::io::Result<UdpSocket>;
+        let hosts: [(&str, Bind, &str); 3] = [
+            ("IPv4", || UdpSocket::bind("0.0.0.0:0"), "127.0.0.1:0"),
+            ("dual-stack IPv4", dual_stack, "127.0.0.1:0"),
+            ("IPv6", || UdpSocket::bind("[::]:0"), "[::1]:0"),
+        ];
+        for (name, bind, client) in hosts {
+            let mut host = ReplySocket::new(bind()?)?;
+            if let Some(route) = route {
+                host.route = route;
+            }
+            let expected = |local: Option<IpAddr>| local.filter(|_| route.is_some());
+            let client = UdpSocket::bind(client)?;
+            host.set_read_timeout(Some(std::time::Duration::from_secs(2)))?;
+            client.set_read_timeout(Some(std::time::Duration::from_secs(2)))?;
+            let reached = client.local_addr()?.ip();
+            client.send_to(b"ping", (reached, host.local_addr()?.port()))?;
+            let mut buffer = [0u8; 64];
+            let (_, peer, local) = host.receive(&mut buffer)?;
+            assert_eq!(local, Some(reached), "{name}");
+            if name == "dual-stack IPv4" {
+                assert!(matches!(peer.ip(), IpAddr::V6(v6) if v6.to_ipv4_mapped().is_some()));
+            }
+            let sources = reply_sources(&host, &client, peer, local, &|path| {
+                assert_eq!(host.source(peer), expected(local), "{name}: {path}");
+                assert_eq!(host.sources_from(peer.ip()), [(peer, reached)], "{name}");
+            })?;
+            assert_eq!(sources, vec![reached; sources.len()], "{name}");
+        }
+        Ok(())
+    }
+    /// Only an unpinned send that succeeds blames the pin: an interface
+    /// without a route back is refused once and stays refused for REFUSAL,
+    /// while a NIC
+    /// without UDP segmentation or a network that is down keeps the pin.
+    #[test]
+    fn only_a_send_the_pin_broke_drops_it() -> Result<()> {
+        let mut host = ReplySocket::bind("127.0.0.1:0")?;
+        fake_clock(&mut host);
+        host.route = |_, _| Ok(IpAddr::from([192, 0, 2, 9]));
+        let peer: SocketAddr = "192.0.2.1:9".parse().unwrap();
+        let pin: IpAddr = [192, 0, 2, 2].into();
+        let pinned = |first: WSA_ERROR, then: Result<(), WSA_ERROR>| {
+            host.forget(peer);
+            host.answer_from(peer, Some(pin));
+            let mut tried = Vec::new();
+            let (result, source) = host
+                .send_pinned(peer, Some(pin), |source| {
+                    tried.push(source);
+                    Ok::<_, std::convert::Infallible>(if source.is_some() {
+                        Err(first)
+                    } else {
+                        then
+                    })
+                })
+                .unwrap();
+            (result, source, tried)
+        };
+        for unreachable in [WSAENETUNREACH, WSAEHOSTUNREACH, WSAEADDRNOTAVAIL, WSAEINVAL] {
+            assert_eq!(
+                pinned(unreachable, Ok(())),
+                (Ok(()), None, vec![Some(pin), None]),
+                "{unreachable:?}"
+            );
+            assert_eq!(host.source(peer), None);
+            host.answer_from(peer, Some(pin));
+            assert_eq!(host.source(peer), None, "{unreachable:?} pinned again");
+        }
+        // No segmentation fails both sends with WSAEINVAL; a network that is
+        // down fails both too.
+        for error in [WSAEINVAL, WSAENETUNREACH] {
+            assert_eq!(
+                pinned(error, Err(error)),
+                (Err(error), Some(pin), vec![Some(pin), None])
+            );
+            assert_eq!(host.source(peer), Some(pin), "{error:?}");
+        }
+        // Any other error is the peer's, not the pin's.
+        assert_eq!(
+            pinned(WSAECONNRESET, Ok(())),
+            (Err(WSAECONNRESET), Some(pin), vec![Some(pin)])
+        );
+        assert_eq!(host.source(peer), Some(pin));
+        Ok(())
+    }
+    thread_local! {
+        /// The time `fake_clock` sockets on this test's thread read.
+        static NOW: std::cell::Cell<std::time::Instant> =
+            std::cell::Cell::new(std::time::Instant::now());
+    }
+    /// Makes `host` read the time from NOW, which only `advance` moves.
+    fn fake_clock(host: &mut ReplySocket) {
+        host.now = || NOW.with(std::cell::Cell::get);
+    }
+    fn advance(by: std::time::Duration) {
+        NOW.with(|now| now.set(now.get() + by));
+    }
+    /// A refused pin lapses after REFUSAL, so a VPN that went down and came
+    /// back mid-stream is pinned again.
+    #[test]
+    fn a_refused_pin_is_taken_again_after_the_refusal_lapses() -> Result<()> {
+        let mut host = ReplySocket::bind("127.0.0.1:0")?;
+        fake_clock(&mut host);
+        host.route = |_, _| Ok(IpAddr::from([192, 0, 2, 9]));
+        let peer: SocketAddr = "192.0.2.1:9".parse().unwrap();
+        let pin: IpAddr = [192, 0, 2, 2].into();
+        let refused = |host: &ReplySocket| {
+            let (result, source) = host
+                .send_pinned(peer, Some(pin), |source| {
+                    Ok::<_, std::convert::Infallible>(match source {
+                        Some(_) => Err(WSAEADDRNOTAVAIL),
+                        None => Ok(()),
+                    })
+                })
+                .unwrap();
+            assert_eq!((result, source), (Ok(()), None));
+        };
+        host.answer_from(peer, Some(pin));
+        assert_eq!(host.source(peer), Some(pin));
+        refused(&host);
+        advance(REFUSAL - std::time::Duration::from_millis(1));
+        host.answer_from(peer, Some(pin));
+        assert_eq!(host.source(peer), None, "still refused");
+        advance(std::time::Duration::from_millis(1));
+        host.answer_from(peer, Some(pin));
+        assert_eq!(host.source(peer), Some(pin), "pinned again");
+        assert!(host.sources.read().unwrap().refused.is_empty());
+        // Refused again, it lapses anew.
+        refused(&host);
+        advance(REFUSAL - std::time::Duration::from_millis(1));
+        host.answer_from(peer, Some(pin));
+        assert_eq!(host.source(peer), None);
+        Ok(())
+    }
+    /// A full table evicts the oldest pin, not every pin.
+    #[test]
+    fn a_full_table_evicts_the_oldest_pin() -> Result<()> {
+        let mut host = ReplySocket::bind("127.0.0.1:0")?;
+        host.route = |_, _| Ok(IpAddr::from([192, 0, 2, 9]));
+        let local = Some(IpAddr::from([192, 0, 2, 2]));
+        let peers: Vec<SocketAddr> = (0..=REPLY_SOURCES as u16)
+            .map(|port| SocketAddr::from(([192, 0, 2, 1], 1000 + port)))
+            .collect();
+        for peer in &peers[..REPLY_SOURCES] {
+            host.answer_from(*peer, local);
+        }
+        // The first peer's newer datagram makes the second the oldest.
+        host.answer_from(peers[0], Some(IpAddr::from([192, 0, 2, 3])));
+        host.answer_from(peers[REPLY_SOURCES], local);
+        assert_eq!(host.source(peers[1]), None);
+        assert_eq!(host.source(peers[0]), Some(IpAddr::from([192, 0, 2, 3])));
+        for peer in &peers[2..] {
+            assert_eq!(host.source(*peer), local, "{peer}");
+        }
+        host.forget(peers[2]);
+        assert_eq!(host.source(peers[2]), None);
+        Ok(())
+    }
+    /// The address the fake route below answers with.
+    static ROUTED: std::sync::Mutex<Option<IpAddr>> = std::sync::Mutex::new(None);
+    /// A peer whose route leaves from the address it reached is answered
+    /// unpinned and one whose route leaves from elsewhere pinned. A route
+    /// that changes is noticed on the first datagram a second after the last
+    /// check, or RECHECK after it once a send failed as when a VPN came up.
+    #[test]
+    fn the_route_decides_whether_replies_are_pinned() -> Result<()> {
+        let mut host = ReplySocket::bind("127.0.0.1:0")?;
+        fake_clock(&mut host);
+        host.route = |_, _| Ok(ROUTED.lock().unwrap().unwrap());
+        let route = |address: [u8; 4]| *ROUTED.lock().unwrap() = Some(address.into());
+        let peer: SocketAddr = "192.0.2.1:9".parse().unwrap();
+        let local = IpAddr::from([192, 0, 2, 2]);
+        route([192, 0, 2, 2]);
+        host.answer_from(peer, Some(local));
+        assert_eq!(host.source(peer), None, "routed from the address reached");
+        route([192, 0, 2, 9]);
+        host.answer_from(peer, Some(local));
+        assert_eq!(host.source(peer), None, "checked within a second");
+        advance(ROUTE_CHECK);
+        host.answer_from(peer, Some(local));
+        assert_eq!(host.source(peer), Some(local), "routed from elsewhere");
+        route([192, 0, 2, 2]);
+        advance(ROUTE_CHECK);
+        host.answer_from(peer, Some(local));
+        assert_eq!(host.source(peer), None, "routed back");
+        assert!(
+            !host.any_pinned.load(Ordering::Acquire),
+            "sends skip the lock"
+        );
+        // A route that changed, found by a failed unpinned send: the next
+        // datagram RECHECK after the last check pins the peer.
+        route([192, 0, 2, 9]);
+        let (result, source) = host.send_pinned(peer, None, |source| {
+            assert_eq!(source, None);
+            Ok::<_, std::convert::Infallible>(Err::<(), _>(WSAENETUNREACH))
+        })?;
+        assert_eq!((result, source), (Err(WSAENETUNREACH), None));
+        host.answer_from(peer, Some(local));
+        assert_eq!(host.source(peer), None, "checked within RECHECK");
+        advance(RECHECK);
+        host.answer_from(peer, Some(local));
+        assert_eq!(host.source(peer), Some(local), "rechecked after a failure");
+        // A route Windows cannot name keeps what was decided.
+        host.route = |_, _| Err(std::io::Error::from_raw_os_error(WSAENETUNREACH.0));
+        advance(ROUTE_CHECK);
+        host.answer_from(peer, Some(local));
+        assert_eq!(host.source(peer), Some(local));
+        host.forget(peer);
+        assert!(!host.any_pinned.load(Ordering::Acquire));
+        Ok(())
+    }
+    /// Route lookups by the fake route below.
+    static LOOKUPS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    /// Failed sends never ask Windows for the route themselves, and however
+    /// many fail, the receiving thread asks at most once per RECHECK.
+    #[test]
+    fn failed_sends_check_the_route_at_most_once_per_recheck() -> Result<()> {
+        let mut host = ReplySocket::bind("127.0.0.1:0")?;
+        fake_clock(&mut host);
+        host.route = |_, _| {
+            LOOKUPS.fetch_add(1, Ordering::Relaxed);
+            Ok(IpAddr::from([192, 0, 2, 2]))
+        };
+        let peer: SocketAddr = "192.0.2.1:9".parse().unwrap();
+        let local = IpAddr::from([192, 0, 2, 2]);
+        host.answer_from(peer, Some(local));
+        assert_eq!(LOOKUPS.load(Ordering::Relaxed), 1);
+        let fail = |host: &ReplySocket| {
+            let (result, _) = host
+                .send_pinned(peer, None, |_| {
+                    Ok::<_, std::convert::Infallible>(Err::<(), _>(WSAENETUNREACH))
+                })
+                .unwrap();
+            assert_eq!(result, Err(WSAENETUNREACH));
+        };
+        for _ in 0..1000 {
+            fail(&host);
+        }
+        assert_eq!(
+            LOOKUPS.load(Ordering::Relaxed),
+            1,
+            "not on the sending thread"
+        );
+        advance(RECHECK);
+        for _ in 0..1000 {
+            fail(&host);
+            host.answer_from(peer, Some(local));
+        }
+        assert_eq!(LOOKUPS.load(Ordering::Relaxed), 2, "once per RECHECK");
         Ok(())
     }
 }

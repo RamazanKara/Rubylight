@@ -14,9 +14,11 @@ fn main() -> anyhow::Result<()> {
         adaptive_pacing::{AdaptivePacing, Traffic},
         network_pacing::Pacer,
     };
-    use butterpollo_windows::{net::Batch, timing::Timer};
+    use butterpollo_windows::{
+        net::{Batch, ReplySocket},
+        timing::Timer,
+    };
     use std::{
-        net::UdpSocket,
         sync::Mutex,
         time::{Duration, Instant},
     };
@@ -44,7 +46,7 @@ fn main() -> anyhow::Result<()> {
     );
     // Keep this isolated probe from changing desktop, Wi-Fi or GPU policy.
     // Both revisions use ordinary process scheduling for the comparison.
-    let socket = UdpSocket::bind(if peer.is_ipv6() {
+    let socket = ReplySocket::bind(if peer.is_ipv6() {
         "[::]:0"
     } else {
         "0.0.0.0:0"

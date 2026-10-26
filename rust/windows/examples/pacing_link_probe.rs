@@ -13,11 +13,11 @@ fn main() {
 fn main() -> anyhow::Result<()> {
     use anyhow::Context;
     use butterpollo_core::network_pacing::{Pacer, batch_payload_limit};
-    use butterpollo_windows::{net::Batch, timing::Timer};
-    use std::{
-        net::UdpSocket,
-        time::{Duration, Instant},
+    use butterpollo_windows::{
+        net::{Batch, ReplySocket},
+        timing::Timer,
     };
+    use std::time::{Duration, Instant};
     const PACKET: usize = 1440;
     let mut args = std::env::args().skip(1);
     let mut next = |name: &str| args.next().with_context(|| format!("{name} required"));
@@ -30,7 +30,7 @@ fn main() -> anyhow::Result<()> {
         (1_000_000..=2_500_000_000).contains(&rate) && fps > 0 && seconds > 0,
         "invalid arguments"
     );
-    let socket = UdpSocket::bind("0.0.0.0:0")?;
+    let socket = ReplySocket::bind("0.0.0.0:0")?;
     socket.set_nonblocking(true)?;
     butterpollo_windows::net::configure_udp(&socket)?;
     let timer = Timer::new()?;

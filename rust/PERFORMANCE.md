@@ -7,6 +7,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | Find a result | Recorded evidence |
 | --- | --- |
 | A 60 Hz game's repeated frames under VRR: holding later compositions of a claimed frame, simulation and 60/120/240 Hz ABBA (not kept) | [October 26, holding later compositions (not kept)](#october-26-holding-later-compositions-of-a-claimed-frame-not-kept) |
+| Replying from the address the client reached (#54): send-path cost of matched, routed and pinned replies against the calls before the fix, batch and single datagram | [October 26, replying from the address the client reached](#october-26-replying-from-the-address-the-client-reached-54) |
 | VRR claims that follow the game's pictures: a 120 Hz game on a 60 fps VRR stream, age and present-to-sent p95, late claims; 240 and 60 Hz games | [October 26, VRR claims follow the game's pictures](#october-26-vrr-claims-follow-the-games-pictures) |
 | 3.0.0-rc.2 against the published numbers: timing record stages, VRR capture age, the laptop over Wi-Fi; what could not be rerun | [October 26, 3.0.0-rc.2 against the published numbers](#october-26-300-rc2-against-the-published-numbers) |
 | Wi-Fi clients paced from the first frame (`clientWireless`): Nightjar desktop over 5 GHz and 2.4 GHz, with and without the hint | [October 25, Wi-Fi pacing hint](#october-25-wi-fi-pacing-hint-on-a-real-laptop) |
@@ -68,6 +69,21 @@ Measured as in the section below. The base is rc.2 with the picture change's `bu
 None of the 16 runs at 60 Hz entered the streaking state: no streak was longer than two late claims, so the hardware could not show what the change targets. Age p95 per run: base 0.29 to 3.49 ms, hold 0.32 to 2.39 ms. Neither build came back near October 24's 0.28 ms, and both repeated a game frame about 39 times per run. Present-to-sent p95 was higher with the hold in most runs (per run 4.79 to 6.86 ms against 4.28 to 7.72 ms; rank test p ≈ 0.07), and so was the capture stage's median (0.37 against 0.20 ms). The 120 and 240 Hz games, two runs and one run per build, gave lower age p95 with the hold, but that is too few runs to count. **The change measured no better at 60 Hz and possibly worse at present-to-sent p95, so it is not kept.**
 
 These runs had a different source of late claims: the 60 Hz game's presents landed on the display's 4.17 ms refreshes, and the prediction waited until the end of its budget for a next picture estimated from compositions. The repeats are still open.
+
+## October 26: replying from the address the client reached (#54)
+
+The host's UDP sockets answer each client from the local address its datagrams arrived on. When a peer's arrival address is new, and again at most once a second while its datagrams arrive (every 100 ms at most once a send to it failed as unreachable; the sending thread only flags it), the receiving thread asks Windows which address it routes that peer from (`SIO_ROUTING_INTERFACE_QUERY`). Only when that differs, as with a VPN such as Tailscale routing the LAN, are replies pinned with `IP_PKTINFO` or `IPV6_PKTINFO` through `WSASendMsg`; otherwise they go out with `sendto` as before, and while no peer is pinned a send does not take the table's lock.
+
+`send_path_cost` (`rust/windows/src/net.rs`, `--release --ignored`) times the send path alone on loopback, four senders in one run: "before" makes the calls `848095f08` made (plain `sendto` and segmented batches, no table), "routed" has never heard from the peer, "matched" learned it with Windows' real route, which equals the arrival address, and "pinned" learned it with a faked route elsewhere. Each turn sends 200 segmented 64-datagram batches of 1200 B, then 2000 single 400 B datagrams; 40 rounds of one turn per sender in rotating order, a thread draining the receiver. The run ends by asserting no datagram was dropped and that only the pinned sender was pinned. Means of the 40 turns, averaged over four runs, the range of the four run means in brackets. Isolated from the installed service, no stream.
+
+| Replies | Batch of 64 | Single datagram |
+| --- | --- | --- |
+| Before (`848095f08` calls) | 214.6 µs (208.4 to 228.2) | 10.74 µs (10.69 to 10.81) |
+| Routed, peer not learned | 215.2 µs (209.6 to 227.8) | 10.81 µs (10.63 to 10.90) |
+| Matched, not pinned | 215.6 µs (207.6 to 229.7) | 10.65 µs (10.41 to 11.03) |
+| Pinned | 216.8 µs (208.7 to 231.1) | 11.31 µs (11.19 to 11.38) |
+
+**A LAN client Windows already routes from the address it reached costs what it did before**, within the spread between runs, for batches and single datagrams. A pinned reply costs about 0.6 µs more CPU per single datagram (about 5 %) and no measurable difference per 64-datagram batch. The figures are higher than earlier single-mode runs (about 6.7 µs a datagram) because this PC's send cost roughly doubles a few seconds into the run on every path alike; the rotation spreads that over all four senders. An earlier version of this section put a pinned reply at twice `sendto`: it timed each mode in its own block with pinned always second, so it measured that slowdown, not the pin. Not measured: a real NIC, a VPN, and a stream's end-to-end latency.
 
 ## October 26: VRR claims follow the game's pictures
 

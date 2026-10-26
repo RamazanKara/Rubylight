@@ -1,4 +1,5 @@
 use super::*;
+use std::net::UdpSocket;
 use std::sync::mpsc::{self, Receiver, Sender as Channel};
 
 const WAIT: Duration = Duration::from_secs(5);
@@ -876,7 +877,7 @@ fn moonlight_timing_stops_at_packetization_before_a_blocked_sender() {
     for key in [None, Some([23; 16])] {
         let fixture = crate::state::test_support::Fixture::new();
         let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
-        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").unwrap());
+        let socket = Arc::new(ReplySocket::bind("127.0.0.1:0").unwrap());
         let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
         receiver.set_read_timeout(Some(WAIT)).unwrap();
         let start = Instant::now();
@@ -1075,7 +1076,7 @@ fn a_sender_taking_over_mid_stream_continues_the_inline_numbering() {
     for key in [None, Some([17; 16])] {
         let fixture = crate::state::test_support::Fixture::new();
         let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
-        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").unwrap());
+        let socket = Arc::new(ReplySocket::bind("127.0.0.1:0").unwrap());
         let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
         receiver.set_read_timeout(Some(WAIT)).unwrap();
         // Where the stream thread's own sends left off.
@@ -1128,7 +1129,7 @@ fn the_sender_thread_accepts_client_reports_for_adaptive_fec() {
     let fixture = crate::state::test_support::Fixture::new();
     let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
     session.configure_fec(true, 20);
-    let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").unwrap());
+    let socket = Arc::new(ReplySocket::bind("127.0.0.1:0").unwrap());
     let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
     let sender = Sender::new(
         socket,
@@ -1161,7 +1162,7 @@ fn the_sender_thread_accepts_client_reports_for_adaptive_fec() {
 fn the_sender_thread_records_where_a_new_pictures_time_went() {
     let fixture = crate::state::test_support::Fixture::new();
     let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
-    let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").unwrap());
+    let socket = Arc::new(ReplySocket::bind("127.0.0.1:0").unwrap());
     let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
     // The media clock started 500 ms ago.
     let now = Instant::now();
@@ -1614,7 +1615,7 @@ fn streamed_payload(packets: &[Vec<u8>]) -> (Vec<u8>, usize) {
 fn a_streamed_frame_goes_out_in_order_and_is_timed_once() {
     let fixture = crate::state::test_support::Fixture::new();
     let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
-    let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").unwrap());
+    let socket = Arc::new(ReplySocket::bind("127.0.0.1:0").unwrap());
     let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
     receiver
         .set_read_timeout(Some(Duration::from_millis(500)))
@@ -1732,7 +1733,7 @@ fn a_streamed_frame_goes_out_in_order_and_is_timed_once() {
 fn a_frame_cut_off_after_its_first_block_leaves_no_stats_or_timing_behind() {
     let fixture = crate::state::test_support::Fixture::new();
     let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
-    let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").unwrap());
+    let socket = Arc::new(ReplySocket::bind("127.0.0.1:0").unwrap());
     let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
     receiver
         .set_read_timeout(Some(Duration::from_millis(500)))
@@ -1795,7 +1796,7 @@ fn a_frame_cut_off_after_its_first_block_leaves_no_stats_or_timing_behind() {
 fn a_streamed_frame_lost_in_its_first_block_stops_and_is_not_stamped() {
     let fixture = crate::state::test_support::Fixture::new();
     let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
-    let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").unwrap());
+    let socket = Arc::new(ReplySocket::bind("127.0.0.1:0").unwrap());
     let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
     receiver
         .set_read_timeout(Some(Duration::from_millis(300)))

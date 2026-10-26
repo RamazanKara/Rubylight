@@ -67,7 +67,10 @@ fn normal_mac(mac: &str) -> Option<String> {
 pub fn targets(wake: &Wake) -> (Vec<String>, Vec<String>) {
     let mut macs = Vec::new();
     let mut broadcasts = Vec::new();
-    let listed = wake.primary.iter().chain(wake.targets.iter().map(|t| &t.mac));
+    let listed = wake
+        .primary
+        .iter()
+        .chain(wake.targets.iter().map(|t| &t.mac));
     for mac in listed.filter_map(|mac| normal_mac(mac)) {
         if macs.len() < MAX_MACS && !macs.contains(&mac) {
             macs.push(mac);
@@ -75,7 +78,9 @@ pub fn targets(wake: &Wake) -> (Vec<String>, Vec<String>) {
     }
     for broadcast in wake.targets.iter().flat_map(|t| &t.broadcasts) {
         // A literal only: a name here would need a DNS lookup while the PC sleeps.
-        let Ok(address) = broadcast.parse::<Ipv4Addr>() else { continue };
+        let Ok(address) = broadcast.parse::<Ipv4Addr>() else {
+            continue;
+        };
         let address = address.to_string();
         if broadcasts.len() < MAX_BROADCASTS && !broadcasts.contains(&address) {
             broadcasts.push(address);
@@ -97,7 +102,10 @@ impl Links {
         let mut links = Self::default();
         match if_addrs::get_if_addrs() {
             Ok(interfaces) => {
-                for interface in interfaces.iter().filter(|i| i.is_oper_up() && !i.is_loopback()) {
+                for interface in interfaces
+                    .iter()
+                    .filter(|i| i.is_oper_up() && !i.is_loopback())
+                {
                     match &interface.addr {
                         if_addrs::IfAddr::V4(v4) => links.broadcasts.extend(v4.broadcast),
                         if_addrs::IfAddr::V6(_) => links.ipv6.extend(interface.index),
@@ -124,12 +132,20 @@ struct Plan {
 /// and to `ff02::1`. Resolving the PC's addresses may block on DNS.
 fn plan(host: &HostRecord, links: &Links) -> Result<Plan, String> {
     let mut macs: Vec<String> = Vec::new();
-    for mac in host.mac.iter().chain(&host.wake_macs).filter_map(|mac| normal_mac(mac)) {
+    for mac in host
+        .mac
+        .iter()
+        .chain(&host.wake_macs)
+        .filter_map(|mac| normal_mac(mac))
+    {
         if !macs.contains(&mac) {
             macs.push(mac);
         }
     }
-    let payloads: Vec<_> = macs.iter().filter_map(|mac| magic_packet(mac).ok()).collect();
+    let payloads: Vec<_> = macs
+        .iter()
+        .filter_map(|mac| magic_packet(mac).ok())
+        .collect();
     if payloads.is_empty() {
         return Err(NO_MAC.into());
     }
@@ -144,7 +160,12 @@ fn plan(host: &HostRecord, links: &Links) -> Result<Plan, String> {
     // Directed broadcasts reach each subnet and avoid stale ARP entries for sleeping PCs.
     addresses.insert(IpAddr::V4(Ipv4Addr::BROADCAST));
     addresses.extend(links.broadcasts.iter().copied().map(IpAddr::V4));
-    addresses.extend(host.wake_broadcasts.iter().filter_map(|b| b.parse::<Ipv4Addr>().ok()).map(IpAddr::V4));
+    addresses.extend(
+        host.wake_broadcasts
+            .iter()
+            .filter_map(|b| b.parse::<Ipv4Addr>().ok())
+            .map(IpAddr::V4),
+    );
     let destinations = addresses
         .iter()
         .flat_map(|address| ports.iter().map(|port| SocketAddr::new(*address, *port)))
@@ -153,15 +174,29 @@ fn plan(host: &HostRecord, links: &Links) -> Result<Plan, String> {
         .ipv6
         .iter()
         .flat_map(|scope| {
-            ports.iter().map(|port| SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1), *port, 0, *scope)))
+            ports.iter().map(|port| {
+                SocketAddr::V6(SocketAddrV6::new(
+                    Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1),
+                    *port,
+                    0,
+                    *scope,
+                ))
+            })
         })
         .collect();
-    Ok(Plan { payloads, destinations, best_effort })
+    Ok(Plan {
+        payloads,
+        destinations,
+        best_effort,
+    })
 }
 
 /// Sends the plan through `send`; fails only when no packet reached a destination that is not
 /// best effort.
-fn send(plan: &Plan, mut send: impl FnMut(&[u8], SocketAddr) -> io::Result<()>) -> Result<(), String> {
+fn send(
+    plan: &Plan,
+    mut send: impl FnMut(&[u8], SocketAddr) -> io::Result<()>,
+) -> Result<(), String> {
     let mut sent = false;
     let mut error = String::from("No Wake-on-LAN destination could be reached.");
     let mut best_effort_failures = 0;
@@ -202,7 +237,8 @@ pub fn wake(host: &HostRecord) -> Result<(), String> {
         let socket = if destination.is_ipv4() {
             &socket
         } else {
-            ipv6.as_ref().ok_or_else(|| io::Error::new(io::ErrorKind::Unsupported, "no IPv6 socket"))?
+            ipv6.as_ref()
+                .ok_or_else(|| io::Error::new(io::ErrorKind::Unsupported, "no IPv6 socket"))?
         };
         socket.send_to(payload, destination).map(|_| ())
     })
@@ -241,7 +277,12 @@ impl WakeWait {
     }
 
     fn with(start: Instant, timeout: Duration, resend: Duration) -> Self {
-        Self { start, timeout, resend, last_sent: None }
+        Self {
+            start,
+            timeout,
+            resend,
+            last_sent: None,
+        }
     }
 
     /// An answering PC wins over everything, including the time that ran out in the same tick.
@@ -252,7 +293,10 @@ impl WakeWait {
         if now.saturating_duration_since(self.start) >= self.timeout {
             return Step::TimedOut;
         }
-        if self.last_sent.is_none_or(|sent| now.saturating_duration_since(sent) >= self.resend) {
+        if self
+            .last_sent
+            .is_none_or(|sent| now.saturating_duration_since(sent) >= self.resend)
+        {
             self.last_sent = Some(now);
             return Step::Send;
         }
@@ -281,7 +325,11 @@ impl Wakes {
             return false;
         }
         self.runs += 1;
-        self.current = Some(Waking { host, run: self.runs, wait: WakeWait::new(now) });
+        self.current = Some(Waking {
+            host,
+            run: self.runs,
+            wait: WakeWait::new(now),
+        });
         true
     }
 
@@ -300,7 +348,10 @@ impl Wakes {
 
     /// A send of `run` to `host` failed. Only the running wake ends on it; says whether it did.
     pub fn failed(&mut self, host: u64, run: u64) -> bool {
-        let ends = self.current.as_ref().is_some_and(|w| w.host == host && w.run == run);
+        let ends = self
+            .current
+            .as_ref()
+            .is_some_and(|w| w.host == host && w.run == run);
         if ends {
             self.current = None;
         }
@@ -335,7 +386,10 @@ mod tests {
     #[test]
     fn custom_ports_keep_fixed_wake_ports_and_do_not_wrap() {
         assert_eq!(ports(0), [7, 9, 47009, 47998, 47999, 48000, 48002, 48010]);
-        assert_eq!(ports(48989), [7, 9, 47009, 48998, 48999, 49000, 49002, 49010]);
+        assert_eq!(
+            ports(48989),
+            [7, 9, 47009, 48998, 48999, 49000, 49002, 49010]
+        );
         assert_eq!(ports(65535), [7, 9, 47009]);
     }
 
@@ -351,7 +405,10 @@ mod tests {
     }
 
     fn links() -> Links {
-        Links { broadcasts: BTreeSet::from([Ipv4Addr::new(192, 168, 4, 255)]), ipv6: BTreeSet::from([7]) }
+        Links {
+            broadcasts: BTreeSet::from([Ipv4Addr::new(192, 168, 4, 255)]),
+            ipv6: BTreeSet::from([7]),
+        }
     }
 
     fn v4(address: &str, port: u16) -> SocketAddr {
@@ -360,31 +417,65 @@ mod tests {
 
     #[test]
     fn two_macs_go_to_every_address_broadcast_and_port() {
-        let host = host(Some("02-7C-16-B4-13-4F"), &["02:7c:16:b4:13:4f", "0a:00:27:00:00:05"], &["10.0.0.255", "192.168.4.255"]);
+        let host = host(
+            Some("02-7C-16-B4-13-4F"),
+            &["02:7c:16:b4:13:4f", "0a:00:27:00:00:05"],
+            &["10.0.0.255", "192.168.4.255"],
+        );
         let plan = plan(&host, &links()).unwrap();
-        assert_eq!(plan.payloads, [magic_packet("02:7c:16:b4:13:4f").unwrap(), magic_packet("0a:00:27:00:00:05").unwrap()]);
-        let addresses: BTreeSet<_> = plan.destinations.iter().map(|d| d.ip().to_string()).collect();
+        assert_eq!(
+            plan.payloads,
+            [
+                magic_packet("02:7c:16:b4:13:4f").unwrap(),
+                magic_packet("0a:00:27:00:00:05").unwrap()
+            ]
+        );
+        let addresses: BTreeSet<_> = plan
+            .destinations
+            .iter()
+            .map(|d| d.ip().to_string())
+            .collect();
         assert_eq!(
             addresses,
-            ["10.0.0.20", "10.0.0.255", "192.168.4.20", "192.168.4.255", "255.255.255.255"].map(String::from).into()
+            [
+                "10.0.0.20",
+                "10.0.0.255",
+                "192.168.4.20",
+                "192.168.4.255",
+                "255.255.255.255"
+            ]
+            .map(String::from)
+            .into()
         );
         for address in &addresses {
             for port in ports(0) {
-                assert!(plan.destinations.contains(&v4(address, port)), "{address}:{port}");
+                assert!(
+                    plan.destinations.contains(&v4(address, port)),
+                    "{address}:{port}"
+                );
             }
         }
         assert_eq!(plan.destinations.len(), addresses.len() * ports(0).len());
         let all_nodes: Vec<_> = plan.best_effort.iter().copied().collect();
         assert_eq!(all_nodes.len(), ports(0).len());
         for destination in all_nodes {
-            let SocketAddr::V6(v6) = destination else { panic!("{destination}") };
-            assert_eq!((v6.ip().to_string(), v6.scope_id()), ("ff02::1".to_string(), 7));
+            let SocketAddr::V6(v6) = destination else {
+                panic!("{destination}")
+            };
+            assert_eq!(
+                (v6.ip().to_string(), v6.scope_id()),
+                ("ff02::1".to_string(), 7)
+            );
         }
     }
 
     #[test]
     fn a_host_without_wake_targets_gets_serverinfos_mac_only() {
-        let plan = plan(&host(Some("00:1a:2b:3c:4d:5e"), &[], &[]), &Links::default()).unwrap();
+        let plan = plan(
+            &host(Some("00:1a:2b:3c:4d:5e"), &[], &[]),
+            &Links::default(),
+        )
+        .unwrap();
         assert_eq!(plan.payloads, [magic_packet("00:1a:2b:3c:4d:5e").unwrap()]);
         assert!(plan.destinations.contains(&v4("255.255.255.255", 9)));
         assert!(plan.best_effort.is_empty());
@@ -392,45 +483,82 @@ mod tests {
 
     #[test]
     fn no_usable_mac_is_no_plan() {
-        assert_eq!(plan(&host(None, &[], &["10.0.0.255"]), &links()).err().as_deref(), Some(NO_MAC));
-        assert_eq!(plan(&host(Some("00:00:00:00:00:00"), &["nope"], &[]), &links()).err().as_deref(), Some(NO_MAC));
+        assert_eq!(
+            plan(&host(None, &[], &["10.0.0.255"]), &links())
+                .err()
+                .as_deref(),
+            Some(NO_MAC)
+        );
+        assert_eq!(
+            plan(&host(Some("00:00:00:00:00:00"), &["nope"], &[]), &links())
+                .err()
+                .as_deref(),
+            Some(NO_MAC)
+        );
         // A MAC from `/wake` wakes the PC even when serverinfo's is not usable.
-        assert_eq!(plan(&host(Some("nope"), &["0a:00:27:00:00:05"], &[]), &links()).unwrap().payloads.len(), 1);
+        assert_eq!(
+            plan(&host(Some("nope"), &["0a:00:27:00:00:05"], &[]), &links())
+                .unwrap()
+                .payloads
+                .len(),
+            1
+        );
     }
 
     #[test]
     fn failed_all_nodes_sends_do_not_fail_the_wake_but_they_do_not_carry_it_either() {
-        let plan = plan(&host(Some("00:1a:2b:3c:4d:5e"), &["0a:00:27:00:00:05"], &[]), &links()).unwrap();
+        let plan = plan(
+            &host(Some("00:1a:2b:3c:4d:5e"), &["0a:00:27:00:00:05"], &[]),
+            &links(),
+        )
+        .unwrap();
         let mut sends = 0;
         let only_v4 = send(&plan, |_, destination| {
             sends += 1;
-            if destination.is_ipv4() { Ok(()) } else { Err(io::Error::other("no route")) }
+            if destination.is_ipv4() {
+                Ok(())
+            } else {
+                Err(io::Error::other("no route"))
+            }
         });
         assert_eq!(only_v4, Ok(()));
-        assert_eq!(sends, 3 * 2 * (plan.destinations.len() + plan.best_effort.len()));
+        assert_eq!(
+            sends,
+            3 * 2 * (plan.destinations.len() + plan.best_effort.len())
+        );
         let only_v6 = send(&plan, |_, destination| {
-            if destination.is_ipv6() { Ok(()) } else { Err(io::Error::other("network is unreachable")) }
+            if destination.is_ipv6() {
+                Ok(())
+            } else {
+                Err(io::Error::other("network is unreachable"))
+            }
         });
         assert_eq!(only_v6.err().as_deref(), Some("network is unreachable"));
     }
 
     #[test]
     fn wake_targets_are_normal_and_bounded() {
-        let target = |mac: &str, broadcasts: &[&str]| Target {
+        let target = |mac: &str, broadcasts: &[&str]| {
+            Target {
             mac: mac.into(),
             broadcasts: broadcasts.iter().map(|b| b.to_string()).collect(),
             ..serde_json::from_str(r#"{"mac":"","kind":"ethernet","connected":true,"route":true,"broadcasts":[],"state":"ready","checks":[]}"#).unwrap()
+        }
         };
         let mut wake: Wake = serde_json::from_str(
             r#"{"revision":1,"primary":"02-7C-16-B4-13-4F","targets":[],"system":{"sleep":"s3","modern_standby":false,"hibernate":false,"fast_startup":"inactive","shutdown_wake":"firmware_unknown"},"idle_sleep":{"state":"off","minutes":0,"reason":null}}"#,
         )
         .unwrap();
         wake.targets = vec![
-            target("02:7c:16:b4:13:4f", &["192.168.4.255", "pc.lan", "192.168.4.255"]),
+            target(
+                "02:7c:16:b4:13:4f",
+                &["192.168.4.255", "pc.lan", "192.168.4.255"],
+            ),
             target("00:00:00:00:00:00", &["10.0.0.255"]),
             target("bad", &["300.0.0.1"]),
         ];
-        wake.targets.extend((0..10).map(|i| target(&format!("0a:00:27:00:00:{i:02x}"), &[])));
+        wake.targets
+            .extend((0..10).map(|i| target(&format!("0a:00:27:00:00:{i:02x}"), &[])));
         let (macs, broadcasts) = targets(&wake);
         assert_eq!(macs.len(), MAX_MACS);
         assert_eq!(&macs[..2], ["02:7c:16:b4:13:4f", "0a:00:27:00:00:00"]);

@@ -1,1 +1,1 @@
-Behebt ruckelnde Streams und PyroWave-Streams, die in 3.2.2 nach wenigen Sekunden abbrachen: Die Android-Decodier-Änderungen aus 3.2.2 sind zurückgenommen, bis sie auf Handys gemessen sind.
+Behebt ruckelnde Streams und PyroWave-Streams, die in 3.2.2 nach wenigen Sekunden abbrachen. Die Decodier-Änderungen im Videopfad und der standardmäßige GPU-Boost sind zurückgenommen; höhere Decoder-Priorität und allokationsfreie Frame-Statistik bleiben.

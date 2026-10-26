@@ -11,6 +11,15 @@
     <string name="host_unpair_title">%1$s eşleştirmesi kaldırılsın mı?</string>
     <string name="host_unpair_message">Bilgisayar bu cihazı unutur ve kayıtlı kitaplık burada temizlenir. Yayın için yeniden eşleştirmeniz gerekir. Bilgisayar listede kalır.</string>
     <string name="host_wake_needs_pairing">Uyandırabilmek için bilgisayar açıkken bir kez eşleştirin</string>
+    <string name="host_menu_sleep">Bilgisayarı uyut</string>
+    <string name="host_menu_sleep_note">Deneysel</string>
+    <string name="host_sleep_title">%1$s uyku moduna alınsın mı?</string>
+    <string name="host_sleep_message">Önce bilgisayardaki oyunlar ve yayınlar kapatılmalı. Wake-on-LAN onu yeniden uyandırabilir.</string>
+    <string name="host_sleep_accepted">Bilgisayar uyku moduna geçiyor</string>
+    <string name="host_sleep_unsupported">Bu bilgisayar uyku moduna geçemiyor.</string>
+    <string name="host_sleep_busy">Bilgisayar şu anda uyku moduna geçemiyor. Üzerindeki oyunları ve yayınları kapatıp yeniden deneyin.</string>
+    <string name="host_sleep_refused">Bilgisayar uyku modunu reddetti (HTTP %1$d).</string>
+    <string name="host_sleep_failed">Bilgisayara ulaşılamadı.</string>
     <string name="settings_category_accessibility">Erişilebilirlik</string>
     <string name="title_ui_scale">Arayüz boyutu</string>
     <string name="summary_ui_scale">Uygulamanın menülerini, listelerini ve iletişim kutularını ölçekler. Yayın ölçeklenmez. Sistem yazı tipi boyutu ayrıca uygulanmaya devam eder. Hemen etkili olur.</string>

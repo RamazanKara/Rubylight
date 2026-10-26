@@ -108,6 +108,48 @@ public final class NativeApiClient {
         return parseRadeon(call("radeon_restore", ""));
     }
 
+    /**
+     * Sleep PC's offer (GET /power-actions/v1): a single-use token while the host is idle and lets this device
+     * put it to sleep, otherwise none. Gate it on {@code Feature.SLEEP}.
+     */
+    public PowerReply powerCapabilities() throws NativeApiException {
+        return parsePower(call("power.capabilities", ""));
+    }
+
+    /**
+     * Spends a token from {@link #powerCapabilities} (POST /power-actions/v1/sleep). The host's refusals are
+     * {@link NativeApiException.Kind#POWER_REFUSED} with its status_message as sent.
+     */
+    public PowerReply sleep(String token) throws NativeApiException {
+        return parsePower(call("power.sleep", token));
+    }
+
+    /** One answer of Sleep PC's routes, as power.rs parses it. */
+    public static final class PowerReply {
+        /** The HTTP status: 200 for an offer, 202 for an accepted sleep. */
+        public final int status;
+        public final String message;
+        public final boolean sleepSupported;
+        public final boolean sleepAllowed;
+        /** Supported, allowed and idle. */
+        public final boolean sleepAvailable;
+        /** Null when the host handed out no token. */
+        public final String token;
+        public final int tokenLifetimeSeconds;
+        public final boolean accepted;
+
+        PowerReply(JSONObject json) throws JSONException {
+            status = json.getInt("status");
+            message = json.getString("message");
+            sleepSupported = json.getBoolean("sleep_supported");
+            sleepAllowed = json.getBoolean("sleep_allowed");
+            sleepAvailable = json.getBoolean("sleep_available");
+            token = json.isNull("token") ? null : json.getString("token");
+            tokenLifetimeSeconds = json.getInt("token_lifetime_seconds");
+            accepted = json.getBoolean("accepted");
+        }
+    }
+
     private JSONObject call(String op, String argument) throws NativeApiException {
         return decode(transport.request(host, op, argument));
     }
@@ -125,6 +167,14 @@ public final class NativeApiClient {
             return NativeRadeon.parse(json);
         } catch (JSONException e) {
             throw malformed("radeon", e);
+        }
+    }
+
+    private static PowerReply parsePower(JSONObject json) throws NativeApiException {
+        try {
+            return new PowerReply(json);
+        } catch (JSONException e) {
+            throw malformed("power action", e);
         }
     }
 

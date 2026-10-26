@@ -11,6 +11,15 @@
     <string name="host_unpair_title">Hủy ghép đôi với %1$s?</string>
     <string name="host_unpair_message">PC sẽ quên thiết bị này và thư viện đã lưu sẽ bị xóa ở đây. Bạn cần ghép đôi lại để phát trực tiếp. PC vẫn ở trong danh sách.</string>
     <string name="host_wake_needs_pairing">Hãy ghép đôi PC một lần khi PC đang bật để có thể đánh thức</string>
+    <string name="host_menu_sleep">Cho PC ngủ</string>
+    <string name="host_menu_sleep_note">Thử nghiệm</string>
+    <string name="host_sleep_title">Cho %1$s vào chế độ ngủ?</string>
+    <string name="host_sleep_message">Trước tiên cần đóng trò chơi và luồng phát trên PC. Wake-on-LAN có thể đánh thức lại PC.</string>
+    <string name="host_sleep_accepted">PC đang chuyển sang chế độ ngủ</string>
+    <string name="host_sleep_unsupported">PC này không hỗ trợ chế độ ngủ.</string>
+    <string name="host_sleep_busy">PC hiện không thể ngủ. Hãy đóng trò chơi và luồng phát trên PC rồi thử lại.</string>
+    <string name="host_sleep_refused">PC đã từ chối chế độ ngủ (HTTP %1$d).</string>
+    <string name="host_sleep_failed">Không thể kết nối với PC.</string>
     <string name="settings_category_accessibility">Trợ năng</string>
     <string name="title_ui_scale">Kích thước giao diện</string>
     <string name="summary_ui_scale">Phóng to hoặc thu nhỏ menu, danh sách và hộp thoại của ứng dụng. Luồng phát không bị thay đổi kích thước. Cỡ chữ của hệ thống vẫn áp dụng thêm. Có hiệu lực ngay.</string>

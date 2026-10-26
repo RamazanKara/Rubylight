@@ -751,6 +751,9 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             case HostMenu.WAKE:
                 hostActions.wake(details);
                 break;
+            case HostMenu.SLEEP:
+                hostActions.sleep(details);
+                break;
             case HostMenu.PC_SETTINGS:
                 HostStreamSettings.show(this, details.uuid, details.displayName());
                 break;

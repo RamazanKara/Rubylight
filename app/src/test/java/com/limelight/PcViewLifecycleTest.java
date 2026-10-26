@@ -197,6 +197,35 @@ public class PcViewLifecycleTest {
     }
 
     @Test
+    public void sleepTakesWakesPlaceWhileThePcIsOnAndSaysWhyWhenWithheld() {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            String power = "<root status_code=\"200\"><hostname>VP</hostname><appversion>7.1.431.-1</appversion>"
+                    + "<uniqueid>vp</uniqueid><HttpsPort>47984</HttpsPort><PairStatus>1</PairStatus>"
+                    + "<currentgame>0</currentgame><state>SUNSHINE_SERVER_FREE</state>"
+                    + "<PowerActionVersion>1</PowerActionVersion><SleepSupported>1</SleepSupported>";
+            ComputerDetails allowed = pc("allowed", "Office", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED);
+            allowed.caps = com.limelight.nvstream.http.TestHosts.caps(power + "<SleepAllowed>1</SleepAllowed></root>");
+            report(allowed);
+            ComputerDetails withheld = pc("withheld", "Den", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED);
+            withheld.caps = com.limelight.nvstream.http.TestHosts.caps(power + "<SleepAllowed>0</SleepAllowed></root>");
+            report(withheld);
+
+            java.util.List<String> sleep = labels(screen, R.string.library_open, R.string.host_menu_sleep,
+                    R.string.pc_menu_settings, R.string.host_menu_rename, R.string.pcview_menu_unpair_pc,
+                    R.string.pcview_menu_delete_pc);
+            sleep.set(1, screen.getString(R.string.host_menu_sleep) + "\n" + screen.getString(R.string.host_menu_sleep_note));
+            assertEquals(sleep, sheetFor(screen, "Office"));
+            sleep.set(1, screen.getString(R.string.host_menu_sleep) + "\n"
+                    + screen.getString(R.string.host_feature_reason_sleep_permission) + " (disabled)");
+            assertEquals(sleep, sheetFor(screen, "Den"));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
     public void rowsListRunningThenReadyThenUnpairedThenOfflinePcs() {
         ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
         try {

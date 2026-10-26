@@ -11,6 +11,15 @@
     <string name="host_unpair_title">%1$s のペアリングを解除しますか？</string>
     <string name="host_unpair_message">PC はこの端末を忘れ、保存済みのライブラリもここで消去されます。ストリーミングするには再度ペアリングが必要です。PC は一覧に残ります。</string>
     <string name="host_wake_needs_pairing">PC の電源が入っているときに一度ペアリングすると、起動できるようになります</string>
+    <string name="host_menu_sleep">PC をスリープ</string>
+    <string name="host_menu_sleep_note">試験運用</string>
+    <string name="host_sleep_title">%1$s をスリープしますか？</string>
+    <string name="host_sleep_message">先に PC のゲームとストリームを終了してください。Wake-on-LAN で再び起動できます。</string>
+    <string name="host_sleep_accepted">PC をスリープしています</string>
+    <string name="host_sleep_unsupported">この PC はスリープできません。</string>
+    <string name="host_sleep_busy">PC は今スリープできません。PC のゲームとストリームを終了してから、もう一度お試しください。</string>
+    <string name="host_sleep_refused">PC がスリープを拒否しました (HTTP %1$d)。</string>
+    <string name="host_sleep_failed">PC に接続できませんでした。</string>
     <string name="settings_category_accessibility">ユーザー補助</string>
     <string name="title_ui_scale">インターフェースのサイズ</string>
     <string name="summary_ui_scale">アプリのメニュー、リスト、ダイアログを拡大・縮小します。ストリームは拡大・縮小されません。システムのフォントサイズは引き続き適用されます。すぐに反映されます。</string>

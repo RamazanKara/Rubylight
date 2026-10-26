@@ -11,6 +11,15 @@
     <string name="host_unpair_title">Скасувати сполучення з %1$s?</string>
     <string name="host_unpair_message">ПК забуде цей пристрій, а збережену бібліотеку тут буде очищено. Для трансляції потрібно буде сполучити знову. ПК залишиться в списку.</string>
     <string name="host_wake_needs_pairing">Сполучіть ПК один раз, поки він увімкнений, щоб його можна було пробудити</string>
+    <string name="host_menu_sleep">Приспати ПК</string>
+    <string name="host_menu_sleep_note">Експериментально</string>
+    <string name="host_sleep_title">Перевести %1$s у режим сну?</string>
+    <string name="host_sleep_message">Спершу закрийте ігри та трансляції на ПК. Wake-on-LAN може знову його розбудити.</string>
+    <string name="host_sleep_accepted">ПК переходить у режим сну</string>
+    <string name="host_sleep_unsupported">Цей ПК не підтримує режим сну.</string>
+    <string name="host_sleep_busy">Зараз ПК не може перейти в режим сну. Закрийте на ньому ігри та трансляції й повторіть спробу.</string>
+    <string name="host_sleep_refused">ПК відмовився перейти в режим сну (HTTP %1$d).</string>
+    <string name="host_sleep_failed">Не вдалося зв’язатися з ПК.</string>
     <string name="settings_category_accessibility">Спеціальні можливості</string>
     <string name="title_ui_scale">Розмір інтерфейсу</string>
     <string name="summary_ui_scale">Масштабує меню, списки й діалоги застосунку. Трансляція не масштабується. Розмір шрифту системи застосовується додатково. Діє одразу.</string>

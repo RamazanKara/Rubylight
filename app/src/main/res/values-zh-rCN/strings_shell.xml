@@ -11,6 +11,15 @@
     <string name="host_unpair_title">要取消与 %1$s 的配对吗？</string>
     <string name="host_unpair_message">电脑会忘记此设备，已保存的游戏库也会在此清除。之后需要重新配对才能串流。电脑仍保留在列表中。</string>
     <string name="host_wake_needs_pairing">请在电脑开机时配对一次，以启用唤醒</string>
+    <string name="host_menu_sleep">让电脑睡眠</string>
+    <string name="host_menu_sleep_note">实验性</string>
+    <string name="host_sleep_title">要让 %1$s 进入睡眠吗？</string>
+    <string name="host_sleep_message">需先关闭电脑上的游戏和串流。可通过 Wake-on-LAN 再次唤醒。</string>
+    <string name="host_sleep_accepted">电脑正在进入睡眠</string>
+    <string name="host_sleep_unsupported">这台电脑不支持睡眠。</string>
+    <string name="host_sleep_busy">电脑现在无法睡眠。请关闭其上的游戏和串流后重试。</string>
+    <string name="host_sleep_refused">电脑拒绝进入睡眠 (HTTP %1$d)。</string>
+    <string name="host_sleep_failed">无法连接到电脑。</string>
     <string name="settings_category_accessibility">无障碍</string>
     <string name="title_ui_scale">界面大小</string>
     <string name="summary_ui_scale">缩放应用的菜单、列表和对话框。视频流不会缩放。系统字体大小仍会叠加生效。立即生效。</string>

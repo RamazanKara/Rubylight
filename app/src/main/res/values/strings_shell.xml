@@ -12,6 +12,16 @@
     <string name="host_unpair_title">Unpair %1$s?</string>
     <string name="host_unpair_message">The PC forgets this device and its saved library is cleared here. You will need to pair again to stream. The PC stays in the list.</string>
     <string name="host_wake_needs_pairing">Pair once while the PC is on to enable Wake</string>
+    <!-- Sleep PC: the host's /power-actions/v1. Refusals show the host's own message. -->
+    <string name="host_menu_sleep">Sleep PC</string>
+    <string name="host_menu_sleep_note">Experimental</string>
+    <string name="host_sleep_title">Put %1$s to sleep?</string>
+    <string name="host_sleep_message">Games and streams on the PC must be closed first. Wake-on-LAN can wake it again.</string>
+    <string name="host_sleep_accepted">PC is going to sleep</string>
+    <string name="host_sleep_unsupported">This PC can’t sleep.</string>
+    <string name="host_sleep_busy">The PC can’t sleep right now. Close games and streams on it, then try again.</string>
+    <string name="host_sleep_refused">The PC refused to sleep (HTTP %1$d).</string>
+    <string name="host_sleep_failed">Couldn’t reach the PC.</string>
     <!-- Accessibility: interface size, high contrast and reduced motion. -->
     <string name="settings_category_accessibility">Accessibility</string>
     <string name="title_ui_scale">Interface size</string>

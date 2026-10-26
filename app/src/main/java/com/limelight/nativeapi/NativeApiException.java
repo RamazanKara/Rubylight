@@ -2,10 +2,13 @@ package com.limelight.nativeapi;
 
 /** A native API call that did not produce an answer: the transport failed or the host refused. */
 public class NativeApiException extends Exception {
-    /** The kinds of native_api.rs, plus UNAVAILABLE when the Rust library is not loaded. */
+    /**
+     * The kinds of native_api.rs, plus UNAVAILABLE when the Rust library is not loaded. POWER_REFUSED is a
+     * documented Sleep PC refusal: the message is the host's status_message as sent, possibly empty.
+     */
     public enum Kind {
         NETWORK, TLS, CERTIFICATE_MISMATCH, STATUS, NOT_FOUND, API, MALFORMED, NOT_PAIRED,
-        IDENTITY, INVALID_ARGUMENT, CANCELLED, UNAVAILABLE;
+        IDENTITY, INVALID_ARGUMENT, CANCELLED, POWER_REFUSED, UNAVAILABLE;
 
         static Kind of(String wire) {
             for (Kind kind : values()) {

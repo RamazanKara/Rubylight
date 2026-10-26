@@ -14,10 +14,13 @@ import java.util.function.IntConsumer;
 
 /**
  * A PC's options, one list for the PCs screen and for Home. In this order: Open library, Resume and Quit,
- * Pair, one-time PIN, Wake, PC settings, Rename, Unpair or Pairing help, then Remove PC last. The screen
- * that shows it decides what each action does; this class only knows what is offered for which state.
+ * Pair, one-time PIN, Wake or Sleep, PC settings, Rename, Unpair or Pairing help, then Remove PC last. The
+ * screen that shows it decides what each action does; this class only knows what is offered for which state.
  */
 public final class HostMenu {
+    /** How the Sleep entry appears. */
+    enum SleepEntry { HIDDEN, ENABLED, DISABLED }
+
     public static final int PAIR = 2;
     public static final int UNPAIR = 3;
     public static final int WAKE = 4;
@@ -29,6 +32,7 @@ public final class HostMenu {
     public static final int OTP_PAIR = 13;
     public static final int PAIRING_HELP = 14;
     public static final int RENAME = 15;
+    public static final int SLEEP = 16;
 
     private HostMenu() {
     }
@@ -66,6 +70,17 @@ public final class HostMenu {
             // Wake needs the PC's address from a pairing made while it was on.
             sheet.addNote(sheet.addGroup(), activity.getString(R.string.host_wake_needs_pairing), false);
         }
+        SleepEntry sleep = sleepEntry(details);
+        if (sleep == SleepEntry.ENABLED) {
+            sheet.addAction(R.drawable.ic_power, activity.getString(R.string.host_menu_sleep),
+                    activity.getString(R.string.host_menu_sleep_note)).setOnClickListener(v -> {
+                sheet.dismiss();
+                onAction.accept(SLEEP);
+            });
+        } else if (sleep == SleepEntry.DISABLED) {
+            sheet.addAction(R.drawable.ic_power, activity.getString(R.string.host_menu_sleep), activity.getString(
+                    details.caps.availability(HostCapabilities.Feature.SLEEP).reasonText())).setEnabled(false);
+        }
         add(sheet, onAction, PC_SETTINGS, R.drawable.ic_settings, activity.getString(R.string.pc_menu_settings));
         add(sheet, onAction, RENAME, R.drawable.ic_edit, activity.getString(R.string.host_menu_rename));
         if (ready) {
@@ -81,6 +96,21 @@ public final class HostMenu {
                     onAction.accept(REMOVE);
                 });
         return sheet;
+    }
+
+    /**
+     * Sleep while the PC is online and its host offers Sleep PC; disabled with the reason when the host withholds
+     * it from this device. Hidden otherwise, also while the host is unknown: a stock host has no such action.
+     */
+    static SleepEntry sleepEntry(ComputerDetails details) {
+        if (details.state != ComputerDetails.State.ONLINE) {
+            return SleepEntry.HIDDEN;
+        }
+        HostCapabilities.Availability sleep = details.caps.availability(HostCapabilities.Feature.SLEEP);
+        if (sleep.isSupported()) {
+            return SleepEntry.ENABLED;
+        }
+        return sleep.reason == HostCapabilities.Reason.SLEEP_PERMISSION ? SleepEntry.DISABLED : SleepEntry.HIDDEN;
     }
 
     private static void add(ActionSheet sheet, IntConsumer onAction, int action, int icon, String label) {

@@ -11,6 +11,15 @@
     <string name="host_unpair_title">Kopplung mit %1$s aufheben?</string>
     <string name="host_unpair_message">Der PC vergisst dieses Gerät, und die gespeicherte Bibliothek wird hier gelöscht. Zum Streamen musst du erneut koppeln. Der PC bleibt in der Liste.</string>
     <string name="host_wake_needs_pairing">Koppele den PC einmal, solange er eingeschaltet ist, um ihn aufwecken zu können</string>
+    <string name="host_menu_sleep">PC in Energiesparmodus</string>
+    <string name="host_menu_sleep_note">Experimentell</string>
+    <string name="host_sleep_title">%1$s in den Energiesparmodus versetzen?</string>
+    <string name="host_sleep_message">Spiele und Streams auf dem PC müssen zuerst beendet sein. Mit Wake-on-LAN lässt er sich wieder aufwecken.</string>
+    <string name="host_sleep_accepted">PC wechselt in den Energiesparmodus</string>
+    <string name="host_sleep_unsupported">Dieser PC unterstützt keinen Energiesparmodus.</string>
+    <string name="host_sleep_busy">Der PC kann gerade nicht in den Energiesparmodus. Beende Spiele und Streams auf ihm und versuche es erneut.</string>
+    <string name="host_sleep_refused">Der PC hat den Energiesparmodus abgelehnt (HTTP %1$d).</string>
+    <string name="host_sleep_failed">Der PC war nicht erreichbar.</string>
     <string name="settings_category_accessibility">Bedienungshilfen</string>
     <string name="title_ui_scale">Anzeigegröße</string>
     <string name="summary_ui_scale">Skaliert Menüs, Listen und Dialoge der App. Der Stream wird nicht skaliert. Die Schriftgröße des Systems gilt zusätzlich. Wirkt sofort.</string>

@@ -11,6 +11,15 @@
     <string name="host_unpair_title">Usunąć parowanie z %1$s?</string>
     <string name="host_unpair_message">Komputer zapomni to urządzenie, a zapisana biblioteka zostanie tu wyczyszczona. Aby strumieniować, trzeba będzie sparować ponownie. Komputer zostaje na liście.</string>
     <string name="host_wake_needs_pairing">Sparuj komputer raz, gdy jest włączony, aby móc go wybudzać</string>
+    <string name="host_menu_sleep">Uśpij komputer</string>
+    <string name="host_menu_sleep_note">Eksperymentalne</string>
+    <string name="host_sleep_title">Uśpić %1$s?</string>
+    <string name="host_sleep_message">Najpierw trzeba zamknąć gry i transmisje na komputerze. Wake-on-LAN może go ponownie wybudzić.</string>
+    <string name="host_sleep_accepted">Komputer przechodzi w stan uśpienia</string>
+    <string name="host_sleep_unsupported">Ten komputer nie obsługuje uśpienia.</string>
+    <string name="host_sleep_busy">Komputera nie można teraz uśpić. Zamknij na nim gry i transmisje, a potem spróbuj ponownie.</string>
+    <string name="host_sleep_refused">Komputer odmówił uśpienia (HTTP %1$d).</string>
+    <string name="host_sleep_failed">Nie udało się połączyć z komputerem.</string>
     <string name="settings_category_accessibility">Ułatwienia dostępu</string>
     <string name="title_ui_scale">Rozmiar interfejsu</string>
     <string name="summary_ui_scale">Skaluje menu, listy i okna dialogowe aplikacji. Strumień nie jest skalowany. Rozmiar czcionki systemu nadal obowiązuje dodatkowo. Działa od razu.</string>

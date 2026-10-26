@@ -11,6 +11,15 @@
     <string name="host_unpair_title">Desparear %1$s?</string>
     <string name="host_unpair_message">O PC esquece este dispositivo e a biblioteca salva é apagada aqui. Você precisará parear novamente para transmitir. O PC continua na lista.</string>
     <string name="host_wake_needs_pairing">Pareie o PC uma vez com ele ligado para poder ligá-lo à distância</string>
+    <string name="host_menu_sleep">Suspender PC</string>
+    <string name="host_menu_sleep_note">Experimental</string>
+    <string name="host_sleep_title">Suspender %1$s?</string>
+    <string name="host_sleep_message">Feche primeiro os jogos e transmissões no PC. O Wake-on-LAN pode ativá-lo de novo.</string>
+    <string name="host_sleep_accepted">O PC está entrando em suspensão</string>
+    <string name="host_sleep_unsupported">Este PC não pode ser suspenso.</string>
+    <string name="host_sleep_busy">O PC não pode ser suspenso agora. Feche os jogos e transmissões nele e tente novamente.</string>
+    <string name="host_sleep_refused">O PC recusou a suspensão (HTTP %1$d).</string>
+    <string name="host_sleep_failed">Não foi possível acessar o PC.</string>
     <string name="settings_category_accessibility">Acessibilidade</string>
     <string name="title_ui_scale">Tamanho da interface</string>
     <string name="summary_ui_scale">Ajusta a escala dos menus, listas e caixas de diálogo do app. A transmissão não é redimensionada. O tamanho da fonte do sistema continua valendo por cima. Vale na hora.</string>

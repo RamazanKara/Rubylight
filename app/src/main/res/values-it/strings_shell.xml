@@ -11,6 +11,15 @@
     <string name="host_unpair_title">Disaccoppiare %1$s?</string>
     <string name="host_unpair_message">Il PC dimentica questo dispositivo e la libreria salvata viene cancellata qui. Dovrai accoppiarlo di nuovo per lo streaming. Il PC resta nell’elenco.</string>
     <string name="host_wake_needs_pairing">Accoppia il PC una volta mentre è acceso per poterlo riattivare</string>
+    <string name="host_menu_sleep">Sospendi PC</string>
+    <string name="host_menu_sleep_note">Sperimentale</string>
+    <string name="host_sleep_title">Sospendere %1$s?</string>
+    <string name="host_sleep_message">Prima chiudi giochi e stream sul PC. Wake-on-LAN può riattivarlo.</string>
+    <string name="host_sleep_accepted">Il PC sta entrando in sospensione</string>
+    <string name="host_sleep_unsupported">Questo PC non può essere sospeso.</string>
+    <string name="host_sleep_busy">Il PC non può essere sospeso ora. Chiudi giochi e stream su di esso, poi riprova.</string>
+    <string name="host_sleep_refused">Il PC ha rifiutato la sospensione (HTTP %1$d).</string>
+    <string name="host_sleep_failed">Impossibile raggiungere il PC.</string>
     <string name="settings_category_accessibility">Accessibilità</string>
     <string name="title_ui_scale">Dimensione dell’interfaccia</string>
     <string name="summary_ui_scale">Ridimensiona i menu, gli elenchi e le finestre di dialogo dell’app. Lo stream non viene ridimensionato. La dimensione del carattere del sistema si applica in aggiunta. Ha effetto subito.</string>

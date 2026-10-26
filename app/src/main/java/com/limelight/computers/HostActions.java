@@ -1,6 +1,7 @@
 package com.limelight.computers;
 
 import android.app.Activity;
+import android.os.SystemClock;
 import android.text.InputFilter;
 import android.text.InputType;
 import android.view.View;
@@ -16,6 +17,10 @@ import com.limelight.LimeLog;
 import com.limelight.R;
 import com.limelight.binding.PlatformBinding;
 import com.limelight.nativeapi.ConsoleRepository;
+import com.limelight.nativeapi.HostEndpoint;
+import com.limelight.nativeapi.JniNativeApiTransport;
+import com.limelight.nativeapi.NativeApiClient;
+import com.limelight.nativeapi.NativeApiException;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.http.PairingManager;
@@ -35,7 +40,7 @@ import java.net.UnknownHostException;
 
 /**
  * What a person can do to a PC on the list besides opening it: pair (with a PIN shown here or a
- * one-time PIN typed here), wake, rename, unpair and remove. It belongs to one screen and its binder.
+ * one-time PIN typed here), wake, sleep, rename, unpair and remove. It belongs to one screen and its binder.
  *
  * <p>Each pairing gets a generation. Cancelling, starting another pairing or leaving the screen
  * bumps it, and a result that carries an older one is dropped, so a pairing that was cancelled never
@@ -315,6 +320,81 @@ public final class HostActions {
                 }
             });
         }, "Wake on LAN").start();
+    }
+
+    // Sleep
+
+    /**
+     * Sleep PC: the host hands out a token, the person confirms, and the token puts the PC to sleep. The host
+     * refuses while a game or stream runs on it; its own words are shown then.
+     */
+    public void sleep(final ComputerDetails computer) {
+        if (computer.state != ComputerDetails.State.ONLINE || computer.activeAddress == null) {
+            showError(R.string.host_menu_sleep, activity.getString(R.string.error_pc_offline), null);
+            return;
+        }
+        final ComputerManagerService.ComputerManagerBinder binder = callbacks.binder();
+        if (binder == null) {
+            showError(R.string.host_menu_sleep, activity.getString(R.string.error_manager_not_running), null);
+            return;
+        }
+        new SleepFlow(() -> {
+            HostEndpoint endpoint = HostEndpoint.of(computer, binder.getUniqueId(),
+                    PlatformBinding.getCryptoProvider(activity.getApplicationContext()));
+            if (endpoint == null) {
+                throw new NativeApiException(NativeApiException.Kind.NOT_PAIRED,
+                        "No address or pinned certificate for the PC");
+            }
+            return new NativeApiClient(new JniNativeApiTransport(), endpoint);
+        }, sleepUi(computer), task -> new Thread(task, "Sleep PC").start(), activity::runOnUiThread,
+                SystemClock::elapsedRealtime).start();
+    }
+
+    @VisibleForTesting
+    SleepFlow.Ui sleepUi(final ComputerDetails computer) {
+        final String title = activity.getString(R.string.host_menu_sleep);
+        return new SleepFlow.Ui() {
+            @Override
+            public void confirm(Runnable sleep) {
+                if (gone()) return;
+                new NavigationDialogBuilder(activity)
+                        .setTitle(activity.getString(R.string.host_sleep_title, computer.displayName()))
+                        .setMessage(R.string.host_sleep_message)
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .setPositiveButton(R.string.host_menu_sleep, (dialog, which) -> sleep.run())
+                        .show();
+            }
+
+            @Override
+            public void accepted() {
+                LimeLog.info("Sleep PC accepted");
+                if (!gone()) Toast.makeText(activity, R.string.host_sleep_accepted, Toast.LENGTH_LONG).show();
+            }
+
+            @Override
+            public void unavailable(NativeApiClient.PowerReply offer) {
+                LimeLog.warning("Sleep PC offered no token: supported=" + offer.sleepSupported +
+                        " allowed=" + offer.sleepAllowed + " available=" + offer.sleepAvailable);
+                boolean busy = offer.sleepSupported && offer.sleepAllowed;
+                showError(title, activity.getString(!offer.sleepSupported ? R.string.host_sleep_unsupported :
+                        !offer.sleepAllowed ? R.string.host_feature_reason_sleep_permission : R.string.host_sleep_busy),
+                        busy ? () -> sleep(computer) : null);
+            }
+
+            @Override
+            public void refused(String message, int httpStatus) {
+                LimeLog.warning("Sleep PC refused: HTTP " + httpStatus + " " + message);
+                // 409: busy or a spent token; asking again helps once the PC is idle.
+                showError(title, message.isEmpty() ? activity.getString(R.string.host_sleep_refused, httpStatus) :
+                        message, httpStatus == 409 ? () -> sleep(computer) : null);
+            }
+
+            @Override
+            public void failed(NativeApiException error) {
+                LimeLog.warning("Sleep PC failed: " + error.getKind() + " " + error.getMessage());
+                showError(title, activity.getString(R.string.host_sleep_failed), () -> sleep(computer));
+            }
+        };
     }
 
     // Unpair

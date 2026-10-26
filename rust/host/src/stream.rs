@@ -776,6 +776,9 @@ pub struct Media {
     captures: Mutex<HashMap<CaptureKey, Weak<Source>>>,
     control_port: u16,
     bind: IpAddr,
+    /// Roaming seqs of the launches, kept across control worker restarts so no launch key
+    /// repeats a nonce.
+    roam_seqs: butterpollo_core::roaming::SeqMemory,
 }
 #[derive(Debug, PartialEq, Eq, Hash)]
 struct CaptureKey {
@@ -981,6 +984,7 @@ impl Media {
             captures: Mutex::new(HashMap::new()),
             control_port: ports.control,
             bind,
+            roam_seqs: Default::default(),
         });
         for is_audio in [false, true] {
             let socket = if is_audio {
@@ -3286,8 +3290,10 @@ impl Media {
         let raw_socket = std::os::windows::io::AsRawSocket::as_raw_socket(&*socket);
         let raw_wake =
             std::os::windows::io::AsRawSocket::as_raw_socket(&self.control_wake_receiver);
+        let mut control_socket = ControlSocket::new(socket.clone());
+        control_socket.roaming = roaming::Roaming::remembering(self.roam_seqs.clone());
         let mut host = Host::new(
-            ControlSocket::new(socket.clone()),
+            control_socket,
             HostSettings {
                 peer_limit: 32,
                 // Moonlight opens 48 channels (gamepads from 0x10, motion
@@ -4085,6 +4091,18 @@ impl Media {
                 host.socket_mut()
                     .roaming
                     .retain_peers(&socket, |peer| live.contains(&peer));
+            }
+            if peers_went && !self.roam_seqs.is_empty() {
+                // An ended launch's key never returns.
+                let sessions = h.sessions.lock().unwrap();
+                self.roam_seqs.retain_launches(
+                    sessions
+                        .active
+                        .values()
+                        .map(|s| &s.launch)
+                        .chain(sessions.pending.values())
+                        .map(|l| &l.key),
+                );
             }
             // A session whose client never connected control, or whose peer
             // this worker lost when it restarted, would otherwise hold the

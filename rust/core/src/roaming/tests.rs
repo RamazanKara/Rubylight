@@ -689,14 +689,48 @@ fn a_removed_peer_that_reconnects_keeps_both_seqs() {
         table.on_datagram(now, at(NEW), &probe(3)),
         Err(Refusal::Stopping)
     );
-    // Only the newest removals are remembered.
+    // Other launches come and go; this one's seqs stay while it lives.
     table.remove(&"s");
-    for n in 1..=RETIRED as u128 {
+    for n in 1..=100u128 {
         table.insert("other", &n.to_le_bytes(), at(OLD));
         table.remove(&"other");
     }
+    let memory = table.retired.clone();
+    memory.retain_launches([&vectors::RIKEY]);
+    assert_eq!(memory.len(), 1);
+    table.insert("s", &vectors::RIKEY, at(OLD));
+    assert_eq!(
+        table.on_datagram(now, at(NEW), &probe(3)),
+        Err(Refusal::Stopping)
+    );
+    // Once the launch ended, nothing of it is kept.
+    table.remove(&"s");
+    memory.retain_launches([]);
+    assert!(memory.is_empty());
     table.insert("s", &vectors::RIKEY, at(OLD));
     reply_to(table.on_datagram(now, at(NEW), &vectors::PROBE_DATAGRAM));
+}
+
+/// A control worker that restarts builds a new table: sharing the memory, it goes on
+/// with the launch's seqs.
+#[test]
+fn a_new_table_sharing_the_memory_keeps_both_seqs() {
+    let memory = SeqMemory::default();
+    let mut table = table().with_memory(memory.clone());
+    let now = Instant::now();
+    reply_to(table.on_datagram(now, at(NEW), &vectors::PROBE_DATAGRAM));
+    drop(table);
+    assert_eq!(memory.len(), 1);
+    let mut table = RoamTable::with_challenges(|| vectors::CHALLENGE).with_memory(memory);
+    table.insert("s", &vectors::RIKEY, at(OLD));
+    assert_eq!(
+        table.on_datagram(now, at(NEW), &vectors::PROBE_DATAGRAM),
+        Err(Refusal::Replay)
+    );
+    let Ok(Action::Reply { datagram, .. }) = table.on_datagram(now, at(NEW), &probe(2)) else {
+        panic!("a fresh probe is answered");
+    };
+    assert_eq!(Datagram::decode(&datagram).unwrap().header.seq, 2);
 }
 
 #[test]

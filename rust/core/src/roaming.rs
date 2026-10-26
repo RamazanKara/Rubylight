@@ -17,8 +17,8 @@ use rubylight_protocol::roaming::{
     DecodeError, KEY_BLOCK, Kind, PAYLOAD_BYTES, PROBE_FLAG_MEDIA_REBOUND, SESSION_TAG_BYTES,
     TAG_BLOCK,
 };
-use std::collections::VecDeque;
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub use rubylight_protocol::roaming::{
@@ -38,8 +38,6 @@ pub const GLOBAL_PER_SECOND: u32 = 5_000;
 pub const PENDING_LIFETIME: Duration = Duration::from_secs(3);
 /// The shortest time between two moves of one session.
 pub const COMMIT_INTERVAL: Duration = Duration::from_secs(1);
-/// How many removed launches keep their seqs for a later insert.
-const RETIRED: usize = 64;
 
 /// The keys one launch's `rikey` derives.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -240,11 +238,54 @@ struct Retired {
     host_seq: u32,
 }
 
+/// The seqs of removed entries, by launch key. Shared, so they outlive a table: a control
+/// worker that restarts builds a new one. Touched only on insert, remove and drop.
+#[derive(Clone, Default)]
+pub struct SeqMemory(Arc<Mutex<Vec<Retired>>>);
+
+impl SeqMemory {
+    /// Forgets the seqs of every launch key not among `rikeys`: such a launch has ended,
+    /// and its key is never inserted again.
+    pub fn retain_launches<'a>(&self, rikeys: impl IntoIterator<Item = &'a [u8; 16]>) {
+        let keys: Vec<RoamKeys> = rikeys.into_iter().map(RoamKeys::derive).collect();
+        self.0
+            .lock()
+            .unwrap()
+            .retain(|retired| keys.contains(&retired.keys));
+    }
+
+    /// How many launch keys have seqs kept.
+    pub fn len(&self) -> usize {
+        self.0.lock().unwrap().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    fn take(&self, keys: &RoamKeys) -> Option<Retired> {
+        let mut retired = self.0.lock().unwrap();
+        let at = retired.iter().position(|retired| retired.keys == *keys)?;
+        Some(retired.swap_remove(at))
+    }
+
+    fn keep<K>(&self, entry: &Entry<K>) {
+        let mut retired = self.0.lock().unwrap();
+        retired.retain(|retired| retired.keys != entry.keys);
+        retired.push(Retired {
+            keys: entry.keys,
+            stopping: entry.stopping,
+            client_seq: entry.client_seq,
+            host_seq: entry.host_seq,
+        });
+    }
+}
+
 /// The roaming state of every session with an ENet peer, keyed by the caller's session id.
 pub struct RoamTable<K> {
     entries: Vec<Entry<K>>,
-    /// The newest [`RETIRED`] removed entries.
-    retired: VecDeque<Retired>,
+    /// The seqs of removed entries, and of every entry once the table is dropped.
+    retired: SeqMemory,
     window: Window,
     challenge: Box<dyn FnMut() -> u64 + Send>,
 }
@@ -264,10 +305,16 @@ impl<K: Clone + PartialEq> RoamTable<K> {
     pub fn with_challenges(challenge: impl FnMut() -> u64 + Send + 'static) -> Self {
         Self {
             entries: Vec::new(),
-            retired: VecDeque::new(),
+            retired: SeqMemory::default(),
             window: Window::new(),
             challenge: Box::new(challenge),
         }
+    }
+
+    /// This table keeps removed launches' seqs in `memory`, which a later table can share.
+    pub fn with_memory(mut self, memory: SeqMemory) -> Self {
+        self.retired = memory;
+        self
     }
 
     /// Accepts roaming for session `id`, whose ENet peer is at `current`. Inserting an id
@@ -288,11 +335,7 @@ impl<K: Clone + PartialEq> RoamTable<K> {
             return;
         }
         self.remove(&id);
-        let retired = self
-            .retired
-            .iter()
-            .position(|retired| retired.keys == keys)
-            .and_then(|at| self.retired.remove(at));
+        let retired = self.retired.take(&keys);
         self.entries.push(Entry {
             id,
             keys,
@@ -320,22 +363,14 @@ impl<K: Clone + PartialEq> RoamTable<K> {
     }
 
     /// Drops the session's roaming (its ENet peer is gone, or the launch ended). The
-    /// launch key's seqs are kept for the newest [`RETIRED`] removals, so a peer that
-    /// reconnects under the same launch neither repeats a nonce nor accepts a replay.
+    /// launch key's seqs are kept until [`SeqMemory::retain_launches`] forgets the launch,
+    /// so a peer that reconnects under it neither repeats a nonce nor accepts a replay.
     pub fn remove(&mut self, id: &K) {
         let Some(at) = self.entries.iter().position(|entry| entry.id == *id) else {
             return;
         };
         let entry = self.entries.swap_remove(at);
-        if self.retired.len() == RETIRED {
-            self.retired.pop_front();
-        }
-        self.retired.push_back(Retired {
-            keys: entry.keys,
-            stopping: entry.stopping,
-            client_seq: entry.client_seq,
-            host_seq: entry.host_seq,
-        });
+        self.retired.keep(&entry);
     }
 
     /// The address the session's client was last validated at.
@@ -490,6 +525,15 @@ impl<K: Clone + PartialEq> RoamTable<K> {
             media_rebound: pending.media_rebound,
             datagram,
         })
+    }
+}
+
+impl<K> Drop for RoamTable<K> {
+    /// Every entry's seqs go to the memory, for the table that replaces this one.
+    fn drop(&mut self) {
+        for entry in &self.entries {
+            self.retired.keep(entry);
+        }
     }
 }
 

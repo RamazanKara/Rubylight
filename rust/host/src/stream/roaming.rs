@@ -2,7 +2,9 @@
 //! address changed keeps its ENet peer: once it proved the new address, the control
 //! socket maps datagrams between it and the address ENet knows the peer by, and drops
 //! those from the address it left.
-use butterpollo_core::roaming::{Action, DATAGRAM_BYTES, Refusal, RoamTable, is_roaming};
+use butterpollo_core::roaming::{
+    Action, DATAGRAM_BYTES, Refusal, RoamTable, SeqMemory, is_roaming,
+};
 use butterpollo_windows::net::ReplySocket;
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
@@ -42,6 +44,14 @@ pub(super) struct Roaming {
 }
 
 impl Roaming {
+    /// Roaming whose launches' seqs live in `memory`, beyond this socket.
+    pub(super) fn remembering(memory: SeqMemory) -> Self {
+        Self {
+            table: RoamTable::new().with_memory(memory),
+            ..Default::default()
+        }
+    }
+
     pub(super) fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
     }
@@ -211,7 +221,7 @@ pub(super) fn canonical(address: SocketAddr) -> SocketAddr {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use butterpollo_core::roaming::{Header, Payload, RoamKeys, seal};
+    use butterpollo_core::roaming::{Datagram, Header, Payload, RoamKeys, open, seal};
 
     const RIKEY: [u8; 16] = [7; 16];
     const CHALLENGE: u64 = 0x1234;
@@ -283,6 +293,39 @@ mod tests {
         assert_eq!(roaming.peer_of(new), Some(new));
         assert_eq!(roaming.peer_of(peer), Some(peer));
         assert_eq!(roaming.wire_of(peer), peer);
+    }
+
+    /// A restarted control worker's socket shares the seqs: the host's CHALLENGE seq goes
+    /// on under the same launch key, so no nonce repeats.
+    #[test]
+    fn a_new_control_socket_goes_on_with_the_launch_seqs() {
+        let socket = ReplySocket::bind("127.0.0.1:0").unwrap();
+        let udp = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        udp.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let from = udp.local_addr().unwrap();
+        let peer: SocketAddr = "127.0.0.1:9".parse().unwrap();
+        let memory = SeqMemory::default();
+        let keys = RoamKeys::derive(&RIKEY);
+        let mut seqs = Vec::new();
+        for seq in [1, 2] {
+            let mut roaming = Roaming::remembering(memory.clone());
+            roaming.set_enabled(true);
+            roaming.insert("s", &RIKEY, peer);
+            let probe = client(
+                seq,
+                Payload::Probe {
+                    nonce_c: 1,
+                    flags: 0,
+                },
+            );
+            roaming.on_datagram(&socket, Instant::now(), from, None, &probe);
+            let mut buffer = [0; 64];
+            let (n, _) = udp.recv_from(&mut buffer).unwrap();
+            let datagram = Datagram::decode(&buffer[..n]).unwrap();
+            assert!(open(&keys.key, &datagram).is_some());
+            seqs.push(datagram.header.seq);
+        }
+        assert_eq!(seqs, [1, 2]);
     }
 
     /// Off, roaming datagrams are ENet's, which drops them.

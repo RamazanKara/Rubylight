@@ -199,19 +199,32 @@ RWTexture2D<float> lumaPlane : register(u0);
 RWTexture2D<float2> chromaPlane : register(u1);
 // One thread per 2x2 block: reuse its four luma samples for chroma, plus
 // the two samples to the left needed for the co-sited horizontal filter.
-[numthreads(8, 8, 1)]
-void yuv420_cs(uint3 id : SV_DispatchThreadID) {
-    if (any(id.xy >= targetSize / 2)) return;
-    uint2 at = id.xy * 2;
+// Returns the chroma it wrote, and the luma in `y` (00, 10, 01, 11).
+float2 yuv420Block(uint2 id, out float4 y) {
+    uint2 at = id * 2;
     float3 c00 = nonlinear(float2(at));
     float3 c10 = nonlinear(float2(at + uint2(1, 0)));
     float3 c01 = nonlinear(float2(at + uint2(0, 1)));
     float3 c11 = nonlinear(float2(at + uint2(1, 1)));
-    lumaPlane[at] = lumaCode(c00);
-    lumaPlane[at + uint2(1, 0)] = lumaCode(c10);
-    lumaPlane[at + uint2(0, 1)] = lumaCode(c01);
-    lumaPlane[at + uint2(1, 1)] = lumaCode(c11);
-    chromaPlane[id.xy] = chromaCode(leftChroma(float2(at), c00, c10, c01, c11));
+    // Each store follows its code, as `yuv420_cs` always did: fxc schedules
+    // by source order, and this keeps its bytecode unchanged.
+    y.x = lumaCode(c00);
+    lumaPlane[at] = y.x;
+    y.y = lumaCode(c10);
+    lumaPlane[at + uint2(1, 0)] = y.y;
+    y.z = lumaCode(c01);
+    lumaPlane[at + uint2(0, 1)] = y.z;
+    y.w = lumaCode(c11);
+    lumaPlane[at + uint2(1, 1)] = y.w;
+    float2 uv = chromaCode(leftChroma(float2(at), c00, c10, c01, c11));
+    chromaPlane[id] = uv;
+    return uv;
+}
+[numthreads(8, 8, 1)]
+void yuv420_cs(uint3 id : SV_DispatchThreadID) {
+    if (any(id.xy >= targetSize / 2)) return;
+    float4 y;
+    yuv420Block(id.xy, y);
 }
 // Version 1 is a permutation of full-resolution quantized Y/U/V. Padding
 // extends the logical edge before conversion, without a chroma filter.
@@ -390,25 +403,12 @@ void yuv420_focus_cs(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, u
     }
     GroupMemoryBarrierWithGroupSync();
     if (all(id.xy < targetSize / 2)) {
-        uint2 at = id.xy * 2;
-        float3 c00 = nonlinear(float2(at));
-        float3 c10 = nonlinear(float2(at + uint2(1, 0)));
-        float3 c01 = nonlinear(float2(at + uint2(0, 1)));
-        float3 c11 = nonlinear(float2(at + uint2(1, 1)));
-        float y00 = lumaCode(c00);
-        float y10 = lumaCode(c10);
-        float y01 = lumaCode(c01);
-        float y11 = lumaCode(c11);
-        float2 uv = chromaCode(leftChroma(float2(at), c00, c10, c01, c11));
-        lumaPlane[at] = y00;
-        lumaPlane[at + uint2(1, 0)] = y10;
-        lumaPlane[at + uint2(0, 1)] = y01;
-        lumaPlane[at + uint2(1, 1)] = y11;
-        chromaPlane[id.xy] = uv;
-        uint h = focusHash(index * 0x9e3779b9u ^ focusCode(y00));
-        h = focusHash(h ^ focusCode(y10));
-        h = focusHash(h ^ focusCode(y01));
-        h = focusHash(h ^ focusCode(y11));
+        float4 y;
+        float2 uv = yuv420Block(id.xy, y);
+        uint h = focusHash(index * 0x9e3779b9u ^ focusCode(y.x));
+        h = focusHash(h ^ focusCode(y.y));
+        h = focusHash(h ^ focusCode(y.z));
+        h = focusHash(h ^ focusCode(y.w));
         h = focusHash(h ^ focusCode(uv.x));
         InterlockedAdd(focusSum, focusHash(h ^ focusCode(uv.y)));
     }

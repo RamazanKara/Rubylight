@@ -1,7 +1,8 @@
 # Local measurement tool tests: they need numpy and pillow, which CI does not install.
 # Run: python -m unittest discover -s rust/release -p test_chroma_quality.py
-import pathlib, shutil, tempfile, unittest
+import io, pathlib, shutil, tempfile, unittest
 import numpy as np
+from PIL import Image
 import chroma_fixtures as fixtures
 import chroma_quality as quality
 
@@ -91,6 +92,33 @@ class Fixtures(unittest.TestCase):
             self.assertEqual(first, second)
             self.assertEqual(first[0], first[29])
             self.assertNotEqual(first[29], first[31])
+
+    def test_regions_are_even_and_inside_the_frame(self):
+        for kind in fixtures.KINDS + ('mixed',):
+            for width, height in ((1280, 720), (1920, 1080), (2560, 1440)):
+                for name, rects in fixtures.regions(kind, width, height).items():
+                    for x, y, w, h in rects:
+                        self.assertTrue(w > 0 and h > 0 and x + w <= width and y + h <= height, (kind, name))
+                        self.assertFalse((x | y | w | h) & 1, (kind, name))
+
+    @unittest.skipUnless((fixtures.FONT_DIRECTORY / 'consola.ttf').exists(), 'needs the Windows fonts')
+    def test_mixed_moves_every_frame_under_a_still_hud(self):
+        decode = lambda data: np.asarray(Image.open(io.BytesIO(data)).convert('RGB'))
+        first = dict(fixtures.frames('mixed', 1280, 720, 4))
+        fixtures.COVERAGE.clear()
+        self.assertEqual(first, dict(fixtures.frames('mixed', 1280, 720, 4)))
+        pictures = [decode(first[i]) for i in range(4)]
+        crop = lambda picture, rect: picture[rect[1]:rect[1] + rect[3], rect[0]:rect[0] + rect[2]]
+        regions = fixtures.regions('mixed', 1280, 720)
+        for a, b in zip(pictures, pictures[1:]):
+            for rect in regions['still'] + regions['hud']:
+                np.testing.assert_array_equal(crop(a, rect), crop(b, rect))
+            for rect in regions['moving']:
+                self.assertTrue((crop(a, rect) != crop(b, rect)).any())
+
+    def test_mixed_refuses_a_frame_too_small_for_its_windows(self):
+        with self.assertRaises(ValueError):
+            fixtures.mixed_layout(640, 360)
 
 
 if __name__ == '__main__':

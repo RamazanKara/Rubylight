@@ -7,10 +7,17 @@ scrolls 6 px a frame for 30 frames, then holds still again, so it covers the fir
 the scroll and the settled picture. The same inputs always give the same pixels (fonts are
 the Windows ones: Consolas, Segoe UI and Calibri).
 
-  python chroma_fixtures.py OUTDIR [--size 1920x1080] [--kind editor|browser|sheet|all] [--frames 90]
+A fourth scene, `mixed`, is for the encoder focus A/B (focus_ab.py): the editor stays still while a
+640x360 clip window plays and a game view pans under a still HUD bar, every frame.
+
+Each folder gets a `regions.json` beside its frames: the still and moving rectangles (x, y, width,
+height, on even coordinates) the quality scores are cropped to, and for `mixed` the HUD bar.
+
+  python chroma_fixtures.py OUTDIR [--size 1920x1080] [--kind editor|browser|sheet|mixed|all] [--frames 90]
 """
 import argparse
 import io
+import json
 import pathlib
 import random
 import re
@@ -22,6 +29,9 @@ from PIL import Image, ImageDraw, ImageFont
 FONT_DIRECTORY = pathlib.Path('C:/Windows/Fonts')
 HOLD, SCROLL, STEP = 30, 30, 6
 KINDS = ('editor', 'browser', 'sheet')
+# Where each scene's scrolling layer starts, and the rows below it that stay still.
+LAYER_ORIGIN = dict(editor=(300, 36), browser=(0, 84), sheet=(0, 166))
+LAYER_BOTTOM = dict(editor=24, browser=0, sheet=54)
 
 
 def scroll_offset(frame):
@@ -446,12 +456,123 @@ def scene_sheet(width, height):
 
 
 SCENES = dict(editor=scene_editor, browser=scene_browser, sheet=scene_sheet)
+TITLE, HUD = 30, 48
+# Pixels a frame the clip window's and the game view's pictures pan by.
+CLIP_PAN, GAME_PAN = (3, 1), (5, 2)
+
+
+def even(x, y, w, h):
+    """A crop rectangle on even coordinates and sizes, as a 4:2:0 picture needs."""
+    return [int(x) & ~1, int(y) & ~1, int(w) & ~1, int(h) & ~1]
+
+
+def mixed_layout(width, height):
+    """The mixed scene's pictures (x, y, w, h): a clip window at the top right of the editor's code and
+    a game view at the bottom left, its HUD bar along the bottom edge. Title bars sit above both."""
+    side, top = LAYER_ORIGIN['editor']
+    bottom = height - LAYER_BOTTOM['editor']
+    cw = min(640, width // 3) & ~1
+    clip = even(width - 60 - cw, top + 40 + TITLE, cw, cw * 9 // 16)
+    gw = width * 3 // 10 & ~1
+    gh = gw * 9 // 16 & ~1
+    game = even(side + 40, bottom - 40 - gh, gw, gh)
+    if game[1] - TITLE - 20 <= clip[1] + clip[3] or clip[0] - 20 <= game[0]:
+        raise ValueError(f'{width}x{height} is too small for the mixed scene')
+    return dict(clip=clip, game=game, hud=even(game[0], game[1] + gh - HUD, gw, HUD))
+
+
+def regions(kind, width, height):
+    """The still and moving rectangles of a scene, and the HUD bar of `mixed`; the scores crop to them."""
+    if kind == 'mixed':
+        layout = mixed_layout(width, height)
+        top, bottom = LAYER_ORIGIN['editor'][1], height - LAYER_BOTTOM['editor']
+        (cx, _, _, _), (gx, gy, gw, gh) = layout['clip'], layout['game']
+        return dict(still=[even(0, top, gx - 20, bottom - top), even(gx, top, cx - 20 - gx, gy - TITLE - 20 - top)],
+                    moving=[layout['clip'], even(gx, gy, gw, gh - HUD)], hud=[layout['hud']])
+    x, y = LAYER_ORIGIN[kind]
+    bottom = height - LAYER_BOTTOM[kind]
+    still = [even(0, y, x, bottom - y)] if x else [even(0, 0, width, y)]
+    if bottom < height:
+        still.append(even(0, bottom, width, height - bottom))
+    return dict(still=still, moving=[even(x, y, width - x, bottom - y)])
+
+
+def texture(seed, width, height):
+    """Soft colour areas, finer light and shade and grain: a stand-in for game footage the camera pans across."""
+    rng = np.random.default_rng(seed)
+
+    def noise(step, channels):
+        small = rng.integers(0, 256, (height // step + 2, width // step + 2, channels), dtype=np.uint8)
+        image = Image.fromarray(small[..., 0] if channels == 1 else small, 'L' if channels == 1 else 'RGB')
+        return np.asarray(image.resize((width, height), Image.BICUBIC), np.float32).reshape(height, width, channels)
+
+    colour = noise(160, 3)
+    colour = colour.mean(axis=2, keepdims=True) * .6 + colour * .4
+    picture = .5 * colour + .5 * noise(12, 1) + rng.normal(0, 6, (height, width, 1)).astype(np.float32)
+    return np.clip(picture, 0, 255)
+
+
+def bounce(position, span):
+    """`position` folded into 0..span and back, as a ball bouncing between two walls."""
+    position %= 2 * span
+    return position if position < span else 2 * span - position
+
+
+def mixed_frames(width, height, count):
+    """Yield (index, PNG bytes) of the mixed scene; the clip and the game view move in every frame."""
+    layout = mixed_layout(width, height)
+    base, layer, (x, y) = scene_editor(width, height)
+    desk = Canvas(width, height, '#000000')
+    desk.pixels[:] = base.pixels
+    visible = height - LAYER_BOTTOM['editor'] - y
+    desk.pixels[y:y + visible, x:] = layer.pixels[:visible, :width - x]
+    ui = Font.get('segoeui.ttf', 13)
+    for name, title in (('clip', 'trailer.mp4 - Media Player'), ('game', 'Game')):
+        cx, cy, cw, ch = layout[name]
+        desk.rect(cx - 1, cy - TITLE, cx + cw + 1, cy + ch + 1, '#3c3c3c')
+        desk.rect(cx, cy - TITLE + 1, cx + cw, cy, '#2b2b2b')
+        desk.text(cx + 10, cy - TITLE + 6, title, ui, '#ffffff')
+    hx, hy, hw, hh = layout['hud']
+    hud = Canvas(hw, hh, '#101820')
+    label = Font.get('segoeuib.ttf', 16)
+    hud.text(12, 12, 'HP', label, '#ff5a5a')
+    hud.rect(44, 18, 204, 30, '#3a1010')
+    hud.rect(44, 18, 168, 30, '#e03c3c')
+    hud.text(hw // 2, 12, 'SCORE 004250', label, '#ffffff', 'm')
+    hud.text(hw - 12, 12, 'AMMO 24 / 120', label, '#ffd24a', 'r')
+    pictures = []
+    for seed, (name, (px, py)) in enumerate((('clip', CLIP_PAN), ('game', GAME_PAN)), 1):
+        cx, cy, cw, ch = layout[name]
+        ch -= HUD if name == 'game' else 0
+        pictures.append((cx, cy, cw, ch, px, py, texture(seed, cw + px * count, ch + py * count)))
+    gx, gy, gw, gh = layout['game']
+    radius = max(gh // 12, 8)
+    rows, columns = np.ogrid[:gh - HUD, :gw]
+    for index in range(count):
+        frame = Canvas(width, height, '#000000')
+        frame.pixels[:] = desk.pixels
+        for cx, cy, cw, ch, px, py, picture in pictures:
+            frame.pixels[cy:cy + ch, cx:cx + cw] = picture[py * index:py * index + ch, px * index:px * index + cw]
+        # A bright ball bouncing through the game view, over its panning background.
+        bx = radius + bounce(index * 9, gw - 2 * radius)
+        by = radius + bounce(index * 5, gh - HUD - 2 * radius)
+        view = frame.pixels[gy:gy + gh - HUD, gx:gx + gw]
+        view[(columns - bx) ** 2 + (rows - by) ** 2 <= radius * radius] = hex_color('#ffc828')
+        frame.pixels[hy:hy + hh, hx:hx + hw] = hud.pixels
+        buffer = io.BytesIO()
+        frame.image(0, height).save(buffer, 'PNG', compress_level=3)
+        yield index, buffer.getvalue()
 
 
 def frames(kind, width, height, count=HOLD + SCROLL + HOLD):
     """Yield (index, PNG bytes of the frame); identical neighbouring frames share their bytes."""
+    if kind == 'mixed':
+        yield from mixed_frames(width, height, count)
+        return
     base, layer, (x, y) = SCENES[kind](width, height)
-    bottom = {'editor': height - 24, 'browser': height, 'sheet': height - 54}[kind]
+    if (x, y) != LAYER_ORIGIN[kind]:
+        raise ValueError(f'{kind}: the scrolling layer starts at {(x, y)}; update LAYER_ORIGIN and the regions')
+    bottom = height - LAYER_BOTTOM[kind]
     visible = bottom - y
     cache = {}
     for index in range(count):
@@ -471,7 +592,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     parser.add_argument('out', type=pathlib.Path)
     parser.add_argument('--size', default='1920x1080')
-    parser.add_argument('--kind', default='all', choices=KINDS + ('all',))
+    parser.add_argument('--kind', default='all', choices=KINDS + ('mixed', 'all'))
     parser.add_argument('--frames', type=int, default=HOLD + SCROLL + HOLD)
     args = parser.parse_args(argv)
     width, height = (int(v) for v in args.size.split('x'))
@@ -480,6 +601,8 @@ def main(argv=None):
         folder.mkdir(parents=True, exist_ok=True)
         for index, data in frames(kind, width, height, args.frames):
             (folder / f'{index:03d}.png').write_bytes(data)
+        (folder / 'regions.json').write_text(json.dumps(dict(
+            kind=kind, width=width, height=height, frames=args.frames, regions=regions(kind, width, height)), indent=2))
         print(folder)
     return 0
 

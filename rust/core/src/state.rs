@@ -129,6 +129,13 @@ impl Client {
                 .get("host_control")
                 .is_some_and(|v| v == true || v == "true")
     }
+    /// Whether the administrator let this device put the host to sleep
+    /// (`power_action`). Only a JSON `true` counts, as in Vibepollo, so an
+    /// imported Vibepollo opt-in carries over and a permission value never
+    /// grants it.
+    pub fn allows_sleep(&self) -> bool {
+        self.enabled && self.extra.get("allow_sleep") == Some(&Value::Bool(true))
+    }
     pub fn der(&self) -> Result<Vec<u8>> {
         crypto::certificate_der(&self.cert)
     }
@@ -648,6 +655,52 @@ mod tests {
         let reloaded = PairedState::load(&p).unwrap();
         assert!(!reloaded.clients[0].allows_host_control());
         assert!(!reloaded.clients[0].extra.contains_key("host_control"));
+    }
+    #[test]
+    fn sleep_is_off_by_default_and_reads_only_a_json_true() {
+        assert!(!client_with(0x071f1f00, json!({})).allows_sleep());
+        assert!(!client_with(u32::MAX, json!({"host_control":true})).allows_sleep());
+        assert!(client_with(0, json!({"allow_sleep":true})).allows_sleep());
+        for value in [
+            json!("true"),
+            json!(1),
+            json!("1"),
+            json!(false),
+            json!(null),
+            json!([true]),
+        ] {
+            assert!(
+                !client_with(u32::MAX, json!({"allow_sleep":value})).allows_sleep(),
+                "{value}"
+            );
+        }
+        let mut disabled = client_with(0, json!({"allow_sleep":true}));
+        disabled.enabled = false;
+        assert!(!disabled.allows_sleep());
+    }
+    #[test]
+    fn imported_vibepollo_sleep_opt_in_is_honoured() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("state.json");
+        let identity = crypto::Identity::generate().unwrap();
+        let other = crypto::Identity::generate().unwrap();
+        write_json(
+            &p,
+            &json!({"root":{"named_devices":[
+                {"name":"Opted in","uuid":"in","cert":identity.certificate,"perm":u32::MAX,
+                 "allow_sleep":true},
+                {"name":"Not","uuid":"out","cert":other.certificate,"perm":u32::MAX,
+                 "allow_sleep":"true"}
+            ]}}),
+        )
+        .unwrap();
+        let s = PairedState::load(&p).unwrap();
+        assert!(s.clients[0].allows_sleep());
+        assert!(!s.clients[1].allows_sleep());
+        s.save(&p).unwrap();
+        let reloaded = PairedState::load(&p).unwrap();
+        assert!(reloaded.clients[0].allows_sleep());
+        assert!(!reloaded.clients[1].allows_sleep());
     }
     #[test]
     fn paired_saves_keep_credentials_changed_or_removed_on_disk() {

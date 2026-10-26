@@ -48,6 +48,7 @@ pub mod lossless;
 pub mod mic;
 pub mod net;
 pub mod playnite;
+pub mod power;
 pub mod present_timing;
 pub mod process;
 pub mod pyrowave;

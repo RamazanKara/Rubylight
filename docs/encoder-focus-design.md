@@ -114,9 +114,9 @@ Buffers and both pipelines are created with the converter whenever the encoder c
 
 - **Startup encoder check** (`rust/host/src/state.rs`, the loop that probes H.264, HEVC, HEVC 10, AV1 and AV1 10). After a codec reports Available, the same probe encoder runs `probe_focus()`:
   1. Read the cap: `ROIMap` for H.264, `HevcROIMap` for HEVC; AV1 has none. A cap of false is final: unsupported, reason `codec_unsupported`, message "the driver reports no ROI map".
-  2. Encode 3 control frames of a deterministic textured image, statistically the same on both halves, with no map and with QP feedback requested. Then encode 3 frames with the left half at 10 and the right half at 0.
-  3. Read `BlockQpMap`, `HevcBlockQpMap` or `Av1BlockQIndexMap` from each output buffer.
-  4. Pass when the control frames' half difference is under 1 QP (4 q-index), and the ROI frames' right-minus-left difference is at least 2 QP (8 q-index). M0 confirms both thresholds on the RX 7900 XT and the 780M.
+  2. After 4 warm-up frames without a map, encode 3 frames of a deterministic textured image, statistically the same on both halves, with the left half at 10 and the right half at 0, then 3 frames with the halves swapped, each with QP feedback requested.
+  3. Read `BlockQpMap`, `HevcBlockQpMap` or `Av1BlockQIndexMap` from each output buffer. The RX 7900 XT's driver returns these maps in a broken layout: rows that are a pitch apart in its memory come out packed as if they were a grid width apart, so block (x, y) sits at flat index `y * pitch / 4 + x`, and rows past `width * height / (pitch / 4)` are lost (the pitch is 1024 bytes). At 1080p that leaves 2 of 17 HEVC and AV1 rows and 32 of 68 H.264 rows, with some blocks 0. `unstride` lays such a grid out again, and blocks without a QP count for neither half.
+  4. The map's effect is half the difference of the two arms' right-minus-left QP differences; a difference the picture itself makes cancels. Pass when the effect is at least 2 QP (8 q-index). A no-map control arm with a 1 QP limit was dropped: with only 48 HEVC blocks readable at 1080p, its 3-frame mean reached 0.8 QP on a uniform picture.
   5. No feedback map: unsupported, message "the driver returned no block QP map, so ROI cannot be verified".
 - The results are stored per codec and bit depth: `Verified{delta}`, `Unsupported(reason, message)` or `NotProbed`. They are logged in one line, `encoder focus check: h264=verified(+4.1) hevc=verified(+3.6) hevc10=... av1=unsupported(no block QP map)`.
 - **At session start**, core `encoder_focus::resolve` combines the requested mode, codec, bit depth, PyroWave, packed 4:4:4, D3D12 conversion, PA and the probe result.
@@ -390,7 +390,7 @@ Steps:
    - `qp_feedback(codec)` and `qp_map(codec)` use the names in section 2.
    - `attach_for(idr, recover, first_after_create, uniform) -> bool`: only false/false/false/false attaches.
    - `attach(context, surface, view)` follows SimpleROI: `AllocSurfaceEx(AMF_MEMORY_HOST, AMF_SURFACE_GRAY32, w, h)`, then a row copy with `GetHPitch()`, then `SetProperty` with an interface variant. Get the refcount right: AMF keeps its own reference, and we release ours.
-   - `probe(encoder) -> Support` as specified in section 7 (cap, then 3 control frames, then 3 half/half frames, then the QP map delta; the thresholds are named constants).
+   - `probe(encoder) -> Support` as specified in section 7 (cap, then 3 half/half frames and 3 swapped ones, then the QP map effect; the threshold is a named constant).
 2. **`amf.rs`:**
    - A `focus` field holding the mode, the levels and the last-used value, plus `set_focus(Option<Mode>)`.
    - At creation, call `converter.enable_focus()` when the compute path exists, and record why focus is unavailable otherwise (D3D11 path, packed 4:4:4).

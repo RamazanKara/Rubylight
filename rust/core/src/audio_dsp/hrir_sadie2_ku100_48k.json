@@ -1,0 +1,165 @@
+{
+  "source": {
+    "database": "SADIE II, University of York (Zenodo record 10886409, version 2-1)",
+    "subject": "D1, Neumann KU100",
+    "url": "https://zenodo.org/records/10886409/files/D1_HRIR_SOFA.zip",
+    "member": "D1_HRIR_SOFA/D1_48K_24bit_256tap_FIR_SOFA.sofa",
+    "sha256": "366321fa78f211bacc0ec6bea96701625b196a5db54ec16748b0eab0b9705f75",
+    "license": "Apache-2.0, Copyright 2018, University of York"
+  },
+  "format": {
+    "sample_rate": 48000,
+    "layout": "little-endian f32 [direction][ear: left, right][tap]",
+    "taps": 256,
+    "azimuth": "degrees, anticlockwise (positive is left), elevation 0"
+  },
+  "processing": [
+    "diffuse-field equalization: inverse of the mean power spectrum of all 8802 directions and both ears, third-octave smoothed, shape limited to +-12 dB between 100 Hz and 16000 Hz and held flat outside",
+    "minimum phase per filter, delayed by its time of arrival: the near ear by cross-correlation with its minimum-phase version, the far ear by the interaural cross-correlation below 1500 Hz",
+    "mirror pairs symmetrized in power and arrival time",
+    "common onset trimmed, truncated to 256 taps with a 32-sample half-Hann fade",
+    "asserted: each filter keeps 99.5% of its energy; the front pair near ear peaks within 8 samples"
+  ],
+  "tools": {
+    "numpy": "2.3.4",
+    "h5py": "3.16.0"
+  },
+  "directions": [
+    {
+      "azimuth": 0,
+      "ears": [
+        {
+          "delay": 12,
+          "peak": 12,
+          "energy_kept": 1.0
+        },
+        {
+          "delay": 12,
+          "peak": 12,
+          "energy_kept": 1.0
+        }
+      ]
+    },
+    {
+      "azimuth": 30,
+      "ears": [
+        {
+          "delay": 6,
+          "peak": 6,
+          "energy_kept": 1.0
+        },
+        {
+          "delay": 20,
+          "peak": 20,
+          "energy_kept": 0.999999
+        }
+      ]
+    },
+    {
+      "azimuth": -30,
+      "ears": [
+        {
+          "delay": 20,
+          "peak": 20,
+          "energy_kept": 0.999999
+        },
+        {
+          "delay": 6,
+          "peak": 6,
+          "energy_kept": 1.0
+        }
+      ]
+    },
+    {
+      "azimuth": 90,
+      "ears": [
+        {
+          "delay": 0,
+          "peak": 0,
+          "energy_kept": 1.0
+        },
+        {
+          "delay": 38,
+          "peak": 43,
+          "energy_kept": 0.999996
+        }
+      ]
+    },
+    {
+      "azimuth": -90,
+      "ears": [
+        {
+          "delay": 38,
+          "peak": 43,
+          "energy_kept": 0.999996
+        },
+        {
+          "delay": 0,
+          "peak": 0,
+          "energy_kept": 1.0
+        }
+      ]
+    },
+    {
+      "azimuth": 110,
+      "ears": [
+        {
+          "delay": 0,
+          "peak": 0,
+          "energy_kept": 1.0
+        },
+        {
+          "delay": 36,
+          "peak": 37,
+          "energy_kept": 0.999996
+        }
+      ]
+    },
+    {
+      "azimuth": -110,
+      "ears": [
+        {
+          "delay": 36,
+          "peak": 37,
+          "energy_kept": 0.999996
+        },
+        {
+          "delay": 0,
+          "peak": 0,
+          "energy_kept": 1.0
+        }
+      ]
+    },
+    {
+      "azimuth": 135,
+      "ears": [
+        {
+          "delay": 4,
+          "peak": 4,
+          "energy_kept": 1.0
+        },
+        {
+          "delay": 25,
+          "peak": 26,
+          "energy_kept": 0.999998
+        }
+      ]
+    },
+    {
+      "azimuth": -135,
+      "ears": [
+        {
+          "delay": 25,
+          "peak": 26,
+          "energy_kept": 0.999998
+        },
+        {
+          "delay": 4,
+          "peak": 4,
+          "energy_kept": 1.0
+        }
+      ]
+    }
+  ],
+  "output_sha256": "03ef44fae306779996f4fe2bdcaeab480897a01e3e190107d22d041435b7281a"
+}

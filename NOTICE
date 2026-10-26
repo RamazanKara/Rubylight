@@ -65,3 +65,16 @@ Frederic Cambus, Copyright (c) 2018-2026 Frederic Cambus. BSD 2-Clause; the full
 notice, source URL and SHA-256 are in
 rust/core/src/couch_menu/font/LICENSE-spleen.txt.
 https://github.com/fcambus/spleen
+
+SADIE II HRTF data
+
+Headphone surround uses head-related impulse responses from the SADIE II database,
+Copyright 2018, University of York (AudioLab, Department of Electronic Engineering),
+licensed under the Apache License, Version 2.0 (https://zenodo.org/records/10886409,
+subject D1, Neumann KU100, 48 kHz). Armstrong, Thresh, Murphy and Kearney, "A Perceptual
+Evaluation of Individual and Non-Individual HRTFs: A Case Study of the SADIE II
+Database", Applied Sciences 8(11):2029, 2018. Changes made by Rubylight: nine horizontal
+directions selected, diffuse-field equalized, converted to minimum phase with their
+measured arrival times, left and right symmetrized, common onset trimmed and truncated
+to 256 taps (rust/tools/hrir/generate.py). The license text is in rust/THIRD_PARTY.md
+and rust/core/src/audio_dsp/LICENSE-SADIE-II.txt.

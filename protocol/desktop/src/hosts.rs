@@ -267,6 +267,7 @@ pub enum Event {
     },
     Wake {
         id: u64,
+        run: u64,
         result: Result<(), String>,
     },
     /// A Sleep PC step: the offer to confirm, or (`confirmed`) the answer to the request. `ask`
@@ -756,10 +757,11 @@ impl Hosts {
         }
     }
 
-    pub fn wake(&self, id: u64) {
+    /// Sends the wake packets once; `run` comes back with the result (see `wol::Wakes`).
+    pub fn wake(&self, id: u64, run: u64) {
         let Some(host) = self.get(id) else { return };
         let record = host.record.clone();
-        self.spawn("wake", move || Some(Event::Wake { id, result: crate::wol::wake(&record) }));
+        self.spawn("wake", move || Some(Event::Wake { id, run, result: crate::wol::wake(&record) }));
     }
 
     /// Sleep PC, first step: asks the PC for the token the confirmation spends.
@@ -1183,9 +1185,9 @@ impl Hosts {
                     self.refresh_after_exit(id);
                     out.push(Event::Quit { id, result });
                 }
-                Event::Wake { id, result } => {
+                Event::Wake { id, run, result } => {
                     self.poll_one(id);
-                    out.push(Event::Wake { id, result });
+                    out.push(Event::Wake { id, run, result });
                 }
                 event @ Event::Sleep { .. } => out.push(event),
                 Event::Action { id, result } => {

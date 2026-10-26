@@ -260,6 +260,54 @@ impl WakeWait {
     }
 }
 
+/// The PC being woken, if any. Each wake is its own run and its sends carry the run, so a send of
+/// a cancelled wake that fails late cannot end a new wake of the same PC.
+#[derive(Default)]
+pub struct Wakes {
+    current: Option<Waking>,
+    runs: u64,
+}
+
+pub struct Waking {
+    pub host: u64,
+    pub run: u64,
+    pub wait: WakeWait,
+}
+
+impl Wakes {
+    /// Starts waking `host` unless a wake is already running; says whether it started.
+    pub fn start(&mut self, host: u64, now: Instant) -> bool {
+        if self.current.is_some() {
+            return false;
+        }
+        self.runs += 1;
+        self.current = Some(Waking { host, run: self.runs, wait: WakeWait::new(now) });
+        true
+    }
+
+    pub fn current(&mut self) -> Option<&mut Waking> {
+        self.current.as_mut()
+    }
+
+    pub fn host(&self) -> Option<u64> {
+        self.current.as_ref().map(|w| w.host)
+    }
+
+    /// Cancel, an answering PC, the time running out: the wake is over.
+    pub fn end(&mut self) {
+        self.current = None;
+    }
+
+    /// A send of `run` to `host` failed. Only the running wake ends on it; says whether it did.
+    pub fn failed(&mut self, host: u64, run: u64) -> bool {
+        let ends = self.current.as_ref().is_some_and(|w| w.host == host && w.run == run);
+        if ends {
+            self.current = None;
+        }
+        ends
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -436,5 +484,33 @@ mod tests {
         }
         assert_eq!(wait.next(false, t + WakeWait::TIMEOUT - ms(1)), Step::Wait);
         assert_eq!(wait.next(false, t + WakeWait::TIMEOUT), Step::TimedOut);
+    }
+
+    #[test]
+    fn a_late_error_of_a_cancelled_wake_does_not_end_the_next_wake_of_the_same_pc() {
+        let t = Instant::now();
+        let mut wakes = Wakes::default();
+        assert!(wakes.start(7, t));
+        let old = wakes.current().unwrap().run;
+        wakes.end();
+        assert!(wakes.start(7, t + ms(1_000)));
+        let new = wakes.current().unwrap().run;
+        assert_ne!(old, new);
+
+        assert!(!wakes.failed(7, old));
+        assert_eq!(wakes.host(), Some(7));
+        assert!(!wakes.failed(8, new));
+        assert_eq!(wakes.host(), Some(7));
+        assert!(wakes.failed(7, new));
+        assert_eq!(wakes.host(), None);
+    }
+
+    #[test]
+    fn a_second_wake_waits_for_the_first_to_end() {
+        let t = Instant::now();
+        let mut wakes = Wakes::default();
+        assert!(wakes.start(7, t));
+        assert!(!wakes.start(8, t));
+        assert_eq!(wakes.host(), Some(7));
     }
 }

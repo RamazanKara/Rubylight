@@ -7,9 +7,10 @@
 // Needs Playwright (PLAYWRIGHT_MODULE=<path to playwright> when it is not
 // installed globally) and Chromium (CHROMIUM_EXECUTABLE=<chrome.exe>).
 // Writes the README pictures, console-{dark,light}.png (Home) and
-// console-{library,add-games,radeon}-{dark,light}.png, and
-// console/{overview,devices,settings}.png plus console/boxes.json, the
-// regions the film's camera moves to, for render_launch_film.py.
+// console-{library,add-games,radeon}-{dark,light}.png, and the film's
+// sources, console/{home,library,add-games,radeon,pair,pair-pin}.jpg in dark at
+// twice the pixels, plus console/boxes.json, the regions the film's camera
+// moves to, for render_launch_film.py.
 //
 // The games are made up and their covers in covers/ are original artwork,
 // served from the console's own origin as the host serves app covers.
@@ -116,24 +117,53 @@ const discovery = {
   ],
 };
 
+// The film's Ashen Crown wears a ready-made Radeon profile rather than a custom list.
+const filmLibrary = library.map((app) => (app.uuid === 'ashen-crown'
+  ? { ...app, 'radeon-profile': 'competitive', 'radeon-settings': {} } : app));
+const pairing = { path: '/devices', pending: [pixel], apps: filmLibrary,
+  boxes: { panel: 'section.panel:has(ol.steps)', steps: 'ol.steps', request: 'form.request', pin: 'form.request input.pin',
+    address: '.host-address' } };
+
 // Each scene: the console page, the mocked state, and the regions to record.
-// The film's scenes keep the plain two-app library.
 const scenes = {
-  overview: {
-    film: true, path: '/', streams: [stream], app: 'Steam Big Picture',
-    boxes: { card: 'article.stream', spec: 'article.stream ul.spec', metrics: 'article.stream dl.metrics',
-      readiness: 'section.panel:has(:text-is("Host readiness"))' },
+  // Film sources, dark only: the same library as the README pictures.
+  'film-home': {
+    film: true, path: '/', streams: [stream], app: playing, apps: filmLibrary, fit: true,
+    boxes: { hero: 'section.hero', card: 'article.stream', spec: 'article.stream ul.spec', shelf: 'section.games',
+      running: 'section.panel:has(:text-is("Running app"))' },
   },
-  devices: {
-    film: true, path: '/devices', pending: [pixel],
-    act: (page) => page.getByLabel(`PIN shown on ${pixel.name}`).fill('4821'),
-    boxes: { pair: 'section.panel:has([role=tablist])', tabs: '[role=tablist]', request: 'form.request',
-      paired: 'section.panel:has(:text-is("Paired devices"))' },
+  'film-library': {
+    film: true, path: '/library', app: playing, apps: filmLibrary,
+    boxes: { grid: 'ul.grid', header: 'main h1' },
   },
-  settings: {
-    film: true, path: '/settings/video',
-    boxes: { capture: 'section.group:has(h3:text-is("Capture"))', codecs: 'section.group:has(h3:text-is("Codecs"))',
-      categories: 'nav[aria-label="Settings categories"]' },
+  'film-add-games': {
+    film: true, path: '/library/import', apps: filmLibrary, height: 1240,
+    act: async (page) => {
+      for (const name of ['Redline Avenue', 'Skyline Strikers', 'Tidebound']) {
+        await page.getByRole('checkbox', { name: new RegExp(`^Add ${name} from`) }).check();
+      }
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+    boxes: { panel: 'section.panel:has(ul.games)', games: 'ul.games', launchers: 'section.panel:has(ul.games) > header' },
+  },
+  'film-radeon': {
+    film: true, path: '/library/ashen-crown', app: playing, apps: filmLibrary,
+    act: async (page) => {
+      await page.locator('details:has(> summary .title:text-is("Radeon")) > summary').click();
+      await page.locator('section.panel:has(> details > summary .title:text-is("Radeon"))')
+        .evaluate((panel) => window.scrollTo(0, panel.getBoundingClientRect().top + window.scrollY - 140));
+      await page.mouse.move(120, 500);
+    },
+    boxes: { radeon: 'section.panel:has(> details > summary .title:text-is("Radeon"))' },
+  },
+  // Pairing, before and after the PIN is typed.
+  'film-pair': { film: true, ...pairing },
+  'film-pair-pin': {
+    film: true, ...pairing,
+    act: async (page) => {
+      await page.getByLabel(`PIN shown on ${pixel.name}`).fill('4821');
+      await page.mouse.move(120, 500);
+    },
   },
   // README pictures.
   home: { path: '/', streams: [stream], app: playing, apps: library, fit: true },
@@ -249,7 +279,10 @@ async function shoot(browser, base, name, scheme, { width, height: frame, scale,
   }
   // Settle polling, fonts and transitions.
   await page.waitForTimeout(800);
-  await page.screenshot({ path: path.join(out, file) });
+  // The film's sources are photos of a page more than diagrams: a fine JPEG keeps
+  // them sharp at a tenth of the PNG's size.
+  const jpeg = file.endsWith('.jpg') ? { type: 'jpeg', quality: 92 } : {};
+  await page.screenshot({ path: path.join(out, file), ...jpeg });
   const boxes = {};
   for (const [key, selector] of Object.entries(scene.boxes || {})) {
     const box = await page.locator(selector).first().boundingBox();
@@ -307,7 +340,8 @@ function shrink(file) {
       const film = { width: 1440, height: 900, scale: 2 };
       const boxes = { scale: film.scale };
       for (const name of Object.keys(scenes).filter((key) => scenes[key].film)) {
-        boxes[name] = await shoot(browser, base, name, 'dark', { ...film, file: path.join('console', `${name}.png`) });
+        const file = path.join('console', `${name.replace(/^film-/, '')}.jpg`);
+        boxes[name.replace(/^film-/, '')] = await shoot(browser, base, name, 'dark', { ...film, file });
       }
       // Screenshot pixels, [left, top, right, bottom], one region per line.
       const json = JSON.stringify(boxes, null, 2).replace(/\[\s+([\d,\s]+?)\s+\]/g, (_, v) => `[${v.split(/,\s*/).join(', ')}]`);

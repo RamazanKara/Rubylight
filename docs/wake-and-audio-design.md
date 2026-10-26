@@ -379,7 +379,7 @@ Each reason becomes a session warning (`s.launch.warnings`), a log line and a st
 **Source**
 
 - SADIE II, University of York, Zenodo record 10886409.
-- Subject D2, the Neumann KU100. The generator confirms this from the SOFA metadata.
+- Subject D1, the Neumann KU100. The generator confirms this from the SOFA metadata.
 - 48 kHz HRIRs.
 - Licence: Apache License 2.0, copyright 2018 University of York.
 - Citation: Armstrong, Thresh, Murphy and Kearney, "A Perceptual Evaluation of Individual and Non-Individual HRTFs: A Case Study of the SADIE II Database", Applied Sciences 8(11):2029, 2018.
@@ -401,7 +401,7 @@ Each reason becomes a session warning (`s.launch.warnings`), a log line and a st
 - **Licence text:** copy the upstream `LICENSE.txt` verbatim to `rust/core/src/audio_dsp/LICENSE-SADIE-II.txt`.
 - **THIRD_PARTY.md:** add a "SADIE II HRTF data" section to `rust/THIRD_PARTY.md` with the attribution, the citation and the full Apache-2.0 text. `build.ps1` already copies that file into `licenses\`.
 - **NOTICE:** add an entry with the copyright, the citation and a statement of the changes made (Apache section 4(b)).
-- **Upstream NOTICE:** if the zip contains a NOTICE file, add its text to NOTICE (Apache section 4(d)).
+- **Upstream NOTICE:** if the zip contains a NOTICE file, add its text to NOTICE (Apache section 4(d)). Checked: `D1_HRIR_SOFA.zip` holds only the three SOFA files, and the record has no NOTICE file, so there is nothing to carry.
 - **Mismatch:** if the downloaded `LICENSE.txt` isn't Apache-2.0, stop.
 
 **Rejected sources**
@@ -438,12 +438,12 @@ Validation: the audio keys and `sleep_while_suspended` are booleans. `sleep_afte
 
 - `Session` gains `audio: AudioControls`, a set of core atomics: night mode on, headphone surround requested, surround active plus a reason code, and a revision counter.
 - The audio thread reads them once per packet with relaxed loads.
-- The native API and the couch menu write them through `crate::native_api::audio::{state, apply}`. **That pair is the hook for `docs/couch-menu-design.md`.**
-- A live change applies to this session only and isn't saved.
+- The native API and the couch menu write them through `butterpollo_core::audio_dsp::{state, apply}`. **That pair is the hook for `docs/couch-menu-design.md`.**
+- A live change applies to this session and is kept in memory per client (its paired uuid) and app: that client's next session of the app, a new launch or a resume, starts with it. A `/launch` or `/resume` parameter still wins. A host restart forgets it, and no config is written.
 
 **Couch menu items** (`docs/couch-menu-design.md` section 4.3, `ITEMS` in `rust/host/src/couch_menu/items.rs`):
 
-- `audio_night_mode`: Bool, Live, no host control. `value` and `set` call `native_api::audio::{state, apply}`.
+- `audio_night_mode`: Bool, Live, no host control. `value` and `set` call `audio_dsp::{state, apply}`.
 - `audio_headphone_surround`: Bool, Live, no host control, with the same calls. When surround is inactive, `available` returns `Locked(reason)` with the B.4 reason. `next_stream` shows the "applies next stream" note.
 - `sleep_after_idle_minutes`: Choice, needs host control, Live. Off, 15, 30, 60 and 120 are all valid under the rule above. `set` writes the host config through the same validated path the console's config update uses, and the 30-s tick picks it up. No sleep-specific code goes in the menu.
 - Whichever of H3 and the couch menu's host brief lands second adds these three lines to `ITEMS`.
@@ -485,7 +485,7 @@ Everything is gated by native features, never by host brand.
 **Night mode**
 
 - Silence stays bit-exact zero.
-- A -40 dBFS sine settles to within 1 dB of the target.
+- A -40 dBFS sine gets the leveller's full +12 dB, within 1 dB, and settles at about -31 dBFS RMS, under the target; a -20 dBFS sine settles to within 1 dB of the -23 dBFS target.
 - A -6 dBFS sine gets the gain reduction the curve predicts, within 0.5 dB.
 - A step from -40 to -6 dBFS never goes above 0.98 and settles within 10 ms.
 - Gain is linked: a signal on FL alone leaves the other channels at zero.
@@ -658,7 +658,7 @@ General rules for every brief:
 
 **Steps**
 
-1. Download `D2_HRIR_SOFA.zip` and `LICENSE.txt` from Zenodo record 10886409 into a new, empty directory under the scratchpad. Check the licence (B.5). Run the generator with `python -I`. Commit only the outputs and the licence copy.
+1. Download `D1_HRIR_SOFA.zip` and `LICENSE.txt` from Zenodo record 10886409 into a new, empty directory under the scratchpad. Check the licence (B.5). Run the generator with `python -I`. Commit only the outputs and the licence copy.
 2. Write night mode with golden tests (B.8).
 3. Write the binaural renderer with an f64 reference test.
 4. Wire `Chain` into `fn audio`. Resolve the choice: session option, then app, then device, then host, with the live atomics on top. Add the inactive reasons.

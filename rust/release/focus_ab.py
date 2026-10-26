@@ -1,6 +1,8 @@
 """Encoder focus A/B: off against static (and centre), docs/encoder-focus-design.md section 9.
 
-  python focus_ab.py estimate [--plan m2|m3|m4|levels] [--centre]
+  python focus_ab.py estimate [--plan quick|m2|m3|m4|levels] [--centre]
+  python focus_ab.py quick --work DIR --amf-quality EXE --ffmpeg EXE --package DIR --client EXE --gpu NAME --clips CLIP
+                     [--port 48523] [--levels L] [--verify]
   python focus_ab.py quality --work DIR --amf-quality EXE --ffmpeg EXE --gpu NAME [--plan m2|m4] [--clips CLIP ...]
                      [--centre] [--levels L] [--verify]
   python focus_ab.py levels --work DIR --amf-quality EXE --ffmpeg EXE --gpu NAME
@@ -22,6 +24,11 @@ timing (M3, or the M4 subset) runs e2e.py --record streams, 90 s each, on its ow
 (profile under WORK, ports PORT-5 to PORT+21, no display changes): ABBA at 1080p60 and 4K60, and one
 off/on pair with slice delivery and one with intra refresh (the fork receiver's Xbox profile).
 
+quick is the whole measurement in about ten minutes, refused when its estimate passes QUICK_BUDGET:
+quartets at HEVC 10 Mbps on editor, mixed and one game clip, AV1 10 Mbps and H.264 20 Mbps on mixed,
+then one 45 s off/on stream pair at 1080p60 HEVC 20 Mbps, with the host's default levels. Its verdict
+says it is a quick pass.
+
 Before every arm the installed host must be idle (/serverinfo without a session). Any sign of an AMD
 encoder hang stops the run with exit code 3: investigate, never retry. Any other failure, including an
 encoder exit code, an arm whose focus did not run as asked and a skipped stream, stops it with exit
@@ -42,6 +49,10 @@ QUALITY = dict(
         ('h264', 1920, 1080, (20000,), False), ('hevc', 2560, 1440, (20000,), True)),
     m4=(('hevc', 1920, 1080, (10000,), False),))
 QUALITY_FIXTURES = dict(m2=FIXTURES, m4=('mixed', 'editor'))
+# The quick pass: (codec, width, height, kb/s, converted HDR) with its fixtures; 'clip' is the first --clips.
+QUICK = ((('hevc', 1920, 1080, 10000, False), ('editor', 'mixed', 'clip')),
+         (('av1', 1920, 1080, 10000, False), ('mixed',)), (('h264', 1920, 1080, 20000, False), ('mixed',)))
+QUICK_SECONDS, QUICK_BUDGET = 45, 600
 CENTRE = ('hevc', 1920, 1080, 10000, False)
 LEVELS = tuple(f'moving=2,still={s},ramp={r},centre=4,ctb_still={c}'
                for s in (4, 6, 8) for r in (2, 8) for c in ('1.0', '0.75'))
@@ -52,10 +63,13 @@ TIMING = dict(
         ('hevc-2160p60-40000', '3840x2160x60', 40000, (), ARMS, {}),
         ('hevc-1080p60-20000-slices', '1920x1080x60', 20000, ('video_slice_delivery=2',), PAIR, {}),
         ('hevc-1080p60-20000-intra', '1920x1080x60', 20000, (), PAIR, {'BUTTERPOLLO_TEST_CLIENT_PROFILE': 'xbox'})),
-    m4=(('hevc-1080p60-20000', '1920x1080x60', 20000, (), ARMS, {}),))
+    m4=(('hevc-1080p60-20000', '1920x1080x60', 20000, (), ARMS, {}),),
+    quick=(('hevc-1080p60-20000', '1920x1080x60', 20000, (), PAIR, {}),))
 SKIP_FIRST = 5
-# Seconds, for estimate: an encode with its feed, scoring per full-frame area, a stream's start and stop.
-ENCODE_SECONDS, SCORE_SECONDS, STREAM_OVERHEAD = 12, 20, 30
+# Seconds, for estimate: an encode with its feed, scoring per 1080p frame area (full frame plus regions is about
+# two), making one text fixture, a stream's start and stop. A CPU run of the scoring graph on 2026-10-26 took
+# 5-7 s an arm and 18 s a fixture; libx265 ultrafast encoded 180 frames in 2-3 s.
+ENCODE_SECONDS, SCORE_SECONDS, FIXTURE_SECONDS, STREAM_OVERHEAD = 5, 4, 20, 30
 ENCODE_TIMEOUT = 180
 VMAF_THREADS = 4
 INSTALLED_PORTS = range(47984, 48011)
@@ -95,24 +109,44 @@ def comparison_name(codec, width, height, kbps, hdr, fixture):
     return f'{label(codec, hdr)}-{width}x{height}-{kbps}-{fixture}'
 
 
+def quality_jobs(plan, clips):
+    """(job, fixture names, game clips) per codec and bitrate of a quality plan."""
+    if plan == 'quick':
+        return [(job, tuple(n for n in names if n != 'clip'), list(clips[:1]) if 'clip' in names else []) for job, names in QUICK]
+    return [((codec, w, h, kbps, hdr), QUALITY_FIXTURES[plan], list(clips) if plan == 'm2' else [])
+            for codec, w, h, rates, hdr in QUALITY.get(plan, ()) for kbps in rates]
+
+
 def estimate(plan='m2', centre=False, clips=2):
+    """Arms and minutes of a plan from the constants above; gpu_minutes counts encodes and streams only."""
+    area = lambda w, h: w * h / (1920 * 1080)
     if plan == 'levels':
+        w, h = LEVEL_JOB[1:3]
         arms = len(LEVEL_FIXTURES) * (len(LEVELS) + 1)
-        return dict(plan=plan, encode_arms=arms, minutes=round(arms * (ENCODE_SECONDS + 3 * SCORE_SECONDS) / 60, 1))
-    quality = QUALITY.get(plan, ())
-    fixtures = len(QUALITY_FIXTURES.get(plan, ())) + (clips if plan == 'm2' else 0)
-    comparisons = [(w * h, len(rates)) for _, w, h, rates, _ in quality]
-    arms = 4 * fixtures * sum(n for _, n in comparisons)
-    # Scoring covers the full frame and about one more frame of regions; centre adds about one more.
-    seconds = 4 * fixtures * sum(n * (ENCODE_SECONDS + 2 * SCORE_SECONDS * area / (1920 * 1080)) for area, n in comparisons)
-    if centre and plan == 'm2':
-        arms += 2 * fixtures
-        seconds += 2 * fixtures * (ENCODE_SECONDS + 3 * SCORE_SECONDS) + 4 * fixtures * SCORE_SECONDS
+        jobs, seconds, gpu = [], arms * (ENCODE_SECONDS + 2 * SCORE_SECONDS) + len(LEVEL_FIXTURES) * FIXTURE_SECONDS, arms * ENCODE_SECONDS
+    else:
+        jobs, arms, seconds, gpu = quality_jobs(plan, ['clip'] * clips), 0, 0., 0.
+    made = set()
+    for (codec, w, h, kbps, hdr), names, game in jobs:
+        n = len(names) + len(game)
+        # Scoring covers the full frame and about one more frame of regions.
+        arms, seconds, gpu = arms + 4 * n, seconds + 4 * n * (ENCODE_SECONDS + 2 * SCORE_SECONDS * area(w, h)), gpu + 4 * n * ENCODE_SECONDS
+        seconds += sum(FIXTURE_SECONDS * area(w, h) for name in names if (name, w, h) not in made)
+        made |= {(name, w, h) for name in names}
+        if centre and plan == 'm2' and (codec, w, h, kbps, hdr) == CENTRE:
+            # C1 and C2, and the centre and periphery rectangles (one more frame) on the quartet's arms.
+            arms, seconds, gpu = arms + 2 * n, seconds + 2 * n * (ENCODE_SECONDS + 3 * SCORE_SECONDS) + 4 * n * SCORE_SECONDS, gpu + 2 * n * ENCODE_SECONDS
+    stream_seconds = QUICK_SECONDS if plan == 'quick' else 90
     streams = sum(len(t[4]) for t in TIMING.get(plan, ()))
-    seconds += streams * (90 + STREAM_OVERHEAD)
-    return dict(plan=plan, encode_arms=arms, stream_arms=streams, frames_per_arm=FRAMES, minutes=round(seconds / 60, 1),
-                assumptions=f'{ENCODE_SECONDS} s an encode, {SCORE_SECONDS} s to score a 1080p frame area, '
-                            f'90 s streams with {STREAM_OVERHEAD} s around each, idle host')
+    seconds += streams * (stream_seconds + STREAM_OVERHEAD)
+    gpu += streams * stream_seconds
+    output = dict(plan=plan, encode_arms=arms, stream_arms=streams, frames_per_arm=FRAMES, minutes=round(seconds / 60, 1),
+                  gpu_minutes=round(gpu / 60, 1),
+                  assumptions=f'{ENCODE_SECONDS} s an encode, {SCORE_SECONDS} s to score a 1080p frame area, {FIXTURE_SECONDS} s a '
+                              f'1080p fixture, {stream_seconds} s streams with {STREAM_OVERHEAD} s around each, idle host')
+    if plan == 'quick':
+        output['budget_minutes'] = QUICK_BUDGET / 60
+    return output
 
 
 def append(work, row):
@@ -238,10 +272,12 @@ def encode(args, directory, path, codec, width, height, hdr, request):
 
 
 def check_focus(metrics, mode):
-    """The probe must report focus as asked: off with no maps, or the mode with maps attached."""
+    """amf_quality's final line (focus_mode, focus_maps, focus_uniform, focus_stale and, with verify, focus_qp_delta,
+    design section 11 A2) must report focus as asked: off with no maps, or the mode with maps attached."""
     if 'focus_mode' not in metrics:
         raise RuntimeError('amf_quality reports no focus_mode: build it from a tree with the encoder focus change')
-    reported, maps = {'center': 'centre'}.get(metrics['focus_mode'], metrics['focus_mode']), metrics.get('focus_maps', 0)
+    reported = {'center': 'centre', None: 'off'}.get(metrics['focus_mode'], metrics['focus_mode'])
+    maps = metrics.get('focus_maps') or 0
     if (reported, bool(maps)) != (mode, mode != 'off'):
         raise RuntimeError(f'focus was set to {mode}; amf_quality reports {metrics["focus_mode"]} with {maps} maps')
 
@@ -308,24 +344,35 @@ def start(args, plan):
     (args.work / 'plan.json').write_text(json.dumps(plan, indent=2))
 
 
+def require(*paths):
+    for path in paths:
+        if not pathlib.Path(path).is_file():
+            raise FileNotFoundError(path)
+
+
+def planned_quality(work, jobs):
+    """The plan.json entries of every comparison, so a summary marks the ones that never ran incomplete."""
+    return [dict(comparison=comparison_name(codec, w, h, kbps, hdr, name), codec=label(codec, hdr), fixture=name,
+                 fixture_class=cls, target_kbps=kbps)
+            for (codec, w, h, kbps, hdr), names, game in jobs for name, cls, _, _ in fixtures(work, names, w, h, game)]
+
+
+def run_quality(args, jobs):
+    for job, names, game in jobs:
+        for fixture in fixtures(args.work, names, job[1], job[2], game):
+            quartet(args, job, fixture, 'static', centre=args.centre and job == CENTRE)
+
+
 def quality(args):
-    jobs = [(codec, w, h, kbps, hdr) for codec, w, h, rates, hdr in QUALITY[args.plan] for kbps in rates]
     if args.plan == 'm2' and len(args.clips) != 2:
         raise ValueError('M2 needs the two game clips (--clips TMNT GOLDENEYE)')
     clips = args.clips if args.plan == 'm2' else []
-    for path in (args.amf_quality, args.ffmpeg):
-        if not pathlib.Path(path).is_file():
-            raise FileNotFoundError(path)
-    planned = []
-    for codec, w, h, kbps, hdr in jobs:
-        for name, cls, _, _ in fixtures(args.work, QUALITY_FIXTURES[args.plan], w, h, clips):
-            planned.append(dict(comparison=comparison_name(codec, w, h, kbps, hdr, name), codec=label(codec, hdr),
-                                fixture=name, fixture_class=cls, target_kbps=kbps))
-    start(args, dict(gpu=args.gpu, step=args.plan, quality=planned, levels=args.levels, verify=args.verify,
-                     centre=args.centre, clips=[str(c) for c in clips], estimate=estimate(args.plan, args.centre, len(clips))))
-    for job in jobs:
-        for fixture in fixtures(args.work, QUALITY_FIXTURES[args.plan], job[1], job[2], clips):
-            quartet(args, job, fixture, 'static', centre=args.centre and job == CENTRE)
+    require(args.amf_quality, args.ffmpeg)
+    jobs = quality_jobs(args.plan, clips)
+    start(args, dict(gpu=args.gpu, step=args.plan, quality=planned_quality(args.work, jobs), levels=args.levels,
+                     verify=args.verify, centre=args.centre, clips=[str(c) for c in clips],
+                     estimate=estimate(args.plan, args.centre, len(clips))))
+    run_quality(args, jobs)
 
 
 def levels(args):
@@ -355,7 +402,7 @@ def stream(args, comparison, mode, kbps, extra, name, receiver):
     env = {k: v for k, v in os.environ.items() if k != 'BUTTERPOLLO_TEST_CLIENT_PROFILE'} | receiver
     case = args.work / f'e2e-{case_name}'
     row = dict(kind='timing', gpu=args.gpu, comparison=comparison, arm=name, mode=focus, stream_mode=mode, target_kbps=kbps,
-               config=configs, receiver=receiver, status='failed', directory=str(case))
+               step=args.plan, seconds=int(args.seconds), config=configs, receiver=receiver, status='failed', directory=str(case))
     try:
         log = args.work / f'e2e-{case_name}.log'
         (args.work / f'e2e-{case_name}.command.json').write_text(json.dumps([str(a) for a in command]))
@@ -391,25 +438,46 @@ def stream(args, comparison, mode, kbps, extra, name, receiver):
     append(args.work, row)
 
 
-def timing(args):
-    check_port(args.port)
-    for path in (args.package / 'butterpollo.exe', args.client):
-        if not path.is_file():
-            raise FileNotFoundError(path)
-    start(args, dict(gpu=args.gpu, step=args.plan, timing=[t[0] for t in TIMING[args.plan]], levels=args.levels,
-                     verify=args.verify, seconds=args.seconds, port=args.port, estimate=estimate(args.plan)))
-    for comparison, mode, kbps, extra, arms, receiver in TIMING[args.plan]:
+def run_timing(args, plan):
+    for comparison, mode, kbps, extra, arms, receiver in TIMING[plan]:
         for name in arms:
             stream(args, comparison, mode, kbps, extra, name, receiver)
+
+
+def timing(args):
+    check_port(args.port)
+    require(args.package / 'butterpollo.exe', args.client)
+    start(args, dict(gpu=args.gpu, step=args.plan, timing=[t[0] for t in TIMING[args.plan]], levels=args.levels,
+                     verify=args.verify, seconds=args.seconds, port=args.port, estimate=estimate(args.plan)))
+    run_timing(args, args.plan)
+
+
+def quick(args):
+    if len(args.clips) != 1:
+        raise ValueError('the quick pass needs one game clip (--clips CLIP)')
+    plan = estimate('quick', clips=1)
+    if plan['minutes'] > QUICK_BUDGET / 60:
+        raise ValueError(f"the quick pass is estimated at {plan['minutes']} minutes, over its {QUICK_BUDGET / 60:g}")
+    check_port(args.port)
+    require(args.amf_quality, args.ffmpeg, args.package / 'butterpollo.exe', args.client)
+    args.centre, args.seconds = False, str(QUICK_SECONDS)
+    jobs = quality_jobs('quick', args.clips)
+    start(args, dict(gpu=args.gpu, step='quick', quality=planned_quality(args.work, jobs), timing=[t[0] for t in TIMING['quick']],
+                     levels=args.levels, verify=args.verify, clips=[str(c) for c in args.clips], seconds=args.seconds,
+                     port=args.port, estimate=plan))
+    began = time.monotonic()
+    run_quality(args, jobs)
+    run_timing(args, 'quick')
+    (args.work / 'elapsed.json').write_text(json.dumps(dict(seconds=round(time.monotonic() - began), estimate=plan)))
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     commands = parser.add_subparsers(dest='action', required=True)
     plan = commands.add_parser('estimate')
-    plan.add_argument('--plan', default='m2', choices=('m2', 'm3', 'm4', 'levels'))
+    plan.add_argument('--plan', default='m2', choices=('quick', 'm2', 'm3', 'm4', 'levels'))
     plan.add_argument('--centre', action='store_true')
-    for name, plans in (('quality', ('m2', 'm4')), ('levels', None), ('timing', ('m3', 'm4'))):
+    for name, plans in (('quick', ('quick',)), ('quality', ('m2', 'm4')), ('levels', None), ('timing', ('m3', 'm4'))):
         sub = commands.add_parser(name)
         sub.add_argument('--work', required=True, type=pathlib.Path)
         sub.add_argument('--gpu', required=True, help='a label for the GPU, e.g. 7900xt or 780m')
@@ -419,21 +487,26 @@ def main(argv=None):
             sub.add_argument('--verify', action='store_true', help='encoder_focus_verify on the on arms (costs encoder time)')
         else:
             sub.set_defaults(verify=False)
-        if name == 'timing':
+        if name in ('quick', 'timing'):
             sub.add_argument('--package', required=True, type=pathlib.Path)
             sub.add_argument('--client', required=True, type=pathlib.Path)
             sub.add_argument('--port', type=int, default=48523)
+        if name == 'timing':
             sub.add_argument('--seconds', default='90')
         else:
             sub.add_argument('--amf-quality', required=True, type=pathlib.Path)
             sub.add_argument('--ffmpeg', required=True, type=pathlib.Path)
-        if name == 'quality':
+        if name in ('quick', 'quality'):
             sub.add_argument('--clips', nargs='*', default=[], type=pathlib.Path)
+        if name == 'quality':
             sub.add_argument('--centre', action='store_true', help='C1 and C2 arms with centre at HEVC 10 Mbps')
     summary = commands.add_parser('summarize')
     summary.add_argument('dirs', nargs='+', type=pathlib.Path)
     summary.add_argument('--out', type=pathlib.Path)
     args = parser.parse_args(argv)
+    if getattr(args, 'work', None):
+        # Encoding and scoring run in each arm's folder, so every path they get must be absolute.
+        args.work = args.work.resolve()
     if args.action == 'estimate':
         print(json.dumps(estimate(args.plan, args.centre)))
         return 0
@@ -441,7 +514,7 @@ def main(argv=None):
         summarize(args.dirs, args.out)
         return 0
     try:
-        dict(quality=quality, levels=levels, timing=timing)[args.action](args)
+        dict(quick=quick, quality=quality, levels=levels, timing=timing)[args.action](args)
     except Hang as error:
         (args.work / 'status.txt').write_text(f'STOPPED at an AMD encoder hang: {error}. Do not retry: reboot if Device '
                                               'Manager shows the Radeon with Code 31, then investigate.\n')

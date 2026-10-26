@@ -150,6 +150,17 @@ class Decision(unittest.TestCase):
         self.assertEqual(codec['gpus'], {'a': 'default_on', 'b': 'default_on'})
         self.assertEqual((codec['verdict'], codec['conflicts'], codec['disagree']), ('undecided', ['tmnt'], True))
 
+    def test_a_quick_pair_over_a_latency_limit_caps_focus_at_opt_in(self):
+        quality = [r for r in good() if r['kind'] == 'quality']
+        pair = lambda **kwargs: [dict(r, step='quick') for r in timing('7900xt', arms=result.PAIR, **kwargs)]
+        self.assertEqual(verdict(quality + pair()), 'default_on')
+        decision = result.decide(quality + pair(encode=(2., 2.3)))
+        self.assertEqual(decision['codecs']['hevc']['verdict'], 'opt_in')
+        self.assertIn('confirm with the M3 ABBA', decision['per_gpu']['7900xt']['hevc']['reasons'][0])
+        self.assertTrue(decision['quick'])
+        # Overflows and stale still drop focus.
+        self.assertEqual(verdict(quality + pair(overflows=(0, 1))), 'drop')
+
     def test_codecs_are_decided_apart(self):
         runs = good() + quartet('7900xt', 'av1-editor', 'text', 10000, on=(90., 90.), codec='av1')
         decision = result.decide(runs)
@@ -244,6 +255,10 @@ class HostLog(unittest.TestCase):
         self.assertEqual((stats['focus_qp_delta'], stats['focus_effective']), ('-2..4', 'static'))
         self.assertAlmostEqual(result.focus_fraction(stats['focus']), 4 / 608)
 
+    def test_the_5_s_line_mode_stands_in_for_a_missing_state_line(self):
+        stats = result.host_stats('INFO butterpollo::stream: encoder focus mode=static maps=300 uniform=0 stale=1 skipped_recovery=0\n')
+        self.assertEqual((stats['focus_effective'], stats['focus']['maps']), ('static', 300))
+
     def test_a_stream_without_focus_has_no_counters(self):
         stats = result.host_stats('stream timings present_to_sent_ms=1/2/3\nstream timings present_to_sent_ms=1/2/4\n')
         self.assertEqual((stats['focus'], stats['focus_effective'], stats['present_to_sent_p99_ms']), (None, None, 4.))
@@ -263,6 +278,21 @@ class Summary(unittest.TestCase):
             for name in ('quality.csv', 'timing.csv', 'levels.csv', 'summary.json'):
                 self.assertTrue((work / name).exists(), name)
             self.assertIn('| hevc | default_on |', (work / 'summary.md').read_text(encoding='utf-8'))
+
+    def test_a_quick_summary_says_so_and_labels_opt_in_experimental(self):
+        with tempfile.TemporaryDirectory() as directory:
+            work = pathlib.Path(directory)
+            runs = [r for r in good() if r['kind'] == 'quality'] + [dict(r, step='quick') for r in timing(
+                '7900xt', arms=result.PAIR, present=(4., 4.5))]
+            (work / 'runs.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in runs))
+            (work / 'plan.json').write_text(json.dumps(dict(gpu='7900xt', step='quick', quality=[], timing=['hevc-1080p60-20000'])))
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                result.summarize([work])
+            printed = json.loads(output.getvalue())
+            self.assertEqual(printed['verdict'], {'hevc': 'opt_in (Experimental)'})
+            self.assertIn('quick pass', printed['quick'])
+            self.assertIn('(quick pass)', (work / 'summary.md').read_text(encoding='utf-8'))
 
 
 def installed(error=None):
@@ -352,6 +382,7 @@ class Driver(unittest.TestCase):
         ab.check_focus(dict(focus_mode='off', focus_maps=0), 'off')
         ab.check_focus(dict(focus_mode='static', focus_maps=180), 'static')
         ab.check_focus(dict(focus_mode='center', focus_maps=180), 'centre')
+        ab.check_focus(dict(focus_mode=None, focus_maps=None), 'off')
         for metrics, mode in ((dict(), 'off'), (dict(focus_mode='off', focus_maps=3), 'off'),
                               (dict(focus_mode='static', focus_maps=0), 'static'), (dict(focus_mode='off'), 'static')):
             with self.assertRaises(RuntimeError, msg=(metrics, mode)):
@@ -406,6 +437,34 @@ class Driver(unittest.TestCase):
         self.assertEqual(ab.estimate('m4')['encode_arms'], 8)
         self.assertEqual(ab.estimate('levels')['encode_arms'], 26)
         self.assertEqual(ab.estimate('m3')['stream_arms'], 12)
+
+    def test_the_quick_plan_fits_its_budget(self):
+        plan = ab.estimate('quick', clips=1)
+        self.assertEqual((plan['encode_arms'], plan['stream_arms']), (20, 2))
+        self.assertLessEqual(plan['minutes'], ab.QUICK_BUDGET / 60)
+        self.assertEqual([(job[0], names, len(game)) for job, names, game in ab.quality_jobs('quick', ['clip'])],
+                         [('hevc', ('editor', 'mixed'), 1), ('av1', ('mixed',), 0), ('h264', ('mixed',), 0)])
+
+    def quick(self, *extra):
+        with contextlib.redirect_stderr(io.StringIO()):
+            return ab.main(['quick', '--work', str(self.work), '--amf-quality', str(self.root / 'amf_quality.exe'),
+                            '--ffmpeg', str(self.root / 'ffmpeg.exe'), '--package', str(self.root),
+                            '--client', str(self.root / 'client.exe'), '--gpu', '7900xt', '--clips', str(self.root / 'clip.mp4'), *extra])
+
+    def test_quick_runs_the_quartets_then_one_short_stream_pair(self):
+        calls = []
+        with installed(), mock.patch.object(ab, 'quartet', lambda args, job, fixture, mode, centre=False: calls.append((job[0], fixture[0]))), \
+                mock.patch.object(ab, 'stream', lambda args, comparison, *rest: calls.append((comparison, rest[3], args.seconds))):
+            self.assertEqual(self.quick(), 0)
+        self.assertEqual(calls, [('hevc', 'mixed'), ('av1', 'mixed'), ('h264', 'mixed'),
+                                 ('hevc-1080p60-20000', 'A1', '45'), ('hevc-1080p60-20000', 'B1', '45')])
+        plan = json.loads((self.work / 'plan.json').read_text())
+        self.assertEqual((plan['step'], plan['timing'], len(plan['quality'])), ('quick', ['hevc-1080p60-20000'], 3))
+
+    def test_quick_refuses_a_plan_over_its_budget(self):
+        with installed(), mock.patch.object(ab, 'QUICK_BUDGET', 60), mock.patch.object(ab, 'quartet') as quartet:
+            self.assertEqual(self.quick(), 1)
+        quartet.assert_not_called()
 
 
 if __name__ == '__main__':

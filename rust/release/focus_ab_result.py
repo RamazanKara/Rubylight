@@ -163,7 +163,8 @@ def host_stats(text):
     p99 = lambda key: [float(w[key].split('/')[2]) for w in windows if key in w]
     present, capture = p99('present_to_sent_ms'), p99('capture_age_at_submit_ms')
     focus = [dict(FIELD.findall(line)) for line in lines if 'encoder focus' in line and ' maps=' in line]
-    effective = [m for line in lines if 'encoder focus' in line for m in re.findall(r'\beffective=(\w+)', line)]
+    # The state line at start says effective=; the 5 s lines say mode= (design section 7).
+    effective = [m for line in lines if 'encoder focus' in line for m in re.findall(r'\b(?:effective|mode)=(\w+)', line)]
     return dict(windows=len(windows), present_to_sent_p99_ms=mean(present) if present else None,
                 capture_age_at_submit_p99_ms=mean(capture) if capture else None,
                 overflows=sum(OVERFLOW in line for line in lines),
@@ -193,7 +194,7 @@ def timing_comparisons(runs):
             continue
         control, treated = rows[::2], rows[1::2]
         focus = {k: sum(r['focus'][k] for r in treated) for k in ('maps', 'uniform', 'stale', 'skipped_recovery')}
-        result.update(complete=True, abba=arms == ARMS, focus=focus, stale_fraction=focus_fraction(focus),
+        result.update(complete=True, abba=arms == ARMS, quick=any(r.get('step') == 'quick' for r in rows), focus=focus, stale_fraction=focus_fraction(focus),
                       overflows_off=sum(r['overflows'] for r in control), overflows_on=sum(r['overflows'] for r in treated))
         for key in TIMING_LIMITS:
             result['delta_' + key] = mean(r[key] for r in treated) - mean(r[key] for r in control)
@@ -202,25 +203,29 @@ def timing_comparisons(runs):
 
 
 def timing_state(rows):
-    """(ok, reasons) of one GPU's timing comparisons; ok is None while any is missing or incomplete."""
+    """(ok, reasons, caps) of one GPU's timing comparisons; ok is None while any is missing or incomplete. Caps are
+    latency limits a quick pass's single pair passed: without a noise estimate they keep focus from default-on
+    but do not drop it."""
     if not rows:
-        return None, ['no timing comparison']
+        return None, ['no timing comparison'], []
     missing = [r['comparison'] for r in rows if not r['complete']]
     if missing:
-        return None, ['timing incomplete: ' + ', '.join(missing)]
-    reasons = []
+        return None, ['timing incomplete: ' + ', '.join(missing)], []
+    reasons, caps = [], []
     for row in rows:
         # A single pair (slice delivery, intra refresh) has no noise estimate: it answers overflows and stale only.
-        for key, limit in TIMING_LIMITS.items() if row['abba'] else ():
+        for key, limit in TIMING_LIMITS.items() if row['abba'] or row.get('quick') else ():
             if row['delta_' + key] > limit:
-                reasons.append(f"{row['comparison']}: {key} +{row['delta_' + key]:.3f} ms, limit +{limit} ms")
+                (reasons if row['abba'] else caps).append(
+                    f"{row['comparison']}: {key} +{row['delta_' + key]:.3f} ms, limit +{limit} ms"
+                    + ('' if row['abba'] else ' in one quick pair: confirm with the M3 ABBA'))
         if row['overflows_on'] > row['overflows_off']:
             reasons.append(f"{row['comparison']}: slice delivery overflows {row['overflows_off']} -> {row['overflows_on']}")
         if row['stale_fraction'] is None:
             reasons.append(f"{row['comparison']}: the on arms encoded no frame with focus")
         elif row['stale_fraction'] >= STALE_LIMIT:
             reasons.append(f"{row['comparison']}: stale {row['stale_fraction']:.2%} of frames, limit {STALE_LIMIT:.0%}")
-    return not reasons, reasons
+    return not reasons, reasons, caps
 
 
 def full(row, metric='vmaf_mean'):
@@ -242,7 +247,7 @@ def evaluate(rows, timing):
     broken = [r['comparison'] for r in rows if not (r['complete'] and r['matched'])]
     if not rows or broken:
         return dict(verdict='incomplete', reasons=['quality incomplete or unmatched: ' + ', '.join(broken or ['none'])])
-    timing_ok, timing_reasons = timing
+    timing_ok, timing_reasons, caps = timing
     if timing_ok is None:
         return dict(verdict='incomplete', reasons=timing_reasons)
     if not timing_ok:
@@ -255,7 +260,7 @@ def evaluate(rows, timing):
     reasons = ([f'no gain: {", ".join(no_gain)}'] if no_gain else []) + ([f'worse: {", ".join(dropped)}'] if dropped else []) + \
               ([f'moving region drops over {MOVING_DROP}: {", ".join(moving)}'] if moving else []) + ([] if text else ['no text fixture'])
     if not reasons:
-        return dict(verdict='default_on', reasons=[])
+        return dict(verdict='opt_in', reasons=caps) if caps else dict(verdict='default_on', reasons=[])
     # Opt-in: text and mixed gain (at 10 Mbps or below when measured there), none of them worse, games lose at most 0.5.
     low = [r for r in text if r['target_kbps'] <= LOW_KBPS] or text
     if (text and all(gains(r) for r in low) and not any(worse(r) for r in text) and not moving
@@ -326,8 +331,17 @@ def decide(runs, plans=()):
                                conflicts=conflicts)
     centre = {gpu: centre_verdict([r for r in quality if r['gpu'] == gpu]) for gpu in gpus}
     centre = {gpu: v for gpu, v in centre.items() if v}
-    return dict(codecs=combined, per_gpu=dict(per_gpu), timing={g: dict(ok=s[0], reasons=s[1]) for g, s in states.items()},
-                centre=centre, quality=quality, timing_rows=timing)
+    quick = any(p.get('step') == 'quick' for p in plans) or any(r.get('quick') for r in timing)
+    return dict(codecs=combined, per_gpu=dict(per_gpu), timing={g: dict(ok=s[0], reasons=s[1] + s[2]) for g, s in states.items()},
+                centre=centre, quality=quality, timing_rows=timing, quick=quick)
+
+
+QUICK_NOTE = ('quick pass: one fixture set and one stream pair; default_on still needs every section 9 rule, '
+              'and anything that only reaches opt_in ships as Experimental')
+
+
+def verdict_label(verdict, quick):
+    return f'{verdict} (Experimental)' if quick and verdict == 'opt_in' else verdict
 
 
 def level_ranking(runs):
@@ -365,13 +379,15 @@ def summarize(directories, out=None):
     write_csv(out / 'quality.csv', result['quality'])
     write_csv(out / 'timing.csv', result['timing_rows'])
     write_csv(out / 'levels.csv', levels)
-    summary_json = {k: result[k] for k in ('codecs', 'per_gpu', 'timing', 'centre')} | dict(levels=levels[:4], work=[str(d) for d in directories])
+    summary_json = {k: result[k] for k in ('codecs', 'per_gpu', 'timing', 'centre', 'quick')} | dict(levels=levels[:4], work=[str(d) for d in directories])
     (out / 'summary.json').write_text(json.dumps(summary_json, indent=2))
     fmt = lambda v: '-' if v is None else f'{v:+.2f}' if isinstance(v, float) else str(v)
-    lines = ['# Encoder focus A/B', '', 'Section 9 of docs/encoder-focus-design.md. Deltas are on minus off, VMAF points; '
-             'noise is max(|A1 - A2|, |B1 - B2|).', '', '## Verdict', '', '| Codec | Verdict | Per GPU | Direction conflicts |', '|---|---|---|---|']
+    name = lambda v: verdict_label(v, result['quick'])
+    lines = ['# Encoder focus A/B' + (' (quick pass)' if result['quick'] else ''), '',
+             'Section 9 of docs/encoder-focus-design.md. Deltas are on minus off, VMAF points; noise is max(|A1 - A2|, |B1 - B2|).'
+             + (f' {QUICK_NOTE}' if result['quick'] else ''), '', '## Verdict', '', '| Codec | Verdict | Per GPU | Direction conflicts |', '|---|---|---|---|']
     for codec, verdict in result['codecs'].items():
-        lines.append(f"| {codec} | {verdict['verdict']} | {', '.join(f'{g}: {v}' for g, v in verdict['gpus'].items())} | "
+        lines.append(f"| {codec} | {name(verdict['verdict'])} | {', '.join(f'{g}: {name(v)}' for g, v in verdict['gpus'].items())} | "
                      f"{', '.join(verdict['conflicts']) or '-'} |")
     lines += ['']
     for gpu, codecs in result['per_gpu'].items():
@@ -405,7 +421,8 @@ def summarize(directories, out=None):
         lines += [f"| {r['gpu']} | {r['rank']} | {r['levels']} | {fmt(r['delta_vmaf_mean'])} | {fmt(r['delta_vmaf_settled'])} | "
                   f"{r['bitrate_error']:.1%} |" for r in levels]
     (out / 'summary.md').write_text('\n'.join(lines) + '\n', encoding='utf-8')
-    print(json.dumps(dict(verdict={c: v['verdict'] for c, v in result['codecs'].items()},
+    print(json.dumps(dict(**(dict(quick=QUICK_NOTE) if result['quick'] else {}),
+                          verdict={c: name(v['verdict']) for c, v in result['codecs'].items()},
                           centre={g: v['verdict'] for g, v in result['centre'].items()}, summary=str(out / 'summary.md'))))
     return summary_json
 

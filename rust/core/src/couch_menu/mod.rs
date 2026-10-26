@@ -118,10 +118,12 @@ impl Shared {
             if Self::is_open(state) {
                 return None;
             }
+            // Before the open bit is stored, so whoever sees it open also
+            // sees this open counted.
+            self.opens.fetch_add(1, Ordering::AcqRel);
             Some(Self::OPEN)
         });
         if changed {
-            self.opens.fetch_add(1, Ordering::AcqRel);
             self.wake_control();
         }
         Ok(changed)
@@ -237,6 +239,22 @@ mod tests {
         assert_eq!(wakes.load(Ordering::Relaxed), 3);
         assert_eq!(controls.load(Ordering::Relaxed), 2, "open and close only");
         assert_eq!(shared.opens(), 1);
+    }
+
+    #[test]
+    fn couch_menu_shared_counts_an_open_before_anyone_sees_it_open() {
+        let shared = Arc::new(Shared::new());
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let (weak, log) = (Arc::downgrade(&shared), seen.clone());
+        shared.set_wake(move || {
+            let shared = weak.upgrade().unwrap();
+            let open = Shared::is_open(shared.load());
+            log.lock().unwrap().push((open, shared.opens()));
+        });
+        shared.open().unwrap();
+        shared.close();
+        shared.open().unwrap();
+        assert_eq!(*seen.lock().unwrap(), [(true, 1), (false, 1), (true, 2)]);
     }
 
     #[test]

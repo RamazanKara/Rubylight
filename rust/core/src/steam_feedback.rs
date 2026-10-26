@@ -23,7 +23,7 @@ const MAX_HOLD: Duration = Duration::from_secs(10);
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct Motor {
     magnitude: u16,
-    /// `None` runs until the next report for this side.
+    /// `None` only while stopped: every non-zero magnitude expires.
     until: Option<Instant>,
 }
 impl Motor {
@@ -88,13 +88,22 @@ impl SteamRumble {
             }
             // Command: side u8, command u8 (0 off, 1 tick, 2 click, 3 tone,
             // 4 rumble, 5 noise, 6 script, 7 sweep), gain_db s8. Ticks and
-            // clicks hold briefly; the continuous effects run until their off.
+            // clicks hold briefly. Tone, rumble and noise run until their off
+            // but never past MAX_HOLD from the last re-send, so a lost off
+            // cannot leave the motors on. Scripts, sweeps and unknown
+            // commands have nothing a motor can stand in for, like 0x84/0x85.
             0x82 if report.len() >= 4 => {
-                let motor = match report[2] {
-                    0 => Motor::default(),
-                    command => Motor {
+                let hold = match report[2] {
+                    0 => None,
+                    1 | 2 => Some(CLICK_HOLD),
+                    3..=5 => Some(MAX_HOLD),
+                    _ => return 0,
+                };
+                let motor = match hold {
+                    None => Motor::default(),
+                    Some(hold) => Motor {
                         magnitude: magnitude_from_db(report[3] as i8),
-                        until: matches!(command, 1 | 2).then(|| now + CLICK_HOLD),
+                        until: Some(now + hold),
                     },
                 };
                 self.set(sides(0x82, report[1]), motor)
@@ -253,12 +262,32 @@ mod tests {
         assert_eq!(rumble.rumble(now), (46395, 13076));
         assert_eq!(rumble.deadline(), Some(now + CLICK_HOLD));
         assert_eq!(rumble.rumble(now + CLICK_HOLD), (0, 0));
-        // A rumble command (4) at +6 dB clips and runs until its off.
+        // A rumble command (4) at +6 dB clips and runs until its off, each
+        // re-send holding it up to MAX_HOLD again.
         rumble.apply(&haptic(&[0x82, 2, 0x04, 0x06]), now);
-        assert_eq!(rumble.deadline(), None);
+        let later = now + Duration::from_secs(5);
+        rumble.apply(&haptic(&[0x82, 2, 0x04, 0x06]), later);
         assert_eq!(rumble.rumble(now + MAX_HOLD), (u16::MAX, u16::MAX));
-        rumble.apply(&haptic(&[0x82, 0, 0x00, 0x06]), now);
-        assert_eq!(rumble.rumble(now), (0, u16::MAX));
+        rumble.apply(&haptic(&[0x82, 0, 0x00, 0x06]), later);
+        assert_eq!(rumble.rumble(later), (0, u16::MAX));
+        assert_eq!(rumble.rumble(later + MAX_HOLD), (0, 0));
+    }
+
+    #[test]
+    fn no_command_leaves_the_motors_on_past_the_longest_hold() {
+        let now = Instant::now();
+        for command in 0..=u8::MAX {
+            for side in 0..=2 {
+                let mut rumble = SteamRumble::default();
+                let sides = rumble.apply(&haptic(&[0x82, side, command, 0x06]), now);
+                // Scripts, sweeps and unknown commands change nothing.
+                assert_eq!(sides == 0, command > 5, "command {command}");
+                if rumble.rumble(now) != (0, 0) {
+                    assert!(rumble.deadline().is_some(), "command {command}");
+                }
+                assert_eq!(rumble.rumble(now + MAX_HOLD), (0, 0), "command {command}");
+            }
+        }
     }
 
     #[test]

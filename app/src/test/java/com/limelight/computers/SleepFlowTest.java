@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import android.app.Application;
@@ -261,28 +262,45 @@ public class SleepFlowTest {
         @Override public void resumePolling() { }
     };
 
+    private static ComputerDetails office() {
+        ComputerDetails pc = new ComputerDetails();
+        pc.uuid = "pc";
+        pc.name = "Office";
+        return pc;
+    }
+
+    private static ActivityController<ToolbarIconTintTest.Screen> screen() {
+        return Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible();
+    }
+
     @Test
     public void theScreenConfirmsShowsTheHostsWordsAndOursOnlyWhenItSentNone() {
-        try (ActivityController<ToolbarIconTintTest.Screen> controller =
-                     Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible()) {
+        try (ActivityController<ToolbarIconTintTest.Screen> controller = screen()) {
             ToolbarIconTintTest.Screen screen = controller.get();
-            ComputerDetails pc = new ComputerDetails();
-            pc.uuid = "pc";
-            pc.name = "Office";
-            SleepFlow.Ui shown = new HostActions(screen, CALLBACKS).sleepUi(pc);
+            HostActions actions = new HostActions(screen, CALLBACKS);
+            NativeApiClient api = client();
 
             script("power.capabilities", offer(TOKEN_A));
             script("power.sleep", ACCEPTED);
-            NativeApiClient api = client();
-            new SleepFlow(() -> api, shown, Runnable::run, Runnable::run, clock::get).start();
+            ArrayDeque<Runnable> worker = new ArrayDeque<>();
+            actions.startSleep(office(), () -> api, worker::add);
+            AlertDialog asking = latestDialog();
+            assertEquals(screen.getString(R.string.host_sleep_asking), message(asking));
+            worker.poll().run();
             AlertDialog confirm = latestDialog();
+            assertFalse("The progress gives way to the question", asking.isShowing());
             assertEquals(screen.getString(R.string.host_sleep_message), message(confirm));
             assertEquals(Arrays.asList("power.capabilities"), calls);
             confirm.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+            asking = latestDialog();
+            assertEquals(screen.getString(R.string.host_sleep_asking), message(asking));
+            worker.poll().run();
             Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertFalse(asking.isShowing());
             assertEquals(Arrays.asList("power.capabilities", "power.sleep " + TOKEN_A), calls);
             assertEquals(screen.getString(R.string.host_sleep_accepted), ShadowToast.getTextOfLatestToast());
 
+            SleepFlow.Ui shown = actions.sleepUi(office());
             shown.refused(BUSY, 409);
             assertEquals(BUSY, message(latestDialog()));
             shown.refused("", 501);
@@ -291,12 +309,90 @@ public class SleepFlowTest {
             assertEquals(screen.getString(R.string.host_sleep_failed), message(latestDialog()));
 
             script("power.capabilities", "{\"ok\":" + reply(200, "", true, false, null, false) + "}");
-            new SleepFlow(() -> api, shown, Runnable::run, Runnable::run, clock::get).start();
+            actions.startSleep(office(), () -> api, Runnable::run);
             assertEquals(screen.getString(R.string.host_feature_reason_sleep_permission), message(latestDialog()));
             script("power.capabilities", "{\"ok\":" + reply(200, "", true, true, null, false) + "}");
-            new SleepFlow(() -> api, shown, Runnable::run, Runnable::run, clock::get).start();
+            actions.startSleep(office(), () -> api, Runnable::run);
             assertEquals(screen.getString(R.string.host_sleep_busy), message(latestDialog()));
         }
+    }
+
+    @Test
+    public void aSecondSleepReplacesTheFirstWhoseAnswersAreDropped() {
+        try (ActivityController<ToolbarIconTintTest.Screen> controller = screen()) {
+            ToolbarIconTintTest.Screen screen = controller.get();
+            HostActions actions = new HostActions(screen, CALLBACKS);
+            NativeApiClient api = client();
+            script("power.capabilities", offer(TOKEN_B), refused(409, "conflict", BUSY));
+            ArrayDeque<Runnable> worker = new ArrayDeque<>();
+            actions.startSleep(office(), () -> api, worker::add);
+            AlertDialog firstAsking = latestDialog();
+            actions.startSleep(office(), () -> api, worker::add);
+            AlertDialog secondAsking = latestDialog();
+            assertFalse("One progress at a time", firstAsking.isShowing());
+            assertTrue(secondAsking.isShowing());
+
+            // The second flow's GET answers first, with the token the host now holds for this client.
+            Runnable first = worker.poll();
+            worker.poll().run();
+            AlertDialog confirm = latestDialog();
+            assertEquals(screen.getString(R.string.host_sleep_message), message(confirm));
+            first.run();
+            assertSame("The replaced flow's refusal is not shown", confirm, latestDialog());
+            assertTrue(confirm.isShowing());
+            assertEquals(Arrays.asList("power.capabilities", "power.capabilities"), calls);
+        }
+    }
+
+    @Test
+    public void cancellingTheProgressDropsWhatTheHostSaysLater() {
+        try (ActivityController<ToolbarIconTintTest.Screen> controller = screen()) {
+            HostActions actions = new HostActions(controller.get(), CALLBACKS);
+            NativeApiClient api = client();
+            script("power.capabilities", offer(TOKEN_A));
+            ArrayDeque<Runnable> worker = new ArrayDeque<>();
+            actions.startSleep(office(), () -> api, worker::add);
+            AlertDialog asking = latestDialog();
+            asking.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+            worker.poll().run();
+            assertSame("No confirmation after Cancel", asking, latestDialog());
+            assertFalse(asking.isShowing());
+        }
+    }
+
+    @Test
+    public void aResultAfterTheScreenClosedIsAToastNotLost() {
+        script("power.capabilities", offer(TOKEN_A));
+        script("power.sleep", refused(409, "conflict", BUSY));
+        NativeApiClient api = client();
+        ArrayDeque<Runnable> worker = new ArrayDeque<>();
+        HostActions actions;
+        try (ActivityController<ToolbarIconTintTest.Screen> controller = screen()) {
+            actions = new HostActions(controller.get(), CALLBACKS);
+            actions.startSleep(office(), () -> api, worker::add);
+            worker.poll().run();
+            latestDialog().getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            actions.destroy();
+        }
+        ShadowDialog.reset();
+        worker.poll().run();
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
+        assertEquals(BUSY, ShadowToast.getTextOfLatestToast());
+        assertNull("No dialog on a closed screen", ShadowDialog.getLatestDialog());
+
+        // An offer that arrives after the screen closed asks nothing and sends nothing.
+        script("power.capabilities", offer(TOKEN_B));
+        try (ActivityController<ToolbarIconTintTest.Screen> controller = screen()) {
+            actions = new HostActions(controller.get(), CALLBACKS);
+            actions.startSleep(office(), () -> api, worker::add);
+            actions.destroy();
+        }
+        ShadowDialog.reset();
+        worker.poll().run();
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
+        assertNull(ShadowDialog.getLatestDialog());
+        assertEquals(Arrays.asList("power.capabilities", "power.sleep " + TOKEN_A, "power.capabilities"), calls);
     }
 
     @Test

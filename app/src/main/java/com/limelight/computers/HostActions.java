@@ -1,6 +1,9 @@
 package com.limelight.computers;
 
 import android.app.Activity;
+import android.content.Context;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.text.InputFilter;
 import android.text.InputType;
@@ -37,6 +40,7 @@ import org.xmlpull.v1.XmlPullParserException;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.UnknownHostException;
+import java.util.concurrent.Executor;
 
 /**
  * What a person can do to a PC on the list besides opening it: pair (with a PIN shown here or a
@@ -84,6 +88,11 @@ public final class HostActions {
     // A pairing result that arrived while the screen was in the background, shown on return.
     private Runnable pendingPairingResult;
 
+    private final Handler main = new Handler(Looper.getMainLooper());
+    // The newest Sleep PC flow, and its progress while the host is asked.
+    private SleepRoute sleepRoute;
+    private AlertDialog sleepProgress;
+
     public HostActions(Activity activity, Callbacks callbacks) {
         this.activity = activity;
         this.callbacks = callbacks;
@@ -109,10 +118,18 @@ public final class HostActions {
         return true;
     }
 
-    /** The screen is going away: nothing a pairing finds out later may reach it. */
+    /**
+     * The screen is going away: nothing a pairing finds out later may reach it, and a running Sleep PC flow
+     * lets go of it and reports by toast.
+     */
     public void destroy() {
         cancelPairing();
         pendingPairingResult = null;
+        if (sleepRoute != null) {
+            sleepRoute.detach();
+            sleepRoute = null;
+        }
+        dismissSleepProgress();
     }
 
     // Pairing
@@ -326,7 +343,8 @@ public final class HostActions {
 
     /**
      * Sleep PC: the host hands out a token, the person confirms, and the token puts the PC to sleep. The host
-     * refuses while a game or stream runs on it; its own words are shown then.
+     * refuses while a game or stream runs on it; its own words are shown then. The host keeps one token per
+     * client, so only the newest flow speaks: a newer one, Cancel or leaving the screen ends the older one.
      */
     public void sleep(final ComputerDetails computer) {
         if (computer.state != ComputerDetails.State.ONLINE || computer.activeAddress == null) {
@@ -338,16 +356,68 @@ public final class HostActions {
             showError(R.string.host_menu_sleep, activity.getString(R.string.error_manager_not_running), null);
             return;
         }
-        new SleepFlow(() -> {
+        final Context app = activity.getApplicationContext();
+        startSleep(computer, () -> {
             HostEndpoint endpoint = HostEndpoint.of(computer, binder.getUniqueId(),
-                    PlatformBinding.getCryptoProvider(activity.getApplicationContext()));
+                    PlatformBinding.getCryptoProvider(app));
             if (endpoint == null) {
                 throw new NativeApiException(NativeApiException.Kind.NOT_PAIRED,
                         "No address or pinned certificate for the PC");
             }
             return new NativeApiClient(new JniNativeApiTransport(), endpoint);
-        }, sleepUi(computer), task -> new Thread(task, "Sleep PC").start(), activity::runOnUiThread,
-                SystemClock::elapsedRealtime).start();
+        }, task -> new Thread(task, "Sleep PC").start());
+    }
+
+    @VisibleForTesting
+    void startSleep(ComputerDetails computer, SleepFlow.Client client, Executor worker) {
+        endSleep();
+        SleepRoute route = new SleepRoute(activity.getApplicationContext(), sleepUi(computer));
+        sleepRoute = route;
+        showSleepProgress();
+        new SleepFlow(client, route, worker, main::post, SystemClock::elapsedRealtime).start();
+    }
+
+    /** Ends the current Sleep PC flow here: what it finds out later is logged and dropped. */
+    private void endSleep() {
+        if (sleepRoute != null) {
+            sleepRoute.drop();
+            sleepRoute = null;
+        }
+        dismissSleepProgress();
+    }
+
+    private void showSleepProgress() {
+        dismissSleepProgress();
+        if (gone()) {
+            return;
+        }
+        sleepProgress = new NavigationDialogBuilder(activity).setTitle(R.string.host_menu_sleep)
+                .setMessage(R.string.host_sleep_asking)
+                .setNegativeButton(android.R.string.cancel, (dialog, which) -> endSleep())
+                .setOnCancelListener(dialog -> endSleep())
+                .show();
+    }
+
+    private void dismissSleepProgress() {
+        if (sleepProgress != null) {
+            sleepProgress.dismiss();
+            sleepProgress = null;
+        }
+    }
+
+    /** What the screen shows for an offer without a token: why, from the host's flags. */
+    static String sleepUnavailableText(Context context, NativeApiClient.PowerReply offer) {
+        return context.getString(!offer.sleepSupported ? R.string.host_sleep_unsupported :
+                !offer.sleepAllowed ? R.string.host_feature_reason_sleep_permission : R.string.host_sleep_busy);
+    }
+
+    /** The host's own words, or the status when it sent none. */
+    static String sleepRefusedText(Context context, String message, int httpStatus) {
+        return message.isEmpty() ? context.getString(R.string.host_sleep_refused, httpStatus) : message;
+    }
+
+    static String sleepFailedText(Context context, NativeApiException error) {
+        return context.getString(R.string.host_sleep_failed);
     }
 
     @VisibleForTesting
@@ -356,45 +426,141 @@ public final class HostActions {
         return new SleepFlow.Ui() {
             @Override
             public void confirm(Runnable sleep) {
+                dismissSleepProgress();
                 if (gone()) return;
                 new NavigationDialogBuilder(activity)
                         .setTitle(activity.getString(R.string.host_sleep_title, computer.displayName()))
                         .setMessage(R.string.host_sleep_message)
                         .setNegativeButton(android.R.string.cancel, null)
-                        .setPositiveButton(R.string.host_menu_sleep, (dialog, which) -> sleep.run())
+                        .setPositiveButton(R.string.host_menu_sleep, (dialog, which) -> {
+                            showSleepProgress();
+                            sleep.run();
+                        })
                         .show();
             }
 
             @Override
             public void accepted() {
-                LimeLog.info("Sleep PC accepted");
+                dismissSleepProgress();
                 if (!gone()) Toast.makeText(activity, R.string.host_sleep_accepted, Toast.LENGTH_LONG).show();
             }
 
             @Override
             public void unavailable(NativeApiClient.PowerReply offer) {
-                LimeLog.warning("Sleep PC offered no token: supported=" + offer.sleepSupported +
-                        " allowed=" + offer.sleepAllowed + " available=" + offer.sleepAvailable);
+                dismissSleepProgress();
                 boolean busy = offer.sleepSupported && offer.sleepAllowed;
-                showError(title, activity.getString(!offer.sleepSupported ? R.string.host_sleep_unsupported :
-                        !offer.sleepAllowed ? R.string.host_feature_reason_sleep_permission : R.string.host_sleep_busy),
-                        busy ? () -> sleep(computer) : null);
+                showError(title, sleepUnavailableText(activity, offer), busy ? () -> sleep(computer) : null);
             }
 
             @Override
             public void refused(String message, int httpStatus) {
-                LimeLog.warning("Sleep PC refused: HTTP " + httpStatus + " " + message);
+                dismissSleepProgress();
                 // 409: busy or a spent token; asking again helps once the PC is idle.
-                showError(title, message.isEmpty() ? activity.getString(R.string.host_sleep_refused, httpStatus) :
-                        message, httpStatus == 409 ? () -> sleep(computer) : null);
+                showError(title, sleepRefusedText(activity, message, httpStatus),
+                        httpStatus == 409 ? () -> sleep(computer) : null);
             }
 
             @Override
             public void failed(NativeApiException error) {
-                LimeLog.warning("Sleep PC failed: " + error.getKind() + " " + error.getMessage());
-                showError(title, activity.getString(R.string.host_sleep_failed), () -> sleep(computer));
+                dismissSleepProgress();
+                showError(title, sleepFailedText(activity, error), () -> sleep(computer));
             }
         };
+    }
+
+    /**
+     * Carries one Sleep PC flow's outcomes, on the main thread: to its screen; once the screen is gone, as a
+     * toast, so a result is never lost; once a newer flow or Cancel ended it, nowhere. It keeps only the
+     * application context after the screen goes, so a flow that outlives its screen does not hold the activity.
+     */
+    static final class SleepRoute implements SleepFlow.Ui {
+        private final Context app;
+        private SleepFlow.Ui screen;
+        private boolean dropped;
+
+        SleepRoute(Context app, SleepFlow.Ui screen) {
+            this.app = app;
+            this.screen = screen;
+        }
+
+        /** The screen went away: outcomes become toasts. */
+        void detach() {
+            screen = null;
+        }
+
+        /** A newer flow or Cancel took over: outcomes are only logged. */
+        void drop() {
+            dropped = true;
+            screen = null;
+        }
+
+        private boolean speaks(String outcome) {
+            if (dropped) {
+                LimeLog.info("Sleep PC " + outcome + " after it was replaced or cancelled; not shown");
+            }
+            return !dropped;
+        }
+
+        private void toast(String text) {
+            Toast.makeText(app, text, Toast.LENGTH_LONG).show();
+        }
+
+        @Override
+        public void confirm(Runnable sleep) {
+            LimeLog.info("Sleep PC offered a token");
+            if (!speaks("offer")) return;
+            if (screen != null) {
+                screen.confirm(sleep);
+            } else {
+                // Nothing was asked of the PC yet; sleeping it unconfirmed is no option.
+                LimeLog.info("Sleep PC not confirmed: its screen closed first");
+            }
+        }
+
+        @Override
+        public void accepted() {
+            LimeLog.info("Sleep PC accepted");
+            if (!speaks("acceptance")) return;
+            if (screen != null) {
+                screen.accepted();
+            } else {
+                toast(app.getString(R.string.host_sleep_accepted));
+            }
+        }
+
+        @Override
+        public void unavailable(NativeApiClient.PowerReply offer) {
+            LimeLog.warning("Sleep PC offered no token: supported=" + offer.sleepSupported +
+                    " allowed=" + offer.sleepAllowed + " available=" + offer.sleepAvailable);
+            if (!speaks("answer")) return;
+            if (screen != null) {
+                screen.unavailable(offer);
+            } else {
+                toast(sleepUnavailableText(app, offer));
+            }
+        }
+
+        @Override
+        public void refused(String message, int httpStatus) {
+            LimeLog.warning("Sleep PC refused: HTTP " + httpStatus + " " + message);
+            if (!speaks("refusal")) return;
+            if (screen != null) {
+                screen.refused(message, httpStatus);
+            } else {
+                toast(sleepRefusedText(app, message, httpStatus));
+            }
+        }
+
+        @Override
+        public void failed(NativeApiException error) {
+            LimeLog.warning("Sleep PC failed: " + error.getKind() + " " + error.getMessage());
+            if (!speaks("failure")) return;
+            if (screen != null) {
+                screen.failed(error);
+            } else {
+                toast(sleepFailedText(app, error));
+            }
+        }
     }
 
     // Unpair

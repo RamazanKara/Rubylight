@@ -15,6 +15,7 @@
     <string name="host_menu_sleep_note">Thử nghiệm</string>
     <string name="host_sleep_title">Cho %1$s vào chế độ ngủ?</string>
     <string name="host_sleep_message">Trước tiên cần đóng trò chơi và luồng phát trên PC. Wake-on-LAN có thể đánh thức lại PC.</string>
+    <string name="host_sleep_asking">Đang hỏi PC…</string>
     <string name="host_sleep_accepted">PC đang chuyển sang chế độ ngủ</string>
     <string name="host_sleep_unsupported">PC này không hỗ trợ chế độ ngủ.</string>
     <string name="host_sleep_busy">PC hiện không thể ngủ. Hãy đóng trò chơi và luồng phát trên PC rồi thử lại.</string>

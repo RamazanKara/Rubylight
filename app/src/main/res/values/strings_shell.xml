@@ -17,6 +17,7 @@
     <string name="host_menu_sleep_note">Experimental</string>
     <string name="host_sleep_title">Put %1$s to sleep?</string>
     <string name="host_sleep_message">Games and streams on the PC must be closed first. Wake-on-LAN can wake it again.</string>
+    <string name="host_sleep_asking">Asking the PC…</string>
     <string name="host_sleep_accepted">PC is going to sleep</string>
     <string name="host_sleep_unsupported">This PC can’t sleep.</string>
     <string name="host_sleep_busy">The PC can’t sleep right now. Close games and streams on it, then try again.</string>

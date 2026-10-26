@@ -15,6 +15,7 @@
     <string name="host_menu_sleep_note">Experimental</string>
     <string name="host_sleep_title">¿Suspender %1$s?</string>
     <string name="host_sleep_message">Primero hay que cerrar los juegos y transmisiones del PC. Wake-on-LAN puede volver a activarlo.</string>
+    <string name="host_sleep_asking">Consultando al PC…</string>
     <string name="host_sleep_accepted">El PC se está suspendiendo</string>
     <string name="host_sleep_unsupported">Este PC no puede suspenderse.</string>
     <string name="host_sleep_busy">El PC no puede suspenderse ahora. Cierra los juegos y transmisiones en él y vuelve a intentarlo.</string>

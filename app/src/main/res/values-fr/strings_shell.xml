@@ -15,6 +15,7 @@
     <string name="host_menu_sleep_note">Expérimental</string>
     <string name="host_sleep_title">Mettre %1$s en veille ?</string>
     <string name="host_sleep_message">Les jeux et les streams du PC doivent d’abord être fermés. Wake-on-LAN peut le réveiller.</string>
+    <string name="host_sleep_asking">Interrogation du PC…</string>
     <string name="host_sleep_accepted">Le PC se met en veille</string>
     <string name="host_sleep_unsupported">Ce PC ne peut pas se mettre en veille.</string>
     <string name="host_sleep_busy">Le PC ne peut pas se mettre en veille pour le moment. Fermez ses jeux et streams, puis réessayez.</string>

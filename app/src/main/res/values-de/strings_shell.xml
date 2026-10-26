@@ -15,6 +15,7 @@
     <string name="host_menu_sleep_note">Experimentell</string>
     <string name="host_sleep_title">%1$s in den Energiesparmodus versetzen?</string>
     <string name="host_sleep_message">Spiele und Streams auf dem PC müssen zuerst beendet sein. Mit Wake-on-LAN lässt er sich wieder aufwecken.</string>
+    <string name="host_sleep_asking">PC wird gefragt…</string>
     <string name="host_sleep_accepted">PC wechselt in den Energiesparmodus</string>
     <string name="host_sleep_unsupported">Dieser PC unterstützt keinen Energiesparmodus.</string>
     <string name="host_sleep_busy">Der PC kann gerade nicht in den Energiesparmodus. Beende Spiele und Streams auf ihm und versuche es erneut.</string>

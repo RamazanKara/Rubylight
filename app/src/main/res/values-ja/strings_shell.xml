@@ -15,6 +15,7 @@
     <string name="host_menu_sleep_note">試験運用</string>
     <string name="host_sleep_title">%1$s をスリープしますか？</string>
     <string name="host_sleep_message">先に PC のゲームとストリームを終了してください。Wake-on-LAN で再び起動できます。</string>
+    <string name="host_sleep_asking">PC に問い合わせています…</string>
     <string name="host_sleep_accepted">PC をスリープしています</string>
     <string name="host_sleep_unsupported">この PC はスリープできません。</string>
     <string name="host_sleep_busy">PC は今スリープできません。PC のゲームとストリームを終了してから、もう一度お試しください。</string>

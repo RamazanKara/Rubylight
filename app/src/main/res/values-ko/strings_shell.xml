@@ -15,6 +15,7 @@
     <string name="host_menu_sleep_note">실험적</string>
     <string name="host_sleep_title">%1$s을(를) 절전 모드로 전환할까요?</string>
     <string name="host_sleep_message">먼저 PC의 게임과 스트림을 종료해야 합니다. Wake-on-LAN으로 다시 깨울 수 있습니다.</string>
+    <string name="host_sleep_asking">PC에 확인하는 중…</string>
     <string name="host_sleep_accepted">PC가 절전 모드로 전환됩니다</string>
     <string name="host_sleep_unsupported">이 PC는 절전 모드를 지원하지 않습니다.</string>
     <string name="host_sleep_busy">지금은 PC를 절전 모드로 전환할 수 없습니다. PC의 게임과 스트림을 종료한 후 다시 시도하세요.</string>

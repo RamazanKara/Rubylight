@@ -15,6 +15,7 @@
     <string name="host_menu_sleep_note">Экспериментально</string>
     <string name="host_sleep_title">Перевести %1$s в спящий режим?</string>
     <string name="host_sleep_message">Сначала закройте игры и трансляции на ПК. Wake-on-LAN может снова его разбудить.</string>
+    <string name="host_sleep_asking">Запрос к ПК…</string>
     <string name="host_sleep_accepted">ПК переходит в спящий режим</string>
     <string name="host_sleep_unsupported">Этот ПК не поддерживает спящий режим.</string>
     <string name="host_sleep_busy">Сейчас ПК не может перейти в спящий режим. Закройте на нём игры и трансляции и повторите попытку.</string>

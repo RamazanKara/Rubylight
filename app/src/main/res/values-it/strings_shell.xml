@@ -15,6 +15,7 @@
     <string name="host_menu_sleep_note">Sperimentale</string>
     <string name="host_sleep_title">Sospendere %1$s?</string>
     <string name="host_sleep_message">Prima chiudi giochi e stream sul PC. Wake-on-LAN può riattivarlo.</string>
+    <string name="host_sleep_asking">Richiesta al PC in corso…</string>
     <string name="host_sleep_accepted">Il PC sta entrando in sospensione</string>
     <string name="host_sleep_unsupported">Questo PC non può essere sospeso.</string>
     <string name="host_sleep_busy">Il PC non può essere sospeso ora. Chiudi giochi e stream su di esso, poi riprova.</string>

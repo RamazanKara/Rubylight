@@ -15,6 +15,7 @@
     <string name="host_menu_sleep_note">Eksperymentalne</string>
     <string name="host_sleep_title">Uśpić %1$s?</string>
     <string name="host_sleep_message">Najpierw trzeba zamknąć gry i transmisje na komputerze. Wake-on-LAN może go ponownie wybudzić.</string>
+    <string name="host_sleep_asking">Pytanie komputera…</string>
     <string name="host_sleep_accepted">Komputer przechodzi w stan uśpienia</string>
     <string name="host_sleep_unsupported">Ten komputer nie obsługuje uśpienia.</string>
     <string name="host_sleep_busy">Komputera nie można teraz uśpić. Zamknij na nim gry i transmisje, a potem spróbuj ponownie.</string>

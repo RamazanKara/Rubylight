@@ -185,6 +185,17 @@ fn decode(
 ) -> Result<PowerReply, PowerError> {
     let status = response.status;
     let Some(reply) = parse(&response.body)? else {
+        // Vibepollo answers a failed certificate check with HTTP 200 and a bare
+        // `<root status_code="401">`: that status, not the HTTP one, is the answer. A
+        // success code without the power document stays malformed below.
+        if let Some(Err(error @ Error::Status { code, .. })) = std::str::from_utf8(&response.body)
+            .ok()
+            .map(xml::parse_reply)
+        {
+            if code != i32::from(success) {
+                return Err(error.into());
+            }
+        }
         return Err(PowerError::Host(match status {
             404 => Error::NotFound(format!("/{path}")),
             s if s == success => malformed(format_args!("HTTP {s} without a power document")),
@@ -431,6 +442,15 @@ mod tests {
                 response(401, "<root status_code=\"401\"/>"),
                 SLEEP_PATH,
                 202
+            )),
+            401
+        );
+        // Vibepollo's failed certificate check: HTTP 200, the refusal in the document.
+        assert_eq!(
+            status(decode(
+                response(200, "<root status_code=\"401\"/>"),
+                CAPABILITIES_PATH,
+                200
             )),
             401
         );

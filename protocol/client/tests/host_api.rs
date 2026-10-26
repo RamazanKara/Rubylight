@@ -380,3 +380,20 @@ fn a_refused_sleep_keeps_the_hosts_reason() {
         Err(PowerError::Host(Error::NotFound(_)))
     ));
 }
+
+#[test]
+fn a_failed_certificate_check_under_http_200_is_the_hosts_401() {
+    // Vibepollo's on_verify_failed: HTTP 200, a bare root, no power fields.
+    const BODY: &str = "<root status_code=\"401\" status_message=\"The client is not authorized. \
+                        Certificate verification failed.\"/>";
+    let host = serve(|_| reply(200, "application/xml", BODY));
+    let client = paired_client(&host);
+    for result in [client.power_capabilities(), client.sleep(SLEEP_TOKEN)] {
+        match result {
+            Err(PowerError::Host(Error::Status { code: 401, message })) => {
+                assert_eq!(message, "The client is not authorized. Certificate verification failed.");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+}

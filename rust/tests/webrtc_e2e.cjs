@@ -4,10 +4,11 @@
 // host except to read its /serverinfo: every run starts with that idle check.
 //
 //   node rust/tests/webrtc_e2e.cjs [--legs pair,apps,...] [--seconds 60]
-//   node rust/tests/webrtc_e2e.cjs --console [--seconds 60]
+//   node rust/tests/webrtc_e2e.cjs --console [--seconds 60] [--screenshot C:\path\stream.png]
 //
 // `--console` (the leg `console`) streams on the console's own Stream page instead. It needs the
 // console assets of the checkout under test: BUTTERPOLLO_TEST_ASSETS=<checkout>\rust\web\dist.
+// `--screenshot` saves the Stream page while it streams, and before Connect as <name>-connect.png.
 //
 // Requires Playwright (PLAYWRIGHT_MODULE), Edge or Chrome and Windows.
 const assert = require('node:assert/strict');
@@ -25,6 +26,7 @@ const ALL_LEGS = ['pair', 'apps', 'browser', 'av1', 'hevc', 'surround51', 'surro
 // `--console` runs the browser leg first: the console's glass-to-glass is compared with it.
 const legs = args.includes('--console') ? ['browser', 'console'] : option('legs', ALL_LEGS.join(',')).split(',');
 const seconds = Number(option('seconds', 60));
+const screenshot = option('screenshot', '');
 // `--runs 3` repeats every streaming leg; `--system` starts the test host as SYSTEM in the console
 // session (the virtual display driver accepts nothing else); `--host-config a=b,c=d` (a value may hold commas: 30,60) adds lines to
 // the test host's sunshine.conf, so one invocation measures one host configuration.
@@ -306,6 +308,8 @@ async function consoleSession(host) {
       await page.click('button[type=submit]');
       await page.waitForURL(url => url.pathname === '/stream', {timeout: 20000});
       // The stream socket opens on Connect; the app list shows once the host answered get-apps.
+      await page.waitForSelector('button:has-text("Connect")', {timeout: 20000});
+      if (screenshot) await page.screenshot({path: screenshot.replace(/(\.png)?$/i, '-connect.png')});
       await page.click('button:has-text("Connect")', {timeout: 20000});
       await page.waitForSelector('.apps button, .notice.danger', {timeout: 20000});
       assert(!(await page.locator('.notice.danger').count()), `the Stream page failed: ${await page.textContent('.notice.danger').catch(() => '')}`);
@@ -332,6 +336,8 @@ async function consoleSession(host) {
       const last = await page.evaluate(() => RlProbe.sample());
       const g2g = await page.evaluate(() => RlProbe.g2gSummary());
       await saveFrame(page, 'console-h264', 'stream-video');
+      // After the measurement, so the capture costs the glass-to-glass samples nothing.
+      if (screenshot) await page.screenshot({path: screenshot});
       const result = streamResult({first, last, g2g, host, offset, extra: {startMs, pageErrors}});
       const stopped = Date.now();
       await page.click('button:has-text("Quit app")');

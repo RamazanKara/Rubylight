@@ -196,7 +196,9 @@ pub fn minimum_kbps(width: u32, height: u32, fps: u32, yuv444: bool, hdr: bool) 
     }
     let factor = if hdr { HDR_FACTOR } else { 1.0 };
     let mbps = estimate * 8e-3 * f64::from(fps.max(1)) * factor;
-    mbps.ceil() as u32 * 1000
+    // Clamped so an absurd frame rate cannot overflow the Kbps; Java's int would wrap.
+    let mbps = mbps.ceil().clamp(0.0, f64::from(u32::MAX / 1000));
+    mbps as u32 * 1000
 }
 
 pub(crate) fn traced_floor(args: &Value) -> Result<Box<dyn Subject>, String> {
@@ -305,6 +307,12 @@ mod tests {
             recent_video: true,
             ..Stats::default()
         }
+    }
+
+    #[test]
+    fn an_absurd_frame_rate_saturates_the_floor() {
+        assert_eq!(minimum_kbps(3840, 2160, u32::MAX, true, true), u32::MAX / 1000 * 1000);
+        assert!(minimum_kbps(3840, 2160, 1_000_000, true, true) > MAX_RUNTIME_KBPS);
     }
 
     #[test]

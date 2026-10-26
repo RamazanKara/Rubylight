@@ -13,6 +13,7 @@
 #include <stdarg.h>
 #include <stdatomic.h>
 #include <string.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <math.h>
 #include <libavcodec/avcodec.h>
@@ -53,7 +54,7 @@ static double assembly_times[MAX_MEASUREMENTS];
 static uint32_t picture_frames[MAX_MEASUREMENTS];
 static unsigned measured_frames;
 static FILE *timing_csv;
-static FILE *audio_csv;
+static FILE *audio_csv,*audio_raw;
 #define MAX_IDR_PROBES 2000
 #define IDR_PROBE_INTERVAL_US UINT64_C(1500000)
 static int idr_probe_count,idr_probe_sent;
@@ -478,6 +479,8 @@ static void audio_frame(char*data,int size){
         for(int i=0;i<count*audio_channels;i++){double v=samples[i];audio_energy+=v*v;if(fabs(v)>audio_peak)audio_peak=fabs(v);audio_samples++;}
     }else atomic_fetch_add(&failures,1);
     if(audio_csv)fprintf(audio_csv,"%.6f,%d,%.9f,%.9f\n",clock_ms(),count,isfinite(minimum)?sqrt(minimum):-1,sqrt(maximum));
+    /* Each decoded packet: arrival (f64 ms, QPC), frames and channels (i32), then the interleaved f32 samples. */
+    if(audio_raw&&count>0){double at=clock_ms();int32_t head[2]={count,audio_channels};fwrite(&at,sizeof at,1,audio_raw);fwrite(head,sizeof head,1,audio_raw);fwrite(samples,sizeof(float),(size_t)count*audio_channels,audio_raw);}
 }
 static void stage_start(int stage){printf("STAGE %s\n",LiGetStageName(stage));}
 static void stage_failed(int stage,int error){printf("FAILED %s error=%d\n",LiGetStageName(stage),error);}
@@ -595,6 +598,9 @@ int main(int argc,char**argv){
         audio_csv=fopen(getenv("BUTTERPOLLO_TEST_AUDIO_CSV"),"w");if(!audio_csv){perror("audio CSV");return 2;}
         fprintf(audio_csv,"arrival_ms,samples,min_rms,max_rms\n");
     }
+    if(getenv("BUTTERPOLLO_TEST_AUDIO_RAW")){
+        audio_raw=fopen(getenv("BUTTERPOLLO_TEST_AUDIO_RAW"),"wb");if(!audio_raw){perror("audio raw");return 2;}
+    }
     if(argc>3)config.width=atoi(argv[3]);if(argc>4)config.height=atoi(argv[4]);if(argc>5)config.fps=atoi(argv[5]);if(argc>7)config.bitrate=atoi(argv[7]);
     if(argc>8)decoder_threads=atoi(argv[8]);requested_width=config.width;requested_height=config.height;
     /* The Xbox app sends its TV's refresh, such as 5994 on a 59.94 Hz mode. */
@@ -663,6 +669,7 @@ int main(int argc,char**argv){
     printf("PICTURE_CONTENT frames_with_luma_contrast=%d\n",atomic_load(&detailed_frames));
     if(timing_csv)fclose(timing_csv);
     if(audio_csv)fclose(audio_csv);
+    if(audio_raw)fclose(audio_raw);
     printf("AUDIO_SIGNAL samples=%llu peak=%.6f rms=%.6f\n",audio_samples,audio_peak,audio_samples?sqrt(audio_energy/audio_samples):0.0);
     if(getenv("BUTTERPOLLO_TEST_AUDIO_TONE")){
         int continuous=audio_tone_blocks&&audio_tone_min_energy>=audio_tone_max_energy*.25;

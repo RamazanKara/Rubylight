@@ -25,6 +25,22 @@ const OFF_RAMP_FRAMES: u32 = 480;
 const CLIP_KNEE: f32 = 0.707_945_8;
 pub(crate) const CLIP_CEILING: f32 = 0.98;
 
+/// The LFE of a 5.1 or 7.1 frame, which the leveller doesn't measure.
+const LFE: usize = 3;
+
+/// A frame's power for the leveller, BS.1770-style: without the LFE and
+/// normalized to a stereo pair, so the same programme reads the same level in
+/// 2, 6 or 8 channels.
+fn power(frame: &[f32]) -> f32 {
+    let square = |samples: &[f32]| samples.iter().map(|x| x * x).sum::<f32>();
+    let sum = if frame.len() > LFE + 1 {
+        square(&frame[..LFE]) + square(&frame[LFE + 1..])
+    } else {
+        square(frame)
+    };
+    sum / 2.
+}
+
 fn coefficient(seconds: f32) -> f32 {
     (-1. / (seconds * RATE)).exp()
 }
@@ -172,7 +188,7 @@ impl Night {
         if level_db >= HOLD_BELOW_DB {
             // It measures what the compressor lets through.
             let compressed = 10f32.powf(self.compressor_db / 10.);
-            let power = frame.iter().map(|x| x * x).sum::<f32>() / frame.len() as f32 * compressed;
+            let power = power(frame) * compressed;
             self.mean_square = power + self.rms * (self.mean_square - power);
             let rms_db = 10. * self.mean_square.max(1e-12).log10();
             let want = (TARGET_DB - rms_db).clamp(LEVEL_MIN_DB, LEVEL_MAX_DB);
@@ -336,6 +352,38 @@ mod tests {
         for frame in samples.as_chunks::<6>().0 {
             assert!(frame[1..].iter().all(|x| x.to_bits() == 0));
         }
+    }
+
+    #[test]
+    fn the_leveller_reads_stereo_the_same_in_2_and_8_channels_without_the_lfe() {
+        let left = sine(-35., 440., 48_000 * 4, 1);
+        let right = sine(-41., 660., 48_000 * 4, 1);
+        let stereo: Vec<f32> = left
+            .iter()
+            .zip(&right)
+            .flat_map(|(l, r)| [*l, *r])
+            .collect();
+        let padded: Vec<f32> = left
+            .iter()
+            .zip(&right)
+            .flat_map(|(l, r)| [*l, *r, 0., 0., 0., 0., 0., 0.])
+            .collect();
+        let mut two = Night::default();
+        two.process(&mut stereo.clone(), 2, true);
+        let mut eight = Night::default();
+        eight.process(&mut padded.clone(), 8, true);
+        assert!(two.leveller_db() > 3., "{}", two.leveller_db());
+        assert_eq!(eight.leveller_db(), two.leveller_db());
+        assert_eq!(eight.compressor_db(), two.compressor_db());
+        // The LFE's power doesn't count (its peaks, linked, would).
+        let rumble = sine(-10., 40., 48_000 * 4, 1);
+        let mut lfe = padded;
+        for (frame, x) in lfe.chunks_exact_mut(8).zip(&rumble) {
+            frame[LFE] = *x * 1e-3;
+        }
+        let mut with_lfe = Night::default();
+        with_lfe.process(&mut lfe, 8, true);
+        assert_eq!(with_lfe.leveller_db(), two.leveller_db());
     }
 
     #[test]

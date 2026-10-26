@@ -314,7 +314,7 @@ The chain keeps per-channel state across packets. It never holds back or waits f
   - Threshold -30 dBFS, ratio 3:1, 6 dB soft knee.
   - Gain is smoothed in dB with a 3 ms attack and a 250 ms release.
 - **Leveller:**
-  - A slow gain toward -23 dBFS RMS, measured with a 3 s one-pole RMS.
+  - A slow gain toward -23 dBFS RMS, measured with a 3 s one-pole RMS. As in BS.1770, the power leaves out the LFE and is normalized to a stereo pair, so the same programme reads the same in 2, 6 or 8 channels.
   - Range -6 to +12 dB, slewing at no more than 3 dB/s.
   - It holds while the input RMS is below -60 dBFS, so silence and noise floors aren't boosted.
 - **Soft clipper:** memoryless. Unity below -3 dBFS, then a smooth approach to 0.98. It catches the attack overshoot that a compressor without lookahead lets through.

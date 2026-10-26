@@ -19,7 +19,8 @@ final class DemoMetrics {
 
     static void update(Context context, PerfOverlayListener listener, long tick) {
         float fps = 119.9f + (float) Math.sin(tick * 0.7) * 0.04f;
-        float decode = 6.0f + (float) Math.sin(tick * 0.5) * 0.3f;
+        // About what a Snapdragon 8 Elite reports for a 1080p frame (docs/devices.md).
+        float decode = 0.55f + (float) Math.sin(tick * 0.5) * 0.05f;
         String video = context.getString(R.string.perf_overlay_streamdetails, "1920x1080", 120f) + '\n' +
                 context.getString(R.string.perf_overlay_incomingfps, 120f) + '\n' +
                 context.getString(R.string.perf_overlay_shownfps, String.format(Locale.ROOT, "%.2f FPS", fps)) +
@@ -32,8 +33,8 @@ final class DemoMetrics {
                 context.getString(R.string.perf_overlay_low_latency, context.getString(R.string.perf_overlay_low_latency_android_vendor)) +
                 "\nGPU: system driver (scripted)\nSample playback: 1080p60 SDR\n" +
                 MediaCodecDecoderRenderer.formatLatencyOverlay(context, new double[][] {
-                        {600, 0.4, 0.8, 1.2}, {600, decode, 7.0, 8.0}, {600, 1.2, 1.8, 2.5},
-                        {600, 7.6, 9.4, 11.1}, {600, 3.1, 3.8, 4.2}
+                        {600, 0.4, 0.8, 1.2}, {600, decode, 0.8, 1.1}, {600, 1.2, 1.8, 2.5},
+                        {600, 2.2, 3.1, 4.0}, {600, 3.1, 3.8, 4.2}
                 });
         CharSequence statistics = PerformanceOverlay.statisticsText(context, "1920×1080 · " + DemoSample.label(sample),
                 fps, 120, 38.6f, 0.1f, 8, 1, 3.1f, -1, decode, 1.2f, false);

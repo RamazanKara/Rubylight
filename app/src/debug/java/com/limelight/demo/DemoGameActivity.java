@@ -267,7 +267,8 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         options.gameControls = true;
         options.nativeHostControl = DemoConsole.hostControl;
         options.connection = new com.limelight.console.ConnectionInfo(host.name, MoonBridge.VIDEO_FORMAT_H265_MAIN10,
-                SAMPLE_WIDTH, SAMPLE_HEIGHT, 120, 80_000, null, 4);
+                SAMPLE_WIDTH, SAMPLE_HEIGHT, 120, 80_000, new com.limelight.utils.WifiFacts(com.limelight.utils.WifiFacts.Link.WIFI,
+                        -45, 5745, 160, 1201, 1201, 1201, 6), 4);
         return options;
     }
 

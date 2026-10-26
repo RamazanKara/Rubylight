@@ -2123,8 +2123,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
             // This will try low latency options until we find one that works (or we give up).
             boolean newFormat = MediaCodecHelper.setDecoderLowLatencyOptions(mediaFormat, selectedDecoderInfo, tryNumber,
-                    prefs.codecLowLatency, prefs.vendorLowLatency, prefs.codecPerformance, prefs.disableHevcLowLatency,
-                    prefs.experimentalChipsetTuning);
+                    prefs.codecLowLatency, prefs.vendorLowLatency, prefs.codecPerformance, prefs.disableHevcLowLatency);
 
             // Each rejected configure drops keys on the next try; keep a record of which ones went.
             List<String> vendorParams = MediaCodecHelper.getIntegerVendorParameters(selectedDecoderInfo.getName());
@@ -3012,10 +3011,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             if (workStartNs != 0) {
                                 // Report the complete handoff once, after presenting. Reporting each
                                 // discarded output adds work while we are trying to leave catch-up.
-                                // The submissions since the last report are this frame's work too.
-                                performanceHints.addThread(submitThreadId);
-                                performanceHints.reportWorkDuration(System.nanoTime() - workStartNs +
-                                        unreportedSubmitNs.getAndSet(0), refreshRate);
+                                performanceHints.reportWorkDuration(System.nanoTime() - workStartNs, refreshRate);
                             }
                             checkUpscaling();
                             doCodecRecoveryIfRequired(CR_FLAG_RENDER_THREAD);
@@ -3516,59 +3512,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         window.totalHostProcessingLatency += frameHostProcessingLatency;
     }
 
-    // The thread that submits decode units, and its submission time not yet reported to ADPF.
-    private Thread submitThread;
-    private volatile int submitThreadId;
-    private final AtomicLong unreportedSubmitNs = new AtomicLong();
-
+    @SuppressWarnings("deprecation")
     @Override
     public int submitDecodeUnit(byte[] decodeUnitData, int decodeUnitLength, int decodeUnitType,
-                                int frameNumber, int frameType, char frameHostProcessingLatency,
-                                long receiveTimeUs, long enqueueTimeUs, long receiveTimeNs,
-                                long presentationTimeUs) {
-        return timedDecodeUnit(decodeUnitData, null, decodeUnitLength, decodeUnitType, frameNumber, frameType,
-                frameHostProcessingLatency, receiveTimeUs, enqueueTimeUs, receiveTimeNs, presentationTimeUs);
-    }
-
-    @Override
-    public int submitDirectDecodeUnit(ByteBuffer decodeUnitData, int decodeUnitLength, int decodeUnitType,
-                                      int frameNumber, int frameType, char frameHostProcessingLatency,
-                                      long receiveTimeUs, long enqueueTimeUs, long receiveTimeNs,
-                                      long presentationTimeUs) {
-        if (decodeUnitType != MoonBridge.BUFFER_TYPE_PICDATA) {
-            // Parameter sets are parsed and kept as arrays.
-            return super.submitDirectDecodeUnit(decodeUnitData, decodeUnitLength, decodeUnitType, frameNumber,
-                    frameType, frameHostProcessingLatency, receiveTimeUs, enqueueTimeUs, receiveTimeNs, presentationTimeUs);
-        }
-        return timedDecodeUnit(null, decodeUnitData, decodeUnitLength, decodeUnitType, frameNumber, frameType,
-                frameHostProcessingLatency, receiveTimeUs, enqueueTimeUs, receiveTimeNs, presentationTimeUs);
-    }
-
-    // Exactly one of decodeUnitData and directData is set; directData is only picture data.
-    private int timedDecodeUnit(byte[] decodeUnitData, ByteBuffer directData, int decodeUnitLength, int decodeUnitType,
-                                int frameNumber, int frameType, char frameHostProcessingLatency,
-                                long receiveTimeUs, long enqueueTimeUs, long receiveTimeNs,
-                                long presentationTimeUs) {
-        long startNs = System.nanoTime();
-        try {
-            return queueDecodeUnit(decodeUnitData, directData, decodeUnitLength, decodeUnitType, frameNumber, frameType,
-                    frameHostProcessingLatency, receiveTimeUs, enqueueTimeUs, receiveTimeNs, presentationTimeUs);
-        } finally {
-            // The renderer thread reports this with its hand-off, and puts this thread in its
-            // ADPF session: submitting is part of each frame's work. PyroWave has its own session.
-            if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0) {
-                Thread current = Thread.currentThread();
-                if (submitThread != current) {
-                    submitThread = current;
-                    submitThreadId = Process.myTid();
-                }
-                unreportedSubmitNs.addAndGet(System.nanoTime() - startNs);
-            }
-        }
-    }
-
-    @SuppressWarnings("deprecation")
-    private int queueDecodeUnit(byte[] decodeUnitData, ByteBuffer directData, int decodeUnitLength, int decodeUnitType,
                                 int frameNumber, int frameType, char frameHostProcessingLatency,
                                 long receiveTimeUs, long enqueueTimeUs, long receiveTimeNs,
                                 long presentationTimeUs) {
@@ -3672,7 +3618,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             PyroWaveDisplayClock.Snapshot displayClock =
                     FramePacingPolicy.usesPyroWaveDisplayClock(prefs.framePacing, prefs.vrr, outputVsyncAvailable) ?
                             pyroWaveDisplayClock.snapshot() : PyroWaveDisplayClock.Snapshot.UNAVAILABLE;
-            long submissionResult = pyroWaveRenderer.submitFrame(decodeUnitData, directData, decodeUnitLength, ptsUs,
+            long submissionResult = pyroWaveRenderer.submitFrame(decodeUnitData, decodeUnitLength, ptsUs,
                     presentationTimeUs, displayClock, frameLatencyStats,
                     context, prefs.phonePerformanceHints, refreshRate);
             activeWindowVideoStats.decoderTimeMs += pyroWaveSubmissionTiming.addDurationNs(
@@ -3970,12 +3916,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
 
         // Copy data from our buffer list into the input buffer
-        if (directData != null) {
-            directData.limit(decodeUnitLength).position(0);
-            nextInputBuffer.put(directData);
-        } else {
-            nextInputBuffer.put(decodeUnitData, 0, decodeUnitLength);
-        }
+        nextInputBuffer.put(decodeUnitData, 0, decodeUnitLength);
 
         // The queued timestamp comes back on the decoded image, which is how the renderer finds
         // the frame again
@@ -4031,37 +3972,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return capabilitiesFor(negotiatedFormat);
     }
 
-    /**
-     * The decoder that will run a negotiated format mask, in the handshake's order (AV1, then
-     * HEVC, then H.264), or null before negotiation or when no decoder is chosen for it.
-     */
-    private MediaCodecInfo decoderForNegotiated(int formats) {
-        if ((formats & MoonBridge.VIDEO_FORMAT_MASK_AV1) != 0) {
-            return decoderFor(formats & MoonBridge.VIDEO_FORMAT_MASK_AV1);
-        }
-        if ((formats & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0) {
-            return decoderFor(formats & MoonBridge.VIDEO_FORMAT_MASK_H265);
-        }
-        if ((formats & MoonBridge.VIDEO_FORMAT_MASK_H264) != 0) {
-            return avcDecoder;
-        }
-        return null;
-    }
-
     private int capabilitiesFor(int format) {
         int capabilities = 0;
         boolean tenBit = tenBitSdr(format);
         boolean hevc = (format & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0;
         boolean av1 = (format & MoonBridge.VIDEO_FORMAT_MASK_AV1) != 0;
-        // Slices and direct submit follow the decoder that will run the negotiated format. Before
-        // negotiation the AVC decoder's direct submit and the larger slice count stand in.
-        MediaCodecInfo runner = decoderForNegotiated(format);
-        byte slices = runner != null ? MediaCodecHelper.getDecoderOptimalSlicesPerFrame(runner.getName()) :
-                (tenBit && hevc ? optimalSlicesPerFrame10 : optimalSlicesPerFrame);
-        boolean submitDirect = runner != null ? MediaCodecHelper.decoderCanDirectSubmit(runner.getName()) : directSubmit;
 
         // Request the optimal number of slices per frame for this decoder
-        capabilities |= MoonBridge.CAPABILITY_SLICES_PER_FRAME(slices);
+        capabilities |= MoonBridge.CAPABILITY_SLICES_PER_FRAME(tenBit && hevc ? optimalSlicesPerFrame10 : optimalSlicesPerFrame);
 
         // Enable reference frame invalidation on supported hardware
         if (refFrameInvalidationAvc) {
@@ -4075,7 +3993,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
 
         // Enable direct submit on supported hardware
-        if (submitDirect) {
+        if (directSubmit) {
             capabilities |= MoonBridge.CAPABILITY_DIRECT_SUBMIT;
         }
 

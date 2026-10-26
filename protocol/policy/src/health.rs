@@ -271,7 +271,8 @@ pub fn period_ms(times: &[u64]) -> u64 {
     // unrelated stall between two beats cannot hide the rhythm.
     for i in 0..n {
         for j in i + 1..n.min(i + 3) {
-            let candidate = starts[j] - starts[i];
+            // Times out of order give Java a negative gap, which is no candidate.
+            let candidate = starts[j].saturating_sub(starts[i]);
             if !(MIN_PERIOD_MS..=MAX_PERIOD_MS).contains(&candidate) {
                 continue;
             }
@@ -323,7 +324,8 @@ fn chain(starts: &[u64], first: usize, period: u64) -> (usize, u64) {
     }
     // With many other stalls some land on a beat by luck. Spread the stalls off the beat at random:
     // a chain this long must be unlikely across all candidates tried (about two per stall).
-    let span = (starts[n - 1] - starts[0]).max(1) as f64;
+    // Java's signed max(1, last - first): times out of order span 1 ms.
+    let span = starts[n - 1].saturating_sub(starts[0]).max(1) as f64;
     let chance = ((n - hits).max(1) as f64 / span * 2.0 * tolerance as f64).min(0.999);
     if (hits - 1) as f64 * chance.ln() + (2.0 * n as f64).ln() > 0.001f64.ln() {
         return (0, 0);
@@ -333,7 +335,7 @@ fn chain(starts: &[u64], first: usize, period: u64) -> (usize, u64) {
     if hits * 3 < in_span * 2 {
         return (0, 0);
     }
-    (hits, (last - starts[first]) / (slots as u64 - 1))
+    (hits, last.saturating_sub(starts[first]) / (slots as u64 - 1))
 }
 
 /// What the doctor offers next to its report.

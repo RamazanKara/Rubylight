@@ -87,6 +87,7 @@ impl Fixture {
             audio_preparation: Default::default(),
             preparing: Default::default(),
             transport: Default::default(),
+            roaming_offered: Default::default(),
             warnings: Default::default(),
         }
     }

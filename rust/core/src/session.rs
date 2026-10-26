@@ -1681,6 +1681,7 @@ mod tests {
             audio_preparation: Default::default(),
             preparing: Default::default(),
             transport: Default::default(),
+            roaming_offered: Default::default(),
             warnings: Default::default(),
         }
     }
@@ -2448,6 +2449,8 @@ pub struct Launch<P = (), A = ()> {
     /// connects only after the launch reply.
     pub preparing: Arc<AtomicBool>,
     pub transport: Transport,
+    /// The DESCRIBE answer offered client roaming (`crate::roaming::SDP_ATTRIBUTE`).
+    pub roaming_offered: Arc<AtomicBool>,
 }
 // Launch clones share the slots; the platform preparations need not be Clone.
 impl<P, A> Clone for Launch<P, A> {
@@ -2476,6 +2479,7 @@ impl<P, A> Clone for Launch<P, A> {
             audio_preparation: self.audio_preparation.clone(),
             preparing: self.preparing.clone(),
             transport: self.transport,
+            roaming_offered: self.roaming_offered.clone(),
         }
     }
 }

@@ -3848,8 +3848,10 @@ impl Media {
                         remove.push(*peer_id);
                         continue;
                     }
-                    // A session takes roaming probes once its stream and ENet peer are up.
+                    // A session takes roaming probes once its stream and ENet peer are up,
+                    // and only if its DESCRIBE offered roaming.
                     if !p.roaming
+                        && s.launch.roaming_offered.load(Ordering::Acquire)
                         && let Some(address) = host.peer(*peer_id).address()
                     {
                         host.socket_mut()

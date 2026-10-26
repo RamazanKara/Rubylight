@@ -160,6 +160,11 @@ async fn connection(
                     // Video encryption is offered unless turned off for this
                     // network, and audio and video are required where mandatory.
                     let mic = takes_mic(&config, &media);
+                    // Probes are answered only for sessions offered roaming here.
+                    launch.roaming_offered.store(
+                        config.client_roaming(),
+                        std::sync::atomic::Ordering::Release,
+                    );
                     body = rtsp::describe(
                         input_capabilities,
                         if encryption_mode == 0 { 5 } else { 7 },

@@ -1802,6 +1802,7 @@ fn build_launch(
         options: args.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
         preparing: Default::default(),
         transport: Default::default(),
+        roaming_offered: Default::default(),
         warnings: Default::default(),
     }
 }

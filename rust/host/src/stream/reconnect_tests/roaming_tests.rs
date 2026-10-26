@@ -76,6 +76,13 @@ fn video_peer(h: &Harness, launch: &Launch) -> Option<SocketAddr> {
     peers.get(&(launch.id.clone(), false)).copied()
 }
 
+/// DESCRIBE, which offers the session roaming.
+async fn offer(h: &Harness, launch: &Launch) -> Result<()> {
+    let describe = h.rtsp(launch, 10, "DESCRIBE", "").await?;
+    assert!(describe.contains(SDP_ATTRIBUTE), "{describe}");
+    Ok(())
+}
+
 /// PROBE, CHALLENGE, CONFIRM and MIGRATED from `control`: the session's client is at
 /// its address from now on.
 async fn roam(roamer: &mut Roamer, session: &Session, control: &UdpSocket) -> Result<()> {
@@ -159,6 +166,7 @@ async fn a_client_that_proves_its_new_address_keeps_its_stream() -> Result<()> {
 async fn after_a_roam_only_the_sessions_own_ping_takes_its_video() -> Result<()> {
     let h = Harness::new(10_000, 1).await?;
     let launch = h.launch(0, false).await?;
+    offer(&h, &launch).await?;
     let (session, client) = h.play(&launch).await?;
     let control = moved_udp()?;
     let mut roamer = Roamer::new(h.ports, &launch);
@@ -192,6 +200,7 @@ async fn after_a_roam_only_the_sessions_own_ping_takes_its_video() -> Result<()>
 async fn without_the_confirm_nothing_moves() -> Result<()> {
     let h = Harness::new(10_000, 1).await?;
     let launch = h.launch(0, false).await?;
+    offer(&h, &launch).await?;
     let (session, client) = h.play(&launch).await?;
     let video = video_peer(&h, &launch);
     let control = moved_udp()?;
@@ -251,6 +260,31 @@ async fn roaming_turned_off_is_not_offered_and_ignores_probes() -> Result<()> {
         client.frames.load(Ordering::Acquire) > frames + 2
     })
     .await;
+    h.end(&session, client).await?;
+    h.finish().await
+}
+
+/// Roaming is on, but a client that never got the DESCRIBE offer does not speak it: its
+/// session's key answers no PROBE.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_session_not_offered_roaming_ignores_probes() -> Result<()> {
+    let h = Harness::new(10_000, 1).await?;
+    let launch = h.launch(0, false).await?;
+    let (session, client) = h.play(&launch).await?;
+    let control = moved_udp()?;
+    let mut roamer = Roamer::new(h.ports, &launch);
+    let probe = Payload::Probe {
+        nonce_c: 7,
+        flags: 0,
+    };
+    assert_eq!(
+        roamer
+            .exchange(&control, probe, Duration::from_millis(500))
+            .await?,
+        None
+    );
+    assert_eq!(session.client_ip(), IpAddr::from([127, 0, 0, 1]));
+    assert_eq!(session.roams(), 0);
     h.end(&session, client).await?;
     h.finish().await
 }

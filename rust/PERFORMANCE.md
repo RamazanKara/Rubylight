@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| A 60 Hz game's repeated frames under VRR: holding later compositions of a claimed frame, simulation and 60/120/240 Hz ABBA (not kept) | [October 26, holding later compositions (not kept)](#october-26-holding-later-compositions-of-a-claimed-frame-not-kept) |
 | VRR claims that follow the game's pictures: a 120 Hz game on a 60 fps VRR stream, age and present-to-sent p95, late claims; 240 and 60 Hz games | [October 26, VRR claims follow the game's pictures](#october-26-vrr-claims-follow-the-games-pictures) |
 | 3.0.0-rc.2 against the published numbers: timing record stages, VRR capture age, the laptop over Wi-Fi; what could not be rerun | [October 26, 3.0.0-rc.2 against the published numbers](#october-26-300-rc2-against-the-published-numbers) |
 | Wi-Fi clients paced from the first frame (`clientWireless`): Nightjar desktop over 5 GHz and 2.4 GHz, with and without the hint | [October 25, Wi-Fi pacing hint](#october-25-wi-fi-pacing-hint-on-a-real-laptop) |
@@ -46,6 +47,27 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## October 26: holding later compositions of a claimed frame (not kept)
+
+After the picture change below, a 60 Hz game on a 60 fps VRR stream still repeated game frames on this PC (one run on October 26: age p95 4.33 ms, 8.0 % late claims, 23 repeats; October 24: 0.28 ms). In the bad runs the late claims came in streaks: in the run from that morning, 9 streaks of three or more consecutive late claims, the longest 30, claims about 10 ms behind the game and one period apart.
+
+A simulation (`simulate_captures`: a 60 Hz game with 0.8 ms noise, a hitch every 2 s, a second composition 0.1 to 1 ms after each frame and sometimes a third 3 to 4 ms after it) reproduces that state. After a hitch the pacer claims a later composition of the picture it has just claimed. That claim is the repeat, and it spends the credit the game's next frame needs. While the capture mean reads faster than the stream, credit refills at exactly one claim per period, so the deficit lasts until the game leaves a gap: 246 of 1202 claims late, p99 11.2 ms. Refilling credit from the picture rate instead of the capture mean made it worse (rate 60.5, about 25 repeats, 38 % late claims), because more compositions were claimed. The change tried here treats a capture within a third of the picture interval of the claimed picture as another composition of it. That capture waits like an unchanged picture until the static repeat (`static_period`, 50 ms by default), unless a new picture replaces it. In the simulation late claims fell to 0 with no repeats. Replaying the five traced 60 Hz sessions and the 120 Hz traces from that day gave identical claims with and without the change: none of them was in the bad state.
+
+Measured as in the section below. The base is rc.2 with the picture change's `butterpollo.exe` (`3712b0bca`); "hold" is the same package with the change on top. At 60 Hz there were two ABBA batches of four runs per build, in the orders B H H B B H H B and H B B H H B B H. Repeats are the client motion probe's count of game frames shown twice.
+
+| Game / build | Runs | Age p50 / p95 / p99 | Present-to-sent p50 / p95 / p99 | Cadence error p50 / p99 | Stream fps | Late claims | Repeats per run |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 60 Hz, base | 8 | 0.25 / 0.87 / 3.10 | 3.40 / 5.27 / 7.37 | 0.43 / 5.68 | 59.84 | 1.3 % | 39 (20-79) |
+| 60 Hz, hold | 8 | 0.25 / 0.97 / 3.30 | 3.56 / 5.89 / 8.11 | 0.53 / 6.09 | 59.84 | 1.1 % | 39 (22-66) |
+| 120 Hz, base | 2 | 0.23 / 0.76 / 2.62 | 3.29 / 5.23 / 6.78 | 0.47 / 4.74 | 59.81 | 0.8 % | 0 |
+| 120 Hz, hold | 2 | 0.23 / 0.29 / 3.53 | 3.16 / 4.91 / 7.17 | 0.53 / 4.92 | 59.74 | 1.1 % | 0 |
+| 240 Hz, base | 1 | 0.25 / 1.46 / 3.74 | 3.79 / 6.50 / 9.11 | 1.25 / 6.81 | 59.80 | 1.3 % | 0 |
+| 240 Hz, hold | 1 | 0.24 / 0.70 / 3.02 | 3.46 / 5.48 / 7.93 | 1.11 / 6.32 | 59.73 | 0.8 % | 0 |
+
+None of the 16 runs at 60 Hz entered the streaking state: no streak was longer than two late claims, so the hardware could not show what the change targets. Age p95 per run: base 0.29 to 3.49 ms, hold 0.32 to 2.39 ms. Neither build came back near October 24's 0.28 ms, and both repeated a game frame about 39 times per run. Present-to-sent p95 was higher with the hold in most runs (per run 4.79 to 6.86 ms against 4.28 to 7.72 ms; rank test p ≈ 0.07), and so was the capture stage's median (0.37 against 0.20 ms). The 120 and 240 Hz games, two runs and one run per build, gave lower age p95 with the hold, but that is too few runs to count. **The change measured no better at 60 Hz and possibly worse at present-to-sent p95, so it is not kept.**
+
+These runs had a different source of late claims: the 60 Hz game's presents landed on the display's 4.17 ms refreshes, and the prediction waited until the end of its budget for a next picture estimated from compositions. The repeats are still open.
 
 ## October 26: VRR claims follow the game's pictures
 

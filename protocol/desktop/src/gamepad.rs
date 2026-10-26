@@ -847,6 +847,65 @@ mod tests {
         }
     }
 
+    /// A chord the host may claim (its menu opens on L3+R3 held by default, and the chord can
+    /// change) is ordinary input here: both stick clicks reach the host for as long as they are
+    /// held, and no Nightjar action comes of it.
+    #[test]
+    fn stick_clicks_held_together_reach_the_host_and_are_no_action() {
+        let _sdl = crate::sdl::TEST_LOCK.lock().unwrap();
+        use nightjar_core::control::HostCapabilities;
+        // SAFETY: SDL calls on this test's thread; the descriptor outlives the attach.
+        unsafe {
+            assert!(SDL_Init(SDL_INIT_GAMEPAD), "{}", crate::sdl::error());
+            let mut desc: SDL_VirtualJoystickDesc = std::mem::zeroed();
+            desc.version = std::mem::size_of::<SDL_VirtualJoystickDesc>() as u32;
+            desc.r#type = SDL_JOYSTICK_TYPE_GAMEPAD.0 as u16;
+            desc.naxes = SDL_GAMEPAD_AXIS_COUNT.0 as u16;
+            desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT.0 as u16;
+            desc.button_mask = (1u32 << SDL_GAMEPAD_BUTTON_COUNT.0) - 1;
+            desc.axis_mask = (1u32 << SDL_GAMEPAD_AXIS_COUNT.0) - 1;
+            desc.name = c"Nightjar test pad".as_ptr();
+            let id = SDL_AttachVirtualJoystick(&desc);
+            assert!(id.0 != 0, "{}", crate::sdl::error());
+            let mut pads = Gamepads::default();
+            pads.added(id);
+            let mut queue = InputQueue::new(&HostCapabilities {
+                app_version: [7, 1, 431, -1],
+                feature_flags: 0x03,
+                ..Default::default()
+            });
+            pads.announce_all(&mut queue);
+            let joystick = SDL_GetGamepadJoystick(pads.pads[0].handle);
+            let mut event: SDL_Event = std::mem::zeroed();
+            for stick in [SDL_GAMEPAD_BUTTON_LEFT_STICK, SDL_GAMEPAD_BUTTON_RIGHT_STICK] {
+                SDL_SetJoystickVirtualButton(joystick, stick.0, true);
+                SDL_UpdateJoysticks();
+                let queued = queue.len();
+                while SDL_PollEvent(&mut event) {
+                    assert_eq!(pads.handle(&event, &mut queue), None);
+                }
+                assert!(queue.len() > queued, "each click is sent");
+            }
+            assert_eq!(pads.pads[0].buttons, button::LS_CLK | button::RS_CLK);
+            // Held for two seconds: nothing local fires, and both stay down for the host.
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            assert!(!pads.update_mouse(&mut queue));
+            assert_eq!(pads.pads[0].buttons, button::LS_CLK | button::RS_CLK);
+            for stick in [SDL_GAMEPAD_BUTTON_LEFT_STICK, SDL_GAMEPAD_BUTTON_RIGHT_STICK] {
+                SDL_SetJoystickVirtualButton(joystick, stick.0, false);
+            }
+            SDL_UpdateJoysticks();
+            while SDL_PollEvent(&mut event) {
+                assert_eq!(pads.handle(&event, &mut queue), None);
+            }
+            assert_eq!(pads.pads[0].buttons, 0);
+
+            pads.close_all();
+            SDL_DetachVirtualJoystick(id);
+            SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+        }
+    }
+
     #[test]
     fn button_map_follows_sdl_order() {
         assert_eq!(BUTTON_MAP[SDL_GAMEPAD_BUTTON_SOUTH.0 as usize], button::A);

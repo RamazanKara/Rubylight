@@ -1484,6 +1484,11 @@ impl Streaming {
                         Err(error) => self.show_toast(error),
                     }
                 }
+                Notice::HostMenu(result) => {
+                    if let Err(error) = result {
+                        self.show_toast(error);
+                    }
+                }
                 Notice::AdaptiveBitrate(result) => {
                     self.bitrate_busy = false;
                     match result {
@@ -1749,6 +1754,26 @@ impl Streaming {
             waker,
         ));
         self.needs_redraw = true;
+    }
+
+    /// Closes Nightjar's menu first, so the stream (and the host's menu) gets the input again,
+    /// then asks the host to open its menu. A refusal comes back as a toast.
+    pub fn open_host_menu(&mut self, window: *mut SDL_Window, pads: &mut Gamepads) {
+        if self.menu_visible {
+            self.toggle_menu(window, pads);
+        }
+        if self.menu_visible {
+            // An End or Close game is still running; the page stays for its answer.
+            return;
+        }
+        let Some(client) = lock(&self.shared.host_client).clone() else {
+            self.show_toast(tr("Cannot reach the host."));
+            return;
+        };
+        let shared = self.shared.clone();
+        std::thread::spawn(move || {
+            shared.notify(Notice::HostMenu(crate::session_page::host_menu_result(client.couch_menu(true))));
+        });
     }
 
     /// Closes the Session page; its worker ends and nothing polls.
@@ -2548,9 +2573,7 @@ impl Streaming {
         if k.repeat {
             return;
         }
-        let m = k.r#mod.0;
-        let has = |flag: SDL_Keymod| m & flag.0 != 0;
-        if k.down && has(SDL_KMOD_CTRL) && has(SDL_KMOD_ALT) && has(SDL_KMOD_SHIFT) {
+        if k.down && local_chord(k.r#mod) {
             match k.scancode {
                 SDL_SCANCODE_TAB => {
                     self.toggle_menu(window, pads);
@@ -2617,25 +2640,11 @@ impl Streaming {
         if !self.captured {
             return;
         }
-        let system_keys = self.settings.capture_system_keys;
-        let right_alt_as_meta = self.settings.right_alt_as_meta;
-        let scancode = if right_alt_as_meta && k.scancode == SDL_SCANCODE_RALT { SDL_SCANCODE_RGUI } else { k.scancode };
-        let Some((code, flags)) = keymap::virtual_key(scancode, system_keys || (right_alt_as_meta && k.scancode == SDL_SCANCODE_RALT)) else {
+        let Some(KeyInput { code, modifiers, flags }) =
+            key_input(k.scancode, k.r#mod, self.settings.capture_system_keys, self.settings.right_alt_as_meta)
+        else {
             return;
         };
-        let mut modifiers = 0u8;
-        if has(SDL_KMOD_CTRL) {
-            modifiers |= modifier::CTRL;
-        }
-        if has(SDL_KMOD_LALT) || (!right_alt_as_meta && has(SDL_KMOD_RALT)) {
-            modifiers |= modifier::ALT;
-        }
-        if has(SDL_KMOD_SHIFT) {
-            modifiers |= modifier::SHIFT;
-        }
-        if (has(SDL_KMOD_GUI) && system_keys) || (right_alt_as_meta && has(SDL_KMOD_RALT)) {
-            modifiers |= modifier::META;
-        }
         if k.down {
             self.keys_down.insert(code);
         } else {
@@ -2696,9 +2705,58 @@ impl Streaming {
     }
 }
 
+/// Ctrl+Alt+Shift is Nightjar's own chord; every other one, a host's own menu chord such as
+/// Ctrl+Alt+Backspace included, goes to the PC like any key.
+fn local_chord(modifiers: SDL_Keymod) -> bool {
+    let has = |flag: SDL_Keymod| modifiers.0 & flag.0 != 0;
+    has(SDL_KMOD_CTRL) && has(SDL_KMOD_ALT) && has(SDL_KMOD_SHIFT)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct KeyInput {
+    code: u16,
+    modifiers: u8,
+    flags: u8,
+}
+
+/// What a key sends to the PC, or None for a key without a Windows code.
+fn key_input(scancode: SDL_Scancode, held: SDL_Keymod, system_keys: bool, right_alt_as_meta: bool) -> Option<KeyInput> {
+    let has = |flag: SDL_Keymod| held.0 & flag.0 != 0;
+    let mapped = if right_alt_as_meta && scancode == SDL_SCANCODE_RALT { SDL_SCANCODE_RGUI } else { scancode };
+    let (code, flags) = keymap::virtual_key(mapped, system_keys || (right_alt_as_meta && scancode == SDL_SCANCODE_RALT))?;
+    let mut modifiers = 0u8;
+    if has(SDL_KMOD_CTRL) {
+        modifiers |= modifier::CTRL;
+    }
+    if has(SDL_KMOD_LALT) || (!right_alt_as_meta && has(SDL_KMOD_RALT)) {
+        modifiers |= modifier::ALT;
+    }
+    if has(SDL_KMOD_SHIFT) {
+        modifiers |= modifier::SHIFT;
+    }
+    if (has(SDL_KMOD_GUI) && system_keys) || (right_alt_as_meta && has(SDL_KMOD_RALT)) {
+        modifiers |= modifier::META;
+    }
+    Some(KeyInput { code, modifiers, flags })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ctrl_alt_backspace_goes_to_the_pc_and_only_ctrl_alt_shift_stays_local() {
+        let ctrl_alt = SDL_Keymod(SDL_KMOD_LCTRL.0 | SDL_KMOD_LALT.0);
+        assert!(!local_chord(ctrl_alt), "a host's menu chord is not Nightjar's");
+        for (system_keys, right_alt_as_meta) in [(false, false), (true, false), (false, true), (true, true)] {
+            let sent = key_input(SDL_SCANCODE_BACKSPACE, ctrl_alt, system_keys, right_alt_as_meta).unwrap();
+            assert_eq!((sent.code, sent.modifiers), (0x08, modifier::CTRL | modifier::ALT));
+            // The modifier keys themselves go to the PC too.
+            assert!(key_input(SDL_SCANCODE_LCTRL, ctrl_alt, system_keys, right_alt_as_meta).is_some());
+            assert!(key_input(SDL_SCANCODE_LALT, ctrl_alt, system_keys, right_alt_as_meta).is_some());
+        }
+        assert!(local_chord(SDL_Keymod(ctrl_alt.0 | SDL_KMOD_LSHIFT.0)));
+    }
 
     #[test]
     fn the_wireless_hint_goes_only_to_a_rubylight_host_on_a_wireless_route_when_the_setting_is_on() {

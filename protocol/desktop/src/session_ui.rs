@@ -17,6 +17,8 @@ pub enum Outcome {
     Stay,
     /// Back to the stream.
     Resume,
+    /// Back to the stream, then ask the host to open its own menu in it.
+    HostMenu,
     /// Leave the stream; the game keeps running.
     Disconnect,
     /// Back to the stream controls.
@@ -91,6 +93,12 @@ pub fn show(ui: &mut egui::Ui, page: &mut Page, title: &str, lines: &[(&'static 
             outcome = Outcome::Resume;
         }
         ui.label(RichText::new(tr("Return to the stream.")).color(theme::OUTLINE));
+        if state.host_menu() {
+            if ui.add_enabled(!working, egui::Button::new(tr("Open host menu"))).clicked() {
+                outcome = Outcome::HostMenu;
+            }
+            ui.label(RichText::new(tr("Return to the stream and show the PC's own menu in it.")).color(theme::OUTLINE));
+        }
         if ui.add_enabled(!working, egui::Button::new(tr("Disconnect"))).clicked() {
             outcome = Outcome::Disconnect;
         }

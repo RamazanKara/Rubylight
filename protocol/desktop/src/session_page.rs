@@ -1,6 +1,6 @@
 //! The in-stream "Session and graphics" page for a host with the Rubylight native API (the
 //! desktop counterpart of Nightjar Android's stream menu page): End session, Close game or Quit
-//! game, the connection facts, and the Radeon panel.
+//! game, the connection facts, the host's own menu when it offers one, and the Radeon panel.
 //!
 //! Everything that touches the network runs on one worker thread that exists only while the
 //! page is open: it reads `/session` about every 2 s and `/radeon` at most once a second (the
@@ -19,7 +19,8 @@ use std::time::{Duration, Instant};
 use nightjar_core::http::native_api::capabilities::Capabilities;
 use nightjar_core::http::native_api::error::ErrorCode;
 use nightjar_core::http::native_api::radeon::{Change, Radeon, SettingsWrite, Value};
-use nightjar_core::http::native_api::session::{ActionId, Session, State as SessionState};
+use nightjar_core::http::native_api::feature;
+use nightjar_core::http::native_api::session::{ActionId, CouchMenu, Session, State as SessionState};
 use nightjar_core::http::{Error, HostClient};
 
 use crate::hosts::Waker;
@@ -150,6 +151,17 @@ pub fn exit_failure_text(failure: &Failure) -> String {
     }
 }
 
+/// What opening the host's menu came to. The stream has closed its own menu before the request,
+/// so the host's menu gets the input; a refusal is the host's message (its code decides the
+/// text on the host), and an answer that the menu is still closed is a failure too.
+pub fn host_menu_result(answer: Result<CouchMenu, Error>) -> Result<(), String> {
+    match answer {
+        Ok(CouchMenu { open: true }) => Ok(()),
+        Ok(CouchMenu { open: false }) => Err(tr("The host did not open its menu.").into()),
+        Err(error) => Err(trf("The host menu did not open: {}", &[&error])),
+    }
+}
+
 /// The facts shown under the actions, from what the stream already holds.
 pub fn connection_lines(
     host: &str,
@@ -260,6 +272,8 @@ pub struct State {
     /// What this device may do, from `/capabilities`; None until read.
     pub launch: Option<bool>,
     pub host_control: Option<bool>,
+    /// The host draws its own menu into the stream (`session.couch_menu`); None until read.
+    pub couch_menu: Option<bool>,
     pub session: Option<Session>,
     pub session_error: Option<String>,
     pub radeon: RadeonState,
@@ -273,6 +287,7 @@ impl State {
         Self {
             launch: None,
             host_control: None,
+            couch_menu: None,
             session: None,
             session_error: None,
             radeon: RadeonState::default(),
@@ -284,6 +299,11 @@ impl State {
     /// Host control as far as known: the Radeon read's flag is the newest, then `/capabilities`.
     pub fn host_control(&self, hint: bool) -> bool {
         self.radeon.panel.as_ref().map(|p| p.host_control).or(self.host_control).unwrap_or(hint)
+    }
+
+    /// Whether to offer the host's menu: only when the capabilities list it.
+    pub fn host_menu(&self) -> bool {
+        self.couch_menu == Some(true)
     }
 
     /// The session actions to offer now.
@@ -402,6 +422,7 @@ impl Worker {
             self.update(|s| {
                 s.launch = Some(caps.permissions.launch);
                 s.host_control = Some(caps.permissions.host_control);
+                s.couch_menu = Some(caps.features.iter().any(|f| f == feature::COUCH_MENU));
             });
         }
         loop {
@@ -639,6 +660,8 @@ mod tests {
         write_error: Option<ErrorCode>,
         write_missing: bool,
         quit: Result<bool, u16>,
+        /// The capabilities' features.
+        features: Vec<String>,
     }
 
     struct Counters {
@@ -681,6 +704,7 @@ mod tests {
             write_error: None,
             write_missing: false,
             quit: Ok(true),
+            features: Vec::new(),
         };
         (fake, counters)
     }
@@ -691,11 +715,13 @@ mod tests {
 
     impl Api for Fake {
         fn capabilities(&self) -> Result<Capabilities, Error> {
-            Ok(serde_json::from_str(
+            let mut caps: Capabilities = serde_json::from_str(
                 r#"{ "api_version": 1, "host": { "name": "PC", "version": "3", "unique_id": "x" }, "features": [],
                      "permissions": { "list": true, "view": true, "launch": true, "host_control": true } }"#,
             )
-            .unwrap())
+            .unwrap();
+            caps.features = self.features.clone();
+            Ok(caps)
         }
         fn session(&self) -> Result<Session, Error> {
             self.sessions.fetch_add(1, Ordering::SeqCst);
@@ -746,6 +772,23 @@ mod tests {
     }
 
     #[test]
+    fn the_host_menu_follows_the_capability_and_a_refusal_keeps_the_hosts_words() {
+        assert!(!State::new().host_menu(), "nothing is offered before the capabilities answer");
+        let (mut fake, _) = fake(false);
+        fake.features = vec!["native_api".into(), feature::COUCH_MENU.into()];
+        let page = open(fake, 1000, 1000);
+        until("capabilities", || page.state().couch_menu.is_some());
+        assert!(page.state().host_menu());
+
+        assert_eq!(host_menu_result(Ok(CouchMenu { open: true })), Ok(()));
+        assert!(host_menu_result(Ok(CouchMenu { open: false })).is_err(), "a menu still closed is no success");
+        for code in [ErrorCode::NoSession, ErrorCode::NotSessionOwner, ErrorCode::PermissionRequired, ErrorCode::TemporarilyUnavailable] {
+            let error = host_menu_result(Err(api_error(409, code, None))).unwrap_err();
+            assert!(error.contains("host words"), "{code:?}: {error}");
+        }
+    }
+
+    #[test]
     fn it_polls_only_while_the_page_is_open() {
         let (fake, counters) = fake(true);
         let page = open(fake, 20, 20);
@@ -754,6 +797,7 @@ mod tests {
         assert_eq!(state.launch, Some(true));
         assert_eq!(state.host_control, Some(true));
         assert!(state.session.is_some() && state.radeon.panel.is_some());
+        assert!(!state.host_menu(), "no host menu without session.couch_menu");
         drop(page);
         // The worker ends after the call in flight: give it a moment, then nothing more arrives.
         std::thread::sleep(Duration::from_millis(100));

@@ -68,6 +68,8 @@ pub enum Notice {
     MicrophoneFailed(String),
     Clipboard(Result<Option<String>, String>),
     ServerCommand(Result<Vec<u8>, String>),
+    /// The host's answer to opening its menu; the error is the text to show.
+    HostMenu(Result<(), String>),
     Bitrate { requested: u32, result: Result<u32, String> },
     AdaptiveBitrate(Result<(u32, u32), String>),
 }

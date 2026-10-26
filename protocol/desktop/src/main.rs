@@ -1512,6 +1512,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
             match outcome {
                 session_ui::Outcome::Stay => {}
                 session_ui::Outcome::Resume => s.toggle_menu(window, pads),
+                session_ui::Outcome::HostMenu => s.open_host_menu(window, pads),
                 session_ui::Outcome::Back => s.close_session_page(),
                 session_ui::Outcome::Disconnect | session_ui::Outcome::Leave => s.exit = Some(Exit::User),
             }

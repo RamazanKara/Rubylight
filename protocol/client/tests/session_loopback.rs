@@ -1222,6 +1222,39 @@ fn media_ping_from_the_new_address_at_once_on_roamed() {
     assert_eq!(record.lock().unwrap().terminated, None);
 }
 
+/// A network change that leaves the route toward the host where it was (loopback stays on
+/// 127.0.0.1) is spurious: nothing moves and nothing is probed.
+#[test]
+fn a_network_change_on_the_same_address_does_not_roam() {
+    let host = start_host_with(None, true);
+    let record = Arc::new(Mutex::new(Record::default()));
+    let session = start_session(&host, roaming_config(), &record);
+    let client = host.peer(Media::Video);
+
+    assert!(!session.network_changed(NetworkHint::default()));
+    // The control stream carries on, the host saw no PROBE and video stays where it was.
+    input_arrives(&session, &host);
+    assert_eq!(*host.roaming.lock().unwrap(), []);
+    assert!(roam_events(&record).is_empty());
+    assert_eq!(host.peer(Media::Video), client);
+    assert!(
+        record
+            .lock()
+            .unwrap()
+            .logs
+            .iter()
+            .any(|l| l.contains("still on 127.0.0.1; not roaming")),
+        "{:?}",
+        record.lock().unwrap().logs
+    );
+
+    session.stop();
+    until("the disconnect", || {
+        host.control_disconnected.load(Ordering::SeqCst)
+    });
+    assert_eq!(record.lock().unwrap().terminated, None);
+}
+
 /// The host takes media pings only from the address the control stream roamed to: media left
 /// behind by a control socket that moved alone follow it on Roamed, and video carries on.
 #[test]

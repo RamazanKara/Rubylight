@@ -597,8 +597,9 @@ impl Session {
     }
 
     /// The front end's word that the network changed (Android's default network callback),
-    /// and what it knows about the new one. Moves the media sockets when the local address
-    /// toward the host changed, and starts a roam. On a metered network without
+    /// and what it knows about the new one. Moves the sockets and starts a roam only when the
+    /// local address toward the host changed; with the same address nothing moves, and a host
+    /// that went silent starts its own attempt. On a metered network without
     /// [`RoamingConfig::metered`] roaming holds off and the network grace period decides.
     /// Returns whether a roam started: false without roaming on both sides.
     pub fn network_changed(&self, hint: NetworkHint) -> bool {

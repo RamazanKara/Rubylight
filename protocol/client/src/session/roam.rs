@@ -119,15 +119,43 @@ impl State {
         self.armed_until = Some(now + HINT_WINDOW);
     }
 
-    /// The route poll found `route`: whether the media move there. Only a changed route
-    /// moves, never while held, and with platform hints only while armed.
+    /// The route poll found `route`: whether the media move there. Only a route the sockets
+    /// do not already leave on ([`stays_on`]) moves, never while held, and with platform
+    /// hints only while armed.
     fn route_moves(&mut self, route: SocketAddr, platform_hints: bool, now: Instant) -> bool {
-        if route == self.route {
+        if same_address(route, self.route) {
             return false;
         }
         self.route = route;
-        !self.held && !(platform_hints && !self.armed_until.is_some_and(|until| now < until))
+        !stays_on(self.local, route)
+            && !self.held
+            && !(platform_hints && !self.armed_until.is_some_and(|until| now < until))
     }
+}
+
+/// The same local address: the port, which a lookup or a socket picks anew, and the IPv6 flow
+/// label do not count; the IPv6 scope (the interface of a link-local address) does.
+fn same_address(a: SocketAddr, b: SocketAddr) -> bool {
+    match (a, b) {
+        (SocketAddr::V6(a), SocketAddr::V6(b)) => a.ip() == b.ip() && a.scope_id() == b.scope_id(),
+        _ => a.ip() == b.ip(),
+    }
+}
+
+/// Whether the sockets bound to `local` still carry the stream though the route toward the
+/// host now leaves from `route`: the same address, or an IPv6 address the interface rotated
+/// (a privacy address in the same /64) while `local` is still assigned. Moving would be a
+/// spurious roam: the network did not change.
+fn stays_on(local: SocketAddr, route: SocketAddr) -> bool {
+    if same_address(local, route) {
+        return true;
+    }
+    let (SocketAddr::V6(old), SocketAddr::V6(new)) = (local, route) else {
+        return false;
+    };
+    old.scope_id() == new.scope_id()
+        && old.ip().segments()[..4] == new.ip().segments()[..4]
+        && std::net::UdpSocket::bind(net::with_port(local, 0)).is_ok()
 }
 
 /// The session's roaming side, shared by the session and the route poll thread.
@@ -220,16 +248,22 @@ impl Roamer {
         match net::local_address_toward(self.remote) {
             Ok(route) => {
                 state.route = route;
-                if route != state.local {
+                if !stays_on(state.local, route) {
                     return self.roam(&mut state, route);
                 }
+                // The route toward the host still leaves where the sockets are: nothing
+                // moved, and a host that went silent starts its own attempt.
+                self.shared.log(&format!(
+                    "Roaming: the network changed, still on {}; not roaming",
+                    route.ip()
+                ));
             }
             // The new network has no route yet; the route poll moves once it does.
             Err(e) => self
                 .shared
                 .log(&format!("Roaming: no route toward the host yet: {e}")),
         }
-        self.control.network_changed(false)
+        false
     }
 
     /// Moves the control stream and the media to `local` and starts the roam. A move that
@@ -392,9 +426,37 @@ mod tests {
         state.arm(seconds(10));
         assert!(state.route_moves(at(5), true, seconds(10)));
 
+        // A route back to where the sockets are moves nothing.
+        state.arm(seconds(15));
+        assert!(!state.route_moves(at(1), true, seconds(15)));
+
         // A metered network without the opt-in holds it even within the window.
         state.arm(seconds(20));
         state.held = true;
         assert!(!state.route_moves(at(6), true, seconds(21)));
+    }
+
+    #[test]
+    fn a_new_port_or_a_rotated_privacy_address_is_not_a_network_change() {
+        let now = Instant::now();
+        let v4 = |n: u8, port: u16| SocketAddr::from(([10, 0, 0, n], port));
+        let mut state = State::new(v4(1, 0));
+        assert!(!state.route_moves(v4(1, 40000), false, now));
+        assert!(state.route_moves(v4(2, 0), false, now));
+
+        let Ok(probe) = std::net::UdpSocket::bind("[::1]:0") else {
+            eprintln!("skipped: no IPv6 loopback");
+            return;
+        };
+        let v6 = |ip: &str| SocketAddr::new(ip.parse().unwrap(), 0);
+        // ::1 is assigned: another address of its /64 is a rotation; another /64 moves.
+        let local = net::with_port(probe.local_addr().unwrap(), 0);
+        assert!(stays_on(local, v6("::2")));
+        assert!(!stays_on(local, v6("2001:db8::1")));
+        // An address the interface no longer has moves even within its /64.
+        assert!(!stays_on(v6("2001:db8::1"), v6("2001:db8::2")));
+        let mut state = State::new(local);
+        assert!(!state.route_moves(v6("::2"), false, now));
+        assert!(state.route_moves(v6("2001:db8::1"), false, now));
     }
 }

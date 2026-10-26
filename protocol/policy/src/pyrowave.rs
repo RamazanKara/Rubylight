@@ -7,22 +7,11 @@
 
 use serde_json::Value;
 
+use crate::stats::{known, Stats};
 use crate::trace::{Args, Subject};
 
 /// The highest bitrate a runtime request may ask for (`StreamConfiguration.MAX_BITRATE_KBPS`).
 pub const MAX_RUNTIME_KBPS: u32 = 2_000_000;
-
-/// One second of stream statistics. Negative values are missing measurements.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Sample {
-    pub recent_video: bool,
-    pub poor_connection: bool,
-    /// Includes recovered frames' missing records.
-    pub loss_percent: f32,
-    pub queue_ms: f32,
-    pub decode_ms: f32,
-    pub jitter_ms: f32,
-}
 
 /// Lowers PyroWave's bitrate on congestion or heat and raises it slowly after a healthy stretch.
 #[derive(Clone, Debug, PartialEq)]
@@ -34,10 +23,8 @@ pub struct BitrateController {
     last_change_ms: u64,
     healthy_since_ms: Option<u64>,
     congested_samples: u32,
-    // Negative when unknown, as Java keeps them.
-    previous_loss: f32,
-    previous_queue_ms: f32,
-    thermal_level: i32,
+    previous_loss: Option<f32>,
+    previous_queue_ms: Option<f32>,
 }
 
 impl BitrateController {
@@ -52,15 +39,24 @@ impl BitrateController {
             last_change_ms: now_ms,
             healthy_since_ms: None,
             congested_samples: 0,
-            previous_loss: -1.0,
-            previous_queue_ms: -1.0,
-            thermal_level: 0,
+            previous_loss: None,
+            previous_queue_ms: None,
         }
     }
 
     /// Call once per second while no runtime request is pending. Returns the bitrate to request,
-    /// or `None` to keep the current one.
-    pub fn sample(&mut self, now_ms: u64, s: &Sample) -> Option<u32> {
+    /// or `None` to keep the current one. The loss includes recovered frames' missing records.
+    /// Warm (thermal level 1) holds the rate, hot (2 and up) steps it down.
+    pub fn sample(&mut self, stats: &Stats) -> Option<u32> {
+        let now_ms = stats.now_ms;
+        // Missing (negative) and NaN measurements are unknown, as in Java.
+        let s = Stats {
+            loss_percent: known(stats.loss_percent),
+            queue_ms: known(stats.queue_ms),
+            decode_ms: known(stats.decode_ms),
+            jitter_ms: known(stats.jitter_ms),
+            ..*stats
+        };
         if !s.recent_video {
             self.healthy_since_ms = None;
             self.forget_previous();
@@ -70,22 +66,27 @@ impl BitrateController {
             }
         }
         let frame_ms = self.frame_ms;
-        let congested = s.poor_connection
-            || (s.recent_video
-                && (s.loss_percent >= 2.0
-                    || s.decode_ms >= frame_ms
-                    || s.jitter_ms >= 5f32.max(frame_ms * 0.75)
-                    || s.queue_ms >= 20f32.max(frame_ms * 2.0)
-                    || (self.previous_loss >= 0.0
-                        && s.loss_percent >= 0.5
-                        && s.loss_percent - self.previous_loss >= 0.25)
-                    || (self.previous_queue_ms >= 0.0
-                        && s.queue_ms >= 8f32.max(frame_ms * 0.75)
-                        && s.queue_ms - self.previous_queue_ms >= 3.0)));
+        let congested =
+            s.poor_connection
+                || (s.recent_video
+                    && (s.loss_percent.is_some_and(|loss| loss >= 2.0)
+                        || s.decode_ms.is_some_and(|decode| decode >= frame_ms)
+                        || s.jitter_ms
+                            .is_some_and(|jitter| jitter >= 5f32.max(frame_ms * 0.75))
+                        || s.queue_ms
+                            .is_some_and(|queue| queue >= 20f32.max(frame_ms * 2.0))
+                        || self.previous_loss.zip(s.loss_percent).is_some_and(
+                            |(previous, loss)| loss >= 0.5 && loss - previous >= 0.25,
+                        )
+                        || self.previous_queue_ms.zip(s.queue_ms).is_some_and(
+                            |(previous, queue)| {
+                                queue >= 8f32.max(frame_ms * 0.75) && queue - previous >= 3.0
+                            },
+                        )));
         self.previous_loss = s.loss_percent;
         self.previous_queue_ms = s.queue_ms;
         let since_change = now_ms.saturating_sub(self.last_change_ms);
-        if congested || (s.recent_video && self.thermal_level >= 2) {
+        if congested || (s.recent_video && s.thermal_level >= 2) {
             self.healthy_since_ms = None;
             // Heat builds and fades slowly, so heat alone steps down less often and not as far.
             let floor = if congested {
@@ -100,12 +101,14 @@ impl BitrateController {
             }
         } else {
             self.congested_samples = 0;
-            // Missing (negative) and NaN measurements are not healthy, as in Java.
-            let healthy = self.thermal_level <= 0
-                && (s.loss_percent >= 0.0 && s.loss_percent < 0.1)
-                && (s.queue_ms >= 0.0 && s.queue_ms < 4f32.max(frame_ms / 2.0))
-                && (s.decode_ms >= 0.0 && s.decode_ms < frame_ms * 0.75)
-                && (s.jitter_ms >= 0.0 && s.jitter_ms < 5f32.max(frame_ms * 0.25));
+            // Unknown measurements are not healthy.
+            let healthy = s.thermal_level == 0
+                && s.loss_percent.is_some_and(|loss| loss < 0.1)
+                && s.queue_ms
+                    .is_some_and(|queue| queue < 4f32.max(frame_ms / 2.0))
+                && s.decode_ms.is_some_and(|decode| decode < frame_ms * 0.75)
+                && s.jitter_ms
+                    .is_some_and(|jitter| jitter < 5f32.max(frame_ms * 0.25));
             match self.healthy_since_ms {
                 _ if !healthy => self.healthy_since_ms = None,
                 None => self.healthy_since_ms = Some(now_ms),
@@ -119,11 +122,6 @@ impl BitrateController {
             }
         }
         None
-    }
-
-    /// ThermalMonitor level: warm (1) holds the rate, hot (2 and up) steps it down.
-    pub fn set_thermal_level(&mut self, level: i32) {
-        self.thermal_level = level;
     }
 
     /// The host's answer to a request. Less than asked for becomes the new ceiling.
@@ -145,8 +143,8 @@ impl BitrateController {
     }
 
     fn forget_previous(&mut self) {
-        self.previous_loss = -1.0;
-        self.previous_queue_ms = -1.0;
+        self.previous_loss = None;
+        self.previous_queue_ms = None;
     }
 }
 
@@ -211,14 +209,18 @@ pub(crate) fn traced_floor(args: &Value) -> Result<Box<dyn Subject>, String> {
 pub(crate) fn traced_controller(args: &Value) -> Result<Box<dyn Subject>, String> {
     let a = Args::new(args, 4)?;
     let controller = BitrateController::new(a.int(0)?, a.int(1)?, a.int(2)?, a.int(3)?);
-    Ok(Box::new(controller))
+    Ok(Box::new(TracedController(controller, 0)))
 }
 
-// Args reads only integers and text; samples also carry floats and flags.
-fn float(args: &Value, i: usize) -> Result<f32, String> {
+// Java sets the thermal level apart from the samples; the adapter carries it into each tick.
+struct TracedController(BitrateController, u32);
+
+// Args reads only integers and text; samples also carry floats and flags. A float reaches the
+// controller as Java passes it, -1 for a missing measurement included.
+fn float(args: &Value, i: usize) -> Result<Option<f32>, String> {
     args[i]
         .as_f64()
-        .map(|v| v as f32)
+        .map(|v| Some(v as f32))
         .ok_or_else(|| format!("argument {i} is not a number: {}", args[i]))
 }
 
@@ -228,35 +230,43 @@ fn flag(args: &Value, i: usize) -> Result<bool, String> {
         .ok_or_else(|| format!("argument {i} is not a boolean: {}", args[i]))
 }
 
-impl Subject for BitrateController {
+impl Subject for TracedController {
     fn call(&mut self, method: &str, args: &Value) -> Result<Value, String> {
+        let TracedController(controller, thermal_level) = self;
         match method {
             "sample" => {
                 // Java's six-argument overload leaves jitter at 0.
                 let count = args.as_array().map_or(0, Vec::len);
                 let a = Args::new(args, if count == 6 { 6 } else { 7 })?;
-                let sample = Sample {
+                let stats = Stats {
+                    now_ms: a.int(0)?,
                     recent_video: flag(args, 1)?,
                     poor_connection: flag(args, 2)?,
                     loss_percent: float(args, 3)?,
                     queue_ms: float(args, 4)?,
                     decode_ms: float(args, 5)?,
-                    jitter_ms: if count == 6 { 0.0 } else { float(args, 6)? },
+                    jitter_ms: if count == 6 {
+                        Some(0.0)
+                    } else {
+                        float(args, 6)?
+                    },
+                    thermal_level: *thermal_level,
+                    ..Stats::default()
                 };
-                Ok(self.sample(a.int(0)?, &sample).unwrap_or(0).into())
+                Ok(controller.sample(&stats).unwrap_or(0).into())
             }
             "set_thermal_level" => {
-                self.set_thermal_level(Args::new(args, 1)?.int(0)?);
+                *thermal_level = Args::new(args, 1)?.int(0)?;
                 Ok(Value::Null)
             }
             "applied" => {
                 let a = Args::new(args, 3)?;
-                self.applied(a.int(0)?, a.int(1)?, a.int(2)?);
+                controller.applied(a.int(0)?, a.int(1)?, a.int(2)?);
                 Ok(Value::Null)
             }
             "suspend" => {
                 Args::new(args, 0)?;
-                self.suspend();
+                controller.suspend();
                 Ok(Value::Null)
             }
             _ => Err(format!("unknown method {method}")),
@@ -282,5 +292,33 @@ impl Subject for TracedFloor {
             }
             _ => Err(format!("unknown method {method}")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tick(second: u64) -> Stats {
+        Stats {
+            now_ms: second * 1000,
+            recent_video: true,
+            ..Stats::default()
+        }
+    }
+
+    #[test]
+    fn a_tick_with_nothing_measured_never_raises_the_rate() {
+        let mut controller = BitrateController::new(20_000, 10_000, 60, 0);
+        assert!((1..=60).all(|second| controller.sample(&tick(second)).is_none()));
+        let healthy = |second| Stats {
+            loss_percent: Some(0.0),
+            queue_ms: Some(0.0),
+            decode_ms: Some(2.0),
+            jitter_ms: Some(1.0),
+            ..tick(second)
+        };
+        let raised = (61..=120).find_map(|second| controller.sample(&healthy(second)));
+        assert!(raised.is_some_and(|kbps| kbps > 10_000), "{raised:?}");
     }
 }

@@ -3,13 +3,14 @@
 //!
 //! [`StreamHealth`] and [`period_ms`] are Android's (`StreamHealth.java`, `PeriodicStalls.java`).
 //! [`BitrateTrial`] is the trial Android's `Game` runs (docs/stream-health.md). Platform facts such
-//! as the thermal level arrive in each [`Sample`]; nothing here reads the device. Findings
+//! as the thermal level arrive in each [`Stats`] tick; nothing here reads the device. Findings
 //! describe evidence, not proven root causes.
 
 use std::collections::VecDeque;
 
 use serde_json::Value;
 
+use crate::stats::Stats;
 use crate::trace::{Args, Subject};
 
 pub const HISTORY_MS: u64 = 30_000;
@@ -66,36 +67,12 @@ impl Finding {
     }
 }
 
-/// One stats tick. Counters that are unavailable are negative or not finite.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Sample {
-    pub at_ms: u64,
-    /// False when the stage counters are more than two seconds old.
-    pub fresh: bool,
-    /// The stream's frame rate; 0 when unknown.
-    pub fps: u32,
-    pub loss_percent: f32,
-    pub jitter_ms: f32,
-    pub decode_ms: f32,
-    pub host_p95_ms: f32,
-    pub display_p95_ms: f32,
-    pub received_fps: f32,
-    pub released_fps: f32,
-    pub shown_fps: f32,
-    /// The platform's thermal status (Android's `PowerManager`; 2 is moderate).
-    pub thermal: i32,
-    /// True when `host_p95_ms` runs to the last packet sent, as the host's timing reports measure it.
-    pub host_includes_send: bool,
-}
-
-impl Sample {
-    /// The frame interval, or NaN without a frame rate.
-    pub fn budget_ms(&self) -> f32 {
-        if self.fps > 0 {
-            1000.0 / self.fps as f32
-        } else {
-            f32::NAN
-        }
+/// The frame interval, or NaN without a frame rate.
+fn budget_ms(s: &Stats) -> f32 {
+    if s.fps > 0 {
+        1000.0 / s.fps as f32
+    } else {
+        f32::NAN
     }
 }
 
@@ -125,37 +102,38 @@ impl Report {
 /// Bounded, identifier-free observations, fed once per stats tick.
 #[derive(Clone, Debug, Default)]
 pub struct StreamHealth {
-    samples: VecDeque<Sample>,
+    samples: VecDeque<Stats>,
     stall_starts: Vec<u64>,
     last_stall_ms: Option<u64>,
     stall_period_ms: u64,
 }
 
 impl StreamHealth {
-    pub fn add(&mut self, sample: Sample) {
+    /// Records a stats tick. The counters count only while `recent_video` says they are current.
+    pub fn add(&mut self, stats: &Stats) {
         if self
             .samples
             .back()
-            .is_some_and(|last| sample.at_ms < last.at_ms.saturating_add(MIN_SAMPLE_GAP_MS))
+            .is_some_and(|last| stats.now_ms < last.now_ms.saturating_add(MIN_SAMPLE_GAP_MS))
         {
             return;
         }
-        self.expire(sample.at_ms);
+        self.expire(stats.now_ms);
         while self.samples.len() >= MAX_SAMPLES {
             self.samples.pop_front();
         }
-        self.samples.push_back(sample);
-        if sample.fresh && sample.budget_ms().is_finite() && network_evidence(&sample) {
+        self.samples.push_back(*stats);
+        if stats.recent_video && budget_ms(stats).is_finite() && network_evidence(stats) {
             if self.last_stall_ms.map_or(true, |last| {
-                sample.at_ms.saturating_sub(last) > BURST_GAP_MS
+                stats.now_ms.saturating_sub(last) > BURST_GAP_MS
             }) {
                 if self.stall_starts.len() == MAX_STALLS {
                     self.stall_starts.remove(0);
                 }
-                self.stall_starts.push(sample.at_ms);
+                self.stall_starts.push(stats.now_ms);
                 self.stall_period_ms = period_ms(&self.stall_starts);
             }
-            self.last_stall_ms = Some(sample.at_ms);
+            self.last_stall_ms = Some(stats.now_ms);
         }
     }
 
@@ -163,7 +141,7 @@ impl StreamHealth {
         while self
             .samples
             .front()
-            .is_some_and(|first| now_ms.saturating_sub(first.at_ms) > HISTORY_MS)
+            .is_some_and(|first| now_ms.saturating_sub(first.now_ms) > HISTORY_MS)
         {
             self.samples.pop_front();
         }
@@ -191,44 +169,44 @@ impl StreamHealth {
         let (mut loss, mut decode, mut host, mut display) = (-1f32, -1f32, -1f32, -1f32);
         let mut host_includes_send = false;
         for s in &self.samples {
-            let budget = s.budget_ms();
-            if !s.fresh || !budget.is_finite() {
+            let budget = budget_ms(s);
+            if !s.recent_video || !budget.is_finite() {
                 continue;
             }
             valid += 1;
-            if measured(s.loss_percent) {
-                loss = loss.max(s.loss_percent);
+            if let Some(value) = measured(s.loss_percent) {
+                loss = loss.max(value);
             }
-            if measured(s.decode_ms) {
-                decode = decode.max(s.decode_ms);
+            if let Some(value) = measured(s.decode_ms) {
+                decode = decode.max(value);
             }
-            if measured(s.host_p95_ms) && s.host_p95_ms >= host {
-                host = s.host_p95_ms;
+            if let Some(value) = measured(s.host_p95_ms).filter(|value| *value >= host) {
+                host = value;
                 host_includes_send = s.host_includes_send;
             }
-            if measured(s.display_p95_ms) {
-                display = display.max(s.display_p95_ms);
+            if let Some(value) = measured(s.display_p95_ms) {
+                display = display.max(value);
             }
             if network_evidence(s) {
                 votes[Finding::Network as usize] += 1;
             }
-            if measured(s.decode_ms) && s.decode_ms >= budget {
+            if measured(s.decode_ms).is_some_and(|decode| decode >= budget) {
                 votes[Finding::Decoder as usize] += 1;
             }
-            if measured(s.host_p95_ms) && s.host_p95_ms >= budget * 1.25 {
+            if measured(s.host_p95_ms).is_some_and(|host| host >= budget * 1.25) {
                 votes[Finding::Host as usize] += 1;
             }
             // Compare observed stages, not requested FPS: a static/VRR desktop is not a dropped-frame fault.
-            if measured(s.shown_fps)
-                && measured(s.released_fps)
-                && measured(s.display_p95_ms)
-                && s.released_fps >= 10.0
-                && s.shown_fps < s.released_fps * 0.85
-                && s.display_p95_ms > budget * 2.0
-            {
-                votes[Finding::Presentation as usize] += 1;
+            if let (Some(shown), Some(released), Some(display)) = (
+                measured(s.shown_fps),
+                measured(s.released_fps),
+                measured(s.display_p95_ms),
+            ) {
+                if released >= 10.0 && shown < released * 0.85 && display > budget * 2.0 {
+                    votes[Finding::Presentation as usize] += 1;
+                }
             }
-            if s.thermal >= 2 {
+            if s.thermal_level >= 2 {
                 votes[Finding::Heat as usize] += 1;
             }
         }
@@ -240,10 +218,9 @@ impl StreamHealth {
         if self.stall_period_ms > 0 {
             findings.push(Finding::Periodic);
         }
-        let recent = self
-            .samples
-            .back()
-            .is_some_and(|last| last.fresh && now_ms.saturating_sub(last.at_ms) <= RECENT_MS);
+        let recent = self.samples.back().is_some_and(|last| {
+            last.recent_video && now_ms.saturating_sub(last.now_ms) <= RECENT_MS
+        });
         Report {
             findings,
             samples: valid,
@@ -259,13 +236,14 @@ impl StreamHealth {
     }
 }
 
-fn network_evidence(s: &Sample) -> bool {
-    (measured(s.loss_percent) && s.loss_percent >= 2.0)
-        || (measured(s.jitter_ms) && s.jitter_ms >= s.budget_ms().max(8.0))
+fn network_evidence(s: &Stats) -> bool {
+    measured(s.loss_percent).is_some_and(|loss| loss >= 2.0)
+        || measured(s.jitter_ms).is_some_and(|jitter| jitter >= budget_ms(s).max(8.0))
 }
 
-fn measured(value: f32) -> bool {
-    value.is_finite() && value >= 0.0
+// As in Java, a counter that is negative or not finite is unavailable.
+fn measured(value: Option<f32>) -> Option<f32> {
+    value.filter(|v| v.is_finite() && *v >= 0.0)
 }
 
 /// Tolerance for one beat: the larger of two seconds and 4% of the period. Scan timers are steady.
@@ -461,12 +439,12 @@ impl BitrateTrial {
     }
 }
 
-fn float(args: &Value, i: usize) -> Result<f32, String> {
+fn float(args: &Value, i: usize) -> Result<Option<f32>, String> {
     // Java converts with floatValue(), which also turns 1e39 into infinity: JSON has no NaN or
-    // infinity of its own.
+    // infinity of its own. Unavailable counters reach StreamHealth as Java passes them (-1).
     args[i]
         .as_f64()
-        .map(|value| value as f32)
+        .map(|value| Some(value as f32))
         .ok_or_else(|| format!("argument {i} is not a number: {}", args[i]))
 }
 
@@ -476,11 +454,11 @@ fn flag(args: &Value, i: usize) -> Result<bool, String> {
         .ok_or_else(|| format!("argument {i} is not a boolean: {}", args[i]))
 }
 
-/// A sample from trace arguments `at` onwards, which leave out its time.
-fn traced_sample(a: &Args, args: &Value, at: usize, at_ms: u64) -> Result<Sample, String> {
-    Ok(Sample {
-        at_ms,
-        fresh: flag(args, at)?,
+/// A tick from trace arguments `at` onwards, which leave out its time.
+fn traced_sample(a: &Args, args: &Value, at: usize, now_ms: u64) -> Result<Stats, String> {
+    Ok(Stats {
+        now_ms,
+        recent_video: flag(args, at)?,
         fps: a.int(at + 1)?,
         loss_percent: float(args, at + 2)?,
         jitter_ms: float(args, at + 3)?,
@@ -490,8 +468,9 @@ fn traced_sample(a: &Args, args: &Value, at: usize, at_ms: u64) -> Result<Sample
         received_fps: float(args, at + 7)?,
         released_fps: float(args, at + 8)?,
         shown_fps: float(args, at + 9)?,
-        thermal: a.int(at + 10)?,
+        thermal_level: a.int(at + 10)?,
         host_includes_send: flag(args, at + 11)?,
+        ..Stats::default()
     })
 }
 
@@ -526,7 +505,7 @@ impl Subject for StreamHealth {
         match method {
             "add" => {
                 let a = Args::new(args, 13)?;
-                self.add(traced_sample(&a, args, 1, a.int(0)?)?);
+                self.add(&traced_sample(&a, args, 1, a.int(0)?)?);
                 Ok(Value::Null)
             }
             // The same sample `count` times, `step_ms` apart, as steady stats ticks.
@@ -535,8 +514,8 @@ impl Subject for StreamHealth {
                 let (first_ms, count, step_ms): (u64, u64, u64) = (a.int(0)?, a.int(1)?, a.int(2)?);
                 let sample = traced_sample(&a, args, 3, first_ms)?;
                 for i in 0..count {
-                    self.add(Sample {
-                        at_ms: first_ms + i * step_ms,
+                    self.add(&Stats {
+                        now_ms: first_ms + i * step_ms,
                         ..sample
                     });
                 }
@@ -634,21 +613,20 @@ impl Subject for BitrateTrial {
 mod tests {
     use super::*;
 
-    fn sample(at_ms: u64, decode_ms: f32) -> Sample {
-        Sample {
-            at_ms,
-            fresh: true,
+    fn sample(now_ms: u64, decode_ms: f32) -> Stats {
+        Stats {
+            now_ms,
+            recent_video: true,
             fps: 60,
-            loss_percent: 0.0,
-            jitter_ms: 1.0,
-            decode_ms,
-            host_p95_ms: 3.0,
-            display_p95_ms: 2.0,
-            received_fps: 60.0,
-            released_fps: 60.0,
-            shown_fps: 60.0,
-            thermal: 0,
-            host_includes_send: false,
+            loss_percent: Some(0.0),
+            jitter_ms: Some(1.0),
+            decode_ms: Some(decode_ms),
+            host_p95_ms: Some(3.0),
+            display_p95_ms: Some(2.0),
+            received_fps: Some(60.0),
+            released_fps: Some(60.0),
+            shown_fps: Some(60.0),
+            ..Stats::default()
         }
     }
 
@@ -657,14 +635,14 @@ mod tests {
     fn nan_counters_are_not_evidence() {
         let mut health = StreamHealth::default();
         for n in 1..=4 {
-            health.add(sample(n * 1000, f32::NAN));
+            health.add(&sample(n * 1000, f32::NAN));
         }
         let report = health.report(4000);
         assert!(report.findings.is_empty());
         assert_eq!(report.worst_decode_ms, -1.0);
         let mut slow = StreamHealth::default();
         for n in 1..=4 {
-            slow.add(sample(n * 1000, 20.0));
+            slow.add(&sample(n * 1000, 20.0));
         }
         assert_eq!(slow.report(4000).findings, [Finding::Decoder]);
     }
@@ -673,9 +651,9 @@ mod tests {
     fn no_frame_rate_means_no_budget() {
         let mut health = StreamHealth::default();
         for n in 1..=4 {
-            health.add(Sample {
+            health.add(&Stats {
                 fps: 0,
-                loss_percent: 50.0,
+                loss_percent: Some(50.0),
                 ..sample(n * 1000, 20.0)
             });
         }

@@ -11,4 +11,5 @@ pub mod launch;
 pub mod pyrowave;
 pub mod quality;
 pub mod recovery;
+pub mod stats;
 pub mod trace;

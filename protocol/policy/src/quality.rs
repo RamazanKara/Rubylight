@@ -9,6 +9,7 @@ use std::fmt;
 
 use serde_json::Value;
 
+use crate::stats::{known, Stats};
 use crate::trace::{Args, Subject};
 
 pub const DOWN_INTERVAL_MS: u64 = 15_000;
@@ -95,20 +96,6 @@ pub struct Bounds {
     pub min_fps: u32,
     pub align_width: u32,
     pub align_height: u32,
-}
-
-/// One second of stream statistics. Negative metrics are unknown.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Sample {
-    pub now_ms: u64,
-    pub recent_video: bool,
-    pub poor_connection: bool,
-    pub loss: f32,
-    pub decode_ms: f32,
-    pub jitter_ms: f32,
-    pub queue_ms: f32,
-    pub thermal_level: i32,
-    pub bitrate_has_room: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -288,22 +275,27 @@ impl AdaptiveQualityController {
     }
 
     /// Decides without decoder timing; the tail neither adds pressure nor blocks recovery.
-    pub fn sample(&mut self, sample: &Sample) -> Option<Target> {
-        self.decide(sample, None, false)
+    /// `bitrate_has_room` is the bitrate controller's
+    /// [`has_room_before_quality_reduction`](crate::bitrate::AdaptiveBitrateController::has_room_before_quality_reduction):
+    /// congestion lowers the bitrate before the resolution.
+    pub fn sample(&mut self, stats: &Stats, bitrate_has_room: bool) -> Option<Target> {
+        self.decide(stats, bitrate_has_room, None, false)
     }
 
     /// A missing timing observation is unknown, never evidence that the decoder recovered.
     pub fn sample_timed(
         &mut self,
-        sample: &Sample,
+        stats: &Stats,
+        bitrate_has_room: bool,
         timing: Option<&DecodeTiming>,
     ) -> Option<Target> {
-        self.decide(sample, timing, true)
+        self.decide(stats, bitrate_has_room, timing, true)
     }
 
     fn decide(
         &mut self,
-        s: &Sample,
+        s: &Stats,
+        bitrate_has_room: bool,
         timing: Option<&DecodeTiming>,
         observe_tail: bool,
     ) -> Option<Target> {
@@ -324,12 +316,20 @@ impl AdaptiveQualityController {
             t.late_frames >= 3 && i64::from(t.late_frames) * 10 >= i64::from(t.samples)
         });
         self.tail_pressure_samples = count(tail_pressure, self.tail_pressure_samples);
-        let device_pressure = s.thermal_level >= 2 || f64::from(s.decode_ms) >= budget_ms;
-        let network_pressure =
-            s.poor_connection || s.loss >= 3.0 || s.queue_ms >= 20f32.max(frame_ms * 2.0);
+        let (loss, decode_ms, jitter_ms) = (
+            known(s.loss_percent),
+            known(s.decode_ms),
+            known(s.jitter_ms),
+        );
+        let device_pressure =
+            s.thermal_level >= 2 || decode_ms.is_some_and(|decode| f64::from(decode) >= budget_ms);
+        let network_pressure = s.poor_connection
+            || loss.is_some_and(|loss| loss >= 3.0)
+            || s.queue_ms
+                .is_some_and(|queue| queue >= 20f32.max(frame_ms * 2.0));
         self.device_pressure_samples = count(device_pressure, self.device_pressure_samples);
         self.network_pressure_samples = count(
-            network_pressure && !s.bitrate_has_room,
+            network_pressure && !bitrate_has_room,
             self.network_pressure_samples,
         );
         let battery_step = self.level < self.battery_ceiling;
@@ -348,16 +348,14 @@ impl AdaptiveQualityController {
         }
         let tail_healthy = !observe_tail
             || timing.is_some_and(|t| i64::from(t.late_frames) * 50 <= i64::from(t.samples));
-        // A negative (unknown) queue counts as healthy.
+        // An unknown (absent or negative) queue counts as healthy; NaN does not, as in Java.
         let healthy = tail_healthy
             && s.thermal_level == 0
-            && s.loss >= 0.0
-            && s.loss < 0.5
-            && s.decode_ms >= 0.0
-            && f64::from(s.decode_ms) < budget_ms * 0.75
-            && s.jitter_ms >= 0.0
-            && s.jitter_ms < 5f32.max(frame_ms * 0.25)
-            && s.queue_ms < 4f32.max(frame_ms / 2.0);
+            && loss.is_some_and(|loss| loss < 0.5)
+            && decode_ms.is_some_and(|decode| f64::from(decode) < budget_ms * 0.75)
+            && jitter_ms.is_some_and(|jitter| jitter < 5f32.max(frame_ms * 0.25))
+            && s.queue_ms
+                .map_or(true, |queue| queue < 4f32.max(frame_ms / 2.0));
         match self.healthy_since_ms {
             _ if !healthy => self.healthy_since_ms = None,
             None => self.healthy_since_ms = Some(s.now_ms),
@@ -481,10 +479,11 @@ pub(crate) fn traced_controller(args: &Value) -> Result<Box<dyn Subject>, String
     Ok(Box::new(Traced(controller)))
 }
 
-fn float(args: &Value, i: usize) -> Result<f32, String> {
+// A float reaches the controller as Java passes it, -1 for an unknown metric included.
+fn float(args: &Value, i: usize) -> Result<Option<f32>, String> {
     args[i]
         .as_f64()
-        .map(|v| v as f32)
+        .map(|v| Some(v as f32))
         .ok_or_else(|| format!("argument {i} is not a number: {}", args[i]))
 }
 
@@ -494,19 +493,20 @@ fn flag(args: &Value, i: usize) -> Result<bool, String> {
         .ok_or_else(|| format!("argument {i} is not a boolean: {}", args[i]))
 }
 
-/// The first nine arguments of every sample call.
-fn traced_sample(args: &Value, a: &Args) -> Result<Sample, String> {
-    Ok(Sample {
+/// The first nine arguments of every sample call: the tick and whether the bitrate has room.
+fn traced_sample(args: &Value, a: &Args) -> Result<(Stats, bool), String> {
+    let stats = Stats {
         now_ms: a.int(0)?,
         recent_video: flag(args, 1)?,
         poor_connection: flag(args, 2)?,
-        loss: float(args, 3)?,
+        loss_percent: float(args, 3)?,
         decode_ms: float(args, 4)?,
         jitter_ms: float(args, 5)?,
         queue_ms: float(args, 6)?,
         thermal_level: a.int(7)?,
-        bitrate_has_room: flag(args, 8)?,
-    })
+        ..Stats::default()
+    };
+    Ok((stats, flag(args, 8)?))
 }
 
 fn parse_target(text: &str) -> Option<Target> {
@@ -533,17 +533,17 @@ impl Subject for Traced {
         match method {
             "sample" => {
                 let a = Args::new(args, 9)?;
-                let sample = traced_sample(args, &a)?;
-                Ok(traced_target(controller.sample(&sample)))
+                let (stats, room) = traced_sample(args, &a)?;
+                Ok(traced_target(controller.sample(&stats, room)))
             }
             "sample_without_timing" => {
                 let a = Args::new(args, 9)?;
-                let sample = traced_sample(args, &a)?;
-                Ok(traced_target(controller.sample_timed(&sample, None)))
+                let (stats, room) = traced_sample(args, &a)?;
+                Ok(traced_target(controller.sample_timed(&stats, room, None)))
             }
             "sample_timed" => {
                 let a = Args::new(args, 17)?;
-                let sample = traced_sample(args, &a)?;
+                let (stats, room) = traced_sample(args, &a)?;
                 let timing = DecodeTiming {
                     generation: a.int(9)?,
                     window_start_ns: a.int(10)?,
@@ -554,9 +554,11 @@ impl Subject for Traced {
                     samples: a.int(15)?,
                     late_frames: a.int(16)?,
                 };
-                Ok(traced_target(
-                    controller.sample_timed(&sample, Some(&timing)),
-                ))
+                Ok(traced_target(controller.sample_timed(
+                    &stats,
+                    room,
+                    Some(&timing),
+                )))
             }
             "applied" => {
                 let a = Args::new(args, 2)?;
@@ -600,17 +602,41 @@ mod tests {
     fn hot(quality: &mut AdaptiveQualityController, now_ms: u64) -> Option<Target> {
         (0..4)
             .map(|i| {
-                quality.sample(&Sample {
+                let stats = Stats {
                     now_ms: now_ms + i * 1000,
                     recent_video: true,
-                    decode_ms: 2.0,
+                    decode_ms: Some(2.0),
                     thermal_level: 2,
-                    bitrate_has_room: true,
-                    ..Sample::default()
-                })
+                    ..Stats::default()
+                };
+                quality.sample(&stats, true)
             })
             .last()
             .flatten()
+    }
+
+    #[test]
+    fn a_tick_with_nothing_measured_never_recovers() {
+        let mut quality =
+            AdaptiveQualityController::new(Mode::Motion, 1920, 1080, 120, BOUNDS, 0).unwrap();
+        let lower = hot(&mut quality, 15_000).unwrap();
+        quality.applied(lower, 18_000).unwrap();
+        let tick = |second: u64| Stats {
+            now_ms: second * 1000,
+            recent_video: true,
+            ..Stats::default()
+        };
+        assert!((19..120).all(|second| quality.sample(&tick(second), true).is_none()));
+        // Measured health recovers within the same time.
+        let healthy = |second: u64| Stats {
+            loss_percent: Some(0.0),
+            decode_ms: Some(2.0),
+            jitter_ms: Some(1.0),
+            queue_ms: Some(0.0),
+            ..tick(second)
+        };
+        let recovered = (120..240).find_map(|second| quality.sample(&healthy(second), true));
+        assert_eq!(recovered, Some(quality.ceiling()));
     }
 
     #[test]

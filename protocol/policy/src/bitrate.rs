@@ -6,6 +6,7 @@
 
 use serde_json::Value;
 
+use crate::stats::{known, Stats};
 use crate::trace::{Args, Subject};
 
 /// Lowest rate the controller steps down to unless the person sets a higher minimum.
@@ -67,24 +68,7 @@ pub fn built_in_floor_kbps(width: u32, height: u32, fps: u32, codec: Option<Code
     (kbps.min(MAX_BITRATE_KBPS.into()) as u32).max(DEFAULT_FLOOR_KBPS)
 }
 
-/// One second of stream statistics. A measurement is `None` when unknown.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Sample {
-    /// Frames arrived recently.
-    pub recent_video: bool,
-    /// The native connection-quality warning.
-    pub poor_connection: bool,
-    /// Frames lost after FEC, in percent.
-    pub loss_percent: Option<f32>,
-    pub decode_ms: Option<f32>,
-    pub jitter_ms: Option<f32>,
-    /// Network queueing delay above its recent minimum. A queue building at the access point
-    /// shows there before packets are dropped, so a rising queue lowers the bitrate (and with it
-    /// the host's pacing rate) before losses pile up.
-    pub queue_ms: Option<f32>,
-}
-
-/// Picks the stream's rate from once-a-second samples; the caller requests it from the host and
+/// Picks the stream's rate from once-a-second [`Stats`]; the caller requests it from the host and
 /// reports what the host applied.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AdaptiveBitrateController {
@@ -102,7 +86,6 @@ pub struct AdaptiveBitrateController {
     last_change_ms: u64,
     healthy_since_ms: Option<u64>,
     poor_samples: u32,
-    thermal_level: u32,
     previous_queue_ms: Option<f32>,
     decode_before_reduction_ms: Option<f32>,
     decode_before_reduction_kbps: u32,
@@ -157,7 +140,6 @@ impl AdaptiveBitrateController {
             last_change_ms: now_ms,
             healthy_since_ms: None,
             poor_samples: 0,
-            thermal_level: 0,
             previous_queue_ms: None,
             decode_before_reduction_ms: None,
             decode_before_reduction_kbps: 0,
@@ -187,15 +169,19 @@ impl AdaptiveBitrateController {
     }
 
     /// Called once per second, only while no bitrate request is in flight. Returns the rate to
-    /// request, or `None` to keep the current one.
-    pub fn sample(&mut self, now_ms: u64, s: Sample) -> Option<u32> {
+    /// request, or `None` to keep the current one. A queue building at the access point shows
+    /// before packets are dropped, so a rising queue lowers the bitrate (and with it the host's
+    /// pacing rate) before losses pile up. Warm (thermal level 1) holds the rate, hot (2 and up)
+    /// steps it down.
+    pub fn sample(&mut self, stats: &Stats) -> Option<u32> {
+        let now_ms = stats.now_ms;
         // As in Java, only a value of at least 0 is measured; a negative or NaN one is unknown.
-        let s = Sample {
-            loss_percent: s.loss_percent.filter(|v| *v >= 0.0),
-            decode_ms: s.decode_ms.filter(|v| *v >= 0.0),
-            jitter_ms: s.jitter_ms.filter(|v| *v >= 0.0),
-            queue_ms: s.queue_ms.filter(|v| *v >= 0.0),
-            ..s
+        let s = Stats {
+            loss_percent: known(stats.loss_percent),
+            decode_ms: known(stats.decode_ms),
+            jitter_ms: known(stats.jitter_ms),
+            queue_ms: known(stats.queue_ms),
+            ..*stats
         };
         let recent = s.recent_video;
         if !recent && !s.poor_connection {
@@ -236,7 +222,7 @@ impl AdaptiveBitrateController {
             && !self.decode_bitrate_insensitive;
         if slow_decoder
             && !poor
-            && self.thermal_level < 2
+            && s.thermal_level < 2
             && self.current_kbps < self.decode_before_reduction_kbps
             && now_ms.saturating_sub(self.last_change_ms) >= 15_000
             && s.decode_ms.is_some_and(|decode| {
@@ -248,7 +234,7 @@ impl AdaptiveBitrateController {
             self.decode_bitrate_insensitive = true;
             slow_decoder = false;
         }
-        if poor || (recent && self.thermal_level >= 2) || slow_decoder {
+        if poor || (recent && s.thermal_level >= 2) || slow_decoder {
             self.healthy_since_ms = None;
             self.calm_since_ms = None;
             self.poor_samples = self.poor_samples.saturating_add(1);
@@ -275,7 +261,7 @@ impl AdaptiveBitrateController {
                 } else {
                     floor.max(self.current_kbps * 80 / 100)
                 };
-                if target < self.current_kbps && self.thermal_level < 2 && slow_decoder {
+                if target < self.current_kbps && s.thermal_level < 2 && slow_decoder {
                     self.decode_before_reduction_ms = s.decode_ms;
                     self.decode_before_reduction_kbps = self.current_kbps;
                 }
@@ -295,7 +281,7 @@ impl AdaptiveBitrateController {
             }
             Some(_) => {}
         }
-        let healthy = self.thermal_level == 0
+        let healthy = s.thermal_level == 0
             && s.loss_percent.is_some_and(|l| l < 0.5)
             && s.decode_ms
                 .is_some_and(|d| self.decode_bitrate_insensitive || d < frame_ms * 0.75)
@@ -448,11 +434,6 @@ impl AdaptiveBitrateController {
         }
     }
 
-    /// The thermal monitor's level: warm (1) holds the rate, hot (2 and up) steps it down.
-    pub fn set_thermal_level(&mut self, level: u32) {
-        self.thermal_level = level;
-    }
-
     pub fn set_frame_rate(&mut self, fps: u32) {
         self.fps = fps;
         self.frame_ms = frame_ms(fps);
@@ -558,11 +539,12 @@ fn count(args: &Value, counts: &[usize]) -> Result<usize, String> {
     Ok(count)
 }
 
-struct Traced(Option<AdaptiveBitrateController>);
+// Java sets the thermal level apart from the samples; the adapter carries it into each tick.
+struct Traced(Option<AdaptiveBitrateController>, u32);
 
 pub(crate) fn traced_controller(args: &Value) -> Result<Box<dyn Subject>, String> {
     if args.is_null() {
-        return Ok(Box::new(Traced(None)));
+        return Ok(Box::new(Traced(None, 0)));
     }
     let a = Args::new(args, count(args, &[4, 7])?)?;
     let (ceiling, current, fps, now) = (a.int(0)?, a.int(1)?, a.int(2)?, a.int(3)?);
@@ -580,7 +562,7 @@ pub(crate) fn traced_controller(args: &Value) -> Result<Box<dyn Subject>, String
     } else {
         AdaptiveBitrateController::new(ceiling, current, fps, now)
     };
-    Ok(Box::new(Traced(Some(controller))))
+    Ok(Box::new(Traced(Some(controller), 0)))
 }
 
 impl Subject for Traced {
@@ -596,7 +578,8 @@ impl Subject for Traced {
                 // Java's shorter overloads pass no jitter (0) and an unknown queue (-1).
                 let count = count(args, &[5, 6, 7])?;
                 let a = Args::new(args, count)?;
-                let sample = Sample {
+                let stats = Stats {
+                    now_ms: a.int(0)?,
                     recent_video: flag(args, 1)?,
                     poor_connection: flag(args, 2)?,
                     loss_percent: measurement(args, 3)?,
@@ -611,8 +594,10 @@ impl Subject for Traced {
                     } else {
                         None
                     },
+                    thermal_level: self.1,
+                    ..Stats::default()
                 };
-                Ok(controller.sample(a.int(0)?, sample).unwrap_or(0).into())
+                Ok(controller.sample(&stats).unwrap_or(0).into())
             }
             "applied" => {
                 let a = Args::new(args, 3)?;
@@ -625,7 +610,7 @@ impl Subject for Traced {
                 Ok(Value::Null)
             }
             "set_thermal_level" => {
-                controller.set_thermal_level(Args::new(args, 1)?.int(0)?);
+                self.1 = Args::new(args, 1)?.int(0)?;
                 Ok(Value::Null)
             }
             "set_frame_rate" => {
@@ -661,20 +646,21 @@ mod tests {
     }
 
     // The highest rate requested over a minute of samples that are healthy except for `unknown`.
-    fn raised_with(unknown: impl Fn(&mut Sample)) -> Option<u32> {
+    fn raised_with(unknown: impl Fn(&mut Stats)) -> Option<u32> {
         let mut controller = AdaptiveBitrateController::new(20_000, 10_000, 60, 0);
         (1..=60)
             .filter_map(|second| {
-                let mut sample = Sample {
+                let mut stats = Stats {
+                    now_ms: second * 1000,
                     recent_video: true,
-                    poor_connection: false,
                     loss_percent: Some(0.0),
                     decode_ms: Some(2.0),
                     jitter_ms: Some(1.0),
                     queue_ms: Some(0.0),
+                    ..Stats::default()
                 };
-                unknown(&mut sample);
-                controller.sample(second * 1000, sample)
+                unknown(&mut stats);
+                controller.sample(&stats)
             })
             .max()
     }
@@ -682,6 +668,15 @@ mod tests {
     #[test]
     fn negative_or_nan_measurements_are_unknown_and_hold_the_rate() {
         assert!(raised_with(|_| {}).is_some_and(|kbps| kbps > 10_000));
+        // A tick with nothing measured is not healthy either.
+        let unmeasured = |s: &mut Stats| {
+            *s = Stats {
+                now_ms: s.now_ms,
+                recent_video: true,
+                ..Stats::default()
+            }
+        };
+        assert_eq!(raised_with(unmeasured), None);
         for value in [-1.0, f32::NAN] {
             assert_eq!(raised_with(|s| s.loss_percent = Some(value)), None);
             assert_eq!(raised_with(|s| s.decode_ms = Some(value)), None);

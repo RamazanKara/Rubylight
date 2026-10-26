@@ -101,6 +101,33 @@ struct State {
     armed_until: Option<Instant>,
 }
 
+impl State {
+    fn new(local: SocketAddr) -> Self {
+        Self {
+            local,
+            route: local,
+            held: false,
+            armed_until: None,
+        }
+    }
+
+    /// A hint that allows roaming: with platform hints the route poll may move until
+    /// [`HINT_WINDOW`] from `now`.
+    fn arm(&mut self, now: Instant) {
+        self.armed_until = Some(now + HINT_WINDOW);
+    }
+
+    /// The route poll found `route`: whether the media move there. Only a changed route
+    /// moves, never while held, and with platform hints only while armed.
+    fn route_moves(&mut self, route: SocketAddr, platform_hints: bool, now: Instant) -> bool {
+        if route == self.route {
+            return false;
+        }
+        self.route = route;
+        !self.held && !(platform_hints && !self.armed_until.is_some_and(|until| now < until))
+    }
+}
+
 /// The session's roaming side, shared by the session and the route poll thread.
 pub(super) struct Roamer {
     shared: Arc<Shared>,
@@ -135,12 +162,7 @@ impl Roamer {
             config,
             paths,
             microphone,
-            state: Mutex::new(State {
-                local,
-                route: local,
-                held: false,
-                armed_until: None,
-            }),
+            state: Mutex::new(State::new(local)),
             stop: StopSignal::default(),
         })
     }
@@ -168,16 +190,9 @@ impl Roamer {
             return;
         };
         let mut state = lock(&self.state);
-        if route == state.route {
-            return;
+        if state.route_moves(route, self.config.platform_hints, now) {
+            self.roam(&mut state, route);
         }
-        state.route = route;
-        if state.held
-            || (self.config.platform_hints && !state.armed_until.is_some_and(|until| now < until))
-        {
-            return;
-        }
-        self.roam(&mut state, route);
     }
 
     /// [`super::Session::network_changed`].
@@ -199,7 +214,7 @@ impl Roamer {
             state.held = false;
             self.control.hold_roaming(false);
         }
-        state.armed_until = Some(Instant::now() + HINT_WINDOW);
+        state.arm(Instant::now());
         match net::local_address_toward(self.remote) {
             Ok(route) => {
                 state.route = route;
@@ -294,5 +309,31 @@ mod tests {
             assert_eq!(launch_seq(&key(n)).last(), 0);
         }
         assert_eq!(launch_seq(&key(0)).last(), 0);
+    }
+
+    #[test]
+    fn with_platform_hints_the_route_poll_moves_only_soon_after_a_hint() {
+        let at = |n: u8| SocketAddr::from(([10, 0, 0, n], 0));
+        let now = Instant::now();
+        let seconds = |s: u64| now + Duration::from_secs(s);
+
+        // Without platform hints any new route moves.
+        let mut state = State::new(at(1));
+        assert!(!state.route_moves(at(1), false, now));
+        assert!(state.route_moves(at(2), false, now));
+
+        // With them, not before a hint, then within HINT_WINDOW of one and no later.
+        let mut state = State::new(at(1));
+        assert!(!state.route_moves(at(2), true, now));
+        state.arm(seconds(1));
+        assert!(state.route_moves(at(3), true, seconds(5)));
+        assert!(!state.route_moves(at(4), true, seconds(6)));
+        state.arm(seconds(10));
+        assert!(state.route_moves(at(5), true, seconds(10)));
+
+        // A metered network without the opt-in holds it even within the window.
+        state.arm(seconds(20));
+        state.held = true;
+        assert!(!state.route_moves(at(6), true, seconds(21)));
     }
 }

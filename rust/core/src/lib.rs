@@ -88,6 +88,7 @@ pub mod stall_watch;
 pub mod state;
 pub mod steam;
 pub mod steam_deck;
+pub mod steam_feedback;
 pub mod stream_policy;
 pub mod stream_preset;
 pub mod timing_record;

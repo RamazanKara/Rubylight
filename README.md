@@ -76,7 +76,7 @@
 
 ## Your whole library
 
-| | |
+| Feature | What it does |
 | --- | --- |
 | **Every launcher in one scan** | **Games & apps → Add games** finds what is installed from Steam, Epic Games, Battle.net, EA app, Ubisoft Connect, GOG, and Microsoft Store and Xbox PC games. Search, filter by launcher, tick what you want, done. |
 | **Covers included** | Each game arrives with its cover from the launcher. Pick your own any time. |

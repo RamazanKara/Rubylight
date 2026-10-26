@@ -412,6 +412,7 @@ impl Hosts {
     }
 
     fn insert(&mut self, record: HostRecord) -> u64 {
+        crate::logfile::add_secrets(&record);
         let id = self.next_id;
         self.next_id += 1;
         self.list.push(Host {
@@ -536,6 +537,7 @@ impl Hosts {
         let given = alias.trim();
         let own = given == host.record.name || given == host.record.address;
         host.record.set_alias(if own { "" } else { alias });
+        crate::logfile::add_secrets(&host.record);
         true
     }
 
@@ -1150,6 +1152,7 @@ impl Hosts {
                     host.apps = Apps::NotLoaded;
                     changed = true;
                 }
+                crate::logfile::add_secrets(&host.record);
                 host.info = Some(*info);
             }
             Err(e) => {
@@ -1170,6 +1173,7 @@ impl Hosts {
         }) {
             if host.record.name.is_empty() {
                 host.record.name = name;
+                crate::logfile::add_secrets(&host.record);
             }
             return;
         }
@@ -1314,6 +1318,19 @@ mod tests {
         assert_eq!(hosts.records()[0].alias.as_deref(), Some("Living room"), "and the alias is saved");
         hosts.list[0].record.set_alias("");
         assert_eq!(hosts.list[0].display_name(), "Renamed on the PC");
+    }
+
+    #[test]
+    fn names_a_pc_reports_or_is_given_later_are_kept_out_of_the_log() {
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
+        let id = hosts.list[0].id;
+        let info = INFO.replace("Renamed on the PC", "Secret name from serverinfo").replace("<uniqueid>uid", "<uniqueid>secret-uid-from-serverinfo");
+        assert!(hosts.apply_info(id, "192.0.2.1".into(), Ok(Box::new(ServerInfo::parse(&info, 47989).unwrap()))));
+        assert!(hosts.rename(id, "Secret alias given here"));
+        hosts.apply_discovery("Secret name from mDNS".into(), vec!["192.0.2.99".parse().unwrap()], 0);
+        let line = nightjar_core::report::redact::scrub("Secret name from serverinfo, secret-uid-from-serverinfo, Secret alias given here, Secret name from mDNS");
+        // Other tests save a PC named "PC", which the Android rules replace inside a mark too.
+        assert_eq!(line.replace("[[PC]]", "[PC]"), "[PC], [PC], [PC], [PC]");
     }
 
     #[test]

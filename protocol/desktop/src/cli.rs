@@ -6,12 +6,18 @@
 //! `--quit-on-exit` closes Nightjar when that stream ends, so the frontend gets its window back.
 //! A PC or app that cannot be found, or a stream that cannot start, ends the process with an
 //! error (exit code 1) instead of leaving the launcher open; a wrong command line exits with 64.
+//! Cancelling the start closes Nightjar with exit code 0.
 
 use std::ffi::OsString;
 use std::time::{Duration, Instant};
 
+use nightjar_core::http::{App, AppControl};
+
 /// How long the PC gets to answer and list its apps.
 const START_LIMIT: Duration = Duration::from_secs(60);
+/// How long a launched stream gets to start: a backstop, the connection's own steps time out
+/// sooner.
+const LAUNCH_LIMIT: Duration = Duration::from_secs(180);
 
 pub const USAGE: &str = "usage: nightjar [--host <name|uuid> [--app <name|uuid>] [--quit-on-exit]]";
 
@@ -86,6 +92,12 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Parsed, String
     }
 }
 
+/// Whether an error that ends Nightjar is shown in a box too. A frontend start only writes it to
+/// stderr and the log: a box could open behind the fullscreen frontend and keep Nightjar open.
+pub fn shows_error_box(launch: Option<&Launch>) -> bool {
+    launch.is_none()
+}
+
 /// A saved PC as `find_host` sees it.
 pub struct HostEntry<'a> {
     pub id: u64,
@@ -134,46 +146,83 @@ pub fn find_host<'a>(
     Ok(found.id)
 }
 
-#[derive(Debug, Clone)]
-pub struct AppEntry {
-    pub id: i32,
-    pub uuid: String,
-    pub name: String,
-}
-
-/// The app with this UUID, or else the one with this name, ignoring case.
-pub fn find_app(apps: &[AppEntry], wanted: &str) -> Result<i32, String> {
-    if let Some(app) = apps
+/// The app with this UUID, or else the one with this name, ignoring case. Host actions
+/// (disconnect, terminate) are no apps to stream.
+pub fn find_app<'a>(apps: &'a [App], wanted: &str) -> Result<&'a App, String> {
+    let found = match apps
         .iter()
         .find(|a| !a.uuid.is_empty() && a.uuid.eq_ignore_ascii_case(wanted))
     {
-        return Ok(app.id);
+        Some(app) => app,
+        None => {
+            let named: Vec<&App> = apps
+                .iter()
+                .filter(|a| a.name.eq_ignore_ascii_case(wanted))
+                .collect();
+            match named.as_slice() {
+                [] => {
+                    return Err(format!(
+                        "the PC has no app named {wanted} or with that UUID"
+                    ))
+                }
+                [app] => *app,
+                _ => {
+                    return Err(format!(
+                        "the PC has several apps named {wanted}; give its UUID instead"
+                    ))
+                }
+            }
+        }
+    };
+    if found.is_control_action() {
+        return Err(format!(
+            "{} is an action on the PC, not an app to stream",
+            found.name
+        ));
     }
-    let named: Vec<&AppEntry> = apps
+    Ok(found)
+}
+
+/// Whether starting `app` resumes it, by the rules of a click on its poster (`ui.rs`). Another
+/// app running is an error: the PC refuses a plain launch next to it unless it asks the user
+/// itself.
+fn resume(host: &HostSeen, apps: &[App], app: &App) -> Result<bool, String> {
+    if app.control != AppControl::None {
+        return Ok(false);
+    }
+    let Some((id, uuid)) = &host.running else {
+        return Ok(false);
+    };
+    if app.matches_running_app(*id, uuid.as_deref()) {
+        return Ok(true);
+    }
+    if host.confirms_replacement {
+        return Ok(false);
+    }
+    let running = apps
         .iter()
-        .filter(|a| a.name.eq_ignore_ascii_case(wanted))
-        .collect();
-    match named.as_slice() {
-        [] => Err(format!(
-            "the PC has no app named {wanted} or with that UUID"
-        )),
-        [app] => Ok(app.id),
-        _ => Err(format!(
-            "the PC has several apps named {wanted}; give its UUID instead"
-        )),
-    }
+        .find(|a| a.matches_running_app(*id, uuid.as_deref()))
+        .map_or("another app", |a| a.name.as_str());
+    Err(format!(
+        "the PC is running {running}; quit it first or start that app instead"
+    ))
 }
 
 pub enum AppsSeen {
     NotLoaded,
     Loading,
-    Loaded(Vec<AppEntry>),
+    Loaded(Vec<App>),
     Failed(String),
 }
 
 pub struct HostSeen {
     pub answered: bool,
     pub paired: bool,
+    /// Why the PC could not be reached, when its last check failed.
+    pub offline: Option<String>,
+    /// The app the PC runs, as it reports it: its id and UUID.
+    pub running: Option<(i32, Option<String>)>,
+    pub confirms_replacement: bool,
     pub apps: AppsSeen,
 }
 
@@ -183,6 +232,8 @@ pub struct Seen {
     pub host: Option<HostSeen>,
     /// The launcher's error message, if one is up.
     pub message: Option<String>,
+    /// A launch is under way: the network check, the connection or the stream.
+    pub busy: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -190,8 +241,11 @@ pub enum Step {
     Wait,
     OpenApps(u64),
     LoadApps(u64),
-    Launch(u64, i32),
+    /// Host, app, and whether to resume it.
+    Launch(u64, i32, bool),
     Fail(String),
+    /// The user cancelled the start: close without an error.
+    Close,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -209,8 +263,12 @@ pub struct CliLaunch {
     pub launch: Launch,
     pub host: u64,
     phase: Phase,
+    /// The app list was asked for and has not started loading since.
     apps_asked: bool,
+    /// When the current phase began.
     started: Instant,
+    /// The user cancelled the launch.
+    cancelled: bool,
     /// Why the start failed; the process then exits with an error.
     pub failed: Option<String>,
 }
@@ -235,28 +293,27 @@ impl CliLaunch {
             phase: Phase::Starting,
             apps_asked: false,
             started: Instant::now(),
+            cancelled: false,
             failed: None,
         }
     }
 
     pub fn host_seen(&self, hosts: &crate::hosts::Hosts) -> Option<HostSeen> {
-        use crate::hosts::Apps;
+        use crate::hosts::{Apps, Reach};
         let host = hosts.get(self.host)?;
         Some(HostSeen {
             answered: host.info.is_some(),
             paired: host.paired(),
+            offline: (host.reach == Reach::Offline).then(|| host.error.clone().unwrap_or_default()),
+            running: host.running_app().map(|id| {
+                let uuid = host.info.as_ref().and_then(|i| i.current_game_uuid.clone());
+                (id, uuid)
+            }),
+            confirms_replacement: host.confirms_replacement(),
             apps: match &host.apps {
                 Apps::NotLoaded => AppsSeen::NotLoaded,
                 Apps::Loading => AppsSeen::Loading,
-                Apps::Loaded(apps) => AppsSeen::Loaded(
-                    apps.iter()
-                        .map(|a| AppEntry {
-                            id: a.id,
-                            uuid: a.uuid.clone(),
-                            name: a.name.clone(),
-                        })
-                        .collect(),
-                ),
+                Apps::Loaded(apps) => AppsSeen::Loaded(apps.clone()),
                 Apps::Failed(e) => AppsSeen::Failed(e.clone()),
             },
         })
@@ -266,13 +323,13 @@ impl CliLaunch {
     pub fn next(&mut self, seen: &Seen) -> Step {
         match self.phase {
             Phase::Streaming | Phase::Idle => return Step::Wait,
-            Phase::Launched => {
-                return match &seen.message {
-                    Some(message) => Step::Fail(message.clone()),
-                    None => Step::Wait,
-                }
-            }
+            Phase::Launched => return self.launched(seen),
             Phase::Starting => {}
+        }
+        // An error up now stops the start. None is up when the launch goes out, so every
+        // message in `Launched` is about the launch.
+        if let Some(message) = &seen.message {
+            return Step::Fail(message.clone());
         }
         let Some(host) = &seen.host else {
             return Step::Fail(format!("the PC {} is no longer saved", self.launch.host));
@@ -284,6 +341,12 @@ impl CliLaunch {
             self.phase = Phase::Idle;
             return Step::OpenApps(self.host);
         };
+        if let Some(why) = &host.offline {
+            return Step::Fail(format!(
+                "the PC {} cannot be reached: {why}",
+                self.launch.host
+            ));
+        }
         if !host.answered {
             return self.in_time(Step::Wait);
         }
@@ -298,16 +361,44 @@ impl CliLaunch {
                 self.apps_asked = true;
                 Step::LoadApps(self.host)
             }
-            AppsSeen::NotLoaded | AppsSeen::Loading => self.in_time(Step::Wait),
+            AppsSeen::NotLoaded => self.in_time(Step::Wait),
+            AppsSeen::Loading => {
+                // A list that drops back to unloaded later is asked for again.
+                self.apps_asked = false;
+                self.in_time(Step::Wait)
+            }
             AppsSeen::Failed(e) => Step::Fail(format!("could not load the apps: {e}")),
-            AppsSeen::Loaded(apps) => match find_app(apps, &wanted) {
-                Ok(id) => {
-                    self.phase = Phase::Launched;
-                    Step::Launch(self.host, id)
+            AppsSeen::Loaded(apps) => {
+                match find_app(apps, &wanted).and_then(|app| Ok((app.id, resume(host, apps, app)?)))
+                {
+                    Ok((id, resume)) => {
+                        self.phase = Phase::Launched;
+                        self.started = Instant::now();
+                        Step::Launch(self.host, id, resume)
+                    }
+                    Err(why) => Step::Fail(why),
                 }
-                Err(why) => Step::Fail(why),
-            },
+            }
         }
+    }
+
+    /// After the launch was asked for: the stream starts, or the launch ends without one.
+    fn launched(&self, seen: &Seen) -> Step {
+        if let Some(message) = &seen.message {
+            return Step::Fail(message.clone());
+        }
+        if !seen.busy {
+            // The launcher dropped the launch without saying why, or the user cancelled it.
+            return if self.cancelled {
+                Step::Close
+            } else {
+                Step::Fail("the stream did not start".into())
+            };
+        }
+        if self.started.elapsed() > LAUNCH_LIMIT {
+            return Step::Fail("the stream did not start in time".into());
+        }
+        Step::Wait
     }
 
     fn in_time(&self, step: Step) -> Step {
@@ -323,6 +414,13 @@ impl CliLaunch {
 
     pub fn streaming_began(&mut self) {
         self.phase = Phase::Streaming;
+    }
+
+    /// The user cancelled the launch: Nightjar closes once it has stopped.
+    pub fn cancel(&mut self) {
+        if self.phase == Phase::Launched {
+            self.cancelled = true;
+        }
     }
 
     /// The stream is over (no reconnect follows). True when Nightjar should close now;
@@ -458,12 +556,21 @@ mod tests {
             .contains("not paired"));
     }
 
-    fn app(id: i32, uuid: &str, name: &str) -> AppEntry {
-        AppEntry {
-            id,
-            uuid: uuid.into(),
+    fn app(id: i32, uuid: &str, name: &str) -> App {
+        App {
             name: name.into(),
+            id,
+            hdr_supported: false,
+            uuid: uuid.into(),
+            host_index: None,
+            art_version: String::new(),
+            control: AppControl::None,
+            monitor_resume: false,
         }
+    }
+
+    fn found(apps: &[App], wanted: &str) -> Result<i32, String> {
+        find_app(apps, wanted).map(|a| a.id)
     }
 
     #[test]
@@ -473,14 +580,25 @@ mod tests {
             app(2, "5E1F-77", "Steam Big Picture"),
             app(3, "x", "Steam Big Picture"),
         ];
-        assert_eq!(find_app(&apps, "desktop"), Ok(1));
-        assert_eq!(find_app(&apps, "5e1f-77"), Ok(2));
-        assert!(find_app(&apps, "steam big picture")
+        assert_eq!(found(&apps, "desktop"), Ok(1));
+        assert_eq!(found(&apps, "5e1f-77"), Ok(2));
+        assert!(found(&apps, "steam big picture")
             .unwrap_err()
             .contains("UUID"));
-        assert!(find_app(&apps, "Cyberpunk")
+        assert!(found(&apps, "Cyberpunk").unwrap_err().contains("Cyberpunk"));
+    }
+
+    #[test]
+    fn host_actions_are_no_apps_to_stream() {
+        let terminate = App {
+            control: AppControl::Terminate,
+            ..app(9, "E16C", "Terminate")
+        };
+        let apps = vec![app(1, "", "Desktop"), terminate];
+        assert!(found(&apps, "terminate")
             .unwrap_err()
-            .contains("Cyberpunk"));
+            .contains("not an app to stream"));
+        assert!(found(&apps, "e16c").is_err());
     }
 
     fn cli(app: Option<&str>, quit_on_exit: bool) -> CliLaunch {
@@ -500,10 +618,23 @@ mod tests {
             host: Some(HostSeen {
                 answered,
                 paired: true,
+                offline: None,
+                running: None,
+                confirms_replacement: false,
                 apps,
             }),
             message: None,
+            busy: false,
         }
+    }
+
+    /// The PC as `seen` with the apps loaded and `running` running.
+    fn running(apps: Vec<App>, running: Option<(i32, Option<&str>)>, confirms: bool) -> Seen {
+        let mut seen = seen(true, AppsSeen::Loaded(apps));
+        let host = seen.host.as_mut().unwrap();
+        host.running = running.map(|(id, uuid)| (id, uuid.map(Into::into)));
+        host.confirms_replacement = confirms;
+        seen
     }
 
     #[test]
@@ -521,8 +652,117 @@ mod tests {
         assert_eq!(c.next(&seen(true, AppsSeen::NotLoaded)), Step::Wait);
         assert_eq!(c.next(&seen(true, AppsSeen::Loading)), Step::Wait);
         let apps = || AppsSeen::Loaded(vec![app(1, "", "Steam"), app(5, "", "Desktop")]);
-        assert_eq!(c.next(&seen(true, apps())), Step::Launch(7, 5));
-        assert_eq!(c.next(&seen(true, apps())), Step::Wait);
+        assert_eq!(c.next(&seen(true, apps())), Step::Launch(7, 5, false));
+        let busy = |s: Seen| Seen { busy: true, ..s };
+        assert_eq!(c.next(&busy(seen(true, apps()))), Step::Wait);
+    }
+
+    #[test]
+    fn a_list_that_drops_back_to_unloaded_is_asked_for_again() {
+        let mut c = cli(Some("desktop"), false);
+        assert_eq!(c.next(&seen(true, AppsSeen::NotLoaded)), Step::LoadApps(7));
+        assert_eq!(c.next(&seen(true, AppsSeen::Loading)), Step::Wait);
+        assert_eq!(c.next(&seen(true, AppsSeen::NotLoaded)), Step::LoadApps(7));
+        assert_eq!(c.next(&seen(true, AppsSeen::NotLoaded)), Step::Wait);
+    }
+
+    #[test]
+    fn the_running_app_is_resumed_and_another_one_is_an_error() {
+        let apps = || vec![app(1, "", "Steam"), app(5, "D-5", "Desktop")];
+        let mut c = cli(Some("desktop"), false);
+        assert_eq!(
+            c.next(&running(apps(), Some((5, None)), false)),
+            Step::Launch(7, 5, true)
+        );
+        // A UUID decides when both sides have one.
+        let mut c = cli(Some("desktop"), false);
+        assert_eq!(
+            c.next(&running(apps(), Some((1, Some("D-5"))), false)),
+            Step::Launch(7, 5, true)
+        );
+        let mut c = cli(Some("desktop"), false);
+        assert_eq!(
+            c.next(&running(apps(), Some((1, None)), false)),
+            Step::Fail("the PC is running Steam; quit it first or start that app instead".into())
+        );
+        // A PC that asks its user before replacing the running app gets a plain launch.
+        let mut c = cli(Some("desktop"), false);
+        assert_eq!(
+            c.next(&running(apps(), Some((1, None)), true)),
+            Step::Launch(7, 5, false)
+        );
+        // Resume and the other special tiles are never resumed themselves.
+        let resume_tile = App {
+            control: AppControl::Resume,
+            ..app(8, "", "Resume")
+        };
+        let mut c = cli(Some("resume"), false);
+        assert_eq!(
+            c.next(&running(vec![resume_tile], Some((1, None)), false)),
+            Step::Launch(7, 8, false)
+        );
+    }
+
+    #[test]
+    fn a_launch_the_launcher_drops_ends_the_start() {
+        let apps = || AppsSeen::Loaded(vec![app(1, "", "Steam")]);
+        let launch =
+            |c: &mut CliLaunch| assert_eq!(c.next(&seen(true, apps())), Step::Launch(7, 1, false));
+        // Dropped without a message (the app vanished, no identity): an error.
+        let mut c = cli(Some("Steam"), false);
+        launch(&mut c);
+        assert_eq!(
+            c.next(&seen(true, apps())),
+            Step::Fail("the stream did not start".into())
+        );
+        // Cancelled by the user: closed without an error.
+        let mut c = cli(Some("Steam"), false);
+        launch(&mut c);
+        c.cancel();
+        assert_eq!(c.next(&seen(true, apps())), Step::Close);
+        // Still connecting after the backstop.
+        let mut c = cli(Some("Steam"), false);
+        launch(&mut c);
+        c.started = Instant::now() - LAUNCH_LIMIT - Duration::from_secs(1);
+        let busy = Seen {
+            busy: true,
+            ..seen(true, apps())
+        };
+        assert_eq!(
+            c.next(&busy),
+            Step::Fail("the stream did not start in time".into())
+        );
+    }
+
+    #[test]
+    fn a_message_or_an_unreachable_pc_fails_the_start_at_once() {
+        let mut c = cli(Some("Steam"), false);
+        let message = Seen {
+            message: Some("Nightjar's identity: could not be read".into()),
+            ..seen(false, AppsSeen::NotLoaded)
+        };
+        assert_eq!(
+            c.next(&message),
+            Step::Fail("Nightjar's identity: could not be read".into())
+        );
+        let mut c = cli(Some("Steam"), false);
+        let mut offline = seen(false, AppsSeen::NotLoaded);
+        offline.host.as_mut().unwrap().offline = Some("connection refused".into());
+        assert_eq!(
+            c.next(&offline),
+            Step::Fail("the PC pc cannot be reached: connection refused".into())
+        );
+    }
+
+    #[test]
+    fn only_a_start_without_a_frontend_shows_an_error_box() {
+        assert!(shows_error_box(None));
+        let launch = Launch {
+            host: "pc".into(),
+            app: None,
+            quit_on_exit: true,
+        };
+        assert!(!shows_error_box(Some(&launch)));
     }
 
     #[test]
@@ -561,7 +801,7 @@ mod tests {
         let mut c = cli(Some("Steam"), false);
         assert_eq!(
             c.next(&seen(true, AppsSeen::Loaded(vec![app(1, "", "Steam")]))),
-            Step::Launch(7, 1)
+            Step::Launch(7, 1, false)
         );
         let failed = Seen {
             message: Some("The stream could not start: no video".into()),

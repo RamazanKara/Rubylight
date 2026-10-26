@@ -41,6 +41,16 @@
       "expect": "Mail [email] now"
     },
     {
+      "name": "e-mail with letters past ASCII",
+      "input": "Signed in as jörg.müller@bücher.de, ok",
+      "expect": "Signed in as [email], ok"
+    },
+    {
+      "name": "e-mail in another script",
+      "input": "メール 山田@例え.jp",
+      "expect": "メール [email]"
+    },
+    {
       "name": "Android path",
       "input": "Saved /sdcard/a.txt",
       "expect": "Saved [path]"

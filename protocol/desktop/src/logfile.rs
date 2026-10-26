@@ -192,15 +192,18 @@ pub struct Redactor {
 impl Redactor {
     /// Append the redacted lines that end in `chunk` to `out`; the rest waits for its line end.
     pub fn push(&mut self, chunk: &[u8], out: &mut Vec<u8>) {
+        let held = self.open.len();
         self.open.extend_from_slice(chunk);
-        let end = match self.open.iter().rposition(|&b| b == b'\n') {
-            Some(last) => last + 1,
-            None if self.open.len() >= OPEN_LINE_LIMIT => self.open.len(),
-            None => return,
-        };
-        let lines: Vec<u8> = self.open.drain(..end).collect();
-        for line in lines.split_inclusive(|&b| b == b'\n') {
-            redact_line(line, out);
+        // Only the new bytes can end a line: the held ones have no line end.
+        if let Some(last) = chunk.iter().rposition(|&b| b == b'\n') {
+            let lines: Vec<u8> = self.open.drain(..held + last + 1).collect();
+            for line in lines.split_inclusive(|&b| b == b'\n') {
+                redact_line(line, out);
+            }
+        }
+        while self.open.len() > OPEN_LINE_LIMIT {
+            let part: Vec<u8> = self.open.drain(..cut(&self.open)).collect();
+            redact_line(&part, out);
         }
     }
 
@@ -215,13 +218,26 @@ impl Redactor {
     }
 }
 
-/// Keeps the saved PCs' names and addresses out of the log file from now on.
-pub fn add_secrets(records: &[crate::config::HostRecord]) {
-    for record in records {
-        let names = [&record.name, &record.unique_id, &record.address].into_iter().chain(&record.alias).chain(&record.mac);
-        for secret in names.chain(&record.other_addresses) {
-            nightjar_core::report::redact::add_secret(secret);
+/// Where a line longer than `OPEN_LINE_LIMIT` is cut: after its last whitespace before the limit,
+/// so a word is redacted whole, else at the last character start, so no character is split.
+fn cut(open: &[u8]) -> usize {
+    match open[..OPEN_LINE_LIMIT].iter().rposition(u8::is_ascii_whitespace) {
+        Some(space) if space > 0 => space + 1,
+        _ => {
+            let mut cut = OPEN_LINE_LIMIT;
+            while cut > 1 && open[cut] & 0xC0 == 0x80 {
+                cut -= 1;
+            }
+            cut
         }
+    }
+}
+
+/// Keeps a PC's names and addresses out of the log file from now on.
+pub fn add_secrets(record: &crate::config::HostRecord) {
+    let names = [&record.name, &record.unique_id, &record.address].into_iter().chain(&record.alias).chain(&record.mac);
+    for secret in names.chain(&record.other_addresses) {
+        nightjar_core::report::redact::add_secret(secret);
     }
 }
 
@@ -923,8 +939,9 @@ mod tests {
         log.write_chunk(b"to fd01::5 ends", UNIX_EPOCH).unwrap();
         log.finish(UNIX_EPOCH).unwrap();
         log.flush().unwrap();
+        // Other tests save a PC named "PC", which the Android rules replace inside a mark too.
         assert_eq!(
-            std::fs::read_to_string(dir.join(CURRENT)).unwrap(),
+            std::fs::read_to_string(dir.join(CURRENT)).unwrap().replace("[[PC]]", "[PC]"),
             "1970-01-01T00:00:00.000Z nightjar: pairing with [PC] at [address], PIN [omitted]\n\
              1970-01-01T00:00:00.000Z nightjar: stream to [address] ends"
         );
@@ -935,13 +952,24 @@ mod tests {
     fn a_line_longer_than_the_limit_is_written_in_parts() {
         let mut redactor = Redactor::default();
         let mut out = Vec::new();
-        redactor.push(&vec![b'z'; OPEN_LINE_LIMIT - 1], &mut out);
+        let mut line = vec![b'z'; OPEN_LINE_LIMIT - 6];
+        line.extend_from_slice(b" 192.1");
+        redactor.push(&line, &mut out);
         assert!(out.is_empty() && redactor.holds_text());
-        redactor.push(b"z b", &mut out);
-        assert_eq!(out, b"[data] b");
-        assert!(!redactor.holds_text());
+        // Cut after the last space before the limit: the address stays whole.
+        redactor.push(b"68.1.20 ok", &mut out);
+        assert_eq!(out, b"[data] ");
         redactor.push(b"\n", &mut out);
-        assert_eq!(out, b"[data] b\n");
+        assert_eq!(out, b"[data] [address] ok\n");
+        assert!(!redactor.holds_text());
+
+        // Without a space the cut falls between two characters.
+        let mut out = Vec::new();
+        let text = format!("q{}", "é".repeat(OPEN_LINE_LIMIT / 2));
+        redactor.push(text.as_bytes(), &mut out);
+        assert!(!out.is_empty() && redactor.holds_text());
+        redactor.push(b"\n", &mut out);
+        assert_eq!(String::from_utf8(out).unwrap(), format!("{text}\n"));
     }
 
     #[test]

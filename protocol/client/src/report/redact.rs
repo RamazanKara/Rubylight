@@ -4,8 +4,9 @@
 //!
 //! The cases in `tests/fixtures/redact` are replayed against both (cargo `redact_contract` and
 //! JUnit `RedactedLogContractTest`), so the two stay equal. The patterns use Java's ASCII
-//! classes (`\w`, `\d`, `\s`, `\b`), not Unicode ones; message lengths count characters where
-//! Java counts UTF-16 units, which differs only outside the Basic Multilingual Plane.
+//! classes (`\w`, `\d`, `\s`, `\b`), not Unicode ones, except that e-mail addresses may hold any
+//! character past ASCII. Message lengths count characters where Java counts UTF-16 units, which
+//! differs only outside the Basic Multilingual Plane.
 
 use std::sync::{LazyLock, RwLock};
 
@@ -37,13 +38,19 @@ pub const EVENTS: &[&str] = &[
 
 // Java's `\S`; `(?-u:\b)` is its ASCII word boundary.
 const NOT_SPACE: &str = r"[^ \t\n\x0B\x0C\r]";
+// The letters of an e-mail address: `\w` and any other character past ASCII, as in `RedactedLog`
+// (Android's `\w` is Unicode, the JVM's is ASCII).
+const MAIL_WORD: &str = r"A-Za-z0-9_\x{80}-\x{10FFFF}";
 
 /// In order: URLs, e-mail addresses, IPv4, IPv6 and MAC addresses, UUIDs, long hex, keys and
 /// other long tokens, Android paths. Each with the mark that replaces it.
 static SENSITIVE: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
     [
         (format!("[a-zA-Z][a-zA-Z0-9+.-]*://{NOT_SPACE}+"), "[url]"),
-        (r"[A-Za-z0-9_.+-]+@[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+".into(), "[email]"),
+        (
+            format!(r"[{MAIL_WORD}.+-]+@[{MAIL_WORD}-]+(?:\.[{MAIL_WORD}-]+)+"),
+            "[email]",
+        ),
         (r"(?-u:\b)[0-9]{1,3}(?:\.[0-9]{1,3}){3}(?::[0-9]+)?(?-u:\b)".into(), "[address]"),
         (r"[0-9a-fA-F]{0,4}(?::[0-9a-fA-F]{0,4}){2,7}(?:%[A-Za-z0-9_]+)?".into(), "[address]"),
         (

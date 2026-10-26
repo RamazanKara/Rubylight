@@ -164,9 +164,12 @@ fn main() {
     // After the package check, which must not write to the user's log.
     logpipe::start();
     let _log = logpipe::Guard;
+    let error_box = cli::shows_error_box(launch.as_ref());
     if let Err(e) = run(launch) {
         eprintln!("nightjar: {e}");
-        message_box(SDL_MESSAGEBOX_ERROR, &e);
+        if error_box {
+            message_box(SDL_MESSAGEBOX_ERROR, &e);
+        }
         logpipe::shutdown();
         std::process::exit(1);
     }
@@ -281,9 +284,7 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
         launcher.tearing_supported
     );
 
-    let saved_hosts = store.hosts();
-    logfile::add_secrets(&saved_hosts);
-    let mut hosts = Hosts::new(saved_hosts, waker.clone());
+    let mut hosts = Hosts::new(store.hosts(), waker.clone());
     let cli = match launch {
         Some(_) if std::env::var_os("NIGHTJAR_AUTOSTREAM").is_some() => {
             return Err("--host and NIGHTJAR_AUTOSTREAM both ask for a stream; give one".into());
@@ -946,6 +947,7 @@ impl App {
                 }
             }
             Command::CancelConnect => {
+                if let Some(cli) = self.cli.as_mut() { cli.cancel(); }
                 self.network_launch = None;
                 if let Some(c) = &self.connecting {
                     c.cancel();
@@ -1030,14 +1032,23 @@ impl App {
             self.running = false;
             return;
         }
-        let seen = cli::Seen { identity: self.hosts.identity().is_some(), host: cli.host_seen(&self.hosts), message };
+        let seen = cli::Seen {
+            identity: self.hosts.identity().is_some(),
+            host: cli.host_seen(&self.hosts),
+            message,
+            busy: self.streaming.is_some() || self.connecting.is_some() || self.network_launch.is_some(),
+        };
         match cli.next(&seen) {
             cli::Step::Wait => {}
             cli::Step::OpenApps(id) => self.command(Command::OpenApps(id)),
             cli::Step::LoadApps(id) => self.hosts.load_apps(id),
-            cli::Step::Launch(host, app) => self.launch(host, app, false),
+            cli::Step::Launch(host, app, resume) => self.launch(host, app, resume),
             cli::Step::Fail(why) => {
                 cli.fail(&why);
+                self.running = false;
+            }
+            cli::Step::Close => {
+                eprintln!("nightjar: --host start cancelled");
                 self.running = false;
             }
         }
@@ -1703,9 +1714,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
 }
 
 fn save_hosts(store: &config::Store, hosts: &Hosts) {
-    let records = hosts.records();
-    logfile::add_secrets(&records);
-    if let Err(e) = store.save_hosts(&records) {
+    if let Err(e) = store.save_hosts(&hosts.records()) {
         eprintln!("nightjar: saving hosts failed: {e}");
     }
 }

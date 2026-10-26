@@ -251,9 +251,12 @@ Done, on Windows and Linux unless noted:
 - Starting from a game frontend (ES-DE, Pegasus, Playnite and the like):
   `nightjar --host <name|uuid> [--app <name|uuid>] [--quit-on-exit]` (`src/cli.rs`). The PC
   must be saved and paired; names match the PC's own name or the one given here, ignoring
-  case. Without `--app` the PC's app list opens. `--quit-on-exit` closes Nightjar when the
-  stream ends. An unknown or ambiguous PC or app, or a stream that cannot start, ends with
-  an error message and exit code 1; a wrong command line with 64.
+  case. Without `--app` the PC's app list opens. The app the PC runs is resumed; another
+  running app is an error unless the PC asks its user itself. `--quit-on-exit` closes
+  Nightjar when the stream ends. An unknown, ambiguous or unreachable PC or app, or a stream
+  that cannot start, ends with exit code 1 and the reason on stderr and in the log (no
+  message box, which could hide behind the frontend); cancelling the start with 0; a wrong
+  command line with 64.
 - Shortcuts (from moonlight-qt): Ctrl+Alt+Shift+Q leaves, +Z releases/captures input,
   +S overlay, +M mouse mode, +X fullscreen, +D minimize; Start+Select+LB+RB on a controller
   leaves. Saved key chords are sent from the stream menu and import and export in the

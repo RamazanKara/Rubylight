@@ -301,11 +301,9 @@ fn receive(stream: &mut dyn Stream, body_limit: usize, sink: &mut dyn Write, pro
     if head.header("Transfer-Encoding").is_some() {
         return Err(Error::Malformed("a download must not be chunked".into()));
     }
-    let length: u64 = head
-        .header("Content-Length")
-        .ok_or_else(|| Error::Malformed("a download without a Content-Length".into()))?
-        .parse()
-        .map_err(|_| Error::Malformed("invalid Content-Length".into()))?;
+    let length = head
+        .content_length()?
+        .ok_or_else(|| Error::Malformed("a download without a Content-Length".into()))?;
     let mut done = 0;
     progress(0, length);
     while done < length {
@@ -320,6 +318,10 @@ fn receive(stream: &mut dyn Stream, body_limit: usize, sink: &mut dyn Write, pro
         reader.buffer.drain(..n);
         done += n as u64;
         progress(done, length);
+    }
+    // Bytes past the Content-Length mean the host and this client disagree on the file.
+    if !reader.buffer.is_empty() || reader.fill()? {
+        return Err(Error::Malformed(format!("the download is longer than its {length} bytes")));
     }
     sink.flush()?;
     Ok(head.into_response(Vec::new()))
@@ -511,6 +513,23 @@ impl Head {
             .map(|(_, v)| v.as_str())
     }
 
+    /// The Content-Length: digits only and a single field, since a repeated or signed one
+    /// could frame the body differently for this client than for a proxy in between.
+    fn content_length(&self) -> Result<Option<u64>, Error> {
+        let invalid = || Error::Malformed("invalid Content-Length".into());
+        let mut fields = self.headers.iter().filter(|(n, _)| n.eq_ignore_ascii_case("Content-Length"));
+        let Some((_, value)) = fields.next() else {
+            return Ok(None);
+        };
+        if fields.next().is_some() {
+            return Err(Error::Malformed("more than one Content-Length".into()));
+        }
+        if value.is_empty() || !value.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(invalid());
+        }
+        value.parse().map(Some).map_err(|_| invalid())
+    }
+
     fn into_response(self, body: Vec<u8>) -> Response {
         Response {
             content_type: self.header("Content-Type").map(str::to_owned),
@@ -577,13 +596,8 @@ fn read_body<R: Read + ?Sized>(reader: &mut Reader<'_, R>, head: &Head, body_lim
             }
         }
         body
-    } else if let Some(length) = header("Content-Length") {
-        let length: usize = length
-            .parse()
-            .map_err(|_| Error::Malformed("invalid Content-Length".into()))?;
-        if length > body_limit {
-            return Err(too_large());
-        }
+    } else if let Some(length) = head.content_length()? {
+        let length = usize::try_from(length).ok().filter(|length| *length <= body_limit).ok_or_else(too_large)?;
         reader.take(length)?
     } else {
         while reader.fill()? {
@@ -767,6 +781,22 @@ mod tests {
         assert!(parse(b"HTTP/1.1 200 OK\r\nContent-Length: 5000\r\n\r\n").is_err());
         assert!(parse(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhel").is_err());
         assert!(parse(b"garbage\r\n\r\n").is_err());
+    }
+
+    #[test]
+    fn a_content_length_is_digits_and_given_once() {
+        let r = parse(b"HTTP/1.1 200 OK\r\ncontent-length: 05\r\n\r\nhello").unwrap();
+        assert_eq!(r.body, b"hello");
+        for length in ["+5", "-1", "", " ", "5, 5", "0x5", "5 5", "99999999999999999999999"] {
+            let raw = format!("HTTP/1.1 200 OK\r\nContent-Length: {length}\r\n\r\nhello");
+            let result = parse(raw.as_bytes());
+            assert!(matches!(&result, Err(Error::Malformed(m)) if m == "invalid Content-Length"), "{length:?}: {result:?}");
+        }
+        for lengths in ["Content-Length: 5\r\nContent-Length: 5", "Content-Length: 5\r\ncontent-length: 3"] {
+            let raw = format!("HTTP/1.1 200 OK\r\n{lengths}\r\n\r\nhello");
+            let result = parse(raw.as_bytes());
+            assert!(matches!(&result, Err(Error::Malformed(m)) if m == "more than one Content-Length"), "{lengths:?}: {result:?}");
+        }
     }
 
     #[test]
@@ -1034,8 +1064,17 @@ mod tests {
         assert!(matches!(&result, Err(Error::Malformed(m)) if m == "the download ended after 500 of 1000 bytes"), "{result:?}");
         server.join().unwrap();
 
-        // No length to check against.
-        for head in ["HTTP/1.1 200 OK\r\n\r\n", "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nContent-Length: 3\r\n\r\n"] {
+        // The host sends more than it announced, by a lot or by one byte.
+        for body in [file(1500), [file(1000), file(1)].concat()] {
+            let (port, server) = serve_download("HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n".into(), body);
+            let result = download(&transfer(&host_name, port, "f"), &Cancel::default(), &mut Vec::new(), &mut |_, _| {}, &AtomicBool::new(false));
+            assert!(matches!(&result, Err(Error::Malformed(m)) if m == "the download is longer than its 1000 bytes"), "{result:?}");
+            server.join().unwrap();
+        }
+
+        // No length to check against, or one that is not plain digits.
+        for head in ["HTTP/1.1 200 OK\r\n\r\n", "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nContent-Length: 3\r\n\r\n",
+            "HTTP/1.1 200 OK\r\nContent-Length: +3\r\n\r\n", "HTTP/1.1 200 OK\r\nContent-Length: 3\r\nContent-Length: 3\r\n\r\n"] {
             let (port, server) = serve_download(head.into(), b"3\r\nabc\r\n0\r\n\r\n".to_vec());
             let mut sink = Vec::new();
             let result = download(&transfer(&host_name, port, "f"), &Cancel::default(), &mut sink, &mut |_, _| {}, &AtomicBool::new(false));

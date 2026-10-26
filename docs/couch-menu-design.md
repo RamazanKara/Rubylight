@@ -433,7 +433,7 @@ The quick loop for each brief is `C:\src\rl-quick.ps1 -Repo <worktree> -Crates <
 - masking after close until release; no orphan ups reach the game;
 - nav repeat timings;
 - model: locked rows keep their reason, the confirm window is 5 s, back and close;
-- layout table rows (360p, 720p, 1080p, 1440p, 2160p, portrait 1080×2400, 640×360 too small), 16-px alignment;
+- layout table rows (360p, 720p, 1080p, 1440p, 2160p, portrait 1080×2400; 640×360 fits at 8×16 ×1, since the largest panel is 288×272, and anything below that such as 320×240 is too small), 16-px alignment;
 - golden FNV hash per page at 720p and 2160p;
 - atlas covers every char of the catalogue strings (pass the strings as test data copied from section 6.5's rule, since the catalogue lives in host).
 

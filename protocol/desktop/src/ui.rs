@@ -25,10 +25,11 @@ pub enum Command {
     Pair(u64),
     PairOtp { host: u64, pin: String, passphrase: String },
     Wake(u64),
-    /// Ask the PC for a sleep token, which the confirmation then spends.
-    SleepOffer(u64),
+    /// Ask the PC for a sleep token, which the confirmation then spends. `ask` numbers the
+    /// request, so a late answer to an earlier one is not taken for it.
+    SleepOffer { host: u64, ask: u64 },
     /// Put the PC to sleep with the token it handed out at `at`.
-    Sleep { host: u64, token: String, at: std::time::Instant },
+    Sleep { host: u64, ask: u64, token: String, at: std::time::Instant },
     /// Name a PC on this device only; empty brings back the PC's own name.
     Rename { host: u64, alias: String },
     HostSettings(u64),
@@ -118,8 +119,9 @@ pub enum Dialog {
     Rename { host: u64, text: String },
     ConfirmRemove { host: u64, name: String },
     ConfirmUnpair { host: u64, name: String },
-    /// Sleep PC: waiting for the PC's token (`offer` None), then asking to confirm.
-    ConfirmSleep { host: u64, name: String, offer: Option<(String, std::time::Instant)> },
+    /// Sleep PC: waiting for the PC's token (`offer` None), then asking to confirm. `ask` is
+    /// the number of the token request this dialog waits for.
+    ConfirmSleep { host: u64, ask: u64, name: String, offer: Option<(String, std::time::Instant)> },
     /// Pairing did not work: what to do about it, and a way to try again.
     PairError { host: u64, body: String, one_time: bool },
     /// How to pair, for a PC that is not paired yet.
@@ -247,6 +249,8 @@ pub struct Launcher {
     logo: Option<TextureHandle>,
     focus_screen: bool,
     focus_dialog: bool,
+    /// The last Sleep PC token request's number.
+    sleep_asks: u64,
     settings_return: Screen,
     /// Where Back goes: the screens left by moving forward, with the item that had focus.
     trail: Vec<(Screen, Option<String>)>,
@@ -406,6 +410,7 @@ impl Launcher {
             logo: None,
             focus_screen: true,
             focus_dialog: false,
+            sleep_asks: 0,
             settings_return: Screen::Hosts,
             trail: Vec::new(),
             focused_key: None,
@@ -2240,8 +2245,8 @@ impl Launcher {
                         });
                     });
             }
-            Dialog::ConfirmSleep { host, name, offer } => {
-                let id = *host;
+            Dialog::ConfirmSleep { host, ask, name, offer } => {
+                let (id, ask) = (*host, *ask);
                 egui::Modal::new(Id::unique("confirm-sleep"))
                     .frame(frame)
                     .backdrop_color(Color32::from_black_alpha(150))
@@ -2272,7 +2277,7 @@ impl Launcher {
                             }
                             if let Some((token, at)) = offer {
                                 if primary_button(ui, "Sleep PC").clicked() {
-                                    commands.push(Command::Sleep { host: id, token: token.clone(), at: *at });
+                                    commands.push(Command::Sleep { host: id, ask, token: token.clone(), at: *at });
                                     close = true;
                                 }
                             }
@@ -2764,8 +2769,10 @@ impl Launcher {
             HostOption::Wake => commands.push(Command::Wake(id)),
             HostOption::Sleep => {
                 if host.sleep_option() == Some(Ok(())) {
-                    commands.push(Command::SleepOffer(id));
-                    return Some(Dialog::ConfirmSleep { host: id, name, offer: None });
+                    self.sleep_asks += 1;
+                    let ask = self.sleep_asks;
+                    commands.push(Command::SleepOffer { host: id, ask });
+                    return Some(Dialog::ConfirmSleep { host: id, ask, name, offer: None });
                 }
             }
             HostOption::Settings => commands.push(Command::HostSettings(id)),
@@ -2798,11 +2805,12 @@ impl Launcher {
         }
     }
 
-    /// A Sleep PC step came back. The offer fills the confirmation that waits for it; an offer
-    /// or failure the user has walked away from (Cancel) says nothing. The confirmed request's
-    /// answer is always shown.
-    pub fn sleep_answered(&mut self, host: u64, confirmed: bool, result: Result<SleepStep, String>) {
-        let waiting = matches!(&self.dialog, Dialog::ConfirmSleep { host: asked, offer: None, .. } if *asked == host);
+    /// A Sleep PC step came back. The offer fills the confirmation that waits for it, matched by
+    /// `ask`: after Cancel and Sleep PC again, the first request's late token (which the second
+    /// request has replaced on the PC) is dropped. An offer or failure the user has walked away
+    /// from says nothing. The confirmed request's answer is always shown.
+    pub fn sleep_answered(&mut self, host: u64, ask: u64, confirmed: bool, result: Result<SleepStep, String>) {
+        let waiting = matches!(&self.dialog, Dialog::ConfirmSleep { host: h, ask: a, offer: None, .. } if *h == host && *a == ask);
         if !confirmed && !waiting {
             return;
         }
@@ -3647,8 +3655,8 @@ mod tests {
                 Dialog::ConfirmQuit { host: id, start: Some((8, "Another long game title".into())), running: "A game with a rather long title".into(), resume: Some(7), named: None },
                 Dialog::PairError { host: id, body: "PIN rejected. Generate a new one-time PIN in your host's web UI and check the passphrase.".into(), one_time: true },
                 Dialog::Message { title: "Network test failed".into(), body: "The PC did not answer.".into() },
-                Dialog::ConfirmSleep { host: id, name: "A long name for a gaming PC".into(), offer: None },
-                Dialog::ConfirmSleep { host: id, name: "A long name for a gaming PC".into(), offer: Some(("t".into(), std::time::Instant::now())) },
+                Dialog::ConfirmSleep { host: id, ask: 1, name: "A long name for a gaming PC".into(), offer: None },
+                Dialog::ConfirmSleep { host: id, ask: 1, name: "A long name for a gaming PC".into(), offer: Some(("t".into(), std::time::Instant::now())) },
             ];
             for dialog in dialogs {
                 let name = format!("{:?}", std::mem::discriminant(&dialog));
@@ -3870,7 +3878,7 @@ mod tests {
                     HostOption::Pair => said(|c| matches!(c, Command::Pair(_))),
                     HostOption::Wake => said(|c| matches!(c, Command::Wake(_))),
                     HostOption::Sleep => {
-                        said(|c| matches!(c, Command::SleepOffer(_))) && matches!(f.l.dialog, Dialog::ConfirmSleep { offer: None, .. })
+                        said(|c| matches!(c, Command::SleepOffer { .. })) && matches!(f.l.dialog, Dialog::ConfirmSleep { offer: None, .. })
                     }
                     HostOption::Settings => said(|c| matches!(c, Command::HostSettings(_))),
                     HostOption::CheckAgain => said(|c| matches!(c, Command::Refresh(_))),
@@ -3896,7 +3904,7 @@ mod tests {
         let at = std::time::Instant::now();
         let offer = || Ok(SleepStep::Offer { token: "tok".into(), at });
         let sleeps = |commands: &[Command]| commands.iter().any(|c| matches!(c, Command::Sleep { .. }));
-        let waiting = || Dialog::ConfirmSleep { host: id, name: "PC".into(), offer: None };
+        let waiting = || Dialog::ConfirmSleep { host: id, ask: 1, name: "PC".into(), offer: None };
 
         // Cancelled while the PC is asked: its offer, or its failure, says nothing afterwards.
         f.l.dialog = waiting();
@@ -3904,38 +3912,73 @@ mod tests {
         f.settle();
         assert!(!sleeps(&f.press(Key::Enter)), "Cancel has focus");
         assert!(f.no_dialog());
-        f.l.sleep_answered(id, false, offer());
-        f.l.sleep_answered(id, false, Err("The PC did not answer.".into()));
+        f.l.sleep_answered(id, 1, false, offer());
+        f.l.sleep_answered(id, 1, false, Err("The PC did not answer.".into()));
         assert!(f.no_dialog(), "the user walked away from it");
 
         // The offer fills the confirmation; one for another PC does not.
         f.l.dialog = waiting();
         f.l.focus_dialog = true;
         f.settle();
-        f.l.sleep_answered(id + 1, false, offer());
+        f.l.sleep_answered(id + 1, 1, false, offer());
         assert!(matches!(f.l.dialog, Dialog::ConfirmSleep { offer: None, .. }));
-        f.l.sleep_answered(id, false, offer());
+        f.l.sleep_answered(id, 1, false, offer());
         assert!(matches!(&f.l.dialog, Dialog::ConfirmSleep { offer: Some((token, _)), .. } if token == "tok"));
         f.settle();
         assert!(!sleeps(&f.press(Key::Enter)), "Cancel still has focus once the offer is in");
         f.l.dialog = waiting();
-        f.l.sleep_answered(id, false, offer());
+        f.l.sleep_answered(id, 1, false, offer());
         f.settle();
         f.press(Key::ArrowRight);
         let commands = f.press(Key::Enter);
-        assert!(commands.iter().any(|c| matches!(c, Command::Sleep { host, token, at: when } if *host == id && token == "tok" && *when == at)));
+        assert!(commands.iter().any(|c| matches!(c, Command::Sleep { host, ask: 1, token, at: when } if *host == id && token == "tok" && *when == at)));
         assert!(f.no_dialog());
 
         // The answers to the confirmed request are shown, the host's refusal word for word.
-        f.l.sleep_answered(id, true, Ok(SleepStep::Accepted));
+        f.l.sleep_answered(id, 1, true, Ok(SleepStep::Accepted));
         assert!(matches!(&f.l.dialog, Dialog::Message { title, .. } if title == "PC is going to sleep"));
         let refusal = "End all applications and sessions before requesting sleep";
-        f.l.sleep_answered(id, true, Err(refusal.into()));
+        f.l.sleep_answered(id, 1, true, Err(refusal.into()));
         assert!(matches!(&f.l.dialog, Dialog::Message { body, .. } if body == refusal));
         // A failed offer the user still waits for is shown too.
         f.l.dialog = waiting();
-        f.l.sleep_answered(id, false, Err(crate::hosts::SLEEP_BUSY.into()));
+        f.l.sleep_answered(id, 1, false, Err(crate::hosts::SLEEP_BUSY.into()));
         assert!(matches!(&f.l.dialog, Dialog::Message { body, .. } if body == crate::hosts::SLEEP_BUSY));
+    }
+
+    #[test]
+    fn a_late_offer_from_a_cancelled_sleep_pc_is_not_taken_for_the_new_one() {
+        let mut f = every_state().into_iter().find(|s| s.name == "can sleep").unwrap().frames();
+        let id = f.hosts.list[0].id;
+        let at = std::time::Instant::now();
+        let offer = |token: &str| Ok(SleepStep::Offer { token: token.into(), at });
+        let ask = |f: &mut Frames| {
+            let mut commands = Vec::new();
+            f.l.dialog = f.l.choose_host_option(&f.hosts.list[0], HostOption::Sleep, &mut commands).unwrap();
+            match commands[..] {
+                [Command::SleepOffer { host, ask }] if host == id => ask,
+                _ => panic!("Sleep PC asks the PC for a token"),
+            }
+        };
+        let first = ask(&mut f);
+        f.l.dialog = Dialog::None;
+        let second = ask(&mut f);
+        assert_ne!(first, second);
+
+        // The first request's token comes back after the second request replaced it on the PC.
+        f.l.sleep_answered(id, first, false, offer("old"));
+        assert!(matches!(f.l.dialog, Dialog::ConfirmSleep { offer: None, .. }), "the old token is dropped");
+        f.l.sleep_answered(id, second, false, offer("new"));
+        assert!(matches!(&f.l.dialog, Dialog::ConfirmSleep { offer: Some((token, _)), .. } if token == "new"));
+        f.l.focus_dialog = true;
+        f.settle();
+        f.press(Key::ArrowRight);
+        let commands = f.press(Key::Enter);
+        assert!(commands.iter().any(|c| matches!(c, Command::Sleep { token, ask, .. } if token == "new" && *ask == second)));
+        // A failure of the cancelled request is not shown over the new one either.
+        f.l.dialog = Dialog::ConfirmSleep { host: id, ask: second, name: "PC".into(), offer: None };
+        f.l.sleep_answered(id, first, false, Err("The PC did not answer.".into()));
+        assert!(matches!(f.l.dialog, Dialog::ConfirmSleep { offer: None, .. }));
     }
 
     #[test]

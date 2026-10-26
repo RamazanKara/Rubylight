@@ -265,9 +265,11 @@ pub enum Event {
         id: u64,
         result: Result<(), String>,
     },
-    /// A Sleep PC step: the offer to confirm, or (`confirmed`) the answer to the request.
+    /// A Sleep PC step: the offer to confirm, or (`confirmed`) the answer to the request. `ask`
+    /// is the number the UI gave the request, so an answer to an earlier ask is told apart.
     Sleep {
         id: u64,
+        ask: u64,
         confirmed: bool,
         result: Result<SleepStep, String>,
     },
@@ -736,18 +738,19 @@ impl Hosts {
     }
 
     /// Sleep PC, first step: asks the PC for the token the confirmation spends.
-    pub fn sleep_offer(&self, id: u64) {
-        self.sleep_step(id, false, |client| sleep_token(client).map(|(token, at)| SleepStep::Offer { token, at }));
+    pub fn sleep_offer(&self, id: u64, ask: u64) {
+        self.sleep_step(id, ask, false, |client| sleep_token(client).map(|(token, at)| SleepStep::Offer { token, at }));
     }
 
     /// Sleep PC, confirmed: spends `token` (handed out at `at`), or a fresh one when it is old.
-    pub fn sleep(&self, id: u64, token: String, at: Instant) {
-        self.sleep_step(id, true, move |client| sleep_confirmed(client, token, at));
+    pub fn sleep(&self, id: u64, ask: u64, token: String, at: Instant) {
+        self.sleep_step(id, ask, true, move |client| sleep_confirmed(client, token, at));
     }
 
     fn sleep_step(
         &self,
         id: u64,
+        ask: u64,
         confirmed: bool,
         work: impl FnOnce(&HostClient) -> Result<SleepStep, String> + Send + 'static,
     ) {
@@ -759,7 +762,7 @@ impl Hosts {
                 .ok_or_else(|| en("Nightjar has no client identity yet. Restart Nightjar and try again.").to_owned())
                 .and_then(|identity| client_for(&identity, &record, &record.address))
                 .and_then(|client| work(&client));
-            Some(Event::Sleep { id, confirmed, result })
+            Some(Event::Sleep { id, ask, confirmed, result })
         });
     }
 
@@ -1139,7 +1142,7 @@ impl Hosts {
                     self.poll_one(id);
                     out.push(Event::Wake { id, result });
                 }
-                Event::Sleep { id, confirmed, result } => out.push(Event::Sleep { id, confirmed, result }),
+                Event::Sleep { id, ask, confirmed, result } => out.push(Event::Sleep { id, ask, confirmed, result }),
                 Event::Action { id, result } => {
                     self.refresh_after_exit(id);
                     self.load_apps(id);
@@ -1619,7 +1622,7 @@ mod tests {
 
         let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
         let id = hosts.list[0].id;
-        hosts.sender.send(Event::Sleep { id, confirmed: true, result: Ok(SleepStep::Accepted) }).unwrap();
+        hosts.sender.send(Event::Sleep { id, ask: 1, confirmed: true, result: Ok(SleepStep::Accepted) }).unwrap();
         let (events, changed) = hosts.drain(&egui::Context::default());
         assert!(!changed);
         assert!(matches!(events[..], [Event::Sleep { confirmed: true, result: Ok(SleepStep::Accepted), .. }]));

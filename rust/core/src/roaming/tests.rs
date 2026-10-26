@@ -616,6 +616,51 @@ fn host_bound_types_only() {
 }
 
 #[test]
+fn a_removed_peer_that_reconnects_keeps_both_seqs() {
+    let mut table = table();
+    let now = Instant::now();
+    assert_eq!(
+        table.on_datagram(now, at(NEW), &vectors::PROBE_DATAGRAM),
+        Ok(Action::Reply {
+            to: at(NEW),
+            datagram: vectors::CHALLENGE_DATAGRAM
+        })
+    );
+    // The ENet peer disconnects and comes back under the same launch.
+    table.remove(&"s");
+    assert_eq!(table.current(&"s"), None);
+    table.insert("s", &vectors::RIKEY, at(THIRD));
+    assert_eq!(
+        table.on_datagram(now, at(NEW), &vectors::PROBE_DATAGRAM),
+        Err(Refusal::Replay)
+    );
+    let Ok(Action::Reply { datagram, .. }) = table.on_datagram(now, at(NEW), &probe(2)) else {
+        panic!("a fresh probe is answered");
+    };
+    assert_eq!(
+        Datagram::decode(&datagram).unwrap().header.seq,
+        2,
+        "the host's seq goes on"
+    );
+    // A stopping launch stays stopping too.
+    table.set_stopping(&"s");
+    table.remove(&"s");
+    table.insert("s", &vectors::RIKEY, at(OLD));
+    assert_eq!(
+        table.on_datagram(now, at(NEW), &probe(3)),
+        Err(Refusal::Stopping)
+    );
+    // Only the newest removals are remembered.
+    table.remove(&"s");
+    for n in 1..=RETIRED as u128 {
+        table.insert("other", &n.to_le_bytes(), at(OLD));
+        table.remove(&"other");
+    }
+    table.insert("s", &vectors::RIKEY, at(OLD));
+    reply_to(table.on_datagram(now, at(NEW), &vectors::PROBE_DATAGRAM));
+}
+
+#[test]
 fn a_reconnect_keeps_both_seqs_so_no_nonce_repeats() {
     let mut table = table();
     let now = Instant::now();

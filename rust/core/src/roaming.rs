@@ -17,6 +17,7 @@ use rubylight_protocol::roaming::{
     DATAGRAM_BYTES, Datagram, DecodeError, Header, KEY_BLOCK, Kind, PAYLOAD_BYTES,
     PROBE_FLAG_MEDIA_REBOUND, Payload, SESSION_TAG_BYTES, TAG_BLOCK,
 };
+use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
@@ -35,6 +36,8 @@ pub const GLOBAL_PER_SECOND: u32 = 5_000;
 pub const PENDING_LIFETIME: Duration = Duration::from_secs(3);
 /// The shortest time between two moves of one session.
 pub const COMMIT_INTERVAL: Duration = Duration::from_secs(1);
+/// How many removed launches keep their seqs for a later insert.
+const RETIRED: usize = 64;
 
 /// The keys one launch's `rikey` derives.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -221,9 +224,19 @@ impl<K> Entry<K> {
     }
 }
 
+/// What a removed entry leaves behind so its launch key never repeats a seq.
+struct Retired {
+    keys: RoamKeys,
+    stopping: bool,
+    client_seq: u32,
+    host_seq: u32,
+}
+
 /// The roaming state of every session with an ENet peer, keyed by the caller's session id.
 pub struct RoamTable<K> {
     entries: Vec<Entry<K>>,
+    /// The newest [`RETIRED`] removed entries.
+    retired: VecDeque<Retired>,
     window: Window,
     challenge: Box<dyn FnMut() -> u64 + Send>,
 }
@@ -243,6 +256,7 @@ impl<K: Clone + PartialEq> RoamTable<K> {
     pub fn with_challenges(challenge: impl FnMut() -> u64 + Send + 'static) -> Self {
         Self {
             entries: Vec::new(),
+            retired: VecDeque::new(),
             window: Window::new(),
             challenge: Box::new(challenge),
         }
@@ -250,8 +264,8 @@ impl<K: Clone + PartialEq> RoamTable<K> {
 
     /// Accepts roaming for session `id`, whose ENet peer is at `current`. Inserting an id
     /// again (an ENet reconnect) updates its address and keeps both seqs, so neither side
-    /// reuses a nonce under the launch's key and old datagrams stay replays. A stopping
-    /// session stays stopping.
+    /// reuses a nonce under the launch's key and old datagrams stay replays. That holds
+    /// after a [`remove`](Self::remove) too. A stopping session stays stopping.
     pub fn insert(&mut self, id: K, rikey: &[u8; 16], current: SocketAddr) {
         let keys = RoamKeys::derive(rikey);
         if let Some(entry) = self
@@ -265,13 +279,18 @@ impl<K: Clone + PartialEq> RoamTable<K> {
             return;
         }
         self.remove(&id);
+        let retired = self
+            .retired
+            .iter()
+            .position(|retired| retired.keys == keys)
+            .and_then(|at| self.retired.remove(at));
         self.entries.push(Entry {
             id,
             keys,
             current,
-            stopping: false,
-            client_seq: 0,
-            host_seq: 0,
+            stopping: retired.as_ref().is_some_and(|retired| retired.stopping),
+            client_seq: retired.as_ref().map_or(0, |retired| retired.client_seq),
+            host_seq: retired.as_ref().map_or(0, |retired| retired.host_seq),
             pending: None,
             here: None,
             committed: None,
@@ -290,8 +309,23 @@ impl<K: Clone + PartialEq> RoamTable<K> {
         }
     }
 
+    /// Drops the session's roaming (its ENet peer is gone, or the launch ended). The
+    /// launch key's seqs are kept for the newest [`RETIRED`] removals, so a peer that
+    /// reconnects under the same launch neither repeats a nonce nor accepts a replay.
     pub fn remove(&mut self, id: &K) {
-        self.entries.retain(|entry| entry.id != *id);
+        let Some(at) = self.entries.iter().position(|entry| entry.id == *id) else {
+            return;
+        };
+        let entry = self.entries.swap_remove(at);
+        if self.retired.len() == RETIRED {
+            self.retired.pop_front();
+        }
+        self.retired.push_back(Retired {
+            keys: entry.keys,
+            stopping: entry.stopping,
+            client_seq: entry.client_seq,
+            host_seq: entry.host_seq,
+        });
     }
 
     /// The address the session's client was last validated at.

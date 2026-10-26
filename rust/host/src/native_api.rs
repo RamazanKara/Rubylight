@@ -7,19 +7,20 @@
 //! device's permissions and Host control flag from `h.paired` then, never from
 //! a copy taken at launch: a grant or revoke in the console applies to the
 //! next request.
+pub(crate) mod files;
 pub(crate) mod radeon;
 
 use crate::{state::Shared, tls::Connection};
 use axum::{
     Extension, Router,
     body::to_bytes,
-    extract::{Request, State},
+    extract::{DefaultBodyLimit, Request, State},
     http::{StatusCode, header},
     response::{IntoResponse, Response},
     routing::{any, get, post},
 };
 use butterpollo_core::{
-    native::{self, LAUNCH, LIST, VIEW},
+    native::{self, FILE_DOWNLOAD, FILE_UPLOAD, LAUNCH, LIST, VIEW},
     native_api::{
         self,
         capabilities::{Capabilities, HostInfo, Permissions},
@@ -155,6 +156,18 @@ pub fn router() -> Router<Shared> {
             &path("/radeon/restore"),
             post(radeon::restore).fallback(unknown),
         )
+        // An upload streams to disk: the inner limit replaces the 1 MiB one
+        // `nvhttp::router` sets, and the route checks Content-Length itself.
+        .route(
+            &path("/files"),
+            get(files::list)
+                .merge(post(files::upload).layer(DefaultBodyLimit::disable()))
+                .fallback(unknown),
+        )
+        .route(
+            &path("/files/content"),
+            get(files::content).fallback(unknown),
+        )
         .route(native_api::PREFIX, any(unknown))
         .route(&path("/"), any(unknown))
         .route(&path("/{*rest}"), any(unknown))
@@ -247,6 +260,11 @@ async fn expect_empty_body(request: Request) -> Result<(), Failure> {
 
 async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connection>) -> Reply {
     let client = caller(&h, &c)?;
+    let file_transfer = h
+        .config
+        .read()
+        .unwrap_or_else(PoisonError::into_inner)
+        .file_transfer();
     let name = crate::network::host_name(&h.config.read().unwrap_or_else(PoisonError::into_inner));
     Ok(json(
         StatusCode::OK,
@@ -282,6 +300,13 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
                     .into_iter()
                     .flatten(),
             )
+            // File transfer answers only while the host's setting is on.
+            .chain(
+                file_transfer
+                    .then_some([feature::FILES_UPLOAD, feature::FILES_DOWNLOAD])
+                    .into_iter()
+                    .flatten(),
+            )
             .map(String::from)
             .collect(),
             permissions: Permissions {
@@ -289,6 +314,8 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
                 view: client.allows(VIEW),
                 launch: client.allows(LAUNCH),
                 host_control: native::host_control(&client),
+                file_upload: client.allows(FILE_UPLOAD),
+                file_download: client.allows(FILE_DOWNLOAD),
             },
         },
     ))

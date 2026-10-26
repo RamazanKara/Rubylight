@@ -20,6 +20,10 @@ use crate::state::{App, Client};
 pub const LIST: u32 = 1 << 24;
 pub const VIEW: u32 = 1 << 25;
 pub const LAUNCH: u32 = 1 << 26;
+/// Upload files and Download files, Apollo's bits; the host's File transfer
+/// setting must be on too.
+pub const FILE_UPLOAD: u32 = 1 << 18;
+pub const FILE_DOWNLOAD: u32 = 1 << 19;
 
 /// The games the host's last launcher scan found installed, by `game_id`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

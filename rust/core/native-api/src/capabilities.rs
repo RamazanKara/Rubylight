@@ -25,4 +25,11 @@ pub struct Permissions {
     pub view: bool,
     pub launch: bool,
     pub host_control: bool,
+    /// Upload files (device bit `1 << 18`). Missing from hosts before file
+    /// transfer, which then reads as not granted.
+    #[serde(default)]
+    pub file_upload: bool,
+    /// Download files (device bit `1 << 19`).
+    #[serde(default)]
+    pub file_download: bool,
 }

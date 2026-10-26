@@ -25,6 +25,7 @@ use std::sync::Arc;
 use tower::ServiceExt;
 
 mod compat;
+mod files;
 mod launcher;
 mod radeon;
 
@@ -778,6 +779,15 @@ async fn every_error_code_renders_with_its_status_and_the_one_body_shape() {
         ErrorCode::SessionBusy,
         ErrorCode::DriverRejected,
         ErrorCode::TemporarilyUnavailable,
+        ErrorCode::Forbidden,
+        ErrorCode::FileTransferDisabled,
+        ErrorCode::InvalidName,
+        ErrorCode::IncompleteUpload,
+        ErrorCode::LengthRequired,
+        ErrorCode::TooLarge,
+        ErrorCode::InsufficientStorage,
+        ErrorCode::NoConsoleUser,
+        ErrorCode::TransferBusy,
         ErrorCode::Internal,
     ] {
         let response = Failure::new(code, "Something to read.").into_response();

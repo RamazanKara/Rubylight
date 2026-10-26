@@ -481,6 +481,35 @@ impl Config {
     pub fn webrtc_server(&self) -> bool {
         self.boolean("webrtc_server", false)
     }
+    /// File transfer from paired devices (off by default). A device also
+    /// needs its Upload files or Download files permission.
+    pub fn file_transfer(&self) -> bool {
+        self.boolean("file_transfer", false)
+    }
+    /// The folder transfers use; `None` (empty) is the signed-in user's
+    /// `Downloads\Rubylight`.
+    pub fn file_transfer_dir(&self) -> Option<std::path::PathBuf> {
+        let dir = unquote(self.get("file_transfer_dir", "").trim()).trim();
+        (!dir.is_empty()).then(|| std::path::PathBuf::from(dir))
+    }
+    /// The largest upload in bytes (`file_transfer_max_mb`, MiB, 4096 by
+    /// default). Below 1 MiB is reported and the default is used.
+    pub fn file_transfer_max_bytes(&self) -> u64 {
+        const MIB: i64 = 1024 * 1024;
+        let mut mib = self.integer("file_transfer_max_mb", 4096);
+        if !(1..=i64::MAX / MIB).contains(&mib) {
+            invalid("file_transfer_max_mb", self.get("file_transfer_max_mb", ""));
+            mib = 4096;
+        }
+        (mib * MIB) as u64
+    }
+    /// How fast uploads are written while a stream runs, in bytes per
+    /// second (`file_transfer_stream_mbps`, 50 by default). 0 or less does
+    /// not slow them.
+    pub fn file_transfer_stream_rate(&self) -> Option<u64> {
+        let mbps = self.integer("file_transfer_stream_mbps", 50);
+        (mbps > 0).then(|| (mbps as u64).saturating_mul(125_000))
+    }
     /// Whether the WebRTC media thread paces video (the default). `webrtc_pacing = false` sends
     /// every packet the moment str0m makes it; it exists to measure the two against each other.
     pub fn webrtc_pacing(&self) -> bool {
@@ -1140,6 +1169,36 @@ mod tests {
         let saved = serde_json::json!({"webrtc_pacing": "false"});
         config.update(saved.as_object().unwrap()).unwrap();
         assert!(!config.webrtc_pacing());
+    }
+
+    #[test]
+    fn file_transfer_is_off_with_4_gib_uploads_paced_at_50_mbps_while_streaming() {
+        let mut config = super::Config::default();
+        assert!(!config.file_transfer());
+        assert_eq!(config.file_transfer_dir(), None);
+        assert_eq!(config.file_transfer_max_bytes(), 4096 << 20);
+        assert_eq!(config.file_transfer_stream_rate(), Some(6_250_000));
+        let saved = serde_json::json!({
+            "file_transfer": true,
+            "file_transfer_dir": "\"D:\\Inbox\"",
+            "file_transfer_max_mb": "2",
+            "file_transfer_stream_mbps": 0,
+        });
+        config.update(saved.as_object().unwrap()).unwrap();
+        assert!(config.file_transfer());
+        assert_eq!(
+            config.file_transfer_dir(),
+            Some(std::path::PathBuf::from("D:\\Inbox"))
+        );
+        assert_eq!(config.file_transfer_max_bytes(), 2 << 20);
+        assert_eq!(config.file_transfer_stream_rate(), None);
+        for bad in ["0", "-1", "9223372036854775807"] {
+            let saved =
+                serde_json::json!({ "file_transfer_max_mb": bad, "file_transfer_dir": " " });
+            config.update(saved.as_object().unwrap()).unwrap();
+            assert_eq!(config.file_transfer_max_bytes(), 4096 << 20, "{bad}");
+            assert_eq!(config.file_transfer_dir(), None);
+        }
     }
 
     #[test]

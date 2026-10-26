@@ -2,6 +2,7 @@
 //! tests read the same files.
 use rubylight_native_api::capabilities::Capabilities;
 use rubylight_native_api::error::{ErrorBody, ErrorCode};
+use rubylight_native_api::files::{FileList, Uploaded};
 use rubylight_native_api::library::Library;
 use rubylight_native_api::radeon::{Change, ControlState, Kind, Radeon, SettingsWrite, Value};
 use rubylight_native_api::session::{ActionId, LauncherKind, Owner, ProfileState, Session, State};
@@ -45,6 +46,31 @@ fn capabilities_round_trip() {
         .iter()
         .any(|f| f == feature::CLOSE_GAME));
     assert!(capabilities.permissions.launch && !capabilities.permissions.host_control);
+    assert!(capabilities
+        .features
+        .iter()
+        .any(|f| f == feature::FILES_UPLOAD));
+    assert!(capabilities.permissions.file_upload && !capabilities.permissions.file_download);
+}
+
+#[test]
+fn a_host_before_file_transfer_grants_no_file_permissions() {
+    let mut value: Json = serde_json::from_str(&fixture("capabilities")).unwrap();
+    let permissions = value["permissions"].as_object_mut().unwrap();
+    permissions.remove("file_upload");
+    permissions.remove("file_download");
+    let capabilities: Capabilities = serde_json::from_value(value).unwrap();
+    assert!(!capabilities.permissions.file_upload && !capabilities.permissions.file_download);
+}
+
+#[test]
+fn files_round_trip() {
+    let list: FileList = round_trip("files");
+    assert_eq!(list.files.len(), 2);
+    assert_eq!(list.files[0].name, "clip (1).mp4");
+    let uploaded: Uploaded =
+        serde_json::from_value(json!({"name": "clip (1).mp4", "size": 52428800})).unwrap();
+    assert_eq!(uploaded.size, list.files[0].size);
 }
 
 #[test]
@@ -180,6 +206,15 @@ fn error_round_trip_and_status_table() {
         (ErrorCode::DriverRejected, 409),
         (ErrorCode::TemporarilyUnavailable, 503),
         (ErrorCode::Internal, 500),
+        (ErrorCode::Forbidden, 403),
+        (ErrorCode::FileTransferDisabled, 403),
+        (ErrorCode::InvalidName, 400),
+        (ErrorCode::IncompleteUpload, 400),
+        (ErrorCode::LengthRequired, 411),
+        (ErrorCode::TooLarge, 413),
+        (ErrorCode::InsufficientStorage, 507),
+        (ErrorCode::NoConsoleUser, 409),
+        (ErrorCode::TransferBusy, 409),
     ];
     for (code, status) in table {
         assert_eq!(code.status(), status, "{code:?}");
@@ -203,6 +238,15 @@ fn every_error_code_has_its_snake_case_name() {
         (ErrorCode::TemporarilyUnavailable, "temporarily_unavailable"),
         (ErrorCode::Internal, "internal"),
         (ErrorCode::NotStreaming, "not_streaming"),
+        (ErrorCode::Forbidden, "forbidden"),
+        (ErrorCode::FileTransferDisabled, "file_transfer_disabled"),
+        (ErrorCode::InvalidName, "invalid_name"),
+        (ErrorCode::IncompleteUpload, "incomplete_upload"),
+        (ErrorCode::LengthRequired, "length_required"),
+        (ErrorCode::TooLarge, "too_large"),
+        (ErrorCode::InsufficientStorage, "insufficient_storage"),
+        (ErrorCode::NoConsoleUser, "no_console_user"),
+        (ErrorCode::TransferBusy, "transfer_busy"),
     ] {
         assert_eq!(serde_json::to_value(code).unwrap(), name);
         assert_eq!(

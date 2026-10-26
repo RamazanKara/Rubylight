@@ -9,7 +9,7 @@ Status: **shipped since 3.0.0-alpha.2** (capabilities, library, session actions 
 - **Transport and authentication are reused.** Every endpoint is served by the streaming HTTPS service (`HttpsPort` from `/serverinfo`, normally 47984), next to `/api/hardware-metrics` in `rust/host/src/nvhttp.rs`. The client presents the certificate it paired with, and the host looks it up with `authenticated()` (`client_by_certificate`, enabled and `perm != 0`). Plain HTTP, the admin console port, Basic auth, cookies and API tokens do not apply.
 - **Moonlight is unaffected.** `PROTOCOL_VERSION`, `/applist`, `/launch`, `/resume`, `/cancel` and `/appasset` stay as they are. The only change stock clients can see is one more `/serverinfo` field, which they ignore, as they already ignore the `RustHost*` fields.
 - **Nothing new on the stream path.** Play and Resume still go through `/launch?appuuid=` and `/resume` with the usual RTSP setup. This API reads state and runs actions. It never carries video, input or per-packet telemetry.
-- All responses are `application/json; charset=utf-8` with `Cache-Control: no-store`. POST bodies are at most 16 KiB of JSON. The host parses the raw body and accepts `application/json`, `text/plain` (nightjar-core's transport sends that for POST today) or no content type. An empty body counts as `{}`.
+- All responses are `application/json; charset=utf-8` with `Cache-Control: no-store`. POST bodies are at most 16 KiB of JSON, except a file upload (see Files). The host parses the raw body and accepts `application/json`, `text/plain` (nightjar-core's transport sends that for POST today) or no content type. An empty body counts as `{}`.
 
 ## Discovery and capabilities
 
@@ -40,8 +40,8 @@ GET /api/native/v1/capabilities
 }
 ```
 
-- `features` says what the host implements and has turned on, the same for every client. `radeon.read`, `radeon.write` and `radeon.profile` appear only where the host started its Radeon worker. Clients ignore feature strings they don't know.
-- `permissions` belongs to the calling device. With a feature listed but its permission off, the client shows the control disabled, with the sentence from the matching error (for example "Turn on Host control for this device in the Rubylight console").
+- `features` says what the host implements and has turned on, the same for every client. `radeon.read`, `radeon.write` and `radeon.profile` appear only where the host started its Radeon worker; `files.upload` and `files.download` only while the host's File transfer setting is on. Clients ignore feature strings they don't know.
+- `permissions` belongs to the calling device. `file_upload` and `file_download` (bits `1 << 18` and `1 << 19`) are missing from hosts before file transfer and decode as `false`. With a feature listed but its permission off, the client shows the control disabled, with the sentence from the matching error (for example "Turn on Host control for this device in the Rubylight console").
 
 ## Endpoints
 
@@ -64,8 +64,11 @@ All paths start with `/api/native/v1`. "Owner" means the caller owns the current
 | GET | `/wake` | List, View or Launch | Wake (feature `wake`) |
 | GET | `/audio` | View or Launch | Audio (features `audio.night_mode`, `audio.headphone_surround`) |
 | POST | `/audio/settings` | View or Launch, owner of a `streaming` or `suspended` session | Audio |
+| GET | `/files` | Download files, File transfer on | FileList |
+| POST | `/files?name=` | Upload files, File transfer on | 201 Uploaded |
+| GET | `/files/content?name=` | Download files, File transfer on | The file's bytes |
 
-Permission bits are the existing ones: List `1 << 24`, View `1 << 25`, Launch `1 << 26`. Host control is a separate per-device flag (see below).
+Permission bits are the existing ones: List `1 << 24`, View `1 << 25`, Launch `1 << 26`, Upload files `1 << 18`, Download files `1 << 19`. Host control is a separate per-device flag (see below).
 
 ## Library
 
@@ -366,6 +369,45 @@ POST /api/native/v1/audio/settings
 
 **Launch parameters.** `/launch` and `/resume` take `audioNightMode=on|off` and `audioHeadphoneSurround=on|off`, the session choice above. A client sends them only when the host lists the feature and the user picked something other than the host setting. Other values are logged and ignored, and hosts without the features ignore the parameters.
 
+## Files
+
+File transfer (Experimental) lets a paired device send files to the PC and fetch them back. It needs the host's `file_transfer` setting (off by default) and the device's Upload files or Download files bit, both read on every request. Files go to `file_transfer_dir`, or the signed-in user's `Downloads\Rubylight` when that is empty, and are written as that Windows user.
+
+```http
+GET /api/native/v1/files
+```
+
+```json
+{
+  "folder": "C:\\Users\\Player\\Downloads\\Rubylight",
+  "free_bytes": 107374182400,
+  "max_file_bytes": 4294967296,
+  "files": [ { "name": "clip (1).mp4", "size": 52428800, "modified_unix_ms": 1792000000000 } ]
+}
+```
+
+Only plain files are listed: no folders, links or `.part` files.
+
+```http
+POST /api/native/v1/files?name=clip.mp4
+Content-Type: application/octet-stream
+Content-Length: 52428800
+```
+
+- `name` is percent-encoded UTF-8: a file name without a path, at most 200 UTF-16 units, with nothing Windows refuses (`\ / : * ? " < > |`, control characters, a trailing dot or space, device names such as `CON`). Anything else is `invalid_name`.
+- `Content-Length` is required (`length_required`), and checked against `max_file_bytes` (`file_transfer_max_mb`, 4096 MiB by default, `too_large`) and the free space (`insufficient_storage`) before a byte is written. The 1 MiB limit of the other HTTPS routes does not apply.
+- The body goes to `<name>.part` and is renamed only once all of it arrived. A taken name gets the next free number, as Explorer numbers copies: `clip (1).mp4`. The answer is `201` with `{ "name": "clip (1).mp4", "size": 52428800 }`, where `size` is the bytes received.
+- A body that ends early, or sends nothing for 30 s, is `incomplete_upload`, and the `.part` file is deleted. A longer body than its `Content-Length` is `invalid_request`.
+- One upload per device at a time: a second one is `transfer_busy`. Other devices are not held up.
+- A refused upload is answered at once; the host then reads and drops the rest of the body, so a client that sends the whole body before reading gets the answer, not a reset.
+- While a stream runs or starts, uploads together are written at `file_transfer_stream_mbps` (50 Mbit/s by default; 0 for full speed), so the stream keeps the network and disk. Otherwise they run at full speed.
+
+```http
+GET /api/native/v1/files/content?name=clip%20(1).mp4
+```
+
+The answer is `application/octet-stream` with the file's exact `Content-Length`. If the file grows or shrinks while it is sent, the host ends the connection before the last byte, so the client never keeps a short or mixed file. A name the folder doesn't hold as a plain file is `not_found`.
+
 ## The host control permission
 
 - It is stored per device as `"host_control": true` in that client's `extra` map in the paired state, like `allow_client_commands`. The host reads `true` and `"true"` as on, like the other boolean keys in `extra`; a missing key or anything else means off. That covers new pairings, migrated Vibepollo or Apollo state and old backups, so the flag is off by default.
@@ -389,11 +431,17 @@ Every non-2xx answer has the same body:
 | 403 | `not_paired` | No TLS client certificate, or the device is unknown or disabled |
 | 403 | `permission_required` | List, View or Launch missing. `message` names the permission, as `authenticated()` does today |
 | 403 | `host_control_required` | Write or Close game without host control |
+| 403 | `file_transfer_disabled` / `forbidden` | Files: the host's File transfer setting is off / the device lacks Upload files or Download files |
 | 404 | `not_found` | Unknown path under `/api/native/v1`, GPU or setting id, or Radeon controls this host does not have (a restore or write on a host without them) |
 | 400 | `invalid_request` | Malformed JSON, unknown fields in a write, or a body over 16 KiB |
 | 422 | `invalid_value` / `not_writable` | Wrong type, out of range, or the setting is not `configurable` |
 | 409 | `no_session` / `not_session_owner` / `session_busy` | A write or action needs a session the caller owns. `session_busy`: a launch or teardown is in progress, retry after `retry_after_ms` |
 | 409 | `driver_rejected` | ADLX refused a write. `setting` names it, and the earlier changes of the request were rolled back |
+| 400 | `invalid_name` / `incomplete_upload` | Files: a name the host refuses / an upload that ended or stalled before its `Content-Length` |
+| 411 | `length_required` | An upload without `Content-Length` |
+| 413 | `too_large` | An upload over `max_file_bytes` |
+| 507 | `insufficient_storage` | The PC has no room for the upload |
+| 409 | `no_console_user` / `transfer_busy` | Files: nobody is signed in to Windows / the device already has an upload running |
 | 503 | `temporarily_unavailable` | ADLX is busy or reinitialising, with `retry_after_ms` |
 | 500 | `internal` | A bug. The message is logged on the host too |
 

@@ -20,6 +20,24 @@ pub enum ErrorCode {
     /// Appears only as an action `reason`: a disconnect without a stream is
     /// idempotent and answers 200.
     NotStreaming,
+    /// File transfer: the device lacks Upload files or Download files.
+    Forbidden,
+    /// File transfer is off on the host.
+    FileTransferDisabled,
+    /// A file name the host refuses rather than rewrites.
+    InvalidName,
+    /// The upload ended before its `Content-Length`; nothing was kept.
+    IncompleteUpload,
+    /// An upload without a `Content-Length`.
+    LengthRequired,
+    /// An upload over `max_file_bytes`.
+    TooLarge,
+    /// The transfer folder's volume has no room for the upload.
+    InsufficientStorage,
+    /// Nobody is signed in to Windows on the host, so there is no folder.
+    NoConsoleUser,
+    /// The device already has an upload running.
+    TransferBusy,
     /// A code from a newer host. Clients treat it by its HTTP status.
     #[serde(other)]
     Unknown,
@@ -31,15 +49,24 @@ impl ErrorCode {
     /// something a host emits.
     pub fn status(self) -> u16 {
         match self {
-            Self::NotPaired | Self::PermissionRequired | Self::HostControlRequired => 403,
+            Self::NotPaired
+            | Self::PermissionRequired
+            | Self::HostControlRequired
+            | Self::Forbidden
+            | Self::FileTransferDisabled => 403,
             Self::NotFound => 404,
-            Self::InvalidRequest => 400,
+            Self::InvalidRequest | Self::InvalidName | Self::IncompleteUpload => 400,
+            Self::LengthRequired => 411,
+            Self::TooLarge => 413,
             Self::InvalidValue | Self::NotWritable => 422,
             Self::NoSession
             | Self::NotSessionOwner
             | Self::SessionBusy
             | Self::DriverRejected
-            | Self::NotStreaming => 409,
+            | Self::NotStreaming
+            | Self::NoConsoleUser
+            | Self::TransferBusy => 409,
+            Self::InsufficientStorage => 507,
             Self::TemporarilyUnavailable => 503,
             Self::Internal | Self::Unknown => 500,
         }

@@ -641,7 +641,7 @@ impl RoamTriggers {
         } else if roaming.trigger().is_none()
             && contact != self.contact
             && contact.is_some_and(|at| now.duration_since(at) >= INPUT_CONTACT_LOST_AFTER)
-            && self.retry_at.is_none_or(|at| now >= at)
+            && !self.retry_at.is_some_and(|at| now < at)
         {
             self.contact = contact;
             roaming.start(now, RoamTrigger::HostSilent, 0, OsRng.next_u64());

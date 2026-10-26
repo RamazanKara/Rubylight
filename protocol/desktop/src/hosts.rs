@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use nightjar_core::http::native_api::capabilities::Capabilities;
 use nightjar_core::http::native_api::library::Library;
@@ -216,8 +216,7 @@ pub const UNPAIR_NOT_PAIRED: &str = en("Device was not paired.");
 // Why the PC handed out no sleep token. A refusal shows the host's own words instead.
 pub const SLEEP_NOT_ALLOWED: &str = en("The PC does not let this device put it to sleep. Allow it in the host's device settings.");
 pub const SLEEP_UNSUPPORTED: &str = en("The PC cannot sleep.");
-pub const SLEEP_BUSY: &str = en("End all apps and streams on the PC, then try again.");
-pub const SLEEP_NO_TOKEN: &str = en("The PC did not offer to sleep. Try again.");
+pub const SLEEP_BUSY: &str = en("The PC cannot sleep right now. Close games and streams on it, then try again.");
 
 pub enum Event {
     Info {
@@ -409,9 +408,28 @@ fn describe(error: &nightjar_core::http::Error) -> String {
 
 pub enum SleepStep {
     /// The PC offers to sleep: confirm, then spend `token`, which the PC handed out at `at`.
-    Offer { token: String, at: Instant },
+    Offer { token: String, at: Handed },
     /// The PC took the request (202). It does not confirm that the PC suspended.
     Accepted,
+}
+
+/// When the PC handed out a sleep token, on two clocks: `Instant` stops while a Linux client is
+/// suspended, the wall clock keeps running but can be set back. The larger age counts, so a
+/// token never looks younger than it is.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Handed {
+    at: Instant,
+    wall: SystemTime,
+}
+
+impl Handed {
+    pub fn now() -> Self {
+        Self { at: Instant::now(), wall: SystemTime::now() }
+    }
+
+    fn age(&self) -> Duration {
+        self.at.elapsed().max(self.wall.elapsed().unwrap_or_default())
+    }
 }
 
 /// The power-action calls Sleep PC makes; a fake PC in the tests.
@@ -440,21 +458,21 @@ fn power_error(error: &PowerError) -> String {
 
 /// Asks the PC for a sleep token; the time is taken before asking, so the token's age is never
 /// under-counted.
-fn sleep_token(host: &impl PowerHost) -> Result<(String, Instant), String> {
-    let at = Instant::now();
+fn sleep_token(host: &impl PowerHost) -> Result<(String, Handed), String> {
+    let at = Handed::now();
     let reply = host.power_capabilities().map_err(|e| power_error(&e))?;
     match reply.token {
         Some(token) => Ok((token, at)),
         None if !reply.sleep_supported => Err(SLEEP_UNSUPPORTED.into()),
         None if !reply.sleep_allowed => Err(SLEEP_NOT_ALLOWED.into()),
-        None if !reply.sleep_available => Err(SLEEP_BUSY.into()),
-        None => Err(SLEEP_NO_TOKEN.into()),
+        // Supported and allowed but no token, whatever `sleep_available` says: busy, like Android.
+        None => Err(SLEEP_BUSY.into()),
     }
 }
 
 /// Spends the confirmed token, asking for a new one first when it is about to expire.
-fn sleep_confirmed(host: &impl PowerHost, token: String, at: Instant) -> Result<SleepStep, String> {
-    let token = if at.elapsed() >= SLEEP_TOKEN_REFRESH { sleep_token(host)?.0 } else { token };
+fn sleep_confirmed(host: &impl PowerHost, token: String, at: Handed) -> Result<SleepStep, String> {
+    let token = if at.age() >= SLEEP_TOKEN_REFRESH { sleep_token(host)?.0 } else { token };
     host.sleep(&token).map_err(|e| power_error(&e))?;
     Ok(SleepStep::Accepted)
 }
@@ -745,7 +763,7 @@ impl Hosts {
     }
 
     /// Sleep PC, confirmed: spends `token` (handed out at `at`), or a fresh one when it is old.
-    pub fn sleep(&self, id: u64, ask: u64, token: String, at: Instant) {
+    pub fn sleep(&self, id: u64, ask: u64, token: String, at: Handed) {
         self.sleep_step(id, ask, true, move |client| sleep_confirmed(client, token, at));
     }
 
@@ -1633,7 +1651,10 @@ mod tests {
 
     #[test]
     fn a_token_older_than_25_seconds_is_asked_for_again_before_it_is_spent() {
-        let ago = |s| Instant::now().checked_sub(Duration::from_secs(s)).unwrap();
+        let ago = |s| {
+            let now = Handed::now();
+            Handed { at: now.at.checked_sub(Duration::from_secs(s)).unwrap(), wall: now.wall - Duration::from_secs(s) }
+        };
         let pc = FakePc::new(&[TOKEN_B], accepted);
         assert!(sleep_confirmed(&pc, TOKEN_A.into(), ago(24)).is_ok());
         assert_eq!(pc.calls(), [format!("POST {TOKEN_A}")], "a young token is spent as it is");
@@ -1649,6 +1670,22 @@ mod tests {
     }
 
     #[test]
+    fn a_token_is_as_old_as_either_clock_says_even_across_suspend() {
+        let now = Handed::now();
+        let secs = Duration::from_secs;
+        // Suspended for a minute: the monotonic clock missed it, the wall clock did not.
+        let suspended = Handed { at: now.at.checked_sub(secs(1)).unwrap(), wall: now.wall - secs(61) };
+        let pc = FakePc::new(&[TOKEN_B], accepted);
+        assert!(sleep_confirmed(&pc, TOKEN_A.into(), suspended).is_ok());
+        assert_eq!(pc.calls(), ["GET".to_owned(), format!("POST {TOKEN_B}")], "the stale token is not spent");
+        // The wall clock set back: the monotonic age still counts.
+        let set_back = Handed { at: now.at.checked_sub(secs(26)).unwrap(), wall: now.wall + secs(3600) };
+        assert!(set_back.age() >= SLEEP_TOKEN_REFRESH);
+        let fresh = Handed { at: now.at.checked_sub(secs(1)).unwrap(), wall: now.wall + secs(3600) };
+        assert!(fresh.age() < SLEEP_TOKEN_REFRESH);
+    }
+
+    #[test]
     fn a_refusal_shows_the_hosts_words_and_a_failed_request_says_what_failed() {
         use nightjar_core::http::{Error, Refusal};
         let busy = || Err(PowerError::Refused {
@@ -1657,18 +1694,18 @@ mod tests {
         });
         let pc = FakePc::new(&[TOKEN_A], busy);
         assert_eq!(
-            sleep_confirmed(&pc, TOKEN_A.into(), Instant::now()).err().as_deref(),
+            sleep_confirmed(&pc, TOKEN_A.into(), Handed::now()).err().as_deref(),
             Some("End all applications and sessions before requesting sleep"),
             "exactly as sent"
         );
         let silent = || Err(PowerError::Refused { refusal: Refusal::Unauthorized, reply: power_reply(401, "", [false; 3], None) });
         assert_eq!(
-            sleep_confirmed(&FakePc::new(&[], silent), TOKEN_A.into(), Instant::now()).err().as_deref(),
+            sleep_confirmed(&FakePc::new(&[], silent), TOKEN_A.into(), Handed::now()).err().as_deref(),
             Some("The PC refused with status 401.")
         );
         let timeout = || Err(PowerError::Host(Error::Io(std::io::ErrorKind::TimedOut.into())));
         assert_eq!(
-            sleep_confirmed(&FakePc::new(&[], timeout), TOKEN_A.into(), Instant::now()).err().as_deref(),
+            sleep_confirmed(&FakePc::new(&[], timeout), TOKEN_A.into(), Handed::now()).err().as_deref(),
             Some("The PC did not answer.")
         );
     }
@@ -1720,7 +1757,7 @@ mod tests {
             ([false, true, false], SLEEP_UNSUPPORTED),
             ([true, false, false], SLEEP_NOT_ALLOWED),
             ([true, true, false], SLEEP_BUSY),
-            ([true, true, true], SLEEP_NO_TOKEN),
+            ([true, true, true], SLEEP_BUSY),
         ] {
             assert_eq!(sleep_token(&Offer(Box::new(reply(flags)))).err().as_deref(), Some(why));
         }

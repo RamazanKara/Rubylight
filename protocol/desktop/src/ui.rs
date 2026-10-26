@@ -11,7 +11,7 @@ use crate::config::{
     ReduceMotion, Settings, WindowMode, UI_ZOOM_STEPS,
 };
 use crate::console::{self, EndAction, GameState, Playing, Source};
-use crate::hosts::{Apps, Art, Host, Hosts, Reach, SleepStep};
+use crate::hosts::{Apps, Art, Handed, Host, Hosts, Reach, SleepStep};
 use crate::strings::{en, tr, trf};
 use crate::stream::{stream_mode, Display};
 use crate::theme::*;
@@ -29,7 +29,7 @@ pub enum Command {
     /// request, so a late answer to an earlier one is not taken for it.
     SleepOffer { host: u64, ask: u64 },
     /// Put the PC to sleep with the token it handed out at `at`.
-    Sleep { host: u64, ask: u64, token: String, at: std::time::Instant },
+    Sleep { host: u64, ask: u64, token: String, at: Handed },
     /// Name a PC on this device only; empty brings back the PC's own name.
     Rename { host: u64, alias: String },
     HostSettings(u64),
@@ -121,7 +121,7 @@ pub enum Dialog {
     ConfirmUnpair { host: u64, name: String },
     /// Sleep PC: waiting for the PC's token (`offer` None), then asking to confirm. `ask` is
     /// the number of the token request this dialog waits for.
-    ConfirmSleep { host: u64, ask: u64, name: String, offer: Option<(String, std::time::Instant)> },
+    ConfirmSleep { host: u64, ask: u64, name: String, offer: Option<(String, Handed)> },
     /// Pairing did not work: what to do about it, and a way to try again.
     PairError { host: u64, body: String, one_time: bool },
     /// How to pair, for a PC that is not paired yet.
@@ -3678,7 +3678,7 @@ mod tests {
                 Dialog::PairError { host: id, body: "PIN rejected. Generate a new one-time PIN in your host's web UI and check the passphrase.".into(), one_time: true },
                 Dialog::Message { title: "Network test failed".into(), body: "The PC did not answer.".into() },
                 Dialog::ConfirmSleep { host: id, ask: 1, name: "A long name for a gaming PC".into(), offer: None },
-                Dialog::ConfirmSleep { host: id, ask: 1, name: "A long name for a gaming PC".into(), offer: Some(("t".into(), std::time::Instant::now())) },
+                Dialog::ConfirmSleep { host: id, ask: 1, name: "A long name for a gaming PC".into(), offer: Some(("t".into(), Handed::now())) },
             ];
             for dialog in dialogs {
                 let name = format!("{:?}", std::mem::discriminant(&dialog));
@@ -3923,7 +3923,7 @@ mod tests {
     fn sleep_pc_waits_for_the_offer_and_spends_it_only_when_confirmed() {
         let mut f = every_state().into_iter().find(|s| s.name == "can sleep").unwrap().frames();
         let id = f.hosts.list[0].id;
-        let at = std::time::Instant::now();
+        let at = Handed::now();
         let offer = || Ok(SleepStep::Offer { token: "tok".into(), at });
         let sleeps = |commands: &[Command]| commands.iter().any(|c| matches!(c, Command::Sleep { .. }));
         let waiting = || Dialog::ConfirmSleep { host: id, ask: 1, name: "PC".into(), offer: None };
@@ -3995,7 +3995,7 @@ mod tests {
     fn a_late_offer_from_a_cancelled_sleep_pc_is_not_taken_for_the_new_one() {
         let mut f = every_state().into_iter().find(|s| s.name == "can sleep").unwrap().frames();
         let id = f.hosts.list[0].id;
-        let at = std::time::Instant::now();
+        let at = Handed::now();
         let offer = |token: &str| Ok(SleepStep::Offer { token: token.into(), at });
         let ask = |f: &mut Frames| {
             let mut commands = Vec::new();

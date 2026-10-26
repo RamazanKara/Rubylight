@@ -21,6 +21,7 @@
     <string name="host_sleep_busy">Зараз ПК не може перейти в режим сну. Закрийте на ньому ігри та трансляції й повторіть спробу.</string>
     <string name="host_sleep_refused">ПК відмовився перейти в режим сну (HTTP %1$d).</string>
     <string name="host_sleep_failed">Не вдалося зв’язатися з ПК.</string>
+    <string name="host_sleep_error">Не вдалося запитати ПК: %1$s</string>
     <string name="settings_category_accessibility">Спеціальні можливості</string>
     <string name="title_ui_scale">Розмір інтерфейсу</string>
     <string name="summary_ui_scale">Масштабує меню, списки й діалоги застосунку. Трансляція не масштабується. Розмір шрифту системи застосовується додатково. Діє одразу.</string>

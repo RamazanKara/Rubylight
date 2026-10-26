@@ -21,6 +21,7 @@
     <string name="host_sleep_busy">Bilgisayar şu anda uyku moduna geçemiyor. Üzerindeki oyunları ve yayınları kapatıp yeniden deneyin.</string>
     <string name="host_sleep_refused">Bilgisayar uyku modunu reddetti (HTTP %1$d).</string>
     <string name="host_sleep_failed">Bilgisayara ulaşılamadı.</string>
+    <string name="host_sleep_error">Bilgisayara sorulamadı: %1$s</string>
     <string name="settings_category_accessibility">Erişilebilirlik</string>
     <string name="title_ui_scale">Arayüz boyutu</string>
     <string name="summary_ui_scale">Uygulamanın menülerini, listelerini ve iletişim kutularını ölçekler. Yayın ölçeklenmez. Sistem yazı tipi boyutu ayrıca uygulanmaya devam eder. Hemen etkili olur.</string>

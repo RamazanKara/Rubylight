@@ -21,6 +21,7 @@
     <string name="host_sleep_busy">O PC não pode ser suspenso agora. Feche os jogos e transmissões nele e tente novamente.</string>
     <string name="host_sleep_refused">O PC recusou a suspensão (HTTP %1$d).</string>
     <string name="host_sleep_failed">Não foi possível acessar o PC.</string>
+    <string name="host_sleep_error">Não foi possível consultar o PC: %1$s</string>
     <string name="settings_category_accessibility">Acessibilidade</string>
     <string name="title_ui_scale">Tamanho da interface</string>
     <string name="summary_ui_scale">Ajusta a escala dos menus, listas e caixas de diálogo do app. A transmissão não é redimensionada. O tamanho da fonte do sistema continua valendo por cima. Vale na hora.</string>

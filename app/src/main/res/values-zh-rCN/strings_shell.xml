@@ -21,6 +21,7 @@
     <string name="host_sleep_busy">电脑现在无法睡眠。请关闭其上的游戏和串流后重试。</string>
     <string name="host_sleep_refused">电脑拒绝进入睡眠 (HTTP %1$d)。</string>
     <string name="host_sleep_failed">无法连接到电脑。</string>
+    <string name="host_sleep_error">无法询问电脑：%1$s</string>
     <string name="settings_category_accessibility">无障碍</string>
     <string name="title_ui_scale">界面大小</string>
     <string name="summary_ui_scale">缩放应用的菜单、列表和对话框。视频流不会缩放。系统字体大小仍会叠加生效。立即生效。</string>

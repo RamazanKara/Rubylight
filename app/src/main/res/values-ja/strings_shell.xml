@@ -21,6 +21,7 @@
     <string name="host_sleep_busy">PC は今スリープできません。PC のゲームとストリームを終了してから、もう一度お試しください。</string>
     <string name="host_sleep_refused">PC がスリープを拒否しました (HTTP %1$d)。</string>
     <string name="host_sleep_failed">PC に接続できませんでした。</string>
+    <string name="host_sleep_error">PC に問い合わせできませんでした: %1$s</string>
     <string name="settings_category_accessibility">ユーザー補助</string>
     <string name="title_ui_scale">インターフェースのサイズ</string>
     <string name="summary_ui_scale">アプリのメニュー、リスト、ダイアログを拡大・縮小します。ストリームは拡大・縮小されません。システムのフォントサイズは引き続き適用されます。すぐに反映されます。</string>

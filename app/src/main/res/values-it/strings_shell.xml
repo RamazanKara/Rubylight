@@ -21,6 +21,7 @@
     <string name="host_sleep_busy">Il PC non può essere sospeso ora. Chiudi giochi e stream su di esso, poi riprova.</string>
     <string name="host_sleep_refused">Il PC ha rifiutato la sospensione (HTTP %1$d).</string>
     <string name="host_sleep_failed">Impossibile raggiungere il PC.</string>
+    <string name="host_sleep_error">Impossibile interrogare il PC: %1$s</string>
     <string name="settings_category_accessibility">Accessibilità</string>
     <string name="title_ui_scale">Dimensione dell’interfaccia</string>
     <string name="summary_ui_scale">Ridimensiona i menu, gli elenchi e le finestre di dialogo dell’app. Lo stream non viene ridimensionato. La dimensione del carattere del sistema si applica in aggiunta. Ha effetto subito.</string>

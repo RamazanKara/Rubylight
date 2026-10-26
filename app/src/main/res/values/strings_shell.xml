@@ -23,6 +23,7 @@
     <string name="host_sleep_busy">The PC can’t sleep right now. Close games and streams on it, then try again.</string>
     <string name="host_sleep_refused">The PC refused to sleep (HTTP %1$d).</string>
     <string name="host_sleep_failed">Couldn’t reach the PC.</string>
+    <string name="host_sleep_error">Couldn’t ask the PC: %1$s</string>
     <!-- Accessibility: interface size, high contrast and reduced motion. -->
     <string name="settings_category_accessibility">Accessibility</string>
     <string name="title_ui_scale">Interface size</string>

@@ -21,6 +21,7 @@
     <string name="host_sleep_busy">Der PC kann gerade nicht in den Energiesparmodus. Beende Spiele und Streams auf ihm und versuche es erneut.</string>
     <string name="host_sleep_refused">Der PC hat den Energiesparmodus abgelehnt (HTTP %1$d).</string>
     <string name="host_sleep_failed">Der PC war nicht erreichbar.</string>
+    <string name="host_sleep_error">Der PC konnte nicht gefragt werden: %1$s</string>
     <string name="settings_category_accessibility">Bedienungshilfen</string>
     <string name="title_ui_scale">Anzeigegröße</string>
     <string name="summary_ui_scale">Skaliert Menüs, Listen und Dialoge der App. Der Stream wird nicht skaliert. Die Schriftgröße des Systems gilt zusätzlich. Wirkt sofort.</string>

@@ -416,8 +416,20 @@ public final class HostActions {
         return message.isEmpty() ? context.getString(R.string.host_sleep_refused, httpStatus) : message;
     }
 
+    /** Whether asking again can help: only when the PC could not be reached. */
+    static boolean sleepRetries(NativeApiException error) {
+        return error.getKind() == NativeApiException.Kind.NETWORK || error.getKind() == NativeApiException.Kind.TLS;
+    }
+
+    /** Unreachable, unpaired, or the native API's own words for anything else. */
     static String sleepFailedText(Context context, NativeApiException error) {
-        return context.getString(R.string.host_sleep_failed);
+        if (sleepRetries(error)) {
+            return context.getString(R.string.host_sleep_failed);
+        }
+        if (error.getKind() == NativeApiException.Kind.NOT_PAIRED) {
+            return context.getString(R.string.host_feature_reason_pair);
+        }
+        return context.getString(R.string.host_sleep_error, error.getMessage());
     }
 
     @VisibleForTesting
@@ -463,7 +475,7 @@ public final class HostActions {
             @Override
             public void failed(NativeApiException error) {
                 dismissSleepProgress();
-                showError(title, sleepFailedText(activity, error), () -> sleep(computer));
+                showError(title, sleepFailedText(activity, error), sleepRetries(error) ? () -> sleep(computer) : null);
             }
         };
     }

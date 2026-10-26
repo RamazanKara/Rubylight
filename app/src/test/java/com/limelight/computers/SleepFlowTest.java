@@ -318,6 +318,40 @@ public class SleepFlowTest {
     }
 
     @Test
+    public void onlyAnUnreachablePcOffersTryAgainOtherFailuresSayWhatWentWrong() {
+        try (ActivityController<ToolbarIconTintTest.Screen> controller = screen()) {
+            ToolbarIconTintTest.Screen screen = controller.get();
+            SleepFlow.Ui shown = new HostActions(screen, CALLBACKS).sleepUi(office());
+            String tryAgain = screen.getString(R.string.pair_try_again);
+            String ok = screen.getString(android.R.string.ok);
+
+            for (NativeApiException.Kind kind : new NativeApiException.Kind[] {
+                    NativeApiException.Kind.NETWORK, NativeApiException.Kind.TLS}) {
+                shown.failed(new NativeApiException(kind, "connection refused"));
+                AlertDialog dialog = latestDialog();
+                assertEquals(screen.getString(R.string.host_sleep_failed), message(dialog));
+                assertEquals(tryAgain, dialog.getButton(AlertDialog.BUTTON_POSITIVE).getText().toString());
+            }
+
+            shown.failed(new NativeApiException(NativeApiException.Kind.NOT_PAIRED, "no endpoint"));
+            AlertDialog unpaired = latestDialog();
+            assertEquals(screen.getString(R.string.host_feature_reason_pair), message(unpaired));
+            assertEquals(ok, unpaired.getButton(AlertDialog.BUTTON_POSITIVE).getText().toString());
+
+            for (NativeApiException.Kind kind : new NativeApiException.Kind[] {
+                    NativeApiException.Kind.UNAVAILABLE, NativeApiException.Kind.MALFORMED,
+                    NativeApiException.Kind.CERTIFICATE_MISMATCH, NativeApiException.Kind.IDENTITY,
+                    NativeApiException.Kind.STATUS}) {
+                shown.failed(new NativeApiException(kind, "what " + kind + " says"));
+                AlertDialog dialog = latestDialog();
+                assertEquals(kind.name(), screen.getString(R.string.host_sleep_error, "what " + kind + " says"),
+                        message(dialog));
+                assertEquals(kind.name(), ok, dialog.getButton(AlertDialog.BUTTON_POSITIVE).getText().toString());
+            }
+        }
+    }
+
+    @Test
     public void aSecondSleepReplacesTheFirstWhoseAnswersAreDropped() {
         try (ActivityController<ToolbarIconTintTest.Screen> controller = screen()) {
             ToolbarIconTintTest.Screen screen = controller.get();

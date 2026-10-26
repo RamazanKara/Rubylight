@@ -21,6 +21,7 @@
     <string name="host_sleep_busy">Le PC ne peut pas se mettre en veille pour le moment. Fermez ses jeux et streams, puis réessayez.</string>
     <string name="host_sleep_refused">Le PC a refusé la mise en veille (HTTP %1$d).</string>
     <string name="host_sleep_failed">Impossible de joindre le PC.</string>
+    <string name="host_sleep_error">Impossible d’interroger le PC : %1$s</string>
     <string name="settings_category_accessibility">Accessibilité</string>
     <string name="title_ui_scale">Taille de l’interface</string>
     <string name="summary_ui_scale">Agrandit ou réduit les menus, les listes et les boîtes de dialogue de l’appli. Le flux n’est pas redimensionné. La taille de police du système s’applique en plus. Effet immédiat.</string>

@@ -21,6 +21,7 @@
     <string name="host_sleep_busy">PC hiện không thể ngủ. Hãy đóng trò chơi và luồng phát trên PC rồi thử lại.</string>
     <string name="host_sleep_refused">PC đã từ chối chế độ ngủ (HTTP %1$d).</string>
     <string name="host_sleep_failed">Không thể kết nối với PC.</string>
+    <string name="host_sleep_error">Không thể hỏi PC: %1$s</string>
     <string name="settings_category_accessibility">Trợ năng</string>
     <string name="title_ui_scale">Kích thước giao diện</string>
     <string name="summary_ui_scale">Phóng to hoặc thu nhỏ menu, danh sách và hộp thoại của ứng dụng. Luồng phát không bị thay đổi kích thước. Cỡ chữ của hệ thống vẫn áp dụng thêm. Có hiệu lực ngay.</string>

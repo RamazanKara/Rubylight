@@ -21,6 +21,7 @@
     <string name="host_sleep_busy">Komputera nie można teraz uśpić. Zamknij na nim gry i transmisje, a potem spróbuj ponownie.</string>
     <string name="host_sleep_refused">Komputer odmówił uśpienia (HTTP %1$d).</string>
     <string name="host_sleep_failed">Nie udało się połączyć z komputerem.</string>
+    <string name="host_sleep_error">Nie udało się zapytać komputera: %1$s</string>
     <string name="settings_category_accessibility">Ułatwienia dostępu</string>
     <string name="title_ui_scale">Rozmiar interfejsu</string>
     <string name="summary_ui_scale">Skaluje menu, listy i okna dialogowe aplikacji. Strumień nie jest skalowany. Rozmiar czcionki systemu nadal obowiązuje dodatkowo. Działa od razu.</string>

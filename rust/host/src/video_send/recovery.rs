@@ -71,7 +71,7 @@ fn select(
     let bitrate = session.bitrate.load(std::sync::atomic::Ordering::Acquire);
     let needed = network_pacing::video_wire_rate_bps(packetizer, bitrate, period, peer.is_ipv6());
     // The client's own port, when it says so (Nightjar, for wired links).
-    let client_link = u64::from(session.config.pyrowave_client_link_mbps) * 1_000_000;
+    let client_link = u64::from(session.client_link_mbps()) * 1_000_000;
     let base = network_pacing::rate_bps_for_client(
         config.integer("pacing_max_bitrate_kbps", 0),
         bitrate,
@@ -95,7 +95,7 @@ fn select(
 /// and the pace is floored at 1.1 times the bitrate instead.
 pub(crate) fn warn_if_client_link_below_stream(session: &Session, route: Link) {
     let bitrate = session.bitrate.load(std::sync::atomic::Ordering::Acquire);
-    let client_link_mbps = session.config.pyrowave_client_link_mbps;
+    let client_link_mbps = session.client_link_mbps();
     if network_pacing::client_link_below_stream(
         bitrate,
         route.bps,
@@ -212,6 +212,13 @@ mod tests {
                 preview_pace(&session, &config, &packetizer, period, peer, route).bps,
                 expected,
                 "hint {hint}"
+            );
+            // The hint was about the path a roaming client left.
+            session.roamed("198.51.100.4".parse().unwrap(), Instant::now());
+            assert_eq!(
+                pace(&session, &config, &packetizer, period, peer, route).bps,
+                800_000_000,
+                "hint {hint} after a roam"
             );
         }
     }

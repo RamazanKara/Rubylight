@@ -308,6 +308,29 @@ mod tests {
         assert!(session.keyframe_loss_active());
     }
     #[test]
+    fn a_roam_drops_the_clients_hints_about_the_old_path() {
+        let session = Session::new(
+            launch("hints", Role::Stream),
+            Negotiated {
+                codec: 3,
+                bitrate_kbps: 200_000,
+                configured_bitrate_kbps: 250_000,
+                pyrowave_client_link_mbps: 100,
+                pyrowave_client_pace_mbps: 150,
+                ..Default::default()
+            },
+        );
+        let ceiling = |session: &Session| {
+            session.configure_adaptive_bitrate(true, 0);
+            session.adaptive_bitrate.lock().unwrap().snapshot()["wire_ceiling_kbps"].clone()
+        };
+        assert_eq!((session.client_link_mbps(), session.client_pace_mbps()), (100, 150));
+        assert_eq!(ceiling(&session), 95_000);
+        session.roamed("10.0.0.7".parse().unwrap(), Instant::now());
+        assert_eq!((session.client_link_mbps(), session.client_pace_mbps()), (0, 0));
+        assert_eq!(ceiling(&session), 250_000);
+    }
+    #[test]
     fn client_fec_is_exposed_as_telemetry_without_changing_stream_decisions() {
         let session = Session::new(launch("fec", Role::Stream), Negotiated::default());
         session.idr.store(false, Ordering::Relaxed);
@@ -2666,6 +2689,24 @@ impl<P, A> Session<P, A> {
     pub fn roams(&self) -> u32 {
         self.roams.load(Ordering::Acquire)
     }
+    /// The client's link hint (`pyrowaveLinkMbps`), 0 once it roamed: the hint came
+    /// with the ANNOUNCE and describes the path the client left.
+    pub fn client_link_mbps(&self) -> u32 {
+        if self.roams() == 0 {
+            self.config.pyrowave_client_link_mbps
+        } else {
+            0
+        }
+    }
+    /// The client's pace hint (`pyrowavePaceMbps`), 0 once it roamed, as
+    /// [`Self::client_link_mbps`].
+    pub fn client_pace_mbps(&self) -> u32 {
+        if self.roams() == 0 {
+            self.config.pyrowave_client_pace_mbps
+        } else {
+            0
+        }
+    }
     /// True once per roam, for the first video ping from the new path.
     pub fn take_new_path(&self) -> bool {
         std::mem::take(&mut self.roam.lock().unwrap().new_path)
@@ -2870,10 +2911,15 @@ impl<P, A> Session<P, A> {
             current
         }
     }
+    /// Configures host bitrate adaptation; again after a roam, to forget the old path
+    /// and the client's hints about it.
     pub fn configure_adaptive_bitrate(&self, enabled: bool, maximum_kbps: u32) {
+        let mut stream = self.config.clone();
+        stream.pyrowave_client_link_mbps = self.client_link_mbps();
+        stream.pyrowave_client_pace_mbps = self.client_pace_mbps();
         self.adaptive_bitrate.lock().unwrap().configure(
             enabled,
-            &self.config,
+            &stream,
             maximum_kbps,
             self.fec_percent(),
         );

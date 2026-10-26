@@ -937,6 +937,15 @@ fn restart_on_new_path(s: &Session, c: &Config) {
         c.link_rate_adaptation(),
         c.integer("max_bitrate", 0).clamp(0, 500_000) as u32,
     );
+    configure_adaptive_bitrate(s, c);
+}
+/// Host bitrate adaptation (`host_adaptive_bitrate`), from scratch.
+fn configure_adaptive_bitrate(s: &Session, c: &Config) {
+    let maximum = if s.config.codec == 3 { 2_000_000 } else { 500_000 };
+    s.configure_adaptive_bitrate(
+        c.boolean("host_adaptive_bitrate", false),
+        c.integer("max_bitrate", 0).clamp(0, maximum) as u32,
+    );
 }
 /// The local address a client's datagrams arrived on, for logs.
 fn describe_local(local: Option<IpAddr>) -> String {
@@ -1631,7 +1640,7 @@ impl Media {
                         c.integer("pyrowave_critical_fec_percentage", 20).clamp(0, 255) as usize
                     } else { requested_fec.clamp(0, 100) as usize };
                     s.configure_fec(c.boolean("adaptive_fec", true), fec_ceiling);
-                    s.configure_adaptive_bitrate(c.boolean("host_adaptive_bitrate", false), c.integer("max_bitrate", 0).clamp(0, if s.config.codec == 3 { 2_000_000 } else { 500_000 }) as u32);
+                    configure_adaptive_bitrate(&s, &c);
                     s.configure_link_rate(c.link_rate_adaptation(), c.integer("max_bitrate", 0).clamp(0, 500_000) as u32);
                     // Packet adaptation is opt-in, or automatic for a client that
                     // reports a wireless route. Explicit pacing and host bitrate
@@ -1776,6 +1785,8 @@ impl Media {
                     batch.waits = trace_send.then(Default::default);
                     let mut network_pacer = butterpollo_core::network_pacing::Pacer::new(Instant::now());
                     let mut link = None;
+                    // The session's roams when `link` was routed.
+                    let mut roams = s.roams();
                     let mut link_due = Instant::now();
                     let mut reported_pacing = None;
                     // Encoder admission needs the route before its very first
@@ -2092,6 +2103,11 @@ impl Media {
                             let block_layout = packetizer.block_layout(frame.bytes.len());
                             let fec_limited = packetizer.fec_limited(frame.bytes.len());
                             let packet_bytes = packetizer.packet_size + 16 + if packetizer.key.is_some() { 32 } else { 0 };
+                            // A client that roamed takes another route.
+                            if s.roams() != roams {
+                                roams = s.roams();
+                                link = None;
+                            }
                             let first_link = link.is_none();
                             let route = *link.get_or_insert_with(|| butterpollo_windows::net::routed_link(peer));
                             if first_link {
@@ -2106,7 +2122,7 @@ impl Media {
                             if Instant::now() >= link_due {
                                 butterpollo_core::network_pacing::report_rate(&s.launch.warnings, bps, needed, c.integer("pacing_max_bitrate_kbps", 0));
                                 if reported_pacing != Some(bps) {
-                                    tracing::info!(pacing_bps=bps, wire_budget_bps=needed, link_bps=route.bps, client_link_mbps=s.config.pyrowave_client_link_mbps, client_wireless=s.config.client_wireless, configured_kbps=c.integer("pacing_max_bitrate_kbps", 0), "network pacing selected");
+                                    tracing::info!(pacing_bps=bps, wire_budget_bps=needed, link_bps=route.bps, client_link_mbps=s.client_link_mbps(), client_wireless=s.config.client_wireless, configured_kbps=c.integer("pacing_max_bitrate_kbps", 0), "network pacing selected");
                                     reported_pacing = Some(bps);
                                 }
                             }

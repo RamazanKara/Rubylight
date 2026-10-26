@@ -16,10 +16,7 @@ pub(super) fn run(
     let mut pacer = Pacer::new(Instant::now());
     let mut route = butterpollo_windows::net::Link::default();
     let mut link_due = Instant::now();
-    let mut client = ClientPath {
-        link_bps: u64::from(current.config.pyrowave_client_link_mbps) * 1_000_000,
-        pace_bps: u64::from(current.config.pyrowave_client_pace_mbps) * 1_000_000,
-    };
+    // The session's roams when `route` was routed.
     let mut roams = current.roams();
     while !shared.stop.load(Ordering::Acquire)
         && !current.stopping()
@@ -37,16 +34,18 @@ pub(super) fn run(
             ready.take()
         };
         let Some(frame) = frame else { continue };
-        let report = Instant::now() >= link_due;
+        // A client that roamed takes another route, as H.26x video does.
+        let report = Instant::now() >= link_due || current.roams() != roams;
         if report {
+            roams = current.roams();
             route = butterpollo_windows::net::routed_link(frame.peer);
             link_due = Instant::now() + Duration::from_secs(2);
-            // The client's link and pace hints were about the path it roamed away from.
-            if current.roams() != roams {
-                roams = current.roams();
-                client = ClientPath::default();
-            }
         }
+        // The client's hints, until it roams away from the path they describe.
+        let client = ClientPath {
+            link_bps: u64::from(current.client_link_mbps()) * 1_000_000,
+            pace_bps: u64::from(current.client_pace_mbps()) * 1_000_000,
+        };
         // Use a stable budget so different scene sizes cannot continually
         // reset the controller's feedback window. Warn on actual wire demand.
         let needed = network_pacing::pyrowave_wire_rate_bps(

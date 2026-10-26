@@ -121,7 +121,7 @@ impl Transport<'_> {
             .link
             .get_or_insert_with(|| butterpollo_windows::net::routed_link(peer));
         let bitrate = s.bitrate.load(Ordering::Relaxed);
-        let client_link_mbps = s.config.pyrowave_client_link_mbps;
+        let client_link_mbps = s.client_link_mbps();
         if first {
             recovery::warn_if_client_link_below_stream(s, route);
         }

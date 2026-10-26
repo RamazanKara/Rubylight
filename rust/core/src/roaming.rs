@@ -177,6 +177,8 @@ impl Window {
 #[derive(Clone, Copy, Debug)]
 struct Pending {
     address: SocketAddr,
+    /// The client's nonce of the first probe from `address`.
+    nonce_c: u64,
     challenge: u64,
     media_rebound: bool,
     expires: Instant,
@@ -192,6 +194,8 @@ struct Entry<K> {
     /// The last seq the host sent.
     host_seq: u32,
     pending: Option<Pending>,
+    /// The last probe from `current` itself, kept apart so it never replaces `pending`.
+    here: Option<Pending>,
     /// The challenge of the last move, for answering a repeated CONFIRM.
     committed: Option<u64>,
     last_commit: Option<Instant>,
@@ -251,6 +255,7 @@ impl<K: Clone + PartialEq> RoamTable<K> {
         {
             entry.current = current;
             entry.pending = None;
+            entry.here = None;
             return;
         }
         self.remove(&id);
@@ -262,6 +267,7 @@ impl<K: Clone + PartialEq> RoamTable<K> {
             client_seq: 0,
             host_seq: 0,
             pending: None,
+            here: None,
             committed: None,
             last_commit: None,
             window: Window::new(),
@@ -273,6 +279,7 @@ impl<K: Clone + PartialEq> RoamTable<K> {
         if let Some(entry) = self.entries.iter_mut().find(|entry| entry.id == *id) {
             entry.stopping = true;
             entry.pending = None;
+            entry.here = None;
         }
     }
 
@@ -322,8 +329,7 @@ impl<K: Clone + PartialEq> RoamTable<K> {
         }
         match payload {
             Payload::Probe { nonce_c, flags } => {
-                let challenge = (self.challenge)();
-                Self::on_probe(entry, now, from, nonce_c, flags, challenge)
+                Self::on_probe(entry, now, from, nonce_c, flags, &mut *self.challenge)
             }
             Payload::Confirm { challenge } => Self::on_confirm(entry, now, from, challenge),
             Payload::Challenge { .. } | Payload::Migrated { .. } => Err(Refusal::Direction),
@@ -331,23 +337,48 @@ impl<K: Clone + PartialEq> RoamTable<K> {
     }
 
     /// A newer probe replaces the pending address. A probe from the current address is
-    /// answered too, so a client that only suspected a move hears back, but its CONFIRM
-    /// moves nothing.
+    /// answered too, so a client that only suspected a move hears back, but it is kept
+    /// apart: it neither replaces a pending address elsewhere nor moves anything.
+    ///
+    /// A probe repeated from the same address with the same `nonce_c` hears the same
+    /// challenge again: the client probes every 250 ms, so over a longer round trip its
+    /// CONFIRM answers an earlier probe's CHALLENGE. Its expiry stays
+    /// [`PENDING_LIFETIME`] after the first probe, however often it repeats.
     fn on_probe(
         entry: &mut Entry<K>,
         now: Instant,
         from: SocketAddr,
         nonce_c: u64,
         flags: u32,
-        challenge: u64,
+        challenge: &mut dyn FnMut() -> u64,
     ) -> Result<Action<K>, Refusal> {
+        let media_rebound = flags & PROBE_FLAG_MEDIA_REBOUND != 0;
+        let here = from == entry.current;
+        let slot = if here { entry.here } else { entry.pending };
+        let repeat = slot
+            .filter(|pending| {
+                now < pending.expires && pending.address == from && pending.nonce_c == nonce_c
+            })
+            .map(|pending| pending.challenge);
+        let challenge = repeat.unwrap_or_else(challenge);
         let datagram = entry.answer(Payload::Challenge { nonce_c, challenge })?;
-        entry.pending = Some(Pending {
-            address: from,
-            challenge,
-            media_rebound: flags & PROBE_FLAG_MEDIA_REBOUND != 0,
-            expires: now + PENDING_LIFETIME,
-        });
+        let slot = if here {
+            &mut entry.here
+        } else {
+            &mut entry.pending
+        };
+        match slot {
+            Some(pending) if repeat.is_some() => pending.media_rebound |= media_rebound,
+            _ => {
+                *slot = Some(Pending {
+                    address: from,
+                    nonce_c,
+                    challenge,
+                    media_rebound,
+                    expires: now + PENDING_LIFETIME,
+                })
+            }
+        }
         Ok(Action::Reply { to: from, datagram })
     }
 
@@ -357,8 +388,19 @@ impl<K: Clone + PartialEq> RoamTable<K> {
         from: SocketAddr,
         challenge: u64,
     ) -> Result<Action<K>, Refusal> {
-        // A CONFIRM repeated after the move (its MIGRATED was lost) hears MIGRATED again.
-        if from == entry.current && entry.committed == Some(challenge) {
+        if from == entry.current {
+            // A CONFIRM repeated after the move (its MIGRATED was lost) hears MIGRATED
+            // again; one answering a probe from the current address hears it too.
+            if entry.committed != Some(challenge) {
+                let here = entry
+                    .here
+                    .filter(|here| now < here.expires)
+                    .ok_or(Refusal::NoPending)?;
+                if challenge != here.challenge {
+                    return Err(Refusal::Challenge);
+                }
+                entry.here = None;
+            }
             let datagram = entry.answer(Payload::Migrated { challenge })?;
             return Ok(Action::Reply { to: from, datagram });
         }
@@ -372,11 +414,6 @@ impl<K: Clone + PartialEq> RoamTable<K> {
         if challenge != pending.challenge {
             return Err(Refusal::Challenge);
         }
-        if from == entry.current {
-            entry.pending = None;
-            let datagram = entry.answer(Payload::Migrated { challenge })?;
-            return Ok(Action::Reply { to: from, datagram });
-        }
         if entry
             .last_commit
             .is_some_and(|last| now.saturating_duration_since(last) < COMMIT_INTERVAL)
@@ -387,6 +424,7 @@ impl<K: Clone + PartialEq> RoamTable<K> {
         let old = entry.current;
         entry.current = from;
         entry.pending = None;
+        entry.here = None;
         entry.committed = Some(challenge);
         entry.last_commit = Some(now);
         Ok(Action::Commit {

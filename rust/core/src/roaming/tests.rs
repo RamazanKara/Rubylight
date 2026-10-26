@@ -271,7 +271,7 @@ fn a_newer_probe_replaces_the_pending_address_and_a_pending_one_expires() {
     assert_eq!(
         table.on_datagram(now, at(NEW), &confirm(4, 1)),
         Err(Refusal::Challenge),
-        "the replaced probe's challenge"
+        "THIRD's challenge, which NEW never heard"
     );
     reply_to(table.on_datagram(now, at(NEW), &probe(5)));
     assert_eq!(
@@ -279,6 +279,73 @@ fn a_newer_probe_replaces_the_pending_address_and_a_pending_one_expires() {
         Err(Refusal::NoPending)
     );
     assert_eq!(table.current(&"s"), Some(at(OLD)));
+}
+
+/// A client probes every 250 ms; over a longer round trip each CONFIRM answers an earlier
+/// probe, so a repeated probe must not replace the challenge it confirms.
+#[test]
+fn a_repeated_probe_hears_the_pending_challenge_until_the_pending_address_expires() {
+    let mut challenges = 0u64;
+    let mut table = RoamTable::with_challenges(move || {
+        challenges += 1;
+        challenges
+    });
+    table.insert("s", &vectors::RIKEY, at(OLD));
+    let probe_with = |seq, nonce_c| client(seq, Payload::Probe { nonce_c, flags: 0 });
+    let challenge_of = |action: Result<Action<&str>, Refusal>| match action {
+        Ok(Action::Reply { datagram, .. }) => match host_payload(&datagram) {
+            Payload::Challenge { challenge, .. } => challenge,
+            other => panic!("expected a challenge, got {other:?}"),
+        },
+        other => panic!("expected a reply, got {other:?}"),
+    };
+    let now = Instant::now();
+    // PROBE(1), PROBE(2) and CONFIRM(c1) from one address commit.
+    let c1 = challenge_of(table.on_datagram(now, at(NEW), &probe_with(1, 11)));
+    let later = now + Duration::from_millis(250);
+    assert_eq!(
+        challenge_of(table.on_datagram(later, at(NEW), &probe_with(2, 11))),
+        c1
+    );
+    assert!(matches!(
+        table.on_datagram(later, at(NEW), &confirm(3, c1)),
+        Ok(Action::Commit { .. })
+    ));
+    assert_eq!(table.current(&"s"), Some(at(NEW)));
+
+    // A new nonce replaces the pending challenge, and the older one is then stale.
+    let now = now + COMMIT_INTERVAL;
+    let c2 = challenge_of(table.on_datagram(now, at(THIRD), &probe_with(4, 21)));
+    let c3 = challenge_of(table.on_datagram(now, at(THIRD), &probe_with(5, 22)));
+    assert_ne!(c2, c3);
+    assert_eq!(
+        table.on_datagram(now, at(THIRD), &confirm(6, c2)),
+        Err(Refusal::Challenge)
+    );
+    // So does the same nonce from another address.
+    let c4 = challenge_of(table.on_datagram(now, at(OLD), &probe_with(7, 22)));
+    assert_ne!(c3, c4);
+    assert_eq!(
+        table.on_datagram(now, at(THIRD), &confirm(8, c3)),
+        Err(Refusal::Address)
+    );
+
+    // Repeats do not keep a pending address alive: it expires after its first probe.
+    let mut seq = 9;
+    let mut at_time = now;
+    while at_time < now + PENDING_LIFETIME {
+        assert_eq!(
+            challenge_of(table.on_datagram(at_time, at(OLD), &probe_with(seq, 22))),
+            c4
+        );
+        seq += 1;
+        at_time += Duration::from_millis(500);
+    }
+    assert_eq!(
+        table.on_datagram(now + PENDING_LIFETIME, at(OLD), &confirm(seq, c4)),
+        Err(Refusal::NoPending)
+    );
+    assert_eq!(table.current(&"s"), Some(at(NEW)));
 }
 
 #[test]
@@ -438,6 +505,30 @@ fn a_probe_from_the_current_address_is_answered_but_moves_nothing() {
         table.on_datagram(now, at(NEW), &confirm(4, vectors::CHALLENGE)),
         Ok(Action::Commit { .. })
     ));
+}
+
+#[test]
+fn a_probe_from_the_current_address_leaves_a_pending_address_elsewhere_in_place() {
+    let mut challenges = 0u64;
+    let mut table = RoamTable::with_challenges(move || {
+        challenges += 1;
+        challenges
+    });
+    table.insert("s", &vectors::RIKEY, at(OLD));
+    let now = Instant::now();
+    reply_to(table.on_datagram(now, at(NEW), &probe(1)));
+    // The old path still works now and then, so the client's probes reach it too.
+    reply_to(table.on_datagram(now, at(OLD), &probe(2)));
+    reply_to(table.on_datagram(now, at(OLD), &probe(3)));
+    let Ok(Action::Reply { datagram, .. }) = table.on_datagram(now, at(OLD), &confirm(4, 2))
+    else {
+        panic!("the current address's confirm is answered");
+    };
+    assert!(matches!(host_payload(&datagram), Payload::Migrated { .. }));
+    match table.on_datagram(now, at(NEW), &confirm(5, 1)) {
+        Ok(Action::Commit { old, new, .. }) => assert_eq!((old, new), (at(OLD), at(NEW))),
+        other => panic!("the new address still commits, got {other:?}"),
+    }
 }
 
 #[test]

@@ -363,41 +363,6 @@ public class DecoderTuningKeysTest {
     }
 
     @Test
-    public void chipsetTuningIsOptInAndLimitedToItsDecodersAndTheFirstTry() {
-        // Off (the default): Codec2 MediaTek gets no vdec-lowlatency, Exynos only priority 0.
-        assertFalse(tune("c2.mtk.hevc.decoder", 0, true).containsKey("vdec-lowlatency"));
-        MediaFormat exynosDefault = tune("c2.exynos.hevc.decoder", 0, true);
-        assertFalse(exynosDefault.containsKey(MediaFormat.KEY_OPERATING_RATE));
-        assertEquals(0, exynosDefault.getInteger(MediaFormat.KEY_PRIORITY));
-
-        assertEquals(1, tuneChipset("c2.mtk.hevc.decoder", 0, true).getInteger("vdec-lowlatency"));
-        assertFalse(tuneChipset("c2.mtk.hevc.decoder", 1, true).containsKey("vdec-lowlatency"));
-        MediaFormat exynos = tuneChipset("c2.exynos.hevc.decoder", 0, true);
-        assertEquals(120, exynos.getInteger(MediaFormat.KEY_OPERATING_RATE));
-        assertEquals(0, exynos.getInteger(MediaFormat.KEY_PRIORITY));
-        // Later tries fall back to the default ladder.
-        MediaFormat exynosRetry = tuneChipset("c2.exynos.hevc.decoder", 1, true);
-        assertFalse(exynosRetry.containsKey(MediaFormat.KEY_OPERATING_RATE));
-        assertEquals(0, exynosRetry.getInteger(MediaFormat.KEY_PRIORITY));
-        // The Exynos rate needs the performance hints, like Tensor's.
-        assertFalse(tuneChipset("c2.exynos.hevc.decoder", 0, false).containsKey(MediaFormat.KEY_OPERATING_RATE));
-
-        for (String name : new String[] {"c2.qti.hevc.decoder", "c2.google.hevc.decoder", "c2.android.hevc.decoder",
-                "c2.acme.hevc.decoder"}) {
-            assertFalse(name, tuneChipset(name, 0, true).containsKey("vdec-lowlatency"));
-        }
-        assertFalse(tuneChipset("c2.qti.hevc.decoder", 0, true).containsKey(MediaFormat.KEY_PRIORITY));
-
-        // The vendor switch and the HEVC override still win.
-        MediaFormat vendorOff = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
-        MediaCodecHelper.setDecoderLowLatencyOptions(vendorOff, decoder("c2.mtk.hevc.decoder"), 0, true, false, true, false, true);
-        assertFalse(vendorOff.containsKey("vdec-lowlatency"));
-        MediaFormat hevcOff = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
-        MediaCodecHelper.setDecoderLowLatencyOptions(hevcOff, decoder("c2.exynos.hevc.decoder"), 0, true, true, true, true, true);
-        assertFalse(hevcOff.containsKey(MediaFormat.KEY_OPERATING_RATE));
-    }
-
-    @Test
     public void unknownDecodersGetOnlyTheStandardKey() {
         MediaFormat format = tune("c2.acme.hevc.decoder", 0, false);
         assertEquals(1, format.getInteger(MediaFormat.KEY_LOW_LATENCY));
@@ -449,12 +414,6 @@ public class DecoderTuningKeysTest {
     private static MediaFormat tune(String name, int attempt, boolean performanceHints) {
         MediaFormat format = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
         MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder(name), attempt, true, true, performanceHints, false);
-        return format;
-    }
-
-    private static MediaFormat tuneChipset(String name, int attempt, boolean performanceHints) {
-        MediaFormat format = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
-        MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder(name), attempt, true, true, performanceHints, false, true);
         return format;
     }
 

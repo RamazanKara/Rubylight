@@ -732,6 +732,93 @@ fn a_silent_host_is_probed_until_heard_again() {
     assert_eq!(running.join().unwrap(), Outcome::Stopped);
 }
 
+/// Waits for the client's next roaming event while the host stays silent.
+fn next_roam_event_in_silence(events: &mpsc::Receiver<ControlEvent>) -> RoamEvent {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match events.recv_timeout(left) {
+            Ok(ControlEvent::Roam(event)) => return event,
+            Ok(_) => {}
+            Err(e) => panic!("no roaming event: {e}"),
+        }
+    }
+}
+
+/// The newest PROBE the host received: its sender and `nonce_c`.
+fn newest_probe(host: &TestHost<Roamable>, gcm: &aes_gcm::Aes128Gcm) -> (SocketAddr, u64) {
+    host.roam_payloads(gcm)
+        .into_iter()
+        .rev()
+        .find_map(|(from, payload)| match payload {
+            Payload::Probe { nonce_c, .. } => Some((from, nonce_c)),
+            _ => None,
+        })
+        .expect("a PROBE")
+}
+
+#[test]
+fn a_network_change_during_a_silence_is_not_cancelled_by_a_straggler() {
+    let mut host = TestHost::roamable();
+    let caps = HostCapabilities {
+        client_roaming: true,
+        ..caps()
+    };
+    let (running, handle, events) = run_roamable(&mut host, caps);
+    let gcm = roam_gcm();
+
+    // The host stops servicing: a silence starts an attempt.
+    assert_eq!(
+        next_roam_event_in_silence(&events),
+        RoamEvent::Started {
+            trigger: RoamTrigger::HostSilent
+        }
+    );
+    // Then the network changes, still in silence.
+    assert!(handle.network_changed(false));
+    assert_eq!(
+        next_roam_event_in_silence(&events),
+        RoamEvent::Started {
+            trigger: RoamTrigger::NetworkChanged
+        }
+    );
+    // A straggler on the old path (the host's ENet acknowledgements) does not end it.
+    let until = Instant::now() + Duration::from_millis(600);
+    while Instant::now() < until {
+        host.pump();
+        thread::sleep(Duration::from_millis(1));
+    }
+    let early: Vec<ControlEvent> = events.try_iter().collect();
+    assert!(
+        early.iter().all(|e| !matches!(e, ControlEvent::Roam(_))),
+        "{early:?}"
+    );
+
+    let (from, nonce_c) = newest_probe(&host, &gcm);
+    host.roam_reply(
+        from,
+        &gcm,
+        1,
+        Payload::Challenge {
+            nonce_c,
+            challenge: 31,
+        },
+    );
+    host.until("confirm", |h| {
+        h.roam_payloads(&gcm)
+            .contains(&(from, Payload::Confirm { challenge: 31 }))
+    });
+    host.roam_reply(from, &gcm, 2, Payload::Migrated { challenge: 31 });
+    let seen = roam_events(&mut host, &events, |e| {
+        !matches!(e, RoamEvent::Started { .. })
+    });
+    assert!(matches!(seen[..], [RoamEvent::Roamed { .. }]), "{seen:?}");
+
+    handle.stop();
+    host.until("disconnect", |h| h.disconnected);
+    assert_eq!(running.join().unwrap(), Outcome::Stopped);
+}
+
 #[test]
 fn without_the_advertisement_nothing_is_probed() {
     let mut host = TestHost::roamable();

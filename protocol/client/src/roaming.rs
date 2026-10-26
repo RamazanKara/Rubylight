@@ -224,16 +224,27 @@ impl Roaming {
         self.attempt.as_ref().map(|attempt| attempt.trigger)
     }
 
-    /// Starts an attempt, or restarts the running one's fast probes for a new network under
-    /// a fresh `nonce_c` (its give-up time stays). `flags` are PROBE flags; the next
-    /// [`Roaming::poll`] sends the first PROBE.
+    /// Starts an attempt, or restarts the running one's fast probes under a fresh `nonce_c`.
+    /// A network change restarts it as a new attempt on the new network: its trigger, start
+    /// and give-up time are the change's, and [`RoamEvent::Started`] is reported again.
+    /// Challenges confirmed under the old `nonce_c` no longer count. `flags` are PROBE flags;
+    /// the next [`Roaming::poll`] sends the first PROBE.
     pub fn start(&mut self, now: Instant, trigger: RoamTrigger, flags: u32, nonce_c: u64) {
         if let Some(attempt) = &mut self.attempt {
+            if attempt.nonce_c != nonce_c {
+                attempt.confirmed.clear();
+            }
             attempt.nonce_c = nonce_c;
             attempt.flags |= flags;
             attempt.probes = 0;
             attempt.next_send = now;
             attempt.confirming = None;
+            if trigger == RoamTrigger::NetworkChanged {
+                // A straggler from the old path must not cancel it as a silence's attempt.
+                attempt.trigger = trigger;
+                attempt.started = now;
+                self.events.push(RoamEvent::Started { trigger });
+            }
             return;
         }
         self.attempt = Some(Attempt {
@@ -747,12 +758,107 @@ mod tests {
                 flags: PROBE_FLAG_MEDIA_REBOUND
             }
         );
-        assert!(roaming.take_events().is_empty(), "the same attempt");
+        assert_eq!(
+            roaming.take_events(),
+            [RoamEvent::Started {
+                trigger: RoamTrigger::NetworkChanged
+            }],
+            "an attempt on the new network"
+        );
         let old = host.send(Payload::Challenge {
             nonce_c: NONCE,
             challenge: 1,
         });
         assert_eq!(roaming.handle_datagram(later, &old), Err(Rejected::Nonce));
+        // The give-up time counts from the change.
+        assert!(roaming
+            .poll(later + MAX_ATTEMPT - FAST_PROBE_INTERVAL)
+            .is_some());
+        assert_eq!(roaming.poll(later + MAX_ATTEMPT), None);
+        assert_eq!(
+            roaming.take_events(),
+            [RoamEvent::Failed {
+                elapsed: MAX_ATTEMPT
+            }]
+        );
+    }
+
+    #[test]
+    fn a_network_change_during_a_silence_takes_over_the_attempt() {
+        let now = Instant::now();
+        let mut roaming = Roaming::new(&vectors::RIKEY, MAX_ATTEMPT);
+        let mut host = FakeHost::new();
+        roaming.start(now, RoamTrigger::HostSilent, 0, NONCE);
+        roaming.poll(now);
+        sent(&mut roaming);
+        let challenge = host.send(Payload::Challenge {
+            nonce_c: NONCE,
+            challenge: 5,
+        });
+        roaming.handle_datagram(now, &challenge).unwrap();
+        sent(&mut roaming);
+        let change = now + Duration::from_secs(2);
+        roaming.start(change, RoamTrigger::NetworkChanged, 0, NONCE + 1);
+        assert_eq!(roaming.trigger(), Some(RoamTrigger::NetworkChanged));
+        assert_eq!(
+            roaming.take_events(),
+            [
+                RoamEvent::Started {
+                    trigger: RoamTrigger::HostSilent
+                },
+                RoamEvent::Started {
+                    trigger: RoamTrigger::NetworkChanged
+                }
+            ]
+        );
+        // The silence's challenge was for the old network.
+        let stale = host.send(Payload::Migrated { challenge: 5 });
+        assert_eq!(
+            roaming.handle_datagram(change, &stale),
+            Err(Rejected::Challenge)
+        );
+        roaming.poll(change);
+        assert_eq!(
+            opened(&host, &sent(&mut roaming)),
+            [Payload::Probe {
+                nonce_c: NONCE + 1,
+                flags: 0
+            }],
+            "probing, not confirming the old challenge"
+        );
+        let challenge = host.send(Payload::Challenge {
+            nonce_c: NONCE + 1,
+            challenge: 9,
+        });
+        let answered = change + Duration::from_millis(60);
+        roaming.handle_datagram(answered, &challenge).unwrap();
+        let migrated = host.send(Payload::Migrated { challenge: 9 });
+        roaming.handle_datagram(answered, &migrated).unwrap();
+        assert_eq!(
+            roaming.take_events(),
+            [RoamEvent::Roamed {
+                elapsed: Duration::from_millis(60)
+            }],
+            "timed from the change"
+        );
+    }
+
+    #[test]
+    fn a_new_nonce_forgets_the_confirmed_challenges() {
+        let now = Instant::now();
+        let (mut roaming, mut host) = probing(now);
+        let challenge = host.send(Payload::Challenge {
+            nonce_c: NONCE,
+            challenge: 5,
+        });
+        roaming.handle_datagram(now, &challenge).unwrap();
+        roaming.start(now, RoamTrigger::HostSilent, 0, NONCE + 1);
+        let stale = host.send(Payload::Migrated { challenge: 5 });
+        assert_eq!(
+            roaming.handle_datagram(now, &stale),
+            Err(Rejected::Challenge)
+        );
+        assert_eq!(roaming.trigger(), Some(RoamTrigger::NetworkChanged));
     }
 
     #[test]

@@ -28,6 +28,7 @@ mod compat;
 mod files;
 mod launcher;
 mod radeon;
+mod wake;
 
 const LIST: u32 = 1 << 24;
 const VIEW_BIT: u32 = 1 << 25;
@@ -231,6 +232,7 @@ async fn an_unpaired_request_gets_403_not_paired_on_every_endpoint() {
         ("GET", "/radeon"),
         ("POST", "/radeon/settings"),
         ("POST", "/radeon/restore"),
+        ("GET", "/wake"),
     ];
     let certificate_less = Connection {
         certificate: None,
@@ -353,13 +355,15 @@ async fn capabilities_list_the_features_and_the_callers_permissions() {
         s.host().paired.read().unwrap().unique_id
     );
     // Radeon features appear when the host started its Radeon worker (see native_tests/radeon.rs).
+    // Audio processing is not served yet, so it is not listed.
     assert_eq!(
         capabilities.features,
         [
             "library",
             "session",
             "session.close_game",
-            "session.launcher"
+            "session.launcher",
+            "wake"
         ]
     );
     let permissions = capabilities.permissions;

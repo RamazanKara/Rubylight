@@ -9,6 +9,7 @@
 //! next request.
 pub(crate) mod files;
 pub(crate) mod radeon;
+pub(crate) mod wake;
 
 use crate::{state::Shared, tls::Connection};
 use axum::{
@@ -168,6 +169,7 @@ pub fn router() -> Router<Shared> {
             &path("/files/content"),
             get(files::content).fallback(unknown),
         )
+        .route(&path("/wake"), get(wake::read).fallback(unknown))
         .route(native_api::PREFIX, any(unknown))
         .route(&path("/"), any(unknown))
         .route(&path("/{*rest}"), any(unknown))
@@ -285,6 +287,7 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
                 feature::SESSION,
                 feature::CLOSE_GAME,
                 feature::SESSION_LAUNCHER,
+                feature::WAKE,
             ]
             .into_iter()
             // The Radeon endpoints answer only where the host started its Radeon worker.

@@ -402,6 +402,31 @@ For **host-side Steam Input with the Deck's own controls**, follow the [Steam De
 
 If controls do nothing, check the paired device's **Controllers** permission under **Devices** and the console's stream warnings. Keyboard and mouse mappings also need their respective device permissions. See [input troubleshooting](troubleshooting.md#a-controller-or-other-input-does-nothing) for permissions and the VHF gamepad driver.
 
+## Couch menu (Experimental)
+
+The couch menu is a host menu drawn into the stream, so any Moonlight client can reach it ([design](couch-menu-design.md)). These settings choose how it opens:
+
+| Setting | Default | Values |
+| --- | --- | --- |
+| `couch_menu_open_with` | `controller,keyboard,touch` | Which ways open it; leave one out to turn that way off. |
+| `couch_menu_controller_chord` | `l3+r3` | The buttons one pad holds, joined by `+`: `up`, `down`, `left`, `right`, `start`, `select`, `l3`, `r3`, `l1`, `r1`, `guide`, `a`, `b`, `x`, `y`, `paddle1` to `paddle4`, `touchpad`, `misc`. One button alone works, such as `select`. |
+| `couch_menu_hold_ms` | `1000` | How long the pad holds the chord, 300 to 3000 ms. |
+| `couch_menu_corner_hold_ms` | `1500` | How long a touch, pen or mouse button holds the top-left corner, 500 to 3000 ms. |
+| `couch_menu_keyboard_chord` | `ctrl+alt+backspace` | `ctrl+alt+backspace`, `ctrl+alt+home`, `ctrl+alt+end` or `ctrl+alt+insert`. |
+
+The pad must hold exactly the chord's buttons; sticks and triggers do not count, another button cancels the hold, and the same chord closes the menu. The game sees the chord's presses before the menu opens.
+
+Moonlight clients keep some buttons for themselves, so the host refuses a chord that contains any of these:
+
+- Start+Select+L1+R1, which quits the stream;
+- Start, because holding it for 750 ms toggles mouse mode;
+- Start+Select, which becomes Guide on pads without a Home button;
+- Select+L1+R1+X, which shows the statistics.
+
+`guide` is accepted with a warning: many clients hand Guide to their OS (Android TV's home, the Steam button, iOS), so the hold may never reach the host. The keyboard chords leave out Ctrl+Alt+Shift, which Moonlight keeps for its shortcuts, and letters, which AltGr types on many layouts.
+
+All four chord and hold settings can be set per device or app in their overrides. A value the host refuses to save is refused with a message; one edited into the file by hand is reported in the host log and its default is used.
+
 ## Stream presets
 
 `stream_preset` names a set of defaults for three AMD encoder settings: Lowest latency (`lowest_latency`), Balanced (`balanced`, the default) and Reference quality (`reference`). A preset only fills the covered settings that nobody set. A value in the settings file, in a device's overrides or in an app's overrides always wins, so you can pick a preset and still change one setting by hand. The preset's values are not written to the file; changing or clearing the preset changes the ones you did not set. Saving a covered setting in the console stores it, even if it equals the preset's value, so it stays when you pick another preset.

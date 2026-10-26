@@ -62,27 +62,36 @@ The chords below were checked against the client sources: moonlight-qt `gamepad.
 | **L3+R3** | Nobody | **Yes** |
 | **Ctrl+Alt+Backspace** | Nobody among the clients. Windows does not reserve it. Under X11 it would zap the server only if `DontZap` is off, which has not been the default since 2009. | **Yes** |
 
+**Keyboard combos the clients keep** (checked 2026-10-26 against moonlight-qt `app/streaming/input/keyboard.cpp` and `input.cpp`, and moonlight-android `Game.java` `handleSpecialKeys` and `KeyboardTranslator.java`):
+- moonlight-qt consumes a key only while Ctrl, Alt and Shift are all down, and then only its shortcut keys (Q, Z, X, S, M, C, D, V, L, E, K). Every other combo is translated and sent. Without system key capture (the windowed default), the client's OS keeps Alt+Tab, Alt+F4, the Windows key and Ctrl+Alt+Del.
+- moonlight-android consumes Ctrl+Alt+Shift with Z, Q or C and eats key-downs until the modifiers are up. Every other key with a mapping is sent; Backspace, Home, End and Insert all have one.
+- Outside the clients: Windows keeps Ctrl+Alt+Del on the client PC, Linux desktops keep Ctrl+Alt+F1..F12 (VT switch), Ctrl+Alt+T, Ctrl+Alt+L and Ctrl+Alt+arrows, and AltGr is Ctrl+Alt on Windows, so Ctrl+Alt with a letter types a character on many layouts (AltGr+M is µ in German).
+
+So `couch_menu_keyboard_chord` offers a fixed list of Ctrl+Alt combos with keys that type nothing: `ctrl+alt+backspace` (default), `ctrl+alt+home`, `ctrl+alt+end`, `ctrl+alt+insert`. Anything with Ctrl+Alt+Shift is refused with its own message. A client running inside a Remote Desktop session would lose Ctrl+Alt+End and Ctrl+Alt+Home to the RDP client; the default is unaffected.
+
 ### 3.2 Rules (core `couch_menu::chord`)
 
 All time is the host's receive time (`Instant`). A chord that is pending sets a deadline. The control loop wakes on that deadline through `next_due`, so a hold completes without new packets, because Moonlight sends controller state only when it changes.
 
 **Controller.**
-- A pad's `buttons` becomes exactly `LS_CLK | RS_CLK`. Sticks and triggers are ignored.
-- That arms the chord for that pad. Any other button cancels it, and so does releasing either stick click.
-- At 1000 ms the chord fires.
-- The game has already seen the two clicks. That is acceptable; the alternative is buffering, which adds latency.
+- A pad's `buttons` becomes exactly the chord (`couch_menu_controller_chord`, default `LS_CLK | RS_CLK`). Sticks and triggers are ignored.
+- That arms the chord for that pad. Any other button cancels it, and so does releasing a chord button.
+- After `couch_menu_hold_ms` (default 1000 ms) the chord fires. The pad then waits for a button change before it can arm again; a pad whose hold was cancelled by an open or close waits the same way, so a second pad still holding the chord does not fire a second later.
+- A single button held alone is a valid chord and follows the same rules.
+- The game has already seen the chord's presses. That is acceptable; the alternative is buffering, which adds latency.
+- `PadButtons::parse` refuses a chord containing all of one set Moonlight keeps, with one message per set, most specific first: Start+Select+L1+R1 (quit), Start+Select (becomes Guide), Start (a 750 ms hold toggles mouse mode, so no hold may include Start), Select+L1+R1+X (stats). `guide` parses, with a warning that many clients hand Guide to the OS.
 
 **Keyboard.**
-- Fires on a key-down of VK_BACK (0x08) with the Ctrl and Alt modifier bits set and Shift clear.
+- Fires on a key-down of the chord's key (`couch_menu_keyboard_chord`, default VK_BACK 0x08) with the Ctrl and Alt modifier bits set and Shift clear.
 - The key event that fires it is consumed.
 
 **Touch and mouse.**
 - A contact, pen tip or mouse button goes down inside the corner box, in stream coordinates.
-- It is held for 1500 ms without leaving the box.
+- It is held for `couch_menu_corner_hold_ms` (default 1500 ms) without leaving the box.
 - Positions come from `Touch`, `Pen` and `Absolute` events.
 - For `Relative` mice the filter asks the host for the cursor's stream position only when the hold timer fires (`Injector::pointer_in_stream()`), so no position is read otherwise.
 
-**Config.** `couch_menu_open_with` is a list, default `controller,keyboard,touch`. Removing an entry turns that path off.
+**Config.** `couch_menu_open_with` is a list, default `controller,keyboard,touch`. Removing an entry turns that path off. `OpenWith` carries it and the four chord and hold settings (section 8); `OpenWith::from_config` reads them all, and a hand-edited value that `Config::update` would refuse is logged once and its default used. `Config::update` checks each through `chord::check`.
 
 Closing uses the same controller or keyboard chord, B or Esc on the top page, the Back to game row, a tap outside the panel, or `POST {"open":false}`. The menu also closes, with no input, when the session stops.
 
@@ -341,8 +350,12 @@ A full-plane pass while open is the price of keeping the packed layouts in one c
 |---|---|---|
 | `couch_menu` | `true` | Master switch. When false there is no filter, no feature and no worker. |
 | `couch_menu_open_with` | `controller,keyboard,touch` | Which ways open the menu |
+| `couch_menu_controller_chord` | `l3+r3` | The pad chord, a `+`-joined button list (section 3.2). Per device and app. |
+| `couch_menu_hold_ms` | `1000` | The pad hold, 300..=3000 ms. Per device and app. |
+| `couch_menu_corner_hold_ms` | `1500` | The corner hold, 500..=3000 ms. Per device and app. |
+| `couch_menu_keyboard_chord` | `ctrl+alt+backspace` | One of `chord::KEY_CHORDS` (section 3.1). Per device and app. |
 
-Both keys are listed in `console/settings.rs` under the label "Couch menu (Experimental)". `docs/configuration.md` gets a "Couch menu (Experimental)" section, the release notes say Experimental, and the README gets no caveats.
+All six keys are listed in `console/settings.rs` under the label "Couch menu (Experimental)". The console fields (Brief 3): the controller chord is a text field that shows `Config::update`'s refusal message as written, and the `PadButtons::warning` text for a chord with Guide; the two holds are number fields with the ranges above; the keyboard chord is a select over `KEY_CHORDS`. The device editor offers the four chord and hold keys as overrides. `docs/configuration.md` gets a "Couch menu (Experimental)" section, the release notes say Experimental, and the README gets no caveats.
 
 ## 9. Measurement
 

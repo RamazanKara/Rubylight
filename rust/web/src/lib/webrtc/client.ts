@@ -63,8 +63,17 @@ function noPlayoutDelay(receiver: Receiver) {
 }
 
 const CONNECT_TIMEOUT_MS = 60_000;
+/** Quitting waits for the stream and the app to stop on the host. */
+const QUIT_TIMEOUT_MS = 60_000;
+/** The requests of a stream: an error about one of them ends it. */
+const STREAM_REQUESTS = ['start-session', 'answer'];
 const timeout = (ms: number, what: string) =>
   new Promise<never>((_, reject) => setTimeout(() => reject(new SignallingError(`${what} did not happen within ${ms / 1000} s.`)), ms));
+
+/** Why the socket closed, with the host's reason when it gave one. */
+export function closedMessage(reason: string): string {
+  return reason ? `The host closed the stream connection: ${reason}.` : 'The host closed the stream connection.';
+}
 
 /** The console's stream socket, and the stream it runs. */
 export class ConsoleStream {
@@ -75,11 +84,16 @@ export class ConsoleStream {
   private stopListening: (() => void) | null = null;
   /** Rejects the start in progress. */
   private abort: ((error: Error) => void) | null = null;
-  /** The stream ended on its own: the host stopped it, the connection failed, or the socket closed. */
-  onended: ((reason: string) => void) | null = null;
+  /** The current start: a late event of an earlier one is ignored. */
+  private run: object | null = null;
+  /**
+   * The stream ended on its own: the host stopped it, the connection failed, or the socket
+   * closed (`closed`, and the page must connect again).
+   */
+  onended: ((reason: string, closed: boolean) => void) | null = null;
 
   private constructor(private sig: Signalling) {
-    sig.onclose = () => this.end(sig.closeReason ? `The host closed the stream socket: ${sig.closeReason}.` : 'The host closed the stream socket.');
+    sig.onclose = () => this.end(closedMessage(sig.closeReason), false);
   }
 
   /** Opens the console's socket, which the host has signed in already. */
@@ -96,30 +110,43 @@ export class ConsoleStream {
     }
   }
 
+  /** Whether the socket is gone. */
+  get closed(): boolean {
+    return this.sig.closed;
+  }
+
   async apps(): Promise<AppEntry[]> {
-    this.sig.clear();
-    this.sig.send('get-apps');
-    return ((await this.sig.expect('apps')).apps ?? []) as AppEntry[];
+    return ((await this.sig.request('get-apps', {}, 'apps')).apps ?? []) as AppEntry[];
   }
 
   /**
    * Starts `appId` and plays it in `video`; resolves once the input channel is open. A failure
-   * stops the half-started session on the host before it rejects.
+   * stops the half-started session on the host before it rejects. Call it from the click: up to
+   * `video.play()` it runs within the user's gesture, which Safari needs to play sound.
    */
   async start(appId: string, video: HTMLVideoElement, status: (text: string) => void): Promise<void> {
     if (!receivesH264(RTCRtpReceiver.getCapabilities?.('video'))) {
       throw new SignallingError('This browser cannot receive H.264 over WebRTC.');
     }
     const bitrateKbps = streamBitrate(this.capabilities);
+    const run = (this.run = {});
     let fail: (error: Error) => void = () => {};
     const failed = new Promise<never>((_, reject) => (fail = reject));
     failed.catch(() => {});
     this.abort = fail;
+    const media = new MediaStream();
+    video.srcObject = media;
+    video.play().catch((error: unknown) => {
+      if (this.run !== run) return;
+      const message = `The browser did not play the stream: ${String(error)}`;
+      fail(new SignallingError(message));
+      if (this.input) this.end(message, true);
+    });
     try {
-      await this.connectStream(appId, bitrateKbps, video, status, failed, fail);
+      await this.connectStream(appId, bitrateKbps, media, status, failed, fail);
     } catch (error) {
-      // stop() already told the host when the page gave up.
-      if (this.abort) {
+      // stop() or end() has told the host already when they ended the start.
+      if (this.abort === fail) {
         this.abort = null;
         this.teardown();
         if (!this.sig.closed) this.sig.send('stop-session');
@@ -132,50 +159,41 @@ export class ConsoleStream {
   private async connectStream(
     appId: string,
     bitrateKbps: number,
-    video: HTMLVideoElement,
+    media: MediaStream,
     status: (text: string) => void,
     failed: Promise<never>,
     fail: (error: Error) => void,
   ) {
     this.stopListening = this.sig.on((message: Message) => {
-      if (message.type === 'error') {
+      if (message.type === 'error' && STREAM_REQUESTS.includes(String(message.requestType))) {
         const error = new SignallingError(String(message.message ?? message.code), String(message.code ?? ''));
         fail(error);
-        if (this.input) this.end(error.message);
+        if (this.input) this.end(error.message, true);
       } else if (message.type === 'session-status') {
         const text = message.message ? `: ${String(message.message)}` : '';
         if (message.state === 'error') {
           fail(new SignallingError(`The host could not stream${text}.`));
-          this.end(`The host ended the stream${text}.`);
-        } else if (message.state === 'idle' && this.input) this.end(`The stream ended${text}.`);
+          this.end(`The host ended the stream${text}.`, false);
+        } else if (message.state === 'idle' && this.input) this.end(`The stream ended${text}.`, false);
         else status(`Host: ${String(message.state)}${text}`);
       }
     });
     const { width, height, fps, codec, channels } = STREAM;
     status('Starting the app…');
-    this.sig.clear();
-    this.sig.send('start-session', { appId, video: { width, height, fps, codec, bitrateKbps, hdr: false }, audio: { channels } });
-    const offer = await Promise.race([this.sig.expect('offer', CONNECT_TIMEOUT_MS), failed]);
+    const video = { width, height, fps, codec, bitrateKbps, hdr: false };
+    const offer = await Promise.race([this.sig.request('start-session', { appId, video, audio: { channels } }, 'offer', CONNECT_TIMEOUT_MS), failed]);
     const sessionId = offer.sessionId;
     const pc = (this.pc = new RTCPeerConnection({ iceServers: [] }));
-    const media = new MediaStream();
     pc.ontrack = (event) => {
       noPlayoutDelay(event.receiver);
       media.addTrack(event.track);
-      if (video.srcObject !== media) {
-        video.srcObject = media;
-        video.play().catch((error: unknown) => {
-          fail(new SignallingError(`The browser did not play the stream: ${String(error)}`));
-          if (this.input) this.end(`The browser did not play the stream: ${String(error)}`);
-        });
-      }
     };
     const connected = new Promise<void>((resolve, reject) => {
       pc.onconnectionstatechange = () => {
         if (pc.connectionState === 'connected') resolve();
         else if (pc.connectionState === 'failed') {
           reject(new SignallingError('The peer connection failed. Streaming works on the local network and Tailscale only.'));
-          this.end('The connection to the host failed.');
+          this.end('The connection to the host failed.', true);
         }
       };
     });
@@ -194,7 +212,7 @@ export class ConsoleStream {
       failed,
       timeout(10_000, 'Opening the input channel'),
     ]);
-    input.onclose = () => this.end('The host closed the input channel.');
+    input.onclose = () => this.end('The host closed the input channel.', true);
     this.input = input;
     status('');
   }
@@ -211,36 +229,60 @@ export class ConsoleStream {
     for (const message of this.held.releaseAll()) this.send(message);
   }
 
-  /** Ends the stream; `quitApp` also quits the app on the host. */
-  stop(quitApp: boolean) {
-    const starting = this.abort;
-    if (!this.pc && !starting) return;
-    this.abort = null;
-    this.releaseAll();
-    if (!this.sig.closed) {
-      this.sig.send('stop-session');
-      if (quitApp) this.sig.send('stop-host-session');
+  /** Ends the stream; the app keeps running on the host. */
+  disconnect() {
+    if (this.drop() && !this.sig.closed) this.sig.send('stop-session');
+  }
+
+  /**
+   * Ends the stream and quits the app on the host; resolves once the host says it stopped.
+   * Rejects with the host's reason when it did not.
+   */
+  async quit(): Promise<void> {
+    this.drop();
+    // stop-host-session ends this connection's stream too.
+    let reply = await this.sig.request('stop-host-session', {}, 'host-session-status', QUIT_TIMEOUT_MS);
+    while (reply.state !== 'stopped') {
+      if (reply.state === 'failed') {
+        throw new SignallingError(reply.message ? `The host did not quit the app: ${String(reply.message)}.` : 'The host did not quit the app.');
+      }
+      reply = await this.sig.expect('host-session-status', QUIT_TIMEOUT_MS, 'stop-host-session');
     }
-    this.teardown();
-    starting?.(new SignallingError('The stream was stopped.'));
   }
 
   /** Stops the stream and closes the socket, when the page goes away. */
   close() {
-    this.stop(false);
     this.sig.onclose = null;
+    this.disconnect();
     this.sig.close();
   }
 
-  private end(reason: string) {
-    if (!this.pc && !this.sig.closed) return;
+  /** Ends the stream or the start in progress on this side; false when there was none. */
+  private drop(): boolean {
+    const starting = this.abort;
+    if (!this.pc && !starting) return false;
+    this.abort = null;
+    this.releaseAll();
     this.teardown();
-    this.onended?.(reason);
+    starting?.(new SignallingError('The stream was stopped.'));
+    return true;
+  }
+
+  /** The stream ended without the page asking; `tellHost` when the host may not know yet. */
+  private end(reason: string, tellHost: boolean) {
+    if (!this.pc && !this.sig.closed) return;
+    if (tellHost && !this.sig.closed) this.sig.send('stop-session');
+    // The start in progress rejects on its own; the host knows already.
+    this.abort = null;
+    this.teardown();
+    this.onended?.(reason, this.sig.closed);
   }
 
   private teardown() {
+    this.run = null;
     this.stopListening?.();
     this.stopListening = null;
+    if (this.input) this.input.onclose = null;
     this.input?.close();
     this.input = null;
     this.pc?.close();

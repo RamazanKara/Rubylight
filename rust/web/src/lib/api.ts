@@ -63,14 +63,14 @@ async function refreshCsrf(): Promise<void> {
 
 /**
  * The session's CSRF token, for a request that cannot carry the header: the stream page's
- * WebSocket sends it as a subprotocol. Throws when the host has none for this browser.
+ * WebSocket sends it as a subprotocol. A browser whose sign-in lapsed gets an anonymous token
+ * here, which the host then refuses; it is not kept for the other requests.
  */
 export async function sessionCsrfToken(): Promise<string> {
   const { response, text } = await exchange('/api/csrf-token', {}, REQUEST_TIMEOUT_MS);
   if (!response.ok) throw new ApiError(response.status, `The host did not give out the session's CSRF token (HTTP ${response.status}).`);
   const token = (JSON.parse(text) as { csrf_token?: string }).csrf_token;
-  if (!token) throw new ApiError(401, 'The host has no sign-in for this browser. Sign in to the console again.');
-  csrfToken = token;
+  if (!token) throw new ApiError(response.status, 'The host gave out no CSRF token.');
   return token;
 }
 

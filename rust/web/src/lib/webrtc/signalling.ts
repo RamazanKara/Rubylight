@@ -148,14 +148,24 @@ export class Signalling {
   }
 
   /**
-   * The next message of `type`, or of any of `types`. An `error` message rejects
-   * unless it is wanted.
+   * Sends `type` and waits for its `reply`, of any of `replies`, or the host's `error` about it.
+   * Messages left over from earlier requests are forgotten first.
    */
-  expect(type: string | string[], timeout = 15000): Promise<Message> {
+  request(type: string, fields: Record<string, unknown>, reply: string | string[], timeout = 15000): Promise<Message> {
+    this.clear();
+    this.send(type, fields);
+    return this.expect(reply, timeout, type);
+  }
+
+  /**
+   * The next message of `type`, or of any of `types`. An `error` whose `requestType` is
+   * `request` rejects; errors about other requests are left to whoever made them.
+   */
+  expect(type: string | string[], timeout = 15000, request?: string): Promise<Message> {
     const types = Array.isArray(type) ? type : [type];
     return new Promise((resolve, reject) => {
       const waiter: Waiter = {
-        match: (m) => types.includes(m.type) || m.type === 'error',
+        match: (m) => types.includes(m.type) || (m.type === 'error' && request !== undefined && m.requestType === request),
         what: types.join(' or '),
         resolve: (message) => {
           if (message.type === 'error' && !types.includes('error')) {

@@ -84,13 +84,47 @@ test('the pointer position leaves out the letterbox bars', () => {
   assert.equal(input.positionMessage(10, 10, { left: 0, top: 0, width: 0, height: 0 }, video), null);
 });
 
+test('a second button pressed or released while one is held is not lost', () => {
+  const button = (button, down) => ({ v: 1, type: 'mouse-button', button, down });
+  // Left down, then right while left is held: the browser reports the right one as a move.
+  assert.deepEqual(input.buttonChanges(0, 1), [button(0, true)]);
+  assert.deepEqual(input.buttonChanges(1, 3), [button(2, true)]);
+  assert.deepEqual(input.buttonChanges(3, 2), [button(0, false)]);
+  assert.deepEqual(input.buttonChanges(2, 0), [button(2, false)]);
+  // The mask's middle and right bits are swapped against the DOM button numbers.
+  assert.deepEqual(input.buttonChanges(0, 4), [button(1, true)]);
+  assert.deepEqual(input.buttonChanges(0, 8 | 16), [button(3, true), button(4, true)]);
+  // A cancelled pointer lets go of everything still down.
+  assert.deepEqual(input.buttonChanges(31, 0), [0, 1, 2, 3, 4].map((b) => button(b, false)));
+  assert.deepEqual(input.buttonChanges(5, 5), []);
+});
+
 test('one wheel notch is 120 units in every delta mode, with DOM signs', () => {
-  assert.deepEqual(input.wheelMessage(0, 100, 0), { v: 1, type: 'wheel', dx: 0, dy: 120 });
-  assert.deepEqual(input.wheelMessage(0, -3, 1), { v: 1, type: 'wheel', dx: 0, dy: -120 });
-  assert.deepEqual(input.wheelMessage(1, 0, 2), { v: 1, type: 'wheel', dx: 360, dy: 0 });
-  assert.deepEqual(input.wheelMessage(-50, 25, 0), { v: 1, type: 'wheel', dx: -60, dy: 30 });
-  assert.equal(input.wheelMessage(0, 0, 0), null);
-  assert.equal(input.wheelMessage(0.1, 0.2, 0), null);
+  const once = (...args) => new input.Wheel().message(...args);
+  assert.deepEqual(once(0, 100, 0), { v: 1, type: 'wheel', dx: 0, dy: 120 });
+  assert.deepEqual(once(0, -3, 1), { v: 1, type: 'wheel', dx: 0, dy: -120 });
+  assert.deepEqual(once(1, 0, 2), { v: 1, type: 'wheel', dx: 360, dy: 0 });
+  assert.deepEqual(once(-50, 25, 0), { v: 1, type: 'wheel', dx: -60, dy: 30 });
+  assert.equal(once(0, 0, 0), null);
+  assert.equal(once(0.1, 0.2, 0), null);
+});
+
+test('a touchpad’s small wheel deltas add up instead of vanishing', () => {
+  const wheel = new input.Wheel();
+  // 0.5 px is 0.6 units: nothing until a whole unit has built up, and nothing is lost.
+  const sent = [];
+  for (let i = 0; i < 200; i++) {
+    const message = wheel.message(-0.25, 0.5, 0);
+    if (message) sent.push(message);
+  }
+  assert.equal(sent.reduce((sum, m) => sum + m.dy, 0), 120);
+  assert.equal(sent.reduce((sum, m) => sum + m.dx, 0), -60);
+  assert.ok(sent.every((m) => Number.isInteger(m.dx) && Number.isInteger(m.dy)));
+  // Ten tenths of a line are one line, 40 units.
+  const lines = new input.Wheel();
+  let dy = 0;
+  for (let i = 0; i < 10; i++) dy += lines.message(0, 0.1, 1)?.dy ?? 0;
+  assert.equal(dy, 40);
 });
 
 test('releasing everything lets go of exactly what is still down, once', () => {
@@ -102,7 +136,7 @@ test('releasing everything lets go of exactly what is still down, once', () => {
     input.buttonMessage(2, true),
     input.keyMessage('ShiftLeft', false),
     input.buttonMessage(2, false),
-    input.wheelMessage(0, 100, 0),
+    new input.Wheel().message(0, 100, 0),
   ]) held.track(message);
   assert.deepEqual(held.releaseAll(), [
     { v: 1, type: 'key', code: 'KeyW', down: false },
@@ -168,20 +202,26 @@ test('a refused socket is told apart from a host error', async () => {
   await assert.rejects(wrong, (error) => !(error instanceof signalling.RefusedError) && /subprotocol/.test(error.message));
 });
 
-test('the console socket lists apps, and a stale error does not answer the next request', async () => {
+async function openStream() {
   const opening = client.ConsoleStream.connect('token', 'wss://host/api/webrtc/signal');
   const socket = FakeSocket.last;
-  assert.deepEqual(socket.protocols, ['rubylight.signal.v2', 'csrf.token']);
   socket.open();
   socket.receive({ type: 'authenticated' });
   socket.receive(CAPABILITIES);
-  const stream = await opening;
+  return { stream: await opening, socket };
+}
+
+test('the console socket lists apps, and a stale error does not answer the next request', async () => {
+  const { stream, socket } = await openStream();
+  assert.deepEqual(socket.protocols, ['rubylight.signal.v2', 'csrf.token']);
   assert.equal(stream.capabilities.videoModes.length, 2);
 
-  // An error nobody waited for, such as one about an earlier stream.
-  socket.receive({ type: 'error', requestType: 'answer', code: 'session-not-found', message: 'No session' });
+  // An error nobody waited for, such as one about an earlier request.
+  socket.receive({ type: 'error', requestType: 'get-apps', code: 'internal', message: 'Stale' });
   const listing = stream.apps();
   assert.deepEqual(socket.sent.at(-1), { version: 2, type: 'get-apps' });
+  // An error about another request, while this one waits, is not its answer either.
+  socket.receive({ type: 'error', requestType: 'answer', code: 'session-not-found', message: 'No session' });
   socket.receive({ type: 'apps', apps: [{ id: '1', title: 'Desktop', artworkAvailable: false, running: false }] });
   assert.deepEqual((await listing).map((app) => app.title), ['Desktop']);
 
@@ -190,16 +230,60 @@ test('the console socket lists apps, and a stale error does not answer the next 
   socket.receive({ type: 'error', requestType: 'get-apps', code: 'internal', message: 'Library unavailable' });
   await assert.rejects(failing, /Library unavailable/);
 
-  // Signing out closes the socket: the page hears why.
-  const ended = new Promise((resolve) => (stream.onended = resolve));
-  socket.hangUp('signed out');
-  assert.equal(await ended, 'The host closed the stream socket: signed out.');
-  await assert.rejects(stream.apps(), /signed out/);
+  // Another tab takes the socket over, or the user signs out: the page hears why, and that the socket is gone.
+  const ended = new Promise((resolve) => (stream.onended = (...args) => resolve(args)));
+  socket.hangUp('Opened in another tab or browser');
+  assert.deepEqual(await ended, ['The host closed the stream connection: Opened in another tab or browser.', true]);
+  assert.equal(stream.closed, true);
+  await assert.rejects(stream.apps(), /another tab/);
+  assert.equal(client.closedMessage(''), 'The host closed the stream connection.');
+});
+
+test('quitting the app waits for the host to say it stopped, and says why it did not', async () => {
+  const { stream, socket } = await openStream();
+  const quitting = stream.quit();
+  assert.deepEqual(socket.sent.at(-1), { version: 2, type: 'stop-host-session' });
+  let done = false;
+  quitting.then(() => (done = true));
+  socket.receive({ type: 'host-session-status', state: 'stopping' });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(done, false, 'stopping is not stopped');
+  socket.receive({ type: 'host-session-status', state: 'stopped' });
+  await quitting;
+
+  const failed = stream.quit();
+  socket.receive({ type: 'host-session-status', state: 'stopping' });
+  socket.receive({ type: 'host-session-status', state: 'failed', message: 'A stream did not stop in time' });
+  await assert.rejects(failed, /The host did not quit the app: A stream did not stop in time\./);
+
+  const refused = stream.quit();
+  socket.receive({ type: 'error', requestType: 'stop-host-session', code: 'forbidden', message: 'Another client started the app' });
+  await assert.rejects(refused, /Another client started the app/);
+});
+
+test('a lapsed sign-in’s anonymous token does not replace the session’s', async () => {
+  const api = await server.ssrLoadModule('/src/lib/api.ts');
+  const realFetch = globalThis.fetch;
+  const headers = [];
+  globalThis.fetch = async (url, init = {}) => {
+    headers.push([String(url), new Headers(init.headers).get('X-CSRF-Token')]);
+    const body = String(url).endsWith('/api/csrf-token') ? { csrf_token: 'anonymous' } : { status: true };
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  try {
+    api.setCsrfToken('session');
+    assert.equal(await api.sessionCsrfToken(), 'anonymous');
+    await api.api.auth.logout();
+    assert.deepEqual(headers.at(-1), ['/api/auth/logout', 'session']);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });
 
 test('the page is marked Experimental and has the stream video the e2e probe finds', () => {
   const { body } = render(Stream);
   assert.match(body, />Experimental</);
   assert.match(body, /<video id="stream-video"/);
-  assert.match(body, /Connecting to the host/);
+  // The socket opens on Connect, not with the page.
+  assert.match(body, /Checking the host/);
 });

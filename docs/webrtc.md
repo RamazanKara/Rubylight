@@ -42,12 +42,12 @@ The app then holds a client ID and a secret, and signs in on its own from then o
 The console's **Stream** page plays a game from this PC in the browser tab, with no app and no pairing: H.264 at 1920×1080 and 60 fps, stereo sound, keyboard and mouse.
 
 1. Turn on the WebRTC server (see above) and restart Rubylight.
-2. Open the console from a device on the local network or Tailscale, sign in, and open **Stream**.
+2. Open the console from a device on the local network or Tailscale, sign in, open **Stream** and click **Connect**.
 3. Pick a game. Click the picture to play: keys and the mouse go to the PC while it has the focus. Click outside it, or press Ctrl+Alt+Shift+Z, to get them back. **Quit app** ends the stream and the game, **Disconnect** only the stream.
 
-The page signals over the console's own HTTPS port (`wss://`, at `/api/webrtc/signal`), so the WebRTC signalling port is not used, and it signs in with the console session. The browser streams as the device "Console (*your user name*)" on **Devices**; disable it there to stop the console from streaming. Signing out ends the stream within 5 seconds. A browser that cannot receive H.264, or a host that does not offer it at 1080p60, gets an error instead of another format.
+The page signals over the console's own HTTPS port (`wss://`, at `/api/webrtc/signal`), so the WebRTC signalling port is not used, and it signs in with the console session. The browser streams as the device "Console (*your user name*)" on **Devices**; disable it there to stop the console from streaming. Signing out ends the stream within 5 seconds. One tab or browser holds the connection at a time: connecting from another one ends the stream in the first, which says so. A browser that cannot receive H.264, or a host that does not offer it at 1080p60, gets an error instead of another format.
 
-The browser does not say why the host refused the connection, so the page lists the causes: the tab is not signed in or opened the console from an address the host does not list as its own (`csrf_allowed_origins`), the device is not on the local network or Tailscale, the WebRTC server is off or was turned on without a restart, or the console device is disabled.
+The browser does not say why the host refused the connection, so the page lists the causes (it asks you to sign in again when the tab's sign-in has lapsed): the tab is not signed in or opened the console from an address the host does not list as its own (`csrf_allowed_origins`), the device is not on the local network or Tailscale, the WebRTC server is off or was turned on without a restart, or the console device is disabled.
 
 ### The Devices page
 

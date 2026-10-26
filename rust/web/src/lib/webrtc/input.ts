@@ -44,6 +44,22 @@ export function positionMessage(
   return { v: 1, type: 'mouse-position', x: clamp((clientX - left) / width), y: clamp((clientY - top) / height) };
 }
 
+/** The bit of each DOM button (0 to 4) in `MouseEvent.buttons`: middle and right swap places. */
+const BUTTON_BITS = [1, 4, 2, 8, 16];
+
+/**
+ * The presses and releases between two `MouseEvent.buttons` masks. A browser reports a second
+ * button pressed or released while another is held as a `pointermove` only, so the page follows
+ * the mask on every pointer event instead of `pointerdown` and `pointerup`.
+ */
+export function buttonChanges(previous: number, current: number): InputMessage[] {
+  const out: InputMessage[] = [];
+  BUTTON_BITS.forEach((bit, button) => {
+    if ((previous & bit) !== (current & bit)) out.push({ v: 1, type: 'mouse-button', button, down: (current & bit) !== 0 });
+  });
+  return out;
+}
+
 /** WheelEvent.deltaMode: pixels, lines, pages. */
 const PIXEL = 0;
 const LINE = 1;
@@ -52,12 +68,25 @@ const UNITS_PER_PIXEL = 1.2;
 const UNITS_PER_LINE = 40;
 const UNITS_PER_PAGE = 360;
 
-/** A wheel event in 120 units per notch with DOM signs (positive `dy` scrolls down). */
-export function wheelMessage(deltaX: number, deltaY: number, deltaMode: number): InputMessage | null {
-  const unit = deltaMode === PIXEL ? UNITS_PER_PIXEL : deltaMode === LINE ? UNITS_PER_LINE : UNITS_PER_PAGE;
-  const dx = Math.round(deltaX * unit);
-  const dy = Math.round(deltaY * unit);
-  return dx || dy ? { v: 1, type: 'wheel', dx, dy } : null;
+/**
+ * Wheel events in 120 units per notch with DOM signs (positive `dy` scrolls down). What does not
+ * make a whole unit is carried to the next event, so a touchpad's small deltas add up.
+ */
+export class Wheel {
+  private x = 0;
+  private y = 0;
+
+  message(deltaX: number, deltaY: number, deltaMode: number): InputMessage | null {
+    const unit = deltaMode === PIXEL ? UNITS_PER_PIXEL : deltaMode === LINE ? UNITS_PER_LINE : UNITS_PER_PAGE;
+    this.x += deltaX * unit;
+    this.y += deltaY * unit;
+    // The epsilon keeps 119.99999 from rounding error a whole notch.
+    const dx = Math.trunc(this.x + Math.sign(this.x) * 1e-9);
+    const dy = Math.trunc(this.y + Math.sign(this.y) * 1e-9);
+    this.x -= dx;
+    this.y -= dy;
+    return dx || dy ? { v: 1, type: 'wheel', dx, dy } : null;
+  }
 }
 
 /**

@@ -9,15 +9,21 @@
   import { link } from '../lib/router.svelte';
   import { on } from '../lib/schema/basics';
   import { ConsoleStream, STREAM, type AppEntry } from '../lib/webrtc/client';
-  import { buttonMessage, keyMessage, positionMessage, wheelMessage } from '../lib/webrtc/input';
+  import { buttonChanges, keyMessage, positionMessage, Wheel } from '../lib/webrtc/input';
   import { RefusedError } from '../lib/webrtc/signalling';
 
-  type Phase = 'checking' | 'off' | 'ready' | 'starting' | 'streaming' | 'failed';
+  // The socket opens on the click to connect, not with the page: one tab or browser holds it,
+  // and a second one takes it over.
+  type Phase = 'checking' | 'off' | 'idle' | 'connecting' | 'ready' | 'starting' | 'streaming' | 'failed';
 
   let phase = $state<Phase>('checking');
   let error = $state('');
   let refused = $state(false);
+  let signedOut = $state(false);
   let status = $state('');
+  let quitting = $state(false);
+  /** The settings have been read, so a failure is the socket's. */
+  let checked = $state(false);
   let anyNetwork = $state(false);
   let apps = $state.raw<AppEntry[]>([]);
   let title = $state('');
@@ -25,44 +31,62 @@
   let surface = $state<HTMLDivElement>();
   let stream: ConsoleStream | null = null;
   let gone = false;
+  /** The mouse buttons the host holds, as a `MouseEvent.buttons` mask. */
+  let buttons = 0;
+  let wheelInput = new Wheel();
 
   const live = $derived(phase === 'starting' || phase === 'streaming');
 
   const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
 
-  async function connect() {
-    stream?.close();
-    stream = null;
-    phase = 'checking';
-    error = '';
-    refused = false;
+  async function check() {
     try {
-      // Also renews the sign-in the socket rides on.
       const config = await api.config.get();
       anyNetwork = String(config.origin_web_ui_allowed ?? '').trim() === 'wan';
-      if (!on(config, 'webrtc_server', false)) {
-        phase = 'off';
-        return;
-      }
-      const opened = await ConsoleStream.connect(await sessionCsrfToken());
-      if (gone) return opened.close();
-      stream = opened;
-      opened.onended = (reason) => ended(opened, reason);
-      apps = await opened.apps();
-      phase = 'ready';
+      phase = on(config, 'webrtc_server', false) ? 'idle' : 'off';
+      checked = true;
     } catch (cause) {
-      refused = cause instanceof RefusedError;
       error = message(cause);
       phase = 'failed';
     }
   }
 
-  function ended(from: ConsoleStream, reason: string) {
+  async function connect() {
+    stream?.close();
+    stream = null;
+    phase = 'connecting';
+    error = '';
+    refused = false;
+    signedOut = false;
+    try {
+      const opened = await ConsoleStream.connect(await sessionCsrfToken());
+      if (gone) return opened.close();
+      stream = opened;
+      opened.onended = (reason, closed) => ended(opened, reason, closed);
+      apps = await opened.apps();
+      if (stream === opened) phase = 'ready';
+    } catch (cause) {
+      if (gone) return;
+      refused = cause instanceof RefusedError;
+      error = message(cause);
+      phase = 'failed';
+      // A lapsed sign-in gets an anonymous token, which the host refuses.
+      if (refused) signedOut = !(await api.auth.status().catch(() => ({ authenticated: true }))).authenticated;
+    }
+  }
+
+  /** The stream ended on its own; `closed` when the socket went with it. */
+  function ended(from: ConsoleStream, reason: string, closed: boolean) {
     if (stream !== from || gone) return;
     error = reason;
     status = '';
     if (document.fullscreenElement) void document.exitFullscreen();
-    phase = phase === 'streaming' || phase === 'starting' ? 'ready' : phase;
+    if (closed) {
+      stream = null;
+      phase = 'idle';
+      return;
+    }
+    if (live) phase = 'ready';
     void refreshApps();
   }
 
@@ -72,11 +96,8 @@
     try {
       apps = await current.apps();
     } catch (cause) {
-      // The socket is gone: start over from the sign-in.
-      if (stream === current) {
-        error = message(cause);
-        phase = 'failed';
-      }
+      // A closed socket has gone through `ended`, which says why.
+      if (stream === current && !current.closed) error = message(cause);
     }
   }
 
@@ -86,13 +107,17 @@
     error = '';
     title = app.title;
     phase = 'starting';
+    buttons = 0;
+    wheelInput = new Wheel();
+    // Called before the first await: `video.play()` needs the click's user gesture in Safari.
+    const started = current.start(app.id, video, (text) => (status = text));
     try {
-      await current.start(app.id, video, (text) => (status = text));
+      await started;
       if (stream !== current || phase !== 'starting') return;
       phase = 'streaming';
       surface?.focus();
     } catch (cause) {
-      // Stopped by the page, or ended by the host: `stop` or `ended` has said so already.
+      // Stopped by the page, or ended by the host: the page or `ended` has said so already.
       if (stream !== current || phase !== 'starting') return;
       error = message(cause);
       status = '';
@@ -101,11 +126,30 @@
     }
   }
 
-  function stop(quitApp: boolean) {
-    stream?.stop(quitApp);
+  function leave() {
     status = '';
     if (document.fullscreenElement) void document.exitFullscreen();
     phase = 'ready';
+  }
+
+  function disconnect() {
+    stream?.disconnect();
+    leave();
+    void refreshApps();
+  }
+
+  async function quit() {
+    const current = stream;
+    if (!current) return;
+    leave();
+    quitting = true;
+    try {
+      await current.quit();
+    } catch (cause) {
+      if (stream === current) error = message(cause);
+    } finally {
+      quitting = false;
+    }
     void refreshApps();
   }
 
@@ -132,24 +176,35 @@
     stream?.send(positionMessage(event.clientX, event.clientY, video.getBoundingClientRect(), size));
   }
 
-  function button(event: PointerEvent, down: boolean) {
+  /** Follows the buttons mask on every pointer event: a second button arrives as a move. */
+  function pointer(event: PointerEvent) {
     if (phase !== 'streaming') return;
-    event.preventDefault();
-    if (down) {
+    if (event.type === 'pointerdown') {
+      event.preventDefault();
       surface?.focus();
       surface?.setPointerCapture(event.pointerId);
-      position(event);
     }
-    stream?.send(buttonMessage(event.button, down));
+    position(event);
+    pressed(event.buttons);
+  }
+
+  function pressed(mask: number) {
+    for (const change of buttonChanges(buttons, mask)) stream?.send(change);
+    buttons = mask;
   }
 
   function wheel(event: WheelEvent) {
     if (phase !== 'streaming') return;
     event.preventDefault();
-    stream?.send(wheelMessage(event.deltaX, event.deltaY, event.deltaMode));
+    stream?.send(wheelInput.message(event.deltaX, event.deltaY, event.deltaMode));
   }
 
-  onMount(() => void connect());
+  function blurred() {
+    stream?.releaseAll();
+    buttons = 0;
+  }
+
+  onMount(() => void check());
   onDestroy(() => {
     gone = true;
     stream?.close();
@@ -169,6 +224,8 @@
   {/if}
 
   {#if phase === 'checking'}
+    <p class="muted" role="status">Checking the host…</p>
+  {:else if phase === 'connecting'}
     <p class="muted" role="status">Connecting to the host…</p>
   {:else if phase === 'off'}
     <EmptyState icon="monitor" title="The WebRTC server is off">
@@ -177,7 +234,10 @@
   {:else if phase === 'failed'}
     <div class="notice danger failure" role="alert">
       <div class="stack">
-        {#if refused}
+        {#if signedOut}
+          <strong>This tab is no longer signed in.</strong>
+          <span><a href="/login?next=%2Fstream">Sign in again</a> to stream.</span>
+        {:else if refused}
           <strong>The host refused the stream connection.</strong>
           <span>The browser does not say why. One of these is the cause:</span>
           <ul>
@@ -186,17 +246,26 @@
             <li>The WebRTC server is off, or was turned on without restarting Rubylight.</li>
             <li>Your console device, “Console ({'<'}your user{'>'})”, is disabled on <a href="/devices" use:link>Devices</a>.</li>
           </ul>
-        {:else}
+        {:else if checked}
           <span>The stream connection failed: {error}</span>
+        {:else}
+          <span>The host's settings did not load: {error}</span>
         {/if}
       </div>
-      <Button size="sm" icon="refresh" onclick={connect}>Try again</Button>
+      <Button size="sm" icon="refresh" onclick={checked ? connect : check}>Try again</Button>
     </div>
   {:else}
     {#if error}
       <p class="notice danger" role="alert">{error}</p>
     {/if}
-    {#if phase === 'ready'}
+    {#if quitting}
+      <p class="muted" role="status">Quitting the app…</p>
+    {/if}
+    {#if phase === 'idle'}
+      <Panel title="Games & apps" description="Connect to list them. One tab or browser streams at a time: connecting here takes over from another.">
+        <div><Button icon="play" onclick={connect}>Connect</Button></div>
+      </Panel>
+    {:else if phase === 'ready'}
       <Panel title="Games & apps" description="Pick one to start it on this PC and stream it here." flush>
         {#if apps.length}
           <ul class="apps">
@@ -204,7 +273,7 @@
               <li>
                 <span class="name">{app.title}</span>
                 {#if app.running}<Badge tone="live">Running</Badge>{/if}
-                <Button size="sm" icon="play" onclick={() => start(app)}>Stream<span class="visually-hidden"> {app.title}</span></Button>
+                <Button size="sm" icon="play" disabled={quitting} onclick={() => start(app)}>Stream<span class="visually-hidden"> {app.title}</span></Button>
               </li>
             {/each}
           </ul>
@@ -223,8 +292,8 @@
       {#if status}<span class="muted" role="status">{status}</span>{/if}
       <span class="spacer"></span>
       <Button size="sm" icon="monitor" disabled={phase !== 'streaming'} onclick={fullscreen}>Full screen</Button>
-      <Button size="sm" variant="secondary" onclick={() => stop(false)}>Disconnect</Button>
-      <Button size="sm" variant="danger" icon="stop" onclick={() => stop(true)}>Quit app</Button>
+      <Button size="sm" variant="secondary" onclick={disconnect}>Disconnect</Button>
+      <Button size="sm" variant="danger" icon="stop" onclick={quit}>Quit app</Button>
     </div>
     <!-- The picture takes every key and pointer event while it has the focus, as a game does. -->
     <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
@@ -236,12 +305,13 @@
       aria-label="Stream picture. Keys and the mouse go to the host while it has the focus; Ctrl+Alt+Shift+Z gives the keyboard back."
       onkeydown={(event) => key(event, true)}
       onkeyup={(event) => key(event, false)}
-      onpointermove={position}
-      onpointerdown={(event) => button(event, true)}
-      onpointerup={(event) => button(event, false)}
+      onpointermove={pointer}
+      onpointerdown={pointer}
+      onpointerup={pointer}
+      onpointercancel={() => pressed(0)}
       onwheel={wheel}
       oncontextmenu={(event) => event.preventDefault()}
-      onblur={() => stream?.releaseAll()}
+      onblur={blurred}
     >
       <video id="stream-video" bind:this={video} autoplay playsinline></video>
     </div>
@@ -310,6 +380,8 @@
     background: #000;
     border-radius: var(--radius);
     overflow: hidden;
+    /* Touch drags are the host's pointer, not the page's scroll or zoom. */
+    touch-action: none;
   }
   .surface:focus-visible {
     outline: 2px solid var(--focus);

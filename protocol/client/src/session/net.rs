@@ -262,6 +262,8 @@ struct PingState {
     stopped: bool,
     /// A socket to ping from now on ([`PingHandle::rebind`]).
     next: Option<UdpSocket>,
+    /// Ping without waiting out the interval ([`PingHandle::ping_now`]).
+    now: bool,
 }
 
 #[derive(Default)]
@@ -287,6 +289,12 @@ impl PingHandle {
         self.0.state.lock().unwrap_or_else(|p| p.into_inner()).next = Some(socket);
         self.0.wake.notify_all();
     }
+
+    /// Pings at once, then every interval from there; the sequence carries on.
+    pub fn ping_now(&self) {
+        self.0.state.lock().unwrap_or_else(|p| p.into_inner()).now = true;
+        self.0.wake.notify_all();
+    }
 }
 
 impl Pinger {
@@ -310,12 +318,13 @@ impl Pinger {
                     let (mut state, _) = signal
                         .wake
                         .wait_timeout_while(state, PING_INTERVAL, |s| {
-                            !s.stopped && s.next.is_none()
+                            !s.stopped && s.next.is_none() && !s.now
                         })
                         .unwrap_or_else(|p| p.into_inner());
                     if state.stopped {
                         break;
                     }
+                    state.now = false;
                     if let Some(next) = state.next.take() {
                         socket = next;
                     }

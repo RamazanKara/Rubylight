@@ -1178,6 +1178,50 @@ fn a_session_roams_control_and_media_to_a_new_address() {
     assert_eq!(r.terminated, None);
 }
 
+/// The host drops media pings from the new address until MIGRATED, so on Roamed video and
+/// audio ping at once rather than an interval (500 ms) later.
+#[test]
+fn media_ping_from_the_new_address_at_once_on_roamed() {
+    let Some((old, new)) = loopback_addresses() else {
+        return;
+    };
+    let host = start_host_with(None, true);
+    let record = Arc::new(Mutex::new(Record::default()));
+    let session = start_session(&host, roaming_config(), &record);
+    host.peer_from(Media::Video, old);
+    host.peer_from(Media::Audio, old);
+
+    session.roam_to(Some(new)).unwrap();
+    until("the roam", || {
+        roam_events(&record)
+            .iter()
+            .any(|e| matches!(e, RoamEvent::Roamed { .. }))
+    });
+    let roamed = Instant::now();
+    let pinged_from_new = |media: Media| {
+        let state = host.media.lock().unwrap();
+        state
+            .pings
+            .iter()
+            .any(|&(m, from, _)| m == media && from.ip() == new)
+    };
+    until("video and audio pings from the new address", || {
+        pinged_from_new(Media::Video) && pinged_from_new(Media::Audio)
+    });
+    let waited = roamed.elapsed();
+    assert!(
+        waited < Duration::from_millis(250),
+        "the media pinged {} ms after Roamed",
+        waited.as_millis()
+    );
+
+    session.stop();
+    until("the disconnect", || {
+        host.control_disconnected.load(Ordering::SeqCst)
+    });
+    assert_eq!(record.lock().unwrap().terminated, None);
+}
+
 /// The host takes media pings only from the address the control stream roamed to: media left
 /// behind by a control socket that moved alone follow it on Roamed, and video carries on.
 #[test]

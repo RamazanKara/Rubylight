@@ -275,11 +275,14 @@ impl Roamer {
     /// The control stream roamed ([`crate::roaming::RoamEvent::Roamed`]). The host now takes
     /// media pings only from the control stream's address: media anywhere else move there,
     /// and if they cannot, the session fails rather than wait out a stream that never comes.
+    /// Every media stream pings at once: the host dropped the pings sent before the move
+    /// committed, and the next one would be up to an interval away.
     pub fn roamed(&self) {
         let mut state = lock(&self.state);
         let control = net::with_port(self.control.local_addr(), 0);
         let left = state.local.ip();
         if control.ip() == left {
+            self.ping_now();
             return;
         }
         match self.move_sockets(&mut state, control, false) {
@@ -295,6 +298,12 @@ impl Roamer {
                 ));
                 self.shared.terminate(super::io_code(&e));
             }
+        }
+    }
+
+    fn ping_now(&self) {
+        for ping in self.paths.iter().filter_map(|path| path.ping.as_ref()) {
+            ping.ping_now();
         }
     }
 

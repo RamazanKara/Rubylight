@@ -328,6 +328,8 @@
     <string name="latency_csv_lost">CSV rows lost to backlog: %1$d</string>
     <string name="title_codec_low_latency">Android low-latency mode</string>
     <string name="summary_codec_low_latency">Reduce video delay on Android 11 or later.</string>
+    <string name="title_experimental_chipset_tuning">Experimental chipset tuning</string>
+    <string name="summary_experimental_chipset_tuning">Extra low-latency settings for MediaTek Dimensity and Samsung Exynos decoders. If video stops or stutters, turn this off.</string>
     <string name="title_vendor_low_latency">Chipset low-latency mode</string>
     <string name="summary_vendor_low_latency">Reduce video delay with chipset support.</string>
     <string name="title_codec_performance">Decoder performance hints</string>

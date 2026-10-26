@@ -127,6 +127,11 @@ impl Drop for Guard {
         let Some(token) = self.token.take() else {
             return;
         };
+        // The history is the launch address's; a client that roamed sent the stream's
+        // loss, or its clean probe, over another path.
+        if self.session.roams() > 0 {
+            return;
+        }
         // A start-up latch that lifted is not remembered, but it is not a
         // clean probe either.
         let observed = self.session.keyframe_loss_sustained_at();
@@ -461,6 +466,22 @@ mod tests {
         let next = session(&f, &c, "192.0.2.1", 0);
         drop(f.host.configure_keyframe_loss(&next, true));
         assert!(next.keyframe_loss_active());
+    }
+
+    #[test]
+    fn loss_after_a_roam_is_not_remembered_for_the_launch_address() {
+        let f = Fixture::new();
+        let c = f.client(0x071f1f00);
+        let s = session(&f, &c, "192.0.2.1", 0);
+        let guard = f.host.configure_keyframe_loss(&s, true);
+        s.roamed("198.51.100.4".parse().unwrap(), Instant::now());
+        loss(&s);
+        assert!(s.keyframe_loss_sustained_at().is_some());
+        drop(guard);
+        assert!(f.host.keyframe_loss_routes().is_empty());
+        let next = session(&f, &c, "192.0.2.1", 0);
+        drop(f.host.configure_keyframe_loss(&next, true));
+        assert!(!next.keyframe_loss_active());
     }
 
     #[test]

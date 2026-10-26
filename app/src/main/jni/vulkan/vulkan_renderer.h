@@ -68,6 +68,9 @@ struct VideoFrame {
 
     AImageCropRect crop {};
     FrameTiming timing;
+    // Signals when the decoder has finished writing the image, while the GPU is to wait for it;
+    // -1 once the image is known to be written. Owned by the frame.
+    int decodeFenceFd = -1;
 };
 using FramePtr = std::shared_ptr<VideoFrame>;
 
@@ -285,6 +288,10 @@ private:
     // After a failed submit: the slot's fence and semaphore are left in a state nothing will
     // signal or wait on, so they're replaced
     void recreateSlotSync(int slot);
+    bool syncFdImportable(VkPhysicalDevice device) const;
+    // Adds the GPU wait for the frame's decoder fence to a submit, or waits for it here when
+    // it can't be imported. False when the decoder never finished the frame.
+    bool waitForDecoder(VideoFrame& frame, int slot, bool* gpuWait);
     ImportedBuffer* importBuffer(AHardwareBuffer* buffer);
     void destroyImport(AHardwareBuffer* buffer, ImportedBuffer& imported);
     void evictImports();
@@ -320,6 +327,10 @@ private:
     bool frontBufferRequested_ = false;
     bool frontBufferAligned_ = false;
     bool hasSharedPresentExt_ = false;
+    // VK_KHR_external_semaphore_fd with sync fd import: presenting on arrival, the GPU waits for
+    // the decoder instead of the image reader thread
+    bool hasSyncFdImport_ = false;
+    std::atomic<bool> gpuDecodeWait_ {false};
     std::atomic<bool> frontBuffer_ {false};
     std::atomic<bool> frontBufferUnavailable_ {false};
     VkImageLayout renderPassFinalLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -389,6 +400,8 @@ private:
     VkCommandBuffer commandBuffers_[kFramesInFlight] {};
     VkFence fences_[kFramesInFlight] {};
     VkSemaphore imageAcquired_[kFramesInFlight] {};
+    // The decoder's sync fence, imported for the GPU to wait on (see renderFrame())
+    VkSemaphore decodeDone_[kFramesInFlight] {};
     FramePtr slotFrames_[kFramesInFlight];
     uint64_t frameCounter_ = 0;
 

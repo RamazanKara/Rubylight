@@ -10,6 +10,7 @@ mod apps;
 mod capabilities;
 mod crypto;
 mod der;
+mod files;
 mod hardware_metrics;
 mod identity;
 mod launch;
@@ -31,6 +32,7 @@ pub use capabilities::{
     PERMISSION_LAUNCH, PERMISSION_LIST, PERMISSION_SERVER_COMMAND, PERMISSION_VIEW,
     PYROWAVE_CODEC_BITS,
 };
+pub use files::{FileError, FileList, FileRefusal, RemoteFile, Uploaded};
 pub use hardware_metrics::{
     GpuMetrics, HardwareMetrics, Readings, CPU_METRICS, GPU_METRICS, MAX_HARDWARE_METRICS_BYTES,
 };
@@ -38,6 +40,7 @@ pub use identity::ClientIdentity;
 pub use launch::{
     parse_launch_reply, HostDisplay, LaunchRequest, Launched, CORE_LAUNCH_PARAMETERS,
 };
+pub use native::{FilePermissions, NativeCapabilities};
 pub use network_path::{NetworkPath, MAX_NETWORK_PATH_BYTES};
 pub use pairing::{PairFailure, PairResult, PairStep};
 pub use power::{PowerError, PowerReply, Refusal};

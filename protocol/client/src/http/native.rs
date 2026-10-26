@@ -15,7 +15,8 @@ use super::native_api::session::{ActionId, Session};
 use super::native_api::PREFIX;
 use super::transport::{self, Body, Request, Timeouts};
 use super::{Error, HostClient, LONG_CONNECT_TIMEOUT, READ_TIMEOUT};
-use serde::de::DeserializeOwned;
+use serde::de::{DeserializeOwned, Error as _};
+use serde::{Deserialize, Deserializer};
 use std::time::Duration;
 
 /// A library of a few hundred games is well under this.
@@ -53,7 +54,12 @@ fn decode<T: DeserializeOwned>(response: transport::Response, path: &str) -> Res
         return serde_json::from_slice(&response.body)
             .map_err(|e| Error::Malformed(format!("native API {path}: {e}")));
     }
-    Err(match serde_json::from_slice::<ErrorBody>(&response.body) {
+    Err(error_of(response, path))
+}
+
+/// A non-2xx answer as an [`Error::Api`], or a classic error when it has no error body.
+pub(super) fn error_of(response: transport::Response, path: &str) -> Error {
+    match serde_json::from_slice::<ErrorBody>(&response.body) {
         Ok(body) => Error::Api {
             status: response.status,
             error: body.error,
@@ -63,7 +69,39 @@ fn decode<T: DeserializeOwned>(response: transport::Response, path: &str) -> Res
             code: i32::from(response.status),
             message: response.reason,
         },
-    })
+    }
+}
+
+/// The file permissions, which the pinned `Permissions` does not carry yet. A host without
+/// file transfer leaves them out: false.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Deserialize)]
+pub struct FilePermissions {
+    #[serde(default)]
+    pub file_upload: bool,
+    #[serde(default)]
+    pub file_download: bool,
+}
+
+/// `GET /capabilities` with the fields of newer hosts, read from the same body.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NativeCapabilities {
+    pub capabilities: Capabilities,
+    pub files: FilePermissions,
+}
+
+impl<'de> Deserialize<'de> for NativeCapabilities {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Files {
+            permissions: FilePermissions,
+        }
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let files = Files::deserialize(&value).map_err(D::Error::custom)?;
+        Ok(Self {
+            capabilities: Capabilities::deserialize(value).map_err(D::Error::custom)?,
+            files: files.permissions,
+        })
+    }
 }
 
 impl HostClient {
@@ -93,6 +131,12 @@ impl HostClient {
 
     /// What the host's native API offers this device. 404 means the host has none.
     pub fn native_capabilities(&self) -> Result<Capabilities, Error> {
+        self.native("capabilities", None, MAX_JSON_BYTES, READ_TIMEOUT)
+    }
+
+    /// [`HostClient::native_capabilities`] with the file permissions; feed it to
+    /// `HostCapabilities::with_native` for `Feature::FileUpload` and `Feature::FileDownload`.
+    pub fn native_capabilities_with_files(&self) -> Result<NativeCapabilities, Error> {
         self.native("capabilities", None, MAX_JSON_BYTES, READ_TIMEOUT)
     }
 
@@ -213,6 +257,45 @@ mod tests {
             decode::<Library>(response(200, "{}"), path),
             Err(Error::Malformed(_))
         ));
+    }
+
+    #[test]
+    fn the_file_permissions_come_from_the_same_body() {
+        let body = |permissions: &str| {
+            format!(
+                r#"{{"api_version":1,"host":{{"name":"PC","version":"3.1.0","unique_id":"U"}},
+                "features":["library","files.upload"],"permissions":{{"list":true,"view":true,
+                "launch":false,"host_control":false{permissions}}}}}"#
+            )
+        };
+        let path = "api/native/v1/capabilities";
+        let read = decode::<NativeCapabilities>(
+            response(200, &body(r#","file_upload":true,"file_download":false"#)),
+            path,
+        )
+        .unwrap();
+        assert_eq!(
+            read.files,
+            FilePermissions {
+                file_upload: true,
+                file_download: false
+            }
+        );
+        assert_eq!(read.capabilities.features, ["library", "files.upload"]);
+        assert_eq!(
+            read.capabilities,
+            decode::<Capabilities>(response(200, &body("")), path).unwrap()
+        );
+        // An older host has neither.
+        let read = decode::<NativeCapabilities>(response(200, &body("")), path).unwrap();
+        assert_eq!(read.files, FilePermissions::default());
+        // A permission that is not a bool, or no Capabilities at all, is malformed.
+        for broken in [body(r#","file_upload":1"#), r#"{"permissions":{}}"#.into()] {
+            assert!(matches!(
+                decode::<NativeCapabilities>(response(200, &broken), path),
+                Err(Error::Malformed(_))
+            ));
+        }
     }
 
     #[test]

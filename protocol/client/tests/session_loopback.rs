@@ -173,8 +173,8 @@ impl rusty_enet::Socket for Roamable {
     type Address = SocketAddr;
     type Error = io::Error;
 
-    fn init(&mut self, _: rusty_enet::SocketOptions) -> io::Result<()> {
-        self.socket.set_nonblocking(true)
+    fn init(&mut self, options: rusty_enet::SocketOptions) -> io::Result<()> {
+        rusty_enet::Socket::init(&mut self.socket, options)
     }
 
     fn send(&mut self, address: SocketAddr, buffer: &[u8]) -> io::Result<usize> {
@@ -182,7 +182,8 @@ impl rusty_enet::Socket for Roamable {
             Some((new, old)) if address == old => new,
             _ => address,
         };
-        self.socket.send_to(buffer, to)
+        // A full send buffer drops the datagram, as rusty_enet's own UdpSocket does.
+        rusty_enet::Socket::send(&mut self.socket, to, buffer)
     }
 
     fn receive(

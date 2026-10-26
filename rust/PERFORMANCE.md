@@ -7920,6 +7920,30 @@ broke the row order.
 Not shown: any presented-picture gain. That still needs a client with a VRR display, on Wi-Fi or on
 the wired NUC legs.
 
+## October 26: beam-raced PyroWave gate rerun on loopback (B10)
+
+Legs 1 and 2 of the [October 24 gate](#october-24-beam-raced-pyrowave-gate-b10-step-4-opt-in-missed-its-default-on-gate)
+again, with the installed 3.0.0-rc.2 host (isolated profile on 127.0.0.1:48123) and the Nightjar desktop
+release build of 2026-10-25 that the laptop run used. Same setup: RX 7900 XT, borderless fullscreen on the
+5120x1440 240 Hz VRR display, 1080p60 PyroWave 4:2:0 at 399 Mbps (the host sent 318 to 353 Mbps), GPU
+decode, early decode, `beam_race` on, `NIGHTJAR_STREAM_LOCATION=local`, the pace set with
+`NIGHTJAR_PYROWAVE_PACE_MBPS`. ABBA, 60 s legs, the first 300 frames of each dropped; A is
+`NIGHTJAR_BEAM_RACE_PRESENT=0`. The probe said "on" for every frame of every leg. No PresentMon this time.
+
+| Leg | Required | Age p50 whole / raced (gain) | Age p95 whole / raced (gain) | `receive_to_present` p95 whole / raced | Late slices | Frames raced |
+|---|---|---|---|---|---|---|
+| 1: pace 900 | 2.08 ms | 5.49 / 4.32 (1.17) | 6.20 / 5.66 (0.54) | 8.34 / 8.67 | 0.080% | 3877 of 6924 |
+| 2: pace 2100 | 1.58 ms | 4.72 / 3.77 (0.95) | 5.36 / 4.72 (0.64) | 4.68 / 5.66 | 0.023% | 6107 of 6944 |
+
+Every leg exited 0, with no hang, no decoder fallback, no frame out of row order. The verdict stands: both
+legs miss the rule at the median and at p95, and `receive_to_present` p95 is worse with the race at both
+paces (0.33 and 0.98 ms). Against October 24, the median gain is 0.23 ms lower at pace 900 and 0.24 ms
+higher at 2100, and the p95 gains are within 0.11 ms. At pace 900 fewer frames raced (56% against 81%):
+the planner skipped 1928 frames as "pace leaves under 1 ms to gain". The whole side moves between legs
+too (mid-row age p50 5.77 and 5.33 ms in the two A legs at pace 900), so one ABBA set resolves the sign
+of the gain, not the 0.2 ms differences between the two runs. The first slice was ready 1.6 ms after the
+frame's first packet at pace 900 and 0.75 ms at 2100, the last 7.0 and 3.3 to 3.6 ms.
+
 ## Hardware covered
 
 Measurements ran with AMD AMF on an RX 7900 XT host, with real-client Wi-Fi

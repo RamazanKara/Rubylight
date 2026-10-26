@@ -259,10 +259,14 @@ and S the scan, with `receive_to_present` p95 no worse and under 1% late slices.
 | Pace 900 (W = 7.4 ms) | 2.08 ms | 5.32 → 3.93 ms (1.40) | 5.98 → 5.33 ms (0.65) | 8.64 → 8.61 ms | 0.061% |
 | Pace 2100 (W = 3.17 ms) | 1.58 ms | 4.18 → 3.47 ms (0.71) | 4.79 → 4.19 ms (0.60) | 4.59 → 5.19 ms | 0.000% |
 | Pace 900, 0.1% loss | 2.08 ms | 5.30 → 3.91 ms (1.39) | 5.88 → 5.45 ms (0.44) | 8.33 → 8.53 ms | 0.015% |
+| Rerun, Oct 26: pace 900 | 2.08 ms | 5.49 → 4.32 ms (1.17) | 6.20 → 5.66 ms (0.54) | 8.34 → 8.67 ms | 0.080% |
+| Rerun, Oct 26: pace 2100 | 1.58 ms | 4.72 → 3.77 ms (0.95) | 5.36 → 4.72 ms (0.64) | 4.68 → 5.66 ms | 0.023% |
 
-Every run exited cleanly, with no dropped frames, no decoder errors and no hang. The race works: the
-middle of the picture is on screen 1.4 ms sooner at the median at pace 900. It missed the gate on both legs,
-and at pace 2100 `receive_to_present` got 0.6 ms worse at p95. So it is not on by default.
+The first three rows are the October 24 gate; the last two rerun its first two legs on October 26 with the
+3.0.0-rc.2 host and a newer client build, one ABBA set each. Every run exited cleanly, with no dropped
+frames, no decoder errors and no hang. The race works: the middle of the picture is on screen 1.2 to 1.4 ms
+sooner at the median at pace 900. It missed the gate on every leg, and at pace 2100 `receive_to_present`
+got 0.6 to 1.0 ms worse at p95. So it is not on by default.
 
 Why the gain is smaller than the model:
 

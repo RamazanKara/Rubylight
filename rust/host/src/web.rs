@@ -8,6 +8,7 @@ mod logs;
 mod maintenance;
 #[cfg(test)]
 mod parity_tests;
+mod power;
 mod session;
 #[cfg(test)]
 mod webrtc_tests;
@@ -591,6 +592,17 @@ async fn guard(State(h): State<Shared>, mut request: Request, next: Next) -> Res
     {
         return error(StatusCode::UNAUTHORIZED, "authentication required");
     }
+    // A signed-in administrator using the console keeps the PC awake (sleep
+    // after idle); API tokens are automation, not someone at the console, and
+    // a power page left open polls its status without anyone there.
+    if path.starts_with("/api/")
+        && !public
+        && !fresh_password
+        && !api_token
+        && !(method == Method::GET && path == "/api/power")
+    {
+        crate::wake::note_console_activity(&h);
+    }
     if !matches!(method, Method::GET | Method::HEAD | Method::OPTIONS) {
         if let Some(origin) = request
             .headers()
@@ -760,6 +772,9 @@ pub(crate) async fn api(
     let text = |k: &str| data.get(k).and_then(Value::as_str).unwrap_or("");
     if method == Method::POST && path == "/api/covers/upload" {
         return apps::upload_cover(&h, &data).await;
+    }
+    if path == "/api/power" || path.starts_with("/api/power/") {
+        return power::handle(&h, &method, &uri, connection.local.ip(), &data).await;
     }
     if let Some(action) = path.strip_prefix("/api/library/") {
         return apps::library(&h, &method, action, &data).await;

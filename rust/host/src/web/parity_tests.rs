@@ -4,7 +4,7 @@ use axum::body::{Body, to_bytes};
 use butterpollo_core::{session::Role, state::Credentials};
 use tower::ServiceExt;
 
-async fn request(f: &Fixture, method: &str, path: &str, data: Value) -> Response {
+pub(super) async fn request(f: &Fixture, method: &str, path: &str, data: Value) -> Response {
     // On disk too: the host takes up the sign-in the file holds.
     let credentials = Credentials::new("parity".into(), "parity-test").unwrap();
     f.host.save_credentials(&credentials).unwrap();
@@ -23,7 +23,7 @@ async fn request(f: &Fixture, method: &str, path: &str, data: Value) -> Response
         .await
         .unwrap()
 }
-async fn value(response: Response, status: StatusCode) -> Value {
+pub(super) async fn value(response: Response, status: StatusCode) -> Value {
     assert_eq!(response.status(), status);
     let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     serde_json::from_slice(&bytes).unwrap()

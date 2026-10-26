@@ -1,0 +1,17 @@
+{
+  "source": "AdaptiveQualityControllerTest.missingTailDoesNotDisableThermalOrMeanDecodeProtection",
+  "rust": "quality::AdaptiveQualityController",
+  "java": "com.limelight.policy.AdaptiveQualityTrace",
+  "new": ["motion", 1920, 1080, 120, 720, 30, 2, 2, 0],
+  "calls": [
+    {"call": "sample_without_timing", "args": [20000, true, false, 0, 20, 0, 0, 0, true], "expect": null},
+    {"call": "sample_without_timing", "args": [21000, true, false, 0, 20, 0, 0, 0, true], "expect": null},
+    {"call": "sample_without_timing", "args": [22000, true, false, 0, 20, 0, 0, 0, true], "expect": null},
+    {"call": "sample_without_timing", "args": [23000, true, false, 0, 20, 0, 0, 0, true], "expect": "1536x864@120"},
+    {"new": ["motion", 1920, 1080, 120, 720, 30, 2, 2, 0]},
+    {"call": "sample_without_timing", "args": [20000, true, false, 0, 2, 0, 0, 2, true], "expect": null},
+    {"call": "sample_without_timing", "args": [21000, true, false, 0, 2, 0, 0, 2, true], "expect": null},
+    {"call": "sample_without_timing", "args": [22000, true, false, 0, 2, 0, 0, 2, true], "expect": null},
+    {"call": "sample_without_timing", "args": [23000, true, false, 0, 2, 0, 0, 2, true], "expect": "1536x864@120"}
+  ]
+}

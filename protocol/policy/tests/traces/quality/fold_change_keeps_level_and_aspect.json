@@ -1,0 +1,15 @@
+{
+  "source": "AdaptiveQualityControllerTest.foldChangePreservesQualityLevelAndAspectWithinAlignment",
+  "rust": "quality::AdaptiveQualityController",
+  "java": "com.limelight.policy.AdaptiveQualityTrace",
+  "new": ["motion", 1920, 1080, 120, 720, 30, 2, 2, 0],
+  "calls": [
+    {"call": "sample", "args": [15000, true, false, 0, 2, 0, 0, 2, true], "expect": null},
+    {"call": "sample", "args": [16000, true, false, 0, 2, 0, 0, 2, true], "expect": null},
+    {"call": "sample", "args": [17000, true, false, 0, 2, 0, 0, 2, true], "expect": null},
+    {"call": "sample", "args": [18000, true, false, 0, 2, 0, 0, 2, true], "expect": "1536x864@120"},
+    {"call": "applied", "args": ["1536x864@120", 18000], "expect": null},
+    {"call": "resize_ceiling", "args": [2316, 904, 120, 30000], "expect": "1854x724@120"},
+    {"call": "resize_ceiling", "args": [2316, 904, 120, 31000], "expect": null}
+  ]
+}

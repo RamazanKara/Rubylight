@@ -1,0 +1,24 @@
+{
+  "source": "AdaptiveQualityControllerTest.batteryModeCapsHealthyWorkButRespectsUserMinimums",
+  "rust": "quality::AdaptiveQualityController",
+  "java": "com.limelight.policy.AdaptiveQualityTrace",
+  "new": ["battery", 1920, 1080, 120, 720, 30, 2, 2, 0],
+  "calls": [
+    {"call": "sample", "args": [20000, true, false, 0, 2, 0, 0, 0, true], "expect": "1920x1080@90"},
+    {"call": "applied", "args": ["1920x1080@90", 20000], "expect": null},
+    {"call": "sample", "args": [40000, true, false, 0, 2, 0, 0, 0, true], "expect": "1536x864@90"},
+    {"call": "applied", "args": ["1536x864@90", 40000], "expect": null},
+    {"call": "sample", "args": [60000, true, false, 0, 2, 0, 0, 0, true], "expect": "1536x864@60"},
+    {"call": "applied", "args": ["1536x864@60", 60000], "expect": null},
+    {"call": "sample", "args": [80000, true, false, 0, 2, 0, 0, 0, true], "expect": null},
+    {"call": "sample", "args": [100000, true, false, 0, 2, 0, 0, 0, true], "expect": null},
+    {"call": "sample", "args": [120000, true, false, 0, 2, 0, 0, 0, true], "expect": null},
+    {"call": "sample", "args": [140000, true, false, 0, 2, 0, 0, 0, true], "expect": null},
+    {"call": "sample", "args": [160000, true, false, 0, 2, 0, 0, 0, true], "expect": null},
+    {"call": "sample", "args": [180000, true, false, 0, 2, 0, 0, 0, true], "expect": null},
+    {"call": "sample", "args": [200000, true, false, 0, 2, 0, 0, 0, true], "expect": null},
+    {"call": "current", "args": [], "expect": "1536x864@60"},
+    {"new": ["battery", 1920, 1080, 120, 1080, 120, 2, 2, 0]},
+    {"call": "sample", "args": [30000, true, false, 0, 2, 0, 0, 0, true], "expect": null}
+  ]
+}

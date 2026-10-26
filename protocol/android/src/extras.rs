@@ -7,7 +7,7 @@ use std::time::Duration;
 use nightjar_core::control::{ClientMessage, CursorShape, HdrMetadata};
 use nightjar_core::input::queue::InputError;
 use nightjar_core::sdp::AudioConfiguration;
-use nightjar_core::session::Location;
+use nightjar_core::session::{Location, RoamingConfig};
 use rubylight_protocol::control::DisplayCaps;
 use rubylight_protocol::phase_lock::{self, SlackWindow};
 use rubylight_protocol::present_clock::{Grid, GridSchedule};
@@ -45,6 +45,17 @@ pub fn location(streaming_remotely: i32) -> Location {
         0 => Location::Local,
         1 => Location::Remote,
         _ => Location::Auto,
+    }
+}
+
+/// "Client roaming (Experimental)" and "Continue on mobile data". The app reports every
+/// default-network change and whether it is metered, so media never moves onto a network
+/// it has not reported.
+pub fn roaming_config(enabled: bool, metered: bool) -> RoamingConfig {
+    RoamingConfig {
+        enabled,
+        metered,
+        platform_hints: true,
     }
 }
 
@@ -302,6 +313,20 @@ fn cpu_has_aes() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_roaming_settings_reach_the_session_with_platform_hints() {
+        for (enabled, metered) in [(true, false), (true, true), (false, false), (false, true)] {
+            assert_eq!(
+                roaming_config(enabled, metered),
+                RoamingConfig {
+                    enabled,
+                    metered,
+                    platform_hints: true,
+                }
+            );
+        }
+    }
 
     #[test]
     fn audio_configurations_round_trip() {

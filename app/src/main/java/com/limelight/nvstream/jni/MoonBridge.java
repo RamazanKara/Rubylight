@@ -459,10 +459,34 @@ public class MoonBridge {
     private static volatile boolean packed444Requested;
     private static volatile boolean rustStream;
     private static volatile int networkGracePeriodMs;
+    private static volatile boolean roamingRequested = true;
+    private static volatile boolean roamingMeteredRequested;
 
     /** Call before startConnection(): whether the next stream should use the Rust engine. */
     public static void requestRustEngine(boolean requested) {
         rustEngineRequested = requested;
+    }
+
+    /**
+     * Call before startConnection(): "Client roaming (Experimental)" and "Continue on mobile
+     * data" for the next stream. Only the Rust engine roams.
+     */
+    public static void requestRoaming(boolean enabled, boolean metered) {
+        roamingRequested = enabled;
+        roamingMeteredRequested = metered;
+    }
+
+    /** Whether the running stream (or the last one) uses the Rust engine. */
+    public static boolean isRustStream() {
+        return rustStream;
+    }
+
+    /**
+     * The default network changed while a stream runs; metered is the new network's
+     * !NET_CAPABILITY_NOT_METERED. Returns whether a roam started; false on the C engine.
+     */
+    public static boolean networkChanged(boolean metered) {
+        return rustStream && RustBridge.networkChanged(metered);
     }
 
     public static void requestPacked444(boolean requested) {
@@ -525,7 +549,7 @@ public class MoonBridge {
                     supportedVideoFormats, clientRefreshRateX100, riAesKey, riAesIv, videoCapabilities,
                     colorSpace, colorRange, hostFeatures, inputOnly, enableMic, hapticsPcm,
                     pyrowaveLinkMbps, pyrowavePaceMbps, clientWireless, networkGracePeriodMs, packed444Requested, packedModes,
-                    remoteMonitor, unbatchedInput, networkPriority);
+                    remoteMonitor, unbatchedInput, networkPriority, roamingRequested, roamingMeteredRequested);
         }
         return cStartConnection(address, appVersion, gfeVersion, rtspSessionUrl, serverCodecModeSupport,
                 width, height, fps, bitrate, packetSize, streamingRemotely, audioConfiguration,

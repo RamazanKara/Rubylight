@@ -90,6 +90,8 @@ public class NvConnection {
     private volatile boolean stopRequested;
     private boolean nativeStarted;
     private volatile boolean nativeConnected;
+    // Client roaming's network callback while a Rust-engine stream runs; guarded by MoonBridge.class.
+    private RoamingNetworkWatch roamingWatch;
     // Why packed full chroma left HDR out before the launch (startApp), or null.
     private String packedHdrDropAtLaunch;
     private long lastServerCommandTime;
@@ -376,6 +378,10 @@ public class NvConnection {
         synchronized (MoonBridge.class) {
             // Stop recording before the native side closes the microphone socket.
             stopMicrophone();
+            if (roamingWatch != null) {
+                roamingWatch.stop();
+                roamingWatch = null;
+            }
             if (nativeConnected) {
                 nativeConnected = false;
                 MoonBridge.stopConnection();
@@ -1128,6 +1134,10 @@ public class NvConnection {
                         MoonBridge.requestRustEngine(prefs.rustEngine);
                         // The session's choice (Game turns it off after a packed failure), not the saved setting.
                         MoonBridge.requestPacked444(context.streamConfig.isPacked444());
+                        MoonBridge.requestRoaming(prefs.clientRoaming, prefs.roamingMetered);
+                        // Before the start, so a change during the handshake is still reported.
+                        Network streamNetwork =prefs.rustEngine && prefs.clientRoaming ?
+                                RoamingNetworkWatch.defaultNetwork(appContext) : null;
                         int ret = MoonBridge.startConnection(context.serverAddress.address,
                                 context.serverAppVersion, context.serverGfeVersion, context.rtspSessionUrl,
                                 context.serverCodecModeSupport,
@@ -1159,6 +1169,9 @@ public class NvConnection {
                                     videoDecoderRenderer.packedHdrDropReason());
                         }
                         nativeConnected = true;
+                        if (prefs.clientRoaming && MoonBridge.isRustStream()) {
+                            roamingWatch = RoamingNetworkWatch.start(appContext, streamNetwork);
+                        }
                         startInputPolling(prefs.unbatchedInput);
                         startMicrophone();
                         started = true;

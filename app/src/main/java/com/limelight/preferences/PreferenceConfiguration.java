@@ -117,7 +117,7 @@ public class PreferenceConfiguration {
     private static final String MOUSE_SPEED_PREF_STRING = "seekbar_mouse_speed";
     private static final String LATENCY_TOAST_PREF_STRING = "checkbox_enable_post_stream_toast";
     // Off: streams use the C engine. The Rust engine is a beta and falls back per stream.
-    private static final String RUST_ENGINE_PREF_STRING = "checkbox_rust_engine";
+    static final String RUST_ENGINE_PREF_STRING = "checkbox_rust_engine";
     private static final String PACKED_444_PREF_STRING = "experimental_packed_444";
     public static final String CHIPSET_TUNING_PREF_STRING = "checkbox_experimental_chipset_tuning";
     static final String FRAME_PACING_PREF_STRING = "frame_pacing";
@@ -140,6 +140,9 @@ public class PreferenceConfiguration {
     private static final String TEXTURE_VIEW_PREF_STRING = "checkbox_texture_view";
     private static final String UNBATCHED_INPUT_PREF_STRING = "checkbox_unbatched_input";
     private static final String NETWORK_PRIORITY_PREF_STRING = "checkbox_network_priority";
+    // Client roaming (Experimental, Rust engine): on by default; onto mobile data only by choice.
+    static final String CLIENT_ROAMING_PREF_STRING = "checkbox_client_roaming";
+    static final String ROAMING_METERED_PREF_STRING = "checkbox_roaming_metered";
     private static final String VIRTUAL_DISPLAY_PREF_STRING = "checkbox_virtual_display";
     private static final String VIRTUAL_DISPLAY_SCALE_PREF_STRING = "seekbar_virtual_display_scale";
     private static final String YUV444_PREF_STRING = "checkbox_yuv444";
@@ -296,6 +299,7 @@ public class PreferenceConfiguration {
     public boolean phonePerformanceHints;
     public boolean gpuMaxClocks;
     public boolean dropLateFrames, useTextureView, unbatchedInput, networkPriority;
+    public boolean clientRoaming, roamingMetered;
     public boolean virtualDisplay, enableYuv444, vrr;
     // Show frames at the host's frame times (HostFrameClock); replaces frame pacing.
     public boolean hostFrameTimes;
@@ -1247,6 +1251,8 @@ public class PreferenceConfiguration {
                 config.videoFormat != FormatOption.FORCE_PYROWAVE;
         config.unbatchedInput = prefs.getBoolean(UNBATCHED_INPUT_PREF_STRING, true);
         config.networkPriority = prefs.getBoolean(NETWORK_PRIORITY_PREF_STRING, true);
+        config.clientRoaming = prefs.getBoolean(CLIENT_ROAMING_PREF_STRING, true);
+        config.roamingMetered = prefs.getBoolean(ROAMING_METERED_PREF_STRING, false);
         config.virtualDisplay = prefs.getBoolean(VIRTUAL_DISPLAY_PREF_STRING, false);
         config.virtualDisplayScale = Math.max(50, Math.min(200, prefs.getInt(VIRTUAL_DISPLAY_SCALE_PREF_STRING, 100)));
         config.enableYuv444 = prefs.getBoolean(YUV444_PREF_STRING, false);

@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use nightjar_core::control::ClientMessage;
 use nightjar_core::rtsp::MicrophoneState;
 use nightjar_core::sdp::{self, StreamConfig};
-use nightjar_core::session::{HostInfo, Interrupt, Session, SessionConfig};
+use nightjar_core::session::{HostInfo, Interrupt, NetworkHint, Session, SessionConfig};
 use rubylight_protocol::control::ClockSyncReply;
 use rubylight_protocol::present_clock::{Grid, GridSchedule, PresentClock, Schedule, Settings};
 
@@ -83,6 +83,12 @@ pub fn with_session<R>(default: R, f: impl FnOnce(&Session) -> R) -> R {
 /// Sends a control message; false when it was not sent (no stream, not announced, invalid).
 pub fn send(message: ClientMessage) -> bool {
     with_session(false, |s| s.send(message).is_ok())
+}
+
+/// The default network changed (`RustBridge.networkChanged`): whether a roam started.
+/// False without a stream.
+pub fn network_changed(metered: bool) -> bool {
+    with_session(false, |s| s.network_changed(NetworkHint { metered }))
 }
 
 /// What `MoonBridge.startConnection` passes, minus what only the C engine uses.
@@ -491,6 +497,15 @@ mod tests {
         announce_host_packed444_modes(0b1111);
         assert_eq!(host_packed444_modes(), -1);
         *lock(&ENGINE.interrupt) = Interrupt::default();
+    }
+
+    #[test]
+    fn a_network_change_without_a_stream_starts_no_roam() {
+        let _serial = lock(&ENGINE_TESTS);
+        stop();
+        // The network callback can fire after the stream ended; it must not panic or roam.
+        assert!(!network_changed(false));
+        assert!(!network_changed(true));
     }
 
     #[test]

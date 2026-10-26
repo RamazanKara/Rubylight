@@ -25,7 +25,7 @@ use jni::JNIEnv;
 
 use nightjar_core::control::ClientMessage;
 use nightjar_core::input::InputQueue;
-use nightjar_core::session::{HostInfo, RoamingConfig, SessionConfig};
+use nightjar_core::session::{HostInfo, SessionConfig};
 use rubylight_protocol::control::{HostTimingRequest, LinkNoticeRequest, Reconfigure};
 
 use crate::extras::input_result;
@@ -110,6 +110,8 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_startConnectio
     remote_monitor: jboolean,
     unbatched_input: jboolean,
     network_priority: jboolean,
+    roaming: jboolean,
+    roaming_metered: jboolean,
 ) -> jint {
     let Some(bridge) = bridge::get() else {
         platform::error("RustBridge.startConnection before init");
@@ -157,12 +159,7 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_startConnectio
         remote_monitor: remote_monitor == JNI_TRUE,
         unbatched_input: unbatched_input == JNI_TRUE,
         network_priority: network_priority == JNI_TRUE,
-        // The app reports network changes and whether they are metered, so media never
-        // moves onto a network it has not reported.
-        roaming: RoamingConfig {
-            platform_hints: true,
-            ..Default::default()
-        },
+        roaming: extras::roaming_config(roaming == JNI_TRUE, roaming_metered == JNI_TRUE),
     };
     engine::start(bridge, engine::StartParams { host, config })
 }
@@ -181,6 +178,17 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_interruptConne
     _: JClass,
 ) {
     engine::interrupt();
+}
+
+/// The default network changed while a stream runs (`NvConnection`'s network callback):
+/// whether a roam started.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_networkChanged(
+    _: JNIEnv,
+    _: JClass,
+    metered: jboolean,
+) -> jboolean {
+    jbool(engine::network_changed(metered == JNI_TRUE))
 }
 
 #[no_mangle]

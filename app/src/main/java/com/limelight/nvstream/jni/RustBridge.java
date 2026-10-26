@@ -78,9 +78,10 @@ final class RustBridge {
                                       boolean hapticsPcm, int pyrowaveLinkMbps, int pyrowavePaceMbps,
                                       boolean clientWireless, int networkGracePeriodMs, boolean packed444,
                                       int packed444Modes, boolean remoteMonitor, boolean unbatchedInput,
-                                      boolean networkPriority);
+                                      boolean networkPriority, boolean roaming, boolean roamingMetered);
     static native void stopConnection();
     static native void interruptConnection();
+    static native boolean networkChanged(boolean metered);
     static native void sendMouseMove(short deltaX, short deltaY);
     static native void sendMousePosition(short x, short y, short referenceWidth, short referenceHeight);
     static native void sendMouseMoveAsMousePosition(short deltaX, short deltaY, short referenceWidth, short referenceHeight);

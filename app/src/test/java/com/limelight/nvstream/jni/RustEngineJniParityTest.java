@@ -248,6 +248,8 @@ public class RustEngineJniParityTest {
         Map<String, String> passedAs = new TreeMap<>();
         passedAs.put("packed444Requested", "packed444");
         passedAs.put("packedModes", "packed444Modes");
+        passedAs.put("roamingRequested", "roaming");
+        passedAs.put("roamingMeteredRequested", "roamingMetered");
         List<String> declared = new ArrayList<>();
         for (String parameter : splitParameters(declaration.group(1))) {
             String[] words = parameter.trim().split("\\s+");

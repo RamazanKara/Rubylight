@@ -8,6 +8,7 @@ import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.PairingManager;
+import com.limelight.nvstream.wol.WakeTargets;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -54,6 +55,8 @@ public final class ConsoleRepository {
     private final ClassicAppSource classic;
     private final ExecutorService executor;
     private final Clock clock;
+    /** Where the wake targets of hosts that list them go; null keeps none (tests, the demo). */
+    private final WakeTargets wakeTargets;
     private final Map<String, List<String>> features = new java.util.concurrent.ConcurrentHashMap<>();
     /** When the capabilities call of a host last failed; it is not asked again until {@link #FEATURES_RETRY_MS} later. */
     private final Map<String, Long> featuresFailedAtMs = new java.util.concurrent.ConcurrentHashMap<>();
@@ -62,6 +65,12 @@ public final class ConsoleRepository {
     public ConsoleRepository(NativeApiTransport transport, EndpointFactory endpoints, LibraryCache cache,
                              RecentsStore recents, FavouritesStore favourites, ClassicAppSource classic, ExecutorService executor,
                              Clock clock) {
+        this(transport, endpoints, cache, recents, favourites, classic, executor, clock, null);
+    }
+
+    public ConsoleRepository(NativeApiTransport transport, EndpointFactory endpoints, LibraryCache cache,
+                             RecentsStore recents, FavouritesStore favourites, ClassicAppSource classic, ExecutorService executor,
+                             Clock clock, WakeTargets wakeTargets) {
         this.transport = transport;
         this.endpoints = endpoints;
         this.cache = cache;
@@ -70,6 +79,7 @@ public final class ConsoleRepository {
         this.classic = classic;
         this.executor = executor;
         this.clock = clock;
+        this.wakeTargets = wakeTargets;
     }
 
     /** The repository of the app: the Rust client, the app's own cache directories and clock. */
@@ -79,7 +89,7 @@ public final class ConsoleRepository {
                 computer -> HostEndpoint.of(computer, uniqueId, PlatformBinding.getCryptoProvider(app)),
                 new FileLibraryCache(libraryDirectory(app)),
                 new PreferencesRecentsStore(app), new PreferencesFavouritesStore(app), new CachedAppListSource(app.getCacheDir()),
-                Executors.newCachedThreadPool(), System::currentTimeMillis);
+                Executors.newCachedThreadPool(), System::currentTimeMillis, new WakeTargets(app));
     }
 
     private static File libraryDirectory(Context context) {
@@ -103,6 +113,7 @@ public final class ConsoleRepository {
         new FileLibraryCache(libraryDirectory(app)).forget(hostUuid);
         new PreferencesRecentsStore(app).forgetHost(hostUuid);
         new PreferencesFavouritesStore(app).forgetHost(hostUuid);
+        new WakeTargets(app).forget(hostUuid);
     }
 
     /** The snapshot from what is stored: no network. Hosts with a native library show CACHED. */
@@ -274,7 +285,7 @@ public final class ConsoleRepository {
 
     /**
      * The features the host advertises, read once per host while this repository lives (a host changes them only with
-     * an update). When the call fails the host keeps the features stored with its last library, the failure is
+     * an update), along with the wake targets of a host that lists them. When the call fails the host keeps the features stored with its last library, the failure is
      * remembered so the refreshes that follow do not each ask again, and a refresh after {@link #FEATURES_RETRY_MS}
      * reads them anew. Either way its library still loads.
      */
@@ -284,9 +295,13 @@ public final class ConsoleRepository {
         Long failedAt = featuresFailedAtMs.get(computer.uuid);
         if (failedAt == null || clock.nowMs() - failedAt >= FEATURES_RETRY_MS) {
             try {
-                known = client.capabilities().features;
+                NativeCapabilities capabilities = client.capabilities();
+                known = capabilities.features;
                 features.put(computer.uuid, known);
                 featuresFailedAtMs.remove(computer.uuid);
+                if (wakeTargets != null) {
+                    wakeTargets.refresh(computer.uuid, capabilities, client);
+                }
                 return known;
             } catch (NativeApiException e) {
                 LimeLog.info("No capabilities from " + computer.name + ": " + e.getMessage());

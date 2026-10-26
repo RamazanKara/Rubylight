@@ -65,6 +65,7 @@ import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.http.PairingManager;
 import com.limelight.nvstream.input.MouseButtonPacket;
 import com.limelight.nvstream.jni.MoonBridge;
+import com.limelight.nvstream.wol.WakeTargets;
 import com.limelight.preferences.HostDisplayChoice;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.utils.NetworkGrace;
@@ -1429,7 +1430,7 @@ public class NvConnection {
 
     /**
      * Asks a native API host whether this device has host control and whether the host draws its own menu, in the
-     * background; the stream menu reads the answers.
+     * background; the stream menu reads the answers. The host's wake targets are refreshed on the way.
      */
     public void refreshNativeHostControl() {
         if (isMonkey || !hasNativeSessionActions()) {
@@ -1444,6 +1445,9 @@ public class NvConnection {
                 NativeCapabilities capabilities = client.capabilities();
                 nativeHostControl = capabilities.hostControl;
                 nativeCouchMenu = capabilities.has(NativeCapabilities.COUCH_MENU);
+                if (appContext != null) {
+                    new WakeTargets(appContext).refresh(hostDetails.uuid, capabilities, client);
+                }
             } catch (NativeApiException e) {
                 LimeLog.info("Native capabilities not read: " + e.getMessage());
             }

@@ -102,6 +102,15 @@ public final class NativeApiClient {
         }
     }
 
+    /** The PC's wake targets. Only for a host that advertises {@link NativeCapabilities#WAKE}. */
+    public NativeWake wake() throws NativeApiException {
+        try {
+            return NativeWake.parse(call("wake", ""));
+        } catch (JSONException e) {
+            throw malformed("wake", e);
+        }
+    }
+
     public NativeRadeon radeon() throws NativeApiException {
         return parseRadeon(call("radeon", ""));
     }

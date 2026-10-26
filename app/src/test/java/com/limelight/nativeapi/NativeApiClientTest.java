@@ -325,4 +325,26 @@ public class NativeApiClientTest {
             assertEquals(NativeApiException.Kind.NETWORK, e.getKind());
         }
     }
+
+    @Test
+    public void wakeKeepsEachTargetAndRefusesAReplyWithoutTargets() throws Exception {
+        transport.reply("pc", "wake", ok("{\"revision\":1,\"primary\":\"02:7c:16:b4:13:4f\",\"targets\":["
+                + "{\"mac\":\"02:7c:16:b4:13:4f\",\"kind\":\"ethernet\",\"connected\":true,\"route\":true,"
+                + "\"broadcasts\":[\"192.168.4.255\"],\"state\":\"ready\",\"checks\":[]}]}"));
+        NativeWake wake = client().wake();
+        assertEquals("02:7c:16:b4:13:4f", wake.primary);
+        assertEquals(1, wake.targets.size());
+        assertEquals("ethernet", wake.targets.get(0).kind);
+        assertTrue(wake.targets.get(0).route && wake.targets.get(0).connected);
+        assertEquals(Collections.singletonList("192.168.4.255"), wake.targets.get(0).broadcasts);
+        assertEquals("pc|wake", transport.calls.get(transport.calls.size() - 1));
+
+        transport.reply("pc", "wake", ok("{\"revision\":1,\"primary\":null}"));
+        try {
+            client().wake();
+            fail("a reply without targets is malformed");
+        } catch (NativeApiException e) {
+            assertEquals(NativeApiException.Kind.MALFORMED, e.getKind());
+        }
+    }
 }

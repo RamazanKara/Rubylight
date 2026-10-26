@@ -18,6 +18,7 @@ import android.app.Application;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.PairingManager;
+import com.limelight.nvstream.wol.WakeTargets;
 
 import org.junit.After;
 import org.junit.Before;
@@ -441,6 +442,30 @@ public class ConsoleRepositoryTest {
         assertEquals("", transport.arguments.get(transport.calls.indexOf("tower|library")));
         // The features stored with the last library stand in for the ones the host did not say.
         assertEquals(Collections.singleton("library"), unanswered.host("tower").features);
+    }
+
+    @Test
+    public void aHostThatListsWakeHasItsTargetsStoredWhenItsFeaturesAreRead() throws Exception {
+        WakeTargets wakeTargets = new WakeTargets(RuntimeEnvironment.getApplication());
+        ConsoleRepository waking = new ConsoleRepository(transport,
+                computer -> HostEndpoint.of(computer, "unique", NativeApiFixtures.crypto()), cache, recentsStore,
+                new PreferencesFavouritesStore(RuntimeEnvironment.getApplication()),
+                computer -> classicApps.get(computer.uuid), executor, () -> now, wakeTargets);
+        tower();
+        transport.reply("tower", "capabilities", ok("{\"api_version\":1,\"features\":[\"library\",\"wake\"],"
+                + "\"permissions\":{\"list\":true}}"));
+        transport.reply("tower", "wake", ok("{\"revision\":1,\"primary\":\"02:7c:16:b4:13:4f\",\"targets\":["
+                + "{\"mac\":\"02:e0:4c:68:00:01\",\"broadcasts\":[\"192.168.4.255\"]}]}"));
+        List<ComputerDetails> hosts = Collections.singletonList(nativeHost("tower", "Tower", true));
+        waking.refresh(hosts);
+        waking.refresh(hosts);
+
+        assertEquals(Arrays.asList("02:7c:16:b4:13:4f", "02:e0:4c:68:00:01"), wakeTargets.load("tower").macs);
+        // Read along with the features, once per repository.
+        assertEquals(1, Collections.frequency(transport.calls, "tower|wake"));
+
+        ConsoleRepository.forgetHost(RuntimeEnvironment.getApplication(), "tower");
+        assertSame(WakeTargets.Targets.NONE, wakeTargets.load("tower"));
     }
 
     private ConsoleRepository freshRepository() {

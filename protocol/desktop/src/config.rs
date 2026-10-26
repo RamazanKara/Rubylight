@@ -206,6 +206,11 @@ pub struct Settings {
     pub microphone: bool,
     pub cursor_shapes: bool,
     pub network_grace_ms: u32,
+    /// Client roaming (Experimental): keep the stream when this device changes networks, with a
+    /// Rubylight PC that supports it. On by default.
+    pub client_roaming: bool,
+    /// Let client roaming move the stream onto a metered network. Off by default.
+    pub roaming_metered: bool,
     /// Tell a Rubylight PC when the route to it is Wi-Fi or cellular, so it paces for a wireless
     /// link from the first frame (`x-rl-video[0].clientWireless`). On by default.
     pub tell_host_wireless: bool,
@@ -348,6 +353,8 @@ impl Default for Settings {
             microphone: false,
             cursor_shapes: true,
             network_grace_ms: 3000,
+            client_roaming: true,
+            roaming_metered: false,
             tell_host_wireless: true,
             tell_host_link_speed: true,
             unbatched_input: true,
@@ -1288,6 +1295,16 @@ mod tests {
         assert!(old.tell_host_wireless && old.auto_reconnect);
         let off: Settings = serde_json::from_str(r#"{"tell_host_wireless":false}"#).unwrap();
         assert!(!off.tell_host_wireless);
+    }
+
+    #[test]
+    fn client_roaming_is_on_and_mobile_data_off_by_default_and_in_old_files() {
+        let defaults = Settings::default();
+        assert!(defaults.client_roaming && !defaults.roaming_metered);
+        let old: Settings = serde_json::from_str(r#"{"fps":60,"tell_host_wireless":false}"#).unwrap();
+        assert!(old.client_roaming && !old.roaming_metered);
+        let set: Settings = serde_json::from_str(r#"{"client_roaming":false,"roaming_metered":true}"#).unwrap();
+        assert!(!set.client_roaming && set.roaming_metered);
     }
 
     #[test]

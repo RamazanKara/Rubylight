@@ -2104,6 +2104,14 @@ impl Launcher {
                         }
                     }).response
             });
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["client_roaming"], "Client roaming (Experimental)", "Keep the stream running when this device changes networks. Works with Rubylight PCs that support it.", |ui, s| {
+                toggle(ui, &mut s.client_roaming)
+            });
+            if s.client_roaming {
+                setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["roaming_metered"], "Continue on mobile data", "Let the stream move onto mobile data or another metered network. Streaming uses a lot of data.", |ui, s| {
+                    toggle(ui, &mut s.roaming_metered)
+                });
+            }
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["unbatched_input"], "Instant mouse and pen input", "Send mouse and pen movements immediately.", |ui, s| {
                 toggle(ui, &mut s.unbatched_input)
             });
@@ -3973,6 +3981,31 @@ mod tests {
             assert_fits(&f, &format!("dialog {name}"), true);
             f.l.dialog = Dialog::None;
             f.settle();
+        }
+    }
+
+    #[test]
+    fn at_150_percent_in_german_the_roaming_rows_fit_and_mobile_data_shows_only_with_roaming() {
+        let mut f = Frames::new(record("PC", true, false), Reach::Online);
+        fit_150(&mut f);
+        // The 1280-pixel width is what is checked; the height lets the network rows be drawn
+        // without scrolling to them.
+        f.size.y = 8000.0;
+        let shown = |f: &Frames, text: &str| f.placed.iter().any(|(t, _, _)| t.contains(text));
+        let id = f.hosts.list[0].id;
+        for (screen, global) in [(Screen::Settings, true), (Screen::HostSettings(id), false)] {
+            f.l.settings.client_roaming = true;
+            f.l.go(screen);
+            f.settle();
+            assert!(shown(&f, "Netzwerkwechsel (Experimentell)"), "{screen:?}: the roaming row is drawn in German");
+            assert!(shown(&f, "Über mobile Daten fortsetzen"), "{screen:?}: mobile data shows while roaming is on");
+            assert_fits(&f, &format!("{screen:?} with roaming"), false);
+            if global {
+                f.l.settings.client_roaming = false;
+                f.settle();
+                assert!(shown(&f, "Netzwerkwechsel (Experimentell)"));
+                assert!(!shown(&f, "Über mobile Daten fortsetzen"), "mobile data hides while roaming is off");
+            }
         }
     }
 

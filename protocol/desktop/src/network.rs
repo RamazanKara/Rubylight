@@ -1,5 +1,6 @@
-use std::net::{IpAddr, ToSocketAddrs};
-use std::sync::mpsc::{channel, Receiver};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs, UdpSocket};
+use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
+use std::time::Duration;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind { Mobile, HomeWifi, Wifi, Other }
@@ -217,6 +218,115 @@ fn interface_toward(ip: IpAddr) -> Option<(Medium, u32)> {
     Some((medium, mbps))
 }
 
+/// Client roaming: one look at the network the stream runs on. The route toward the host (the
+/// local address) and the connection carrying it say which network it is; `metered` is whether
+/// it bills by data.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Link {
+    pub local: IpAddr,
+    pub wifi: bool,
+    pub cellular: bool,
+    pub ssid: Option<String>,
+    pub metered: bool,
+}
+
+impl Link {
+    fn same_network(&self, other: &Link) -> bool {
+        (self.local, self.wifi, self.cellular, &self.ssid) == (other.local, other.wifi, other.cellular, &other.ssid)
+    }
+}
+
+/// Turns looks at the link into `Session::network_changed` hints. The network the stream started
+/// on is no change; a different one is, and so is the same one coming back after the route was
+/// gone. A change of the metered flag alone is not: each hint starts a roaming attempt.
+pub struct LinkWatch {
+    current: Link,
+    lost: bool,
+}
+
+impl LinkWatch {
+    pub fn new(start: Link) -> Self {
+        Self { current: start, lost: false }
+    }
+
+    /// `None`: no route toward the host. Returns whether the new network is metered when the
+    /// network changed since the last look.
+    pub fn observe(&mut self, link: Option<Link>) -> Option<bool> {
+        let Some(link) = link else {
+            self.lost = true;
+            return None;
+        };
+        if !self.lost && link.same_network(&self.current) {
+            self.current.metered = link.metered;
+            return None;
+        }
+        self.lost = false;
+        let metered = link.metered;
+        self.current = link;
+        Some(metered)
+    }
+}
+
+/// The local address the system routes traffic for `remote` from. Connecting a UDP socket
+/// sends nothing.
+fn local_toward(remote: SocketAddr) -> Option<IpAddr> {
+    let any: SocketAddr = if remote.is_ipv4() { (Ipv4Addr::UNSPECIFIED, 0).into() } else { (Ipv6Addr::UNSPECIFIED, 0).into() };
+    let socket = UdpSocket::bind(any).ok()?;
+    socket.connect(remote).ok()?;
+    socket.local_addr().ok().map(|address| address.ip())
+}
+
+/// One look: `Ok(None)` without a route toward the host, Err when the connection could not be
+/// read (then nothing is known about it).
+fn link(remote: SocketAddr) -> Result<Option<Link>, String> {
+    let Some(local) = local_toward(remote) else { return Ok(None) };
+    let network = read()?;
+    Ok(Some(Link { local, wifi: network.wifi, cellular: network.cellular, ssid: network.ssid, metered: network.metered }))
+}
+
+/// How often the watcher looks, as often as the engine's own route poll.
+const LOOK_EVERY: Duration = Duration::from_secs(1);
+
+/// Client roaming's network watcher: looks at the link toward the host once a second on its own
+/// thread, off the frame path, and hands each change to `on_change` with whether the new network
+/// is metered. It stops when dropped, or when `on_change` returns false.
+pub struct RoamWatch {
+    _stop: Sender<()>,
+}
+
+impl RoamWatch {
+    /// Errs with why when the network cannot be read now, so the caller does not wait for hints
+    /// that never come.
+    pub fn start(remote: SocketAddr, on_change: impl Fn(bool) -> bool + Send + 'static) -> Result<RoamWatch, String> {
+        let start = link(remote)?.ok_or("no route toward the PC")?;
+        let (stop, stopped) = channel::<()>();
+        std::thread::Builder::new()
+            .name("RoamWatch".into())
+            .spawn(move || {
+                let mut watch = LinkWatch::new(start);
+                let mut unreadable = false;
+                while let Err(RecvTimeoutError::Timeout) = stopped.recv_timeout(LOOK_EVERY) {
+                    let look = match link(remote) {
+                        Ok(look) => look,
+                        Err(error) => {
+                            if !unreadable {
+                                eprintln!("nightjar: roaming: could not read the network, no hints until it can: {error}");
+                            }
+                            unreadable = true;
+                            continue;
+                        }
+                    };
+                    unreadable = false;
+                    if let Some(metered) = watch.observe(look) {
+                        if !on_change(metered) { return; }
+                    }
+                }
+            })
+            .map_err(|e| e.to_string())?;
+        Ok(RoamWatch { _stop: stop })
+    }
+}
+
 pub fn query(waker: crate::hosts::Waker) -> Receiver<Network> {
     let (tx, rx) = channel();
     std::thread::spawn(move || {
@@ -402,6 +512,50 @@ mod tests {
         // A wireless port's speed says nothing about the path.
         assert_eq!(Toward::of(Medium::Wireless, 866), Some(Toward { wireless: true, link_mbps: 0 }));
         assert_eq!(Toward::of(Medium::Other, 1000), None);
+    }
+
+    fn link(local: [u8; 4], ssid: Option<&str>, metered: bool) -> Link {
+        Link { local: IpAddr::from(local), wifi: ssid.is_some(), cellular: false, ssid: ssid.map(Into::into), metered }
+    }
+
+    #[test]
+    fn the_start_network_and_its_metered_flag_alone_are_no_change() {
+        let home = link([192, 168, 1, 20], Some("home"), false);
+        let mut watch = LinkWatch::new(home.clone());
+        assert_eq!(watch.observe(Some(home.clone())), None);
+        // Marking the same connection metered starts no roam.
+        assert_eq!(watch.observe(Some(Link { metered: true, ..home.clone() })), None);
+        assert_eq!(watch.observe(Some(home)), None);
+    }
+
+    #[test]
+    fn a_new_route_or_wifi_is_one_hint_with_its_metered_flag() {
+        let mut watch = LinkWatch::new(link([192, 168, 1, 20], None, false));
+        // Unplugged: the route moves to Wi-Fi, reported once.
+        let wifi = link([192, 168, 1, 21], Some("home"), false);
+        assert_eq!(watch.observe(Some(wifi.clone())), Some(false));
+        assert_eq!(watch.observe(Some(wifi)), None);
+        // Another Wi-Fi with an address in the same range is still a new network.
+        let hotspot = link([192, 168, 1, 21], Some("phone"), true);
+        assert_eq!(watch.observe(Some(hotspot.clone())), Some(true));
+        assert_eq!(watch.observe(Some(hotspot)), None);
+        let cellular = Link { cellular: true, wifi: false, ssid: None, ..link([10, 64, 0, 9], None, true) };
+        assert_eq!(watch.observe(Some(cellular)), Some(true));
+    }
+
+    #[test]
+    fn the_same_network_back_after_the_route_was_gone_is_a_change() {
+        let home = link([192, 168, 1, 20], Some("home"), false);
+        let mut watch = LinkWatch::new(home.clone());
+        assert_eq!(watch.observe(None), None);
+        assert_eq!(watch.observe(None), None);
+        assert_eq!(watch.observe(Some(home.clone())), Some(false));
+        assert_eq!(watch.observe(Some(home)), None);
+    }
+
+    #[test]
+    fn the_local_address_toward_loopback_is_loopback() {
+        assert_eq!(local_toward(SocketAddr::from(([127, 0, 0, 1], 47989))), Some(IpAddr::from([127, 0, 0, 1])));
     }
 
     #[test]

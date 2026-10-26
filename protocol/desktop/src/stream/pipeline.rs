@@ -72,6 +72,8 @@ pub enum Notice {
     HostMenu(Result<(), String>),
     Bitrate { requested: u32, result: Result<u32, String> },
     AdaptiveBitrate(Result<(u32, u32), String>),
+    /// Client roaming: the network watcher saw this device change networks.
+    NetworkChanged(nightjar_core::session::NetworkHint),
 }
 
 #[derive(Default)]
@@ -132,6 +134,8 @@ pub struct Shared {
     pub counters: Counters,
     /// Most pictures held before the oldest is dropped.
     pub queue_limit: usize,
+    /// Client roaming's network watcher while a session runs; dropping it stops it.
+    pub roam_watch: Mutex<Option<crate::network::RoamWatch>>,
     waker: Waker,
 }
 
@@ -160,6 +164,7 @@ impl Shared {
             controller_audio: Mutex::new(Vec::new()),
             counters: Counters::default(),
             queue_limit,
+            roam_watch: Mutex::new(None),
             waker,
         })
     }

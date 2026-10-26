@@ -32,6 +32,7 @@ mod pyrowave_sdk;
 mod planes_gpu;
 
 use std::collections::{HashSet, VecDeque};
+use std::net::ToSocketAddrs;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
@@ -41,7 +42,7 @@ use nightjar_core::control::{ClientMessage, ControlEvent};
 use nightjar_core::http::{App, AppRole, ClientIdentity, Feature, HostClient, LaunchRequest, ServerInfo};
 use nightjar_core::input::packets::{modifier, mouse_button};
 use nightjar_core::sdp::*;
-use nightjar_core::session::{self, HostInfo, Interrupt, Location, RoamingConfig, Session, SessionConfig, Stage};
+use nightjar_core::session::{self, HostInfo, Interrupt, Location, NetworkHint, RoamingConfig, Session, SessionConfig, Stage};
 use rubylight_protocol::control::{HostTimingRequest, LinkNotice, LinkNoticeRequest, LinkState, Reconfigure, CLOCK_SYNC_MESSAGE_TYPE, HOST_TIMING_MESSAGE_TYPE, LINK_NOTICE_MESSAGE_TYPE, RECONFIGURE_MESSAGE_TYPE};
 use rubylight_protocol::present_clock::ClockOffset;
 use sdl3_sys::everything::*;
@@ -370,6 +371,7 @@ impl Connecting {
         match self.result.try_recv() {
             Ok(Ok((session, facts, plan))) => {
                 if expired {
+                    lock(&self.shared.roam_watch).take();
                     session.stop();
                     Err("Automatic recovery stopped after one minute.".into())
                 } else {
@@ -657,7 +659,8 @@ fn location_override() -> Location {
 
 /// The engine's session flags for this role and these settings. A Remote Monitor session is
 /// view-only: the engine starts no input stream and does not wiggle the host's mouse.
-fn session_config(settings: &Settings, role: AppRole, stream: StreamConfig, location: Location) -> SessionConfig {
+/// `watching` says the network watcher runs and feeds `Session::network_changed`.
+fn session_config(settings: &Settings, role: AppRole, stream: StreamConfig, location: Location, watching: bool) -> SessionConfig {
     SessionConfig {
         stream,
         location,
@@ -666,8 +669,35 @@ fn session_config(settings: &Settings, role: AppRole, stream: StreamConfig, loca
         remote_monitor: role == AppRole::RemoteMonitor,
         unbatched_input: settings.unbatched_input,
         network_priority: settings.network_priority,
-        roaming: RoamingConfig::default(),
+        roaming: roaming_config(settings, watching),
     }
+}
+
+/// Client roaming as set. With the watcher running its hints say which networks are metered;
+/// without it the session cannot tell, so roaming then needs "Continue on mobile data" too.
+fn roaming_config(settings: &Settings, watching: bool) -> RoamingConfig {
+    RoamingConfig {
+        enabled: settings.client_roaming && (watching || settings.roaming_metered),
+        metered: settings.roaming_metered,
+        platform_hints: watching,
+    }
+}
+
+/// Client roaming's network watcher toward the PC, feeding the stream through `Notice`s, or None
+/// with why on stderr.
+fn roam_watch(settings: &Settings, address: &str, shared: &Arc<Shared>) -> Option<crate::network::RoamWatch> {
+    if !settings.client_roaming { return None; }
+    let Some(remote) = (address, 47989).to_socket_addrs().ok().and_then(|mut found| found.next()) else {
+        eprintln!("nightjar: roaming: {address} did not resolve, network changes go unwatched{}",
+            if settings.roaming_metered { "" } else { " and roaming is off" });
+        return None;
+    };
+    let shared = Arc::downgrade(shared);
+    let on_change = move |metered| shared.upgrade().map(|s| s.notify(Notice::NetworkChanged(NetworkHint { metered }))).is_some();
+    crate::network::RoamWatch::start(remote, on_change)
+        .map_err(|e| eprintln!("nightjar: roaming: network changes go unwatched{}: {e}",
+            if settings.roaming_metered { "" } else { " and roaming is off" }))
+        .ok()
 }
 
 /// The setting, unless `NIGHTJAR_EARLY_DECODE` is `1` or `0` (for measurement runs).
@@ -847,15 +877,19 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
     };
     // The slices are decoded from chunks, so the beam race needs early decode.
     let (early, slices) = (race_ask.early_decode, race_ask.slices);
+    // Started before the handshake so a change during it still reaches the session.
+    let watch = roam_watch(settings, &plan.record.address, &shared);
+    let roam_shared = shared.clone();
     let session = Session::start(
         &host,
-        session_config(settings, role, stream, location_override()),
+        session_config(settings, role, stream, location_override(), watch.is_some()),
         Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early).with_beam_race(slices).with_gpu_decoder(plan.gpu_decoder)),
         Box::new(pipeline::Audio::new(shared.clone())),
         Arc::new(pipeline::Events { shared }),
         interrupt,
     )
     .map_err(|e| ConnectError { retryable: recovery::transient_start(e.stage, e.code), message: format!("Could not start the stream: {e}") })?;
+    *lock(&roam_shared.roam_watch) = watch;
     let outcome = session.outcome();
     let facts = Facts {
         role,
@@ -1489,6 +1523,9 @@ impl Streaming {
                     if let Err(error) = result {
                         self.show_toast(error);
                     }
+                }
+                Notice::NetworkChanged(hint) => {
+                    self.session.network_changed(hint);
                 }
                 Notice::AdaptiveBitrate(result) => {
                     self.bitrate_busy = false;
@@ -2703,6 +2740,7 @@ impl Streaming {
             eprintln!("nightjar: beam race: frames not raced: {} with under 1 ms to gain, {} not in slices, {} with the first slice missed",
                 skipped[0], skipped[1], skipped[2]);
         }
+        lock(&self.shared.roam_watch).take();
         self.session.stop();
     }
 }
@@ -2790,7 +2828,7 @@ mod tests {
     #[test]
     fn only_a_remote_monitor_session_is_view_only() {
         let settings = Settings::default();
-        let config = |role| session_config(&settings, role, StreamConfig::default(), Location::Auto);
+        let config = |role| session_config(&settings, role, StreamConfig::default(), Location::Auto, true);
         let monitor = config(AppRole::RemoteMonitor);
         assert!(monitor.remote_monitor && !monitor.input_only);
         let stream = config(AppRole::Stream);
@@ -2801,15 +2839,28 @@ mod tests {
 
     #[test]
     fn the_input_and_priority_settings_reach_the_engine() {
-        let on = session_config(&Settings::default(), AppRole::Stream, StreamConfig::default(), Location::Local);
+        let on = session_config(&Settings::default(), AppRole::Stream, StreamConfig::default(), Location::Local, true);
         assert!(on.unbatched_input && on.network_priority);
         assert_eq!((on.location, on.network_grace), (Location::Local, Duration::from_millis(3000)));
         for (unbatched_input, network_priority) in [(false, true), (true, false), (false, false)] {
             let settings = Settings { unbatched_input, network_priority, network_grace_ms: 0, ..Default::default() };
-            let config = session_config(&settings, AppRole::Stream, StreamConfig::default(), Location::Auto);
+            let config = session_config(&settings, AppRole::Stream, StreamConfig::default(), Location::Auto, true);
             assert_eq!((config.unbatched_input, config.network_priority), (unbatched_input, network_priority));
             assert_eq!(config.network_grace, Duration::ZERO);
         }
+    }
+
+    #[test]
+    fn roaming_follows_the_settings_and_needs_mobile_data_without_the_watcher() {
+        let on = session_config(&Settings::default(), AppRole::Stream, StreamConfig::default(), Location::Auto, true).roaming;
+        assert_eq!(on, RoamingConfig { enabled: true, metered: false, platform_hints: true });
+        let metered = Settings { roaming_metered: true, ..Default::default() };
+        assert_eq!(roaming_config(&metered, true), RoamingConfig { enabled: true, metered: true, platform_hints: true });
+        // Without the watcher a metered network looks like any other.
+        assert!(!roaming_config(&Settings::default(), false).enabled);
+        assert_eq!(roaming_config(&metered, false), RoamingConfig { enabled: true, metered: true, platform_hints: false });
+        let off = Settings { client_roaming: false, roaming_metered: true, ..Default::default() };
+        assert!(!roaming_config(&off, true).enabled && !roaming_config(&off, false).enabled);
     }
 
     #[test]

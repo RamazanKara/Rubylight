@@ -329,6 +329,9 @@ enum Heartbeat {
     Keep,
     /// Leased and on the desktop.
     Present,
+    /// Leased and on the desktop, but Windows lists it under another adapter
+    /// and target (and desktop name) than the ones the display knows.
+    Relisted,
     /// Leased and connected, but Windows switched it off.
     SwitchOn,
     /// The driver no longer knows the lease.
@@ -337,11 +340,15 @@ enum Heartbeat {
 /// Only the driver's missing-lease answer permits creating the display again.
 /// A failed renewal or topology query is retried at the next heartbeat: the
 /// driver refuses to create a display that still exists (ERROR_BUSY), and a
-/// lease that stays unrenewed expires and is then reported missing.
+/// lease that stays unrenewed expires and is then reported missing. A display
+/// Windows shows by its device path under another pair is followed, never
+/// switched on: its old routes are no longer available, so switching on
+/// would fail every second while the stream's layout stays lost.
 fn heartbeat(
     renewed: Result<bool>,
     recover: bool,
     active: impl FnOnce() -> Result<bool>,
+    relisted: impl FnOnce() -> Result<bool>,
     connected: impl FnOnce() -> Result<bool>,
 ) -> Result<Heartbeat> {
     let exists = renewed?;
@@ -353,6 +360,9 @@ fn heartbeat(
     }
     if active()? {
         return Ok(Heartbeat::Present);
+    }
+    if relisted()? {
+        return Ok(Heartbeat::Relisted);
     }
     anyhow::ensure!(
         connected()?,
@@ -877,9 +887,24 @@ impl VirtualDisplay {
             renewed,
             recover,
             || Topology::query()?.shows(&routes, self.hotplug_monitor()?, device_info),
+            || {
+                let path = &self.hotplug_monitor()?.monitor_device_path;
+                Ok(listed_by_path(monitors()?, path).is_some())
+            },
             || Topology::query_all()?.shows(&routes, self.hotplug_monitor()?, device_info),
         )? {
             Heartbeat::Keep | Heartbeat::Present => return Ok(()),
+            Heartbeat::Relisted => {
+                // Windows moved the active display to another adapter and
+                // target, so its desktop name changed too. The name lookup
+                // follows the device path and takes the new pair as the
+                // display's routes; the guard then reapplies the stream's
+                // layout and HDR on the new name.
+                self.generation = self.generation.wrapping_add(1);
+                self.refresh_name()?;
+                tracing::info!(output=%self.name, "owned virtual display moved to another adapter or target");
+                return Ok(());
+            }
             Heartbeat::SwitchOn => {
                 // A live lease can be switched off by a Windows layout
                 // recall. Activate that same target; creating its ID again
@@ -1107,33 +1132,70 @@ mod tests {
                 Ok(true),
                 true,
                 || Ok(true),
+                || panic!("present needs no relisting lookup"),
                 || panic!("present needs no full query")
             )
             .unwrap(),
             Heartbeat::Present
         );
         assert_eq!(
-            heartbeat(Ok(true), true, || Ok(false), || Ok(true)).unwrap(),
+            heartbeat(Ok(true), true, || Ok(false), || Ok(false), || Ok(true)).unwrap(),
             Heartbeat::SwitchOn
         );
+        // Issue 56: Windows showed the display under another adapter and
+        // target, its old route stayed listed but unavailable, and switching
+        // that route on failed every second. A display Windows shows is
+        // followed, never switched on.
+        assert_eq!(
+            heartbeat(
+                Ok(true),
+                true,
+                || Ok(false),
+                || Ok(true),
+                || panic!("a relisted display is not switched on")
+            )
+            .unwrap(),
+            Heartbeat::Relisted
+        );
         // Not yet shown anywhere, or a query failed: retry, never create.
-        assert!(heartbeat(Ok(true), true, || Ok(false), || Ok(false)).is_err());
+        assert!(heartbeat(Ok(true), true, || Ok(false), || Ok(false), || Ok(false)).is_err());
         assert!(
             heartbeat(
                 Ok(true),
                 true,
                 || Err(failure(ERROR_BUSY)),
+                || panic!("no relisting lookup"),
                 || panic!("no full query")
             )
             .is_err()
         );
-        assert!(heartbeat(Ok(true), true, || Ok(false), || Err(failure(ERROR_BUSY))).is_err());
+        assert!(
+            heartbeat(
+                Ok(true),
+                true,
+                || Ok(false),
+                || Err(failure(ERROR_BUSY)),
+                || panic!("no full query")
+            )
+            .is_err()
+        );
+        assert!(
+            heartbeat(
+                Ok(true),
+                true,
+                || Ok(false),
+                || Ok(false),
+                || Err(failure(ERROR_BUSY))
+            )
+            .is_err()
+        );
         // A renewal failure other than a missing lease is retried as well,
         // without touching the topology.
         assert!(
             heartbeat(
                 busy(),
                 true,
+                || panic!("no topology query"),
                 || panic!("no topology query"),
                 || panic!("no topology query")
             )
@@ -1145,6 +1207,7 @@ mod tests {
             heartbeat(
                 missing(),
                 true,
+                || panic!("no topology query"),
                 || panic!("no topology query"),
                 || panic!("no topology query")
             )
@@ -1163,13 +1226,14 @@ mod tests {
                     Ok(exists),
                     false,
                     || panic!("paused renewal must not query the desktop"),
+                    || panic!("paused renewal must not look the display up"),
                     || panic!("paused renewal must not query connected displays"),
                 )
                 .unwrap(),
                 Heartbeat::Keep
             );
             assert_eq!(
-                heartbeat(Ok(exists), true, || Ok(false), || Ok(true)).unwrap(),
+                heartbeat(Ok(exists), true, || Ok(false), || Ok(false), || Ok(true)).unwrap(),
                 if exists {
                     Heartbeat::SwitchOn
                 } else {
@@ -1181,6 +1245,7 @@ mod tests {
         let error = heartbeat(
             Err(windows::core::Error::from_hresult(ERROR_ACCESS_DENIED.to_hresult()).into()),
             false,
+            || panic!("no topology query"),
             || panic!("no topology query"),
             || panic!("no topology query"),
         )

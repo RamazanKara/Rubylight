@@ -9,6 +9,7 @@ Rubylight, called Butterpollo until rc.29, is written in Rust: host, native help
 ## Unreleased
 
 - **A launch that fails to start its app no longer leaves a pending session.** When the app or its settings could not be loaded after the display was prepared, the client got an error but the host kept the launch, its display lease and `RustHostPendingSessionCount` for up to 30 seconds. Such a launch is now released at once.
+- **A virtual display Windows moves to another target keeps its stream layout.** On some systems (an RX 9070 XT streaming 4K HDR to a TV, [#56](https://github.com/RamazanKara/Rubylight/issues/56)) Windows listed the active virtual display under another adapter target and desktop name. The host kept trying to switch on its old, unavailable target every second and could not reapply the exclusive layout, so the physical display stayed on and the desktop kept rearranging. The host now follows the display by its device path, takes its new name, and reapplies the layout and HDR there.
 
 ## New in 3.0.0-rc.3
 

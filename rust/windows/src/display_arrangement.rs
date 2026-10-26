@@ -439,11 +439,9 @@ impl Lease {
     pub fn reapply(&self, output: &str, retained: &[String]) -> Result<()> {
         let mut state = state().lock().unwrap();
         let monitors = crate::display::monitors()?;
-        let target = monitors
-            .iter()
-            .find(|m| m.matches(output))
-            .ok_or_else(|| anyhow::anyhow!("recovered arrangement target unavailable"))?;
         let mut owned = self.target.lock().unwrap();
+        let target = reapplied_target(&monitors, output, &owned)
+            .ok_or_else(|| anyhow::anyhow!("recovered arrangement target unavailable"))?;
         if *owned != target.device_id {
             for owner in state.owners.iter_mut().filter(|(t, _)| *t == *owned) {
                 owner.0 = target.device_id.clone();
@@ -617,6 +615,20 @@ impl Drop for Activation {
         state.key.clear();
     }
 }
+/// The stream's display among the active monitors: by the output name the
+/// stream knows, else by the device id the lease holds. Windows can list a
+/// display under another desktop name (issue 56) before the stream learns it.
+fn reapplied_target<'a>(
+    monitors: &'a [crate::display::Monitor],
+    output: &str,
+    owned: &str,
+) -> Option<&'a crate::display::Monitor> {
+    monitors.iter().find(|m| m.matches(output)).or_else(|| {
+        monitors
+            .iter()
+            .find(|m| !owned.is_empty() && m.device_id == owned)
+    })
+}
 
 #[cfg(test)]
 mod tests {
@@ -647,6 +659,37 @@ mod tests {
             clone_groups: vec![],
             nodes,
         }
+    }
+    #[test]
+    fn reapplying_follows_a_display_windows_listed_under_another_name() {
+        let monitor = |device_id: &str, display_name: &str| crate::display::Monitor {
+            device_id: device_id.into(),
+            monitor_device_path: String::new(),
+            display_name: display_name.into(),
+            friendly_name: String::new(),
+            hdr_supported: false,
+            hdr_enabled: false,
+            primary: false,
+            adapter: Default::default(),
+            target: 0,
+            source: 0,
+        };
+        let monitors = [
+            monitor("SAM7454", r"\\.\DISPLAY1"),
+            monitor("RBY0001", r"\\.\DISPLAY25"),
+        ];
+        // Issue 56: the stream still knew DISPLAY23.
+        let target = reapplied_target(&monitors, r"\\.\DISPLAY23", "RBY0001").unwrap();
+        assert_eq!(target.display_name, r"\\.\DISPLAY25");
+        assert_eq!(
+            reapplied_target(&monitors, r"\\.\DISPLAY1", "RBY0001")
+                .unwrap()
+                .device_id,
+            "SAM7454",
+            "a known output name wins"
+        );
+        assert!(reapplied_target(&monitors, r"\\.\DISPLAY23", "").is_none());
+        assert!(reapplied_target(&monitors, r"\\.\DISPLAY23", "RBY0002").is_none());
     }
     #[test]
     fn disabling_an_original_display_requires_restoration_after_a_competing_layout_change() {

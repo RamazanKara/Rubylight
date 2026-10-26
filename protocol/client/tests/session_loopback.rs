@@ -19,7 +19,7 @@ use nightjar_core::roaming::RoamEvent;
 use nightjar_core::sdp::*;
 use nightjar_core::session::{
     AudioRenderer, AudioSetup, DecodeStatus, HostInfo, Interrupt, Listener, Location, Session,
-    SessionConfig, Stage, VideoDecoder, VideoSetup,
+    NetworkHint, SessionConfig, Stage, VideoDecoder, VideoSetup,
 };
 use nightjar_core::video::{Frame, FrameType};
 use rubylight_protocol::roaming::{is_roaming, Datagram, Header, Payload, SDP_ATTRIBUTE};
@@ -254,6 +254,8 @@ struct FakeHost {
     terminate: Arc<AtomicBool>,
     /// The roaming payloads the control port received, opened, with their senders.
     roaming: Arc<Mutex<Vec<(SocketAddr, Payload)>>>,
+    /// The control stream stops servicing ENet while set.
+    silent: Arc<AtomicBool>,
 }
 
 fn start_host(packed_format: Option<u32>) -> FakeHost {
@@ -344,11 +346,13 @@ fn start_host_with(packed_format: Option<u32>, roaming: bool) -> FakeHost {
     let control_disconnected = Arc::new(AtomicBool::new(false));
     let terminate = Arc::new(AtomicBool::new(false));
     let roamed = Arc::new(Mutex::new(Vec::new()));
-    let (messages, disconnected, terminating, roam_log) = (
+    let silent = Arc::new(AtomicBool::new(false));
+    let (messages, disconnected, terminating, roam_log, silenced) = (
         control_messages.clone(),
         control_disconnected.clone(),
         terminate.clone(),
         roamed.clone(),
+        silent.clone(),
     );
     thread::spawn(move || {
         let settings = HostSettings {
@@ -367,6 +371,10 @@ fn start_host_with(packed_format: Option<u32>, roaming: bool) -> FakeHost {
         let gcm = roam_gcm();
         let mut roam_seq = 0u32;
         loop {
+            if silenced.load(Ordering::SeqCst) {
+                thread::sleep(Duration::from_millis(1));
+                continue;
+            }
             while let Some(event) = host.service().unwrap() {
                 match event {
                     Event::Connect { peer: p, data } => {
@@ -435,6 +443,7 @@ fn start_host_with(packed_format: Option<u32>, roaming: bool) -> FakeHost {
         control_disconnected,
         terminate,
         roaming: roamed,
+        silent,
     }
 }
 
@@ -453,6 +462,7 @@ struct Record {
     startup: Vec<String>,
     /// The DESCRIBE's packed modes as the listener got them, and whether the decoder was set up.
     packed_modes: Option<(u8, bool)>,
+    logs: Vec<String>,
 }
 
 struct Recorder {
@@ -527,6 +537,10 @@ impl Listener for Recorder {
     fn host_packed444_modes(&self, modes: u8) {
         let mut r = self.record.lock().unwrap();
         r.packed_modes = Some((modes, r.setup.is_some()));
+    }
+
+    fn log(&self, message: &str) {
+        self.record.lock().unwrap().logs.push(message.into());
     }
 
     fn connection_started(&self) {
@@ -1022,13 +1036,7 @@ fn a_session_roams_control_and_media_to_a_new_address() {
     session.send_microphone(b"after").unwrap();
     assert_eq!(await_mic_from(&host.mic, new), b"after");
     // So does the control stream.
-    let inputs = count(&host.control_messages, ptype::INPUT_DATA);
-    session
-        .input(|q| q.send_keyboard(0x41, true, 0, 0))
-        .unwrap();
-    until("input after the roam", || {
-        count(&host.control_messages, ptype::INPUT_DATA) > inputs
-    });
+    input_arrives(&session, &host);
 
     session.stop();
     until("the disconnect", || {
@@ -1038,4 +1046,71 @@ fn a_session_roams_control_and_media_to_a_new_address() {
     assert_eq!(r.frames, [(1, FrameType::Idr), (2, FrameType::Idr)]);
     assert!(r.audio.iter().all(Option::is_some));
     assert_eq!(r.terminated, None);
+}
+
+/// Silences the host's control stream past `INPUT_CONTACT_LOST_AFTER`, which starts
+/// probing with roaming on, then gives fast probes time to arrive.
+fn silence_host(host: &FakeHost) {
+    host.silent.store(true, Ordering::SeqCst);
+    thread::sleep(Duration::from_millis(1600));
+    host.silent.store(false, Ordering::SeqCst);
+    thread::sleep(Duration::from_millis(600));
+}
+
+/// Input after the roaming steps reaches the host: the control stream is up.
+fn input_arrives(session: &Session, host: &FakeHost) {
+    let inputs = count(&host.control_messages, ptype::INPUT_DATA);
+    session
+        .input(|q| q.send_keyboard(0x41, true, 0, 0))
+        .unwrap();
+    until("input", || {
+        count(&host.control_messages, ptype::INPUT_DATA) > inputs
+    });
+}
+
+/// On a metered network without "Continue on mobile data" the client neither moves nor
+/// probes, on the hint or through a silence after it: the network grace period decides,
+/// and the stream rides the silence out where it was.
+#[test]
+fn on_a_metered_network_without_the_opt_in_the_grace_period_decides() {
+    let host = start_host_with(None, true);
+    let record = Arc::new(Mutex::new(Record::default()));
+    let config = SessionConfig {
+        network_grace: Duration::from_secs(20),
+        ..roaming_config()
+    };
+    let session = start_session(&host, config, &record);
+    let client = await_ping(&host.video);
+
+    assert!(!session.network_changed(NetworkHint { metered: true }));
+    silence_host(&host);
+    {
+        let r = record.lock().unwrap();
+        assert!(
+            r.logs
+                .iter()
+                .any(|l| l.contains("the network grace period decides")),
+            "{:?}",
+            r.logs
+        );
+    }
+    assert!(roam_events(&record).is_empty());
+    assert_eq!(*host.roaming.lock().unwrap(), []);
+
+    // The same video port, and the control stream, carry on.
+    input_arrives(&session, &host);
+    let mut packetizer = Packetizer {
+        seq: 100,
+        spi: 0,
+        frame: 1,
+    };
+    for packet in packetizer.frame(&h264_idr(), 2) {
+        host.video.send_to(&packet, client).unwrap();
+    }
+    until("a frame", || record.lock().unwrap().frames.len() == 1);
+    session.stop();
+    until("the disconnect", || {
+        host.control_disconnected.load(Ordering::SeqCst)
+    });
+    assert_eq!(record.lock().unwrap().terminated, None);
 }

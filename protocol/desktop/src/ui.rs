@@ -3259,13 +3259,11 @@ fn host_card(ui: &mut Ui, host: &Host, line: Option<&str>) -> Response {
     } else {
         painter.circle_stroke(dot, 6.0, Stroke::new(2.0, color));
     }
-    painter.text(
-        Pos2::new(rect.left() + 44.0, rect.top() + 30.0),
-        Align2::LEFT_CENTER,
-        host.display_name(),
-        semibold(19.0),
-        *ON_SURFACE,
-    );
+    // A long name ends in "…" before the three dots.
+    let mut name = egui::text::LayoutJob::simple_singleline(host.display_name().to_owned(), semibold(19.0), *ON_SURFACE);
+    name.wrap = egui::text::TextWrapping::truncate_at_width(rect.width() - 44.0 - 46.0);
+    let name = painter.layout_job(name);
+    painter.galley(Pos2::new(rect.left() + 44.0, rect.top() + 30.0 - name.size().y / 2.0), name, *ON_SURFACE);
     painter.text(
         Pos2::new(rect.left() + 20.0, rect.top() + 62.0),
         Align2::LEFT_CENTER,
@@ -3925,6 +3923,32 @@ mod tests {
         }
         f.press(Key::Enter);
         assert!(matches!(f.l.dialog, Dialog::ConfirmRemove { .. }), "the last option is Remove");
+    }
+
+    #[test]
+    fn at_150_percent_in_german_a_40_character_pc_name_fits_its_card_options_and_details() {
+        let name = "Wohnzimmer-PC mit Radeon RX 7900 XT 20GB";
+        assert_eq!(name.chars().count(), 40);
+        let mut record = record("uid", true, true);
+        record.name = name.into();
+        let mut f = Frames::with(record, Reach::Online, Some(answer(true, 7)), Vec::new());
+        fit_150(&mut f);
+        assert!(shows(&f, name), "{:?}", f.drawn);
+        // The card ends it in "…" before its edge.
+        assert_fits(&f, "PCs", false);
+        let id = f.hosts.list[0].id;
+        f.l.dialog = Dialog::HostOptions { host: id };
+        f.settle();
+        assert!(shows(&f, name), "{:?}", f.drawn);
+        assert_fits(&f, "options", true);
+        f.scroll_to_end();
+        assert!(shows(&f, tr(HostOption::Remove.label())), "the list ends with Remove: {:?}", f.drawn);
+        assert_fits(&f, "options, scrolled to the end", true);
+        f.l.dialog = Dialog::None;
+        f.l.open(Screen::HostDetails(id));
+        f.settle();
+        assert!(shows(&f, name), "{:?}", f.drawn);
+        assert_fits(&f, "details page", false);
     }
 
     #[test]

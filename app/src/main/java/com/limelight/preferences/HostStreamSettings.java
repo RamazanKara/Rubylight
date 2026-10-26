@@ -50,7 +50,6 @@ import com.limelight.computers.IdentityManager;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.PairingManager;
-import com.limelight.nvstream.wol.WakeOnLanSender;
 import com.limelight.ui.HostFeatureGate;
 import com.google.android.material.slider.Slider;
 import com.limelight.utils.FrontendExporter;
@@ -105,6 +104,8 @@ public class HostStreamSettings extends NightjarActivity {
     // The computer manager once bound; Rename, Unpair and Remove go through it.
     private ComputerManagerService.ComputerManagerBinder manager;
     private boolean foreground;
+    // The manager polls the PCs for a wake started here.
+    private boolean wakePolling;
     private final HostActions hostActions = new HostActions(this, new HostActions.Callbacks() {
         @Override public ComputerManagerService.ComputerManagerBinder binder() { return manager; }
         @Override public boolean isForeground() { return foreground; }
@@ -116,7 +117,8 @@ public class HostStreamSettings extends NightjarActivity {
         @Override public void onRenamed(ComputerDetails details) {
             showName();
         }
-        @Override public void onWakeSent(ComputerDetails details) { }
+        @Override public void onWakeSent(ComputerDetails details) { startWakePolling(); }
+        @Override public void onWakeEnded(ComputerDetails details) { stopWakePolling(); }
         @Override public void pausePolling() { }
         @Override public void resumePolling() { }
     });
@@ -336,12 +338,14 @@ public class HostStreamSettings extends NightjarActivity {
     protected void onResume() {
         super.onResume();
         foreground = true;
+        if (hostActions.isWaking()) startWakePolling();
     }
 
     @Override
     protected void onPause() {
         super.onPause();
         foreground = false;
+        stopWakePolling();
         if (paceCalibration != null) {
             paceCalibration.cancel();
             paceCalibration = null;
@@ -356,6 +360,7 @@ public class HostStreamSettings extends NightjarActivity {
     protected void onDestroy() {
         super.onDestroy();
         hostActions.destroy();
+        stopWakePolling();
         if (managerBound) {
             unbindService(managerConnection);
             managerBound = false;
@@ -448,19 +453,32 @@ public class HostStreamSettings extends NightjarActivity {
     }
 
     private void wake() {
-        ComputerDetails target = computer;
-        new Thread(() -> {
-            boolean sent;
-            try {
-                WakeOnLanSender.sendWolPacket(target);
-                sent = true;
-            } catch (IOException e) {
-                sent = false;
-            }
-            boolean woken = sent;
-            runOnUiThread(() -> Toast.makeText(this, woken ? R.string.wol_waking_msg : R.string.wol_fail,
-                    Toast.LENGTH_LONG).show());
-        }, "Wake on LAN").start();
+        hostActions.wake(computer);
+    }
+
+    /**
+     * Nothing polls the PCs on this screen, so the wait for a woken PC does while it lasts and the screen is in front:
+     * the manager's object then follows the PC, and the screen shows it once it answers.
+     */
+    private void startWakePolling() {
+        if (wakePolling || manager == null) {
+            return;
+        }
+        wakePolling = true;
+        manager.startPolling(details -> {
+            if (!details.uuid.equals(hostUuid) || details.state != ComputerDetails.State.ONLINE) return;
+            ComputerDetails copy = new ComputerDetails(details);
+            runOnUiThread(() -> {
+                if (!isFinishing() && !isDestroyed()) showComputer(copy);
+            });
+        });
+    }
+
+    private void stopWakePolling() {
+        if (wakePolling) {
+            wakePolling = false;
+            manager.stopPolling();
+        }
     }
 
     private void pinShortcut() {

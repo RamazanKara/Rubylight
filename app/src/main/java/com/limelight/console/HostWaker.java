@@ -14,12 +14,12 @@ import java.util.function.Supplier;
  * and checks the host the feed reports every {@link #TICK_MS}. All callbacks arrive on the handler's thread. The
  * sender, the clock and the executor are handed in, so a test drives it without a network.
  */
-final class HostWaker {
-    interface Sender {
+public final class HostWaker {
+    public interface Sender {
         void send(ComputerDetails host) throws IOException;
     }
 
-    interface Listener {
+    public interface Listener {
         /** The PC answers now. */
         void onOnline();
 
@@ -41,7 +41,7 @@ final class HostWaker {
     private WakeLaunch plan;
     private int run;
 
-    HostWaker(Handler handler, Executor io, Sender sender, Supplier<ComputerDetails> host, LongSupplier clock,
+    public HostWaker(Handler handler, Executor io, Sender sender, Supplier<ComputerDetails> host, LongSupplier clock,
               Listener listener) {
         this.handler = handler;
         this.io = io;
@@ -52,16 +52,16 @@ final class HostWaker {
     }
 
     /** A PC that is not online and has a MAC address to wake it by. */
-    static boolean canWake(ComputerDetails host) {
+    public static boolean canWake(ComputerDetails host) {
         return host != null && host.state != ComputerDetails.State.ONLINE && host.macAddress != null;
     }
 
-    boolean isWaiting() {
+    public boolean isWaiting() {
         return plan != null;
     }
 
     /** Starts the wait; false when one is under way already. */
-    boolean start() {
+    public boolean start() {
         if (plan != null) {
             return false;
         }
@@ -70,7 +70,7 @@ final class HostWaker {
         return true;
     }
 
-    void cancel() {
+    public void cancel() {
         plan = null;
         run++;
     }

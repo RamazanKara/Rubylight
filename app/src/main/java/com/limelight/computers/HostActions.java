@@ -19,6 +19,7 @@ import androidx.appcompat.app.AlertDialog;
 import com.limelight.LimeLog;
 import com.limelight.R;
 import com.limelight.binding.PlatformBinding;
+import com.limelight.console.HostWaker;
 import com.limelight.nativeapi.ConsoleRepository;
 import com.limelight.nativeapi.HostEndpoint;
 import com.limelight.nativeapi.JniNativeApiTransport;
@@ -41,6 +42,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.UnknownHostException;
 import java.util.concurrent.Executor;
+import java.util.function.LongSupplier;
 
 /**
  * What a person can do to a PC on the list besides opening it: pair (with a PIN shown here or a
@@ -73,6 +75,10 @@ public final class HostActions {
         /** A wake signal went out; the row says "Waking…" for a while. */
         void onWakeSent(ComputerDetails computer);
 
+        /** The wait for a woken PC ended: it answered, it did not in time, or no packet went out. */
+        default void onWakeEnded(ComputerDetails computer) {
+        }
+
         void pausePolling();
 
         void resumePolling();
@@ -92,6 +98,8 @@ public final class HostActions {
     // The newest Sleep PC flow, and its progress while the host is asked.
     private SleepRoute sleepRoute;
     private AlertDialog sleepProgress;
+    // The PC being woken and waited for.
+    private HostWaker waker;
 
     public HostActions(Activity activity, Callbacks callbacks) {
         this.activity = activity;
@@ -125,6 +133,7 @@ public final class HostActions {
     public void destroy() {
         cancelPairing();
         pendingPairingResult = null;
+        endWake();
         if (sleepRoute != null) {
             sleepRoute.detach();
             sleepRoute = null;
@@ -309,7 +318,18 @@ public final class HostActions {
 
     // Wake
 
+    /**
+     * Wakes the PC and waits for it: the packets go out again while it stays away, and it is told when the PC answers
+     * or does not within the wait. One PC at a time; waking another moves the wait to it.
+     */
     public void wake(final ComputerDetails computer) {
+        final Context app = activity.getApplicationContext();
+        startWake(computer, host -> WakeOnLanSender.sendWolPacket(app, host),
+                task -> new Thread(task, "Wake on LAN").start(), SystemClock::elapsedRealtime);
+    }
+
+    @VisibleForTesting
+    void startWake(final ComputerDetails computer, HostWaker.Sender sender, Executor io, LongSupplier clock) {
         if (computer.state == ComputerDetails.State.ONLINE) {
             Toast.makeText(activity, R.string.wol_pc_online, Toast.LENGTH_SHORT).show();
             return;
@@ -318,25 +338,56 @@ public final class HostActions {
             showError(R.string.pcview_menu_send_wol, activity.getString(R.string.wol_no_mac), null);
             return;
         }
-        new Thread(() -> {
-            boolean sent;
-            try {
-                WakeOnLanSender.sendWolPacket(computer);
-                sent = true;
-            } catch (IOException e) {
-                sent = false;
+        endWake();
+        final String uuid = computer.uuid;
+        waker = new HostWaker(main, io, sender, () -> {
+            // The manager's object follows the polls; without it the PC is never seen online and the wait times out.
+            ComputerManagerService.ComputerManagerBinder binder = callbacks.binder();
+            ComputerDetails live = binder == null ? null : binder.getComputer(uuid);
+            return live != null ? live : computer;
+        }, clock, new HostWaker.Listener() {
+            @Override
+            public void onOnline() {
+                LimeLog.info("Wake: " + uuid + " answers");
+                callbacks.onWakeEnded(computer);
+                if (!gone()) Toast.makeText(activity, R.string.wol_pc_online, Toast.LENGTH_SHORT).show();
             }
-            final boolean woken = sent;
-            activity.runOnUiThread(() -> {
-                if (gone()) return;
-                if (woken) {
-                    callbacks.onWakeSent(computer);
-                    Toast.makeText(activity, R.string.wol_waking_msg, Toast.LENGTH_LONG).show();
-                } else {
-                    showError(R.string.pcview_menu_send_wol, activity.getString(R.string.wol_fail), () -> wake(computer));
+
+            @Override
+            public void onTimedOut() {
+                LimeLog.warning("Wake: " + uuid + " did not answer in time");
+                callbacks.onWakeEnded(computer);
+                String message = activity.getString(R.string.console_wake_timeout, computer.displayName());
+                if (callbacks.isForeground()) {
+                    showError(computer.displayName(), message, () -> startWake(computer, sender, io, clock));
+                } else if (!gone()) {
+                    Toast.makeText(activity, message, Toast.LENGTH_LONG).show();
                 }
-            });
-        }, "Wake on LAN").start();
+            }
+
+            @Override
+            public void onSendFailed(IOException error) {
+                LimeLog.warning("Wake: no packet went out to " + uuid + ": " + error);
+                callbacks.onWakeEnded(computer);
+                showError(R.string.pcview_menu_send_wol, activity.getString(R.string.wol_fail),
+                        () -> startWake(computer, sender, io, clock));
+            }
+        });
+        waker.start();
+        callbacks.onWakeSent(computer);
+        Toast.makeText(activity, R.string.wol_waking_msg, Toast.LENGTH_LONG).show();
+    }
+
+    /** Whether a wake started here still waits for its PC. */
+    public boolean isWaking() {
+        return waker != null && waker.isWaiting();
+    }
+
+    private void endWake() {
+        if (waker != null) {
+            waker.cancel();
+            waker = null;
+        }
     }
 
     // Sleep

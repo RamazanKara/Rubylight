@@ -7,12 +7,16 @@ import android.content.Intent;
 import android.content.ServiceConnection;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
+import android.os.SystemClock;
 
 import com.limelight.computers.ComputerDatabaseManager;
 import com.limelight.computers.ComputerManagerListener;
 import com.limelight.computers.ComputerManagerService;
 import com.limelight.computers.HostCapabilityCache;
+import com.limelight.console.HostWaker;
 import com.limelight.pin.PinGate;
 import com.limelight.pin.PinLockActivity;
 import com.limelight.nvstream.http.ComputerDetails;
@@ -45,8 +49,12 @@ public class ShortcutTrampoline extends Activity {
     private NvApp app;
     private ArrayList<Intent> intentStack = new ArrayList<>();
 
-    private int wakeHostTries = 10;
     private ComputerDetails computer;
+    // The PC as the newest poll saw it, and the wake that waits for it to answer.
+    private volatile ComputerDetails latest;
+    private HostWaker waker;
+    // The wait ran out or no packet went out: the PC is not woken again.
+    private volatile boolean wakeEnded;
     private SpinnerDialog blockingLoadSpinner;
 
     private volatile ComputerManagerService.ComputerManagerBinder managerBinder;
@@ -112,130 +120,16 @@ public class ShortcutTrampoline extends Activity {
                                 return;
                             }
 
-                            // Try to wake the target PC if it's offline (up to some retry limit)
-                            if (details.state == ComputerDetails.State.OFFLINE && details.macAddress != null && --wakeHostTries >= 0) {
-                                try {
-                                    // Make a best effort attempt to wake the target PC
-                                    WakeOnLanSender.sendWolPacket(computer);
+                            latest = details;
 
-                                    // If we sent at least one WoL packet, reset the computer state
-                                    // to force ComputerManager to poll it again.
-                                    localBinder.invalidateStateForComputer(computer.uuid);
-                                    return;
-                                } catch (IOException e) {
-                                    // If we got an exception, we couldn't send a single WoL packet,
-                                    // so fallthrough into the offline error path.
-                                    e.printStackTrace();
-                                }
+                            // Wake the PC if it's offline, and wait for it before launching
+                            if (details.state == ComputerDetails.State.OFFLINE && details.macAddress != null && !wakeEnded) {
+                                runOnUiThread(() -> wake(localBinder));
+                                return;
                             }
 
                             if (details.state != ComputerDetails.State.UNKNOWN) {
-                                runOnUiThread(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        // Stop showing the spinner
-                                        if (blockingLoadSpinner != null) {
-                                            blockingLoadSpinner.dismiss();
-                                            blockingLoadSpinner = null;
-                                        }
-
-                                        // If the managerBinder was destroyed before this callback,
-                                        // just finish the activity.
-                                        if (stopped || managerBinder == null || isFinishing() || isDestroyed()) {
-                                            finish();
-                                            return;
-                                        }
-
-                                        if (details.state == ComputerDetails.State.ONLINE && details.pairState == PairingManager.PairState.PAIRED) {
-                                            
-                                            // Launch game if provided app ID, otherwise launch app view
-                                            if (app != null) {
-                                                if (details.runningGameId == 0 || app.getControl() != NvApp.Control.NONE ||
-                                                        details.caps.has(HostCapabilities.Feature.HOST_CONFIRMS_REPLACEMENT) ||
-                                                        app.matchesRunningApp(details.runningGameId, details.runningGameUuid)) {
-                                                    intentStack.add(ServerHelper.createStartIntent(ShortcutTrampoline.this, app, details, managerBinder));
-
-                                                    // Close this activity
-                                                    finish();
-
-                                                    // Now start the activities
-                                                    startActivities(intentStack.toArray(new Intent[]{}));
-                                                } else {
-                                                    // Create the start intent immediately, so we can safely unbind the managerBinder
-                                                    // below before we return.
-                                                    final Intent startIntent = ServerHelper.createStartIntent(ShortcutTrampoline.this, app, details, managerBinder);
-
-                                                    UiHelper.displayQuitConfirmationDialog(ShortcutTrampoline.this, new Runnable() {
-                                                        @Override
-                                                        public void run() {
-                                                            intentStack.add(startIntent);
-
-                                                            // Close this activity
-                                                            finish();
-
-                                                            // Now start the activities
-                                                            startActivities(intentStack.toArray(new Intent[]{}));
-                                                        }
-                                                    }, new Runnable() {
-                                                        @Override
-                                                        public void run() {
-                                                            // Close this activity
-                                                            finish();
-                                                        }
-                                                    });
-                                                }
-                                            } else {
-                                                // Close this activity
-                                                finish();
-
-                                                // Add the PC view at the back (and clear the task)
-                                                Intent i;
-                                                i = new Intent(ShortcutTrampoline.this, PcView.class);
-                                                i.setAction(Intent.ACTION_MAIN);
-                                                i.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK);
-                                                intentStack.add(i);
-
-                                                // Take this intent's data and create an intent to start the app view
-                                                i = new Intent(getIntent());
-                                                i.setClass(ShortcutTrampoline.this, AppView.class);
-                                                intentStack.add(i);
-
-                                                // If a game is running, we'll make the stream the top level activity
-                                                if (details.runningGameId != 0
-                                                        && !PinGate.needsPinForStream(ShortcutTrampoline.this, uuidString)) {
-                                                    intentStack.add(ServerHelper.createStartIntent(ShortcutTrampoline.this,
-                                                            new NvApp(null, details.runningGameId, false), details, managerBinder));
-                                                }
-
-                                                // Now start the activities
-                                                startActivities(intentStack.toArray(new Intent[]{}));
-                                            }
-                                            
-                                        }
-                                        else if (details.state == ComputerDetails.State.OFFLINE) {
-                                            // Computer offline - display an error dialog
-                                            Dialog.displayDialog(ShortcutTrampoline.this,
-                                                    getResources().getString(R.string.conn_error_title),
-                                                    getResources().getString(R.string.error_pc_offline),
-                                                    true);
-                                        } else if (details.pairState != PairingManager.PairState.PAIRED) {
-                                            // Computer not paired - display an error dialog
-                                            Dialog.displayDialog(ShortcutTrampoline.this,
-                                                    getResources().getString(R.string.conn_error_title),
-                                                    getResources().getString(R.string.scut_not_paired),
-                                                    true);
-                                        }
-
-                                        // We don't want any more callbacks from now on, so go ahead
-                                        // and unbind from the service
-                                        if (managerBinder != null) {
-                                            managerBinder.stopPolling();
-                                            unbindService(serviceConnection);
-                                            managerServiceBound = false;
-                                            managerBinder = null;
-                                        }
-                                    }
-                                });
+                                runOnUiThread(() -> finishWith(details));
                             }
                         }
                     });
@@ -251,6 +145,174 @@ public class ShortcutTrampoline extends Activity {
             managerBinder = null;
         }
     };
+
+    /**
+     * Wakes the PC and waits for it: the packets go out again while it stays away, and each one has the manager poll it
+     * at once. A poll that finds it online launches; when the wait runs out, or no packet goes out, the shortcut says so.
+     */
+    private void wake(ComputerManagerService.ComputerManagerBinder binder) {
+        if (stopped || wakeEnded || isFinishing() || isDestroyed()) {
+            return;
+        }
+        if (waker == null) {
+            waker = new HostWaker(new Handler(Looper.getMainLooper()), task -> new Thread(task, "Wake on LAN").start(),
+                    host -> {
+                        sendWake(host);
+                        binder.invalidateStateForComputer(host.uuid);
+                    }, () -> latest, SystemClock::elapsedRealtime, new HostWaker.Listener() {
+                        @Override
+                        public void onOnline() {
+                            // The poll that saw it online launches.
+                        }
+
+                        @Override
+                        public void onTimedOut() {
+                            wakeEnded = true;
+                            ComputerDetails pc = latest;
+                            fail(getString(R.string.console_wake_timeout, pc == null ? uuidString : pc.displayName()));
+                        }
+
+                        @Override
+                        public void onSendFailed(IOException error) {
+                            LimeLog.warning("Shortcut wake: no packet went out: " + error);
+                            wakeEnded = true;
+                            fail(getString(R.string.wol_fail));
+                        }
+                    });
+        }
+        if (waker.start() && blockingLoadSpinner != null) {
+            blockingLoadSpinner.setMessage(getString(R.string.wol_waking_pc));
+        }
+    }
+
+    /** Sends the wake packets (off the UI thread); tests override this. */
+    protected void sendWake(ComputerDetails host) throws IOException {
+        WakeOnLanSender.sendWolPacket(this, host);
+    }
+
+    private void fail(String message) {
+        if (blockingLoadSpinner != null) {
+            blockingLoadSpinner.dismiss();
+            blockingLoadSpinner = null;
+        }
+        if (stopped || managerBinder == null || isFinishing() || isDestroyed()) {
+            finish();
+            return;
+        }
+        Dialog.displayDialog(this, getString(R.string.conn_error_title), message, true);
+        managerBinder.stopPolling();
+        unbindService(serviceConnection);
+        managerServiceBound = false;
+        managerBinder = null;
+    }
+
+    /** Launches, or says why not, once the PC answered or the wait for it is over; then lets go of the manager. */
+    private void finishWith(ComputerDetails details) {
+        if (waker != null) {
+            waker.cancel();
+        }
+        // Stop showing the spinner
+        if (blockingLoadSpinner != null) {
+            blockingLoadSpinner.dismiss();
+            blockingLoadSpinner = null;
+        }
+
+        // If the managerBinder was destroyed before this callback,
+        // just finish the activity.
+        if (stopped || managerBinder == null || isFinishing() || isDestroyed()) {
+            finish();
+            return;
+        }
+
+        if (details.state == ComputerDetails.State.ONLINE && details.pairState == PairingManager.PairState.PAIRED) {
+
+            // Launch game if provided app ID, otherwise launch app view
+            if (app != null) {
+                if (details.runningGameId == 0 || app.getControl() != NvApp.Control.NONE ||
+                        details.caps.has(HostCapabilities.Feature.HOST_CONFIRMS_REPLACEMENT) ||
+                        app.matchesRunningApp(details.runningGameId, details.runningGameUuid)) {
+                    intentStack.add(ServerHelper.createStartIntent(ShortcutTrampoline.this, app, details, managerBinder));
+
+                    // Close this activity
+                    finish();
+
+                    // Now start the activities
+                    startActivities(intentStack.toArray(new Intent[]{}));
+                } else {
+                    // Create the start intent immediately, so we can safely unbind the managerBinder
+                    // below before we return.
+                    final Intent startIntent = ServerHelper.createStartIntent(ShortcutTrampoline.this, app, details, managerBinder);
+
+                    UiHelper.displayQuitConfirmationDialog(ShortcutTrampoline.this, new Runnable() {
+                        @Override
+                        public void run() {
+                            intentStack.add(startIntent);
+
+                            // Close this activity
+                            finish();
+
+                            // Now start the activities
+                            startActivities(intentStack.toArray(new Intent[]{}));
+                        }
+                    }, new Runnable() {
+                        @Override
+                        public void run() {
+                            // Close this activity
+                            finish();
+                        }
+                    });
+                }
+            } else {
+                // Close this activity
+                finish();
+
+                // Add the PC view at the back (and clear the task)
+                Intent i;
+                i = new Intent(ShortcutTrampoline.this, PcView.class);
+                i.setAction(Intent.ACTION_MAIN);
+                i.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK);
+                intentStack.add(i);
+
+                // Take this intent's data and create an intent to start the app view
+                i = new Intent(getIntent());
+                i.setClass(ShortcutTrampoline.this, AppView.class);
+                intentStack.add(i);
+
+                // If a game is running, we'll make the stream the top level activity
+                if (details.runningGameId != 0
+                        && !PinGate.needsPinForStream(ShortcutTrampoline.this, uuidString)) {
+                    intentStack.add(ServerHelper.createStartIntent(ShortcutTrampoline.this,
+                            new NvApp(null, details.runningGameId, false), details, managerBinder));
+                }
+
+                // Now start the activities
+                startActivities(intentStack.toArray(new Intent[]{}));
+            }
+
+        }
+        else if (details.state == ComputerDetails.State.OFFLINE) {
+            // Computer offline - display an error dialog
+            Dialog.displayDialog(ShortcutTrampoline.this,
+                    getResources().getString(R.string.conn_error_title),
+                    getResources().getString(R.string.error_pc_offline),
+                    true);
+        } else if (details.pairState != PairingManager.PairState.PAIRED) {
+            // Computer not paired - display an error dialog
+            Dialog.displayDialog(ShortcutTrampoline.this,
+                    getResources().getString(R.string.conn_error_title),
+                    getResources().getString(R.string.scut_not_paired),
+                    true);
+        }
+
+        // We don't want any more callbacks from now on, so go ahead
+        // and unbind from the service
+        if (managerBinder != null) {
+            managerBinder.stopPolling();
+            unbindService(serviceConnection);
+            managerServiceBound = false;
+            managerBinder = null;
+        }
+    }
 
     protected boolean validateInput(String uuidString, String appIdString, String nameString) {
         // Validate PC UUID/Name
@@ -492,6 +554,9 @@ public class ShortcutTrampoline extends Activity {
     protected void onStop() {
         super.onStop();
         stopped = true;
+        if (waker != null) {
+            waker.cancel();
+        }
 
         if (blockingLoadSpinner != null) {
             blockingLoadSpinner.dismiss();

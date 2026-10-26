@@ -557,7 +557,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
 
     /** Sends the wake packets to a PC that is away (off the UI thread); the debug demo and tests override this. */
     protected void sendWake(ComputerDetails computer) throws java.io.IOException {
-        com.limelight.nvstream.wol.WakeOnLanSender.sendWolPacket(computer);
+        com.limelight.nvstream.wol.WakeOnLanSender.sendWolPacket(this, computer);
     }
 
     /** The games this screen is adding on a host now; see {@link GameOpener.Screen#adding}. */

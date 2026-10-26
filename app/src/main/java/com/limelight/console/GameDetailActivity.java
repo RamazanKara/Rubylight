@@ -108,7 +108,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
 
     /** Sends the wake packets to an offline host (off the UI thread); the debug demo and tests override this. */
     protected void sendWake(ComputerDetails computer) throws IOException {
-        WakeOnLanSender.sendWolPacket(computer);
+        WakeOnLanSender.sendWolPacket(this, computer);
     }
 
     /** Ends the game on the host, then calls {@code onComplete} on any thread. */

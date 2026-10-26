@@ -328,6 +328,10 @@ impl Filter {
         pointer: &mut dyn FnMut() -> Option<(f32, f32)>,
         out: &mut Outcome,
     ) -> bool {
+        // A key the client already holds is an auto-repeat: only the first
+        // key-down of the keyboard chord opens or closes the menu.
+        let key_chord = self.open_with.key_chord.matches(event)
+            && !matches!(*event, Input::Keyboard { key, .. } if self.held.has_key(key));
         self.held.observe(event);
         if let Input::Controller { id, buttons, .. } = *event
             && (self.open || self.open_with.controller)
@@ -337,16 +341,13 @@ impl Filter {
         self.corner
             .observe(event, now, !self.open && self.open_with.touch);
         if self.open {
-            self.navigate(now, event, pointer, out);
+            self.navigate(now, event, key_chord, pointer, out);
             return matches!(
                 event,
                 Input::Arrival { .. } | Input::Battery { .. } | Input::Haptics(_)
             );
         }
-        if self.open_with.keyboard
-            && self.open_with.key_chord.matches(event)
-            && self.request_open(out)
-        {
+        if self.open_with.keyboard && key_chord && self.request_open(out) {
             return false;
         }
         !self.masking || self.unmask(event)
@@ -355,6 +356,7 @@ impl Filter {
         &mut self,
         now: Instant,
         event: &Input,
+        key_chord: bool,
         pointer: &mut dyn FnMut() -> Option<(f32, f32)>,
         out: &mut Outcome,
     ) {
@@ -368,8 +370,11 @@ impl Filter {
             Input::Keyboard {
                 key, down: true, ..
             } => {
+                // A repeat of the chord's key does nothing, not Back.
                 if self.open_with.key_chord.matches(event) {
-                    self.request_close(out);
+                    if key_chord {
+                        self.request_close(out);
+                    }
                     return;
                 }
                 let nav = match key {

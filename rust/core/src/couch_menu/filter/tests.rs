@@ -150,6 +150,12 @@ fn couch_menu_filter_key_chord_with_and_without_shift() {
     let (passed, out) = run(&mut filter, t0, std::slice::from_ref(&shifted));
     assert_eq!(passed, [shifted]);
     assert!(!out.release_game && !filter.is_open());
+    // Letting go of Shift while Backspace repeats is still the same press.
+    let repeat = key(VK_BACK, CTRL_ALT, true);
+    let up = key(VK_BACK, CTRL_ALT, false);
+    let (passed, out) = run(&mut filter, t0, &[repeat.clone(), up.clone()]);
+    assert_eq!(passed, [repeat, up]);
+    assert!(!out.release_game && !filter.is_open());
     let before = key(0x41, 0, true);
     let after = key(0x42, 0, true);
     let chord = key(VK_BACK, CTRL_ALT, true);
@@ -738,14 +744,59 @@ fn couch_menu_filter_custom_key_chord_replaces_the_default() {
     let shifted = key(VK_HOME, CTRL_ALT | MODIFIER_SHIFT, true);
     let (passed, _) = run(&mut filter, t0, std::slice::from_ref(&shifted));
     assert_eq!(passed, [shifted]);
-    let (passed, out) = run(&mut filter, t0, &[key(VK_HOME, CTRL_ALT, true)]);
-    assert!(passed.is_empty());
+    let (passed, out) = run(
+        &mut filter,
+        t0,
+        &[
+            key(VK_HOME, CTRL_ALT | MODIFIER_SHIFT, false),
+            key(VK_HOME, CTRL_ALT, true),
+        ],
+    );
+    assert_eq!(passed, [key(VK_HOME, CTRL_ALT | MODIFIER_SHIFT, false)]);
     assert!(out.release_game && filter.is_open());
     // In the open menu Backspace is Back, and the custom chord closes.
     let (_, out) = run(&mut filter, t0, &[key(VK_BACK, CTRL_ALT, true)]);
     assert_eq!(out.nav, [Nav::Back]);
-    let (_, out) = run(&mut filter, t0, &[key(VK_HOME, CTRL_ALT, true)]);
+    let (_, out) = run(
+        &mut filter,
+        t0,
+        &[key(VK_HOME, CTRL_ALT, false), key(VK_HOME, CTRL_ALT, true)],
+    );
     assert_eq!(out.nav, [Nav::Closed]);
+}
+
+#[test]
+fn couch_menu_filter_key_chord_repeats_do_not_toggle_again() {
+    let t0 = Instant::now();
+    let (shared, mut filter) = setup();
+    let chord = key(VK_BACK, CTRL_ALT, true);
+    let (passed, out) = run(&mut filter, t0, &[chord.clone(), chord.clone()]);
+    assert!(passed.is_empty());
+    assert_eq!(
+        out.nav,
+        [Nav::Opened],
+        "the repeat neither closes nor goes Back"
+    );
+    // Auto-repeat keeps sending key-downs while the key is held.
+    for ms in [500, 533, 566] {
+        let (passed, out) = run(&mut filter, t0 + ms * MS, std::slice::from_ref(&chord));
+        assert!(passed.is_empty() && out.nav.is_empty(), "at {ms} ms");
+        assert!(
+            filter.is_open() && Shared::is_open(shared.load()),
+            "at {ms} ms"
+        );
+    }
+    // Let go and press again: that closes, and its repeats do not reopen.
+    let (_, out) = run(
+        &mut filter,
+        t0 + 600 * MS,
+        &[key(VK_BACK, CTRL_ALT, false), chord.clone(), chord.clone()],
+    );
+    assert_eq!(out.nav, [Nav::Closed]);
+    let (passed, out) = run(&mut filter, t0 + 700 * MS, std::slice::from_ref(&chord));
+    assert!(passed.is_empty(), "the held key stays masked");
+    assert_eq!(out, Outcome::default());
+    assert!(!filter.is_open());
 }
 
 #[test]

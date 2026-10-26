@@ -9,6 +9,9 @@ use std::time::{Duration, Instant};
 /// counts them. The `" (n)"` suffix and `.part` still fit the 255-unit limit
 /// of a Windows path component.
 pub const MAX_NAME_UNITS: usize = 200;
+/// The longest name a file in the transfer folder can have: the numbered
+/// copy of the longest name the host accepts.
+pub const MAX_STORED_NAME_UNITS: usize = MAX_NAME_UNITS + " (4294967295)".len();
 /// An upload is written to its name plus this suffix and renamed when it
 /// completes, so a half-written file never carries the final name.
 pub const PART_SUFFIX: &str = ".part";
@@ -90,10 +93,21 @@ fn format_character(c: char) -> bool {
 /// transfer folder. Names are refused, never rewritten, so the client
 /// learns that its file would not have kept its name.
 pub fn check_name(name: &str) -> Result<(), NameError> {
+    check(name, MAX_NAME_UNITS)
+}
+
+/// Checks the name of a file in the transfer folder, listed or asked for:
+/// the rules of [`check_name`], but long enough for the numbered copy of
+/// the longest name.
+pub fn check_stored_name(name: &str) -> Result<(), NameError> {
+    check(name, MAX_STORED_NAME_UNITS)
+}
+
+fn check(name: &str, max_units: usize) -> Result<(), NameError> {
     if name.is_empty() {
         return Err(NameError::Empty);
     }
-    if name.encode_utf16().count() > MAX_NAME_UNITS {
+    if name.encode_utf16().count() > max_units {
         return Err(NameError::TooLong);
     }
     if name.contains(['/', '\\']) {
@@ -339,6 +353,24 @@ mod tests {
         // 200 two-byte UTF-8 characters are 200 units.
         assert_eq!(check_name(&"ä".repeat(200)), Ok(()));
         assert_eq!(check_name(&"ä".repeat(201)), Err(NameError::TooLong));
+    }
+
+    #[test]
+    fn a_numbered_copy_of_the_longest_name_is_a_stored_name() {
+        let longest = format!("{}.txt", "n".repeat(MAX_NAME_UNITS - 4));
+        let numbered = collision_name(&longest, u32::MAX);
+        assert_eq!(numbered.len(), MAX_STORED_NAME_UNITS);
+        assert_eq!(check_name(&numbered), Err(NameError::TooLong));
+        assert_eq!(check_stored_name(&numbered), Ok(()));
+        // With `.part` it still fits a Windows path component.
+        assert!(part_name(&numbered).len() <= 255);
+        assert_eq!(
+            check_stored_name(&format!("{numbered}x")),
+            Err(NameError::TooLong)
+        );
+        // The other rules hold as for uploads.
+        assert_eq!(check_stored_name("a:b"), Err(NameError::StreamSeparator));
+        assert_eq!(check_stored_name("x.part"), Err(NameError::PartSuffix));
     }
 
     #[test]

@@ -123,11 +123,13 @@ impl PadChord {
         }
         false
     }
-    /// Cancels every pending hold; pads that fired keep waiting for a change.
+    /// Cancels every pending hold. A pad that was armed then waits for a
+    /// button change like one that fired: going back to idle would re-arm it
+    /// on its next report and fire again a second later.
     pub fn cancel(&mut self) {
         for pad in &mut self.pads {
             if matches!(pad, PadState::Armed(_)) {
-                *pad = PadState::Idle;
+                *pad = PadState::Fired;
             }
         }
     }

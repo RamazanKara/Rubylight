@@ -660,3 +660,25 @@ fn couch_menu_filter_open_with_turns_ways_off() {
     let (_, out) = run(&mut filter, t0, &[key(VK_ESCAPE, 0, true)]);
     assert_eq!(out.nav, [Nav::Opened, Nav::Back]);
 }
+
+#[test]
+fn couch_menu_filter_a_second_pad_holding_the_chord_waits_for_a_change() {
+    let t0 = Instant::now();
+    let (_, mut filter) = setup();
+    run(&mut filter, t0, &[pad(0, PAD_CHORD)]);
+    run(&mut filter, t0 + 500 * MS, &[pad(1, PAD_CHORD)]);
+    let (_, out) = run(&mut filter, t0 + 1000 * MS, &[]);
+    assert!(out.release_game && filter.is_open(), "pad 0 opened it");
+    // Pad 1 still reports L3+R3: the open cancelled its hold, and it must
+    // not arm again and close the menu a second later.
+    for ms in [1100, 1600, 2100, 2600, 3100] {
+        let (_, out) = run(&mut filter, t0 + ms * MS, &[pad(1, PAD_CHORD)]);
+        assert!(!out.nav.contains(&Nav::Closed), "at {ms} ms");
+        assert!(filter.is_open(), "at {ms} ms");
+    }
+    // Let go and hold again: a new hold, which closes it.
+    run(&mut filter, t0 + 3200 * MS, &[pad(0, 0), pad(1, 0)]);
+    run(&mut filter, t0 + 3300 * MS, &[pad(1, PAD_CHORD)]);
+    run(&mut filter, t0 + 4300 * MS, &[]);
+    assert!(!filter.is_open());
+}

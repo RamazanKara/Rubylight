@@ -414,6 +414,18 @@ const network: Setting[] = [
     default: 10000,
   },
   {
+    key: 'client_roaming',
+    label: 'Client roaming (Experimental)',
+    description:
+      'Let a device whose network address changes, such as a phone moving from Wi-Fi to mobile data, keep its stream instead of reconnecting. Experimental.',
+    details:
+      'Only devices that support it, such as Nightjar, use it. The device proves the new address with the stream key before the host sends anything there, and the host then drops what still arrives from the old one. Moonlight clients that do not support it stream as before. Applies to the next stream.',
+    category: 'network',
+    group: 'Streams',
+    control: { kind: 'toggle' },
+    default: true,
+  },
+  {
     key: 'origin_web_ui_allowed',
     label: 'Console access',
     description:

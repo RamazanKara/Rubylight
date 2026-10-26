@@ -8,6 +8,7 @@ mod device_recovery;
 mod encoder_tests;
 mod game_audio;
 mod qos;
+mod roaming;
 pub(crate) mod slices;
 use audio_sink::{AudioPace, AudioSink, GameStreamAudio, WebRtcAudio};
 use qos::Tagged;
@@ -427,13 +428,13 @@ fn end_unattended_sessions(
         };
         if since.elapsed() > ping_timeout {
             let received: Vec<_> = control
-                .sources_from(s.launch.peer)
+                .sources_from(s.client_ip())
                 .iter()
                 .map(|(peer, local)| format!("{peer} on {local}"))
                 .collect();
             tracing::warn!(
                 client = %s.launch.client.name,
-                peer = %s.launch.peer,
+                peer = %s.client_ip(),
                 control_datagrams = if received.is_empty() { "none".into() } else { received.join(", ") },
                 "session has no control connection; ending it"
             );
@@ -620,7 +621,7 @@ use butterpollo_windows::{
     input::{Injector, PadReport},
     net::ReplySocket,
 };
-use rusty_enet::{Event, Host, HostSettings, Packet, PacketKind, PeerID};
+use rusty_enet::{Event, Host, HostSettings, Packet, PacketKind, PeerID, PeerState};
 use std::{
     collections::HashMap,
     net::{IpAddr, SocketAddr, UdpSocket},
@@ -835,6 +836,8 @@ struct ControlSocket {
     /// that sendto delayed every input by its cost.
     holding: bool,
     held: Vec<(SocketAddr, Vec<u8>)>,
+    /// Client roaming: what a moved client's datagrams map to.
+    roaming: roaming::Roaming,
 }
 impl ControlSocket {
     fn new(socket: Arc<ReplySocket>) -> Self {
@@ -842,6 +845,7 @@ impl ControlSocket {
             socket,
             holding: false,
             held: Vec::new(),
+            roaming: Default::default(),
         }
     }
     /// Hold back what ENet sends until release().
@@ -854,6 +858,7 @@ impl ControlSocket {
     fn release(&mut self) -> std::io::Result<()> {
         self.holding = false;
         for (address, buffer) in self.held.drain(..) {
+            let address = self.roaming.wire_of(address);
             if let Err(error) = self.socket.send_to(&buffer, address) {
                 if !butterpollo_windows::net::datagram_lost(&error) {
                     return Err(error);
@@ -877,7 +882,7 @@ impl rusty_enet::Socket for ControlSocket {
             self.held.push((address, buffer.to_vec()));
             return Ok(buffer.len());
         }
-        match self.socket.send_to(buffer, address) {
+        match self.socket.send_to(buffer, self.roaming.wire_of(address)) {
             Err(error) if butterpollo_windows::net::datagram_lost(&error) => Ok(0),
             result => result,
         }
@@ -886,16 +891,42 @@ impl rusty_enet::Socket for ControlSocket {
         &mut self,
         buffer: &mut [u8; rusty_enet::MTU_MAX],
     ) -> std::io::Result<Option<(SocketAddr, rusty_enet::PacketReceived)>> {
-        match self.socket.receive(buffer) {
-            Ok((size, peer, local)) => {
-                // ENet answers before it knows the session: learn from every datagram.
-                self.socket.answer_from(peer, local);
-                Ok(Some((peer, rusty_enet::PacketReceived::Complete(size))))
+        loop {
+            let (size, from, local) = match self.socket.receive(buffer) {
+                Ok(received) => received,
+                Err(error) if butterpollo_windows::net::datagram_lost(&error) => return Ok(None),
+                Err(error) => return Err(error),
+            };
+            if self.roaming.intercepts(&buffer[..size]) {
+                self.roaming.on_datagram(
+                    &self.socket,
+                    Instant::now(),
+                    from,
+                    local,
+                    &buffer[..size],
+                );
+                continue;
             }
-            Err(error) if butterpollo_windows::net::datagram_lost(&error) => Ok(None),
-            Err(error) => Err(error),
+            let Some(peer) = self.roaming.peer_of(from) else {
+                continue;
+            };
+            // ENet answers before it knows the session: learn from every datagram.
+            self.socket.answer_from(from, local);
+            return Ok(Some((peer, rusty_enet::PacketReceived::Complete(size))));
         }
     }
+}
+/// The first video ping from the path a client roamed to: the client needs a keyframe,
+/// and what the link-rate controller learned about the old path no longer holds.
+fn restart_on_new_path(s: &Session, c: &Config) {
+    s.request_host_keyframe();
+    let mut stream = s.config.clone();
+    s.stream_mode().apply_to(&mut stream);
+    s.rebuild_link_rate(
+        &stream,
+        c.link_rate_adaptation(),
+        c.integer("max_bitrate", 0).clamp(0, 500_000) as u32,
+    );
 }
 /// The local address a client's datagrams arrived on, for logs.
 fn describe_local(local: Option<IpAddr>) -> String {
@@ -971,8 +1002,9 @@ impl Media {
                         match socket.receive(&mut b) {
                             Ok((n, peer, local)) => {
                                 let sessions = h.sessions.lock().unwrap();
+                                let mut roamed = None;
                                 for s in sessions.active.values() {
-                                    if s.launch.peer != peer.ip().to_canonical() {
+                                    if s.client_ip() != peer.ip().to_canonical() {
                                         continue;
                                     }
                                     let valid = (n >= 16
@@ -983,7 +1015,7 @@ impl Media {
                                                 .active
                                                 .values()
                                                 .filter(|s| {
-                                                    s.launch.peer == peer.ip().to_canonical()
+                                                    s.client_ip() == peer.ip().to_canonical()
                                                 })
                                                 .count()
                                                 == 1);
@@ -1007,9 +1039,16 @@ impl Media {
                                                 stream = if is_audio { "audio" } else { "video" },
                                                 "stream peer"
                                             );
+                                            if !is_audio && s.take_new_path() {
+                                                roamed = Some(s.clone());
+                                            }
                                         }
                                         break;
                                     }
+                                }
+                                drop(sessions);
+                                if let Some(s) = roamed {
+                                    restart_on_new_path(&s, &h.config.read().unwrap());
                                 }
                             }
                             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
@@ -2412,7 +2451,8 @@ impl Media {
                                     .copied(),
                             };
                             let Some(peer) = peer else {
-                                if start.elapsed() > crate::network::ping_timeout(&c) {
+                                // A roam drops the old path's address until the new one pings.
+                                if s.media_wait_start(start).elapsed() > crate::network::ping_timeout(&c) {
                                     anyhow::bail!("client video ping timed out");
                                 }
                                 timer.until(Instant::now() + Duration::from_millis(1));
@@ -3217,7 +3257,7 @@ impl Media {
                         loss.unsent();
                     }
                 }
-            } else if start.elapsed() > crate::network::ping_timeout(&config) {
+            } else if s.media_wait_start(start).elapsed() > crate::network::ping_timeout(&config) {
                 anyhow::bail!("client audio ping timed out");
             }
             let now = Instant::now();
@@ -3289,7 +3329,13 @@ impl Media {
                 h.controller_sessions.expire(app_running);
                 controller_cleanup = Instant::now();
             }
-            let ping_timeout = crate::network::ping_timeout(&h.config.read().unwrap());
+            let (ping_timeout, client_roaming) = {
+                let c = h.config.read().unwrap();
+                (crate::network::ping_timeout(&c), c.client_roaming())
+            };
+            host.socket_mut().roaming.set_enabled(client_roaming);
+            // Whether a peer went, so roaming forgets its addresses.
+            let mut peers_went = false;
             #[cfg(test)]
             if let Some(fixture) = &h.reconnect_fixture {
                 fixture.hold_control();
@@ -3311,13 +3357,14 @@ impl Media {
                             continue;
                         };
                         let sessions = h.sessions.lock().unwrap();
+                        let ip = address.ip().to_canonical();
+                        // A session's client may have roamed since its launch.
                         let candidates: Vec<_> = sessions
                             .active
                             .values()
-                            .filter(|s| !s.stopping())
+                            .filter(|s| !s.stopping() && s.client_ip() == ip)
                             .map(|s| &s.launch)
-                            .chain(sessions.pending.values())
-                            .filter(|l| l.peer == address.ip().to_canonical())
+                            .chain(sessions.pending.values().filter(|l| l.peer == ip))
                             .collect();
                         let launch = candidates
                             .iter()
@@ -3370,6 +3417,7 @@ impl Media {
                                     controller_audio: [0; 16],
                                     controller_pcm: Default::default(),
                                     command_at: None,
+                                    roaming: false,
                                 },
                             );
                         } else {
@@ -3392,6 +3440,7 @@ impl Media {
                         }
                     }
                     Event::Disconnect { peer, .. } => {
+                        peers_went = true;
                         if let Some(address) = peer.address() {
                             socket.forget(address);
                         }
@@ -3718,6 +3767,9 @@ impl Media {
                     }
                 }
             }
+            for commit in host.socket_mut().roaming.take_commits() {
+                follow_roam(&h, self, &mut host, &peers, &socket, commit);
+            }
             let poll_feedback = Instant::now() >= feedback_at;
             if poll_feedback {
                 feedback_at = Instant::now() + Duration::from_millis(8);
@@ -3744,6 +3796,7 @@ impl Media {
                             tracing::warn!(client=%s.launch.client.name,"client control stream timed out");
                             s.fail();
                         }
+                        host.socket_mut().roaming.set_stopping(&p.id);
                         let reason = s.termination_reason();
                         if let Ok(message) = p.encrypt(&s, 0x0109, &reason.to_be_bytes()) {
                             let peer = host.peer_mut(*peer_id);
@@ -3755,6 +3808,15 @@ impl Media {
                         s.stop();
                         remove.push(*peer_id);
                         continue;
+                    }
+                    // A session takes roaming probes once its stream and ENet peer are up.
+                    if !p.roaming
+                        && let Some(address) = host.peer(*peer_id).address()
+                    {
+                        host.socket_mut()
+                            .roaming
+                            .insert(&p.id, &s.launch.key, address);
+                        p.roaming = true;
                     }
                     if !p.input_released && p.seen.elapsed() >= Duration::from_secs(1) {
                         #[cfg(test)]
@@ -4004,8 +4066,19 @@ impl Media {
             host.socket_mut().release()?;
             // Release held input now; gamepad workers unplug their pads asynchronously.
             drop(disconnected);
+            peers_went |= !remove.is_empty();
             for peer in remove {
                 peers.remove(&peer);
+            }
+            if peers_went && host.socket().roaming.has_peers() {
+                let live: Vec<SocketAddr> = host
+                    .peers()
+                    .filter(|peer| peer.state() != PeerState::Disconnected)
+                    .filter_map(|peer| peer.address())
+                    .collect();
+                host.socket_mut()
+                    .roaming
+                    .retain_peers(&socket, |peer| live.contains(&peer));
             }
             // A session whose client never connected control, or whose peer
             // this worker lost when it restarted, would otherwise hold the
@@ -4049,6 +4122,50 @@ impl Media {
         Ok(())
     }
 }
+/// Carries out a client's validated move (`roaming`): the session's media follow the
+/// client to its new address, ENet checks the path at once, and the client hears MIGRATED.
+fn follow_roam(
+    h: &Shared,
+    media: &Media,
+    host: &mut Host<ControlSocket>,
+    peers: &HashMap<PeerID, ControlPeer>,
+    socket: &ReplySocket,
+    commit: roaming::Commit,
+) {
+    let session = h.sessions.lock().unwrap().active.get(&commit.id).cloned();
+    if let Some(s) = &session {
+        s.roamed(commit.new.ip(), Instant::now());
+        // The old path's media addresses are stale; the first pings from the new path
+        // replace them.
+        let mut stale = Vec::new();
+        media.peers.lock().unwrap().retain(|(id, audio), peer| {
+            let keep = *id != commit.id;
+            if !keep {
+                stale.push((*audio, *peer));
+            }
+            keep
+        });
+        for (audio, peer) in stale {
+            if audio {
+                media.audio.forget(peer);
+            } else {
+                media.video.forget(peer);
+            }
+        }
+    }
+    if let Some((peer_id, _)) = peers.iter().find(|(_, p)| p.id == commit.id) {
+        host.peer_mut(*peer_id).ping();
+    }
+    roaming::send(socket, &commit.migrated, commit.new);
+    tracing::info!(
+        session = %commit.id,
+        client = session.as_ref().map_or("", |s| s.launch.client.name.as_str()),
+        media_rebound = commit.media_rebound,
+        "client roamed {} -> {}",
+        roaming::canonical(commit.old),
+        roaming::canonical(commit.new)
+    );
+}
 struct ControlPeer {
     #[cfg(test)]
     _fixture_input: Option<reconnect_tests::Slot>,
@@ -4071,6 +4188,8 @@ struct ControlPeer {
     controller_audio: [u8; 16],
     controller_pcm: controller_audio::PcmTraffic,
     command_at: Option<Instant>,
+    /// Whether the session is in the control socket's roaming table.
+    roaming: bool,
 }
 impl Drop for ControlPeer {
     fn drop(&mut self) {

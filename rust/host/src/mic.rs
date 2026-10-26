@@ -148,7 +148,7 @@ impl Receiver {
             .unwrap()
             .active
             .values()
-            .filter(|s| s.config.mic && s.launch.peer == peer && !s.stopping())
+            .filter(|s| s.config.mic && s.client_ip() == peer && !s.stopping())
             .cloned()
             .collect();
         let Some((session, opus)) = candidates.into_iter().find_map(|s| {

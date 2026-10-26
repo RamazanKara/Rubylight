@@ -258,6 +258,26 @@ mod tests {
         assert_eq!(other.info()["warnings"], serde_json::json!([]));
     }
     #[test]
+    fn a_roam_moves_the_client_and_restarts_the_media_ping_wait() {
+        let mut launch = launch("roam", Role::Stream);
+        launch.peer = "::ffff:192.168.1.20".parse().unwrap();
+        let session = Session::new(launch, Negotiated::default());
+        let start = Instant::now();
+        assert_eq!(
+            session.client_ip(),
+            "192.168.1.20".parse::<IpAddr>().unwrap()
+        );
+        assert_eq!(session.media_wait_start(start), start);
+        assert!(!session.take_new_path());
+        let at = start + Duration::from_secs(60);
+        session.roamed("::ffff:10.0.0.7".parse().unwrap(), at);
+        assert_eq!(session.client_ip(), "10.0.0.7".parse::<IpAddr>().unwrap());
+        assert_eq!(session.roams(), 1);
+        assert_eq!(session.media_wait_start(start), at);
+        assert!(session.take_new_path(), "the first ping from the new path");
+        assert!(!session.take_new_path(), "once");
+    }
+    #[test]
     fn client_fec_is_exposed_as_telemetry_without_changing_stream_decisions() {
         let session = Session::new(launch("fec", Role::Stream), Negotiated::default());
         session.idr.store(false, Ordering::Relaxed);
@@ -2512,6 +2532,17 @@ pub struct Session<P = (), A = ()> {
     pub encoder_focus: AtomicU8,
     /// What the encoder runs, written by the encoder thread on change.
     pub encoder_focus_state: std::sync::Mutex<crate::encoder_focus::FocusState>,
+    /// Where the client is after a roam (`crate::roaming`); see [`Self::roamed`].
+    roam: std::sync::Mutex<Roam>,
+    /// Roams so far, for senders that keep state about the client's path.
+    roams: AtomicU32,
+}
+/// The client's address after its roams.
+struct Roam {
+    client: IpAddr,
+    at: Option<Instant>,
+    /// No video ping has come from the path the client roamed to yet.
+    new_path: bool,
 }
 impl<P, A> Session<P, A> {
     /// Notes a new picture whose last packet was just handed to the socket: for a client
@@ -2538,6 +2569,7 @@ impl<P, A> Session<P, A> {
         }
     }
     pub fn new(launch: Launch<P, A>, config: Negotiated) -> Arc<Self> {
+        let launch_peer = launch.peer.to_canonical();
         let bitrate = config.bitrate_kbps;
         let mode = crate::reconfigure::Mode::of(&config);
         let started = Instant::now();
@@ -2578,7 +2610,44 @@ impl<P, A> Session<P, A> {
             timing_record: Default::default(),
             encoder_focus: AtomicU8::new(crate::encoder_focus::Requested::Auto.wire()),
             encoder_focus_state: Default::default(),
+            roam: std::sync::Mutex::new(Roam {
+                client: launch_peer,
+                at: None,
+                new_path: false,
+            }),
+            roams: AtomicU32::new(0),
         })
+    }
+    /// The client's IP: the launch's, or the one it last roamed to.
+    pub fn client_ip(&self) -> IpAddr {
+        self.roam.lock().unwrap().client
+    }
+    /// The client proved it moved to `client` (`crate::roaming`). Its media pings come
+    /// from there from now on.
+    pub fn roamed(&self, client: IpAddr, now: Instant) {
+        *self.roam.lock().unwrap() = Roam {
+            client: client.to_canonical(),
+            at: Some(now),
+            new_path: true,
+        };
+        self.roams.fetch_add(1, Ordering::AcqRel);
+    }
+    /// How often the client roamed.
+    pub fn roams(&self) -> u32 {
+        self.roams.load(Ordering::Acquire)
+    }
+    /// True once per roam, for the first video ping from the new path.
+    pub fn take_new_path(&self) -> bool {
+        std::mem::take(&mut self.roam.lock().unwrap().new_path)
+    }
+    /// Since when a stream without its client's media ping has waited for one: the
+    /// stream's `start`, or the last roam, which drops the old path's media addresses.
+    pub fn media_wait_start(&self, start: Instant) -> Instant {
+        self.roam
+            .lock()
+            .unwrap()
+            .at
+            .map_or(start, |at| at.max(start))
     }
     pub fn stopping(&self) -> bool {
         self.stop.load(Ordering::Acquire)

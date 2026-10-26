@@ -168,9 +168,7 @@ async fn connection(
                         flags & 0x10000 != 0,
                         flags & 0x800000 != 0,
                         mic,
-                        // `config.client_roaming()` once the control port answers
-                        // roaming probes; until then a client would probe in vain.
-                        false,
+                        config.client_roaming(),
                     )
                     .into_bytes();
                     // AMF recovers lost references unless long-term references

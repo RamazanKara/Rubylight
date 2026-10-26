@@ -189,8 +189,8 @@ pub struct Host {
     pub launch_transition: Mutex<()>,
     /// Sleep PC tokens and the suspend backend.
     pub power: crate::power_action::PowerActions,
-    /// File transfer uploads: one per device, all paced together.
-    pub file_uploads: crate::native_api::files::Uploads,
+    /// File transfer uploads and downloads, all paced together.
+    pub file_transfers: crate::native_api::files::Transfers,
     /// The session state machine and its journal.
     pub session: Mutex<crate::session_control::Control>,
     pub confirmations: Mutex<butterpollo_core::remote::Confirmations>,
@@ -432,7 +432,7 @@ impl Host {
             current_app: Mutex::new(None),
             launch_transition: Mutex::new(()),
             power: Default::default(),
-            file_uploads: Default::default(),
+            file_transfers: Default::default(),
             session: Mutex::new(session),
             confirmations: Mutex::new(Default::default()),
             app_audio: Mutex::new(None),

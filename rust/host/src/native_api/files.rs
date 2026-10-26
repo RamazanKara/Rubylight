@@ -2,10 +2,11 @@
 //! files to the PC's transfer folder and fetches them back.
 //!
 //! Every route needs the host's File transfer setting and the device's
-//! Upload files or Download files bit, read on each request. Files are opened
-//! as the signed-in Windows user on a blocking thread
-//! (`butterpollo_windows::user_folder`). An upload streams to its `.part`
-//! file, written at `file_transfer_stream_mbps` while a stream runs, and is
+//! Upload files or Download files bit, read on each request and again every
+//! [`PACE_CHECK`] while a transfer runs. Files are opened as the signed-in
+//! Windows user on a blocking thread (`butterpollo_windows::user_folder`).
+//! While a stream runs, uploads and downloads together move at
+//! `file_transfer_stream_mbps`. An upload streams to its `.part` file and is
 //! renamed only once all of its `Content-Length` arrived.
 use super::{Failure, Reply, caller, json};
 use crate::{state::Shared, tls::Connection};
@@ -13,7 +14,7 @@ use axum::{
     Extension,
     body::{Body, Bytes, HttpBody},
     extract::{Request, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
 use butterpollo_core::{
@@ -27,7 +28,7 @@ use butterpollo_core::{
 };
 use butterpollo_windows::user_folder::{PartFile, UserFolder, UserFolderError};
 use std::{
-    collections::HashSet,
+    collections::HashMap,
     io::{self, Read, Write},
     path::{Path, PathBuf},
     pin::Pin,
@@ -40,44 +41,94 @@ use tokio::{
     sync::{mpsc, oneshot},
 };
 
-/// An upload whose body sends nothing for this long is dropped.
-const IDLE: Duration = Duration::from_secs(30);
 /// Bytes read from disk per download chunk.
 const CHUNK: usize = 64 * 1024;
 /// Chunks queued between the socket and the disk.
 const QUEUE: usize = 8;
-/// What a paced upload may write at once after a pause.
+/// What a paced transfer may move at once after a pause.
 const PACE_BURST: u64 = 256 * 1024;
-/// How often a running upload looks whether a stream started or ended.
+/// How often a running transfer looks whether a stream started or ended,
+/// whether the pace changed and whether the device may still transfer.
 const PACE_CHECK: Duration = Duration::from_millis(250);
+/// Downloads one device may run at once.
+const DEVICE_DOWNLOADS: usize = 2;
+/// Downloads all devices together may run at once.
+const ALL_DOWNLOADS: usize = 8;
+/// Free space an upload leaves on its volume: 1 GiB, or 1/50 (2 %) of a
+/// volume larger than 50 GiB.
+const MIN_RESERVE: u64 = 1 << 30;
+const RESERVE_SHARE: u64 = 50;
+/// `ERROR_SHARING_VIOLATION`: another program holds the file open without
+/// letting others read it.
+const SHARING_VIOLATION: i32 = 32;
 
-/// The uploads running: one per device, all paced together.
-#[derive(Debug)]
-pub struct Uploads {
-    running: Mutex<HashSet<String>>,
-    pacing: Mutex<Pacing>,
+/// How long a transfer may stall, and how much of a refused upload is read.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Limits {
+    /// A transfer that moves nothing for this long ends.
+    pub(crate) idle: Duration,
+    /// After `grace`, an upload must have arrived at `min_rate` bytes a
+    /// second on average (not 0). Time it waited for the pacer or the disk
+    /// doesn't count.
+    pub(crate) min_rate: u64,
+    pub(crate) grace: Duration,
+    /// The rest of a refused upload is read and dropped for at most this
+    /// many bytes or this long, then the connection closes.
+    pub(crate) drain_bytes: u64,
+    pub(crate) drain_time: Duration,
 }
-impl Default for Uploads {
+const LIMITS: Limits = Limits {
+    idle: Duration::from_secs(30),
+    min_rate: 64 * 1024,
+    grace: Duration::from_secs(30),
+    drain_bytes: 8 << 20,
+    drain_time: Duration::from_secs(5),
+};
+
+/// The transfers running, all paced together.
+#[derive(Debug)]
+pub struct Transfers {
+    /// Uploads by device, one each, with the bytes each still has to write.
+    uploads: Mutex<HashMap<String, u64>>,
+    /// Downloads by device.
+    downloads: Mutex<HashMap<String, usize>>,
+    pacing: Mutex<Pacing>,
+    /// Shorter limits for a test.
+    #[cfg(test)]
+    limits: Mutex<Limits>,
+    /// Free and total bytes of the volume, in place of the disk's.
+    #[cfg(test)]
+    space: Mutex<Option<(u64, u64)>>,
+}
+impl Default for Transfers {
     fn default() -> Self {
         Self {
-            running: Mutex::default(),
+            uploads: Mutex::default(),
+            downloads: Mutex::default(),
             pacing: Mutex::new(Pacing {
                 pacer: Pacer::new(None, PACE_BURST, Instant::now()),
                 checked: None,
             }),
+            #[cfg(test)]
+            limits: Mutex::new(LIMITS),
+            #[cfg(test)]
+            space: Mutex::default(),
         }
     }
 }
-/// One pacer for every upload, so together they stay within the stream rate.
+/// One pacer for every transfer, so together they stay within the stream
+/// rate.
 #[derive(Debug)]
 struct Pacing {
     pacer: Pacer,
     /// When the pacer last looked whether a stream runs.
     checked: Option<Instant>,
 }
-impl Uploads {
-    /// How long to wait before writing `bytes`: unpaced unless a stream runs.
-    fn pace(&self, h: &Shared, rate: Option<u64>, bytes: u64) -> Duration {
+impl Transfers {
+    /// How long to wait before moving `bytes`: unpaced unless a stream runs.
+    /// The rate is read from the settings every [`PACE_CHECK`], so a change
+    /// applies to the transfers already running.
+    fn pace(&self, h: &Shared, bytes: u64) -> Duration {
         let now = Instant::now();
         let mut pacing = self.pacing.lock().unwrap_or_else(PoisonError::into_inner);
         if pacing
@@ -85,44 +136,187 @@ impl Uploads {
             .is_none_or(|at| now.duration_since(at) >= PACE_CHECK)
         {
             pacing.checked = Some(now);
-            let want = if streaming(h) { rate } else { None };
+            let want = if streaming(h) {
+                h.config
+                    .read()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .file_transfer_stream_rate()
+            } else {
+                None
+            };
             if pacing.pacer.rate() != want {
                 pacing.pacer.set_rate(want, now);
             }
         }
         pacing.pacer.take(bytes, now)
     }
+
+    #[cfg(not(test))]
+    fn limits(&self) -> Limits {
+        LIMITS
+    }
+    #[cfg(test)]
+    fn limits(&self) -> Limits {
+        *self.limits.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The free and total bytes of the folder's volume.
+    #[cfg(not(test))]
+    fn space(&self, folder: &UserFolder) -> Result<(u64, u64), UserFolderError> {
+        folder.volume_bytes()
+    }
+    #[cfg(test)]
+    fn space(&self, folder: &UserFolder) -> Result<(u64, u64), UserFolderError> {
+        match *self.space.lock().unwrap_or_else(PoisonError::into_inner) {
+            Some(space) => Ok(space),
+            None => folder.volume_bytes(),
+        }
+    }
+
+    /// What an upload may still use of the folder's volume: its free bytes
+    /// less the reserve and what the uploads running still write.
+    fn room(&self, folder: &UserFolder) -> Result<u64, UserFolderError> {
+        let uploads = self.uploads.lock().unwrap_or_else(PoisonError::into_inner);
+        let (free, total) = self.space(folder)?;
+        Ok(room(&uploads, free, total))
+    }
 }
+#[cfg(test)]
+impl Transfers {
+    /// Shortens the limits for a test.
+    pub(crate) fn limit(&self, change: impl FnOnce(&mut Limits)) {
+        change(&mut self.limits.lock().unwrap());
+    }
+    /// Reports `free` of `total` bytes on the transfer folder's volume.
+    pub(crate) fn fake_space(&self, free: u64, total: u64) {
+        *self.space.lock().unwrap() = Some((free, total));
+    }
+    /// The downloads running.
+    pub(crate) fn downloads(&self) -> usize {
+        self.downloads.lock().unwrap().values().sum()
+    }
+}
+/// What is left of `free` bytes on a volume of `total` for another upload,
+/// beside the reserve and the bytes `uploads` still write.
+fn room(uploads: &HashMap<String, u64>, free: u64, total: u64) -> u64 {
+    let reserve = MIN_RESERVE.max(total / RESERVE_SHARE);
+    let due = uploads
+        .values()
+        .fold(0u64, |due, left| due.saturating_add(*left));
+    free.saturating_sub(reserve).saturating_sub(due)
+}
+
 /// A device's upload slot, given back when the upload ends however it ends.
 /// The upload's writer holds it, so the slot frees only once the `.part`
 /// file is renamed or gone.
-struct Slot {
+struct UploadSlot {
     host: Shared,
     device: String,
 }
-impl Drop for Slot {
+impl UploadSlot {
+    /// Holds room for `length` bytes on the folder's volume, if it has that
+    /// much beside the reserve and the bytes other uploads still write.
+    fn hold_room(&self, folder: &UserFolder, length: u64) -> Result<(), UserFolderError> {
+        let transfers = &self.host.file_transfers;
+        // The space is read under the lock, so two uploads can't both
+        // count on the same room.
+        let mut uploads = transfers
+            .uploads
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let (free, total) = transfers.space(folder)?;
+        if length > room(&uploads, free, total) {
+            return Err(io::Error::from(io::ErrorKind::StorageFull).into());
+        }
+        uploads.insert(self.device.clone(), length);
+        Ok(())
+    }
+    /// Counts `bytes` as written, so they are no longer due.
+    fn wrote(&self, bytes: u64) {
+        let mut uploads = self
+            .host
+            .file_transfers
+            .uploads
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(left) = uploads.get_mut(&self.device) {
+            *left = left.saturating_sub(bytes);
+        }
+    }
+}
+impl Drop for UploadSlot {
     fn drop(&mut self) {
         self.host
-            .file_uploads
-            .running
+            .file_transfers
+            .uploads
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(&self.device);
     }
 }
-fn begin_upload(h: &Shared, device: &str) -> Result<Slot, Failure> {
-    let mut running = h
-        .file_uploads
-        .running
+fn begin_upload(h: &Shared, device: &str) -> Result<UploadSlot, Failure> {
+    let mut uploads = h
+        .file_transfers
+        .uploads
         .lock()
         .unwrap_or_else(PoisonError::into_inner);
-    if !running.insert(device.to_owned()) {
+    if uploads.contains_key(device) {
         return Err(Failure::new(
             ErrorCode::TransferBusy,
             "This device is already sending a file. Wait for it to finish.",
         ));
     }
-    Ok(Slot {
+    uploads.insert(device.to_owned(), 0);
+    Ok(UploadSlot {
+        host: h.clone(),
+        device: device.to_owned(),
+    })
+}
+
+/// A device's download slot, given back once the download's file is closed.
+struct DownloadSlot {
+    host: Shared,
+    device: String,
+}
+impl Drop for DownloadSlot {
+    fn drop(&mut self) {
+        let mut downloads = self
+            .host
+            .file_transfers
+            .downloads
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(running) = downloads.get_mut(&self.device) {
+            *running -= 1;
+            if *running == 0 {
+                downloads.remove(&self.device);
+            }
+        }
+    }
+}
+fn begin_download(h: &Shared, device: &str) -> Result<DownloadSlot, Failure> {
+    let mut downloads = h
+        .file_transfers
+        .downloads
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    if downloads
+        .get(device)
+        .is_some_and(|n| *n >= DEVICE_DOWNLOADS)
+    {
+        return Err(Failure::new(
+            ErrorCode::TransferBusy,
+            "This device is already downloading two files. Wait for one to finish.",
+        ));
+    }
+    if downloads.values().sum::<usize>() >= ALL_DOWNLOADS {
+        return Err(Failure::new(
+            ErrorCode::TransferBusy,
+            "The PC is sending as many files as it can at once. Wait for one to finish.",
+        ));
+    }
+    *downloads.entry(device.to_owned()).or_default() += 1;
+    Ok(DownloadSlot {
         host: h.clone(),
         device: device.to_owned(),
     })
@@ -150,24 +344,79 @@ fn allowed(h: &Shared, c: &Connection, bit: u32, name: &str) -> Result<Client, F
     }
     Ok(client)
 }
+/// [`allowed`] again every [`PACE_CHECK`] while a transfer runs, so turning
+/// File transfer off, revoking the bit or unpairing the device ends it.
+struct Recheck {
+    host: Shared,
+    connection: Connection,
+    bit: u32,
+    name: &'static str,
+    at: Instant,
+}
+impl Recheck {
+    fn new(h: &Shared, c: &Connection, bit: u32, name: &'static str) -> Self {
+        Self {
+            host: h.clone(),
+            connection: c.clone(),
+            bit,
+            name,
+            at: Instant::now(),
+        }
+    }
+    fn check(&mut self) -> Result<(), Failure> {
+        let now = Instant::now();
+        if now.duration_since(self.at) < PACE_CHECK {
+            return Ok(());
+        }
+        self.at = now;
+        allowed(&self.host, &self.connection, self.bit, self.name).map(drop)
+    }
+}
+/// Waits out a pacer's `wait`, still checking the device's permission.
+async fn paced(wait: Duration, recheck: &mut Recheck) -> Result<(), Failure> {
+    let until = Instant::now() + wait;
+    loop {
+        recheck.check()?;
+        let now = Instant::now();
+        if now >= until {
+            return Ok(());
+        }
+        tokio::time::sleep((until - now).min(PACE_CHECK)).await;
+    }
+}
+/// [`paced`] on a blocking thread.
+fn paced_blocking(wait: Duration, recheck: &mut Recheck) -> Result<(), Failure> {
+    let until = Instant::now() + wait;
+    loop {
+        recheck.check()?;
+        let now = Instant::now();
+        if now >= until {
+            return Ok(());
+        }
+        std::thread::sleep((until - now).min(PACE_CHECK));
+    }
+}
 fn transfer_dir(h: &Shared) -> Option<PathBuf> {
     h.config
         .read()
         .unwrap_or_else(PoisonError::into_inner)
         .file_transfer_dir()
 }
-/// The transfer folder, as the signed-in user. Tests open theirs as the
-/// developer: an elevated test runner without a desktop shell has no user
-/// to act as.
+/// The transfer folder, as the signed-in user.
+#[cfg(not(test))]
 fn open_folder(dir: Option<&Path>) -> Result<UserFolder, UserFolderError> {
-    #[cfg(not(test))]
-    return UserFolder::open(dir);
-    #[cfg(test)]
+    UserFolder::open(dir)
+}
+/// Tests open their folder as the developer: an elevated test runner
+/// without a desktop shell has no user to act as.
+#[cfg(test)]
+fn open_folder(dir: Option<&Path>) -> Result<UserFolder, UserFolderError> {
     UserFolder::unimpersonated(dir.expect("a test names its transfer folder"))
 }
 
-/// The `name` query argument, percent-decoded. The name itself is checked
-/// where the folder opens the file.
+/// The `name` query argument, percent-decoded as RFC 3986 has it: `+` is a
+/// plus, not a space. The name itself is checked where the folder opens the
+/// file.
 fn name_of(query: Option<&str>) -> Result<String, Failure> {
     let invalid = |message: &str| Failure::new(ErrorCode::InvalidName, message);
     let mut found = None;
@@ -195,7 +444,6 @@ fn decode(value: &str) -> Option<String> {
                 rest = &rest[2..];
                 u8::from_str_radix(hex, 16).ok()?
             }
-            b'+' => b' ',
             byte => byte,
         });
     }
@@ -222,6 +470,12 @@ fn failure(what: &str, error: UserFolderError) -> Failure {
         {
             no_room()
         }
+        UserFolderError::Io(error) if error.raw_os_error() == Some(SHARING_VIOLATION) => {
+            Failure::new(
+                ErrorCode::TransferBusy,
+                "Another program on the PC has this file open. Close it and try again.",
+            )
+        }
         error => Failure::internal(what, error),
     }
 }
@@ -241,9 +495,17 @@ async fn blocking<T: Send + 'static>(
         .map_err(|error| failure(what, error))
 }
 
-/// `GET /files`.
+/// `GET /files`. A device that may only upload gets the free space and the
+/// size limit, so it can check a file before it sends it, but no files.
 pub(super) async fn list(State(h): State<Shared>, Extension(c): Extension<Connection>) -> Reply {
-    allowed(&h, &c, FILE_DOWNLOAD, "Download files")?;
+    let may_list = match allowed(&h, &c, FILE_DOWNLOAD, "Download files") {
+        Ok(_) => true,
+        Err(refusal) if refusal.code == ErrorCode::Forbidden => {
+            allowed(&h, &c, FILE_UPLOAD, "Upload files").map_err(|_| refusal)?;
+            false
+        }
+        Err(refusal) => return Err(refusal),
+    };
     let dir = transfer_dir(&h);
     let max_file_bytes = h
         .config
@@ -252,12 +514,12 @@ pub(super) async fn list(State(h): State<Shared>, Extension(c): Extension<Connec
         .file_transfer_max_bytes();
     let list = blocking("list the transfer folder", move || {
         let folder = open_folder(dir.as_deref())?;
+        let files = if may_list { folder.list()? } else { vec![] };
         Ok(FileList {
             folder: folder.path().display().to_string(),
-            free_bytes: folder.free_bytes()?,
+            free_bytes: h.file_transfers.room(&folder)?,
             max_file_bytes,
-            files: folder
-                .list()?
+            files: files
                 .into_iter()
                 .map(|file| FileEntry {
                     name: file.name,
@@ -273,19 +535,21 @@ pub(super) async fn list(State(h): State<Shared>, Extension(c): Extension<Connec
 
 /// `GET /files/content`: the file with its exact length. A file that changes
 /// size while it is read ends the connection before the last byte, so the
-/// client never takes a short or grown file for the whole one.
+/// client never takes a short or grown file for the whole one. So does a
+/// client that takes nothing for `idle`, and a device that loses its
+/// permission.
 pub(super) async fn content(
     State(h): State<Shared>,
     Extension(c): Extension<Connection>,
     request: Request,
 ) -> Reply {
-    allowed(&h, &c, FILE_DOWNLOAD, "Download files")?;
+    let client = allowed(&h, &c, FILE_DOWNLOAD, "Download files")?;
     let name = name_of(request.uri().query())?;
+    let slot = begin_download(&h, &client.uuid)?;
     let dir = transfer_dir(&h);
-    let opened =
-        tokio::task::spawn_blocking(move || open_folder(dir.as_deref())?.open_file(&name))
-            .await
-            .map_err(|error| Failure::internal("open the file", error))?;
+    let opened = tokio::task::spawn_blocking(move || open_folder(dir.as_deref())?.open_file(&name))
+        .await
+        .map_err(|error| Failure::internal("open the file", error))?;
     let (file, length) = match opened {
         Ok(opened) => opened,
         Err(UserFolderError::NotPlainFile) => return Err(not_found()),
@@ -295,19 +559,48 @@ pub(super) async fn content(
         Err(error) => return Err(failure("open the file", error)),
     };
     let (tx, rx) = mpsc::channel(QUEUE);
+    let (fail, failed) = oneshot::channel();
+    let runtime = tokio::runtime::Handle::current();
+    let idle = h.file_transfers.limits().idle;
+    let mut recheck = Recheck::new(&h, &c, FILE_DOWNLOAD, "Download files");
     tokio::task::spawn_blocking(move || {
+        // Dropped after the file, so the slot frees once it is closed.
+        let _slot = slot;
         let mut file = file;
+        let refused =
+            |refusal: Failure| io::Error::new(io::ErrorKind::PermissionDenied, refusal.message);
         let sent = read_exactly(&mut file, length, |chunk| {
-            tx.blocking_send(Ok(chunk)).is_ok()
+            let wait = h.file_transfers.pace(&h, chunk.len() as u64);
+            paced_blocking(wait, &mut recheck).map_err(refused)?;
+            let stalled = Instant::now() + idle;
+            let permit = loop {
+                match runtime.block_on(tokio::time::timeout(PACE_CHECK, tx.reserve())) {
+                    Ok(Ok(permit)) => break permit,
+                    // The client went away.
+                    Ok(Err(_)) => return Ok(false),
+                    Err(_) if Instant::now() >= stalled => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            format!("the device took nothing for {} s", idle.as_secs()),
+                        ));
+                    }
+                    Err(_) => recheck.check().map_err(refused)?,
+                }
+            };
+            permit.send(chunk);
+            Ok(true)
         });
         if let Err(error) = sent {
             tracing::warn!("File transfer stopped a download: {error}");
-            let _ = tx.blocking_send(Err(error));
+            // Sent before the queue closes, so the body ends with it after
+            // the chunks queued.
+            let _ = fail.send(error);
         }
     });
     let body = Body::from_stream(tokio_util::io::ReaderStream::with_capacity(
         Chunks {
             rx,
+            failed,
             current: Bytes::new(),
         },
         CHUNK,
@@ -329,11 +622,12 @@ fn not_found() -> Failure {
 
 /// Hands `length` bytes of `file` to `send`, and fails if the file holds
 /// fewer or more. The last chunk waits until the end of the file is seen.
-/// Stops quietly when `send` reports that the client went away.
+/// Stops quietly when `send` reports that the client went away (`false`),
+/// and with `send`'s error.
 fn read_exactly(
     file: &mut impl Read,
     length: u64,
-    mut send: impl FnMut(Bytes) -> bool,
+    mut send: impl FnMut(Bytes) -> io::Result<bool>,
 ) -> io::Result<()> {
     let changed = |how: &str| io::Error::other(format!("the file {how} while it was sent"));
     let mut left = length;
@@ -368,14 +662,16 @@ fn read_exactly(
                 return Err(changed("grew"));
             }
         }
-        if !send(Bytes::copy_from_slice(&buffer[..read])) || left == 0 {
+        if !send(Bytes::copy_from_slice(&buffer[..read]))? || left == 0 {
             return Ok(());
         }
     }
 }
-/// The download's chunks as a reader; an error ends the body with it.
+/// The download's chunks as a reader. A download that failed ends the body
+/// with its error once the chunks queued are read.
 struct Chunks {
-    rx: mpsc::Receiver<io::Result<Bytes>>,
+    rx: mpsc::Receiver<Bytes>,
+    failed: oneshot::Receiver<io::Error>,
     current: Bytes,
 }
 impl tokio::io::AsyncRead for Chunks {
@@ -387,9 +683,13 @@ impl tokio::io::AsyncRead for Chunks {
         let this = self.get_mut();
         while this.current.is_empty() {
             match std::task::ready!(this.rx.poll_recv(cx)) {
-                Some(Ok(chunk)) => this.current = chunk,
-                Some(Err(error)) => return Poll::Ready(Err(error)),
-                None => return Poll::Ready(Ok(())),
+                Some(chunk) => this.current = chunk,
+                None => {
+                    return Poll::Ready(match this.failed.try_recv() {
+                        Ok(error) => Err(error),
+                        Err(_) => Ok(()),
+                    });
+                }
             }
         }
         let n = buf.remaining().min(this.current.len());
@@ -398,33 +698,68 @@ impl tokio::io::AsyncRead for Chunks {
     }
 }
 
-/// `POST /files?name=`. A refusal answers at once; the rest of the body is
-/// then read and dropped in the background, so the client, which sends all
-/// of it before it reads the answer, gets the answer rather than a reset.
+/// `POST /files?name=`. A caller that isn't a paired device is answered and
+/// the connection closed at once. Any other refusal answers at once too;
+/// the rest of the body is then read and dropped in the background for a
+/// while ([`drain`]), so the client, which sends all of it before it reads
+/// the answer, gets the answer rather than a reset.
 pub(super) async fn upload(
     State(h): State<Shared>,
     Extension(c): Extension<Connection>,
     request: Request,
 ) -> Response {
     let (parts, mut body) = request.into_parts();
-    let reply = receive(&h, &c, parts.uri.query(), &parts.headers, &mut body).await;
-    if !body.is_end_stream() {
-        tokio::spawn(drain(body));
+    if let Err(refusal) = caller(&h, &c) {
+        // Reading on would let anyone send the host data.
+        refused_upload(&c, &refusal);
+        return closing(refusal.into_response());
     }
-    match reply {
+    let mut response = match receive(&h, &c, parts.uri.query(), &parts.headers, &mut body).await {
         Ok(response) => response,
         Err(failure) => {
-            tracing::warn!(
-                "File transfer refused an upload from {}: {}",
-                c.peer.ip(),
-                failure.message
-            );
+            refused_upload(&c, &failure);
             failure.into_response()
         }
+    };
+    if !body.is_end_stream() {
+        tokio::spawn(drain(h, body));
+        response = closing(response);
     }
+    response
 }
-async fn drain(mut body: Body) {
-    while let Ok(Some(Ok(_))) = tokio::time::timeout(IDLE, next_chunk(&mut body)).await {}
+fn refused_upload(c: &Connection, failure: &Failure) {
+    tracing::warn!(
+        "File transfer refused an upload from {}: {}",
+        c.peer.ip(),
+        failure.message
+    );
+}
+/// The connection closes after this answer.
+fn closing(mut response: Response) -> Response {
+    response
+        .headers_mut()
+        .insert(header::CONNECTION, HeaderValue::from_static("close"));
+    response
+}
+/// Reads and drops the rest of a refused upload, through the pacer, for at
+/// most `drain_bytes` or `drain_time`. Dropping the body then closes the
+/// connection, as its answer said.
+async fn drain(h: Shared, mut body: Body) {
+    let limits = h.file_transfers.limits();
+    let until = tokio::time::Instant::now() + limits.drain_time;
+    let mut drained = 0u64;
+    while drained < limits.drain_bytes {
+        let Ok(Some(Ok(chunk))) = tokio::time::timeout_at(until, next_chunk(&mut body)).await
+        else {
+            break;
+        };
+        drained += chunk.len() as u64;
+        let wait = h.file_transfers.pace(&h, chunk.len() as u64);
+        if tokio::time::Instant::now() + wait >= until {
+            break;
+        }
+        tokio::time::sleep(wait).await;
+    }
 }
 async fn next_chunk(body: &mut Body) -> Option<Result<Bytes, axum::Error>> {
     loop {
@@ -461,7 +796,7 @@ fn content_length(headers: &HeaderMap) -> Result<u64, Failure> {
 fn incomplete(message: impl Into<String>) -> Failure {
     Failure::new(ErrorCode::IncompleteUpload, message)
 }
-/// Whether a stream runs or starts, so uploads leave it the link and disk.
+/// Whether a stream runs or starts, so transfers are paced.
 fn streaming(h: &Shared) -> bool {
     let sessions = h.sessions.lock().unwrap_or_else(PoisonError::into_inner);
     !sessions.active.is_empty() || !sessions.pending.is_empty()
@@ -479,13 +814,9 @@ async fn receive(
     butterpollo_core::file_transfer::check_name(&name)
         .map_err(|error| failure("check the name", error.into()))?;
     let length = content_length(headers)?;
-    let (max, rate, dir) = {
+    let (max, dir) = {
         let config = h.config.read().unwrap_or_else(PoisonError::into_inner);
-        (
-            config.file_transfer_max_bytes(),
-            config.file_transfer_stream_rate(),
-            config.file_transfer_dir(),
-        )
+        (config.file_transfer_max_bytes(), config.file_transfer_dir())
     };
     if length > max {
         return Err(Failure::new(
@@ -512,13 +843,40 @@ async fn receive(
         }
     }
 
+    let limits = h.file_transfers.limits();
+    let mut recheck = Recheck::new(h, c, FILE_UPLOAD, "Upload files");
+    let started = Instant::now();
+    // Time spent on the pacer and the disk, which the device isn't slow for.
+    let mut held = Duration::ZERO;
+    let mut last = started;
     let mut received = 0u64;
     let read: Result<(), Failure> = loop {
-        let chunk = match tokio::time::timeout(IDLE, next_chunk(body)).await {
+        if let Err(refusal) = recheck.check() {
+            break Err(refusal);
+        }
+        let stalled = last + limits.idle;
+        // When the average falls below `min_rate`, once `grace` is over.
+        let slow = started
+            + held
+            + limits.grace.max(Duration::from_millis(
+                received.saturating_mul(1000) / limits.min_rate,
+            ));
+        let until = stalled.min(slow).min(Instant::now() + PACE_CHECK);
+        let chunk = match tokio::time::timeout_at(until.into(), next_chunk(body)).await {
             Err(_) => {
-                break Err(incomplete(format!(
-                    "The upload stalled after {received} of {length} bytes."
-                )));
+                let now = Instant::now();
+                if now >= stalled {
+                    break Err(incomplete(format!(
+                        "The upload stalled after {received} of {length} bytes."
+                    )));
+                }
+                if now >= slow {
+                    break Err(incomplete(format!(
+                        "The upload arrived slower than {} KiB/s; {received} of {length} bytes came.",
+                        limits.min_rate / 1024
+                    )));
+                }
+                continue;
             }
             Ok(None) if received == length => break Ok(()),
             Ok(None) => {
@@ -540,14 +898,17 @@ async fn receive(
                 "The body is longer than its Content-Length.",
             ));
         }
-        let wait = h.file_uploads.pace(h, rate, chunk.len() as u64);
-        if !wait.is_zero() {
-            tokio::time::sleep(wait).await;
+        let holding = Instant::now();
+        let wait = h.file_transfers.pace(h, chunk.len() as u64);
+        if let Err(refusal) = paced(wait, &mut recheck).await {
+            break Err(refusal);
         }
         if tx.send(ToDisk::Chunk(chunk)).await.is_err() {
             // The writer failed; its error is the answer.
             break Ok(());
         }
+        last = Instant::now();
+        held += last - holding;
     };
     if read.is_ok() {
         // A writer gone already has its error.
@@ -585,24 +946,22 @@ enum ToDisk {
     /// The whole body arrived: rename the `.part` file.
     Finish,
 }
-/// Creates the `.part` file, says whether that worked on `ready`, then writes
-/// the queued chunks. The `.part` file lives and dies on this blocking
-/// thread, as it is opened as the user: [`ToDisk::Finish`] renames it and
-/// returns the name, while a queue closed early (a refused or cancelled
-/// upload) or a failed write deletes it. The device's slot frees only then.
+/// Holds room for the upload and creates its `.part` file, says whether
+/// that worked on `ready`, then writes the queued chunks. The `.part` file
+/// lives and dies on this blocking thread, as it is opened as the user:
+/// [`ToDisk::Finish`] renames it and returns the name, while a queue closed
+/// early (a refused or cancelled upload) or a failed write deletes it. The
+/// device's slot and the room it held free only then.
 fn write_part(
-    slot: Slot,
+    slot: UploadSlot,
     dir: Option<PathBuf>,
     name: String,
     length: u64,
     ready: oneshot::Sender<Result<(), UserFolderError>>,
     mut rx: mpsc::Receiver<ToDisk>,
 ) -> Result<Option<String>, UserFolderError> {
-    let _slot = slot;
     let created = open_folder(dir.as_deref()).and_then(|folder| {
-        if length > folder.free_bytes()? {
-            return Err(io::Error::from(io::ErrorKind::StorageFull).into());
-        }
+        slot.hold_room(&folder, length)?;
         folder.create_part(&name)
     });
     let mut part = match created {
@@ -617,7 +976,10 @@ fn write_part(
     }
     loop {
         match rx.blocking_recv() {
-            Some(ToDisk::Chunk(chunk)) => part.write_all(&chunk)?,
+            Some(ToDisk::Chunk(chunk)) => {
+                part.write_all(&chunk)?;
+                slot.wrote(chunk.len() as u64);
+            }
             Some(ToDisk::Finish) => return part.finish().map(Some),
             None => return discard(part),
         }
@@ -638,7 +1000,7 @@ mod tests {
         let mut sent = Vec::new();
         let result = read_exactly(&mut io::Cursor::new(file), length, |chunk| {
             sent.extend_from_slice(&chunk);
-            true
+            Ok(true)
         });
         (result, sent)
     }
@@ -662,28 +1024,44 @@ mod tests {
     }
 
     #[test]
-    fn a_client_gone_stops_the_download_quietly() {
+    fn a_client_gone_stops_the_download_quietly_and_a_refusal_with_its_error() {
         let file = vec![0; CHUNK * 3];
         let mut calls = 0;
         let result = read_exactly(&mut io::Cursor::new(&file), file.len() as u64, |_| {
             calls += 1;
-            false
+            Ok(false)
         });
         assert!(result.is_ok());
         assert_eq!(calls, 1);
+        let result = read_exactly(&mut io::Cursor::new(&file), file.len() as u64, |_| {
+            Err(io::Error::from(io::ErrorKind::TimedOut))
+        });
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::TimedOut);
+    }
+
+    fn set(h: &Shared, key: &str, value: &str) {
+        h.config
+            .write()
+            .unwrap()
+            .values
+            .insert(key.into(), value.into());
+    }
+    /// Makes the pacer look at the stream and the settings again at once,
+    /// as it would after [`PACE_CHECK`].
+    fn look_again(h: &Shared) {
+        h.file_transfers.pacing.lock().unwrap().checked.take();
     }
 
     #[test]
-    fn uploads_share_one_pace_and_only_while_a_stream_runs() {
+    fn transfers_share_one_pace_and_only_while_a_stream_runs() {
         let f = crate::state::test_support::Fixture::new();
         let h = &f.host;
-        let rate = Some(125_000); // 1 Mbit/s
-        let pace = |bytes| h.file_uploads.pace(h, rate, bytes);
+        set(h, "file_transfer_stream_mbps", "1");
+        let pace = |bytes| h.file_transfers.pace(h, bytes);
         assert!(pace(PACE_BURST * 4).is_zero(), "no stream: unpaced");
         f.session(f.client(0), butterpollo_core::session::Role::Stream);
-        // Look again at once, as the pacer would after PACE_CHECK.
-        h.file_uploads.pacing.lock().unwrap().checked.take();
-        // Two uploads, one budget: the second waits for what the first took.
+        look_again(h);
+        // Two transfers, one budget: the second waits for what the first took.
         let first = pace(PACE_BURST);
         let second = pace(125_000);
         assert!(first < Duration::from_millis(100), "{first:?}");
@@ -691,10 +1069,48 @@ mod tests {
     }
 
     #[test]
+    fn a_new_stream_rate_applies_to_the_transfers_running() {
+        let f = crate::state::test_support::Fixture::new();
+        let h = &f.host;
+        f.session(f.client(0), butterpollo_core::session::Role::Stream);
+        let rate = || h.file_transfers.pacing.lock().unwrap().pacer.rate();
+        h.file_transfers.pace(h, 1);
+        assert_eq!(rate(), Some(50 * 125_000), "the default 50 Mbit/s");
+        set(h, "file_transfer_stream_mbps", "8");
+        // Not before the next look, which comes every PACE_CHECK.
+        h.file_transfers.pace(h, 1);
+        assert_eq!(rate(), Some(50 * 125_000));
+        look_again(h);
+        h.file_transfers.pace(h, 1);
+        assert_eq!(rate(), Some(1_000_000));
+        set(h, "file_transfer_stream_mbps", "0");
+        look_again(h);
+        assert!(h.file_transfers.pace(h, 100 << 20).is_zero());
+        assert_eq!(rate(), None);
+    }
+
+    #[test]
+    fn an_upload_leaves_the_reserve_and_the_bytes_running_uploads_still_write() {
+        const GIB: u64 = 1 << 30;
+        let none = HashMap::new();
+        // 1 GiB on a small volume, 2 % on a large one.
+        assert_eq!(room(&none, 10 * GIB, 20 * GIB), 9 * GIB);
+        assert_eq!(room(&none, 30 * GIB, 1000 * GIB), 10 * GIB);
+        assert_eq!(room(&none, GIB / 2, 20 * GIB), 0);
+        let running = HashMap::from([("a".to_owned(), 3 * GIB), ("b".to_owned(), GIB)]);
+        assert_eq!(room(&running, 10 * GIB, 20 * GIB), 5 * GIB);
+        assert_eq!(room(&running, 4 * GIB, 20 * GIB), 0);
+        let huge = HashMap::from([("a".to_owned(), u64::MAX), ("b".to_owned(), u64::MAX)]);
+        assert_eq!(room(&huge, u64::MAX, u64::MAX), 0);
+    }
+
+    #[test]
     fn names_are_percent_decoded_and_must_be_utf8_and_single() {
         assert_eq!(name_of(Some("name=a%20b%2Bc.txt")).unwrap(), "a b+c.txt");
         assert_eq!(name_of(Some("x=1&name=%C3%A4.png")).unwrap(), "ä.png");
-        assert_eq!(name_of(Some("name=a+b")).unwrap(), "a b");
+        // RFC 3986: a plus is a plus, not a space.
+        assert_eq!(name_of(Some("name=a+b")).unwrap(), "a+b");
+        assert_eq!(name_of(Some("name=C%2B%2B+x.txt")).unwrap(), "C+++x.txt");
         for query in [
             None,
             Some(""),

@@ -85,11 +85,35 @@ impl OpenWith {
     /// The settings as `config` has them. A value the console would refuse
     /// (a hand-edited file) is logged and its default used.
     pub fn from_config(config: &Config) -> Self {
-        Self::read(config, &mut crate::config::invalid)
+        let out = Self::read(config, &mut crate::config::refused);
+        if let Some(warning) = out.select_conflict(crate::input_policy::back_button_timeout(config))
+        {
+            tracing::warn!("{warning}");
+        }
+        out
+    }
+    /// Why the pad chord may press Guide before it opens the menu: with
+    /// `back_button_timeout` on, the host turns Select held that long into
+    /// Guide, which opens Xbox Game Bar. A chord with Select and a longer hold
+    /// gets there first.
+    pub fn select_conflict(&self, back_button_timeout: Option<Duration>) -> Option<String> {
+        let guide_after = back_button_timeout?;
+        (self.controller && self.pad_chord.0 & SELECT != 0 && guide_after < self.pad_hold).then(
+            || {
+                format!(
+                    "couch_menu_controller_chord: {} holds Select for {} ms, but \
+                     back_button_timeout presses Guide (Xbox Game Bar) after {} ms, before the \
+                     menu opens; set back_button_timeout to -1 or to at least couch_menu_hold_ms",
+                    self.pad_chord,
+                    self.pad_hold.as_millis(),
+                    guide_after.as_millis()
+                )
+            },
+        )
     }
     /// [`OpenWith::from_config`], reporting each refused key and value to
-    /// `refused`.
-    fn read(config: &Config, refused: &mut dyn FnMut(&str, &str)) -> Self {
+    /// `refused`, with the reason.
+    pub(crate) fn read(config: &Config, refused: &mut dyn FnMut(&str, &str, &str)) -> Self {
         let mut out = Self::default();
         let value = |key: &str| {
             let value = config.values.get(key)?;
@@ -104,31 +128,31 @@ impl OpenWith {
                     out.keyboard = ways.keyboard;
                     out.touch = ways.touch;
                 }
-                Err(_) => refused("couch_menu_open_with", v),
+                Err(error) => refused("couch_menu_open_with", v, &error),
             }
         }
         if let Some(v) = value("couch_menu_controller_chord") {
             match PadButtons::parse(v) {
                 Ok(chord) => out.pad_chord = chord,
-                Err(_) => refused("couch_menu_controller_chord", v),
+                Err(error) => refused("couch_menu_controller_chord", v, &error),
             }
         }
         if let Some(v) = value("couch_menu_hold_ms") {
             match parse_hold("couch_menu_hold_ms", v, PAD_HOLD_MS) {
                 Ok(hold) => out.pad_hold = hold,
-                Err(_) => refused("couch_menu_hold_ms", v),
+                Err(error) => refused("couch_menu_hold_ms", v, &error),
             }
         }
         if let Some(v) = value("couch_menu_corner_hold_ms") {
             match parse_hold("couch_menu_corner_hold_ms", v, CORNER_HOLD_MS) {
                 Ok(hold) => out.corner_hold = hold,
-                Err(_) => refused("couch_menu_corner_hold_ms", v),
+                Err(error) => refused("couch_menu_corner_hold_ms", v, &error),
             }
         }
         if let Some(v) = value("couch_menu_keyboard_chord") {
             match KeyChord::parse(v) {
                 Ok(chord) => out.key_chord = chord,
-                Err(_) => refused("couch_menu_keyboard_chord", v),
+                Err(error) => refused("couch_menu_keyboard_chord", v, &error),
             }
         }
         out
@@ -192,10 +216,10 @@ pub fn parse_hold(key: &str, value: &str, range: RangeInclusive<u64>) -> Result<
 /// Moonlight's button flags by the names `couch_menu_controller_chord` uses,
 /// in the order a chord is written back.
 const BUTTONS: [(&str, u32); 21] = [
-    ("up", 0x0001),
-    ("down", 0x0002),
-    ("left", 0x0004),
-    ("right", 0x0008),
+    ("up", UP),
+    ("down", DOWN),
+    ("left", LEFT),
+    ("right", RIGHT),
     ("start", START),
     ("select", SELECT),
     ("l3", LS_CLK),
@@ -203,8 +227,8 @@ const BUTTONS: [(&str, u32); 21] = [
     ("l1", L1),
     ("r1", R1),
     ("guide", GUIDE),
-    ("a", 0x1000),
-    ("b", 0x2000),
+    ("a", A),
+    ("b", B),
     ("x", X),
     ("y", 0x8000),
     ("paddle1", 0x01_0000),
@@ -214,11 +238,17 @@ const BUTTONS: [(&str, u32); 21] = [
     ("touchpad", 0x10_0000),
     ("misc", 0x20_0000),
 ];
+const UP: u32 = 0x0001;
+const DOWN: u32 = 0x0002;
+const LEFT: u32 = 0x0004;
+const RIGHT: u32 = 0x0008;
 const START: u32 = 0x0010;
 const SELECT: u32 = 0x0020;
 const L1: u32 = 0x0100;
 const R1: u32 = 0x0200;
 const GUIDE: u32 = 0x0400;
+const A: u32 = 0x1000;
+const B: u32 = 0x2000;
 const X: u32 = 0x4000;
 /// Buttons Moonlight clients take for themselves, most specific first. A
 /// chord holding all of one set never reaches the host as a hold.
@@ -248,6 +278,35 @@ const RESERVED: [(u32, &str); 6] = [
         "moonlight-qt and Moonlight Android turn Select+L1 into a clickpad press",
     ),
 ];
+/// Buttons the open menu reads (`filter::Filter::pad_nav`): holding the chord
+/// to close it would press them on the focused row first.
+const NAVIGATION: [(u32, &str); 6] = [
+    (
+        A,
+        "A presses the focused row in the open menu, so holding the chord to close it \
+         would press that row, such as Disconnect",
+    ),
+    (
+        B,
+        "B goes back in the open menu, so holding the chord to close it would go back a page first",
+    ),
+    (
+        UP,
+        "Up moves the focus in the open menu, so holding the chord to close it would move it first",
+    ),
+    (
+        DOWN,
+        "Down moves the focus in the open menu, so holding the chord to close it would move it first",
+    ),
+    (
+        LEFT,
+        "Left moves the focus in the open menu, so holding the chord to close it would move it first",
+    ),
+    (
+        RIGHT,
+        "Right moves the focus in the open menu, so holding the chord to close it would move it first",
+    ),
+];
 
 /// `couch_menu_controller_chord`: the buttons a pad must hold, exactly.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -261,7 +320,8 @@ impl Default for PadButtons {
 
 impl PadButtons {
     /// Parses a `+`-joined button list such as `l3+r3` or `select`. Unknown
-    /// buttons and the combinations Moonlight clients keep are an error.
+    /// buttons, the combinations Moonlight clients keep and the buttons the
+    /// open menu reads are an error.
     pub fn parse(value: &str) -> Result<Self, String> {
         if value.trim().is_empty() {
             return Err("couch_menu_controller_chord needs at least one button".into());
@@ -272,14 +332,18 @@ impl PadButtons {
             let Some(&(_, bit)) = BUTTONS.iter().find(|(known, _)| *known == name) else {
                 return Err(format!(
                     "couch_menu_controller_chord: unknown button {name:?} in {value:?} \
-                     (use up, down, left, right, start, select, l3, r3, l1, r1, guide, \
-                     a, b, x, y, paddle1 to paddle4, touchpad, misc; triggers cannot hold)"
+                     (use select, l3, r3, l1, r1, guide, x, y, paddle1 to paddle4, \
+                     touchpad, misc; triggers cannot hold)"
                 ));
             };
             buttons |= bit;
         }
         let chord = Self(buttons);
-        if let Some((_, reason)) = RESERVED.iter().find(|(set, _)| buttons & set == *set) {
+        if let Some((_, reason)) = RESERVED
+            .iter()
+            .chain(&NAVIGATION)
+            .find(|(set, _)| buttons & set == *set)
+        {
             return Err(format!(
                 "couch_menu_controller_chord: {chord} cannot open the menu: {reason}"
             ));
@@ -293,7 +357,8 @@ impl PadButtons {
     pub fn warning(self) -> Option<&'static str> {
         (self.0 & GUIDE != 0).then_some(
             "couch_menu_controller_chord: many clients hand Guide to the OS \
-             (Android TV home, the Steam button, iOS), so a chord with Guide may never reach the host",
+             (Android TV home, the Steam button, iOS), so a chord with Guide may never reach the host; \
+             where it does, the Guide press reaches Windows too and opens Xbox Game Bar",
         )
     }
 }
@@ -326,12 +391,21 @@ pub const KEY_CHORDS: [(&str, u16); 4] = [
 pub struct KeyChord(usize);
 
 impl KeyChord {
-    /// Parses one of [`KEY_CHORDS`], in any case and with spaces around `+`.
+    /// Parses one of [`KEY_CHORDS`], in any case, with the modifiers in any
+    /// order and with spaces around `+`.
     pub fn parse(value: &str) -> Result<Self, String> {
-        let parts: Vec<String> = value
+        let mut parts: Vec<String> = value
             .split('+')
             .map(|part| part.trim().to_ascii_lowercase())
             .collect();
+        // The modifiers first, in a fixed order; the sort is stable, so the
+        // rest keeps its order.
+        parts.sort_by_key(|part| {
+            ["ctrl", "alt", "shift"]
+                .iter()
+                .position(|m| m == part)
+                .unwrap_or(3)
+        });
         if ["ctrl", "alt", "shift"]
             .iter()
             .all(|m| parts.iter().any(|part| part == m))
@@ -783,7 +857,25 @@ mod tests {
             let chord = PadButtons::parse(value).unwrap();
             assert_eq!(chord.warning(), None, "{value}");
         }
+        // The buttons the open menu reads, alone or in a chord.
+        for (value, message) in [
+            ("a", "A presses the focused row"),
+            ("l1+r1+a", "A presses the focused row"),
+            ("b", "B goes back"),
+            ("l3+r3+b", "B goes back"),
+            ("up", "Up moves the focus"),
+            ("down+select", "Down moves the focus"),
+            ("left+paddle1", "Left moves the focus"),
+            ("right+l3", "Right moves the focus"),
+        ] {
+            let error = refused(value);
+            assert!(error.contains(message), "{value}: {error}");
+        }
         assert!(refused("l2").contains("unknown button \"l2\""));
+        assert!(
+            !refused("l2").contains(" a, "),
+            "refused buttons are not offered"
+        );
         assert!(refused("l3++r3").contains("unknown button \"\""));
         assert!(refused(" ").contains("at least one button"));
     }
@@ -792,9 +884,11 @@ mod tests {
     fn couch_menu_controller_chord_accepts_guide_with_a_warning() {
         let guide = PadButtons::parse("guide").unwrap();
         assert_eq!(guide.buttons(), GUIDE);
-        assert!(guide.warning().unwrap().contains("hand Guide to the OS"));
+        let warning = guide.warning().unwrap();
+        assert!(warning.contains("hand Guide to the OS"), "{warning}");
+        assert!(warning.contains("opens Xbox Game Bar"), "{warning}");
         assert_eq!(
-            check("couch_menu_controller_chord", "guide+a"),
+            check("couch_menu_controller_chord", "guide+y"),
             Ok(guide.warning())
         );
         assert_eq!(check("couch_menu_controller_chord", "l3+r3"), Ok(None));
@@ -802,7 +896,13 @@ mod tests {
 
     #[test]
     fn couch_menu_chords_round_trip_through_their_text() {
-        for value in ["l3+r3", "select", "guide", "l1+r1+y", "up+a+paddle4+misc"] {
+        for value in [
+            "l3+r3",
+            "select",
+            "guide",
+            "l1+r1+y",
+            "select+y+paddle4+misc",
+        ] {
             let chord = PadButtons::parse(value).unwrap();
             assert_eq!(chord.to_string(), value);
             assert_eq!(PadButtons::parse(&chord.to_string()), Ok(chord));
@@ -821,11 +921,22 @@ mod tests {
             "ctrl+alt+home"
         );
         assert_eq!(KeyChord::default().key(), VK_BACK);
-        let shift = KeyChord::parse("ctrl+alt+shift+backspace").unwrap_err();
-        assert!(shift.contains("Ctrl+Alt+Shift"), "{shift}");
+        // The modifiers in any order.
+        for value in ["alt+ctrl+home", " ALT + Ctrl + Home "] {
+            assert_eq!(KeyChord::parse(value).unwrap().to_string(), "ctrl+alt+home");
+        }
+        for value in [
+            "ctrl+alt+shift+backspace",
+            "shift+alt+ctrl+backspace",
+            "alt+shift+ctrl+end",
+        ] {
+            let shift = KeyChord::parse(value).unwrap_err();
+            assert!(shift.contains("Ctrl+Alt+Shift"), "{value}: {shift}");
+        }
         for value in [
             "ctrl+alt+m",
-            "alt+ctrl+backspace",
+            "ctrl+ctrl+alt+backspace",
+            "alt+backspace+ctrl+home",
             "ctrl+backspace",
             "ctrl+alt+delete",
         ] {
@@ -911,7 +1022,9 @@ mod tests {
         )
         .unwrap();
         let mut refused = Vec::new();
-        let read = OpenWith::read(&config, &mut |k, v| refused.push(format!("{k}={v}")));
+        let read = OpenWith::read(&config, &mut |k, v, e| {
+            refused.push(format!("{k}={v}: {e}"))
+        });
         assert_eq!(
             read,
             OpenWith {
@@ -939,17 +1052,95 @@ mod tests {
         )
         .unwrap();
         let mut refused = Vec::new();
-        let read = OpenWith::read(&config, &mut |k, v| refused.push(format!("{k}={v}")));
+        let read = OpenWith::read(&config, &mut |k, v, e| {
+            refused.push(format!("{k}={v}: {e}"))
+        });
         assert_eq!(read, OpenWith::default(), "every bad value falls back");
+        // Each report carries the error that refused the value.
+        let errors = [
+            OpenWith::parse("controler").unwrap_err(),
+            PadButtons::parse("start+select").unwrap_err(),
+            parse_hold("couch_menu_hold_ms", "299", PAD_HOLD_MS).unwrap_err(),
+            parse_hold("couch_menu_corner_hold_ms", "3001", CORNER_HOLD_MS).unwrap_err(),
+            KeyChord::parse("ctrl+alt+shift+m").unwrap_err(),
+        ];
+        let expected: Vec<String> = [
+            "couch_menu_open_with=controler",
+            "couch_menu_controller_chord=start+select",
+            "couch_menu_hold_ms=299",
+            "couch_menu_corner_hold_ms=3001",
+            "couch_menu_keyboard_chord=ctrl+alt+shift+m",
+        ]
+        .iter()
+        .zip(errors)
+        .map(|(entry, error)| format!("{entry}: {error}"))
+        .collect();
+        assert_eq!(refused, expected);
+        assert!(refused[1].ends_with("into Guide on pads without a Home button"));
+    }
+
+    #[test]
+    fn couch_menu_select_chord_warns_when_the_host_turns_select_into_guide_first() {
+        let read = |text: &str| {
+            let config = Config::parse(text).unwrap();
+            let open_with = OpenWith::from_config(&config);
+            open_with.select_conflict(crate::input_policy::back_button_timeout(&config))
+        };
+        let select = "couch_menu_controller_chord = select
+";
+        // Off by default and for any negative value.
+        assert_eq!(read(select), None);
         assert_eq!(
-            refused,
-            [
-                "couch_menu_open_with=controler",
-                "couch_menu_controller_chord=start+select",
-                "couch_menu_hold_ms=299",
-                "couch_menu_corner_hold_ms=3001",
-                "couch_menu_keyboard_chord=ctrl+alt+shift+m",
-            ]
+            read(&format!(
+                "{select}back_button_timeout = -1
+"
+            )),
+            None
+        );
+        // On from 0 up to, not including, the hold.
+        for timeout in [0, 500, 999] {
+            let warning = read(&format!(
+                "{select}back_button_timeout = {timeout}
+"
+            ))
+            .unwrap();
+            assert!(
+                warning.contains(&format!("Guide (Xbox Game Bar) after {timeout} ms")),
+                "{warning}"
+            );
+            assert!(warning.contains("holds Select for 1000 ms"), "{warning}");
+        }
+        assert_eq!(
+            read(&format!(
+                "{select}back_button_timeout = 1000
+"
+            )),
+            None
+        );
+        // The hold counts, and so does any chord holding Select.
+        let short = "couch_menu_hold_ms = 400
+back_button_timeout = 500
+";
+        assert_eq!(read(&format!("{select}{short}")), None);
+        let long = "couch_menu_hold_ms = 600
+back_button_timeout = 500
+";
+        assert!(read(&format!("{select}{long}")).is_some());
+        assert!(
+            read(&format!(
+                "couch_menu_controller_chord = select+y
+{long}"
+            ))
+            .is_some()
+        );
+        assert_eq!(read(long), None, "l3+r3 holds no Select");
+        // No controller way, no conflict.
+        assert_eq!(
+            read(&format!(
+                "{select}{long}couch_menu_open_with = keyboard
+"
+            )),
+            None
         );
     }
 

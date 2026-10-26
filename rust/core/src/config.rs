@@ -639,6 +639,18 @@ impl Config {
                 tracing::warn!("{warning}");
             }
         }
+        // Warn, not refuse: either setting alone is fine. The couch menu
+        // values were checked above, so the read refuses none.
+        if crate::couch_menu::chord::SETTINGS
+            .into_iter()
+            .chain(["back_button_timeout"])
+            .any(changed)
+            && let Some(warning) =
+                crate::couch_menu::chord::OpenWith::read(&next, &mut |_, _, _| {})
+                    .select_conflict(crate::input_policy::back_button_timeout(&next))
+        {
+            tracing::warn!("{warning}");
+        }
         if changed("hardware_metrics_selection") {
             for metric in next.list("hardware_metrics_selection") {
                 if !HARDWARE_METRICS.contains(&metric.as_str()) {
@@ -950,15 +962,27 @@ pub fn override_allowed(key: &str) -> bool {
 /// Report a setting value the host does not understand and will not use.
 /// Each key and value is reported once.
 pub fn invalid(key: &str, value: &str) {
-    static SEEN: std::sync::Mutex<std::collections::BTreeSet<(String, String)>> =
-        std::sync::Mutex::new(std::collections::BTreeSet::new());
-    if SEEN
-        .lock()
-        .unwrap()
-        .insert((key.to_owned(), value.to_owned()))
-    {
+    if first_report(key, value) {
         tracing::warn!(key, value, "unsupported setting value; using the default");
     }
+}
+/// [`invalid`], with the parse error that refused the value.
+pub fn refused(key: &str, value: &str, error: &str) {
+    if first_report(key, value) {
+        tracing::warn!(
+            key,
+            value,
+            error,
+            "unsupported setting value; using the default"
+        );
+    }
+}
+fn first_report(key: &str, value: &str) -> bool {
+    static SEEN: std::sync::Mutex<std::collections::BTreeSet<(String, String)>> =
+        std::sync::Mutex::new(std::collections::BTreeSet::new());
+    SEEN.lock()
+        .unwrap()
+        .insert((key.to_owned(), value.to_owned()))
 }
 /// Report `value` unless it is the default the caller falls back to.
 pub fn fallback(key: &str, value: &str, default: &str) {
@@ -1714,6 +1738,13 @@ webrtc_media_port = 99999
                 "statistics",
             ),
             ("couch_menu_controller_chord", "a+start", "mouse mode"),
+            (
+                "couch_menu_controller_chord",
+                "l1+r1+a",
+                "A presses the focused row",
+            ),
+            ("couch_menu_controller_chord", "b", "B goes back"),
+            ("couch_menu_controller_chord", "x+up", "Up moves the focus"),
             ("couch_menu_controller_chord", "l3+r2", "unknown button"),
             ("couch_menu_hold_ms", "299", "between 300 and 3000"),
             ("couch_menu_hold_ms", "3001", "between 300 and 3000"),

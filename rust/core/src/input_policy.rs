@@ -210,9 +210,7 @@ impl Policy {
                 ms => Some(Duration::from_millis(ms.min(60000) as u64)),
             },
             repeat_period,
-            back_button_timeout: u64::try_from(config.integer("back_button_timeout", -1))
-                .ok()
-                .map(|ms| Duration::from_millis(ms.min(60000))),
+            back_button_timeout: back_button_timeout(config),
             back_grips: BACK_GRIP_KEYS.map(|key| grip_target(key, config.get(key, "none"))),
             steam_deck: deck_pad(config.get("steam_deck_controller", "auto")),
             keybindings,
@@ -285,6 +283,14 @@ impl Policy {
             .into_iter()
             .find(|p| *p != 0 && available & (1 << (p - 1)) != 0)
     }
+}
+
+/// `back_button_timeout`: how long Select is held before the host presses
+/// Guide (see [`BackButton`]), `None` when off (any negative value).
+pub fn back_button_timeout(config: &Config) -> Option<Duration> {
+    u64::try_from(config.integer("back_button_timeout", -1))
+        .ok()
+        .map(|ms| Duration::from_millis(ms.min(60000)))
 }
 
 /// Back-to-Home emulation, advanced by the input worker without blocking it.

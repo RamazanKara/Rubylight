@@ -800,6 +800,49 @@ fn couch_menu_filter_key_chord_repeats_do_not_toggle_again() {
 }
 
 #[test]
+fn couch_menu_filter_closing_chord_presses_no_menu_button() {
+    // Every chord the host accepts leaves out the buttons the open menu
+    // reads, so holding it to close never presses Accept on Disconnect.
+    let navigation = BUTTON_A | BUTTON_B | DPAD_UP | DPAD_DOWN | DPAD_LEFT | DPAD_RIGHT;
+    for name in ["a", "b", "up", "down", "left", "right"] {
+        assert!(
+            PadButtons::parse(&format!("l1+r1+{name}")).is_err(),
+            "{name}"
+        );
+    }
+    for name in [
+        "select", "l3", "r3", "l1", "r1", "guide", "x", "y", "paddle1", "paddle2", "paddle3",
+        "paddle4", "touchpad", "misc",
+    ] {
+        assert_eq!(
+            PadButtons::parse(name).unwrap().buttons() & navigation,
+            0,
+            "{name}"
+        );
+    }
+    let t0 = Instant::now();
+    let mut filter = custom("l1+r1+y", "1000", "ctrl+alt+backspace");
+    let chord = PadButtons::parse("l1+r1+y").unwrap().buttons();
+    run(&mut filter, t0, &[pad(0, chord)]);
+    let (_, out) = run(&mut filter, t0 + 1000 * MS, &[]);
+    assert!(out.release_game && filter.is_open());
+    run(&mut filter, t0 + 1100 * MS, &[pad(0, 0)]);
+    // Pressed one button at a time, as a hand does.
+    let (_, out) = run(
+        &mut filter,
+        t0 + 2000 * MS,
+        &[
+            pad(0, chord & 0x0100),
+            pad(0, chord & 0x0300),
+            pad(0, chord),
+        ],
+    );
+    assert!(out.nav.is_empty(), "{:?}", out.nav);
+    let (_, out) = run(&mut filter, t0 + 3000 * MS, &[]);
+    assert_eq!(out.nav, [Nav::Closed]);
+}
+
+#[test]
 fn couch_menu_filter_custom_corner_hold() {
     let t0 = Instant::now();
     let open_with = OpenWith {

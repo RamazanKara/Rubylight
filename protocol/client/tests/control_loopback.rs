@@ -476,6 +476,15 @@ fn connect_to_a_multi_homed_host(reached: &str, routed: &str) {
         !handle.contact_lost(),
         "input held back although the host answers"
     );
+    // The host goes quiet: its replies were what kept the contact.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !handle.contact_lost() {
+        assert!(
+            Instant::now() < deadline,
+            "contact never lost, so the host's replies never counted"
+        );
+        thread::sleep(Duration::from_millis(20));
+    }
     handle.stop();
     host.until("disconnect", |h| h.disconnected);
     assert_eq!(running.join().unwrap(), Outcome::Stopped);

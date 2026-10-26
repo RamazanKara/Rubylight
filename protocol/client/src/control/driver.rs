@@ -404,14 +404,20 @@ impl rusty_enet::Socket for ControlSocket {
                 marking.unanswered += 1;
             }
         }
-        match rusty_enet::Socket::send(&mut self.socket, address, buffer) {
+        let result = rusty_enet::Socket::send(&mut self.socket, address, buffer);
+        #[cfg(test)]
+        let result = tests::send_result().map_or(result, |injected| {
+            injected.map_err(io::Error::from_raw_os_error)
+        });
+        match result {
             Err(error) if datagram_lost(&error) => {
                 if let Some(warning) = self.send_failures.failed(address, error) {
                     self.warn.say(&warning);
                 }
                 Ok(0)
             }
-            Ok(sent) => {
+            // Ok(0) is a full send buffer (WouldBlock): nothing left.
+            Ok(sent) if sent > 0 => {
                 self.send_failures.sent();
                 Ok(sent)
             }
@@ -439,9 +445,13 @@ impl rusty_enet::Socket for ControlSocket {
             }
             // Anything but a wake on this private socket is the host, from whichever of its
             // addresses it replies (ENet follows the source, as moonlight-common-c's does).
-            self.last_receive = Some(Instant::now());
-            // The host answered: the marking works, so stop watching it.
-            self.marking = None;
+            // Shorter than ENet's 2-byte peer ID it is not ENet's (ENet drops it), so a stray
+            // wake-sized datagram does not count.
+            if length >= 2 {
+                self.last_receive = Some(Instant::now());
+                // The host answered: the marking works, so stop watching it.
+                self.marking = None;
+            }
             if self.intercept && self.held_disconnect.is_none() {
                 if let Some(unsequenced) = enet_disconnect(&buffer[..length]) {
                     self.held_disconnect = Some((address, buffer[..length].to_vec()));
@@ -783,13 +793,30 @@ impl ControlClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
 
-    /// A control socket marked for QoS and watching its first connects, aimed at a sink.
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    fn marked_socket() -> (ControlSocket, UdpSocket, Arc<Mutex<Vec<String>>>) {
-        let sink = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
-        priority::mark_control_socket(&socket, false, true).unwrap();
+    /// A code [`datagram_lost`] takes for packet loss: network unreachable.
+    const UNREACHABLE: i32 = if cfg!(windows) { 10051 } else { 101 };
+
+    thread_local! {
+        /// Replaces the result of this thread's control socket sends: a byte count, or a raw
+        /// OS error.
+        static SEND_RESULT: Cell<Option<Result<usize, i32>>> = const { Cell::new(None) };
+    }
+
+    pub(super) fn send_result() -> Option<Result<usize, i32>> {
+        SEND_RESULT.with(Cell::get)
+    }
+
+    fn inject_sends(result: Option<Result<usize, i32>>) {
+        SEND_RESULT.with(|injected| injected.set(result));
+    }
+
+    /// A control socket on `socket`, with the warnings it gives.
+    fn control_socket(
+        socket: UdpSocket,
+        marking: Option<Marking>,
+    ) -> (ControlSocket, Arc<Mutex<Vec<String>>>) {
         let warnings = Arc::new(Mutex::new(Vec::new()));
         let control = ControlSocket {
             socket,
@@ -799,16 +826,29 @@ mod tests {
             held_unsequenced: false,
             reinject: None,
             last_receive: None,
-            marking: Some(Marking {
-                ipv6: false,
-                unanswered: 0,
-            }),
+            marking,
             send_failures: SendFailures::default(),
             warn: Warn::new({
                 let warnings = warnings.clone();
                 move |m| warnings.lock().unwrap().push(m.to_string())
             }),
         };
+        (control, warnings)
+    }
+
+    /// A control socket marked for QoS and watching its first connects, aimed at a sink.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    fn marked_socket() -> (ControlSocket, UdpSocket, Arc<Mutex<Vec<String>>>) {
+        let sink = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        priority::mark_control_socket(&socket, false, true).unwrap();
+        let (control, warnings) = control_socket(
+            socket,
+            Some(Marking {
+                ipv6: false,
+                unanswered: 0,
+            }),
+        );
         (control, sink, warnings)
     }
 
@@ -900,7 +940,7 @@ mod tests {
     #[test]
     fn a_streak_of_failed_sends_is_reported_once() {
         let to: SocketAddr = "192.0.2.1:47999".parse().unwrap();
-        let unreachable = || io::Error::from_raw_os_error(if cfg!(windows) { 10051 } else { 101 });
+        let unreachable = || io::Error::from_raw_os_error(UNREACHABLE);
         assert!(datagram_lost(&unreachable()));
         let mut failures = SendFailures::default();
         assert!(failures.failed(to, unreachable()).is_none());
@@ -936,6 +976,85 @@ mod tests {
             failures.take_if_none_sent().is_none(),
             "a datagram left, so the host was silent"
         );
+    }
+
+    #[test]
+    fn control_socket_sends_are_counted() {
+        use rusty_enet::Socket as _;
+        let sink = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let to = sink.local_addr().unwrap();
+        let (mut control, warnings) = control_socket(UdpSocket::bind("127.0.0.1:0").unwrap(), None);
+        inject_sends(Some(Err(UNREACHABLE)));
+        for _ in 0..3 {
+            assert_eq!(
+                control.send(to, b"connect").unwrap(),
+                0,
+                "a loss, not an error"
+            );
+        }
+        assert_eq!(
+            *warnings.lock().unwrap(),
+            [format!(
+                "Control datagrams to {to} are failing: {}",
+                io::Error::from_raw_os_error(UNREACHABLE)
+            )]
+        );
+        // A full send buffer (WouldBlock) is not a datagram that left.
+        inject_sends(Some(Ok(0)));
+        control.send(to, b"connect").unwrap();
+        assert!(!control.send_failures.any_sent);
+        inject_sends(None);
+        assert!(control.send(to, b"connect").unwrap() > 0);
+        assert!(control.send_failures.any_sent);
+        assert_eq!(control.send_failures.consecutive, 0);
+    }
+
+    #[test]
+    fn a_datagram_too_short_for_enet_is_not_the_host() {
+        use rusty_enet::Socket as _;
+        let (mut control, _) = control_socket(UdpSocket::bind("127.0.0.1:0").unwrap(), None);
+        control.socket.set_nonblocking(true).unwrap();
+        let ours = control.socket.local_addr().unwrap();
+        let stray = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let mut buffer = [0u8; MTU_MAX];
+        let mut receive = |control: &mut ControlSocket| {
+            for _ in 0..50 {
+                if control.receive(&mut buffer).unwrap().is_some() {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            panic!("nothing arrived");
+        };
+        stray.send_to(&[0], ours).unwrap();
+        receive(&mut control);
+        assert!(control.last_receive.is_none());
+        stray.send_to(&[0, 0], ours).unwrap();
+        receive(&mut control);
+        assert!(control.last_receive.is_some());
+    }
+
+    #[test]
+    fn a_connect_none_of_whose_datagrams_left_fails_with_the_error() {
+        let silent = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let config = DriverConfig {
+            connect_timeout: Duration::from_millis(300),
+            ..DriverConfig::new(silent.local_addr().unwrap())
+        };
+        let caps = HostCapabilities {
+            app_version: [7, 1, 431, -1],
+            feature_flags: 3,
+            encryption_enabled: super::super::negotiation::encryption::CONTROL_V2,
+            control_messages: Vec::new(),
+        };
+        inject_sends(Some(Err(UNREACHABLE)));
+        let result = connect(config, caps, &[0; 16], SessionOptions::default());
+        inject_sends(None);
+        match result {
+            Err(ConnectError::Io(error)) => assert_eq!(error.raw_os_error(), Some(UNREACHABLE)),
+            Err(other) => panic!("{other}"),
+            Ok(_) => panic!("connected without sending"),
+        }
     }
 
     #[test]

@@ -408,8 +408,7 @@ fn port_bases_start_per_process_and_stay_in_range() {
     assert_eq!(port_base(0, 0), 22000);
     assert_eq!(port_base(7, 0), 22000 + 7 * 32);
     assert_eq!(port_base(PORT_SLOTS - 1, 1), 22000);
-    let bases: std::collections::HashSet<_> =
-        (0..PORT_SLOTS).map(|i| port_base(300, i)).collect();
+    let bases: std::collections::HashSet<_> = (0..PORT_SLOTS).map(|i| port_base(300, i)).collect();
     assert_eq!(bases.len(), usize::from(PORT_SLOTS));
     assert!(bases.iter().all(|b| (22000..40000 - 31).contains(b)));
 }

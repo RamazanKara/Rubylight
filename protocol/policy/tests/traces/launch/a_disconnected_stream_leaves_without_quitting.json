@@ -1,0 +1,9 @@
+{
+  "source": "StreamExitPolicyTest.aStreamThatIsNoLongerConnectedLeavesWithoutQuitting",
+  "rust": "launch::StreamExitPolicy",
+  "java": "com.limelight.LaunchTrace",
+  "new": null,
+  "calls": [
+    {"call": "quits_on_leave", "args": [true, "stream", false], "expect": false}
+  ]
+}

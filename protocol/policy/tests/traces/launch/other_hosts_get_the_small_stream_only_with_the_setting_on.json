@@ -1,0 +1,10 @@
+{
+  "source": "InputOnlyPolicyTest.hostsWithoutTheModeGetTheSmallStreamOnlyWhenTheSettingIsOn",
+  "rust": "launch::InputOnlyPolicy",
+  "java": "com.limelight.LaunchTrace",
+  "new": null,
+  "calls": [
+    {"call": "mode", "args": [true, false, false], "expect": "small_stream"},
+    {"call": "mode", "args": [false, false, false], "expect": "off"}
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "source": "InputOnlyPolicyTest.missingPermissionsSayWhichOne",
+  "rust": "launch::InputOnlyPolicy",
+  "java": "com.limelight.LaunchTrace",
+  "new": null,
+  "calls": [
+    {"call": "small_stream_blocker", "args": [true, 16785152], "expect": "view_permission"},
+    {"call": "small_stream_blocker", "args": [true, 100663296], "expect": "input_permission"},
+    {"call": "small_stream_blocker", "args": [true, 33554688], "expect": null}
+  ]
+}

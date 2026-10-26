@@ -1,0 +1,18 @@
+{
+  "source": "StreamExitPolicyTest.aLostConnectionOrAHostThatWentAwayReturnsToTheList",
+  "rust": "launch::StreamExitPolicy",
+  "java": "com.limelight.LaunchTrace",
+  "new": null,
+  "calls": [
+    {"call": "termination_needs_action", "args": [-1, false, false, false], "expect": false},
+    {"call": "termination_needs_action", "args": [32, false, false, false], "expect": false},
+    {"call": "termination_needs_action", "args": [54, false, false, false], "expect": false},
+    {"call": "termination_needs_action", "args": [104, false, false, false], "expect": false},
+    {"call": "termination_needs_action", "args": [110, false, false, false], "expect": false},
+    {"call": "termination_needs_action", "args": [111, false, false, false], "expect": false},
+    {"call": "termination_needs_action", "args": [113, false, false, false], "expect": false},
+    {"call": "termination_needs_action", "args": [10053, false, false, false], "expect": false},
+    {"call": "termination_needs_action", "args": [10054, false, false, false], "expect": false},
+    {"call": "termination_needs_action", "args": [10060, false, false, false], "expect": false}
+  ]
+}

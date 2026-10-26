@@ -1,0 +1,11 @@
+{
+  "source": "InputOnlyPolicyTest.theSmallStreamNeverReplacesARunningGame",
+  "rust": "launch::InputOnlyPolicy",
+  "java": "com.limelight.LaunchTrace",
+  "new": null,
+  "calls": [
+    {"call": "keeps_running_game", "args": [false, false], "expect": true},
+    {"call": "keeps_running_game", "args": [true, true], "expect": true},
+    {"call": "keeps_running_game", "args": [true, false], "expect": false}
+  ]
+}

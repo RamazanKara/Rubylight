@@ -1,0 +1,9 @@
+{
+  "source": "InputOnlyPolicyTest.aPairedHostWithoutPermissionsCanStart",
+  "rust": "launch::InputOnlyPolicy",
+  "java": "com.limelight.LaunchTrace",
+  "new": null,
+  "calls": [
+    {"call": "small_stream_blocker", "args": [true, -1], "expect": null}
+  ]
+}

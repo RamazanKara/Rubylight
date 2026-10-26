@@ -1,0 +1,17 @@
+{
+  "source": "LaunchPolicyTest.hostActionsAndRemoteRolesDoNotOfferQuitOnLeave",
+  "rust": "launch::LaunchPolicy",
+  "java": "com.limelight.LaunchTrace",
+  "new": null,
+  "calls": [
+    {"call": "offers_quit_on_leave", "args": [true, "resume", "stream"], "expect": false},
+    {"call": "offers_quit_on_leave", "args": [true, "disconnect_monitor", "stream"], "expect": false},
+    {"call": "offers_quit_on_leave", "args": [true, "disconnect_input", "stream"], "expect": false},
+    {"call": "offers_quit_on_leave", "args": [true, "terminate", "stream"], "expect": false},
+    {"call": "offers_quit_on_leave", "args": [true, "monitor", "stream"], "expect": false},
+    {"call": "offers_quit_on_leave", "args": [true, "input", "stream"], "expect": false},
+    {"call": "offers_quit_on_leave", "args": [true, "running_game", "stream"], "expect": false},
+    {"call": "offers_quit_on_leave", "args": [true, "none", "remote_monitor"], "expect": false},
+    {"call": "offers_quit_on_leave", "args": [true, "none", "input_only"], "expect": false}
+  ]
+}

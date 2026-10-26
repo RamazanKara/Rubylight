@@ -270,6 +270,8 @@ pub enum Event {
     Sleep {
         id: u64,
         ask: u64,
+        /// The PC's name when it was asked, for the message about the answer.
+        name: String,
         confirmed: bool,
         result: Result<SleepStep, String>,
     },
@@ -756,13 +758,14 @@ impl Hosts {
     ) {
         let Some(host) = self.get(id) else { return };
         let record = host.record.clone();
+        let name = host.display_name().to_owned();
         let identity = self.identity.clone();
         self.spawn("sleep", move || {
             let result = identity
                 .ok_or_else(|| en("Nightjar has no client identity yet. Restart Nightjar and try again.").to_owned())
                 .and_then(|identity| client_for(&identity, &record, &record.address))
                 .and_then(|client| work(&client));
-            Some(Event::Sleep { id, ask, confirmed, result })
+            Some(Event::Sleep { id, ask, name, confirmed, result })
         });
     }
 
@@ -1142,7 +1145,7 @@ impl Hosts {
                     self.poll_one(id);
                     out.push(Event::Wake { id, result });
                 }
-                Event::Sleep { id, ask, confirmed, result } => out.push(Event::Sleep { id, ask, confirmed, result }),
+                event @ Event::Sleep { .. } => out.push(event),
                 Event::Action { id, result } => {
                     self.refresh_after_exit(id);
                     self.load_apps(id);
@@ -1622,7 +1625,7 @@ mod tests {
 
         let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
         let id = hosts.list[0].id;
-        hosts.sender.send(Event::Sleep { id, ask: 1, confirmed: true, result: Ok(SleepStep::Accepted) }).unwrap();
+        hosts.sender.send(Event::Sleep { id, ask: 1, name: "PC".into(), confirmed: true, result: Ok(SleepStep::Accepted) }).unwrap();
         let (events, changed) = hosts.drain(&egui::Context::default());
         assert!(!changed);
         assert!(matches!(events[..], [Event::Sleep { confirmed: true, result: Ok(SleepStep::Accepted), .. }]));

@@ -618,7 +618,7 @@ impl App {
                     Ok(()) => self.launcher.message(tr("Wake request sent"), tr("The PC should appear online shortly if Wake-on-LAN is enabled.")),
                     Err(e) => self.launcher.message(tr("Could not wake the PC"), e),
                 },
-                HostEvent::Sleep { id, ask, confirmed, result } => self.launcher.sleep_answered(id, ask, confirmed, result),
+                HostEvent::Sleep { id, ask, name, confirmed, result } => self.launcher.sleep_answered(id, ask, &name, confirmed, result),
                 HostEvent::Unpaired { id, result } => {
                     if crate::hosts::now_unpaired(&result) {
                         self.forget_library(id);

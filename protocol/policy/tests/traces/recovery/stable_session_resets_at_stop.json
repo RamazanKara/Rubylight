@@ -1,0 +1,16 @@
+{
+  "source": "StreamRecoveryPolicyTest.aStableSessionResetsAtStopWhileTimeLockedDoesNotCountAsStability",
+  "rust": "recovery::StreamRecoveryPolicy",
+  "java": "com.limelight.StreamRecoveryPolicy",
+  "new": [5, 1000],
+  "calls": [
+    {"call": "reset_after_stable_connection", "args": [40000, 10000], "expect": null},
+    {"call": "next_delay", "args": [200000, -1], "expect": 1000},
+    {"call": "started_at", "args": [], "expect": 200000},
+    {"new": [4, 1000]},
+    {"call": "reset_after_stable_connection", "args": [25000, 20000], "expect": null},
+    {"call": "next_delay", "args": [200000, -1], "expect": -1},
+    {"call": "attempts", "args": [], "expect": 4},
+    {"call": "started_at", "args": [], "expect": 1000}
+  ]
+}

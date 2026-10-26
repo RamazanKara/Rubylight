@@ -1,0 +1,11 @@
+{
+  "source": "StreamRecoveryPolicyTest.stableConnectionReceivesANewBudget",
+  "rust": "recovery::StreamRecoveryPolicy",
+  "java": "com.limelight.StreamRecoveryPolicy",
+  "new": [5, 1000],
+  "calls": [
+    {"call": "next_delay", "args": [70000, 40000], "expect": 1000},
+    {"call": "attempts", "args": [], "expect": 1},
+    {"call": "started_at", "args": [], "expect": 70000}
+  ]
+}

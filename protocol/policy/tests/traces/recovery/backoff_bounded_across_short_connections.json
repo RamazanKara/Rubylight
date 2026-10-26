@@ -1,0 +1,27 @@
+{
+  "source": "desktop recovery.rs retries_are_bounded_across_short_connections",
+  "rust": "recovery::Backoff",
+  "java": null,
+  "new": [],
+  "calls": [
+    {"call": "next_delay", "args": [0], "expect": 1000},
+    {"call": "attempts", "args": [], "expect": 1},
+    {"call": "reset_after", "args": [1000], "expect": null},
+    {"call": "next_delay", "args": [2000], "expect": 2000},
+    {"call": "attempts", "args": [], "expect": 2},
+    {"call": "reset_after", "args": [1000], "expect": null},
+    {"call": "next_delay", "args": [5000], "expect": 4000},
+    {"call": "attempts", "args": [], "expect": 3},
+    {"call": "reset_after", "args": [1000], "expect": null},
+    {"call": "next_delay", "args": [10000], "expect": 8000},
+    {"call": "attempts", "args": [], "expect": 4},
+    {"call": "reset_after", "args": [1000], "expect": null},
+    {"call": "next_delay", "args": [19000], "expect": 12000},
+    {"call": "attempts", "args": [], "expect": 5},
+    {"call": "reset_after", "args": [1000], "expect": null},
+    {"call": "next_delay", "args": [32000], "expect": -1},
+    {"call": "reset_after", "args": [30000], "expect": null},
+    {"call": "next_delay", "args": [32000], "expect": 1000},
+    {"call": "next_delay", "args": [92000], "expect": -1}
+  ]
+}

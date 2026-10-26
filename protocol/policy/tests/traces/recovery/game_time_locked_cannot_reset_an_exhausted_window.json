@@ -1,0 +1,12 @@
+{
+  "source": "GameRecoveryTest.timeLockedCannotResetAnExhaustedUnstableRecoveryWindow",
+  "rust": "recovery::StreamRecoveryPolicy",
+  "java": "com.limelight.StreamRecoveryPolicy",
+  "new": [4, 42100],
+  "calls": [
+    {"call": "reset_after_stable_connection", "args": [100100, 100100], "expect": null},
+    {"call": "next_delay", "args": [220100, -1], "expect": -1},
+    {"call": "attempts", "args": [], "expect": 4},
+    {"call": "started_at", "args": [], "expect": 42100}
+  ]
+}

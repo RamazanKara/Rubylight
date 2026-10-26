@@ -1,0 +1,11 @@
+{
+  "source": "StreamRecoveryPolicyTest.slowStartupAndFlappingConnectionsCannotExtendTheWindow",
+  "rust": "recovery::StreamRecoveryPolicy",
+  "java": "com.limelight.StreamRecoveryPolicy",
+  "new": [3, 1000],
+  "calls": [
+    {"call": "next_delay", "args": [59000, 58000], "expect": -1},
+    {"new": [5, 1000]},
+    {"call": "next_delay", "args": [25000, 20000], "expect": -1}
+  ]
+}

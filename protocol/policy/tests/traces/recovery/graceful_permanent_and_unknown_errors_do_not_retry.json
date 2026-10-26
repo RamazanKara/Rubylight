@@ -1,0 +1,27 @@
+{
+  "source": "StreamRecoveryPolicyTest.gracefulPermanentAndUnknownErrorsDoNotRetry",
+  "rust": "recovery::StreamRecoveryPolicy",
+  "java": "com.limelight.StreamRecoveryPolicy",
+  "new": null,
+  "calls": [
+    {"call": "transient_termination", "args": [0], "expect": false},
+    {"call": "transient_termination", "args": [-103], "expect": false},
+    {"call": "transient_termination", "args": [-104], "expect": false},
+    {"call": "transient_termination", "args": [-105], "expect": false},
+    {"call": "transient_termination", "args": [401], "expect": false},
+    {"call": "transient_termination", "args": [403], "expect": false},
+    {"call": "transient_termination", "args": [409], "expect": false},
+    {"call": "transient_termination", "args": [470], "expect": false},
+    {"call": "transient_termination", "args": [525], "expect": false},
+    {"call": "transient_termination", "args": [-999], "expect": false},
+    {"call": "transient_termination", "args": [123456], "expect": false},
+    {"call": "transient_termination", "args": [-100], "expect": true},
+    {"call": "transient_termination", "args": [-101], "expect": true},
+    {"call": "transient_termination", "args": [-102], "expect": true},
+    {"call": "transient_termination", "args": [-1], "expect": true},
+    {"call": "transient_termination", "args": [104], "expect": true},
+    {"call": "transient_termination", "args": [110], "expect": true},
+    {"call": "transient_termination", "args": [10054], "expect": true},
+    {"call": "transient_termination", "args": [10060], "expect": true}
+  ]
+}

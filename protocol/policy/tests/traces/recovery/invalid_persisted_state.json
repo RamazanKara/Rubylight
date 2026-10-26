@@ -1,0 +1,12 @@
+{
+  "source": "StreamRecoveryPolicyTest.invalidPersistedStateCannotOverflowOrRunAfterAClockReset",
+  "rust": "recovery::StreamRecoveryPolicy",
+  "java": "com.limelight.StreamRecoveryPolicy",
+  "new": [2147483647, 1000],
+  "calls": [
+    {"call": "next_delay", "args": [2000, -1], "expect": -1},
+    {"call": "attempts", "args": [], "expect": 5},
+    {"new": [1, 90000]},
+    {"call": "next_delay", "args": [1000, -1], "expect": -1}
+  ]
+}

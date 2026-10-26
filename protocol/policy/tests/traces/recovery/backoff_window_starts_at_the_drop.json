@@ -1,0 +1,18 @@
+{
+  "source": "desktop recovery.rs Recovery::begin and remaining",
+  "rust": "recovery::Backoff",
+  "java": null,
+  "new": [],
+  "calls": [
+    {"call": "remaining", "args": [1000], "expect": 60000},
+    {"call": "begin", "args": [1000], "expect": null},
+    {"call": "begin", "args": [5000], "expect": null},
+    {"call": "remaining", "args": [50000], "expect": 11000},
+    {"call": "next_delay", "args": [50000], "expect": 1000},
+    {"call": "next_delay", "args": [55000], "expect": 2000},
+    {"call": "next_delay", "args": [58000], "expect": -1},
+    {"call": "attempts", "args": [], "expect": 2},
+    {"call": "remaining", "args": [70000], "expect": 0},
+    {"call": "remaining", "args": [500], "expect": 60000}
+  ]
+}

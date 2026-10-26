@@ -38,3 +38,9 @@ engine" setting. It links Rust's std, ring and the app's libopus, so it is not c
 the Gradle task `buildRustEngine` (app/build.gradle) runs cargo for each ABI with the NDK's
 clang as compiler and linker and checks the 16 KiB segment alignment. A normal app build
 therefore needs rustup with the four targets above. See internal/RUST_CORE.md.
+
+`policy/` (`nightjar-policy`) holds the stream policies both clients need (recovery for now;
+bitrate, quality, health and launch follow), with no I/O and no clock. Until Android calls it,
+the Java originals stay equal through the traces in `policy/tests/traces/<module>/*.json`:
+`cargo test -p nightjar-policy` and the app's `PolicyTraceTest` replay the same files, and the
+format is described in `policy/src/trace.rs`.

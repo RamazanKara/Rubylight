@@ -1114,6 +1114,8 @@ fn start(
         let _ = roamed_by.set(roamer.clone());
         parts.roamer = Some(roamer);
         listener.log("Roaming: on (Experimental)");
+    } else if outcome.host_roaming && !config.roaming.enabled {
+        listener.log("Roaming: off in the client's settings");
     }
     listener.stage_complete(Stage::InputStreamStart);
     parts.outcome = Some(outcome);

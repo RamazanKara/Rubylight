@@ -1306,13 +1306,19 @@ fn media_left_behind_follow_the_control_stream_on_roamed() {
     assert_eq!(r.terminated, None);
 }
 
-/// Silences the host's control stream past `INPUT_CONTACT_LOST_AFTER`, which starts
-/// probing with roaming on, then gives fast probes time to arrive.
-fn silence_host(host: &FakeHost) {
+/// Silences the host's control stream until the client holds input back, past
+/// `INPUT_CONTACT_LOST_AFTER` (which needs a network grace period), when a silence starts
+/// probing with roaming on; then until the client hears the host again, which by then has
+/// read whatever was sent to it meanwhile.
+fn silence_host(host: &FakeHost, session: &Session) {
     host.silent.store(true, Ordering::SeqCst);
-    thread::sleep(Duration::from_millis(1600));
+    until("the client to notice the silence", || {
+        session.stats().input_contact_lost
+    });
     host.silent.store(false, Ordering::SeqCst);
-    thread::sleep(Duration::from_millis(600));
+    until("the client to hear the host again", || {
+        !session.stats().input_contact_lost
+    });
 }
 
 /// Input after the roaming steps reaches the host: the control stream is up.
@@ -1342,7 +1348,9 @@ fn on_a_metered_network_without_the_opt_in_the_grace_period_decides() {
 
     assert!(!session.network_changed(NetworkHint { metered: true }));
     until("the hold", || roam_events(&record) == [RoamEvent::Held]);
-    silence_host(&host);
+    silence_host(&host, &session);
+    // The control stream carries on; the host has taken everything sent before this input.
+    input_arrives(&session, &host);
     {
         let r = record.lock().unwrap();
         assert!(
@@ -1356,8 +1364,7 @@ fn on_a_metered_network_without_the_opt_in_the_grace_period_decides() {
     assert_eq!(roam_events(&record), [RoamEvent::Held]);
     assert_eq!(*host.roaming.lock().unwrap(), []);
 
-    // The same video port, and the control stream, carry on.
-    input_arrives(&session, &host);
+    // The same video port carries on.
     let mut packetizer = Packetizer {
         seq: 100,
         spi: 0,
@@ -1380,16 +1387,29 @@ fn on_a_metered_network_without_the_opt_in_the_grace_period_decides() {
 fn with_roaming_off_nothing_is_probed() {
     let host = start_host_with(None, true);
     let record = Arc::new(Mutex::new(Record::default()));
-    let mut config = roaming_config();
+    let mut config = SessionConfig {
+        network_grace: Duration::from_secs(20),
+        ..roaming_config()
+    };
     config.roaming.enabled = false;
     let session = start_session(&host, config, &record);
+    assert!(
+        record
+            .lock()
+            .unwrap()
+            .logs
+            .iter()
+            .any(|l| l == "Roaming: off in the client's settings"),
+        "{:?}",
+        record.lock().unwrap().logs
+    );
 
     assert!(!session.network_changed(NetworkHint::default()));
     for local in [None, Some(IpAddr::from(Ipv4Addr::LOCALHOST))] {
         let refused = session.roam_to(local).unwrap_err();
         assert_eq!(refused.kind(), io::ErrorKind::Unsupported, "{refused}");
     }
-    silence_host(&host);
+    silence_host(&host, &session);
     input_arrives(&session, &host);
 
     assert!(roam_events(&record).is_empty());

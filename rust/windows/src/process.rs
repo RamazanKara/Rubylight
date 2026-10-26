@@ -875,12 +875,32 @@ pub fn user_signed_in() -> bool {
     }
 }
 pub fn user_environment() -> Result<BTreeMap<String, String>> {
-    let token = target_token(&Target::User { elevated: false })?;
+    environment(target_token(&Target::User { elevated: false })?.as_ref())
+}
+/// The environment of a program started with `token`: that user's variables, as the desktop
+/// gives them. Without a token the program runs as this host's own user, and gets this host's
+/// environment as the host started with it, like a program a launcher starts (a variable the
+/// user changes later reaches it after a host restart). CreateEnvironmentBlock without a token
+/// would return the system's variables
+/// instead (USERPROFILE `C:\Users\Default`, USERNAME SYSTEM, TEMP `C:\Windows\Temp`), and they
+/// replace the inherited ones; the program then misses its user's caches and settings, such as
+/// the AMD shader cache that made the PyroWave probe compile every pipeline again and time out.
+fn environment(token: Option<&OwnedHandle>) -> Result<BTreeMap<String, String>> {
+    let Some(token) = token else {
+        return Ok(std::env::vars_os()
+            .map(|(name, value)| {
+                (
+                    name.to_string_lossy().to_uppercase(),
+                    value.to_string_lossy().into_owned(),
+                )
+            })
+            .collect());
+    };
     // SAFETY: the block from CreateEnvironmentBlock is NUL-terminated UTF-16 strings ending in an
     // empty one, so reads stop at the terminators, and `native` frees it on drop.
     unsafe {
         let mut native = Environment(std::ptr::null_mut());
-        CreateEnvironmentBlock(&mut native.0, token.as_ref().map(raw), token.is_none())?;
+        CreateEnvironmentBlock(&mut native.0, Some(raw(token)), false)?;
         let mut environment = BTreeMap::new();
         let mut offset = 0;
         while !native.0.is_null() && offset < 1024 * 1024 {
@@ -1118,37 +1138,10 @@ impl Process {
         let program = wide(program.as_os_str())?;
         let directory = directory.map(|p| wide(p.as_os_str())).transpose()?;
         let mut line = wide(std::ffi::OsStr::new(line))?;
-        // SAFETY: the environment block is read only up to its NUL terminators, the strings given
-        // to CreateProcess are NUL-terminated locals, and each new handle is owned once.
+        let mut environment = environment(token.as_ref())?;
+        // SAFETY: the strings given to CreateProcess are NUL-terminated locals, and each new
+        // handle is owned once.
         unsafe {
-            let mut native = Environment(std::ptr::null_mut());
-            CreateEnvironmentBlock(&mut native.0, token.as_ref().map(raw), token.is_none())?;
-            let mut environment: BTreeMap<String, String> = BTreeMap::new();
-            let mut offset = 0usize;
-            while !native.0.is_null() && offset < 1024 * 1024 {
-                let p = native.0.cast::<u16>().add(offset);
-                if *p == 0 {
-                    break;
-                }
-                let mut len = 0;
-                while offset + len < 1024 * 1024 && *p.add(len) != 0 {
-                    len += 1;
-                }
-                if offset + len >= 1024 * 1024 {
-                    bail!("process environment exceeds the limit");
-                }
-                let entry = String::from_utf16_lossy(std::slice::from_raw_parts(p, len));
-                let split = if let Some(rest) = entry.strip_prefix('=') {
-                    rest.find('=').map(|i| i + 1)
-                } else {
-                    entry.find('=')
-                };
-                if let Some(i) = split {
-                    let (name, value) = (&entry[..i], &entry[i + 1..]);
-                    environment.insert(name.to_uppercase(), value.to_owned());
-                }
-                offset += len + 1;
-            }
             for (key, value) in extras {
                 if key.is_empty() || key.contains(['=', '\0']) || value.contains('\0') {
                     bail!("invalid process environment variable");
@@ -2473,6 +2466,64 @@ mod tests {
         let standard = !token_elevated(&own).unwrap() || shell_token(&own).unwrap().is_some();
         assert_eq!(groups.contains("S-1-16-8192"), standard, "{groups}");
         assert_eq!(groups.contains("S-1-16-12288"), !standard, "{groups}");
+    }
+    #[test]
+    fn programs_started_without_a_token_get_this_hosts_environment() {
+        // A non-elevated host gave its programs the system's variables, and the PyroWave probe
+        // worker missed the AMD shader cache under C:\Users\Default, compiled every pipeline
+        // again and timed out.
+        let environment = environment(None).unwrap();
+        for name in ["USERPROFILE", "USERNAME", "TEMP", "PATH"] {
+            assert_eq!(
+                environment.get(name).map(String::as_str),
+                std::env::var(name).ok().as_deref(),
+                "{name}"
+            );
+        }
+        if !is_system() {
+            // Apps and client commands get this one, from whichever token the host uses.
+            let user = user_environment().unwrap();
+            for name in ["USERPROFILE", "USERNAME"] {
+                assert_eq!(user.get(name), environment.get(name), "{name}");
+            }
+        }
+    }
+    #[test]
+    fn programs_started_for_the_user_keep_the_users_profile() {
+        if is_system() {
+            return;
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let output = directory.path().join("user.txt");
+        // `/u` writes UTF-16, so a profile name outside the OEM code page reads back intact.
+        let child = Process::shell(
+            &format!("cmd /d /u /c set USER 1>\"{}\" 2>&1", output.display()),
+            None,
+            false,
+            &BTreeMap::new(),
+        )
+        .unwrap();
+        assert_eq!(child.wait(Duration::from_secs(10)).unwrap(), 0);
+        let bytes = std::fs::read(output).unwrap();
+        let wide: Vec<u16> = bytes
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| u16::from_le_bytes(*pair))
+            .collect();
+        let text = String::from_utf16_lossy(&wide);
+        let seen: BTreeMap<_, _> = text
+            .lines()
+            .filter_map(|line| line.split_once('='))
+            .map(|(name, value)| (name.to_uppercase(), value.to_owned()))
+            .collect();
+        for name in ["USERPROFILE", "USERNAME"] {
+            assert_eq!(
+                seen.get(name),
+                std::env::var(name).ok().as_ref(),
+                "{name}: {text}"
+            );
+        }
     }
     #[test]
     fn portable_user_identity_does_not_require_a_non_elevated_token() {

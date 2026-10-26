@@ -302,16 +302,11 @@ impl HostLoss {
         Some(report)
     }
 }
-/// Windows speaker mask -> Moonlight's FL, FR, FC, LFE, BL, BR, SL, SR order.
-pub fn mix_matrix(
-    input_channels: usize,
-    mask: u32,
-    output_channels: usize,
-) -> Result<Vec<Vec<f32>>> {
-    if input_channels == 0 || input_channels > 32 || !matches!(output_channels, 2 | 6 | 8) {
-        bail!("invalid speaker layout");
-    }
-    let speakers: Vec<u32> = if mask.count_ones() as usize == input_channels {
+/// The Windows speaker bit of each of an endpoint's channels, 0 for one
+/// without a known position; a mask that doesn't match the channel count
+/// means the standard order.
+pub fn speakers(input_channels: usize, mask: u32) -> Vec<u32> {
+    if mask.count_ones() as usize == input_channels {
         (0..32)
             .filter(|i| mask & (1 << i) != 0)
             .map(|i| 1 << i)
@@ -325,7 +320,18 @@ pub fn mix_matrix(
                 .map(|i| standard.get(i).copied().unwrap_or(0))
                 .collect()
         }
-    };
+    }
+}
+/// Windows speaker mask -> Moonlight's FL, FR, FC, LFE, BL, BR, SL, SR order.
+pub fn mix_matrix(
+    input_channels: usize,
+    mask: u32,
+    output_channels: usize,
+) -> Result<Vec<Vec<f32>>> {
+    if input_channels == 0 || input_channels > 32 || !matches!(output_channels, 2 | 6 | 8) {
+        bail!("invalid speaker layout");
+    }
+    let speakers = speakers(input_channels, mask);
     let mut matrix = vec![vec![0.; input_channels]; output_channels];
     let index = |bit| speakers.iter().position(|v| *v == bit);
     if output_channels == 2 && input_channels > 2 {

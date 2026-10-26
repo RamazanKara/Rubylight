@@ -10,3 +10,5 @@ rust/release/fixtures/timing/** text eol=lf
 rust/compatibility/**/*.patch whitespace=-blank-at-eol
 
 rust/core/src/library/fixtures/product.db binary
+# The HRIR data is checked by its SHA-256.
+rust/core/src/audio_dsp/*.bin binary

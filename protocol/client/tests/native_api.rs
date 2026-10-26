@@ -220,6 +220,7 @@ struct Seen {
     content_type: Option<String>,
     body: Vec<u8>,
     client_certificate: Option<Vec<u8>>,
+    handshake: Option<rustls::HandshakeKind>,
 }
 
 struct MockHost {
@@ -345,6 +346,7 @@ fn serve_as(
                 content_type,
                 body: body.clone(),
                 client_certificate,
+                handshake: tls.conn.handshake_kind(),
             });
             let (status, reply) = handler(&method, path, &body);
             write!(
@@ -566,6 +568,23 @@ fn error_answers_carry_the_code_and_the_status() {
         matches!(error, Error::Status { code: 502, .. }),
         "{error:?}"
     );
+}
+
+#[test]
+fn every_request_is_a_full_handshake_with_the_client_certificate() {
+    // Sunshine and Vibepollo identify the client per handshake and fail a resumed one with
+    // internal_error (#39). The mock host offers resumption, as rustls does by default.
+    let host = serve(|_, _, _| (200, fixture("session")));
+    let client = paired_client(&host);
+    for _ in 0..3 {
+        client.session().unwrap();
+    }
+    let seen = host.seen.lock().unwrap();
+    assert_eq!(seen.len(), 3);
+    for request in seen.iter() {
+        assert_eq!(request.handshake, Some(rustls::HandshakeKind::Full));
+        assert!(request.client_certificate.is_some());
+    }
 }
 
 #[test]

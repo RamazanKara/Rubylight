@@ -853,7 +853,7 @@ pub(crate) fn tls_config(
         pinned: server_certificate.to_vec(),
         provider: provider.clone(),
     };
-    let config = ClientConfig::builder_with_provider(provider)
+    let mut config = ClientConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
         .map_err(tls_error)?
         .dangerous()
@@ -863,6 +863,10 @@ pub(crate) fn tls_config(
             PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(client_key_pkcs8.to_vec())),
         )
         .map_err(tls_error)?;
+    // Sunshine and its forks (Vibepollo) identify the paired client in their certificate
+    // callback, which a resumed session skips: they answer it with internal_error (#39).
+    // Moonlight never resumes either, so every request does a full handshake.
+    config.resumption = rustls::client::Resumption::disabled();
     Ok(Arc::new(config))
 }
 

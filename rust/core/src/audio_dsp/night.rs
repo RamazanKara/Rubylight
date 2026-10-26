@@ -49,6 +49,11 @@ fn power(frame: &[f32]) -> f32 {
     sum / 2.
 }
 
+/// The off ramp's gain from `from` with `left` frames to go.
+fn ramp(from: f32, left: u32) -> f32 {
+    1. + (from - 1.) * (left as f32 / OFF_RAMP_FRAMES as f32)
+}
+
 fn coefficient(seconds: f32) -> f32 {
     (-1. / (seconds * RATE)).exp()
 }
@@ -124,7 +129,8 @@ impl Night {
     pub fn process(&mut self, samples: &mut [f32], channels: usize, enabled: bool) -> usize {
         match (self.state, enabled) {
             (State::On, true) | (State::Off, false) => {}
-            (State::Off | State::Ending { .. }, true) => self.start(),
+            (State::Off, true) => self.start(),
+            (State::Ending { from, left }, true) => self.resume(from, left),
             (State::On, false) => {
                 self.state = State::Ending {
                     from: self.gain(),
@@ -147,7 +153,7 @@ impl Night {
                 }
             }
             let gain = if let State::Ending { from, left } = self.state {
-                let gain = 1. + (from - 1.) * (left as f32 / OFF_RAMP_FRAMES as f32);
+                let gain = ramp(from, left);
                 self.state = match left - 1 {
                     0 => State::Off,
                     left => State::Ending { from, left },
@@ -177,6 +183,20 @@ impl Night {
         // As if the programme were already at the target: the leveller starts
         // from unity and only moves once it has measured something else.
         self.mean_square = 10f32.powf(TARGET_DB / 10.);
+    }
+
+    /// Back on during the off ramp: from the ramp's gain where it is, with the
+    /// measurements kept. The compressor and leveller keep their share of it.
+    fn resume(&mut self, from: f32, left: u32) {
+        self.state = State::On;
+        let total_db = self.compressor_db + self.leveller_db;
+        let share = if total_db == 0. {
+            0.
+        } else {
+            20. * ramp(from, left).log10() / total_db
+        };
+        self.compressor_db *= share;
+        self.leveller_db *= share;
     }
 
     fn gain(&self) -> f32 {
@@ -484,6 +504,45 @@ mod tests {
         }
         assert_eq!((night.detector, night.compressor_db), (0., 0.));
         assert!(silence.iter().all(|x| x.to_bits() == 0));
+    }
+
+    #[test]
+    fn turning_it_back_on_during_the_off_ramp_starts_from_the_ramps_gain() {
+        let mut night = Night::default();
+        let mut on = sine(-40., 150., 48_000 * 6, 2);
+        night.process(&mut on, 2, true);
+        let full = night.gain();
+        assert!(full > 2., "{full}");
+        // Half the ramp, then on again at the sine's peak.
+        let input = sine(-40., 150., 480, 2);
+        let mut off = input[..480].to_vec();
+        night.process(&mut off, 2, false);
+        let halfway = ramp(full, OFF_RAMP_FRAMES / 2);
+        assert!((night.gain() - full).abs() < 1e-3);
+        let mut again = input[480..].to_vec();
+        night.process(&mut again[..2], 2, true);
+        assert!(
+            (night.gain() - halfway).abs() < 0.05 * halfway,
+            "{} {halfway}",
+            night.gain()
+        );
+        night.process(&mut again[2..], 2, true);
+        // No step at either switch larger than the signal's own.
+        let largest = |s: &[f32]| {
+            s.as_chunks::<2>()
+                .0
+                .windows(2)
+                .map(|w| (w[1][0] - w[0][0]).abs())
+                .fold(0f32, f32::max)
+        };
+        let before = largest(&on[on.len() - 9600..]);
+        let joined: Vec<f32> = on[on.len() - 9600..]
+            .iter()
+            .chain(&off)
+            .chain(&again)
+            .copied()
+            .collect();
+        assert!(largest(&joined) <= before * 1.01);
     }
 
     #[test]

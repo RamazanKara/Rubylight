@@ -388,7 +388,7 @@ GET /api/native/v1/files
 }
 ```
 
-Only plain files are listed: no folders, links or `.part` files. `free_bytes` is what an upload may use: the volume's free space less a reserve of 1 GiB, or 2 % of a volume over 50 GiB, and less what the uploads running still have to write. A device with Upload files but not Download files gets `folder`, `free_bytes` and `max_file_bytes` with an empty `files`.
+Only plain files are listed: no folders, links or `.part` files. `free_bytes` is what an upload may use: the volume's free space less a reserve of 2 % of the volume, at least 1 GiB and at most 4 GiB, and less what the uploads running still have to write. A device with Upload files but not Download files gets `folder`, `free_bytes` and `max_file_bytes` with an empty `files`.
 
 ```http
 POST /api/native/v1/files?name=clip.mp4

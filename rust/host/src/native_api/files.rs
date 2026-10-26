@@ -54,9 +54,10 @@ const PACE_CHECK: Duration = Duration::from_millis(250);
 const DEVICE_DOWNLOADS: usize = 2;
 /// Downloads all devices together may run at once.
 const ALL_DOWNLOADS: usize = 8;
-/// Free space an upload leaves on its volume: 1 GiB, or 1/50 (2 %) of a
-/// volume larger than 50 GiB.
+/// Free space an upload leaves on its volume: 1/50 (2 %) of the volume, at
+/// least 1 GiB and at most 4 GiB.
 const MIN_RESERVE: u64 = 1 << 30;
+const MAX_RESERVE: u64 = 4 << 30;
 const RESERVE_SHARE: u64 = 50;
 /// `ERROR_SHARING_VIOLATION`: another program holds the file open without
 /// letting others read it.
@@ -199,7 +200,7 @@ impl Transfers {
 /// What is left of `free` bytes on a volume of `total` for another upload,
 /// beside the reserve and the bytes `uploads` still write.
 fn room(uploads: &HashMap<String, u64>, free: u64, total: u64) -> u64 {
-    let reserve = MIN_RESERVE.max(total / RESERVE_SHARE);
+    let reserve = (total / RESERVE_SHARE).clamp(MIN_RESERVE, MAX_RESERVE);
     let due = uploads
         .values()
         .fold(0u64, |due, left| due.saturating_add(*left));
@@ -1093,9 +1094,16 @@ mod tests {
     fn an_upload_leaves_the_reserve_and_the_bytes_running_uploads_still_write() {
         const GIB: u64 = 1 << 30;
         let none = HashMap::new();
-        // 1 GiB on a small volume, 2 % on a large one.
+        // 1 GiB on a small volume, 2 % on a mid-sized one, 4 GiB on a big one.
         assert_eq!(room(&none, 10 * GIB, 20 * GIB), 9 * GIB);
-        assert_eq!(room(&none, 30 * GIB, 1000 * GIB), 10 * GIB);
+        assert_eq!(room(&none, 30 * GIB, 100 * GIB), 28 * GIB);
+        assert_eq!(room(&none, 30 * GIB, 1000 * GIB), 26 * GIB);
+        // A 930 GB drive with 15 GB free, where 2 % would leave nothing.
+        assert_eq!(
+            room(&none, 15_000_000_000, 930_000_000_000),
+            15_000_000_000 - 4 * GIB
+        );
+        assert_eq!(room(&none, 3 * GIB, 4000 * GIB), 0);
         assert_eq!(room(&none, GIB / 2, 20 * GIB), 0);
         let running = HashMap::from([("a".to_owned(), 3 * GIB), ("b".to_owned(), GIB)]);
         assert_eq!(room(&running, 10 * GIB, 20 * GIB), 5 * GIB);

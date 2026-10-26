@@ -395,7 +395,7 @@ fn probes_are_rate_limited_per_session_and_overall() {
     // Many sessions, each within its own share, still meet the global cap.
     let mut table = RoamTable::with_challenges(|| 1);
     let sessions = GLOBAL_PER_SECOND / SESSION_PER_SECOND + 1;
-    let rikeys: Vec<[u8; 16]> = (0..sessions).map(|n| [n as u8; 16]).collect();
+    let rikeys: Vec<[u8; 16]> = (0..sessions as u128).map(u128::to_le_bytes).collect();
     for (n, rikey) in rikeys.iter().enumerate() {
         table.insert(n, rikey, at(OLD));
     }
@@ -420,6 +420,45 @@ fn probes_are_rate_limited_per_session_and_overall() {
     }
     assert_eq!(answered, GLOBAL_PER_SECOND);
     assert_eq!(capped, sessions * SESSION_PER_SECOND - GLOBAL_PER_SECOND);
+}
+
+#[test]
+fn junk_under_one_tag_does_not_refuse_another_session() {
+    let mut table = table();
+    let other = [3; 16];
+    table.insert("t", &other, at(THIRD));
+    let now = Instant::now();
+    let mut junk = probe(1);
+    junk[DATAGRAM_BYTES - 1] ^= 1;
+    let mut refused = Vec::new();
+    for _ in 0..GLOBAL_PER_SECOND {
+        refused.push(table.on_datagram(now, at(NEW), &junk).unwrap_err());
+    }
+    assert!(
+        refused[..PREAUTH_PER_SECOND as usize]
+            .iter()
+            .all(|refusal| *refusal == Refusal::Authentication)
+    );
+    assert!(
+        refused[PREAUTH_PER_SECOND as usize..]
+            .iter()
+            .all(|refusal| *refusal == Refusal::SessionRate)
+    );
+    let probe_t = client_for(
+        &other,
+        1,
+        Payload::Probe {
+            nonce_c: 1,
+            flags: 0,
+        },
+    );
+    assert_eq!(reply_to(table.on_datagram(now, at(NEW), &probe_t)), at(NEW));
+    // The flooded session waits out its second.
+    assert_eq!(
+        table.on_datagram(now, at(NEW), &probe(2)),
+        Err(Refusal::SessionRate)
+    );
+    reply_to(table.on_datagram(now + Duration::from_secs(1), at(NEW), &probe(3)));
 }
 
 #[test]

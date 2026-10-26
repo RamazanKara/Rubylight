@@ -25,9 +25,12 @@ pub use rubylight_protocol::roaming::SDP_ATTRIBUTE;
 /// PROBEs and CONFIRMs handled per session and second; the client sends at most four of
 /// each.
 pub const SESSION_PER_SECOND: u32 = 10;
-/// Datagrams with a known session tag handled per second over all sessions, before any
-/// GCM open.
-pub const GLOBAL_PER_SECOND: u32 = 100;
+/// Datagrams carrying one session's tag opened per second, before anything is
+/// authenticated. Junk under one tag uses up only that session's budget.
+pub const PREAUTH_PER_SECOND: u32 = 50;
+/// Datagrams with a known session tag opened per second over all sessions: a bound on
+/// the GCM work, well below what one core can open.
+pub const GLOBAL_PER_SECOND: u32 = 5_000;
 /// How long a probing address may take to confirm.
 pub const PENDING_LIFETIME: Duration = Duration::from_secs(3);
 /// The shortest time between two moves of one session.
@@ -109,7 +112,7 @@ pub enum Refusal {
     Authentication,
     /// Seq not above the last one seen from the client.
     Replay,
-    /// Over [`SESSION_PER_SECOND`].
+    /// Over [`SESSION_PER_SECOND`], or over [`PREAUTH_PER_SECOND`] before authentication.
     SessionRate,
     /// CONFIRM without a pending address, or after it expired.
     NoPending,
@@ -199,6 +202,9 @@ struct Entry<K> {
     /// The challenge of the last move, for answering a repeated CONFIRM.
     committed: Option<u64>,
     last_commit: Option<Instant>,
+    /// Datagrams with this tag, before the GCM open.
+    preauth: Window,
+    /// Fresh authentic requests.
     window: Window,
 }
 
@@ -270,6 +276,7 @@ impl<K: Clone + PartialEq> RoamTable<K> {
             here: None,
             committed: None,
             last_commit: None,
+            preauth: Window::new(),
             window: Window::new(),
         });
     }
@@ -311,7 +318,11 @@ impl<K: Clone + PartialEq> RoamTable<K> {
             .iter_mut()
             .find(|entry| entry.keys.session_tag == datagram.header.session_tag)
             .ok_or(Refusal::UnknownSession)?;
-        // Bounds the GCM opens before anything is authenticated.
+        // Bound the GCM opens before anything is authenticated: per session first, so
+        // junk under one tag can't use up the overall budget for the others.
+        if !entry.preauth.admit(now, PREAUTH_PER_SECOND) {
+            return Err(Refusal::SessionRate);
+        }
         if !self.window.admit(now, GLOBAL_PER_SECOND) {
             return Err(Refusal::GlobalRate);
         }

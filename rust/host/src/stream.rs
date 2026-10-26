@@ -2432,6 +2432,8 @@ impl Media {
                             if arrival_pacing {
                                 pacer.observe_source(image.captured);
                                 pacer.observe_source_rate(latest.source_rate());
+                                let (start, late) = latest.picture();
+                                pacer.observe_picture(start, late);
                             }
                             let fresh = last_image.as_ref().is_none_or(|previous| !Arc::ptr_eq(previous, &image));
                             if arrival_pacing
@@ -2439,7 +2441,7 @@ impl Media {
                                 && !rebuild_encoder
                                 && !s.idr.load(Ordering::Acquire)
                                 && s.invalidation.lock().unwrap().is_none()
-                                && let interval = latest.source_interval()
+                                && let interval = latest.picture_interval()
                                 && let butterpollo_core::stream_policy::Pace::WaitUntil(deadline) =
                                     pacer.decide(Instant::now(), image.captured, interval)
                             {
@@ -2663,7 +2665,7 @@ impl Media {
                                 let key = Arc::as_ptr(&image) as usize;
                                 let (seen, interval, deadline) = match first_seen {
                                     Some((k, seen, interval, deadline)) if k == key => (seen, interval, deadline),
-                                    _ => (begin, latest.source_interval(), None),
+                                    _ => (begin, latest.picture_interval(), None),
                                 };
                                 let (capture_id, selected_is_latest, latest_capture_id) = latest.trace_selection(&image);
                                 tracing::trace!(

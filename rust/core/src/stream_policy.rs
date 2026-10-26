@@ -260,6 +260,10 @@ pub struct Pacer {
     faster: bool,
     /// The source's mean frame interval, when the capture knows it.
     source_rate: Option<Duration>,
+    /// When the source's latest picture was first captured.
+    picture: Option<Instant>,
+    /// The picture interval nearly all recent pictures arrived within.
+    late_picture: Option<Duration>,
     /// Credit a faster source may be lent, in frames, to repay a deficit.
     grace: f64,
     grace_at: Instant,
@@ -279,6 +283,8 @@ impl Pacer {
             spacing: 0.75,
             faster: false,
             source_rate: None,
+            picture: None,
+            late_picture: None,
             grace: Self::GRACE_CAP,
             grace_at: now,
         }
@@ -345,6 +351,19 @@ impl Pacer {
     pub fn observe_source_rate(&mut self, mean_interval: Option<Duration>) {
         self.source_rate = mean_interval;
     }
+    /// When the source's latest picture was first captured, and the picture
+    /// interval nearly all recent pictures arrived within
+    /// (`Freshness::picture_start`, `Freshness::late_picture_interval`). A
+    /// prediction counts from the picture's first capture: from a second
+    /// composition of the same picture, 1 ms later, it expected the next frame
+    /// 1 ms late. A claim waiting for the next picture keeps waiting until the
+    /// late interval, at most a quarter period past the median: a 120 Hz
+    /// game's frames under VRR came 7.3 to 9.3 ms apart, so a wait that gave up
+    /// 1 ms after the median prediction still took 0.5-2 % of frames 8 ms old.
+    pub fn observe_picture(&mut self, start: Option<Instant>, late: Option<Duration>) {
+        self.picture = start;
+        self.late_picture = late;
+    }
     /// Capture recovery or replacement invalidates the learned source phase.
     pub fn reset_source_phase(&mut self) {
         if self.source_phase.is_some() {
@@ -398,6 +417,15 @@ impl Pacer {
     /// late) is claimed at once; waiting would carry the lateness into every
     /// following frame. Each claim still costs a whole frame of credit.
     const CLAIM_CREDIT: f64 = 7. / 8.;
+    /// How long after its latest predicted present a frame the claim waits
+    /// for gets to be noticed, even when that runs past the prediction budget.
+    /// Cut off at the budget, a frame due just before it was noticed just
+    /// after: the claim waited the whole budget, then took the frame one
+    /// source interval old, and each such claim set the next budget one period
+    /// later, so the miss repeated. A missed prediction holds a frame at most
+    /// this long past the budget, plus the late picture interval's lead over
+    /// the median (`observe_picture`), at most a quarter period.
+    const PREDICTED_NOTICE: Duration = Duration::from_millis(1);
     /// The earliest instant the next frame may be claimed: no two claims closer
     /// than three quarters of a period, and no more than the stream rate overall.
     pub fn allowed_at(&self, now: Instant) -> Instant {
@@ -494,18 +522,34 @@ impl Pacer {
                 *interval >= self.prediction_floor && *interval <= self.period * 4
             })
         {
-            let next = presented + interval;
+            // Count from the first capture of the picture `presented` belongs
+            // to. A start after it is a newer capture this claim has not seen.
+            let since = self
+                .picture
+                .filter(|start| {
+                    *start <= presented && presented.duration_since(*start) < interval / 2
+                })
+                .unwrap_or(presented);
+            let next = since + interval;
             let slack = self.period / 4 + Duration::from_micros(500);
             // `next` is when Windows will present the fresher frame; the
             // capture worker notices it up to a detection delay later, which
             // can reach a millisecond with a polled capture. A frame presented
             // just before the claim is allowed may still arrive after it.
             let detection = self.period / 4;
-            if next + detection > allowed && next <= allowed + slack {
+            // The next picture can also come as late as the late interval.
+            let late = since
+                + self.late_picture.map_or(interval, |late| {
+                    late.clamp(interval, interval + self.period / 4)
+                });
+            if late + detection > allowed && next <= allowed + slack {
                 // Detection shares the prediction budget: adding it after
                 // the latest expected arrival held an available frame for
                 // another quarter-period when that prediction was missed.
-                return Pace::WaitUntil((next + detection).min(allowed + slack));
+                // A frame due at the end of the budget still gets
+                // `PREDICTED_NOTICE` to be noticed in.
+                let noticed = late + Self::PREDICTED_NOTICE;
+                return Pace::WaitUntil((late + detection).min((allowed + slack).max(noticed)));
             }
         }
         Pace::WaitUntil(allowed)

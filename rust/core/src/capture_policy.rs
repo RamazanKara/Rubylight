@@ -31,8 +31,40 @@ pub struct Freshness {
     median: Option<u64>,
     mean: Option<u64>,
     polling_window: Option<(u64, u64)>,
+    /// The latest picture's first capture, and the intervals between the
+    /// first captures of recent pictures: see `picture_interval`.
+    picture: Option<u64>,
+    pictures: [u64; 16],
+    picture_count: usize,
+    picture_next: usize,
+    picture_median: Option<u64>,
+    picture_late: Option<u64>,
 }
 impl Freshness {
+    /// A capture this soon after the previous one belongs to the same picture.
+    const PICTURE_GAP: u64 = 2_000_000;
+    /// The median interval between pictures, once a few are known: a capture
+    /// less than 2 ms after the previous one counts as part of its picture.
+    /// WGC on a 240 Hz VRR display delivers each frame of a 120 Hz game with
+    /// a second composition 0.1-1 ms later (and in some sessions another 3-4 ms
+    /// later), so the capture intervals' median read 7 ms or as little as 3 ms
+    /// for a game presenting every 8.3 ms. A later composition counts as a
+    /// picture of its own: when many pictures have one, the median falls
+    /// short of the game's interval and `late_picture_interval` still covers
+    /// it. A 1000 Hz display is one long picture and has no picture interval.
+    pub fn picture_interval(&self) -> Option<u64> {
+        self.picture_median
+    }
+    /// The picture interval nearly all recent pictures arrived within: the
+    /// second longest of the last 16. A game's frame times vary; a 120 Hz
+    /// game's frames under VRR came 7.3 to 9.3 ms apart.
+    pub fn late_picture_interval(&self) -> Option<u64> {
+        self.picture_late
+    }
+    /// When the latest picture's first capture was presented.
+    pub fn picture_start(&self) -> Option<u64> {
+        self.picture
+    }
     /// The median interval between recent source frames, once a few are known.
     /// The capture worker observes every frame, so this is the source cadence
     /// even when a consumer only looks at some of them.
@@ -61,6 +93,7 @@ impl Freshness {
         }
     }
     pub fn observe(&mut self, captured: u64, delay: u64) {
+        let mut same_picture = false;
         if let Some(previous) = self.last {
             let interval = captured.saturating_sub(previous);
             if captured > previous && interval <= 500_000_000 {
@@ -68,12 +101,36 @@ impl Freshness {
                 self.delays[self.next] = delay;
                 self.next = (self.next + 1) % self.intervals.len();
                 self.count = (self.count + 1).min(self.intervals.len());
+                same_picture = interval < Self::PICTURE_GAP;
             } else {
                 self.count = 0;
                 self.next = 0;
+                self.picture = None;
             }
         }
         self.last = Some(captured);
+        if !same_picture {
+            match self.picture {
+                Some(start) if captured - start <= 500_000_000 => {
+                    self.pictures[self.picture_next] = captured - start;
+                    self.picture_next = (self.picture_next + 1) % self.pictures.len();
+                    self.picture_count = (self.picture_count + 1).min(self.pictures.len());
+                }
+                _ => {
+                    self.picture_count = 0;
+                    self.picture_next = 0;
+                }
+            }
+            self.picture = Some(captured);
+            self.picture_median = None;
+            self.picture_late = None;
+            if self.picture_count >= 4 {
+                let mut pictures = self.pictures;
+                pictures[..self.picture_count].sort_unstable();
+                self.picture_median = Some(pictures[self.picture_count / 2]);
+                self.picture_late = Some(pictures[self.picture_count * 7 / 8]);
+            }
+        }
         // Polling reads the same history many times between frames. Recompute
         // its statistics only when that history changes, outside the wait loop.
         self.median = None;
@@ -229,6 +286,52 @@ mod tests {
                 }
             }
         }
+    }
+    #[test]
+    fn a_second_composition_of_a_picture_does_not_shorten_the_picture_interval() {
+        // WGC on a 240 Hz VRR display: each frame of a 120 Hz game arrives
+        // with another composition 0.1 or 1 ms later; in some sessions every
+        // fourth frame has a third 3.5 ms later.
+        for third in [false, true] {
+            let mut cadence = Freshness::default();
+            for frame in 0..200u64 {
+                let jitter = (frame.wrapping_mul(2_654_435_761) >> 7) % 600_000;
+                let mut start = 1_000_000_000 + frame * 8_333_333 + jitter;
+                cadence.observe(start, 100_000);
+                let second = start + [100_000, 1_000_000][(frame * 5 % 3).min(1) as usize];
+                cadence.observe(second, 100_000);
+                if third && frame % 4 == 1 {
+                    start += 3_500_000;
+                    cadence.observe(start, 100_000);
+                }
+                if frame >= 20 {
+                    let picture = cadence.picture_interval().unwrap();
+                    assert!(
+                        (7_833_333..=8_833_333).contains(&picture),
+                        "third={third} frame {frame}: {picture}"
+                    );
+                    assert_eq!(cadence.picture_start(), Some(start));
+                    assert!(cadence.median_interval().unwrap() < 7_500_000);
+                }
+            }
+        }
+        // The 1000 Hz virtual display's own refresh is no picture cadence.
+        let mut display = Freshness::default();
+        for tick in 0..100 {
+            display.observe(tick * 1_000_000, 100_000);
+        }
+        assert_eq!(display.picture_interval(), None);
+        assert_eq!(display.median_interval(), Some(1_000_000));
+        // A source without paired compositions has the same median either way.
+        let mut cadence = Freshness::default();
+        for frame in 0..100u64 {
+            cadence.observe(frame * 16_666_667 + frame * 7_919 % 900_000, 100_000);
+            assert_eq!(cadence.picture_interval(), cadence.median_interval());
+        }
+        // A restart starts the picture history over.
+        cadence.observe(1, 100_000);
+        assert_eq!(cadence.picture_interval(), None);
+        assert_eq!(cadence.picture_start(), Some(1));
     }
     #[test]
     fn predictive_polling_is_bounded_and_static_or_irregular_sources_use_normal_waits() {

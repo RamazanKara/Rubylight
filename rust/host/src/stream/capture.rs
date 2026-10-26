@@ -298,6 +298,31 @@ impl<T> Latest<T> {
             .median_interval()
             .map(std::time::Duration::from_nanos)
     }
+    /// The source's recent interval between pictures, counting captures less
+    /// than 2 ms apart as one picture.
+    pub(super) fn picture_interval(&self) -> Option<std::time::Duration> {
+        self.state
+            .lock()
+            .unwrap()
+            .cadence
+            .picture_interval()
+            .map(std::time::Duration::from_nanos)
+    }
+    /// When the source's latest picture was first captured, and the picture
+    /// interval nearly all recent pictures arrived within.
+    pub(super) fn picture(&self) -> (Option<Instant>, Option<std::time::Duration>) {
+        let state = self.state.lock().unwrap();
+        (
+            state
+                .cadence
+                .picture_start()
+                .map(|nanos| self.origin + std::time::Duration::from_nanos(nanos)),
+            state
+                .cadence
+                .late_picture_interval()
+                .map(std::time::Duration::from_nanos),
+        )
+    }
     /// The source's mean frame interval: its rate, which a source alternating
     /// between two cadences hides from the median.
     pub(super) fn source_rate(&self) -> Option<std::time::Duration> {

@@ -124,6 +124,77 @@ fn simulate_with(
     }
     claims
 }
+/// Like `simulate_with`, but the pacer's inputs come from the capture
+/// worker's `Freshness`, as in the host: the picture interval, start and late
+/// interval, and the mean interval as the source rate. Captures are
+/// published in order.
+fn simulate_captures(
+    period: f64,
+    captures: &[f64],
+    detect: impl Fn(usize) -> f64,
+    configure: impl Fn(Pacer) -> Pacer,
+) -> Vec<(f64, f64)> {
+    let start = Instant::now();
+    let ns = |ms: f64| (ms * 1e6).round() as u64;
+    let at = |ms: f64| start + Duration::from_nanos(ns(ms));
+    let ms = |instant: Instant| instant.duration_since(start).as_secs_f64() * 1000.;
+    let mut pacer = configure(Pacer::new(start, Duration::from_secs_f64(period / 1000.)));
+    let mut cadence = crate::capture_policy::Freshness::default();
+    let mut claims = vec![];
+    let mut newest: Option<f64> = None;
+    let mut deadline: Option<f64> = None;
+    let mut interval: Option<Duration> = None;
+    let mut published = 0f64;
+    let mut evaluate = |now: f64,
+                        newest: &mut Option<f64>,
+                        deadline: &mut Option<f64>,
+                        pacer: &mut Pacer,
+                        interval: Option<Duration>| {
+        if let Some(presented) = *newest {
+            match pacer.decide(at(now), at(presented), interval) {
+                Pace::Claim => {
+                    pacer.claimed(at(now));
+                    claims.push((now, presented));
+                    *newest = None;
+                    *deadline = None;
+                }
+                Pace::WaitUntil(t) => *deadline = Some(ms(t).max(now + 0.001)),
+            }
+        }
+    };
+    for (index, &presented) in captures.iter().enumerate() {
+        published = published.max(presented + detect(index));
+        while let Some(t) = deadline.filter(|t| *t < published) {
+            evaluate(t, &mut newest, &mut deadline, &mut pacer, interval);
+            if deadline == Some(t) {
+                break;
+            }
+        }
+        cadence.observe(ns(presented), ns(published - presented));
+        interval = cadence.picture_interval().map(Duration::from_nanos);
+        pacer.observe_source_rate(cadence.mean_interval().map(Duration::from_nanos));
+        pacer.observe_picture(
+            cadence
+                .picture_start()
+                .map(|nanos| start + Duration::from_nanos(nanos)),
+            cadence.late_picture_interval().map(Duration::from_nanos),
+        );
+        newest = Some(presented);
+        pacer.observe_source(at(presented));
+        evaluate(published, &mut newest, &mut deadline, &mut pacer, interval);
+    }
+    claims
+}
+/// Deterministic noise in [0, 1).
+fn noise(i: usize, seed: u64) -> f64 {
+    let mut x = (i as u64)
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(seed.wrapping_mul(1442695040888963407));
+    x ^= x >> 33;
+    x = x.wrapping_mul(0xff51afd7ed558ccd);
+    x ^= x >> 33;
+    (x % 10_000) as f64 / 10_000.
+}
 fn source(interval: f64, seconds: f64, jitter: impl Fn(usize) -> f64) -> Vec<f64> {
     (0..(seconds * 1000. / interval) as usize)
         .map(|i| i as f64 * interval + jitter(i))
@@ -575,11 +646,180 @@ fn a_missed_prediction_does_not_stack_detection_after_the_wait_budget() {
             panic!("the minimum spacing still applies");
         };
         assert!(deadline > allowed);
-        assert!(deadline <= allowed + period / 4 + Duration::from_micros(500));
+        // The next frame is due half a millisecond before the budget ends; it
+        // gets the notice window, not another quarter period.
+        assert!(
+            deadline <= allowed + period / 4 + Duration::from_micros(500) + Pacer::PREDICTED_NOTICE
+        );
         assert_eq!(
             pacer.decide(deadline, presented, Some(interval)),
             Pace::Claim
         );
+    }
+}
+#[test]
+fn a_frame_due_at_the_end_of_the_wait_budget_is_still_noticed() {
+    // A game at twice the stream rate on a VRR stream: claims half a period
+    // apart. The next game frame is due 0.2 ms before the prediction budget
+    // ends and the capture notices it 0.3 ms after its present. Cut off at the
+    // budget, the claim took the frame before it, half a period old.
+    for fps in [59.94, 90., 120., 144.] {
+        let start = Instant::now();
+        let period = Duration::from_secs_f64(1. / fps);
+        let interval = period / 2;
+        let mut pacer = Pacer::new(start, period)
+            .with_spacing(0.5)
+            .with_prediction_floor(Duration::from_millis(2));
+        pacer.claimed(start);
+        let allowed = start + period.mul_f64(0.5);
+        let budget = allowed + period / 4 + Duration::from_micros(500);
+        let next = budget - Duration::from_micros(200);
+        let presented = next - interval;
+        let noticed = |at: Instant| at + Duration::from_micros(300);
+        assert_eq!(pacer.allowed_at(noticed(presented)), allowed);
+        let Pace::WaitUntil(deadline) = pacer.decide(noticed(presented), presented, Some(interval))
+        else {
+            panic!("the claim is not allowed yet");
+        };
+        assert!(
+            deadline > noticed(next),
+            "{fps} fps: gave up before the frame was noticed"
+        );
+        assert!(deadline <= budget + Pacer::PREDICTED_NOTICE);
+        assert_eq!(
+            pacer.decide(noticed(next), next, Some(interval)),
+            Pace::Claim
+        );
+    }
+}
+#[test]
+fn a_picture_later_than_the_median_is_waited_for_within_the_late_interval() {
+    // The median predicts the next picture 0.2 ms before the budget ends; it
+    // comes an eighth of a period later, as a game's uneven frames do.
+    for fps in [59.94, 90., 120., 144.] {
+        let start = Instant::now();
+        let period = Duration::from_secs_f64(1. / fps);
+        let interval = period / 2;
+        let mut pacer = Pacer::new(start, period)
+            .with_spacing(0.5)
+            .with_prediction_floor(Duration::from_millis(2));
+        pacer.claimed(start);
+        let allowed = start + period.mul_f64(0.5);
+        let budget = allowed + period / 4 + Duration::from_micros(500);
+        let next = budget - Duration::from_micros(200);
+        let presented = next - interval;
+        let noticed = |at: Instant| at + Duration::from_micros(300);
+        let arrived = noticed(next + period / 8);
+        let mut deadline = |late: Option<Duration>| {
+            pacer.observe_picture(Some(presented), late);
+            match pacer.decide(noticed(presented), presented, Some(interval)) {
+                Pace::WaitUntil(deadline) => deadline,
+                Pace::Claim => panic!("the claim is not allowed yet"),
+            }
+        };
+        assert!(deadline(None) < arrived, "{fps} fps");
+        let waited = deadline(Some(interval + period / 8));
+        assert!(
+            arrived < waited,
+            "{fps} fps: gave up before the late picture"
+        );
+        assert!(waited <= next + period / 8 + Pacer::PREDICTED_NOTICE);
+        // A late interval far past the median extends the wait by at most a
+        // quarter period.
+        assert!(deadline(Some(interval * 3)) <= next + period / 4 + Pacer::PREDICTED_NOTICE);
+    }
+}
+#[test]
+fn a_game_at_twice_a_vrr_stream_rate_is_never_claimed_a_game_frame_old() {
+    // 3.0.0-rc.2: a 120 Hz game on a 60 fps VRR stream, its frames a little
+    // uneven and noticed 0.15 to 0.45 ms after their present. Claims that gave
+    // up just before the next frame took one 7-9 ms old, and each set the next
+    // budget a period later, so the miss repeated (3.5 % of claims here, 6-9 %
+    // on the RX 7900 XT): the age p95 doubled.
+    let vrr = |pacer: Pacer| {
+        pacer
+            .with_prediction_floor(Duration::from_millis(2))
+            .with_source_phase(true)
+            .with_spacing(0.5)
+    };
+    let period = 1000. / 60.;
+    for seed in 0..6 {
+        let frames = source(1000. / 120., 25., |i| 1. + noise(i, seed) * 0.5);
+        let claims = simulate_with(period, &frames, |i| 0.15 + 0.3 * noise(i, seed + 99), vrr);
+        let steady = &claims[300..];
+        let oldest = steady.iter().map(|(c, p)| c - p).fold(0., f64::max);
+        assert!(
+            oldest < 4.,
+            "seed {seed}: a claim took a frame {oldest} ms old"
+        );
+        let seconds = (steady.last().unwrap().0 - steady[0].0) / 1000.;
+        assert!((steady.len() - 1) as f64 / seconds <= 60.2);
+        assert!(
+            steady
+                .windows(2)
+                .all(|pair| pair[1].0 - pair[0].0 >= period / 2. - 1e-6)
+        );
+    }
+}
+#[test]
+fn a_second_composition_of_each_game_frame_does_not_age_vrr_claims() {
+    // 3.0.0-rc.2 on the RX 7900 XT: WGC on the 240 Hz VRR display delivers
+    // each frame of a 120 Hz game with a second composition 0.1 or 1 ms later,
+    // in some sessions a third 3-4 ms later, all noticed about 0.1 ms after
+    // their present. The capture intervals' median read 7 or 3 ms, so a claim
+    // waited for a frame that was not coming, then took a second composition
+    // 7-8 ms old just before the next frame: 6-9 % of claims, and the age p95
+    // went from 3.7 to 7.7 ms. With the capture median, this simulation takes
+    // 10 % of claims late (52-57 % with the third composition).
+    let vrr = |pacer: Pacer| {
+        pacer
+            .with_prediction_floor(Duration::from_millis(2))
+            .with_source_phase(true)
+            .with_spacing(0.5)
+    };
+    let period = 1000. / 60.;
+    for third in [false, true] {
+        for seed in 0..6 {
+            let mut captures = vec![];
+            for frame in 0..3000 {
+                let start = frame as f64 * 1000. / 120. + noise(frame, seed) * 1.2;
+                captures.push(start);
+                captures.push(
+                    start
+                        + if noise(frame, seed + 7) < 0.35 {
+                            0.1
+                        } else {
+                            1.
+                        },
+                );
+                if third && noise(frame, seed + 13) < 0.25 {
+                    captures.push(start + 3. + noise(frame, seed + 17));
+                }
+            }
+            let claims = simulate_captures(
+                period,
+                &captures,
+                |i| 0.08 + 0.12 * noise(i, seed + 99),
+                vrr,
+            );
+            let steady = &claims[300..];
+            let mut ages: Vec<f64> = steady.iter().map(|(c, p)| c - p).collect();
+            ages.sort_by(f64::total_cmp);
+            let late = ages.iter().filter(|age| **age > 4.).count();
+            let p99 = ages[ages.len() * 99 / 100];
+            assert!(
+                late * 200 < ages.len() && p99 < 4.,
+                "third={third} seed {seed}: {late} of {} claims late, p99 {p99} ms",
+                ages.len()
+            );
+            let seconds = (steady.last().unwrap().0 - steady[0].0) / 1000.;
+            assert!((steady.len() - 1) as f64 / seconds <= 60.2);
+            assert!(
+                steady
+                    .windows(2)
+                    .all(|pair| pair[1].0 - pair[0].0 >= period / 2. - 1e-6)
+            );
+        }
     }
 }
 #[test]

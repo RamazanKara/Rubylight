@@ -2,7 +2,7 @@
   <img src="docs/assets/banner.png" width="800" alt="Nightjar: low-latency game streaming from your PC">
 </p>
 
-<h3 align="center">Your PC games on every screen you own, about 7 ms behind the PC.</h3>
+<h3 align="center">Your PC games, on every screen you own.</h3>
 
 <p align="center">Nightjar is a game-streaming client for Android phones, handhelds, tablets and TVs, and for Windows and Linux PCs. One Rust streaming engine drives all of them. It plays with Sunshine, Apollo, Vibepollo, Rubylight, NVIDIA GameStream and every other Moonlight-compatible host, reads what your host can do and lights up every feature it offers. Paired with Rubylight 3.0, your PC becomes a console.</p>
 
@@ -28,17 +28,11 @@
   <img src="docs/assets/shots/stream-stats.png" width="410" alt="A Nightjar stream with the Statistics overlay: 1920 by 1080 AV1 HDR, 119.9 FPS displayed, 38.6 Mbps, 8 ms network round trip, host processing, decode time, and the PC's CPU and GPU load, temperature and power (demo sample data)">
 </p>
 
-## In numbers
+## Fast where you feel it
 
-Our own runs, with the method and every raw result linked.
-
-| Result | Measured |
-| :-- | :-- |
-| **6.92 ms** | median from the PC's frame to the handheld's screen: Retroid Pocket 6 on Wi-Fi, HEVC 1080p60 at 40 Mbps, on Nightjar's Rust engine ([runs](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#october-23-rust-engine-against-the-c-engine-on-android-b8)) |
-| **8.8 ms** | median receive to present for PyroWave 1080p60 decoded on the GPU by the desktop client (one PC, loopback), down from 20.5 ms on the CPU; at 4K60 the GPU decoder holds 60.1 fps ([decode runs](docs/pyrowave-decode.md)) |
-| **13.7 ms** | median end to end for a laptop on 2.4 GHz Wi-Fi once Nightjar tells the Rubylight PC it is on Wi-Fi, from 64 ms, with a quarter of the lost frames ([runs](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#october-25-wi-fi-pacing-hint-on-a-real-laptop)) |
-| **1.4 ms sooner** | at the middle of the picture with beam racing, PyroWave 1080p60 at 399 Mbps on the desktop client (one PC, loopback) ([beam racing](docs/beam-racing.md)) |
-| **1080p120 10-bit HDR** | in full chroma, AV1 at 116 fps with zero display drops on a Retroid Pocket 6 |
+- **Near-zero decoding.** A Snapdragon 8 Elite turns each 1080p frame into a picture in about half a millisecond: 0.39 ms for AV1 and 0.55 ms for HEVC on a Galaxy S25 Ultra, measured with Nightjar's built-in decoder benchmark ([device results](docs/devices.md#devices)).
+- **About 7 ms from PC to screen** on a Retroid Pocket 6 over Wi-Fi ([runs](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#october-23-rust-engine-against-the-c-engine-on-android-b8)).
+- **1080p at 120 fps in 10-bit HDR** with full colour detail, without a dropped frame.
 
 ## What sets Nightjar apart
 

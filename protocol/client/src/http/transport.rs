@@ -216,7 +216,7 @@ pub(crate) fn probe(request: &Request<'_>, cancel: &Cancel, timeout: Duration, h
 }
 
 fn send_inner(request: &Request<'_>, cancel: &Cancel, body: Option<Body<'_>>, timeout: Option<Duration>, headers: &mut HeaderHook<'_>) -> Result<Response, Error> {
-    let deadline = timeout.map(|timeout| std::time::Instant::now() + timeout);
+    let deadline = timeout.map_or(Deadline::None, |timeout| Deadline::At(std::time::Instant::now() + timeout));
     let head = request_head(request, body);
     connection(request, &[cancel], deadline, Some(write_timeout(request)), &head, |stream, peer| {
         if let Some(body) = body { stream.write_all(body.bytes).map_err(io_tls_error)?; }
@@ -280,11 +280,11 @@ const UPLOAD_CHUNK: usize = 64 * 1024;
 
 /// POSTs `upload` in chunks without holding the whole body, then reads the answer like `send`.
 /// `transfer` cancels only this upload, at once, even while a write blocks; the read timeout
-/// also bounds every write, so a host that stops reading fails the upload. A reader that ends
-/// before `length` fails loudly.
+/// also bounds every write, and the time without progress over all of them, so a host that
+/// stops reading fails the upload once. A reader that ends before `length` fails loudly.
 pub(crate) fn upload(request: &Request<'_>, cancel: &Cancel, upload: Upload<'_>, progress: &mut Progress<'_>, transfer: &Cancel) -> Result<Response, Error> {
     let head = head(request, Some((upload.content_type, upload.length)));
-    connection(request, &[cancel, transfer], None, request.timeouts.read, &head, |stream, _| {
+    connection(request, &[cancel, transfer], Deadline::idle(request), request.timeouts.read, &head, |stream, _| {
         send_upload(stream, upload, request.body_limit, progress, transfer)
     })
 }
@@ -301,6 +301,9 @@ fn send_upload(stream: &mut dyn Stream, upload: Upload<'_>, body_limit: usize, p
     match write_upload(stream, upload, progress, transfer) {
         Ok(()) => read_response(stream, body_limit),
         Err(Unsent::Local(error)) => Err(error),
+        // A host that stopped reading has no answer either: waiting for one would only double
+        // the timeout.
+        Err(Unsent::Write(error)) if matches!(error.kind(), ErrorKind::TimedOut | ErrorKind::WouldBlock) => Err(io_tls_error(error)),
         // The host may refuse (413, 403) before it reads the body and close: its answer says
         // more than the failed write. It never accepts a body it did not get whole.
         Err(Unsent::Write(error)) => match read_response(stream, body_limit) {
@@ -336,10 +339,11 @@ fn write_upload<W: Write + ?Sized>(stream: &mut W, upload: Upload<'_>, progress:
 
 /// GETs a body into `sink` as it arrives. A 2xx must carry a Content-Length and deliver all of
 /// it; its `Response` has an empty body. Any other answer is read whole, up to `body_limit`, for
-/// its error. `transfer` cancels only this download, at once, even while a read blocks.
+/// its error. `transfer` cancels only this download, at once, even while a read blocks. The read
+/// timeout bounds the time without progress.
 pub(crate) fn download(request: &Request<'_>, cancel: &Cancel, sink: &mut dyn Write, progress: &mut Progress<'_>, transfer: &Cancel) -> Result<Response, Error> {
     let head = request_head(request, None);
-    connection(request, &[cancel, transfer], None, Some(write_timeout(request)), &head, |stream, _| {
+    connection(request, &[cancel, transfer], Deadline::idle(request), Some(write_timeout(request)), &head, |stream, _| {
         receive(stream, request.body_limit, sink, progress, transfer)
     })
 }
@@ -385,16 +389,34 @@ trait Stream: Read + Write {}
 
 impl<T: Read + Write> Stream for T {}
 
+/// How long a request may take, beyond the timeout of each call.
+#[derive(Clone, Copy)]
+enum Deadline {
+    None,
+    /// The whole request, connecting included, ends by then.
+    At(std::time::Instant),
+    /// A transfer fails once nothing moved for this long, whichever calls waited.
+    Idle(Duration),
+}
+
+impl Deadline {
+    /// The read timeout, as the most a transfer may stall.
+    fn idle(request: &Request<'_>) -> Self {
+        request.timeouts.read.map_or(Deadline::None, Deadline::Idle)
+    }
+}
+
 /// Connects, sends `head` and hands the stream to `exchange`, which writes any body and reads
 /// the answer; any of `cancels` can abort it from another thread. Whatever fails once one is
 /// set (a reset, or a body cut short by the shutdown) is `Error::Cancelled`.
-fn connection<T>(request: &Request<'_>, cancels: &[&Cancel], deadline: Option<std::time::Instant>, write_timeout: Option<Duration>,
+fn connection<T>(request: &Request<'_>, cancels: &[&Cancel], deadline: Deadline, write_timeout: Option<Duration>,
     head: &str, exchange: impl FnOnce(&mut dyn Stream, SocketAddr) -> Result<T, Error>) -> Result<T, Error> {
     let cancelled = || cancels.iter().any(|cancel| cancel.is_cancelled());
     if cancelled() {
         return Err(Error::Cancelled);
     }
-    let result = connect(request.host, request.port, request.timeouts.connect, deadline).and_then(|tcp| {
+    let connect_by = match deadline { Deadline::At(at) => Some(at), _ => None };
+    let result = connect(request.host, request.port, request.timeouts.connect, connect_by).and_then(|tcp| {
         let mut ids = Vec::with_capacity(cancels.len());
         let result = cancels
             .iter()
@@ -440,13 +462,18 @@ fn connect_each<S>(addresses: &[SocketAddr], timeout: Duration, deadline: Option
 }
 
 /// Sets the timeouts, completes any TLS handshake and writes `head`.
-fn open(request: &Request<'_>, tcp: TcpStream, deadline: Option<std::time::Instant>, write_timeout: Option<Duration>,
+fn open(request: &Request<'_>, tcp: TcpStream, deadline: Deadline, write_timeout: Option<Duration>,
     head: &str) -> Result<(Box<dyn Stream>, SocketAddr), Error> {
     let peer = tcp.peer_addr()?;
     tcp.set_read_timeout(request.timeouts.read)?;
     tcp.set_write_timeout(write_timeout)?;
     tcp.set_nodelay(true)?;
-    let tcp = DeadlineSocket { socket: tcp, deadline, read_timeout: request.timeouts.read, write_timeout };
+    let (deadline, idle) = match deadline {
+        Deadline::None => (None, None),
+        Deadline::At(at) => (Some(at), None),
+        Deadline::Idle(idle) => (Some(std::time::Instant::now() + idle), Some(idle)),
+    };
+    let tcp = DeadlineSocket { socket: tcp, deadline, idle, read_timeout: request.timeouts.read, write_timeout };
     let mut stream: Box<dyn Stream> = match &request.tls {
         None => Box::new(tcp),
         Some(config) => {
@@ -494,6 +521,8 @@ fn head(request: &Request<'_>, body: Option<(&str, u64)>) -> String {
 struct DeadlineSocket {
     socket: TcpStream,
     deadline: Option<std::time::Instant>,
+    /// Moves `deadline` this far ahead after every byte.
+    idle: Option<Duration>,
     read_timeout: Option<Duration>,
     write_timeout: Option<Duration>,
 }
@@ -503,6 +532,13 @@ impl DeadlineSocket {
         self.deadline.map(|deadline| deadline.checked_duration_since(std::time::Instant::now())
             .filter(|duration| !duration.is_zero()).ok_or_else(|| ErrorKind::TimedOut.into())).transpose()
     }
+
+    fn moved(&mut self, result: std::io::Result<usize>) -> std::io::Result<usize> {
+        if let (Ok(1..), Some(idle)) = (&result, self.idle) {
+            self.deadline = Some(std::time::Instant::now() + idle);
+        }
+        result
+    }
 }
 
 impl Read for DeadlineSocket {
@@ -510,7 +546,8 @@ impl Read for DeadlineSocket {
         if let Some(left) = self.remaining()? {
             self.socket.set_read_timeout(Some(self.read_timeout.map_or(left, |timeout| timeout.min(left))))?;
         }
-        self.socket.read(bytes)
+        let read = self.socket.read(bytes);
+        self.moved(read)
     }
 }
 
@@ -519,7 +556,8 @@ impl Write for DeadlineSocket {
         if let Some(left) = self.remaining()? {
             self.socket.set_write_timeout(Some(self.write_timeout.map_or(left, |timeout| timeout.min(left))))?;
         }
-        self.socket.write(bytes)
+        let written = self.socket.write(bytes);
+        self.moved(written)
     }
     fn flush(&mut self) -> std::io::Result<()> { self.socket.flush() }
 }
@@ -1174,6 +1212,77 @@ mod tests {
         client.cancel();
         let result = download(&transfer(&host_name, port, "f"), &client, &mut Vec::new(), &mut |_, _| {}, &job);
         assert!(matches!(result, Err(Error::Cancelled)), "{result:?}");
+    }
+
+    /// A TLS host with the test identity's certificate, and the client config that pins it.
+    fn tls_host<T: Send + 'static>(serve: impl FnOnce(StreamOwned<rustls::ServerConnection, std::net::TcpStream>) -> T + Send + 'static)
+        -> (u16, Arc<ClientConfig>, std::thread::JoinHandle<T>) {
+        let identity = crate::http::identity::tests::fixture();
+        let config = rustls::ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_safe_default_protocol_versions().unwrap()
+            .with_no_client_auth()
+            .with_single_cert(vec![CertificateDer::from(identity.certificate_der().to_vec())],
+                PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(identity.private_key_pkcs8().to_vec()))).unwrap();
+        let client = tls_config(identity.certificate_der(), identity.certificate_der(), identity.private_key_pkcs8()).unwrap();
+        let (port, server) = host(move |socket| {
+            let mut tls = StreamOwned::new(rustls::ServerConnection::new(Arc::new(config)).unwrap(), socket);
+            while tls.conn.is_handshaking() { tls.conn.complete_io(&mut tls.sock).unwrap(); }
+            serve(tls)
+        });
+        (port, client, server)
+    }
+
+    #[test]
+    fn a_host_that_stops_reading_fails_an_upload_after_one_timeout() {
+        let host_name = Host::parse("127.0.0.1").unwrap();
+        let length = 64 << 20;
+        // TLS buffers a write that timed out and retries it on the next write and read, a full
+        // timeout each; a plain socket would wait once more for an answer.
+        for tls in [true, false] {
+            let stall = |_| std::thread::sleep(Duration::from_secs(3));
+            let (port, config, server) = if tls {
+                let (port, config, server) = tls_host(move |tls| stall(tls.sock));
+                (port, Some(config), server)
+            } else {
+                let (port, server) = host(move |mut socket| { read_head_of(&mut socket); stall(socket) });
+                (port, None, server)
+            };
+            let request = Request { host: &host_name, port, target: "files", tls: config,
+                timeouts: Timeouts { connect: Duration::from_secs(1), read: Some(Duration::from_millis(500)) }, body_limit: 1024 };
+            let mut last = 0;
+            let started = std::time::Instant::now();
+            let result = upload(&request, &Cancel::default(),
+                Upload { reader: &mut std::io::repeat(7).take(length), length, content_type: "application/octet-stream" },
+                &mut |done, _| last = done, &Cancel::default());
+            let took = started.elapsed();
+            assert!(matches!(&result, Err(Error::Io(e)) if matches!(e.kind(), ErrorKind::TimedOut | ErrorKind::WouldBlock)),
+                "tls {tls}: {result:?}");
+            assert!(last < length, "tls {tls}: the host took it all");
+            assert!(took < Duration::from_millis(950), "tls {tls}: {took:?}");
+            server.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn a_slow_but_steady_download_is_not_idle() {
+        let host_name = Host::parse("127.0.0.1").unwrap();
+        let sent = file(6000);
+        let body = sent.clone();
+        let (port, server) = host(move |mut socket| {
+            read_head_of(&mut socket);
+            socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len()).as_bytes()).unwrap();
+            for piece in body.chunks(1000) {
+                std::thread::sleep(Duration::from_millis(150));
+                socket.write_all(piece).unwrap();
+            }
+        });
+        let request = Request { host: &host_name, port, target: "f", tls: None,
+            timeouts: Timeouts { connect: Duration::from_secs(1), read: Some(Duration::from_millis(400)) }, body_limit: 1024 };
+        let mut sink = Vec::new();
+        // 900 ms in all, more than twice the timeout, but never 400 ms without a byte.
+        download(&request, &Cancel::default(), &mut sink, &mut |_, _| {}, &Cancel::default()).unwrap();
+        assert!(sink == sent);
+        server.join().unwrap();
     }
 
     /// Takes `accepted` bytes, then fails every write like a reset connection.

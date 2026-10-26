@@ -32,4 +32,7 @@ pub mod feature {
     pub const SESSION_LAUNCHER: &str = "session.launcher";
     /// `Session::radeon_profile` is filled in, and apps carry a Radeon profile.
     pub const RADEON_PROFILE: &str = "radeon.profile";
+    /// `POST /session/couch-menu` opens and closes the menu the host draws into
+    /// the stream (since 1.1.0).
+    pub const COUCH_MENU: &str = "session.couch_menu";
 }

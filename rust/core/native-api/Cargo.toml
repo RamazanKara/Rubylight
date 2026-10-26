@@ -2,7 +2,7 @@
 name = "rubylight-native-api"
 # Versioned on its own, not with the host: the wire format changes when the API
 # does. rust/release/bump.py leaves it alone.
-version = "1.0.0"
+version = "1.1.0"
 # Nothing here is inherited from the workspace: Nightjar's workspace pins
 # edition 2021 and Rust 1.80 (no let-chains), and a 1.80 cargo must be able to
 # read this manifest without the root one.

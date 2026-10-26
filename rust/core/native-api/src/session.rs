@@ -131,3 +131,56 @@ pub struct Session {
     pub radeon_profile: Option<RadeonProfile>,
     pub actions: Vec<Action>,
 }
+
+/// `POST /session/couch-menu`: open or close the menu the host draws into the caller's
+/// stream. Idempotent. Only when the host lists `session.couch_menu` in its features.
+/// A request: unknown fields are rejected.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CouchMenuRequest {
+    pub open: bool,
+}
+
+/// The reply to [`CouchMenuRequest`]: whether the menu is open now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CouchMenu {
+    pub open: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CouchMenu, CouchMenuRequest};
+    use crate::capabilities::Capabilities;
+    use crate::feature;
+
+    #[test]
+    fn couch_menu_request_round_trips_and_stays_strict() {
+        let request: CouchMenuRequest = serde_json::from_str(r#"{"open":true}"#).unwrap();
+        assert_eq!(request, CouchMenuRequest { open: true });
+        let text = serde_json::to_string(&CouchMenuRequest { open: false }).unwrap();
+        assert_eq!(text, r#"{"open":false}"#);
+        for bad in [r#"{"open":true,"page":"radeon"}"#, "{}", r#"{"open":"yes"}"#] {
+            assert!(serde_json::from_str::<CouchMenuRequest>(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn couch_menu_reply_round_trips_and_ignores_new_fields() {
+        let reply: CouchMenu = serde_json::from_str(r#"{"open":false}"#).unwrap();
+        assert_eq!(reply, CouchMenu { open: false });
+        let text = serde_json::to_string(&CouchMenu { open: true }).unwrap();
+        assert_eq!(text, r#"{"open":true}"#);
+        let newer: CouchMenu = serde_json::from_str(r#"{"open":true,"page":"main"}"#).unwrap();
+        assert!(newer.open);
+    }
+
+    #[test]
+    fn capabilities_of_a_1_0_host_still_parse_without_the_feature() {
+        let old = r#"{"api_version":1,"host":{"name":"PC","version":"2.6.0","unique_id":"X"},
+            "features":["library","session","session.close_game","radeon.read","radeon.write"],
+            "permissions":{"list":true,"view":true,"launch":true,"host_control":false}}"#;
+        let capabilities: Capabilities = serde_json::from_str(old).unwrap();
+        assert!(!capabilities.features.iter().any(|f| f == feature::COUCH_MENU));
+        assert_eq!(feature::COUCH_MENU, "session.couch_menu");
+    }
+}

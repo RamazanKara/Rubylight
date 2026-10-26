@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Rubylight 3.0 to a paired client that may view, launch and set the clipboard but run no commands:
+     native API and cursor shapes, hardware metrics off, no network path for it, a virtual display
+     whose driver is not ready, and a bandwidth probe of a size this client does not use. -->
+<root status_code="200">
+  <hostname>Rubylight native fixture</hostname><appversion>7.1.431.-1</appversion><GfeVersion>3.23.0.74</GfeVersion>
+  <uniqueid>ef95b248-f698-48d2-95e4-16e02a1fa913</uniqueid><HttpsPort>47984</HttpsPort><ExternalPort>47989</ExternalPort>
+  <PairStatus>1</PairStatus><currentgame>0</currentgame><currentgameuuid></currentgameuuid><state>SUNSHINE_SERVER_FREE</state>
+  <LocalIP>192.0.2.15</LocalIP><mac>00:00:00:00:00:00</mac><MaxLumaPixelsHEVC>1869449984</MaxLumaPixelsHEVC>
+  <ServerCodecModeSupport>126026497</ServerCodecModeSupport>
+  <RustHostVersion>3.0.0-rc.2</RustHostVersion><RustHostEncoderBitrateKbps>0</RustHostEncoderBitrateKbps>
+  <RustHostInitialEncoderBitrateKbps>0</RustHostInitialEncoderBitrateKbps><RustHostSessionCount></RustHostSessionCount>
+  <RustHostPendingSessionCount></RustHostPendingSessionCount><RustHostApplicationActive></RustHostApplicationActive>
+  <RustHostProfile></RustHostProfile><PyroWaveHostLinkMbps>1000</PyroWaveHostLinkMbps>
+  <PyroWaveBandwidthProbeBytes>1048576</PyroWaveBandwidthProbeBytes><Permission>117506048</Permission>
+  <HardwareMetricsVersion>0</HardwareMetricsVersion><NetworkPathVersion>0</NetworkPathVersion>
+  <VirtualDisplayCapable>true</VirtualDisplayCapable><VirtualDisplayDriverReady>false</VirtualDisplayDriverReady>
+  <VirtualDisplayHDRCapable>true</VirtualDisplayHDRCapable><ControllerPreparation>1</ControllerPreparation>
+  <CursorShapeVersion>2</CursorShapeVersion><NativeApiVersion>1</NativeApiVersion>
+</root>

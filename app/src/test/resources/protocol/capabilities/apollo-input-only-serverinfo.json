@@ -1,0 +1,32 @@
+{
+  "serverinfo": "apollo-input-only-serverinfo.xml",
+  "family": "apollo",
+  "hostVersion": null,
+  "features": {
+    "permissions": "supported",
+    "otp_pairing": "supported",
+    "clipboard": "supported",
+    "server_commands": "supported",
+    "app_uuids": "supported",
+    "launch_by_uuid": "unsupported",
+    "virtual_display": "supported",
+    "virtual_display_hdr": "unsupported",
+    "host_display_modes": "unsupported",
+    "fractional_refresh": "supported",
+    "host_vrr": "unsupported",
+    "runtime_bitrate": "unsupported",
+    "pyrowave": "unsupported",
+    "pyrowave_records": "unsupported",
+    "pyrowave_bandwidth_probe": "unsupported",
+    "hardware_metrics": "unsupported",
+    "network_path": "unsupported",
+    "frame_limiter_status": "unsupported",
+    "controller_preparation": "unsupported",
+    "remote_session_tiles": "unsupported",
+    "host_confirms_replacement": "unsupported",
+    "host_timing": "unsupported",
+    "web_ui": "supported",
+    "cursor_shape": "unsupported",
+    "native_api": "unsupported"
+  }
+}

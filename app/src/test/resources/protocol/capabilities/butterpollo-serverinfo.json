@@ -1,0 +1,32 @@
+{
+  "serverinfo": "butterpollo-serverinfo.xml",
+  "family": "rubylight",
+  "hostVersion": "2.0.0-rc.19",
+  "features": {
+    "permissions": "supported",
+    "otp_pairing": "supported",
+    "clipboard": "supported",
+    "server_commands": "supported",
+    "app_uuids": "supported",
+    "launch_by_uuid": "supported",
+    "virtual_display": "supported",
+    "virtual_display_hdr": "supported",
+    "host_display_modes": "unsupported:update_host",
+    "fractional_refresh": "supported",
+    "host_vrr": "supported",
+    "runtime_bitrate": "unsupported:update_host",
+    "pyrowave": "supported",
+    "pyrowave_records": "supported",
+    "pyrowave_bandwidth_probe": "supported",
+    "hardware_metrics": "unsupported:update_host",
+    "network_path": "unsupported:update_host",
+    "frame_limiter_status": "supported",
+    "controller_preparation": "unsupported:update_host",
+    "remote_session_tiles": "supported",
+    "host_confirms_replacement": "supported",
+    "host_timing": "supported",
+    "web_ui": "supported",
+    "cursor_shape": "unsupported",
+    "native_api": "unsupported:update_host"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "serverinfo": "vibepollo-serverinfo.xml",
+  "family": "vibepollo",
+  "hostVersion": null,
+  "features": {
+    "permissions": "supported",
+    "otp_pairing": "supported",
+    "clipboard": "supported",
+    "server_commands": "supported",
+    "app_uuids": "supported",
+    "launch_by_uuid": "supported",
+    "virtual_display": "supported",
+    "virtual_display_hdr": "supported",
+    "host_display_modes": "unsupported",
+    "fractional_refresh": "supported",
+    "host_vrr": "supported",
+    "runtime_bitrate": "supported",
+    "pyrowave": "supported",
+    "pyrowave_records": "supported",
+    "pyrowave_bandwidth_probe": "supported",
+    "hardware_metrics": "unsupported",
+    "network_path": "unsupported",
+    "frame_limiter_status": "supported",
+    "controller_preparation": "unsupported",
+    "remote_session_tiles": "supported",
+    "host_confirms_replacement": "supported",
+    "host_timing": "unsupported",
+    "web_ui": "supported",
+    "cursor_shape": "unsupported",
+    "native_api": "unsupported"
+  }
+}

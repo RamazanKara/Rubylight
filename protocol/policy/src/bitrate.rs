@@ -189,6 +189,14 @@ impl AdaptiveBitrateController {
     /// Called once per second, only while no bitrate request is in flight. Returns the rate to
     /// request, or `None` to keep the current one.
     pub fn sample(&mut self, now_ms: u64, s: Sample) -> Option<u32> {
+        // As in Java, only a value of at least 0 is measured; a negative or NaN one is unknown.
+        let s = Sample {
+            loss_percent: s.loss_percent.filter(|v| *v >= 0.0),
+            decode_ms: s.decode_ms.filter(|v| *v >= 0.0),
+            jitter_ms: s.jitter_ms.filter(|v| *v >= 0.0),
+            queue_ms: s.queue_ms.filter(|v| *v >= 0.0),
+            ..s
+        };
         let recent = s.recent_video;
         if !recent && !s.poor_connection {
             self.healthy_since_ms = None;
@@ -511,8 +519,8 @@ fn frame_ms(fps: u32) -> f32 {
     1000.0 / fps as f32
 }
 
-// Trace arguments. A measurement is a number, or a string such as "NaN" that JSON cannot hold;
-// a negative or NaN one is unknown, as in Java.
+// Trace arguments. A measurement is a number, or a string such as "NaN" that JSON cannot hold.
+// It reaches the controller as Java passes it, so the controller's own filtering is replayed.
 fn measurement(args: &Value, i: usize) -> Result<Option<f32>, String> {
     let value = match &args[i] {
         Value::Number(number) => number.as_f64().map(|v| v as f32),
@@ -520,7 +528,7 @@ fn measurement(args: &Value, i: usize) -> Result<Option<f32>, String> {
         _ => None,
     }
     .ok_or_else(|| format!("argument {i} is not a float: {}", args[i]))?;
-    Ok(Some(value).filter(|v| *v >= 0.0))
+    Ok(Some(value))
 }
 
 fn flag(args: &Value, i: usize) -> Result<bool, String> {
@@ -643,13 +651,42 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn unknown_measurements_are_none() {
+    fn measurements_reach_the_controller_as_java_passes_them() {
         let args = json!([-1, "NaN", 2.5, 0, true]);
-        assert_eq!(measurement(&args, 0), Ok(None));
-        assert_eq!(measurement(&args, 1), Ok(None));
+        assert_eq!(measurement(&args, 0), Ok(Some(-1.0)));
+        assert!(measurement(&args, 1).unwrap().unwrap().is_nan());
         assert_eq!(measurement(&args, 2), Ok(Some(2.5)));
         assert_eq!(measurement(&args, 3), Ok(Some(0.0)));
         assert!(measurement(&args, 4).is_err());
+    }
+
+    // The highest rate requested over a minute of samples that are healthy except for `unknown`.
+    fn raised_with(unknown: impl Fn(&mut Sample)) -> Option<u32> {
+        let mut controller = AdaptiveBitrateController::new(20_000, 10_000, 60, 0);
+        (1..=60)
+            .filter_map(|second| {
+                let mut sample = Sample {
+                    recent_video: true,
+                    poor_connection: false,
+                    loss_percent: Some(0.0),
+                    decode_ms: Some(2.0),
+                    jitter_ms: Some(1.0),
+                    queue_ms: Some(0.0),
+                };
+                unknown(&mut sample);
+                controller.sample(second * 1000, sample)
+            })
+            .max()
+    }
+
+    #[test]
+    fn negative_or_nan_measurements_are_unknown_and_hold_the_rate() {
+        assert!(raised_with(|_| {}).is_some_and(|kbps| kbps > 10_000));
+        for value in [-1.0, f32::NAN] {
+            assert_eq!(raised_with(|s| s.loss_percent = Some(value)), None);
+            assert_eq!(raised_with(|s| s.decode_ms = Some(value)), None);
+            assert_eq!(raised_with(|s| s.jitter_ms = Some(value)), None);
+        }
     }
 
     #[test]

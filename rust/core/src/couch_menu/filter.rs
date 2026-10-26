@@ -3,9 +3,9 @@
 //!
 //! Closed, it only reads the events, watching for a chord, and passes them on
 //! unchanged and in order. Open, it consumes every event but `Arrival`,
-//! `Battery` and `Haptics` and turns them into [`Nav`]. After a close,
-//! whatever is still held stays masked until it is let go, so the game never
-//! sees half a press.
+//! `Battery`, `Haptics` and `SteamAttributes` and turns them into [`Nav`].
+//! After a close, whatever is still held stays masked until it is let go, so
+//! the game never sees half a press.
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -344,7 +344,10 @@ impl Filter {
             self.navigate(now, event, key_chord, pointer, out);
             return matches!(
                 event,
-                Input::Arrival { .. } | Input::Battery { .. } | Input::Haptics(_)
+                Input::Arrival { .. }
+                    | Input::Battery { .. }
+                    | Input::Haptics(_)
+                    | Input::SteamAttributes(_)
             );
         }
         if self.open_with.keyboard && key_chord && self.request_open(out) {

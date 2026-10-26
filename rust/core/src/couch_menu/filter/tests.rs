@@ -379,19 +379,32 @@ fn couch_menu_filter_releases_once_per_open_and_consumes_while_open() {
     };
     let mut rng = Rng(99);
     let mut events: Vec<Input> = (0..200).map(|_| random_input(&mut rng)).collect();
-    events.extend([arrival.clone(), battery.clone(), Input::Haptics(true)]);
+    let attributes = Input::SteamAttributes(Default::default());
+    events.extend([
+        arrival.clone(),
+        battery.clone(),
+        Input::Haptics(true),
+        attributes.clone(),
+    ]);
     let expected: Vec<Input> = events
         .iter()
         .filter(|e| {
             matches!(
                 e,
-                Input::Arrival { .. } | Input::Battery { .. } | Input::Haptics(_)
+                Input::Arrival { .. }
+                    | Input::Battery { .. }
+                    | Input::Haptics(_)
+                    | Input::SteamAttributes(_)
             )
         })
         .cloned()
         .collect();
+    assert_eq!(expected.last(), Some(&attributes));
     let out = filter.apply(opened, &mut events, || Some((0.5, 0.5)));
-    assert_eq!(events, expected, "only Arrival, Battery and Haptics pass");
+    assert_eq!(
+        events, expected,
+        "only Arrival, Battery, Haptics and SteamAttributes pass"
+    );
     assert!(!out.release_game, "release once per open");
     assert!(filter.is_open());
     for later in [10, 20, 30] {

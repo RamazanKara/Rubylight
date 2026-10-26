@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 
-use super::net;
+use super::net::{self, NextSocket};
 use super::{now_us, AudioRenderer, Shared};
 use crate::audio::{AudioOutput, AudioReceiver, AudioStats};
 
@@ -96,6 +96,7 @@ pub struct AudioStream {
 impl AudioStream {
     pub fn start(
         socket: &UdpSocket,
+        next_socket: Arc<NextSocket>,
         receiver: AudioReceiver,
         renderer: Box<dyn AudioRenderer>,
         direct_submit: bool,
@@ -120,7 +121,15 @@ impl AudioStream {
         stream.receive = Some(std::thread::Builder::new().name("AudioRecv".into()).spawn(
             move || {
                 session.prioritize_thread();
-                receive_thread(socket, receiver, direct, receive_shared, session, stop)
+                receive_thread(
+                    socket,
+                    next_socket,
+                    receiver,
+                    direct,
+                    receive_shared,
+                    session,
+                    stop,
+                )
             },
         )?);
         if let Some(mut renderer) = queued {
@@ -150,7 +159,8 @@ impl AudioStream {
 }
 
 fn receive_thread(
-    socket: UdpSocket,
+    mut socket: UdpSocket,
+    next_socket: Arc<NextSocket>,
     mut receiver: AudioReceiver,
     mut direct: Option<Box<dyn AudioRenderer>>,
     shared: Arc<AudioShared>,
@@ -163,10 +173,22 @@ fn receive_thread(
         let length = match net::receive(&socket, &mut buffer) {
             Ok(Some(length)) => length,
             Ok(None) => {
+                if let Some(next) = next_socket.take() {
+                    session.log("Audio moved to the roam's new socket");
+                    socket = next;
+                }
                 receiver.receive_timeout();
                 continue;
             }
             Err(e) => {
+                // The old socket's address went away with the network.
+                if let Some(next) = next_socket.take() {
+                    session.log(&format!(
+                        "Audio receive failed on the old socket, moved to the roam's new one: {e}"
+                    ));
+                    socket = next;
+                    continue;
+                }
                 session.log(&format!("Audio receive failed: {e}"));
                 session.terminate(e.raw_os_error().unwrap_or(-1));
                 break;

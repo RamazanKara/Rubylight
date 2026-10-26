@@ -25,7 +25,7 @@ use jni::JNIEnv;
 
 use nightjar_core::control::ClientMessage;
 use nightjar_core::input::InputQueue;
-use nightjar_core::session::{HostInfo, SessionConfig};
+use nightjar_core::session::{HostInfo, RoamingConfig, SessionConfig};
 use rubylight_protocol::control::{HostTimingRequest, LinkNoticeRequest, Reconfigure};
 
 use crate::extras::input_result;
@@ -157,6 +157,12 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_startConnectio
         remote_monitor: remote_monitor == JNI_TRUE,
         unbatched_input: unbatched_input == JNI_TRUE,
         network_priority: network_priority == JNI_TRUE,
+        // The app reports network changes and whether they are metered, so media never
+        // moves onto a network it has not reported.
+        roaming: RoamingConfig {
+            platform_hints: true,
+            ..Default::default()
+        },
     };
     engine::start(bridge, engine::StartParams { host, config })
 }

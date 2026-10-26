@@ -12,7 +12,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use super::net::{self, Pinger, UDP_RECV_POLL_TIMEOUT};
+use super::net::{self, NextSocket, PingHandle, Pinger, UDP_RECV_POLL_TIMEOUT};
 use super::{error, now_us, DecodeStatus, Shared, VideoDecoder};
 use crate::control::driver::ControlHandle;
 use crate::control::FrameFecStatus;
@@ -324,6 +324,8 @@ pub struct VideoStart {
     pub target: std::net::SocketAddr,
     pub ping_payload: Option<[u8; 16]>,
     pub direct_submit: bool,
+    /// Where a roam's rebind leaves the receive thread's next socket.
+    pub next_socket: Arc<NextSocket>,
 }
 
 /// The running video stream.
@@ -367,6 +369,7 @@ impl VideoStream {
             decode: None,
         };
         let socket = start.socket.try_clone()?;
+        let next_socket = start.next_socket.clone();
         let receive_control = control.clone();
         let receive_shared = shared.clone();
         let receive_stop = stop.clone();
@@ -376,6 +379,7 @@ impl VideoStream {
                 receive_session.prioritize_thread();
                 receive_thread(
                     socket,
+                    next_socket,
                     receive_shared,
                     receive_session,
                     receive_control,
@@ -402,6 +406,11 @@ impl VideoStream {
         Ok(stream)
     }
 
+    /// Moves the pings to another socket, for a roam.
+    pub fn ping_handle(&self) -> Option<PingHandle> {
+        self.pinger.as_ref().map(Pinger::handle)
+    }
+
     /// Stops and joins the threads and returns the decoder for `stop` and `cleanup`.
     pub fn stop(mut self) -> Option<Box<dyn VideoDecoder>> {
         self.stop.store(true, Ordering::Release);
@@ -418,7 +427,8 @@ impl VideoStream {
 }
 
 fn receive_thread(
-    socket: UdpSocket,
+    mut socket: UdpSocket,
+    next_socket: Arc<NextSocket>,
     shared: Arc<VideoShared>,
     session: Arc<Shared>,
     control: ControlHandle,
@@ -433,6 +443,10 @@ fn receive_thread(
         let length = match net::receive(&socket, &mut buffer) {
             Ok(Some(length)) => length,
             Ok(None) => {
+                if let Some(next) = next_socket.take() {
+                    session.log("Video moved to the roam's new socket");
+                    socket = next;
+                }
                 if first_data.is_none() {
                     waiting += UDP_RECV_POLL_TIMEOUT;
                     if waiting >= FIRST_FRAME_TIMEOUT {
@@ -444,6 +458,14 @@ fn receive_thread(
                 continue;
             }
             Err(e) => {
+                // The old socket's address went away with the network.
+                if let Some(next) = next_socket.take() {
+                    session.log(&format!(
+                        "Video receive failed on the old socket, moved to the roam's new one: {e}"
+                    ));
+                    socket = next;
+                    continue;
+                }
                 session.log(&format!("Video receive failed: {e}"));
                 session.terminate(e.raw_os_error().unwrap_or(-1));
                 break;

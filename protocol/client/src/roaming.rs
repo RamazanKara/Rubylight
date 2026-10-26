@@ -239,6 +239,12 @@ impl Roaming {
         }
     }
 
+    /// Ends the running attempt as failed: the client gave up on roaming, such as onto a
+    /// metered network it may not use.
+    pub fn give_up(&mut self, now: Instant) {
+        self.fail(now);
+    }
+
     /// Sends due PROBEs and gives up when the time is over. Returns the next deadline.
     pub fn poll(&mut self, now: Instant) -> Option<Instant> {
         let attempt = self.attempt.as_ref()?;

@@ -41,7 +41,7 @@ use nightjar_core::control::{ClientMessage, ControlEvent};
 use nightjar_core::http::{App, AppRole, ClientIdentity, Feature, HostClient, LaunchRequest, ServerInfo};
 use nightjar_core::input::packets::{modifier, mouse_button};
 use nightjar_core::sdp::*;
-use nightjar_core::session::{self, HostInfo, Interrupt, Location, Session, SessionConfig, Stage};
+use nightjar_core::session::{self, HostInfo, Interrupt, Location, RoamingConfig, Session, SessionConfig, Stage};
 use rubylight_protocol::control::{HostTimingRequest, LinkNotice, LinkNoticeRequest, LinkState, Reconfigure, CLOCK_SYNC_MESSAGE_TYPE, HOST_TIMING_MESSAGE_TYPE, LINK_NOTICE_MESSAGE_TYPE, RECONFIGURE_MESSAGE_TYPE};
 use rubylight_protocol::present_clock::ClockOffset;
 use sdl3_sys::everything::*;
@@ -666,6 +666,7 @@ fn session_config(settings: &Settings, role: AppRole, stream: StreamConfig, loca
         remote_monitor: role == AppRole::RemoteMonitor,
         unbatched_input: settings.unbatched_input,
         network_priority: settings.network_priority,
+        roaming: RoamingConfig::default(),
     }
 }
 

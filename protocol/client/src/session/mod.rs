@@ -14,6 +14,7 @@
 
 mod audio;
 mod net;
+mod roam;
 mod video;
 
 use std::io;
@@ -25,6 +26,7 @@ use std::time::{Duration, Instant};
 
 pub use audio::AUDIO_QUEUE_BOUND;
 pub use net::{is_nat64_with, is_private};
+pub use roam::{NetworkHint, RoamingConfig};
 pub use video::DECODE_UNIT_QUEUE_BOUND;
 
 use crate::audio::{AudioConfig, AudioEncryption, AudioReceiver, AudioStats};
@@ -142,6 +144,8 @@ pub struct SessionConfig {
     /// Nightjar's "Prioritize stream traffic": `SO_PRIORITY` 6 on every socket of the stream
     /// and nice -4 on the receive, decode and control threads. See [`crate::priority`].
     pub network_priority: bool,
+    /// Client roaming (Experimental), with hosts that advertise it.
+    pub roaming: RoamingConfig,
 }
 
 /// The decoder's answer for a frame (`DR_OK`, `DR_NEED_IDR`).
@@ -380,13 +384,26 @@ struct Parts {
     video_decoder: Option<Box<dyn VideoDecoder>>,
     audio: Option<audio::AudioStream>,
     audio_renderer: Option<Box<dyn AudioRenderer>>,
-    microphone: Mutex<Option<Microphone>>,
+    microphone: Arc<Mutex<Option<Microphone>>>,
+    /// Where a roam's rebind leaves the receive threads' next sockets.
+    video_next_socket: Arc<net::NextSocket>,
+    audio_next_socket: Arc<net::NextSocket>,
+    /// Present when both sides have roaming on.
+    roamer: Option<Arc<roam::Roamer>>,
+    roam_poll: Option<JoinHandle<()>>,
 }
 
 impl Parts {
-    /// LiStopConnection's order: input, audio, video, control, then the audio socket.
+    /// LiStopConnection's order: input, audio, video, control, then the audio socket. The
+    /// route poll stops first, so no roam moves a stream that is stopping.
     fn teardown(&mut self) {
         self.shared.stopping.store(true, Ordering::SeqCst);
+        if let Some(roamer) = &self.roamer {
+            roamer.stop();
+        }
+        if let Some(thread) = self.roam_poll.take() {
+            let _ = thread.join();
+        }
         *self.microphone.lock().unwrap_or_else(|p| p.into_inner()) = None;
         if let Some(stream) = self.audio.take() {
             if let Some(renderer) = stream.stop() {
@@ -471,7 +488,11 @@ impl Session {
             video_decoder: None,
             audio: None,
             audio_renderer: None,
-            microphone: Mutex::new(None),
+            microphone: Arc::new(Mutex::new(None)),
+            video_next_socket: Arc::default(),
+            audio_next_socket: Arc::default(),
+            roamer: None,
+            roam_poll: None,
         };
         match start(
             &mut parts,
@@ -572,6 +593,34 @@ impl Session {
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "bad Opus packet size"))?;
         mic.sequence = mic.sequence.wrapping_add(1);
         mic.socket.send_to(&packet, mic.target).map(|_| ())
+    }
+
+    /// The front end's word that the network changed (Android's default network callback),
+    /// and what it knows about the new one. Moves the media sockets when the local address
+    /// toward the host changed, and starts a roam. On a metered network without
+    /// [`RoamingConfig::metered`] roaming holds off and the network grace period decides.
+    /// Returns whether a roam started: false without roaming on both sides.
+    pub fn network_changed(&self, hint: NetworkHint) -> bool {
+        self.parts
+            .roamer
+            .as_ref()
+            .is_some_and(|roamer| roamer.network_changed(hint))
+    }
+
+    /// Simulates a roam (nightjar-cli's `--roam-at`): moves the media sockets to new ports on
+    /// `local` (the current address without one), and the control socket too with one, then
+    /// starts a roam. Fails without roaming on both sides.
+    pub fn roam_to(&self, local: Option<IpAddr>) -> io::Result<()> {
+        self.parts
+            .roamer
+            .as_ref()
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "roaming is off for this session (the client's setting or the host)",
+                )
+            })?
+            .roam_to(local)
     }
 
     pub fn stats(&self) -> SessionStats {
@@ -772,7 +821,10 @@ fn start(
         ));
     }
     let mut driver_config = DriverConfig::new(net::with_port(remote, outcome.control_port));
-    driver_config.local = Some(local);
+    // A roaming control socket is bound to the unspecified address and follows the route.
+    let roaming = config.roaming.enabled && outcome.host_roaming;
+    driver_config.local = (!roaming).then_some(local);
+    driver_config.roaming = config.roaming.enabled;
     driver_config.connect_data = outcome.control_connect_data;
     driver_config.network_grace = config.network_grace;
     driver_config.unbatched_input = config.unbatched_input;
@@ -847,6 +899,10 @@ fn start(
     // the video port: Vibepollo and Apollo hosts run their video thread regardless and end
     // the session when the first ping does not arrive within ten seconds.
     listener.stage_starting(Stage::VideoStreamStart);
+    let video_buffer = crate::video::recv_buffer_size(
+        stream.bitrate_kbps.max(0) as u32,
+        stream.packet_size as usize,
+    );
     if config.input_only {
         // Pings are best effort: a refused or failed send is ignored, nothing reads replies.
         match net::bind_udp(local, 0, Qos::Video, config.network_priority, |m| {
@@ -891,11 +947,7 @@ fn start(
         if let Err(code) = decoder.setup(&setup) {
             return Err(video_fail(code, "the video decoder setup failed".into()));
         }
-        let buffer = crate::video::recv_buffer_size(
-            stream.bitrate_kbps.max(0) as u32,
-            stream.packet_size as usize,
-        );
-        let socket = match net::bind_udp(local, buffer, Qos::Video, config.network_priority, |m| {
+        let socket = match net::bind_udp(local, video_buffer, Qos::Video, config.network_priority, |m| {
             listener.warn(m)
         }) {
             Ok(socket) => socket,
@@ -910,6 +962,7 @@ fn start(
             target: net::with_port(remote, outcome.video_port),
             ping_payload: outcome.video_ping_payload,
             direct_submit: outcome.video_capabilities & sdp::CAPABILITY_DIRECT_SUBMIT != 0,
+            next_socket: parts.video_next_socket.clone(),
         };
         parts.video = Some(
             video::VideoStream::start(
@@ -964,6 +1017,7 @@ fn start(
         parts.audio = Some(
             audio::AudioStream::start(
                 socket,
+                parts.audio_next_socket.clone(),
                 receiver,
                 renderer,
                 stream.audio_capabilities & sdp::CAPABILITY_DIRECT_SUBMIT != 0,
@@ -996,6 +1050,43 @@ fn start(
                 started: Instant::now(),
             });
         }
+    }
+    if control.roaming() {
+        let video = parts
+            .video
+            .as_ref()
+            .and_then(video::VideoStream::ping_handle)
+            .or_else(|| parts.video_pinger.as_ref().map(net::Pinger::handle));
+        let paths = vec![
+            roam::MediaPath {
+                qos: Qos::Video,
+                buffer: video_buffer,
+                ping: video,
+                receive: parts.video.is_some().then(|| parts.video_next_socket.clone()),
+            },
+            roam::MediaPath {
+                qos: Qos::Audio,
+                buffer: 0,
+                ping: parts.audio_pinger.as_ref().map(net::Pinger::handle),
+                receive: parts.audio.is_some().then(|| parts.audio_next_socket.clone()),
+            },
+        ];
+        let roamer = roam::Roamer::new(
+            parts.shared.clone(),
+            control.clone(),
+            net::with_port(remote, rtsp_port),
+            local,
+            config.roaming,
+            paths,
+            parts.microphone.clone(),
+        );
+        parts.roam_poll = Some(
+            roamer
+                .start_poll()
+                .map_err(|e| fail(Stage::InputStreamStart, io_code(&e), e.to_string()))?,
+        );
+        parts.roamer = Some(roamer);
+        listener.log("Roaming: on (Experimental)");
     }
     listener.stage_complete(Stage::InputStreamStart);
     parts.outcome = Some(outcome);

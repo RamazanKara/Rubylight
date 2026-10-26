@@ -241,11 +241,54 @@ pub fn ping_datagram(payload: Option<[u8; 16]>, count: u32) -> Vec<u8> {
     }
 }
 
+/// The socket a receive thread moves to when the session rebinds its media for a roam. The
+/// thread looks only when a receive times out or fails, so the packet path is unchanged: it
+/// reads the old socket until the host stops sending there.
+#[derive(Default)]
+pub struct NextSocket(Mutex<Option<UdpSocket>>);
+
+impl NextSocket {
+    pub fn set(&self, socket: UdpSocket) {
+        *self.0.lock().unwrap_or_else(|p| p.into_inner()) = Some(socket);
+    }
+
+    pub fn take(&self) -> Option<UdpSocket> {
+        self.0.lock().unwrap_or_else(|p| p.into_inner()).take()
+    }
+}
+
+#[derive(Default)]
+struct PingState {
+    stopped: bool,
+    /// A socket to ping from now on ([`PingHandle::rebind`]).
+    next: Option<UdpSocket>,
+}
+
+#[derive(Default)]
+struct PingControl {
+    state: Mutex<PingState>,
+    wake: Condvar,
+}
+
 /// Pings `target` from `socket` every 500 ms until stopped. Send errors are ignored: the
 /// receive side handles socket failures.
 pub struct Pinger {
-    stop: Arc<StopSignal>,
+    control: Arc<PingControl>,
     thread: Option<JoinHandle<()>>,
+}
+
+/// Moves a running [`Pinger`] to another socket.
+#[derive(Clone)]
+pub struct PingHandle(Arc<PingControl>);
+
+impl PingHandle {
+    /// Pings from `socket` at once and from then on; the sequence carries on.
+    pub fn rebind(&self, socket: &UdpSocket) -> io::Result<()> {
+        let socket = socket.try_clone()?;
+        self.0.state.lock().unwrap_or_else(|p| p.into_inner()).next = Some(socket);
+        self.0.wake.notify_all();
+        Ok(())
+    }
 }
 
 impl Pinger {
@@ -255,9 +298,9 @@ impl Pinger {
         target: SocketAddr,
         payload: Option<[u8; 16]>,
     ) -> io::Result<Self> {
-        let socket = socket.try_clone()?;
-        let stop = Arc::new(StopSignal::default());
-        let signal = stop.clone();
+        let mut socket = socket.try_clone()?;
+        let control = Arc::new(PingControl::default());
+        let signal = control.clone();
         let thread = std::thread::Builder::new()
             .name(name.into())
             .spawn(move || {
@@ -265,19 +308,38 @@ impl Pinger {
                 loop {
                     count = count.wrapping_add(1);
                     let _ = socket.send_to(&ping_datagram(payload, count), target);
-                    if signal.sleep(PING_INTERVAL) {
+                    let state = signal.state.lock().unwrap_or_else(|p| p.into_inner());
+                    let (mut state, _) = signal
+                        .wake
+                        .wait_timeout_while(state, PING_INTERVAL, |s| {
+                            !s.stopped && s.next.is_none()
+                        })
+                        .unwrap_or_else(|p| p.into_inner());
+                    if state.stopped {
                         break;
+                    }
+                    if let Some(next) = state.next.take() {
+                        socket = next;
                     }
                 }
             })?;
         Ok(Self {
-            stop,
+            control,
             thread: Some(thread),
         })
     }
 
+    pub fn handle(&self) -> PingHandle {
+        PingHandle(self.control.clone())
+    }
+
     pub fn stop(&mut self) {
-        self.stop.stop();
+        self.control
+            .state
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .stopped = true;
+        self.control.wake.notify_all();
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
@@ -373,6 +435,31 @@ mod tests {
         pinger.stop();
         assert!(stopping.elapsed() < PING_INTERVAL, "stop waited for the next ping");
         assert!(pinger.thread.is_none());
+    }
+
+    #[test]
+    fn a_rebound_pinger_pings_from_the_new_socket_at_once_and_counts_on() {
+        let host = UdpSocket::bind("127.0.0.1:0").unwrap();
+        host.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let old = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let new = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let payload = Some(*b"0123456789abcdef");
+        let mut pinger =
+            Pinger::start("TestPing", &old, host.local_addr().unwrap(), payload).unwrap();
+        let mut buffer = [0u8; 64];
+        let (n, from) = host.recv_from(&mut buffer).unwrap();
+        assert_eq!(from, old.local_addr().unwrap());
+        assert_eq!(&buffer[..n], ping_datagram(payload, 1));
+        let rebinding = std::time::Instant::now();
+        pinger.handle().rebind(&new).unwrap();
+        let (n, from) = host.recv_from(&mut buffer).unwrap();
+        assert!(
+            rebinding.elapsed() < PING_INTERVAL,
+            "the rebound pinger waited for its interval"
+        );
+        assert_eq!(from, new.local_addr().unwrap());
+        assert_eq!(&buffer[..n], ping_datagram(payload, 2));
+        pinger.stop();
     }
 
     #[test]

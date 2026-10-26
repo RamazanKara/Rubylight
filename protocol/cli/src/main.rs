@@ -14,11 +14,13 @@ mod report;
 
 use std::fs::File;
 use std::io::Write;
+use std::net::IpAddr;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use nightjar_core::control::{ClientMessage, ControlEvent, HdrMetadata};
+use nightjar_core::roaming::RoamEvent;
 use nightjar_core::sdp::*;
 use nightjar_core::session::{
     self, AudioRenderer, AudioSetup, DecodeStatus, HostInfo, Interrupt, Listener, Location,
@@ -126,6 +128,7 @@ struct Counters {
     hdr_disabled_notifications: AtomicI32,
     hdr_control_mismatches: AtomicI32,
     hdr_invalid_metadata: AtomicI32,
+    roamed: AtomicI32,
 }
 
 impl Counters {
@@ -583,6 +586,13 @@ impl Listener for Events {
                 println!("{}", link_notice_line(&notice));
                 return;
             }
+            ControlEvent::Roam(event) => {
+                if matches!(event, RoamEvent::Roamed { .. }) {
+                    self.state.counters.roamed.fetch_add(1, Ordering::SeqCst);
+                }
+                println!("ROAM_EVENT {event:?}");
+                return;
+            }
             ControlEvent::ClockSync { reply, received } => {
                 if let Some(record) = &self.state.record {
                     lock(record)
@@ -651,6 +661,49 @@ fn link_notice_line(notice: &LinkNotice) -> String {
     )
 }
 
+/// `--roam-at <seconds> [--roam-ip <address>]`: a simulated roam that many seconds into the
+/// stream, the media (and with `--roam-ip` the control) sockets moving to new ports on that
+/// address. The run fails unless the roam completes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct RoamAt {
+    seconds: f64,
+    ip: Option<IpAddr>,
+}
+
+/// Takes the roam options out of `args`, leaving the positional arguments.
+fn take_roam_options(args: &mut Vec<String>) -> Result<Option<RoamAt>, String> {
+    let mut take = |name: &str| -> Result<Option<String>, String> {
+        let Some(at) = args.iter().position(|a| a == name) else {
+            return Ok(None);
+        };
+        if at + 1 >= args.len() {
+            return Err(format!("{name} needs a value"));
+        }
+        let value = args.remove(at + 1);
+        args.remove(at);
+        Ok(Some(value))
+    };
+    let seconds = take("--roam-at")?;
+    let ip = take("--roam-ip")?;
+    let Some(seconds) = seconds else {
+        return match ip {
+            Some(_) => Err("--roam-ip needs --roam-at".into()),
+            None => Ok(None),
+        };
+    };
+    let seconds = match seconds.parse::<f64>() {
+        Ok(s) if s.is_finite() && s >= 0.0 => s,
+        _ => return Err(format!("--roam-at must be a number of seconds, not {seconds}")),
+    };
+    let ip = ip
+        .map(|ip| {
+            ip.parse::<IpAddr>()
+                .map_err(|_| format!("--roam-ip must be an IP address, not {ip}"))
+        })
+        .transpose()?;
+    Ok(Some(RoamAt { seconds, ip }))
+}
+
 fn usage_error(message: &str) -> ! {
     eprintln!("{message}");
     std::process::exit(2);
@@ -661,7 +714,8 @@ fn main() {
 }
 
 fn run() -> i32 {
-    let args: Vec<String> = std::env::args().collect();
+    let mut args: Vec<String> = std::env::args().collect();
+    let roam_at = take_roam_options(&mut args).unwrap_or_else(|e| usage_error(&e));
     if args.len() < 2 {
         usage_error("session URL required");
     }
@@ -726,6 +780,9 @@ fn run() -> i32 {
     let expected_hdr_messages =
         env("BUTTERPOLLO_TEST_EXPECT_HDR_CONTROL_COUNT").map_or(0, |v| atoi(&v) as i32);
     let duration = arg(6).map_or(0, atoi);
+    if roam_at.is_some_and(|r| r.seconds >= duration as f64) {
+        usage_error("--roam-at needs an explicit duration longer than it");
+    }
     let warmup_seconds = env("BUTTERPOLLO_TEST_WARMUP_SECONDS").map_or(2.0, |v| atof(&v));
     let idr_probe_count = match env("BUTTERPOLLO_TEST_IDR_PROBE") {
         None => 0,
@@ -973,6 +1030,7 @@ fn run() -> i32 {
     let mut last_clock_probe_us = 0u64;
     let started = clock::ms();
     let probe_started = session::now_us();
+    let mut roamed = false;
     let limit_ms = if duration != 0 {
         duration as f64 * 1000.0
     } else {
@@ -986,6 +1044,21 @@ fn run() -> i32 {
             let decoded = c.decoded_frames.load(Ordering::SeqCst) != 0;
             if lock(&state.probe).poll(session::now_us(), probe_started, decoded) {
                 session.request_idr_frame();
+            }
+        }
+        if let Some(roam) = roam_at.filter(|r| !roamed && clock::ms() - started >= r.seconds * 1000.0)
+        {
+            roamed = true;
+            match session.roam_to(roam.ip) {
+                Ok(()) => println!(
+                    "ROAM simulated at={:.3} ip={}",
+                    (clock::ms() - started) / 1000.0,
+                    roam.ip.map_or_else(|| "same".to_owned(), |ip| ip.to_string())
+                ),
+                Err(e) => {
+                    eprintln!("Simulated roam failed: {e}");
+                    c.fail();
+                }
             }
         }
         let now_us = session::now_us();
@@ -1032,6 +1105,17 @@ fn run() -> i32 {
     if !hdr_control_valid {
         eprintln!("HDR control expectation failed: missing, extra or wrong mode notification, or invalid HDR metadata");
         c.fail();
+    }
+    if roam_at.is_some() {
+        let completed = c.roamed.load(Ordering::SeqCst);
+        let _ = writeln!(
+            out,
+            "ROAM_RESULT {{\"simulated\":{roamed},\"roamed\":{completed}}}"
+        );
+        if completed == 0 {
+            eprintln!("The simulated roam did not complete");
+            c.fail();
+        }
     }
     let frames = c.frames.load(Ordering::SeqCst);
     let decoded = c.decoded_frames.load(Ordering::SeqCst);
@@ -1157,6 +1241,47 @@ fn run() -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn strings(args: &[&str]) -> Vec<String> {
+        args.iter().map(|a| a.to_string()).collect()
+    }
+
+    #[test]
+    fn the_roam_options_come_out_and_leave_the_positional_arguments() {
+        let mut args = strings(&[
+            "cli", "url", "--roam-at", "2.5", "h264", "--roam-ip", "127.0.0.2", "640",
+        ]);
+        assert_eq!(
+            take_roam_options(&mut args),
+            Ok(Some(RoamAt {
+                seconds: 2.5,
+                ip: Some("127.0.0.2".parse().unwrap())
+            }))
+        );
+        assert_eq!(args, strings(&["cli", "url", "h264", "640"]));
+
+        let mut args = strings(&["cli", "url", "--roam-at", "3"]);
+        assert_eq!(
+            take_roam_options(&mut args),
+            Ok(Some(RoamAt {
+                seconds: 3.0,
+                ip: None
+            }))
+        );
+        let mut args = strings(&["cli", "url", "h264"]);
+        assert_eq!(take_roam_options(&mut args), Ok(None));
+        assert_eq!(args.len(), 3);
+
+        for bad in [
+            &["cli", "url", "--roam-ip", "127.0.0.2"][..],
+            &["cli", "url", "--roam-at"],
+            &["cli", "url", "--roam-at", "soon"],
+            &["cli", "url", "--roam-at", "-1"],
+            &["cli", "url", "--roam-at", "2", "--roam-ip", "localhost"],
+        ] {
+            assert!(take_roam_options(&mut strings(bad)).is_err(), "{bad:?}");
+        }
+    }
 
     #[test]
     fn a_link_notice_is_one_json_line() {

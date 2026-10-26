@@ -166,30 +166,42 @@ pub enum Outcome {
     Terminated(i32),
 }
 
+/// Wakes the control thread with a datagram to the control socket; connected to it, so a
+/// moved control socket ([`ControlHandle::move_to`]) is a reconnect away.
 struct Waker {
     socket: UdpSocket,
-    target: SocketAddr,
+}
+
+/// Where wakes for the control socket at `enet_local` go. A specific local address keeps its
+/// IPv6 scope, which a link-local one needs.
+fn wake_target(enet_local: SocketAddr) -> SocketAddr {
+    let mut target = enet_local;
+    if target.ip().is_unspecified() {
+        target.set_ip(match target.ip() {
+            IpAddr::V4(_) => Ipv4Addr::LOCALHOST.into(),
+            IpAddr::V6(_) => Ipv6Addr::LOCALHOST.into(),
+        });
+    }
+    target
 }
 
 impl Waker {
     fn new(enet_local: SocketAddr) -> io::Result<Self> {
-        // A specific local address keeps its IPv6 scope, which a link-local one needs.
-        let mut target = enet_local;
-        if target.ip().is_unspecified() {
-            target.set_ip(match target.ip() {
-                IpAddr::V4(_) => Ipv4Addr::LOCALHOST.into(),
-                IpAddr::V6(_) => Ipv6Addr::LOCALHOST.into(),
-            });
-        }
+        let target = wake_target(enet_local);
         let mut bind = target;
         bind.set_port(0);
         let socket = UdpSocket::bind(bind)?;
         socket.set_nonblocking(true)?;
-        Ok(Self { socket, target })
+        socket.connect(target)?;
+        Ok(Self { socket })
+    }
+
+    fn retarget(&self, enet_local: SocketAddr) -> io::Result<()> {
+        self.socket.connect(wake_target(enet_local))
     }
 
     fn wake(&self) {
-        let _ = self.socket.send_to(&[0], self.target);
+        let _ = self.socket.send(&[0]);
     }
 }
 
@@ -203,6 +215,10 @@ struct Shared {
     roaming: bool,
     /// PROBE flags of a [`ControlHandle::network_changed`] the control thread has not taken.
     roam_request: Mutex<Option<u32>>,
+    /// [`ControlHandle::hold_roaming`]: no attempts.
+    roam_held: AtomicBool,
+    /// A socket from [`ControlHandle::move_to`] the control thread has not moved to.
+    next_socket: Mutex<Option<UdpSocket>>,
     waker: Waker,
 }
 
@@ -259,7 +275,7 @@ impl ControlHandle {
     /// running one. `media_rebound` says the media sockets moved to new ports. Returns false,
     /// and sends nothing, unless both the host and the client have roaming on.
     pub fn network_changed(&self, media_rebound: bool) -> bool {
-        if !self.shared.roaming {
+        if !self.shared.roaming || self.shared.roam_held.load(Ordering::Acquire) {
             return false;
         }
         let flags = if media_rebound {
@@ -272,6 +288,47 @@ impl ControlHandle {
         drop(request);
         self.shared.waker.wake();
         true
+    }
+
+    /// Whether both the host and the client have roaming on.
+    pub fn roaming(&self) -> bool {
+        self.shared.roaming
+    }
+
+    /// Holds roaming off while the client is on a network it may not roam onto (a metered
+    /// one without the opt-in): the running attempt fails, none starts, and the network
+    /// grace period decides. False lets roaming run again.
+    pub fn hold_roaming(&self, held: bool) {
+        self.shared.roam_held.store(held, Ordering::Release);
+        self.shared.waker.wake();
+    }
+
+    /// Moves the control socket to a new port on `local`, as a network change would; a
+    /// [`ControlHandle::network_changed`] should follow. For nightjar-cli's simulated roams:
+    /// a real one needs no move, the socket is bound to the unspecified address and follows
+    /// the route. Fails unless both sides have roaming on.
+    pub fn move_to(&self, local: IpAddr) -> io::Result<()> {
+        if !self.shared.roaming {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "roaming is off for this session",
+            ));
+        }
+        if self.shared.waker.socket.peer_addr()?.is_ipv4() != local.is_ipv4() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "the control socket cannot change address family",
+            ));
+        }
+        let socket = UdpSocket::bind(SocketAddr::new(local, 0))?;
+        // What rusty_enet's init sets on a UdpSocket.
+        socket.set_nonblocking(true)?;
+        socket.set_broadcast(true)?;
+        let address = socket.local_addr()?;
+        *lock(&self.shared.next_socket) = Some(socket);
+        // Woken on the old socket, the control thread moves; later wakes go to the new one.
+        self.shared.waker.wake();
+        self.shared.waker.retarget(address)
     }
 
     /// Ends the stream: queued input is sent, then the peer disconnects.
@@ -339,6 +396,8 @@ struct ControlSocket {
     last_receive: Option<Instant>,
     /// Set while the connect is in flight and the socket is still marked.
     marking: Option<Marking>,
+    /// The QoS marking is on, for a socket the control thread moves to.
+    marked: bool,
     send_failures: SendFailures,
     warn: Warn,
 }
@@ -419,6 +478,19 @@ impl ControlSocket {
         self.intercept = false;
         self.reinject = self.held_disconnect.take();
     }
+
+    /// Moves to `socket` ([`ControlHandle::move_to`]), marked as the old one was. Datagrams
+    /// still on their way to the old socket are lost, as on a real network change.
+    fn replace(&mut self, socket: UdpSocket) {
+        if self.marked {
+            let ipv6 = socket.local_addr().is_ok_and(|a| a.is_ipv6());
+            if let Err(e) = priority::mark_control_socket(&socket, ipv6, true) {
+                self.warn
+                    .say(&format!("Could not mark the moved control socket for QoS: {e}"));
+            }
+        }
+        self.socket = socket;
+    }
 }
 
 impl rusty_enet::Socket for ControlSocket {
@@ -434,6 +506,7 @@ impl rusty_enet::Socket for ControlSocket {
             if priority::should_drop_control_marking(marking.unanswered) {
                 let ipv6 = marking.ipv6;
                 self.marking = None;
+                self.marked = false;
                 self.warn
                     .say("No answer to the first control connects; sending without QoS marking");
                 if let Err(e) = priority::mark_control_socket(&self.socket, ipv6, false) {
@@ -553,6 +626,7 @@ pub fn connect(
         reinject: None,
         last_receive: None,
         marking: Some(marking),
+        marked: true,
         send_failures: SendFailures::default(),
         warn: config.warn.clone(),
     };
@@ -585,6 +659,8 @@ pub fn connect(
         rtt: Mutex::new(None),
         roaming,
         roam_request: Mutex::new(None),
+        roam_held: AtomicBool::new(false),
+        next_socket: Mutex::new(None),
         waker,
     });
     let handle = ControlHandle {
@@ -748,6 +824,9 @@ impl ControlClient {
     /// Runs roaming: the datagrams set aside, a network change or a host silence, the
     /// timers, and the datagrams to send. Returns the next timer.
     fn roam(&mut self, now: Instant) -> Option<Instant> {
+        if let Some(socket) = lock(&self.shared.next_socket).take() {
+            self.host.socket_mut().replace(socket);
+        }
         let inbox = std::mem::take(&mut self.host.socket_mut().roam_inbox);
         let roaming = self.roaming.as_mut()?;
         for datagram in inbox {
@@ -755,7 +834,13 @@ impl ControlClient {
             let _ = roaming.handle_datagram(now, &datagram);
         }
         let contact = self.host.socket().last_receive;
-        if let Some(flags) = lock(&self.shared.roam_request).take() {
+        let request = lock(&self.shared.roam_request).take();
+        if self.shared.roam_held.load(Ordering::Acquire) {
+            // No probes from a network roaming may not use: the grace period decides.
+            if roaming.trigger().is_some() {
+                roaming.give_up(now);
+            }
+        } else if let Some(flags) = request {
             self.roam_contact = contact;
             roaming.start(now, RoamTrigger::NetworkChanged, flags, OsRng.next_u64());
         } else if roaming.trigger() == Some(RoamTrigger::HostSilent) {
@@ -947,6 +1032,7 @@ mod tests {
             held_unsequenced: false,
             reinject: None,
             last_receive: None,
+            marked: marking.is_some(),
             marking,
             send_failures: SendFailures::default(),
             warn: Warn::new({
@@ -1181,15 +1267,19 @@ mod tests {
 
     #[test]
     fn the_waker_aims_at_the_control_socket() {
+        let target = |waker: &Waker| waker.socket.peer_addr().unwrap();
         let waker = Waker::new("127.0.0.1:47000".parse().unwrap()).unwrap();
-        assert_eq!(waker.target, "127.0.0.1:47000".parse().unwrap());
+        assert_eq!(target(&waker), "127.0.0.1:47000".parse().unwrap());
         let waker = Waker::new("0.0.0.0:47000".parse().unwrap()).unwrap();
-        assert_eq!(waker.target, "127.0.0.1:47000".parse().unwrap());
+        assert_eq!(target(&waker), "127.0.0.1:47000".parse().unwrap());
+        // A moved control socket.
+        waker.retarget("0.0.0.0:47001".parse().unwrap()).unwrap();
+        assert_eq!(target(&waker), "127.0.0.1:47001".parse().unwrap());
         let Ok(waker) = Waker::new("[::]:47000".parse().unwrap()) else {
             eprintln!("skipped: no IPv6 loopback");
             return;
         };
-        assert_eq!(waker.target, "[::1]:47000".parse().unwrap());
+        assert_eq!(target(&waker), "[::1]:47000".parse().unwrap());
     }
 
     #[test]

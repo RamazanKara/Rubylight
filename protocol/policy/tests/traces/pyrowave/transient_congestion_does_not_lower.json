@@ -1,0 +1,16 @@
+{
+  "source": "PyroWaveBitrateControllerTest.transientCongestionDoesNotLowerAndRecoveryIsSlow",
+  "rust": "pyrowave::BitrateController",
+  "java": "com.limelight.nvstream.PyroWaveBitrateController",
+  "new": [400000, 300000, 60, 0],
+  "calls": [
+    {"call": "sample", "args": [4000, true, true, 10, 100, 0], "expect": 0},
+    {"call": "sample", "args": [5000, true, false, 0, 0, 0], "expect": 0},
+    {"call": "sample", "args": [24000, true, false, 0, 0, 0], "expect": 0},
+    {"call": "sample", "args": [25000, true, false, 0, 0, 0], "expect": 306000},
+    {"call": "applied", "args": [306000, 306000, 25000], "expect": null},
+    {"call": "sample", "args": [26000, true, false, 0, 0, 0], "expect": 0},
+    {"call": "sample", "args": [45000, true, false, 0, 0, 0], "expect": 0},
+    {"call": "sample", "args": [46000, true, false, 0, 0, 0], "expect": 312120}
+  ]
+}

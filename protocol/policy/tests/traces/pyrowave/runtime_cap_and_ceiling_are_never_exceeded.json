@@ -1,0 +1,15 @@
+{
+  "source": "PyroWaveBitrateControllerTest.runtimeCapAndChosenCeilingAreNeverExceeded",
+  "rust": "pyrowave::BitrateController",
+  "java": "com.limelight.nvstream.PyroWaveBitrateController",
+  "new": [3000000, 3000000, 60, 0],
+  "calls": [
+    {"call": "sample", "args": [1000, true, false, 0, 0, 0], "expect": 0},
+    {"call": "sample", "args": [21000, true, false, 0, 0, 0], "expect": 0},
+    {"call": "sample", "args": [22000, true, false, 5, 0, 0], "expect": 0},
+    {"call": "sample", "args": [23000, true, false, 5, 0, 0], "expect": 1700000},
+    {"new": [300000, 299000, 60, 0]},
+    {"call": "sample", "args": [1000, true, false, 0, 0, 0], "expect": 0},
+    {"call": "sample", "args": [21000, true, false, 0, 0, 0], "expect": 300000}
+  ]
+}

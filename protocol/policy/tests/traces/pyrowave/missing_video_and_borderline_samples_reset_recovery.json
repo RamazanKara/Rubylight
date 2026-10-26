@@ -1,0 +1,16 @@
+{
+  "source": "PyroWaveBitrateControllerTest.missingVideoAndBorderlineSamplesResetRecovery",
+  "rust": "pyrowave::BitrateController",
+  "java": "com.limelight.nvstream.PyroWaveBitrateController",
+  "new": [400000, 300000, 60, 0],
+  "calls": [
+    {"call": "sample", "args": [1000, true, false, 0, 0, 0], "expect": 0},
+    {"call": "sample", "args": [20000, false, false, 0, 0, 0], "expect": 0},
+    {"call": "sample", "args": [21000, true, false, 0, 0, 0], "expect": 0},
+    {"call": "sample", "args": [40000, true, false, 0.2, 0, 0], "expect": 0},
+    {"call": "sample", "args": [41000, true, false, 0, 0, 0], "expect": 0},
+    {"call": "sample", "args": [60000, true, false, 0, 10, 0], "expect": 0},
+    {"call": "sample", "args": [61000, true, false, 0, 0, 0], "expect": 0},
+    {"call": "sample", "args": [81000, true, false, 0, 0, 0], "expect": 306000}
+  ]
+}

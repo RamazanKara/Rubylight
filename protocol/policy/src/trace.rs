@@ -24,6 +24,8 @@ fn subject(name: &str, args: &Value) -> Result<Box<dyn Subject>, String> {
         "recovery::Backoff" => crate::recovery::traced_backoff(args),
         "bitrate::AdaptiveBitrateController" => crate::bitrate::traced_controller(args),
         "quality::AdaptiveQualityController" => crate::quality::traced_controller(args),
+        "pyrowave::BitrateController" => crate::pyrowave::traced_controller(args),
+        "pyrowave::BitrateFloor" => crate::pyrowave::traced_floor(args),
         _ => Err(format!("unknown subject {name}")),
     }
 }

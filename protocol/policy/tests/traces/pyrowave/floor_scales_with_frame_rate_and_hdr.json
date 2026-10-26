@@ -1,0 +1,10 @@
+{
+  "source": "PyroWaveBitrateFloorTest.scalesWithFrameRateAndHdr",
+  "rust": "pyrowave::BitrateFloor",
+  "java": "com.limelight.nvstream.PyroWaveBitrateFloor",
+  "new": null,
+  "calls": [
+    {"call": "minimum_kbps", "args": [1920, 1080, 120, false, false], "expect": 265000},
+    {"call": "minimum_kbps", "args": [1920, 1080, 60, false, true], "expect": 159000}
+  ]
+}

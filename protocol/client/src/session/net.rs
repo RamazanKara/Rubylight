@@ -283,11 +283,9 @@ pub struct PingHandle(Arc<PingControl>);
 
 impl PingHandle {
     /// Pings from `socket` at once and from then on; the sequence carries on.
-    pub fn rebind(&self, socket: &UdpSocket) -> io::Result<()> {
-        let socket = socket.try_clone()?;
+    pub fn rebind(&self, socket: UdpSocket) {
         self.0.state.lock().unwrap_or_else(|p| p.into_inner()).next = Some(socket);
         self.0.wake.notify_all();
-        Ok(())
     }
 }
 
@@ -451,7 +449,7 @@ mod tests {
         assert_eq!(from, old.local_addr().unwrap());
         assert_eq!(&buffer[..n], ping_datagram(payload, 1));
         let rebinding = std::time::Instant::now();
-        pinger.handle().rebind(&new).unwrap();
+        pinger.handle().rebind(new.try_clone().unwrap());
         let (n, from) = host.recv_from(&mut buffer).unwrap();
         assert!(
             rebinding.elapsed() < PING_INTERVAL,

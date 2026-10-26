@@ -38,6 +38,7 @@ use crate::control::{
 use crate::input::microphone;
 use crate::input::InputQueue;
 use crate::priority::{self, Qos};
+use crate::roaming::RoamEvent;
 use crate::rtsp::{self, Handshake, HandshakeParams, OpusConfig, RtspError, RtspOutcome};
 use crate::sdp::{self, AudioConfiguration, StreamConfig, StreamLocation};
 use crate::video::{Frame, VideoConfig, VideoReceiver, VideoStats};
@@ -607,9 +608,9 @@ impl Session {
             .is_some_and(|roamer| roamer.network_changed(hint))
     }
 
-    /// Simulates a roam (nightjar-cli's `--roam-at`): moves the media sockets to new ports on
-    /// `local` (the current address without one), and the control socket too with one, then
-    /// starts a roam. Fails without roaming on both sides.
+    /// Simulates a roam (nightjar-cli's `--roam-at`): moves the control and media sockets to
+    /// new ports on `local` (the current address without one), then starts a roam. Fails
+    /// without roaming on both sides.
     pub fn roam_to(&self, local: Option<IpAddr>) -> io::Result<()> {
         self.parts
             .roamer
@@ -621,6 +622,18 @@ impl Session {
                 )
             })?
             .roam_to(local)
+    }
+
+    /// Moves only the control socket to `local` and starts a roam, leaving the media where
+    /// they are: what [`Session::roam_to`] never does, for tests of the media following on
+    /// Roamed. Fails without roaming on both sides.
+    #[doc(hidden)]
+    pub fn roam_control_only(&self, local: IpAddr) -> io::Result<()> {
+        self.parts
+            .roamer
+            .as_ref()
+            .ok_or_else(|| io::Error::from(io::ErrorKind::Unsupported))?
+            .roam_control_only(local)
     }
 
     pub fn stats(&self) -> SessionStats {
@@ -821,9 +834,9 @@ fn start(
         ));
     }
     let mut driver_config = DriverConfig::new(net::with_port(remote, outcome.control_port));
-    // A roaming control socket is bound to the unspecified address and follows the route.
+    // Bound where the media are: a roam moves them all together (`roam::Roamer`).
     let roaming = config.roaming.enabled && outcome.host_roaming;
-    driver_config.local = (!roaming).then_some(local);
+    driver_config.local = Some(local);
     driver_config.roaming = config.roaming.enabled;
     if roaming {
         driver_config.roam_seq = roam::launch_seq(&outcome.config.remote_input_aes_key);
@@ -874,6 +887,10 @@ fn start(
     parts.control = Some(control.clone());
     let events = parts.shared.clone();
     let hdr_video = video_shared.clone();
+    // Set once the streams run. Only the roamer moves sockets, so a roam that commits before
+    // it exists left nothing behind.
+    let roamed_by = Arc::new(OnceLock::<Arc<roam::Roamer>>::new());
+    let roamed = roamed_by.clone();
     parts.control_thread = Some(
         std::thread::Builder::new()
             .name("ControlRecv".into())
@@ -888,6 +905,11 @@ fn start(
                                 .lock()
                                 .unwrap_or_else(|p| p.into_inner())
                                 .set_hdr_active(enabled);
+                        }
+                        if let ControlEvent::Roam(RoamEvent::Roamed { .. }) = event {
+                            if let Some(roamer) = roamed.get() {
+                                roamer.roamed();
+                            }
                         }
                         events.listener.control_event(event);
                     }
@@ -1088,6 +1110,7 @@ fn start(
                 .start_poll()
                 .map_err(|e| fail(Stage::InputStreamStart, io_code(&e), e.to_string()))?,
         );
+        let _ = roamed_by.set(roamer.clone());
         parts.roamer = Some(roamer);
         listener.log("Roaming: on (Experimental)");
     }

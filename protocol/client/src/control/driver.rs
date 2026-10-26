@@ -174,7 +174,9 @@ pub enum Outcome {
 }
 
 /// Wakes the control thread with a datagram to the control socket; connected to it, so a
-/// moved control socket ([`ControlHandle::move_to`]) is a reconnect away.
+/// moved control socket ([`ControlHandle::move_to`]) is a reconnect away. Bound to the
+/// unspecified address, so it still reaches the control socket after a roam took the old
+/// local address away.
 struct Waker {
     socket: UdpSocket,
 }
@@ -192,12 +194,18 @@ fn wake_target(enet_local: SocketAddr) -> SocketAddr {
     target
 }
 
+/// Where the waker for `target` is bound: no local address, only the family's.
+fn wake_bind(target: SocketAddr) -> SocketAddr {
+    match target {
+        SocketAddr::V4(_) => (Ipv4Addr::UNSPECIFIED, 0).into(),
+        SocketAddr::V6(_) => (Ipv6Addr::UNSPECIFIED, 0).into(),
+    }
+}
+
 impl Waker {
     fn new(enet_local: SocketAddr) -> io::Result<Self> {
         let target = wake_target(enet_local);
-        let mut bind = target;
-        bind.set_port(0);
-        let socket = UdpSocket::bind(bind)?;
+        let socket = UdpSocket::bind(wake_bind(target))?;
         socket.set_nonblocking(true)?;
         socket.connect(target)?;
         Ok(Self { socket })
@@ -226,6 +234,8 @@ struct Shared {
     roam_held: AtomicBool,
     /// A socket from [`ControlHandle::move_to`] the control thread has not moved to.
     next_socket: Mutex<Option<UdpSocket>>,
+    /// Where the control socket is bound, or moving to.
+    local: Mutex<SocketAddr>,
     waker: Waker,
 }
 
@@ -310,18 +320,29 @@ impl ControlHandle {
         self.shared.waker.wake();
     }
 
-    /// Moves the control socket to a new port on `local`, as a network change would; a
-    /// [`ControlHandle::network_changed`] should follow. For nightjar-cli's simulated roams:
-    /// a real one needs no move, the socket is bound to the unspecified address and follows
-    /// the route. Fails unless both sides have roaming on.
+    /// Where the control socket is bound, or moving to after [`ControlHandle::move_to`].
+    pub fn local_addr(&self) -> SocketAddr {
+        *lock(&self.shared.local)
+    }
+
+    /// Moves the control socket to a new port on `local`, as a network change does; a
+    /// [`ControlHandle::network_changed`] should follow. Fails unless both sides have
+    /// roaming on.
     pub fn move_to(&self, local: IpAddr) -> io::Result<()> {
+        let socket = self.bind_move(local)?;
+        self.move_to_socket(socket)
+    }
+
+    /// Binds the socket [`ControlHandle::move_to`] moves to, so a caller moving other sockets
+    /// too can bind them all before anything moves.
+    pub fn bind_move(&self, local: IpAddr) -> io::Result<UdpSocket> {
         if !self.shared.roaming {
             return Err(io::Error::new(
                 io::ErrorKind::Unsupported,
                 "roaming is off for this session",
             ));
         }
-        if self.shared.waker.socket.peer_addr()?.is_ipv4() != local.is_ipv4() {
+        if self.local_addr().is_ipv4() != local.is_ipv4() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "the control socket cannot change address family",
@@ -331,8 +352,14 @@ impl ControlHandle {
         // What rusty_enet's init sets on a UdpSocket.
         socket.set_nonblocking(true)?;
         socket.set_broadcast(true)?;
+        Ok(socket)
+    }
+
+    /// Moves the control socket to `socket`, from [`ControlHandle::bind_move`].
+    pub fn move_to_socket(&self, socket: UdpSocket) -> io::Result<()> {
         let address = socket.local_addr()?;
         *lock(&self.shared.next_socket) = Some(socket);
+        *lock(&self.shared.local) = address;
         // Woken on the old socket, the control thread moves; later wakes go to the new one.
         self.shared.waker.wake();
         self.shared.waker.retarget(address)
@@ -393,7 +420,6 @@ fn enet_disconnect(datagram: &[u8]) -> Option<bool> {
 /// lost (Nightjar's disconnect intercept), handing it to ENet once they are processed.
 struct ControlSocket {
     socket: UdpSocket,
-    wake_from: SocketAddr,
     /// Roaming datagrams for [`Roaming::handle_datagram`]; ENet would drop them.
     roam_inbox: VecDeque<Vec<u8>>,
     intercept: bool,
@@ -560,7 +586,10 @@ impl rusty_enet::Socket for ControlSocket {
                 Err(error) if datagram_lost(&error) => return Ok(None),
                 Err(error) => return Err(error),
             };
-            if address == self.wake_from {
+            // A wake, or anything else shorter than ENet's 2-byte peer ID: not ENet's (ENet
+            // drops it), so it does not count as the host. The waker's source address is
+            // the OS's choice, so the length tells a wake apart.
+            if length < 2 {
                 continue;
             }
             // Roaming datagrams are not ENet's, and count as the host only once they open.
@@ -570,15 +599,11 @@ impl rusty_enet::Socket for ControlSocket {
                 }
                 continue;
             }
-            // Anything but a wake on this private socket is the host, from whichever of its
+            // Anything else on this private socket is the host, from whichever of its
             // addresses it replies (ENet follows the source, as moonlight-common-c's does).
-            // Shorter than ENet's 2-byte peer ID it is not ENet's (ENet drops it), so a stray
-            // wake-sized datagram does not count.
-            if length >= 2 {
-                self.last_receive = Some(Instant::now());
-                // The host answered: the marking works, so stop watching it.
-                self.marking = None;
-            }
+            self.last_receive = Some(Instant::now());
+            // The host answered: the marking works, so stop watching it.
+            self.marking = None;
             if self.intercept && self.held_disconnect.is_none() {
                 if let Some(unsequenced) = enet_disconnect(&buffer[..length]) {
                     self.held_disconnect = Some((address, buffer[..length].to_vec()));
@@ -676,10 +701,10 @@ pub fn connect(
     // Marked before connecting, as the C engine does: the connect retransmissions below take
     // the marking off again for routes that drop it.
     let marking = mark_for_connect(&socket, local.is_ipv6(), &config.warn);
-    let waker = Waker::new(socket.local_addr()?)?;
+    let bound = socket.local_addr()?;
+    let waker = Waker::new(bound)?;
     let control_socket = ControlSocket {
         socket,
-        wake_from: waker.socket.local_addr()?,
         roam_inbox: VecDeque::new(),
         intercept: true,
         held_disconnect: None,
@@ -722,6 +747,7 @@ pub fn connect(
         roam_request: Mutex::new(None),
         roam_held: AtomicBool::new(false),
         next_socket: Mutex::new(None),
+        local: Mutex::new(bound),
         waker,
     });
     let handle = ControlHandle {
@@ -1073,7 +1099,6 @@ mod tests {
         let warnings = Arc::new(Mutex::new(Vec::new()));
         let control = ControlSocket {
             socket,
-            wake_from: "127.0.0.1:1".parse().unwrap(),
             roam_inbox: VecDeque::new(),
             intercept: false,
             held_disconnect: None,
@@ -1274,18 +1299,21 @@ mod tests {
         let mut buffer = [0u8; MTU_MAX];
         let mut receive = |control: &mut ControlSocket| {
             for _ in 0..50 {
-                if control.receive(&mut buffer).unwrap().is_some() {
-                    return;
+                if let Some((_, PacketReceived::Complete(length))) =
+                    control.receive(&mut buffer).unwrap()
+                {
+                    return length;
                 }
                 std::thread::sleep(Duration::from_millis(10));
             }
             panic!("nothing arrived");
         };
+        // A wake-sized datagram never reaches ENet; the next one does.
         stray.send_to(&[0], ours).unwrap();
-        receive(&mut control);
-        assert!(control.last_receive.is_none());
         stray.send_to(&[0, 0], ours).unwrap();
-        receive(&mut control);
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(control.last_receive.is_none());
+        assert_eq!(receive(&mut control), 2);
         assert!(control.last_receive.is_some());
     }
 
@@ -1431,6 +1459,26 @@ mod tests {
             return;
         };
         assert_eq!(target(&waker), "[::1]:47000".parse().unwrap());
+    }
+
+    /// A roam can take the old local address away: the waker is bound to none, so it
+    /// reaches the control socket on whichever address it moved to.
+    #[test]
+    fn the_waker_is_bound_to_no_local_address() {
+        for target in ["192.168.1.20:47000", "[fe80::1]:47000"] {
+            let bind = wake_bind(target.parse().unwrap());
+            assert!(bind.ip().is_unspecified() && bind.port() == 0, "{bind}");
+            assert_eq!(bind.is_ipv4(), target.starts_with('1'));
+        }
+        let waker = Waker::new("127.0.0.1:47000".parse().unwrap()).unwrap();
+        let control = UdpSocket::bind("127.0.0.1:0").unwrap();
+        waker.retarget(control.local_addr().unwrap()).unwrap();
+        waker.wake();
+        control
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut buffer = [0; 8];
+        assert_eq!(control.recv(&mut buffer).unwrap(), 1, "a 1-byte wake");
     }
 
     #[test]

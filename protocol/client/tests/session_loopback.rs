@@ -154,6 +154,8 @@ struct MediaState {
     peers: [Option<SocketAddr>; 2],
     /// The pings taken: stream, sender, sequence number.
     pings: Vec<(Media, SocketAddr, u32)>,
+    /// Receive errors that ended a media socket's thread.
+    errors: Vec<String>,
 }
 
 /// Takes the pings that reach `socket`: 20 bytes, the RTSP payload and a sequence number.
@@ -165,7 +167,10 @@ fn serve_media(socket: UdpSocket, media: Media, state: Arc<Mutex<MediaState>>) {
                 Ok(received) => received,
                 // A send to a port the client has closed since (Windows reports it here).
                 Err(e) if e.kind() == io::ErrorKind::ConnectionReset => continue,
-                Err(_) => return,
+                Err(e) => {
+                    state.lock().unwrap().errors.push(format!("{media:?}: {e}"));
+                    return;
+                }
             };
             if n != 20 || &buffer[..16] != PING {
                 continue;
@@ -292,12 +297,25 @@ impl FakeHost {
     }
 
     fn peer_where(&self, media: Media, wanted: impl Fn(SocketAddr) -> bool) -> SocketAddr {
-        let mut found = None;
-        until(&format!("a {media:?} ping"), || {
-            found = self.media.lock().unwrap().peers[media as usize].filter(|&p| wanted(p));
-            found.is_some()
-        });
-        found.unwrap()
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            {
+                let state = self.media.lock().unwrap();
+                if let Some(peer) = state.peers[media as usize].filter(|&p| wanted(p)) {
+                    return peer;
+                }
+                let last = &state.pings[state.pings.len().saturating_sub(4)..];
+                assert!(
+                    Instant::now() < deadline,
+                    "timed out waiting for a {media:?} ping: client {:?}, peers {:?}, last \
+                     pings {last:?}, errors {:?}",
+                    state.client_ip,
+                    state.peers,
+                    state.errors
+                );
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
     }
 }
 
@@ -1055,20 +1073,30 @@ fn count(messages: &Mutex<Vec<u16>>, kind: u16) -> usize {
         .count()
 }
 
-/// A roam onto another local address: PROBE, CONFIRM and MIGRATED move the control stream,
-/// and video, audio and the microphone carry on to and from the new address.
-#[test]
-fn a_session_roams_control_and_media_to_a_new_address() {
+/// Two local addresses to roam between: 127.0.0.1 and 127.0.0.2.
+fn loopback_addresses() -> Option<(IpAddr, IpAddr)> {
     let (old, new) = (
         IpAddr::from(Ipv4Addr::LOCALHOST),
         IpAddr::from(Ipv4Addr::new(127, 0, 0, 2)),
     );
     if UdpSocket::bind((new, 0)).is_err() {
         // Windows answers on all of 127.0.0.0/8; elsewhere it may take an alias.
-        assert!(!cfg!(windows), "{new} cannot be bound");
+        if cfg!(windows) {
+            panic!("{new} cannot be bound");
+        }
         eprintln!("skipped: {new} cannot be bound here");
-        return;
+        return None;
     }
+    Some((old, new))
+}
+
+/// A roam onto another local address: PROBE, CONFIRM and MIGRATED move the control stream,
+/// and video, audio and the microphone carry on to and from the new address.
+#[test]
+fn a_session_roams_control_and_media_to_a_new_address() {
+    let Some((old, new)) = loopback_addresses() else {
+        return;
+    };
     let host = start_host_with(None, true);
     let record = Arc::new(Mutex::new(Record::default()));
     let session = start_session(&host, roaming_config(), &record);
@@ -1147,6 +1175,57 @@ fn a_session_roams_control_and_media_to_a_new_address() {
     let r = record.lock().unwrap();
     assert_eq!(r.frames, [(1, FrameType::Idr), (2, FrameType::Idr)]);
     assert!(r.audio.iter().all(Option::is_some));
+    assert_eq!(r.terminated, None);
+}
+
+/// The host takes media pings only from the address the control stream roamed to: media left
+/// behind by a control socket that moved alone follow it on Roamed, and video carries on.
+#[test]
+fn media_left_behind_follow_the_control_stream_on_roamed() {
+    let Some((old, new)) = loopback_addresses() else {
+        return;
+    };
+    let host = start_host_with(None, true);
+    let record = Arc::new(Mutex::new(Record::default()));
+    let session = start_session(&host, roaming_config(), &record);
+    let mut packetizer = Packetizer {
+        seq: 100,
+        spi: 0,
+        frame: 1,
+    };
+    let client = host.peer_from(Media::Video, old);
+    for packet in packetizer.frame(&h264_idr(), 2) {
+        host.video.send_to(&packet, client).unwrap();
+    }
+    until("a frame", || record.lock().unwrap().frames.len() == 1);
+
+    session.roam_control_only(new).unwrap();
+    until("the roam", || {
+        roam_events(&record)
+            .iter()
+            .any(|e| matches!(e, RoamEvent::Roamed { .. }))
+    });
+    let client = host.peer_from(Media::Video, new);
+    for packet in packetizer.frame(&h264_idr(), 2) {
+        host.video.send_to(&packet, client).unwrap();
+    }
+    until("a frame after the roam", || {
+        record.lock().unwrap().frames.len() == 2
+    });
+    let _ = host.peer_from(Media::Audio, new);
+    session.send_microphone(b"after").unwrap();
+    assert_eq!(await_mic_from(&host.mic, new), b"after");
+
+    session.stop();
+    until("the disconnect", || {
+        host.control_disconnected.load(Ordering::SeqCst)
+    });
+    let r = record.lock().unwrap();
+    assert!(
+        r.logs.iter().any(|l| l.contains("the media were left on")),
+        "{:?}",
+        r.logs
+    );
     assert_eq!(r.terminated, None);
 }
 

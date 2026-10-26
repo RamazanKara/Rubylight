@@ -2,9 +2,11 @@
 //! hints, around the control stream's roaming attempt ([`ControlHandle::network_changed`]).
 //! See `docs/protocol/client-roaming.md`.
 //!
-//! The control socket is bound to the unspecified address, so it follows the route by
-//! itself; the video, audio and microphone sockets are bound to the local address toward
-//! the host and move to new ports on the new one. The decoders, renderers and the session
+//! The control, video, audio and microphone sockets are bound to the local address toward
+//! the host and move together to new ports on the new one: everything is bound before
+//! anything moves, so a failed bind leaves them all where they were. The host takes media
+//! pings only from the address the control stream roamed to, so on Roamed media left
+//! anywhere else follow it, or the session fails. The decoders, renderers and the session
 //! object stay. The host resets its link rate and pacing and asks for an IDR when the roam
 //! commits, and the control stream pings ENet on Roamed, so nothing else is reset here. A
 //! roam that fails leaves the stream to the network grace period and the app's recovery.
@@ -230,18 +232,21 @@ impl Roamer {
         self.control.network_changed(false)
     }
 
-    /// Moves the media to `local` (warning on failure: the grace period still runs) and
-    /// starts the roam.
+    /// Moves the control stream and the media to `local` and starts the roam. A move that
+    /// fails leaves everything where it was and starts nothing: the grace period runs.
     fn roam(&self, state: &mut State, local: SocketAddr) -> bool {
-        match self.move_media(state, local) {
+        match self.move_sockets(state, local, true) {
             Ok(()) => self.shared.log(&format!(
-                "Roaming: the network changed, media moved to {}",
+                "Roaming: the network changed, moved to {}",
                 local.ip()
             )),
-            Err(e) => self.shared.warn(&format!(
-                "Roaming: could not move the media to {}: {e}",
-                local.ip()
-            )),
+            Err(e) => {
+                self.shared.warn(&format!(
+                    "Roaming: could not move to {}: {e}",
+                    local.ip()
+                ));
+                return false;
+            }
         }
         self.control.network_changed(true)
     }
@@ -249,14 +254,8 @@ impl Roamer {
     /// [`super::Session::roam_to`].
     pub fn roam_to(&self, local: Option<IpAddr>) -> io::Result<()> {
         let mut state = lock(&self.state);
-        let local = match local {
-            Some(ip) => {
-                self.control.move_to(ip)?;
-                SocketAddr::new(ip, 0)
-            }
-            None => state.local,
-        };
-        self.move_media(&mut state, local)?;
+        let local = local.map_or(state.local, |ip| SocketAddr::new(ip, 0));
+        self.move_sockets(&mut state, local, true)?;
         self.shared.log(&format!(
             "Roaming: simulated a network change to {}",
             local.ip()
@@ -265,9 +264,48 @@ impl Roamer {
         Ok(())
     }
 
-    /// Binds every media socket anew on `local` and moves the streams there.
-    fn move_media(&self, state: &mut State, local: SocketAddr) -> io::Result<()> {
+    /// [`super::Session::roam_control_only`].
+    pub fn roam_control_only(&self, local: IpAddr) -> io::Result<()> {
+        let _state = lock(&self.state);
+        self.control.move_to(local)?;
+        self.control.network_changed(false);
+        Ok(())
+    }
+
+    /// The control stream roamed ([`crate::roaming::RoamEvent::Roamed`]). The host now takes
+    /// media pings only from the control stream's address: media anywhere else move there,
+    /// and if they cannot, the session fails rather than wait out a stream that never comes.
+    pub fn roamed(&self) {
+        let mut state = lock(&self.state);
+        let control = net::with_port(self.control.local_addr(), 0);
+        let left = state.local.ip();
+        if control.ip() == left {
+            return;
+        }
+        match self.move_sockets(&mut state, control, false) {
+            Ok(()) => self.shared.warn(&format!(
+                "Roaming: the media were left on {left} after the control stream roamed; \
+                 moved them to {}",
+                control.ip()
+            )),
+            Err(e) => {
+                self.shared.warn(&format!(
+                    "Roaming: the media cannot follow the control stream to {}: {e}",
+                    control.ip()
+                ));
+                self.shared.terminate(super::io_code(&e));
+            }
+        }
+    }
+
+    /// Binds the media sockets, and with `control` the control socket, anew on `local`, then
+    /// moves them all there. A bind that fails moves nothing.
+    fn move_sockets(&self, state: &mut State, local: SocketAddr, control: bool) -> io::Result<()> {
         let warn = |m: &str| self.shared.warn(m);
+        let control_socket = control
+            .then(|| self.control.bind_move(local.ip()))
+            .transpose()?;
+        let mut sockets = Vec::with_capacity(self.paths.len());
         for path in &self.paths {
             let socket = net::bind_udp(
                 local,
@@ -276,18 +314,32 @@ impl Roamer {
                 self.shared.network_priority,
                 warn,
             )?;
-            if let Some(next) = &path.receive {
-                next.set(socket.try_clone()?);
+            let receive = path.receive.as_ref().map(|_| socket.try_clone()).transpose()?;
+            sockets.push((socket, receive));
+        }
+        let mut microphone = lock(&self.microphone);
+        let mic_socket = microphone
+            .as_ref()
+            .map(|_| net::bind_udp(local, 0, Qos::Audio, self.shared.network_priority, warn))
+            .transpose()?;
+
+        for (path, (socket, receive)) in self.paths.iter().zip(sockets) {
+            if let (Some(next), Some(receive)) = (&path.receive, receive) {
+                next.set(receive);
             }
             if let Some(ping) = &path.ping {
-                ping.rebind(&socket)?;
+                ping.rebind(socket);
             }
         }
-        if let Some(mic) = lock(&self.microphone).as_mut() {
-            mic.socket = net::bind_udp(local, 0, Qos::Audio, self.shared.network_priority, warn)?;
+        if let (Some(mic), Some(socket)) = (microphone.as_mut(), mic_socket) {
+            mic.socket = socket;
         }
+        drop(microphone);
         state.local = local;
-        Ok(())
+        match control_socket {
+            Some(socket) => self.control.move_to_socket(socket),
+            None => Ok(()),
+        }
     }
 }
 

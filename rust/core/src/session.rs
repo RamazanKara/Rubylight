@@ -2634,6 +2634,12 @@ struct Roam {
     new_path: bool,
 }
 impl<P, A> Session<P, A> {
+    /// Request an encoder focus mode, such as from the couch menu; the
+    /// encoder resolves it on its next frame.
+    pub fn set_encoder_focus(&self, requested: crate::encoder_focus::Requested) {
+        self.encoder_focus
+            .store(requested.wire(), std::sync::atomic::Ordering::Relaxed);
+    }
     /// Notes a new picture whose last packet was just handed to the socket: for a client
     /// that asked for host timing (0x5536) and for the host-side record. `rtp_timestamp` is
     /// the picture's RTP timestamp on the wire and `epoch` the media clock's start.

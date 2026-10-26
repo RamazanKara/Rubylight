@@ -1658,6 +1658,25 @@ impl Media {
                     s.source_checked.store(true, Ordering::Release);
                     m.configure_encoder(&s, &c, &first, &prepared, &mut encoder)?;
                     drop(first);
+                    let mut focus = crate::stream_focus::Focus::start(
+                        &c,
+                        butterpollo_core::encoder_focus::Context {
+                            codec: s.config.codec,
+                            ten_bit: s.config.ten_bit(),
+                            pyrowave: s.config.codec == 3,
+                            packed_444: s.config.chroma_packing != 0,
+                            d3d12: butterpollo_windows::compute::enabled(&c),
+                            preanalysis: crate::stream_focus::preanalysis(&c, s.config.ten_bit()),
+                            support: h.focus_support(s.config.codec, s.config.ten_bit()),
+                        },
+                        &s.encoder_focus,
+                        &s.encoder_focus_state,
+                        &s.launch.warnings,
+                    );
+                    // One frame a second gets QP feedback for `qp_delta`.
+                    let focus_verify = c
+                        .boolean("encoder_focus_verify", false)
+                        .then(|| s.config.fps.max(1));
                     let mut staging = None;
                     client_commands = Some(crate::process::ClientCommands::start(&h, &s)?);
                     audio = Some(m.spawn_audio(&h, &s)?);
@@ -2455,6 +2474,19 @@ impl Media {
                                             "stream timings"
                                         );
                                     }
+                                    if focus.on()
+                                        && let Some(Ok(stats)) = encoder.as_ref().map(|encoder| encoder.focus_stats())
+                                    {
+                                        tracing::info!(
+                                            mode = focus.settings(|| None).map(|settings| settings.mode.as_str()),
+                                            maps = stats.maps,
+                                            uniform = stats.uniform,
+                                            stale = stats.stale,
+                                            skipped_recovery = stats.skipped_recovery,
+                                            qp_delta = stats.qp_delta,
+                                            "encoder focus"
+                                        );
+                                    }
                                     claim_ages.clear();
                                     wgc_stamp_ages.clear();
                                     timings_logged = tracing::enabled!(tracing::Level::INFO);
@@ -2748,6 +2780,7 @@ impl Media {
                                     Ok(created) => {
                                         *s.encoder.write().unwrap() = created.backend().into();
                                         encoder = Some(created);
+                                        focus.encoder_recreated();
                                     },
                                     Err(error) => {
                                         if let Some(loss) = DeviceLost::d3d11(&image.gpu.device).or_else(|| DeviceLost::from_error(&error)) {
@@ -2907,6 +2940,15 @@ impl Media {
                             // A repeat with a new panel is a new picture.
                             active.set_repeat(!fresh && !menu.dirty);
                             menu.dirty = false;
+                            focus.update(&s.encoder_focus, &s.encoder_focus_state, &s.launch.warnings);
+                            let wanted = focus.settings(|| butterpollo_windows::encoder::focus_cursor(&image, (stream.width, stream.height)));
+                            if let Err(error) = focus.apply(wanted, |settings| {
+                                active.set_focus_verify(focus_verify);
+                                active.set_focus(settings)
+                            }) {
+                                focus.failed(&error, &s.encoder_focus_state, &s.launch.warnings);
+                                active.set_focus(None)?;
+                            }
                             let mut presented_image = image.as_ref().clone();
                             if !fresh { presented_image.captured = Instant::now(); }
                             progress.mark(crate::stall_watch::Phase::Encode);

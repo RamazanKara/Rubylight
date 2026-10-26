@@ -30,6 +30,7 @@ mod stall_watch;
 mod state;
 mod steam;
 mod stream;
+mod stream_focus;
 mod telemetry;
 mod timing_record;
 mod tls;

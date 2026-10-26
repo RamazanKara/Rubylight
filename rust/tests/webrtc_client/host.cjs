@@ -42,6 +42,8 @@ const defaults = {
   // The release build, its codec libraries and the console assets.
   binary: process.env.BUTTERPOLLO_TEST_BINARY || 'C:\\src\\butterpollo-release\\wr\\target\\release\\butterpollo.exe',
   package: process.env.BUTTERPOLLO_TEST_PACKAGE || 'C:\\src\\butterpollo-release\\dc\\pkg',
+  // The console assets, when not the package's: a checkout's rust\web\dist for the console leg.
+  assets: process.env.BUTTERPOLLO_TEST_ASSETS || '',
   task: 'RubylightWebrtcE2eHost',
   port: 48140, webrtcPort: 48545, mediaPort: 48546,
 };
@@ -210,7 +212,7 @@ class TestHost {
     elevate(this.o, [{firewall: true}]);
     this.firewall = true;
     fs.writeFileSync(this.log, '');
-    const args = ['--config-dir', this.o.root, '--assets', path.join(this.o.package, 'assets', 'web'),
+    const args = ['--config-dir', this.o.root, '--assets', this.o.assets || path.join(this.o.package, 'assets', 'web'),
       '--port', String(this.o.port), '--bind', '127.0.0.1', '--no-tray'];
     if (this.o.system) {
       // The virtual display driver accepts only SYSTEM, and a task runs in session 0: the launcher

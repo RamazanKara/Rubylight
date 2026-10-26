@@ -15,6 +15,7 @@
   import Overview from './pages/Overview.svelte';
   import Library from './pages/Library.svelte';
   import LibraryImport from './pages/LibraryImport.svelte';
+  import Stream from './pages/Stream.svelte';
   import Devices from './pages/Devices.svelte';
   import Settings from './pages/Settings.svelte';
   import Logs from './pages/Logs.svelte';
@@ -29,6 +30,7 @@
   const primary: NavItem[] = [
     { path: '/', label: 'Home', icon: 'overview' },
     { path: '/library', label: 'Games & apps', icon: 'library' },
+    { path: '/stream', label: 'Stream', icon: 'play' },
     { path: '/devices', label: 'Devices', icon: 'devices' },
     { path: '/settings', label: 'Settings', icon: 'settings' },
   ];
@@ -57,6 +59,7 @@
     if (route.path === '/') return Overview;
     if (route.path === '/library/import') return LibraryImport;
     if (match('/library') || match('/library/:uuid')) return Library;
+    if (route.path === '/stream') return Stream;
     if (route.path === '/devices') return Devices;
     if (match('/settings') || match('/settings/:section')) return Settings;
     if (route.path === '/logs') return Logs;

@@ -6,7 +6,7 @@ import type { Option, Setting } from '../settings-types';
 type Values = Record<string, ConfigValue>;
 
 /** A boolean read as the host reads it; anything unrecognised keeps the default. */
-function on(values: Values, key: string, fallback: boolean): boolean {
+export function on(values: Values, key: string, fallback: boolean): boolean {
   const value = values[key];
   if (typeof value === 'boolean') return value;
   const word = String(value ?? '')

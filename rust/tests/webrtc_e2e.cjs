@@ -4,6 +4,10 @@
 // host except to read its /serverinfo: every run starts with that idle check.
 //
 //   node rust/tests/webrtc_e2e.cjs [--legs pair,apps,...] [--seconds 60]
+//   node rust/tests/webrtc_e2e.cjs --console [--seconds 60]
+//
+// `--console` (the leg `console`) streams on the console's own Stream page instead. It needs the
+// console assets of the checkout under test: BUTTERPOLLO_TEST_ASSETS=<checkout>\rust\web\dist.
 //
 // Requires Playwright (PLAYWRIGHT_MODULE), Edge or Chrome and Windows.
 const assert = require('node:assert/strict');
@@ -18,7 +22,7 @@ const {chromium} = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const args = process.argv.slice(2);
 const option = (name, fallback) => { const i = args.indexOf('--' + name); return i >= 0 ? args[i + 1] : fallback; };
 const ALL_LEGS = ['pair', 'apps', 'browser', 'av1', 'hevc', 'surround51', 'surround71'];
-const legs = option('legs', ALL_LEGS.join(',')).split(',');
+const legs = args.includes('--console') ? ['console'] : option('legs', ALL_LEGS.join(',')).split(',');
 const seconds = Number(option('seconds', 60));
 // `--runs 3` repeats every streaming leg; `--system` starts the test host as SYSTEM in the console
 // session (the virtual display driver accepts nothing else); `--host-config a=b,c=d` (a value may hold commas: 30,60) adds lines to
@@ -176,8 +180,8 @@ async function launchClient(kind, extraArgs = []) {
   return {browser, context, forget};
 }
 
-async function saveFrame(page, name) {
-  const url = await page.evaluate(() => RlProbe.snapshot(document.getElementById('video'))).catch(() => null);
+async function saveFrame(page, name, id = 'video') {
+  const url = await page.evaluate(id => RlProbe.snapshot(document.getElementById(id)), id).catch(() => null);
   if (url) fs.writeFileSync(path.join(output, `frame-${name}.jpg`), Buffer.from(url.split(',')[1], 'base64'));
 }
 
@@ -275,6 +279,76 @@ async function browserSession(host) {
     webClient.stop(); staticServer.stop();
   }
   return results;
+}
+
+// The console's Stream page (Experimental): signs in to the console, streams H.264 1080p60 from
+// the first app for `seconds`, presses F24 (a key no game uses) and quits the app. A release host
+// has no fake input sink, so the key counts as arrived when the host's input summary says it
+// injected the press and the release without an unknown code.
+async function consoleSession(host) {
+  const consoleUrl = `https://127.0.0.1:${host.o.port + 1}`;
+  const staticServer = await support.startStatic(STATIC_PORT);
+  let clock, session;
+  try {
+    session = await launchClient('edge');
+    const page = await session.context.newPage();
+    const pageErrors = [];
+    page.on('pageerror', e => pageErrors.push(e.message));
+    page.on('console', m => { if (['error', 'warning'].includes(m.type())) pageErrors.push(m.text()); });
+    try {
+      await page.goto(`${consoleUrl}/login?next=/stream`);
+      await page.fill('#username', host.o.username);
+      await page.fill('#password', host.o.password);
+      await page.click('button[type=submit]');
+      await page.waitForURL(url => url.pathname === '/stream', {timeout: 20000});
+      // The app list shows once the stream socket is open and the host answered get-apps.
+      await page.waitForSelector('.apps button, .notice.danger', {timeout: 20000});
+      assert(!(await page.locator('.notice.danger').count()), `the Stream page failed: ${await page.textContent('.notice.danger').catch(() => '')}`);
+      await hostSupport.assertRealHostIdle();
+      clock = await openClock();
+      const offset = fs.statSync(host.log).size;
+      const t0 = Date.now();
+      await page.click('.apps button >> nth=0');
+      // Streaming: connected, a picture, and the picture holds the keyboard focus.
+      await page.waitForFunction(() => {
+        const pc = RlProbe.peers.at(-1), video = document.getElementById('stream-video');
+        return pc && pc.connectionState === 'connected' && video.videoWidth > 0 && document.activeElement?.classList.contains('surface');
+      }, null, {timeout: 60000});
+      const startMs = Date.now() - t0;
+      await page.waitForFunction(async () => ((await RlProbe.sample()).video || {}).framesDecoded > 30, null, {timeout: 20000, polling: 500});
+      await page.evaluate(() => { RlProbe.collect(1000); RlProbe.startG2g(document.getElementById('stream-video')); });
+      await wait(4000);
+      const first = await page.evaluate(() => RlProbe.sample());
+      await page.evaluate(() => { RlProbe.g2g.length = 0; RlProbe.g2gRejected = 0; });
+      await page.keyboard.press('F24');
+      await wait(Math.max(0, seconds * 1000 - 4000));
+      const last = await page.evaluate(() => RlProbe.sample());
+      const g2g = await page.evaluate(() => RlProbe.g2gSummary());
+      await saveFrame(page, 'console-h264', 'stream-video');
+      const result = streamResult({first, last, g2g, host, offset, extra: {startMs, pageErrors}});
+      const stopped = Date.now();
+      await page.click('button:has-text("Quit app")');
+      const stop = result.stop = {};
+      for (let i = 0; i < 50 && !stop.status; i++) { if (idle(await serverinfo(host))) stop.status = 'passed'; else await wait(200); }
+      stop.status ||= 'failed'; stop.ms = Date.now() - stopped;
+      await wait(500);
+      // The summary is written when the session ends.
+      const input = result.hostInput = support.hostLog(host.log, offset).inputs.at(-1) || null;
+      const keyArrived = !!input && input.injected >= 2 && input.unknown_codes === 0;
+      result.status = result.video.codec === 'video/H264' && result.video.decodedOverReceived > .98 && keyArrived && stop.status === 'passed' ? 'passed' : 'failed';
+      if (!keyArrived) result.error = `the host's input summary does not show F24 injected: ${JSON.stringify(input)}`;
+      return result;
+    } catch (error) {
+      error.message += ` [page: ${pageErrors.slice(0, 5).join(' | ')}] [status: ${await page.textContent('.player [role=status]').catch(() => '')}]`;
+      await page.screenshot({path: path.join(output, 'console-failure.png')}).catch(() => {});
+      throw error;
+    }
+  } finally {
+    await session?.browser.close().catch(() => {});
+    await clock?.browser.close().catch(() => {});
+    session?.forget(); clock?.forget();
+    staticServer.stop();
+  }
 }
 
 // ---- our own client -------------------------------------------------------------
@@ -602,6 +676,7 @@ const ourLegs = {
         const started = Date.now();
         try {
           if (name === 'browser') Object.assign(ctx.results, await browserSession(host));
+          else if (name === 'console') ctx.results[key] = await consoleSession(host);
           else if (ourLegs[name]) ctx.results[key] = await ourSession(host, ourLegs[name]);
           else ctx.results[name] = {status: 'passed', ...await legImplementations[name](host, ctx)};
         } catch (error) {

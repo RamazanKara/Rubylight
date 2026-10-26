@@ -37,6 +37,18 @@ Broadcasts do not cross routers. A TV on another subnet needs the PC's address e
 
 The app then holds a client ID and a secret, and signs in on its own from then on. The secret is stored in `sunshine_state.json` and is never shown in the console. A request lasts 5 minutes and allows one attempt.
 
+### Stream in the console (Experimental)
+
+The console's **Stream** page plays a game from this PC in the browser tab, with no app and no pairing: H.264 at 1920×1080 and 60 fps, stereo sound, keyboard and mouse.
+
+1. Turn on the WebRTC server (see above) and restart Rubylight.
+2. Open the console from a device on the local network or Tailscale, sign in, and open **Stream**.
+3. Pick a game. Click the picture to play: keys and the mouse go to the PC while it has the focus. Click outside it, or press Ctrl+Alt+Shift+Z, to get them back. **Quit app** ends the stream and the game, **Disconnect** only the stream.
+
+The page signals over the console's own HTTPS port (`wss://`, at `/api/webrtc/signal`), so the WebRTC signalling port is not used, and it signs in with the console session. The browser streams as the device "Console (*your user name*)" on **Devices**; disable it there to stop the console from streaming. Signing out ends the stream within 5 seconds. A browser that cannot receive H.264, or a host that does not offer it at 1080p60, gets an error instead of another format.
+
+The browser does not say why the host refused the connection, so the page lists the causes: the tab is not signed in or opened the console from an address the host does not list as its own (`csrf_allowed_origins`), the device is not on the local network or Tailscale, the WebRTC server is off or was turned on without a restart, or the console device is disabled.
+
 ### The Devices page
 
 Paired TVs and browsers are listed on **Devices** with a **WebRTC** badge. Disable a device to keep it paired but refuse it. Unpair it to remove it. Either one disconnects the device at once, and ends its stream. At most 32 are kept; the oldest go first.
@@ -50,7 +62,7 @@ Paired TVs and browsers are listed on **Devices** with a **WebRTC** badge. Disab
 | Audio | Stereo, 5.1 and 7.1. Surround needs a client that asks for it and decodes it, which today means a Chromium-based browser. |
 | Gamepad | Gamepads with rumble. |
 | Gamepad as a mouse | Hold Start for 750 ms and release it. The stick moves the pointer, the D-pad scrolls, and A, B, X, LB and RB click. Do it again to turn it off. |
-| Keyboard and mouse | From a client that opens the `input` channel (see below). The browser client does not. |
+| Keyboard and mouse | From a client that opens the `input` channel (see below), such as the console's Stream page. The browser client does not. |
 
 The host reads how much its encoder can do (AMF's throughput limit per codec) and offers only the frame rates it can encode in real time: a slower AMD GPU may list 4K at 30 and 60 only. A driver that reports no limit gets 60 fps and below. Measured clean on an RX 7900 XT: 90 and 120 fps at 1080p with all three codecs, 1440p120 with HEVC, and 4K120 with HEVC and AV1. Experimental: 720p at 90 and 120, H.264 at 1440p above 60, AV1 at 1440p90 and 1440p120, 90 fps at 1440p and 4K, HDR above 60 fps, GPUs with a lower throughput limit, and drivers that report no limit.
 

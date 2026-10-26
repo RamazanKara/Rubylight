@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use nightjar_core::control::{haptics, ConnectionStatus, ControlEvent};
 use nightjar_core::session::{Listener, Stage};
 use rubylight_protocol::control::{HostTiming, HostTimingExtra, LinkNotice, LinkState};
+use rubylight_protocol::steam_controller::SteamSettings;
 
 use crate::bridge::{self, Bridge};
 use crate::extras::{cursor_shape_message, hdr_metadata_bytes};
@@ -42,6 +43,11 @@ impl Events {
             Ok(())
         });
     }
+}
+
+/// The `triples` of `bridgeClSteamSettings`: `count` (register, lo, hi) triples back to back.
+fn steam_settings_triples(settings: &SteamSettings) -> Vec<u8> {
+    settings.triples().concat()
 }
 
 /// The arguments of `bridgeClLinkNotice(state, ceilingKbps, currentKbps)`: the state as the
@@ -262,6 +268,36 @@ impl Listener for Events {
             ControlEvent::CursorShapeRejected(reason) => {
                 platform::warn(&format!("Dropping a cursor shape message: {reason}"));
             }
+            ControlEvent::SteamHaptic(haptic) => {
+                self.bytes_callback(
+                    m.steam_haptic,
+                    Some(bridge::short(haptic.controller)),
+                    haptic.report(),
+                );
+            }
+            ControlEvent::SteamSettings(settings) => {
+                b.with_env(|env| {
+                    let triples = env.byte_array_from_slice(&steam_settings_triples(&settings))?;
+                    b.void(
+                        env,
+                        m.steam_settings,
+                        &[
+                            bridge::short(settings.controller),
+                            bridge::byte(settings.command),
+                            bridge::object(&triples),
+                        ],
+                    );
+                    Ok(())
+                });
+            }
+            ControlEvent::SteamRejected {
+                message_type,
+                error,
+            } => {
+                platform::warn(&format!(
+                    "Dropping Steam Controller message {message_type:#06x}: {error:?}"
+                ));
+            }
             ControlEvent::ConnectionStatus(status) => {
                 let code = match status {
                     ConnectionStatus::Okay => 0,
@@ -302,6 +338,18 @@ mod tests {
         capture_us: 100,
         convert_us: 150,
     };
+
+    #[test]
+    fn steam_settings_reach_java_as_count_triples() {
+        use rubylight_protocol::steam_controller::{
+            STEAM_SETTINGS_LOAD_DEFAULTS, STEAM_SETTINGS_SET_VALUES,
+        };
+        let write = SteamSettings::new(0, STEAM_SETTINGS_SET_VALUES, &[[0x30, 1, 2], [0x31, 3, 4]])
+            .unwrap();
+        assert_eq!(steam_settings_triples(&write), [0x30, 1, 2, 0x31, 3, 4]);
+        let defaults = SteamSettings::new(0, STEAM_SETTINGS_LOAD_DEFAULTS, &[]).unwrap();
+        assert!(steam_settings_triples(&defaults).is_empty());
+    }
 
     #[test]
     fn a_link_notice_reaches_java_as_state_and_bitrates() {

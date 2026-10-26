@@ -21,6 +21,11 @@ pub mod ptype {
     pub const SET_MOTION_EVENT: u16 = 0x5501;
     pub const SET_RGB_LED: u16 = 0x5502;
     pub const ADAPTIVE_TRIGGERS: u16 = 0x5503;
+    /// Vibepollo's Steam Controller (2026) haptic reports and settings writes (host to
+    /// client), sent only for a controller whose arrival advertised them.
+    pub const STEAM_HAPTIC: u16 = rubylight_protocol::steam_controller::STEAM_HAPTIC_MESSAGE_TYPE;
+    pub const STEAM_SETTINGS: u16 =
+        rubylight_protocol::steam_controller::STEAM_SETTINGS_MESSAGE_TYPE;
     /// Sunshine's per-frame FEC report (client to host). Shares its id with
     /// [`SET_RGB_LED`], which goes the other way.
     pub const FRAME_FEC_STATUS: u16 = 0x5502;

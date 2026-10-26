@@ -39,4 +39,16 @@ public interface NvConnectionListener {
 
     default void setAdaptiveTriggers(short controllerNumber, byte eventFlags, byte typeLeft,
                                      byte typeRight, byte[] left, byte[] right) {}
+
+    /**
+     * A Steam Controller haptic output report (id first, 1 to 12 bytes) for the real controller's
+     * pads. No driver owns a Steam Controller yet, so nothing advertises the capability.
+     */
+    default void steamHaptic(short controllerNumber, byte[] report) {}
+
+    /**
+     * A Steam Controller settings write: command 0x87 with (register, lo, hi) triples back to
+     * back, or 0x8E (load defaults) with none. Unused, like {@link #steamHaptic}.
+     */
+    default void steamSettings(short controllerNumber, byte command, byte[] triples) {}
 }

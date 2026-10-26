@@ -8,6 +8,7 @@ use rubylight_protocol::control::{
     HOST_TIMING_HEADER_BYTES, HOST_TIMING_MAX_RECORDS, HOST_TIMING_RECORD_BYTES,
     LINK_NOTICE_BYTES,
 };
+use rubylight_protocol::steam_controller::{SteamError, SteamHaptic, SteamSettings};
 
 use super::haptics::{self, Pcm};
 use super::messages::CURSOR_SHAPE_MAX_EDGE;
@@ -232,6 +233,16 @@ pub enum ControlEvent {
     CursorShape(CursorShape),
     /// A cursor shape message that broke a rule of the format.
     CursorShapeRejected(&'static str),
+    /// A Steam Controller haptic report (0x5504), for the real controller's pads. Never
+    /// coalesced: the host re-sends the same report to keep a buzz going.
+    SteamHaptic(SteamHaptic),
+    /// A Steam Controller settings write (0x5505), for the real controller. Never coalesced.
+    SteamSettings(SteamSettings),
+    /// A 0x5504 or 0x5505 message that broke its format.
+    SteamRejected {
+        message_type: u16,
+        error: SteamError,
+    },
     ConnectionStatus(ConnectionStatus),
     /// The stream ended: the host's reason, or [`termination::DISCONNECTED`].
     Terminated {
@@ -412,6 +423,26 @@ pub(crate) fn cursor_shape(p: &[u8]) -> ControlEvent {
     match CursorShape::decode(p) {
         Ok(shape) => ControlEvent::CursorShape(shape),
         Err(reason) => ControlEvent::CursorShapeRejected(reason),
+    }
+}
+
+pub(crate) fn steam_haptic(p: &[u8]) -> ControlEvent {
+    match SteamHaptic::decode(p) {
+        Ok(haptic) => ControlEvent::SteamHaptic(haptic),
+        Err(error) => ControlEvent::SteamRejected {
+            message_type: super::wire::ptype::STEAM_HAPTIC,
+            error,
+        },
+    }
+}
+
+pub(crate) fn steam_settings(p: &[u8]) -> ControlEvent {
+    match SteamSettings::decode(p) {
+        Ok(settings) => ControlEvent::SteamSettings(settings),
+        Err(error) => ControlEvent::SteamRejected {
+            message_type: super::wire::ptype::STEAM_SETTINGS,
+            error,
+        },
     }
 }
 
@@ -616,5 +647,52 @@ mod tests {
             }
         );
         assert_eq!(events[3], rumble(1, 5));
+    }
+
+    #[test]
+    fn steam_controller_messages_decode_and_are_never_coalesced() {
+        use rubylight_protocol::steam_controller::STEAM_SETTINGS_SET_VALUES;
+        let haptic = SteamHaptic::new(1, &[0x80, 0x10, 0x20]).unwrap();
+        let event = steam_haptic(&haptic.encode());
+        assert_eq!(event, ControlEvent::SteamHaptic(haptic));
+        let settings = SteamSettings::new(1, STEAM_SETTINGS_SET_VALUES, &[[0x30, 1, 0]]).unwrap();
+        assert_eq!(
+            steam_settings(&settings.encode()),
+            ControlEvent::SteamSettings(settings)
+        );
+
+        // Steam re-sends the same report to keep a buzz going; each one must reach the pads.
+        let mut events = vec![event.clone(), event.clone(), event];
+        coalesce(&mut events);
+        assert_eq!(events.len(), 3);
+    }
+
+    #[test]
+    fn broken_steam_controller_messages_are_rejected_by_name() {
+        let mut haptic = SteamHaptic::new(0, &[0x80]).unwrap().encode();
+        haptic[2] = 13;
+        assert_eq!(
+            steam_haptic(&haptic),
+            ControlEvent::SteamRejected {
+                message_type: 0x5504,
+                error: SteamError::ReportTooLong { len: 13 }
+            }
+        );
+        let mut settings = [0u8; 31];
+        settings[3] = 10;
+        assert_eq!(
+            steam_settings(&settings),
+            ControlEvent::SteamRejected {
+                message_type: 0x5505,
+                error: SteamError::TooManyTriples { count: 10 }
+            }
+        );
+        assert_eq!(
+            steam_settings(&settings[..4]),
+            ControlEvent::SteamRejected {
+                message_type: 0x5505,
+                error: SteamError::Short { len: 4 }
+            }
+        );
     }
 }

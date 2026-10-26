@@ -41,6 +41,8 @@ pub struct Methods {
     pub host_timing: JStaticMethodID,
     pub link_notice: JStaticMethodID,
     pub cursor_shape: JStaticMethodID,
+    pub steam_haptic: JStaticMethodID,
+    pub steam_settings: JStaticMethodID,
 }
 
 pub struct Bridge {
@@ -89,6 +91,8 @@ pub fn init(env: &mut JNIEnv) -> jni::errors::Result<()> {
         host_timing: id("bridgeClHostTiming", "([B)V")?,
         link_notice: id("bridgeClLinkNotice", "(III)V")?,
         cursor_shape: id("bridgeClCursorShape", "([B)V")?,
+        steam_haptic: id("bridgeClSteamHaptic", "(S[B)V")?,
+        steam_settings: id("bridgeClSteamSettings", "(SB[B)V")?,
     };
     let bridge = Bridge {
         vm: env.get_java_vm()?,

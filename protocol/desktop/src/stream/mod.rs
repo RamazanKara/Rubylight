@@ -1604,6 +1604,12 @@ impl Streaming {
                 self.cursor.default_cursor();
                 self.cursor_error(reason.to_owned());
             }
+            // Steam Controller haptics and settings stay unhandled: no arrival advertises them.
+            ControlEvent::SteamRejected { message_type, error } => {
+                eprintln!(
+                    "nightjar: dropping Steam Controller message {message_type:#06x}: {error:?}"
+                );
+            }
             _ => {}
         }
     }

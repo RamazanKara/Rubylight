@@ -377,6 +377,31 @@ public class RustEngineJniParityTest {
         assertTrue("expected the Rust bridge to look up its callbacks, found " + found, found >= 28);
     }
 
+    @Test public void noControllerCapabilityAsksForSteamControllerHapticsOrSettings() throws Exception {
+        // LI_CCAP_STEAM_HAPTIC (0x800) and LI_CCAP_STEAM_SETTINGS (0x2000) make a host send 0x5504
+        // and 0x5505 for the real Steam Controller; bridgeClSteamHaptic/Settings are no-ops until a
+        // Nightjar driver owns one. Every arrival capability is built from these constants.
+        // Read from the source: reading the fields would run MoonBridge's static initializer, which
+        // loads the C library.
+        String source = new String(Files.readAllBytes(new File(
+                "src/main/java/com/limelight/nvstream/jni/MoonBridge.java").toPath()), StandardCharsets.UTF_8);
+        Matcher constant = Pattern.compile("short (LI_CCAP_\\w+)\\s*=\\s*(?:\\(short\\)\\s*)?0x([0-9A-Fa-f]+);")
+                .matcher(source);
+        int found = 0;
+        while (constant.find()) {
+            found++;
+            int bits = Integer.parseInt(constant.group(2), 16);
+            assertEquals(constant.group(1) + " overlaps the Steam Controller bits", 0, bits & (0x800 | 0x2000));
+        }
+        assertTrue("expected MoonBridge's LI_CCAP_* constants, found " + found, found >= 10);
+        assertEquals("every LI_CCAP_* constant is a hex literal this test can read", found,
+                source.split("short LI_CCAP_", -1).length - 1);
+        // The callbacks exist so the Rust engine can look them up, and default to doing nothing.
+        com.limelight.nvstream.NvConnectionListener.class.getMethod("steamHaptic", short.class, byte[].class);
+        com.limelight.nvstream.NvConnectionListener.class.getMethod("steamSettings", short.class, byte.class,
+                byte[].class);
+    }
+
     @Test public void theRustEngineHasNoCallbackTheJavaSideLacks() throws Exception {
         // The reverse direction: a bridge* method added to MoonBridge for the C engine must be
         // looked up by the Rust bridge too, or be listed here as C-only on purpose.

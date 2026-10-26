@@ -382,6 +382,17 @@ public class MoonBridge {
         }
     }
 
+    // Steam Controller (2026) haptic report (0x5504) and settings write (0x5505), Rust engine
+    // only. A host sends them only for a controller that advertised LI_CCAP_STEAM_HAPTIC or
+    // LI_CCAP_STEAM_SETTINGS, which Nightjar never does yet.
+    public static void bridgeClSteamHaptic(short controllerNumber, byte[] report) {
+        if (connectionListener != null) connectionListener.steamHaptic(controllerNumber, report);
+    }
+
+    public static void bridgeClSteamSettings(short controllerNumber, byte command, byte[] triples) {
+        if (connectionListener != null) connectionListener.steamSettings(controllerNumber, command, triples);
+    }
+
     // Host cursor shape message (0x5541, docs/protocol/cursor-shape.md), on the control stream's
     // receive thread; only between an accepted sendCursorShapeRequest(true) and the next false.
     public static void bridgeClCursorShape(byte[] message) {

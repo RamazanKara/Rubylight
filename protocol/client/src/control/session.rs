@@ -469,6 +469,8 @@ impl ControlSession {
             ptype::SET_MOTION_EVENT => events::motion_event(p),
             ptype::SET_RGB_LED => events::controller_led(p),
             ptype::ADAPTIVE_TRIGGERS => events::adaptive_triggers(p),
+            ptype::STEAM_HAPTIC if extensions => Some(events::steam_haptic(p)),
+            ptype::STEAM_SETTINGS if extensions => Some(events::steam_settings(p)),
             ptype::CONTROLLER_HAPTICS if extensions => events::controller_haptics(p),
             ptype::CONTROLLER_SPEAKER if extensions => events::controller_speaker(p),
             ptype::CONTROLLER_AUDIO_CONTROL if extensions => events::controller_audio_control(p),
@@ -846,6 +848,45 @@ mod tests {
         assert!(matches!(&events[6], ControlEvent::ControllerHaptics(p) if p.sequence == 9));
         assert!(matches!(&events[7], ControlEvent::ControllerSpeaker(p) if p.frames() == 2));
         assert_eq!(events.len(), 8);
+    }
+
+    #[test]
+    fn steam_controller_messages_become_events_only_from_sunshine_hosts() {
+        use rubylight_protocol::steam_controller::{
+            SteamHaptic, SteamSettings, STEAM_SETTINGS_LOAD_DEFAULTS,
+        };
+        let haptic = SteamHaptic::new(2, &[0x81, 1, 2, 3]).unwrap();
+        let settings = SteamSettings::new(2, STEAM_SETTINGS_LOAD_DEFAULTS, &[]).unwrap();
+        let t0 = Instant::now();
+        let feed = |s: &mut ControlSession| {
+            s.handle_datagram(t0, &from_host(1, 0x5504, &haptic.encode()))
+                .unwrap();
+            s.handle_datagram(t0, &from_host(2, 0x5505, &settings.encode()))
+                .unwrap();
+        };
+
+        let mut s = session(SessionOptions::default());
+        s.start(t0);
+        feed(&mut s);
+        assert_eq!(
+            s.take_events(),
+            [
+                ControlEvent::SteamHaptic(haptic),
+                ControlEvent::SteamSettings(settings)
+            ]
+        );
+
+        let mut gfe = ControlSession::new(
+            HostCapabilities {
+                app_version: [7, 1, 431, 0],
+                ..rubylight()
+            },
+            &KEY,
+            SessionOptions::default(),
+        );
+        gfe.start(t0);
+        feed(&mut gfe);
+        assert!(gfe.take_events().is_empty());
     }
 
     #[test]

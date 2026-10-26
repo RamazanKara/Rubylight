@@ -645,6 +645,8 @@ impl Chain {
                 if !sample.is_finite() {
                     *sample = 0.;
                     self.bad_samples = true;
+                } else {
+                    *sample = night::flush(*sample);
                 }
             }
             surround.process(packet, settings.headphone_surround);
@@ -1122,6 +1124,42 @@ mod tests {
         let mut later = noise(240 * 8, 4);
         chain.process(&mut later, BOTH);
         assert!(later.iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn subnormal_input_leaves_no_subnormal_output() {
+        for (settings, channels) in [
+            (BOTH, 8),
+            (
+                Settings {
+                    headphone_surround: true,
+                    ..OFF
+                },
+                8,
+            ),
+            (
+                Settings {
+                    night_mode: true,
+                    ..OFF
+                },
+                2,
+            ),
+        ] {
+            let mut chain = Chain::new(channels, 2).unwrap();
+            chain
+                .set_source(channels, if channels == 8 { SEVEN_ONE } else { 3 })
+                .unwrap();
+            for i in 0..8 {
+                let mut packet: Vec<f32> = (0..240 * channels)
+                    .map(|n| [1e-40, -1e-39, 5e-31, -f32::MIN_POSITIVE][(n + i) % 4])
+                    .collect();
+                chain.process(&mut packet, settings);
+                assert!(
+                    packet.iter().all(|v| v.to_bits() == 0),
+                    "{settings:?} packet {i}"
+                );
+            }
+        }
     }
 
     /// `cargo test --release ... audio_dsp -- --ignored --nocapture bench`

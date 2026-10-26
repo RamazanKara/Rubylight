@@ -25,6 +25,14 @@ const OFF_RAMP_FRAMES: u32 = 480;
 const CLIP_KNEE: f32 = 0.707_945_8;
 pub(crate) const CLIP_CEILING: f32 = 0.98;
 
+/// Values this small become 0, so neither samples nor decaying state reach
+/// the subnormals, which are slow on x86.
+pub(crate) const FLUSH_BELOW: f32 = 1e-30;
+
+pub(crate) fn flush(x: f32) -> f32 {
+    if x.abs() < FLUSH_BELOW { 0. } else { x }
+}
+
 /// The LFE of a 5.1 or 7.1 frame, which the leveller doesn't measure.
 const LFE: usize = 3;
 
@@ -132,6 +140,8 @@ impl Night {
                 if !sample.is_finite() {
                     *sample = 0.;
                     self.bad_samples = true;
+                } else {
+                    *sample = flush(*sample);
                 }
             }
             let gain = match self.state {
@@ -174,7 +184,7 @@ impl Night {
     /// Updates the detectors with one frame and returns its gain.
     fn track(&mut self, frame: &[f32]) -> f32 {
         let peak = frame.iter().fold(0f32, |peak, x| peak.max(x.abs()));
-        self.detector = peak.max(self.detector * self.detect);
+        self.detector = flush(peak.max(self.detector * self.detect));
         let level_db = 20. * self.detector.max(1e-6).log10();
         let target = curve(level_db);
         let coefficient = if target < self.compressor_db {
@@ -182,7 +192,7 @@ impl Night {
         } else {
             self.release
         };
-        self.compressor_db = target + coefficient * (self.compressor_db - target);
+        self.compressor_db = flush(target + coefficient * (self.compressor_db - target));
         // Below -60 dBFS (pauses, hiss) the leveller holds its gain and its
         // measurement, so quiet passages don't pump the noise floor up.
         if level_db >= HOLD_BELOW_DB {
@@ -445,6 +455,33 @@ mod tests {
         assert!(largest(&joined) <= before * 1.01);
         // After 10 ms the samples pass through untouched.
         assert_eq!(&off[960..], &input[960..]);
+    }
+
+    #[test]
+    fn subnormal_input_and_decaying_state_never_stay_subnormal() {
+        let mut night = Night::default();
+        let mut tiny: Vec<f32> = (0..9600)
+            .map(|i| [1e-40, -1e-39, 1e-31, f32::MIN_POSITIVE][i % 4])
+            .collect();
+        night.process(&mut tiny, 2, true);
+        assert!(tiny.iter().all(|x| x.to_bits() == 0));
+        // A loud burst, then 30 s of silence: the detector and the
+        // compressor decay toward 0 without passing through the subnormals.
+        let mut burst = sine(0., 1000., 4800, 2);
+        night.process(&mut burst, 2, true);
+        assert!(night.compressor_db() < -10.);
+        let mut silence = vec![0f32; 240 * 2];
+        for _ in 0..30 * 200 {
+            night.process(&mut silence, 2, true);
+            assert!(!night.detector.is_subnormal(), "{:e}", night.detector);
+            assert!(
+                !night.compressor_db.is_subnormal(),
+                "{:e}",
+                night.compressor_db
+            );
+        }
+        assert_eq!((night.detector, night.compressor_db), (0., 0.));
+        assert!(silence.iter().all(|x| x.to_bits() == 0));
     }
 
     #[test]

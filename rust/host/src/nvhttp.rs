@@ -244,11 +244,12 @@ pub fn router(h: Shared, https: bool) -> Router {
                 "/actions/clipboard",
                 get(clipboard_read).post(clipboard_write),
             )
-            // Sleep PC, as Vibepollo serves it; only POST spends a token.
+            // Sleep PC, as Vibepollo serves it. Every method reaches the
+            // sleep route, which refuses all but POST in its own format.
             .route("/power-actions/v1", get(crate::power_action::capabilities))
             .route(
                 "/power-actions/v1/sleep",
-                axum::routing::post(crate::power_action::sleep),
+                axum::routing::any(crate::power_action::sleep),
             )
             .merge(crate::native_api::router())
     } else {

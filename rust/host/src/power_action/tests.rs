@@ -71,8 +71,18 @@ impl Answer {
     }
 }
 async fn call(f: &Fixture, https: bool, request: HttpRequest<Body>) -> Response {
+    call_ending(f, https, &ConnectionEnd::default(), request).await
+}
+/// `end` stands in for the connection; the test says how it ended.
+async fn call_ending(
+    f: &Fixture,
+    https: bool,
+    end: &ConnectionEnd,
+    request: HttpRequest<Body>,
+) -> Response {
     crate::nvhttp::router(f.host.clone(), https)
         .layer(Extension(f.connection(https)))
+        .layer(Extension(end.clone()))
         .oneshot(request)
         .await
         .unwrap()
@@ -101,8 +111,12 @@ fn sleep_request(token: &str) -> HttpRequest<Body> {
         .body(Body::empty())
         .unwrap()
 }
+/// A sleep request whose connection then closes cleanly.
 async fn sleep(f: &Fixture, token: &str) -> Answer {
-    answer(call(f, true, sleep_request(token)).await).await
+    let end = ConnectionEnd::default();
+    let answer = answer(call_ending(f, true, &end, sleep_request(token)).await).await;
+    end.finish(true);
+    answer
 }
 /// The blocking half of an accepted request is done once it drops the gate.
 fn wait_for_gate(f: &Fixture) {
@@ -140,13 +154,17 @@ async fn routes_are_https_only_and_need_a_paired_client() {
         "A paired TLS client identity is required"
     );
     assert_eq!(sleep(&f, ANY_TOKEN).await.status, StatusCode::UNAUTHORIZED);
-    // Only POST spends a token.
+    // Only POST spends a token; any other method gets the XML refusal.
     let get = HttpRequest::get(format!("/power-actions/v1/sleep?token={ANY_TOKEN}"))
         .body(Body::empty())
         .unwrap();
+    let refused = answer(call(&f, true, get).await).await;
     assert_eq!(
-        call(&f, true, get).await.status(),
-        StatusCode::METHOD_NOT_ALLOWED
+        (refused.status, refused.message()),
+        (
+            StatusCode::METHOD_NOT_ALLOWED,
+            "Use POST for a sleep request"
+        )
     );
     assert_eq!(fake.suspends.load(Ordering::SeqCst), 0);
 }
@@ -224,21 +242,24 @@ async fn an_undelivered_answer_or_a_revoked_device_does_not_suspend() {
     let f = Fixture::new();
     let fake = fake(&f);
     device(&f, true);
-    // The client is gone before the body was sent.
+    // The connection failed after the answer was handed to hyper.
     let token = capabilities(&f).await.field("SleepToken");
-    let response = call(&f, true, sleep_request(&token)).await;
-    assert_eq!(response.status(), StatusCode::ACCEPTED);
-    drop(response);
+    let end = ConnectionEnd::default();
+    let accepted = answer(call_ending(&f, true, &end, sleep_request(&token)).await).await;
+    assert_eq!(accepted.status, StatusCode::ACCEPTED);
+    end.finish(false);
     wait_for_gate(&f);
     assert_eq!(fake.suspends.load(Ordering::SeqCst), 0);
     // Revoked while the answer is on its way: the opt-in is read again.
     let token = capabilities(&f).await.field("SleepToken");
-    let response = call(&f, true, sleep_request(&token)).await;
+    let end = ConnectionEnd::default();
+    let response = call_ending(&f, true, &end, sleep_request(&token)).await;
     assert_eq!(response.status(), StatusCode::ACCEPTED);
     f.host.paired.write().unwrap().clients[0]
         .extra
         .remove("allow_sleep");
     answer(response).await;
+    end.finish(true);
     wait_for_gate(&f);
     assert_eq!(fake.suspends.load(Ordering::SeqCst), 0);
 }
@@ -279,7 +300,13 @@ async fn a_busy_host_offers_no_token_and_refuses_sleep() {
     let request = Request::parse(true, Some(&format!("token={token}")), 0, false);
     let (sender, receiver) = tokio::sync::oneshot::channel();
     let launching = f.host.launch_transition.lock().unwrap();
-    sleep_blocking(&f.host, &f.connection(true), &request, sender);
+    sleep_blocking(
+        &f.host,
+        &f.connection(true),
+        &ConnectionEnd::default(),
+        &request,
+        sender,
+    );
     drop(launching);
     assert_eq!(answer(receiver.await.unwrap()).await.message(), busy);
     // None of these spent the token.
@@ -299,6 +326,8 @@ async fn a_launch_racing_an_accepted_sleep_waits_for_the_suspend() {
     let token = capabilities(&f).await.field("SleepToken");
     assert_eq!(sleep(&f, &token).await.status, StatusCode::ACCEPTED);
     entered.recv_timeout(Duration::from_secs(5)).unwrap();
+    // The paired list is free while the PC sleeps.
+    assert!(f.host.paired.try_write().is_ok());
     let (launched_tx, launched) = mpsc::channel();
     let h = f.host.clone();
     let launch = std::thread::spawn(move || {
@@ -332,6 +361,10 @@ async fn malformed_requests_are_refused_before_identity() {
         HttpRequest::post("/power-actions/v1/sleep")
             .body(Body::empty())
             .unwrap(),
+        // Past the router's 1 MiB limit too.
+        HttpRequest::post(&uri)
+            .body(Body::from(vec![b'x'; 2 << 20]))
+            .unwrap(),
     ] {
         let refused = answer(call(&f, true, request).await).await;
         assert_eq!(
@@ -340,6 +373,99 @@ async fn malformed_requests_are_refused_before_identity() {
         );
     }
     assert_eq!(sleep(&f, &token).await.status, StatusCode::ACCEPTED);
+    wait_for_gate(&f);
+    assert_eq!(fake.suspends.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn a_connection_that_never_closes_does_not_suspend() {
+    let f = Fixture::new();
+    let fake = fake(&f);
+    device(&f, true);
+    let token = capabilities(&f).await.field("SleepToken");
+    let end = ConnectionEnd::default();
+    let started = Instant::now();
+    let accepted = answer(call_ending(&f, true, &end, sleep_request(&token)).await).await;
+    assert_eq!(accepted.status, StatusCode::ACCEPTED);
+    // Still waiting for the connection to close, with the gate held.
+    assert!(f.host.launch_transition.try_lock().is_err());
+    wait_for_gate(&f);
+    assert!(started.elapsed() >= DELIVERY_WAIT);
+    assert_eq!(fake.suspends.load(Ordering::SeqCst), 0);
+    // Too late: the request has given up.
+    end.finish(true);
+    assert_eq!(fake.suspends.load(Ordering::SeqCst), 0);
+}
+
+/// One request over a real TLS connection, served as the HTTPS port does.
+/// The 64-byte pipe holds the answer back until the client reads it.
+async fn over_tls(f: &Fixture, token: &str, read_answer: bool) -> Vec<u8> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let acceptor = crate::tls::acceptor(&f.host.identity, true).unwrap();
+    let (near, far) = tokio::io::duplex(64);
+    let connection = f.connection(true);
+    let server = tokio::spawn(crate::tls::serve_connection(
+        far,
+        connection.peer,
+        connection.local,
+        crate::nvhttp::router(f.host.clone(), true),
+        Some(acceptor),
+    ));
+    // TLS 1.2: no session tickets left in the pipe after the handshake.
+    let client = crate::tls::tests::client(
+        &rustls::version::TLS12,
+        &f.host.identity.der,
+        &f.host.identity.private_pem,
+    );
+    let mut stream = tokio_rustls::TlsConnector::from(Arc::new(client))
+        .connect(
+            rustls::pki_types::ServerName::try_from("localhost").unwrap(),
+            near,
+        )
+        .await
+        .unwrap();
+    let request = format!(
+        "POST /power-actions/v1/sleep?token={token} HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\n"
+    );
+    stream.write_all(request.as_bytes()).await.unwrap();
+    stream.flush().await.unwrap();
+    let mut received = Vec::new();
+    if read_answer {
+        // The host may close without waiting for the client's close_notify.
+        let _ = stream.read_to_end(&mut received).await;
+    } else {
+        // Accepted: the request holds the gate while its answer waits.
+        let started = Instant::now();
+        while f.host.launch_transition.try_lock().is_ok() {
+            assert!(started.elapsed() < Duration::from_secs(5), "not accepted");
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        drop(stream);
+    }
+    tokio::time::timeout(Duration::from_secs(5), server)
+        .await
+        .unwrap()
+        .unwrap();
+    received
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_client_reset_before_the_answer_is_flushed_does_not_suspend() {
+    let f = Fixture::new();
+    let fake = fake(&f);
+    device(&f, true);
+    let token = capabilities(&f).await.field("SleepToken");
+    over_tls(&f, &token, false).await;
+    wait_for_gate(&f);
+    assert_eq!(fake.suspends.load(Ordering::SeqCst), 0);
+    // A client that reads its answer is put to sleep.
+    let token = capabilities(&f).await.field("SleepToken");
+    let received = over_tls(&f, &token, true).await;
+    assert!(
+        received.starts_with(b"HTTP/1.1 202 "),
+        "{}",
+        String::from_utf8_lossy(&received)
+    );
     wait_for_gate(&f);
     assert_eq!(fake.suspends.load(Ordering::SeqCst), 1);
 }

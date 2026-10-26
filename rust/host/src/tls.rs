@@ -5,7 +5,11 @@ use hyper_util::{
     server::conn::auto::Builder,
     service::TowerToHyperService,
 };
-use std::{net::SocketAddr, sync::Arc};
+use std::{
+    net::SocketAddr,
+    sync::{Arc, Mutex, mpsc},
+};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_rustls::{
     TlsAcceptor,
     rustls::{
@@ -23,6 +27,24 @@ pub struct Connection {
     pub local: SocketAddr,
     pub certificate: Option<Vec<u8>>,
     pub tls: bool,
+}
+/// How a connection ended, for a handler that may act only once its answer
+/// has left: `true` once hyper wrote every response and closed the
+/// connection without an error, `false` on an error. A watcher whose
+/// connection task was dropped sees its channel disconnect instead.
+#[derive(Clone, Default)]
+pub struct ConnectionEnd(Arc<Mutex<Vec<mpsc::SyncSender<bool>>>>);
+impl ConnectionEnd {
+    pub fn watch(&self) -> mpsc::Receiver<bool> {
+        let (sender, receiver) = mpsc::sync_channel(1);
+        self.0.lock().unwrap().push(sender);
+        receiver
+    }
+    pub fn finish(&self, clean: bool) {
+        for watcher in self.0.lock().unwrap().drain(..) {
+            let _ = watcher.try_send(clean);
+        }
+    }
 }
 /// TLS proves possession of any presented key. Protected HTTP routes additionally
 /// require one exact enabled pairing record; a self-signed certificate is not authorization.
@@ -155,52 +177,72 @@ pub async fn serve(
             continue;
         };
         let local = SocketAddr::new(local.ip().to_canonical(), local.port());
-        let router = router.clone();
-        let acceptor = acceptor.clone();
-        tokio::spawn(async move {
-            if let Some(acceptor) = acceptor {
-                match tokio::time::timeout(
-                    std::time::Duration::from_secs(10),
-                    acceptor.accept(socket),
-                )
-                .await
-                {
-                    Ok(Ok(stream)) => {
-                        let certificate = stream
-                            .get_ref()
-                            .1
-                            .peer_certificates()
-                            .and_then(|chain| chain.first())
-                            .map(|c| c.to_vec());
-                        let service =
-                            TowerToHyperService::new(router.layer(Extension(Connection {
-                                peer,
-                                local,
-                                certificate,
-                                tls: true,
-                            })));
-                        let _ = Builder::new(TokioExecutor::new())
-                            .serve_connection_with_upgrades(TokioIo::new(stream), service)
-                            .await;
-                    }
-                    _ => tracing::debug!(%peer,"TLS handshake rejected"),
-                }
-            } else {
-                let service = TowerToHyperService::new(router.layer(Extension(Connection {
+        tokio::spawn(serve_connection(
+            socket,
+            peer,
+            local,
+            router.clone(),
+            acceptor.clone(),
+        ));
+    }
+}
+/// Serves one accepted connection, over TLS with an acceptor, and tells the
+/// handlers' [`ConnectionEnd`] how it ended.
+pub(crate) async fn serve_connection<S>(
+    socket: S,
+    peer: SocketAddr,
+    local: SocketAddr,
+    router: Router,
+    acceptor: Option<TlsAcceptor>,
+) where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let end = ConnectionEnd::default();
+    let served = if let Some(acceptor) = acceptor {
+        let Ok(Ok(stream)) =
+            tokio::time::timeout(std::time::Duration::from_secs(10), acceptor.accept(socket)).await
+        else {
+            tracing::debug!(%peer, "TLS handshake rejected");
+            return;
+        };
+        let certificate = stream
+            .get_ref()
+            .1
+            .peer_certificates()
+            .and_then(|chain| chain.first())
+            .map(|c| c.to_vec());
+        let service = TowerToHyperService::new(
+            router
+                .layer(Extension(Connection {
+                    peer,
+                    local,
+                    certificate,
+                    tls: true,
+                }))
+                .layer(Extension(end.clone())),
+        );
+        Builder::new(TokioExecutor::new())
+            .serve_connection_with_upgrades(TokioIo::new(stream), service)
+            .await
+    } else {
+        let service = TowerToHyperService::new(
+            router
+                .layer(Extension(Connection {
                     peer,
                     local,
                     certificate: None,
                     tls: false,
-                })));
-                let _ = Builder::new(TokioExecutor::new())
-                    .serve_connection_with_upgrades(TokioIo::new(socket), service)
-                    .await;
-            }
-        });
-    }
+                }))
+                .layer(Extension(end.clone())),
+        );
+        Builder::new(TokioExecutor::new())
+            .serve_connection_with_upgrades(TokioIo::new(socket), service)
+            .await
+    };
+    end.finish(served.is_ok());
 }
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use tokio_rustls::{
         TlsConnector,
@@ -254,19 +296,7 @@ mod tests {
         certificate: &[u8],
         key: &str,
     ) -> bool {
-        let provider = Arc::new(rustls::crypto::ring::default_provider());
-        let key = rustls_pemfile::private_key(&mut key.as_bytes())
-            .unwrap()
-            .unwrap();
-        let key = provider.key_provider.load_private_key(key).unwrap();
-        // CertifiedKey::new skips rustls's key check, which refuses v2 too.
-        let client = CertifiedKey::new(vec![CertificateDer::from(certificate.to_vec())], key);
-        let config = rustls::ClientConfig::builder_with_provider(provider)
-            .with_protocol_versions(&[version])
-            .unwrap()
-            .dangerous()
-            .with_custom_certificate_verifier(Arc::new(AnyHost))
-            .with_client_cert_resolver(Arc::new(SingleCertAndKey::from(client)));
+        let config = client(version, certificate, key);
         let (near, far) = tokio::io::duplex(1 << 16);
         let host = ServerName::try_from("localhost").unwrap();
         let (_, accepted) = tokio::join!(
@@ -281,6 +311,27 @@ mod tests {
                 .and_then(|chain| chain.first())
                 .is_some_and(|presented| presented.as_ref() == certificate)
         })
+    }
+    /// A client that presents `certificate`, signs with `key` and trusts
+    /// any host.
+    pub(crate) fn client(
+        version: &'static rustls::SupportedProtocolVersion,
+        certificate: &[u8],
+        key: &str,
+    ) -> rustls::ClientConfig {
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let key = rustls_pemfile::private_key(&mut key.as_bytes())
+            .unwrap()
+            .unwrap();
+        let key = provider.key_provider.load_private_key(key).unwrap();
+        // CertifiedKey::new skips rustls's key check, which refuses v2 too.
+        let client = CertifiedKey::new(vec![CertificateDer::from(certificate.to_vec())], key);
+        rustls::ClientConfig::builder_with_provider(provider)
+            .with_protocol_versions(&[version])
+            .unwrap()
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(AnyHost))
+            .with_client_cert_resolver(Arc::new(SingleCertAndKey::from(client)))
     }
     #[tokio::test]
     async fn moonlight_tv_v2_certificate_completes_the_handshake() {

@@ -4,27 +4,31 @@
 //! spends it. HTTPS only. The decisions live in
 //! `butterpollo_core::power_action`; this module holds the lifecycle gate
 //! (`launch_transition`) from the idle check through the suspend, so a
-//! racing launch waits, and suspends only once the 202 left the host.
-use crate::{state::Shared, tls::Connection};
+//! racing launch waits, and suspends only once the 202 left the host: the
+//! answer closes its connection, and hyper finished writing and closing it.
+use crate::{
+    state::Shared,
+    tls::{Connection, ConnectionEnd},
+};
 use anyhow::Result;
 use axum::{
     Extension,
-    body::{Body, Bytes},
+    body::Body,
     extract::State,
-    http::{HeaderMap, Uri, header},
+    http::{HeaderMap, Method, Uri, header},
     response::{IntoResponse, Response},
 };
 use butterpollo_core::power_action::{self, Authority, Request, Tokens};
 use std::{
-    pin::Pin,
     sync::{Arc, Mutex, MutexGuard, RwLock, mpsc},
-    task::{Context, Poll},
     time::{Duration, Instant},
 };
 
-/// How long an accepted request waits for its response to leave before it
-/// gives up without suspending.
+/// How long an accepted request waits for its connection to close cleanly
+/// after the answer before it gives up without suspending.
 const DELIVERY_WAIT: Duration = Duration::from_secs(2);
+/// A sleep request has an empty body; reading stops past this many bytes.
+const BODY_LIMIT: usize = 1024;
 
 /// Whether this PC can sleep, and the suspend itself.
 pub trait Backend: Send + Sync {
@@ -141,21 +145,29 @@ pub async fn capabilities(
     reply(&answer, Body::from(answer.xml()))
 }
 
+/// Every method reaches this, so a GET is refused with Vibepollo's 405 and
+/// a body of any size with its 400, both logged.
 pub async fn sleep(
     State(h): State<Shared>,
     Extension(connection): Extension<Connection>,
+    Extension(end): Extension<ConnectionEnd>,
+    method: Method,
     uri: Uri,
     headers: HeaderMap,
-    body: Bytes,
+    body: Body,
 ) -> Response {
+    // Too large or unreadable counts as a body.
+    let body_len = axum::body::to_bytes(body, BODY_LIMIT)
+        .await
+        .map_or(BODY_LIMIT + 1, |bytes| bytes.len());
     let request = Request::parse(
-        true,
+        method == Method::POST,
         uri.query(),
-        body.len(),
+        body_len,
         headers.contains_key(header::ORIGIN),
     );
     let (sender, receiver) = tokio::sync::oneshot::channel();
-    tokio::task::spawn_blocking(move || sleep_blocking(&h, &connection, &request, sender));
+    tokio::task::spawn_blocking(move || sleep_blocking(&h, &connection, &end, &request, sender));
     match receiver.await {
         Ok(response) => response,
         Err(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
@@ -166,6 +178,7 @@ pub async fn sleep(
 fn sleep_blocking(
     h: &Shared,
     connection: &Connection,
+    end: &ConnectionEnd,
     request: &Request,
     respond: tokio::sync::oneshot::Sender<Response>,
 ) {
@@ -187,28 +200,41 @@ fn sleep_blocking(
         return;
     };
     tracing::warn!(client, %peer, "Sleep PC request accepted");
-    let (delivered, delivery) = mpsc::sync_channel(1);
-    let body = Body::from_stream(tokio_util::io::ReaderStream::new(Delivery {
-        data: answer.xml().into_bytes(),
-        sent: 0,
-        delivered: Some(delivered),
-    }));
-    if respond.send(reply(&answer, body)).is_err() {
+    // Watched before the answer goes out, so its end cannot be missed. The
+    // answer says `Connection: close`: hyper ends the connection cleanly
+    // only after writing and flushing it, and a client gone before that
+    // ends it with an error.
+    let delivery = end.watch();
+    if respond
+        .send(reply(&answer, Body::from(answer.xml())))
+        .is_err()
+    {
         tracing::warn!(client, %peer, "Sleep PC client left before its answer; not sleeping");
         return;
     }
-    if delivery.recv_timeout(DELIVERY_WAIT) != Ok(true) {
-        tracing::warn!(client, %peer, "Sleep PC answer was not delivered; not sleeping");
-        return;
+    match delivery.recv_timeout(DELIVERY_WAIT) {
+        Ok(true) => {}
+        outcome => {
+            let outcome = match outcome {
+                Ok(_) => "the connection failed",
+                Err(mpsc::RecvTimeoutError::Timeout) => "the connection stayed open",
+                Err(mpsc::RecvTimeoutError::Disconnected) => "the connection was dropped",
+            };
+            tracing::warn!(client, %peer, outcome, "Sleep PC answer was not delivered; not sleeping");
+            return;
+        }
     }
-    // The opt-in is checked again, and the paired list stays locked through
-    // the suspend: an administrator who just revoked it is obeyed.
-    let paired = h.paired.read().unwrap();
-    let allowed = connection
-        .certificate
-        .as_deref()
-        .and_then(|der| paired.client_by_certificate(der))
-        .is_some_and(|c| c.uuid == client && c.allows_sleep());
+    // The opt-in is checked again: an administrator who just revoked it is
+    // obeyed. The paired list is not held through the suspend, which
+    // returns only after the PC wakes.
+    let allowed = {
+        let paired = h.paired.read().unwrap();
+        connection
+            .certificate
+            .as_deref()
+            .and_then(|der| paired.client_by_certificate(der))
+            .is_some_and(|c| c.uuid == client && c.allows_sleep())
+    };
     if !allowed {
         tracing::warn!(client, %peer, "Sleep PC was revoked before the suspend; not sleeping");
         return;
@@ -219,37 +245,7 @@ fn sleep_blocking(
             tracing::warn!(client, %peer, error = %format!("{error:#}"), "Sleep PC failed")
         }
     }
-    drop(paired);
     drop(gate);
-}
-
-/// The body of a 202. Dropped, it tells the waiting request whether hyper
-/// took every byte, which it then writes and closes; a client gone before
-/// that leaves it short, and the host does not sleep.
-struct Delivery {
-    data: Vec<u8>,
-    sent: usize,
-    delivered: Option<mpsc::SyncSender<bool>>,
-}
-impl tokio::io::AsyncRead for Delivery {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        _: &mut Context<'_>,
-        buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> Poll<std::io::Result<()>> {
-        let this = &mut *self;
-        let n = buf.remaining().min(this.data.len() - this.sent);
-        buf.put_slice(&this.data[this.sent..this.sent + n]);
-        this.sent += n;
-        Poll::Ready(Ok(()))
-    }
-}
-impl Drop for Delivery {
-    fn drop(&mut self) {
-        if let Some(delivered) = self.delivered.take() {
-            let _ = delivered.try_send(self.sent == self.data.len());
-        }
-    }
 }
 
 #[cfg(test)]

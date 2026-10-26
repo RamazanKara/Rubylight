@@ -61,7 +61,7 @@ final class HomeWake {
      */
     boolean wake(String hostUuid) {
         ComputerDetails host = hosts.apply(hostUuid);
-        if (!HostWaker.canWake(host)) {
+        if (!HostWaker.canWake(activity, host)) {
             return false;
         }
         if (waker.isWaiting()) {

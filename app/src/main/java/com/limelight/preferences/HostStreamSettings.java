@@ -50,6 +50,7 @@ import com.limelight.computers.IdentityManager;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.PairingManager;
+import com.limelight.nvstream.wol.WakeTargets;
 import com.limelight.ui.HostFeatureGate;
 import com.google.android.material.slider.Slider;
 import com.limelight.utils.FrontendExporter;
@@ -140,6 +141,8 @@ public class HostStreamSettings extends NightjarActivity {
             if (!(binder instanceof ComputerManagerService.ComputerManagerBinder)) return;
             ComputerManagerService.ComputerManagerBinder bound = (ComputerManagerService.ComputerManagerBinder) binder;
             manager = bound;
+            // A wake started before the manager was bound found nothing to poll with; it polls now.
+            if (foreground && hostActions.isWaking()) startWakePolling();
             new Thread(() -> {
                 if (!bound.waitForReady()) return;
                 ComputerDetails known = bound.getComputer(hostUuid);
@@ -443,7 +446,7 @@ public class HostStreamSettings extends NightjarActivity {
     private void showWakeHelp() {
         MaterialAlertDialogBuilder dialog = new NavigationDialogBuilder(this).setTitle(R.string.wol_help_title)
                 .setMessage(R.string.wol_help_text);
-        if (computer.state != ComputerDetails.State.ONLINE && computer.macAddress != null) {
+        if (computer.state != ComputerDetails.State.ONLINE && WakeTargets.hasMac(this, computer)) {
             dialog.setNegativeButton(android.R.string.cancel, null)
                     .setPositiveButton(R.string.pcview_menu_send_wol, (prompt, which) -> wake());
         } else {
@@ -821,7 +824,7 @@ public class HostStreamSettings extends NightjarActivity {
             row(connection, "remote_setup", R.string.remote_setup_title, () -> startActivity(
                     new Intent(screen, RemoteSetupActivity.class).putExtra(RemoteSetupActivity.EXTRA_PC_UUID, screen.hostUuid)))
                     .setSummary(R.string.pc_settings_remote_summary);
-            row(connection, "wake", R.string.pc_settings_wake, screen::showWakeHelp).setSummary(pc.macAddress != null ?
+            row(connection, "wake", R.string.pc_settings_wake, screen::showWakeHelp).setSummary(WakeTargets.hasMac(screen, pc) ?
                     R.string.pc_settings_wake_ready : R.string.pc_settings_wake_unknown);
 
             host.removeAll();

@@ -8,6 +8,7 @@ import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.PairingManager.PairState;
+import com.limelight.nvstream.wol.WakeTargets;
 import com.limelight.ui.ActionSheet;
 
 import com.google.android.material.button.MaterialButton;
@@ -69,7 +70,7 @@ public final class HostMenu {
                 add(sheet, onAction, OTP_PAIR, R.drawable.ic_keyboard, activity.getString(R.string.pair_otp_title));
             }
         }
-        if (details.state != ComputerDetails.State.ONLINE && details.macAddress != null) {
+        if (details.state != ComputerDetails.State.ONLINE && WakeTargets.hasMac(activity, details)) {
             add(sheet, onAction, WAKE, R.drawable.ic_power, activity.getString(R.string.pcview_menu_send_wol));
         } else if (state == PcGridAdapter.RowState.OFFLINE) {
             // Wake needs the PC's address from a pairing made while it was on.

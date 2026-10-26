@@ -25,6 +25,7 @@ import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.http.PairingManager;
 import com.limelight.nvstream.wol.WakeOnLanSender;
+import com.limelight.nvstream.wol.WakeTargets;
 import com.limelight.utils.CacheHelper;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.FrontendEntry;
@@ -123,7 +124,7 @@ public class ShortcutTrampoline extends Activity {
                             latest = details;
 
                             // Wake the PC if it's offline, and wait for it before launching
-                            if (details.state == ComputerDetails.State.OFFLINE && details.macAddress != null && !wakeEnded) {
+                            if (details.state == ComputerDetails.State.OFFLINE && WakeTargets.hasMac(ShortcutTrampoline.this, details) && !wakeEnded) {
                                 runOnUiThread(() -> wake(localBinder));
                                 return;
                             }
@@ -157,6 +158,10 @@ public class ShortcutTrampoline extends Activity {
         if (waker == null) {
             waker = new HostWaker(new Handler(Looper.getMainLooper()), task -> new Thread(task, "Wake on LAN").start(),
                     host -> {
+                        // A resend already on its way when the shortcut stopped neither wakes nor polls.
+                        if (stopped) {
+                            return;
+                        }
                         sendWake(host);
                         binder.invalidateStateForComputer(host.uuid);
                     }, () -> latest, SystemClock::elapsedRealtime, new HostWaker.Listener() {

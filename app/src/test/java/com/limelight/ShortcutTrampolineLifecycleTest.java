@@ -10,9 +10,12 @@ import android.widget.TextView;
 
 import com.limelight.computers.ComputerManagerListener;
 import com.limelight.computers.ComputerManagerService;
+import com.limelight.console.HostWaker;
+import com.limelight.nativeapi.NativeApiFixtures;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.PairingManager;
 import com.limelight.nvstream.http.NvApp;
+import com.limelight.nvstream.wol.WakeTargets;
 import com.limelight.utils.CacheHelper;
 import com.limelight.utils.FrontendEntry;
 
@@ -248,5 +251,30 @@ public class ShortcutTrampolineLifecycleTest {
         polled.pass(TIMEOUT_MS);
         assertEquals(sent, polled.activity.wakes.size());
         polled.controller.pause().stop().destroy();
+    }
+
+    @Test
+    public void aPcWithoutAServerinfoMacWakesThroughTheMacsItsWakeListed() throws Exception {
+        Polled polled = new Polled();
+        polled.computer.macAddress = null;
+        new WakeTargets(polled.activity).store(polled.computer.uuid, NativeApiFixtures.wake("02:e0:4c:68:00:01"));
+        polled.poll(ComputerDetails.State.OFFLINE);
+        polled.awaitWakes(1);
+        polled.controller.pause().stop().destroy();
+    }
+
+    @Test
+    public void aResendOnItsWayWhenTheShortcutStopsNeitherWakesNorPolls() throws Exception {
+        Polled polled = new Polled();
+        polled.poll(ComputerDetails.State.OFFLINE);
+        polled.awaitWakes(1);
+        HostWaker waker = ReflectionHelpers.getField(polled.activity, "waker");
+        HostWaker.Sender sender = ReflectionHelpers.getField(waker, "sender");
+        polled.controller.pause().stop();
+
+        sender.send(polled.computer);
+        assertEquals(1, polled.activity.wakes.size());
+        assertEquals(1, polled.invalidated.size());
+        polled.controller.destroy();
     }
 }

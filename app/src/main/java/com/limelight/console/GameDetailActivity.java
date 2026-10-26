@@ -470,7 +470,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
 
     /** The PC is away and a wake packet can be sent to it (it has a MAC address); otherwise Play stays greyed out. */
     private boolean wakeable(GameDetailModel m) {
-        return m.canWake() && HostWaker.canWake(currentHost());
+        return m.canWake() && HostWaker.canWake(this, currentHost());
     }
 
     /** Draws the page again from what it has, so notes that depended on the wait (waiting for the PC) clear. */
@@ -506,7 +506,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
             scheduleReload();
             return;
         }
-        if (!HostWaker.canWake(computer)) {
+        if (!HostWaker.canWake(this, computer)) {
             WakeFeedback.failed(this, model.hostName, R.string.wol_no_mac, null);
             return;
         }

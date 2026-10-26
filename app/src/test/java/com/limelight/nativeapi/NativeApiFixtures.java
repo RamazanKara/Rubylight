@@ -111,6 +111,16 @@ public final class NativeApiFixtures {
         return "{\"ok\":" + json + "}";
     }
 
+    /** A host's {@code /wake} answer with these adapters and no broadcasts, as tests in other packages store it. */
+    public static NativeWake wake(String... macs) throws org.json.JSONException {
+        StringBuilder targets = new StringBuilder();
+        for (String mac : macs) {
+            targets.append(targets.length() == 0 ? "" : ",").append("{\"mac\":\"").append(mac)
+                    .append("\",\"broadcasts\":[]}");
+        }
+        return NativeWake.parse(new org.json.JSONObject("{\"revision\":1,\"targets\":[" + targets + "]}"));
+    }
+
     public static String error(String kind, String message) {
         return "{\"error\":{\"kind\":\"" + kind + "\",\"message\":\"" + message + "\"}}";
     }

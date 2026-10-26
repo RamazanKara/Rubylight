@@ -1,8 +1,10 @@
 package com.limelight.console;
 
+import android.content.Context;
 import android.os.Handler;
 
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.wol.WakeTargets;
 
 import java.io.IOException;
 import java.util.concurrent.Executor;
@@ -51,9 +53,9 @@ public final class HostWaker {
         this.listener = listener;
     }
 
-    /** A PC that is not online and has a MAC address to wake it by. */
-    public static boolean canWake(ComputerDetails host) {
-        return host != null && host.state != ComputerDetails.State.ONLINE && host.macAddress != null;
+    /** A PC that is not online and has a MAC address to wake it by (see {@link WakeTargets#hasMac}). */
+    public static boolean canWake(Context context, ComputerDetails host) {
+        return host != null && host.state != ComputerDetails.State.ONLINE && WakeTargets.hasMac(context, host);
     }
 
     public boolean isWaiting() {

@@ -18,6 +18,7 @@ import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.http.PairingManager.PairState;
+import com.limelight.nvstream.wol.WakeTargets;
 import com.limelight.preferences.AddComputerManually;
 import com.limelight.preferences.GlPreferences;
 import com.limelight.preferences.HostStreamSettings;
@@ -83,6 +84,14 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
             if (row != null) {
                 // The row says "Waking…" until the PC answers or the wake window passes.
                 row.wakeSentAt = SystemClock.elapsedRealtime();
+                pcGridAdapter.notifyDataSetChanged();
+            }
+        }
+        @Override public void onWakeEnded(ComputerDetails computer) {
+            ComputerObject row = findComputer(computer.uuid);
+            // An answer, a timeout or a failed send: the row no longer says "Waking…".
+            if (row != null && row.wakeSentAt != 0) {
+                row.wakeSentAt = 0;
                 pcGridAdapter.notifyDataSetChanged();
             }
         }
@@ -621,7 +630,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
                 break;
             case WAKING:
             case OFFLINE:
-                if (computer.details.macAddress != null) {
+                if (WakeTargets.hasMac(this, computer.details)) {
                     doWakeOnLan(computer.details);
                 } else {
                     showComputerMenu(computer);

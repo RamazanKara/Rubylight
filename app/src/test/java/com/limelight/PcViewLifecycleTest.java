@@ -281,7 +281,7 @@ public class PcViewLifecycleTest {
             PcView.ComputerObject computer = (PcView.ComputerObject) grid.getItemAtPosition(row);
             assertSame(asleep, computer.details);
             assertEquals(screen.getString(R.string.pcview_menu_send_wol),
-                    screen.getString(com.limelight.grid.PcGridAdapter.mainActionLabel(computer)));
+                    screen.getString(com.limelight.grid.PcGridAdapter.mainActionLabel(screen, computer)));
             grid.performItemClick(null, row, row);
             assertEquals(java.util.List.of(asleep), screen.woken);
             assertNull("Waking is the tap's action, not a menu", ShadowDialog.getLatestDialog());

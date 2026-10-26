@@ -30,6 +30,7 @@ import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.http.PairingManager;
 import com.limelight.nvstream.http.PairingManager.PairState;
 import com.limelight.nvstream.wol.WakeOnLanSender;
+import com.limelight.nvstream.wol.WakeTargets;
 import com.limelight.ui.NavigationDialogBuilder;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.UiHelper;
@@ -334,7 +335,7 @@ public final class HostActions {
             Toast.makeText(activity, R.string.wol_pc_online, Toast.LENGTH_SHORT).show();
             return;
         }
-        if (computer.macAddress == null) {
+        if (!WakeTargets.hasMac(activity, computer)) {
             showError(R.string.pcview_menu_send_wol, activity.getString(R.string.wol_no_mac), null);
             return;
         }
@@ -373,9 +374,13 @@ public final class HostActions {
                         () -> startWake(computer, sender, io, clock));
             }
         });
-        waker.start();
+        // Told before the start: a PC the manager already sees online ends the wait in it, and that end then
+        // follows this, so no "Waking…" or poll for it stays behind.
         callbacks.onWakeSent(computer);
-        Toast.makeText(activity, R.string.wol_waking_msg, Toast.LENGTH_LONG).show();
+        waker.start();
+        if (waker.isWaiting()) {
+            Toast.makeText(activity, R.string.wol_waking_msg, Toast.LENGTH_LONG).show();
+        }
     }
 
     /** Whether a wake started here still waits for its PC. */

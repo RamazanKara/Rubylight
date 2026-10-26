@@ -1,6 +1,7 @@
 package com.limelight.computers;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -11,7 +12,9 @@ import android.widget.TextView;
 import androidx.appcompat.app.AlertDialog;
 
 import com.limelight.R;
+import com.limelight.nativeapi.NativeApiFixtures;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.wol.WakeTargets;
 import com.limelight.ui.ToolbarIconTintTest;
 
 import org.junit.After;
@@ -47,12 +50,13 @@ public class HostActionsWakeTest {
     private final List<String> events = new ArrayList<>();
     private IOException sendError;
     private ComputerDetails pc;
+    private ComputerManagerService.ComputerManagerBinder binder;
 
     @Before
     public void setUp() {
         controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible();
         actions = new HostActions(controller.get(), new HostActions.Callbacks() {
-            @Override public ComputerManagerService.ComputerManagerBinder binder() { return null; }
+            @Override public ComputerManagerService.ComputerManagerBinder binder() { return binder; }
             @Override public boolean isForeground() { return true; }
             @Override public void onPaired(ComputerDetails computer) { }
             @Override public void onRemoved(ComputerDetails computer) { }
@@ -169,5 +173,31 @@ public class HostActionsWakeTest {
         assertEquals(controller.get().getString(R.string.wol_no_mac), latestMessage());
         assertTrue(sent.isEmpty());
         assertTrue(events.isEmpty());
+    }
+
+    @Test
+    public void aPcWithoutAServerinfoMacWakesThroughTheMacsItsWakeListed() throws Exception {
+        pc.macAddress = null;
+        new WakeTargets(controller.get()).store("pc", NativeApiFixtures.wake("02:e0:4c:68:00:01"));
+        wake(pc);
+        assertEquals(Arrays.asList("pc"), sent);
+        assertEquals(Arrays.asList("sent pc"), events);
+        assertTrue(actions.isWaking());
+    }
+
+    @Test
+    public void aPcTheManagerAlreadySeesOnlineLeavesNoWaitBehind() {
+        ComputerDetails live = pc("pc", "Office");
+        live.state = ComputerDetails.State.ONLINE;
+        binder = new ComputerManagerService().new ComputerManagerBinder() {
+            @Override public ComputerDetails getComputer(String uuid) { return live; }
+        };
+        // The menu's copy still says away; the manager's says it answers.
+        wake(pc);
+        assertFalse(actions.isWaking());
+        assertTrue(sent.isEmpty());
+        assertEquals("the end follows the start, so the screen stops its poll", Arrays.asList("sent pc", "ended pc"),
+                events);
+        assertEquals(controller.get().getString(R.string.wol_pc_online), ShadowToast.getTextOfLatestToast());
     }
 }

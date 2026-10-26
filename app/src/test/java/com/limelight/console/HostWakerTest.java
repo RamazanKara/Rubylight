@@ -18,6 +18,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
+import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 
 import java.io.IOException;
@@ -68,13 +69,14 @@ public class HostWakerTest {
 
     @Test
     public void onlyAnAwayPcWithAMacAddressCanBeWoken() {
-        assertTrue(HostWaker.canWake(host));
+        Application app = RuntimeEnvironment.getApplication();
+        assertTrue(HostWaker.canWake(app, host));
         host.macAddress = null;
-        assertFalse("No MAC, no wake", HostWaker.canWake(host));
-        assertFalse(HostWaker.canWake(null));
+        assertFalse("No MAC, no wake", HostWaker.canWake(app, host));
+        assertFalse(HostWaker.canWake(app, null));
         ComputerDetails up = nativeHost("up", "Up", true);
         up.macAddress = "aa:bb:cc:dd:ee:ff";
-        assertFalse("An online PC is not woken", HostWaker.canWake(up));
+        assertFalse("An online PC is not woken", HostWaker.canWake(app, up));
     }
 
     @Test

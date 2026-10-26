@@ -8,6 +8,7 @@ import com.limelight.nativeapi.NativeApiClient;
 import com.limelight.nativeapi.NativeApiException;
 import com.limelight.nativeapi.NativeCapabilities;
 import com.limelight.nativeapi.NativeWake;
+import com.limelight.nvstream.http.ComputerDetails;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -48,6 +49,15 @@ public final class WakeTargets {
 
     public WakeTargets(Context context) {
         this.prefs = context.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+    }
+
+    /**
+     * Whether there is a MAC to wake the PC by: serverinfo's, or one its {@code /wake} listed. Every wake gate asks
+     * this, so a PC whose serverinfo has no MAC still wakes through its other adapters.
+     */
+    public static boolean hasMac(Context context, ComputerDetails computer) {
+        return computer != null && (computer.macAddress != null
+                || !new WakeTargets(context).load(computer.uuid).macs.isEmpty());
     }
 
     public synchronized Targets load(String hostUuid) {

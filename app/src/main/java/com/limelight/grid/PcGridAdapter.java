@@ -18,6 +18,7 @@ import com.limelight.R;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.PairingManager;
+import com.limelight.nvstream.wol.WakeTargets;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.update.HostUpdateChecker;
 
@@ -113,7 +114,7 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
     }
 
     /** What tapping the row does, named for screen readers. */
-    public static int mainActionLabel(PcView.ComputerObject computer) {
+    public static int mainActionLabel(Context context, PcView.ComputerObject computer) {
         switch (computer.rowState()) {
             case RUNNING:
             case READY:
@@ -122,7 +123,7 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
                 return R.string.pcview_menu_pair_pc;
             case WAKING:
             case OFFLINE:
-                return computer.details.macAddress != null ? R.string.pcview_menu_send_wol : R.string.pc_accessibility_actions;
+                return WakeTargets.hasMac(context, computer.details) ? R.string.pcview_menu_send_wol : R.string.pc_accessibility_actions;
             default:
                 return R.string.pc_accessibility_actions;
         }
@@ -182,7 +183,7 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
         parentView.setContentDescription(context.getString(R.string.library_item_description, obj.details.displayName(), status));
         // The grid owns taps and long presses; name both for screen readers and route them back to it.
         ViewCompat.replaceAccessibilityAction(parentView, AccessibilityActionCompat.ACTION_CLICK,
-                context.getString(mainActionLabel(obj)), (view, arguments) -> {
+                context.getString(mainActionLabel(context, obj)), (view, arguments) -> {
                     AdapterView<?> grid = grid(view);
                     int position = grid == null ? AdapterView.INVALID_POSITION : grid.getPositionForView(view);
                     return position != AdapterView.INVALID_POSITION &&

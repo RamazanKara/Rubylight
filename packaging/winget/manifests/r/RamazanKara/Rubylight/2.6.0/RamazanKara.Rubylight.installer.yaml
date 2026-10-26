@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.10.0.schema.json
+
+PackageIdentifier: RamazanKara.Rubylight
+PackageVersion: 2.6.0
+InstallerType: exe
+Scope: machine
+InstallModes:
+- interactive
+- silent
+- silentWithProgress
+InstallerSwitches:
+  Silent: --quiet
+  SilentWithProgress: --quiet
+  InstallLocation: --install-dir "<INSTALLPATH>"
+ExpectedReturnCodes:
+- InstallerReturnCode: 1223
+  ReturnResponse: cancelledByUser
+UpgradeBehavior: install
+ElevationRequirement: elevatesSelf
+AppsAndFeaturesEntries:
+- DisplayName: Rubylight
+  Publisher: Rubylight
+  ProductCode: Butterpollo
+Installers:
+- Architecture: x64
+  InstallerUrl: https://github.com/RamazanKara/Rubylight/releases/download/v2.6.0/rubylight-setup-2.6.0.exe
+  InstallerSha256: B2F008F5707193A6E712C73FF54C4689FCF7A818597A6A52A4A56062D1556B16
+ManifestType: installer
+ManifestVersion: 1.10.0

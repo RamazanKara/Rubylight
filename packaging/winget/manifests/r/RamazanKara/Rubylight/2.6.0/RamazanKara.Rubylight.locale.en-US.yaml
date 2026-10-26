@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.10.0.schema.json
+
+PackageIdentifier: RamazanKara.Rubylight
+PackageVersion: 2.6.0
+PackageLocale: en-US
+Publisher: Ramazan Kara
+PublisherUrl: https://github.com/RamazanKara
+PublisherSupportUrl: https://github.com/RamazanKara/Rubylight/issues
+PrivacyUrl: https://ramazankara.github.io/Rubylight/docs/privacy.html
+Author: Ramazan Kara
+PackageName: Rubylight
+PackageUrl: https://github.com/RamazanKara/Rubylight
+License: GPL-3.0
+LicenseUrl: https://github.com/RamazanKara/Rubylight/blob/main/LICENSE
+ShortDescription: Game-streaming host for Moonlight clients, written in Rust.
+Description: |-
+  Rubylight streams your PC games to Moonlight clients on a TV, laptop, phone, handheld,
+  Steam Deck or Xbox, with HDR, full-colour 4:4:4 and up to 240 fps. Formerly Butterpollo.
+Moniker: rubylight
+Tags:
+- game-streaming
+- moonlight
+- remote-play
+- streaming
+ReleaseNotesUrl: https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0
+ManifestType: defaultLocale
+ManifestVersion: 1.10.0

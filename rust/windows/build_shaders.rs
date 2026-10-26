@@ -8,7 +8,7 @@ const SOURCE: &str = include_str!("src/shaders/color.hlsl");
 #[cfg(windows)]
 pub fn compile(out: &Path) {
     println!("cargo:rerun-if-changed=src/shaders/color.hlsl");
-    const ENTRIES: [(&str, &str); 14] = [
+    const ENTRIES: [(&str, &str); 25] = [
         ("vertex", "vs_5_0"),
         ("luma", "ps_5_0"),
         ("chroma", "ps_5_0"),
@@ -23,6 +23,19 @@ pub fn compile(out: &Path) {
         ("pyro_cs", "cs_5_0"),
         ("yuv420_focus_cs", "cs_5_0"),
         ("focus_map_cs", "cs_5_0"),
+        // The couch menu's passes over its panel (docs/couch-menu-design.md
+        // 6.2 and 6.3), the bodies above with `menu` set.
+        ("yuv420_menu_cs", "cs_5_0"),
+        ("chroma_pack_menu_cs", "cs_5_0"),
+        ("pyro_menu_cs", "cs_5_0"),
+        ("menu_luma", "ps_5_0"),
+        ("menu_chroma", "ps_5_0"),
+        ("menu_chroma_pack_y", "ps_5_0"),
+        ("menu_chroma_pack_uv", "ps_5_0"),
+        ("menu_pyro_y", "ps_5_0"),
+        ("menu_pyro_u", "ps_5_0"),
+        ("menu_pyro_v", "ps_5_0"),
+        ("menu_pyro_444", "ps_5_0"),
     ];
     // One thread per entry, so the step takes as long as the slowest shader
     // rather than the sum. Each entry still compiles alone, byte for byte as

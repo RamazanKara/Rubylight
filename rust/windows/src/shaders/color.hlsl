@@ -161,6 +161,38 @@ float3 nonlinear(float2 target) {
     if (pixel == 2) return rgb;
     return pq(gamut2020(rgb) / 125.0);
 }
+// The couch menu's panel (docs/couch-menu-design.md 6.2 and 6.3): opaque
+// RGBA8 sRGB at 1x, read as UNORM, magnified by `menuScale` over the
+// `menuSize` target pixels from `menuOrigin`. Its own cbuffer (b2, beside
+// `Focus` at b1), so `Config` and the closed entries' bytecode stay as they
+// were; the order is `Overlay::constants`.
+cbuffer Menu : register(b2) {
+    uint2 menuOrigin; uint2 menuSize;
+    uint2 menuOriginBlocks; uint2 menuBlocks;
+    uint menuScale; uint3 menuPadding;
+};
+Texture2D<float4> menuImage : register(t2);
+// A panel pixel in the space `nonlinear` returns; HDR puts panel white at the
+// SDR white level, as the cursor does. Clamping into the panel keeps the
+// chroma filter's left neighbour on its border.
+float3 menu_rgb(float2 target) {
+    int2 at = clamp((int2(target) - int2(menuOrigin)) / int(menuScale), 0, int2(menuSize / menuScale) - 1);
+    float3 c = menuImage.Load(int3(at, 0)).rgb;
+    if (hdr != 0) return pq(gamut2020(srgb_linear(c)) * sdrWhiteScale / 125.0);
+    return colorMatrix == 2 ? bt2020_sdr(gamut2020(srgb_linear(c))) : c;
+}
+// A pixel's colour: the capture's, or the panel's in a menu pass. Every body
+// passes a literal `menu`, which fxc folds, so the closed entries keep their
+// code and the menu entries share the writers' layout and codes.
+float3 rgb_at(float2 target, bool menu) {
+    if (menu) return menu_rgb(target);
+    return nonlinear(target);
+}
+// A menu pixel shader leaves every sample not taken from the panel, `at`, to
+// the closed pass that drew the plane before it.
+void menu_clip(uint2 at) {
+    if (any(at < menuOrigin) || any(at >= menuOrigin + menuSize)) discard;
+}
 float3 weights() { return colorMatrix == 2 ? float3(0.2627, 0.6780, 0.0593) : colorMatrix == 0 ? float3(0.299, 0.587, 0.114) : float3(0.2126, 0.7152, 0.0722); }
 // The luma code of a pixel, and the chroma code of filtered nonlinear RGB.
 // Shared by the graphics and compute conversions, so both write the same codes.
@@ -180,19 +212,25 @@ float2 chromaCode(float3 rgb) {
 // and vertically centred. A symmetric [1,2,1] x [1,1] filter preserves that
 // position while suppressing aliasing. Clamp in target coordinates so the
 // left edge also works with resizing and letterboxing.
-float3 leftChroma(float2 at, float3 c00, float3 c10, float3 c01, float3 c11) {
+float3 leftChroma(float2 at, bool menu, float3 c00, float3 c10, float3 c01, float3 c11) {
     float2 left = float2(max(at.x - 1, 0), at.y);
-    return (nonlinear(left) + nonlinear(left + float2(0, 1)) +
+    return (rgb_at(left, menu) + rgb_at(left + float2(0, 1), menu) +
             2 * (c00 + c01) + c10 + c11) * 0.125;
 }
-float4 luma(float4 p : SV_Position) : SV_Target {
-    return float4(lumaCode(nonlinear(p.xy - 0.5)), 0, 0, 1);
+float lumaPixel(float2 p, bool menu) {
+    if (menu) menu_clip(uint2(p));
+    return lumaCode(rgb_at(p - 0.5, menu));
 }
-float4 chroma(float4 p : SV_Position) : SV_Target {
-    float2 at = floor(p.xy) * 2;
-    return float4(chromaCode(leftChroma(at, nonlinear(at), nonlinear(at + float2(1, 0)),
-                             nonlinear(at + float2(0, 1)), nonlinear(at + float2(1, 1)))), 0, 1);
+float2 chromaPixel(float2 p, bool menu) {
+    float2 at = floor(p) * 2;
+    if (menu) menu_clip(uint2(at));
+    return chromaCode(leftChroma(at, menu, rgb_at(at, menu), rgb_at(at + float2(1, 0), menu),
+                                 rgb_at(at + float2(0, 1), menu), rgb_at(at + float2(1, 1), menu)));
 }
+float4 luma(float4 p : SV_Position) : SV_Target { return float4(lumaPixel(p.xy, false), 0, 0, 1); }
+float4 chroma(float4 p : SV_Position) : SV_Target { return float4(chromaPixel(p.xy, false), 0, 1); }
+float4 menu_luma(float4 p : SV_Position) : SV_Target { return float4(lumaPixel(p.xy, true), 0, 0, 1); }
+float4 menu_chroma(float4 p : SV_Position) : SV_Target { return float4(chromaPixel(p.xy, true), 0, 1); }
 // The same conversion on a compute queue, which keeps running while a game
 // fills the graphics queue. The two views address the luma and chroma planes.
 RWTexture2D<float> lumaPlane : register(u0);
@@ -200,12 +238,12 @@ RWTexture2D<float2> chromaPlane : register(u1);
 // One thread per 2x2 block: reuse its four luma samples for chroma, plus
 // the two samples to the left needed for the co-sited horizontal filter.
 // Returns the chroma it wrote, and the luma in `y` (00, 10, 01, 11).
-float2 yuv420Block(uint2 id, out float4 y) {
+float2 yuv420Block(uint2 id, bool menu, out float4 y) {
     uint2 at = id * 2;
-    float3 c00 = nonlinear(float2(at));
-    float3 c10 = nonlinear(float2(at + uint2(1, 0)));
-    float3 c01 = nonlinear(float2(at + uint2(0, 1)));
-    float3 c11 = nonlinear(float2(at + uint2(1, 1)));
+    float3 c00 = rgb_at(float2(at), menu);
+    float3 c10 = rgb_at(float2(at + uint2(1, 0)), menu);
+    float3 c01 = rgb_at(float2(at + uint2(0, 1)), menu);
+    float3 c11 = rgb_at(float2(at + uint2(1, 1)), menu);
     // Each store follows its code, as `yuv420_cs` always did: fxc schedules
     // by source order, and this keeps its bytecode unchanged.
     y.x = lumaCode(c00);
@@ -216,7 +254,7 @@ float2 yuv420Block(uint2 id, out float4 y) {
     lumaPlane[at + uint2(0, 1)] = y.z;
     y.w = lumaCode(c11);
     lumaPlane[at + uint2(1, 1)] = y.w;
-    float2 uv = chromaCode(leftChroma(float2(at), c00, c10, c01, c11));
+    float2 uv = chromaCode(leftChroma(float2(at), menu, c00, c10, c01, c11));
     chromaPlane[id] = uv;
     return uv;
 }
@@ -224,12 +262,20 @@ float2 yuv420Block(uint2 id, out float4 y) {
 void yuv420_cs(uint3 id : SV_DispatchThreadID) {
     if (any(id.xy >= targetSize / 2)) return;
     float4 y;
-    yuv420Block(id.xy, y);
+    yuv420Block(id.xy, false, y);
+}
+// The menu passes run over the panel's blocks only, `menuBlocks` of the
+// entry's own block size from `menuOriginBlocks`, after the closed pass.
+[numthreads(8, 8, 1)]
+void yuv420_menu_cs(uint3 id : SV_DispatchThreadID) {
+    if (any(id.xy >= menuBlocks)) return;
+    float4 y;
+    yuv420Block(menuOriginBlocks + id.xy, true, y);
 }
 // Version 1 is a permutation of full-resolution quantized Y/U/V. Padding
 // extends the logical edge before conversion, without a chroma filter.
 uint2 packedSize() { return (targetSize + uint2(63, 7)) & ~uint2(63, 7); }
-float3 packedRgb(uint2 at) { return nonlinear(float2(min(at, targetSize - 1))); }
+float3 packedRgb(uint2 at, bool menu) { return rgb_at(float2(min(at, targetSize - 1)), menu); }
 // The extra chroma regions are signed half-differences in version 2. Keeping
 // their full range avoids modular wraparound when the codec quantizes them.
 float2 packedDetail(float2 value, float2 base) {
@@ -238,64 +284,105 @@ float2 packedDetail(float2 value, float2 base) {
     float center = tenBit != 0 ? 512 : 128;
     return clamp(floor((round(value * unit) - round(base * unit)) * 0.5 + center + 0.5), 0, maximum) / unit;
 }
-float packedY(uint2 at) {
+float packedY(uint2 at, bool menu) {
     uint2 size = packedSize();
-    if (at.y < size.y) return lumaCode(packedRgb(at));
+    if (at.y < size.y) {
+        if (menu) menu_clip(at);
+        return lumaCode(packedRgb(at, menu));
+    }
     uint plane = at.x >= size.x / 2 ? 1 : 0;
     uint2 pixel = uint2((at.x % (size.x / 2)) * 2 + 1, at.y - size.y);
-    float2 uv = chromaCode(packedRgb(pixel));
-    if (padding == 2) uv = packedDetail(uv, chromaCode(packedRgb(pixel & ~uint2(1, 1))));
+    if (menu) menu_clip(pixel);
+    float2 uv = chromaCode(packedRgb(pixel, menu));
+    if (padding == 2) uv = packedDetail(uv, chromaCode(packedRgb(pixel & ~uint2(1, 1), menu)));
     return plane == 0 ? uv.x : uv.y;
 }
-float4 chroma_pack_y(float4 p : SV_Position) : SV_Target {
-    return float4(packedY(uint2(p.xy)), 0, 0, 1);
+// Version 2's two halves of the chroma plane: anchors, then the lower
+// left's half-differences. The entries keep the version test and its early
+// return, which fxc compiles to `ret` there but not in an inlined function.
+float2 packedUv2(float2 p, bool menu) {
+    uint2 size = packedSize();
+    uint2 at = uint2(uint(p.x) * 2, (uint(p.y) % (size.y / 2)) * 2);
+    if (menu) menu_clip(at);
+    float2 base = chromaCode(packedRgb(at, menu));
+    return uint(p.y) < size.y / 2 ? base : packedDetail(chromaCode(packedRgb(at + uint2(0, 1), menu)), base);
 }
+float2 packedUv1(float2 p, bool menu) {
+    uint2 at = uint2(uint(p.x) * 2, uint(p.y));
+    if (menu) menu_clip(at);
+    return chromaCode(packedRgb(at, menu));
+}
+float4 chroma_pack_y(float4 p : SV_Position) : SV_Target { return float4(packedY(uint2(p.xy), false), 0, 0, 1); }
 float4 chroma_pack_uv(float4 p : SV_Position) : SV_Target {
-    if (padding == 2) {
-        uint2 size = packedSize();
-        uint2 at = uint2(uint(p.x) * 2, (uint(p.y) % (size.y / 2)) * 2);
-        float2 base = chromaCode(packedRgb(at));
-        return float4(uint(p.y) < size.y / 2 ? base : packedDetail(chromaCode(packedRgb(at + uint2(0, 1))), base), 0, 1);
-    }
-    return float4(chromaCode(packedRgb(uint2(uint(p.x) * 2, uint(p.y)))), 0, 1);
+    if (padding == 2) return float4(packedUv2(p.xy, false), 0, 1);
+    return float4(packedUv1(p.xy, false), 0, 1);
+}
+float4 menu_chroma_pack_y(float4 p : SV_Position) : SV_Target { return float4(packedY(uint2(p.xy), true), 0, 0, 1); }
+float4 menu_chroma_pack_uv(float4 p : SV_Position) : SV_Target {
+    if (padding == 2) return float4(packedUv2(p.xy, true), 0, 1);
+    return float4(packedUv1(p.xy, true), 0, 1);
+}
+// Version 2: one thread owns one complete 2x2 block, `id` in blocks, and
+// reuses the anchor for all three enhancement samples.
+void packedBlock(uint2 id, uint2 size, bool menu) {
+    // `id * 2`, written as `chroma_pack_cs` always did: fxc allocates
+    // registers by source shape, and this keeps its bytecode unchanged.
+    uint2 at = uint2(id.x * 2, id.y);
+    at.y = id.y * 2;
+    float3 even = packedRgb(at, menu);
+    float3 odd = packedRgb(at + uint2(1, 0), menu);
+    float3 bottomLeft = packedRgb(at + uint2(0, 1), menu);
+    float3 bottomRight = packedRgb(at + uint2(1, 1), menu);
+    float2 base = chromaCode(even);
+    float2 topDetail = packedDetail(chromaCode(odd), base);
+    float2 bottomDetail = packedDetail(chromaCode(bottomRight), base);
+    lumaPlane[at] = lumaCode(even);
+    lumaPlane[at + uint2(1, 0)] = lumaCode(odd);
+    lumaPlane[at + uint2(0, 1)] = lumaCode(bottomLeft);
+    lumaPlane[at + uint2(1, 1)] = lumaCode(bottomRight);
+    lumaPlane[uint2(id.x, size.y + at.y)] = topDetail.x;
+    lumaPlane[uint2(size.x / 2 + id.x, size.y + at.y)] = topDetail.y;
+    lumaPlane[uint2(id.x, size.y + at.y + 1)] = bottomDetail.x;
+    lumaPlane[uint2(size.x / 2 + id.x, size.y + at.y + 1)] = bottomDetail.y;
+    chromaPlane[id] = base;
+    chromaPlane[uint2(id.x, size.y / 2 + id.y)] = packedDetail(chromaCode(bottomLeft), base);
+}
+// Version 1: one thread per 2x1 pair, `id` in pairs, whose two pixels the
+// entry reads before its version test, as `chroma_pack_cs` always did.
+void packedPair(uint2 id, uint2 size, float3 even, float3 odd) {
+    uint2 at = uint2(id.x * 2, id.y);
+    float2 uv = chromaCode(odd);
+    lumaPlane[at] = lumaCode(even);
+    lumaPlane[at + uint2(1, 0)] = lumaCode(odd);
+    lumaPlane[uint2(id.x, size.y + id.y)] = uv.x;
+    lumaPlane[uint2(size.x / 2 + id.x, size.y + id.y)] = uv.y;
+    chromaPlane[id] = chromaCode(even);
 }
 [numthreads(8, 8, 1)]
 void chroma_pack_cs(uint3 id : SV_DispatchThreadID) {
     uint2 size = packedSize();
     if (any(id.xy >= uint2(size.x / 2, size.y))) return;
     uint2 at = uint2(id.x * 2, id.y);
-    float3 even = packedRgb(at);
-    float3 odd = packedRgb(at + uint2(1, 0));
+    float3 even = packedRgb(at, false);
+    float3 odd = packedRgb(at + uint2(1, 0), false);
     if (padding == 2) {
-        // Each thread owns one complete 2x2 block and reuses the anchor for
-        // all three enhancement samples; the lower half of the dispatch exits.
+        // The lower half of the dispatch exits.
         if (id.y >= size.y / 2) return;
-        at.y = id.y * 2;
-        even = packedRgb(at);
-        odd = packedRgb(at + uint2(1, 0));
-        float3 bottomLeft = packedRgb(at + uint2(0, 1));
-        float3 bottomRight = packedRgb(at + uint2(1, 1));
-        float2 base = chromaCode(even);
-        float2 topDetail = packedDetail(chromaCode(odd), base);
-        float2 bottomDetail = packedDetail(chromaCode(bottomRight), base);
-        lumaPlane[at] = lumaCode(even);
-        lumaPlane[at + uint2(1, 0)] = lumaCode(odd);
-        lumaPlane[at + uint2(0, 1)] = lumaCode(bottomLeft);
-        lumaPlane[at + uint2(1, 1)] = lumaCode(bottomRight);
-        lumaPlane[uint2(id.x, size.y + at.y)] = topDetail.x;
-        lumaPlane[uint2(size.x / 2 + id.x, size.y + at.y)] = topDetail.y;
-        lumaPlane[uint2(id.x, size.y + at.y + 1)] = bottomDetail.x;
-        lumaPlane[uint2(size.x / 2 + id.x, size.y + at.y + 1)] = bottomDetail.y;
-        chromaPlane[id.xy] = base;
-        chromaPlane[uint2(id.x, size.y / 2 + id.y)] = packedDetail(chromaCode(bottomLeft), base);
+        packedBlock(id.xy, size, false);
         return;
     }
-    float2 uv = chromaCode(odd);
-    lumaPlane[at] = lumaCode(even);
-    lumaPlane[at + uint2(1, 0)] = lumaCode(odd);
-    lumaPlane[uint2(id.x, size.y + id.y)] = uv.x;
-    lumaPlane[uint2(size.x / 2 + id.x, size.y + id.y)] = uv.y;
-    chromaPlane[id.xy] = chromaCode(even);
+    packedPair(id.xy, size, even, odd);
+}
+[numthreads(8, 8, 1)]
+void chroma_pack_menu_cs(uint3 id : SV_DispatchThreadID) {
+    if (any(id.xy >= menuBlocks)) return;
+    uint2 block = menuOriginBlocks + id.xy;
+    if (padding == 2) {
+        packedBlock(block, packedSize(), true);
+        return;
+    }
+    uint2 at = uint2(block.x * 2, block.y);
+    packedPair(block, packedSize(), packedRgb(at, true), packedRgb(at + uint2(1, 0), true));
 }
 // PyroWave's planes hold codes over their full range (code / 1023 or 255),
 // one plane each. Shared by the graphics and compute conversions.
@@ -317,23 +404,33 @@ float2 pyroChroma(float3 rgb) {
 float2 pyroBlock(float3 c00, float3 c10, float3 c01, float3 c11) {
     return pyroChroma((c00 + c10 + c01 + c11) * 0.25);
 }
-float4 pyro_y(float4 p : SV_Position) : SV_Target {
-    return float4(pyroLuma(nonlinear(p.xy - 0.5)),0,0,1);
+float pyroLumaPixel(float2 p, bool menu) {
+    if (menu) menu_clip(uint2(p));
+    return pyroLuma(rgb_at(p - 0.5, menu));
 }
-float2 pyro_chroma(float2 p) {
-    if (padding != 0) return pyroChroma(nonlinear(p - 0.5));
+float2 pyro_chroma(float2 p, bool menu) {
+    if (padding != 0) {
+        if (menu) menu_clip(uint2(p));
+        return pyroChroma(rgb_at(p - 0.5, menu));
+    }
     float2 at = floor(p)*2;
-    return pyroBlock(nonlinear(at), nonlinear(at+float2(1,0)), nonlinear(at+float2(0,1)), nonlinear(at+float2(1,1)));
+    if (menu) menu_clip(uint2(at));
+    return pyroBlock(rgb_at(at, menu), rgb_at(at+float2(1,0), menu), rgb_at(at+float2(0,1), menu), rgb_at(at+float2(1,1), menu));
 }
-float4 pyro_u(float4 p : SV_Position) : SV_Target { return float4(pyro_chroma(p.xy).x,0,0,1); }
-float4 pyro_v(float4 p : SV_Position) : SV_Target { return float4(pyro_chroma(p.xy).y,0,0,1); }
+float4 pyro_y(float4 p : SV_Position) : SV_Target { return float4(pyroLumaPixel(p.xy, false),0,0,1); }
+float4 pyro_u(float4 p : SV_Position) : SV_Target { return float4(pyro_chroma(p.xy, false).x,0,0,1); }
+float4 pyro_v(float4 p : SV_Position) : SV_Target { return float4(pyro_chroma(p.xy, false).y,0,0,1); }
+float4 menu_pyro_y(float4 p : SV_Position) : SV_Target { return float4(pyroLumaPixel(p.xy, true),0,0,1); }
+float4 menu_pyro_u(float4 p : SV_Position) : SV_Target { return float4(pyro_chroma(p.xy, true).x,0,0,1); }
+float4 menu_pyro_v(float4 p : SV_Position) : SV_Target { return float4(pyro_chroma(p.xy, true).y,0,0,1); }
 struct Pyro444 {
     float y : SV_Target0;
     float u : SV_Target1;
     float v : SV_Target2;
 };
-Pyro444 pyro_444(float4 p : SV_Position) {
-    float3 rgb = nonlinear(p.xy - 0.5);
+Pyro444 pyro444Pixel(float2 p, bool menu) {
+    if (menu) menu_clip(uint2(p));
+    float3 rgb = rgb_at(p - 0.5, menu);
     float2 uv = pyroChroma(rgb);
     Pyro444 result;
     result.y = pyroLuma(rgb);
@@ -341,19 +438,19 @@ Pyro444 pyro_444(float4 p : SV_Position) {
     result.v = uv.y;
     return result;
 }
+Pyro444 pyro_444(float4 p : SV_Position) { return pyro444Pixel(p.xy, false); }
+Pyro444 menu_pyro_444(float4 p : SV_Position) { return pyro444Pixel(p.xy, true); }
 // PyroWave's three planes on the compute queue, in one pass over 2x2 blocks,
 // beside a game that fills the graphics queue.
 RWTexture2D<float> pyroY : register(u2);
 RWTexture2D<float> pyroU : register(u3);
 RWTexture2D<float> pyroV : register(u4);
-[numthreads(8, 8, 1)]
-void pyro_cs(uint3 id : SV_DispatchThreadID) {
-    if (any(id.xy >= targetSize / 2)) return;
-    uint2 at = id.xy * 2;
-    float3 c00 = nonlinear(float2(at));
-    float3 c10 = nonlinear(float2(at + uint2(1, 0)));
-    float3 c01 = nonlinear(float2(at + uint2(0, 1)));
-    float3 c11 = nonlinear(float2(at + uint2(1, 1)));
+void pyroBlocks(uint2 id, bool menu) {
+    uint2 at = id * 2;
+    float3 c00 = rgb_at(float2(at), menu);
+    float3 c10 = rgb_at(float2(at + uint2(1, 0)), menu);
+    float3 c01 = rgb_at(float2(at + uint2(0, 1)), menu);
+    float3 c11 = rgb_at(float2(at + uint2(1, 1)), menu);
     pyroY[at] = pyroLuma(c00);
     pyroY[at + uint2(1, 0)] = pyroLuma(c10);
     pyroY[at + uint2(0, 1)] = pyroLuma(c01);
@@ -365,9 +462,19 @@ void pyro_cs(uint3 id : SV_DispatchThreadID) {
         c = pyroChroma(c11); pyroU[at + uint2(1, 1)] = c.x; pyroV[at + uint2(1, 1)] = c.y;
     } else {
         float2 c = pyroBlock(c00, c10, c01, c11);
-        pyroU[id.xy] = c.x;
-        pyroV[id.xy] = c.y;
+        pyroU[id] = c.x;
+        pyroV[id] = c.y;
     }
+}
+[numthreads(8, 8, 1)]
+void pyro_cs(uint3 id : SV_DispatchThreadID) {
+    if (any(id.xy >= targetSize / 2)) return;
+    pyroBlocks(id.xy, false);
+}
+[numthreads(8, 8, 1)]
+void pyro_menu_cs(uint3 id : SV_DispatchThreadID) {
+    if (any(id.xy >= menuBlocks)) return;
+    pyroBlocks(menuOriginBlocks + id.xy, true);
 }
 // Encoder focus (docs/encoder-focus-design.md): `yuv420_cs` plus a still-age
 // per 16x16 block, then the codec blocks' importances AMF reads as its ROI
@@ -404,7 +511,7 @@ void yuv420_focus_cs(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, u
     GroupMemoryBarrierWithGroupSync();
     if (all(id.xy < targetSize / 2)) {
         float4 y;
-        float2 uv = yuv420Block(id.xy, y);
+        float2 uv = yuv420Block(id.xy, false, y);
         uint h = focusHash(index * 0x9e3779b9u ^ focusCode(y.x));
         h = focusHash(h ^ focusCode(y.y));
         h = focusHash(h ^ focusCode(y.z));

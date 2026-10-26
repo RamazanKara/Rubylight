@@ -72,9 +72,9 @@ impl Overlay {
         );
         Ok(())
     }
-    /// `cbuffer Config`'s menu fields after its 20 colour values: origin,
-    /// size, the first block and the block count for `block`-sized threads
-    /// (2x2, or 2x1 for packing version 1), and the scale.
+    /// `cbuffer Menu` (b2, beside `Config` at b0) in `shaders/color.hlsl`:
+    /// origin, size, the first block and the block count for `block`-sized
+    /// threads (2x2, or 2x1 for packing version 1), and the scale.
     pub fn constants(&self, block: [u32; 2]) -> [u32; 12] {
         [
             self.origin[0],

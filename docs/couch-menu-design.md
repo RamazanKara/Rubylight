@@ -258,8 +258,8 @@ Range, 10-bit and PyroWave codes all come from the existing `lumaCode`, `chromaC
 
 **Pass.** It is recorded in `convert()` and `convert_planes()` after the main `Dispatch` and only when an overlay is set:
 1. A UAV barrier (null resource).
-2. `SetPipelineState(menu PSO)` and `SetComputeRootSignature(menu root)`. The menu root has CBV b0, an SRV table at t2 (1 descriptor), and the same UAV range: 2 for AMF, 3 for PyroWave.
-3. b0 points at a second 256-byte region per slot, so the constant buffer grows from `SLOTS×256` to `SLOTS×512`. That region holds the slot's 20 colour values plus `menuOrigin`, `menuBlocks` and `menuScale`.
+2. `SetPipelineState(menu PSO)` and `SetComputeRootSignature(menu root)`. The menu root has CBVs b0 and b2, an SRV table at t2 (1 descriptor), and the same UAV range: 2 for AMF, 3 for PyroWave.
+3. b0 is the slot's colour region, as in the main pass. b2 (`cbuffer Menu`, `Overlay::constants`: `menuOrigin`, `menuSize`, `menuOriginBlocks`, `menuBlocks`, `menuScale`) points at a second 256-byte region per slot, so the constant buffer grows from `SLOTS×256` to `SLOTS×512`. A separate cbuffer, rather than more `Config` fields, keeps the closed entries' bytecode byte-identical.
 4. `Dispatch(ceil(menuBlocks / 8))`.
 
 The menu PSOs and root are created on the first open, and that first-open cost is logged.
@@ -276,7 +276,7 @@ This path runs when textures cannot be shared, after two encoder failures, for A
 - After each plane's normal draw, when an overlay is set, it draws a full-plane triangle with the matching `*_menu` PS: `menu_luma`, `menu_chroma`, `menu_chroma_pack_y`, `menu_chroma_pack_uv`, `menu_pyro_y`, `menu_pyro_u`, `menu_pyro_v`, `menu_pyro_444`.
 - Each `*_menu` PS calls `discard` when its target pixel is outside the rect.
 - The PS entries are the existing bodies with `menu = true`.
-- `PSSetShaderResources(2, menu)`. `UpdateSubresource` runs only on a new revision.
+- `PSSetShaderResources(2, menu)` and `PSSetConstantBuffers(2, menu)` (the 48-byte `cbuffer Menu`, beside `Config` at b0). `UpdateSubresource` runs only on a new revision.
 
 A full-plane pass while open is the price of keeping the packed layouts in one code path. When closed, the only change is a CPU branch.
 

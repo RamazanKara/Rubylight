@@ -3,18 +3,12 @@
 use std::path::Path;
 
 #[cfg(windows)]
+const SOURCE: &str = include_str!("src/shaders/color.hlsl");
+
+#[cfg(windows)]
 pub fn compile(out: &Path) {
-    use std::ffi::CString;
-    use windows::{
-        Win32::Graphics::Direct3D::Fxc::{D3DCOMPILE_OPTIMIZATION_LEVEL3, D3DCompile},
-        core::PCSTR,
-    };
     println!("cargo:rerun-if-changed=src/shaders/color.hlsl");
-    const SOURCE: &str = include_str!("src/shaders/color.hlsl");
-    let mut generated = String::from(
-        "fn shader_bytecode(entry: &[u8], target: &[u8]) -> Option<&'static [u8]> {\nmatch (entry, target) {\n",
-    );
-    for (entry, target) in [
+    const ENTRIES: [(&str, &str); 14] = [
         ("vertex", "vs_5_0"),
         ("luma", "ps_5_0"),
         ("chroma", "ps_5_0"),
@@ -29,52 +23,71 @@ pub fn compile(out: &Path) {
         ("pyro_cs", "cs_5_0"),
         ("yuv420_focus_cs", "cs_5_0"),
         ("focus_map_cs", "cs_5_0"),
-    ] {
-        let name = CString::new(entry).unwrap();
-        let profile = CString::new(target).unwrap();
-        unsafe {
-            let mut code = None;
-            let mut errors = None;
-            if let Err(error) = D3DCompile(
-                SOURCE.as_ptr().cast(),
-                SOURCE.len(),
-                PCSTR::null(),
-                None,
-                None,
-                PCSTR(name.as_ptr().cast()),
-                PCSTR(profile.as_ptr().cast()),
-                D3DCOMPILE_OPTIMIZATION_LEVEL3,
-                0,
-                &mut code,
-                Some(&mut errors),
-            ) {
-                let detail = errors
-                    .map(|blob| {
-                        String::from_utf8_lossy(std::slice::from_raw_parts(
-                            blob.GetBufferPointer().cast(),
-                            blob.GetBufferSize(),
-                        ))
-                        .into_owned()
-                    })
-                    .unwrap_or_default();
-                panic!("compile {entry}/{target}: {error}: {detail}");
-            }
-            let code = code.expect("shader compiler returned no bytecode");
-            std::fs::write(
-                out.join(format!("{entry}.dxbc")),
-                std::slice::from_raw_parts(
-                    code.GetBufferPointer().cast::<u8>(),
-                    code.GetBufferSize(),
-                ),
-            )
-            .expect("write compiled shader");
+    ];
+    // One thread per entry, so the step takes as long as the slowest shader
+    // rather than the sum. Each entry still compiles alone, byte for byte as
+    // before; a failed entry's panic fails the scope and the build.
+    std::thread::scope(|scope| {
+        for (entry, target) in ENTRIES {
+            scope.spawn(move || compile_entry(out, entry, target));
         }
+    });
+    let mut generated = String::from(
+        "fn shader_bytecode(entry: &[u8], target: &[u8]) -> Option<&'static [u8]> {\nmatch (entry, target) {\n",
+    );
+    for (entry, target) in ENTRIES {
         generated.push_str(&format!(
             "(b\"{entry}\\0\", b\"{target}\\0\") => Some(include_bytes!(concat!(env!(\"OUT_DIR\"), \"/{entry}.dxbc\"))),\n",
         ));
     }
     generated.push_str("_ => None,\n}\n}\n");
     std::fs::write(out.join("shader_bytecode.rs"), generated).expect("write shader bindings");
+}
+
+/// Compile `entry` for `target` into `out/{entry}.dxbc`.
+#[cfg(windows)]
+fn compile_entry(out: &Path, entry: &str, target: &str) {
+    use std::ffi::CString;
+    use windows::{
+        Win32::Graphics::Direct3D::Fxc::{D3DCOMPILE_OPTIMIZATION_LEVEL3, D3DCompile},
+        core::PCSTR,
+    };
+    let name = CString::new(entry).unwrap();
+    let profile = CString::new(target).unwrap();
+    unsafe {
+        let mut code = None;
+        let mut errors = None;
+        if let Err(error) = D3DCompile(
+            SOURCE.as_ptr().cast(),
+            SOURCE.len(),
+            PCSTR::null(),
+            None,
+            None,
+            PCSTR(name.as_ptr().cast()),
+            PCSTR(profile.as_ptr().cast()),
+            D3DCOMPILE_OPTIMIZATION_LEVEL3,
+            0,
+            &mut code,
+            Some(&mut errors),
+        ) {
+            let detail = errors
+                .map(|blob| {
+                    String::from_utf8_lossy(std::slice::from_raw_parts(
+                        blob.GetBufferPointer().cast(),
+                        blob.GetBufferSize(),
+                    ))
+                    .into_owned()
+                })
+                .unwrap_or_default();
+            panic!("compile {entry}/{target}: {error}: {detail}");
+        }
+        let code = code.expect("shader compiler returned no bytecode");
+        std::fs::write(
+            out.join(format!("{entry}.dxbc")),
+            std::slice::from_raw_parts(code.GetBufferPointer().cast::<u8>(), code.GetBufferSize()),
+        )
+        .expect("write compiled shader");
+    }
 }
 
 #[cfg(not(windows))]

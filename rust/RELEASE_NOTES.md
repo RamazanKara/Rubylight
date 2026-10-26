@@ -8,6 +8,7 @@ Rubylight, called Butterpollo until rc.29, is written in Rust: host, native help
 
 ## Unreleased
 
+- **Fresher frames under VRR.** With variable refresh, Windows can capture each frame of a fast game twice or three times, a fraction of a millisecond to 4 ms apart. The host now times the game's own frames instead of each capture, so it waits for the game's next frame when it is close instead of taking an older copy. A 120 Hz game on a 60 fps VRR stream reaches the encoder with an age p95 of 2.3 ms instead of 3.7 ms (the October 24 measurement), and present to sent p95 is 4.7 ms instead of 6.4, at the same median and the same 60 fps. A 60 Hz game took a stale frame less often too, and a 240 Hz game measured the same; the 1000 Hz virtual display has no frame interval to wait for and works as before. [Numbers](PERFORMANCE.md#october-26-vrr-claims-follow-the-games-pictures).
 - **A lost control connection always ends the stream as lost.** When a client vanished and the host's control worker ran late, ENet's own peer timeout could drop the client before the host's ping check saw it. The host then ended the stream as if it had closed it itself (0x80030023), and the stream could count as a clean fast-rate probe. A client ENet drops after it went quiet for `ping_timeout` now ends the stream as failed, like the ping check.
 
 ## New in 3.0.0-rc.2

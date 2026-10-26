@@ -13,7 +13,7 @@ Every row links to the method and the raw numbers in the [full record](../rust/P
 | What | Result | Record |
 | --- | --- | --- |
 | Frame timing record, 1080p60, loopback | Median capture to client present on 3.0.0-rc.2: AV1 5.89 ms, H.264 6.92 ms, HEVC 8.37 ms. Decode medians 3.17, 3.72 and 5.12 ms. PyroWave 13.34 ms (October 23). | [rc.2 record](../rust/PERFORMANCE.md#october-26-300-rc2-against-the-published-numbers), [baselines](../rust/PERFORMANCE.md#october-23-per-frame-timing-record-baselines) |
-| VRR-aware capture | A 120 Hz game in a 60 fps stream: median age at the encoder 4.68 to 0.25 ms, present to sent 7.27 to 3.50 ms on 3.0.0-rc.2, shown frame rate unchanged. | [rc.2 record](../rust/PERFORMANCE.md#october-26-300-rc2-against-the-published-numbers), [VRR](../rust/PERFORMANCE.md#october-24-predictive-claim-waits-under-vrr) |
+| VRR-aware capture | A 120 Hz game in a 60 fps stream: median age at the encoder 4.68 to 0.25 ms, present to sent 7.27 to 3.50 ms on 3.0.0-rc.2, shown frame rate unchanged. Since rc.3 the age p95 is 2.3 ms (3.71 before). | [rc.2 record](../rust/PERFORMANCE.md#october-26-300-rc2-against-the-published-numbers), [pictures](../rust/PERFORMANCE.md#october-26-vrr-claims-follow-the-games-pictures), [VRR](../rust/PERFORMANCE.md#october-24-predictive-claim-waits-under-vrr) |
 | Link-rate adaptation | 75 Mbps asked of a 50 Mbit/s link: under 2 % of frames lost after the start-up (6.7 % before), the first cut within 1.6 s of the latch, and no change on an emulated 150 Mbit/s Wi-Fi link with 0.5 % loss. | [Link-rate fix](../rust/PERFORMANCE.md#october-24-link-rate-false-cuts-and-the-knee-hold-link-fix) |
 | Stream presets | Lowest latency makes the first keyframe 29 % smaller on HEVC and 38 to 40 % smaller on H.264. The median end to end time of the three presets was within 0.15 ms. | [Presets](../rust/PERFORMANCE.md#october-23-stream-presets-b3) |
 | Slice delivery (experimental) | 4K60 HEVC at 80 Mbps: the picture arrives 1.3 to 1.5 ms sooner on loopback and 1.2 to 1.4 ms sooner over Wi-Fi 6E to a laptop running Nightjar desktop. Android phone: no measurable gain; the emulated Wi-Fi run missed the 1 ms gate. | [Slice delivery](../rust/PERFORMANCE.md#october-23-slice-delivery-b2-step-2f) |
@@ -32,6 +32,8 @@ With variable refresh, a game that runs faster than the stream used to reach the
 | 60 Hz | 0.26 / 0.23 ms | 2.81 / 2.80 ms |
 
 On 3.0.0-rc.2 the 120 Hz case measured a median age of 0.25 ms and present to sent of 3.50 ms ([rc.2 record](../rust/PERFORMANCE.md#october-26-300-rc2-against-the-published-numbers)).
+
+Since 3.0.0-rc.3 the pacer times the game's own frames instead of each capture: Windows can capture each frame of a 120 Hz game two or three times under VRR, which made some claims stop waiting just before the game's next frame. The 120 Hz game's age p95 is now 2.3 ms (3.71 on October 24) and present to sent p95 4.7 ms (6.39), with the median unchanged ([pictures](../rust/PERFORMANCE.md#october-26-vrr-claims-follow-the-games-pictures)).
 
 ### Soak and correctness
 

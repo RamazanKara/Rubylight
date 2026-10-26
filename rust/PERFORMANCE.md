@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| VRR claims that follow the game's pictures: a 120 Hz game on a 60 fps VRR stream, age and present-to-sent p95, late claims; 240 and 60 Hz games | [October 26, VRR claims follow the game's pictures](#october-26-vrr-claims-follow-the-games-pictures) |
 | 3.0.0-rc.2 against the published numbers: timing record stages, VRR capture age, the laptop over Wi-Fi; what could not be rerun | [October 26, 3.0.0-rc.2 against the published numbers](#october-26-300-rc2-against-the-published-numbers) |
 | Wi-Fi clients paced from the first frame (`clientWireless`): Nightjar desktop over 5 GHz and 2.4 GHz, with and without the hint | [October 25, Wi-Fi pacing hint](#october-25-wi-fi-pacing-hint-on-a-real-laptop) |
 | WebRTC in a browser on the real host: send pacing on and off, RTX at 0.1% loss, 90 and 120 fps at 1080p, 1440p and 4K, 4K keyframe-heavy, 4K60 HDR from the virtual display | [October 25, WebRTC on the real host (B5b)](#october-25-webrtc-on-the-real-host-pacing-rtx-90-and-120-fps-4k-and-hdr-b5b) |
@@ -46,6 +47,26 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
 
+## October 26: VRR claims follow the game's pictures
+
+A 120 Hz game on a 60 fps VRR stream kept an age p95 of 3.7 ms on [October 24](#october-24-predictive-claim-waits-under-vrr): some claims still took a picture close to a game frame old. The pacing traces (`--record`) show why. WGC on this PC's 240 Hz VRR display delivers each frame of a 120 Hz game twice, the second composition 0.1 to 1 ms after the first, and in some sessions a third time 3 to 4 ms later. The median of the capture intervals then reads about 7 ms, or 3 ms with the third composition, for a game that presents every 8.3 ms. A claim predicted the game's next frame too early, stopped waiting at the end of its budget, and took the latest composition, 7 to 8 ms old, just before the game's next frame arrived. The claim-wait commit `abb803c67` and 3.0.0-rc.2 measure the same today (age p95 7.67 and 7.27 ms, two runs each), so the share of late claims depends on the capture pattern, not on a commit.
+
+The capture worker now also counts pictures: a capture less than 2 ms after the previous one belongs to the same picture. Claims predict the next picture from the first capture of the latest one with the median picture interval, and wait until the second-longest of the last 16 picture intervals, at most a quarter period past the median, plus 1 ms to notice it (`Freshness::picture_interval`, `Pacer::observe_picture`). A source without paired compositions has the same median as before, and a 1000 Hz display has no picture interval and no prediction, as before. Unit tests: `a_second_composition_of_a_picture_does_not_shorten_the_picture_interval`, `a_second_composition_of_each_game_frame_does_not_age_vrr_claims` (late claims under 0.5 % with second and third compositions, 10 % and 52 to 57 % from the capture median) and `a_picture_later_than_the_median_is_waited_for_within_the_late_interval`. Replaying the traced capture timestamps through both pacers: late claims 7.3 % to 0.0 % in the rc.2 session, 45 % to 0.3 % in a three-composition session.
+
+Measured on the RX 7900 XT as on October 24: HEVC 2560x720, VRR hint on, `minimum_fps_target=20`, `motion_probe` on the 240 Hz display, timing record on, 25 s per run, the first 5 s `stream timings` line dropped, means of the remaining lines and of the runs. rc.2 is the release package (`56dffeeb4`); "pictures" is the same package with this change's `butterpollo.exe`. Isolated test hosts on their own port, the installed service idle and untouched, no encoder hang. Late claims are claims taken more than 4 ms after their picture was published (claim trace).
+
+| Game / build | Runs | Age p50 / p95 / p99 | Present-to-sent p50 / p95 / p99 | Cadence error p50 / p99 | Stream fps | Late claims |
+| --- | --- | --- | --- | --- | --- | --- |
+| 120 Hz, rc.2 | 4 | 0.25 / 6.61 / 8.06 | 3.40 / 8.79 / 10.33 | 0.28 / 8.07 | 59.82 | 7.7 % |
+| 120 Hz, pictures | 4 | 0.24 / **2.34** / **3.37** | 2.90 / **4.71** / **5.69** | 0.27 / **3.43** | 59.85 | 0.1 % |
+| October 24, B | 2 | 0.27 / 3.71 / 8.91 | 3.80 / 6.39 / 11.43 | 0.24 / 8.83 | 60.10 shown | |
+| 240 Hz, rc.2 | 1 | 0.21 / 0.28 / 0.30 | 2.44 / 2.81 / 3.15 | 0.22 / 0.92 | 59.92 | 0.0 % |
+| 240 Hz, pictures | 1 | 0.21 / 0.26 / 0.28 | 2.51 / 2.83 / 3.04 | 0.19 / 0.95 | 59.77 | 0.1 % |
+| 60 Hz, rc.2 | 1 | 0.22 / 8.48 / 11.89 | 4.25 / 10.97 / 14.40 | 0.39 / 12.62 | 59.77 | 22.7 % |
+| 60 Hz, pictures | 1 | 0.22 / 4.33 / 11.20 | 3.41 / 6.70 / 13.59 | 0.22 / 10.57 | 59.74 | 8.0 % |
+
+Order at 120 Hz: rc.2, pictures, pictures, rc.2, rc.2, pictures, pictures, rc.2. **The 120 Hz game's age p95 falls from 6.61 to 2.34 ms and p99 from 8.06 to 3.37 ms, present-to-sent p95 from 8.79 to 4.71 ms and the cadence error p99 from 8.07 to 3.43 ms**, with the medians and the frame rate unchanged; late claims fall from 7.7 % to 0.1 %. Every pictures run is below October 24's 3.71 ms p95 (per run 2.72, 1.67, 2.86 and 2.12 ms); rc.2's runs gave 7.49, 7.42, 7.69 and 3.84 ms, the last in a session with few second compositions. The 240 Hz game, one run per build, measured the same (age p95 0.28 and 0.26 ms; October 24: 0.30). The 60 Hz game was not clean on either build today, unlike October 24 (age p95 0.28 ms): in one run each the stream carried the same game frame twice 68 times on rc.2 and 23 times with pictures, with late claims of 22.7 and 8.0 % and age p95 8.48 and 4.33 ms. Pictures is better there too; what still makes a 60 Hz game's claims late on this PC is not found. Kept.
+
 ## October 26: 3.0.0-rc.2 against the published numbers
 
 The 3.0.0-rc.2 release package (`v3.0.0-rc.2`, `56dffeeb4`) on the RX 7900 XT (5120x1440 240 Hz display), each case run the way the published number was measured. Isolated test hosts on their own profiles and ports; the installed service (also rc.2) was idle before every run and never touched. One stream at a time, no encoder hang (no exit code 3).
@@ -71,7 +92,7 @@ The 3.0.0-rc.2 release package (`v3.0.0-rc.2`, `56dffeeb4`) on the RX 7900 XT (5
 | rc.2, 2 runs | 0.25 / 6.24 / 8.35 | 3.50 / 8.62 / 10.79 | 0.37 / 8.58 | 60.10 |
 | October 24, B | 0.27 / 3.71 / 8.91 | 3.80 / 6.39 / 11.43 | 0.24 / 8.83 | 60.10 |
 
-p50 and p99 are equal or slightly lower; **p95 is worse** (age 6.24 against 3.71 ms, present-to-sent 8.62 against 6.39 ms). Four more runs without the timing record agree (age 0.26 / 7.65 / 8.25, present-to-sent 3.56 / 9.79 / 10.65), so it is not run-to-run noise. The VRR claim-wait change (`abb803c67`) is in rc.2, and the pacing commits after it are for wireless clients; the cause is not found. October 24 kept two `stream timings` lines a run, these runs three, so the p95 columns are noisy on both sides.
+p50 and p99 are equal or slightly lower; **p95 is worse** (age 6.24 against 3.71 ms, present-to-sent 8.62 against 6.39 ms). Four more runs without the timing record agree (age 0.26 / 7.65 / 8.25, present-to-sent 3.56 / 9.79 / 10.65), so it is not run-to-run noise. The claim-wait commit `abb803c67` measures the same today, so no commit caused it: the capture pattern on this PC did, and [VRR claims now follow the game's pictures](#october-26-vrr-claims-follow-the-games-pictures). October 24 kept two `stream timings` lines a run, these runs three, so the p95 columns are noisy on both sides.
 
 **The laptop over Wi-Fi** (`smoke.ps1`, as in the release checks: Moonlight-qt 6.2.0 on the Radeon 780M laptop, 5 GHz Wi-Fi at 2402 Mbit/s, client "lap" on its Extended virtual display against the installed rc.2 host, `motion_probe` at 240 Hz on the streamed display, 1968x2184 HDR 120 fps 80 Mbps, 30 s per codec, Moonlight's whole-session averages). Previous: the October 8 rc.24 runs, one 35 s run each ([PERFORMANCE_WORK.md](PERFORMANCE_WORK.md#first-remote-client-the-laptop-over-wi-fi)).
 

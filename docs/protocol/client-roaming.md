@@ -97,7 +97,7 @@ Only when the DESCRIBE answer carried `a=x-rl-roaming:1` and the client's roamin
 - **Triggers:** the local address toward the host changes (checked every 500 ms, or at once when the platform reports a network change), or the host has been silent for 1 second or more (a NAT rebinding). A network change during an attempt starts it over on the new network, under a new `nonce_c` and with its own give-up time; hearing the host on the old path then no longer ends it.
 - **On a trigger:** rebind the video, audio and microphone sockets if their bound IP changed and ping at once; send PROBE every 250 ms (12 times, then once a second); send CONFIRM on a CHALLENGE that echoes the current `nonce_c`; ping at once on MIGRATED.
 - **Confirming:** once it sent a CONFIRM, the client stops probing and resends the CONFIRM for the newest challenge every 250 ms until MIGRATED arrives. After 3 seconds without one it probes again. Older hosts answer every PROBE with a new challenge, so probing on would keep replacing the challenge being confirmed whenever the round trip is longer than the probe interval.
-- **Giving up:** after the smaller of the drop tolerance and 10 seconds, the stream ends with a clear message as today, or bounded recovery reconnects if it is on.
+- **Giving up:** after the smaller of the drop tolerance and 10 seconds, the stream ends with a clear message as today, or bounded recovery reconnects if it is on. While a longer drop tolerance keeps the stream alive, a silence may start another attempt, at least 10 seconds after the failed one; a network change starts one at once.
 - **Metered networks:** moving onto a metered network carries the stream on only with "Continue on mobile data" on (default off).
 
 ## Security

@@ -50,6 +50,9 @@ const DISCONNECT_PROCESS_WAIT: Duration = Duration::from_secs(1);
 const MAX_SERVICE_INTERVAL: Duration = Duration::from_millis(5);
 /// Roaming datagrams set aside between services at most; the host sends one per PROBE.
 const MAX_ROAM_INBOX: usize = 8;
+/// After a failed roaming attempt, the next silence starts another this long later at the
+/// earliest.
+const ROAM_RETRY_AFTER: Duration = Duration::from_secs(10);
 
 /// Where the driver reports a problem that does not stop the stream (a socket option the OS
 /// refused).
@@ -594,10 +597,64 @@ pub struct ControlClient {
     disconnect_released_at: Option<Instant>,
     /// Present when both sides have roaming on.
     roaming: Option<Roaming>,
+    roam_triggers: RoamTriggers,
+    roam_events: Vec<RoamEvent>,
+}
+
+/// When the driver starts, restarts and ends roaming attempts.
+#[derive(Debug, Default)]
+struct RoamTriggers {
     /// When the host had last been heard as the latest attempt started: a silence starts at
     /// most one attempt, and a host heard again ends one it started.
-    roam_contact: Option<Instant>,
-    roam_events: Vec<RoamEvent>,
+    contact: Option<Instant>,
+    /// After a failed attempt, no silence starts another before this.
+    retry_at: Option<Instant>,
+}
+
+impl RoamTriggers {
+    /// Acts on a network change (`request`, its PROBE flags), the host last heard at
+    /// `contact`, and the hold on roaming.
+    fn update(
+        &mut self,
+        roaming: &mut Roaming,
+        now: Instant,
+        contact: Option<Instant>,
+        request: Option<u32>,
+        held: bool,
+    ) {
+        if held {
+            // No probes from a network roaming may not use: the grace period decides.
+            if roaming.trigger().is_some() {
+                roaming.give_up(now);
+            }
+        } else if let Some(flags) = request {
+            self.contact = contact;
+            roaming.start(now, RoamTrigger::NetworkChanged, flags, OsRng.next_u64());
+        } else if roaming.trigger() == Some(RoamTrigger::HostSilent) {
+            if contact != self.contact {
+                roaming.cancel(now);
+            }
+        } else if roaming.trigger().is_none()
+            && contact != self.contact
+            && contact.is_some_and(|at| now.duration_since(at) >= INPUT_CONTACT_LOST_AFTER)
+            && self.retry_at.is_none_or(|at| now >= at)
+        {
+            self.contact = contact;
+            roaming.start(now, RoamTrigger::HostSilent, 0, OsRng.next_u64());
+        }
+    }
+
+    /// After a failed attempt the peer may live on through a long grace period: the next
+    /// silence may start another attempt, [`ROAM_RETRY_AFTER`] later at the earliest.
+    fn ended(&mut self, now: Instant, events: &[RoamEvent]) {
+        if events
+            .iter()
+            .any(|event| matches!(event, RoamEvent::Failed { .. }))
+        {
+            self.contact = None;
+            self.retry_at = Some(now + ROAM_RETRY_AFTER);
+        }
+    }
 }
 
 /// Connects the control stream and queues Start A and B. Blocks up to the connect timeout.
@@ -705,7 +762,7 @@ pub fn connect(
         config,
         disconnect_held_since: None,
         disconnect_released_at: None,
-        roam_contact: None,
+        roam_triggers: RoamTriggers::default(),
         roam_events: Vec::new(),
     };
     Ok((client, handle))
@@ -835,25 +892,9 @@ impl ControlClient {
         }
         let contact = self.host.socket().last_receive;
         let request = lock(&self.shared.roam_request).take();
-        if self.shared.roam_held.load(Ordering::Acquire) {
-            // No probes from a network roaming may not use: the grace period decides.
-            if roaming.trigger().is_some() {
-                roaming.give_up(now);
-            }
-        } else if let Some(flags) = request {
-            self.roam_contact = contact;
-            roaming.start(now, RoamTrigger::NetworkChanged, flags, OsRng.next_u64());
-        } else if roaming.trigger() == Some(RoamTrigger::HostSilent) {
-            if contact != self.roam_contact {
-                roaming.cancel(now);
-            }
-        } else if roaming.trigger().is_none()
-            && contact != self.roam_contact
-            && contact.is_some_and(|at| now.duration_since(at) >= INPUT_CONTACT_LOST_AFTER)
-        {
-            self.roam_contact = contact;
-            roaming.start(now, RoamTrigger::HostSilent, 0, OsRng.next_u64());
-        }
+        let held = self.shared.roam_held.load(Ordering::Acquire);
+        self.roam_triggers
+            .update(roaming, now, contact, request, held);
         let timer = roaming.poll(now);
         // The host's control port, from whichever address it answers.
         let to = self
@@ -875,6 +916,7 @@ impl ControlClient {
             }
         }
         let events = roaming.take_events();
+        self.roam_triggers.ended(now, &events);
         if events
             .iter()
             .any(|event| matches!(event, RoamEvent::Roamed { .. }))
@@ -998,6 +1040,7 @@ impl ControlClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::roaming::MAX_ATTEMPT;
     use std::cell::Cell;
 
     /// A code [`datagram_lost`] takes for packet loss: network unreachable.
@@ -1263,6 +1306,107 @@ mod tests {
             Err(other) => panic!("{other}"),
             Ok(_) => panic!("connected without sending"),
         }
+    }
+
+    /// One pass of [`ControlClient::roam`] on a simulated clock, without sockets.
+    fn roam_step(
+        triggers: &mut RoamTriggers,
+        roaming: &mut Roaming,
+        now: Instant,
+        contact: Instant,
+        request: Option<u32>,
+    ) -> Vec<RoamEvent> {
+        triggers.update(roaming, now, Some(contact), request, false);
+        roaming.poll(now);
+        while roaming.poll_transmit().is_some() {}
+        let events = roaming.take_events();
+        triggers.ended(now, &events);
+        events
+    }
+
+    const SILENT: RoamEvent = RoamEvent::Started {
+        trigger: RoamTrigger::HostSilent,
+    };
+
+    #[test]
+    fn a_failed_attempt_rearms_the_silence_trigger_after_a_backoff() {
+        let heard = Instant::now();
+        let at = |ms| heard + Duration::from_millis(ms);
+        let mut roaming = Roaming::new(&[7; 16], MAX_ATTEMPT);
+        let mut triggers = RoamTriggers::default();
+        let mut step =
+            |now, contact, request| roam_step(&mut triggers, &mut roaming, now, contact, request);
+        assert!(step(at(999), heard, None).is_empty());
+        assert_eq!(step(at(1000), heard, None), [SILENT]);
+        assert_eq!(
+            step(at(11_000), heard, None),
+            [RoamEvent::Failed {
+                elapsed: MAX_ATTEMPT
+            }]
+        );
+        // The peer lives on through a long grace period, still silent: another attempt
+        // runs, after the backoff.
+        assert!(step(at(15_000), heard, None).is_empty());
+        assert!(step(at(20_999), heard, None).is_empty());
+        assert_eq!(step(at(21_000), heard, None), [SILENT]);
+        assert_eq!(
+            step(at(21_500), at(21_400), None),
+            [RoamEvent::Unneeded {
+                elapsed: Duration::from_millis(500)
+            }]
+        );
+        // Heard again, then silent again: one attempt for the new silence.
+        assert!(step(at(22_399), at(21_400), None).is_empty());
+        assert_eq!(step(at(22_400), at(21_400), None), [SILENT]);
+    }
+
+    #[test]
+    fn a_failed_attempt_holds_back_silences_but_not_network_changes() {
+        let heard = Instant::now();
+        let at = |ms| heard + Duration::from_millis(ms);
+        let mut roaming = Roaming::new(&[7; 16], MAX_ATTEMPT);
+        let mut triggers = RoamTriggers::default();
+        let mut step =
+            |now, contact, request| roam_step(&mut triggers, &mut roaming, now, contact, request);
+        assert_eq!(step(at(1000), heard, None), [SILENT]);
+        assert!(matches!(
+            step(at(11_000), heard, None)[..],
+            [RoamEvent::Failed { .. }]
+        ));
+        // The host answers for a while, then goes silent within the backoff.
+        assert!(step(at(13_000), at(12_000), None).is_empty());
+        assert_eq!(
+            step(at(14_000), at(12_000), Some(0)),
+            [RoamEvent::Started {
+                trigger: RoamTrigger::NetworkChanged
+            }]
+        );
+    }
+
+    #[test]
+    fn a_network_change_during_a_silence_is_not_ended_by_a_straggler() {
+        let heard = Instant::now();
+        let at = |ms| heard + Duration::from_millis(ms);
+        let mut roaming = Roaming::new(&[7; 16], MAX_ATTEMPT);
+        let mut triggers = RoamTriggers::default();
+        let mut step =
+            |now, contact, request| roam_step(&mut triggers, &mut roaming, now, contact, request);
+        assert_eq!(step(at(1000), heard, None), [SILENT]);
+        assert_eq!(
+            step(at(1500), heard, Some(PROBE_FLAG_MEDIA_REBOUND)),
+            [RoamEvent::Started {
+                trigger: RoamTrigger::NetworkChanged
+            }]
+        );
+        // A datagram the host sent before the change arrives on the old path.
+        assert!(step(at(1600), at(1550), None).is_empty());
+        assert_eq!(
+            step(at(11_500), at(1550), None),
+            [RoamEvent::Failed {
+                elapsed: MAX_ATTEMPT
+            }],
+            "timed from the change"
+        );
     }
 
     #[test]

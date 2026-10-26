@@ -111,7 +111,8 @@ ADVICE = {
     "checkbox_disable_hevc_low_latency": "On by default. Turn off if HEVC video stutters or freezes to omit Android and vendor low-latency flags on any device. H.264, AV1, reference-frame invalidation and decoder performance hints keep their own settings. Stored the other way round as `checkbox_disable_hevc_low_latency`: Off stores true, so older saved values and profiles keep their meaning. Applies to the next stream and decoder benchmark; changing it invalidates previous benchmark results.",
     "checkbox_codec_performance": "Leave on for decoder priority/rate hints on Android 6+. Disable to compare heat or battery use.",
     "checkbox_phone_performance_hints": "Enable for a measured comparison on Android 12+; compare decode time with it on and off.",
-    "checkbox_gpu_max_clocks": "Off by default. Optionally request higher Adreno GPU clocks during PyroWave streaming to reduce decode time; this can increase power use and heat. Thermal protection remains active. Installs that already stored a choice keep it. Shown on Adreno devices only.",
+    "checkbox_gpu_max_clocks": "On by default. Requests higher Adreno GPU clocks during PyroWave streaming to reduce decode time; this can increase power use and heat. Thermal protection remains active. Native turns it on, Battery saver off. Installs that already stored a choice keep it. Shown on Adreno devices only.",
+    "checkbox_experimental_chipset_tuning": "On by default. Experimental: sends `vdec-lowlatency` to MediaTek Dimensity (`c2.mtk`) decoders and, with decoder performance hints on, asks Samsung Exynos decoders for the operating rate they declare next to the realtime priority hint. Needs Chipset low-latency mode on and HEVC low-latency flags not disabled. Only the first configure try carries them, so a decoder that rejects them falls back to the normal options. If video stops or stutters, turn it off. Applies to the next stream and decoder benchmark; changing it invalidates previous benchmark results.",
     "checkbox_drop_late_frames": "Enable with Balanced pacing to discard older queued outputs. Favors response over smoothness. Shown beside Frame pacing only while it is Balanced.",
     "checkbox_unbatched_input": "Enable to bypass display-rate input batching. High-rate input can increase CPU and network load.",
     "checkbox_network_priority": "Enable to compare scheduling under load. Requests streaming thread priority on this device.",
@@ -128,8 +129,8 @@ ADVICE = {
     "checkbox_rust_engine": "On by default. Streams with Nightjar's new engine (written in Rust), including PyroWave and remote monitor sessions. Turn it off to use the classic engine (moonlight-common-c) if a stream fails to start or misbehaves, and report the problem. Hosts older than GFE 3.22, and hosts that report no codec support, use the classic engine automatically. Installs that stored the old default were switched on once; turning it off again is kept. Applies from the next stream.",
     "experimental_packed_444": "Off by default. Requires the new streaming engine, HEVC or AV1, and Rubylight's experimental packed 4:4:4 option. Android must pass the raw YUV sampling probe; HDR also needs a compatible 10-bit output. Unsupported requests fail with a reason instead of falling back. Physical HDR output and full end-to-end performance remain unverified.",
     "export_latency_csv": "Choose a destination for the latest local frame-timing CSV. Each row holds the measured stage timings.",
-    "low_latency_decoding": "Leave on. Sets Android low-latency mode, Chipset low-latency mode and Phone performance hints together; turn off only to test a decoding problem. The individual switches are behind Customize; the row says when one is off.",
-    "low_latency_customize": "Opens or closes the individual switches under Low-latency decoding: Android low-latency mode, Chipset low-latency mode, Phone performance hints, Decoder performance hints and HEVC low-latency flags. Settings search finds them while it is closed.",
+    "low_latency_decoding": "Leave on. Sets Android low-latency mode, Chipset low-latency mode, Experimental chipset tuning and Phone performance hints together; turn off only to test a decoding problem. The individual switches are behind Customize; the row says when one is off.",
+    "low_latency_customize": "Opens or closes the individual switches under Low-latency decoding: Android low-latency mode, Chipset low-latency mode, Experimental chipset tuning, Phone performance hints, Decoder performance hints and HEVC low-latency flags. Settings search finds them while it is closed.",
     "checkbox_tell_host_wireless": "On by default. Tells a Rubylight PC when this device streams over Wi-Fi, so it paces the stream for Wi-Fi from the start. Other PCs are not told.",
     "checkbox_tell_host_link_speed": "On by default. Tells a Rubylight PC this device's wired port speed, so it never sends faster than the port can take. Other PCs are not told.",
     "pin_lock": "Off until a PIN is set. Asks for a PIN to open Nightjar or to start a stream. A forgotten PIN can only be reset by clearing Nightjar's app data in Android's settings, which also removes paired PCs.",
@@ -280,9 +281,12 @@ def generate():
         raise ValueError("Review the changed presets")
     block = source.split("LATENCY_SWITCHES = {", 1)[1].split("};", 1)[0]
     switches = re.findall(r'^\s+(?:"([a-z_]+)"|PreferenceConfiguration\.([A-Z_]+)),$', block, re.M)
-    switch_titles = [resolve(nodes[literal or constants[constant]].get(ANDROID + "title")) for literal, constant in switches]
-    if constants["GPU_MAX_CLOCKS_PREF_STRING"] in [literal or constants[constant] for literal, constant in switches]:
-        raise ValueError("Review the presets table: Native now changes the GPU performance boost")
+    switch_keys = [literal or constants[constant] for literal, constant in switches]
+    if constants["GPU_MAX_CLOCKS_PREF_STRING"] not in switch_keys:
+        raise ValueError("Review the presets table: Native no longer turns the GPU performance boost on")
+    # The GPU boost has its own row in the table.
+    switch_titles = [resolve(nodes[key].get(ANDROID + "title")) for key in switch_keys
+                     if key != constants["GPU_MAX_CLOCKS_PREF_STRING"]]
     lines += ["## Presets", "",
               "Both presets stream at this screen's own resolution and keep the selected codec, HDR and 4:4:4 choices. Named profiles and saved PC and game values take priority. The selected chip says Custom when values do not match a preset.", "",
               "| Setting | " + " | ".join(names) + " |",
@@ -295,7 +299,7 @@ def generate():
               "| Frame pacing | Lowest latency | Balanced with FPS limit |",
               "| Allow lower refresh rate | Off | On |",
               "| Decoder performance hints | On | Off |",
-              f"| {resolve('@string/title_gpu_max_clocks')} | Unchanged | Off |",
+              f"| {resolve('@string/title_gpu_max_clocks')} | On | Off |",
               "", "Native also turns these back on: " + ", ".join(switch_titles) + ".", ""]
     return "\n".join(lines)
 

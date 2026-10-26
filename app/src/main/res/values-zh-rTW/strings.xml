@@ -2,6 +2,8 @@
 <resources>
     <string name="title_packed_444">實驗性全色度</string>
     <string name="summary_packed_444">需要啟用 Rubylight 的實驗性全色度選項和新串流引擎，並使用相容的 HEVC/AV1 硬體解碼器。不支援的模式會中止連線。HDR 還需要相容的 10 位元 HDR 顯示表面。</string>
+    <string name="title_experimental_chipset_tuning">實驗性晶片組調校</string>
+    <string name="summary_experimental_chipset_tuning">為聯發科天璣和三星 Exynos 解碼器提供額外的低延遲設定。如果影片停住或卡頓，請關閉此選項。</string>
     <string name="scut_deleted_pc">已刪除電腦</string>
     <string name="scut_not_paired">電腦未配對</string>
     <string name="scut_pc_not_found">找不到電腦</string>

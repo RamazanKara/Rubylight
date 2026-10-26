@@ -651,6 +651,11 @@
             android:dialogMessage="@string/summary_vendor_low_latency"
             android:defaultValue="true" />
         <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_experimental_chipset_tuning"
+            android:title="@string/title_experimental_chipset_tuning"
+            android:dialogMessage="@string/summary_experimental_chipset_tuning"
+            android:defaultValue="true" />
+        <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_phone_performance_hints"
             android:title="@string/title_phone_performance_hints"
             android:dialogMessage="@string/summary_phone_performance_hints"
@@ -671,12 +676,12 @@
     </PreferenceCategory>
 
     <PreferenceCategory android:key="category_advanced_decoder" android:title="@string/settings_category_decoder">
-        <!-- Opt-in: holding the GPU at full speed costs battery. Shown on Adreno devices only. -->
+        <!-- On by default; Battery saver turns it off. Shown on Adreno devices only. -->
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_gpu_max_clocks"
             android:title="@string/title_gpu_max_clocks"
             android:summary="@string/summary_gpu_max_clocks"
-            android:defaultValue="false" />
+            android:defaultValue="true" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_texture_view"
             android:title="@string/title_texture_view"
@@ -728,11 +733,6 @@
             android:key="experimental_packed_444"
             android:title="@string/title_packed_444"
             android:dialogMessage="@string/summary_packed_444"
-            android:defaultValue="false" />
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_experimental_chipset_tuning"
-            android:title="@string/title_experimental_chipset_tuning"
-            android:dialogMessage="@string/summary_experimental_chipset_tuning"
             android:defaultValue="false" />
         <Preference android:key="latency_benchmark" android:title="@string/latency_benchmark_title"
             android:summary="@string/settings_latency_benchmark_summary" />

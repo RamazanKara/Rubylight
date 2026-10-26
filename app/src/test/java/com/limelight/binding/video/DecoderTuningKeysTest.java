@@ -363,8 +363,8 @@ public class DecoderTuningKeysTest {
     }
 
     @Test
-    public void chipsetTuningIsOptInAndLimitedToItsDecodersAndTheFirstTry() {
-        // Off (the default): Codec2 MediaTek gets no vdec-lowlatency, Exynos only priority 0.
+    public void chipsetTuningIsLimitedToItsDecodersAndTheFirstTry() {
+        // Switched off: Codec2 MediaTek gets no vdec-lowlatency, Exynos only priority 0.
         assertFalse(tune("c2.mtk.hevc.decoder", 0, true).containsKey("vdec-lowlatency"));
         MediaFormat exynosDefault = tune("c2.exynos.hevc.decoder", 0, true);
         assertFalse(exynosDefault.containsKey(MediaFormat.KEY_OPERATING_RATE));

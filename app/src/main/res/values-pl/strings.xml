@@ -2,6 +2,8 @@
 <resources>
     <string name="title_packed_444">Eksperymentalna pełna chrominancja</string>
     <string name="summary_packed_444">Wymaga eksperymentalnej opcji pełnej chrominancji w Rubylight, nowego silnika streamingu i zgodnego sprzętowego dekodera HEVC/AV1. Nieobsługiwane tryby przerywają połączenie. HDR wymaga też zgodnej 10-bitowej powierzchni wyświetlania HDR.</string>
+    <string name="title_experimental_chipset_tuning">Eksperymentalne dostrajanie chipsetu</string>
+    <string name="summary_experimental_chipset_tuning">Dodatkowe ustawienia niskich opóźnień dla dekoderów MediaTek Dimensity i Samsung Exynos. Jeśli obraz się zatrzymuje lub zacina, wyłącz tę opcję.</string>
     <string name="scut_deleted_pc">Komputer usunięty</string>
     <string name="scut_not_paired">Komputer niesparowany</string>
     <string name="scut_pc_not_found">Nie znaleziono komputera</string>

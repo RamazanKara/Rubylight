@@ -324,7 +324,7 @@ public class SettingsKeysTest {
         reads.put("checkbox_disable_hevc_low_latency", new Read(false, true, c -> c.disableHevcLowLatency));
         reads.put("checkbox_phone_performance_hints", new Read(true, false, c -> c.phonePerformanceHints));
         reads.put("checkbox_codec_performance", new Read(true, false, c -> c.codecPerformance));
-        reads.put("checkbox_gpu_max_clocks", new Read(false, true, c -> c.gpuMaxClocks));
+        reads.put("checkbox_gpu_max_clocks", new Read(true, false, c -> c.gpuMaxClocks));
         reads.put("checkbox_drop_late_frames", new Read(true, false, c -> c.dropLateFrames));
         reads.put("checkbox_texture_view", new Read(false, true, c -> c.useTextureView));
         reads.put("checkbox_vulkan_render", new Read(false, true, c -> c.vulkanRender));
@@ -334,7 +334,7 @@ public class SettingsKeysTest {
         reads.put("checkbox_enable_post_stream_toast", new Read(false, true, c -> c.enableLatencyToast));
         reads.put("checkbox_rust_engine", new Read(false, true, c -> c.rustEngine));
         reads.put("experimental_packed_444", new Read(false, true, c -> c.experimentalPacked444));
-        reads.put("checkbox_experimental_chipset_tuning", new Read(false, true, c -> c.experimentalChipsetTuning));
+        reads.put("checkbox_experimental_chipset_tuning", new Read(true, false, c -> c.experimentalChipsetTuning));
         return reads;
     }
 
@@ -486,20 +486,21 @@ public class SettingsKeysTest {
     }
 
     @Test
-    public void lowLatencyDecodingMovesItsThreeSwitchesTogether() {
+    public void lowLatencyDecodingMovesItsFourSwitchesTogether() {
         SharedPreferences prefs = prefs();
         // Run the one-time native-defaults migration first; it turns the latency switches on.
         PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication());
-        assertEquals(3, PreferenceConfiguration.lowLatencyDecodingCount(prefs));
+        assertEquals(4, PreferenceConfiguration.lowLatencyDecodingCount(prefs));
         PreferenceConfiguration.setLowLatencyDecoding(prefs, false);
         PreferenceConfiguration config = PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication());
         assertFalse(config.codecLowLatency);
         assertFalse(config.vendorLowLatency);
         assertFalse(config.phonePerformanceHints);
+        assertFalse(config.experimentalChipsetTuning);
         // The other latency switches remain independent Advanced controls.
         assertTrue(config.dropLateFrames && config.unbatchedInput && config.networkPriority && config.codecPerformance);
         PreferenceConfiguration.setLowLatencyDecoding(prefs, true);
-        assertEquals(3, PreferenceConfiguration.lowLatencyDecodingCount(prefs));
+        assertEquals(4, PreferenceConfiguration.lowLatencyDecodingCount(prefs));
         for (String key : PreferenceConfiguration.LOW_LATENCY_DECODING_KEYS) {
             assertTrue(Arrays.asList(StreamPreset.LATENCY_SWITCHES).contains(key));
         }

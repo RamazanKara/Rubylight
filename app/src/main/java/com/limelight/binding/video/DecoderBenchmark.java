@@ -58,7 +58,8 @@ public final class DecoderBenchmark {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || running) return;
         Context app = context.getApplicationContext();
         boolean disableHevcLowLatency = disableHevcLowLatency(app);
-        String benchmarkKey = key(disableHevcLowLatency);
+        boolean chipsetTuning = chipsetTuning(app);
+        String benchmarkKey = key(disableHevcLowLatency, chipsetTuning);
         String glRenderer = GlPreferences.readPreferences(app).glRenderer;
         // Decoder lists depend on the GPU; Game records it on the first stream.
         if (glRenderer == null || glRenderer.isEmpty() || prefs(app).getString("key", "").equals(benchmarkKey)) return;
@@ -70,7 +71,7 @@ public final class DecoderBenchmark {
                 for (int i = 0; i < MIMES.length; i++) {
                     MediaCodecInfo decoder = MediaCodecHelper.findProbableSafeDecoder(MIMES[i], -1);
                     if (decoder == null) continue;
-                    long us = measure(app, decoder, MIMES[i], CLIPS[i], disableHevcLowLatency);
+                    long us = measure(app, decoder, MIMES[i], CLIPS[i], disableHevcLowLatency, chipsetTuning);
                     LimeLog.info("Decoder benchmark " + decoder.getName() + ": " + (us > 0 ? us + " us/frame" : "failed"));
                     if (us > 0) {
                         editor.putLong(decoder.getName() + "|" + MIMES[i], us);
@@ -100,7 +101,7 @@ public final class DecoderBenchmark {
     public static long result(Context context, MediaCodecInfo decoder, String mime) {
         if (decoder == null) return 0;
         SharedPreferences prefs = prefs(context);
-        if (!prefs.getString("key", "").equals(key(disableHevcLowLatency(context)))) return 0;
+        if (!prefs.getString("key", "").equals(key(context))) return 0;
         return prefs.getLong(decoder.getName() + "|" + mime, 0);
     }
 
@@ -124,7 +125,7 @@ public final class DecoderBenchmark {
     /** "H.264 2.1 ms · HEVC 2.4 ms · AV1 4.0 ms", or null before the first measurement. */
     public static String summary(Context context) {
         SharedPreferences prefs = prefs(context);
-        if (!prefs.getString("key", "").equals(key(disableHevcLowLatency(context)))) return null;
+        if (!prefs.getString("key", "").equals(key(context))) return null;
         List<String> parts = new ArrayList<>();
         for (String entry : prefs.getAll().keySet()) {
             for (int i = 0; i < MIMES.length; i++) {
@@ -143,7 +144,7 @@ public final class DecoderBenchmark {
         results.clipWidth = CLIP_WIDTH;
         results.clipHeight = CLIP_HEIGHT;
         results.clipFps = CLIP_FPS;
-        results.decoderBenchmarkMeasured = prefs.getString("key", "").equals(key(disableHevcLowLatency(context)));
+        results.decoderBenchmarkMeasured = prefs.getString("key", "").equals(key(context));
         if (results.decoderBenchmarkMeasured) results.decoders.addAll(decoders(prefs.getAll()));
     }
 
@@ -187,14 +188,24 @@ public final class DecoderBenchmark {
                 PreferenceConfiguration.DISABLE_HEVC_LOW_LATENCY_PREF_STRING, false);
     }
 
-    private static String key(boolean disableHevcLowLatency) {
-        return Build.FINGERPRINT + "|" + BuildConfig.VERSION_CODE + "|hevc-low-latency-off=" + disableHevcLowLatency;
+    private static boolean chipsetTuning(Context context) {
+        return PreferenceManager.getDefaultSharedPreferences(context).getBoolean(
+                PreferenceConfiguration.CHIPSET_TUNING_PREF_STRING, true);
+    }
+
+    private static String key(Context context) {
+        return key(disableHevcLowLatency(context), chipsetTuning(context));
+    }
+
+    private static String key(boolean disableHevcLowLatency, boolean chipsetTuning) {
+        return Build.FINGERPRINT + "|" + BuildConfig.VERSION_CODE + "|hevc-low-latency-off=" + disableHevcLowLatency +
+                "|chipset-tuning=" + chipsetTuning;
     }
 
     // Feeds one frame at a time and waits for it, as a low-latency stream does.
     @TargetApi(Build.VERSION_CODES.Q)
     private static long measure(Context context, MediaCodecInfo decoder, String mime, String clip,
-                                boolean disableHevcLowLatency) {
+                                boolean disableHevcLowLatency, boolean chipsetTuning) {
         MediaExtractor extractor = new MediaExtractor();
         MediaCodec codec = null;
         SurfaceTexture texture = null;
@@ -216,7 +227,8 @@ public final class DecoderBenchmark {
             }
             if (frames.isEmpty()) return 0;
 
-            MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder, 0, true, true, true, disableHevcLowLatency);
+            MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder, 0, true, true, true, disableHevcLowLatency,
+                    chipsetTuning);
             texture = new SurfaceTexture(false);
             texture.setDefaultBufferSize(format.getInteger(MediaFormat.KEY_WIDTH), format.getInteger(MediaFormat.KEY_HEIGHT));
             surface = new Surface(texture);

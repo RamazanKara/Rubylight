@@ -307,9 +307,13 @@ async fn upgrade(
         })
 }
 
+/// The close code of a connection a newer connection of the same device replaced (4000-4999 are
+/// the application's own).
+pub const REPLACED: u16 = 4000;
 /// The WebSocket subprotocol of the console's signalling route.
 pub const CONSOLE_PROTOCOL: &str = "rubylight.signal.v2";
-/// How often a console connection checks that its console sign-in still holds.
+/// How often a console connection checks that its console sign-in still holds and the WebRTC
+/// server is on.
 const SIGNED_IN_CHECK: Duration = Duration::from_secs(5);
 
 /// What the console's HTTPS listener needs to hand a signed-in browser to this server: the
@@ -476,7 +480,8 @@ async fn connection(
     let mut tick = tokio::time::interval(PROBE_CHECK);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut out = Vec::new();
-    // A console connection is signed in already; its sign-in is checked every few seconds.
+    // A console connection is signed in already; its sign-in and the WebRTC server setting are
+    // checked every few seconds.
     let mut signed_in = None;
     match console {
         Some((sign_in, every)) => {
@@ -494,12 +499,14 @@ async fn connection(
         None => out.push(state.auth_required()),
     }
     let mut flow = Flow::Continue;
+    // The close frame a host-side close sends; none unless it has a reason to give.
+    let mut close = None;
     loop {
         if !send(&mut socket, &mut out).await {
             break;
         }
         if flow == Flow::Close {
-            let _ = socket.send(Message::Close(None)).await;
+            let _ = socket.send(Message::Close(close.take())).await;
             break;
         }
         let idle_until = state
@@ -513,7 +520,15 @@ async fn connection(
             Some(reason) = closed.recv() => {
                 tracing::debug!(peer = %peer.address, id, ?reason, "WebRTC connection closed by the host");
                 match reason {
-                    Close::Replaced | Close::TooManyUnauthenticated => flow = Flow::Close,
+                    // The page tells its user why the stream ended.
+                    Close::Replaced => {
+                        close = Some(CloseFrame {
+                            code: REPLACED,
+                            reason: "Opened in another tab or browser".into(),
+                        });
+                        flow = Flow::Close;
+                    }
+                    Close::TooManyUnauthenticated => flow = Flow::Close,
                 }
             }
             Some(message) = replied.recv() => out.push(message),
@@ -536,13 +551,13 @@ async fn connection(
                 Some(Ok(_)) => {}
             },
             _ = tick.tick() => state.refresh_capabilities(&mut out),
-            false = still_signed_in(&mut signed_in) => {
-                tracing::info!(peer = %peer.address, id, "WebRTC console connection closed: signed out of the console");
+            reason = console_revoked(&h, &mut signed_in) => {
+                tracing::info!(peer = %peer.address, id, reason, "WebRTC console connection closed");
                 let _ = send(&mut socket, &mut out).await;
                 let _ = socket
                     .send(Message::Close(Some(CloseFrame {
                         code: close_code::POLICY,
-                        reason: "signed out".into(),
+                        reason: reason.into(),
                     })))
                     .await;
                 break;
@@ -553,15 +568,24 @@ async fn connection(
     tracing::debug!(peer = %peer.address, id, "WebRTC connection closed");
 }
 
-/// At the next check, whether the console sign-in still holds; never for a connection that came
-/// through `webrtc_port`.
-async fn still_signed_in(check: &mut Option<(SignedIn, tokio::time::Interval)>) -> bool {
-    match check {
-        Some((signed_in, every)) => {
-            every.tick().await;
-            signed_in()
+/// Why a console connection must end, at the first check that finds it: its console sign-in no
+/// longer holds, or the WebRTC server was turned off (the console's listener outlives it). Never
+/// for a connection that came through `webrtc_port`.
+async fn console_revoked(
+    h: &Shared,
+    check: &mut Option<(SignedIn, tokio::time::Interval)>,
+) -> &'static str {
+    let Some((signed_in, every)) = check else {
+        return std::future::pending().await;
+    };
+    loop {
+        every.tick().await;
+        if !signed_in() {
+            return "signed out";
         }
-        None => std::future::pending().await,
+        if !h.config.read().unwrap().webrtc_server() {
+            return "the WebRTC server is off";
+        }
     }
 }
 
@@ -1146,7 +1170,8 @@ pub(crate) mod tests {
         stream: TcpStream,
         /// The response to the upgrade request.
         pub(crate) head: String,
-        /// The reason in the server's close frame, once it sent one.
+        /// The code and reason in the server's close frame, once it sent one with them.
+        pub(crate) close_code: Option<u16>,
         pub(crate) close_reason: Option<String>,
     }
 
@@ -1174,6 +1199,7 @@ pub(crate) mod tests {
             Self {
                 stream,
                 head,
+                close_code: None,
                 close_reason: None,
             }
         }
@@ -1219,6 +1245,8 @@ pub(crate) mod tests {
                     match first & 0x0f {
                         1 => return serde_json::from_slice(&payload).ok(),
                         8 => {
+                            self.close_code =
+                                payload.get(..2).map(|c| u16::from_be_bytes([c[0], c[1]]));
                             self.close_reason = payload
                                 .get(2..)
                                 .map(|r| String::from_utf8_lossy(r).into_owned());
@@ -1727,6 +1755,7 @@ pub(crate) mod tests {
         let mut first = sign_in(&server, &client_id, &secret).await;
         let mut second = sign_in(&server, &client_id, &secret).await;
         first.closed().await;
+        assert_eq!(first.close_code, Some(REPLACED));
         second.send(json!({"version":2,"type":"get-apps"})).await;
         second.expect("apps").await;
         assert_eq!(server.f.host.webrtc.connections(), 1);

@@ -175,7 +175,30 @@ impl Client {
     pub fn is_webrtc(&self) -> bool {
         self.cert.trim().is_empty() && self.webrtc().is_some()
     }
+    /// The WebRTC device the console user `username` streams as from the console's own stream
+    /// page, with a new UUID. [`PairedState::add_webrtc`] gives it every permission: a console
+    /// sign-in is the administrator.
+    pub fn console_over_webrtc(
+        name: String,
+        username: &str,
+        client_id: &str,
+        secret: &str,
+    ) -> Self {
+        let mut client = Self::paired_over_webrtc(name, client_id, secret);
+        client.extra.get_mut("webrtc").unwrap()[CONSOLE] = username.into();
+        client
+    }
+    /// The console user this WebRTC device stands for, if it is a console's own device. Only the
+    /// host writes `extra.webrtc`.
+    pub fn console(&self) -> Option<&str> {
+        if !self.is_webrtc() {
+            return None;
+        }
+        self.extra.get("webrtc")?.get(CONSOLE)?.as_str()
+    }
 }
+/// The key in `extra.webrtc` that names the console user a device stands for.
+const CONSOLE: &str = "console";
 /// Sunshine's and Apollo's property-tree writer stored an empty list or
 /// object as "". Only the known containers are read back as empty, as in
 /// Vibepollo; every other value is kept as it is.
@@ -439,18 +462,21 @@ impl PairedState {
             .find(|c| c.is_webrtc() && c.webrtc().is_some_and(|(id, _)| id == client_id))
     }
     /// The permissions of a device paired now, for both protocols: everything
-    /// when no device of any kind is paired, view only after that.
+    /// when no device of any kind is paired, view only after that. The console's
+    /// own devices don't count: the first phone or TV after them is still the first.
     pub fn new_device_permission(&self) -> u32 {
-        if self.clients.is_empty() {
+        if self.clients.iter().all(|c| c.console().is_some()) {
             FIRST_DEVICE_PERMISSION
         } else {
             LATER_DEVICE_PERMISSION
         }
     }
     /// Pair a WebRTC device. `client` must be a WebRTC device ([`Client::is_webrtc`]);
-    /// its `perm` is replaced by [`Self::new_device_permission`].
+    /// its `perm` is replaced by [`Self::new_device_permission`], or everything for
+    /// a console's own device ([`Client::console_over_webrtc`]).
     /// The oldest WebRTC devices beyond `keep` are unpaired in the same save;
-    /// their UUIDs are returned.
+    /// their UUIDs are returned. The console's own devices neither count towards
+    /// `keep` nor go: opening the console's stream page never unpairs a TV.
     pub fn add_webrtc(&mut self, path: &Path, client: Client, keep: usize) -> Result<Vec<String>> {
         let Some((client_id, _)) = client.webrtc() else {
             bail!("not a WebRTC device");
@@ -467,13 +493,16 @@ impl PairedState {
             bail!("duplicate client");
         }
         let mut client = client;
-        client.perm = next.new_device_permission();
+        client.perm = match client.console() {
+            Some(_) => FIRST_DEVICE_PERMISSION,
+            None => next.new_device_permission(),
+        };
         next.clients.push(client);
         // Clients are stored oldest first, so the surplus is at the front.
         let webrtc: Vec<String> = next
             .clients
             .iter()
-            .filter(|c| c.is_webrtc())
+            .filter(|c| c.is_webrtc() && c.console().is_none())
             .map(|c| c.uuid.clone())
             .collect();
         let surplus: Vec<String> = webrtc[..webrtc.len().saturating_sub(keep)].to_vec();
@@ -882,6 +911,73 @@ mod tests {
         let s = PairedState::load(&p).unwrap();
         assert_eq!(perm_of(&s, "Tested"), 0x071f1f00);
         assert_eq!(s.document["root"]["rubylight_state_version"], 7);
+    }
+    fn console_client(n: u8, username: &str) -> Client {
+        let id = format!("{n:02x}").repeat(16);
+        let secret = format!("{n:02x}").repeat(32);
+        Client::console_over_webrtc(format!("Console ({username})"), username, &id, &secret)
+    }
+    #[test]
+    fn the_consoles_own_device_gets_everything_and_leaves_the_first_device_its_permissions() {
+        let d = tempfile::tempdir().unwrap();
+        // The console streams first; the first phone is still the first device.
+        let p = d.path().join("phone.json");
+        let mut s = PairedState::load(&p).unwrap();
+        s.add_webrtc(&p, console_client(1, "admin"), 32).unwrap();
+        assert_eq!(s.clients[0].console(), Some("admin"));
+        assert_eq!(perm_of(&s, "Console (admin)"), FIRST_DEVICE_PERMISSION);
+        assert_eq!(s.new_device_permission(), FIRST_DEVICE_PERMISSION);
+        // GameStream pairing gives the phone what the host offers before it adds it.
+        s.add(&p, phone("Phone")).unwrap();
+        assert_eq!(s.new_device_permission(), LATER_DEVICE_PERMISSION);
+        // The same for a TV.
+        let p = d.path().join("tv.json");
+        let mut s = PairedState::load(&p).unwrap();
+        s.add_webrtc(&p, console_client(1, "admin"), 32).unwrap();
+        s.add_webrtc(&p, webrtc_client(2, "TV"), 32).unwrap();
+        assert_eq!(perm_of(&s, "TV"), FIRST_DEVICE_PERMISSION);
+        s.add_webrtc(&p, webrtc_client(3, "Second TV"), 32).unwrap();
+        assert_eq!(perm_of(&s, "Second TV"), LATER_DEVICE_PERMISSION);
+        // A console device added after other devices still gets everything, in one save.
+        s.add_webrtc(&p, console_client(4, "other"), 32).unwrap();
+        let reloaded = PairedState::load(&p).unwrap();
+        assert_eq!(
+            perm_of(&reloaded, "Console (other)"),
+            FIRST_DEVICE_PERMISSION
+        );
+        assert_eq!(reloaded.clients.last().unwrap().console(), Some("other"));
+        // A device with a certificate is never a console's, whatever its record says.
+        let mut tls = phone("Marked");
+        tls.extra
+            .insert("webrtc".into(), json!({"console": "admin"}));
+        assert_eq!(tls.console(), None);
+    }
+    #[test]
+    fn the_consoles_own_devices_neither_count_towards_the_webrtc_limit_nor_go() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("state.json");
+        let mut s = PairedState::load(&p).unwrap();
+        s.add_webrtc(&p, console_client(1, "admin"), 2).unwrap();
+        s.add_webrtc(&p, webrtc_client(2, "A"), 2).unwrap();
+        s.add_webrtc(&p, webrtc_client(3, "B"), 2).unwrap();
+        // At the limit, the console's device unpairs nothing.
+        assert!(
+            s.add_webrtc(&p, console_client(4, "other"), 2)
+                .unwrap()
+                .is_empty()
+        );
+        // A third TV unpairs the oldest TV, never a console's device.
+        assert_eq!(
+            s.add_webrtc(&p, webrtc_client(5, "C"), 2).unwrap(),
+            ["web-2"]
+        );
+        let names: Vec<_> = PairedState::load(&p)
+            .unwrap()
+            .clients
+            .iter()
+            .map(|c| c.name.clone())
+            .collect();
+        assert_eq!(names, ["Console (admin)", "B", "Console (other)", "C"]);
     }
     #[test]
     fn a_repeated_webrtc_client_id_is_skipped_but_kept_in_the_file() {

@@ -990,13 +990,21 @@ impl Host {
             hex::encode(butterpollo_core::crypto::random::<12>()).into(),
         );
         let mut sessions = self.web_sessions.lock().unwrap();
-        if let Some(previous) = previous.as_ref()
-            && !sessions
+        let live = previous.as_ref().map(|previous| {
+            sessions
                 .values()
-                .any(|s| s.refresh == previous.refresh && s.refresh_expires > Instant::now())
-        {
+                .find(|s| s.refresh == previous.refresh && s.refresh_expires > Instant::now())
+        });
+        if let Some(None) = live {
             return Err(web_sessions::Rotated.into());
         }
+        // A refresh keeps the sign-in. It is read under the lock: the console's stream socket may
+        // have given the live session its ID after `previous` was copied.
+        let sign_in = live
+            .flatten()
+            .and_then(|s| s.extra.get(web_sessions::SIGN_IN_ID).cloned())
+            .unwrap_or_else(|| hex::encode(butterpollo_core::crypto::random::<16>()).into());
+        extra.insert(web_sessions::SIGN_IN_ID.into(), sign_in);
         let mut next = sessions.clone();
         next.retain(|_, s| s.refresh_expires > Instant::now());
         if let Some(previous) = previous.as_ref() {

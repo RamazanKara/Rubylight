@@ -323,9 +323,6 @@ fn origin_allowed(h: &Shared, headers: &HeaderMap, origin: &str) -> bool {
         .iter()
         .any(|allowed| allowed == origin)
 }
-/// The `extra` key of a browser session that stays the same when its tokens are refreshed, so a
-/// stream outlives a refresh but not a sign-out.
-const SIGN_IN_ID: &str = "sign_in_id";
 /// `GET /api/webrtc/signal`: WebRTC signalling for the console's own stream page, a WebSocket on
 /// the console's HTTPS listener. Only a browser signed in to the console gets it: the session
 /// cookie (not Basic credentials or API tokens), the console's origin and the session's CSRF
@@ -348,10 +345,10 @@ async fn webrtc_signal(
         let session = sessions
             .get_mut(&key)
             .filter(|s| s.expires > Instant::now())?;
-        // A refresh carries it to the new tokens.
+        // A sign-in gets its ID at login; a session saved before that gets one now.
         let id = session
             .extra
-            .entry(SIGN_IN_ID)
+            .entry(crate::web_sessions::SIGN_IN_ID)
             .or_insert_with(|| hex::encode(crypto::random::<16>()).into())
             .as_str()?
             .to_owned();
@@ -384,6 +381,8 @@ async fn webrtc_signal(
             "the rubylight.signal.v2 subprotocol is required",
         );
     }
+    // Loopback counts as the local network, so behind a reverse proxy on this PC every browser
+    // passes, as with origin_web_ui_allowed in `guard`.
     if !crate::webrtc::server::local_network(connection.peer.ip()) {
         tracing::info!(peer = %connection.peer, "console stream refused: the browser is outside the local network");
         return error(
@@ -397,6 +396,11 @@ async fn webrtc_signal(
             "turn on the WebRTC server in Settings to stream in the console",
         );
     }
+    // Only a real upgrade creates the device.
+    let upgrade = match upgrade {
+        Ok(upgrade) => upgrade,
+        Err(rejection) => return rejection.into_response(),
+    };
     let device = match h.webrtc.console_device(&h, &username) {
         Ok(device) => device,
         Err(butterpollo_core::webrtc::protocol::ErrorCode::ClientDisabled) => {
@@ -411,10 +415,6 @@ async fn webrtc_signal(
                 "the console's device could not be saved",
             );
         }
-    };
-    let upgrade = match upgrade {
-        Ok(upgrade) => upgrade,
-        Err(rejection) => return rejection.into_response(),
     };
     let Some((client_id, _)) = device.webrtc() else {
         return error(StatusCode::INTERNAL_SERVER_ERROR, "not a WebRTC device");
@@ -431,7 +431,10 @@ async fn webrtc_signal(
             signed_in: Box::new(move || {
                 watched.web_sessions.lock().unwrap().values().any(|s| {
                     s.refresh_expires > Instant::now()
-                        && s.extra.get(SIGN_IN_ID).and_then(Value::as_str) == Some(sign_in.as_str())
+                        && s.extra
+                            .get(crate::web_sessions::SIGN_IN_ID)
+                            .and_then(Value::as_str)
+                            == Some(sign_in.as_str())
                 })
             }),
         },
@@ -975,7 +978,7 @@ pub(crate) async fn api(
                         let object = row.as_object_mut().unwrap();
                         object.remove("refresh_token_hash");
                         object.remove("rotation_id");
-                        object.remove(SIGN_IN_ID);
+                        object.remove(crate::web_sessions::SIGN_IN_ID);
                         object.remove("hash");
                         object.insert("id".into(), json!(token));
                         object.insert(

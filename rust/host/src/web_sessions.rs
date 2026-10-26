@@ -21,6 +21,9 @@ pub struct WebSession {
     pub remote_address: String,
     pub extra: Map<String, Value>,
 }
+/// The `extra` key of a browser sign-in that stays the same when its tokens are refreshed, so a
+/// console stream outlives a refresh but not a sign-out.
+pub const SIGN_IN_ID: &str = "sign_in_id";
 #[derive(Debug)]
 pub struct Rotated;
 impl std::fmt::Display for Rotated {

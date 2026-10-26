@@ -259,19 +259,31 @@ async fn the_stream_socket_needs_the_local_network_the_webrtc_server_and_an_enab
     configure(&f, json!({"webrtc_server": false}));
     let (status, _) = attempt(&f, local.clone(), &page(&s)).await;
     assert_eq!(status, StatusCode::CONFLICT);
-    assert!(console_devices(&f).is_empty(), "no device for a refusal");
-    // The first stream makes the console a device that can launch apps.
+    // A request that passes every check but is no upgrade makes no device either.
     configure(&f, json!({"webrtc_server": true}));
     let (status, _) = attempt(&f, local.clone(), &page(&s)).await;
     assert_eq!(status, StatusCode::UPGRADE_REQUIRED);
+    assert!(
+        console_devices(&f).is_empty(),
+        "no device without an upgrade"
+    );
+    // The first stream makes the console a device that can launch apps.
+    let address = serve(&f, Console::default()).await;
+    let ws = open(address, &s).await;
     let devices = console_devices(&f);
     assert_eq!(devices.len(), 1);
     assert_eq!(devices[0].name, "Console (admin)");
     assert!(devices[0].is_webrtc());
+    assert_eq!(devices[0].console(), Some("admin"));
     assert_eq!(devices[0].perm, state::FIRST_DEVICE_PERMISSION);
+    // It leaves the first phone or TV everything.
+    assert_eq!(
+        f.host.paired.read().unwrap().new_device_permission(),
+        state::FIRST_DEVICE_PERMISSION
+    );
+    drop(ws);
     // The same sign-in streams as the same device.
-    let (status, _) = attempt(&f, local.clone(), &page(&s)).await;
-    assert_eq!(status, StatusCode::UPGRADE_REQUIRED);
+    open(address, &s).await;
     assert_eq!(console_devices(&f).len(), 1);
     // A disabled device stays disabled.
     crate::web::update_clients(
@@ -281,13 +293,83 @@ async fn the_stream_socket_needs_the_local_network_the_webrtc_server_and_an_enab
         &json!({"uuid": devices[0].uuid, "enabled": false}),
     )
     .unwrap();
-    let (status, error) = attempt(&f, local, &page(&s)).await;
-    assert_eq!(status, StatusCode::LOCKED);
-    assert_eq!(
-        error,
-        "this console's device is disabled on the Devices page"
+    let head = refused(address, &s).await;
+    assert!(head.starts_with("HTTP/1.1 423"), "{head}");
+    assert!(
+        head.contains("this console's device is disabled on the Devices page"),
+        "{head}"
     );
     assert_eq!(console_devices(&f).len(), 1);
+}
+
+#[tokio::test]
+async fn the_consoles_device_unpairs_no_tv_and_gets_everything_in_one_save() {
+    let f = Fixture::new();
+    configure(&f, json!({"webrtc_server": true}));
+    // As many TVs as the host keeps.
+    for n in 0..butterpollo_core::webrtc::auth::MAX_PAIRED as u8 {
+        let id = format!("{:02x}", n + 1).repeat(16);
+        let secret = format!("{:02x}", n + 1).repeat(32);
+        f.host
+            .paired
+            .write()
+            .unwrap()
+            .add_webrtc(
+                &f.host.paired_path,
+                state::Client::paired_over_webrtc(format!("TV {n}"), &id, &secret),
+                butterpollo_core::webrtc::auth::MAX_PAIRED,
+            )
+            .unwrap();
+    }
+    let tvs: Vec<String> = f
+        .host
+        .paired
+        .read()
+        .unwrap()
+        .clients
+        .iter()
+        .map(|c| c.uuid.clone())
+        .collect();
+    let address = serve(&f, Console::default()).await;
+    open(address, &sign_in(&f)).await;
+    // Every TV stays paired, and the saved device has every permission.
+    let saved = state::PairedState::load(&f.host.paired_path).unwrap();
+    for uuid in &tvs {
+        assert!(saved.clients.iter().any(|c| &c.uuid == uuid), "{uuid}");
+    }
+    let console = saved
+        .clients
+        .iter()
+        .find(|c| c.console() == Some("admin"))
+        .unwrap();
+    assert_eq!(console.perm, state::FIRST_DEVICE_PERMISSION);
+    assert_eq!(saved.clients.len(), tvs.len() + 1);
+}
+
+/// The response head of an upgrade the console refuses.
+async fn refused(address: SocketAddr, s: &SignIn) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let headers: String = page(s)
+        .iter()
+        .map(|(name, value)| format!("{name}: {value}\r\n"))
+        .collect();
+    let mut stream = tokio::net::TcpStream::connect(address).await.unwrap();
+    stream
+        .write_all(
+            format!("GET /api/webrtc/signal HTTP/1.1\r\nHost: test\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n{headers}\r\n")
+                .as_bytes(),
+        )
+        .await
+        .unwrap();
+    let mut response = Vec::new();
+    let mut buffer = [0u8; 4096];
+    // The head and the JSON error; the console keeps the connection open after it.
+    while !String::from_utf8_lossy(&response).contains("}") {
+        let n = stream.read(&mut buffer).await.unwrap();
+        assert!(n > 0, "{}", String::from_utf8_lossy(&response));
+        response.extend_from_slice(&buffer[..n]);
+    }
+    String::from_utf8_lossy(&response).into_owned()
 }
 
 /// The console on a real socket, as `tls::serve` runs it (without TLS).
@@ -365,7 +447,15 @@ async fn a_console_stream_socket_outlives_a_token_refresh_but_not_a_sign_out() {
     .await;
     let s = sign_in(&f);
     let mut ws = open(address, &s).await;
-    // The page refreshes its tokens while it streams; the old ones are gone after it.
+    // The access token expires during the stream; the sign-in holds while it can be refreshed.
+    for session in f.host.web_sessions.lock().unwrap().values_mut() {
+        session.expires = Instant::now();
+    }
+    assert!(
+        quiet(&mut ws).await,
+        "an expired access token keeps the stream"
+    );
+    // The page refreshes its tokens; the old ones are gone after it.
     let refreshed = post(
         &f,
         "/api/auth/refresh",
@@ -397,6 +487,59 @@ async fn a_console_stream_socket_outlives_a_token_refresh_but_not_a_sign_out() {
 }
 
 #[tokio::test]
+async fn a_console_stream_socket_ends_when_the_webrtc_server_is_turned_off() {
+    let f = Fixture::new();
+    configure(&f, json!({"webrtc_server": true}));
+    let address = serve(
+        &f,
+        Console::default().checking_every(Duration::from_millis(50)),
+    )
+    .await;
+    let mut ws = open(address, &sign_in(&f)).await;
+    assert!(quiet(&mut ws).await);
+    configure(&f, json!({"webrtc_server": false}));
+    ws.closed().await;
+    assert_eq!(ws.close_reason.as_deref(), Some("the WebRTC server is off"));
+}
+
+#[tokio::test]
+async fn a_refresh_keeps_the_sign_in_the_live_session_has_not_the_copy_it_started_from() {
+    let f = Fixture::new();
+    let s = sign_in(&f);
+    let id = |access: &str| {
+        let sessions = f.host.web_sessions.lock().unwrap();
+        crate::web_sessions::find(&sessions, access).unwrap().extra[crate::web_sessions::SIGN_IN_ID]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    // Every sign-in has its ID from the login on.
+    let first = id(&s.access);
+    assert_eq!(first.len(), 32);
+    assert_ne!(first, id(&sign_in(&f).access), "one per sign-in");
+    // A refresh that copied the session before the stream socket gave it a new ID (a session
+    // saved before IDs existed) keeps the live session's ID.
+    let mut previous = {
+        let sessions = f.host.web_sessions.lock().unwrap();
+        crate::web_sessions::find(&sessions, &s.access)
+            .unwrap()
+            .clone()
+    };
+    previous.extra.remove(crate::web_sessions::SIGN_IN_ID);
+    let (access, ..) = f
+        .host
+        .new_web_session(
+            "admin".into(),
+            false,
+            "test".into(),
+            "127.0.0.1".into(),
+            Some(previous),
+        )
+        .unwrap();
+    assert_eq!(id(&access), first);
+}
+
+#[tokio::test]
 async fn a_console_stream_socket_ends_when_its_device_is_disabled_or_it_opens_again() {
     let f = Fixture::new();
     configure(&f, json!({"webrtc_server": true}));
@@ -406,6 +549,11 @@ async fn a_console_stream_socket_ends_when_its_device_is_disabled_or_it_opens_ag
     // A second tab replaces the first: one connection per device.
     let mut second = open(address, &s).await;
     first.closed().await;
+    assert_eq!(first.close_code, Some(crate::webrtc::server::REPLACED));
+    assert_eq!(
+        first.close_reason.as_deref(),
+        Some("Opened in another tab or browser")
+    );
     assert!(quiet(&mut second).await);
     let device = console_devices(&f).remove(0);
     crate::web::update_clients(

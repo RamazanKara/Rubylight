@@ -269,7 +269,8 @@ audio() ── Opus packet ──▶ webrtc sink (instead of the GameStream audi
     constant time.
   - At most 8 unauthenticated connections are kept (the oldest goes first). An unauthenticated
     connection can never displace a streaming one.
-  - A paired client that reconnects replaces its own old connection.
+  - A paired client that reconnects replaces its own old connection. The old one closes with code
+    4000, "Opened in another tab or browser".
 - **What auth gives.** It stops other LAN devices from using or interrupting the stream. It does not
   make anything confidential: the WebSocket is plain `ws://`, and the secret is visible once during
   pairing. DTLS-SRTP encrypts the media itself. The console says this next to the toggle.

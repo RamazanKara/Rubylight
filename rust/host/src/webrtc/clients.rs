@@ -10,7 +10,7 @@
 
 use crate::state::Host;
 use butterpollo_core::{
-    state::{Client, FIRST_DEVICE_PERMISSION},
+    state::Client,
     webrtc::{
         auth::{
             Challenge, ConnectionState, ConnectionTable, Credentials, Dropped, MAX_PAIRED,
@@ -257,11 +257,16 @@ impl Registry {
 
     /// The WebRTC device of the console user `username`, named "Console (<username>)" and created
     /// on first use with every permission: a console sign-in is the administrator. It is listed on
-    /// Devices like any WebRTC device. `ClientDisabled` when the administrator disabled it,
+    /// Devices like any WebRTC device, but it neither takes the first device's permissions nor
+    /// counts towards the 32 WebRTC devices. `ClientDisabled` when the administrator disabled it,
     /// `InternalError` when it could not be saved.
     pub fn console_device(&self, h: &Host, username: &str) -> Result<Client, ErrorCode> {
         let mut paired = h.paired.write().unwrap();
-        if let Some(client) = paired.clients.iter().find(|c| is_console(c, username)) {
+        if let Some(client) = paired
+            .clients
+            .iter()
+            .find(|c| c.console() == Some(username))
+        {
             return if client.enabled {
                 Ok(client.clone())
             } else {
@@ -274,37 +279,28 @@ impl Registry {
             Ok(()) => name,
             Err(_) => "Console".to_owned(),
         };
-        let mut client =
-            Client::paired_over_webrtc(name, &credentials.client_id, &credentials.secret);
-        if let Some(webrtc) = client.extra.get_mut("webrtc") {
-            webrtc[CONSOLE] = username.into();
-        }
+        let client = Client::console_over_webrtc(
+            name,
+            username,
+            &credentials.client_id,
+            &credentials.secret,
+        );
         let uuid = client.uuid.clone();
-        let saved = |error: anyhow::Error| {
-            tracing::error!(error = %format!("{error:#}"), "the console's WebRTC device could not be saved");
-            ErrorCode::InternalError
-        };
+        // The console's own device unpairs nothing.
         let surplus = paired
             .add_webrtc(&h.paired_path, client, MAX_PAIRED)
-            .map_err(saved)?;
-        // Pairing gives a later device view only; the console's own device gets everything.
-        let mut next = paired.clone();
-        let device = next
+            .map_err(|error| {
+                tracing::error!(error = %format!("{error:#}"), "the console's WebRTC device could not be saved");
+                ErrorCode::InternalError
+            })?;
+        debug_assert!(surplus.is_empty());
+        let device = paired
             .clients
-            .iter_mut()
+            .iter()
             .find(|c| c.uuid == uuid)
+            .cloned()
             .ok_or(ErrorCode::InternalError)?;
-        device.perm = FIRST_DEVICE_PERMISSION;
-        let device = device.clone();
-        next.save(&h.paired_path).map_err(saved)?;
-        *paired = next;
         drop(paired);
-        if !surplus.is_empty() {
-            tracing::info!(
-                count = surplus.len(),
-                "the oldest WebRTC devices were unpaired to stay at 32"
-            );
-        }
         tracing::info!(device = %device.name, "console WebRTC device created");
         self.clients_changed();
         Ok(device)
@@ -442,21 +438,6 @@ impl Registry {
     pub fn challenge(&self) -> Challenge {
         Challenge::new(&mut OsRng)
     }
-}
-
-/// The key in `extra.webrtc` that names the console user a device stands for. Only the host writes
-/// `extra.webrtc`.
-const CONSOLE: &str = "console";
-
-/// Whether `client` is the WebRTC device of the console user `username`.
-fn is_console(client: &Client, username: &str) -> bool {
-    client.is_webrtc()
-        && client
-            .extra
-            .get("webrtc")
-            .and_then(|webrtc| webrtc.get(CONSOLE))
-            .and_then(Value::as_str)
-            == Some(username)
 }
 
 impl Inner {

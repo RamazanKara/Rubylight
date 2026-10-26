@@ -36,84 +36,19 @@ pub fn host_name() -> Option<String> {
     name.truncate(size as usize);
     Some(String::from_utf16_lossy(&name)).filter(|name| !name.trim().is_empty())
 }
-/// Use the interface carrying this connection, including IPv4-mapped IPv6.
-/// Loopback and interfaces without an Ethernet address cannot support WOL.
+/// The MAC a magic packet wakes this PC with, for a request that reached it
+/// at `address` (IPv4-mapped IPv6 included): the physical NIC carrying it, or
+/// the one under a virtual or VPN adapter (`wake::primary`). Zeros for
+/// loopback or when no physical adapter is connected.
 pub fn local_mac(address: std::net::IpAddr) -> Result<String> {
-    use windows::Win32::{
-        Foundation::{ERROR_BUFFER_OVERFLOW, ERROR_SUCCESS},
-        NetworkManagement::IpHelper::*,
-    };
-    let address = address.to_canonical();
-    if address.is_loopback() {
-        return Ok("00:00:00:00:00:00".into());
+    if address.to_canonical().is_loopback() {
+        return Ok(butterpollo_core::wake::format_mac(None));
     }
-    let mut size = 15000u32;
-    for _ in 0..3 {
-        if size > 1024 * 1024 {
-            anyhow::bail!("network interface table exceeds its limit");
-        }
-        // The Windows records contain u64 members and pointers.
-        let mut storage = vec![0u64; (size as usize).div_ceil(8)];
-        let first = storage.as_mut_ptr().cast::<IP_ADAPTER_ADDRESSES_LH>();
-        // SAFETY: `storage` is 8-byte aligned, at least `size` bytes long, and outlives the call.
-        let status = unsafe {
-            GetAdaptersAddresses(
-                AF_UNSPEC.0 as u32,
-                GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER,
-                None,
-                Some(first),
-                &mut size,
-            )
-        };
-        if status == ERROR_BUFFER_OVERFLOW.0 {
-            continue;
-        }
-        if status != ERROR_SUCCESS.0 {
-            return Err(std::io::Error::from_raw_os_error(status as i32).into());
-        }
-        // SAFETY: GetAdaptersAddresses filled `storage`, still alive, with linked records; each
-        // sockaddr is read as IPv4 or IPv6 only after its family and length are checked.
-        unsafe {
-            let mut adapter = first;
-            while let Some(row) = adapter.as_ref() {
-                let mut unicast = row.FirstUnicastAddress;
-                while let Some(ip) = unicast.as_ref() {
-                    let socket = ip.Address;
-                    let family = socket.lpSockaddr.as_ref().map(|a| a.sa_family);
-                    let candidate = match family {
-                        Some(AF_INET)
-                            if socket.iSockaddrLength as usize
-                                >= std::mem::size_of::<SOCKADDR_IN>() =>
-                        {
-                            let value = &*socket.lpSockaddr.cast::<SOCKADDR_IN>();
-                            Some(std::net::IpAddr::from(
-                                value.sin_addr.S_un.S_addr.to_ne_bytes(),
-                            ))
-                        }
-                        Some(AF_INET6)
-                            if socket.iSockaddrLength as usize
-                                >= std::mem::size_of::<SOCKADDR_IN6>() =>
-                        {
-                            let value = &*socket.lpSockaddr.cast::<SOCKADDR_IN6>();
-                            Some(std::net::IpAddr::from(value.sin6_addr.u.Byte).to_canonical())
-                        }
-                        _ => None,
-                    };
-                    if candidate == Some(address) && row.PhysicalAddressLength == 6 {
-                        return Ok(row.PhysicalAddress[..6]
-                            .iter()
-                            .map(|n| format!("{n:02X}"))
-                            .collect::<Vec<_>>()
-                            .join(":"));
-                    }
-                    unicast = ip.Next;
-                }
-                adapter = row.Next;
-            }
-        }
-        break;
-    }
-    Ok("00:00:00:00:00:00".into())
+    Ok(butterpollo_core::wake::reported_mac(
+        &crate::wake::adapters()?,
+        address,
+        crate::wake::armed,
+    ))
 }
 /// The unicast addresses of interfaces that are up, without loopback and
 /// link-local ones.
@@ -147,7 +82,7 @@ pub fn unicast_addresses() -> Result<Vec<IpAddr>> {
             return Err(std::io::Error::from_raw_os_error(status as i32).into());
         }
         let mut addresses = Vec::new();
-        // SAFETY: As in local_mac, the linked records live in `storage`, and each sockaddr is
+        // SAFETY: As in wake::adapters, the linked records live in `storage`, and each sockaddr is
         // converted only within its reported length.
         unsafe {
             let mut adapter = first;
@@ -223,7 +158,7 @@ pub fn lan_addresses() -> Result<Vec<String>> {
             return Err(std::io::Error::from_raw_os_error(status as i32).into());
         }
         let mut addresses = Vec::new();
-        // SAFETY: As in local_mac, the linked records live in `storage`, and each sockaddr is read
+        // SAFETY: As in wake::adapters, the linked records live in `storage`, and each sockaddr is read
         // as SOCKADDR_IN only when non-null and long enough; `interface` is a local.
         unsafe {
             let mut adapter = first;
@@ -1902,6 +1837,28 @@ mod tests {
         }
         assert_eq!(local_mac("127.0.0.1".parse()?)?, "00:00:00:00:00:00");
         println!("read-only network identity: {address} / {mac}");
+        Ok(())
+    }
+    #[test]
+    fn local_mac_never_reports_a_virtual_adapter() -> Result<()> {
+        // Before, a request on WSL's or Hyper-V's vEthernet reported its MAC,
+        // which no magic packet wakes, and a Tailscale one reported zeros.
+        let adapters = crate::wake::adapters()?;
+        let physical: Vec<_> = adapters
+            .iter()
+            .filter(|a| a.physical())
+            .map(|a| butterpollo_core::wake::format_mac(a.mac))
+            .collect();
+        for address in adapters.iter().flat_map(|a| a.addresses.clone()) {
+            let mac = local_mac(address)?;
+            assert!(
+                mac == "00:00:00:00:00:00" || physical.contains(&mac),
+                "{address} reported {mac}, not a physical adapter's"
+            );
+            if !address.is_loopback() && adapters.iter().any(|a| a.physical() && a.connected) {
+                assert_ne!(mac, "00:00:00:00:00:00", "{address}");
+            }
+        }
         Ok(())
     }
     #[test]

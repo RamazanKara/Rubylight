@@ -300,6 +300,8 @@ export interface Client {
   allow_client_commands?: boolean | string | null;
   /** Host control (Radeon settings, close game). Sent as true or null; the host refuses anything else. */
   host_control?: boolean | string | null;
+  /** Sleep PC from this device. Sent as true or null; the host refuses anything else. */
+  allow_sleep?: boolean | string | null;
   do?: unknown;
   undo?: unknown;
   [extra: string]: unknown;

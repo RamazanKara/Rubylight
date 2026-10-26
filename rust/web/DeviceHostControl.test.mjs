@@ -47,3 +47,23 @@ test('saving warns about ending the stream only when the device is cut off', () 
   const off = toDraft(client({ enabled: false }));
   assert.equal(savingEndsStream(true, off, { ...off, name: 'Tablet' }), false);
 });
+
+test('sleep is off unless the device holds a JSON true', () => {
+  assert.equal(toDraft(client({})).allow_sleep, false);
+  assert.equal(toDraft(client({ perm: 0xffffffff, host_control: true })).allow_sleep, false);
+  assert.equal(toDraft(client({ allow_sleep: true })).allow_sleep, true);
+  for (const value of [false, null, 1, '1', 'true', [true]]) {
+    assert.equal(toDraft(client({ allow_sleep: value })).allow_sleep, false, String(value));
+  }
+});
+
+test('the sleep draft round-trips: true to grant, null to revoke', () => {
+  const off = toDraft(client({}));
+  const on = { ...off, allow_sleep: true };
+  assert.deepEqual(changes(off, on), { allow_sleep: true });
+  assert.deepEqual(changes(on, off), { allow_sleep: null });
+  const stored = toDraft(client({ allow_sleep: true }));
+  assert.deepEqual(stored, on);
+  assert.deepEqual(changes(stored, { ...stored, name: 'Tablet' }), { name: 'Tablet' });
+  assert.equal(savingEndsStream(true, off, on), false);
+});

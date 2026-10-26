@@ -111,6 +111,8 @@ export interface Draft {
   other_overrides: Record<string, unknown>;
   /** Lets the device change Radeon settings and close games; off unless granted here. */
   host_control: boolean;
+  /** Lets the device put the host to sleep while it is idle; off unless granted here. */
+  allow_sleep: boolean;
   do: CommandRow[];
   undo: CommandRow[];
 }
@@ -190,6 +192,8 @@ export function toDraft(client: Client): Draft {
     other_overrides: other,
     // As the host reads it: only true and "true" are on, so 1 and "yes" stay off.
     host_control: client.host_control === true || client.host_control === 'true',
+    // Only a JSON true counts, as in Vibepollo.
+    allow_sleep: client.allow_sleep === true,
     do: commandRows(client.do),
     undo: commandRows(client.undo),
   };
@@ -240,6 +244,7 @@ function serialise(draft: Draft): Changes {
     config_overrides: overrides(draft),
     // The host takes only a boolean or null here; null removes the grant.
     host_control: draft.host_control ? true : null,
+    allow_sleep: draft.allow_sleep ? true : null,
     // The host rejects a null command list, so an empty list is sent instead.
     do: commands(draft.do),
     undo: commands(draft.undo),

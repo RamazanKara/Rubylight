@@ -43,11 +43,12 @@
     dirty = changed;
   });
 
-  // Custom permissions, or a granted Host control, open the section. Nothing
-  // closes it again: unticking a box must not snap it shut under the cursor.
-  let permissionsOpen = $state(untrack(() => permissionSummary(draft.perm) === 'Custom' || draft.host_control));
+  // Custom permissions, or a granted Host control or Sleep PC, open the section.
+  // Nothing closes it again: unticking a box must not snap it shut under the cursor.
+  const granted = () => permissionSummary(draft.perm) === 'Custom' || draft.host_control || draft.allow_sleep;
+  let permissionsOpen = $state(untrack(granted));
   $effect(() => {
-    if (permissionSummary(draft.perm) === 'Custom' || draft.host_control) permissionsOpen = true;
+    if (granted()) permissionsOpen = true;
   });
 
   // Follow edits made elsewhere while this form has none of its own.
@@ -202,6 +203,10 @@
             <label class="check">
               <input type="checkbox" bind:checked={draft.host_control} />
               Host control: change Radeon settings and close games from this device
+            </label>
+            <label class="check">
+              <input type="checkbox" bind:checked={draft.allow_sleep} />
+              Sleep PC: put this PC to sleep from this device while nothing is running (Experimental)
             </label>
           {/if}
         </fieldset>

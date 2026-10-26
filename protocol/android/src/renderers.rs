@@ -151,8 +151,9 @@ impl VideoDecoder for Video {
             };
             // SAFETY: Java only reads the buffer, and only until the call returns; `frame`
             // outlives it.
-            let direct =
-                unsafe { env.new_direct_byte_buffer(picture.as_ptr().cast_mut(), picture.len())? };
+            let direct = unsafe {
+                env.new_direct_byte_buffer(picture.as_ptr().cast_mut(), picture.len())?
+            };
             let args = [
                 bridge::object(&direct),
                 bridge::int(picture.len() as i32),

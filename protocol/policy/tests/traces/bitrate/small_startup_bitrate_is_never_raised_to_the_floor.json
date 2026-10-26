@@ -1,0 +1,11 @@
+{
+  "source": "AdaptiveBitrateControllerTest.smallStartupBitrateIsNeverRaisedToTheFloor",
+  "rust": "bitrate::AdaptiveBitrateController",
+  "java": "com.limelight.nvstream.AdaptiveBitrateController",
+  "new": [1000, 1000, 60, 0],
+  "calls": [
+    {"call": "has_room_before_quality_reduction", "args": [], "expect": false},
+    {"call": "sample", "args": [5000, true, true, 20, 2], "expect": 0},
+    {"call": "sample", "args": [6000, true, true, 20, 2], "expect": 0}
+  ]
+}

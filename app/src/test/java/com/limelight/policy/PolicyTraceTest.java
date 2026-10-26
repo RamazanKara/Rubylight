@@ -158,14 +158,24 @@ public class PolicyTraceTest {
             } else if (type == double.class) {
                 values[i] = ((Number) value).doubleValue();
             } else if (type == float.class) {
-                values[i] = ((Number) value).floatValue();
+                // JSON has no NaN: a string such as "NaN" stands for it.
+                values[i] = value instanceof String ? Float.parseFloat((String) value) : ((Number) value).floatValue();
             } else if (type == boolean.class || type == String.class) {
                 values[i] = type == boolean.class ? (Boolean) value : (String) value;
+            } else if (type.isEnum()) {
+                values[i] = enumConstant(type, (String) value);
             } else {
                 throw new AssertionError("unsupported argument type " + type);
             }
         }
         return values;
+    }
+
+    private static Object enumConstant(Class<?> type, String name) {
+        for (Object constant : type.getEnumConstants()) {
+            if (((Enum<?>) constant).name().equals(name)) return constant;
+        }
+        throw new AssertionError("no " + type.getSimpleName() + " " + name);
     }
 
     private static boolean same(Object actual, Object expect) {

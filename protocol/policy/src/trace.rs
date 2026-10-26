@@ -22,6 +22,7 @@ fn subject(name: &str, args: &Value) -> Result<Box<dyn Subject>, String> {
     match name {
         "recovery::StreamRecoveryPolicy" => crate::recovery::traced_policy(args),
         "recovery::Backoff" => crate::recovery::traced_backoff(args),
+        "bitrate::AdaptiveBitrateController" => crate::bitrate::traced_controller(args),
         _ => Err(format!("unknown subject {name}")),
     }
 }

@@ -1,0 +1,15 @@
+{
+  "source": "AdaptiveBitrateControllerTest.hostCapIsRespectedEvenBelowNormalFloor",
+  "rust": "bitrate::AdaptiveBitrateController",
+  "java": "com.limelight.nvstream.AdaptiveBitrateController",
+  "new": [10000, 10000, 60, 0],
+  "calls": [
+    {"call": "has_room_before_quality_reduction", "args": [], "expect": true},
+    {"call": "applied", "args": [8000, 1500, 5000], "expect": null},
+    {"call": "has_room_before_quality_reduction", "args": [], "expect": false},
+    {"call": "sample", "args": [6000, true, false, 0, 2], "expect": 0},
+    {"call": "sample", "args": [21000, true, false, 0, 2], "expect": 0},
+    {"call": "sample", "args": [22000, true, true, 10, 2], "expect": 0},
+    {"call": "sample", "args": [23000, true, true, 10, 2], "expect": 0}
+  ]
+}

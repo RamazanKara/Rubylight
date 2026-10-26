@@ -1,0 +1,11 @@
+{
+  "source": "AdaptiveBitrateControllerTest.standingQueueOfTwoFramesIsCongestion",
+  "rust": "bitrate::AdaptiveBitrateController",
+  "java": "com.limelight.nvstream.AdaptiveBitrateController",
+  "new": [20000, 20000, 120, 0],
+  "calls": [
+    {"call": "has_room_before_quality_reduction", "args": [], "expect": true},
+    {"call": "sample", "args": [3000, true, false, 0, 2, 0, 21], "expect": 0},
+    {"call": "sample", "args": [4000, true, false, 0, 2, 0, 21], "expect": 16000}
+  ]
+}

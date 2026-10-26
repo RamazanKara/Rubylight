@@ -1,0 +1,20 @@
+{
+  "source": "AdaptiveBitrateControllerTest.frameRateChangesUpdateDecodeBudgetWithoutResettingBitrate",
+  "rust": "bitrate::AdaptiveBitrateController",
+  "java": "com.limelight.nvstream.AdaptiveBitrateController",
+  "new": [20000, 20000, 120, 0],
+  "calls": [
+    {"call": "has_room_before_quality_reduction", "args": [], "expect": true},
+    {"call": "applied", "args": [16000, 16000, 15000], "expect": null},
+    {"call": "has_room_before_quality_reduction", "args": [], "expect": true},
+    {"call": "set_frame_rate", "args": [60], "expect": null},
+    {"call": "has_room_before_quality_reduction", "args": [], "expect": true},
+    {"call": "sample", "args": [16000, true, false, 0, 10], "expect": 0},
+    {"call": "sample", "args": [30000, true, false, 0, 10], "expect": 0},
+    {"call": "sample", "args": [31000, true, false, 0, 10], "expect": 16800},
+    {"call": "set_frame_rate", "args": [120], "expect": null},
+    {"call": "has_room_before_quality_reduction", "args": [], "expect": true},
+    {"call": "sample", "args": [32000, true, false, 0, 10], "expect": 0},
+    {"call": "sample", "args": [33000, true, false, 0, 10], "expect": 12800}
+  ]
+}

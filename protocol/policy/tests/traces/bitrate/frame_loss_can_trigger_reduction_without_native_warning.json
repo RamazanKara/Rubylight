@@ -1,0 +1,11 @@
+{
+  "source": "AdaptiveBitrateControllerTest.frameLossCanTriggerReductionWithoutNativeWarning",
+  "rust": "bitrate::AdaptiveBitrateController",
+  "java": "com.limelight.nvstream.AdaptiveBitrateController",
+  "new": [20000, 20000, 60, 0],
+  "calls": [
+    {"call": "has_room_before_quality_reduction", "args": [], "expect": true},
+    {"call": "sample", "args": [5000, true, false, 4, 2], "expect": 0},
+    {"call": "sample", "args": [6000, true, false, 4, 2], "expect": 16000}
+  ]
+}

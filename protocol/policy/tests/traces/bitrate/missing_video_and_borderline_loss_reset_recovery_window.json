@@ -1,0 +1,15 @@
+{
+  "source": "AdaptiveBitrateControllerTest.missingVideoAndBorderlineLossResetRecoveryWindow",
+  "rust": "bitrate::AdaptiveBitrateController",
+  "java": "com.limelight.nvstream.AdaptiveBitrateController",
+  "new": [10000, 8000, 60, 0],
+  "calls": [
+    {"call": "has_room_before_quality_reduction", "args": [], "expect": true},
+    {"call": "sample", "args": [1000, true, false, 0, 2], "expect": 0},
+    {"call": "sample", "args": [15000, false, false, 0, 2], "expect": 0},
+    {"call": "sample", "args": [16000, true, false, 0, 2], "expect": 0},
+    {"call": "sample", "args": [31000, true, false, 1, 2], "expect": 0},
+    {"call": "sample", "args": [32000, true, false, 0, 2], "expect": 0},
+    {"call": "sample", "args": [47000, true, false, 0, 2], "expect": 8400}
+  ]
+}

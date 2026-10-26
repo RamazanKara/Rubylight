@@ -86,6 +86,8 @@ struct Transport<'a> {
     shared: &'a Slot,
     socket: Arc<ReplySocket>,
     s: Arc<Session>,
+    /// The session's roams when `link` was routed.
+    roams: u32,
     c: Config,
     h: Shared,
     start: Instant,
@@ -109,6 +111,11 @@ impl Transport<'_> {
         let (s, c) = (&self.s, &self.c);
         let period = s.stream_mode().period();
         let peer = frame.peer;
+        // A client that roamed takes another route.
+        if s.roams() != self.roams {
+            self.roams = s.roams();
+            self.link = None;
+        }
         let first = self.link.is_none();
         let route = *self
             .link
@@ -505,10 +512,12 @@ pub(super) fn run_with(
         32 => 32,
         _ => 64,
     };
+    let roams = s.roams();
     let mut transport = Transport {
         shared,
         socket,
         s,
+        roams,
         c,
         h,
         start,

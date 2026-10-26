@@ -928,6 +928,7 @@ const SWALLOWED_PER_RECEIVE: usize = 64;
 /// The first video ping from the path a client roamed to: the client needs a keyframe,
 /// and what the link-rate controller learned about the old path no longer holds.
 fn restart_on_new_path(s: &Session, c: &Config) {
+    s.new_network_path();
     s.request_host_keyframe();
     let mut stream = s.config.clone();
     s.stream_mode().apply_to(&mut stream);

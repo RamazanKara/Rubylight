@@ -590,6 +590,9 @@ impl KeyframeLoss {
             confirmed: false,
         })
     }
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
     pub fn latched(&self) -> bool {
         self.latched.is_some()
     }

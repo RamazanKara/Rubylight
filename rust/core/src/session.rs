@@ -278,6 +278,36 @@ mod tests {
         assert!(!session.take_new_path(), "once");
     }
     #[test]
+    fn a_new_path_forgets_the_old_paths_pacing_estimate_and_keyframe_loss() {
+        let session = Session::new(launch("new-path", Role::Stream), Negotiated::default());
+        session.configure_automatic_pacing(true);
+        session.configure_keyframe_loss(true);
+        let lose = |session: &Session| {
+            for frame in 10..=12 {
+                session.keyframe_loss.lock().unwrap().unrecoverable(
+                    frame,
+                    frame,
+                    Duration::from_millis(16),
+                    Instant::now(),
+                );
+            }
+        };
+        lose(&session);
+        assert!(session.keyframe_loss_active());
+        session.video_pacing_bps(100_000_000, 10_000_000);
+        let ceiling = |session: &Session| {
+            session.automatic_pacing.lock().unwrap().snapshot()["ceiling_kbps"].clone()
+        };
+        assert_ne!(ceiling(&session), 0);
+        session.new_network_path();
+        assert!(!session.keyframe_loss_active());
+        assert_eq!(ceiling(&session), 0);
+        assert!(session.automatic_pacing_enabled());
+        // The guard still watches the new path.
+        lose(&session);
+        assert!(session.keyframe_loss_active());
+    }
+    #[test]
     fn client_fec_is_exposed_as_telemetry_without_changing_stream_decisions() {
         let session = Session::new(launch("fec", Role::Stream), Negotiated::default());
         session.idr.store(false, Ordering::Relaxed);
@@ -2639,6 +2669,17 @@ impl<P, A> Session<P, A> {
     /// True once per roam, for the first video ping from the new path.
     pub fn take_new_path(&self) -> bool {
         std::mem::take(&mut self.roam.lock().unwrap().new_path)
+    }
+    /// The client's video now takes the path it roamed to: what pacing learned about
+    /// the old path no longer holds. The automatic pacing estimate starts over, and so
+    /// does the keyframe-loss guard, without the old path's latch.
+    pub fn new_network_path(&self) {
+        self.configure_automatic_pacing(self.automatic_pacing_enabled());
+        {
+            let mut loss = self.keyframe_loss.lock().unwrap();
+            *loss = crate::keyframe_loss::KeyframeLoss::new(loss.enabled());
+        }
+        self.launch.warnings.clear("network_keyframe_loss");
     }
     /// Since when a stream without its client's media ping has waited for one: the
     /// stream's `start`, or the last roam, which drops the old path's media addresses.

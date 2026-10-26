@@ -71,7 +71,7 @@ pub enum FileRefusal {
     InsufficientStorage,
     /// 409 `no_console_user`: nobody is signed in on the host.
     NoConsoleUser,
-    /// 409 `transfer_busy`: another transfer is running; see `retry_after_ms`.
+    /// 409 `transfer_busy`: another upload from this device is running.
     TransferBusy,
     /// 404 `not_found`: no such file.
     NotFound,
@@ -123,7 +123,6 @@ pub enum FileError {
         refusal: FileRefusal,
         status: u16,
         message: String,
-        retry_after_ms: Option<u64>,
     },
     /// Reading the file to upload, or writing the download, failed on this device.
     Local(std::io::Error),
@@ -169,8 +168,6 @@ struct RawError {
     code: String,
     #[serde(default)]
     message: String,
-    #[serde(default)]
-    retry_after_ms: Option<u64>,
 }
 
 /// A non-2xx answer: a documented refusal, or the native API's error for anything else.
@@ -181,7 +178,6 @@ fn refusal(response: transport::Response, path: &str) -> FileError {
                 refusal,
                 status: response.status,
                 message: error.message,
-                retry_after_ms: error.retry_after_ms,
             };
         }
     }
@@ -206,6 +202,19 @@ fn decode<T: serde::de::DeserializeOwned>(
         .into());
     }
     Err(refusal(response, path))
+}
+
+/// Reads an upload's answer: 201, and the host stored as many bytes as were sent.
+fn uploaded(response: transport::Response, path: &str, length: u64) -> Result<Uploaded, FileError> {
+    let uploaded: Uploaded = decode(response, path, 201)?;
+    if uploaded.size != length {
+        return Err(Error::Malformed(format!(
+            "native API {path}: the host stored {} of {length} bytes",
+            uploaded.size
+        ))
+        .into());
+    }
+    Ok(uploaded)
 }
 
 /// Reads a download's answer: only a 200 delivered the `length` bytes in the sink.
@@ -321,7 +330,7 @@ impl HostClient {
             content_type: "application/octet-stream",
         };
         match transport::upload(&request, &self.cancel, upload, progress, stop) {
-            Ok(response) => decode(response, &path, 201),
+            Ok(response) => uploaded(response, &path, length),
             Err(error) => Err(file.or(error)),
         }
     }
@@ -408,11 +417,9 @@ mod tests {
                         refusal,
                         status: got,
                         message,
-                        retry_after_ms,
                     }) => {
                         assert_eq!((refusal, got), (expected, status), "{code}");
                         assert_eq!(message, format!("Host says {code}"));
-                        assert_eq!(retry_after_ms, None);
                     }
                     other => panic!("{status} {code}: {other:?}"),
                 }
@@ -422,14 +429,15 @@ mod tests {
     }
 
     #[test]
-    fn a_busy_host_says_when_to_retry() {
-        let body = r#"{"error":{"code":"transfer_busy","message":"busy","retry_after_ms":1500}}"#;
+    fn fields_the_spec_does_not_name_are_ignored() {
+        // The native error body's optional fields; a busy host gives no retry time.
+        let body = r#"{"error":{"code":"transfer_busy","message":"busy","setting":null,"retry_after_ms":1500}}"#;
         match decode::<Uploaded>(response(409, body), LIST_PATH, 201) {
             Err(FileError::Refused {
                 refusal: FileRefusal::TransferBusy,
-                retry_after_ms: Some(1500),
-                ..
-            }) => {}
+                status: 409,
+                message,
+            }) => assert_eq!(message, "busy"),
             other => panic!("{other:?}"),
         }
     }
@@ -472,14 +480,26 @@ mod tests {
     fn an_upload_needs_201_and_its_answer() {
         let body = r#"{"name":"photo (1).jpg","size":5}"#;
         assert_eq!(
-            decode::<Uploaded>(response(201, body), LIST_PATH, 201).unwrap(),
+            uploaded(response(201, body), LIST_PATH, 5).unwrap(),
             Uploaded {
                 name: "photo (1).jpg".into(),
                 size: 5
             }
         );
+        // The host stored another size than was sent.
+        for length in [0, 4, 6] {
+            match uploaded(response(201, body), LIST_PATH, length) {
+                Err(FileError::Host(Error::Malformed(m))) => {
+                    assert_eq!(
+                        m,
+                        format!("native API files: the host stored 5 of {length} bytes")
+                    )
+                }
+                other => panic!("{length}: {other:?}"),
+            }
+        }
         for status in [200, 202, 204, 299] {
-            match decode::<Uploaded>(response(status, body), LIST_PATH, 201) {
+            match uploaded(response(status, body), LIST_PATH, 5) {
                 Err(FileError::Host(Error::Status { code, .. })) => {
                     assert_eq!(code, i32::from(status))
                 }
@@ -489,7 +509,7 @@ mod tests {
         for broken in ["", "{}", r#"{"name":"a"}"#, r#"{"name":"a","size":-1}"#] {
             assert!(
                 matches!(
-                    decode::<Uploaded>(response(201, broken), LIST_PATH, 201),
+                    uploaded(response(201, broken), LIST_PATH, 1),
                     Err(FileError::Host(Error::Malformed(_)))
                 ),
                 "{broken}"

@@ -1831,6 +1831,10 @@ impl Converter {
             .chain(std::iter::once(target.fence.clone()))
             .collect();
         self.slots[slot].fence = u64::MAX;
+        // The planes carry no map, so the slot's old one must not look like theirs.
+        if let Some(focus) = self.focus.as_deref_mut() {
+            focus.written[slot] = false;
+        }
         // SAFETY: As in `convert`, the slot is idle and `values` fits its slot; `target`'s planes
         // and fence are on `compute.device`, and `ready` is waited on the GPU only if it is too.
         unsafe {

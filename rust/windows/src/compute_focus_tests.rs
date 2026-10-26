@@ -428,6 +428,68 @@ fn latest_map_never_waits_for_an_unfinished_conversion() -> Result<()> {
 
 #[test]
 #[ignore = "requires D3D12 compute"]
+fn plane_conversions_drop_the_slot_map_they_reuse() -> Result<()> {
+    let rig = Rig::new()?;
+    let image = bgra(64, 32, 9);
+    let mut converter = rig.converter(&rig.compute, &image)?;
+    converter.enable_focus(16)?;
+    converter.set_focus(Some(settings(Mode::Static, Levels::default(), None)))?;
+    rig.convert(&mut converter, &image)?;
+    assert!(converter.latest_map(0).is_some());
+    let device = &rig.compute.device;
+    let plane = || -> Result<ID3D12Resource> {
+        let mut resource = None;
+        // SAFETY: A valid UAV texture description on this test's live device.
+        unsafe {
+            device.CreateCommittedResource(
+                &D3D12_HEAP_PROPERTIES {
+                    Type: D3D12_HEAP_TYPE_DEFAULT,
+                    ..Default::default()
+                },
+                D3D12_HEAP_FLAG_NONE,
+                &D3D12_RESOURCE_DESC {
+                    Dimension: D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+                    Width: 64,
+                    Height: 32,
+                    DepthOrArraySize: 1,
+                    MipLevels: 1,
+                    Format: DXGI_FORMAT_R8_UNORM,
+                    SampleDesc: DXGI_SAMPLE_DESC {
+                        Count: 1,
+                        Quality: 0,
+                    },
+                    Flags: D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                    ..Default::default()
+                },
+                D3D12_RESOURCE_STATE_COMMON,
+                None,
+                &mut resource,
+            )?;
+        }
+        resource.context("no test plane")
+    };
+    // SAFETY: The test owns this fence on its compute device.
+    let fence: ID3D12Fence = unsafe { device.CreateFence(0, D3D12_FENCE_FLAG_NONE)? };
+    let source = GpuImage::upload(&rig.gpu, &image)?;
+    let opened = rig.compute.open(&source.texture)?;
+    // Every slot, the focus conversion's included, now holds planes.
+    for value in 0..SLOTS as u64 {
+        let planes = Planes {
+            planes: [plane()?, plane()?, plane()?],
+            format: DXGI_FORMAT_R8_UNORM,
+            fence: fence.clone(),
+            after: value,
+            done: value + 1,
+        };
+        converter.convert_planes(&opened, format(image.pixel), None, None, &planes, None)?;
+        wait_fence(&fence, value + 1)?;
+    }
+    assert!(converter.latest_map(0).is_none());
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires D3D12 compute"]
 fn focus_refuses_what_it_cannot_follow() -> Result<()> {
     let rig = Rig::new()?;
     let image = bgra(64, 32, 1);

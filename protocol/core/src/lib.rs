@@ -15,3 +15,4 @@ pub mod phase_lock;
 pub mod present_clock;
 pub mod pyrowave;
 pub mod roaming;
+pub mod steam_controller;

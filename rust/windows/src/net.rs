@@ -2270,11 +2270,16 @@ mod tests {
     /// A source Windows refuses, such as an address a VPN took away, is
     /// dropped: the reply leaves from the routed address, segmentation stays
     /// on, and the client's next datagram does not pin it again within
-    /// REFUSAL. Loopback receives on 127.0.0.2, which Windows does
-    /// not send from, so this also shows that every path sends from the
-    /// pinned address.
+    /// REFUSAL. The pin is a documentation address this PC does not have,
+    /// which Windows always refuses, so this also shows that every path
+    /// sends from the pinned address. Not 127.0.0.2: for minutes after any
+    /// process sent from it, such as udp_shaper, Windows's path cache lets
+    /// every socket send from it.
     #[test]
     fn a_refused_source_is_forgotten_and_the_reply_still_sent() -> Result<()> {
+        let gone: IpAddr = [192, 0, 2, 2].into();
+        assert!(!unicast_addresses()?.contains(&gone), "this PC has {gone}");
+        let gone = Some(gone);
         type Bind = fn() -> std::io::Result<UdpSocket>;
         let hosts: [(&str, Bind); 2] = [
             ("IPv4", || UdpSocket::bind("0.0.0.0:0")),
@@ -2286,29 +2291,27 @@ mod tests {
             let client = UdpSocket::bind("127.0.0.1:0")?;
             host.set_read_timeout(Some(std::time::Duration::from_secs(2)))?;
             client.set_read_timeout(Some(std::time::Duration::from_secs(2)))?;
-            let reached: IpAddr = [127, 0, 0, 2].into();
-            client.send_to(b"ping", (reached, host.local_addr()?.port()))?;
+            let loopback: IpAddr = [127, 0, 0, 1].into();
+            client.send_to(b"ping", (loopback, host.local_addr()?.port()))?;
             let mut buffer = [0u8; 64];
             let (_, peer, local) = host.receive(&mut buffer)?;
-            assert_eq!(local, Some(reached), "{name}");
+            assert_eq!(local, Some(loopback), "{name}");
+            host.answer_from(peer, gone);
+            assert_eq!(host.source(peer), gone, "{name}: pinned");
             // Each path tried the pin, and forgot it when refused.
-            let sources = reply_sources(&host, &client, peer, local, &|path| {
+            let sources = reply_sources(&host, &client, peer, gone, &|path| {
                 assert_eq!(
                     host.source(peer),
                     None,
                     "{name}: {path} never tried the pin"
                 )
             })?;
-            assert_eq!(
-                sources,
-                vec![IpAddr::from([127, 0, 0, 1]); sources.len()],
-                "{name}"
-            );
-            host.answer_from(peer, local);
+            assert_eq!(sources, vec![loopback; sources.len()], "{name}");
+            host.answer_from(peer, gone);
             assert_eq!(host.source(peer), None, "{name}: pinned a refused source");
             host.forget(peer);
-            host.answer_from(peer, local);
-            assert_eq!(host.source(peer), local, "{name}: forgetting the peer");
+            host.answer_from(peer, gone);
+            assert_eq!(host.source(peer), gone, "{name}: forgetting the peer");
         }
         Ok(())
     }

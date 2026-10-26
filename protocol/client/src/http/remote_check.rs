@@ -107,12 +107,15 @@ fn verification_problem(expected_unique_id: &str, info: &ServerInfo) -> Option<R
 }
 
 /// The probe loop. `probe` answers serverinfo and its round trip in ms; a verification problem
-/// ends the check at once, and a cancel ends it with [`Error::Cancelled`].
+/// ends the check at once. A cancel ends it with [`Error::Cancelled`]: a request cut off by
+/// `cancelled` may fail with another error (the shut socket reads as an early EOF), so a
+/// failure is checked against `cancelled` before it counts.
 fn run(
     expected_unique_id: &str,
     mut probe: impl FnMut() -> Result<(ServerInfo, f64), Error>,
     mut pause: impl FnMut(),
     path: impl FnOnce(&ServerInfo) -> Result<NetworkPath, HostApiError>,
+    cancelled: impl Fn() -> bool,
 ) -> Result<RemoteCheck, Error> {
     let mut stats = ConnectionTestStats::default();
     let mut verified = None;
@@ -130,6 +133,7 @@ fn run(
                 stats.add(milliseconds);
                 verified = Some(info);
             }
+            Err(_) if cancelled() => return Err(Error::Cancelled),
             Err(Error::Cancelled) => return Err(Error::Cancelled),
             Err(e) => {
                 stats.add_failure();
@@ -138,10 +142,19 @@ fn run(
         }
     }
     let outcome = match verified {
-        Some(server_info) => RemoteOutcome::Verified {
-            path: path(&server_info),
-            server_info: Box::new(server_info),
-        },
+        Some(server_info) => {
+            if cancelled() {
+                return Err(Error::Cancelled);
+            }
+            let path = path(&server_info);
+            if cancelled() || matches!(path, Err(HostApiError::Host(Error::Cancelled))) {
+                return Err(Error::Cancelled);
+            }
+            RemoteOutcome::Verified {
+                path,
+                server_info: Box::new(server_info),
+            }
+        }
         None => RemoteOutcome::Unreachable(
             last_error.expect("every probe failed, so the last one left its error"),
         ),
@@ -175,6 +188,7 @@ impl HostClient {
             },
             || std::thread::sleep(PROBE_INTERVAL),
             |info| self.network_path(&info.capabilities),
+            || self.cancel.is_cancelled(),
         )
     }
 }
@@ -254,6 +268,7 @@ mod tests {
             },
             || pauses.set(pauses.get() + 1),
             |_| path,
+            || false,
         );
         assert_eq!(pauses.get(), probes.get().saturating_sub(1));
         (check, probes.get())
@@ -357,6 +372,60 @@ mod tests {
     }
 
     #[test]
+    fn a_probe_cut_off_by_a_cancel_is_a_cancel_not_a_failure() {
+        // The shut socket reads as an early EOF, which the transport reports as Malformed.
+        let cancelled = Cell::new(false);
+        let probes = Cell::new(0);
+        let check = run(
+            "0123-ABCD",
+            || {
+                probes.set(probes.get() + 1);
+                if probes.get() < REMOTE_CHECK_PROBES {
+                    return Ok((info(RUBYLIGHT), 10.0));
+                }
+                cancelled.set(true);
+                Err(Error::Malformed(
+                    "connection closed before the HTTP header ended".into(),
+                ))
+            },
+            || {},
+            |_| panic!("the path is not read after a cancel"),
+            || cancelled.get(),
+        );
+        assert!(matches!(check, Err(Error::Cancelled)), "{check:?}");
+    }
+
+    #[test]
+    fn a_cancel_during_the_path_is_a_cancel_not_a_verified_host() {
+        for error in [
+            Error::Cancelled,
+            Error::Malformed("connection closed before the HTTP header ended".into()),
+        ] {
+            let cancelled = Cell::new(false);
+            let check = run(
+                "0123-ABCD",
+                || Ok((info(RUBYLIGHT), 10.0)),
+                || {},
+                |_| {
+                    cancelled.set(true);
+                    Err(HostApiError::Host(error))
+                },
+                || cancelled.get(),
+            );
+            assert!(matches!(check, Err(Error::Cancelled)), "{check:?}");
+        }
+        // A cancel between the last probe and the path skips the path.
+        let check = run(
+            "0123-ABCD",
+            || Ok((info(RUBYLIGHT), 10.0)),
+            || {},
+            |_| panic!("the path is not read after a cancel"),
+            || true,
+        );
+        assert!(matches!(check, Err(Error::Cancelled)));
+    }
+
+    #[test]
     fn a_host_without_the_network_path_reports_why() {
         let identity = std::sync::Arc::new(crate::http::identity::tests::fixture());
         let client = HostClient::new("127.0.0.1", 1, identity)
@@ -369,6 +438,7 @@ mod tests {
             || Ok((info(&without), 10.0)),
             || {},
             |info| client.network_path(&info.capabilities),
+            || false,
         )
         .unwrap();
         assert!(matches!(

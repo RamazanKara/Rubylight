@@ -32,7 +32,7 @@ pub use capabilities::{
     PERMISSION_LAUNCH, PERMISSION_LIST, PERMISSION_SERVER_COMMAND, PERMISSION_VIEW,
     PYROWAVE_CODEC_BITS,
 };
-pub use files::{FileError, FileList, FileRefusal, RemoteFile, Uploaded};
+pub use files::{FileError, FileList, FileRefusal, RemoteFile, TransferCancel, Uploaded};
 pub use hardware_metrics::{
     GpuMetrics, HardwareMetrics, Readings, CPU_METRICS, GPU_METRICS, MAX_HARDWARE_METRICS_BYTES,
 };

@@ -12,7 +12,6 @@ use super::transport::{self, encode_query, Request, Timeouts, Upload};
 use super::{Error, HostClient, LONG_CONNECT_TIMEOUT, READ_TIMEOUT};
 use serde::Deserialize;
 use std::io::{ErrorKind, Read, Write};
-use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 const LIST_PATH: &str = "files";
@@ -24,6 +23,28 @@ const MAX_JSON_BYTES: usize = 1024 * 1024;
 /// The host gives up on a transfer idle for 30 s. The client waits a little longer, in either
 /// direction, so that the host's answer comes first.
 const TRANSFER_TIMEOUT: Duration = Duration::from_secs(35);
+
+/// Cancels one upload or download from another thread, at once, even while it waits on the
+/// host: the transfer's socket is shut down. One per transfer, cheap to share as an `Arc`; it
+/// leaves the client's other requests alone, unlike `HostClient::cancel_pending_requests`.
+#[derive(Default)]
+pub struct TransferCancel(transport::Cancel);
+
+impl TransferCancel {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The transfer fails with `Error::Cancelled`, and so does any transfer started with this
+    /// handle later.
+    pub fn cancel(&self) {
+        self.0.cancel();
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.0.is_cancelled()
+    }
+}
 
 /// One file in the host's transfer folder.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -251,11 +272,13 @@ impl<T> Local<T> {
         copy
     }
 
-    /// `error`, unless the local side failed first.
+    /// `error`, unless the local side failed first. A cancel wins: what failed after it does
+    /// not matter.
     fn or(self, error: Error) -> FileError {
-        match self.error {
-            Some(local) => FileError::Local(local),
-            None => FileError::Host(error),
+        match (self.error, error) {
+            (_, Error::Cancelled) => FileError::Host(Error::Cancelled),
+            (Some(local), _) => FileError::Local(local),
+            (None, error) => FileError::Host(error),
         }
     }
 }
@@ -311,15 +334,15 @@ impl HostClient {
     }
 
     /// Uploads exactly `length` bytes of `file` as `name`, reporting progress at 0, at most
-    /// every 256 KiB and 100 ms, and at `length`. Setting `stop` ends the upload before its next chunk with `Error::Cancelled`; the
-    /// host then drops the partial file. Needs the device's `file_upload` permission.
+    /// every 256 KiB and 100 ms, and at `length`. `stop` ends the upload with `Error::Cancelled`;
+    /// the host then drops the partial file. Needs the device's `file_upload` permission.
     pub fn upload_file(
         &self,
         name: &str,
         file: &mut dyn Read,
         length: u64,
         progress: &mut dyn FnMut(u64, u64),
-        stop: &AtomicBool,
+        stop: &TransferCancel,
     ) -> Result<Uploaded, FileError> {
         let (path, target) = self.files_target(LIST_PATH, Some(name));
         let request = self.files_request(&target, MAX_JSON_BYTES, TRANSFER_TIMEOUT)?;
@@ -329,21 +352,21 @@ impl HostClient {
             length,
             content_type: "application/octet-stream",
         };
-        match transport::upload(&request, &self.cancel, upload, progress, stop) {
+        match transport::upload(&request, &self.cancel, upload, progress, &stop.0) {
             Ok(response) => uploaded(response, &path, length),
             Err(error) => Err(file.or(error)),
         }
     }
 
     /// Downloads `name` into `sink` and returns its length, reporting progress like
-    /// `upload_file`. A body shorter than its Content-Length is an error, as is setting `stop`; the
+    /// `upload_file`. A body shorter than its Content-Length is an error, as is cancelling `stop`; the
     /// caller then discards what `sink` got. Needs the device's `file_download` permission.
     pub fn download_file(
         &self,
         name: &str,
         sink: &mut dyn Write,
         progress: &mut dyn FnMut(u64, u64),
-        stop: &AtomicBool,
+        stop: &TransferCancel,
     ) -> Result<u64, FileError> {
         let (path, target) = self.files_target(CONTENT_PATH, Some(name));
         let request = self.files_request(&target, MAX_JSON_BYTES, TRANSFER_TIMEOUT)?;
@@ -353,7 +376,7 @@ impl HostClient {
             length = done;
             progress(done, total);
         };
-        match transport::download(&request, &self.cancel, &mut sink, &mut counted, stop) {
+        match transport::download(&request, &self.cancel, &mut sink, &mut counted, &stop.0) {
             Ok(response) => downloaded(response, &path, length),
             Err(error) => Err(sink.or(error)),
         }
@@ -553,5 +576,44 @@ mod tests {
             decode::<FileList>(response(200, r#"{"folder":"x"}"#), LIST_PATH, 200),
             Err(FileError::Host(Error::Malformed(_)))
         ));
+    }
+
+    /// A file the transfer may not write.
+    struct Full;
+
+    impl Write for Full {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(ErrorKind::PermissionDenied.into())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_cancel_wins_over_whatever_failed_after_it() {
+        let failed_disk = || {
+            let mut sink = Local::new(Full);
+            assert!(sink.write_all(b"x").is_err());
+            sink
+        };
+        assert!(matches!(
+            failed_disk().or(Error::Cancelled),
+            FileError::Host(Error::Cancelled)
+        ));
+        assert!(matches!(
+            failed_disk().or(Error::Malformed("cut short".into())),
+            FileError::Local(e) if e.kind() == ErrorKind::PermissionDenied
+        ));
+        assert!(matches!(
+            Local::new(std::io::empty()).or(Error::Malformed("cut short".into())),
+            FileError::Host(Error::Malformed(_))
+        ));
+        // One handle per transfer, cancelled from another thread.
+        let stop = std::sync::Arc::new(TransferCancel::new());
+        let other = stop.clone();
+        std::thread::spawn(move || other.cancel()).join().unwrap();
+        assert!(stop.is_cancelled());
     }
 }

@@ -1,0 +1,41 @@
+{
+  "serverinfo": "rubylight-files-serverinfo.xml",
+  "family": "rubylight",
+  "hostVersion": "3.1.0",
+  "nativeCapabilities": {
+    "api_version": 1,
+    "host": {"name": "Rubylight files fixture", "version": "3.1.0", "unique_id": "3c0f8a52-6b7d-4c1e-9a0b-2f6e1d8c4a71"},
+    "features": ["library", "files.upload", "files.download"],
+    "permissions": {"list": true, "view": true, "launch": true, "host_control": false, "file_upload": true, "file_download": true}
+  },
+  "features": {
+    "permissions": "supported",
+    "otp_pairing": "supported",
+    "clipboard": "supported",
+    "server_commands": "unsupported:command_permission",
+    "app_uuids": "supported",
+    "launch_by_uuid": "supported",
+    "virtual_display": "unsupported:virtual_display_driver",
+    "virtual_display_hdr": "unsupported:virtual_display_driver",
+    "host_display_modes": "unsupported:virtual_display_driver",
+    "fractional_refresh": "supported",
+    "host_vrr": "supported",
+    "runtime_bitrate": "supported",
+    "pyrowave": "supported",
+    "pyrowave_records": "supported",
+    "pyrowave_bandwidth_probe": "unsupported",
+    "hardware_metrics": "unsupported:hardware_metrics_off",
+    "network_path": "unsupported:view_permission",
+    "frame_limiter_status": "unsupported",
+    "controller_preparation": "supported",
+    "remote_session_tiles": "supported",
+    "host_confirms_replacement": "supported",
+    "host_timing": "supported",
+    "web_ui": "supported",
+    "cursor_shape": "supported",
+    "native_api": "supported",
+    "sleep": "supported",
+    "file_upload": "supported",
+    "file_download": "supported"
+  }
+}

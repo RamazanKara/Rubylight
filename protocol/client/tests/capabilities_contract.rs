@@ -6,8 +6,12 @@
 //! A feature is `"supported"`, `"unknown"`, `"unsupported"` (nothing on the host changes that) or
 //! `"unsupported:<reason>"`. A feature only one side has is an object
 //! `{"only": "java" | "rust", "availability": ..., "comment": why}`.
+//!
+//! A contract with `nativeCapabilities` (the native API's `GET /capabilities` body) applies it
+//! after serverinfo, as a client does once that API answered: the file transfer features come
+//! from there.
 
-use nightjar_core::http::{Availability, Family, Feature, Reason, ServerInfo};
+use nightjar_core::http::{Availability, Family, Feature, NativeCapabilities, Reason, ServerInfo};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -34,7 +38,7 @@ macro_rules! contract {
     };
 }
 
-const CONTRACTS: [(&str, &str, &str); 11] = [
+const CONTRACTS: [(&str, &str, &str); 13] = [
     contract!("apollo"),
     contract!("apollo-http"),
     contract!("apollo-input-only"),
@@ -42,6 +46,8 @@ const CONTRACTS: [(&str, &str, &str); 11] = [
     contract!("butterpollo-viewer"),
     contract!("gamestream"),
     contract!("rubylight"),
+    contract!("rubylight-files"),
+    contract!("rubylight-files-refused"),
     contract!("rubylight-native"),
     contract!("sunshine"),
     contract!("vibepollo"),
@@ -166,9 +172,14 @@ fn rust_capabilities_match_the_shared_contract() {
             Some(fixture),
             "{fixture}: serverinfo field"
         );
-        let caps = ServerInfo::parse(xml, 47989)
+        let mut caps = ServerInfo::parse(xml, 47989)
             .unwrap_or_else(|e| panic!("{fixture}: {e:?}"))
             .capabilities;
+        if let Some(native) = contract.get("nativeCapabilities") {
+            let native: NativeCapabilities = serde_json::from_value(native.clone())
+                .unwrap_or_else(|e| panic!("{fixture}: nativeCapabilities: {e}"));
+            caps = caps.with_native(&native);
+        }
         if contract["family"].as_str() != Some(family_name(caps.family())) {
             drift.push(format!(
                 "{fixture}: family {} != {}",

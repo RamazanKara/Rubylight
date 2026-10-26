@@ -28,6 +28,8 @@
     "web_ui": "supported",
     "cursor_shape": "supported",
     "native_api": "supported",
-    "sleep": "unsupported:update_host"
+    "sleep": "unsupported:update_host",
+    "file_upload": "unknown",
+    "file_download": "unknown"
   }
 }

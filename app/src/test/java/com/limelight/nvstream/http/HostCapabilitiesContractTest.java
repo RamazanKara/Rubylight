@@ -29,7 +29,9 @@ import static org.junit.Assert.*;
  * expected-features JSON in src/test/resources/protocol/capabilities, and both this test and
  * protocol/client/tests/capabilities_contract.rs assert it, so HostCapabilities and
  * http/capabilities.rs cannot drift apart unnoticed. A feature only one side has is an object
- * {"only": "java" | "rust", "availability": ..., "comment": why}.
+ * {"only": "java" | "rust", "availability": ..., "comment": why}. A contract with "nativeCapabilities" (the native
+ * API's GET /capabilities body) applies it after serverinfo, as a client does once that API answered: the file
+ * transfer features come from there.
  */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 29, application = Application.class)
@@ -66,6 +68,8 @@ public class HostCapabilitiesContractTest {
             case CURSOR_SHAPE: return "cursor_shape";
             case NATIVE_API: return "native_api";
             case SLEEP: return "sleep";
+            case FILE_UPLOAD: return "file_upload";
+            case FILE_DOWNLOAD: return "file_download";
             default: return null;
         }
     }
@@ -82,6 +86,7 @@ public class HostCapabilitiesContractTest {
             case VIRTUAL_DISPLAY_DRIVER: return "virtual_display_driver";
             case HARDWARE_METRICS_OFF: return "hardware_metrics_off";
             case SLEEP_PERMISSION: return "sleep_permission";
+            case FILE_PERMISSION: return "file_permission";
             default: throw new AssertionError("Reason " + reason + " has no contract name");
         }
     }
@@ -152,6 +157,10 @@ public class HostCapabilitiesContractTest {
             JSONObject contract = new JSONObject(TestHosts.serverInfo("capabilities/" + fixture + CONTRACT));
             assertEquals(fixture + ": serverinfo field", fixture + SERVERINFO, contract.getString("serverinfo"));
             HostCapabilities caps = TestHosts.fixture(fixture + SERVERINFO);
+            JSONObject nativeCapabilities = contract.optJSONObject("nativeCapabilities");
+            if (nativeCapabilities != null) {
+                caps = caps.withNativeCapabilities(nativeCapabilities.toString());
+            }
             if (!familyName(caps.family()).equals(contract.getString("family"))) {
                 drift.add(fixture + ": family " + familyName(caps.family()) + " != " + contract.getString("family"));
             }

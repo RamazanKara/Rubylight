@@ -12,6 +12,8 @@ use std::time::{Duration, Instant};
 
 /// At most one refused roaming datagram is logged in this long.
 const REFUSAL_LOG_INTERVAL: Duration = Duration::from_secs(10);
+/// At most one dropped datagram from each address a client left is logged in this long.
+const RETIRED_LOG_INTERVAL: Duration = Duration::from_secs(5);
 
 /// A move the control loop carries out: the session follows, then `migrated` goes to
 /// `new`.
@@ -41,6 +43,9 @@ pub(super) struct Roaming {
     retired: HashMap<SocketAddr, SocketAddr>,
     commits: Vec<Commit>,
     refusals: Refusals,
+    /// Per address in `retired`: when a datagram from it was last logged, and how many
+    /// were dropped since.
+    retired_logged: HashMap<SocketAddr, (Instant, u32)>,
 }
 
 impl Roaming {
@@ -101,6 +106,7 @@ impl Roaming {
                     self.moved.insert(new, peer);
                 }
                 self.retired.remove(&new);
+                self.retired_logged.remove(&new);
                 self.retired.insert(old, peer);
                 self.commits.push(Commit {
                     id,
@@ -130,6 +136,27 @@ impl Roaming {
             return Some(*peer);
         }
         (!self.retired.contains_key(&from)).then_some(from)
+    }
+
+    /// Logs a datagram from `from`, an address a client left, that [`Self::peer_of`]
+    /// dropped: once per address in [`RETIRED_LOG_INTERVAL`]. Returns whether it logged.
+    pub(super) fn dropped(&mut self, now: Instant, from: SocketAddr) -> bool {
+        if let Some((at, suppressed)) = self.retired_logged.get_mut(&from)
+            && now.saturating_duration_since(*at) < RETIRED_LOG_INTERVAL
+        {
+            *suppressed = suppressed.saturating_add(1);
+            return false;
+        }
+        let suppressed = self
+            .retired_logged
+            .insert(from, (now, 0))
+            .map_or(0, |(_, suppressed)| suppressed);
+        tracing::info!(
+            from = %canonical(from),
+            suppressed,
+            "datagram from an address a roaming client left dropped"
+        );
+        true
     }
 
     /// Where a datagram ENet sends to `peer` goes.
@@ -168,6 +195,9 @@ impl Roaming {
                 self.table.remove(&id);
             }
         }
+        let retired = &self.retired;
+        self.retired_logged
+            .retain(|address, _| retired.contains_key(address));
     }
 
     /// Whether any peer is known, so [`Self::retain_peers`] has work.
@@ -340,6 +370,25 @@ mod tests {
             },
         );
         assert!(!roaming.intercepts(&probe));
+    }
+
+    #[test]
+    fn drops_from_a_left_address_are_logged_once_per_address_in_five_seconds() {
+        let mut roaming = Roaming::default();
+        let (a, b): (SocketAddr, SocketAddr) = (
+            "10.0.0.7:41000".parse().unwrap(),
+            "10.0.0.8:41000".parse().unwrap(),
+        );
+        let now = Instant::now();
+        assert!(roaming.dropped(now, a));
+        assert!(!roaming.dropped(now + Duration::from_secs(1), a));
+        assert!(!roaming.dropped(now + Duration::from_secs(4), a));
+        assert!(roaming.dropped(now + Duration::from_secs(1), b));
+        assert!(roaming.dropped(now + RETIRED_LOG_INTERVAL, a));
+        // Forgotten with the addresses.
+        let socket = ReplySocket::bind("127.0.0.1:0").unwrap();
+        roaming.retain_peers(&socket, |_| false);
+        assert!(roaming.retired_logged.is_empty());
     }
 
     #[test]

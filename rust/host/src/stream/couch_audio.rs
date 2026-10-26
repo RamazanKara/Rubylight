@@ -91,6 +91,12 @@ impl<'a> CouchAudio<'a> {
         self.chain.capture_channels()
     }
 
+    /// A silent packet of `frames`, in capture channels like the packets `collect` returns:
+    /// Opus refuses a packet of the wrong size and the audio thread ends.
+    pub(super) fn silence(&self, frames: usize) -> Vec<f32> {
+        vec![0.; frames * self.capture_channels()]
+    }
+
     /// The open capture's endpoint channels and speaker mask (`Loopback::source`).
     pub(super) fn set_source(&mut self, source: (usize, u32)) -> Result<()> {
         if self.source != Some(source) {
@@ -471,12 +477,23 @@ mod tests {
 
     #[test]
     fn the_silence_packet_is_sized_for_the_capture_channels() {
-        let controls = Controls::default();
-        let warnings = Warnings::default();
-        let mut audio = CouchAudio::new(&controls, SURROUND, 2, false, false).unwrap();
-        audio.set_source(SEVEN_ONE).unwrap();
-        let mut silence = vec![0.; 240 * audio.capture_channels()];
-        audio.process(&controls, &warnings, &mut silence);
-        assert_eq!(silence, vec![0.; 480]);
+        for (start, client, capture) in [
+            (SURROUND, 2, 8),
+            (OFF, 2, 2),
+            (SURROUND, 6, 6),
+            (NIGHT, 8, 8),
+        ] {
+            let controls = Controls::default();
+            let warnings = Warnings::default();
+            let mut audio = CouchAudio::new(&controls, start, client, false, false).unwrap();
+            audio.set_source((capture, 0x63f)).unwrap();
+            for frames in [240, 480, 960] {
+                let mut silence = audio.silence(frames);
+                assert_eq!(silence.len(), frames * capture, "{start:?} {client}");
+                // The chain turns it into a packet the client's Opus layout takes.
+                audio.process(&controls, &warnings, &mut silence);
+                assert_eq!(silence, vec![0.; frames * client], "{start:?} {client}");
+            }
+        }
     }
 }

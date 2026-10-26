@@ -3157,7 +3157,7 @@ impl Media {
         let mut last_loss = None;
         let mut upkeep: Option<RouteUpkeep> = None;
         let timer = butterpollo_windows::timing::Timer::new()?;
-        let silence = vec![0.; frames * capture_channels];
+        let silence = couch.silence(frames);
         while !s.stopping() && !h.stop.load(Ordering::Acquire) {
             match capture
                 .as_ref()

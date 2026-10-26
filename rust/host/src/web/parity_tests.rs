@@ -5,18 +5,32 @@ use butterpollo_core::{session::Role, state::Credentials};
 use tower::ServiceExt;
 
 pub(super) async fn request(f: &Fixture, method: &str, path: &str, data: Value) -> Response {
+    request_with(f, method, path, data, &[]).await
+}
+/// [`request`] with extra headers.
+pub(super) async fn request_with(
+    f: &Fixture,
+    method: &str,
+    path: &str,
+    data: Value,
+    headers: &[(&str, &str)],
+) -> Response {
     // On disk too: the host takes up the sign-in the file holds.
     let credentials = Credentials::new("parity".into(), "parity-test").unwrap();
     f.host.save_credentials(&credentials).unwrap();
     *f.host.credentials.write().unwrap() = Some(credentials);
+    let mut builder = Request::builder()
+        .method(method)
+        .uri(path)
+        .header(header::AUTHORIZATION, "Basic cGFyaXR5OnBhcml0eS10ZXN0")
+        .header(header::CONTENT_TYPE, "application/json");
+    for (name, value) in headers {
+        builder = builder.header(*name, *value);
+    }
     router(f.host.clone())
         .layer(Extension(f.connection(true)))
         .oneshot(
-            Request::builder()
-                .method(method)
-                .uri(path)
-                .header(header::AUTHORIZATION, "Basic cGFyaXR5OnBhcml0eS10ZXN0")
-                .header(header::CONTENT_TYPE, "application/json")
+            builder
                 .body(Body::from(serde_json::to_vec(&data).unwrap()))
                 .unwrap(),
         )

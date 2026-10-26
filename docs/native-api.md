@@ -285,10 +285,10 @@ GET /api/native/v1/wake
 ```json
 {
   "revision": 1,
-  "primary": "02:7c:16:b4:13:4f",
+  "primary": "02:7C:16:B4:13:4F",
   "targets": [
     {
-      "mac": "02:7c:16:b4:13:4f",
+      "mac": "02:7C:16:B4:13:4F",
       "kind": "ethernet",
       "connected": true,
       "route": true,

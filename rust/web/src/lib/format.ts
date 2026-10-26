@@ -34,6 +34,26 @@ export function ago(unix: number): string {
   return new Date(unix * 1000).toLocaleDateString();
 }
 
+let polling = 0;
+
+/**
+ * Whether a request starting now comes from a `poll` task. Such requests carry
+ * `X-Rubylight-Poll: 1`, so a page left open doesn't keep the PC awake (sleep
+ * after idle). Only requests a task starts before its first `await` count.
+ */
+export function polled(): boolean {
+  return polling > 0;
+}
+
+function marked<T>(task: () => T): T {
+  polling++;
+  try {
+    return task();
+  } finally {
+    polling--;
+  }
+}
+
 /** Poll `task` every `interval` ms while the page is visible; returns a stop function. */
 export function poll(task: () => Promise<unknown> | void, interval: number): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -42,7 +62,7 @@ export function poll(task: () => Promise<unknown> | void, interval: number): () 
     if (stopped) return;
     if (document.visibilityState === 'visible') {
       try {
-        await task();
+        await marked(task);
       } catch {
         // The page shows its own error state.
       }

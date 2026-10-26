@@ -208,7 +208,7 @@ fn main() {
                 let folder = folder.clone();
                 let end_streams = args.end_streams;
                 let usbip_driver = usbip::selected(&install::profile(), args.usbip_driver);
-                let wake_on_lan = wake::selected(&install::profile(), args.wake_on_lan);
+                let wake_on_lan = args.wake_on_lan;
                 match ui::progress(TITLE, "Updating Rubylight", true, move |progress| {
                     let mut notes = Vec::new();
                     let mut restart_needed = false;
@@ -239,12 +239,9 @@ fn main() {
                         ));
                     }
                     install::refresh_entries(&folder, &mut notes);
-                    // A NIC driver update can reset them; nothing runs while
-                    // they are still set.
-                    if wake_on_lan {
-                        wake_on_lan_notes(&folder, &mut notes);
-                    }
-                    wake::remember(&install::profile(), wake_on_lan)?;
+                    wake::after_update(&install::profile(), wake_on_lan, &mut notes, |notes| {
+                        wake_on_lan_notes(&folder, notes)
+                    });
                     for note in notes {
                         log::line(format!("note: {note}"));
                     }
@@ -343,10 +340,16 @@ fn run_install(args: &Arguments) -> i32 {
             usbip_driver = choice.checked;
         }
         if args.wake_on_lan.is_none() {
+            let adapters = wake::adapters().unwrap_or_else(|error| {
+                log::line(format!(
+                    "note: the network adapters could not be listed: {error:#}"
+                ));
+                Vec::new()
+            });
             let choice = ui::ask(
                 TITLE,
                 "Wake this PC from a client",
-                "Setup can turn on Wake-on-LAN for the wired network adapters, so a client can wake this PC from sleep. An adapter restarts briefly when its settings change. Turning off Fast Startup, which can keep a shut-down PC from waking, is offered in the Rubylight console.",
+                &wake::question(&adapters),
                 "Install",
                 None,
                 Some(("Turn on Wake-on-LAN", wake_on_lan)),

@@ -174,12 +174,28 @@ pub fn remember_armed(armed: impl IntoIterator<Item = (String, bool)>) {
 const NICS_SCRIPT: &str = include_str!("wake_nics.ps1");
 /// The `apply` mode's FixPlan, as JSON.
 const PLAN_VARIABLE: &str = "BUTTERPOLLO_WAKE_PLAN";
+/// The seconds after which `apply` starts no adapter restart.
+const RESTART_BEFORE_VARIABLE: &str = "BUTTERPOLLO_WAKE_RESTART_BEFORE";
+/// How long `wake_nics.ps1 read` may take.
+pub const READ_TIMEOUT: Duration = Duration::from_secs(60);
+/// How long `wake_nics.ps1 apply` may take before it is killed.
+pub const APPLY_TIMEOUT: Duration = Duration::from_secs(180);
+/// The time left for an adapter restart, which takes a few seconds: `apply`
+/// starts none later than this before its kill, so the kill never lands
+/// between disabling and enabling an adapter. A later one waits for the next
+/// restart of the PC.
+const RESTART_ALLOWANCE: Duration = Duration::from_secs(60);
+/// How long `butterpollo.exe --apply-wake-settings` may take: a read and an
+/// apply, each bounded above, and some slack. Whoever starts it waits at
+/// least this long, so it is never killed before its script's own deadline.
+pub const SETTINGS_TIMEOUT: Duration =
+    Duration::from_secs(READ_TIMEOUT.as_secs() + APPLY_TIMEOUT.as_secs() + 20);
 
 /// `wake_nics.ps1 read`, also remembering which adapters are armed. The
 /// error carries PowerShell's own message, as for a blocked script
 /// (Constrained Language Mode, AppLocker).
 pub fn read_nics() -> Result<NicReport> {
-    let report = NicReport::parse(&run_nics("read", None, Duration::from_secs(60))?)?;
+    let report = NicReport::parse(&run_script(NICS_SCRIPT, "read", &[], READ_TIMEOUT)?)?;
     remember_armed(
         report
             .adapters
@@ -192,20 +208,26 @@ pub fn read_nics() -> Result<NicReport> {
 /// `wake_nics.ps1 apply`: changed adapters restart, which drops the network
 /// for a few seconds.
 pub fn apply_nics(plan: &FixPlan) -> Result<ApplyReport> {
-    let output = run_nics(
-        "apply",
-        Some(serde_json::to_string(plan)?),
-        Duration::from_secs(180),
-    )?;
+    let restart_before = APPLY_TIMEOUT.saturating_sub(RESTART_ALLOWANCE);
+    let environment = [
+        (PLAN_VARIABLE, serde_json::to_string(plan)?),
+        (
+            RESTART_BEFORE_VARIABLE,
+            restart_before.as_secs_f64().to_string(),
+        ),
+    ];
+    let output = run_script(NICS_SCRIPT, "apply", &environment, APPLY_TIMEOUT)?;
     Ok(serde_json::from_str(output.trim_start_matches('\u{feff}'))?)
 }
 
-fn run_nics(mode: &str, plan: Option<String>, timeout: Duration) -> Result<String> {
-    use std::{
-        io::{Read, Write},
-        os::windows::process::CommandExt,
-        process::{Command, Stdio},
-    };
+/// `script` on stdin with `mode`, killed after `timeout`; its stdout.
+fn run_script(
+    script: &str,
+    mode: &str,
+    environment: &[(&str, String)],
+    timeout: Duration,
+) -> Result<String> {
+    use std::{os::windows::process::CommandExt, process::Command};
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let root = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
     let program =
@@ -223,16 +245,37 @@ fn run_nics(mode: &str, plan: Option<String>, timeout: Duration) -> Result<Strin
         // A PowerShell 7 parent's module path breaks Windows PowerShell's modules.
         .env_remove("PSModulePath")
         .env_remove(PLAN_VARIABLE)
+        .env_remove(RESTART_BEFORE_VARIABLE)
+        .envs(environment.iter().map(|(name, value)| (name, value)))
+        .creation_flags(CREATE_NO_WINDOW);
+    let (status, stdout, stderr) = output_within(&mut command, script.as_bytes(), timeout)
+        .with_context(|| format!("the NIC wake script ({mode})"))?;
+    anyhow::ensure!(
+        status.success(),
+        "the NIC wake script ({mode}) failed with {status}: {}",
+        stderr.trim()
+    );
+    Ok(stdout)
+}
+
+/// Run `command` with `input` on its stdin; its exit status, stdout and
+/// stderr. It is killed if it hasn't finished within `timeout`; its own
+/// children are not.
+pub fn output_within(
+    command: &mut std::process::Command,
+    input: &[u8],
+    timeout: Duration,
+) -> Result<(std::process::ExitStatus, String, String)> {
+    use std::{
+        io::{Read, Write},
+        process::Stdio,
+    };
+    let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .creation_flags(CREATE_NO_WINDOW);
-    if let Some(plan) = plan {
-        command.env(PLAN_VARIABLE, plan);
-    }
-    let mut child = command
         .spawn()
-        .with_context(|| format!("starting {}", program.display()))?;
+        .with_context(|| format!("starting {}", command.get_program().to_string_lossy()))?;
     let read = |stream: Option<Box<dyn Read + Send>>| {
         std::thread::spawn(move || {
             let mut bytes = Vec::new();
@@ -244,11 +287,12 @@ fn run_nics(mode: &str, plan: Option<String>, timeout: Duration) -> Result<Strin
     };
     let stdout = read(child.stdout.take().map(|s| Box::new(s) as _));
     let stderr = read(child.stderr.take().map(|s| Box::new(s) as _));
+    // Dropped after writing, so the child sees the end of its input.
     let written = child
         .stdin
         .take()
-        .context("PowerShell has no stdin")?
-        .write_all(NICS_SCRIPT.as_bytes());
+        .context("the child has no stdin")?
+        .write_all(input);
     let deadline = Instant::now() + timeout;
     let status = loop {
         if let Some(status) = child.try_wait()? {
@@ -256,19 +300,15 @@ fn run_nics(mode: &str, plan: Option<String>, timeout: Duration) -> Result<Strin
         }
         if Instant::now() >= deadline {
             let _ = child.kill();
-            anyhow::bail!("the NIC wake script ({mode}) did not finish within {timeout:?}");
+            let _ = child.wait();
+            anyhow::bail!("did not finish within {timeout:?} and was stopped");
         }
         std::thread::sleep(Duration::from_millis(100));
     };
     let stdout = stdout.join().unwrap_or_default();
     let stderr = stderr.join().unwrap_or_default();
-    written.context("passing the NIC wake script to PowerShell")?;
-    anyhow::ensure!(
-        status.success(),
-        "the NIC wake script ({mode}) failed with {status}: {}",
-        stderr.trim()
-    );
-    Ok(stdout)
+    written.context("writing the child's input")?;
+    Ok((status, stdout, stderr))
 }
 
 /// `GetPwrCapabilities` and `HiberbootEnabled`.
@@ -448,6 +488,10 @@ pub fn suspend() -> Result<()> {
 /// /requests` shows its reason.
 pub struct PowerRequest(windows::Win32::Foundation::HANDLE);
 
+// SAFETY: The handle is a kernel object handle, valid on any thread; only
+// Drop uses it after creation.
+unsafe impl Send for PowerRequest {}
+
 impl PowerRequest {
     pub fn system_required(reason: &str) -> Result<Self> {
         use windows::Win32::System::{
@@ -599,5 +643,153 @@ mod tests {
             }),
             None
         );
+    }
+
+    /// `function name` from the NIC script, up to its closing brace.
+    fn script_function(name: &str) -> &'static str {
+        let start = NICS_SCRIPT
+            .find(&format!("function {name}"))
+            .unwrap_or_else(|| panic!("{name} is not in the NIC script"));
+        let end = start + NICS_SCRIPT[start..].find("\n}\n").unwrap() + 3;
+        &NICS_SCRIPT[start..end]
+    }
+    /// `body` after `functions` from the NIC script, with stand-ins for the
+    /// cmdlets that would touch the adapters; its JSON.
+    fn run_with_stand_ins(
+        functions: &[&str],
+        body: &str,
+        environment: &[(&str, String)],
+    ) -> Result<serde_json::Value> {
+        let mut script = String::from("$ErrorActionPreference = 'Stop'\n");
+        script += "$log = [Collections.Generic.List[string]]::new()\n";
+        for name in functions {
+            script += script_function(name);
+        }
+        script += body;
+        let output = run_script(&script, "", environment, Duration::from_secs(60))?;
+        Ok(serde_json::from_str(output.trim_start_matches('\u{feff}'))?)
+    }
+
+    #[test]
+    fn wmi_instances_match_the_whole_pnp_id_and_an_empty_one_none() -> Result<()> {
+        let found = run_with_stand_ins(
+            &["Find-Wmi"],
+            r##"
+function Get-CimInstance { param($Namespace, $ClassName)
+    'PCI\VEN_10EC&DEV_8125\01_0', 'PCI\VEN_10EC&DEV_8125\012_0', 'PCI\VEN_10EC&DEV_8125[1]_0' |
+        ForEach-Object { [pscustomobject]@{ InstanceName = $_ } } }
+$empty = try { Find-Wmi 'MSPower_DeviceWakeEnable' ''; 'matched' } catch { "$_" }
+ConvertTo-Json -Compress -InputObject @{
+    one = @(Find-Wmi 'MSPower_DeviceWakeEnable' 'pci\ven_10ec&dev_8125\01' | ForEach-Object InstanceName)
+    bracket = @(Find-Wmi 'MSPower_DeviceWakeEnable' 'PCI\VEN_10EC&DEV_8125[1]' | ForEach-Object InstanceName)
+    empty = $empty
+}
+"##,
+            &[],
+        )?;
+        assert_eq!(
+            found["one"],
+            serde_json::json!(["PCI\\VEN_10EC&DEV_8125\\01_0"])
+        );
+        assert_eq!(
+            found["bracket"],
+            serde_json::json!(["PCI\\VEN_10EC&DEV_8125[1]_0"])
+        );
+        assert_eq!(found["empty"], "the adapter has no PnP id");
+        Ok(())
+    }
+
+    #[test]
+    fn a_failed_restart_enables_the_adapter_again() -> Result<()> {
+        let restarted = run_with_stand_ins(
+            &["Restart-Adapter"],
+            r##"
+function Disable-NetAdapter { param([Parameter(ValueFromPipeline)]$InputObject, [switch]$Confirm)
+    process { $log.Add('disable'); throw 'disabling failed halfway' } }
+function Enable-NetAdapter { param([Parameter(ValueFromPipeline)]$InputObject, [switch]$Confirm)
+    process { $log.Add('enable'); if ($log.Count -eq 2) { throw 'busy' } } }
+$failure = try { Restart-Adapter ([pscustomobject]@{ Name = 'Ethernet' }); 'none' } catch { "$_" }
+ConvertTo-Json -Compress -InputObject @{ log = @($log); error = $failure }
+"##,
+            &[],
+        )?;
+        assert_eq!(
+            restarted["log"],
+            serde_json::json!(["disable", "enable", "enable"])
+        );
+        assert_eq!(restarted["error"], "disabling failed halfway");
+        Ok(())
+    }
+
+    #[test]
+    fn a_restart_too_close_to_the_kill_waits_for_the_next_boot() -> Result<()> {
+        let plan = FixPlan {
+            adapters: vec![butterpollo_core::wake::AdapterFix {
+                guid: "{G}".into(),
+                pnp: "PCI\\X".into(),
+                name: "Ethernet".into(),
+                keywords: [("*WakeOnMagicPacket".to_string(), "1".to_string())].into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let apply = |restart_before: Option<&str>| {
+            let mut environment = vec![(PLAN_VARIABLE, serde_json::to_string(&plan).unwrap())];
+            if let Some(seconds) = restart_before {
+                environment.push((RESTART_BEFORE_VARIABLE, seconds.to_string()));
+            }
+            run_with_stand_ins(
+                &["Invoke-Apply"],
+                r##"
+function Get-NetAdapter { param([switch]$Physical) [pscustomobject]@{ InterfaceGuid = '{G}' } }
+function Set-NetAdapterAdvancedProperty { param([Parameter(ValueFromPipeline)]$InputObject,
+    $RegistryKeyword, $RegistryValue, [switch]$NoRestart) process { $log.Add("set $RegistryKeyword") } }
+function Restart-Adapter($adapter) { $log.Add('restart') }
+ConvertTo-Json -Compress -Depth 4 -InputObject @{ report = (Invoke-Apply); log = @($log) }
+"##,
+                &environment,
+            )
+        };
+        let early = apply(Some("120"))?;
+        assert_eq!(
+            early["log"],
+            serde_json::json!(["set *WakeOnMagicPacket", "restart"])
+        );
+        assert_eq!(early["report"]["restarted"], serde_json::json!(["{G}"]));
+        assert_eq!(early["report"]["after_reboot"], serde_json::json!([]));
+        let late = apply(Some("0.000001"))?;
+        assert_eq!(late["log"], serde_json::json!(["set *WakeOnMagicPacket"]));
+        assert_eq!(late["report"]["restarted"], serde_json::json!([]));
+        assert_eq!(late["report"]["after_reboot"], serde_json::json!(["{G}"]));
+        // Without its deadline the script changes nothing.
+        assert!(apply(None).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn the_host_kills_apply_only_after_its_last_restart_could_end() {
+        assert!(APPLY_TIMEOUT >= RESTART_ALLOWANCE * 2);
+        assert!(SETTINGS_TIMEOUT > READ_TIMEOUT + APPLY_TIMEOUT);
+    }
+
+    #[test]
+    fn a_child_past_its_timeout_is_stopped() {
+        let started = Instant::now();
+        let error = output_within(
+            std::process::Command::new("ping").args(["-n", "30", "127.0.0.1"]),
+            b"",
+            Duration::from_millis(500),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("did not finish"), "{error:#}");
+        assert!(started.elapsed() < Duration::from_secs(10));
+        let (status, stdout, _) = output_within(
+            std::process::Command::new("cmd").args(["/d", "/c", "findstr", "x"]),
+            b"x marks it\r\n",
+            Duration::from_secs(30),
+        )
+        .unwrap();
+        assert!(status.success());
+        assert_eq!(stdout.trim(), "x marks it");
     }
 }

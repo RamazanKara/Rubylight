@@ -1,7 +1,9 @@
-//! Wake-on-LAN and sleep after idle: the MAC policy, NIC readiness, `IdleSleep` and `WakeGrace` (`docs/wake-and-audio-design.md`).
+//! Wake-on-LAN and sleep after idle: the MAC policy, NIC readiness,
+//! [`idle::IdleSleep`] and [`grace::WakeGrace`] (`docs/wake-and-audio-design.md`).
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv4Addr};
 
+pub mod grace;
 pub mod idle;
 mod readiness;
 pub use readiness::*;

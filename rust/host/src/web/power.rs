@@ -69,14 +69,14 @@ async fn fix(h: &Shared, data: &Value) -> Response {
         Err(e) => return error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     };
     if plan.is_empty() {
-        return Json(json!({"status":true,"changes":[]})).into_response();
+        return Json(json!({"status":true,"changes":[],"skipped":plan.skipped})).into_response();
     }
     if let Err(refusal) = crate::wake::request_fix(h, &plan) {
         return error(StatusCode::CONFLICT, &refusal.to_string());
     }
     (
         StatusCode::ACCEPTED,
-        Json(json!({"status":true,"changes":plan.changes()})),
+        Json(json!({"status":true,"changes":plan.changes(),"skipped":plan.skipped})),
     )
         .into_response()
 }
@@ -160,7 +160,10 @@ mod tests {
         let last = last_fix(&f).await;
         assert!(started.elapsed() >= crate::wake::FIX_DELAY);
         // Fast Startup is inactive on the fake PC (no hibernate), so the plan leaves it.
-        assert_eq!(*fake.fixes.lock().unwrap(), [false]);
+        let fixes = fake.fixes.lock().unwrap().clone();
+        assert_eq!(fixes.len(), 1);
+        assert!(!fixes[0].fast_startup_off);
+        assert_eq!(json!(fixes[0].changes()), accepted["changes"]);
         assert_eq!(&last["changes"], &accepted["changes"]);
         assert_eq!(last["errors"], json!([]));
     }
@@ -250,6 +253,70 @@ mod tests {
         assert!(f.host.wake.console.lock().unwrap().is_none());
         request(&f, "GET", "/api/config", Value::Null).await;
         assert!(f.host.wake.console.lock().unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn a_console_poll_leaves_the_idle_time_and_a_post_refreshes_it() {
+        use super::super::parity_tests::request_with;
+        let f = Fixture::new();
+        Fake::new().on(&f.host);
+        let poll = [("X-Rubylight-Poll", "1")];
+        for path in ["/api/config", "/api/metadata", "/api/clients/pending"] {
+            request_with(&f, "GET", path, Value::Null, &poll).await;
+        }
+        assert!(f.host.wake.console.lock().unwrap().is_none());
+        // A write is someone at the console, whatever it carries.
+        let bad = json!({"fast_startup_off": "yes"});
+        let refused = request_with(&f, "POST", "/api/power/wake/fix", bad, &poll).await;
+        value(refused, StatusCode::BAD_REQUEST).await;
+        assert!(f.host.wake.console.lock().unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn a_cross_origin_or_csrf_less_fix_is_refused() {
+        use super::super::parity_tests::request_with;
+        use axum::{Extension, body::Body, extract::Request, http::header};
+        use tower::ServiceExt;
+        let f = Fixture::new();
+        let fake = Fake::new().on(&f.host);
+        let origin = [("Origin", "https://evil.example")];
+        let foreign = request_with(&f, "POST", "/api/power/wake/fix", json!({}), &origin).await;
+        value(foreign, StatusCode::FORBIDDEN).await;
+        // A browser session's cookie without its CSRF token.
+        let (access, _, csrf, _) = f
+            .host
+            .new_web_session(
+                "parity".into(),
+                false,
+                "test".into(),
+                "127.0.0.1".into(),
+                None,
+            )
+            .unwrap();
+        let post = |csrf: Option<&str>| {
+            let mut builder = Request::builder()
+                .method("POST")
+                .uri("/api/power/wake/fix")
+                .header(header::COOKIE, format!("__Host-apollo_session={access}"))
+                .header(header::CONTENT_TYPE, "application/json");
+            if let Some(csrf) = csrf {
+                builder = builder.header("X-CSRF-Token", csrf);
+            }
+            super::super::router(f.host.clone())
+                .layer(Extension(f.connection(true)))
+                .oneshot(builder.body(Body::from("{}")).unwrap())
+        };
+        let refused = value(post(None).await.unwrap(), StatusCode::BAD_REQUEST).await;
+        assert!(
+            refused["error"].as_str().unwrap().contains("CSRF"),
+            "{refused}"
+        );
+        value(post(Some("wrong")).await.unwrap(), StatusCode::BAD_REQUEST).await;
+        assert!(fake.fixes.lock().unwrap().is_empty());
+        assert_eq!(fake.nic_reads.load(std::sync::atomic::Ordering::SeqCst), 0);
+        // The same session with its token gets through.
+        value(post(Some(&csrf)).await.unwrap(), StatusCode::ACCEPTED).await;
+        last_fix(&f).await;
     }
 
     #[tokio::test]

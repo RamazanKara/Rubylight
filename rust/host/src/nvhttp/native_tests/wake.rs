@@ -25,19 +25,11 @@ async fn wake_matches_the_documented_fixture() {
     assert_eq!(wake.targets[0].state, TargetState::Ready);
     let mut got = reply.json();
     let expected: Value = serde_json::from_str(FIXTURE).unwrap();
-    // The MACs are in /serverinfo's upper case; the fixture writes them in lower case.
-    let lower = |value: &mut Value| {
-        if let Some(mac) = value.as_str() {
-            *value = mac.to_ascii_lowercase().into();
-        }
-    };
-    lower(&mut got["primary"]);
     let targets = got["targets"].as_array_mut().unwrap();
     for (target, documented) in targets
         .iter_mut()
         .zip(expected["targets"].as_array().unwrap())
     {
-        lower(&mut target["mac"]);
         // The fixture shows the first checks; the host may add information-only ones.
         let checks = target["checks"].as_array_mut().unwrap();
         let shown = documented["checks"].as_array().unwrap().len();

@@ -157,15 +157,15 @@ Modern Standby: Windows documents no call a service can use to enter Modern Stan
 
 ### A.6 Native API `GET /api/native/v1/wake`
 
-Feature `wake`. Any paired device with List, View or Launch can read it. Paired clients already see `<mac>`; `docs/privacy.md` will name the additional adapters.
+Feature `wake`. Any paired device with List, View or Launch can read it. Paired clients already see `<mac>`; `docs/privacy.md` names the additional adapters. MACs are upper case with colons, like `/serverinfo`'s `<mac>`.
 
 ```json
 {
   "revision": 1,
-  "primary": "04:7c:16:b4:13:4f",
+  "primary": "04:7C:16:B4:13:4F",
   "targets": [
     {
-      "mac": "04:7c:16:b4:13:4f",
+      "mac": "04:7C:16:B4:13:4F",
       "kind": "ethernet",
       "connected": true,
       "route": true,

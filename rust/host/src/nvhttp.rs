@@ -199,6 +199,7 @@ fn authenticated(h: &Shared, connection: &Connection, permission: u32) -> Result
         };
         bail!("client permission denied: enable {permission} for this device in the host console");
     }
+    crate::wake::note_client_request(h);
     Ok(c.clone())
 }
 /// Watching a stream needs the view or the launch permission, as in

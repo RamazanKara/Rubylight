@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 pub const TICK: Duration = Duration::from_secs(30);
 /// A gap between the two clocks that grows by more than this between two
 /// ticks is a sleep.
-const RESUME_GAP: Duration = Duration::from_secs(30);
+pub(super) const RESUME_GAP: Duration = Duration::from_secs(30);
 
 pub const ES_SYSTEM_REQUIRED: u32 = 0x1;
 pub const ES_DISPLAY_REQUIRED: u32 = 0x2;
@@ -86,8 +86,9 @@ pub struct Snapshot {
     /// `SystemExecutionState`.
     pub execution: Result<u32, String>,
     pub input: Input,
-    /// How long the PC has slept since it started (`wake::slept_ms`).
-    pub slept: Duration,
+    /// How long the PC has slept since it started (`wake::slept_ms`). An
+    /// error blocks sleep: a resume could go unnoticed.
+    pub slept: Result<Duration, String>,
 }
 
 /// The answer to a snapshot.
@@ -168,10 +169,10 @@ impl IdleSleep {
     /// The status for `snapshot`; `sleep` only when every condition holds.
     pub fn tick(&mut self, snapshot: &Snapshot) -> Status {
         let now = snapshot.now;
-        if self
-            .slept
-            .replace(snapshot.slept)
-            .is_some_and(|slept| snapshot.slept > slept + RESUME_GAP)
+        // A failed reading keeps the last one, so the next good one still
+        // sees a resume in between.
+        if let Ok(slept) = &snapshot.slept
+            && resumed(&mut self.slept, *slept)
         {
             self.quiet_since = now;
         }
@@ -224,6 +225,9 @@ impl IdleSleep {
                 }
             }
         }
+        if let Err(error) = &snapshot.slept {
+            return blocked(&format!("the sleep clock is unreadable: {error}"));
+        }
         let input = match &snapshot.input {
             Input::Failed(error) => return blocked(&format!("local input is unknown: {error}")),
             Input::Idle(idle) => *idle,
@@ -256,6 +260,12 @@ impl IdleSleep {
     pub fn attempted(&mut self, now: Instant) {
         self.quiet_since = now;
     }
+}
+
+/// Whether the PC slept since the `last` reading, which becomes `slept`.
+pub(super) fn resumed(last: &mut Option<Duration>, slept: Duration) -> bool {
+    last.replace(slept)
+        .is_some_and(|last| slept > last + RESUME_GAP)
 }
 
 #[cfg(test)]
@@ -296,7 +306,7 @@ mod tests {
                     console: None,
                     execution: Ok(0),
                     input: Input::Idle(Duration::from_secs(604_800)),
-                    slept: Duration::ZERO,
+                    slept: Ok(Duration::ZERO),
                 },
             }
         }
@@ -394,12 +404,24 @@ mod tests {
         let mut pc = Pc::new();
         assert!(pc.at(20 * MINUTE).sleep);
         // The PC slept for an hour (by itself or through us).
-        pc.snapshot.slept = 60 * MINUTE;
+        pc.snapshot.slept = Ok(60 * MINUTE);
         assert!(!pc.at(81 * MINUTE).sleep);
         assert!(pc.at(91 * MINUTE).sleep);
         // Clock jitter under the gap isn't a resume.
-        pc.snapshot.slept += Duration::from_secs(5);
+        pc.snapshot.slept = Ok(60 * MINUTE + Duration::from_secs(5));
         assert!(pc.at(92 * MINUTE).sleep);
+    }
+
+    #[test]
+    fn an_unreadable_sleep_clock_blocks_and_hides_no_resume() {
+        let mut pc = Pc::new();
+        assert!(pc.at(MINUTE).remaining.is_some());
+        pc.snapshot.slept = Err("QueryUnbiasedInterruptTime failed".into());
+        pc.blocked(20 * MINUTE, "sleep clock is unreadable");
+        // It slept meanwhile: the next good reading still restarts the interval.
+        pc.snapshot.slept = Ok(60 * MINUTE);
+        assert!(!pc.at(21 * MINUTE).sleep);
+        assert!(pc.at(31 * MINUTE).sleep);
     }
 
     #[test]

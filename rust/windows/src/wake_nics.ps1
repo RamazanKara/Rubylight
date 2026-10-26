@@ -8,16 +8,38 @@
 #                     "magic_packet_only", "keywords": {keyword: value},
 #                     "errors": [...]}]}
 #   apply            the FixPlan JSON in $env:BUTTERPOLLO_WAKE_PLAN; prints
-#                     {"restarted": [guid], "errors": [...]}
+#                     {"restarted": [guid], "after_reboot": [guid],
+#                     "errors": [...]}
 param([Parameter(Mandatory)][ValidateSet('read', 'apply')][string]$Mode)
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 $keywords = @('*WakeOnMagicPacket', '*WakeOnPattern', '*ModernStandbyWoLMagicPacket', 'S5WakeOnLan')
 
 function Find-Wmi([string]$Class, [string]$Pnp) {
-    # InstanceName is the PnP id followed by `_0`.
+    # An empty id would match every adapter's instance.
+    if (-not $Pnp) { throw 'the adapter has no PnP id' }
+    # InstanceName is the PnP id followed by `_0`; a longer id that starts
+    # with this one is another device.
+    $pattern = [Management.Automation.WildcardPattern]::Escape($Pnp) + '_*'
     @(Get-CimInstance -Namespace root\wmi -ClassName $Class |
-        Where-Object { $_.InstanceName.StartsWith($Pnp, [StringComparison]::OrdinalIgnoreCase) })
+        Where-Object { $_.InstanceName -like $pattern })
+}
+
+function Restart-Adapter($adapter) {
+    # Restart-NetAdapter disables, then enables; an error between the two
+    # would leave the adapter off, so it is enabled again whatever happens.
+    # A killed process runs no finally: the host never kills this script
+    # while it may still start a restart (see Invoke-Apply).
+    try {
+        $adapter | Disable-NetAdapter -Confirm:$false
+    } finally {
+        try {
+            $adapter | Enable-NetAdapter -Confirm:$false
+        } catch {
+            Start-Sleep -Seconds 2
+            $adapter | Enable-NetAdapter -Confirm:$false
+        }
+    }
 }
 
 function Read-Adapter($adapter) {
@@ -52,9 +74,17 @@ function Read-Adapter($adapter) {
 }
 
 function Invoke-Apply {
+    # The host kills this script at its deadline. A restart starts only while
+    # $env:BUTTERPOLLO_WAKE_RESTART_BEFORE seconds have not passed, which
+    # leaves a minute before the kill; after that the changed properties are
+    # saved but take effect when the PC restarts.
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $restartBefore = [double]$env:BUTTERPOLLO_WAKE_RESTART_BEFORE
+    if ($restartBefore -le 0) { throw 'BUTTERPOLLO_WAKE_RESTART_BEFORE is not set' }
     $plan = $env:BUTTERPOLLO_WAKE_PLAN | ConvertFrom-Json
     $errors = @()
     $restarted = @()
+    $afterReboot = @()
     foreach ($fix in @($plan.adapters)) {
         $adapter = Get-NetAdapter -Physical | Where-Object { ([string]$_.InterfaceGuid) -eq $fix.guid }
         if (-not $adapter) {
@@ -82,9 +112,11 @@ function Invoke-Apply {
                 }
             } catch { $errors += "$($fix.guid) MSNdis_DeviceWakeOnMagicPacketOnly: $_" }
         }
-        if ($changed) {
+        if ($changed -and $clock.Elapsed.TotalSeconds -ge $restartBefore) {
+            $afterReboot += $fix.guid
+        } elseif ($changed) {
             try {
-                $adapter | Restart-NetAdapter
+                Restart-Adapter $adapter
                 $restarted += $fix.guid
             } catch { $errors += "$($fix.guid) restart: $_" }
         }
@@ -94,7 +126,7 @@ function Invoke-Apply {
             Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power' -Name HiberbootEnabled -Value 0 -Type DWord
         } catch { $errors += "HiberbootEnabled: $_" }
     }
-    @{ restarted = $restarted; errors = $errors }
+    @{ restarted = $restarted; after_reboot = $afterReboot; errors = $errors }
 }
 
 if ($Mode -eq 'read') {

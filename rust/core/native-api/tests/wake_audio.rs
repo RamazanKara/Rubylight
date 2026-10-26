@@ -56,7 +56,7 @@ fn feature_names_match_the_spec() {
 #[test]
 fn wake_round_trip() {
     let wake: Wake = round_trip("wake");
-    assert_eq!(wake.primary.as_deref(), Some("02:7c:16:b4:13:4f"));
+    assert_eq!(wake.primary.as_deref(), Some("02:7C:16:B4:13:4F"));
     assert_eq!(wake.targets.len(), 2);
     let wired = &wake.targets[0];
     assert_eq!(wired.kind, AdapterKind::Ethernet);

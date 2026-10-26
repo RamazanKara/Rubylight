@@ -284,6 +284,9 @@ pub struct FixPlan {
     pub adapters: Vec<AdapterFix>,
     /// `HiberbootEnabled = 0`, a separate choice offered while Fast Startup is active.
     pub fast_startup_off: bool,
+    /// Adapters that need a change the script can't make, and why.
+    #[serde(default)]
+    pub skipped: Vec<String>,
 }
 
 impl FixPlan {
@@ -299,8 +302,8 @@ impl FixPlan {
         let physical: Vec<_> = adapters.iter().filter(|a| a.physical()).collect();
         let wired = physical.iter().any(|a| a.medium == Medium::Wired);
         let mut plan = Self {
-            adapters: Vec::new(),
             fast_startup_off: fast_startup_off && system.fast_startup_active(),
+            ..Self::default()
         };
         for adapter in physical {
             if wired && adapter.medium != Medium::Wired {
@@ -326,9 +329,19 @@ impl FixPlan {
             if system.modern_standby {
                 set(MODERN_STANDBY_MAGIC_PACKET);
             }
-            if fix.wake_enable || fix.magic_packet_only || !fix.keywords.is_empty() {
-                plan.adapters.push(fix);
+            if !(fix.wake_enable || fix.magic_packet_only || !fix.keywords.is_empty()) {
+                continue;
             }
+            // The script finds the WMI settings by PnP id; an empty one would
+            // match every adapter.
+            if fix.pnp.trim().is_empty() {
+                plan.skipped.push(format!(
+                    "{}: Windows reports no device id for it, so its wake settings can't be changed",
+                    fix.name
+                ));
+                continue;
+            }
+            plan.adapters.push(fix);
         }
         plan
     }
@@ -377,6 +390,9 @@ impl FixPlan {
 pub struct ApplyReport {
     /// The adapters restarted for a changed advanced property.
     pub restarted: Vec<String>,
+    /// The adapters whose changed property takes effect at the next restart
+    /// of the PC: the script was too close to its deadline to restart them.
+    pub after_reboot: Vec<String>,
     pub errors: Vec<String>,
 }
 
@@ -569,6 +585,7 @@ mod tests {
                 }],
                 // Fast Startup isn't active without hibernate.
                 fast_startup_off: false,
+                skipped: Vec::new(),
             }
         );
         assert_eq!(
@@ -645,5 +662,35 @@ mod tests {
         let plan = FixPlan::new(&laptop, &report, &S3, false);
         assert_eq!(plan.adapters.len(), 1);
         assert!(plan.adapters[0].wake_enable && plan.adapters[0].keywords.is_empty());
+    }
+
+    #[test]
+    fn an_adapter_without_a_pnp_id_is_skipped_with_the_reason() {
+        let adapters = this_pc();
+        let mut report = report("en");
+        let realtek = report
+            .adapters
+            .iter_mut()
+            .find(|a| a.name == "Ethernet")
+            .unwrap();
+        // Its WMI instances can't be told apart from every other adapter's.
+        realtek.pnp = " ".into();
+        realtek.wake_enable = Some(false);
+        let plan = FixPlan::new(&adapters, &report, &S3, false);
+        assert!(plan.adapters.is_empty() && plan.is_empty());
+        assert_eq!(
+            plan.skipped,
+            [
+                "Ethernet: Windows reports no device id for it, so its wake settings can't be changed"
+            ]
+        );
+        assert!(plan.changes().is_empty());
+        // Nothing to change on it: nothing to report either.
+        let mut set = report.clone();
+        set.adapters.iter_mut().for_each(|a| {
+            a.wake_enable = Some(true);
+            a.magic_packet_only = Some(true);
+        });
+        assert!(FixPlan::new(&adapters, &set, &S3, false).skipped.is_empty());
     }
 }

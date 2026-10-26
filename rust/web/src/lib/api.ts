@@ -1,5 +1,6 @@
 // Typed client for the Rubylight admin API (/api on the console port).
 // Sessions live in HttpOnly cookies; writes carry the session's CSRF token.
+import { polled } from './format';
 
 export class ApiError extends Error {
   constructor(
@@ -98,8 +99,10 @@ async function send(
   body: unknown,
   timeout: number,
   retried = false,
+  background = polled(),
 ): Promise<{ response: Response; text: string }> {
   const headers: Record<string, string> = {};
+  if (background) headers['X-Rubylight-Poll'] = '1';
   if (method !== 'GET') {
     if (!csrfToken) await refreshCsrf();
     headers['X-CSRF-Token'] = csrfToken;
@@ -112,14 +115,14 @@ async function send(
   );
   if (retried || path.startsWith('/api/auth/')) return reply;
   if (reply.response.status === 401) {
-    if (await refreshSession()) return send(method, path, body, timeout, true);
+    if (await refreshSession()) return send(method, path, body, timeout, true, background);
     onSignedOut?.();
     return reply;
   }
   // CSRF tokens are regenerated when the host restarts.
   if (reply.response.status === 400 && method !== 'GET' && reply.text.includes('CSRF token required')) {
     await refreshCsrf();
-    return send(method, path, body, timeout, true);
+    return send(method, path, body, timeout, true, background);
   }
   return reply;
 }

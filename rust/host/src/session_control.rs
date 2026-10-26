@@ -309,6 +309,15 @@ impl Host {
             .fill(&mut snapshot, |device| self.radeon.holds(device));
         snapshot
     }
+    /// The session state without waiting for an action that holds the
+    /// session (`None` then), and without bringing it up to date first.
+    pub fn try_session_state(&self) -> Option<State> {
+        match self.session.try_lock() {
+            Ok(control) => Some(control.machine.state()),
+            Err(TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner().machine.state()),
+            Err(TryLockError::WouldBlock) => None,
+        }
+    }
     /// Follow the host between launches and teardowns: a stream starts or
     /// ends, a launch is never joined, the game exits. Every housekeeping
     /// tick.

@@ -11,6 +11,8 @@ const LFE: usize = 3;
 /// LFE goes to both ears at -6 dB, unfiltered.
 const LFE_GAIN: f32 = 0.5;
 const SURROUND: u32 = 16 | 32 | 512 | 1024;
+/// Frames rendered per register block.
+const BLOCK: usize = 16;
 
 /// How a source endpoint lands in the 8 capture channels.
 #[derive(Clone, Debug, PartialEq)]
@@ -101,6 +103,9 @@ struct Speaker {
 pub struct Binaural {
     speakers: Vec<Speaker>,
     lfe: Option<f32>,
+    /// Each ear's output of the packet being rendered.
+    left: Vec<f32>,
+    right: Vec<f32>,
 }
 
 impl Binaural {
@@ -127,6 +132,8 @@ impl Binaural {
         Self {
             speakers,
             lfe: layout.present[LFE].then_some(LFE_GAIN * level),
+            left: Vec::new(),
+            right: Vec::new(),
         }
     }
 
@@ -134,22 +141,64 @@ impl Binaural {
     pub fn render(&mut self, input: &[f32], output: &mut [f32]) {
         let frames = input.len() / 8;
         debug_assert_eq!(output.len(), frames * 2);
+        let (left, right) = (&mut self.left, &mut self.right);
+        left.clear();
+        right.clear();
         match self.lfe {
             Some(gain) => {
-                for (out, frame) in output.chunks_exact_mut(2).zip(input.chunks_exact(8)) {
-                    out.fill(frame[LFE] * gain);
-                }
+                left.extend(input.iter().skip(LFE).step_by(8).map(|x| x * gain));
+                right.extend_from_slice(left);
             }
-            None => output.fill(0.),
+            None => {
+                left.resize(frames, 0.);
+                right.resize(frames, 0.);
+            }
         }
         for speaker in &mut self.speakers {
             speaker.feed(input);
-            for (n, out) in output.chunks_exact_mut(2).enumerate() {
-                let (left, right) = dot(&speaker.taps, &speaker.line[n..n + TAPS]);
-                out[0] += left;
-                out[1] += right;
+            // BLOCK frames at a time, tap by tap: both ears' sums stay in
+            // registers and each step is a contiguous multiply-add across
+            // frames, so it vectorizes.
+            let blocks = frames / BLOCK * BLOCK;
+            for start in (0..blocks).step_by(BLOCK) {
+                let (mut l, mut r) = ([0f32; BLOCK], [0f32; BLOCK]);
+                for (tap, (hl, hr)) in speaker.taps[0].iter().zip(&speaker.taps[1]).enumerate() {
+                    let x: &[f32; BLOCK] = speaker.line[start + tap..start + tap + BLOCK]
+                        .try_into()
+                        .unwrap();
+                    for ((a, b), x) in l.iter_mut().zip(r.iter_mut()).zip(x) {
+                        *a += hl * x;
+                        *b += hr * x;
+                    }
+                }
+                for (y, a) in left[start..start + BLOCK].iter_mut().zip(l) {
+                    *y += a;
+                }
+                for (z, b) in right[start..start + BLOCK].iter_mut().zip(r) {
+                    *z += b;
+                }
+            }
+            for n in blocks..frames {
+                let window = &speaker.line[n..n + TAPS];
+                left[n] += speaker.taps[0]
+                    .iter()
+                    .zip(window)
+                    .map(|(h, x)| h * x)
+                    .sum::<f32>();
+                right[n] += speaker.taps[1]
+                    .iter()
+                    .zip(window)
+                    .map(|(h, x)| h * x)
+                    .sum::<f32>();
             }
             speaker.line.drain(..frames);
+        }
+        for (out, (l, r)) in output
+            .chunks_exact_mut(2)
+            .zip(left.iter().zip(right.iter()))
+        {
+            out[0] = *l;
+            out[1] = *r;
         }
     }
 
@@ -169,22 +218,6 @@ impl Speaker {
         self.line
             .extend(input.iter().skip(self.slot).step_by(8).copied());
     }
-}
-
-/// Both ears' dot products over one window, in 8 lanes so it vectorizes.
-fn dot(taps: &[[f32; TAPS]; 2], window: &[f32]) -> (f32, f32) {
-    let (mut left, mut right) = ([0f32; 8], [0f32; 8]);
-    for ((l, r), x) in taps[0]
-        .chunks_exact(8)
-        .zip(taps[1].chunks_exact(8))
-        .zip(window.chunks_exact(8))
-    {
-        for lane in 0..8 {
-            left[lane] += l[lane] * x[lane];
-            right[lane] += r[lane] * x[lane];
-        }
-    }
-    (left.iter().sum(), right.iter().sum())
 }
 
 /// Applies the 2x8 `downmix` to interleaved 8-channel `input`, skipping zero
@@ -246,17 +279,44 @@ mod tests {
         assert!(seven.surround());
         assert_eq!(
             seven.directions(),
-            [Some(30), Some(-30), Some(0), None, Some(135), Some(-135), Some(90), Some(-90)]
+            [
+                Some(30),
+                Some(-30),
+                Some(0),
+                None,
+                Some(135),
+                Some(-135),
+                Some(90),
+                Some(-90)
+            ]
         );
         let back = Layout::new(6, FIVE_ONE_BACK).unwrap();
         assert_eq!(
             back.directions(),
-            [Some(30), Some(-30), Some(0), None, Some(110), Some(-110), None, None]
+            [
+                Some(30),
+                Some(-30),
+                Some(0),
+                None,
+                Some(110),
+                Some(-110),
+                None,
+                None
+            ]
         );
         let side = Layout::new(6, FIVE_ONE_SIDE).unwrap();
         assert_eq!(
             side.directions(),
-            [Some(30), Some(-30), Some(0), None, None, None, Some(110), Some(-110)]
+            [
+                Some(30),
+                Some(-30),
+                Some(0),
+                None,
+                None,
+                None,
+                Some(110),
+                Some(-110)
+            ]
         );
         // No surround speakers: today's downmix stays.
         let stereo = Layout::new(2, 3).unwrap();
@@ -268,7 +328,13 @@ mod tests {
 
     #[test]
     fn the_downmix_of_the_8_slots_matches_2_channel_capture() {
-        for (channels, mask) in [(8, SEVEN_ONE), (6, FIVE_ONE_BACK), (6, FIVE_ONE_SIDE), (2, 3), (1, 4)] {
+        for (channels, mask) in [
+            (8, SEVEN_ONE),
+            (6, FIVE_ONE_BACK),
+            (6, FIVE_ONE_SIDE),
+            (2, 3),
+            (1, 4),
+        ] {
             let layout = Layout::new(channels, mask).unwrap();
             let stereo = crate::audio::mix_matrix(channels, mask, 2).unwrap();
             let eight = crate::audio::mix_matrix(channels, mask, 8).unwrap();
@@ -355,14 +421,16 @@ mod tests {
                     want[n * 2 + e] += match azimuth {
                         Some(azimuth) => {
                             let h = &hrir::pair(*azimuth)[e];
-                            (0..TAPS.min(n + 1)).map(|k| h[k] as f64 * x(k)).sum::<f64>()
+                            (0..TAPS.min(n + 1))
+                                .map(|k| h[k] as f64 * x(k))
+                                .sum::<f64>()
                         }
                         None => 0.5 * x(0),
                     } * level as f64;
                 }
             }
         }
-        for packet in [240, 480, 960, 4800] {
+        for packet in [100, 240, 480, 960, 4800] {
             let mut binaural = Binaural::new(&layout, level);
             let mut got = Vec::new();
             for chunk in input.chunks(packet * 8) {

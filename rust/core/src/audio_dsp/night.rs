@@ -283,7 +283,11 @@ mod tests {
         night.process(&mut quiet, 2, true);
         assert!((night.leveller_db() - LEVEL_MAX_DB).abs() < 1.);
         let tail = &quiet[quiet.len() - 96_000..];
-        assert!((rms_db(tail) - (-43. + LEVEL_MAX_DB)).abs() < 1., "{}", rms_db(tail));
+        assert!(
+            (rms_db(tail) - (-43. + LEVEL_MAX_DB)).abs() < 1.,
+            "{}",
+            rms_db(tail)
+        );
 
         let mut night = Night::default();
         let mut moderate = sine(-20., 440., 48_000 * 20, 2);
@@ -309,7 +313,11 @@ mod tests {
         assert!(before > 5.);
         let mut pause = sine(-70., 440., 48_000 * 10, 2);
         night.process(&mut pause, 2, true);
-        assert!((night.leveller_db() - before).abs() < 0.2, "{before} {}", night.leveller_db());
+        assert!(
+            (night.leveller_db() - before).abs() < 0.2,
+            "{before} {}",
+            night.leveller_db()
+        );
 
         let mut night = Night::default();
         let mut quiet = sine(-40., 440., 48_000, 2);

@@ -106,6 +106,19 @@ pub fn user_sid() -> Option<String> {
     let token = user_token.as_ref().unwrap_or(&own);
     token_user_sid(token).ok()
 }
+/// For an elevated administrator host that is not SYSTEM: the desktop
+/// shell's standard-rights token of the same user, to act as that user
+/// without administrator rights. None when this host is not elevated, or
+/// when the shell is elevated too (User Account Control is off). An error
+/// when the shell is not running or belongs to another user, as after an
+/// over-the-shoulder elevation.
+pub fn standard_user_token() -> Result<Option<OwnedHandle>> {
+    let own = token()?;
+    if !token_elevated(&own)? {
+        return Ok(None);
+    }
+    shell_token(&own)
+}
 /// The SID of the account this process runs as (`S-1-5-18` for SYSTEM), unlike [`user_sid`], which
 /// names the signed-in user when this process is SYSTEM.
 pub fn own_sid() -> Result<String> {
@@ -201,7 +214,7 @@ pub enum Target {
     User { elevated: bool },
     SystemSession(u32),
 }
-fn token_elevated(token: &OwnedHandle) -> Result<bool> {
+pub(crate) fn token_elevated(token: &OwnedHandle) -> Result<bool> {
     let mut info = TOKEN_ELEVATION::default();
     let mut bytes = 0;
     // SAFETY: `info` is a writable TOKEN_ELEVATION and the size passed is its size.

@@ -533,9 +533,16 @@ impl DeadlineSocket {
             .filter(|duration| !duration.is_zero()).ok_or_else(|| ErrorKind::TimedOut.into())).transpose()
     }
 
-    fn moved(&mut self, result: std::io::Result<usize>) -> std::io::Result<usize> {
-        if let (Ok(1..), Some(idle)) = (&result, self.idle) {
-            self.deadline = Some(std::time::Instant::now() + idle);
+    /// Moves the idle deadline once a call moved at least `whole` bytes: any read, but only a
+    /// write the socket took whole. A blocking write comes back short only when its timeout ran
+    /// out with part of it sent, as Linux reports it (Windows fails it). The space freed during
+    /// that wait then takes the next writes at once: counting the short write would let them
+    /// restart the timeout, again and again, for a host that reads nothing.
+    fn moved(&mut self, result: std::io::Result<usize>, whole: usize) -> std::io::Result<usize> {
+        if let (Ok(moved), Some(idle)) = (&result, self.idle) {
+            if *moved > 0 && *moved >= whole {
+                self.deadline = Some(std::time::Instant::now() + idle);
+            }
         }
         result
     }
@@ -547,7 +554,7 @@ impl Read for DeadlineSocket {
             self.socket.set_read_timeout(Some(self.read_timeout.map_or(left, |timeout| timeout.min(left))))?;
         }
         let read = self.socket.read(bytes);
-        self.moved(read)
+        self.moved(read, 1)
     }
 }
 
@@ -557,7 +564,7 @@ impl Write for DeadlineSocket {
             self.socket.set_write_timeout(Some(self.write_timeout.map_or(left, |timeout| timeout.min(left))))?;
         }
         let written = self.socket.write(bytes);
-        self.moved(written)
+        self.moved(written, bytes.len())
     }
     fn flush(&mut self) -> std::io::Result<()> { self.socket.flush() }
 }
@@ -1261,6 +1268,26 @@ mod tests {
             assert!(took < Duration::from_millis(950), "tls {tls}: {took:?}");
             server.join().unwrap();
         }
+    }
+
+    #[test]
+    fn only_whole_writes_and_any_read_move_the_idle_deadline() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let socket = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let idle = Duration::from_secs(60);
+        let start = std::time::Instant::now() + Duration::from_millis(10);
+        let mut tcp = DeadlineSocket { socket, deadline: Some(start), idle: Some(idle), read_timeout: None, write_timeout: None };
+        // What Linux returns for a write whose timeout ran out with part of it sent.
+        tcp.moved(Ok(7876), 16406).unwrap();
+        assert_eq!(tcp.deadline, Some(start));
+        tcp.moved(Err(ErrorKind::TimedOut.into()), 1).unwrap_err();
+        tcp.moved(Ok(0), 1).unwrap();
+        assert_eq!(tcp.deadline, Some(start));
+        tcp.moved(Ok(16406), 16406).unwrap();
+        assert!(tcp.deadline.unwrap() > start + idle / 2);
+        let moved = tcp.deadline;
+        tcp.moved(Ok(1), 1).unwrap();
+        assert!(tcp.deadline >= moved);
     }
 
     #[test]

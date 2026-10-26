@@ -103,7 +103,7 @@ The [Moonlight HEVC fix](https://github.com/Viktsolovevwork278/moonlight-android
 
 ## Candidate per-chip changes
 
-Nightjar already sets Android's standard low-latency flag and every vendor low-latency key a decoder declares (Qualcomm, Exynos and Tensor, Kirin, Amlogic, MediaTek Codec2 and NVIDIA keys), plus the MediaTek and Amazon `vdec-lowlatency` option on their older OMX decoders, subject to the [HEVC compatibility switch](#hevc-low-latency-compatibility) and other decoder settings. The decoder benchmark honors the HEVC switch too. The ideas below still need measurements before adding further chipset tuning. The first two ship as **Experimental chipset tuning** in Advanced settings, off by default: `vdec-lowlatency` on `c2.mtk` decoders, and on Exynos decoders the operating rate they declare for the stream size next to the realtime priority hint. Both are sent on the first configure try only.
+Nightjar already sets Android's standard low-latency flag and every vendor low-latency key a decoder declares (Qualcomm, Exynos and Tensor, Kirin, Amlogic, MediaTek Codec2 and NVIDIA keys), plus the MediaTek and Amazon `vdec-lowlatency` option on their older OMX decoders, subject to the [HEVC compatibility switch](#hevc-low-latency-compatibility) and other decoder settings. The decoder benchmark honors the HEVC switch too. The ideas below still need measurements before adding further chipset tuning.
 
 | Chip family | Idea to measure | How to tell |
 | --- | --- | --- |

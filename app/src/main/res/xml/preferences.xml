@@ -740,11 +740,6 @@
             android:title="@string/title_packed_444"
             android:dialogMessage="@string/summary_packed_444"
             android:defaultValue="false" />
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_experimental_chipset_tuning"
-            android:title="@string/title_experimental_chipset_tuning"
-            android:dialogMessage="@string/summary_experimental_chipset_tuning"
-            android:defaultValue="false" />
         <Preference android:key="latency_benchmark" android:title="@string/latency_benchmark_title"
             android:summary="@string/settings_latency_benchmark_summary" />
         <Preference

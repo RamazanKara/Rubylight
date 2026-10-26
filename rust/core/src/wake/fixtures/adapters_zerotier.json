@@ -1,0 +1,44 @@
+[
+  {
+    "index": 5,
+    "guid": "{00000000-0000-4000-8000-000000000005}",
+    "name": "Ethernet",
+    "mac": "02:11:22:33:44:55",
+    "permanent": "02:11:22:33:44:55",
+    "hardware": true,
+    "connector": true,
+    "medium": "wired",
+    "connected": true,
+    "metric": 25,
+    "ipv4": [
+      [
+        "192.168.1.20",
+        24
+      ]
+    ],
+    "addresses": [
+      "192.168.1.20"
+    ]
+  },
+  {
+    "index": 30,
+    "guid": "{00000000-0000-4000-8000-000000000030}",
+    "name": "ZeroTier One [8056c2e21c000001]",
+    "mac": "D2:3B:4C:5D:6E:7F",
+    "permanent": "D2:3B:4C:5D:6E:7F",
+    "hardware": true,
+    "connector": false,
+    "medium": "wired",
+    "connected": true,
+    "metric": 25,
+    "ipv4": [
+      [
+        "10.147.17.5",
+        24
+      ]
+    ],
+    "addresses": [
+      "10.147.17.5"
+    ]
+  }
+]

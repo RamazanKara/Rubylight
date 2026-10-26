@@ -1,0 +1,68 @@
+[
+  {
+    "index": 12,
+    "guid": "{00000000-0000-4000-8000-000000000112}",
+    "name": "Wi-Fi",
+    "mac": "02:E9:AA:CA:6E:C3",
+    "permanent": "02:E9:AA:CA:6E:C3",
+    "hardware": true,
+    "connector": true,
+    "medium": "wifi",
+    "connected": true,
+    "metric": 35,
+    "ipv4": [
+      [
+        "192.168.4.12",
+        24
+      ]
+    ],
+    "addresses": [
+      "192.168.4.12"
+    ]
+  },
+  {
+    "index": 13,
+    "guid": "{00000000-0000-4000-8000-000000000113}",
+    "name": "Local Area Connection* 1",
+    "mac": "06:E9:AA:CA:4E:E3",
+    "permanent": "06:E9:AA:CA:4E:E3",
+    "hardware": false,
+    "connector": false,
+    "medium": "wifi",
+    "connected": false,
+    "metric": 25
+  },
+  {
+    "index": 9,
+    "guid": "{00000000-0000-4000-8000-000000000109}",
+    "name": "Bluetooth Network Connection",
+    "mac": "02:B7:00:00:00:09",
+    "permanent": "02:B7:00:00:00:09",
+    "hardware": true,
+    "connector": true,
+    "medium": "other",
+    "connected": false,
+    "metric": 65
+  },
+  {
+    "index": 20,
+    "guid": "{00000000-0000-4000-8000-000000000020}",
+    "name": "Ethernet 2",
+    "mac": "02:DC:00:00:00:01",
+    "permanent": "02:DC:00:00:00:01",
+    "hardware": true,
+    "connector": true,
+    "medium": "wired",
+    "connected": true,
+    "metric": 5,
+    "ipv4": [
+      [
+        "192.168.4.30",
+        24
+      ]
+    ],
+    "addresses": [
+      "192.168.4.30"
+    ]
+  }
+]

@@ -1,0 +1,34 @@
+[
+  {
+    "index": 7, "guid": "{875511C7-0EF5-45F7-876C-3BE50726AC42}", "name": "Ethernet",
+    "mac": "02:7C:16:B4:13:4F", "permanent": "02:7C:16:B4:13:4F",
+    "hardware": true, "connector": true, "medium": "wired", "connected": true, "metric": 20,
+    "ipv4": [["192.168.4.20", 24]], "addresses": ["192.168.4.20", "fe80::1c2b:3a4d:5e6f:7a8b"]
+  },
+  {
+    "index": 36, "guid": "{9EDBCD36-5287-4EAC-9C2D-BE5640B6FF4C}", "name": "vEthernet (WSL (Hyper-V firewall))",
+    "mac": "00:15:5D:55:02:28", "permanent": "00:15:5D:55:02:28",
+    "hardware": false, "connector": false, "medium": "wired", "connected": true, "metric": 5000,
+    "ipv4": [["172.30.112.1", 20]], "addresses": ["172.30.112.1", "fe80::5d:55ff:fe02:28"]
+  },
+  {
+    "index": 12, "guid": "{A5234352-A9A6-4D45-8B0B-2A1CA4957AF2}", "name": "WLAN",
+    "mac": "02:E9:AA:CA:6E:C3", "permanent": "02:E9:AA:CA:6E:C3",
+    "hardware": true, "connector": true, "medium": "wifi", "connected": false, "metric": 25
+  },
+  {
+    "index": 21, "guid": "{EC83A7D6-5245-4E5F-97AE-AD2EED2AD8B3}", "name": "LAN-Verbindung* 1",
+    "mac": "06:E9:AA:CA:4E:E3", "permanent": "06:E9:AA:CA:4E:E3",
+    "hardware": false, "connector": false, "medium": "wifi", "connected": false, "metric": 25
+  },
+  {
+    "index": 8, "guid": "{8904C076-22FA-4F31-A2C4-655943CA5C60}", "name": "LAN-Verbindung* 2",
+    "mac": "06:E9:AA:CA:5E:F3", "permanent": "06:E9:AA:CA:5E:F3",
+    "hardware": false, "connector": false, "medium": "wifi", "connected": false, "metric": 25
+  },
+  {
+    "index": 1, "guid": "{00000000-0000-0000-0000-000000000001}", "name": "Loopback Pseudo-Interface 1",
+    "medium": "other", "connected": true, "metric": 75,
+    "ipv4": [["127.0.0.1", 8]], "addresses": ["127.0.0.1", "::1"]
+  }
+]

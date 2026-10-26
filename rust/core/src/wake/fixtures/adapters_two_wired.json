@@ -1,0 +1,65 @@
+[
+  {
+    "index": 4,
+    "guid": "{00000000-0000-4000-8000-000000000004}",
+    "name": "Ethernet",
+    "mac": "02:00:00:00:00:01",
+    "permanent": "02:00:00:00:00:01",
+    "hardware": true,
+    "connector": true,
+    "medium": "wired",
+    "connected": true,
+    "metric": 25,
+    "ipv4": [
+      [
+        "192.168.1.10",
+        24
+      ]
+    ],
+    "addresses": [
+      "192.168.1.10"
+    ]
+  },
+  {
+    "index": 9,
+    "guid": "{00000000-0000-4000-8000-000000000009}",
+    "name": "Ethernet 2",
+    "mac": "02:00:00:00:00:02",
+    "permanent": "02:00:00:00:00:02",
+    "hardware": true,
+    "connector": true,
+    "medium": "wired",
+    "connected": true,
+    "metric": 10,
+    "ipv4": [
+      [
+        "10.0.0.10",
+        24
+      ]
+    ],
+    "addresses": [
+      "10.0.0.10"
+    ]
+  },
+  {
+    "index": 30,
+    "guid": "{00000000-0000-4000-8000-000000000030}",
+    "name": "WireGuard",
+    "mac": null,
+    "permanent": null,
+    "hardware": false,
+    "connector": false,
+    "medium": "other",
+    "connected": true,
+    "metric": 5,
+    "ipv4": [
+      [
+        "100.64.0.1",
+        32
+      ]
+    ],
+    "addresses": [
+      "100.64.0.1"
+    ]
+  }
+]

@@ -1,0 +1,58 @@
+[
+  {
+    "index": 4,
+    "guid": "{00000000-0000-4000-8000-000000000004}",
+    "name": "Ethernet",
+    "mac": "02:AA:BB:CC:DD:01",
+    "permanent": "02:AA:BB:CC:DD:01",
+    "hardware": true,
+    "connector": true,
+    "medium": "wired",
+    "connected": true,
+    "metric": 25,
+    "ipv4": [],
+    "addresses": []
+  },
+  {
+    "index": 12,
+    "guid": "{00000000-0000-4000-8000-000000000012}",
+    "name": "vEthernet (External)",
+    "mac": "02:AA:BB:CC:DD:01",
+    "permanent": "02:AA:BB:CC:DD:01",
+    "hardware": false,
+    "connector": false,
+    "medium": "wired",
+    "connected": true,
+    "metric": 15,
+    "ipv4": [
+      [
+        "192.168.1.50",
+        24
+      ]
+    ],
+    "addresses": [
+      "192.168.1.50"
+    ]
+  },
+  {
+    "index": 20,
+    "guid": "{00000000-0000-4000-8000-000000000020}",
+    "name": "vEthernet (Default Switch)",
+    "mac": "00:15:5D:01:02:03",
+    "permanent": "00:15:5D:01:02:03",
+    "hardware": false,
+    "connector": false,
+    "medium": "wired",
+    "connected": true,
+    "metric": 5000,
+    "ipv4": [
+      [
+        "172.20.0.1",
+        20
+      ]
+    ],
+    "addresses": [
+      "172.20.0.1"
+    ]
+  }
+]

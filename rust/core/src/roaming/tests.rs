@@ -489,7 +489,11 @@ fn a_session_moves_at_most_once_a_second() {
     // A reconnect makes its address the ENet one.
     table.insert("s", &vectors::RIKEY, at(NEW));
     reply_to(table.on_datagram(later, at(OLD), &probe(6)));
-    match table.on_datagram(later + COMMIT_INTERVAL, at(OLD), &confirm(7, vectors::CHALLENGE)) {
+    match table.on_datagram(
+        later + COMMIT_INTERVAL,
+        at(OLD),
+        &confirm(7, vectors::CHALLENGE),
+    ) {
         Ok(Action::Commit { peer, old, new, .. }) => {
             assert_eq!((peer, old, new), (at(NEW), at(NEW), at(OLD)))
         }
@@ -595,8 +599,7 @@ fn a_probe_from_the_current_address_leaves_a_pending_address_elsewhere_in_place(
     // The old path still works now and then, so the client's probes reach it too.
     reply_to(table.on_datagram(now, at(OLD), &probe(2)));
     reply_to(table.on_datagram(now, at(OLD), &probe(3)));
-    let Ok(Action::Reply { datagram, .. }) = table.on_datagram(now, at(OLD), &confirm(4, 2))
-    else {
+    let Ok(Action::Reply { datagram, .. }) = table.on_datagram(now, at(OLD), &confirm(4, 2)) else {
         panic!("the current address's confirm is answered");
     };
     assert!(matches!(host_payload(&datagram), Payload::Migrated { .. }));

@@ -330,11 +330,7 @@ impl Config {
     pub fn boolean(&self, key: &str, default: bool) -> bool {
         self.values
             .get(key)
-            .and_then(|s| match unquote(s.trim()).to_ascii_lowercase().as_str() {
-                "true" | "yes" | "1" | "enable" | "enabled" | "on" => Some(true),
-                "false" | "no" | "0" | "disable" | "disabled" | "off" => Some(false),
-                _ => None,
-            })
+            .and_then(|s| parse_boolean(s))
             .unwrap_or(default)
     }
     /// Whether direct driver push (`idd-push`) uses the GPU fence ring. It is the default;
@@ -620,6 +616,21 @@ impl Config {
         {
             bail!("hardware metrics interval must be between 500 and 10000 milliseconds");
         }
+        for key in [
+            "audio_night_mode",
+            "audio_headphone_surround",
+            "sleep_while_suspended",
+        ] {
+            if changed(key) && parse_boolean(&next.values[key]).is_none() {
+                bail!("{key} must be true or false");
+            }
+        }
+        if changed("sleep_after_idle_minutes")
+            && !parse_integer(&next.values["sleep_after_idle_minutes"])
+                .is_some_and(|minutes| minutes == 0 || (5..=1440).contains(&minutes))
+        {
+            bail!("sleep_after_idle_minutes must be 0 (off) or between 5 and 1440");
+        }
         if changed("hardware_metrics_selection") {
             for metric in next.list("hardware_metrics_selection") {
                 if !HARDWARE_METRICS.contains(&metric.as_str()) {
@@ -845,6 +856,8 @@ pub fn override_allowed(key: &str) -> bool {
         "audio_sink",
         "audio_capture_mode",
         "audio_sink_capture_only",
+        "audio_night_mode",
+        "audio_headphone_surround",
         "virtual_sink",
         "stream_audio",
         "stream_mic",
@@ -950,6 +963,14 @@ fn unquote(value: &str) -> &str {
 /// numbers in quotes (`"30"`), and the console shows them as numbers.
 pub fn number_text(value: &str) -> &str {
     unquote(value.trim()).trim()
+}
+/// A boolean setting's text as the host reads it, `None` when it is neither.
+pub fn parse_boolean(value: &str) -> Option<bool> {
+    match unquote(value.trim()).to_ascii_lowercase().as_str() {
+        "true" | "yes" | "1" | "enable" | "enabled" | "on" => Some(true),
+        "false" | "no" | "0" | "disable" | "disabled" | "off" => Some(false),
+        _ => None,
+    }
 }
 pub fn parse_integer(value: &str) -> Option<i64> {
     let value = number_text(value);
@@ -1574,6 +1595,81 @@ webrtc_media_port = 99999
         ] {
             assert!(!super::override_allowed(key), "{key}");
         }
+    }
+    #[test]
+    fn audio_processing_overrides_per_device_and_app_but_idle_sleep_stays_host_wide() {
+        assert!(super::override_allowed("audio_night_mode"));
+        assert!(super::override_allowed("audio_headphone_surround"));
+        assert!(!super::override_allowed("sleep_after_idle_minutes"));
+        assert!(!super::override_allowed("sleep_while_suspended"));
+    }
+    #[test]
+    fn idle_sleep_minutes_are_off_or_between_5_and_1440() {
+        let mut config = super::Config::default();
+        for value in ["0", "5", "30", "1440", "\"60\""] {
+            change(&mut config, "sleep_after_idle_minutes", value).unwrap();
+        }
+        assert_eq!(config.integer("sleep_after_idle_minutes", -1), 60);
+        for value in ["3", "4", "1441", "-5", "off", "1.5", "true"] {
+            let error = change(&mut config, "sleep_after_idle_minutes", value).unwrap_err();
+            assert!(
+                error.to_string().contains("sleep_after_idle_minutes"),
+                "{value}: {error}"
+            );
+        }
+        assert_eq!(config.integer("sleep_after_idle_minutes", -1), 60);
+        // A JSON number from the console is checked the same way.
+        let mut object = serde_json::Map::new();
+        object.insert("sleep_after_idle_minutes".into(), 3.into());
+        assert!(config.update(&object).is_err());
+        object.insert("sleep_after_idle_minutes".into(), 15.into());
+        config.update(&object).unwrap();
+        assert_eq!(config.integer("sleep_after_idle_minutes", -1), 15);
+        // Null resets it to off.
+        object.insert("sleep_after_idle_minutes".into(), serde_json::Value::Null);
+        config.update(&object).unwrap();
+        assert!(!config.values.contains_key("sleep_after_idle_minutes"));
+    }
+    #[test]
+    fn audio_processing_and_suspended_sleep_settings_are_booleans() {
+        for key in [
+            "audio_night_mode",
+            "audio_headphone_surround",
+            "sleep_while_suspended",
+        ] {
+            let mut config = super::Config::default();
+            for value in ["true", "on", "enabled", "1"] {
+                change(&mut config, key, value).unwrap();
+                assert!(config.boolean(key, false), "{key}={value}");
+            }
+            for value in ["false", "off", "0"] {
+                change(&mut config, key, value).unwrap();
+                assert!(!config.boolean(key, true), "{key}={value}");
+            }
+            for value in ["maybe", "2", "night"] {
+                let error = change(&mut config, key, value).unwrap_err();
+                assert!(error.to_string().contains(key), "{key}={value}: {error}");
+            }
+            let mut object = serde_json::Map::new();
+            object.insert(key.into(), true.into());
+            config.update(&object).unwrap();
+            assert!(config.boolean(key, false), "{key} as a JSON boolean");
+        }
+    }
+    #[test]
+    fn a_device_or_app_audio_override_beats_the_host_and_a_bad_one_is_refused() {
+        // The host applies device, then app overrides onto its own file
+        // through `update`, one key at a time.
+        let mut config = super::Config::parse("audio_night_mode = off\n").unwrap();
+        let layer = |config: &mut super::Config, key: &str, value: serde_json::Value| {
+            config.update(&serde_json::Map::from_iter([(key.to_owned(), value)]))
+        };
+        layer(&mut config, "audio_night_mode", true.into()).unwrap();
+        assert!(config.boolean("audio_night_mode", false));
+        layer(&mut config, "audio_night_mode", "off".into()).unwrap();
+        assert!(!config.boolean("audio_night_mode", true));
+        assert!(layer(&mut config, "audio_headphone_surround", "loud".into()).is_err());
+        assert!(!config.values.contains_key("audio_headphone_surround"));
     }
     use super::*;
     /// A change saved to sunshine.conf, as the settings API does it.

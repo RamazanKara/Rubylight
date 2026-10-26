@@ -60,6 +60,7 @@ mod text;
 pub mod timing;
 pub mod tray;
 pub mod vulkan;
+pub mod wake;
 pub mod window_list;
 pub mod window_placement;
 

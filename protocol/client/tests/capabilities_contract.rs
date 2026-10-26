@@ -77,6 +77,7 @@ fn feature_name(feature: Feature) -> &'static str {
         Feature::WebUi => "web_ui",
         Feature::CursorShape => "cursor_shape",
         Feature::NativeApi => "native_api",
+        Feature::Sleep => "sleep",
     }
 }
 
@@ -91,6 +92,7 @@ fn reason_name(reason: Reason) -> &'static str {
         Reason::VirtualDisplayOff => "virtual_display_off",
         Reason::VirtualDisplayDriver => "virtual_display_driver",
         Reason::HardwareMetricsOff => "hardware_metrics_off",
+        Reason::SleepPermission => "sleep_permission",
     }
 }
 

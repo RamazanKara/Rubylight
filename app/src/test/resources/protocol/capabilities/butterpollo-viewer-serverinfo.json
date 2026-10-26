@@ -27,6 +27,7 @@
     "host_timing": "supported",
     "web_ui": "supported",
     "cursor_shape": "unsupported",
-    "native_api": "unsupported:update_host"
+    "native_api": "unsupported:update_host",
+    "sleep": "unsupported:update_host"
   }
 }

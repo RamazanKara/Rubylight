@@ -65,6 +65,7 @@ public class HostCapabilitiesContractTest {
             case WEB_UI: return "web_ui";
             case CURSOR_SHAPE: return "cursor_shape";
             case NATIVE_API: return "native_api";
+            case SLEEP: return "sleep";
             default: return null;
         }
     }
@@ -80,6 +81,7 @@ public class HostCapabilitiesContractTest {
             case VIRTUAL_DISPLAY_OFF: return "virtual_display_off";
             case VIRTUAL_DISPLAY_DRIVER: return "virtual_display_driver";
             case HARDWARE_METRICS_OFF: return "hardware_metrics_off";
+            case SLEEP_PERMISSION: return "sleep_permission";
             default: throw new AssertionError("Reason " + reason + " has no contract name");
         }
     }

@@ -383,16 +383,35 @@ fn udp() -> UdpSocket {
         }
     }
 }
+const PORT_SLOTS: u16 = (40000 - 22000) / 32;
+
+// Each test process starts at its own slot, so two `cargo test` runs at once
+// don't hand out the same ports between `reserve` and the host's own bind.
+fn port_base(start: u16, index: u16) -> u16 {
+    assert!(index < PORT_SLOTS, "fixture host port range exhausted");
+    22000 + (start.wrapping_add(index) % PORT_SLOTS) * 32
+}
 fn free_ports() -> Ports {
-    static NEXT: AtomicU16 = AtomicU16::new(22000);
+    static NEXT: AtomicU16 = AtomicU16::new(0);
+    let start = (std::process::id() % u32::from(PORT_SLOTS)) as u16;
     loop {
-        let base = NEXT.fetch_add(32, Ordering::Relaxed);
-        assert!(base < 40000, "fixture host port range exhausted");
+        let base = port_base(start, NEXT.fetch_add(1, Ordering::Relaxed));
         let ports = Ports::from_base(base);
         if reserve(ports).is_ok() {
             return ports;
         }
     }
+}
+
+#[test]
+fn port_bases_start_per_process_and_stay_in_range() {
+    assert_eq!(port_base(0, 0), 22000);
+    assert_eq!(port_base(7, 0), 22000 + 7 * 32);
+    assert_eq!(port_base(PORT_SLOTS - 1, 1), 22000);
+    let bases: std::collections::HashSet<_> =
+        (0..PORT_SLOTS).map(|i| port_base(300, i)).collect();
+    assert_eq!(bases.len(), usize::from(PORT_SLOTS));
+    assert!(bases.iter().all(|b| (22000..40000 - 31).contains(b)));
 }
 fn reserve(ports: Ports) -> Result<(Vec<std::net::TcpListener>, Vec<UdpSocket>)> {
     let tcp = [ports.http, ports.https, ports.web, ports.rtsp]

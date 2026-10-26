@@ -72,6 +72,8 @@ pub enum RoamEvent {
     /// No MIGRATED in time; the stream's timeout or recovery takes over.
     Failed {
         elapsed: Duration,
+        /// The roaming datagrams the attempt dropped, by reason.
+        rejected: Rejections,
     },
     /// The host was heard again on the old path before it confirmed a move.
     Unneeded {
@@ -91,11 +93,17 @@ impl fmt::Display for RoamEvent {
             Self::Roamed { elapsed } => {
                 write!(f, "Roaming: moved the stream in {} ms", elapsed.as_millis())
             }
-            Self::Failed { elapsed } => write!(
-                f,
-                "Roaming: the PC did not confirm a move within {} ms",
-                elapsed.as_millis()
-            ),
+            Self::Failed { elapsed, rejected } => {
+                write!(
+                    f,
+                    "Roaming: the PC did not confirm a move within {} ms",
+                    elapsed.as_millis()
+                )?;
+                if *rejected != Rejections::default() {
+                    write!(f, "; dropped {rejected}")?;
+                }
+                Ok(())
+            }
             Self::Unneeded { elapsed } => write!(
                 f,
                 "Roaming: the PC answered on the old path after {} ms",
@@ -123,6 +131,59 @@ pub enum Rejected {
     Nonce,
     /// A MIGRATED for a challenge this attempt did not confirm.
     Challenge,
+}
+
+/// The datagrams an attempt dropped, by [`Rejected`] reason, so a failed attempt's log line
+/// tells a host that never answered from answers that did not fit.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Rejections {
+    pub decode: u32,
+    pub direction: u32,
+    pub session: u32,
+    pub replay: u32,
+    pub authentication: u32,
+    pub nonce: u32,
+    pub challenge: u32,
+}
+
+impl Rejections {
+    fn count(&mut self, rejected: Rejected) {
+        let count = match rejected {
+            Rejected::Decode(_) => &mut self.decode,
+            Rejected::Direction => &mut self.direction,
+            Rejected::Session => &mut self.session,
+            Rejected::Replay => &mut self.replay,
+            Rejected::Authentication => &mut self.authentication,
+            Rejected::Nonce => &mut self.nonce,
+            Rejected::Challenge => &mut self.challenge,
+            // Only counted while an attempt runs.
+            Rejected::Idle => return,
+        };
+        *count = count.saturating_add(1);
+    }
+}
+
+impl fmt::Display for Rejections {
+    /// The non-zero counts, such as `2 replayed, 1 for another nonce`.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let counts = [
+            (self.decode, "malformed"),
+            (self.direction, "in the wrong direction"),
+            (self.session, "for another session"),
+            (self.replay, "replayed"),
+            (self.authentication, "unauthenticated"),
+            (self.nonce, "for another nonce"),
+            (self.challenge, "for an unconfirmed challenge"),
+        ];
+        let mut first = true;
+        for (count, reason) in counts {
+            if count > 0 {
+                write!(f, "{}{count} {reason}", if first { "" } else { ", " })?;
+                first = false;
+            }
+        }
+        Ok(())
+    }
 }
 
 /// The roaming key and session tag of a launch's `rikey`.
@@ -182,6 +243,7 @@ struct Attempt {
     confirmed: VecDeque<u64>,
     /// The newest challenge, resent in CONFIRM instead of probing.
     confirming: Option<Confirming>,
+    rejected: Rejections,
 }
 
 #[derive(Clone, Copy)]
@@ -273,6 +335,7 @@ impl Roaming {
                 // A straggler from the old path must not cancel it as a silence's attempt.
                 attempt.trigger = trigger;
                 attempt.started = now;
+                attempt.rejected = Rejections::default();
                 self.events.push(RoamEvent::Started { trigger });
             }
             return;
@@ -286,6 +349,7 @@ impl Roaming {
             next_send: now,
             confirmed: VecDeque::new(),
             confirming: None,
+            rejected: Rejections::default(),
         });
         self.events.push(RoamEvent::Started { trigger });
     }
@@ -354,6 +418,14 @@ impl Roaming {
 
     /// Handles a datagram that starts with the roaming magic.
     pub fn handle_datagram(&mut self, now: Instant, data: &[u8]) -> Result<(), Rejected> {
+        let result = self.handle(now, data);
+        if let (Err(rejected), Some(attempt)) = (result, self.attempt.as_mut()) {
+            attempt.rejected.count(rejected);
+        }
+        result
+    }
+
+    fn handle(&mut self, now: Instant, data: &[u8]) -> Result<(), Rejected> {
         let datagram = Datagram::decode(data).map_err(Rejected::Decode)?;
         let header = datagram.header;
         if header.kind.direction() != Direction::HostToClient {
@@ -436,7 +508,10 @@ impl Roaming {
     fn fail(&mut self, now: Instant) -> Option<Instant> {
         if let Some(attempt) = self.attempt.take() {
             let elapsed = now.saturating_duration_since(attempt.started);
-            self.events.push(RoamEvent::Failed { elapsed });
+            self.events.push(RoamEvent::Failed {
+                elapsed,
+                rejected: attempt.rejected,
+            });
         }
         None
     }
@@ -737,7 +812,8 @@ mod tests {
                     trigger: RoamTrigger::HostSilent
                 },
                 RoamEvent::Failed {
-                    elapsed: MAX_ATTEMPT
+                    elapsed: MAX_ATTEMPT,
+                    rejected: Rejections::default(),
                 }
             ]
         );
@@ -756,7 +832,7 @@ mod tests {
             roaming.take_events()[..],
             [
                 RoamEvent::Started { .. },
-                RoamEvent::Failed { elapsed }
+                RoamEvent::Failed { elapsed, .. }
             ] if elapsed == Duration::from_secs(2)
         ));
     }
@@ -768,6 +844,8 @@ mod tests {
         let later = now + Duration::from_secs(4);
         roaming.poll(later);
         sent(&mut roaming);
+        let garbage = [0x0F, 0xFE, 0x52, 0x4D, 1];
+        assert!(roaming.handle_datagram(later, &garbage).is_err());
         roaming.start(
             later,
             RoamTrigger::NetworkChanged,
@@ -807,8 +885,64 @@ mod tests {
         assert_eq!(
             roaming.take_events(),
             [RoamEvent::Failed {
-                elapsed: MAX_ATTEMPT
+                elapsed: MAX_ATTEMPT,
+                // Only what the attempt on the new network dropped.
+                rejected: Rejections {
+                    nonce: 1,
+                    ..Rejections::default()
+                },
             }]
+        );
+    }
+
+    #[test]
+    fn a_failed_attempt_counts_what_it_dropped() {
+        let now = Instant::now();
+        let mut roaming = Roaming::new(&vectors::RIKEY, Duration::from_secs(2));
+        let mut host = FakeHost::new();
+        // Idle: nothing counts toward the next attempt.
+        let idle = host.send(Payload::Migrated { challenge: 1 });
+        assert_eq!(roaming.handle_datagram(now, &idle), Err(Rejected::Idle));
+        roaming.start(now, RoamTrigger::HostSilent, 0, NONCE);
+        roaming.poll(now);
+        let stale = host.send(Payload::Challenge {
+            nonce_c: NONCE + 1,
+            challenge: 2,
+        });
+        assert_eq!(roaming.handle_datagram(now, &stale), Err(Rejected::Nonce));
+        assert_eq!(roaming.handle_datagram(now, &stale), Err(Rejected::Replay));
+        assert_eq!(roaming.handle_datagram(now, &idle), Err(Rejected::Replay));
+        let unconfirmed = host.send(Payload::Migrated { challenge: 3 });
+        assert_eq!(
+            roaming.handle_datagram(now, &unconfirmed),
+            Err(Rejected::Challenge)
+        );
+        let mut forged = host.send(Payload::Migrated { challenge: 3 });
+        forged[DATAGRAM_BYTES - 1] ^= 1;
+        assert_eq!(
+            roaming.handle_datagram(now, &forged),
+            Err(Rejected::Authentication)
+        );
+        assert_eq!(roaming.poll(now + Duration::from_secs(2)), None);
+        let events = roaming.take_events();
+        let rejected = Rejections {
+            replay: 2,
+            authentication: 1,
+            nonce: 1,
+            challenge: 1,
+            ..Rejections::default()
+        };
+        assert_eq!(
+            events[1],
+            RoamEvent::Failed {
+                elapsed: Duration::from_secs(2),
+                rejected,
+            }
+        );
+        assert_eq!(
+            events[1].to_string(),
+            "Roaming: the PC did not confirm a move within 2000 ms; dropped 2 replayed, \
+             1 unauthenticated, 1 for another nonce, 1 for an unconfirmed challenge"
         );
     }
 

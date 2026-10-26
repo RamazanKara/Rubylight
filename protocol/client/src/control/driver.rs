@@ -1045,7 +1045,7 @@ impl ControlClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::roaming::MAX_ATTEMPT;
+    use crate::roaming::{Rejections, MAX_ATTEMPT};
     use std::cell::Cell;
 
     /// A code [`datagram_lost`] takes for packet loss: network unreachable.
@@ -1346,7 +1346,8 @@ mod tests {
         assert_eq!(
             step(at(11_000), heard, None),
             [RoamEvent::Failed {
-                elapsed: MAX_ATTEMPT
+                elapsed: MAX_ATTEMPT,
+                rejected: Rejections::default(),
             }]
         );
         // The peer lives on through a long grace period, still silent: another attempt
@@ -1408,7 +1409,8 @@ mod tests {
         assert_eq!(
             step(at(11_500), at(1550), None),
             [RoamEvent::Failed {
-                elapsed: MAX_ATTEMPT
+                elapsed: MAX_ATTEMPT,
+                rejected: Rejections::default(),
             }],
             "timed from the change"
         );

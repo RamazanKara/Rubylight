@@ -32,6 +32,7 @@ pub mod clock_sync;
 pub mod codec_support;
 pub mod config;
 pub mod controller_audio;
+pub mod couch_menu;
 pub mod crypto;
 pub mod display_caps;
 pub mod display_policy;

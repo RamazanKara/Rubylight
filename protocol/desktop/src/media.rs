@@ -117,8 +117,20 @@ fn error(code: i32) -> String {
 pub struct VideoDecoder {
     context: *mut AVCodecContext,
     packet: *mut AVPacket,
+    /// Packet buffers of `pool_size` bytes, reused frame to frame: a buffer allocated per frame
+    /// costs page faults once frames are large (from about 1 MiB, high bitrates and key frames,
+    /// Windows' heap maps a fresh block for each), measured at 0.14 ms per MiB on Windows 11.
+    pool: *mut AVBufferPool,
+    pool_size: usize,
     _format: Box<Format>,
     pub name: String,
+}
+
+/// The size of the pooled packet buffers for a packet of `needed` bytes with its padding: a
+/// quarter more, in whole 64 KiB, so a stream whose frames grow slowly does not remake the pool
+/// for each one.
+fn packet_buffer_size(needed: usize) -> usize {
+    (needed + needed / 4).next_multiple_of(64 * 1024)
 }
 
 // An AVCodecContext moves between threads but is only accessed by its decoder thread.
@@ -157,6 +169,8 @@ impl VideoDecoder {
             let mut video = Self {
                 context: avcodec_alloc_context3(found),
                 packet: av_packet_alloc(),
+                pool: ptr::null_mut(),
+                pool_size: 0,
                 _format: Box::new(Format {
                     hardware: AV_PIX_FMT_NONE,
                     required: require_hardware,
@@ -269,14 +283,34 @@ impl VideoDecoder {
         let Ok(length) = i32::try_from(data.len()) else {
             return -1;
         };
+        let padding = AV_INPUT_BUFFER_PADDING_SIZE as usize;
         unsafe {
             av_packet_unref(self.packet);
-            let status = av_new_packet(self.packet, length);
-            if status < 0 {
-                return status;
+            let needed = data.len() + padding;
+            if needed > self.pool_size {
+                // Buffers the decoder still holds go back to the old pool, which frees itself
+                // once they are all back.
+                av_buffer_pool_uninit(&mut self.pool);
+                self.pool_size = 0;
+                let size = packet_buffer_size(needed);
+                self.pool = av_buffer_pool_init(size, None);
+                if self.pool.is_null() {
+                    return -12; // AVERROR(ENOMEM)
+                }
+                self.pool_size = size;
             }
-            ptr::copy_nonoverlapping(data.as_ptr(), (*self.packet).data, data.len());
-            (*self.packet).pts = pts;
+            let buffer = av_buffer_pool_get(self.pool);
+            if buffer.is_null() {
+                return -12;
+            }
+            let packet = &mut *self.packet;
+            packet.buf = buffer;
+            packet.data = (*buffer).data;
+            packet.size = length;
+            ptr::copy_nonoverlapping(data.as_ptr(), packet.data, data.len());
+            // The buffer can hold an earlier, longer frame, and the decoder reads into the padding.
+            ptr::write_bytes(packet.data.add(data.len()), 0, padding);
+            packet.pts = pts;
             avcodec_send_packet(self.context, self.packet)
         }
     }
@@ -316,6 +350,7 @@ impl Drop for VideoDecoder {
         unsafe {
             avcodec_free_context(&mut self.context);
             av_packet_free(&mut self.packet);
+            av_buffer_pool_uninit(&mut self.pool);
         }
     }
 }
@@ -578,6 +613,65 @@ mod tests {
                 assert_eq!(info.kind, FRAME_YUV420P);
             }
             assert!(matches!(decoder.receive(), Received::None));
+        }
+    }
+
+    #[test]
+    fn packet_buffers_come_from_one_pool_with_zeroed_padding_until_a_frame_outgrows_it() {
+        let fixture =
+            include_bytes!("../../../app/src/main/assets/packed444/hevc-8.bin").as_slice();
+        let padding = AV_INPUT_BUFFER_PADDING_SIZE as usize;
+        let mut decoder = VideoDecoder::open(Codec::Hevc, Hardware::None, 1, false).unwrap();
+        assert_eq!(decoder.send(fixture, 1), 0);
+        let Received::Frame(frame) = decoder.receive() else {
+            panic!("no decoded frame")
+        };
+        assert_eq!(frame.info().pts, 1);
+        let (pool, size) = (decoder.pool, decoder.pool_size);
+        assert!(!pool.is_null() && size >= fixture.len() + padding && size % (64 * 1024) == 0);
+        // A shorter packet takes a buffer from the same pool (the one the whole frame was in, once
+        // the decoder let go of it); the bytes after it are padding again, not the rest of that frame.
+        let short = &fixture[..fixture.len() / 2];
+        assert!(fixture[short.len()..short.len() + padding]
+            .iter()
+            .any(|&b| b != 0));
+        decoder.send(short, 2);
+        assert_eq!((decoder.pool, decoder.pool_size), (pool, size));
+        unsafe {
+            let packet = &*decoder.packet;
+            assert_eq!(packet.size as usize, short.len());
+            assert_eq!(std::slice::from_raw_parts(packet.data, short.len()), short);
+            assert!(
+                std::slice::from_raw_parts(packet.data.add(short.len()), padding)
+                    .iter()
+                    .all(|&b| b == 0)
+            );
+        }
+        // A packet that does not fit makes a larger pool.
+        decoder.send(&vec![0u8; size], 3);
+        assert!(
+            decoder.pool_size >= size + padding
+                && decoder.pool_size == packet_buffer_size(size + padding)
+        );
+        // Frame after frame from the pool decodes with its own timestamp.
+        let mut decoder = VideoDecoder::open(Codec::Hevc, Hardware::None, 1, false).unwrap();
+        for pts in 10..13 {
+            assert_eq!(decoder.send(fixture, pts), 0);
+            let Received::Frame(frame) = decoder.receive() else {
+                panic!("no decoded frame")
+            };
+            assert_eq!(frame.info().pts, pts);
+        }
+    }
+
+    #[test]
+    fn packet_buffers_leave_room_to_grow_in_whole_64_kib() {
+        assert_eq!(packet_buffer_size(1), 64 * 1024);
+        assert_eq!(packet_buffer_size(64 * 1024), 128 * 1024);
+        assert_eq!(packet_buffer_size(1 << 20), (1 << 20) + (256 << 10));
+        for needed in [100, 65_535, 300_000, 5_000_000] {
+            let size = packet_buffer_size(needed);
+            assert!(size >= needed + needed / 4 && size % (64 * 1024) == 0);
         }
     }
 

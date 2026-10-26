@@ -549,7 +549,8 @@ impl Surround {
         }
     }
 
-    fn process(&mut self, input: &[f32], on: bool) {
+    /// Returns whether the output holds any HRIR rendering.
+    fn process(&mut self, input: &[f32], on: bool) -> bool {
         let frames = input.len() / SURROUND_CHANNELS;
         self.output.resize(frames * 2, 0.);
         let on = on && self.layout.surround();
@@ -562,7 +563,8 @@ impl Surround {
         } else {
             (&mut self.other, &mut self.output)
         };
-        if self.rendering || self.fade > 0 {
+        let rendering = self.rendering || self.fade > 0;
+        if rendering {
             rendered.resize(frames * 2, 0.);
             self.binaural.render(input, rendered);
         } else {
@@ -589,6 +591,7 @@ impl Surround {
                 self.fade -= 1;
             }
         }
+        rendering
     }
 }
 
@@ -640,6 +643,7 @@ impl Chain {
 
     /// Turns a packet of `capture_channels` into one of `output_channels`.
     pub fn process(&mut self, packet: &mut Vec<f32>, settings: Settings) {
+        let mut rendered = false;
         if let Some(surround) = &mut self.surround {
             for sample in packet.iter_mut() {
                 if !sample.is_finite() {
@@ -649,16 +653,19 @@ impl Chain {
                     *sample = night::flush(*sample);
                 }
             }
-            surround.process(packet, settings.headphone_surround);
-            if surround.rendering || surround.fade > 0 {
-                for sample in &mut surround.output {
-                    *sample = night::soft_clip(*sample);
-                }
-            }
+            rendered = surround.process(packet, settings.headphone_surround);
             std::mem::swap(packet, &mut surround.output);
         }
-        self.night
+        let clipped = self
+            .night
             .process(packet, self.output_channels, settings.night_mode);
+        // Night's clipper covers the frames it processed; the HRIRs' safety
+        // clipper only the rest, so no sample is clipped twice.
+        if rendered {
+            for sample in &mut packet[clipped * self.output_channels..] {
+                *sample = night::soft_clip(*sample);
+            }
+        }
     }
 
     /// Whether NaN or infinite samples were replaced since the last call.
@@ -1124,6 +1131,43 @@ mod tests {
         let mut later = noise(240 * 8, 4);
         chain.process(&mut later, BOTH);
         assert!(later.iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn with_night_mode_on_or_ramping_only_its_clipper_runs() {
+        let mut chain = Chain::new(8, 2).unwrap();
+        chain.set_source(8, SEVEN_ONE).unwrap();
+        // The reference: the HRIR render without a clipper, then night mode.
+        let mut surround = Surround::new(Layout::new(8, SEVEN_ONE).unwrap());
+        let mut night = Night::default();
+        let surround_only = Settings {
+            headphone_surround: true,
+            ..OFF
+        };
+        // 20 ms packets, so the 10 ms off ramp ends inside one.
+        let input: Vec<f32> = noise(960 * 8 * 8, 6).iter().map(|v| v * 4.).collect();
+        let mut loud = false;
+        for (i, packet) in input.chunks(960 * 8).enumerate() {
+            let settings = if i < 6 { BOTH } else { surround_only };
+            let mut samples = packet.to_vec();
+            chain.process(&mut samples, settings);
+            assert!(surround.process(packet, true));
+            let raw = surround.output.clone();
+            loud |= raw.iter().any(|v| v.abs() > night::CLIP_KNEE * 1.1);
+            let mut want = raw.clone();
+            let clipped = night.process(&mut want, 2, settings.night_mode);
+            assert_eq!(clipped, [960, 960, 960, 960, 960, 960, 480, 0][i]);
+            for sample in &mut want[clipped * 2..] {
+                *sample = night::soft_clip(*sample);
+            }
+            assert_eq!(bits(&samples), bits(&want), "packet {i}");
+            assert!(samples.iter().all(|v| v.abs() <= night::CLIP_CEILING));
+        }
+        assert!(loud);
+    }
+
+    fn bits(samples: &[f32]) -> Vec<u32> {
+        samples.iter().map(|v| v.to_bits()).collect()
     }
 
     #[test]

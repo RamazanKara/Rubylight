@@ -22,7 +22,7 @@ const HOLD_BELOW_DB: f32 = -60.;
 /// Turning night mode off ramps the gain back to unity over 10 ms.
 const OFF_RAMP_FRAMES: u32 = 480;
 /// The soft clipper is unity up to -3 dBFS and never reaches 0.98.
-const CLIP_KNEE: f32 = 0.707_945_8;
+pub(crate) const CLIP_KNEE: f32 = 0.707_945_8;
 pub(crate) const CLIP_CEILING: f32 = 0.98;
 
 /// Values this small become 0, so neither samples nor decaying state reach
@@ -118,9 +118,10 @@ impl Default for Night {
 }
 
 impl Night {
-    /// Processes interleaved `channels` in place. Off and fully ramped down,
-    /// it leaves the samples untouched.
-    pub fn process(&mut self, samples: &mut [f32], channels: usize, enabled: bool) {
+    /// Processes interleaved `channels` in place and returns the frames it
+    /// gained and clipped: all of them, or fewer when the off ramp ends within
+    /// the packet. Off and fully ramped down, it leaves the samples untouched.
+    pub fn process(&mut self, samples: &mut [f32], channels: usize, enabled: bool) -> usize {
         match (self.state, enabled) {
             (State::On, true) | (State::Off, false) => {}
             (State::Off | State::Ending { .. }, true) => self.start(),
@@ -132,10 +133,11 @@ impl Night {
             }
             (State::Ending { .. }, false) => {}
         }
-        if self.state == State::Off {
-            return;
-        }
+        let mut clipped = 0;
         for frame in samples.chunks_exact_mut(channels) {
+            if self.state == State::Off {
+                break;
+            }
             for sample in frame.iter_mut() {
                 if !sample.is_finite() {
                     *sample = 0.;
@@ -144,22 +146,22 @@ impl Night {
                     *sample = flush(*sample);
                 }
             }
-            let gain = match self.state {
-                State::Off => break,
-                State::On => self.track(frame),
-                State::Ending { from, left } => {
-                    let gain = 1. + (from - 1.) * (left as f32 / OFF_RAMP_FRAMES as f32);
-                    self.state = match left - 1 {
-                        0 => State::Off,
-                        left => State::Ending { from, left },
-                    };
-                    gain
-                }
+            let gain = if let State::Ending { from, left } = self.state {
+                let gain = 1. + (from - 1.) * (left as f32 / OFF_RAMP_FRAMES as f32);
+                self.state = match left - 1 {
+                    0 => State::Off,
+                    left => State::Ending { from, left },
+                };
+                gain
+            } else {
+                self.track(frame)
             };
             for sample in frame.iter_mut() {
                 *sample = soft_clip(*sample * gain);
             }
+            clipped += 1;
         }
+        clipped
     }
 
     /// Whether NaN or infinite samples were replaced since the last call.

@@ -350,7 +350,7 @@ All of these must hold:
   | Surrounds (5.1 source) | ±110° |
 
   LFE goes to both ears at -6 dB, unfiltered.
-- **Level:** the sum is scaled so that uncorrelated equal-level noise on every speaker comes out within ±0.5 dB of the RMS of today's downmix. A safety soft clipper, the same as in B.3, runs last.
+- **Level:** the sum is scaled so that uncorrelated equal-level noise on every speaker comes out within ±0.5 dB of the RMS of today's downmix. A safety soft clipper, the same as in B.3, runs last on what night mode didn't process, so no sample is clipped twice.
 - **With night mode:** binaural rendering runs first, then night mode on the stereo result.
 - **Live switching:**
   - If the stream started with 8-channel capture, switching between HRTF and the plain downmix happens live, with a crossfade over one packet.

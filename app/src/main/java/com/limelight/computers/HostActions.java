@@ -101,6 +101,7 @@ public final class HostActions {
     private AlertDialog sleepProgress;
     // The PC being woken and waited for.
     private HostWaker waker;
+    private ComputerDetails wakeComputer;
 
     public HostActions(Activity activity, Callbacks callbacks) {
         this.activity = activity;
@@ -341,6 +342,7 @@ public final class HostActions {
         }
         endWake();
         final String uuid = computer.uuid;
+        wakeComputer = computer;
         waker = new HostWaker(main, io, sender, () -> {
             // The manager's object follows the polls; without it the PC is never seen online and the wait times out.
             ComputerManagerService.ComputerManagerBinder binder = callbacks.binder();
@@ -388,11 +390,17 @@ public final class HostActions {
         return waker != null && waker.isWaiting();
     }
 
+    /** Cancels the wake; a PC still waited for is told its wait ended, so it says "Waking…" no more. */
     private void endWake() {
         if (waker != null) {
+            boolean waiting = waker.isWaiting();
             waker.cancel();
             waker = null;
+            if (waiting) {
+                callbacks.onWakeEnded(wakeComputer);
+            }
         }
+        wakeComputer = null;
     }
 
     // Sleep

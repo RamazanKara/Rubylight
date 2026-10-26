@@ -154,11 +154,22 @@ public class HostActionsWakeTest {
         wake(pc("den", "Den"));
         pass(RESEND_MS);
         assertEquals(Arrays.asList("pc", "den", "den"), sent);
+        assertEquals("the first PC says \"Waking…\" no more", Arrays.asList("sent pc", "ended pc", "sent den"),
+                events);
 
         actions.destroy();
         pass(TIMEOUT_MS);
         assertEquals(3, sent.size());
-        assertEquals(Arrays.asList("sent pc", "sent den"), events);
+        assertEquals(Arrays.asList("sent pc", "ended pc", "sent den", "ended den"), events);
+    }
+
+    @Test
+    public void aWaitThatAlreadyEndedIsNotEndedAgainByTheNextWake() {
+        wake(pc);
+        pc.state = ComputerDetails.State.ONLINE;
+        pass(1_000);
+        wake(pc("den", "Den"));
+        assertEquals(Arrays.asList("sent pc", "ended pc", "sent den"), events);
     }
 
     @Test

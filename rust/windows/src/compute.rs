@@ -1747,9 +1747,6 @@ impl Converter {
         self.slots[slot].outputs.clear();
         self.slots[slot].waits = ready.map(|ready| ready.fence.clone()).into_iter().collect();
         self.slots[slot].fence = u64::MAX;
-        if let Some(focus) = self.focus.as_deref_mut() {
-            focus.recorded(slot);
-        }
         // The capture's copy into `source` may still be waiting for DWM.
         self.compute.ensure_active()?;
         match ready {
@@ -1769,6 +1766,10 @@ impl Converter {
             .execute(&self.slots[slot].list)
             .inspect_err(|_| self.compute.retire())?;
         self.slots[slot].fence = fence;
+        // Only now, so a failed wait or submission leaves the age reset pending.
+        if let Some(focus) = self.focus.as_deref_mut() {
+            focus.recorded(slot);
+        }
         if let Some(ready) = ready {
             ready.read_by(&self.compute, fence)?;
         }

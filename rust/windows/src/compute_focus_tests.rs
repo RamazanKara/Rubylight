@@ -62,10 +62,11 @@ fn bgra(width: u32, height: u32, seed: u32) -> Image {
     }
 }
 /// Repaint 16x16 block `(bx, by)`'s interior. Its first and last columns and
-/// rows stay, because chroma also reads the pixel left of each pair.
+/// rows stay, because chroma also reads the pixel left of each pair; a
+/// partial block at the picture's edge repaints up to the edge.
 fn repaint(image: &mut Image, (bx, by): (u32, u32), value: u8) {
-    for y in by * 16 + 1..by * 16 + 15 {
-        for x in bx * 16 + 1..bx * 16 + 15 {
+    for y in by * 16 + 1..(by * 16 + 15).min(image.height) {
+        for x in bx * 16 + 1..(bx * 16 + 15).min(image.width) {
             let at = y as usize * image.stride + x as usize * 4;
             image.bytes[at..at + 3].copy_from_slice(&[value, value.wrapping_mul(3), !value]);
         }
@@ -272,7 +273,13 @@ fn still_ages_count_unchanged_frames_and_restart_on_a_change() -> Result<()> {
 #[ignore = "requires D3D12 compute"]
 fn maps_match_the_core_reference() -> Result<()> {
     let rig = Rig::new()?;
-    let (width, height) = (256, 128);
+    // Even blocks, then partial edge blocks of both block sizes.
+    for (width, height) in [(256, 128), (200, 72), (1366, 720)] {
+        maps_match_at(&rig, width, height)?;
+    }
+    Ok(())
+}
+fn maps_match_at(rig: &Rig, width: u32, height: u32) -> Result<()> {
     let (age_width, age_height) = age_grid(width, height);
     let tuned = Levels {
         moving: 1,
@@ -323,7 +330,11 @@ fn maps_match_the_core_reference() -> Result<()> {
             let chosen = variants[frame as usize % variants.len()];
             converter.set_focus(Some(chosen))?;
             rig.convert(&mut converter, &image)?;
-            assert_eq!(ages(&rig.compute, &converter)?, expected, "frame {frame}");
+            assert_eq!(
+                ages(&rig.compute, &converter)?,
+                expected,
+                "{width}x{height} frame {frame}"
+            );
             let map = converter
                 .latest_map(newest)
                 .context("no map after a conversion")?;
@@ -352,10 +363,13 @@ fn maps_match_the_core_reference() -> Result<()> {
             assert_eq!(
                 map.rows,
                 &reference[..],
-                "block {block} frame {frame} {chosen:?}"
+                "{width}x{height} block {block} frame {frame} {chosen:?}"
             );
             let uniform = reference.iter().all(|&value| value == reference[0]);
-            assert_eq!(map.uniform, uniform, "block {block} frame {frame}");
+            assert_eq!(
+                map.uniform, uniform,
+                "{width}x{height} block {block} frame {frame}"
+            );
             if frame == 0 && chosen.mode == Mode::Static {
                 assert!(map.uniform, "a first static map has no still blocks");
             }

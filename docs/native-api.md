@@ -61,6 +61,9 @@ All paths start with `/api/native/v1`. "Owner" means the caller owns the current
 | GET | `/radeon` | View or Launch | Radeon |
 | POST | `/radeon/settings` | View + **host control**, owner of a `streaming` or `suspended` session | Radeon |
 | POST | `/radeon/restore` | View + **host control**, owner | Radeon |
+| GET | `/wake` | List, View or Launch | Wake (feature `wake`) |
+| GET | `/audio` | View or Launch | Audio (features `audio.night_mode`, `audio.headphone_surround`) |
+| POST | `/audio/settings` | View or Launch, owner of a `streaming` or `suspended` session | Audio |
 
 Permission bits are the existing ones: List `1 << 24`, View `1 << 25`, Launch `1 << 26`. Host control is a separate per-device flag (see below).
 
@@ -268,6 +271,101 @@ POST /api/native/v1/radeon/settings
 - A restore that fails is loud: it goes into the host log with the setting id, the entry stays in the journal, the host retries at the next start, and `GET /radeon` keeps showing `restore` with `message`.
 - While a change is pending, `restore: { "original", "written" }` is present, so the overlay can say "Goes back to 120 fps when you end the session".
 
+## Wake targets (`wake`)
+
+Status: contract only (3.0.0-rc.3 work, [design](wake-and-audio-design.md) A.2, A.3 and A.6). Types in `rubylight_native_api::wake`, fixture `rust/core/native-api/tests/fixtures/wake.json`.
+
+```http
+GET /api/native/v1/wake
+```
+
+```json
+{
+  "revision": 1,
+  "primary": "02:7c:16:b4:13:4f",
+  "targets": [
+    {
+      "mac": "02:7c:16:b4:13:4f",
+      "kind": "ethernet",
+      "connected": true,
+      "route": true,
+      "broadcasts": ["192.168.4.255"],
+      "state": "ready",
+      "checks": [
+        { "id": "wake_enabled", "state": "ok" },
+        { "id": "magic_packet", "state": "ok" },
+        { "id": "magic_packet_only", "state": "warning" }
+      ]
+    }
+  ],
+  "system": {
+    "sleep": "s3",
+    "modern_standby": false,
+    "hibernate": false,
+    "fast_startup": "inactive",
+    "shutdown_wake": "firmware_unknown"
+  },
+  "idle_sleep": { "state": "off", "minutes": 0, "reason": null }
+}
+```
+
+- Any paired device with List, View or Launch can read it. Paired clients already see `<mac>` in `/serverinfo`; this adds the PC's other physical adapters. Virtual and VPN adapters are never listed.
+- `primary` is the MAC `/serverinfo` reports to this client, in the same `aa:bb:cc:dd:ee:ff` format, chosen by the host's MAC policy. It is `null` when no physical adapter is connected (`/serverinfo` then sends zeros).
+- `targets` lists every physical adapter, connected or not. `kind` is `ethernet` or `wifi`. `route` is true for the adapter this request came in through; every `route` is false when the client came through a VPN or another virtual adapter, which a sleeping PC can't be woken through without a relay on its LAN. `broadcasts` are the adapter's IPv4 subnet-directed broadcasts.
+- `targets[].state`: `ready`, `needs_setup` (a wake setting is off; the console's Fix button changes it), `unknown` (the settings could not be read, for example because PowerShell is blocked) or `experimental` (Wi-Fi).
+- `checks[].id`: `wake_enabled` (Allow this device to wake the computer), `magic_packet` (`*WakeOnMagicPacket`), `magic_packet_only`, `wake_on_pattern` (information only), `modern_standby_magic_packet` (Modern Standby PCs whose adapter has it) and `shutdown_wake` (a vendor's wake from shutdown, information only). `checks[].state`: `ok`, `warning`, `error` or `unknown`.
+- `system.sleep` is `s3` or `none`. `fast_startup` is `active` (on, with hibernate available), `inactive` (on, but hibernate is off, so it has no effect) or `off`. `shutdown_wake` is always `firmware_unknown`: waking from shutdown depends on firmware settings Windows can't read.
+- `idle_sleep` is the host's own sleep after idle: `state` is `off`, `armed`, `blocked` or `unsupported`, `minutes` is `sleep_after_idle_minutes` (0 when off), and `reason` says what blocks it or why it is unsupported (`null` otherwise).
+- Clients send to every target's MAC and every `broadcasts` address, on top of the serverinfo MAC and their own interfaces' broadcasts. Unknown fields are ignored, and unknown `kind`, `state`, `sleep`, `fast_startup` and `shutdown_wake` values decode as `Unknown`. A client shows a check id it doesn't know by its `state`.
+- The endpoint only reads. NIC settings are changed only with consent, from the installer or the admin console, never through this API.
+
+## Audio processing (`audio.night_mode`, `audio.headphone_surround`)
+
+Status: contract only (3.0.0-rc.3 work, [design](wake-and-audio-design.md) B.3, B.4 and B.6). Types in `rubylight_native_api::audio`, fixtures `audio.json` and `audio_write.json`.
+
+```http
+GET /api/native/v1/audio
+```
+
+```json
+{
+  "revision": 3,
+  "settings": [
+    { "id": "audio.night_mode", "group": "sound", "kind": "toggle",
+      "state": "configurable", "value": true },
+    { "id": "audio.headphone_surround", "group": "sound", "kind": "toggle",
+      "state": "temporarily_unavailable", "value": true,
+      "reason": "next_stream", "message": "Headphone surround applies from the next stream." }
+  ]
+}
+```
+
+- The settings are Radeon `Setting` objects, `kind: toggle`, `group: sound`, with the ids `audio.night_mode` and `audio.headphone_surround`. Each appears only when the host lists its feature.
+- `value` is the caller's session choice, resolved highest first: a live change in this session, the session's launch parameter, the app, the device, then the host. `revision` goes up with every change.
+- A setting with a `reason` has `state: temporarily_unavailable`: `value` is still the choice, but this stream doesn't apply it, and the owner can still write it. `message` is plain English. The reasons:
+
+| `reason` | Meaning |
+|---|---|
+| `no_session` | The caller has no streaming or suspended session. `value` is the host plus device setting a stream would start with |
+| `client_surround` | The client asked for 5.1 or 7.1 and renders its own speakers (headphone surround only) |
+| `game_only_audio` | Capture uses Game only audio, which is stereo (headphone surround only) |
+| `stereo_endpoint` | The PC's playback device is stereo (headphone surround only) |
+| `muted` | Audio isn't being streamed |
+| `next_stream` | Turned on mid-stream without 8-channel capture: it applies from the next stream. Clients show "Applies next stream" |
+
+Clients show a reason they don't know by `message`.
+
+```http
+POST /api/native/v1/audio/settings
+{ "changes": [ { "id": "audio.night_mode", "value": false }, { "id": "audio.headphone_surround", "value": true } ] }
+```
+
+- For the owner of a `streaming` or `suspended` session, with View or Launch. Host control isn't needed: the change affects only the caller's own stream.
+- It applies to this session from the next audio packet and isn't saved. It answers the new Audio object.
+- Refusals: `no_session`, `not_session_owner` and `session_busy` as for the Radeon writes; `not_found` for an id the host doesn't list; `invalid_value` for a value that isn't a boolean; `invalid_request` for unknown fields.
+
+**Launch parameters.** `/launch` and `/resume` take `audioNightMode=on|off` and `audioHeadphoneSurround=on|off`, the session choice above. A client sends them only when the host lists the feature and the user picked something other than the host setting. Other values are logged and ignored, and hosts without the features ignore the parameters.
+
 ## The host control permission
 
 - It is stored per device as `"host_control": true` in that client's `extra` map in the paired state, like `allow_client_commands`. The host reads `true` and `"true"` as on, like the other boolean keys in `extra`; a missing key or anything else means off. That covers new pairings, migrated Vibepollo or Apollo state and old backups, so the flag is off by default.
@@ -368,6 +466,29 @@ pub struct Radeon { pub revision: u64, pub state: ControlState, pub reason: Opti
 pub struct SettingsWrite { pub gpu: i32, pub changes: Vec<Change> }   // deny_unknown_fields
 pub struct Change { pub id: String, pub value: Value }
 
+// wake.rs (feature::WAKE), check-id constants in wake::check
+pub enum AdapterKind { Ethernet, Wifi, #[serde(other)] Unknown }
+pub enum TargetState { Ready, NeedsSetup, Experimental, #[serde(other)] Unknown }
+pub enum CheckState { Ok, Warning, Error, #[serde(other)] Unknown }
+pub enum Sleep { S3, None, #[serde(other)] Unknown }
+pub enum FastStartup { Active, Inactive, Off, #[serde(other)] Unknown }
+pub enum ShutdownWake { FirmwareUnknown, #[serde(other)] Unknown }
+pub enum IdleSleepState { Off, Armed, Blocked, Unsupported, #[serde(other)] Unknown }
+pub struct Check { pub id: String, pub state: CheckState }
+pub struct Target { pub mac: String, pub kind: AdapterKind, pub connected: bool, pub route: bool,
+    pub broadcasts: Vec<String>, pub state: TargetState, pub checks: Vec<Check> }
+pub struct System { pub sleep: Sleep, pub modern_standby: bool, pub hibernate: bool,
+    pub fast_startup: FastStartup, pub shutdown_wake: ShutdownWake }
+pub struct IdleSleep { pub state: IdleSleepState, pub minutes: u32, pub reason: Option<String> }
+pub struct Wake { pub revision: u64, pub primary: Option<String>, pub targets: Vec<Target>,
+    pub system: System, pub idle_sleep: IdleSleep }
+
+// audio.rs (feature::AUDIO_NIGHT_MODE, feature::AUDIO_HEADPHONE_SURROUND)
+pub const NIGHT_MODE: &str = "audio.night_mode"; pub const HEADPHONE_SURROUND: &str = "audio.headphone_surround";
+pub const GROUP: &str = "sound"; // reason constants in audio::reason
+pub struct Audio { pub revision: u64, pub settings: Vec<radeon::Setting> }
+pub struct AudioWrite { pub changes: Vec<radeon::Change> }   // deny_unknown_fields
+
 // error.rs
 pub enum ErrorCode { NotPaired, PermissionRequired, HostControlRequired, NotFound, InvalidRequest,
     InvalidValue, NotWritable, NoSession, NotSessionOwner, SessionBusy, DriverRejected,
@@ -378,7 +499,7 @@ pub struct ApiError { pub code: ErrorCode, pub message: String, pub setting: Opt
 impl ErrorCode { pub fn status(self) -> u16 { /* table above */ } }
 ```
 
-`Option` fields skip serialisation when `None`, except where the examples show `null` on purpose (`game_id`, `store`, `installed`, `app`, and `setting` and `retry_after_ms` in an error). Response structs don't deny unknown fields, so old clients read newer hosts. In a Radeon response, a setting's `value`, `range` or `restore` of a shape the client doesn't know (a float, an array) reads as absent instead of failing the whole response. Requests stay strict. Request structs do, so typos fail loudly. The crate carries JSON fixtures (`rust/core/native-api/tests/fixtures/*.json`, one per example above) with round-trip tests, and Nightjar's tests reuse them.
+`Option` fields skip serialisation when `None`, except where the examples show `null` on purpose (`game_id`, `store`, `installed`, `app`, `setting` and `retry_after_ms` in an error, and `primary` and `idle_sleep.reason` in Wake). Response structs don't deny unknown fields, so old clients read newer hosts. In a Radeon response, a setting's `value`, `range` or `restore` of a shape the client doesn't know (a float, an array) reads as absent instead of failing the whole response. Requests stay strict. Request structs do, so typos fail loudly. The crate carries JSON fixtures (`rust/core/native-api/tests/fixtures/*.json`, one per example above) with round-trip tests, and Nightjar's tests reuse them.
 
 **After the pin bump, nightjar-core needs:**
 

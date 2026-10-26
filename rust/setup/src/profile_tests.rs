@@ -207,10 +207,16 @@ pub fn assert_usable(profile: &Path) -> Result<()> {
     let paired = state::PairedState::load(&files.paired)?;
     assert_eq!(paired.unique_id, "30000000-0000-4000-8000-000000000001");
     assert_eq!(paired.clients.len(), 3);
-    assert_eq!(
-        serde_json::to_value(&paired.clients)?,
-        paired.document["root"]["named_devices"]
-    );
+    // Every device is kept as it was, except that loading takes back the
+    // file transfer bits a state from before the migration gave them.
+    let mut kept = paired.document["root"]["named_devices"].clone();
+    let file_bits = butterpollo_core::native::FILE_UPLOAD | butterpollo_core::native::FILE_DOWNLOAD;
+    for device in kept.as_array_mut().unwrap() {
+        let perm = device["perm"].as_u64().unwrap() as u32;
+        assert_ne!(perm & file_bits, 0, "the fixture grants file transfer");
+        device["perm"] = json!(perm & !file_bits);
+    }
+    assert_eq!(serde_json::to_value(&paired.clients)?, kept);
     assert!(Identity::read(&files.certificate, &files.key)?.is_some());
     assert!(
         state::Credentials::load(&files.credentials)?

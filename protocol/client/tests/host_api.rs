@@ -1,12 +1,13 @@
-//! The optional host APIs (hardware metrics, network path) and the remote access check against
-//! a mock HTTPS host: the pinned certificate, the paths, the content type checked before the
-//! body is read, the size limits, and the host identity. Parsing and feature gating are
-//! covered in `http/hardware_metrics.rs`, `http/network_path.rs` and `http/remote_check.rs`.
+//! The optional host APIs (hardware metrics, network path, Sleep PC) and the remote access check
+//! against a mock HTTPS host: the pinned certificate, the paths, the content type checked before
+//! the body is read, the size limits, and the host identity. Parsing and feature gating are
+//! covered in `http/hardware_metrics.rs`, `http/network_path.rs`, `http/power.rs` and
+//! `http/remote_check.rs`.
 
 use butterpollo_core::crypto;
 use nightjar_core::http::{
-    ClientIdentity, Error, HostApiError, HostClient, NetworkPath, RemoteOutcome, ServerInfo,
-    MAX_HARDWARE_METRICS_BYTES, MAX_NETWORK_PATH_BYTES,
+    ClientIdentity, Error, HostApiError, HostClient, NetworkPath, PowerError, Refusal,
+    RemoteOutcome, ServerInfo, MAX_HARDWARE_METRICS_BYTES, MAX_NETWORK_PATH_BYTES,
 };
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
@@ -106,8 +107,8 @@ impl rustls::server::danger::ClientCertVerifier for ClientCertificate {
     }
 }
 
-/// The request target, once the head has arrived.
-fn read_target(stream: &mut impl Read) -> Option<String> {
+/// The request head, once it has arrived.
+fn read_head(stream: &mut impl Read) -> Option<String> {
     let mut head = Vec::new();
     let mut byte = [0u8; 1];
     while !head.ends_with(b"\r\n\r\n") {
@@ -116,17 +117,15 @@ fn read_target(stream: &mut impl Read) -> Option<String> {
         }
         head.push(byte[0]);
     }
-    String::from_utf8(head)
-        .ok()?
-        .split(' ')
-        .nth(1)
-        .map(str::to_owned)
+    String::from_utf8(head).ok()
 }
 
 struct MockHost {
     port: u16,
     /// Each request's path, and whether it came with a client certificate.
     seen: Arc<Mutex<Vec<(String, bool)>>>,
+    /// Each request's head, as sent.
+    heads: Arc<Mutex<Vec<String>>>,
 }
 
 /// Serves `handler(path)` over TLS with the certificate of `identity`, asking for a client
@@ -150,14 +149,17 @@ fn serve_as(
             .unwrap(),
     );
     let seen = Arc::new(Mutex::new(Vec::new()));
-    let log = seen.clone();
+    let heads = Arc::new(Mutex::new(Vec::new()));
+    let (log, head_log) = (seen.clone(), heads.clone());
     std::thread::spawn(move || {
         for stream in listener.incoming() {
             let connection = rustls::ServerConnection::new(config.clone()).unwrap();
             let mut tls = rustls::StreamOwned::new(connection, stream.unwrap());
-            let Some(target) = read_target(&mut tls) else {
+            let Some(request) = read_head(&mut tls) else {
                 continue;
             };
+            let target = request.split(' ').nth(1).unwrap_or_default();
+            head_log.lock().unwrap().push(request.clone());
             let path = target.split('?').next().unwrap_or_default().to_owned();
             let certificate = tls.conn.peer_certificates().is_some_and(|c| !c.is_empty());
             log.lock().unwrap().push((path.clone(), certificate));
@@ -174,7 +176,7 @@ fn serve_as(
             let _ = tls.flush();
         }
     });
-    MockHost { port, seen }
+    MockHost { port, seen, heads }
 }
 
 fn serve(handler: impl Fn(&str) -> Reply + Send + 'static) -> MockHost {
@@ -311,4 +313,70 @@ fn another_certificate_is_unreachable_not_verified() {
     );
     assert_eq!(check.stats.loss_percent(), Some(100.0));
     assert!(host.seen.lock().unwrap().is_empty());
+}
+
+const SLEEP_TOKEN: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+
+/// A power reply as Vibepollo and Rubylight write it.
+fn power_document(status: u16, message: &str, token: &str) -> String {
+    format!(
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<root status_code=\"{status}\" status_message=\"{message}\">\
+         <PowerActionVersion>1</PowerActionVersion><SleepSupported>1</SleepSupported>\
+         <SleepAllowed>1</SleepAllowed><SleepAvailable>{}</SleepAvailable>\
+         <SleepActiveSessionPolicy>idle-only</SleepActiveSessionPolicy><SleepToken>{token}</SleepToken>\
+         <SleepTokenLifetimeSeconds>30</SleepTokenLifetimeSeconds>\
+         <SleepAccepted>{}</SleepAccepted></root>",
+        u8::from(!token.is_empty()),
+        u8::from(status == 202)
+    )
+}
+
+#[test]
+fn sleep_spends_the_offered_token_in_an_empty_post() {
+    let host = serve(|path| match path {
+        "/power-actions/v1" => reply(200, "application/xml", power_document(200, "", SLEEP_TOKEN)),
+        "/power-actions/v1/sleep" => reply(
+            202,
+            "application/xml",
+            power_document(202, "Sleep request accepted; native completion is not confirmed", ""),
+        ),
+        _ => reply(404, "text/plain", "not found"),
+    });
+    let client = paired_client(&host);
+    let offer = client.power_capabilities().unwrap();
+    let token = offer.token.unwrap();
+    let accepted = client.sleep(&token).unwrap();
+    assert!(accepted.accepted && accepted.token.is_none());
+    let heads = host.heads.lock().unwrap();
+    let lines: Vec<&str> = heads.iter().map(|h| h.lines().next().unwrap()).collect();
+    // Only the token: Vibepollo answers 400 to any other query argument.
+    assert_eq!(
+        lines,
+        [
+            "GET /power-actions/v1 HTTP/1.1".to_owned(),
+            format!("POST /power-actions/v1/sleep?token={SLEEP_TOKEN} HTTP/1.1"),
+        ]
+    );
+    assert!(heads[1].contains("\r\nContent-Length: 0\r\n"), "{}", heads[1]);
+    assert!(!heads[1].to_ascii_lowercase().contains("content-type"), "{}", heads[1]);
+    assert!(!heads[1].to_ascii_lowercase().contains("origin"), "{}", heads[1]);
+    assert!(host.seen.lock().unwrap().iter().all(|(_, cert)| *cert));
+}
+
+#[test]
+fn a_refused_sleep_keeps_the_hosts_reason() {
+    let message = "End all applications and sessions before requesting sleep";
+    let host = serve(move |_| reply(409, "application/xml", power_document(409, message, "")));
+    match paired_client(&host).sleep(SLEEP_TOKEN) {
+        Err(PowerError::Refused { refusal: Refusal::Conflict, reply }) => {
+            assert_eq!((reply.status, reply.message.as_str(), reply.accepted), (409, message, false));
+        }
+        other => panic!("{other:?}"),
+    }
+    // A host without the API is not a refusal, and never a success.
+    let host = serve(|_| reply(404, "text/html", "<html>no</html>"));
+    assert!(matches!(
+        paired_client(&host).power_capabilities(),
+        Err(PowerError::Host(Error::NotFound(_)))
+    ));
 }

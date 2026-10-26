@@ -179,6 +179,12 @@ impl<'a> Body<'a> {
     pub fn json(bytes: &'a [u8]) -> Self {
         Self { bytes, content_type: "application/json" }
     }
+
+    /// A POST without a body or a media type, `Content-Length: 0`: the sleep route refuses
+    /// anything else.
+    pub fn empty() -> Self {
+        Self { bytes: &[], content_type: "" }
+    }
 }
 
 pub(crate) fn send(request: &Request<'_>, cancel: &Cancel, body: Option<Body<'_>>) -> Result<Response, Error> {
@@ -242,17 +248,7 @@ fn exchange(request: &Request<'_>, tcp: TcpStream, body: Option<Body<'_>>, heade
     tcp.set_nodelay(true)?;
     let tcp = DeadlineSocket { socket: tcp, deadline, read_timeout: request.timeouts.read,
         write_timeout: request.timeouts.connect.max(Duration::from_secs(5)) };
-    let mut head = format!(
-        "{} /{} HTTP/1.1\r\nHost: {}:{}\r\nConnection: close\r\nUser-Agent: Nightjar\r\n",
-        if body.is_some() { "POST" } else { "GET" },
-        request.target,
-        request.host.url_host(),
-        request.port
-    );
-    if let Some(body) = body {
-        head.push_str(&format!("Content-Type: {}\r\nContent-Length: {}\r\n", body.content_type, body.bytes.len()));
-    }
-    head.push_str("\r\n");
+    let head = request_head(request, body);
     match &request.tls {
         None => {
             let mut tcp = tcp;
@@ -278,6 +274,24 @@ fn exchange(request: &Request<'_>, tcp: TcpStream, body: Option<Body<'_>>, heade
             read_response_with_headers(&mut stream, request.body_limit, &mut headers)
         }
     }
+}
+
+fn request_head(request: &Request<'_>, body: Option<Body<'_>>) -> String {
+    let mut head = format!(
+        "{} /{} HTTP/1.1\r\nHost: {}:{}\r\nConnection: close\r\nUser-Agent: Nightjar\r\n",
+        if body.is_some() { "POST" } else { "GET" },
+        request.target,
+        request.host.url_host(),
+        request.port
+    );
+    if let Some(body) = body {
+        if !body.content_type.is_empty() {
+            head.push_str(&format!("Content-Type: {}\r\n", body.content_type));
+        }
+        head.push_str(&format!("Content-Length: {}\r\n", body.bytes.len()));
+    }
+    head.push_str("\r\n");
+    head
 }
 
 struct DeadlineSocket {
@@ -672,6 +686,19 @@ mod tests {
             (uuid.len(), &uuid[14..15], uuid.matches('-').count()),
             (36, "4", 4)
         );
+    }
+
+    #[test]
+    fn an_empty_post_has_a_zero_length_and_no_media_type() {
+        let host = Host::parse("127.0.0.1").unwrap();
+        let request = Request { host: &host, port: 47984, target: "power-actions/v1/sleep?token=ab", tls: None,
+            timeouts: Timeouts { connect: Duration::from_secs(1), read: None }, body_limit: 1 };
+        assert_eq!(request_head(&request, Some(Body::empty())),
+            "POST /power-actions/v1/sleep?token=ab HTTP/1.1\r\nHost: 127.0.0.1:47984\r\nConnection: close\r\n\
+             User-Agent: Nightjar\r\nContent-Length: 0\r\n\r\n");
+        let head = request_head(&request, Some(Body::json(b"{}")));
+        assert!(head.ends_with("Content-Type: application/json\r\nContent-Length: 2\r\n\r\n"), "{head}");
+        assert!(request_head(&request, None).starts_with("GET /power-actions/v1/sleep?token=ab HTTP/1.1\r\n"));
     }
 
     #[test]

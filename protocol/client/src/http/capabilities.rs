@@ -44,10 +44,12 @@ pub enum Feature {
     CursorShape,
     /// The Rubylight native API (`/api/native/v1`): library, session actions, Radeon state.
     NativeApi,
+    /// Sleep PC (`/power-actions/v1`, Vibepollo's wire format): suspend an idle host.
+    Sleep,
 }
 
 impl Feature {
-    pub const ALL: [Feature; 25] = [
+    pub const ALL: [Feature; 26] = [
         Feature::Permissions,
         Feature::OtpPairing,
         Feature::Clipboard,
@@ -73,6 +75,7 @@ impl Feature {
         Feature::WebUi,
         Feature::CursorShape,
         Feature::NativeApi,
+        Feature::Sleep,
     ];
 }
 
@@ -92,6 +95,8 @@ pub enum Reason {
     VirtualDisplayOff,
     VirtualDisplayDriver,
     HardwareMetricsOff,
+    /// The host supports sleep but has not allowed it for this paired client.
+    SleepPermission,
 }
 
 /// Whether a host offers a feature; an unsupported one may carry what would change that.
@@ -155,6 +160,12 @@ pub struct Evidence {
     /// -1 when the host has no native API, 0 when it has one but not for this request (plain
     /// HTTP or an unpaired certificate), 1 or more for the highest version it serves.
     pub native_api_version: i32,
+    /// -1 when serverinfo has no `PowerActionVersion`: hosts send it only to paired clients
+    /// over HTTPS.
+    pub power_action_version: i32,
+    pub sleep_supported: bool,
+    /// The host lets this paired client put it to sleep.
+    pub sleep_allowed: bool,
 }
 
 /// A host's capabilities. [`HostCapabilities::UNKNOWN`] is a host never reached.
@@ -234,6 +245,7 @@ impl Evidence {
             network_path_version: -1,
             cursor_shape_version: -1,
             native_api_version: -1,
+            power_action_version: -1,
             ..Default::default()
         };
         let (mut encoder, mut initial_encoder) = (false, false);
@@ -269,6 +281,9 @@ impl Evidence {
                 "ControllerPreparation" => e.controller_preparation = text.trim() == "1",
                 "CursorShapeVersion" => e.cursor_shape_version = unsigned(&text, 0xFFFF) as i32,
                 "NativeApiVersion" => e.native_api_version = unsigned(&text, 0xFFFF) as i32,
+                "PowerActionVersion" => e.power_action_version = unsigned(&text, 0xFFFF) as i32,
+                "SleepSupported" => e.sleep_supported = flag(&text) == Some(true),
+                "SleepAllowed" => e.sleep_allowed = flag(&text) == Some(true),
                 "currentgameuuid" => e.current_game_uuid = true,
                 _ => {}
             }
@@ -590,6 +605,26 @@ impl Evidence {
                     }
                 } else if !self.paired || self.native_api_version < 1 {
                     pair
+                } else {
+                    Supported
+                }
+            }
+            // Rubylight and Vibepollo send the power fields only to a paired HTTPS client.
+            Feature::Sleep => {
+                if self.power_action_version == -1 {
+                    if !rubylight {
+                        self.absent(true)
+                    } else if !self.paired {
+                        pair
+                    } else {
+                        update
+                    }
+                } else if !self.paired {
+                    pair
+                } else if self.power_action_version < 1 || !self.sleep_supported {
+                    Availability::NEVER
+                } else if !self.sleep_allowed {
+                    Unsupported(Some(Reason::SleepPermission))
                 } else {
                     Supported
                 }

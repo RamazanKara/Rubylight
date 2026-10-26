@@ -17,6 +17,7 @@ mod native;
 mod network_path;
 mod pairing;
 pub mod pace;
+mod power;
 mod probe;
 mod remote_check;
 mod serverinfo;
@@ -39,6 +40,7 @@ pub use launch::{
 };
 pub use network_path::{NetworkPath, MAX_NETWORK_PATH_BYTES};
 pub use pairing::{PairFailure, PairResult, PairStep};
+pub use power::{PowerError, PowerReply, Refusal};
 pub use remote_check::{ConnectionTestStats, RemoteCheck, RemoteOutcome, REMOTE_CHECK_PROBES};
 pub use serverinfo::ServerInfo;
 

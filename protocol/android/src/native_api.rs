@@ -1,6 +1,6 @@
 //! The JNI side of `com.limelight.nvstream.jni.NativeApiBridge`: the Rubylight native API v1
 //! (`HostClient::{native_capabilities, library, session, session_action, radeon, write_radeon,
-//! restore_radeon}`) for the console screens. Calls block on HTTPS, so Java runs them on worker
+//! restore_radeon}`) for the console screens, and Sleep PC (`power_capabilities`, `sleep`). Calls block on HTTPS, so Java runs them on worker
 //! threads, never on the UI thread.
 //!
 //! One entry point, `request`, takes the operation, the host endpoint and an optional JSON
@@ -18,7 +18,7 @@ use nightjar_core::http::native_api::capabilities::Capabilities;
 use nightjar_core::http::native_api::library::Library;
 use nightjar_core::http::native_api::radeon::{Radeon, SettingsWrite};
 use nightjar_core::http::native_api::session::{ActionId, Session};
-use nightjar_core::http::{ClientIdentity, Error, HostClient};
+use nightjar_core::http::{ClientIdentity, Error, HostClient, PowerError, PowerReply, Refusal};
 
 /// What the client of one host needs; Java builds it from the paired host's stored data.
 pub struct Endpoint {
@@ -41,6 +41,8 @@ pub trait Host {
     fn radeon(&self) -> Result<Radeon, Error>;
     fn write_radeon(&self, write: &SettingsWrite) -> Result<Radeon, Error>;
     fn restore_radeon(&self) -> Result<Radeon, Error>;
+    fn power_capabilities(&self) -> Result<PowerReply, PowerError>;
+    fn sleep(&self, token: &str) -> Result<PowerReply, PowerError>;
 }
 
 impl Host for HostClient {
@@ -64,6 +66,12 @@ impl Host for HostClient {
     }
     fn restore_radeon(&self) -> Result<Radeon, Error> {
         HostClient::restore_radeon(self)
+    }
+    fn power_capabilities(&self) -> Result<PowerReply, PowerError> {
+        HostClient::power_capabilities(self)
+    }
+    fn sleep(&self, token: &str) -> Result<PowerReply, PowerError> {
+        HostClient::sleep(self, token)
     }
 }
 
@@ -124,9 +132,53 @@ fn argument_error(message: String) -> String {
     error_envelope(&Error::InvalidArgument(message))
 }
 
+fn power_json(reply: &PowerReply) -> Value {
+    json!({
+        "status": reply.status,
+        "message": reply.message,
+        "version": reply.version,
+        "sleep_supported": reply.sleep_supported,
+        "sleep_allowed": reply.sleep_allowed,
+        "sleep_available": reply.sleep_available,
+        "active_session_policy": reply.active_session_policy,
+        "token": reply.token,
+        "token_lifetime_seconds": reply.token_lifetime_seconds,
+        "accepted": reply.accepted,
+    })
+}
+
+/// `{"ok": <reply>}`; a documented refusal is `{"error": {"kind": "power_refused", "message",
+/// "http_status", "refusal", "power": <reply>}}`, anything else the usual error.
+fn power(result: Result<PowerReply, PowerError>) -> String {
+    match result {
+        Ok(reply) => json!({ "ok": power_json(&reply) }).to_string(),
+        Err(PowerError::Refused { refusal, reply }) => {
+            let refusal = match refusal {
+                Refusal::BadRequest => "bad_request",
+                Refusal::Unauthorized => "unauthorized",
+                Refusal::Forbidden => "forbidden",
+                Refusal::MethodNotAllowed => "method_not_allowed",
+                Refusal::Conflict => "conflict",
+                Refusal::NotImplemented => "not_implemented",
+                Refusal::Unavailable => "unavailable",
+            };
+            json!({ "error": {
+                "kind": "power_refused",
+                "message": reply.message,
+                "http_status": reply.status,
+                "refusal": refusal,
+                "power": power_json(&reply),
+            } })
+            .to_string()
+        }
+        Err(PowerError::Host(error)) => error_envelope(&error),
+    }
+}
+
 /// Runs one operation: `capabilities`, `library`, `session`, `session_action` (argument
 /// `disconnect`, `end` or `close_game`), `radeon`, `radeon_write` (argument: the
-/// `SettingsWrite` JSON) and `radeon_restore`.
+/// `SettingsWrite` JSON), `radeon_restore`, `power.capabilities` and `power.sleep` (argument:
+/// the token from `power.capabilities`). Gate the power ones on `Feature::Sleep`.
 pub fn execute(host: &dyn Host, op: &str, argument: &str) -> String {
     match op {
         "capabilities" => ok(host.capabilities()),
@@ -147,6 +199,8 @@ pub fn execute(host: &dyn Host, op: &str, argument: &str) -> String {
             Err(e) => argument_error(format!("Radeon write: {e}")),
         },
         "radeon_restore" => ok(host.restore_radeon()),
+        "power.capabilities" => power(host.power_capabilities()),
+        "power.sleep" => power(host.sleep(argument)),
         other => argument_error(format!("unknown native API operation: {other:?}")),
     }
 }
@@ -281,6 +335,38 @@ mod tests {
             self.note("restore");
             Err(Error::NotPaired)
         }
+        fn power_capabilities(&self) -> Result<PowerReply, PowerError> {
+            self.note("power");
+            Ok(power_reply(200, "", Some(TOKEN)))
+        }
+        fn sleep(&self, token: &str) -> Result<PowerReply, PowerError> {
+            self.note(&format!("sleep {token}"));
+            match token {
+                TOKEN => Ok(power_reply(202, "Sleep request accepted", None)),
+                "" => Err(PowerError::Host(Error::InvalidArgument("no token".into()))),
+                _ => Err(PowerError::Refused {
+                    refusal: Refusal::Conflict,
+                    reply: power_reply(409, "Sleep token expired or already used", None),
+                }),
+            }
+        }
+    }
+
+    const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    fn power_reply(status: u16, message: &str, token: Option<&str>) -> PowerReply {
+        PowerReply {
+            status,
+            message: message.into(),
+            version: 1,
+            sleep_supported: true,
+            sleep_allowed: true,
+            sleep_available: token.is_some(),
+            active_session_policy: "idle-only".into(),
+            token: token.map(str::to_owned),
+            token_lifetime_seconds: 30,
+            accepted: status == 202,
+        }
     }
 
     fn parse(reply: &str) -> Value {
@@ -384,6 +470,26 @@ mod tests {
             assert_eq!(reply["error"]["kind"], "invalid_argument", "{bad}");
         }
         assert_eq!(fake.calls.lock().unwrap().len(), calls);
+    }
+
+    #[test]
+    fn power_ops_carry_the_reply_and_refusals_keep_it() {
+        let fake = Fake::default();
+        let offer = parse(&execute(&fake, "power.capabilities", ""));
+        assert_eq!(offer["ok"]["token"], TOKEN);
+        assert_eq!((offer["ok"]["status"].as_u64(), offer["ok"]["sleep_available"].as_bool()), (Some(200), Some(true)));
+        let accepted = parse(&execute(&fake, "power.sleep", TOKEN));
+        assert_eq!((accepted["ok"]["accepted"].as_bool(), &accepted["ok"]["token"]), (Some(true), &Value::Null));
+        assert_eq!(fake.calls.lock().unwrap().last().unwrap(), &format!("sleep {TOKEN}"));
+
+        let refused = parse(&execute(&fake, "power.sleep", "spent"));
+        let error = &refused["error"];
+        assert_eq!((error["kind"].as_str(), error["refusal"].as_str()), (Some("power_refused"), Some("conflict")));
+        assert_eq!((error["http_status"].as_u64(), error["message"].as_str()), (Some(409), Some("Sleep token expired or already used")));
+        assert_eq!(error["power"]["accepted"], false);
+        assert!(refused.get("ok").is_none());
+        let invalid = parse(&execute(&fake, "power.sleep", ""));
+        assert_eq!(invalid["error"]["kind"], "invalid_argument");
     }
 
     #[test]

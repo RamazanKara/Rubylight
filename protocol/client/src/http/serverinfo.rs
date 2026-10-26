@@ -350,6 +350,39 @@ pub(crate) mod tests {
         assert_eq!(ServerInfo::parse(RUBYLIGHT, 47989).unwrap().capabilities.evidence().unwrap().native_api_version, -1);
     }
 
+    /// The cases HostCapabilitiesTest reads too, so the two parsers gate Sleep PC alike.
+    #[test]
+    fn power_action_fields_decide_sleep() {
+        let cases = include_str!("../../tests/fixtures/power/sleep-serverinfo.txt");
+        let mut count = 0;
+        for line in cases.lines().filter(|l| !l.is_empty() && !l.starts_with('#')) {
+            let (expected, reply) = line.split_once('|').unwrap();
+            let expected = match expected {
+                "supported" => Availability::Supported,
+                "never" => Availability::Unsupported(None),
+                "unknown" => Availability::Unknown,
+                "pair" => Availability::Unsupported(Some(Reason::Pair)),
+                "update_host" => Availability::Unsupported(Some(Reason::UpdateHost)),
+                "sleep_permission" => Availability::Unsupported(Some(Reason::SleepPermission)),
+                other => panic!("unknown availability {other}"),
+            };
+            let caps = ServerInfo::parse(reply, 47989).unwrap().capabilities;
+            assert_eq!(caps.availability(Feature::Sleep), expected, "{reply}");
+            assert_eq!(caps.supported().contains(&Feature::Sleep), expected.is_supported());
+            count += 1;
+        }
+        assert_eq!(count, 14);
+        let paired = ServerInfo::parse(&RUBYLIGHT.replace("<NetworkPathVersion>",
+            "<PowerActionVersion>1</PowerActionVersion><SleepSupported>1</SleepSupported>\
+             <SleepAllowed>0</SleepAllowed><NetworkPathVersion>"), 47989).unwrap();
+        let evidence = paired.capabilities.evidence().unwrap();
+        assert_eq!((evidence.power_action_version, evidence.sleep_supported, evidence.sleep_allowed), (1, true, false));
+        // The host's Sleep server command is not the power API.
+        assert_eq!(ServerInfo::parse(RUBYLIGHT, 47989).unwrap().capabilities.availability(Feature::Sleep),
+            Availability::Unsupported(Some(Reason::UpdateHost)));
+        assert!(!HostCapabilities::UNKNOWN.has(Feature::Sleep));
+    }
+
     #[test]
     fn hosts_without_the_field_get_the_classic_grid() {
         // Sunshine, GFE and Apollo-style 2.6 replies carry no NativeApiVersion: never supported,

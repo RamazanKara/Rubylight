@@ -84,7 +84,7 @@ Both runs passed. AV1's 115.4 fps in run 1 is Moonlight's session average, start
 
 **Not rerun.**
 
-- **Link adaptation, `r50-hevc-hi`** (previous 1.17 and 1.08 % frames lost): `linkspeed.py` lets the NUC client in through a firewall rule it adds for the package's exe, and this shell was not elevated, so the rule was not created and the client could not reach the host (`ConnectTimeout` on `/applist`). The harness then picked up client files left in the container from an earlier run; both rows were rejected (`no host record`).
+- **Link adaptation, `r50-hevc-hi`** (previous 1.17 and 1.08 % frames lost): `linkspeed.py` lets the NUC client in through a firewall rule it adds for the package's exe, and this shell was not elevated, so the rule was not created and the client could not reach the host (`ConnectTimeout` on `/applist`). The harness then picked up client files left in the container from an earlier run; both rows were rejected (`no host record`). `linkspeed.py` now empties the client's folder before each arm and stops at once without an elevated shell.
 - **WebRTC glass to glass** (H.264 and AV1 1080p60, HEVC and AV1 4K120): `webrtc_e2e.cjs` needs its elevated helper, which is not installed on this PC (`rust/release/elevation.ps1` from an elevated shell sets it up).
 - **Picture age under GPU load** (2.2.9: HEVC 14.34 / 16.03, AV1 13.65 / 18.00): the October 12 harness (native HDR virtual display as SYSTEM) is not in the repository, and SYSTEM runs need the same elevated helper.
 - **Real-client picture age over Wi-Fi** (October 8: 13.5 ms render to received): it used a laptop-side decoder with a UDP clock map that is not in the repository.
@@ -282,7 +282,7 @@ Nightjar's automatic bitrate (the CLI has none; static reading of the Android cl
 
 ### Tooling
 
-`rust/release/linkshape.sh` (tc shaper), `linkspeed_client.py` (runs in the client container), `linkspeed.py` (host side: `list`, `shapecheck`, `run ARM... --work DIR [--keep-memory]`, `report --work DIR`, `compare A_DIR B_DIR [--repeats N]`, `noise DIR...`), `linkcompare.py` (the analysis and verdicts, unit-tested in `test_release.py`). `ARM@2` runs an arm again into its own folder. Raw results are in `C:\src\rl-link-work\m` (clean) and `m-memory`.
+`rust/release/linkshape.sh` (tc shaper), `linkspeed_client.py` (runs in the client container), `linkspeed.py` (host side: `list`, `shapecheck`, `run ARM... --work DIR [--keep-memory]` from an elevated shell, `report --work DIR`, `compare A_DIR B_DIR [--repeats N]`, `noise DIR...`), `linkcompare.py` (the analysis and verdicts, unit-tested in `test_release.py`). `ARM@2` runs an arm again into its own folder. Raw results are in `C:\src\rl-link-work\m` (clean) and `m-memory`.
 
 ### Healthy links and run-to-run noise (3.0.0-beta.1)
 

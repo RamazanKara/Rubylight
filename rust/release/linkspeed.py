@@ -16,6 +16,7 @@ writes a summary row to <work>/results.jsonl; step arms change the rate during t
 An arm is `r<rate>-<codec>-<def|hi|4k>`, `step-<a>-<b>-<a>`, `wifi`, or a healthy-link arm
 `hz-r<rate>-hevc-<mbps>`; `ARM@tag` runs the arm again into its own folder (a repeat for compare and noise).
 Loss memory is reset before every arm unless --keep-memory is given.
+`run` needs an elevated shell: it adds a firewall rule that lets the NUC in to the package's exe.
 The host holds C:\\src\\butterpollo-release\\GPU-LOCK while a batch runs (it waits for other agents).
 """
 import argparse, csv, hashlib, json, os, pathlib, re, shlex, subprocess, sys, threading, time
@@ -140,10 +141,17 @@ class Host:
 
     def firewall(self, add):
         # A scoped inbound rule for this package's exe from the NUC only; removed again at the end.
+        exe = self.package / 'butterpollo.exe'
         script = (f"Remove-NetFirewallRule -DisplayName '{self.FIREWALL}' -ErrorAction SilentlyContinue; " +
-                  (f"New-NetFirewallRule -DisplayName '{self.FIREWALL}' -Direction Inbound -Action Allow -Program '{self.package / 'butterpollo.exe'}' "
-                   f"-RemoteAddress {NUC_IP} -Profile Any | Out-Null" if add else ''))
-        subprocess.run(['powershell', '-NoProfile', '-Command', script], check=False, capture_output=True)
+                  (f"try {{ New-NetFirewallRule -DisplayName '{self.FIREWALL}' -Direction Inbound -Action Allow -Program '{exe}' "
+                   f"-RemoteAddress {NUC_IP} -Profile Any -ErrorAction Stop | Out-Null }} "
+                   "catch { [Console]::Error.WriteLine($_); exit 1 }" if add else ''))
+        result = subprocess.run(['powershell', '-NoProfile', '-Command', script], check=False, capture_output=True, text=True,
+                                encoding='utf-8', errors='replace')
+        # Without the rule the client's first request times out and every arm fails much later.
+        if add and result.returncode:
+            raise RuntimeError(f"cannot add the firewall rule '{self.FIREWALL}' for {exe}: run linkspeed.py from an elevated shell "
+                               f"({(result.stderr or '').strip()[-300:] or 'exit %d' % result.returncode})")
 
     def start(self):
         self.firewall(True)
@@ -301,6 +309,24 @@ def primary_display(package):
     return monitor['display_name'], monitor['device_id']
 
 
+def require_elevated():
+    """The host's firewall rule needs an administrator; check before waiting for GPU-LOCK."""
+    import ctypes
+    if not ctypes.windll.shell32.IsUserAnAdmin():
+        raise RuntimeError('linkspeed.py run needs an elevated shell: it adds the firewall rule that lets the NUC client reach the host')
+
+
+def start_client(spec):
+    """Start the NUC client for one arm, writing into an empty output folder in the container."""
+    remote = f'{NUC_WORK}/{spec["name"]}'
+    # A client that cannot reach the host writes nothing there; an earlier run's files must not stand in for its output.
+    container('rm', '-rf', '--', remote)
+    command = ['docker', 'exec', 'ljs', 'python3', f'{NUC_WORK}/linkspeed_client.py', LAN_IP, str(PORT), spec['codec'],
+               str(spec['width']), str(spec['height']), str(spec['fps']), str(spec['seconds']), str(spec['kbps']), remote]
+    return subprocess.Popen(['ssh', '-o', 'BatchMode=yes', 'nuc', shlex.join(command)], text=True, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT)
+
+
 def run_arm(spec, host, work, sampler_admin, keep_memory=False):
     out = work / spec['name']
     if out.exists():
@@ -315,12 +341,8 @@ def run_arm(spec, host, work, sampler_admin, keep_memory=False):
     log_offset = host.log.stat().st_size
     sampler = Sampler(sampler_admin, host.web, out / 'host-samples.jsonl')
     sampler.start()
-    command = ['docker', 'exec', 'ljs', 'python3', f'{NUC_WORK}/linkspeed_client.py', LAN_IP, str(PORT), spec['codec'],
-               str(spec['width']), str(spec['height']), str(spec['fps']), str(spec['seconds']), str(spec['kbps']),
-               f'{NUC_WORK}/{spec["name"]}']
     started = time.perf_counter()
-    client = subprocess.Popen(['ssh', '-o', 'BatchMode=yes', 'nuc', shlex.join(command)], text=True, stdout=subprocess.PIPE,
-                              stderr=subprocess.STDOUT)
+    client = start_client(spec)
     steps = []
     # Step arms keep one shell open in the container: a new ssh connection from a Wi-Fi host stalls for
     # about a minute while the stream runs, which would put the step after the end of the arm.
@@ -404,6 +426,9 @@ def analyse(out):
     records = sorted((out / 'record').glob('host-*.csv')) if (out / 'record').exists() else []
     if not frames_csv.exists() or not records:
         result['error'] = 'no frames.csv' if not frames_csv.exists() else 'no host record'
+        runner = (out / 'runner.log').read_text(errors='replace').strip().splitlines() if (out / 'runner.log').exists() else []
+        if not frames_csv.exists() and runner:
+            result['error'] += f' (client: {runner[-1][:200]})'  # e.g. the ConnectTimeout of a client that never reached the host
         write_result(out, result)
         return result
     try:
@@ -581,6 +606,7 @@ def run(args):
     table = {n: dict(table[lc.base_name(n)], name=n) for n in names}  # ARM@tag is a repeat run in its own folder
     package = pathlib.Path(args.package)
     work = pathlib.Path(args.work); work.mkdir(parents=True, exist_ok=True)
+    require_elevated()
     installed_idle()
     take_lock(args.wait)
     host = Host(package, args.config)

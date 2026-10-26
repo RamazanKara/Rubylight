@@ -394,12 +394,62 @@ pub fn apply(controls: &Controls, base: Settings, write: &AudioWrite) -> Result<
     Ok(state(Some(controls), base))
 }
 
+/// Keeps a stream's inactive reasons, session warnings and log current.
+#[derive(Default)]
+pub struct Report {
+    warned: [Option<Inactive>; 2],
+    rendering: bool,
+    bad_samples: bool,
+}
+
+impl Report {
+    /// Call before each batch of packets with what the audio thread knows.
+    pub fn update(
+        &mut self,
+        controls: &Controls,
+        warnings: &crate::session::Warnings,
+        conditions: &Conditions,
+        settings: Settings,
+        chain: &mut Chain,
+    ) {
+        for (key, warned) in Key::ALL.into_iter().zip(&mut self.warned) {
+            let reason = conditions.reason(key);
+            controls.set_reason(key, reason);
+            // A setting that is off doesn't warn about not applying.
+            let warning = reason.filter(|_| key.of(settings));
+            if warning != *warned {
+                match warning {
+                    Some(reason) => warnings.set(key.warning(), reason.message(key)),
+                    None => warnings.clear(key.warning()),
+                }
+                *warned = warning;
+            }
+        }
+        let rendering = chain.rendering(settings);
+        if rendering != self.rendering {
+            if rendering {
+                tracing::info!("headphone surround active (8 to 2)");
+            } else {
+                tracing::info!("headphone surround off; the 8 channels are downmixed to stereo");
+            }
+            self.rendering = rendering;
+        }
+        if chain.take_bad_samples() && !self.bad_samples {
+            tracing::warn!(
+                "audio capture delivered NaN or infinite samples; they were replaced with silence"
+            );
+            self.bad_samples = true;
+        }
+    }
+}
+
 /// The DSP of one stream, from capture to Opus.
 pub struct Chain {
     capture_channels: usize,
     output_channels: usize,
     night: Night,
     surround: Option<Surround>,
+    source_known: bool,
     bad_samples: bool,
 }
 
@@ -453,8 +503,10 @@ impl Surround {
         if self.fade > 0 {
             for (out, old) in self
                 .output
-                .chunks_exact_mut(2)
-                .zip(self.other.chunks_exact(2))
+                .as_chunks_mut::<2>()
+                .0
+                .iter_mut()
+                .zip(self.other.as_chunks::<2>().0)
             {
                 if self.fade == 0 {
                     break;
@@ -483,6 +535,7 @@ impl Chain {
             output_channels,
             night: Night::default(),
             surround,
+            source_known: false,
             bad_samples: false,
         })
     }
@@ -495,13 +548,16 @@ impl Chain {
                 *surround = Surround::new(layout);
             }
         }
+        self.source_known = true;
         Ok(())
     }
 
-    /// Whether the endpoint has surround speakers, for an 8-channel capture.
+    /// Whether the endpoint has surround speakers, for an 8-channel capture
+    /// whose endpoint has opened.
     pub fn source_surround(&self) -> Option<bool> {
         self.surround
             .as_ref()
+            .filter(|_| self.source_known)
             .map(|surround| surround.layout.surround())
     }
 
@@ -597,7 +653,12 @@ mod tests {
                 ..OFF
             },
         );
-        for (out, frame) in samples.chunks_exact(2).zip(input.chunks_exact(8)) {
+        for (out, frame) in samples
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .zip(input.as_chunks::<8>().0)
+        {
             assert_eq!(out, &frame[..2]);
         }
     }
@@ -697,6 +758,61 @@ mod tests {
             Inactive::NextStream.message(Key::HeadphoneSurround),
             "Headphone surround applies from the next stream."
         );
+    }
+
+    #[test]
+    fn the_report_warns_only_for_a_setting_that_is_on_and_clears_it() {
+        let controls = Controls::default();
+        let warnings = crate::session::Warnings::default();
+        let mut report = Report::default();
+        let mut chain = Chain::new(2, 2).unwrap();
+        let on = Settings {
+            headphone_surround: true,
+            ..OFF
+        };
+        let game = Conditions {
+            client_channels: 2,
+            game_audio: true,
+            muted: false,
+            capture_channels: 2,
+            source_surround: None,
+        };
+        let codes = |warnings: &crate::session::Warnings| {
+            warnings
+                .snapshot()
+                .into_iter()
+                .map(|w| (w.code, w.message))
+                .collect::<Vec<_>>()
+        };
+        report.update(&controls, &warnings, &game, OFF, &mut chain);
+        assert_eq!(codes(&warnings), []);
+        assert_eq!(
+            controls.reason(Key::HeadphoneSurround),
+            Some(Inactive::GameOnlyAudio)
+        );
+        report.update(&controls, &warnings, &game, on, &mut chain);
+        assert_eq!(
+            codes(&warnings),
+            [(
+                Key::HeadphoneSurround.warning().to_string(),
+                Inactive::GameOnlyAudio
+                    .message(Key::HeadphoneSurround)
+                    .to_string()
+            )]
+        );
+        let muted = Conditions {
+            muted: true,
+            ..game
+        };
+        let both = Settings {
+            night_mode: true,
+            ..on
+        };
+        report.update(&controls, &warnings, &muted, both, &mut chain);
+        assert_eq!(codes(&warnings).len(), 2);
+        assert_eq!(controls.reason(Key::NightMode), Some(Inactive::Muted));
+        report.update(&controls, &warnings, &muted, OFF, &mut chain);
+        assert_eq!(codes(&warnings), []);
     }
 
     #[test]
@@ -859,8 +975,8 @@ mod tests {
         }
         // Each switch is smooth: no frame jumps more than the signal does.
         let step = |s: &[f32]| {
-            s.chunks_exact(2)
-                .collect::<Vec<_>>()
+            s.as_chunks::<2>()
+                .0
                 .windows(2)
                 .map(|w| (w[1][0] - w[0][0]).abs())
                 .fold(0f32, f32::max)

@@ -35,6 +35,8 @@ pub struct Loopback {
     /// Keeps a process identity alive for game-only capture; system capture
     /// owns no process and retains its existing device-routing behavior.
     process: Option<crate::process::AudioProcess>,
+    /// The endpoint's own channel count and speaker mask.
+    source: (usize, u32),
 }
 impl Loopback {
     pub fn new(output_channels: usize) -> Result<Self> {
@@ -149,6 +151,7 @@ impl Loopback {
                 position: None,
                 delivered: None,
                 process: None,
+                source: (f.nChannels as usize, mask),
             })
         }
     }
@@ -228,6 +231,7 @@ impl Loopback {
                 position: None,
                 delivered: None,
                 process: Some(process),
+                source: (2, 3),
             })
         }
     }
@@ -248,6 +252,11 @@ impl Loopback {
     }
     pub fn event_driven(&self) -> bool {
         self.ready.is_some()
+    }
+    /// The endpoint's own channel count and speaker mask, before they are
+    /// mixed to the output channels; a mask of 0 means the standard order.
+    pub fn source(&self) -> (usize, u32) {
+        self.source
     }
     /// How much audio Windows holds between reads; zero when unknown.
     pub fn buffer(&self) -> std::time::Duration {

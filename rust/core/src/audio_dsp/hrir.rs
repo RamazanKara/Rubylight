@@ -22,8 +22,10 @@ fn all() -> &'static [Pair; AZIMUTHS.len()] {
         assert_eq!(DATA.len(), AZIMUTHS.len() * 2 * TAPS * 4);
         let mut filters = Box::new([[[0.; TAPS]; 2]; AZIMUTHS.len()]);
         let mut samples = DATA
-            .chunks_exact(4)
-            .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|b| f32::from_le_bytes(*b));
         for tap in filters.iter_mut().flatten().flatten() {
             *tap = samples.next().unwrap();
         }

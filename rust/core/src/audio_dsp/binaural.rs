@@ -34,8 +34,8 @@ impl Layout {
         };
         for (slot, row) in eight.iter().enumerate() {
             layout.present[slot] = row.iter().any(|v| *v != 0.);
-            for ear in 0..2 {
-                layout.downmix[ear][slot] = row.iter().zip(&stereo[ear]).map(|(a, b)| a * b).sum();
+            for (downmix, ear) in layout.downmix.iter_mut().zip(&stereo) {
+                downmix[slot] = row.iter().zip(ear).map(|(a, b)| a * b).sum();
             }
         }
         Ok(layout)
@@ -194,7 +194,9 @@ impl Binaural {
             speaker.line.drain(..frames);
         }
         for (out, (l, r)) in output
-            .chunks_exact_mut(2)
+            .as_chunks_mut::<2>()
+            .0
+            .iter_mut()
             .zip(left.iter().zip(right.iter()))
         {
             out[0] = *l;
@@ -223,7 +225,12 @@ impl Speaker {
 /// Applies the 2x8 `downmix` to interleaved 8-channel `input`, skipping zero
 /// weights so a stereo source comes out bit for bit.
 pub fn downmix(weights: &[[f32; 8]; 2], input: &[f32], output: &mut [f32]) {
-    for (out, frame) in output.chunks_exact_mut(2).zip(input.chunks_exact(8)) {
+    for (out, frame) in output
+        .as_chunks_mut::<2>()
+        .0
+        .iter_mut()
+        .zip(input.as_chunks::<8>().0)
+    {
         for (ear, row) in weights.iter().enumerate() {
             let mut sum = None;
             for (w, x) in row.iter().zip(frame) {
@@ -360,7 +367,12 @@ mod tests {
         input[9] = f32::MIN_POSITIVE / 4.;
         let mut output = vec![0.; 960];
         downmix(&layout.downmix, &input, &mut output);
-        for (out, frame) in output.chunks_exact(2).zip(input.chunks_exact(8)) {
+        for (out, frame) in output
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .zip(input.as_chunks::<8>().0)
+        {
             assert_eq!(out[0].to_bits(), frame[0].to_bits());
             assert_eq!(out[1].to_bits(), frame[1].to_bits());
         }
@@ -375,9 +387,9 @@ mod tests {
             match azimuth {
                 Some(azimuth) => {
                     let pair = hrir::pair(*azimuth);
-                    for e in 0..2 {
+                    for (e, filter) in pair.iter().enumerate() {
                         let got = ear(&output, e);
-                        assert_eq!(&got[..TAPS], &pair[e][..], "{slot} {e}");
+                        assert_eq!(&got[..TAPS], &filter[..], "{slot} {e}");
                         assert!(got[TAPS..].iter().all(|v| *v == 0.));
                     }
                 }
@@ -462,7 +474,7 @@ mod tests {
         for (channels, mask) in [(8, SEVEN_ONE), (6, FIVE_ONE_BACK), (6, FIVE_ONE_SIDE)] {
             let layout = Layout::new(channels, mask).unwrap();
             let mut input = noise(48_000 * 2, 11);
-            for frame in input.chunks_exact_mut(8) {
+            for frame in input.as_chunks_mut::<8>().0 {
                 for (slot, v) in frame.iter_mut().enumerate() {
                     if !layout.present[slot] {
                         *v = 0.;

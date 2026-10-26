@@ -333,7 +333,7 @@ mod tests {
             .flat_map(|v| [v, 0., 0., 0., 0., 0.])
             .collect();
         night.process(&mut samples, 6, true);
-        for frame in samples.chunks_exact(6) {
+        for frame in samples.as_chunks::<6>().0 {
             assert!(frame[1..].iter().all(|x| x.to_bits() == 0));
         }
     }
@@ -382,8 +382,8 @@ mod tests {
             night.process(packet, 2, false);
         }
         let largest = |s: &[f32]| {
-            s.chunks_exact(2)
-                .collect::<Vec<_>>()
+            s.as_chunks::<2>()
+                .0
                 .windows(2)
                 .map(|w| (w[1][0] - w[0][0]).abs())
                 .fold(0f32, f32::max)

@@ -1706,7 +1706,7 @@ fn send_due(socket: &UdpSocket, queue: &mut SendQueue, shared: &Shared) {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::super::sdp::testing::{answer, answer_for, client, host_offer, spec, surround_spec};
     use super::super::sdp::{VideoCodec, accept_answer};
     use super::*;
@@ -3523,7 +3523,9 @@ mod tests {
     }
 
     /// A real MediaHandle on loopback, against a peer that never answers.
-    fn real_handle(events: Arc<Mutex<Vec<TransportEvent>>>) -> (MediaHandle, SocketAddr) {
+    pub(crate) fn real_handle(
+        events: Arc<Mutex<Vec<TransportEvent>>>,
+    ) -> (MediaHandle, SocketAddr) {
         let spec = spec(VideoCodec::H264, false);
         let socket = bind_socket("127.0.0.1:0".parse().unwrap()).unwrap();
         let local = socket.local_addr().unwrap();

@@ -953,6 +953,19 @@ impl Retained {
             .as_ref()
             .map_or_else(|| self.output.clone(), |g| g.output.clone())
     }
+    /// A lease with no display behind it, for the host's tests: it holds
+    /// no guard or worker, so dropping it touches nothing.
+    #[doc(hidden)]
+    pub fn inert(output: &str) -> Self {
+        Self {
+            output: output.to_owned(),
+            mode: (0, 0, 0, false),
+            guard: Default::default(),
+            stop: Default::default(),
+            active: Default::default(),
+            worker: None,
+        }
+    }
     pub fn create(id: &str, width: u32, height: u32, fps: u32, hdr: bool) -> Result<Self> {
         Self::create_rate(
             id,

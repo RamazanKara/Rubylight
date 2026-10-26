@@ -469,3 +469,45 @@ async fn a_client_reset_before_the_answer_is_flushed_does_not_suspend() {
     wait_for_gate(&f);
     assert_eq!(fake.suspends.load(Ordering::SeqCst), 1);
 }
+
+#[tokio::test]
+async fn every_busy_reason_refuses_sleep() {
+    let f = Fixture::new();
+    let fake = fake(&f);
+    let client = device(&f, true);
+    let token = capabilities(&f).await.field("SleepToken");
+    let busy = "End all applications and sessions before requesting sleep";
+    // A stream still tearing down.
+    f.host
+        .sessions
+        .lock()
+        .unwrap()
+        .teardown
+        .insert("x".into(), Instant::now());
+    assert_eq!(sleep(&f, &token).await.message(), busy);
+    f.host.sessions.lock().unwrap().teardown.clear();
+    // A WebRTC transport nobody took yet.
+    let (handle, _) = crate::webrtc::media::tests::real_handle(Default::default());
+    f.host.webrtc_links.put("x".into(), handle);
+    assert_eq!(sleep(&f, &token).await.message(), busy);
+    f.host.webrtc_links.discard("x");
+    // A display kept for a client.
+    f.host.monitors.lock().unwrap().insert(
+        "x".into(),
+        Arc::new(butterpollo_windows::display::Retained::inert("x")),
+    );
+    assert_eq!(sleep(&f, &token).await.message(), busy);
+    f.host.monitors.lock().unwrap().clear();
+    // A controller session in use; a parked one does not count.
+    let controller = f
+        .host
+        .controller_sessions
+        .acquire(&f.launch(client, Role::Stream), &Default::default())
+        .unwrap();
+    assert_eq!(sleep(&f, &token).await.message(), busy);
+    drop(controller);
+    assert!(!f.host.controller_sessions.in_use());
+    assert_eq!(sleep(&f, &token).await.status, StatusCode::ACCEPTED);
+    wait_for_gate(&f);
+    assert_eq!(fake.suspends.load(Ordering::SeqCst), 1);
+}

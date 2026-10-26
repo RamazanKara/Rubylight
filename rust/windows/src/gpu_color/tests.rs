@@ -6,6 +6,8 @@ use std::time::Instant;
 mod color_contract;
 #[path = "downscale_tests.rs"]
 mod downscale;
+#[path = "overlay_tests.rs"]
+mod overlay;
 #[path = "packed444_tests.rs"]
 mod packed444;
 #[path = "packed444_performance_tests.rs"]
@@ -203,6 +205,19 @@ fn readback_compute(
     compute: &crate::compute::Compute,
     texture: &windows::Win32::Graphics::Direct3D12::ID3D12Resource,
 ) -> Result<Vec<u16>> {
+    let (samples, ten_bit) = compute_samples(compute, texture)?;
+    Ok(if ten_bit {
+        samples.into_iter().map(|v| v >> 6).collect()
+    } else {
+        samples
+    })
+}
+/// An NV12 or P010 texture on the compute device, both planes row by row
+/// as stored, and whether it is P010.
+fn compute_samples(
+    compute: &crate::compute::Compute,
+    texture: &windows::Win32::Graphics::Direct3D12::ID3D12Resource,
+) -> Result<(Vec<u16>, bool)> {
     use windows::Win32::Graphics::Direct3D12::*;
     // SAFETY: `buffer` is sized by GetCopyableFootprints for both planes, the copy is waited for
     // before Map, and each row read stays within its footprint until Unmap below.
@@ -303,13 +318,13 @@ fn readback_compute(
                         row.as_chunks::<2>()
                             .0
                             .iter()
-                            .map(|v| u16::from_le_bytes(*v) >> 6),
+                            .map(|v| u16::from_le_bytes(*v)),
                     );
                 }
             }
         }
         buffer.Unmap(0, None);
-        Ok(values)
+        Ok((values, pixel_bytes == 2))
     }
 }
 #[test]

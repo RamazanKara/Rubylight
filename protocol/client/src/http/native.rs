@@ -11,7 +11,8 @@ use super::native_api::capabilities::Capabilities;
 use super::native_api::error::{ApiError, ErrorBody};
 use super::native_api::library::Library;
 use super::native_api::radeon::{Radeon, SettingsWrite};
-use super::native_api::session::{ActionId, Session};
+use super::native_api::session::{ActionId, CouchMenu, CouchMenuRequest, Session};
+use super::native_api::wake::Wake;
 use super::native_api::PREFIX;
 use super::transport::{self, Body, Request, Timeouts};
 use super::{Error, HostClient, LONG_CONNECT_TIMEOUT, READ_TIMEOUT};
@@ -168,6 +169,25 @@ impl HostClient {
             }
         };
         self.native(path, Some(EMPTY_BODY), MAX_JSON_BYTES, ACTION_READ_TIMEOUT)
+    }
+
+    /// Opens or closes the menu the host draws into this device's stream. Only when the
+    /// capabilities list `session.couch_menu`; the answer says whether it is open now.
+    pub fn couch_menu(&self, open: bool) -> Result<CouchMenu, Error> {
+        let body = serde_json::to_vec(&CouchMenuRequest { open })
+            .map_err(|e| Error::InvalidArgument(format!("couch menu: {e}")))?;
+        self.native(
+            "session/couch-menu",
+            Some(&body),
+            MAX_JSON_BYTES,
+            READ_TIMEOUT,
+        )
+    }
+
+    /// The PC's wake targets: every physical adapter's MAC and subnet broadcasts. Only when
+    /// the capabilities list `wake`.
+    pub fn wake(&self) -> Result<Wake, Error> {
+        self.native("wake", None, MAX_JSON_BYTES, READ_TIMEOUT)
     }
 
     /// The encode GPU's Radeon settings.

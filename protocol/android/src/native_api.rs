@@ -1,7 +1,8 @@
 //! The JNI side of `com.limelight.nvstream.jni.NativeApiBridge`: the Rubylight native API v1
-//! (`HostClient::{native_capabilities, library, session, session_action, radeon, write_radeon,
-//! restore_radeon}`) for the console screens, and Sleep PC (`power_capabilities`, `sleep`). Calls block on HTTPS, so Java runs them on worker
-//! threads, never on the UI thread.
+//! (`HostClient::{native_capabilities, library, session, session_action, couch_menu, radeon,
+//! write_radeon, restore_radeon, wake}`) for the console screens and the stream menu, and Sleep
+//! PC (`power_capabilities`, `sleep`). Calls block on HTTPS, so Java runs them on worker threads,
+//! never on the UI thread.
 //!
 //! One entry point, `request`, takes the operation, the host endpoint and an optional JSON
 //! argument, and always answers with one JSON object: `{"ok": <the API's JSON>}` or
@@ -17,7 +18,8 @@ use serde_json::{json, Value};
 use nightjar_core::http::native_api::capabilities::Capabilities;
 use nightjar_core::http::native_api::library::Library;
 use nightjar_core::http::native_api::radeon::{Radeon, SettingsWrite};
-use nightjar_core::http::native_api::session::{ActionId, Session};
+use nightjar_core::http::native_api::session::{ActionId, CouchMenu, CouchMenuRequest, Session};
+use nightjar_core::http::native_api::wake::Wake;
 use nightjar_core::http::{ClientIdentity, Error, HostClient, PowerError, PowerReply, Refusal};
 
 /// What the client of one host needs; Java builds it from the paired host's stored data.
@@ -38,11 +40,13 @@ pub trait Host {
     fn library(&self) -> Result<Library, Error>;
     fn session(&self) -> Result<Session, Error>;
     fn session_action(&self, action: ActionId) -> Result<Session, Error>;
+    fn couch_menu(&self, open: bool) -> Result<CouchMenu, Error>;
     fn radeon(&self) -> Result<Radeon, Error>;
     fn write_radeon(&self, write: &SettingsWrite) -> Result<Radeon, Error>;
     fn restore_radeon(&self) -> Result<Radeon, Error>;
     fn power_capabilities(&self) -> Result<PowerReply, PowerError>;
     fn sleep(&self, token: &str) -> Result<PowerReply, PowerError>;
+    fn wake(&self) -> Result<Wake, Error>;
 }
 
 impl Host for HostClient {
@@ -58,6 +62,9 @@ impl Host for HostClient {
     fn session_action(&self, action: ActionId) -> Result<Session, Error> {
         HostClient::session_action(self, action)
     }
+    fn couch_menu(&self, open: bool) -> Result<CouchMenu, Error> {
+        HostClient::couch_menu(self, open)
+    }
     fn radeon(&self) -> Result<Radeon, Error> {
         HostClient::radeon(self)
     }
@@ -72,6 +79,9 @@ impl Host for HostClient {
     }
     fn sleep(&self, token: &str) -> Result<PowerReply, PowerError> {
         HostClient::sleep(self, token)
+    }
+    fn wake(&self) -> Result<Wake, Error> {
+        HostClient::wake(self)
     }
 }
 
@@ -176,9 +186,10 @@ fn power(result: Result<PowerReply, PowerError>) -> String {
 }
 
 /// Runs one operation: `capabilities`, `library`, `session`, `session_action` (argument
-/// `disconnect`, `end` or `close_game`), `radeon`, `radeon_write` (argument: the
-/// `SettingsWrite` JSON), `radeon_restore`, `power.capabilities` and `power.sleep` (argument:
-/// the token from `power.capabilities`). Gate the power ones on `Feature::Sleep`.
+/// `disconnect`, `end` or `close_game`), `couch_menu` (argument: the `CouchMenuRequest` JSON),
+/// `radeon`, `radeon_write` (argument: the `SettingsWrite` JSON), `radeon_restore`, `wake`,
+/// `power.capabilities` and `power.sleep` (argument: the token from `power.capabilities`). Gate
+/// the power ones on `Feature::Sleep`.
 pub fn execute(host: &dyn Host, op: &str, argument: &str) -> String {
     match op {
         "capabilities" => ok(host.capabilities()),
@@ -193,6 +204,10 @@ pub fn execute(host: &dyn Host, op: &str, argument: &str) -> String {
             };
             ok(host.session_action(action))
         }
+        "couch_menu" => match serde_json::from_str::<CouchMenuRequest>(argument) {
+            Ok(request) => ok(host.couch_menu(request.open)),
+            Err(e) => argument_error(format!("couch menu: {e}")),
+        },
         "radeon" => ok(host.radeon()),
         "radeon_write" => match serde_json::from_str::<SettingsWrite>(argument) {
             Ok(write) => ok(host.write_radeon(&write)),
@@ -201,6 +216,7 @@ pub fn execute(host: &dyn Host, op: &str, argument: &str) -> String {
         "radeon_restore" => ok(host.restore_radeon()),
         "power.capabilities" => power(host.power_capabilities()),
         "power.sleep" => power(host.sleep(argument)),
+        "wake" => ok(host.wake()),
         other => argument_error(format!("unknown native API operation: {other:?}")),
     }
 }
@@ -334,6 +350,28 @@ mod tests {
         fn restore_radeon(&self) -> Result<Radeon, Error> {
             self.note("restore");
             Err(Error::NotPaired)
+        }
+        fn couch_menu(&self, open: bool) -> Result<CouchMenu, Error> {
+            self.note(&format!("couch menu {open}"));
+            if let Some(code) = self.fail {
+                return Err(Error::Api {
+                    status: code.status(),
+                    error: ApiError {
+                        code,
+                        message: "Start a stream first.".into(),
+                        setting: None,
+                        retry_after_ms: None,
+                    },
+                });
+            }
+            Ok(CouchMenu { open })
+        }
+        fn wake(&self) -> Result<Wake, Error> {
+            self.note("wake");
+            Ok(serde_json::from_str(
+                r#"{"revision":1,"primary":"02:7c:16:b4:13:4f","targets":[{"mac":"02:7c:16:b4:13:4f","kind":"ethernet","connected":true,"route":true,"broadcasts":["192.168.4.255"],"state":"ready","checks":[]}],"system":{"sleep":"s3","modern_standby":false,"hibernate":false,"fast_startup":"inactive","shutdown_wake":"firmware_unknown"},"idle_sleep":{"state":"off","minutes":0,"reason":null}}"#,
+            )
+            .unwrap())
         }
         fn power_capabilities(&self) -> Result<PowerReply, PowerError> {
             self.note("power");
@@ -490,6 +528,43 @@ mod tests {
         assert!(refused.get("ok").is_none());
         let invalid = parse(&execute(&fake, "power.sleep", ""));
         assert_eq!(invalid["error"]["kind"], "invalid_argument");
+    }
+
+    #[test]
+    fn the_couch_menu_parses_strictly_and_keeps_api_errors() {
+        let fake = Fake::default();
+        let reply = parse(&execute(&fake, "couch_menu", r#"{"open":true}"#));
+        assert_eq!(reply["ok"]["open"], true);
+        assert_eq!(
+            fake.calls.lock().unwrap().last().unwrap(),
+            "couch menu true"
+        );
+
+        let calls = fake.calls.lock().unwrap().len();
+        for bad in ["", "{}", "true", r#"{"open":true,"page":"radeon"}"#] {
+            let reply = parse(&execute(&fake, "couch_menu", bad));
+            assert_eq!(reply["error"]["kind"], "invalid_argument", "{bad}");
+        }
+        assert_eq!(fake.calls.lock().unwrap().len(), calls);
+
+        let fake = Fake {
+            fail: Some(ErrorCode::NoSession),
+            ..Fake::default()
+        };
+        let reply = parse(&execute(&fake, "couch_menu", r#"{"open":true}"#));
+        assert_eq!(reply["error"]["kind"], "api");
+        assert_eq!(reply["error"]["code"], "no_session");
+        assert_eq!(reply["error"]["http_status"], ErrorCode::NoSession.status());
+        assert_eq!(reply["error"]["message"], "Start a stream first.");
+    }
+
+    #[test]
+    fn wake_answers_with_the_targets() {
+        let fake = Fake::default();
+        let reply = parse(&execute(&fake, "wake", ""));
+        assert_eq!(reply["ok"]["primary"], "02:7c:16:b4:13:4f");
+        assert_eq!(reply["ok"]["targets"][0]["broadcasts"][0], "192.168.4.255");
+        assert_eq!(fake.calls.lock().unwrap().last().unwrap(), "wake");
     }
 
     #[test]

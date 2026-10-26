@@ -7,11 +7,15 @@
 use butterpollo_core::native::{self, SessionSnapshot};
 use butterpollo_core::state::{App, Client};
 use butterpollo_core::{crypto, native_api as host_api};
+use nightjar_core::http::native_api::audio::{Audio, AudioWrite};
 use nightjar_core::http::native_api::capabilities::Capabilities;
 use nightjar_core::http::native_api::error::{ApiError, ErrorBody, ErrorCode};
 use nightjar_core::http::native_api::library::Library;
 use nightjar_core::http::native_api::radeon::{Radeon, SettingsWrite};
-use nightjar_core::http::native_api::session::{ActionId, Owner, Session, SessionApp, State};
+use nightjar_core::http::native_api::session::{
+    ActionId, CouchMenu, CouchMenuRequest, Owner, Session, SessionApp, State,
+};
+use nightjar_core::http::native_api::wake::{AdapterKind, TargetState, Wake};
 use nightjar_core::http::{ClientIdentity, Error, HostClient};
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
@@ -23,7 +27,7 @@ use std::net::TcpListener;
 use std::sync::{Arc, Mutex, OnceLock};
 
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/native-api");
-const NAMES: [&str; 7] = [
+const NAMES: [&str; 10] = [
     "capabilities",
     "library",
     "session",
@@ -31,6 +35,9 @@ const NAMES: [&str; 7] = [
     "radeon",
     "settings_write",
     "error",
+    "wake",
+    "audio",
+    "audio_write",
 ];
 
 fn fixture(name: &str) -> String {
@@ -80,11 +87,21 @@ fn the_hosts_fixtures_parse_and_write_back() {
     assert_eq!((write.gpu, write.changes.len()), (11520, 2));
     let error: ErrorBody = round_trip("error");
     assert_eq!(error.error.code, ErrorCode::HostControlRequired);
+    let wake: Wake = round_trip("wake");
+    assert_eq!(wake.primary.as_deref(), Some("02:7c:16:b4:13:4f"));
+    assert_eq!(
+        (wake.targets[0].kind, wake.targets[0].state),
+        (AdapterKind::Ethernet, TargetState::Ready)
+    );
+    assert_eq!(wake.targets[0].broadcasts, ["192.168.4.255"]);
+    let _: Audio = round_trip("audio");
+    let _: AudioWrite = round_trip("audio_write");
 }
 
 /// The vendored fixtures are copies of the pinned crate's, byte for byte, so a pin bump that
-/// changes one fails here. The crate is located through `cargo metadata`; a failure to find it
-/// fails the test.
+/// changes one fails here. The crate is located through `cargo metadata`, as the one
+/// nightjar-core resolves (the butterpollo-core dev-dependency may pull in an older one); a
+/// failure to find it fails the test.
 #[test]
 fn the_vendored_fixtures_match_the_pinned_crate() {
     let output = std::process::Command::new(env!("CARGO"))
@@ -98,11 +115,27 @@ fn the_vendored_fixtures_match_the_pinned_crate() {
         String::from_utf8_lossy(&output.stderr)
     );
     let metadata: Value = serde_json::from_slice(&output.stdout).unwrap();
-    let manifest = metadata["packages"]
+    let packages = metadata["packages"].as_array().unwrap();
+    let core_id = packages
+        .iter()
+        .find(|package| package["name"] == "nightjar-core")
+        .map(|package| package["id"].clone())
+        .expect("nightjar-core is not in cargo metadata");
+    let pinned_id = metadata["resolve"]["nodes"]
         .as_array()
         .unwrap()
         .iter()
-        .find(|package| package["name"] == "rubylight-native-api")
+        .find(|node| node["id"] == core_id)
+        .and_then(|node| node["deps"].as_array())
+        .and_then(|deps| {
+            deps.iter()
+                .find(|dep| dep["name"] == "rubylight_native_api")
+                .map(|dep| dep["pkg"].clone())
+        })
+        .expect("nightjar-core resolves no rubylight-native-api");
+    let manifest = packages
+        .iter()
+        .find(|package| package["id"] == pinned_id)
         .and_then(|package| package["manifest_path"].as_str())
         .expect("rubylight-native-api is not in cargo metadata");
     let dir = std::path::Path::new(manifest)
@@ -506,6 +539,56 @@ fn resume_is_not_a_native_post() {
         Err(Error::InvalidArgument(_))
     ));
     assert!(host.seen.lock().unwrap().is_empty());
+}
+
+#[test]
+fn the_couch_menu_posts_open_and_wake_reads_the_targets() {
+    let host = serve(|method, path, body| match (method, path) {
+        ("POST", "/api/native/v1/session/couch-menu") => {
+            let request: CouchMenuRequest = serde_json::from_slice(body).unwrap();
+            (200, json!({ "open": request.open }).to_string())
+        }
+        ("GET", "/api/native/v1/wake") => (200, fixture("wake")),
+        other => (404, error_body(ErrorCode::NotFound, &format!("{other:?}"))),
+    });
+    let client = paired_client(&host);
+    assert_eq!(client.couch_menu(true).unwrap(), CouchMenu { open: true });
+    let wake = client.wake().unwrap();
+    assert_eq!(
+        wake.targets
+            .iter()
+            .map(|target| target.mac.as_str())
+            .collect::<Vec<_>>(),
+        ["02:7c:16:b4:13:4f", "02:e0:4c:68:00:01"]
+    );
+
+    let seen = host.seen.lock().unwrap();
+    assert_eq!(
+        seen.iter()
+            .map(|s| format!("{} {}", s.method, s.path))
+            .collect::<Vec<_>>(),
+        [
+            "POST /api/native/v1/session/couch-menu",
+            "GET /api/native/v1/wake"
+        ]
+    );
+    assert_eq!(seen[0].body, br#"{"open":true}"#);
+    assert_eq!(seen[0].content_type.as_deref(), Some("application/json"));
+}
+
+#[test]
+fn a_refused_couch_menu_keeps_its_code() {
+    for code in [
+        ErrorCode::NoSession,
+        ErrorCode::NotSessionOwner,
+        ErrorCode::PermissionRequired,
+        ErrorCode::TemporarilyUnavailable,
+    ] {
+        let host = serve(move |_, _, _| (code.status(), error_body(code, "Not now.")));
+        let error = paired_client(&host).couch_menu(true).unwrap_err();
+        assert_eq!(error.api_error().map(|api| api.code), Some(code));
+        assert_eq!(error.http_status(), Some(code.status()));
+    }
 }
 
 #[test]

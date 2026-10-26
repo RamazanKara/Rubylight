@@ -131,6 +131,7 @@ fn the_known_exchange_moves_the_session_with_the_known_answers() {
         table.on_datagram(now, at(NEW), &vectors::CONFIRM_DATAGRAM),
         Ok(Action::Commit {
             id: "s",
+            peer: at(OLD),
             old: at(OLD),
             new: at(NEW),
             media_rebound: true,
@@ -475,9 +476,23 @@ fn a_session_moves_at_most_once_a_second() {
         table.on_datagram(now, at(THIRD), &confirm(4, vectors::CHALLENGE)),
         Err(Refusal::CommitRate)
     );
+    // The refused confirm keeps the pending address, so its retry a second later moves.
     let later = now + COMMIT_INTERVAL;
     match table.on_datagram(later, at(THIRD), &confirm(5, vectors::CHALLENGE)) {
-        Ok(Action::Commit { old, new, .. }) => assert_eq!((old, new), (at(NEW), at(THIRD))),
+        Ok(Action::Commit { peer, old, new, .. }) => assert_eq!(
+            (peer, old, new),
+            (at(OLD), at(NEW), at(THIRD)),
+            "ENet still knows the peer by its first address"
+        ),
+        other => panic!("{other:?}"),
+    }
+    // A reconnect makes its address the ENet one.
+    table.insert("s", &vectors::RIKEY, at(NEW));
+    reply_to(table.on_datagram(later, at(OLD), &probe(6)));
+    match table.on_datagram(later + COMMIT_INTERVAL, at(OLD), &confirm(7, vectors::CHALLENGE)) {
+        Ok(Action::Commit { peer, old, new, .. }) => {
+            assert_eq!((peer, old, new), (at(NEW), at(NEW), at(OLD)))
+        }
         other => panic!("{other:?}"),
     }
 }

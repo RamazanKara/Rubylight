@@ -138,9 +138,12 @@ pub enum Action<K> {
         datagram: [u8; DATAGRAM_BYTES],
     },
     /// Move session `id` from `old` to `new`, then send `datagram` (MIGRATED) to `new`.
-    /// `media_rebound` is the PROBE's flag: expect pings from new ports.
+    /// `peer` is the address ENet knows the peer by, from its connect; after a second move
+    /// it differs from `old`. `media_rebound` is the PROBE's flag: expect pings from new
+    /// ports.
     Commit {
         id: K,
+        peer: SocketAddr,
         old: SocketAddr,
         new: SocketAddr,
         media_rebound: bool,
@@ -193,6 +196,9 @@ struct Pending {
 struct Entry<K> {
     id: K,
     keys: RoamKeys,
+    /// The ENet peer's address, from its connect.
+    peer: SocketAddr,
+    /// The address the client was last validated at.
     current: SocketAddr,
     stopping: bool,
     /// The last seq accepted from the client.
@@ -273,6 +279,7 @@ impl<K: Clone + PartialEq> RoamTable<K> {
             .iter_mut()
             .find(|entry| entry.id == id && entry.keys == keys)
         {
+            entry.peer = current;
             entry.current = current;
             entry.pending = None;
             entry.here = None;
@@ -287,6 +294,7 @@ impl<K: Clone + PartialEq> RoamTable<K> {
         self.entries.push(Entry {
             id,
             keys,
+            peer: current,
             current,
             stopping: retired.as_ref().is_some_and(|retired| retired.stopping),
             client_seq: retired.as_ref().map_or(0, |retired| retired.client_seq),
@@ -474,6 +482,7 @@ impl<K: Clone + PartialEq> RoamTable<K> {
         entry.last_commit = Some(now);
         Ok(Action::Commit {
             id: entry.id.clone(),
+            peer: entry.peer,
             old,
             new: from,
             media_rebound: pending.media_rebound,

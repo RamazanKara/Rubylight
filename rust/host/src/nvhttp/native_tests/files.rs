@@ -586,6 +586,23 @@ async fn a_file_another_program_holds_is_busy() {
 }
 
 #[tokio::test]
+async fn a_device_refused_for_room_can_send_again_at_once() {
+    const GIB: u64 = 1 << 30;
+    let files = Files::with(UPLOAD | DOWNLOAD);
+    files.set("file_transfer_max_mb", "16384");
+    // 8 GiB beside the 2 GiB (2 %) reserve.
+    files.transfers().fake_space(10 * GIB, 100 * GIB);
+    // The refused upload's writer is still running when the retry comes.
+    files.transfers().hold_refusals(Duration::from_secs(2));
+    let refused = files
+        .upload_as("big.bin", Some(9 * GIB), b"x".to_vec())
+        .await;
+    assert_eq!(refused.status, StatusCode::INSUFFICIENT_STORAGE);
+    let sent = files.upload("small.txt", b"hi".to_vec()).await;
+    assert_eq!(sent.status, StatusCode::CREATED, "{}", sent.text());
+}
+
+#[tokio::test]
 async fn an_upload_leaves_room_for_the_uploads_running() {
     const GIB: u64 = 1 << 30;
     let files = Files::with(UPLOAD | DOWNLOAD);

@@ -100,6 +100,9 @@ pub struct Transfers {
     /// Free and total bytes of the volume, in place of the disk's.
     #[cfg(test)]
     space: Mutex<Option<(u64, u64)>>,
+    /// How long a refused upload's writer lingers after its answer.
+    #[cfg(test)]
+    refusal_hold: Mutex<Duration>,
 }
 impl Default for Transfers {
     fn default() -> Self {
@@ -114,6 +117,8 @@ impl Default for Transfers {
             limits: Mutex::new(LIMITS),
             #[cfg(test)]
             space: Mutex::default(),
+            #[cfg(test)]
+            refusal_hold: Mutex::default(),
         }
     }
 }
@@ -191,6 +196,10 @@ impl Transfers {
     /// Reports `free` of `total` bytes on the transfer folder's volume.
     pub(crate) fn fake_space(&self, free: u64, total: u64) {
         *self.space.lock().unwrap() = Some((free, total));
+    }
+    /// Keeps a refused upload's writer running `hold` after its answer.
+    pub(crate) fn hold_refusals(&self, hold: Duration) {
+        *self.refusal_hold.lock().unwrap() = hold;
     }
     /// The downloads running.
     pub(crate) fn downloads(&self) -> usize {
@@ -968,7 +977,19 @@ fn write_part(
     let mut part = match created {
         Ok(part) => part,
         Err(error) => {
+            #[cfg(test)]
+            let hold = *slot
+                .host
+                .file_transfers
+                .refusal_hold
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            // Free the device's slot first: once the refusal is answered,
+            // its next upload must not find the slot still taken.
+            drop(slot);
             let _ = ready.send(Err(error));
+            #[cfg(test)]
+            std::thread::sleep(hold);
             return Ok(None);
         }
     };

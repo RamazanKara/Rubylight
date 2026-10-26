@@ -27,6 +27,7 @@
     <string name="host_feature_reason_virtual_display_off">Activa la pantalla virtual en los ajustes del servidor</string>
     <string name="host_feature_reason_virtual_display_driver">El controlador de pantalla virtual del servidor no está listo</string>
     <string name="host_feature_reason_hardware_metrics_off">Activa las métricas de hardware en los ajustes del servidor</string>
+    <string name="host_feature_reason_sleep_permission">Permite que este dispositivo suspenda el servidor</string>
     <string name="host_feature_unknown">Se aplica si el servidor lo admite</string>
     <string name="host_details_software_apollo">Servidor compatible con Apollo</string>
     <string name="host_details_software_vibepollo">Servidor compatible con Vibepollo</string>

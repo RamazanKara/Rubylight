@@ -30,6 +30,7 @@
     <string name="host_feature_reason_virtual_display_off">Turn on the virtual display in the host’s settings</string>
     <string name="host_feature_reason_virtual_display_driver">The host’s virtual display driver isn’t ready</string>
     <string name="host_feature_reason_hardware_metrics_off">Turn on hardware metrics in the host’s settings</string>
+    <string name="host_feature_reason_sleep_permission">Allow this device to put the host to sleep</string>
     <string name="host_feature_unknown">Applies if the host supports it</string>
 
     <string name="host_details_software_apollo">Apollo-compatible host</string>

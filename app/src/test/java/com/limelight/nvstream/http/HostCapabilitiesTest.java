@@ -10,12 +10,19 @@ import com.limelight.nvstream.http.HostCapabilities.Family;
 import com.limelight.nvstream.http.HostCapabilities.Feature;
 import com.limelight.nvstream.http.HostCapabilities.Reason;
 
+import org.json.JSONException;
+import org.json.JSONObject;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.EnumSet;
 import java.util.Locale;
 import java.util.Set;
@@ -122,13 +129,14 @@ public class HostCapabilitiesTest {
     }
 
     @Test
-    public void currentRubylightSupportsEverythingButCursorShapesAndTheNativeApi() {
+    public void currentRubylightSupportsEverythingButCursorShapesTheNativeApiAndSleep() {
         HostCapabilities caps = TestHosts.rubylight();
         assertEquals(Family.RUBYLIGHT, caps.family());
         assertEquals("2.2.21", caps.hostVersion());
-        assertEquals(EnumSet.complementOf(EnumSet.of(CURSOR_SHAPE, NATIVE_API)), caps.supported());
+        assertEquals(EnumSet.complementOf(EnumSet.of(CURSOR_SHAPE, NATIVE_API, SLEEP)), caps.supported());
         assertNever(caps, CURSOR_SHAPE);
         assertReason(caps, NATIVE_API, Reason.UPDATE_HOST);
+        assertReason(caps, SLEEP, Reason.UPDATE_HOST);
         assertEquals(-1, caps.nativeApiVersion());
     }
 
@@ -162,6 +170,49 @@ public class HostCapabilitiesTest {
         String olderJson = TestHosts.rubylight().toJson().replace(",\"nativeApiVersion\":-1", "");
         assertFalse(olderJson, olderJson.contains("nativeApiVersion"));
         assertFalse(HostCapabilities.fromJson(olderJson).has(NATIVE_API));
+    }
+
+    /** The cases the Rust parser reads too (http/serverinfo.rs), so both gate Sleep PC alike. */
+    @Test
+    public void powerActionFieldsDecideSleepLikeTheRustParser() throws IOException, JSONException {
+        Path cases = Paths.get("../protocol/client/tests/fixtures/power/sleep-serverinfo.txt");
+        if (!Files.exists(cases)) {
+            cases = Paths.get("protocol/client/tests/fixtures/power/sleep-serverinfo.txt");
+        }
+        int count = 0;
+        for (String line : Files.readAllLines(cases, StandardCharsets.UTF_8)) {
+            if (line.isEmpty() || line.startsWith("#")) {
+                continue;
+            }
+            int bar = line.indexOf('|');
+            String expected = line.substring(0, bar);
+            HostCapabilities caps = TestHosts.caps(line.substring(bar + 1));
+            Availability availability = caps.availability(SLEEP);
+            switch (expected) {
+                case "supported": assertTrue(line, availability.isSupported()); break;
+                case "never": assertTrue(line, availability.isNever()); break;
+                case "unknown": assertTrue(line, availability.isUnknown()); break;
+                case "pair": assertReason(caps, SLEEP, Reason.PAIR); break;
+                case "update_host": assertReason(caps, SLEEP, Reason.UPDATE_HOST); break;
+                case "sleep_permission": assertReason(caps, SLEEP, Reason.SLEEP_PERMISSION); break;
+                default: fail("unknown availability " + expected);
+            }
+            assertEquals(line, availability.isSupported(), caps.supported().contains(SLEEP));
+            assertEquals(line, caps, HostCapabilities.fromJson(caps.toJson()));
+            assertEquals(line, availability, HostCapabilities.fromJson(caps.toJson()).availability(SLEEP));
+            count++;
+        }
+        assertEquals(14, count);
+        assertFalse(HostCapabilities.UNKNOWN.has(SLEEP));
+        // Capabilities stored before the fields existed still load, without sleep.
+        HostCapabilities allowed = caps("<RustHostVersion>3.0.0</RustHostVersion><PairStatus>1</PairStatus>"
+                + "<PowerActionVersion>1</PowerActionVersion><SleepSupported>1</SleepSupported><SleepAllowed>1</SleepAllowed>");
+        assertTrue(allowed.has(SLEEP));
+        JSONObject older = new JSONObject(allowed.toJson());
+        older.remove("powerActionVersion");
+        older.remove("sleepSupported");
+        older.remove("sleepAllowed");
+        assertReason(HostCapabilities.fromJson(older.toString()), SLEEP, Reason.UPDATE_HOST);
     }
 
     @Test

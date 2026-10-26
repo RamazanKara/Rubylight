@@ -28,6 +28,7 @@
     <string name="host_feature_reason_virtual_display_off">Schalte das virtuelle Display am Host ein</string>
     <string name="host_feature_reason_virtual_display_driver">Treiber des virtuellen Displays am Host nicht bereit</string>
     <string name="host_feature_reason_hardware_metrics_off">Schalte die Hardwarewerte am Host ein</string>
+    <string name="host_feature_reason_sleep_permission">Erlaube diesem Gerät, den Host schlafen zu legen</string>
     <string name="host_feature_unknown">Gilt, wenn der Host es unterstützt</string>
 
     <string name="host_details_software_apollo">Apollo-kompatibler Host</string>

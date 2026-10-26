@@ -58,7 +58,9 @@ public final class HostCapabilities {
         WEB_UI(R.string.host_feature_web_ui),
         CURSOR_SHAPE(R.string.host_feature_cursor_shape),
         /** Rubylight's /api/native/v1: library, session actions, Radeon state. The UI shows its results, not its name. */
-        NATIVE_API(0);
+        NATIVE_API(0),
+        /** Sleep PC (/power-actions/v1, Vibepollo's wire format): suspend an idle host. */
+        SLEEP(0);
 
         @StringRes public final int label;
 
@@ -77,7 +79,8 @@ public final class HostCapabilities {
         NO_COMMANDS(R.string.host_feature_reason_no_commands),
         VIRTUAL_DISPLAY_OFF(R.string.host_feature_reason_virtual_display_off),
         VIRTUAL_DISPLAY_DRIVER(R.string.host_feature_reason_virtual_display_driver),
-        HARDWARE_METRICS_OFF(R.string.host_feature_reason_hardware_metrics_off);
+        HARDWARE_METRICS_OFF(R.string.host_feature_reason_hardware_metrics_off),
+        SLEEP_PERMISSION(R.string.host_feature_reason_sleep_permission);
 
         @StringRes public final int text;
 
@@ -395,6 +398,11 @@ public final class HostCapabilities {
         int cursorShapeVersion = -1;
         /** -1 when the host has no native API, 0 when it has one but not for this request. */
         int nativeApiVersion = -1;
+        /** -1 without PowerActionVersion: hosts send it only to paired clients over HTTPS. */
+        int powerActionVersion = -1;
+        boolean sleepSupported;
+        /** The host lets this paired client put it to sleep. */
+        boolean sleepAllowed;
 
         static Evidence parse(String serverInfo) throws XmlPullParserException, IOException {
             Evidence evidence = new Evidence();
@@ -470,6 +478,15 @@ public final class HostCapabilities {
                         break;
                     case "NativeApiVersion":
                         evidence.nativeApiVersion = (int) unsigned(parser.nextText(), 0xFFFF);
+                        break;
+                    case "PowerActionVersion":
+                        evidence.powerActionVersion = (int) unsigned(parser.nextText(), 0xFFFF);
+                        break;
+                    case "SleepSupported":
+                        evidence.sleepSupported = Boolean.TRUE.equals(flag(parser.nextText()));
+                        break;
+                    case "SleepAllowed":
+                        evidence.sleepAllowed = Boolean.TRUE.equals(flag(parser.nextText()));
                         break;
                     case "currentgameuuid":
                         evidence.currentGameUuid = true;
@@ -648,6 +665,15 @@ public final class HostCapabilities {
                     }
                     return !paired || nativeApiVersion < 1 ? Availability.unsupported(Reason.PAIR) :
                             Availability.SUPPORTED;
+                case SLEEP:
+                    // Rubylight and Vibepollo send the power fields only to a paired HTTPS client.
+                    if (powerActionVersion == -1) {
+                        if (rustHostVersion == null) return absent(true);
+                        return Availability.unsupported(paired ? Reason.UPDATE_HOST : Reason.PAIR);
+                    }
+                    if (!paired) return Availability.unsupported(Reason.PAIR);
+                    if (powerActionVersion < 1 || !sleepSupported) return Availability.NEVER;
+                    return sleepAllowed ? Availability.SUPPORTED : Availability.unsupported(Reason.SLEEP_PERMISSION);
                 default:
                     throw new IllegalArgumentException(feature.name());
             }
@@ -671,7 +697,9 @@ public final class HostCapabilities {
                     .put("pyroWaveCodecs", pyroWaveCodecs).put("encoderBitrate", encoderBitrate)
                     .put("hardwareMetricsVersion", hardwareMetricsVersion).put("networkPathVersion", networkPathVersion)
                     .put("controllerPreparation", controllerPreparation).put("currentGameUuid", currentGameUuid)
-                    .put("cursorShapeVersion", cursorShapeVersion).put("nativeApiVersion", nativeApiVersion);
+                    .put("cursorShapeVersion", cursorShapeVersion).put("nativeApiVersion", nativeApiVersion)
+                    .put("powerActionVersion", powerActionVersion).put("sleepSupported", sleepSupported)
+                    .put("sleepAllowed", sleepAllowed);
             if (rustHostVersion != null) object.put("rustHostVersion", rustHostVersion);
             if (frameLimiter != null) object.put("frameLimiter", frameLimiter);
             if (virtualDisplayCapable != null) object.put("virtualDisplayCapable", virtualDisplayCapable);
@@ -703,6 +731,9 @@ public final class HostCapabilities {
             // Absent from capabilities stored before cursor shapes existed.
             evidence.cursorShapeVersion = object.optInt("cursorShapeVersion", -1);
             evidence.nativeApiVersion = object.optInt("nativeApiVersion", -1);
+            evidence.powerActionVersion = object.optInt("powerActionVersion", -1);
+            evidence.sleepSupported = object.optBoolean("sleepSupported", false);
+            evidence.sleepAllowed = object.optBoolean("sleepAllowed", false);
             if (evidence.permission < -1 || evidence.permission > 0xFFFFFFFFL || evidence.serverCommands < 0 ||
                     (evidence.rustHostVersion != null && evidence.rustHostVersion.isEmpty())) {
                 throw new JSONException("Invalid stored capabilities");
@@ -733,7 +764,9 @@ public final class HostCapabilities {
                     encoderBitrate == that.encoderBitrate && hardwareMetricsVersion == that.hardwareMetricsVersion &&
                     networkPathVersion == that.networkPathVersion &&
                     controllerPreparation == that.controllerPreparation && currentGameUuid == that.currentGameUuid &&
-                    cursorShapeVersion == that.cursorShapeVersion && nativeApiVersion == that.nativeApiVersion;
+                    cursorShapeVersion == that.cursorShapeVersion && nativeApiVersion == that.nativeApiVersion &&
+                    powerActionVersion == that.powerActionVersion && sleepSupported == that.sleepSupported &&
+                    sleepAllowed == that.sleepAllowed;
         }
 
         @Override
@@ -742,7 +775,7 @@ public final class HostCapabilities {
                     virtualDisplayCapable, virtualDisplayDriverReady, virtualDisplayHdrCapable, frameLimiter,
                     pyroWaveFields, pyroWaveProbeBytes, pyroWaveCodecs, encoderBitrate, hardwareMetricsVersion,
                     networkPathVersion, controllerPreparation, currentGameUuid, cursorShapeVersion,
-                    nativeApiVersion);
+                    nativeApiVersion, powerActionVersion, sleepSupported, sleepAllowed);
         }
     }
 }

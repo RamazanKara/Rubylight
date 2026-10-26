@@ -1524,15 +1524,23 @@ impl Launcher {
             section(ui, "Host");
             detail(ui, tr("Host software"), &software);
             ui.add_space(8.0);
-            if let Some(url) = &web_ui {
-                let button = row(ui, "Host web UI", "Manage the host's applications, paired devices and settings in its web UI. Sign in with the web UI's own account; pairing does not sign you in. Remote access requires a reachable web UI port.", |ui| {
-                    quiet_button(ui, "Open in browser")
-                });
-                self.focus_item(&button, "web-ui", true);
-                if button.clicked() {
-                    commands.push(Command::OpenWebUi(url.clone()));
+            match &web_ui {
+                None => {}
+                Some(Ok(url)) => {
+                    let button = row(ui, "Host web UI", "Manage the host's applications, paired devices and settings in its web UI. Sign in with the web UI's own account; pairing does not sign you in. Remote access requires a reachable web UI port.", |ui| {
+                        quiet_button(ui, "Open in browser")
+                    });
+                    self.focus_item(&button, "web-ui", true);
+                    if button.clicked() {
+                        commands.push(Command::OpenWebUi(url.clone()));
+                    }
+                    ui.label(RichText::new(url).font(regular(13.0)).color(OUTLINE));
                 }
-                ui.label(RichText::new(url).font(regular(13.0)).color(OUTLINE));
+                // The PC has a web UI, but its saved address makes no link to it.
+                Some(Err(why)) => {
+                    ui.label(RichText::new(tr("Host web UI")).font(semibold(15.0)).color(ON_SURFACE));
+                    ui.label(RichText::new(why).color(ERROR));
+                }
             }
             section(ui, "Play away from home");
             let button = row(ui, "Remote access", "Checks the paired PC's identity with five small HTTPS requests. It does not start a stream or download a speed-test file.", |ui| {
@@ -1542,7 +1550,7 @@ impl Launcher {
                     primary_button(ui, "Test this PC")
                 }
             });
-            self.focus_item(&button, "remote-check", web_ui.is_none());
+            self.focus_item(&button, "remote-check", !matches!(web_ui, Some(Ok(_))));
             if button.clicked() {
                 if running {
                     self.remote.cancel();
@@ -4173,6 +4181,15 @@ mod tests {
         assert!(shows(&f, "Moonlight-compatible host") && !shows(&f, "Open in browser"), "an unknown host's web UI is not guessed");
         let f = details(Reach::Offline, "SUNSHINE_SERVER_FREE", RUBYLIGHT);
         assert!(!shows(&f, "Open in browser"), "an offline PC's web UI cannot be reached");
+        // A saved address no browser opens: no button, and the page says why.
+        let mut record = record("uid", true, false);
+        record.address = "fe80::1%12".into();
+        let mut f = Frames::with(record, Reach::Online, Some(host_answer("SUNSHINE_SERVER_FREE", RUBYLIGHT)), Vec::new());
+        f.l.open(Screen::HostDetails(f.hosts.list[0].id));
+        f.settle();
+        assert!(!shows(&f, "Open in browser") && f.drawn.iter().any(|t| t.contains("zone ID (fe80::1%12)")), "{:?}", f.drawn);
+        let commands = f.press(Key::Enter);
+        assert!(commands.iter().any(|c| matches!(c, Command::RemoteCheck(_))), "the check is the first item then");
     }
 
     #[test]

@@ -2,6 +2,7 @@
 //! RemoteSetupActivity. The check runs on a worker thread and ends early when it is cancelled or
 //! its page is left.
 
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::mpsc::{channel, Receiver, TryRecvError};
 use std::sync::Arc;
 
@@ -26,8 +27,9 @@ pub fn software_label(caps: &HostCapabilities) -> String {
     tr(label).to_owned()
 }
 
-/// Where the PC's web UI is, when the PC answers and offers one.
-pub fn web_ui_url(host: &Host) -> Option<String> {
+/// Where the PC's web UI is, when the PC answers and offers one; `Err` says why its saved
+/// address makes no link a browser opens.
+pub fn web_ui_url(host: &Host) -> Option<Result<String, String>> {
     let info = host.info.as_ref().filter(|i| host.reach == Reach::Online && i.capabilities.has(Feature::WebUi))?;
     let https_port = if info.https_port != 0 { info.https_port } else { host.record.https_port };
     let http_port = if host.record.http_port == 0 { DEFAULT_HTTP_PORT } else { host.record.http_port };
@@ -35,13 +37,48 @@ pub fn web_ui_url(host: &Host) -> Option<String> {
 }
 
 /// Android's host details: the HTTPS port + 6 (47990 by default), else the HTTP port + 1.
-fn web_ui_at(address: &str, http_port: u16, https_port: u16) -> Option<String> {
+fn web_ui_at(address: &str, http_port: u16, https_port: u16) -> Option<Result<String, String>> {
     let port = if https_port != 0 { https_port.checked_add(6)? } else { http_port.checked_add(1)? };
-    if address.contains(':') && !address.starts_with('[') {
-        Some(format!("https://[{address}]:{port}"))
-    } else {
-        Some(format!("https://{address}:{port}"))
+    Some(url_host(address).map(|host| format!("https://{host}:{port}")))
+}
+
+/// The saved address as a URL's host: an IP address or a host name, nothing else.
+fn url_host(address: &str) -> Result<String, String> {
+    let (bare, bracketed) = match address.strip_prefix('[').and_then(|a| a.strip_suffix(']')) {
+        Some(inner) => (inner, true),
+        None => (address, false),
+    };
+    if bare.split_once('%').is_some_and(|(ip, _)| ip.parse::<Ipv6Addr>().is_ok()) {
+        return Err(trf("Browsers cannot open an address with a zone ID ({}). Open the web UI from another address of this PC.", &[&address]));
     }
+    if let Ok(ip) = bare.parse::<Ipv6Addr>() {
+        // A mapped IPv4 address is the IPv4 address.
+        return Ok(ip.to_ipv4_mapped().map_or_else(|| format!("[{ip}]"), |v4| v4.to_string()));
+    }
+    if !bracketed {
+        if let Ok(ip) = bare.parse::<Ipv4Addr>() {
+            return Ok(ip.to_string());
+        }
+        if is_host_name(bare) {
+            return Ok(bare.to_owned());
+        }
+    }
+    Err(trf("The saved address {} is not an IP address or host name, so it makes no web UI link.", &[&address]))
+}
+
+/// A DNS name a browser takes as it is: ASCII labels of letters, digits, '-' and '_'. A last
+/// label of digits only would be read as a broken IPv4 address.
+fn is_host_name(name: &str) -> bool {
+    let name = name.strip_suffix('.').unwrap_or(name);
+    let label = |l: &str| {
+        (1..=63).contains(&l.len())
+            && !l.starts_with('-')
+            && !l.ends_with('-')
+            && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    };
+    name.len() <= 253
+        && name.split('.').all(label)
+        && !name.rsplit('.').next().is_some_and(|last| last.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// The remote check against one PC; `HostClient` in the app, a fake in tests.
@@ -290,14 +327,35 @@ pub(crate) mod tests {
     #[test]
     fn the_web_ui_is_offered_only_by_a_pc_that_answers_and_has_one() {
         let rubylight = || Some(info("SUNSHINE_SERVER_FREE", "<RustHostVersion>3.0.0</RustHostVersion>"));
-        assert_eq!(web_ui_url(&host(rubylight(), Reach::Online, "192.0.2.7")).as_deref(), Some("https://192.0.2.7:47990"));
-        assert_eq!(web_ui_url(&host(rubylight(), Reach::Online, "fd7a::1")).as_deref(), Some("https://[fd7a::1]:47990"));
+        assert_eq!(web_ui_url(&host(rubylight(), Reach::Online, "192.0.2.7")), Some(Ok("https://192.0.2.7:47990".into())));
+        assert_eq!(web_ui_url(&host(rubylight(), Reach::Online, "fd7a::1")), Some(Ok("https://[fd7a::1]:47990".into())));
         assert_eq!(web_ui_url(&host(rubylight(), Reach::Offline, "192.0.2.7")), None, "an offline PC's web UI is not there");
         assert_eq!(web_ui_url(&host(Some(info("MJOLNIR_STATE_FREE", "")), Reach::Online, "192.0.2.7")), None, "GameStream has none");
         assert_eq!(web_ui_url(&host(Some(info("SUNSHINE_SERVER_FREE", "")), Reach::Online, "192.0.2.7")), None, "unknown host: not offered");
         assert_eq!(web_ui_url(&host(None, Reach::Online, "192.0.2.7")), None);
-        assert_eq!(web_ui_at("pc", 47989, 0).as_deref(), Some("https://pc:47990"), "no HTTPS port: the HTTP port + 1");
+        assert_eq!(web_ui_at("pc", 47989, 0), Some(Ok("https://pc:47990".into())), "no HTTPS port: the HTTP port + 1");
         assert_eq!(web_ui_at("pc", 47989, 65533), None, "past the last port");
+    }
+
+    #[test]
+    fn the_web_ui_link_is_made_only_from_an_ip_address_or_a_host_name() {
+        let url = |address: &str| web_ui_at(address, 47989, 47984).expect("a port");
+        assert_eq!(url("2001:db8::1"), Ok("https://[2001:db8::1]:47990".into()));
+        assert_eq!(url("[2001:db8::1]"), Ok("https://[2001:db8::1]:47990".into()), "a bracketed IPv6 address");
+        assert_eq!(url("::ffff:192.168.1.5"), Ok("https://192.168.1.5:47990".into()), "a mapped IPv4 address is that address");
+        assert_eq!(url("gaming-pc.tail1234.ts.net"), Ok("https://gaming-pc.tail1234.ts.net:47990".into()));
+        assert_eq!(url("GAMING_PC"), Ok("https://GAMING_PC:47990".into()), "a NetBIOS-style name");
+        // A zone ID is not something a browser opens: no button, and the page says why.
+        for scoped in ["fe80::1%12", "[fe80::1%12]", "fe80::1%eth0"] {
+            let reason = url(scoped).expect_err(scoped);
+            assert!(reason.contains("zone ID") && reason.contains(scoped), "{reason}");
+        }
+        // Anything else is refused, naming the address, never pasted into a link.
+        for bad in ["pc#frag", "pc/path", "user@pc", "pc:47989", "[pc]", "-pc", "pc-", "a..b", "192.168.1.300", "pc name", "", "Büro"] {
+            let reason = url(bad).expect_err(bad);
+            assert!(reason.contains("not an IP address or host name") && reason.contains(bad), "{bad}: {reason}");
+        }
+        assert!(url(&"a".repeat(64)).is_err(), "a label is at most 63 characters");
     }
 
     fn stats(samples: &[f64]) -> ConnectionTestStats {

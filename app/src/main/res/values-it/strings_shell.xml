@@ -18,6 +18,7 @@
     <string name="host_sleep_asking">Richiesta al PC in corso…</string>
     <string name="host_sleep_accepted">Il PC sta entrando in sospensione</string>
     <string name="host_sleep_unsupported">Questo PC non può essere sospeso.</string>
+    <string name="host_sleep_permission_help">Per consentirlo, attiva Sospendi PC per questo dispositivo nella console web dell’host, nelle impostazioni del dispositivo.</string>
     <string name="host_sleep_busy">Il PC non può essere sospeso ora. Chiudi giochi e stream su di esso, poi riprova.</string>
     <string name="host_sleep_refused">Il PC ha rifiutato la sospensione (HTTP %1$d).</string>
     <string name="host_sleep_failed">Impossibile raggiungere il PC.</string>

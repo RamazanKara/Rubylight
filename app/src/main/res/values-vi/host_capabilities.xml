@@ -27,7 +27,7 @@
     <string name="host_feature_reason_virtual_display_off">Hãy bật màn hình ảo trong cài đặt của máy chủ</string>
     <string name="host_feature_reason_virtual_display_driver">Driver màn hình ảo của máy chủ chưa sẵn sàng</string>
     <string name="host_feature_reason_hardware_metrics_off">Hãy bật chỉ số phần cứng trong cài đặt của máy chủ</string>
-    <string name="host_feature_reason_sleep_permission">Hãy cho phép thiết bị này đưa máy chủ vào chế độ ngủ</string>
+    <string name="host_feature_reason_sleep_permission">Thiết bị này không được phép cho PC vào chế độ ngủ</string>
     <string name="host_feature_unknown">Áp dụng nếu máy chủ hỗ trợ</string>
     <string name="host_details_software_apollo">Máy chủ tương thích Apollo</string>
     <string name="host_details_software_vibepollo">Máy chủ tương thích Vibepollo</string>

@@ -18,6 +18,7 @@
     <string name="host_sleep_asking">Pytanie komputera…</string>
     <string name="host_sleep_accepted">Komputer przechodzi w stan uśpienia</string>
     <string name="host_sleep_unsupported">Ten komputer nie obsługuje uśpienia.</string>
+    <string name="host_sleep_permission_help">Aby na to zezwolić, włącz usypianie komputera dla tego urządzenia w konsoli internetowej hosta, w ustawieniach urządzenia.</string>
     <string name="host_sleep_busy">Komputera nie można teraz uśpić. Zamknij na nim gry i transmisje, a potem spróbuj ponownie.</string>
     <string name="host_sleep_refused">Komputer odmówił uśpienia (HTTP %1$d).</string>
     <string name="host_sleep_failed">Nie udało się połączyć z komputerem.</string>

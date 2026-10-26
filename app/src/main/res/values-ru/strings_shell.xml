@@ -18,6 +18,7 @@
     <string name="host_sleep_asking">Запрос к ПК…</string>
     <string name="host_sleep_accepted">ПК переходит в спящий режим</string>
     <string name="host_sleep_unsupported">Этот ПК не поддерживает спящий режим.</string>
+    <string name="host_sleep_permission_help">Чтобы разрешить, включите спящий режим ПК для этого устройства в веб-консоли хоста, в настройках устройства.</string>
     <string name="host_sleep_busy">Сейчас ПК не может перейти в спящий режим. Закройте на нём игры и трансляции и повторите попытку.</string>
     <string name="host_sleep_refused">ПК отказался перейти в спящий режим (HTTP %1$d).</string>
     <string name="host_sleep_failed">Не удалось связаться с ПК.</string>

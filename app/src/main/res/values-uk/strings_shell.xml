@@ -18,6 +18,7 @@
     <string name="host_sleep_asking">Запит до ПК…</string>
     <string name="host_sleep_accepted">ПК переходить у режим сну</string>
     <string name="host_sleep_unsupported">Цей ПК не підтримує режим сну.</string>
+    <string name="host_sleep_permission_help">Щоб дозволити, увімкніть режим сну ПК для цього пристрою у вебконсолі хоста, у налаштуваннях пристрою.</string>
     <string name="host_sleep_busy">Зараз ПК не може перейти в режим сну. Закрийте на ньому ігри та трансляції й повторіть спробу.</string>
     <string name="host_sleep_refused">ПК відмовився перейти в режим сну (HTTP %1$d).</string>
     <string name="host_sleep_failed">Не вдалося зв’язатися з ПК.</string>

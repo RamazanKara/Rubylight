@@ -18,6 +18,7 @@
     <string name="host_sleep_asking">Đang hỏi PC…</string>
     <string name="host_sleep_accepted">PC đang chuyển sang chế độ ngủ</string>
     <string name="host_sleep_unsupported">PC này không hỗ trợ chế độ ngủ.</string>
+    <string name="host_sleep_permission_help">Để cho phép, hãy bật Cho PC ngủ cho thiết bị này trong bảng điều khiển web của máy chủ, ở phần cài đặt thiết bị.</string>
     <string name="host_sleep_busy">PC hiện không thể ngủ. Hãy đóng trò chơi và luồng phát trên PC rồi thử lại.</string>
     <string name="host_sleep_refused">PC đã từ chối chế độ ngủ (HTTP %1$d).</string>
     <string name="host_sleep_failed">Không thể kết nối với PC.</string>

@@ -27,7 +27,7 @@
     <string name="host_feature_reason_virtual_display_off">Ana bilgisayarın ayarlarından sanal ekranı açın</string>
     <string name="host_feature_reason_virtual_display_driver">Ana bilgisayarın sanal ekran sürücüsü hazır değil</string>
     <string name="host_feature_reason_hardware_metrics_off">Ana bilgisayarın ayarlarından donanım ölçümlerini açın</string>
-    <string name="host_feature_reason_sleep_permission">Bu cihazın ana bilgisayarı uyutmasına izin verin</string>
+    <string name="host_feature_reason_sleep_permission">Bu cihazın bilgisayarı uyutma izni yok</string>
     <string name="host_feature_unknown">Ana bilgisayar destekliyorsa geçerlidir</string>
     <string name="host_details_software_apollo">Apollo uyumlu ana bilgisayar</string>
     <string name="host_details_software_vibepollo">Vibepollo uyumlu ana bilgisayar</string>

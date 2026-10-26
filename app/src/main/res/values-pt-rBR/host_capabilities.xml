@@ -27,7 +27,7 @@
     <string name="host_feature_reason_virtual_display_off">Ative a tela virtual nas configurações do host</string>
     <string name="host_feature_reason_virtual_display_driver">O driver de tela virtual do host não está pronto</string>
     <string name="host_feature_reason_hardware_metrics_off">Ative as métricas de hardware nas configurações do host</string>
-    <string name="host_feature_reason_sleep_permission">Permita que este dispositivo suspenda o host</string>
+    <string name="host_feature_reason_sleep_permission">Este dispositivo não tem permissão para suspender o PC</string>
     <string name="host_feature_unknown">Vale se o host oferecer suporte</string>
     <string name="host_details_software_apollo">Host compatível com Apollo</string>
     <string name="host_details_software_vibepollo">Host compatível com Vibepollo</string>

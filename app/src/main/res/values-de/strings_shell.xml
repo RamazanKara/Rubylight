@@ -18,6 +18,7 @@
     <string name="host_sleep_asking">PC wird gefragt…</string>
     <string name="host_sleep_accepted">PC wechselt in den Energiesparmodus</string>
     <string name="host_sleep_unsupported">Dieser PC unterstützt keinen Energiesparmodus.</string>
+    <string name="host_sleep_permission_help">Um es zu erlauben, schalte in der Webkonsole des Hosts in den Einstellungen dieses Geräts „PC in Energiesparmodus“ ein.</string>
     <string name="host_sleep_busy">Der PC kann gerade nicht in den Energiesparmodus. Beende Spiele und Streams auf ihm und versuche es erneut.</string>
     <string name="host_sleep_refused">Der PC hat den Energiesparmodus abgelehnt (HTTP %1$d).</string>
     <string name="host_sleep_failed">Der PC war nicht erreichbar.</string>

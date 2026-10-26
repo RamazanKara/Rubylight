@@ -18,6 +18,7 @@
     <string name="host_sleep_asking">Consultando al PC…</string>
     <string name="host_sleep_accepted">El PC se está suspendiendo</string>
     <string name="host_sleep_unsupported">Este PC no puede suspenderse.</string>
+    <string name="host_sleep_permission_help">Para permitirlo, activa Suspender PC para este dispositivo en la consola web del servidor, en los ajustes del dispositivo.</string>
     <string name="host_sleep_busy">El PC no puede suspenderse ahora. Cierra los juegos y transmisiones en él y vuelve a intentarlo.</string>
     <string name="host_sleep_refused">El PC rechazó la suspensión (HTTP %1$d).</string>
     <string name="host_sleep_failed">No se pudo contactar con el PC.</string>

@@ -142,7 +142,8 @@ public class PcViewLifecycleTest {
     private static void collectActions(android.view.View view, java.util.List<String> actions) {
         if (view instanceof com.google.android.material.button.MaterialButton) {
             com.google.android.material.button.MaterialButton button = (com.google.android.material.button.MaterialButton) view;
-            actions.add(button.getText() + (button.isEnabled() ? "" : " (disabled)"));
+            actions.add(button.getText() + (button.isEnabled() ? "" : " (disabled)")
+                    + (button.getAlpha() < 1 ? " (dimmed)" : ""));
         } else if (view instanceof android.view.ViewGroup) {
             android.view.ViewGroup group = (android.view.ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) {
@@ -218,7 +219,7 @@ public class PcViewLifecycleTest {
             sleep.set(1, screen.getString(R.string.host_menu_sleep) + "\n" + screen.getString(R.string.host_menu_sleep_note));
             assertEquals(sleep, sheetFor(screen, "Office"));
             sleep.set(1, screen.getString(R.string.host_menu_sleep) + "\n"
-                    + screen.getString(R.string.host_feature_reason_sleep_permission) + " (disabled)");
+                    + screen.getString(R.string.host_feature_reason_sleep_permission) + " (dimmed)");
             assertEquals(sleep, sheetFor(screen, "Den"));
         } finally {
             controller.pause().stop().destroy();

@@ -18,6 +18,7 @@
     <string name="host_sleep_asking">PC に問い合わせています…</string>
     <string name="host_sleep_accepted">PC をスリープしています</string>
     <string name="host_sleep_unsupported">この PC はスリープできません。</string>
+    <string name="host_sleep_permission_help">許可するには、ホストの Web コンソールでこのデバイスの設定を開き、PC のスリープをオンにしてください。</string>
     <string name="host_sleep_busy">PC は今スリープできません。PC のゲームとストリームを終了してから、もう一度お試しください。</string>
     <string name="host_sleep_refused">PC がスリープを拒否しました (HTTP %1$d)。</string>
     <string name="host_sleep_failed">PC に接続できませんでした。</string>

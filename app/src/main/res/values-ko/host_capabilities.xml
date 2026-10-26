@@ -27,7 +27,7 @@
     <string name="host_feature_reason_virtual_display_off">호스트 설정에서 가상 디스플레이를 켜세요</string>
     <string name="host_feature_reason_virtual_display_driver">호스트의 가상 디스플레이 드라이버가 준비되지 않았습니다</string>
     <string name="host_feature_reason_hardware_metrics_off">호스트 설정에서 하드웨어 측정값을 켜세요</string>
-    <string name="host_feature_reason_sleep_permission">이 기기에 호스트 절전을 허용하세요</string>
+    <string name="host_feature_reason_sleep_permission">이 기기는 PC를 절전 모드로 전환할 수 없도록 설정되어 있습니다</string>
     <string name="host_feature_unknown">호스트가 지원하는 경우 적용됨</string>
     <string name="host_details_software_apollo">Apollo 호환 호스트</string>
     <string name="host_details_software_vibepollo">Vibepollo 호환 호스트</string>

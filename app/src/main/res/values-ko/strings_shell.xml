@@ -18,6 +18,7 @@
     <string name="host_sleep_asking">PC에 확인하는 중…</string>
     <string name="host_sleep_accepted">PC가 절전 모드로 전환됩니다</string>
     <string name="host_sleep_unsupported">이 PC는 절전 모드를 지원하지 않습니다.</string>
+    <string name="host_sleep_permission_help">허용하려면 호스트 웹 콘솔의 이 기기 설정에서 PC 절전을 켜세요.</string>
     <string name="host_sleep_busy">지금은 PC를 절전 모드로 전환할 수 없습니다. PC의 게임과 스트림을 종료한 후 다시 시도하세요.</string>
     <string name="host_sleep_refused">PC가 절전 모드 전환을 거부했습니다(HTTP %1$d).</string>
     <string name="host_sleep_failed">PC에 연결할 수 없습니다.</string>

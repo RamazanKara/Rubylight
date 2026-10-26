@@ -18,6 +18,7 @@
     <string name="host_sleep_asking">正在詢問電腦…</string>
     <string name="host_sleep_accepted">電腦正在進入睡眠</string>
     <string name="host_sleep_unsupported">這台電腦不支援睡眠。</string>
+    <string name="host_sleep_permission_help">如需允許，請在主機的網頁控制台中開啟此裝置的設定，啟用「讓電腦睡眠」。</string>
     <string name="host_sleep_busy">電腦目前無法睡眠。請關閉其上的遊戲和串流後再試一次。</string>
     <string name="host_sleep_refused">電腦拒絕進入睡眠 (HTTP %1$d)。</string>
     <string name="host_sleep_failed">無法連線到電腦。</string>

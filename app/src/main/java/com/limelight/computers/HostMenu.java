@@ -10,6 +10,8 @@ import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.PairingManager.PairState;
 import com.limelight.ui.ActionSheet;
 
+import com.google.android.material.button.MaterialButton;
+
 import java.util.function.IntConsumer;
 
 /**
@@ -20,6 +22,9 @@ import java.util.function.IntConsumer;
 public final class HostMenu {
     /** How the Sleep entry appears. */
     enum SleepEntry { HIDDEN, ENABLED, DISABLED }
+
+    /** Material's opacity for disabled content, on a row that stays focusable. */
+    static final float DISABLED_ALPHA = 0.38f;
 
     public static final int PAIR = 2;
     public static final int UNPAIR = 3;
@@ -71,15 +76,19 @@ public final class HostMenu {
             sheet.addNote(sheet.addGroup(), activity.getString(R.string.host_wake_needs_pairing), false);
         }
         SleepEntry sleep = sleepEntry(details);
-        if (sleep == SleepEntry.ENABLED) {
-            sheet.addAction(R.drawable.ic_power, activity.getString(R.string.host_menu_sleep),
-                    activity.getString(R.string.host_menu_sleep_note)).setOnClickListener(v -> {
+        if (sleep != SleepEntry.HIDDEN) {
+            MaterialButton action = sheet.addAction(R.drawable.ic_power, activity.getString(R.string.host_menu_sleep),
+                    activity.getString(sleep == SleepEntry.ENABLED ? R.string.host_menu_sleep_note :
+                            details.caps.availability(HostCapabilities.Feature.SLEEP).reasonText()));
+            if (sleep == SleepEntry.DISABLED) {
+                // Dimmed but still reachable by D-pad and TalkBack: choosing it asks the host again, which
+                // says where to allow it, or offers Sleep if it was allowed since.
+                action.setAlpha(DISABLED_ALPHA);
+            }
+            action.setOnClickListener(v -> {
                 sheet.dismiss();
                 onAction.accept(SLEEP);
             });
-        } else if (sleep == SleepEntry.DISABLED) {
-            sheet.addAction(R.drawable.ic_power, activity.getString(R.string.host_menu_sleep), activity.getString(
-                    details.caps.availability(HostCapabilities.Feature.SLEEP).reasonText())).setEnabled(false);
         }
         add(sheet, onAction, PC_SETTINGS, R.drawable.ic_settings, activity.getString(R.string.pc_menu_settings));
         add(sheet, onAction, RENAME, R.drawable.ic_edit, activity.getString(R.string.host_menu_rename));
@@ -99,7 +108,7 @@ public final class HostMenu {
     }
 
     /**
-     * Sleep while the PC is online and its host offers Sleep PC; disabled with the reason when the host withholds
+     * Sleep while the PC is online and its host offers Sleep PC; dimmed with the reason when the host withholds
      * it from this device. Hidden otherwise, also while the host is unknown: a stock host has no such action.
      */
     static SleepEntry sleepEntry(ComputerDetails details) {

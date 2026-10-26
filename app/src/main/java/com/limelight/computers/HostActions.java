@@ -405,10 +405,16 @@ public final class HostActions {
         }
     }
 
-    /** What the screen shows for an offer without a token: why, from the host's flags. */
+    /** What the screen shows for an offer without a token: why, from the host's flags, and where to allow it. */
     static String sleepUnavailableText(Context context, NativeApiClient.PowerReply offer) {
-        return context.getString(!offer.sleepSupported ? R.string.host_sleep_unsupported :
-                !offer.sleepAllowed ? R.string.host_feature_reason_sleep_permission : R.string.host_sleep_busy);
+        if (!offer.sleepSupported) {
+            return context.getString(R.string.host_sleep_unsupported);
+        }
+        if (!offer.sleepAllowed) {
+            return context.getString(R.string.host_feature_reason_sleep_permission) + "\n\n"
+                    + context.getString(R.string.host_sleep_permission_help);
+        }
+        return context.getString(R.string.host_sleep_busy);
     }
 
     /** The host's own words, or the status when it sent none. */

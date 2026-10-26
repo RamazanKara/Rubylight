@@ -1,19 +1,34 @@
 package com.limelight.computers;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import android.app.Application;
+import android.os.Looper;
+import android.view.View;
+import android.view.ViewGroup;
 
 import com.limelight.R;
 import com.limelight.computers.HostMenu.SleepEntry;
+import com.limelight.grid.PcGridAdapter;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.TestHosts;
+import com.limelight.ui.ActionSheet;
+import com.limelight.ui.ToolbarIconTintTest;
+
+import com.google.android.material.button.MaterialButton;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
+import org.robolectric.Shadows;
+import org.robolectric.android.controller.ActivityController;
 import org.robolectric.annotation.Config;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /** When a PC's menu offers Sleep: by the host's advertised power actions, never by its brand. */
 @RunWith(RobolectricTestRunner.class)
@@ -77,5 +92,49 @@ public class HostMenuSleepTest {
         assertEquals(SleepEntry.HIDDEN, HostMenu.sleepEntry(pc(TestHosts.serverInfo("rubylight-serverinfo.xml"),
                 ComputerDetails.State.ONLINE)));
         assertEquals(SleepEntry.HIDDEN, HostMenu.sleepEntry(pc(null, ComputerDetails.State.ONLINE)));
+    }
+
+    private static MaterialButton sleepRow(ViewGroup group, String label) {
+        for (int i = 0; i < group.getChildCount(); i++) {
+            View child = group.getChildAt(i);
+            if (child instanceof MaterialButton && ((MaterialButton) child).getText().toString().startsWith(label)) {
+                return (MaterialButton) child;
+            }
+            if (child instanceof ViewGroup) {
+                MaterialButton found = sleepRow((ViewGroup) child, label);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    @Test
+    public void aWithheldSleepRowIsDimmedYetReachableAndAsksTheHostAgain() {
+        try (ActivityController<ToolbarIconTintTest.Screen> controller =
+                     Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible()) {
+            ToolbarIconTintTest.Screen screen = controller.get();
+            String label = screen.getString(R.string.host_menu_sleep);
+            List<Integer> chosen = new ArrayList<>();
+
+            ActionSheet withheld = HostMenu.build(screen, pc(power(1, 0), ComputerDetails.State.ONLINE),
+                    PcGridAdapter.RowState.READY, null, chosen::add);
+            withheld.show();
+            MaterialButton row = sleepRow((ViewGroup) withheld.findViewById(android.R.id.content), label);
+            assertEquals(label + "\n" + screen.getString(R.string.host_feature_reason_sleep_permission),
+                    row.getText().toString());
+            assertTrue("D-pad and TalkBack reach it", row.isEnabled() && row.isFocusable() && row.isClickable());
+            assertEquals(HostMenu.DISABLED_ALPHA, row.getAlpha(), 0f);
+            row.performClick();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertEquals(List.of(HostMenu.SLEEP), chosen);
+
+            ActionSheet allowed = HostMenu.build(screen, pc(power(1, 1), ComputerDetails.State.ONLINE),
+                    PcGridAdapter.RowState.READY, null, chosen::add);
+            allowed.show();
+            assertEquals(1f, sleepRow((ViewGroup) allowed.findViewById(android.R.id.content), label).getAlpha(), 0f);
+            allowed.dismiss();
+        }
     }
 }

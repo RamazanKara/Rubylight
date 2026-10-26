@@ -310,7 +310,8 @@ public class SleepFlowTest {
 
             script("power.capabilities", "{\"ok\":" + reply(200, "", true, false, null, false) + "}");
             actions.startSleep(office(), () -> api, Runnable::run);
-            assertEquals(screen.getString(R.string.host_feature_reason_sleep_permission), message(latestDialog()));
+            assertEquals(screen.getString(R.string.host_feature_reason_sleep_permission) + "\n\n"
+                    + screen.getString(R.string.host_sleep_permission_help), message(latestDialog()));
             script("power.capabilities", "{\"ok\":" + reply(200, "", true, true, null, false) + "}");
             actions.startSleep(office(), () -> api, Runnable::run);
             assertEquals(screen.getString(R.string.host_sleep_busy), message(latestDialog()));

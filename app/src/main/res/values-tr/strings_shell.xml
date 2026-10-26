@@ -18,6 +18,7 @@
     <string name="host_sleep_asking">Bilgisayara soruluyor…</string>
     <string name="host_sleep_accepted">Bilgisayar uyku moduna geçiyor</string>
     <string name="host_sleep_unsupported">Bu bilgisayar uyku moduna geçemiyor.</string>
+    <string name="host_sleep_permission_help">İzin vermek için ana bilgisayarın web konsolunda bu cihazın ayarlarından Bilgisayarı uyut seçeneğini açın.</string>
     <string name="host_sleep_busy">Bilgisayar şu anda uyku moduna geçemiyor. Üzerindeki oyunları ve yayınları kapatıp yeniden deneyin.</string>
     <string name="host_sleep_refused">Bilgisayar uyku modunu reddetti (HTTP %1$d).</string>
     <string name="host_sleep_failed">Bilgisayara ulaşılamadı.</string>

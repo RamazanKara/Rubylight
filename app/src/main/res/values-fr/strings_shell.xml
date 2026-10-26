@@ -18,6 +18,7 @@
     <string name="host_sleep_asking">Interrogation du PC…</string>
     <string name="host_sleep_accepted">Le PC se met en veille</string>
     <string name="host_sleep_unsupported">Ce PC ne peut pas se mettre en veille.</string>
+    <string name="host_sleep_permission_help">Pour l’autoriser, activez la mise en veille du PC pour cet appareil dans la console web de l’hôte, dans les réglages de l’appareil.</string>
     <string name="host_sleep_busy">Le PC ne peut pas se mettre en veille pour le moment. Fermez ses jeux et streams, puis réessayez.</string>
     <string name="host_sleep_refused">Le PC a refusé la mise en veille (HTTP %1$d).</string>
     <string name="host_sleep_failed">Impossible de joindre le PC.</string>

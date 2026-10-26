@@ -20,6 +20,7 @@
     <string name="host_sleep_asking">Asking the PC…</string>
     <string name="host_sleep_accepted">PC is going to sleep</string>
     <string name="host_sleep_unsupported">This PC can’t sleep.</string>
+    <string name="host_sleep_permission_help">To allow it, turn on Sleep PC for this device in the host’s web console, under its device settings.</string>
     <string name="host_sleep_busy">The PC can’t sleep right now. Close games and streams on it, then try again.</string>
     <string name="host_sleep_refused">The PC refused to sleep (HTTP %1$d).</string>
     <string name="host_sleep_failed">Couldn’t reach the PC.</string>

@@ -27,7 +27,7 @@
     <string name="host_feature_reason_virtual_display_off">Włącz ekran wirtualny w ustawieniach hosta</string>
     <string name="host_feature_reason_virtual_display_driver">Sterownik ekranu wirtualnego hosta nie jest gotowy</string>
     <string name="host_feature_reason_hardware_metrics_off">Włącz metryki sprzętowe w ustawieniach hosta</string>
-    <string name="host_feature_reason_sleep_permission">Zezwól temu urządzeniu na usypianie hosta</string>
+    <string name="host_feature_reason_sleep_permission">To urządzenie nie ma uprawnień do usypiania komputera</string>
     <string name="host_feature_unknown">Działa, jeśli host to obsługuje</string>
     <string name="host_details_software_apollo">Host zgodny z Apollo</string>
     <string name="host_details_software_vibepollo">Host zgodny z Vibepollo</string>

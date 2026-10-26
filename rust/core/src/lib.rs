@@ -40,6 +40,7 @@ pub mod display_policy;
 pub mod dualsense;
 pub mod edid;
 pub mod encoder_backlog;
+pub mod encoder_focus;
 pub mod encoder_policy;
 pub mod fec_status;
 pub mod framegen;

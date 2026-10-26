@@ -8,7 +8,7 @@ use std::{
     net::IpAddr,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -2507,6 +2507,11 @@ pub struct Session<P = (), A = ()> {
     pub media_epoch: std::sync::RwLock<Option<Instant>>,
     /// The host-side timing record (`BUTTERPOLLO_TIMING_RECORD`), when it is on.
     pub timing_record: std::sync::RwLock<Option<Arc<crate::timing_record::Sink>>>,
+    /// The requested `encoder_focus` ([`crate::encoder_focus::Requested::wire`]). The stream
+    /// stores the configured value at start; the encoder reads it per frame.
+    pub encoder_focus: AtomicU8,
+    /// What the encoder runs, written by the encoder thread on change.
+    pub encoder_focus_state: std::sync::Mutex<crate::encoder_focus::FocusState>,
 }
 impl<P, A> Session<P, A> {
     /// Notes a new picture whose last packet was just handed to the socket: for a client
@@ -2571,6 +2576,8 @@ impl<P, A> Session<P, A> {
             link_notices: Default::default(),
             media_epoch: Default::default(),
             timing_record: Default::default(),
+            encoder_focus: AtomicU8::new(crate::encoder_focus::Requested::Auto.wire()),
+            encoder_focus_state: Default::default(),
         })
     }
     pub fn stopping(&self) -> bool {

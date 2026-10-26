@@ -9,6 +9,7 @@ fn main() {
 #[cfg(windows)]
 fn main() -> anyhow::Result<()> {
     use anyhow::{Context, bail};
+    use butterpollo_core::encoder_focus::{Levels, Mode};
     use butterpollo_core::rtsp::Negotiated;
     use butterpollo_windows::{
         capture::{ComGuard, Device, GpuImage, Image, Pixel, Priority},
@@ -38,6 +39,8 @@ fn main() -> anyhow::Result<()> {
 --packing 0|1|2: chroma packing (0 is 4:2:0, 1 and 2 are the packed 4:4:4 layouts)\n\
 --ten-bit 1: 10-bit SDR encode (the input stays BGRA)\n\
 --csc-mode N: SDR matrix and range as encoderCscMode (0 is Rec.601 limited, 2 is Rec.709 limited)\n\
+--focus off|static|centre: encoder focus ROI map (levels from encoder_focus_levels in --config)\n\
+--focus-verify 1: block QP feedback once a second, for focus_qp_delta\n\
 --config FILE: host settings; --out FILE: bitstream"
             );
             return Ok(());
@@ -82,6 +85,16 @@ fn main() -> anyhow::Result<()> {
     let tuning = match option("--config") {
         Some(path) => butterpollo_core::config::Config::load(std::path::Path::new(&path))?,
         None => Default::default(),
+    };
+    let focus = match option("--focus").as_deref().unwrap_or("off") {
+        "off" => None,
+        "static" => Some(Mode::Static),
+        "centre" | "center" => Some(Mode::Centre),
+        other => bail!("--focus {other} is not one of off, static, centre"),
+    };
+    let levels = match tuning.values.get("encoder_focus_levels") {
+        Some(value) => Levels::parse(value).map_err(anyhow::Error::msg)?,
+        None => Levels::default(),
     };
     let _com = ComGuard::new()?;
     let _priority = Priority::new();
@@ -140,6 +153,19 @@ fn main() -> anyhow::Result<()> {
         metadata.max_fall = number("--max-fall", 0)? as u16;
         encoder.set_hdr_metadata(metadata);
     }
+    if let Some(mode) = focus {
+        let Encoder::Amf(amf) = &mut encoder else {
+            bail!("--focus needs the AMF encoder, not {}", encoder.backend());
+        };
+        amf.set_focus(Some(butterpollo_windows::compute::FocusSettings {
+            mode,
+            levels,
+            cursor: None,
+        }))?;
+        if option("--focus-verify").is_some_and(|v| v == "1") {
+            amf.set_focus_verify(Some(config.fps.max(1)));
+        }
+    }
     let mut bitstream = std::io::BufWriter::new(std::fs::File::create(&out)?);
     let (mut latencies, mut sizes, mut idr_bytes) = (Vec::new(), Vec::new(), Vec::new());
     let mut image = Some(first);
@@ -175,6 +201,10 @@ fn main() -> anyhow::Result<()> {
     all_sizes.sort_unstable();
     latencies.sort_by(f64::total_cmp);
     sizes.sort_unstable();
+    let focus_stats = match &encoder {
+        Encoder::Amf(amf) => amf.focus_stats(),
+        _ => Default::default(),
+    };
     let percentile = |values: &[f64], p: usize| {
         values
             .get(values.len().saturating_sub(1) * p / 100)
@@ -206,6 +236,11 @@ fn main() -> anyhow::Result<()> {
             "frame_bytes_p99": sizes.get(sizes.len().saturating_sub(1) * 99 / 100),
             "idr_bytes": idr_bytes,
             "backend": encoder.backend(),
+            "focus_mode": focus.map_or("off", Mode::as_str),
+            "focus_maps": focus_stats.maps,
+            "focus_uniform": focus_stats.uniform,
+            "focus_stale": focus_stats.stale,
+            "focus_qp_delta": focus_stats.qp_delta,
         })
     );
     Ok(())

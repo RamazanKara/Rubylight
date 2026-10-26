@@ -3,6 +3,7 @@
 //! Calls AMF's C ABI directly, takes D3D11 or D3D12
 //! textures from capture and Radeon compute without a copy, and applies the
 //! per-codec settings from `butterpollo_core::encoder_policy`.
+pub mod focus;
 pub(crate) mod gpu;
 mod intra_refresh;
 mod metadata;
@@ -281,6 +282,8 @@ pub struct Encoder {
     /// A later slice named a different picture type than its frame's first
     /// slice, and it was logged.
     unit_idr_reported: bool,
+    /// Encoder focus: the ROI map and its counters.
+    focus: focus::State,
 }
 /// One output buffer from QueryOutput: a frame, or with slice/tile output one
 /// slice or tile of it.
@@ -591,6 +594,7 @@ impl Encoder {
                 units: Default::default(),
                 unit_held: false,
                 unit_idr_reported: false,
+                focus: Default::default(),
             };
             let mut properties = butterpollo_core::encoder_policy::amf(options, config)?;
             guard_smart_access_video(&mut properties);
@@ -1690,6 +1694,7 @@ impl Encoder {
                 _ => "Av1OutputFrameType",
             };
             let _ = (v.GetProperty.unwrap())(buffer, to_wide(prop).as_ptr(), &mut picture);
+            self.focus_feedback(buffer, pts, last);
             if size > 64 * 1024 * 1024 || raw.is_null() {
                 (v.Release.unwrap())(buffer);
                 bail!("invalid AMF output buffer");
@@ -2039,7 +2044,7 @@ impl Encoder {
             bail!("GPU frame and encoder must use the same D3D11 device");
         }
         let source = (image.width, image.height, image.pixel);
-        let (surface, converted) = if let Some(input) = self.compute.as_mut() {
+        let (surface, converted, conversion) = if let Some(input) = self.compute.as_mut() {
             let compute = input.converter.compute().clone();
             let texture = timed("compute open", || compute.open(&image.texture))?;
             let pointer = image
@@ -2068,7 +2073,7 @@ impl Encoder {
             let surface = timed("AMF surface wrap", || {
                 input.context.wrap(&converted.texture, &mut self.ownership)
             })?;
-            (surface, None)
+            (surface, None, Some(converted.conversion))
         } else {
             if self
                 .gpu_convert
@@ -2086,7 +2091,7 @@ impl Encoder {
                     .unwrap()
                     .convert(self.context, image, &mut self.ownership)
             })?;
-            (surface, Some(texture))
+            (surface, Some(texture), None)
         };
         self.set_bitrate(bitrate)?;
         // SAFETY: surface owns a live AMF interface backed by this encoder's device;
@@ -2109,6 +2114,7 @@ impl Encoder {
                 10_000_000_000 / i64::from(self.config.fps_millihz()),
             );
             let (plan, idr) = self.prepare_surface(surface.0, idr)?;
+            self.attach_focus(surface.0, idr, plan.after_invalidation, conversion)?;
             let deadline = Instant::now() + Duration::from_millis(100);
             loop {
                 let result = timed("AMF SubmitInput", || {
@@ -2179,6 +2185,8 @@ impl Drop for Encoder {
     }
 }
 
+#[cfg(test)]
+mod focus_native_tests;
 #[cfg(test)]
 mod intra_refresh_native_tests;
 #[cfg(test)]

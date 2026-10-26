@@ -39,10 +39,22 @@ pub struct Freshness {
     picture_next: usize,
     picture_median: Option<u64>,
     picture_late: Option<u64>,
+    /// The latest capture that changed the focus window, the first capture
+    /// of its latest picture and the interval before that picture, and
+    /// whether the latest capture only extends the focus window's latest
+    /// picture: see `observe_focus`.
+    focus_at: Option<u64>,
+    focus_start: Option<u64>,
+    focus_interval: Option<u64>,
+    extends: bool,
 }
 impl Freshness {
     /// A capture this soon after the previous one belongs to the same picture.
     const PICTURE_GAP: u64 = 2_000_000;
+    /// The focus window animates while its pictures come at least this often;
+    /// other windows' updates then extend its latest picture for twice its
+    /// latest interval, and at least this long.
+    const FOCUS_ANIMATING: u64 = 50_000_000;
     /// The median interval between pictures, once a few are known: a capture
     /// less than 2 ms after the previous one counts as part of its picture.
     /// WGC on a 240 Hz VRR display delivers each frame of a 120 Hz game with
@@ -92,7 +104,27 @@ impl Freshness {
             normal
         }
     }
+    /// Whether the latest capture changed only pixels outside the focus window
+    /// while that window kept changing (`observe_focus`): it extends the
+    /// focus window's latest picture instead of starting one.
+    pub fn extends_picture(&self) -> bool {
+        self.extends
+    }
     pub fn observe(&mut self, captured: u64, delay: u64) {
+        self.observe_focus(captured, delay, None);
+    }
+    /// Observe a capture and whether it changed the focus window (the
+    /// foreground window): `None` when the capture cannot tell. A 60 Hz game
+    /// window on the 240 Hz VRR desktop next to a window animating at the
+    /// display rate (the Claude desktop app presented 245 times a second)
+    /// arrived as five captures per game frame, each a picture of its own:
+    /// claims at the stream rate drifted through the game's frames and took
+    /// some of them twice and skipped as many. A capture that changed only
+    /// other windows extends the focus window's picture while that window
+    /// animates (`FOCUS_ANIMATING`); a still or slowly changing focus window
+    /// (typing, a caret) leaves every update a picture of its own, as without
+    /// the distinction.
+    pub fn observe_focus(&mut self, captured: u64, delay: u64, focus: Option<bool>) {
         let mut same_picture = false;
         if let Some(previous) = self.last {
             let interval = captured.saturating_sub(previous);
@@ -106,7 +138,38 @@ impl Freshness {
                 self.count = 0;
                 self.next = 0;
                 self.picture = None;
+                self.focus_at = None;
+                self.focus_start = None;
+                self.focus_interval = None;
             }
+        }
+        self.extends = false;
+        let animating = match (self.focus_at, self.focus_interval) {
+            (Some(at), Some(interval)) => {
+                interval <= Self::FOCUS_ANIMATING
+                    && captured.saturating_sub(at) <= (2 * interval).max(Self::FOCUS_ANIMATING)
+            }
+            _ => false,
+        };
+        match focus {
+            Some(true) => {
+                // A focus change right after another window's update is new;
+                // one soon after the focus window's last change is part of it.
+                same_picture = self
+                    .focus_at
+                    .is_some_and(|at| captured.saturating_sub(at) < Self::PICTURE_GAP);
+                if !same_picture {
+                    self.focus_interval =
+                        self.focus_start.map(|start| captured.saturating_sub(start));
+                    self.focus_start = Some(captured);
+                }
+                self.focus_at = Some(captured);
+            }
+            Some(false) if self.picture.is_some() && animating => {
+                same_picture = true;
+                self.extends = true;
+            }
+            _ => {}
         }
         self.last = Some(captured);
         if !same_picture {
@@ -225,6 +288,46 @@ mod tests {
             notification_wait_interval(Duration::from_secs(1), true, poll),
             poll
         );
+    }
+    #[test]
+    fn another_window_extends_the_focus_picture_only_while_the_focus_changes() {
+        let ms = 1_000_000;
+        let mut cadence = Freshness::default();
+        // A focus window changing every 150 ms (typing) does not animate:
+        // another window's updates stay pictures of their own.
+        for at in [100, 250] {
+            cadence.observe_focus(at * ms, ms, Some(true));
+            cadence.observe_focus((at + 4) * ms, ms, Some(false));
+            assert!(!cadence.extends_picture());
+            assert_eq!(cadence.picture_start(), Some((at + 4) * ms));
+        }
+        // A game at 60 Hz animates.
+        cadence.observe_focus(300 * ms, ms, Some(true));
+        cadence.observe_focus(316 * ms, ms, Some(true));
+        let game = cadence.picture_start();
+        assert_eq!(game, Some(316 * ms));
+        // The duplicate composition and another window's updates extend it.
+        cadence.observe_focus(317 * ms, ms, Some(true));
+        assert!(!cadence.extends_picture());
+        for at in [321, 325, 329] {
+            cadence.observe_focus(at * ms, ms, Some(false));
+            assert!(cadence.extends_picture());
+            assert_eq!(cadence.picture_start(), game);
+        }
+        // A focus change soon after another window's update is a new picture.
+        cadence.observe_focus(330 * ms, ms, Some(true));
+        assert!(!cadence.extends_picture());
+        assert_eq!(cadence.picture_start(), Some(330 * ms));
+        cadence.observe_focus(370 * ms, ms, Some(false));
+        assert!(cadence.extends_picture());
+        // Once the focus window is still, every update is a picture again.
+        cadence.observe_focus(381 * ms, ms, Some(false));
+        assert!(!cadence.extends_picture());
+        assert_eq!(cadence.picture_start(), Some(381 * ms));
+        // Without dirty regions nothing changes.
+        cadence.observe_focus(385 * ms, ms, None);
+        assert!(!cadence.extends_picture());
+        assert_eq!(cadence.picture_start(), Some(385 * ms));
     }
     fn learned(interval: u64) -> Freshness {
         let mut cadence = Freshness::default();

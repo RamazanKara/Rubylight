@@ -264,6 +264,12 @@ pub struct Pacer {
     picture: Option<Instant>,
     /// The picture interval nearly all recent pictures arrived within.
     late_picture: Option<Duration>,
+    /// The newest capture only extends the focus window's latest picture.
+    extends: bool,
+    /// The first capture of the picture the latest claim took.
+    claimed_picture: Option<Instant>,
+    /// Time after which an unchanged picture is encoded again.
+    static_period: Duration,
     /// Credit a faster source may be lent, in frames, to repay a deficit.
     grace: f64,
     grace_at: Instant,
@@ -285,9 +291,24 @@ impl Pacer {
             source_rate: None,
             picture: None,
             late_picture: None,
+            extends: false,
+            claimed_picture: None,
+            static_period: Duration::from_millis(50),
             grace: Self::GRACE_CAP,
             grace_at: now,
         }
+    }
+    /// When an unchanged picture is encoded again (`Rates::static_period`):
+    /// another window's update next to a focus picture already claimed waits
+    /// as long, unless the focus window changes first.
+    pub fn with_static_period(mut self, period: Duration) -> Self {
+        self.static_period = period;
+        self
+    }
+    /// Whether the newest capture only extends the focus window's latest
+    /// picture (`Freshness::extends_picture`).
+    pub fn observe_extension(&mut self, extends: bool) {
+        self.extends = extends;
     }
     /// VRR: the display follows each frame, so a game's uneven frame times
     /// should reach it as they are. The average stays capped at the stream
@@ -483,6 +504,24 @@ impl Pacer {
             self.lend_grace(now);
         }
         let allowed = self.allowed_at(now);
+        // Another window's update next to a focus picture already claimed
+        // carries no new focus frame: claimed once credit allowed, it showed
+        // that frame twice and the next claim skipped one. It waits like an
+        // unchanged picture unless the focus window changes first.
+        if self.extends
+            && self.claimed_picture.is_some()
+            && self.picture.filter(|start| *start <= presented) == self.claimed_picture
+        {
+            let repeat = self
+                .last_claim
+                .map_or(allowed, |last| last + self.static_period)
+                .max(allowed);
+            return if now >= repeat {
+                Pace::Claim
+            } else {
+                Pace::WaitUntil(repeat)
+            };
+        }
         if let Some(phase) = &self.source_phase
             && let Some(center) = phase.center
             && phase.has_surplus()
@@ -527,7 +566,8 @@ impl Pacer {
             let since = self
                 .picture
                 .filter(|start| {
-                    *start <= presented && presented.duration_since(*start) < interval / 2
+                    *start <= presented
+                        && (self.extends || presented.duration_since(*start) < interval / 2)
                 })
                 .unwrap_or(presented);
             let next = since + interval;
@@ -555,6 +595,8 @@ impl Pacer {
         Pace::WaitUntil(allowed)
     }
     pub fn claimed(&mut self, now: Instant) {
+        // The picture of the newest capture, which every claim encodes.
+        self.claimed_picture = self.picture;
         self.credit = (self.credit(now) - 1.).max(-1.);
         self.credit_at = now;
         self.last_claim = Some(now);

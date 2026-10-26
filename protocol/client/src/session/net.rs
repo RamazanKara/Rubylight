@@ -51,15 +51,23 @@ pub fn resolve(host: &str, test_ports: &[u16]) -> io::Result<SocketAddr> {
     ))
 }
 
-/// The local address the OS routes toward `remote`, found with a connected UDP socket.
-pub fn local_address_toward(remote: SocketAddr) -> io::Result<IpAddr> {
+/// The local address the OS routes toward `remote`, found with a connected UDP socket. The
+/// port is 0; an IPv6 scope (of `remote`, kept by the caller) stays, which link-local
+/// addresses need to connect and bind.
+pub fn local_address_toward(remote: SocketAddr) -> io::Result<SocketAddr> {
     let bind: SocketAddr = match remote {
         SocketAddr::V4(_) => (Ipv4Addr::UNSPECIFIED, 0).into(),
         SocketAddr::V6(_) => (Ipv6Addr::UNSPECIFIED, 0).into(),
     };
     let socket = UdpSocket::bind(bind)?;
     socket.connect(remote)?;
-    Ok(socket.local_addr()?.ip())
+    Ok(with_port(socket.local_addr()?, 0))
+}
+
+/// `address` with another port, keeping an IPv6 scope.
+pub fn with_port(mut address: SocketAddr, port: u16) -> SocketAddr {
+    address.set_port(port);
+    address
 }
 
 fn in_prefix(address: &[u8; 16], prefix: &[u8], bits: usize) -> bool {
@@ -130,19 +138,19 @@ pub fn is_nat64(address: IpAddr) -> bool {
     is_nat64_with(&v6, &candidates)
 }
 
-/// A UDP socket bound to `local` on an ephemeral port, with the receive buffer stepped down
-/// from `buffer_size` until the OS accepts it (0 keeps the default). `qos` sets the queue
-/// priority as moonlight-common-c's `setSocketQos` does (`network_priority` is "prioritize
-/// stream traffic"). A kernel that refuses it is not an error, the same as there, but
-/// `warn` hears about it.
+/// A UDP socket bound to `local` (with its IPv6 scope) on an ephemeral port, with the
+/// receive buffer stepped down from `buffer_size` until the OS accepts it (0 keeps the
+/// default). `qos` sets the queue priority as moonlight-common-c's `setSocketQos` does
+/// (`network_priority` is "prioritize stream traffic"). A kernel that refuses it is not an
+/// error, the same as there, but `warn` hears about it.
 pub fn bind_udp(
-    local: IpAddr,
+    local: SocketAddr,
     buffer_size: usize,
     qos: Qos,
     network_priority: bool,
     warn: impl Fn(&str),
 ) -> io::Result<UdpSocket> {
-    let address = SocketAddr::new(local, 0);
+    let address = with_port(local, 0);
     let socket = Socket::new(
         Domain::for_address(address),
         Type::DGRAM,
@@ -335,7 +343,14 @@ mod tests {
     fn media_sockets_are_bound_with_their_priority() {
         use crate::priority::tests::read_priority;
         let bind = |qos, network_priority| {
-            bind_udp(Ipv4Addr::LOCALHOST.into(), 0, qos, network_priority, |_| {}).unwrap()
+            bind_udp(
+                (Ipv4Addr::LOCALHOST, 0).into(),
+                0,
+                qos,
+                network_priority,
+                |_| {},
+            )
+            .unwrap()
         };
         for network_priority in [false, true] {
             assert_eq!(read_priority(&bind(Qos::Video, network_priority)), 5);
@@ -361,9 +376,74 @@ mod tests {
     }
 
     #[test]
+    fn a_port_rewrite_keeps_the_ipv6_scope() {
+        let scoped = SocketAddr::V6(std::net::SocketAddrV6::new(
+            "fe80::1".parse().unwrap(),
+            48010,
+            0,
+            7,
+        ));
+        let SocketAddr::V6(rewritten) = with_port(scoped, 47999) else {
+            panic!("an IPv6 address stays IPv6");
+        };
+        assert_eq!(rewritten.port(), 47999);
+        assert_eq!(rewritten.scope_id(), 7);
+    }
+
+    #[test]
+    fn the_local_address_toward_ipv6_loopback_is_ipv6() {
+        let Ok(probe) = UdpSocket::bind("[::1]:0") else {
+            eprintln!("skipped: no IPv6 loopback");
+            return;
+        };
+        let local = local_address_toward(probe.local_addr().unwrap()).unwrap();
+        assert_eq!(local, "[::1]:0".parse().unwrap());
+        bind_udp(local, 0, Qos::BestEffort, false, |_| {}).unwrap();
+    }
+
+    /// nightjar#38: a link-local host only works with its scope, through the connect to it
+    /// and the binds after.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_link_local_host_keeps_its_scope() {
+        let Some(local) = link_local_address() else {
+            eprintln!("skipped: no link-local IPv6 interface");
+            return;
+        };
+        // Our own address stands in for the host on the same link.
+        let host = UdpSocket::bind(local).unwrap();
+        let toward = local_address_toward(host.local_addr().unwrap()).unwrap();
+        let SocketAddr::V6(v6) = toward else {
+            panic!("{toward} is not IPv6");
+        };
+        assert_eq!(v6.scope_id(), local.scope_id());
+        let socket = bind_udp(toward, 0, Qos::BestEffort, false, |_| {}).unwrap();
+        socket
+            .send_to(b"hello", host.local_addr().unwrap())
+            .unwrap();
+    }
+
+    /// A usable link-local IPv6 address of this machine with its scope, from
+    /// /proc/net/if_inet6 (address, interface index, prefix, scope, flags, name).
+    #[cfg(target_os = "linux")]
+    fn link_local_address() -> Option<std::net::SocketAddrV6> {
+        // IFA_F_DADFAILED and IFA_F_TENTATIVE: not bindable.
+        const UNUSABLE: u32 = 0x08 | 0x40;
+        let table = std::fs::read_to_string("/proc/net/if_inet6").ok()?;
+        table.lines().find_map(|line| {
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            let address = Ipv6Addr::from(u128::from_str_radix(fields.first()?, 16).ok()?);
+            let index = u32::from_str_radix(fields.get(1)?, 16).ok()?;
+            let flags = u32::from_str_radix(fields.get(4)?, 16).ok()?;
+            (address.segments()[0] & 0xffc0 == 0xfe80 && flags & UNUSABLE == 0)
+                .then(|| std::net::SocketAddrV6::new(address, 0, 0, index))
+        })
+    }
+
+    #[test]
     fn receive_times_out_without_data() {
         let socket = bind_udp(
-            Ipv4Addr::LOCALHOST.into(),
+            (Ipv4Addr::LOCALHOST, 0).into(),
             1 << 20,
             Qos::BestEffort,
             false,

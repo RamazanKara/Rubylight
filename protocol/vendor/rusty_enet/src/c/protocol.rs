@@ -1422,20 +1422,11 @@ unsafe fn enet_protocol_handle_incoming_commands<S: Socket>(
         return false;
     } else {
         peer = ((*host).peers).offset(peer_id as isize);
+        // Nightjar: no check that the datagram comes from the peer's address, as in
+        // moonlight-common-c's ENet fork (cf38f85, "Be more lenient with the expected peer
+        // address for multi-homed hosts"). The peer follows the source below.
         if (*peer).state == ENET_PEER_STATE_DISCONNECTED as i32 as u32
             || (*peer).state == ENET_PEER_STATE_ZOMBIE as i32 as u32
-            || !(*host)
-                .received_address
-                .assume_init_ref()
-                .as_ref()
-                .unwrap()
-                .same((*peer).address.assume_init_ref().as_ref().unwrap())
-                && !(*peer)
-                    .address
-                    .assume_init_ref()
-                    .as_ref()
-                    .unwrap()
-                    .is_broadcast()
             || ((*peer).outgoing_peer_id as i32) < PROTOCOL_MAXIMUM_PEER_ID as i32
                 && session_id as i32 != (*peer).incoming_session_id as i32
         {

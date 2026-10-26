@@ -158,21 +158,19 @@ struct Waker {
 
 impl Waker {
     fn new(enet_local: SocketAddr) -> io::Result<Self> {
-        let ip = enet_local.ip();
-        let (bind, target_ip): (IpAddr, IpAddr) = if ip.is_unspecified() {
-            match ip {
-                IpAddr::V4(_) => (Ipv4Addr::LOCALHOST.into(), Ipv4Addr::LOCALHOST.into()),
-                IpAddr::V6(_) => (Ipv6Addr::LOCALHOST.into(), Ipv6Addr::LOCALHOST.into()),
-            }
-        } else {
-            (ip, ip)
-        };
-        let socket = UdpSocket::bind(SocketAddr::new(bind, 0))?;
+        // A specific local address keeps its IPv6 scope, which a link-local one needs.
+        let mut target = enet_local;
+        if target.ip().is_unspecified() {
+            target.set_ip(match target.ip() {
+                IpAddr::V4(_) => Ipv4Addr::LOCALHOST.into(),
+                IpAddr::V6(_) => Ipv6Addr::LOCALHOST.into(),
+            });
+        }
+        let mut bind = target;
+        bind.set_port(0);
+        let socket = UdpSocket::bind(bind)?;
         socket.set_nonblocking(true)?;
-        Ok(Self {
-            socket,
-            target: SocketAddr::new(target_ip, enet_local.port()),
-        })
+        Ok(Self { socket, target })
     }
 
     fn wake(&self) {
@@ -293,7 +291,6 @@ fn enet_disconnect(datagram: &[u8]) -> Option<bool> {
 /// intercept), handing it to ENet once they are processed.
 struct ControlSocket {
     socket: UdpSocket,
-    remote: SocketAddr,
     wake_from: SocketAddr,
     intercept: bool,
     held_disconnect: Option<(SocketAddr, Vec<u8>)>,
@@ -302,7 +299,46 @@ struct ControlSocket {
     last_receive: Option<Instant>,
     /// Set while the connect is in flight and the socket is still marked.
     marking: Option<Marking>,
+    send_failures: SendFailures,
     warn: Warn,
+}
+
+/// Sends that failed with a code ENet treats as packet loss ([`datagram_lost`]): a streak is
+/// reported once, and a connect none of whose datagrams left fails with the last error
+/// instead of a timeout.
+#[derive(Debug, Default)]
+struct SendFailures {
+    consecutive: u32,
+    any_sent: bool,
+    last: Option<io::Error>,
+}
+
+impl SendFailures {
+    /// Failures in a row before the streak is reported.
+    const REPORT_AFTER: u32 = 3;
+
+    /// Counts a failed send to `to`; returns the warning on the streak's third failure.
+    fn failed(&mut self, to: SocketAddr, error: io::Error) -> Option<String> {
+        self.consecutive = self.consecutive.saturating_add(1);
+        let warning = (self.consecutive == Self::REPORT_AFTER)
+            .then(|| format!("Control datagrams to {to} are failing: {error}"));
+        self.last = Some(error);
+        warning
+    }
+
+    fn sent(&mut self) {
+        self.consecutive = 0;
+        self.any_sent = true;
+    }
+
+    /// The last error, if no send has succeeded yet and at least one failed.
+    fn take_if_none_sent(&mut self) -> Option<io::Error> {
+        if self.any_sent {
+            None
+        } else {
+            self.last.take()
+        }
+    }
 }
 
 /// The connect-time watch over the control socket's QoS marking. ENet drops the marking when
@@ -369,7 +405,16 @@ impl rusty_enet::Socket for ControlSocket {
             }
         }
         match rusty_enet::Socket::send(&mut self.socket, address, buffer) {
-            Err(error) if datagram_lost(&error) => Ok(0),
+            Err(error) if datagram_lost(&error) => {
+                if let Some(warning) = self.send_failures.failed(address, error) {
+                    self.warn.say(&warning);
+                }
+                Ok(0)
+            }
+            Ok(sent) => {
+                self.send_failures.sent();
+                Ok(sent)
+            }
             result => result,
         }
     }
@@ -392,11 +437,11 @@ impl rusty_enet::Socket for ControlSocket {
             if address == self.wake_from {
                 continue;
             }
-            if address == self.remote {
-                self.last_receive = Some(Instant::now());
-                // The host answered: the marking works, so stop watching it.
-                self.marking = None;
-            }
+            // Anything but a wake on this private socket is the host, from whichever of its
+            // addresses it replies (ENet follows the source, as moonlight-common-c's does).
+            self.last_receive = Some(Instant::now());
+            // The host answered: the marking works, so stop watching it.
+            self.marking = None;
             if self.intercept && self.held_disconnect.is_none() {
                 if let Some(unsequenced) = enet_disconnect(&buffer[..length]) {
                     self.held_disconnect = Some((address, buffer[..length].to_vec()));
@@ -437,7 +482,6 @@ pub fn connect(
     let waker = Waker::new(socket.local_addr()?)?;
     let control_socket = ControlSocket {
         socket,
-        remote: config.remote,
         wake_from: waker.socket.local_addr()?,
         intercept: true,
         held_disconnect: None,
@@ -445,6 +489,7 @@ pub fn connect(
         reinject: None,
         last_receive: None,
         marking: Some(marking),
+        send_failures: SendFailures::default(),
         warn: config.warn.clone(),
     };
     let settings = HostSettings {
@@ -492,6 +537,10 @@ pub fn connect(
                 }
                 if now >= deadline {
                     host.peer_mut(peer).reset();
+                    // No datagram ever left: say why rather than that the host was silent.
+                    if let Some(error) = host.socket_mut().send_failures.take_if_none_sent() {
+                        return Err(ConnectError::Io(error));
+                    }
                     return Err(ConnectError::TimedOut);
                 }
                 host.socket()
@@ -744,7 +793,6 @@ mod tests {
         let warnings = Arc::new(Mutex::new(Vec::new()));
         let control = ControlSocket {
             socket,
-            remote: sink.local_addr().unwrap(),
             wake_from: "127.0.0.1:1".parse().unwrap(),
             intercept: false,
             held_disconnect: None,
@@ -755,6 +803,7 @@ mod tests {
                 ipv6: false,
                 unanswered: 0,
             }),
+            send_failures: SendFailures::default(),
             warn: Warn::new({
                 let warnings = warnings.clone();
                 move |m| warnings.lock().unwrap().push(m.to_string())
@@ -846,6 +895,60 @@ mod tests {
         }
         assert_eq!(tos(&control.socket), priority::CONTROL_TOS);
         assert!(warnings.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_streak_of_failed_sends_is_reported_once() {
+        let to: SocketAddr = "192.0.2.1:47999".parse().unwrap();
+        let unreachable = || io::Error::from_raw_os_error(if cfg!(windows) { 10051 } else { 101 });
+        assert!(datagram_lost(&unreachable()));
+        let mut failures = SendFailures::default();
+        assert!(failures.failed(to, unreachable()).is_none());
+        assert!(failures.failed(to, unreachable()).is_none());
+        let warning = failures
+            .failed(to, unreachable())
+            .expect("the third failure warns");
+        assert!(
+            warning.starts_with("Control datagrams to 192.0.2.1:47999 are failing: "),
+            "{warning}"
+        );
+        assert!(failures.failed(to, unreachable()).is_none());
+        // A send that gets out ends the streak; the next one is reported again.
+        failures.sent();
+        assert!(failures.failed(to, unreachable()).is_none());
+        assert!(failures.failed(to, unreachable()).is_none());
+        assert!(failures.failed(to, unreachable()).is_some());
+    }
+
+    #[test]
+    fn a_connect_whose_sends_all_failed_reports_the_error() {
+        let to: SocketAddr = "192.0.2.1:47999".parse().unwrap();
+        let mut failures = SendFailures::default();
+        assert!(failures.take_if_none_sent().is_none(), "nothing failed");
+        failures.failed(to, io::ErrorKind::AddrNotAvailable.into());
+        let error = failures.take_if_none_sent().expect("every send failed");
+        assert_eq!(error.kind(), io::ErrorKind::AddrNotAvailable);
+
+        let mut failures = SendFailures::default();
+        failures.sent();
+        failures.failed(to, io::ErrorKind::AddrNotAvailable.into());
+        assert!(
+            failures.take_if_none_sent().is_none(),
+            "a datagram left, so the host was silent"
+        );
+    }
+
+    #[test]
+    fn the_waker_aims_at_the_control_socket() {
+        let waker = Waker::new("127.0.0.1:47000".parse().unwrap()).unwrap();
+        assert_eq!(waker.target, "127.0.0.1:47000".parse().unwrap());
+        let waker = Waker::new("0.0.0.0:47000".parse().unwrap()).unwrap();
+        assert_eq!(waker.target, "127.0.0.1:47000".parse().unwrap());
+        let Ok(waker) = Waker::new("[::]:47000".parse().unwrap()) else {
+            eprintln!("skipped: no IPv6 loopback");
+            return;
+        };
+        assert_eq!(waker.target, "[::1]:47000".parse().unwrap());
     }
 
     #[test]

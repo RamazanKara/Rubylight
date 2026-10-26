@@ -1,18 +1,19 @@
 //! The ENet driver against an in-process rusty_enet host that seals and opens messages with
 //! the Rubylight host's own helpers.
 
+use std::io;
 use std::net::{SocketAddr, UdpSocket};
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use butterpollo_core::input::{decode, Input};
 use butterpollo_core::packet::{decrypt_control, encrypted_control};
-use nightjar_core::control::driver::{connect, DriverConfig, Outcome};
+use nightjar_core::control::driver::{connect, ConnectError, DriverConfig, Outcome, Warn};
 use nightjar_core::control::negotiation::encryption;
 use nightjar_core::control::{ClientMessage, ControlEvent, HostCapabilities, SessionOptions};
 use rubylight_protocol::control::{ClockSyncReply, Reconfigure};
-use rusty_enet::{Event, Host, HostSettings, Packet, PeerID};
+use rusty_enet::{Event, Host, HostSettings, Packet, PacketReceived, PeerID, MTU_MAX};
 
 const KEY: [u8; 16] = *b"loopback-key-016";
 const CONNECT_DATA: u32 = 0x1234_5678;
@@ -26,8 +27,49 @@ fn caps() -> HostCapabilities {
     }
 }
 
-struct TestHost {
-    host: Host<UdpSocket>,
+/// A wildcard-bound host socket on a multi-homed machine (nightjar#38): datagrams arrive on
+/// `reached`, the address the client connects to (or on `routed` once the client follows
+/// the replies), and every reply leaves from `routed`, as when the OS picks the source by
+/// route (Tailscale routing the LAN, IPv6 temporary addresses, a second IP).
+struct MultiHomed {
+    reached: UdpSocket,
+    routed: UdpSocket,
+}
+
+impl rusty_enet::Socket for MultiHomed {
+    type Address = SocketAddr;
+    type Error = io::Error;
+
+    fn init(&mut self, _: rusty_enet::SocketOptions) -> io::Result<()> {
+        self.reached.set_nonblocking(true)?;
+        self.routed.set_nonblocking(true)
+    }
+
+    fn send(&mut self, address: SocketAddr, buffer: &[u8]) -> io::Result<usize> {
+        self.routed.send_to(buffer, address)
+    }
+
+    fn receive(
+        &mut self,
+        buffer: &mut [u8; MTU_MAX],
+    ) -> io::Result<Option<(SocketAddr, PacketReceived)>> {
+        for socket in [&self.reached, &self.routed] {
+            match socket.recv_from(buffer) {
+                Ok((length, from)) => return Ok(Some((from, PacketReceived::Complete(length)))),
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::ConnectionReset
+                    ) => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(None)
+    }
+}
+
+struct TestHost<S: rusty_enet::Socket = UdpSocket> {
+    host: Host<S>,
     peer: Option<PeerID>,
     sequence: u32,
     /// (channel, message type, payload) of each client message.
@@ -37,7 +79,30 @@ struct TestHost {
 
 impl TestHost {
     fn new() -> Self {
-        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        Self::on(UdpSocket::bind("127.0.0.1:0").unwrap())
+    }
+
+    fn address(&self) -> SocketAddr {
+        self.host.socket().local_addr().unwrap()
+    }
+}
+
+impl TestHost<MultiHomed> {
+    /// None when this machine cannot bind one of the addresses.
+    fn multi_homed(reached: &str, routed: &str) -> Option<Self> {
+        Some(Self::on(MultiHomed {
+            reached: UdpSocket::bind(reached).ok()?,
+            routed: UdpSocket::bind(routed).ok()?,
+        }))
+    }
+
+    fn address(&self) -> SocketAddr {
+        self.host.socket().reached.local_addr().unwrap()
+    }
+}
+
+impl<S: rusty_enet::Socket<Address = SocketAddr, Error = io::Error>> TestHost<S> {
+    fn on(socket: S) -> Self {
         let settings = HostSettings {
             peer_limit: 4,
             channel_limit: 255,
@@ -50,10 +115,6 @@ impl TestHost {
             received: Vec::new(),
             disconnected: false,
         }
-    }
-
-    fn address(&self) -> SocketAddr {
-        self.host.socket().local_addr().unwrap()
     }
 
     fn pump(&mut self) {
@@ -369,9 +430,70 @@ fn connect_times_out_without_a_host() {
     };
     let started = Instant::now();
     let result = connect(config, caps(), &KEY, SessionOptions::default());
-    assert!(matches!(
-        result,
-        Err(nightjar_core::control::driver::ConnectError::TimedOut)
-    ));
+    assert!(matches!(result, Err(ConnectError::TimedOut)));
     assert!(started.elapsed() < Duration::from_secs(3));
+}
+
+/// nightjar#38: connects to a host that replies from `routed` although the client sent to
+/// `reached`, and keeps hearing it.
+fn connect_to_a_multi_homed_host(reached: &str, routed: &str) {
+    let Some(mut host) = TestHost::multi_homed(reached, routed) else {
+        eprintln!("skipped: cannot bind {reached} and {routed}");
+        return;
+    };
+    let warnings = Arc::new(Mutex::new(Vec::<String>::new()));
+    let config = DriverConfig {
+        connect_data: CONNECT_DATA,
+        connect_timeout: Duration::from_secs(4),
+        // With a grace period, contact_lost() says whether the replies count as the host's.
+        network_grace: Duration::from_secs(20),
+        warn: Warn::new({
+            let warnings = warnings.clone();
+            move |m| warnings.lock().unwrap().push(m.to_string())
+        }),
+        ..DriverConfig::new(host.address())
+    };
+    let connecting =
+        thread::spawn(move || connect(config, caps(), &KEY, SessionOptions::default()));
+    while !connecting.is_finished() {
+        host.pump();
+        thread::sleep(Duration::from_millis(1));
+    }
+    let (client, handle) = match connecting.join().unwrap() {
+        Ok(connected) => connected,
+        Err(e) => panic!("the control stream connects to a multi-homed host: {e:?}"),
+    };
+    host.until("connect", |h| h.peer.is_some());
+    let running = thread::spawn(move || client.run(|_| {}));
+    host.until("start and ping", |h| h.has(0x0302) && h.has(0x0200));
+    // The host keeps acknowledging for longer than INPUT_CONTACT_LOST_AFTER.
+    let until = Instant::now() + Duration::from_millis(1500);
+    while Instant::now() < until {
+        host.pump();
+        thread::sleep(Duration::from_millis(1));
+    }
+    assert!(
+        !handle.contact_lost(),
+        "input held back although the host answers"
+    );
+    handle.stop();
+    host.until("disconnect", |h| h.disconnected);
+    assert_eq!(running.join().unwrap(), Outcome::Stopped);
+    let warnings = warnings.lock().unwrap();
+    assert!(
+        !warnings
+            .iter()
+            .any(|w| w.starts_with("No answer to the first control connects")),
+        "{warnings:?}"
+    );
+}
+
+#[test]
+fn connects_to_a_host_that_replies_from_another_port() {
+    connect_to_a_multi_homed_host("127.0.0.1:0", "127.0.0.1:0");
+}
+
+#[test]
+fn connects_to_a_host_that_replies_from_another_ip() {
+    connect_to_a_multi_homed_host("127.0.0.1:0", "127.0.0.2:0");
 }

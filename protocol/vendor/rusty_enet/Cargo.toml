@@ -5,6 +5,10 @@
 #   round trip time converges on the samples. Variance decay: (v + 3) / 4 instead of v / 4.
 #   Variance step, both directions: (diff + 3) / 4 instead of diff / 4. Mean step, both
 #   directions: (diff + 7) / 8 instead of diff / 8.
+# - src/c/protocol.rs, enet_protocol_handle_incoming_commands (marked "Nightjar"): no check that
+#   a datagram comes from the peer's address, as in moonlight-common-c's ENet fork (cf38f85,
+#   "Be more lenient with the expected peer address for multi-homed hosts"); the peer follows
+#   the source. A multi-homed host may answer from another address than the one connected to.
 # - src/lib.rs: `#![allow(warnings)]` added, the upstream lint output is not ours to fix.
 # - src/lib.rs: the `mod test` declaration is dropped together with src/test and src/test.rs, and
 #   the dev-dependencies (rand, rand_chacha) with them.

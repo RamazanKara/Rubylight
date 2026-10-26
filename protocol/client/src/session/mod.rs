@@ -683,7 +683,7 @@ fn start(
             net::resolve(&host.address, test_ports)
         })
         .map_err(|e| fail(Stage::NameResolution, io_code(&e), e.to_string()))?;
-    let local = net::local_address_toward(SocketAddr::new(remote.ip(), rtsp_port))
+    let local = net::local_address_toward(net::with_port(remote, rtsp_port))
         .map_err(|e| fail(Stage::NameResolution, io_code(&e), e.to_string()))?;
     parts.remote = Some(remote);
     listener.stage_complete(Stage::NameResolution);
@@ -731,7 +731,7 @@ fn start(
                     net::Pinger::start(
                         "AudioPing",
                         &socket,
-                        SocketAddr::new(remote.ip(), port),
+                        net::with_port(remote, port),
                         handshake.audio_ping_payload(),
                     )
                     .map_err(|e| fail(Stage::RtspHandshake, io_code(&e), e.to_string()))?,
@@ -763,11 +763,8 @@ fn start(
             "the host's control stream generation is not supported (GFE before 3.22)".into(),
         ));
     }
-    let mut driver_config = DriverConfig::new(SocketAddr::new(remote.ip(), outcome.control_port));
-    if let SocketAddr::V6(v6) = &mut driver_config.remote {
-        v6.set_scope_id(scope);
-    }
-    driver_config.local = Some(SocketAddr::new(local, 0));
+    let mut driver_config = DriverConfig::new(net::with_port(remote, outcome.control_port));
+    driver_config.local = Some(local);
     driver_config.connect_data = outcome.control_connect_data;
     driver_config.network_grace = config.network_grace;
     driver_config.unbatched_input = config.unbatched_input;
@@ -851,7 +848,7 @@ fn start(
             net::Pinger::start(
                 "VideoPing",
                 &socket,
-                SocketAddr::new(remote.ip(), outcome.video_port),
+                net::with_port(remote, outcome.video_port),
                 outcome.video_ping_payload,
             )
         }) {
@@ -902,7 +899,7 @@ fn start(
         decoder.start();
         let start = video::VideoStart {
             socket,
-            target: SocketAddr::new(remote.ip(), outcome.video_port),
+            target: net::with_port(remote, outcome.video_port),
             ping_payload: outcome.video_ping_payload,
             direct_submit: outcome.video_capabilities & sdp::CAPABILITY_DIRECT_SUBMIT != 0,
         };
@@ -982,7 +979,7 @@ fn start(
         {
             *parts.microphone.lock().unwrap_or_else(|p| p.into_inner()) = Some(Microphone {
                 socket,
-                target: SocketAddr::new(remote.ip(), outcome.mic_port),
+                target: net::with_port(remote, outcome.mic_port),
                 key: stream.remote_input_aes_key,
                 key_id: u32::from_be_bytes(
                     stream.remote_input_aes_iv[..4].try_into().expect("4 bytes"),

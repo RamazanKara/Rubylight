@@ -10,7 +10,9 @@
 //!   drop marked packets are handled by [`should_drop_control_marking`].
 //! - "Prioritize stream traffic" (`AndroidNetworkPriority`) adds `SO_PRIORITY` 6 to the other
 //!   sockets of the stream (the RTSP connection) and raises the receive, audio decode and
-//!   control threads to nice -4. The video decode thread is not raised, as in the C engine.
+//!   control threads to nice -4.
+//! - The queued video decode thread is always raised to nice -8 (`THREAD_PRIORITY_URGENT_DISPLAY`),
+//!   or -4 when that is refused, as the PyroWave submission thread is.
 //!
 //! The option is a plain argument, never process-global state, so two sessions in one
 //! process do not affect each other.
@@ -23,6 +25,10 @@ pub const AUDIO_PRIORITY: i32 = 6;
 pub const VIDEO_PRIORITY: i32 = 5;
 /// The nice value of the stream's threads with "prioritize stream traffic" on.
 pub const THREAD_NICE: i32 = -4;
+/// The nice value of the queued video decode thread: Android's `THREAD_PRIORITY_URGENT_DISPLAY`.
+pub const DECODE_NICE: i32 = -8;
+/// The decode thread's fallback when [`DECODE_NICE`] is refused: `THREAD_PRIORITY_DISPLAY`.
+pub const DECODE_FALLBACK_NICE: i32 = -4;
 /// The control socket's `IP_TOS` / `IPV6_TCLASS`: DSCP Expedited Forwarding (46) plus ECT(1)
 /// for L4S, as `enet_socket_set_option(ENET_SOCKOPT_QOS, 1)` sets.
 pub const CONTROL_TOS: i32 = 46 << 2 | 0x01;
@@ -147,6 +153,13 @@ pub fn prioritize_current_thread(network_priority: bool) -> io::Result<()> {
         return Ok(());
     }
     set_thread_nice(THREAD_NICE)
+}
+
+/// Raises the calling video decode thread to [`DECODE_NICE`], or [`DECODE_FALLBACK_NICE`]
+/// when that is refused. Independent of "prioritize stream traffic": the decoder sits on the
+/// frame's critical path, as the PyroWave submission thread does.
+pub fn prioritize_decode_thread() -> io::Result<()> {
+    set_thread_nice(DECODE_NICE).or_else(|_| set_thread_nice(DECODE_FALLBACK_NICE))
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]

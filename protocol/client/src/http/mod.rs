@@ -10,12 +10,15 @@ mod apps;
 mod capabilities;
 mod crypto;
 mod der;
+mod hardware_metrics;
 mod identity;
 mod launch;
 mod native;
+mod network_path;
 mod pairing;
 pub mod pace;
 mod probe;
+mod remote_check;
 mod serverinfo;
 mod transport;
 mod xml;
@@ -27,11 +30,16 @@ pub use capabilities::{
     PERMISSION_LAUNCH, PERMISSION_LIST, PERMISSION_SERVER_COMMAND, PERMISSION_VIEW,
     PYROWAVE_CODEC_BITS,
 };
+pub use hardware_metrics::{
+    GpuMetrics, HardwareMetrics, Readings, CPU_METRICS, GPU_METRICS, MAX_HARDWARE_METRICS_BYTES,
+};
 pub use identity::ClientIdentity;
 pub use launch::{
     parse_launch_reply, HostDisplay, LaunchRequest, Launched, CORE_LAUNCH_PARAMETERS,
 };
+pub use network_path::{NetworkPath, MAX_NETWORK_PATH_BYTES};
 pub use pairing::{PairFailure, PairResult, PairStep};
+pub use remote_check::{ConnectionTestStats, RemoteCheck, RemoteOutcome, REMOTE_CHECK_PROBES};
 pub use serverinfo::ServerInfo;
 
 /// The Rubylight native API v1 wire types, for callers of the `HostClient` native methods.
@@ -104,6 +112,59 @@ impl std::error::Error for Error {}
 impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Self {
         Error::Io(e)
+    }
+}
+
+/// Why an optional host API (hardware metrics, network path) gave no answer.
+#[derive(Debug)]
+pub enum HostApiError {
+    /// The host does not offer the feature to this client, so nothing was sent;
+    /// `availability` says what would change that.
+    Unavailable {
+        feature: Feature,
+        availability: Availability,
+    },
+    /// The host answered with a schema version this client does not read.
+    UnsupportedVersion,
+    Host(Error),
+}
+
+impl HostApiError {
+    fn require(capabilities: &HostCapabilities, feature: Feature) -> Result<(), Self> {
+        match capabilities.availability(feature) {
+            Availability::Supported => Ok(()),
+            availability => Err(HostApiError::Unavailable {
+                feature,
+                availability,
+            }),
+        }
+    }
+}
+
+impl std::fmt::Display for HostApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HostApiError::Unavailable { feature, .. } => {
+                write!(f, "the host does not offer {feature:?}")
+            }
+            HostApiError::UnsupportedVersion => f.write_str("unsupported host API version"),
+            HostApiError::Host(e) => e.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for HostApiError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            HostApiError::Host(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+impl From<Error> for HostApiError {
+    fn from(e: Error) -> Self {
+        HostApiError::Host(e)
     }
 }
 

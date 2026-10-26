@@ -37,10 +37,10 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 # decimals: the count-up shows as many places as the string has.
 NUMBERS = {
     'latency': {
-        'value': '7.41', 'unit': 'ms',
+        'value': '5.89', 'unit': 'ms',
         'caption': 'from capture to a presented frame',
-        'detail': 'Median · H.264 1080p60 · client on the same PC',
-        'source': 'Frame timing record · RX 7900 XT · October 23, 2026 · docs/performance.md',
+        'detail': 'Median · AV1 1080p60 · client on the same PC',
+        'source': 'Frame timing record · Rubylight 3.0.0-rc.2 · RX 7900 XT · October 26, 2026 · docs/performance.md',
     },
     'versus': {
         # 'heading' is checked against the bars below: "half" needs ours under half of theirs.
@@ -56,14 +56,14 @@ NUMBERS = {
         'heading': 'Fresh frames on every link.',
         'subtitle': 'With variable refresh, over Wi-Fi and in the browser.',
         'tiles': (
-            {'value': '0.27', 'unit': 'ms', 'caption': 'picture age at the encoder',
+            {'value': '0.25', 'unit': 'ms', 'caption': 'picture age at the encoder',
              'detail': 'with VRR, from 4.68 ms · 120 Hz game'},
             {'value': '4', 'unit': '×', 'caption': 'cleaner 2.4 GHz Wi-Fi',
              'detail': 'lost frames per run, 61 to 15.7'},
             {'value': '17', 'unit': 'ms', 'caption': 'glass to glass in a browser',
              'detail': 'WebRTC median · AV1 1080p60'},
         ),
-        'source': 'VRR, Wi-Fi pacing and WebRTC runs · RX 7900 XT · October 24–25, 2026 · docs/performance.md',
+        'source': 'VRR, Wi-Fi pacing and WebRTC runs · RX 7900 XT · October 24–26, 2026 · docs/performance.md',
     },
 }
 

@@ -359,3 +359,29 @@ test('integer tuning steps reject fractions without forcing multiples of the arr
     ['dd_manual_refresh_rate', '119.88'],
   ]) assert.equal(numberError(settings.get(key), value), '', key);
 });
+
+test('file transfer is off by default, its options show once it is on, and the draft round-trips', () => {
+  const transfer = settings.get('file_transfer');
+  assert.equal(transfer.default, false);
+  assert.match(transfer.label, /Experimental/);
+  assert.equal(transfer.advanced, false);
+  const defaults = { file_transfer_dir: '', file_transfer_max_mb: 4096, file_transfer_stream_mbps: 50 };
+  for (const [key, value] of Object.entries(defaults)) {
+    const setting = settings.get(key);
+    assert.equal(setting.default, value, key);
+    assert.equal(setting.category, 'network', key);
+    assert.equal(setting.visibleWhen({}), false, key);
+    assert.equal(setting.visibleWhen({ file_transfer: 'enabled' }), true, key);
+    assert.equal(differsFromDefault(setting, {}, {}), false, key);
+  }
+  assert.equal(settings.get('file_transfer_dir').control.browse, 'directory');
+  // 0 is a valid rate: uploads run unpaced.
+  assert.equal(numberError(settings.get('file_transfer_stream_mbps'), '0'), '');
+  assert.notEqual(numberError(settings.get('file_transfer_max_mb'), '0'), '');
+  const saved = { file_transfer: 'disabled' };
+  const draft = { file_transfer: true, file_transfer_dir: 'D:\\Inbox', file_transfer_max_mb: 1024, file_transfer_stream_mbps: 0 };
+  const sent = computeChanges(settings, draft, saved);
+  assert.deepEqual(sent, draft);
+  assert.deepEqual(computeChanges(settings, draft, { ...saved, ...sent }), {});
+  assert.deepEqual(computeChanges(settings, { file_transfer: null }, sent), { file_transfer: null });
+});

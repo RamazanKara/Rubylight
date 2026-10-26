@@ -170,6 +170,10 @@ pub const GLOBAL: &[Setting] = settings! {
         "webrtc_server", "WebRTC server (Experimental; unencrypted ws:// on the local network)", Bool;
         "webrtc_port", "WebRTC signalling port (TCP; discovery stays on UDP 8000)", Number;
         "webrtc_media_port", "WebRTC media port (UDP)", Number;
+        "file_transfer", "File transfer from paired devices (Experimental)", Bool;
+        "file_transfer_dir", "File transfer folder (leave empty for Downloads\\Rubylight)", Text;
+        "file_transfer_max_mb", "Largest file to receive (MiB; default 4096)", Number;
+        "file_transfer_stream_mbps", "Upload speed while streaming (Mbit/s; 0 for full speed; default 50)", Number;
         "lan_encryption_mode", "Local network encryption (0 never, 1 optional, 2 required)", Number;
         "wan_encryption_mode", "Internet encryption (0 never, 1 optional, 2 required)", Number;
         "ping_timeout", "Device timeout (milliseconds)", Number;

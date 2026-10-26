@@ -28,8 +28,8 @@ export const PERMISSION_GROUPS: { name: string; items: { bit: number; label: str
     items: [
       { bit: PERM.CLIPBOARD_WRITE, label: 'Write to the clipboard' },
       { bit: PERM.CLIPBOARD_READ, label: 'Read the clipboard' },
-      { bit: PERM.FILE_UPLOAD, label: 'Upload files' },
-      { bit: PERM.FILE_DOWNLOAD, label: 'Download files' },
+      { bit: PERM.FILE_UPLOAD, label: 'Upload files (Experimental)' },
+      { bit: PERM.FILE_DOWNLOAD, label: 'Download files (Experimental)' },
       { bit: PERM.SERVER_CMD, label: 'Host commands' },
     ],
   },

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { createTestServer } from './test-server.mjs';
 
 const server = await createTestServer({ configFile: false });
-const { toDraft, changes, savingEndsStream } = await server.ssrLoadModule('/src/components/devices/device.ts');
+const { toDraft, changes, savingEndsStream, PERMISSION_GROUPS } = await server.ssrLoadModule('/src/components/devices/device.ts');
 const client = extra => ({ uuid: 'u', name: 'Phone', perm: 0x071f1f00, enabled: true, connected: false, ...extra });
 
 test('host control is off for a device that never had it', () => {
@@ -66,4 +66,16 @@ test('the sleep draft round-trips: true to grant, null to revoke', () => {
   assert.deepEqual(stored, on);
   assert.deepEqual(changes(stored, { ...stored, name: 'Tablet' }), { name: 'Tablet' });
   assert.equal(savingEndsStream(true, off, on), false);
+});
+test('file transfer bits are labelled Experimental and round-trip in the draft', () => {
+  const items = PERMISSION_GROUPS.flatMap(group => group.items);
+  assert.equal(items.find(item => item.bit === 0x40000).label, 'Upload files (Experimental)');
+  assert.equal(items.find(item => item.bit === 0x80000).label, 'Download files (Experimental)');
+  const full = toDraft(client({}));
+  assert.equal(full.perm & 0xc0000, 0xc0000);
+  const uploadOnly = { ...full, perm: full.perm & ~0x80000 };
+  assert.deepEqual(changes(full, uploadOnly), { perm: 0x07171f00 });
+  assert.deepEqual(toDraft(client({ perm: 0x07171f00 })), uploadOnly);
+  // Losing a bit ends a running stream, as any revoke does.
+  assert.equal(savingEndsStream(true, full, uploadOnly), true);
 });

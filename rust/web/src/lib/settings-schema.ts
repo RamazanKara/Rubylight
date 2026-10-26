@@ -54,6 +54,7 @@ const basicKeys = new Set([
   'terminate_on_pause',
   'enable_discovery',
   'webrtc_server',
+  'file_transfer',
   'origin_web_ui_allowed',
   'playnite_enabled',
   'playnite_auto_sync',

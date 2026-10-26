@@ -31,6 +31,9 @@ pub(crate) struct Fixture {
     session_disconnected: AtomicBool,
     disconnect_during_preparation: AtomicBool,
     session_checks: AtomicUsize,
+    /// The app fails to start after the display was prepared, as a bad app
+    /// entry or config does.
+    fail_app_preparation: AtomicBool,
     apps_prepared: AtomicUsize,
     resources_retained: AtomicUsize,
     pub(super) input_releases: AtomicUsize,
@@ -130,6 +133,10 @@ impl Fixture {
         app: Option<&App>,
         launch: &Launch,
     ) -> Result<Option<crate::process::RunningApp>> {
+        anyhow::ensure!(
+            !self.fail_app_preparation.load(Ordering::Acquire),
+            "fixture application failed to start"
+        );
         *launch.audio_preparation.lock().unwrap() = Some(Box::new(Audio {
             _slot: Slot::new(&self.audios),
             release_ms: self.audio_release_ms.clone(),
@@ -1983,6 +1990,28 @@ async fn a_cancel_while_a_launch_waits_for_its_client_ends_the_session() -> Resu
     assert_eq!(snapshot.owner, None);
     h.h.session_flush();
     assert!(!journal.exists());
+    h.finish().await
+}
+
+/// A launch whose app fails to start after its display was prepared answers
+/// with an error, so the client never connects. Its pending slot and display
+/// lease go at once rather than at the 30 s expiry: /serverinfo must not keep
+/// counting a client that is gone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_launch_whose_app_fails_to_start_is_not_left_pending() -> Result<()> {
+    let h = Harness::new(10_000, 1).await?;
+    h.fixture
+        .fail_app_preparation
+        .store(true, Ordering::Release);
+    let response = h.launch_response(0, false).await?;
+    assert!(!response.contains("status_code=\"200\""), "{response}");
+    assert_eq!(xml(&response, "gamesession"), "0", "{response}");
+    assert!(h.h.sessions.lock().unwrap().pending.is_empty());
+    h.counts(0, 0).await?;
+    assert_eq!(h.fixture.displays.load(Ordering::Acquire), 0);
+    h.fixture
+        .fail_app_preparation
+        .store(false, Ordering::Release);
     h.finish().await
 }
 

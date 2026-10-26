@@ -1314,7 +1314,17 @@ fn launch_back_half(
     if let Some(session) = &session {
         session.app_starting();
     }
-    let prepared_app = prepare_launch_app(h, args, app.as_ref(), &launch, &id)?;
+    let prepared_app = match prepare_launch_app(h, args, app.as_ref(), &launch) {
+        Ok(prepared_app) => prepared_app,
+        Err(error) => {
+            // Any failure here, including a config or app lookup error, must
+            // release the pending slot now: the client got an error and will
+            // never connect, so waiting for expiry would count it for 30 s.
+            let canceled = h.sessions.lock().unwrap().pending.remove(&id);
+            drop(canceled);
+            return Err(error);
+        }
+    };
     if let Err(error) = check_streaming_session(
         h,
         if resume {
@@ -1937,7 +1947,6 @@ fn prepare_launch_app(
     args: &Args,
     app: Option<&App>,
     launch: &Launch,
-    id: &str,
 ) -> Result<Option<crate::process::RunningApp>> {
     #[cfg(test)]
     if let Some(fixture) = &h.reconnect_fixture {
@@ -1990,14 +1999,8 @@ fn prepare_launch_app(
         if background {
             process_args.insert(crate::process::BACKGROUND_ARG.into(), "1".into());
         }
-        match crate::process::launch(h, app.context("application not found")?, &process_args) {
-            Ok(running) => return Ok(Some(running)),
-            Err(e) => {
-                let canceled = h.sessions.lock().unwrap().pending.remove(id);
-                drop(canceled);
-                return Err(e);
-            }
-        }
+        return crate::process::launch(h, app.context("application not found")?, &process_args)
+            .map(Some);
     }
     Ok(None)
 }

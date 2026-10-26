@@ -1294,6 +1294,8 @@ namespace {
                 vk.DestroySwapchainKHR(device, swapchain, nullptr);
             }
             swapchain = newSwapchain;
+            // An image taken ahead from the old swapchain went with it.
+            imageHeld = false;
             swapchainExtent = info.imageExtent;
             displayExtent = logicalExtent;
             rotationQuarterTurns = rotation;
@@ -1881,6 +1883,37 @@ namespace {
                     decodeReady.notify_all();
                     return;
                 }
+                preacquireImage();
+            }
+        }
+
+        // A fence rather than a semaphore: the CPU waits for the display to free an image, so
+        // the GPU queue never holds a draw that blocks the next decode behind it. A failed fence
+        // wait reports VK_ERROR_DEVICE_LOST.
+        VkResult acquireImage(uint32_t *imageIndex) {
+            const VkResult acquired = vk.AcquireNextImageKHR(device, swapchain, ACQUIRE_TIMEOUT_NS, VK_NULL_HANDLE,
+                                                             acquireFence, imageIndex);
+            if (acquired != VK_SUCCESS && acquired != VK_SUBOPTIMAL_KHR) return acquired;
+            if (!check(vk.WaitForFences(device, 1, &acquireFence, VK_TRUE, FENCE_TIMEOUT_NS), "acquire fence") ||
+                !check(vk.ResetFences(device, 1, &acquireFence), "reset acquire fence")) return VK_ERROR_DEVICE_LOST;
+            return acquired;
+        }
+
+        // Immediate mode: take the next image right after a present, while the next frame
+        // decodes, so its present skips the acquire and the wait for the display. Paced modes
+        // keep acquiring per frame. A failure holds nothing; the next frame's own acquire
+        // meets and reports it.
+        void preacquireImage() {
+            if (imageHeld || framePacingMode != 0 || failed) return;
+            {
+                std::lock_guard<std::mutex> lock(slotMutex);
+                if (stopPresenter) return;
+            }
+            uint32_t imageIndex = 0;
+            const VkResult acquired = acquireImage(&imageIndex);
+            if (acquired == VK_SUCCESS || acquired == VK_SUBOPTIMAL_KHR) {
+                heldImageIndex = imageIndex;
+                imageHeld = true;
             }
         }
 
@@ -1891,23 +1924,25 @@ namespace {
             refreshDisplayClock();
             uint32_t imageIndex = 0;
             const uint64_t beforeAcquire = nowUs();
-            // A fence rather than a semaphore: the CPU waits for the display to free an image, so
-            // the GPU queue never holds a draw that blocks the next decode behind it.
-            auto acquired = vk.AcquireNextImageKHR(device, swapchain, ACQUIRE_TIMEOUT_NS, VK_NULL_HANDLE, acquireFence, &imageIndex);
-            if (acquired == VK_ERROR_OUT_OF_DATE_KHR) {
-                dropSlot(index);
-                return recreateSwapchain();
+            if (imageHeld) {
+                // Taken after the previous present, while this frame decoded.
+                imageIndex = heldImageIndex;
+                imageHeld = false;
+            } else {
+                const VkResult acquired = acquireImage(&imageIndex);
+                if (acquired == VK_ERROR_OUT_OF_DATE_KHR) {
+                    dropSlot(index);
+                    return recreateSwapchain();
+                }
+                if (acquired == VK_TIMEOUT || acquired == VK_NOT_READY) {
+                    dropSlot(index);  // The next frame replaces it anyway.
+                    return true;
+                }
+                if (acquired != VK_SUCCESS && acquired != VK_SUBOPTIMAL_KHR) {
+                    dropSlot(index);
+                    return check(acquired, "vkAcquireNextImageKHR");
+                }
             }
-            if (acquired == VK_TIMEOUT || acquired == VK_NOT_READY) {
-                dropSlot(index);  // The next frame replaces it anyway.
-                return true;
-            }
-            if (acquired != VK_SUCCESS && acquired != VK_SUBOPTIMAL_KHR) {
-                dropSlot(index);
-                return check(acquired, "vkAcquireNextImageKHR");
-            }
-            if (!check(vk.WaitForFences(device, 1, &acquireFence, VK_TRUE, FENCE_TIMEOUT_NS), "acquire fence") ||
-                !check(vk.ResetFences(device, 1, &acquireFence), "reset acquire fence")) return false;
             const uint64_t afterAcquire = nowUs();
 
             // Immediate mode keeps the freshest output. Paced modes retain the selected
@@ -2298,6 +2333,9 @@ namespace {
         VkSemaphore decodeTimeline = VK_NULL_HANDLE;
         uint64_t lastDecodeValue = 0;
         VkFence acquireFence = VK_NULL_HANDLE;
+        // Present thread only: a swapchain image acquired ahead of its frame.
+        bool imageHeld = false;
+        uint32_t heldImageIndex = 0;
 
         // This command buffer only initializes plane layouts before workers start.
         // SDK-owned per-pass GPU timings are logged; completion times remain in CSV.
@@ -2650,6 +2688,24 @@ Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeSubmitFrame(JNIEn
     }
     timing.framing(length >= 4 && pyroReadLe32(frame.data()) == 0);
     timing.result = renderer->submit(frame.data(), frame.size(), ptsUs, hostPresentationTimeUs, vsyncNs, intervalNs);
+    return timing.result;
+}
+
+// The Rust engine's frame in place: a direct buffer over its own memory, valid for this call.
+// submit() parses and records the frame before returning, so nothing is copied first.
+JNIEXPORT jlong JNICALL
+Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeSubmitDirectFrame(JNIEnv *env, jclass, jlong handle,
+                                                                                 jobject data, jint length, jlong ptsUs,
+                                                                                 jlong hostPresentationTimeUs,
+                                                                                 jlong vsyncNs, jlong intervalNs) {
+    auto *renderer = reinterpret_cast<Renderer *>(handle);
+    if (renderer == nullptr) return SUBMIT_ERROR;
+    SubmissionDiagnostics::Frame timing(renderer->submissionDiagnostics, length > 0 ? size_t(length) : 0);
+    if (data == nullptr || length <= 0) return SUBMIT_ERROR;
+    const auto *bytes = static_cast<const uint8_t *>(env->GetDirectBufferAddress(data));
+    if (bytes == nullptr || jlong(length) > env->GetDirectBufferCapacity(data)) return SUBMIT_ERROR;
+    timing.framing(length >= 4 && pyroReadLe32(bytes) == 0);
+    timing.result = renderer->submit(bytes, size_t(length), ptsUs, hostPresentationTimeUs, vsyncNs, intervalNs);
     return timing.result;
 }
 

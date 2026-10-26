@@ -6,6 +6,7 @@ import com.limelight.nvstream.av.audio.AudioRenderer;
 import com.limelight.nvstream.av.video.HostTimingReport;
 import com.limelight.nvstream.av.video.VideoDecoderRenderer;
 
+import java.nio.ByteBuffer;
 import java.util.function.BooleanSupplier;
 
 public class MoonBridge {
@@ -257,6 +258,21 @@ public class MoonBridge {
                                                long presentationTimeUs) {
         if (videoRenderer != null) {
             return videoRenderer.submitDecodeUnit(decodeUnitData, decodeUnitLength,
+                    decodeUnitType, frameNumber, frameType, frameHostProcessingLatency, receiveTimeUs, enqueueTimeUs, receiveTimeNs,
+                    presentationTimeUs);
+        }
+        else {
+            return DR_OK;
+        }
+    }
+
+    // The Rust engine's picture data in place; see VideoDecoderRenderer.submitDirectDecodeUnit.
+    public static int bridgeDrSubmitDirectDecodeUnit(ByteBuffer decodeUnitData, int decodeUnitLength, int decodeUnitType,
+                                                     int frameNumber, int frameType, char frameHostProcessingLatency,
+                                                     long receiveTimeUs, long enqueueTimeUs, long receiveTimeNs,
+                                                     long presentationTimeUs) {
+        if (videoRenderer != null) {
+            return videoRenderer.submitDirectDecodeUnit(decodeUnitData, decodeUnitLength,
                     decodeUnitType, frameNumber, frameType, frameHostProcessingLatency, receiveTimeUs, enqueueTimeUs, receiveTimeNs,
                     presentationTimeUs);
         }

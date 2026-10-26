@@ -19,6 +19,7 @@ pub struct Methods {
     pub dr_stop: JStaticMethodID,
     pub dr_cleanup: JStaticMethodID,
     pub dr_submit: JStaticMethodID,
+    pub dr_submit_direct: JStaticMethodID,
     pub ar_init: JStaticMethodID,
     pub ar_start: JStaticMethodID,
     pub ar_stop: JStaticMethodID,
@@ -69,6 +70,10 @@ pub fn init(env: &mut JNIEnv) -> jni::errors::Result<()> {
         dr_stop: id("bridgeDrStop", "()V")?,
         dr_cleanup: id("bridgeDrCleanup", "()V")?,
         dr_submit: id("bridgeDrSubmitDecodeUnit", "([BIIIICJJJJ)I")?,
+        dr_submit_direct: id(
+            "bridgeDrSubmitDirectDecodeUnit",
+            "(Ljava/nio/ByteBuffer;IIIICJJJJ)I",
+        )?,
         ar_init: id("bridgeArInit", "(III)I")?,
         ar_start: id("bridgeArStart", "()V")?,
         ar_stop: id("bridgeArStop", "()V")?,

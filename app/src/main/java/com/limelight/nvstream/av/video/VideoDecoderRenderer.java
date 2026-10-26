@@ -1,5 +1,7 @@
 package com.limelight.nvstream.av.video;
 
+import java.nio.ByteBuffer;
+
 public abstract class VideoDecoderRenderer {
     // The protocol setup callback carries whole FPS. Preserve a fractional launch rate separately
     // when the freshly discovered host supports it; renderers without pacing may ignore it.
@@ -39,7 +41,25 @@ public abstract class VideoDecoderRenderer {
                                          int frameNumber, int frameType, char frameHostProcessingLatency,
                                          long receiveTimeUs, long enqueueTimeUs, long receiveTimeNs,
                                          long presentationTimeUs);
-    
+
+    private byte[] directCopy;
+
+    // Picture data the Rust engine passes in place: a direct buffer that is only valid during the
+    // call and must not be written. Renderers that can read it directly override this; the default
+    // copies it into the array form.
+    public int submitDirectDecodeUnit(ByteBuffer decodeUnitData, int decodeUnitLength, int decodeUnitType,
+                                      int frameNumber, int frameType, char frameHostProcessingLatency,
+                                      long receiveTimeUs, long enqueueTimeUs, long receiveTimeNs,
+                                      long presentationTimeUs) {
+        if (directCopy == null || directCopy.length < decodeUnitLength) {
+            directCopy = new byte[decodeUnitLength];
+        }
+        decodeUnitData.position(0);
+        decodeUnitData.get(directCopy, 0, decodeUnitLength);
+        return submitDecodeUnit(directCopy, decodeUnitLength, decodeUnitType, frameNumber, frameType,
+                frameHostProcessingLatency, receiveTimeUs, enqueueTimeUs, receiveTimeNs, presentationTimeUs);
+    }
+
     public abstract void cleanup();
 
     public abstract int getCapabilities();

@@ -39,6 +39,22 @@ fn monotonic_ns_of(session_us: u64) -> i64 {
     platform::monotonic_ns() - age_us * 1000
 }
 
+/// The frame's picture data as one slice, when its picture buffers are adjacent in the frame.
+fn contiguous_picture(frame: &Frame) -> Option<&[u8]> {
+    let mut range: Option<std::ops::Range<usize>> = None;
+    for buffer in frame.buffers() {
+        if buffer.kind != BufferType::PicData {
+            continue;
+        }
+        range = match range {
+            None => Some(buffer.range.clone()),
+            Some(r) if r.end == buffer.range.start => Some(r.start..buffer.range.end),
+            Some(_) => return None,
+        };
+    }
+    range.filter(|r| !r.is_empty()).map(|r| &frame.data()[r])
+}
+
 impl VideoDecoder for Video {
     fn setup(&mut self, setup: &VideoSetup) -> Result<(), i32> {
         let b = self.bridge;
@@ -110,11 +126,17 @@ impl VideoDecoder for Video {
                 ];
                 b.int(env, b.m.dr_submit, &args).unwrap_or(DR_OK)
             };
+            // Picture data that lies in one piece goes to Java in place, as a direct buffer that
+            // is only valid during the call: the renderer copies it into the codec (or PyroWave)
+            // input without a Java array between.
+            let picture = contiguous_picture(frame);
             let mut offset = 0;
             for (kind, bytes) in frame.buffer_slices() {
                 if kind == BufferType::PicData {
-                    env.set_byte_array_region(array, offset as i32, bridge::jbytes(bytes))?;
-                    offset += bytes.len();
+                    if picture.is_none() {
+                        env.set_byte_array_region(array, offset as i32, bridge::jbytes(bytes))?;
+                        offset += bytes.len();
+                    }
                 } else {
                     // Parameter sets go to the decoder on their own, from the buffer's start.
                     env.set_byte_array_region(array, 0, bridge::jbytes(bytes))?;
@@ -124,7 +146,27 @@ impl VideoDecoder for Video {
                     }
                 }
             }
-            Ok(submit(env, offset, BUFFER_TYPE_PICDATA))
+            let Some(picture) = picture else {
+                return Ok(submit(env, offset, BUFFER_TYPE_PICDATA));
+            };
+            // SAFETY: Java only reads the buffer, and only until the call returns; `frame`
+            // outlives it.
+            let direct = unsafe {
+                env.new_direct_byte_buffer(picture.as_ptr().cast_mut(), picture.len())?
+            };
+            let args = [
+                bridge::object(&direct),
+                bridge::int(picture.len() as i32),
+                bridge::int(BUFFER_TYPE_PICDATA),
+                bridge::int(frame.number as i32),
+                bridge::int(frame.frame_type as i32),
+                jni::objects::JValue::Char(frame.host_processing_latency).as_jni(),
+                bridge::long(frame.receive_time_us as i64),
+                bridge::long(frame.enqueue_time_us as i64),
+                bridge::long(receive_ns),
+                bridge::long(frame.presentation_time_us as i64),
+            ];
+            Ok(b.int(env, b.m.dr_submit_direct, &args).unwrap_or(DR_OK))
         });
         if status == DR_OK {
             DecodeStatus::Ok

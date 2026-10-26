@@ -10,6 +10,8 @@ import android.preference.PreferenceManager;
 import android.view.Surface;
 
 import com.limelight.LimeLog;
+
+import java.nio.ByteBuffer;
 import com.limelight.R;
 import com.limelight.nvstream.jni.MoonBridge;
 
@@ -173,7 +175,8 @@ public final class PyroWaveDecoderRenderer {
 
     // Accepted and busy are distinct from invalid input (zero) and a fatal error (negative). Completion
     // timestamps arrive separately through nativePollRenderedFrames, before release/present events.
-    synchronized long submitFrame(byte[] data, int length, long ptsUs, long hostPresentationTimeUs,
+    // Exactly one of data and directData is set; directData is read in place during the call.
+    synchronized long submitFrame(byte[] data, ByteBuffer directData, int length, long ptsUs, long hostPresentationTimeUs,
                                   PyroWaveDisplayClock.Snapshot displayClock, FrameLatencyStats stats,
                                   Context context, boolean enablePerformanceHints, int frameRate) {
         lastSubmissionDurationNs = 0;
@@ -203,7 +206,9 @@ public final class PyroWaveDecoderRenderer {
         long result;
         long submissionStartNs = System.nanoTime();
         try {
-            result = nativeSubmitFrame(handle, data, length, ptsUs, hostPresentationTimeUs, vsyncNs, intervalNs);
+            result = directData != null ?
+                    nativeSubmitDirectFrame(handle, directData, length, ptsUs, hostPresentationTimeUs, vsyncNs, intervalNs) :
+                    nativeSubmitFrame(handle, data, length, ptsUs, hostPresentationTimeUs, vsyncNs, intervalNs);
         } finally {
             // Match Moonlight X's wall-clock interval around native parsing, command recording
             // and submission. Polling and Android performance-hint work are not submission work.
@@ -332,6 +337,8 @@ public final class PyroWaveDecoderRenderer {
     private static native boolean nativeSetGpuMaxClocks(boolean enabled);
     private static native long nativeSubmitFrame(long handle, byte[] data, int length, long ptsUs,
                                                 long hostPresentationTimeUs, long vsyncNs, long intervalNs);
+    private static native long nativeSubmitDirectFrame(long handle, ByteBuffer data, int length, long ptsUs,
+                                                      long hostPresentationTimeUs, long vsyncNs, long intervalNs);
     private static native boolean nativePollRenderedFrames(long handle, FrameLatencyStats stats);
     private static native int nativeGetLastGpuDecodeUs(long handle);
     private static native float[] nativeGetWaits(long handle);

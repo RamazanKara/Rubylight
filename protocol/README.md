@@ -18,6 +18,8 @@ It holds:
   reassembly that lets a frame with lost packets still decode.
 - `phase_lock`: the client's report of how early frames are ready before its display latch,
   and the host controller that times frames to land just before it.
+- `roaming`: the client roaming wire format v1 (`docs/protocol/client-roaming.md`), with
+  known answers for the AES-GCM the host and client seal it with.
 
 ## Building for Android
 

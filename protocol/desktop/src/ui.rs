@@ -1518,6 +1518,14 @@ impl Launcher {
         let caps = host.info.as_ref().map_or(&nightjar_core::http::HostCapabilities::UNKNOWN, |i| &i.capabilities);
         let software = software_label(caps);
         let web_ui = web_ui_url(host);
+        // "Open in browser" goes when the PC does: its focus, held or remembered, moves to the
+        // check instead of nowhere.
+        if !matches!(web_ui, Some(Ok(_)))
+            && (self.focused_key.as_deref() == Some("web-ui") || self.restore_key.as_deref() == Some("web-ui"))
+        {
+            self.focused_key = None;
+            self.restore_key = Some("remote-check".into());
+        }
         let state = self.remote.state_for(id).cloned();
         let running = state == Some(CheckState::Running);
         scroll(ui, "host-details", |ui| {
@@ -4190,6 +4198,38 @@ mod tests {
         assert!(!shows(&f, "Open in browser") && f.drawn.iter().any(|t| t.contains("zone ID (fe80::1%12)")), "{:?}", f.drawn);
         let commands = f.press(Key::Enter);
         assert!(commands.iter().any(|c| matches!(c, Command::RemoteCheck(_))), "the check is the first item then");
+    }
+
+    /// Whether `text` is drawn on the widget with focus.
+    fn focus_shows(f: &Frames, text: &str) -> bool {
+        let Some(rect) = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect) else {
+            return false;
+        };
+        f.placed.iter().any(|(t, r, _)| t == text && rect.contains(r.center()))
+    }
+
+    #[test]
+    fn focus_on_the_web_ui_moves_to_the_check_when_the_pc_goes_away() {
+        let mut f = details(Reach::Online, "SUNSHINE_SERVER_FREE", RUBYLIGHT);
+        let id = f.hosts.list[0].id;
+        assert!(focus_shows(&f, "Open in browser"), "the web UI is the first item");
+        f.hosts.list[0].reach = Reach::Offline;
+        f.settle();
+        assert!(!shows(&f, "Open in browser"));
+        assert!(focus_shows(&f, "Test this PC"), "the check has focus, not nothing");
+        assert!(f.press(Key::Enter).iter().any(|c| matches!(c, Command::RemoteCheck(h) if *h == id)));
+
+        // Start, then Back: the page comes back without the item it remembers.
+        let mut f = details(Reach::Online, "SUNSHINE_SERVER_FREE", RUBYLIGHT);
+        f.l.open_settings();
+        f.settle();
+        assert_eq!(f.l.screen, Screen::Settings);
+        f.hosts.list[0].reach = Reach::Unknown;
+        f.frame(crate::gui::tap(Key::Escape).to_vec());
+        assert_eq!(f.l.screen, Screen::HostDetails(id));
+        assert!(focus_shows(&f, "Test this PC"), "the check takes focus on the frame Back lands, not one later");
+        f.settle();
+        assert!(focus_shows(&f, "Test this PC"));
     }
 
     #[test]

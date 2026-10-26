@@ -891,7 +891,9 @@ impl rusty_enet::Socket for ControlSocket {
         &mut self,
         buffer: &mut [u8; rusty_enet::MTU_MAX],
     ) -> std::io::Result<Option<(SocketAddr, rusty_enet::PacketReceived)>> {
-        loop {
+        // A flood of roaming datagrams, or of datagrams from an address a client left,
+        // must not keep ENet's service from returning.
+        for _ in 0..SWALLOWED_PER_RECEIVE {
             let (size, from, local) = match self.socket.receive(buffer) {
                 Ok(received) => received,
                 Err(error) if butterpollo_windows::net::datagram_lost(&error) => return Ok(None),
@@ -914,8 +916,12 @@ impl rusty_enet::Socket for ControlSocket {
             self.socket.answer_from(from, local);
             return Ok(Some((peer, rusty_enet::PacketReceived::Complete(size))));
         }
+        Ok(None)
     }
 }
+/// Datagrams one `ControlSocket::receive` takes for roaming or drops before it returns
+/// none; the rest wait for ENet's next service.
+const SWALLOWED_PER_RECEIVE: usize = 64;
 /// The first video ping from the path a client roamed to: the client needs a keyframe,
 /// and what the link-rate controller learned about the old path no longer holds.
 fn restart_on_new_path(s: &Session, c: &Config) {
@@ -5031,6 +5037,35 @@ mod tests {
         expected.extend(1..=20);
         assert_eq!(trigger, &expected);
         assert!(packets.iter().any(|(kind, _)| *kind == RUMBLE_DATA));
+    }
+    /// A flood of roaming datagrams ends one receive with none; the ENet datagram
+    /// behind it arrives on a later call.
+    #[test]
+    fn a_roaming_flood_does_not_hold_the_control_receive() {
+        let mut socket = ControlSocket::new(Arc::new(ReplySocket::bind("127.0.0.1:0").unwrap()));
+        socket.socket.set_nonblocking(true).unwrap();
+        socket.roaming.set_enabled(true);
+        let host = socket.socket.local_addr().unwrap();
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let mut magic = [0u8; butterpollo_core::roaming::DATAGRAM_BYTES];
+        magic[..4].copy_from_slice(&[0x0F, 0xFE, 0x52, 0x4D]);
+        for _ in 0..SWALLOWED_PER_RECEIVE + 10 {
+            client.send_to(&magic, host).unwrap();
+        }
+        client.send_to(b"enet", host).unwrap();
+        let mut buffer = [0; rusty_enet::MTU_MAX];
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut empty = 0;
+        let received = loop {
+            assert!(Instant::now() < deadline, "the ENet datagram never arrived");
+            match rusty_enet::Socket::receive(&mut socket, &mut buffer).unwrap() {
+                Some((from, rusty_enet::PacketReceived::Complete(size))) => break (from, size),
+                Some(_) => unreachable!(),
+                None => empty += 1,
+            }
+        };
+        assert_eq!(received, (client.local_addr().unwrap(), 4));
+        assert!(empty >= 1, "the flood ended a receive");
     }
     #[test]
     fn held_control_datagrams_go_out_in_order_once_released() {

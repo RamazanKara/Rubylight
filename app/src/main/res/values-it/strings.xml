@@ -315,6 +315,7 @@
     <string name="stream_command_sent">Comando inviato; risultato sconosciuto.</string>
     <string name="stream_command_failed">Impossibile inviare il comando</string>
     <string name="stream_host_status">Autorizzazioni e limiti di frame</string>
+    <string name="stream_host_menu">Apri il menu dell’host</string>
     <string name="stream_permissions_unknown">Questo host non condivide le autorizzazioni del dispositivo.</string>
     <string name="stream_permission_allowed">Consentito</string>
     <string name="stream_permission_denied">Negato</string>

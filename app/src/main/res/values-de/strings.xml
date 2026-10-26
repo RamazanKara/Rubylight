@@ -315,6 +315,7 @@
     <string name="stream_command_sent">Befehl gesendet; Ergebnis unbekannt.</string>
     <string name="stream_command_failed">Befehl konnte nicht gesendet werden</string>
     <string name="stream_host_status">Rechte und FPS-Limits</string>
+    <string name="stream_host_menu">Host-Menü öffnen</string>
     <string name="stream_permissions_unknown">Dieser Host zeigt keine Geräterechte an.</string>
     <string name="stream_permission_allowed">Erlaubt</string>
     <string name="stream_permission_denied">Gesperrt</string>

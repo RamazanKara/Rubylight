@@ -90,6 +90,18 @@ public final class NativeApiClient {
         return parseSession(call("session_action", action.wire));
     }
 
+    /**
+     * Opens the menu the host draws into this device's stream and returns whether it is open now. Only for a host that
+     * advertises {@link NativeCapabilities#COUCH_MENU}; the host refuses it without a stream this device owns.
+     */
+    public boolean openCouchMenu() throws NativeApiException {
+        try {
+            return call("couch_menu", new JSONObject().put("open", true).toString()).getBoolean("open");
+        } catch (JSONException e) {
+            throw malformed("couch menu", e);
+        }
+    }
+
     public NativeRadeon radeon() throws NativeApiException {
         return parseRadeon(call("radeon", ""));
     }

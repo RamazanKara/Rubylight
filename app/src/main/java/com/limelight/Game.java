@@ -2716,16 +2716,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             return null;
         }
         if (nativeMenuController == null) {
-            nativeMenuThread = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(task -> {
-                Thread thread = new Thread(task, "Native menu");
-                thread.setDaemon(true);
-                return thread;
-            });
+            java.util.concurrent.ScheduledExecutorService thread = nativeMenuThread();
             Handler main = new Handler(Looper.getMainLooper());
             nativeMenuController = new com.limelight.console.NativeMenuController(conn::nativeApiClient,
                     (task, delayMs) -> {
                         try {
-                            nativeMenuThread.schedule(task, delayMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+                            thread.schedule(task, delayMs, java.util.concurrent.TimeUnit.MILLISECONDS);
                         } catch (java.util.concurrent.RejectedExecutionException ignored) {
                             // The stream is over.
                         }
@@ -2734,11 +2730,46 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         return nativeMenuController;
     }
 
+    private java.util.concurrent.ScheduledExecutorService nativeMenuThread() {
+        if (nativeMenuThread == null) {
+            nativeMenuThread = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(task -> {
+                Thread thread = new Thread(task, "Native menu");
+                thread.setDaemon(true);
+                return thread;
+            });
+        }
+        return nativeMenuThread;
+    }
+
+    /**
+     * Opens the menu the host draws into the stream. Like every menu action it runs once Nightjar's own sheet has
+     * closed, so input reaches the stream (and the host's menu) again; the request runs on the native menu thread and
+     * a refusal is shown with the host's message.
+     */
+    private void openHostMenu() {
+        if (conn == null || !connected) return;
+        NvConnection connection = conn;
+        int generation = foregroundGeneration;
+        try {
+            nativeMenuThread().execute(() -> {
+                try {
+                    connection.openHostMenu();
+                } catch (IOException e) {
+                    LimeLog.warning("Host menu not opened: " + e.getMessage());
+                    showHostActionError(e, generation);
+                }
+            });
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            // The stream is over.
+        }
+    }
+
     // What the stream menu offers right now. Host features and permissions decide the rest.
     private com.limelight.ui.StreamMenu.Options streamMenuOptions() {
         com.limelight.ui.StreamMenu.Options options = new com.limelight.ui.StreamMenu.Options(app.getRole(), conn.getHostDetails());
         options.canSendInput = conn.canSendInput();
         options.nativeHostControl = conn.hasNativeHostControl();
+        options.hostMenu = conn.hasNativeCouchMenu();
         options.microphoneOffered = conn.getMicrophoneStatus().canMute();
         options.microphoneMuted = conn.isMicrophoneMuted();
         options.overlayShown = prefConfig.enablePerfOverlay;
@@ -2805,6 +2836,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             case CLIPBOARD_RECEIVE: action = () -> transferClipboard(false); break;
             case HOST_WEB_UI: action = this::showHostWebUi; break;
             case HOST_STATUS: action = this::refreshHostStatus; break;
+            case HOST_MENU: action = this::openHostMenu; break;
             case RECONNECT: action = this::reconnectStream; break;
             case DISCONNECT: action = this::leaveStream; break;
             case QUIT_GAME: action = this::confirmQuitApp; break;

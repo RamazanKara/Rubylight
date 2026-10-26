@@ -315,6 +315,7 @@
     <string name="stream_command_sent">Polecenie wysłane; wynik nieznany.</string>
     <string name="stream_command_failed">Nie udało się wysłać polecenia</string>
     <string name="stream_host_status">Uprawnienia i limity klatek</string>
+    <string name="stream_host_menu">Otwórz menu hosta</string>
     <string name="stream_permissions_unknown">Ten host nie udostępnia uprawnień urządzenia.</string>
     <string name="stream_permission_allowed">Dozwolone</string>
     <string name="stream_permission_denied">Zabronione</string>

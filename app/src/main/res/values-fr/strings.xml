@@ -315,6 +315,7 @@
     <string name="stream_command_sent">Commande envoyée ; résultat inconnu.</string>
     <string name="stream_command_failed">Impossible d’envoyer la commande</string>
     <string name="stream_host_status">Autorisations et limites d’images</string>
+    <string name="stream_host_menu">Ouvrir le menu de l’hôte</string>
     <string name="stream_permissions_unknown">Cet hôte ne partage pas les autorisations de l’appareil.</string>
     <string name="stream_permission_allowed">Autorisé</string>
     <string name="stream_permission_denied">Refusé</string>

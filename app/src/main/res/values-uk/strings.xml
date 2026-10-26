@@ -315,6 +315,7 @@
     <string name="stream_command_sent">Команду надіслано; результат невідомий.</string>
     <string name="stream_command_failed">Не вдалося надіслати команду</string>
     <string name="stream_host_status">Дозволи та обмеження кадрів</string>
+    <string name="stream_host_menu">Відкрити меню хоста</string>
     <string name="stream_permissions_unknown">Цей хост не повідомляє дозволи пристрою.</string>
     <string name="stream_permission_allowed">Дозволено</string>
     <string name="stream_permission_denied">Заборонено</string>

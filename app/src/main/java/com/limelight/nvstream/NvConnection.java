@@ -50,6 +50,7 @@ import com.limelight.nativeapi.JniNativeApiTransport;
 import com.limelight.nativeapi.NativeApiClient;
 import com.limelight.nativeapi.NativeApiException;
 import com.limelight.nativeapi.NativeApiTransport;
+import com.limelight.nativeapi.NativeCapabilities;
 import com.limelight.nativeapi.NativeSession;
 import com.limelight.nvstream.av.audio.AudioRenderer;
 import com.limelight.nvstream.av.video.VideoDecoderRenderer;
@@ -78,6 +79,7 @@ public class NvConnection {
     private ConnectionContext context;
     private NativeApiTransport nativeApiTransport = new JniNativeApiTransport();
     private volatile boolean nativeHostControl;
+    private volatile boolean nativeCouchMenu;
     private static Semaphore connectionAllowed = new Semaphore(1);
     private final boolean isMonkey;
     private final Context appContext;
@@ -1400,7 +1402,35 @@ public class NvConnection {
         return nativeHostControl;
     }
 
-    /** Asks a native API host whether this device has host control, in the background; the stream menu reads the answer. */
+    /** Whether the host draws its own menu into the stream on request ({@code session.couch_menu}), as it last said; false until known. */
+    public boolean hasNativeCouchMenu() {
+        return nativeCouchMenu;
+    }
+
+    /**
+     * Opens the menu the host draws into this stream. Blocks on HTTPS; the native API's error, with its code, comes
+     * back as the cause of the IOException. The host checks the permission and that this device owns the stream.
+     */
+    public void openHostMenu() throws IOException {
+        NativeApiClient client = nativeApiClient();
+        if (client == null) {
+            throw new IOException("The host has no menu for this stream.");
+        }
+        boolean open;
+        try {
+            open = client.openCouchMenu();
+        } catch (NativeApiException e) {
+            throw new IOException(e.getMessage(), e);
+        }
+        if (!open) {
+            throw new IOException("The host did not open its menu.");
+        }
+    }
+
+    /**
+     * Asks a native API host whether this device has host control and whether the host draws its own menu, in the
+     * background; the stream menu reads the answers.
+     */
     public void refreshNativeHostControl() {
         if (isMonkey || !hasNativeSessionActions()) {
             return;
@@ -1411,7 +1441,9 @@ public class NvConnection {
         }
         new Thread(() -> {
             try {
-                nativeHostControl = client.capabilities().hostControl;
+                NativeCapabilities capabilities = client.capabilities();
+                nativeHostControl = capabilities.hostControl;
+                nativeCouchMenu = capabilities.has(NativeCapabilities.COUCH_MENU);
             } catch (NativeApiException e) {
                 LimeLog.info("Native capabilities not read: " + e.getMessage());
             }

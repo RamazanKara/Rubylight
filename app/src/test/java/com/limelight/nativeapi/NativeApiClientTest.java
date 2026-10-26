@@ -120,6 +120,25 @@ public class NativeApiClientTest {
     }
 
     @Test
+    public void theHostMenuOpensWithOneStrictRequestAndARefusalKeepsItsCode() throws Exception {
+        transport.reply("pc", "couch_menu", ok("{\"open\":true}"));
+        assertTrue(client().openCouchMenu());
+        assertEquals(Collections.singletonList("pc|couch_menu"), transport.calls);
+        assertEquals(Collections.singletonList("{\"open\":true}"), transport.arguments);
+
+        transport.reply("pc", "couch_menu", "{\"error\":{\"kind\":\"api\",\"message\":\"Start a stream first.\","
+                + "\"http_status\":409,\"code\":\"no_session\"}}");
+        try {
+            client().openCouchMenu();
+            fail();
+        } catch (NativeApiException e) {
+            assertEquals(NativeApiException.Kind.API, e.getKind());
+            assertEquals("no_session", e.getCode());
+            assertEquals("Start a stream first.", e.getMessage());
+        }
+    }
+
+    @Test
     public void resumeIsTheLaunchPathAndNotASessionAction() {
         for (NativeSession.ActionId id : new NativeSession.ActionId[] {NativeSession.ActionId.RESUME,
                 NativeSession.ActionId.UNKNOWN}) {

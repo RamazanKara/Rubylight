@@ -315,6 +315,7 @@
     <string name="stream_command_sent">Komut gönderildi; sonuç bilinmiyor.</string>
     <string name="stream_command_failed">Komut gönderilemedi</string>
     <string name="stream_host_status">İzinler ve kare sınırları</string>
+    <string name="stream_host_menu">Ana bilgisayar menüsünü aç</string>
     <string name="stream_permissions_unknown">Bu ana bilgisayar cihaz izinlerini paylaşmıyor.</string>
     <string name="stream_permission_allowed">İzin verildi</string>
     <string name="stream_permission_denied">Reddedildi</string>

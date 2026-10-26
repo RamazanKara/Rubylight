@@ -315,6 +315,7 @@
     <string name="stream_command_sent">命令已发送；结果未知。</string>
     <string name="stream_command_failed">无法发送命令</string>
     <string name="stream_host_status">权限和帧率限制</string>
+    <string name="stream_host_menu">打开主机菜单</string>
     <string name="stream_permissions_unknown">此主机不提供设备权限信息。</string>
     <string name="stream_permission_allowed">已允许</string>
     <string name="stream_permission_denied">已拒绝</string>

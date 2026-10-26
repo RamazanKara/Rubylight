@@ -267,6 +267,22 @@ public class StreamMenuTest {
     }
 
     @Test
+    public void theHostMenuItemFollowsTheCapabilityAndOnlyForTheStreamRole() {
+        for (NvApp.Role role : NvApp.Role.values()) {
+            StreamMenu.Options options = options(nativeApiHost(), role);
+            assertFalse(role.name(), items(StreamMenu.mainPage(options)).contains(HOST_MENU));
+            options.hostMenu = true;
+            Map<StreamMenu.Section, List<StreamMenu.Item>> menu = sections(StreamMenu.mainPage(options));
+            boolean shown = menu.containsKey(StreamMenu.Section.HOST) && menu.get(StreamMenu.Section.HOST).contains(HOST_MENU);
+            assertEquals(role.name(), role == NvApp.Role.STREAM, shown);
+        }
+        // Whatever the host is called: the capability decides, not the brand.
+        StreamMenu.Options other = options("sunshine-serverinfo.xml", NvApp.Role.STREAM);
+        other.hostMenu = true;
+        assertTrue(items(StreamMenu.mainPage(other)).contains(HOST_MENU));
+    }
+
+    @Test
     public void theNativePageOffersResumeDisconnectAndEndSessionAndClosesTheGameOnlyWithHostControl() {
         StreamMenu.Options options = options(nativeApiHost(), NvApp.Role.STREAM);
         options.nativeHostControl = true;
@@ -284,6 +300,7 @@ public class StreamMenuTest {
             // Quit app belongs to hosts without the native API; End session and Close game to those with it.
             StreamMenu.Options withControl = options(nativeApiHost(), role);
             withControl.nativeHostControl = true;
+            withControl.hostMenu = true;
             reachable.addAll(items(StreamMenu.mainPage(withControl)));
             reachable.addAll(items(StreamMenu.nativePage(withControl)));
             StreamMenu.Options options = options("rubylight-serverinfo.xml", role);
@@ -408,7 +425,9 @@ public class StreamMenuTest {
             StreamMenu.Options state = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
             state.onscreenControls = true;
             state.gameControls = true;
-            StreamMenu menu = new StreamMenu(activity, () -> state, item -> { });
+            state.hostMenu = true;
+            List<StreamMenu.Item> chosen = new ArrayList<>();
+            StreamMenu menu = new StreamMenu(activity, () -> state, chosen::add);
             menu.show();
             for (StreamMenu.Item item : new StreamMenu.Item[]{TOUCH_MODE, ONSCREEN_CONTROLS, CONTROLS_LAYOUT, GAME_CONTROLS, ZOOM}) {
                 assertNull(menu.row(item));
@@ -417,6 +436,9 @@ public class StreamMenuTest {
             assertEquals("System keyboard", menu.row(KEYBOARD).getText().toString());
             assertNotNull(menu.row(KEYBOARD_KEYS));
             assertNotNull(menu.row(DISCONNECT));
+            assertEquals("Open host menu", menu.row(HOST_MENU).getText().toString());
+            menu.row(HOST_MENU).performClick();
+            assertEquals(Arrays.asList(HOST_MENU), chosen);
             menu.row(OVERLAY_PAGE).performClick();
             assertEquals(StreamMenu.Page.OVERLAY, menu.page());
             menu.back();

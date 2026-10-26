@@ -359,6 +359,7 @@
     <string name="stream_command_sent">Command sent; result unknown.</string>
     <string name="stream_command_failed">Command could not be sent</string>
     <string name="stream_host_status">Permissions and frame limits</string>
+    <string name="stream_host_menu">Open host menu</string>
     <string name="stream_permissions_unknown">This host does not share device permissions.</string>
     <string name="stream_permission_allowed">Allowed</string>
     <string name="stream_permission_denied">Denied</string>

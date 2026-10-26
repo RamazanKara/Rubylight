@@ -315,6 +315,7 @@
     <string name="stream_command_sent">已傳送指令；結果不明。</string>
     <string name="stream_command_failed">無法傳送指令</string>
     <string name="stream_host_status">權限和影格限制</string>
+    <string name="stream_host_menu">開啟主機選單</string>
     <string name="stream_permissions_unknown">這個主機不會分享裝置權限。</string>
     <string name="stream_permission_allowed">已允許</string>
     <string name="stream_permission_denied">已拒絕</string>

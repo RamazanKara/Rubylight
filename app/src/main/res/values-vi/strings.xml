@@ -315,6 +315,7 @@
     <string name="stream_command_sent">Đã gửi lệnh; chưa rõ kết quả.</string>
     <string name="stream_command_failed">Không thể gửi lệnh</string>
     <string name="stream_host_status">Quyền và giới hạn khung hình</string>
+    <string name="stream_host_menu">Mở menu máy chủ</string>
     <string name="stream_permissions_unknown">Máy chủ này không chia sẻ quyền của thiết bị.</string>
     <string name="stream_permission_allowed">Được phép</string>
     <string name="stream_permission_denied">Bị từ chối</string>

@@ -315,6 +315,7 @@
     <string name="stream_command_sent">コマンドを送信しました。結果は不明です。</string>
     <string name="stream_command_failed">コマンドを送信できませんでした</string>
     <string name="stream_host_status">権限とフレーム制限</string>
+    <string name="stream_host_menu">ホストメニューを開く</string>
     <string name="stream_permissions_unknown">このホストはデバイスの権限を共有していません。</string>
     <string name="stream_permission_allowed">許可</string>
     <string name="stream_permission_denied">拒否</string>

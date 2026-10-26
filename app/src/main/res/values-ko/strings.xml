@@ -315,6 +315,7 @@
     <string name="stream_command_sent">명령을 보냈습니다. 결과는 알 수 없습니다.</string>
     <string name="stream_command_failed">명령을 보낼 수 없습니다</string>
     <string name="stream_host_status">권한 및 프레임 제한</string>
+    <string name="stream_host_menu">호스트 메뉴 열기</string>
     <string name="stream_permissions_unknown">이 호스트는 기기 권한 정보를 제공하지 않습니다.</string>
     <string name="stream_permission_allowed">허용됨</string>
     <string name="stream_permission_denied">거부됨</string>

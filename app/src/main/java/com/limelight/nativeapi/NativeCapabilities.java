@@ -14,6 +14,10 @@ public final class NativeCapabilities {
     public static final String LIBRARY_UNADDED = "library.unadded";
     /** POST /library/add adds one of those games. */
     public static final String LIBRARY_ADD = "library.add";
+    /** POST /session/couch-menu opens the menu the host draws into this device's stream. */
+    public static final String COUCH_MENU = "session.couch_menu";
+    /** GET /wake lists the PC's wake targets: every adapter's MAC and subnet broadcasts. */
+    public static final String WAKE = "wake";
 
     public final int apiVersion;
     public final String hostName;

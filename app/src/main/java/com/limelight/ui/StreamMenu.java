@@ -31,7 +31,7 @@ public final class StreamMenu {
         TOUCH_MODE, MOUSE_CURSOR, ONSCREEN_CONTROLS, CONTROLS_LAYOUT, GAME_CONTROLS, KEYBOARD_KEYS,
         VIDEO_SCALING, ZOOM, ZOOM_RESET, OVERLAY_PAGE, PICTURE_IN_PICTURE, VIDEO_OUTPUT,
         BITRATE, AUTOMATIC_QUALITY, AUTOMATIC_BITRATE,
-        SERVER_COMMANDS, CLIPBOARD_SEND, CLIPBOARD_RECEIVE, HOST_WEB_UI, HOST_STATUS,
+        HOST_MENU, SERVER_COMMANDS, CLIPBOARD_SEND, CLIPBOARD_RECEIVE, HOST_WEB_UI, HOST_STATUS,
         RECONNECT, DISCONNECT, QUIT_GAME, END_SESSION, END_HOST_SESSION, CLOSE_GAME,
         NATIVE_PAGE, NATIVE_RESUME,
         OVERLAY_OFF, OVERLAY_COMPACT, OVERLAY_STATISTICS, OVERLAY_DEBUG,
@@ -78,6 +78,8 @@ public final class StreamMenu {
         public boolean webUiAddress;
         /** A native API host lets this device close the game (the host control permission); without it Quit app does. */
         public boolean nativeHostControl;
+        /** The host's native API offers its own menu in the stream ({@code session.couch_menu}). */
+        public boolean hostMenu;
         /** Host, codec, size, bitrate and link for the native page; null leaves the connection facts out. */
         public ConnectionInfo connection;
 
@@ -202,6 +204,10 @@ public final class StreamMenu {
         // A native API host adds its own page: the session actions, the connection and the Radeon settings.
         if (o.role == NvApp.Role.STREAM && caps.has(HostCapabilities.Feature.NATIVE_API)) {
             entries.add(action(Section.HOST, Item.NATIVE_PAGE, R.string.native_menu_row, R.drawable.ic_tune));
+        }
+        // Only when the host's native capabilities offer it, whoever made the host.
+        if (o.role == NvApp.Role.STREAM && o.hostMenu) {
+            entries.add(action(Section.HOST, Item.HOST_MENU, R.string.stream_host_menu, R.drawable.ic_computer));
         }
         if (o.role != NvApp.Role.REMOTE_MONITOR && host.canRunServerCommand(0)) {
             entries.add(action(Section.HOST, Item.SERVER_COMMANDS, R.string.stream_server_commands, R.drawable.ic_terminal));

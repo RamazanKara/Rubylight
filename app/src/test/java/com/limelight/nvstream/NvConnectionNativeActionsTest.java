@@ -78,12 +78,20 @@ public class NvConnectionNativeActionsTest {
         volatile boolean hostControl = true;
         /** The answer to Close game, when it is not the session. */
         volatile String closeReply;
+        /** The capabilities' feature list, as JSON. */
+        volatile String features = "";
+        /** The answer to the couch menu. */
+        volatile String couchMenuReply = "{\"ok\":{\"open\":true}}";
 
         @Override public String request(HostEndpoint host, String op, String argument) throws NativeApiException {
             if (op.equals("capabilities")) {
                 called.countDown();
-                return "{\"ok\":{\"api_version\":1,\"host\":{\"name\":\"PC\",\"version\":\"3.0.0\"},\"features\":[],"
+                return "{\"ok\":{\"api_version\":1,\"host\":{\"name\":\"PC\",\"version\":\"3.0.0\"},\"features\":[" + features + "],"
                         + "\"permissions\":{\"list\":true,\"view\":true,\"launch\":true,\"host_control\":" + hostControl + "}}}";
+            }
+            if (op.equals("couch_menu")) {
+                arguments.add(argument);
+                return couchMenuReply;
             }
             if (!op.equals("session_action")) {
                 throw new NativeApiException(NativeApiException.Kind.INVALID_ARGUMENT, op);
@@ -181,6 +189,46 @@ public class NvConnectionNativeActionsTest {
             Thread.sleep(20);
         }
         assertTrue(connection.hasNativeHostControl());
+    }
+
+    @Test
+    public void theHostMenuItemFollowsTheCapabilityAndARefusalKeepsTheHostsMessage() throws Exception {
+        Http[] http = new Http[1];
+        Recording transport = new Recording();
+        NvConnection connection = connection(NATIVE, http, transport);
+        connection.refreshNativeHostControl();
+        assertTrue(transport.called.await(5, TimeUnit.SECONDS));
+        for (int i = 0; i < 100 && !connection.hasNativeHostControl(); i++) {
+            Thread.sleep(20);
+        }
+        assertFalse("Without session.couch_menu there is no host menu", connection.hasNativeCouchMenu());
+
+        transport.features = "\"session.couch_menu\"";
+        connection.refreshNativeHostControl();
+        for (int i = 0; i < 100 && !connection.hasNativeCouchMenu(); i++) {
+            Thread.sleep(20);
+        }
+        assertTrue(connection.hasNativeCouchMenu());
+
+        connection.openHostMenu();
+        assertEquals(List.of("{\"open\":true}"), transport.arguments);
+
+        transport.couchMenuReply = "{\"error\":{\"kind\":\"api\",\"message\":\"Only the device streaming may open it.\","
+                + "\"http_status\":403,\"code\":\"not_session_owner\"}}";
+        try {
+            connection.openHostMenu();
+            fail();
+        } catch (IOException e) {
+            assertEquals("Only the device streaming may open it.", e.getMessage());
+            assertEquals("not_session_owner", ((NativeApiException) e.getCause()).getCode());
+        }
+        transport.couchMenuReply = "{\"ok\":{\"open\":false}}";
+        try {
+            connection.openHostMenu();
+            fail("A menu the host did not open is no success");
+        } catch (IOException expected) {
+            // Told to the user like any other refusal.
+        }
     }
 
     @Test

@@ -315,6 +315,7 @@
     <string name="stream_command_sent">Команда отправлена; результат неизвестен.</string>
     <string name="stream_command_failed">Не удалось отправить команду</string>
     <string name="stream_host_status">Разрешения и ограничения кадров</string>
+    <string name="stream_host_menu">Открыть меню хоста</string>
     <string name="stream_permissions_unknown">Этот хост не сообщает разрешения устройства.</string>
     <string name="stream_permission_allowed">Разрешено</string>
     <string name="stream_permission_denied">Запрещено</string>

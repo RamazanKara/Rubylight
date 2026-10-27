@@ -23,7 +23,13 @@ default, and it is what Windows Home uses: Home has no child sessions.
    - turns on Remote Desktop for this PC only: Windows' own Remote Desktop
      firewall rules stay off and a Rubylight block rule keeps the RDP port
      closed to the network. Setup refuses when Windows Firewall is off for a
-     network profile, or when group policy overrides the local firewall rules;
+     network profile, or when group policy overrides the local firewall rules.
+     RDP is turned on only if the rules in effect (local rules merged with
+     group policy) still block it: the block rule is in force for TCP and UDP
+     and no Remote Desktop allow rule is. That check runs at setup, again at
+     every host start (a failure is reported loudly in the console and the
+     log), and before every child-session start, which refuses until it
+     passes;
    - raises the session frame rate (`DWMFRAMEINTERVAL = 8`, about 120 fps);
    - lets the Remote Desktop client keep drawing while minimized
      (`RemoteDesktop_SuppressWhenMinimized = 2`);
@@ -35,7 +41,9 @@ default, and it is what Windows Home uses: Home has no child sessions.
 
 A small viewer runs in your session and keeps the child session attached (it
 only has a display while it is attached) through the built-in Remote Desktop
-client over loopback. Windows shortcuts stay on your own desktop. The panel
+client over loopback, on the RDP port setup recorded; it warns rather than
+connecting to an RDP server it cannot authenticate. Windows shortcuts stay on
+your own desktop. The panel
 starts and stops the child session and its host, sets its resolution and scale
 (`child_session_resolution`, `child_session_scale`; 1920x1080 at 100 % by
 default), reconnects it and signs it out.

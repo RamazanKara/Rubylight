@@ -430,53 +430,12 @@ pub fn idle_exit_code() -> u32 {
     }
 }
 
-/// Enables `SeShutdownPrivilege` and puts the PC to sleep (S3). Returns after
-/// it resumes.
+/// Enables `SeShutdownPrivilege` on this thread, as Sleep PC does
+/// (`power::suspend`), and puts the PC to sleep (S3). Returns after it
+/// resumes. The caller has checked for S3 itself.
 pub fn suspend() -> Result<()> {
-    use windows::Win32::{
-        Foundation::{CloseHandle, ERROR_NOT_ALL_ASSIGNED, GetLastError, HANDLE, LUID},
-        Security::{
-            AdjustTokenPrivileges, LUID_AND_ATTRIBUTES, LookupPrivilegeValueW,
-            SE_PRIVILEGE_ENABLED, SE_SHUTDOWN_NAME, TOKEN_ADJUST_PRIVILEGES, TOKEN_PRIVILEGES,
-            TOKEN_QUERY,
-        },
-        System::{
-            Power::SetSuspendState,
-            Threading::{GetCurrentProcess, OpenProcessToken},
-        },
-    };
-    let mut token = HANDLE::default();
-    // SAFETY: The pseudo handle needs no closing; `token` is a local, closed below.
-    unsafe {
-        OpenProcessToken(
-            GetCurrentProcess(),
-            TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
-            &mut token,
-        )
-    }
-    .context("opening the process token")?;
-    let mut luid = LUID::default();
-    // SAFETY: `luid` is a local, and `privileges` outlives the call on the open token.
-    let enabled = unsafe {
-        LookupPrivilegeValueW(None, SE_SHUTDOWN_NAME, &mut luid).and_then(|()| {
-            let privileges = TOKEN_PRIVILEGES {
-                PrivilegeCount: 1,
-                Privileges: [LUID_AND_ATTRIBUTES {
-                    Luid: luid,
-                    Attributes: SE_PRIVILEGE_ENABLED,
-                }],
-            };
-            AdjustTokenPrivileges(token, false, Some(&privileges), 0, None, None)?;
-            // It succeeds without the privilege, setting ERROR_NOT_ALL_ASSIGNED.
-            if GetLastError() == ERROR_NOT_ALL_ASSIGNED {
-                return Err(ERROR_NOT_ALL_ASSIGNED.into());
-            }
-            Ok(())
-        })
-    };
-    // SAFETY: `token` came from OpenProcessToken and is closed only here.
-    let _ = unsafe { CloseHandle(token) };
-    enabled.context("enabling SeShutdownPrivilege")?;
+    use windows::Win32::System::Power::SetSuspendState;
+    let _privilege = crate::power::shutdown_privilege()?;
     // SAFETY: No pointers; it blocks until the PC resumes.
     if !unsafe { SetSuspendState(false, false, false) } {
         return Err(windows::core::Error::from_thread()).context("SetSuspendState");

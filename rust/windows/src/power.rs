@@ -48,7 +48,7 @@ pub fn sleep_states() -> Result<SleepStates> {
 /// The calling thread's token with shutdown privilege enabled, restored
 /// (and the impersonation ended) on drop. Only this thread's token changes,
 /// not the whole host process's.
-struct ShutdownPrivilege {
+pub(crate) struct ShutdownPrivilege {
     token: HANDLE,
     impersonated: bool,
     previous: Option<TOKEN_PRIVILEGES>,
@@ -81,7 +81,9 @@ fn thread_token() -> windows::core::Result<HANDLE> {
     };
     Ok(token)
 }
-fn shutdown_privilege() -> Result<ShutdownPrivilege> {
+/// `SeShutdownPrivilege` on this thread until the guard drops; sleep after
+/// idle (`wake::suspend`) uses it too.
+pub(crate) fn shutdown_privilege() -> Result<ShutdownPrivilege> {
     let (token, impersonated) = match thread_token() {
         Ok(token) => (token, false),
         Err(e) if e.code() == HRESULT::from_win32(ERROR_NO_TOKEN.0) => {

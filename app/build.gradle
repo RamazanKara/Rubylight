@@ -170,12 +170,14 @@ android {
     }
 }
 
+// Resolved here: the configuration cache allows no Project access while tasks run.
+def releaseStoreFile = hasReleaseSigning ? rootProject.file(releaseSigning.storeFile) : null
 def verifyReleaseSigning = tasks.register('verifyReleaseSigning') {
     doLast {
         if (!hasReleaseSigning) {
             throw new GradleException('Release signing is required: configure keystore.properties or BP_KEYSTORE/BP_KEYSTORE_PASSWORD/BP_KEY_ALIAS/BP_KEY_PASSWORD.')
         }
-        def keyStore = java.security.KeyStore.getInstance(rootProject.file(releaseSigning.storeFile), releaseSigning.storePassword.toCharArray())
+        def keyStore = java.security.KeyStore.getInstance(releaseStoreFile, releaseSigning.storePassword.toCharArray())
         def certificate = keyStore.getCertificate(releaseSigning.keyAlias)
         if (certificate == null || certificate.subjectX500Principal.name.contains('CN=Android Debug')) {
             throw new GradleException('Release signing requires a dedicated release key, not the Android debug key.')
@@ -193,43 +195,72 @@ def nativePatchNames = ['bughunt-stream.patch', 'bughunt-input.patch', 'controll
                         'pyrowave-link-hints.patch', 'video-recv-buffer.patch', 'clock-sync.patch', 'prefix-sei.patch',
                         'fec-report.patch']
 
-def prepareNativePatches = tasks.register('prepareNativePatches') {
-    doLast {
-        def core = file('src/main/jni/moonlight-core')
-        def common = new File(core, 'moonlight-common-c')
+// A typed task so the configuration cache can store it: the patches and their order are its
+// inputs, the stamp its output, and it reaches git through ExecOperations, not the Project.
+abstract class PrepareNativePatches extends DefaultTask {
+    @Input
+    abstract ListProperty<String> getPatchNames()
+
+    @InputFiles @PathSensitive(PathSensitivity.NAME_ONLY)
+    abstract ConfigurableFileCollection getPatches()
+
+    @Internal
+    abstract DirectoryProperty getCommonDir()
+
+    @OutputFile
+    abstract RegularFileProperty getStampFile()
+
+    @javax.inject.Inject
+    abstract org.gradle.process.ExecOperations getExecOperations()
+
+    @TaskAction
+    void patch() {
+        def common = commonDir.get().asFile
         if (!new File(common, 'src/Limelight.h').exists()) {
             throw new GradleException('moonlight-common-c is not checked out. Run: git submodule update --init --recursive')
         }
-        def patches = nativePatchNames.collect { new File(core, "patches/$it") }
+        def patchFiles = patches.files.toList()
         def digest = java.security.MessageDigest.getInstance('SHA-256')
-        patches.each { digest.update(it.bytes) }
+        patchFiles.each { digest.update(it.bytes) }
         def stamp = digest.digest().encodeHex().toString()
-        def stampFile = file('build/native-patches.stamp')
-        if (stampFile.exists() && stampFile.text.trim() == stamp) {
+        def stamped = stampFile.get().asFile
+        if (stamped.exists() && stamped.text.trim() == stamp) {
             return
         }
 
-        def runGit = { List<String> arguments ->
-            def result = providers.exec {
-                workingDir common
-                commandLine(['git'] + arguments)
-                ignoreExitValue = true
-            }
-            [result.result.get().exitValue, result.standardError.asText.get()]
-        }
-        def reset = runGit(['checkout', '--', 'src'])
+        def reset = runGit(common, ['checkout', '--', 'src'])
         if (reset[0] != 0) {
             throw new GradleException("Could not reset moonlight-common-c/src before patching: ${reset[1]}")
         }
-        patches.each { patch ->
-            def applied = runGit(['apply', patch.absolutePath])
+        patchFiles.each { patch ->
+            def applied = runGit(common, ['apply', patch.absolutePath])
             if (applied[0] != 0) {
                 throw new GradleException("Native patch ${patch.name} does not apply: ${applied[1]}")
             }
         }
-        stampFile.parentFile.mkdirs()
-        stampFile.text = stamp + '\n'
+        stamped.parentFile.mkdirs()
+        stamped.text = stamp + '\n'
     }
+
+    // Not private: closures in the subclass Gradle generates cannot call private methods.
+    List runGit(File directory, List<String> arguments) {
+        def errors = new ByteArrayOutputStream()
+        def result = execOperations.exec {
+            workingDir directory
+            commandLine(['git'] + arguments)
+            errorOutput = errors
+            ignoreExitValue = true
+        }
+        [result.exitValue, errors.toString()]
+    }
+}
+
+def prepareNativePatches = tasks.register('prepareNativePatches', PrepareNativePatches) {
+    def core = file('src/main/jni/moonlight-core')
+    patchNames.set(nativePatchNames)
+    patches.from(nativePatchNames.collect { new File(core, "patches/$it") })
+    commonDir.set(new File(core, 'moonlight-common-c'))
+    stampFile.set(layout.buildDirectory.file('native-patches.stamp'))
 }
 
 tasks.configureEach { task ->

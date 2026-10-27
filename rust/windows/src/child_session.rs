@@ -15,7 +15,7 @@ use crate::text::{from_wide, to_wide};
 use anyhow::{Context, Result, bail};
 use butterpollo_core::child_session::{
     ActiveFirewall, Adapter, Hive, Listener, RDP_SERVICE, RDP_TCP, RdpListeners, RdpServer,
-    ServiceListener, SystemSettings, TERMINAL_SERVER,
+    Registry, ServiceListener, SystemSettings, TERMINAL_SERVER,
 };
 use std::os::windows::io::FromRawHandle;
 use windows::{
@@ -640,28 +640,44 @@ fn read_dword(hive: &Hive, path: &str, name: &str) -> Result<Option<u32>> {
             .with_context(|| format!(r"reading {}\{path}\{name}", hive_name(hive))),
     }
 }
-impl SystemSettings for NativeSettings {
+fn write_dword(hive: &Hive, path: &str, name: &str, value: u32) -> Result<()> {
+    let (root, key) = root(hive, path);
+    let wide = to_wide(name);
+    // SAFETY: `key` and `wide` are NUL-terminated and outlive the call, and `value` is the
+    // 4-byte REG_DWORD the size names.
+    unsafe {
+        RegSetKeyValueW(
+            root,
+            PCWSTR(key.as_ptr()),
+            PCWSTR(wide.as_ptr()),
+            REG_DWORD.0,
+            Some((&value as *const u32).cast()),
+            size_of::<u32>() as u32,
+        )
+    }
+    .ok()
+    .with_context(|| format!(r"writing {}\{path}\{name}", hive_name(hive)))
+}
+/// The registry alone, without Windows Firewall: what turns RDP off when
+/// [`NativeSettings::new`] fails.
+pub struct NativeRegistry;
+impl Registry for NativeRegistry {
     fn read_dword(&self, hive: &Hive, path: &str, name: &str) -> Result<Option<u32>> {
         read_dword(hive, path, name)
     }
     fn write_dword(&mut self, hive: &Hive, path: &str, name: &str, value: u32) -> Result<()> {
-        let (root, key) = root(hive, path);
-        let wide = to_wide(name);
-        // SAFETY: `key` and `wide` are NUL-terminated and outlive the call, and `value` is the
-        // 4-byte REG_DWORD the size names.
-        unsafe {
-            RegSetKeyValueW(
-                root,
-                PCWSTR(key.as_ptr()),
-                PCWSTR(wide.as_ptr()),
-                REG_DWORD.0,
-                Some((&value as *const u32).cast()),
-                size_of::<u32>() as u32,
-            )
-        }
-        .ok()
-        .with_context(|| format!(r"writing {}\{path}\{name}", hive_name(hive)))
+        write_dword(hive, path, name, value)
     }
+}
+impl Registry for NativeSettings {
+    fn read_dword(&self, hive: &Hive, path: &str, name: &str) -> Result<Option<u32>> {
+        read_dword(hive, path, name)
+    }
+    fn write_dword(&mut self, hive: &Hive, path: &str, name: &str, value: u32) -> Result<()> {
+        write_dword(hive, path, name, value)
+    }
+}
+impl SystemSettings for NativeSettings {
     fn delete_value(&mut self, hive: &Hive, path: &str, name: &str) -> Result<()> {
         let (root, key) = root(hive, path);
         let wide = to_wide(name);
@@ -1077,7 +1093,7 @@ fn uma(adapter: &IDXGIAdapter1) -> Option<bool> {
 
 #[cfg(test)]
 mod tests {
-    use butterpollo_core::child_session::{Dpapi, PasswordStore, Secret, SystemSettings};
+    use butterpollo_core::child_session::{Dpapi, PasswordStore, Registry, Secret, SystemSettings};
 
     #[test]
     fn the_edition_is_readable() {

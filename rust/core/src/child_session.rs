@@ -1111,11 +1111,16 @@ pub const REMOTE_DESKTOP_RULES: &str = "@FirewallAPI.dll,-28752";
 pub const BLOCK_RULE: &str = "Rubylight child session: RDP only on this PC";
 const DEFAULT_RDP_PORT: u32 = 3389;
 
-/// The system settings setup changes; the registry, child sessions and the
-/// firewall behind one injectable seam.
-pub trait SystemSettings {
+/// The registry's DWORD values: all [`turn_rdp_off`] needs, so it works when
+/// the rest of [`SystemSettings`] (Windows Firewall) can't be opened.
+pub trait Registry {
     fn read_dword(&self, hive: &Hive, path: &str, name: &str) -> Result<Option<u32>>;
     fn write_dword(&mut self, hive: &Hive, path: &str, name: &str, value: u32) -> Result<()>;
+}
+
+/// The system settings setup changes; the registry, child sessions and the
+/// firewall behind one injectable seam.
+pub trait SystemSettings: Registry {
     /// Removing a value that does not exist succeeds.
     fn delete_value(&mut self, hive: &Hive, path: &str, name: &str) -> Result<()>;
     fn child_sessions_enabled(&self) -> Result<bool>;
@@ -1466,18 +1471,28 @@ pub fn settings_missing(system: &dyn SystemSettings, user_sid: &str) -> Result<V
 /// failed one. Setting up again turns RDP back on, and restore still puts
 /// back the value from before setup.
 pub fn enforce_firewall(system: &mut dyn SystemSettings, rdp_port: u16) -> Vec<String> {
-    let mut found = firewall_missing(system, rdp_port)
-        .unwrap_or_else(|error| vec![format!("the firewall could not be checked ({error:#})")]);
+    check_firewall(system, rdp_port).unwrap_or_else(|error| {
+        vec![
+            format!("the firewall could not be checked ({error:#})"),
+            turn_rdp_off(system),
+        ]
+    })
+}
+/// [`enforce_firewall`] for a check that can be tried again: Err when the
+/// check could not run, with nothing changed. What it finds still turns RDP
+/// off at once.
+pub fn check_firewall(system: &mut dyn SystemSettings, rdp_port: u16) -> Result<Vec<String>> {
+    let mut found = firewall_missing(system, rdp_port)?;
     if !found.is_empty() {
         found.push(turn_rdp_off(system));
     }
-    found
+    Ok(found)
 }
 
 /// Turn Remote Desktop off (`fDenyTSConnections = 1`), read it back, and
 /// make sure no group policy keeps it on ([`TERMINAL_SERVICES_POLICY`] wins
 /// over the value written here). What was done, for the report.
-pub fn turn_rdp_off(system: &mut dyn SystemSettings) -> String {
+pub fn turn_rdp_off(system: &mut dyn Registry) -> String {
     let change = &CHANGES[0];
     let off = system
         .write_dword(&Hive::LocalMachine, change.path, change.name, 1)

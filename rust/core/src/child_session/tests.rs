@@ -632,7 +632,7 @@ impl Fake {
 fn key(hive: Hive, path: &str, name: &str) -> (Hive, String, String) {
     (hive, path.into(), name.into())
 }
-impl SystemSettings for Fake {
+impl Registry for Fake {
     fn read_dword(&self, hive: &Hive, path: &str, name: &str) -> Result<Option<u32>> {
         Ok(self
             .machine
@@ -659,6 +659,8 @@ impl SystemSettings for Fake {
             .insert(key(hive.clone(), path, name), value);
         Ok(())
     }
+}
+impl SystemSettings for Fake {
     fn delete_value(&mut self, hive: &Hive, path: &str, name: &str) -> Result<()> {
         self.note(format!("delete {name}"));
         self.machine.values.remove(&key(hive.clone(), path, name));
@@ -964,6 +966,19 @@ fn a_firewall_that_stops_holding_rdp_turns_it_off() {
             .contains("Remote Desktop was turned off (fDenyTSConnections = 1)"),
         "{found:?}"
     );
+    // A check that can be tried again still turns RDP off for what it finds.
+    let mut again = Fake::new();
+    set_up(&mut again);
+    again.machine.policy_overrides = vec!["Domain".into()];
+    let found = check_firewall(&mut again, 3389).unwrap();
+    assert_eq!(rdp(&again), Some(1));
+    assert!(
+        found
+            .last()
+            .unwrap()
+            .contains("Remote Desktop was turned off"),
+        "{found:?}"
+    );
     // So does a firewall that cannot even turn RDP off.
     let mut stuck = Fake::new();
     set_up(&mut stuck);
@@ -999,6 +1014,13 @@ fn a_firewall_that_cannot_be_checked_turns_rdp_off_too() {
     let mut fake = Fake::new();
     let state = set_up(&mut fake);
     fake.firewall_unreadable = true;
+    // A check that can be tried again changes nothing when it cannot run.
+    let error = check_firewall(&mut fake, state.rdp_port).unwrap_err();
+    assert!(
+        format!("{error:#}").contains("PowerShell exited"),
+        "{error:#}"
+    );
+    assert_eq!(rdp(&fake), Some(0));
     let found = enforce_firewall(&mut fake, state.rdp_port);
     assert_eq!(rdp(&fake), Some(1), "fails closed");
     assert!(

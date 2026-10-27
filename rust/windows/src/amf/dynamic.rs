@@ -146,12 +146,15 @@ impl Dynamic {
         }
     }
     /// The first unit of an output frame with the current units in it, or
-    /// `None` to send it as it is: before the first sample, or when it has no
-    /// insertion point.
+    /// `None` to send it as it is: before the first sample, when it has no
+    /// insertion point, or when AMF produced nothing.
     pub(super) fn first_unit(&mut self, bytes: &[u8]) -> Option<Vec<u8>> {
         let started = Instant::now();
-        self.report.frames += 1;
         self.added = 0;
+        if bytes.is_empty() {
+            return None;
+        }
+        self.report.frames += 1;
         let units = self.writer.units();
         if units.is_empty() {
             return None;
@@ -291,6 +294,11 @@ mod tests {
         // A frame without an insertion point goes out as it is, its cap too.
         assert_eq!(dynamic.first_unit(&nal(32, &[0x0C])), None);
         assert_eq!(dynamic.cap(Some(5000)), Some(5000));
+        assert_eq!(dynamic.report.no_insertion, 1);
+        // An empty output is no frame to report.
+        assert_eq!(dynamic.first_unit(&[]), None);
+        assert_eq!(dynamic.cap(Some(5000)), Some(5000));
+        assert_eq!(dynamic.report.no_insertion, 1);
         // A cut to a dark scene is taken as it is.
         let dark = readout(9, 10, 80);
         let dark_stats = dark.frame_stats().unwrap();

@@ -2,7 +2,8 @@
 <!-- The TV library's cards: the chips over a poster and the colours they need beside the theme's amber. -->
 <resources>
     <!-- A game running now: the dot of the Running chip. Green reads as "live" next to the amber the rest of the app uses. -->
-    <color name="status_live">#5FD38D</color>
+    <!-- The night ok tone in both themes, because the chip always sits on the dark scrim over art. -->
+    <color name="status_live">@color/night_status_ok</color>
     <!-- Chips sit on any art: 72% black keeps 13sp white text above 7:1 on the brightest cover. -->
     <color name="card_chip_scrim">#B8000000</color>
     <color name="card_chip_text">#FFFFFFFF</color>

@@ -144,6 +144,64 @@ public class ThemePaletteTest {
         assertReadable(oled);
     }
 
+    private static int res(Context context, int id) {
+        return androidx.core.content.ContextCompat.getColor(context, id);
+    }
+
+    private static void assertContrast(String pair, int foreground, int background, double floor) {
+        double ratio = ColorUtils.calculateContrast(foreground, background);
+        assertTrue(pair + " is " + ratio + ":1, needs " + floor, ratio >= floor);
+    }
+
+    // The shared token pairs (design-tokens-nightjar.md, colour roles), measured against the theme's worst
+    // surface, surface_container_highest: text at 4.5:1, rings and borders at 3:1.
+    private static void assertTokenPairs(Context theme) {
+        int worst = color(theme, com.google.android.material.R.attr.colorSurfaceContainerHighest);
+        int primary = color(theme, androidx.appcompat.R.attr.colorPrimary);
+        assertContrast("ink", color(theme, com.google.android.material.R.attr.colorOnSurface), worst, TEXT);
+        assertContrast("ink-2", color(theme, com.google.android.material.R.attr.colorOnSurfaceVariant), worst, TEXT);
+        assertContrast("accent text", primary, worst, TEXT);
+        assertContrast("accent ink", color(theme, com.google.android.material.R.attr.colorOnPrimary), primary, TEXT);
+        assertContrast("danger", color(theme, androidx.appcompat.R.attr.colorError), worst, TEXT);
+        assertContrast("danger-soft", color(theme, com.google.android.material.R.attr.colorOnErrorContainer),
+                color(theme, com.google.android.material.R.attr.colorErrorContainer), TEXT);
+        assertContrast("info", color(theme, com.google.android.material.R.attr.colorTertiary), worst, TEXT);
+        assertContrast("ok", res(theme, R.color.status_ok), worst, TEXT);
+        assertContrast("ok-soft", res(theme, R.color.on_status_ok_container), res(theme, R.color.status_ok_container), TEXT);
+        assertContrast("warn", res(theme, R.color.status_warn), worst, TEXT);
+        assertContrast("warn-soft", res(theme, R.color.on_status_warn_container),
+                res(theme, R.color.status_warn_container), TEXT);
+        assertContrast("focus ring", primary, worst, NON_TEXT);
+        assertContrast("line-strong", color(theme, com.google.android.material.R.attr.colorOutline), worst, NON_TEXT);
+        // Text over art or video sits on the scrim; check it over a white frame, the worst case.
+        int scrimOnWhite = ColorUtils.compositeColors(res(theme, R.color.tv_chip_scrim), 0xffffffff);
+        assertContrast("media ink", 0xffffffff, scrimOnWhite, TEXT);
+        assertContrast("media ok", res(theme, R.color.tv_status_live), scrimOnWhite, TEXT);
+        assertContrast("media warn", res(theme, R.color.night_status_warn), scrimOnWhite, TEXT);
+        assertContrast("media danger", res(theme, R.color.night_error), scrimOnWhite, TEXT);
+        // Live dots sit on dark scrims in both themes, so they keep the night ok tone.
+        assertEquals(res(theme, R.color.night_status_ok), res(theme, R.color.status_live));
+        assertEquals(res(theme, R.color.night_status_ok), res(theme, R.color.tv_status_live));
+    }
+
+    @Test
+    @Config(qualifiers = "night")
+    public void nightTokenPairsMeetTheirContrastFloors() {
+        Context app = themed(R.style.AppTheme);
+        assertEquals(0xFF5FD38D, res(app, R.color.status_ok));
+        assertEquals(0xFFF5D06B, res(app, R.color.status_warn));
+        assertTokenPairs(app);
+    }
+
+    @Test
+    @Config(qualifiers = "notnight")
+    public void dayTokenPairsMeetTheirContrastFloors() {
+        Context app = themed(R.style.AppTheme);
+        assertEquals(0xFF1D6B39, res(app, R.color.status_ok));
+        assertEquals(0xFF6B5300, res(app, R.color.status_warn));
+        assertTokenPairs(app);
+    }
+
     private static Map<String, String> items(String theme) throws Exception {
         DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
         Document styles = factory.newDocumentBuilder().parse(new File("src/main/res/values/styles.xml"));

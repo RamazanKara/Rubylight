@@ -41,6 +41,15 @@
     <color name="night_outline_variant">#3F4250</color>
     <color name="night_inverse_surface">#E3E4EE</color>
     <color name="night_inverse_on_surface">#2B2D38</color>
+    <!-- Status roles shared with the Rubylight console (ok = live or ready, warn = a problem worth a look).
+         Warn is never a filled shape: it is an icon plus a word, or text on its container, so it never reads
+         as the amber action colour. -->
+    <color name="night_status_ok">#5FD38D</color>
+    <color name="night_status_ok_container">#0F3A22</color>
+    <color name="night_on_status_ok_container">#A6F2C2</color>
+    <color name="night_status_warn">#F5D06B</color>
+    <color name="night_status_warn_container">#3D2F00</color>
+    <color name="night_on_status_warn_container">#FFE69C</color>
 
     <!-- Day -->
     <color name="day_primary">#845500</color>
@@ -74,6 +83,12 @@
     <color name="day_outline_variant">#C5C7D3</color>
     <color name="day_inverse_surface">#2F3037</color>
     <color name="day_inverse_on_surface">#F0F0F7</color>
+    <color name="day_status_ok">#1D6B39</color>
+    <color name="day_status_ok_container">#C4EFD2</color>
+    <color name="day_on_status_ok_container">#00210E</color>
+    <color name="day_status_warn">#6B5300</color>
+    <color name="day_status_warn_container">#FFE7A3</color>
+    <color name="day_on_status_warn_container">#231A00</color>
 
     <!-- Fixed roles keep the same tone in both themes. -->
     <color name="primary_fixed">#FFDDB3</color>

@@ -32,6 +32,12 @@
     <color name="outline_variant">@color/day_outline_variant</color>
     <color name="inverse_surface">@color/day_inverse_surface</color>
     <color name="inverse_on_surface">@color/day_inverse_on_surface</color>
+    <color name="status_ok">@color/day_status_ok</color>
+    <color name="status_ok_container">@color/day_status_ok_container</color>
+    <color name="on_status_ok_container">@color/day_on_status_ok_container</color>
+    <color name="status_warn">@color/day_status_warn</color>
+    <color name="status_warn_container">@color/day_status_warn_container</color>
+    <color name="on_status_warn_container">@color/day_on_status_warn_container</color>
     <!-- 12% of the error colour, for the press state of destructive buttons. -->
     <color name="error_ripple">#1FBA1A1A</color>
     <bool name="light_system_bars">true</bool>

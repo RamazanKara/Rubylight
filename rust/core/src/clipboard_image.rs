@@ -63,7 +63,11 @@ pub struct Image {
 impl Image {
     /// Whether any pixel is less than opaque.
     pub fn has_alpha(&self) -> bool {
-        self.rgba.chunks_exact(4).any(|pixel| pixel[3] != 255)
+        self.rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel[3] != 255)
     }
 }
 
@@ -145,6 +149,29 @@ pub fn decode_png(bytes: &[u8]) -> Result<Image, ImageError> {
     })
 }
 
+/// The length of the PNG `bytes` start with, through its `IEND` chunk, or
+/// `None` when they aren't one or it is cut short. Clipboard memory is
+/// rounded up, so a PNG there can be followed by anything.
+pub fn png_extent(bytes: &[u8]) -> Option<usize> {
+    if !bytes.starts_with(PNG_SIGNATURE) {
+        return None;
+    }
+    let mut at = PNG_SIGNATURE.len();
+    loop {
+        let length = u32::from_be_bytes(bytes.get(at..at + 4)?.try_into().ok()?) as usize;
+        let kind = bytes.get(at + 4..at + 8)?;
+        // Length, type, data and CRC.
+        let end = at.checked_add(12)?.checked_add(length)?;
+        if end > bytes.len() {
+            return None;
+        }
+        if kind == b"IEND" {
+            return Some(end);
+        }
+        at = end;
+    }
+}
+
 /// Encodes `image` as an 8-bit PNG: RGB when it is opaque, else RGBA.
 pub fn encode_png(image: &Image) -> Result<Vec<u8>, ImageError> {
     let expected = pixel_bytes(image.width, image.height)?;
@@ -170,8 +197,10 @@ pub fn encode_png(image: &Image) -> Result<Vec<u8>, ImageError> {
     } else {
         let rgb: Vec<u8> = image
             .rgba
-            .chunks_exact(4)
-            .flat_map(|pixel| [pixel[0], pixel[1], pixel[2]])
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .flat_map(|&[r, g, b, _]| [r, g, b])
             .collect();
         writer.write_image_data(&rgb).map_err(failed)?;
     }
@@ -301,30 +330,33 @@ pub fn decode_dib(bytes: &[u8]) -> Result<Image, ImageError> {
     let row_bytes = width as usize * 4;
     for (y, line) in pixels.chunks_exact(stride).enumerate() {
         let target = if top_down { y } else { height as usize - 1 - y };
-        let out = &mut rgba[target * row_bytes..][..row_bytes];
+        let out = rgba[target * row_bytes..][..row_bytes]
+            .as_chunks_mut::<4>()
+            .0;
         match (&channels, bits) {
             (Some([r, g, b]), _) => {
-                for (pixel, out) in line.chunks_exact(4).zip(out.chunks_exact_mut(4)) {
-                    let value = u32::from_le_bytes([pixel[0], pixel[1], pixel[2], pixel[3]]);
+                for (pixel, out) in line.as_chunks::<4>().0.iter().zip(out) {
+                    let value = u32::from_le_bytes(*pixel);
                     let alpha = alpha_channel.map_or(255, |a| a.read(value));
-                    out.copy_from_slice(&[r.read(value), g.read(value), b.read(value), alpha]);
+                    *out = [r.read(value), g.read(value), b.read(value), alpha];
                 }
             }
             (None, 24) => {
-                for (pixel, out) in line.chunks_exact(3).zip(out.chunks_exact_mut(4)) {
-                    out.copy_from_slice(&[pixel[2], pixel[1], pixel[0], 255]);
+                for (&[b, g, r], out) in line.as_chunks::<3>().0.iter().zip(out) {
+                    *out = [r, g, b, 255];
                 }
             }
             (None, _) => {
-                for (pixel, out) in line.chunks_exact(4).zip(out.chunks_exact_mut(4)) {
-                    out.copy_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
+                for (&[b, g, r, a], out) in line.as_chunks::<4>().0.iter().zip(out) {
+                    *out = [r, g, b, a];
                 }
             }
         }
     }
     // Even with an alpha mask: some programs write one and no alpha.
-    if bits == 32 && rgba.chunks_exact(4).all(|pixel| pixel[3] == 0) {
-        for pixel in rgba.chunks_exact_mut(4) {
+    let pixels = rgba.as_chunks_mut::<4>().0;
+    if bits == 32 && pixels.iter().all(|pixel| pixel[3] == 0) {
+        for pixel in pixels {
             pixel[3] = 255;
         }
     }
@@ -365,8 +397,8 @@ pub fn encode_dibv5(image: &Image) -> Result<Vec<u8>, ImageError> {
     out.resize(V5_HEADER, 0);
     let row = image.width as usize * 4;
     for line in image.rgba.chunks_exact(row).rev() {
-        for pixel in line.chunks_exact(4) {
-            out.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
+        for &[r, g, b, a] in line.as_chunks::<4>().0 {
+            out.extend_from_slice(&[b, g, r, a]);
         }
     }
     Ok(out)
@@ -397,7 +429,9 @@ mod tests {
     fn opaque(mut image: Image) -> Image {
         image
             .rgba
-            .chunks_exact_mut(4)
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
             .for_each(|pixel| pixel[3] = 255);
         image
     }
@@ -431,6 +465,21 @@ mod tests {
             assert!(png.starts_with(PNG_SIGNATURE));
             assert_eq!(decode_png(&png).unwrap(), picture);
         }
+    }
+
+    #[test]
+    fn a_png_ends_with_its_iend_chunk() {
+        let png = encode_png(&image(3, 3)).unwrap();
+        assert_eq!(png_extent(&png), Some(png.len()));
+        let mut padded = png.clone();
+        padded.extend_from_slice(&[0; 100]);
+        assert_eq!(png_extent(&padded), Some(png.len()));
+        for end in 0..png.len() {
+            assert_eq!(png_extent(&png[..end]), None, "{end}");
+        }
+        let mut huge = png.clone();
+        huge[8..12].copy_from_slice(&u32::MAX.to_be_bytes());
+        assert_eq!(png_extent(&huge), None);
     }
 
     #[test]

@@ -38,6 +38,13 @@ pub enum ErrorCode {
     NoConsoleUser,
     /// The device already has an upload running.
     TransferBusy,
+    /// USB forwarding is off on the host, or the device has no `allow_usb`.
+    UsbDisabled,
+    /// The host already forwards `usb_max_devices` devices, or a tunnel token
+    /// was used twice.
+    UsbLimit,
+    /// Shared folders are off on the host.
+    FoldersDisabled,
     /// A code from a newer host. Clients treat it by its HTTP status.
     #[serde(other)]
     Unknown,
@@ -53,7 +60,9 @@ impl ErrorCode {
             | Self::PermissionRequired
             | Self::HostControlRequired
             | Self::Forbidden
-            | Self::FileTransferDisabled => 403,
+            | Self::FileTransferDisabled
+            | Self::UsbDisabled
+            | Self::FoldersDisabled => 403,
             Self::NotFound => 404,
             Self::InvalidRequest | Self::InvalidName | Self::IncompleteUpload => 400,
             Self::LengthRequired => 411,
@@ -65,7 +74,8 @@ impl ErrorCode {
             | Self::DriverRejected
             | Self::NotStreaming
             | Self::NoConsoleUser
-            | Self::TransferBusy => 409,
+            | Self::TransferBusy
+            | Self::UsbLimit => 409,
             Self::InsufficientStorage => 507,
             Self::TemporarilyUnavailable => 503,
             Self::Internal | Self::Unknown => 500,

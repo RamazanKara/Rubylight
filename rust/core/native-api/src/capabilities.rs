@@ -32,4 +32,12 @@ pub struct Permissions {
     /// Download files (device bit `1 << 19`).
     #[serde(default)]
     pub file_download: bool,
+    /// The device may attach USB devices: its own `allow_usb` flag, never a
+    /// permission bit. Missing from hosts before 3.0, which then reads as not granted.
+    #[serde(default)]
+    pub usb: bool,
+    /// The device has at least one shared folder grant (`shared_folders`).
+    /// Missing from hosts before 3.0, which then reads as not granted.
+    #[serde(default)]
+    pub shared_folders: bool,
 }

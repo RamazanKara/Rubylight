@@ -141,6 +141,35 @@ impl Client {
     pub fn allows_sleep(&self) -> bool {
         self.enabled && self.extra.get("allow_sleep") == Some(&Value::Bool(true))
     }
+    /// Whether the administrator let this device attach USB devices to the
+    /// host (`allow_usb`). Only a JSON `true` counts: no permission bit or Host
+    /// control implies it.
+    pub fn allows_usb(&self) -> bool {
+        self.enabled && self.extra.get("allow_usb") == Some(&Value::Bool(true))
+    }
+    /// This device's grant for shared folder `id`, from
+    /// `shared_folders: {"<id>": "read" | "write"}`. Any other value grants
+    /// nothing, and a disabled device has no grants.
+    pub fn folder_access(&self, id: &str) -> Option<rubylight_native_api::folders::FolderAccess> {
+        use rubylight_native_api::folders::FolderAccess;
+        if !self.enabled {
+            return None;
+        }
+        match self.extra.get("shared_folders")?.get(id)?.as_str()? {
+            "read" => Some(FolderAccess::Read),
+            "write" => Some(FolderAccess::Write),
+            _ => None,
+        }
+    }
+    /// Whether this device has at least one shared folder grant.
+    pub fn has_folders(&self) -> bool {
+        self.enabled
+            && self
+                .extra
+                .get("shared_folders")
+                .and_then(Value::as_object)
+                .is_some_and(|grants| grants.keys().any(|id| self.folder_access(id).is_some()))
+    }
     pub fn der(&self) -> Result<Vec<u8>> {
         crypto::certificate_der(&self.cert)
     }
@@ -723,6 +752,54 @@ mod tests {
         let mut disabled = client_with(0, json!({"allow_sleep":true}));
         disabled.enabled = false;
         assert!(!disabled.allows_sleep());
+    }
+    #[test]
+    fn usb_is_off_by_default_and_reads_only_a_json_true() {
+        assert!(!client_with(0x071f1f00, json!({})).allows_usb());
+        assert!(!client_with(u32::MAX, json!({})).allows_usb());
+        assert!(
+            !client_with(u32::MAX, json!({"host_control":true,"allow_sleep":true})).allows_usb()
+        );
+        assert!(client_with(0, json!({"allow_usb":true})).allows_usb());
+        for value in [
+            json!("true"),
+            json!(1),
+            json!("1"),
+            json!(false),
+            json!(null),
+            json!([true]),
+        ] {
+            assert!(
+                !client_with(u32::MAX, json!({"allow_usb":value})).allows_usb(),
+                "{value}"
+            );
+        }
+        let mut disabled = client_with(0, json!({"allow_usb":true}));
+        disabled.enabled = false;
+        assert!(!disabled.allows_usb());
+    }
+    #[test]
+    fn folder_grants_read_only_read_and_write() {
+        use rubylight_native_api::folders::FolderAccess;
+        let client = client_with(
+            u32::MAX,
+            json!({"shared_folders":{"games":"read","mods":"write","bad":"Write","num":1}}),
+        );
+        assert_eq!(client.folder_access("games"), Some(FolderAccess::Read));
+        assert_eq!(client.folder_access("mods"), Some(FolderAccess::Write));
+        assert_eq!(client.folder_access("bad"), None);
+        assert_eq!(client.folder_access("num"), None);
+        assert_eq!(client.folder_access("other"), None);
+        assert!(client.has_folders());
+        assert!(!client_with(u32::MAX, json!({})).has_folders());
+        assert!(!client_with(u32::MAX, json!({"shared_folders":{}})).has_folders());
+        assert!(!client_with(u32::MAX, json!({"shared_folders":{"a":"none"}})).has_folders());
+        assert!(!client_with(u32::MAX, json!({"shared_folders":["games"]})).has_folders());
+        assert!(!client_with(u32::MAX, json!({"shared_folders":null})).has_folders());
+        let mut disabled = client_with(0, json!({"shared_folders":{"games":"write"}}));
+        disabled.enabled = false;
+        assert_eq!(disabled.folder_access("games"), None);
+        assert!(!disabled.has_folders());
     }
     #[test]
     fn imported_vibepollo_sleep_opt_in_is_honoured() {

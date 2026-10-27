@@ -347,6 +347,8 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
                 host_control: native::host_control(&client),
                 file_upload: client.allows(FILE_UPLOAD),
                 file_download: client.allows(FILE_DOWNLOAD),
+                usb: client.allows_usb(),
+                shared_folders: client.has_folders(),
             },
         },
     ))

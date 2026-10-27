@@ -1,0 +1,7 @@
+{
+  "path": "Skyrim/Data",
+  "entries": [
+    { "name": "Textures", "kind": "dir", "size": 0, "modified_unix_ms": 1792000000000 },
+    { "name": "patch.esp", "kind": "file", "size": 1048576, "modified_unix_ms": 1792000500000 }
+  ]
+}

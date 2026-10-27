@@ -3,10 +3,11 @@
 use rubylight_native_api::capabilities::Capabilities;
 use rubylight_native_api::error::{ErrorBody, ErrorCode};
 use rubylight_native_api::files::{FileList, Uploaded};
+use rubylight_native_api::folders::{EntryKind, FolderAccess, FolderEntries, FolderList};
 use rubylight_native_api::library::Library;
 use rubylight_native_api::radeon::{Change, ControlState, Kind, Radeon, SettingsWrite, Value};
 use rubylight_native_api::session::{ActionId, LauncherKind, Owner, ProfileState, Session, State};
-use rubylight_native_api::{feature, API_VERSION, PREFIX, SERVERINFO_FIELD};
+use rubylight_native_api::{feature, folders, usb, API_VERSION, PREFIX, SERVERINFO_FIELD};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::{json, Value as Json};
@@ -51,6 +52,46 @@ fn capabilities_round_trip() {
         .iter()
         .any(|f| f == feature::FILES_UPLOAD));
     assert!(capabilities.permissions.file_upload && !capabilities.permissions.file_download);
+    assert!(!capabilities.permissions.usb && !capabilities.permissions.shared_folders);
+}
+
+#[test]
+fn a_host_before_3_0_grants_no_usb_or_folders() {
+    let mut value: Json = serde_json::from_str(&fixture("capabilities")).unwrap();
+    let permissions = value["permissions"].as_object_mut().unwrap();
+    permissions.remove("usb");
+    permissions.remove("shared_folders");
+    let capabilities: Capabilities = serde_json::from_value(value).unwrap();
+    assert!(!capabilities.permissions.usb && !capabilities.permissions.shared_folders);
+}
+
+#[test]
+fn the_3_0_features_and_paths_keep_their_names() {
+    assert_eq!(feature::USB, "usb");
+    assert_eq!(feature::CLIPBOARD_IMAGE, "clipboard.image");
+    assert_eq!(feature::FOLDERS, "folders");
+    assert_eq!(feature::FOLDERS_MOUNT, "folders.mount");
+    assert_eq!(usb::TUNNEL_PATH, "/usb/tunnel");
+    assert_eq!(usb::UPGRADE, "rubylight-usbip/1");
+    assert_eq!(usb::TOKEN_HEADER, "X-Rubylight-Usb-Token");
+    assert_eq!(usb::TOKEN_BYTES, 16);
+    assert_eq!(usb::TOKEN_TTL_SECS, 30);
+    assert_eq!(folders::FOLDERS_PATH, "/folders");
+    assert_eq!(folders::ENTRIES_PATH, "/entries");
+    assert_eq!(folders::CONTENT_PATH, "/content");
+    assert_eq!(folders::DAV_PATH, "/dav/");
+}
+
+#[test]
+fn folders_round_trip() {
+    let list: FolderList = round_trip("folders");
+    assert_eq!(list.folders.len(), 2);
+    assert_eq!(list.folders[0].access, FolderAccess::Read);
+    assert_eq!(list.folders[1].access, FolderAccess::Write);
+    let entries: FolderEntries = round_trip("folder_entries");
+    assert_eq!(entries.entries[0].kind, EntryKind::Dir);
+    assert_eq!(entries.entries[1].kind, EntryKind::File);
+    assert_eq!(entries.entries[1].size, 1048576);
 }
 
 #[test]
@@ -215,6 +256,9 @@ fn error_round_trip_and_status_table() {
         (ErrorCode::InsufficientStorage, 507),
         (ErrorCode::NoConsoleUser, 409),
         (ErrorCode::TransferBusy, 409),
+        (ErrorCode::UsbDisabled, 403),
+        (ErrorCode::UsbLimit, 409),
+        (ErrorCode::FoldersDisabled, 403),
     ];
     for (code, status) in table {
         assert_eq!(code.status(), status, "{code:?}");
@@ -247,6 +291,9 @@ fn every_error_code_has_its_snake_case_name() {
         (ErrorCode::InsufficientStorage, "insufficient_storage"),
         (ErrorCode::NoConsoleUser, "no_console_user"),
         (ErrorCode::TransferBusy, "transfer_busy"),
+        (ErrorCode::UsbDisabled, "usb_disabled"),
+        (ErrorCode::UsbLimit, "usb_limit"),
+        (ErrorCode::FoldersDisabled, "folders_disabled"),
     ] {
         assert_eq!(serde_json::to_value(code).unwrap(), name);
         assert_eq!(
@@ -279,6 +326,14 @@ fn unknown_enum_values_decode_to_unknown() {
     assert_eq!(
         serde_json::from_value::<Kind>(json!("slider")).unwrap(),
         Kind::Unknown
+    );
+    assert_eq!(
+        serde_json::from_value::<FolderAccess>(json!("append")).unwrap(),
+        FolderAccess::Unknown
+    );
+    assert_eq!(
+        serde_json::from_value::<EntryKind>(json!("link")).unwrap(),
+        EntryKind::Unknown
     );
 }
 

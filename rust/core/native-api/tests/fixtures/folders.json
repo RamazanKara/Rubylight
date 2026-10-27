@@ -1,0 +1,6 @@
+{
+  "folders": [
+    { "id": "games", "name": "Game captures", "access": "read" },
+    { "id": "mods", "name": "Mods", "access": "write" }
+  ]
+}

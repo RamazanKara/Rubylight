@@ -11,9 +11,11 @@ pub mod audio;
 pub mod capabilities;
 pub mod error;
 pub mod files;
+pub mod folders;
 pub mod library;
 pub mod radeon;
 pub mod session;
+pub mod usb;
 pub mod wake;
 
 /// The version this crate describes. It is also the `NativeApiVersion` value
@@ -50,4 +52,17 @@ pub mod feature {
     pub const FILES_UPLOAD: &str = "files.upload";
     /// `GET /files` and `GET /files/content` answer, as above.
     pub const FILES_DOWNLOAD: &str = "files.download";
+    /// USB forwarding: the `0x553A` control channel and [`crate::usb::TUNNEL_PATH`]
+    /// answer, while the host's `usb_forwarding` setting is on and its USB/IP
+    /// driver is ready. Defined for 3.0; not yet served.
+    pub const USB: &str = "usb";
+    /// `GET` and `POST /actions/clipboard?type=png` carry images, while the host's
+    /// `clipboard_image` setting is on. Defined for 3.0; not yet served.
+    pub const CLIPBOARD_IMAGE: &str = "clipboard.image";
+    /// The [`crate::folders`] routes browse and transfer the device's shared
+    /// folders. Defined for 3.0; not yet served.
+    pub const FOLDERS: &str = "folders";
+    /// `/folders/{id}/dav/` mounts a shared folder over WebDAV (class 1).
+    /// Defined for 3.0; not yet served.
+    pub const FOLDERS_MOUNT: &str = "folders.mount";
 }

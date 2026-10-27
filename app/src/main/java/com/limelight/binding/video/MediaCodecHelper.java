@@ -1259,6 +1259,40 @@ public class MediaCodecHelper {
         return null;
     }
     
+    /**
+     * A hardware video/dolby-vision decoder for profile 8 (DvheSt), or null: it takes an HEVC
+     * Main10 stream with Dolby Vision RPUs (NAL type 62) and maps it for the screen. Unlike
+     * findProbableSafeDecoder, neither the preferred decoder names nor a capabilities exception
+     * can hand back a decoder without that profile.
+     */
+    public static MediaCodecInfo findDolbyVisionDecoder() {
+        for (MediaCodecInfo codecInfo : getMediaCodecList()) {
+            if (codecInfo.isEncoder()) {
+                continue;
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && codecInfo.isAlias()) {
+                continue;
+            }
+            for (String mime : codecInfo.getSupportedTypes()) {
+                if (!mime.equalsIgnoreCase(HdrFormatPolicy.MIME_DOLBY_VISION) ||
+                        isCodecBlacklisted(codecInfo) || isSoftwareDecoder(codecInfo)) {
+                    continue;
+                }
+                try {
+                    for (CodecProfileLevel level : codecInfo.getCapabilitiesForType(mime).profileLevels) {
+                        if (level.profile == CodecProfileLevel.DolbyVisionProfileDvheSt) {
+                            return codecInfo;
+                        }
+                    }
+                    LimeLog.info("Dolby Vision decoder " + codecInfo.getName() + " lacks profile 8");
+                } catch (IllegalArgumentException e) {
+                    LimeLog.warning("Dolby Vision decoder " + codecInfo.getName() + " reports no capabilities: " + e);
+                }
+            }
+        }
+        return null;
+    }
+
     public static MediaCodecInfo findProbableSafeDecoder(String mimeType, int requiredProfile) {
         // First look for a preferred decoder by name
         MediaCodecInfo info = findPreferredDecoder();

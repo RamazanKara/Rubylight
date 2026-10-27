@@ -127,6 +127,30 @@ public class HdrPolicyTest {
     }
 
     @Test
+    public void anHlgScreenGetsHdrWhenThePcOffersHlg() {
+        assertEquals(Refusal.NONE, HdrPolicy.displayRefusal(33, true, new int[] {HLG}, null, HdrFormatPolicy.HLG));
+        assertEquals(Refusal.NONE, HdrPolicy.displayRefusal(33, true, new int[] {HLG}, null, HdrFormatPolicy.ALL));
+        // Dolby Vision on the PC does not help a screen without HDR10.
+        assertEquals(Refusal.DISPLAY_WITHOUT_HDR10, HdrPolicy.displayRefusal(33, true, new int[] {DOLBY, HLG}, null,
+                HdrFormatPolicy.DV_81));
+        assertEquals(Refusal.DISPLAY_WITHOUT_HDR10, HdrPolicy.displayRefusal(33, true, NO_TYPES, null,
+                HdrFormatPolicy.ALL));
+        assertEquals(Refusal.ANDROID_TOO_OLD, HdrPolicy.displayRefusal(23, true, new int[] {HLG}, null,
+                HdrFormatPolicy.HLG));
+    }
+
+    @Test
+    public void anHlgStreamExpectsAnHlgOutputAndNoMasteringData() {
+        int hlg = MediaFormat.COLOR_TRANSFER_HLG;
+        assertEquals(Status.QUIET, HdrPolicy.status(true, true, true, Metadata.ABSENT, hlg, hlg));
+        assertEquals(Status.QUIET, HdrPolicy.status(true, true, true, Metadata.ABSENT, null, hlg));
+        assertEquals(Status.OUTPUT_NOT_PQ, HdrPolicy.status(true, true, true, Metadata.USABLE,
+                MediaFormat.COLOR_TRANSFER_ST2084, hlg));
+        // And a PQ stream still objects to an HLG output.
+        assertEquals(Status.OUTPUT_NOT_PQ, HdrPolicy.status(true, true, true, Metadata.USABLE, hlg));
+    }
+
+    @Test
     public void hdrOnWithoutUsableMasteringDataIsNamed() {
         assertEquals(Status.NO_METADATA, HdrPolicy.status(true, true, true, Metadata.ABSENT, null));
         assertEquals(Status.NO_METADATA, HdrPolicy.status(true, true, true, Metadata.EMPTY,

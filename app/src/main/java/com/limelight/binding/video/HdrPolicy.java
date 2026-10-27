@@ -7,7 +7,7 @@ import android.view.Display;
 /**
  * The decisions around an HDR10 stream, apart from the Android objects so they can be tested with
  * made-up capabilities. HDR is asked for only when the setting is on and the screen reports HDR10
- * (not just HLG or Dolby Vision); from Android 14 the capabilities follow the mode the screen is in,
+ * (not just Dolby Vision; HLG only when the host streams HLG, see HdrFormatPolicy); from Android 14 the capabilities follow the mode the screen is in,
  * so a mode without HDR10 is refused, with its own reason when another mode has it; a decoder
  * with a Main10 HDR10 profile is needed too. Whatever is asked for and not granted, or granted and then not delivered, is named
  * rather than left to look like SDR. Nothing here has run on an HDR panel; see
@@ -37,9 +37,18 @@ public final class HdrPolicy {
      *                     asked for because some other mode has it.
      */
     public static Refusal displayRefusal(int sdk, boolean enabled, int[] displayTypes, int[] anyModeTypes) {
+        return displayRefusal(sdk, enabled, displayTypes, anyModeTypes, 0);
+    }
+
+    /**
+     * @param hostHdrFormats the host's HdrFormats bits (HdrFormatPolicy); a screen with HLG and no
+     *                       HDR10 gets HDR when the host offers HLG, which is then asked for.
+     */
+    public static Refusal displayRefusal(int sdk, boolean enabled, int[] displayTypes, int[] anyModeTypes,
+                                         int hostHdrFormats) {
         if (!enabled) return Refusal.SETTING_OFF;
         if (sdk < 24) return Refusal.ANDROID_TOO_OLD;
-        if (hasHdr10(displayTypes)) return Refusal.NONE;
+        if (hasHdr10(displayTypes) || HdrFormatPolicy.hlgInstead(hostHdrFormats, displayTypes)) return Refusal.NONE;
         return sdk >= 34 && hasHdr10(anyModeTypes) ? Refusal.MODE_WITHOUT_HDR10 : Refusal.DISPLAY_WITHOUT_HDR10;
     }
 
@@ -65,8 +74,9 @@ public final class HdrPolicy {
         return all;
     }
 
-    public static Refusal displayRefusal(Display display, boolean enabled) {
-        return displayRefusal(Build.VERSION.SDK_INT, enabled, displayHdrTypes(display), anyModeHdrTypes(display));
+    public static Refusal displayRefusal(Display display, boolean enabled, int hostHdrFormats) {
+        return displayRefusal(Build.VERSION.SDK_INT, enabled, displayHdrTypes(display), anyModeHdrTypes(display),
+                hostHdrFormats);
     }
 
     /** HDR10 PQ is what the PC encodes; HLG and Dolby Vision on the panel do not stand in for it. */
@@ -124,13 +134,23 @@ public final class HdrPolicy {
      */
     public static Status status(boolean asked, boolean tenBit, Boolean hostHdr, Metadata metadata,
                                 Integer outputTransfer) {
+        return status(asked, tenBit, hostHdr, metadata, outputTransfer, MediaFormat.COLOR_TRANSFER_ST2084);
+    }
+
+    /**
+     * @param streamTransfer the stream's transfer (HdrFormatPolicy.transfer): an HLG stream's output
+     *                       is HLG, and HLG carries no mastering metadata to miss
+     */
+    public static Status status(boolean asked, boolean tenBit, Boolean hostHdr, Metadata metadata,
+                                Integer outputTransfer, int streamTransfer) {
         if (!asked) return Status.QUIET;
         if (!tenBit) return Status.NOT_NEGOTIATED;
         if (hostHdr == null) return Status.WAITING;
         if (!hostHdr) return Status.HOST_SDR;
-        if (outputTransfer != null && outputTransfer != MediaFormat.COLOR_TRANSFER_ST2084) {
+        if (outputTransfer != null && outputTransfer != streamTransfer) {
             return Status.OUTPUT_NOT_PQ;
         }
+        if (streamTransfer == MediaFormat.COLOR_TRANSFER_HLG) return Status.QUIET;
         return metadata == Metadata.USABLE ? Status.QUIET : Status.NO_METADATA;
     }
 }

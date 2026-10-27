@@ -710,7 +710,9 @@ class PortedCredits(unittest.TestCase):
                  *sorted((ROOT / 'rust/web/src/lib/schema').glob('*.ts'))]
         self.assertTrue(texts)
         for path in texts:
-            text = path.read_text(encoding='utf-8')
+            # Code comments may credit; what the console shows may not.
+            text = '\n'.join(line for line in path.read_text(encoding='utf-8').splitlines()
+                             if not line.lstrip().startswith(('//', '*', '/*')))
             for name in ('Foundation Sunshine', 'AlkaidLab', 'Annex'):
                 self.assertNotIn(name, text, path)
 

@@ -95,6 +95,11 @@ pub enum ClientMessage {
     CursorShapeRequest {
         enabled: bool,
     },
+    /// Asks the host to say when one of its text fields takes or loses focus (0x553B), or
+    /// to stop.
+    TextInputRequest(rubylight_protocol::text_input::TextInputRequest),
+    /// The client's keyboard layout (0x553E), at stream start and when it changes.
+    KeyboardLayout(rubylight_protocol::keyboard_layout::KeyboardLayout),
     /// DualSense microphone PCM (0x5534), in the controller haptics layout.
     ControllerMicrophone(Vec<u8>),
     /// USB controller audio status (0x5535): which endpoints the client has open.
@@ -123,6 +128,8 @@ impl ClientMessage {
             Self::FecReport(_) => ptype::FEC_REPORT,
             Self::PipelineRatesRequest(_) => ptype::PIPELINE_RATES,
             Self::CursorShapeRequest { .. } => ptype::CURSOR_SHAPE_REQUEST,
+            Self::TextInputRequest(_) => ptype::TEXT_INPUT,
+            Self::KeyboardLayout(_) => ptype::KEYBOARD_LAYOUT,
             Self::ControllerMicrophone(_) => ptype::CONTROLLER_MICROPHONE,
             Self::ControllerAudioStatus { .. } => ptype::CONTROLLER_AUDIO_CONTROL,
         }
@@ -159,6 +166,9 @@ impl ClientMessage {
                 let edge = CURSOR_SHAPE_MAX_EDGE.to_le_bytes();
                 vec![CURSOR_SHAPE_VERSION, u8::from(*enabled), edge[0], edge[1]]
             }
+            Self::TextInputRequest(request) => request.encode().to_vec(),
+            // is_valid refuses a layout that does not encode.
+            Self::KeyboardLayout(layout) => layout.encode().unwrap_or_default(),
             Self::ControllerAudioStatus { controller, flags } => {
                 let id = controller.to_le_bytes();
                 vec![1, 1, id[0], id[1], *flags, 0, 0, 0]
@@ -201,6 +211,8 @@ impl ClientMessage {
             | Self::FecReport(_)
             | Self::PipelineRatesRequest(_)
             | Self::CursorShapeRequest { .. }
+            | Self::TextInputRequest(_)
+            | Self::KeyboardLayout(_)
             | Self::ControllerMicrophone(_)
             | Self::ControllerAudioStatus { .. } => Some(self.message_type()),
             _ => None,
@@ -231,6 +243,7 @@ impl ClientMessage {
             Self::ControllerAudioStatus { controller, flags } => {
                 *controller < 16 && flags & !15 == 0
             }
+            Self::KeyboardLayout(layout) => layout.encode().is_some(),
             _ => true,
         }
     }

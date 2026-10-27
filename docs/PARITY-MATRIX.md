@@ -36,6 +36,7 @@ Nightjar decides from what each host reports about itself, not from its name. A 
 | Automatic resolution/FPS | Opt-in motion, detail and battery modes with user floors and a session ceiling, on decoders supporting stream reconfiguration. Unsupported hosts and PyroWave retain their negotiated size; the message about it appears once per PC. | Hosts that advertise control message `0x5532` (currently Rubylight) |
 | Stream health | [Recent evidence](stream-health.md) for network, decoder, host, presentation and heat, with an optional reversible bitrate trial. | Any host. Bitrate trial: Rubylight |
 | Audio | Stereo, 5.1 and 7.1, with low-latency AAudio for stereo on Android 8.1 and later. | Any host |
+| Audio passthrough (Experimental) | Off by default. PCM, Dolby Digital (AC3) or Dolby Digital Plus (E-AC3, up to 5.1) for an output that plays it as is, picked from what the route reports (Android 10 and later, Rust engine); Opus otherwise, with a message. Dolby frames are 32 ms, so it arrives later than Opus. | Rubylight |
 | Controllers and mappings | Multiple players, per-model button, stick/trigger and D-pad mapping, and built-in Xbox USB drivers. | Any host |
 | Host cursor shapes | In Local cursor mode, draws the PC's own cursor image (I-beam, resize arrows, hidden while a game captures the mouse) instead of a plain arrow, while the host leaves it out of the video. Images are checked and decoded off the stream threads; anything malformed falls back to the arrow. See the [protocol proposal](protocol/cursor-shape.md). | None yet. Hosts that advertise `CursorShapeVersion` and control message `0x5540` |
 | Per-game touch controls | Held/toggle keyboard, mouse and gamepad buttons, analog sticks (fixed or floating), triggers, a D-pad and WASD sticks; layout editing with grid snapping; validated JSON import/export/sharing; import of Artemis keyboard layouts and Custom Keys files. | Any host |
@@ -83,6 +84,7 @@ Nightjar for Windows and Linux (`protocol/desktop`) uses the same Rust engine an
 | Instant mouse and pen input | Done | Done | |
 | Prioritize stream traffic | Not applicable | Done | The engine sets socket and thread priorities on Linux and Android only, so Windows does not show the setting. |
 | Audio, microphone | Done | Done | |
+| Audio passthrough | Experimental | Experimental | PCM only, played through SDL like decoded Opus; no Dolby (no AC3 decoder or IEC 61937 output). |
 | Controllers, DualSense, controller audio | Partial | Partial | Wired to SDL's gamepad API; not tried with physical controllers yet. |
 | Touch, pen, mouse and keyboard | Done | Done | Native touch and pen. No touch trackpad mode or on-screen controls. |
 | Clipboard / server commands, host cursor shapes | Done | Done | Gated by the host's features and device permissions. |
@@ -106,6 +108,7 @@ Status words: **same** (both engines do it and tests cover the Rust side), **C o
 | YUV 4:4:4 (packed) | Yes | Same | `packed444` and its modes are passed through; loopback test in `session_loopback.rs`. Device pending. |
 | PyroWave records, link and pace hints | Yes | Same, device pending | The fallback was removed. Records, SDP/RTSP negotiation and the queue are difftested and covered by `host_interop.rs`; no phone has streamed PyroWave through the Rust engine yet. |
 | Audio: stereo, 5.1, 7.1, high-quality surround, concealment | Yes | Same | Opus multistream decoded in Rust against the app's own `libopus.a`. |
+| Audio passthrough: PCM, AC3, E-AC3 | No | Yes, device pending | Rust only, on purpose: the C engine keeps Opus and says so. Rust asks with `x-rl-audio` and hands AC3 and E-AC3 frames to a passthrough AudioTrack; no TV or receiver has played it yet. |
 | Microphone | Yes | Same | Encrypted stream only, in both. |
 | Mouse, keyboard, scroll, text | Yes | Same | Return codes match the C API. |
 | Unbatched input (no 1 ms batching of mouse and pen motion) | Yes | Same | `unbatched_input`; tests `unbatched_motion_does_not_wait` and `batched_motion_still_waits_by_default`. |

@@ -147,6 +147,7 @@ These tables include every preference, including actions, grouped as the Setting
 | Play audio on the host PC<br>`checkbox_host_audio` | Off | On; Off | Enable to hear audio on the PC as well as Android. |
 | Send microphone to the PC<br>`checkbox_enable_mic` | Off | On; Off | Enable to talk in games and chat apps on the PC. Asks for microphone access; if it is not allowed, the setting stays off. The PC hears it as its streaming microphone. Mute it from the stream menu; the overlay shows whether it is sending. |
 | Allow system audio effects<br>`checkbox_enable_audiofx` | Off | On; Off | Enable for Android equalizers or effects. Can add delay and changes the audio output path. |
+| Audio passthrough (Experimental)<br>`checkbox_audio_passthrough` | Off | On; Off | Enable for a receiver, soundbar or TV that decodes Dolby Digital or Dolby Digital Plus, or takes multichannel PCM as is. Asks a Rubylight PC for a format the audio output reports it plays, and keeps Opus otherwise. Dolby comes in 32 ms frames, so sound arrives later than Opus. Android 10 and later with the New streaming engine; hidden elsewhere. |
 
 ### Streaming
 

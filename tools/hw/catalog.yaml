@@ -272,6 +272,38 @@ cases:
     status: pending
     note: stock Moonlight never sends the layout report (0x553E), so the host setting stands in for it
 
+  - id: hlg-gpu-tests
+    device: desktop
+    title: HLG and Dolby Vision 8.4 GPU tests (shader against the CPU reference, hdr_stats 1000-nit end, AMF bitstream)
+    command: '$env:BUTTERPOLLO_TEST_FFPROBE = (Get-Command ffprobe).Source; cargo +1.98.1-x86_64-pc-windows-gnu test -p butterpollo-windows --lib --locked -- --ignored hlg overlay_matches_the_reference *> {{out}}\hlg-gpu.log; exit $LASTEXITCODE'
+    preconditions: [idle, gpu-lock]
+    pass: exit 0; gpu_hlg_matches_the_cpu_reference_in_every_converter, hlg_stream_statistics_end_at_the_1000_nit_grading, hlg_and_dolby_vision_8_4_reach_the_bitstream (arib-std-b67, bt2020, NAL 62 only on HEVC 8.4) and the overlay reference test pass
+    pass_regex: 'test result: ok\. [1-9]'
+    output: '{{out}}\hlg-gpu.log'
+    status: pending
+    note: from rl-env.ps1 in the rl-dv worktree (-Var repo=C:\src\rl-dv) until it is on main; also run hdr10_metadata_and_range_reach_the_bitstream to see PQ still reports smpte2084
+
+  - id: hlg-stream
+    device: desktop
+    title: HLG and Dolby Vision 8.4 streams, HEVC hdrFormat 2 and 8, AV1 hdrFormat 2 (60 s each)
+    command: 'Write-Error "not scripted yet: see note"; exit 1'
+    preconditions: [idle, isolated-ports, gpu-lock]
+    verdict: review
+    pass: host log "HDR dynamic metadata on" with hlg=true, hdr10_plus=false, vivid=true on HEVC and dolby_vision=true on 8; the AV1 stream has no dynamic metadata and arib-std-b67; 5 s stream timings no worse than a PQ stream of the same size; packed 4:4:4 with hdrFormat 2 warns and streams HDR10
+    output: '{{out}}'
+    status: pending
+    note: steps in C:\src\butterpollo-release\unified\hw-queue.md "HLG and Dolby Vision 8.4 (rl-dv)" step 2 (--config-dir C:\tests\hdr --port 48123 --bind 127.0.0.1, hdr_hlg = true, hdr_dolby_vision = true, an HDR desktop)
+
+  - id: hlg-tcl-c6k
+    device: user
+    title: Dolby Vision on the TCL C6K through Nightjar while the host offers HLG and 8.4
+    command: 'Nightjar on the TV, HEVC HDR: stream with Dolby Vision on, then off'
+    preconditions: [idle]
+    pass: the TV's HDR badge reads Dolby Vision, then HDR10; no washed-out or clipped picture. Nightjar asks a screen with HDR10 for 8.1, never HLG or 8.4, so those come from hlg-stream
+    output: the host log's HDR dynamic metadata and stream timings lines (read after the user's run)
+    status: pending
+    note: steps in C:\src\butterpollo-release\unified\user-tests.md "tcl-c6k-hlg-dolby-vision"
+
   - id: smoke-laptop
     device: laptop
     title: Real-client smoke from the laptop (Moonlight-qt, AV1 and HEVC, 1968x2184 HDR 120 fps, 30 s each)

@@ -1,0 +1,3 @@
+# HLG
+- **HLG.** HEVC and AV1 HDR streams offer HLG to clients that ask for it, such as a TV or phone whose screen shows HLG and not HDR10: the picture is encoded with the HLG curve, graded for a 1000-nit display, and the screen tone-maps it from there. HEVC HLG streams carry HDR Vivid brightness statistics while HDR dynamic metadata is on. Stock Moonlight and other clients get HDR10 as before, and packed 4:4:4 streams stay HDR10. `hdr_hlg` (on by default) turns it off.
+- **Dolby Vision 8.4 (Experimental).** With HLG on, HEVC HDR streams also offer Dolby Vision profile 8.4 (an HLG picture with a Dolby Vision RPU on every frame) to clients whose Dolby Vision decoder asks for it; devices without Dolby Vision see the HLG stream.

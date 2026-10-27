@@ -410,7 +410,7 @@ mod tests {
         // The LFE's power doesn't count (its peaks, linked, would).
         let rumble = sine(-10., 40., 48_000 * 4, 1);
         let mut lfe = padded;
-        for (frame, x) in lfe.chunks_exact_mut(8).zip(&rumble) {
+        for (frame, x) in lfe.as_chunks_mut::<8>().0.iter_mut().zip(&rumble) {
             frame[LFE] = *x * 1e-3;
         }
         let mut with_lfe = Night::default();

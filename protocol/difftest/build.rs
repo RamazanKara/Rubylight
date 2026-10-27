@@ -23,6 +23,7 @@ const PATCHES: &[&str] = &[
     "pyrowave-link-hints.patch",
     "video-recv-buffer.patch",
     "clock-sync.patch",
+    "prefix-sei.patch",
 ];
 
 const WRAPPERS: &[&str] = &[

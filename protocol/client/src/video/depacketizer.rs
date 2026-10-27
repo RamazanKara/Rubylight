@@ -2,6 +2,8 @@
 //! H.264 and HEVC, the IDR and RFI wait states, and loss reporting. Port of
 //! `VideoDepacketizer.c` and Nightjar's `android_depacketizer.c` (PyroWave record envelopes).
 
+use std::ops::Range;
+
 use super::{
     is_before24, is_before32, le32, BufferType, Codec, Frame, FrameBuffer, FrameType, Io, Packet,
     VideoConfig, VideoSignal, VideoSink, COLORSPACE_REC_2020, FLAG_CONTAINS_PIC_DATA, FLAG_EOF,
@@ -277,14 +279,27 @@ impl Depacketizer {
     }
 
     /// The first packet of an H.264 or HEVC key frame: parameter sets padded apart, then
-    /// the picture data to the end of the packet.
-    fn process_avc_hevc_payload_slow(&mut self, data: &[u8], mut cur: Desc) {
+    /// the picture data to the end of the packet. Prefix SEI (`sei`, the run before the
+    /// parameter sets, and any between them) goes with the picture data, after every
+    /// parameter set: renderers hand parameter sets to the decoder on their own, so picture
+    /// data before one would be overwritten.
+    fn process_avc_hevc_payload_slow(&mut self, data: &[u8], mut cur: Desc, sei: Range<usize>) {
+        let mut held: Vec<Range<usize>> = Vec::new();
+        if !sei.is_empty() {
+            held.push(sei);
+        }
         while cur.length != 0 {
             if Self::start_sequence(data, cur).is_none() {
                 Self::skip_to_next_nal_or_end(data, &mut cur);
             }
-            while self.is_access_unit_delimiter(data, cur) || self.is_sei_nal(data, cur) {
+            while self.is_access_unit_delimiter(data, cur) {
                 Self::skip_to_next_nal_or_end(data, &mut cur);
+            }
+            if self.is_sei_nal(data, cur) {
+                let start = cur.offset;
+                Self::skip_to_next_nal_or_end(data, &mut cur);
+                held.push(start..cur.offset);
+                continue;
             }
 
             let start = cur.offset;
@@ -303,7 +318,17 @@ impl Depacketizer {
                     Self::skip_to_next_nal_or_end(data, &mut cur);
                 }
             }
-            self.queue_fragment(&data[start..cur.offset]);
+            let fragment = &data[start..cur.offset];
+            if self.buffer_type(fragment) == BufferType::PicData {
+                for range in held.drain(..) {
+                    self.queue_fragment(&data[range]);
+                }
+            }
+            self.queue_fragment(fragment);
+        }
+        // SEI at the packet's end: the picture data follows in the next packet.
+        for range in held {
+            self.queue_fragment(&data[range]);
         }
     }
 
@@ -446,6 +471,8 @@ impl Depacketizer {
         self.last_packet_in_stream = stream_packet_index;
 
         let mut frame_header_size = 0;
+        // The first packet's prefix SEI after the AUD, which the decoder gets (HDR10+ among it).
+        let mut sei = cur.offset..cur.offset;
         if first_packet && cur.length > 0 {
             if self.frame_type_header && cur.length >= 4 {
                 match data[cur.offset + 3] {
@@ -494,19 +521,28 @@ impl Depacketizer {
                 if self.is_access_unit_delimiter(data, cur) {
                     Self::skip_to_next_nal_or_end(data, &mut cur);
                 }
+                // Skipped only to find what follows: the SEI stays in the frame.
+                sei = cur.offset..cur.offset;
                 while self.is_sei_nal(data, cur) {
                     Self::skip_to_next_nal_or_end(data, &mut cur);
                 }
+                sei.end = cur.offset;
             }
         }
 
         if self.codec != Codec::Opaque {
             if first_packet && self.is_idr_frame_start(data, cur) {
-                self.process_avc_hevc_payload_slow(data, cur);
+                self.process_avc_hevc_payload_slow(data, cur, sei);
             } else {
                 // Intel's H.264 Media Foundation encoder prepends a PPS to each P-frame.
                 if first_packet && self.is_picture_parameter_set_nal(data, cur) {
+                    if !sei.is_empty() {
+                        self.queue_fragment(&data[sei]);
+                    }
                     Self::skip_to_next_nal_or_end(data, &mut cur);
+                } else {
+                    cur.length += cur.offset - sei.start;
+                    cur.offset = sei.start;
                 }
                 self.queue_fragment(&data[cur.offset..cur.offset + cur.length]);
             }

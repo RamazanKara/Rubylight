@@ -1,0 +1,137 @@
+diff --git a/src/VideoDepacketizer.c b/src/VideoDepacketizer.c
+index ea8be2d..90d3f92 100644
+--- a/src/VideoDepacketizer.c
++++ b/src/VideoDepacketizer.c
+@@ -656,25 +656,55 @@ static void queueFragment(PLENTRY_INTERNAL* existingEntry, char* data, int offse
+     }
+ }
+ 
+-// Process an RTP Payload using the slow path that handles multiple NALUs per packet
+-static void processAvcHevcRtpPayloadSlow(PBUFFER_DESC currentPos, PLENTRY_INTERNAL* existingEntry) {
++// Nightjar: prefix SEI runs held back in the first packet of a key frame.
++#define MAX_HELD_SEI 8
++
++// Process an RTP Payload using the slow path that handles multiple NALUs per packet.
++// Nightjar: prefix SEI (seiOffset/seiLength, the run before the parameter sets, and any
++// between them) goes with the picture data, after every parameter set: renderers submit
++// parameter sets on their own from the start of their buffer, over picture data queued
++// before them. Runs past MAX_HELD_SEI are dropped as before.
++static void processAvcHevcRtpPayloadSlow(PBUFFER_DESC currentPos, PLENTRY_INTERNAL* existingEntry,
++                                         int seiOffset, int seiLength) {
++    int heldOffset[MAX_HELD_SEI];
++    int heldLength[MAX_HELD_SEI];
++    int held = 0;
++    int i;
++
+     // We should not have any NALUs when processing the first packet in an IDR frame
+     LC_ASSERT(nalChainHead == NULL);
+     LC_ASSERT(nalChainTail == NULL);
+ 
++    if (seiLength != 0) {
++        heldOffset[held] = seiOffset;
++        heldLength[held] = seiLength;
++        held++;
++    }
++
+     while (currentPos->length != 0) {
+         // Skip through any padding bytes
+         if (!getAnnexBStartSequence(currentPos, NULL)) {
+             skipToNextNal(currentPos);
+         }
+ 
+-        // Skip any prepended AUD or SEI NALUs. We may have padding between
++        // Skip any prepended AUD NALUs. We may have padding between
+         // these on IDR frames, so the check in processRtpPayload() is not
+         // completely sufficient to handle that case.
+-        while (isAccessUnitDelimiter(currentPos) || isSeiNal(currentPos)) {
++        while (isAccessUnitDelimiter(currentPos)) {
+             skipToNextNal(currentPos);
+         }
+ 
++        if (isSeiNal(currentPos)) {
++            int seiStart = currentPos->offset;
++            skipToNextNalOrEnd(currentPos);
++            if (held < MAX_HELD_SEI) {
++                heldOffset[held] = seiStart;
++                heldLength[held] = currentPos->offset - seiStart;
++                held++;
++            }
++            continue;
++        }
++
+         int start = currentPos->offset;
+         bool containsPicData = false;
+ 
+@@ -711,11 +741,24 @@ static void processAvcHevcRtpPayloadSlow(PBUFFER_DESC currentPos, PLENTRY_INTERN
+             }
+         }
+ 
++        // The held SEI goes before the first picture data, copied while the packet is ours.
++        if (getBufferFlags(&currentPos->data[start], currentPos->offset - start) == BUFFER_TYPE_PICDATA) {
++            for (i = 0; i < held; i++) {
++                queueFragment(NULL, currentPos->data, heldOffset[i], heldLength[i]);
++            }
++            held = 0;
++        }
++
+         // To minimize copies, we'll allocate for SPS, PPS, and VPS to allow
+         // us to reuse the packet buffer for the picture data in the I-frame.
+         queueFragment(containsPicData ? existingEntry : NULL,
+                       currentPos->data, start, currentPos->offset - start);
+     }
++
++    // SEI at the packet's end: the picture data follows in the next packet.
++    for (i = 0; i < held; i++) {
++        queueFragment(NULL, currentPos->data, heldOffset[i], heldLength[i]);
++    }
+ }
+ 
+ // Dumps the decode unit queue and ensures the next frame submitted to the decoder will be
+@@ -856,6 +899,9 @@ static void processRtpPayload(PNV_VIDEO_PACKET videoPacket, int length,
+ 
+     // If this is the first packet, skip the frame header (if one exists)
+     uint32_t frameHeaderSize;
++    // Nightjar: the first packet's prefix SEI after the AUD, which the decoder gets.
++    int seiOffset = currentPos.offset;
++    int seiLength = 0;
+     LC_ASSERT_VT(currentPos.length > 0);
+     if (firstPacket && currentPos.length > 0) {
+         // Parse the frame type from the header
+@@ -997,10 +1043,13 @@ static void processRtpPayload(PNV_VIDEO_PACKET videoPacket, int length,
+             }
+ 
+             // There may be one or more SEI NAL units prepended to the
+-            // frame data *after* the (optional) AUD.
++            // frame data *after* the (optional) AUD. Nightjar: they stay in the
++            // frame (HDR10+ rides in them); this only finds what follows.
++            seiOffset = currentPos.offset;
+             while (isSeiNal(&currentPos)) {
+                 skipToNextNal(&currentPos);
+             }
++            seiLength = currentPos.offset - seiOffset;
+         }
+     }
+     else {
+@@ -1011,14 +1060,21 @@ static void processRtpPayload(PNV_VIDEO_PACKET videoPacket, int length,
+     if (NegotiatedVideoFormat & (VIDEO_FORMAT_MASK_H264 | VIDEO_FORMAT_MASK_H265)) {
+         if (firstPacket && isIdrFrameStart(&currentPos)) {
+             // SPS and PPS prefix is padded between NALs, so we must decode it with the slow path
+-            processAvcHevcRtpPayloadSlow(&currentPos, existingEntry);
++            processAvcHevcRtpPayloadSlow(&currentPos, existingEntry, seiOffset, seiLength);
+         }
+         else {
+             // Intel's H.264 Media Foundation encoder prepends a PPS to each P-frame.
+             // Skip it to avoid confusing clients.
+             if (firstPacket && isPictureParameterSetNal(&currentPos)) {
++                if (seiLength != 0) {
++                    queueFragment(NULL, currentPos.data, seiOffset, seiLength);
++                }
+                 skipToNextNal(&currentPos);
+             }
++            else {
++                currentPos.length += currentPos.offset - seiOffset;
++                currentPos.offset = seiOffset;
++            }
+ 
+ #ifdef FORCE_3_BYTE_START_SEQUENCES
+             if (firstPacket) {

@@ -254,4 +254,5 @@ fn fec_status_wire_format() {
 }
 
 pub(crate) mod early_chunks;
+mod sei;
 mod slice_delivery;

@@ -1715,7 +1715,7 @@ mod tests {
                 (port, None, server)
             };
             let request = Request { host: &host_name, port, target: "files", tls: config,
-                timeouts: Timeouts { connect: Duration::from_secs(1), read: Some(Duration::from_millis(500)) }, body_limit: 1024 };
+                timeouts: Timeouts { connect: Duration::from_secs(1), read: Some(Duration::from_secs(1)) }, body_limit: 1024 };
             let mut last = 0;
             let started = std::time::Instant::now();
             let result = upload(&request, &Cancel::default(),
@@ -1725,7 +1725,9 @@ mod tests {
             assert!(matches!(&result, Err(Error::Io(e)) if matches!(e.kind(), ErrorKind::TimedOut | ErrorKind::WouldBlock)),
                 "tls {tls}: {result:?}");
             assert!(last < length, "tls {tls}: the host took it all");
-            assert!(took < Duration::from_millis(950), "tls {tls}: {took:?}");
+            // Under two timeouts: 1 s leaves a loaded PC room for the handshake and the rest
+            // (500 ms timed the handshake out and left 450 ms, which a busy run overshot).
+            assert!(took < Duration::from_millis(1900), "tls {tls}: {took:?}");
             server.join().unwrap();
         }
     }

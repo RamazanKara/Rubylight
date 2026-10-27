@@ -86,16 +86,51 @@ fn the_body_ends_at_its_size_or_its_deadline() {
     runtime.block_on(async {
         let deadline = Instant::now() + Duration::from_secs(60);
         let mut full = vec![];
-        let n = ProbeBody::new(probe::MAX_BYTES as usize, deadline)
+        let n = ProbeBody::new(probe::MAX_BYTES as usize, deadline, || false)
             .read_to_end(&mut full)
             .await
             .unwrap();
         assert_eq!(n, probe::MAX_BYTES as usize);
         let mut late = vec![];
-        let n = ProbeBody::new(1 << 20, Instant::now())
+        let n = ProbeBody::new(1 << 20, Instant::now(), || false)
             .read_to_end(&mut late)
             .await
             .unwrap();
         assert_eq!(n, 0, "past its deadline the body ends");
+    });
+}
+
+#[test]
+fn the_body_stops_when_a_stream_runs_or_starts() {
+    use tokio::io::AsyncReadExt;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let f = Fixture::new();
+        let client = f.client(u32::MAX);
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let mut chunk = vec![0; 64 * 1024];
+
+        // A launch that is still pending ends the body.
+        let mut body = ProbeBody::new(probe::MAX_BYTES as usize, deadline, stream_starts(&f.host));
+        assert_eq!(body.read(&mut chunk).await.unwrap(), chunk.len());
+        let launch = f.launch(client.clone(), Role::Stream);
+        f.host
+            .sessions
+            .lock()
+            .unwrap()
+            .pending
+            .insert(launch.id.clone(), launch.clone());
+        let mut rest = vec![];
+        assert_eq!(body.read_to_end(&mut rest).await.unwrap(), 0);
+        f.host.sessions.lock().unwrap().pending.remove(&launch.id);
+
+        // So does a stream that is running.
+        let mut body = ProbeBody::new(probe::MAX_BYTES as usize, deadline, stream_starts(&f.host));
+        assert_eq!(body.read(&mut chunk).await.unwrap(), chunk.len());
+        let session = f.session(client, Role::Stream);
+        assert_eq!(body.read_to_end(&mut rest).await.unwrap(), 0);
+        drop(session);
     });
 }

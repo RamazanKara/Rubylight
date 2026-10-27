@@ -669,8 +669,8 @@ async fn pyrowave_bandwidth(
 }
 /// `GET /bandwidth-probe?bytes=N` (`butterpollo_core::bandwidth_probe`): an
 /// incompressible body a paired client times before it picks its first
-/// bitrate, for every codec. Refused while a stream runs or starts, and
-/// past each client's cooldown and budget.
+/// bitrate, for every codec. Refused while a stream runs or starts, cut short
+/// when one starts meanwhile, and past each client's cooldown and budget.
 async fn bandwidth_probe(
     State(h): State<Shared>,
     Extension(connection): Extension<Connection>,
@@ -695,7 +695,7 @@ async fn bandwidth_probe(
     let busy = {
         let mut sessions = h.sessions.lock().unwrap();
         let expired = sessions.expire();
-        let busy = !sessions.active.is_empty() || !sessions.pending.is_empty();
+        let busy = streaming(&sessions);
         drop(sessions);
         drop(expired);
         busy
@@ -728,25 +728,41 @@ async fn bandwidth_probe(
             (header::CACHE_CONTROL, "no-store"),
         ],
         axum::body::Body::from_stream(tokio_util::io::ReaderStream::with_capacity(
-            ProbeBody::new(bytes as usize, Instant::now() + probe::MAX_DURATION),
+            ProbeBody::new(
+                bytes as usize,
+                Instant::now() + probe::MAX_DURATION,
+                stream_starts(&h),
+            ),
             64 * 1024,
         )),
     )
         .into_response()
 }
+/// Whether a stream runs or starts, which a probe must not compete with.
+fn streaming(sessions: &crate::state::Sessions) -> bool {
+    !sessions.active.is_empty() || !sessions.pending.is_empty()
+}
+/// Whether a stream runs or starts on `h` now, for a probe body to stop at.
+fn stream_starts(h: &Shared) -> impl Fn() -> bool + Send + Unpin + 'static {
+    let h = h.clone();
+    move || streaming(&h.sessions.lock().unwrap())
+}
 /// The bandwidth probe's body: random bytes, which no compression on the path
-/// can shrink, until `remaining` is sent or the deadline passes.
-struct ProbeBody {
+/// can shrink, until `remaining` is sent, the deadline passes or `busy` says a
+/// stream runs or starts.
+struct ProbeBody<F> {
     remaining: usize,
     offset: usize,
     deadline: Instant,
+    busy: F,
 }
-impl ProbeBody {
-    fn new(remaining: usize, deadline: Instant) -> Self {
+impl<F: Fn() -> bool> ProbeBody<F> {
+    fn new(remaining: usize, deadline: Instant, busy: F) -> Self {
         Self {
             remaining,
             offset: 0,
             deadline,
+            busy,
         }
     }
     fn noise() -> &'static [u8] {
@@ -759,13 +775,21 @@ impl ProbeBody {
         })
     }
 }
-impl tokio::io::AsyncRead for ProbeBody {
+impl<F: Fn() -> bool + Unpin> tokio::io::AsyncRead for ProbeBody<F> {
     fn poll_read(
         mut self: std::pin::Pin<&mut Self>,
         _: &mut std::task::Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
-        // The body ends early at the deadline: the client times what arrived.
+        // The body ends early at the deadline, or when a stream runs or
+        // starts: the client times what arrived.
+        if self.remaining > 0 && (self.busy)() {
+            tracing::info!(
+                unsent = self.remaining,
+                "bandwidth probe stopped for a stream"
+            );
+            self.remaining = 0;
+        }
         if self.remaining > 0 && Instant::now() < self.deadline {
             let noise = Self::noise();
             let n = self

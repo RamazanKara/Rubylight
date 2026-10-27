@@ -1589,6 +1589,41 @@ mod tests {
         assert_eq!(cursor_in_stream(POINT { x: 2560, y: 0 }, empty, None), None);
     }
 
+    #[test]
+    fn a_turned_portrait_display_maps_the_stream_upright() {
+        // A 2560x1440 monitor turned to portrait left of the primary one: Windows
+        // gives its desktop the turned size, and capture streams it upright.
+        let rect = RECT {
+            left: -1440,
+            top: 0,
+            right: 0,
+            bottom: 2560,
+        };
+        let at = |x, y, picture| cursor_in_stream(POINT { x, y }, rect, picture);
+        assert_eq!(at(-1440, 0, None), Some((0., 0.)));
+        assert_eq!(at(-720, 1280, None), Some((0.5, 0.5)));
+        assert_eq!(at(-1440, 1920, None), Some((0., 0.75)));
+        // Its old landscape extent is off the display now.
+        assert_eq!(at(-1440, 2560, None), None);
+        assert_eq!(at(1000, 100, None), None);
+        // A portrait phone's 1080x2400 stream holds the 9:16 desktop with bars
+        // above and below, and a point maps there and back.
+        let stream = (1080, 2400);
+        let picture = butterpollo_core::display_policy::picture((1440, 2560), stream).unwrap();
+        assert_eq!(picture, (0, 240, 1080, 1920));
+        assert_eq!(at(-1440, 0, Some((stream, picture))), Some((0., 0.1)));
+        let (x, y) = at(-1440 + 360, 1920, Some((stream, picture))).unwrap();
+        let back = butterpollo_core::display_policy::stream_to_picture(
+            (f64::from(x), f64::from(y)),
+            stream,
+            picture,
+        );
+        assert!(
+            (back.0 - 0.25).abs() < 1e-6 && (back.1 - 0.75).abs() < 1e-6,
+            "{back:?}"
+        );
+    }
+
     fn non_normalized(key: u16, down: bool) -> Event {
         Event::Keyboard {
             key,

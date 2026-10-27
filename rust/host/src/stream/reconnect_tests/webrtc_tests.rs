@@ -173,6 +173,12 @@ impl Peer {
     /// The peer and the answer SDP for `offer`.
     fn answer(offer: &str, spec: &OfferSpec) -> (Self, String) {
         let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        // The host's video fills the default 64 KB while a busy test runner deschedules this
+        // peer, and the drops take the host's SCTP acknowledgements with them: a lost one costs
+        // a retransmission timeout of a second or more.
+        socket2::SockRef::from(&socket)
+            .set_recv_buffer_size(8 * 1024 * 1024)
+            .unwrap();
         let local = socket.local_addr().unwrap();
         let mut rtc = peer_sdp::client(spec, local);
         let answer = peer_sdp::answer_for(&mut rtc, offer, spec);
@@ -258,9 +264,16 @@ impl Peer {
                         .expect("receiving video")
                         .request_keyframe(KeyframeRequestKind::Pli);
                 }
+                // A write the channel does not accept (`Ok(false)`, its buffer is full) is
+                // retried, in order.
                 if let Some(id) = control_channel {
-                    for text in control.lock().unwrap().drain(..) {
-                        let _ = rtc.channel(id).map(|mut c| c.write(false, text.as_bytes()));
+                    let mut control = control.lock().unwrap();
+                    while control.first().is_some_and(|text| {
+                        rtc.channel(id).is_some_and(|mut c| {
+                            matches!(c.write(false, text.as_bytes()), Ok(true))
+                        })
+                    }) {
+                        control.remove(0);
                     }
                 }
                 pending.extend(outbox.lock().unwrap().drain(..));
@@ -268,8 +281,9 @@ impl Peer {
                 while let Some(item) = pending.pop_front() {
                     let sent = match &item {
                         Outgoing::Gamepad(text) => gamepad_channel.is_some_and(|id| {
-                            rtc.channel(id)
-                                .is_some_and(|mut c| c.write(false, text.as_bytes()).is_ok())
+                            rtc.channel(id).is_some_and(|mut c| {
+                                matches!(c.write(false, text.as_bytes()), Ok(true))
+                            })
                         }),
                         Outgoing::OpenInput => {
                             let mut api = rtc.sdp_api();
@@ -286,7 +300,7 @@ impl Peer {
                             input_open
                                 && input_channel.is_some_and(|id| {
                                     rtc.channel(id).is_some_and(|mut c| {
-                                        c.write(false, text.as_bytes()).is_ok()
+                                        matches!(c.write(false, text.as_bytes()), Ok(true))
                                     })
                                 })
                         }
@@ -385,11 +399,14 @@ impl Drop for Peer {
     }
 }
 
-const MEDIA_PORTS: u16 = 50000 - 44000;
+/// Media ports go in pairs: the port and the claim on it.
+const MEDIA_PORTS: u16 = (50000 - 44000) / 2;
 
-// Each test process starts at its own port, as `free_ports` does: two runs of this
-// binary at once both starting at 44000 took each other's freed media port.
-fn media_port() -> u16 {
+// Each test process starts at its own pair, as `free_ports` does: two runs of this
+// binary at once both starting at 44000 took each other's freed media port. The host
+// binds the port only when a session starts, so the harness holds the pair's other
+// port meanwhile, as `claim_slot` does, and a run that finds it held skips the pair.
+fn media_port() -> (u16, UdpSocket) {
     static NEXT: AtomicU16 = AtomicU16::new(0);
     let start = (std::process::id() % u32::from(MEDIA_PORTS)) as u16;
     loop {
@@ -398,9 +415,11 @@ fn media_port() -> u16 {
             index < MEDIA_PORTS,
             "fixture WebRTC media port range exhausted"
         );
-        let port = 44000 + (start + index) % MEDIA_PORTS;
-        if UdpSocket::bind(address(port)).is_ok() {
-            return port;
+        let port = 44000 + ((start + index) % MEDIA_PORTS) * 2;
+        if let Ok(claim) = UdpSocket::bind(address(port + 1))
+            && UdpSocket::bind(address(port)).is_ok()
+        {
+            return (port, claim);
         }
     }
 }
@@ -411,13 +430,15 @@ struct Web {
     server: Option<server::Running>,
     signalling: SocketAddr,
     media_port: u16,
+    /// Keeps other runs of this binary off `media_port`.
+    _media_claim: UdpSocket,
 }
 
 impl Web {
     async fn new() -> Result<Self> {
         let harness = Harness::new(10_000, 1).await?;
         harness.h.codecs.fetch_or(0x100, Ordering::AcqRel);
-        let media_port = media_port();
+        let (media_port, media_claim) = media_port();
         harness
             .h
             .config
@@ -448,6 +469,7 @@ impl Web {
             server: Some(server),
             signalling,
             media_port,
+            _media_claim: media_claim,
         })
     }
 

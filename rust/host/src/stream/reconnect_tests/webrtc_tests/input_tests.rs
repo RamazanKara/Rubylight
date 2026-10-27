@@ -74,15 +74,17 @@ async fn a_gamepad_connects_changes_and_leaves_through_the_dispatcher() -> Resul
     let web = Web::new().await?;
     let rec = recorder(&web);
     let (_ws, peer) = live(&web, u32::MAX).await;
-    peer.gamepad(&connected(4));
+    // The gamepad channel is unordered without retransmits: each message goes again on
+    // every poll until the host has it, as a browser sends a pad's state.
     until("the pad arrived", WAIT, || {
+        peer.gamepad(&connected(4));
         rec.events()
             .iter()
             .any(|e| matches!(e, Input::Arrival { id: 0, kind: 1, .. }))
     })
     .await;
-    peer.gamepad(&state(4, 5, A, 0.));
     until("A pressed", WAIT, || {
+        peer.gamepad(&state(4, 5, A, 0.));
         rec.events().iter().any(|e| {
             matches!(
                 e,
@@ -96,8 +98,8 @@ async fn a_gamepad_connects_changes_and_leaves_through_the_dispatcher() -> Resul
     .await;
     // An older snapshot does not undo it; the next one does count.
     peer.gamepad(&state(4, 4, B, 0.));
-    peer.gamepad(&state(4, 6, 0, 0.));
     until("A released", WAIT, || {
+        peer.gamepad(&state(4, 6, 0, 0.));
         rec.events().iter().any(|e| {
             matches!(
                 e,
@@ -120,8 +122,8 @@ async fn a_gamepad_connects_changes_and_leaves_through_the_dispatcher() -> Resul
         )),
         "the stale B press reached the injector"
     );
-    peer.gamepad(r#"{"v":2,"type":"gamepad-disconnected","controllerId":4}"#);
     until("the pad left", WAIT, || {
+        peer.gamepad(r#"{"v":2,"type":"gamepad-disconnected","controllerId":4}"#);
         rec.events()
             .iter()
             .any(|e| matches!(e, Input::Controller { active: 0, .. }))
@@ -135,8 +137,11 @@ async fn rumble_reaches_the_client_scaled_to_zero_to_one() -> Result<()> {
     let web = Web::new().await?;
     let rec = recorder(&web);
     let (_ws, peer) = live(&web, u32::MAX).await;
-    peer.gamepad(&connected(9));
-    until("the pad arrived", WAIT, || !rec.events().is_empty()).await;
+    until("the pad arrived", WAIT, || {
+        peer.gamepad(&connected(9));
+        !rec.events().is_empty()
+    })
+    .await;
     rec.post_feedback(0, crate::stream::RUMBLE_DATA, &[0xff, 0xff, 0x00, 0x80]);
     until("rumble reached the client", WAIT, || {
         !peer.heard("rumble").is_empty()
@@ -311,9 +316,9 @@ async fn a_stop_or_switch_releases_held_input_and_drops_the_injector() -> Result
     let peer = stream(&web, &mut ws).await;
     peer.open_input();
     peer.input(&key("KeyA", true));
-    peer.gamepad(&connected(2));
-    peer.gamepad(&state(2, 1, A, 0.));
     until("the pad is pressed", WAIT, || {
+        peer.gamepad(&connected(2));
+        peer.gamepad(&state(2, 1, A, 0.));
         rec.events().iter().any(|e| {
             matches!(
                 e,
@@ -349,6 +354,8 @@ async fn a_stop_or_switch_releases_held_input_and_drops_the_injector() -> Result
     rec.clear();
     let (id, peer) = answer(&mut ws, VideoCodec::H264).await;
     streaming(&mut ws, id).await;
+    // As `stream` does: the transport is up before the input channel opens.
+    until("video received", WAIT, || peer.count() >= 2).await;
     peer.open_input();
     peer.input(&key("KeyB", true));
     peer.input(r#"{"v":1,"type":"mouse-button","button":0,"down":true}"#);

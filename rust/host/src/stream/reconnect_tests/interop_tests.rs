@@ -709,8 +709,9 @@ fn expected(feature: Feature) -> Availability {
         // The 3.0 extensions are defined but offered by nothing yet.
         Feature::UsbForwarding
         | Feature::PenBarrelRoll
-        | Feature::ImageClipboard
         | Feature::SharedFolders => Unsupported(None),
+        // clipboard_image is on by default.
+        Feature::ImageClipboard => Supported,
     }
 }
 
@@ -763,8 +764,8 @@ async fn nightjar_knows_every_capability_the_host_advertises() -> Result<()> {
         );
     }
 
-    // Of the native API's features Nightjar reads only the file transfer ones, which
-    // `expected` and the file transfer tests check.
+    // Of the native API's features Nightjar reads the file transfer ones and the
+    // 3.0 extensions, which `expected` and the file transfer tests check.
     let native = client.native_capabilities_with_files()?;
     let capabilities = info.capabilities.with_native(&native);
     let offered: Vec<_> = Feature::ALL

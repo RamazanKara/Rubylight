@@ -375,7 +375,8 @@ async fn capabilities_list_the_features_and_the_callers_permissions() {
             "session.close_game",
             "session.launcher",
             "wake",
-            "session.couch_menu"
+            "session.couch_menu",
+            "clipboard.image"
         ]
     );
     let permissions = capabilities.permissions;

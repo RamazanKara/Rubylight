@@ -14,6 +14,8 @@ use parity_tests::ensure_streaming_session as ensure_windows_streaming_session;
 fn virtual_display_available() -> bool {
     false
 }
+// Tests never touch the clipboard of the PC running them: they get the fake
+// in parity_tests.
 use axum::{
     Extension, Router,
     body::Bytes,
@@ -29,6 +31,10 @@ use butterpollo_core::{
     session::{Role, Transport},
     state::{App, Client},
 };
+#[cfg(not(test))]
+use butterpollo_windows::clipboard;
+#[cfg(test)]
+use parity_tests::clipboard;
 use serde_json::json;
 use std::{
     collections::{BTreeMap, HashMap},
@@ -247,9 +253,14 @@ pub fn router(h: Shared, https: bool) -> Router {
                 get(bandwidth_probe),
             )
             .route("/pyrowave-udp-probe", get(pyrowave_udp_probe))
+            // An image may be larger than the 1 MiB below: `clipboard_write`
+            // sets the limit for each type.
             .route(
                 "/actions/clipboard",
-                get(clipboard_read).post(clipboard_write),
+                get(clipboard_read).merge(
+                    axum::routing::post(clipboard_write)
+                        .layer(axum::extract::DefaultBodyLimit::disable()),
+                ),
             )
             // Sleep PC, as Vibepollo serves it. Every method reaches the
             // sleep route, which refuses all but POST in its own format.
@@ -2375,14 +2386,48 @@ async fn appasset(
         _ => StatusCode::NOT_FOUND.into_response(),
     }
 }
-fn clipboard_client(h: &Shared, c: &Connection, permission: u32, args: &Args) -> Result<()> {
+/// What `/actions/clipboard` carries: `type=text`, or `type=png` while the
+/// host's `clipboard_image` setting is on (`docs/native-api.md`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum ClipboardType {
+    Text,
+    Png,
+}
+fn clipboard_type(args: &Args) -> Option<ClipboardType> {
+    match args.get("type").map(String::as_str) {
+        Some("text") => Some(ClipboardType::Text),
+        Some("png") => Some(ClipboardType::Png),
+        _ => None,
+    }
+}
+/// The longest body a device may send for `kind`: the 1 MiB of the other
+/// routes for text, `clipboard_image_max_mb` for an image.
+fn clipboard_limit(h: &Shared, kind: Option<ClipboardType>) -> usize {
+    match kind {
+        Some(ClipboardType::Png) => {
+            let max = h.config.read().unwrap().clipboard_image_max_bytes();
+            usize::try_from(max).unwrap_or(usize::MAX)
+        }
+        _ => 1024 * 1024,
+    }
+}
+fn clipboard_client(
+    h: &Shared,
+    c: &Connection,
+    permission: u32,
+    args: &Args,
+) -> Result<ClipboardType> {
     let client = authenticated(h, c, permission)?;
     if client.perm & ((1 << 25) | (1 << 26)) == 0 {
         bail!("view permission required");
     }
-    if args.get("type").is_none_or(|v| v != "text") {
-        bail!("only text clipboard data is supported");
-    }
+    let kind = match clipboard_type(args) {
+        Some(ClipboardType::Png) if !h.config.read().unwrap().clipboard_image() => {
+            bail!("the image clipboard is off on this host")
+        }
+        Some(kind) => kind,
+        None => bail!("only text and PNG clipboard data are supported"),
+    };
     let sessions: Vec<_> = h
         .sessions
         .lock()
@@ -2404,39 +2449,117 @@ fn clipboard_client(h: &Shared, c: &Connection, permission: u32, args: &Args) ->
     }) {
         bail!("clipboard access is off for background streams");
     }
-    Ok(())
+    Ok(kind)
 }
 async fn clipboard_read(
     State(h): State<Shared>,
     Extension(c): Extension<Connection>,
     Query(args): Query<Args>,
 ) -> Response {
-    if clipboard_client(&h, &c, 1 << 17, &args).is_err() {
+    let Ok(kind) = clipboard_client(&h, &c, 1 << 17, &args) else {
         return StatusCode::FORBIDDEN.into_response();
+    };
+    if kind == ClipboardType::Png {
+        let max = clipboard_limit(&h, Some(kind));
+        return match tokio::task::spawn_blocking(move || clipboard::read_png(max)).await {
+            Ok(Ok(Some(png))) => ([(header::CONTENT_TYPE, "image/png")], png).into_response(),
+            Ok(Ok(None)) => StatusCode::NOT_FOUND.into_response(),
+            // The device did nothing wrong: an image this host can't
+            // convert is 415 whatever is wrong with it.
+            Ok(Err(error)) => {
+                clipboard_image_failure("reading", &error, StatusCode::UNSUPPORTED_MEDIA_TYPE)
+            }
+            Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        };
     }
-    match tokio::task::spawn_blocking(butterpollo_windows::clipboard::read).await {
+    match tokio::task::spawn_blocking(clipboard::read).await {
         Ok(Ok(text)) => {
             ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], text).into_response()
         }
         _ => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
+/// The body takes no more memory than the type's limit: a longer one is 413
+/// before it is read, if it says so, and once it passes the limit if not.
+/// An image's dimensions are then checked before its pixels are decoded
+/// (`butterpollo_core::clipboard_image`).
 async fn clipboard_write(
     State(h): State<Shared>,
     Extension(c): Extension<Connection>,
     Query(args): Query<Args>,
-    body: Bytes,
+    request: axum::extract::Request,
 ) -> Response {
-    if clipboard_client(&h, &c, 1 << 16, &args).is_err() {
-        return StatusCode::FORBIDDEN.into_response();
+    // Refused before anything else, as the 1 MiB request limit was.
+    let limit = clipboard_limit(&h, clipboard_type(&args));
+    let declared = request
+        .headers()
+        .get(header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok()?.trim().parse::<u64>().ok());
+    if declared.is_some_and(|length| length > limit as u64) {
+        return StatusCode::PAYLOAD_TOO_LARGE.into_response();
     }
-    let Ok(text) = std::str::from_utf8(&body).map(str::to_owned) else {
+    let Ok(kind) = clipboard_client(&h, &c, 1 << 16, &args) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    if kind == ClipboardType::Png && !is_png_content_type(request.headers()) {
+        return StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response();
+    }
+    let body = match body_within(request.into_body(), limit).await {
+        Ok(body) => body,
+        Err(status) => return status.into_response(),
+    };
+    if kind == ClipboardType::Png {
+        return match tokio::task::spawn_blocking(move || clipboard::write_png(&body)).await {
+            Ok(Ok(())) => StatusCode::OK.into_response(),
+            Ok(Err(error)) => clipboard_image_failure("writing", &error, StatusCode::BAD_REQUEST),
+            Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        };
+    }
+    let Ok(text) = String::from_utf8(body) else {
         return StatusCode::BAD_REQUEST.into_response();
     };
-    match tokio::task::spawn_blocking(move || butterpollo_windows::clipboard::write(&text)).await {
+    match tokio::task::spawn_blocking(move || clipboard::write(&text)).await {
         Ok(Ok(())) => StatusCode::OK.into_response(),
         _ => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
+}
+fn is_png_content_type(headers: &axum::http::HeaderMap) -> bool {
+    headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .is_some_and(|value| value.trim().eq_ignore_ascii_case("image/png"))
+}
+/// A request body of at most `limit` bytes: 413 once it passes that, 400
+/// when it can't be read.
+async fn body_within(mut body: axum::body::Body, limit: usize) -> Result<Vec<u8>, StatusCode> {
+    use axum::body::HttpBody;
+    let mut bytes = Vec::new();
+    while let Some(frame) =
+        std::future::poll_fn(|cx| std::pin::Pin::new(&mut body).poll_frame(cx)).await
+    {
+        let Ok(data) = frame.map_err(|_| StatusCode::BAD_REQUEST)?.into_data() else {
+            continue;
+        };
+        if bytes.len() + data.len() > limit {
+            return Err(StatusCode::PAYLOAD_TOO_LARGE);
+        }
+        bytes.extend_from_slice(&data);
+    }
+    Ok(bytes)
+}
+/// 413 for an image over the limit, `malformed` for one that can't be
+/// converted, 500 when the clipboard itself failed. Each is logged.
+fn clipboard_image_failure(doing: &str, error: &anyhow::Error, malformed: StatusCode) -> Response {
+    use butterpollo_core::clipboard_image::ImageError;
+    let status = match error.downcast_ref::<ImageError>() {
+        Some(ImageError::TooLarge) => StatusCode::PAYLOAD_TOO_LARGE,
+        Some(ImageError::Unsupported(_)) => StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        Some(ImageError::NotPng | ImageError::Malformed(_)) => malformed,
+        None => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    tracing::warn!("Clipboard: {doing} an image failed ({status}): {error:#}");
+    status.into_response()
 }
 async fn bitrate(
     State(h): State<Shared>,

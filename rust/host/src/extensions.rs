@@ -6,6 +6,7 @@
 //! not offered is refused.
 use butterpollo_core::config::Config;
 use butterpollo_core::extensions::Offered;
+use butterpollo_core::native_api::feature;
 
 use crate::state::Shared;
 
@@ -166,9 +167,14 @@ fn usb_feature(h: &Shared, config: &Config) -> Vec<&'static str> {
     }
 }
 
-/// Features (G): `clipboard.image`, while `clipboard_image` is on.
-fn clipboard_image_feature(_h: &Shared, _config: &Config) -> Vec<&'static str> {
-    Vec::new()
+/// Features (G): `clipboard.image`, while `clipboard_image` is on. The
+/// clipboard's own permission bits still decide each request.
+fn clipboard_image_feature(_h: &Shared, config: &Config) -> Vec<&'static str> {
+    if config.clipboard_image() {
+        vec![feature::CLIPBOARD_IMAGE]
+    } else {
+        Vec::new()
+    }
 }
 
 /// Features (G): `folders` and `folders.mount`.

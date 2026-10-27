@@ -397,3 +397,23 @@ cases:
     output: the host log's usb lines and the console's USB devices panel (read after the user's run)
     status: pending
     note: user-tests.md usb-forward-gamepad; needs WinUSB on the laptop for that gamepad only (Zadig), restored afterwards
+
+  - id: clipboard-image-desktop
+    device: desktop
+    title: Images through this PC's real clipboard (PNG and CF_DIBV5 in, PNG out)
+    command: 'cargo +1.98.1-x86_64-pc-windows-gnu test -p butterpollo-windows --lib clipboard::tests -- --ignored --exact clipboard::tests::images_round_trip_through_the_real_clipboard *> {{out}}\clipboard.log; $code = $LASTEXITCODE; Get-Content {{out}}\clipboard.log -Tail 5; exit $code'
+    preconditions: [idle]
+    pass: exit 0, one test passed
+    pass_regex: 'test result: ok\. 1 passed'
+    output: '{{out}}\clipboard.log'
+    note: replaces the clipboard for a moment and puts its text back; anything else on it is lost
+
+  - id: clipboard-image-phone
+    device: user
+    title: Copy an image both ways between a phone and this PC
+    command: 'stream Desktop from Nightjar; copy a screenshot on the PC (Win+Shift+S) and paste it in a phone app; copy a photo on the phone and paste it in Paint and in a browser'
+    preconditions: [idle]
+    pass: both pastes show the image with its colors and transparency; an image over clipboard_image_max_mb is refused with a message, not pasted half
+    output: the host log's Clipboard lines (read after the user's run)
+    status: pending
+    note: Nightjar's image clipboard is not built yet (rl-clip)

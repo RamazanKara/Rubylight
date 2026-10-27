@@ -83,6 +83,33 @@ pub(super) fn ensure_streaming_session() -> Result<()> {
     }
 }
 
+/// The clipboard `/actions/clipboard` reaches in tests: in memory, with the
+/// real one's checks and conversions. Only
+/// `clipboard_images_travel_as_png_within_the_limit` puts an image there.
+pub(super) mod clipboard {
+    use anyhow::Result;
+    use butterpollo_core::clipboard_image::{self, ImageError};
+    use std::sync::Mutex;
+    pub(super) static PNG: Mutex<Option<Vec<u8>>> = Mutex::new(None);
+    pub fn read() -> Result<String> {
+        Ok(String::new())
+    }
+    pub fn write(_text: &str) -> Result<()> {
+        Ok(())
+    }
+    pub fn read_png(max_bytes: usize) -> Result<Option<Vec<u8>>> {
+        match PNG.lock().unwrap().clone() {
+            Some(png) if png.len() > max_bytes => Err(ImageError::TooLarge.into()),
+            png => Ok(png),
+        }
+    }
+    pub fn write_png(png: &[u8]) -> Result<()> {
+        let image = clipboard_image::decode_png(png)?;
+        *PNG.lock().unwrap() = Some(clipboard_image::encode_png(&image)?);
+        Ok(())
+    }
+}
+
 #[test]
 fn serverinfo_hardware_cache_is_route_scoped_private_and_expires() {
     let now = Instant::now();
@@ -1436,7 +1463,7 @@ async fn clipboard_requires_direction_view_text_and_an_active_session_for_this_d
         State(f.host.clone()),
         Extension(c.clone()),
         Query(args.clone()),
-        Bytes::from_static(&[0xff]),
+        Request::new(Body::from(vec![0xff])),
     )
     .await;
     assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
@@ -1453,9 +1480,21 @@ async fn clipboard_requires_direction_view_text_and_an_active_session_for_this_d
     }
     f.host.paired.write().unwrap().clients[0].perm = (1 << 17) | (1 << 26);
     assert!(clipboard_client(&f.host, &c, 1 << 17, &args).is_ok());
-    // The image clipboard (`type=png`, defined for 3.0) is not served yet: a
-    // device allowed both directions gets 403, as for any type but text.
+    // With the image clipboard off, `type=png` is 403 as any other type is,
+    // even for a device allowed both directions.
     f.host.paired.write().unwrap().clients[0].perm = (1 << 16) | (1 << 17) | (1 << 26);
+    let png = Args::from([("type".into(), "png".into())]);
+    assert_eq!(
+        clipboard_client(&f.host, &c, 1 << 17, &png).ok(),
+        Some(ClipboardType::Png)
+    );
+    f.host
+        .config
+        .write()
+        .unwrap()
+        .values
+        .insert("clipboard_image".into(), "false".into());
+    assert!(clipboard_client(&f.host, &c, 1 << 17, &png).is_err());
     for method in ["GET", "POST"] {
         assert_eq!(
             request(&f, true, method, "/actions/clipboard?type=png")
@@ -1472,6 +1511,92 @@ async fn clipboard_requires_direction_view_text_and_an_active_session_for_this_d
         .request_stop(Some(&mine.launch.client.uuid));
     drop(canceled);
     assert!(clipboard_client(&f.host, &c, 1 << 17, &args).is_err());
+}
+
+async fn post_png(
+    f: &Fixture,
+    content_type: Option<&str>,
+    length: Option<usize>,
+    body: Vec<u8>,
+) -> StatusCode {
+    let mut request = Request::builder()
+        .method("POST")
+        .uri("/actions/clipboard?type=png");
+    if let Some(content_type) = content_type {
+        request = request.header(header::CONTENT_TYPE, content_type);
+    }
+    if let Some(length) = length {
+        request = request.header(header::CONTENT_LENGTH, length);
+    }
+    router(f.host.clone(), true)
+        .layer(Extension(f.connection(true)))
+        .oneshot(request.body(Body::from(body)).unwrap())
+        .await
+        .unwrap()
+        .status()
+}
+
+#[tokio::test]
+async fn clipboard_images_travel_as_png_within_the_limit() {
+    use butterpollo_core::clipboard_image::{Image, decode_png, encode_png};
+    const MIB: usize = 1024 * 1024;
+    let f = Fixture::new();
+    let client = f.client((1 << 16) | (1 << 17) | (1 << 25));
+    let _session = f.session(client, Role::InputOnly);
+    let set = |key: &str, value: &str| {
+        f.host
+            .config
+            .write()
+            .unwrap()
+            .values
+            .insert(key.into(), value.into());
+    };
+    *clipboard::PNG.lock().unwrap() = None;
+    let get = || request(&f, true, "GET", "/actions/clipboard?type=png");
+    assert_eq!(get().await.status(), StatusCode::NOT_FOUND);
+
+    let image = Image {
+        width: 2,
+        height: 1,
+        rgba: vec![255, 0, 0, 255, 0, 0, 255, 128],
+    };
+    let png = encode_png(&image).unwrap();
+    assert_eq!(
+        post_png(&f, None, Some(png.len()), png.clone()).await,
+        StatusCode::UNSUPPORTED_MEDIA_TYPE
+    );
+    assert_eq!(
+        post_png(&f, Some("image/png"), Some(png.len()), png.clone()).await,
+        StatusCode::OK
+    );
+    let read = get().await;
+    assert_eq!(read.status(), StatusCode::OK);
+    assert_eq!(read.headers()[header::CONTENT_TYPE], "image/png");
+    let body = to_bytes(read.into_body(), MIB).await.unwrap();
+    assert_eq!(decode_png(&body).unwrap(), image);
+    assert_eq!(
+        post_png(&f, Some("Image/PNG; x=1"), None, b"GIF89a".to_vec()).await,
+        StatusCode::BAD_REQUEST
+    );
+    // The 1 MiB limit of the other routes doesn't hold an image back...
+    assert_eq!(
+        post_png(&f, Some("image/png"), Some(2 * MIB), vec![0; 2 * MIB]).await,
+        StatusCode::BAD_REQUEST
+    );
+    // ...but `clipboard_image_max_mb` does, by the Content-Length or, without
+    // one, once the body passes it.
+    set("clipboard_image_max_mb", "1");
+    for length in [Some(MIB + 1), None] {
+        assert_eq!(
+            post_png(&f, Some("image/png"), length, vec![0; MIB + 1]).await,
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "{length:?}"
+        );
+    }
+    // A larger image on the PC's clipboard isn't sent either.
+    *clipboard::PNG.lock().unwrap() = Some(vec![0; MIB + 1]);
+    assert_eq!(get().await.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    *clipboard::PNG.lock().unwrap() = None;
 }
 
 #[test]

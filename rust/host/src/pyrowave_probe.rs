@@ -36,11 +36,20 @@ pub fn bind(local: IpAddr) -> Result<ReplySocket> {
     Ok(ReplySocket::new(UdpSocket::from(socket))?)
 }
 
+/// How long the client has to send its token once the probe starts. The tests give a busy
+/// PC longer: their client reads the headers and sends it on a loaded test runtime, and
+/// missed 1.5 s in parallel test runs.
+const HANDSHAKE_WAIT: Duration = if cfg!(test) {
+    Duration::from_secs(5)
+} else {
+    Duration::from_millis(1500)
+};
+
 /// Wait for the client's token on `socket`, sending it ours every 100 ms, and
 /// return the address it came from: the client's own receiving port, through
 /// whatever its firewall or NAT made of it.
 fn handshake(socket: &ReplySocket, peer: SocketAddr, token: &str) -> Result<SocketAddr> {
-    let deadline = Instant::now() + Duration::from_millis(1500);
+    let deadline = Instant::now() + HANDSHAKE_WAIT;
     let mut warmup = Instant::now();
     let mut buffer = [0u8; 64];
     while Instant::now() < deadline {

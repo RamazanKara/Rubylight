@@ -483,3 +483,89 @@ fn a_blocking_unlink_waits_for_the_slice_that_still_runs() {
     drop(driver);
     served.join().unwrap().unwrap();
 }
+
+/// Keeps every transfer until the test completes it.
+#[derive(Default)]
+struct Keeper {
+    kept: Mutex<Vec<Completion>>,
+}
+impl UsbDevice for Keeper {
+    fn describe(&self) -> wire::Device {
+        wire::Device {
+            busid: "1-1".into(),
+            ..wire::Device::default()
+        }
+    }
+    fn submit(&self, _: Transfer, done: Completion) {
+        self.kept.lock().unwrap().push(done);
+    }
+    fn unlink(&self, _: u32) {}
+    fn close(&self) {
+        self.kept.lock().unwrap().clear();
+    }
+}
+
+fn keeping() -> (
+    Arc<Keeper>,
+    Driver,
+    std::thread::JoinHandle<Result<(), ServeError>>,
+) {
+    let device = Arc::new(Keeper::default());
+    let (tunnel, mut driver) = pipe();
+    let served = {
+        let device = device.clone();
+        std::thread::spawn(move || serve(tunnel, device))
+    };
+    driver.import("1-1").unwrap();
+    (device, driver, served)
+}
+
+#[test]
+fn a_driver_that_queues_too_many_transfers_hears_enomem_until_one_completes() {
+    let (device, mut driver, served) = keeping();
+    for _ in 0..MAX_IN_FLIGHT {
+        driver.submit(1, wire::DIR_IN, 8, [0; 8], &[], &[]);
+    }
+    let over = driver.submit(1, wire::DIR_IN, 8, [0; 8], &[], &[]);
+    assert_eq!(status_of(&driver.reply(true).0), (over, wire::ENOMEM));
+    assert_eq!(device.kept.lock().unwrap().len(), MAX_IN_FLIGHT);
+
+    let first = device.kept.lock().unwrap().remove(0);
+    let seqnum = first.seqnum();
+    first.complete(Reply::read(vec![5]));
+    let (header, data, _) = driver.reply(true);
+    assert_eq!((status_of(&header), data), ((seqnum, 0), vec![5]));
+    // Room for one: it reaches the device, and the one after is refused again.
+    driver.submit(1, wire::DIR_IN, 8, [0; 8], &[], &[]);
+    let again = driver.submit(1, wire::DIR_IN, 8, [0; 8], &[], &[]);
+    assert_eq!(status_of(&driver.reply(true).0), (again, wire::ENOMEM));
+    assert_eq!(device.kept.lock().unwrap().len(), MAX_IN_FLIGHT);
+    drop(driver);
+    served.join().unwrap().unwrap();
+}
+
+#[test]
+fn transfers_that_would_buffer_too_much_together_hear_enomem_until_one_is_unlinked() {
+    let (device, mut driver, served) = keeping();
+    let whole = (MAX_BUFFERED / u64::from(wire::MAX_TRANSFER)) as usize;
+    let mut asked = Vec::new();
+    for _ in 0..whole {
+        asked.push(driver.submit(1, wire::DIR_IN, wire::MAX_TRANSFER, [0; 8], &[], &[]));
+    }
+    let over = driver.submit(1, wire::DIR_IN, 1, [0; 8], &[], &[]);
+    assert_eq!(status_of(&driver.reply(true).0), (over, wire::ENOMEM));
+    assert_eq!(device.kept.lock().unwrap().len(), whole);
+
+    let unlink = driver.unlink(asked[0]);
+    assert_eq!(
+        status_of(&driver.reply(false).0),
+        (unlink, wire::ECONNRESET)
+    );
+    // The unlinked one's bytes are free again.
+    driver.submit(1, wire::DIR_IN, wire::MAX_TRANSFER, [0; 8], &[], &[]);
+    let again = driver.submit(1, wire::DIR_IN, 1, [0; 8], &[], &[]);
+    assert_eq!(status_of(&driver.reply(true).0), (again, wire::ENOMEM));
+    assert_eq!(device.kept.lock().unwrap().len(), whole + 1);
+    drop(driver);
+    served.join().unwrap().unwrap();
+}

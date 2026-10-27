@@ -484,6 +484,15 @@ export interface StreamSession {
   pyrowave_minimum_kbps: number | null;
   /** A clean-picture target from synthetic scenes, not a quality guarantee. */
   pyrowave_recommended_kbps: number | null;
+  /** Frames per second at each host stage over the last second, in millihertz; null for a stage the host can't count. Absent until the first window. */
+  pipeline_rates?: {
+    window_ms: number;
+    source_mhz: number | null;
+    capture_mhz: number | null;
+    submit_mhz: number | null;
+    output_mhz: number | null;
+    repeat_mhz: number | null;
+  } | null;
   audio_channels: number;
   state: 'RUNNING' | 'STOPPING';
   frames_sent: number;

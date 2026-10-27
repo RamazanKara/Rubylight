@@ -40,6 +40,8 @@
   const latest = $derived(trend.at(-1) ?? 0);
 
   const timing = (value: number) => (measured ? ms(value) : '–');
+  const pipeline = $derived(stream.pipeline_rates ?? null);
+  const hz = (mhz: number | null) => (mhz == null ? '–' : (mhz / 1000).toFixed(mhz < 100_000 ? 1 : 0));
   const encoders: Record<string, string> = {
     amf: 'AMD AMF',
     pyrowave: 'PyroWave',
@@ -136,6 +138,18 @@
         {/if}
       </dd>
     </div>
+    {#if pipeline}
+      <div class="whole">
+        <dt>Pipeline frame rates</dt>
+        <dd class="value num">
+          {hz(pipeline.source_mhz)} → {hz(pipeline.capture_mhz)} → {hz(pipeline.submit_mhz)} → {hz(pipeline.output_mhz)} fps
+        </dd>
+        <dd class="sub">
+          Shown by the display, captured, encoded and sent in the last second;
+          <span class="num">{hz(pipeline.repeat_mhz)}</span> fps repeated an unchanged picture.
+        </dd>
+      </div>
+    {/if}
   </dl>
   {#if !measured && !stopping}
     <p class="note muted">No frames sent in the last 2 seconds.</p>

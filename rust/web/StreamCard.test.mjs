@@ -106,3 +106,12 @@ test('a bitrate cut for a standing queue says so on the card', () => {
   assert.match(loss, /Bitrate limited by the network/);
   assert.doesNotMatch(loss, /held back in a queue/);
 });
+
+test('pipeline frame rates show each host stage, a dash for one the host cannot count', () => {
+  assert.doesNotMatch(html(), /Pipeline frame rates/);
+  const result = html({ pipeline_rates: {
+    window_ms: 1000, source_mhz: null, capture_mhz: 239_760, submit_mhz: 120_000, output_mhz: 119_500, repeat_mhz: 2_000,
+  } });
+  assert.match(result, /<dt[^>]*>Pipeline frame rates<\/dt>\s*<dd class="value num[^"]*">\s*– → 240 → 120 → 120 fps/);
+  assert.match(result, /<span class="num[^"]*">2\.0<\/span> fps repeated an unchanged picture/);
+});

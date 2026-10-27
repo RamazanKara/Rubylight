@@ -220,6 +220,20 @@ public class SharedFoldersTest {
     }
 
     @Test
+    public void aFileThatGrewSinceItsLengthWasReadFailsBeforeItsLastBytesGo() throws Exception {
+        for (int length : new int[] {5, 0, 64 * 1024, 64 * 1024 + 3}) {
+            long[] sent = {0};
+            SharedFolders.LocalFileException changed = assertThrows(SharedFolders.LocalFileException.class,
+                    () -> folders(answer(201, "{\"name\":\"a.txt\",\"size\":" + length + "}")).upload("games", "a.txt",
+                            new ByteArrayInputStream(new byte[length + 1]), length, (done, total) -> sent[0] = done,
+                            new TransferCancel()));
+            assertTrue(changed.getMessage(), changed.getMessage().contains("changed during the upload"));
+            // The host got less than the length it was promised, so it keeps nothing.
+            assertTrue(length + ": sent " + sent[0], length == 0 || sent[0] < length);
+        }
+    }
+
+    @Test
     public void namesThatCannotTravelAreRefusedBeforeAnyRequest() throws Exception {
         SharedFolders folders = folders(answer(201, "{}"));
         for (String name : new String[] {"a.part", "Docs/b.PART", "", "Docs/"}) {

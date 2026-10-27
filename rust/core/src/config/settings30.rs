@@ -260,8 +260,6 @@ mod tests {
 
     /// The keys a device or an app may override.
     const PER_DEVICE: &[&str] = &[
-        "hdr_dolby_vision",
-        "hdr_hlg",
         "audio_surround_714",
         "touch_mode",
         "touch_sensitivity",
@@ -457,7 +455,7 @@ mod tests {
                 "{key}"
             );
         }
-        assert_eq!(PER_DEVICE.len(), 11);
+        assert_eq!(PER_DEVICE.len(), 9);
     }
 
     /// The settings whose features have shipped, so the console shows them.

@@ -27,8 +27,6 @@ mod network_test;
 mod radeon;
 mod sdl;
 mod session_page;
-#[cfg(test)]
-mod shot;
 mod session_ui;
 mod shortcuts;
 mod stream;
@@ -1822,6 +1820,10 @@ fn launch_app(apps: &Apps, app_id: i32) -> LaunchApp {
         Apps::Failed(why) => LaunchApp::Failed(why.clone()),
     }
 }
+
+// Test only, and declared down here: `strings.rs` reads this file up to its first test item.
+#[cfg(test)]
+mod shot;
 
 #[cfg(test)]
 mod tests {

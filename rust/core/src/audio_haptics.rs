@@ -21,7 +21,8 @@ pub const ENABLED: &str = "audio_haptics";
 pub const STRENGTH: &str = "audio_haptics_strength";
 pub const CURVE: &str = "audio_haptics_curve";
 pub const GATE: &str = "audio_haptics_gate";
-/// The settings, all live: a saved change applies to the next packet.
+/// The settings. A global or per-app save applies to the next packet; a
+/// per-device override from the client's next stream (its record is the launch's).
 pub const SETTINGS: [&str; 4] = [ENABLED, STRENGTH, CURVE, GATE];
 /// Strength in percent of the default mapping.
 pub const STRENGTHS: std::ops::RangeInclusive<i64> = 0..=200;

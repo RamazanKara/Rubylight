@@ -73,12 +73,20 @@ impl Consumer {
         session: &butterpollo_core::session::Session<P, A>,
     ) {
         let wake = Arc::downgrade(self);
+        let menu = wake.clone();
         *session.recovery_wake.lock().unwrap() = Some(Box::new(move || {
             if let Some(wake) = wake.upgrade() {
                 wake.recovery_pending.store(true, Ordering::Release);
                 let _ = wake.set();
             }
         }));
+        // A couch menu change re-encodes a still picture the same way.
+        session.couch_menu.set_wake(move || {
+            if let Some(wake) = menu.upgrade() {
+                wake.recovery_pending.store(true, Ordering::Release);
+                let _ = wake.set();
+            }
+        });
     }
     fn prepare_wait(&self) -> Result<bool> {
         self.signal.reset()?;

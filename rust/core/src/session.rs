@@ -2622,6 +2622,9 @@ pub struct Session<P = (), A = ()> {
     /// Night mode and headphone surround: the live choice and why either
     /// doesn't apply. Written through `audio_dsp::{state, apply}`.
     pub audio: crate::audio_dsp::Controls,
+    /// The host-drawn couch menu: open flag, revision and panel, shared by the
+    /// control loop, the menu worker, the video loop and the native API.
+    pub couch_menu: Arc<crate::couch_menu::Shared>,
 }
 /// The client's address after its roams.
 struct Roam {
@@ -2703,6 +2706,7 @@ impl<P, A> Session<P, A> {
             }),
             roams: AtomicU32::new(0),
             audio: Default::default(),
+            couch_menu: Default::default(),
         })
     }
     /// The client's IP: the launch's, or the one it last roamed to.

@@ -25,6 +25,7 @@ use std::sync::Arc;
 use tower::ServiceExt;
 
 mod compat;
+mod couch_menu;
 mod files;
 mod launcher;
 mod radeon;
@@ -229,6 +230,7 @@ async fn an_unpaired_request_gets_403_not_paired_on_every_endpoint() {
         ("POST", "/session/disconnect"),
         ("POST", "/session/end"),
         ("POST", "/session/close-game"),
+        ("POST", "/session/couch-menu"),
         ("GET", "/radeon"),
         ("POST", "/radeon/settings"),
         ("POST", "/radeon/restore"),
@@ -315,6 +317,7 @@ async fn unknown_paths_and_methods_answer_404_not_found_in_the_error_shape() {
         ("DELETE", "/session"),
         ("GET", "/session/end"),
         ("GET", "/session/close-game"),
+        ("GET", "/session/couch-menu"),
     ] {
         api(&s.f, &s.connection, method, path)
             .await
@@ -363,7 +366,8 @@ async fn capabilities_list_the_features_and_the_callers_permissions() {
             "session",
             "session.close_game",
             "session.launcher",
-            "wake"
+            "wake",
+            "session.couch_menu"
         ]
     );
     let permissions = capabilities.permissions;

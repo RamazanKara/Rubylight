@@ -195,6 +195,11 @@ impl Filter {
     pub fn is_open(&self) -> bool {
         self.open
     }
+    /// Follows a new stream size (0x5532): the corner box keeps its share of
+    /// the shorter side. A corner hold in progress starts over.
+    pub fn resize(&mut self, width: u32, height: u32) {
+        self.corner = CornerHold::new(width, height, self.open_with.corner_hold);
+    }
     /// When the control loop must call [`Filter::apply`] again without new
     /// input: a hold completing or a direction repeating. `None` while
     /// closed with nothing pending.

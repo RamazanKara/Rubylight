@@ -1385,5 +1385,30 @@
       "files": "Dateien",
       "advanced": "Erweitert"
     }
+  },
+  "couch_menu": {
+    "title": "Host-Menü",
+    "back_to_game": "Zurück zum Spiel",
+    "radeon": "Radeon-Einstellungen",
+    "restore_radeon": "Radeon zurücksetzen",
+    "back": "Zurück",
+    "profile": "Profil: ",
+    "disconnect": "Trennen (Spiel läuft weiter)",
+    "end_session": "Sitzung beenden",
+    "close_game": "Spiel schließen",
+    "next_stream": "Gilt ab dem nächsten Stream",
+    "confirm": "Binnen 5 s erneut drücken",
+    "working": "Läuft...",
+    "failed": "Fehler: ",
+    "needs_host_control": "Benötigt Host-Steuerung",
+    "on": "Ein",
+    "off": "Aus",
+    "hint": "Enter/A: wählen  Esc/B: zurück",
+    "items": {
+      "audio_night_mode": "Nachtmodus",
+      "audio_headphone_surround": "Kopfhörer-Surround",
+      "encoder_focus": "Encoder-Fokus",
+      "sleep_after_idle_minutes": "Ruhezustand bei Inaktivität"
+    }
   }
 }

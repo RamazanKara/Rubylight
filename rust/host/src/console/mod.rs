@@ -1,6 +1,6 @@
 //! Administration is rendered and handled by Rust; the browser needs no script.
 mod actions;
-mod i18n;
+pub(crate) mod i18n;
 mod pages;
 mod settings;
 

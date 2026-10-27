@@ -492,6 +492,11 @@ impl Config {
     pub fn file_transfer(&self) -> bool {
         self.boolean("file_transfer", false)
     }
+    /// The host-drawn couch menu (on by default, Experimental). Off means no
+    /// input filter, no menu worker and no `session.couch_menu` feature.
+    pub fn couch_menu(&self) -> bool {
+        self.boolean("couch_menu", true)
+    }
     /// The folder transfers use; `None` (empty) is the signed-in user's
     /// `Downloads\Rubylight`.
     pub fn file_transfer_dir(&self) -> Option<std::path::PathBuf> {
@@ -907,6 +912,7 @@ pub fn override_allowed(key: &str) -> bool {
         "high_resolution_scrolling",
         "native_pen_touch",
         "keybindings",
+        "couch_menu",
         "couch_menu_open_with",
         "couch_menu_controller_chord",
         "couch_menu_hold_ms",

@@ -60,6 +60,12 @@ impl Failure {
         tracing::error!(%error, "native API: {what}");
         Self::new(ErrorCode::Internal, format!("The host failed to {what}."))
     }
+    pub(crate) fn code(&self) -> ErrorCode {
+        self.code
+    }
+    pub(crate) fn message(&self) -> &str {
+        &self.message
+    }
     /// Name the setting the error is about.
     fn for_setting(mut self, id: &str) -> Self {
         self.setting = Some(id.to_owned());
@@ -148,6 +154,10 @@ pub fn router() -> Router<Shared> {
             &path("/session/close-game"),
             post(close_game).fallback(unknown),
         )
+        .route(
+            &path("/session/couch-menu"),
+            post(couch_menu).fallback(unknown),
+        )
         .route(&path("/radeon"), get(radeon::read).fallback(unknown))
         .route(
             &path("/radeon/settings"),
@@ -213,7 +223,12 @@ fn require(client: &Client, bits: u32, name: &str) -> Result<(), Failure> {
         .then_some(())
         .ok_or_else(|| permission_required(name))
 }
-fn require_host_control(client: &Client) -> Result<(), Failure> {
+/// View streams or Launch applications: what seeing and leaving a session needs.
+fn require_view_or_launch(client: &Client) -> Result<(), Failure> {
+    require(client, VIEW, "View streams")
+        .or_else(|_| require(client, LAUNCH, "Launch applications"))
+}
+pub(crate) fn require_host_control(client: &Client) -> Result<(), Failure> {
     native::host_control(client).then_some(()).ok_or_else(|| {
         Failure::new(
             ErrorCode::HostControlRequired,
@@ -262,11 +277,10 @@ async fn expect_empty_body(request: Request) -> Result<(), Failure> {
 
 async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connection>) -> Reply {
     let client = caller(&h, &c)?;
-    let file_transfer = h
-        .config
-        .read()
-        .unwrap_or_else(PoisonError::into_inner)
-        .file_transfer();
+    let (file_transfer, couch_menu) = {
+        let config = h.config.read().unwrap_or_else(PoisonError::into_inner);
+        (config.file_transfer(), config.couch_menu())
+    };
     let name = crate::network::host_name(&h.config.read().unwrap_or_else(PoisonError::into_inner));
     Ok(json(
         StatusCode::OK,
@@ -309,6 +323,11 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
                     .then_some([feature::FILES_UPLOAD, feature::FILES_DOWNLOAD])
                     .into_iter()
                     .flatten(),
+            )
+            // The couch menu, for a device that may see its sessions.
+            .chain(
+                (couch_menu && (client.allows(VIEW) || client.allows(LAUNCH)))
+                    .then_some(feature::COUCH_MENU),
             )
             .map(String::from)
             .collect(),
@@ -374,7 +393,7 @@ async fn session(State(h): State<Shared>, Extension(c): Extension<Connection>) -
 }
 
 #[derive(Clone, Copy, Debug)]
-enum Action {
+pub(crate) enum Action {
     Disconnect,
     End,
     CloseGame,
@@ -413,13 +432,23 @@ async fn act(h: Shared, c: Connection, request: Request, action: Action) -> Repl
 /// before the action runs.
 fn run(h: &Shared, connection: &Connection, action: Action) -> Reply {
     let client = caller(h, connection)?;
+    session_action(h, &client, action)?;
+    let client = caller(h, connection).unwrap_or(client);
+    Ok(json(
+        StatusCode::OK,
+        &native::session_view(&h.session_snapshot(), &client),
+    ))
+}
+/// Checks `client`'s permissions, then runs the action. The endpoints above
+/// and the couch menu's rows both run session actions through here; End and
+/// Close game block for up to five seconds.
+pub(crate) fn session_action(h: &Shared, client: &Client, action: Action) -> Result<(), Failure> {
     match action {
-        Action::Disconnect => require(&client, VIEW, "View streams")
-            .or_else(|_| require(&client, LAUNCH, "Launch applications"))?,
-        Action::End => require(&client, LAUNCH, "Launch applications")?,
+        Action::Disconnect => require_view_or_launch(client)?,
+        Action::End => require(client, LAUNCH, "Launch applications")?,
         Action::CloseGame => {
-            require(&client, LAUNCH, "Launch applications")?;
-            require_host_control(&client)?;
+            require(client, LAUNCH, "Launch applications")?;
+            require_host_control(client)?;
         }
     }
     // The actions check the session's owner themselves, under the launch lock.
@@ -430,9 +459,32 @@ fn run(h: &Shared, connection: &Connection, action: Action) -> Reply {
         Action::End => h.end_session(Some(device)),
         Action::CloseGame => h.close_game(device),
     }?;
-    let client = caller(h, connection).unwrap_or(client);
+    Ok(())
+}
+
+/// Opens or closes the couch menu in the caller's stream
+/// (`docs/couch-menu-design.md` section 7.1). Idempotent.
+async fn couch_menu(
+    State(h): State<Shared>,
+    Extension(c): Extension<Connection>,
+    request: Request,
+) -> Reply {
+    let client = caller(&h, &c)?;
+    let body = read_body(request).await?;
+    let request: native_api::session::CouchMenuRequest =
+        serde_json::from_slice(&body).map_err(|error| {
+            Failure::new(
+                ErrorCode::InvalidRequest,
+                format!("The body is not a valid couch menu request: {error}."),
+            )
+        })?;
+    require_view_or_launch(&client)?;
+    let open =
+        tokio::task::spawn_blocking(move || crate::couch_menu::request(&h, &client, request.open))
+            .await
+            .map_err(|error| Failure::internal("open the couch menu", error))??;
     Ok(json(
         StatusCode::OK,
-        &native::session_view(&h.session_snapshot(), &client),
+        &native_api::session::CouchMenu { open },
     ))
 }

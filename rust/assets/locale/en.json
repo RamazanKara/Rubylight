@@ -1461,5 +1461,30 @@
       "files": "Files",
       "advanced": "Advanced"
     }
+  },
+  "couch_menu": {
+    "title": "Host menu",
+    "back_to_game": "Back to game",
+    "radeon": "Radeon settings",
+    "restore_radeon": "Restore Radeon settings",
+    "back": "Back",
+    "profile": "Profile: ",
+    "disconnect": "Disconnect (game keeps running)",
+    "end_session": "End session",
+    "close_game": "Close game",
+    "next_stream": "Applies from the next stream",
+    "confirm": "Press again within 5 s to confirm",
+    "working": "Working...",
+    "failed": "Failed: ",
+    "needs_host_control": "Needs host control",
+    "on": "On",
+    "off": "Off",
+    "hint": "Enter/A: select  Esc/B: back",
+    "items": {
+      "audio_night_mode": "Night mode",
+      "audio_headphone_surround": "Headphone surround",
+      "encoder_focus": "Encoder focus",
+      "sleep_after_idle_minutes": "Sleep when idle"
+    }
   }
 }

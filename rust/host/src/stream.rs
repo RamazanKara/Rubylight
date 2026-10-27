@@ -1778,6 +1778,8 @@ impl Media {
                     let mut confirm_keyframe: Option<Instant> = None;
                     let mut timing_due = Instant::now() + Duration::from_secs(5);
                     let mut last_image: Option<Arc<GpuImage>> = None;
+                    // The couch menu's panel; one atomic load a frame while closed.
+                    let mut menu = crate::couch_menu::VideoOverlay::default();
                     let mut encoded_at = Instant::now();
                     // Keep the legacy age split beside WGC's signed raw stamp
                     // offset: a future stamp must not look like instant delivery.
@@ -2607,7 +2609,9 @@ impl Media {
                             // A recovery request on a moving picture rides the
                             // next new frame; only a still one is encoded again
                             // at once. Grid pacing serves it at the next slot.
-                            let recovering = s.idr.load(Ordering::Acquire) || s.invalidation.lock().unwrap().is_some();
+                            // A changed menu panel is encoded at once, like a recovery.
+                            menu.poll(&s.couch_menu, [stream.width, stream.height]);
+                            let recovering = menu.dirty || s.idr.load(Ordering::Acquire) || s.invalidation.lock().unwrap().is_some();
                             let reencode_at = if !recovering {
                                 repeat_due
                             } else if arrival_pacing {
@@ -2769,6 +2773,9 @@ impl Media {
                             let active = encoder
                                 .as_mut()
                                 .expect("a missing encoder is rebuilt above");
+                            if menu.dirty || (rebuilt && menu.has_overlay()) {
+                                active.set_overlay(menu.for_encoder([stream.width, stream.height]));
+                            }
                             // Frames of a stream that left slice delivery return whole.
                             delivery.sync(&s.stats);
                             if delivery.joins() {
@@ -2880,7 +2887,9 @@ impl Media {
                                 );
                                 let _ = active.set_frame_cap(cap);
                             }
-                            active.set_repeat(!fresh);
+                            // A repeat with a new panel is a new picture.
+                            active.set_repeat(!fresh && !menu.dirty);
+                            menu.dirty = false;
                             let mut presented_image = image.as_ref().clone();
                             if !fresh { presented_image.captured = Instant::now(); }
                             progress.mark(crate::stall_watch::Phase::Encode);
@@ -3371,6 +3380,8 @@ impl Media {
         // Keep the snapshot's allocation across high-rate input wakes. Sessions
         // are keyed by their immutable launch ID, so the IDs need no copies.
         let mut active_sessions: Vec<Arc<Session>> = Vec::new();
+        // The couch menu workers, one per session.
+        let mut menus = crate::couch_menu::Workers::default();
         let input_timer = butterpollo_windows::timing::Timer::new()?;
         let mut feedback_at = Instant::now();
         let mut controller_cleanup = Instant::now();
@@ -3470,6 +3481,7 @@ impl Media {
                                     controller_pcm: Default::default(),
                                     command_at: None,
                                     roaming: false,
+                                    couch: Default::default(),
                                 },
                             );
                         } else {
@@ -4024,10 +4036,30 @@ impl Media {
                         let mode = s.stream_mode();
                         i.set_stream_size(mode.width, mode.height);
                     }
-                    if let Some(i) = &mut p.injector {
-                        for e in i.apply_all(&p.inputs) {
-                            s.launch.warnings.event("input_injection", format!("Input injection failed ({e:#}); keyboard, mouse, touch or pen actions may be missing. Unlock the desktop and check Windows input permissions or disable native touch/pen if unsupported."), butterpollo_core::session::EVENT_PERIOD);
-                        }
+                    if p.couch.follow(&s, || effective_config(&h, &s.launch)) {
+                        let wake = self.control_wake.clone();
+                        s.couch_menu.set_control_wake(move || {
+                            let _ = wake.send(&[1]);
+                        });
+                    }
+                    // The couch menu takes what it needs; the game gets the rest.
+                    let batch = crate::couch_menu::apply_batch(
+                        &mut p.couch,
+                        p.injector.as_mut(),
+                        &mut p.inputs,
+                        Instant::now(),
+                    );
+                    if let Some(reason) = batch.refused {
+                        tracing::warn!(client = %s.launch.client.name, "{reason}");
+                        s.launch.warnings.event(
+                            "couch_menu",
+                            reason,
+                            butterpollo_core::session::EVENT_PERIOD,
+                        );
+                    }
+                    menus.send(&h, &s, batch.nav);
+                    for e in batch.errors {
+                        s.launch.warnings.event("input_injection", format!("Input injection failed ({e:#}); keyboard, mouse, touch or pen actions may be missing. Unlock the desktop and check Windows input permissions or disable native touch/pen if unsupported."), butterpollo_core::session::EVENT_PERIOD);
                     }
                     p.inputs.clear();
                     if !poll_feedback
@@ -4146,6 +4178,11 @@ impl Media {
                         .map(|l| &l.key),
                 );
             }
+            menus.retain(|id| {
+                peers
+                    .values()
+                    .any(|p| p.id == id && p.session.as_ref().is_some_and(|s| !s.stopping()))
+            });
             // A session whose client never connected control, or whose peer
             // this worker lost when it restarted, would otherwise hold the
             // encoder, capture and display forever (Sunshine times it out).
@@ -4170,7 +4207,13 @@ impl Media {
             } else {
                 peers
                     .values()
-                    .filter_map(|p| p.injector.as_ref()?.next_due())
+                    .flat_map(|p| {
+                        [
+                            p.injector.as_ref().and_then(Injector::next_due),
+                            p.couch.next_due(),
+                        ]
+                    })
+                    .flatten()
                     .fold(feedback_at, Instant::min)
             };
             let timeout = control_wait_timeout(due.saturating_duration_since(now), serviced);
@@ -4263,6 +4306,8 @@ struct ControlPeer {
     command_at: Option<Instant>,
     /// Whether the session is in the control socket's roaming table.
     roaming: bool,
+    /// The couch menu's filter for this peer's session.
+    couch: crate::couch_menu::PeerMenu,
 }
 impl Drop for ControlPeer {
     fn drop(&mut self) {

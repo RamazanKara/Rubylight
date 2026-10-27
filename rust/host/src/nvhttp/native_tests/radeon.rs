@@ -506,7 +506,8 @@ async fn capabilities_list_the_radeon_features_only_with_a_worker() {
             "wake",
             "radeon.read",
             "radeon.write",
-            "radeon.profile"
+            "radeon.profile",
+            "session.couch_menu"
         ]
     );
 }

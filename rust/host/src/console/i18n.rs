@@ -114,7 +114,8 @@ fn english_keys() -> &'static BTreeMap<String, String> {
         let mut keys = BTreeMap::new();
         for (path, text) in dictionary("en").iter() {
             // HTML and interpolated messages need their original parameter API.
-            if !text.contains(['<', '>', '{', '}']) {
+            // The couch menu's strings are drawn into the stream, never the console.
+            if !text.contains(['<', '>', '{', '}']) && !path.starts_with("/couch_menu/") {
                 keys.entry(text.to_ascii_lowercase())
                     .or_insert_with(|| path.clone());
             }
@@ -132,6 +133,19 @@ fn lookup<'a>(language: &'a Dictionary, english: &str, path: Option<&str>) -> Op
         .get(path)
         .filter(|v| !v.is_empty() && !v.contains(['<', '>', '{', '}']))
         .map(String::as_str)
+}
+/// A catalogue string by its path (`couch_menu/title`): German for a `de*`
+/// locale and English for every other one, the two the couch menu has.
+pub fn catalogue(raw_locale: &str, path: &str) -> Option<String> {
+    let language = if locale(raw_locale) == "de" {
+        "de"
+    } else {
+        "en"
+    };
+    dictionary(language)
+        .get(&format!("/{path}"))
+        .filter(|text| !text.is_empty())
+        .cloned()
 }
 pub fn message(english: &str) -> String {
     label("", english)

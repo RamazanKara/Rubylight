@@ -477,7 +477,10 @@ fn couch_menu_filter_pads_that_join_or_leave_while_open_reach_the_game_at_rest()
     let (_, out) = run(&mut filter, opened + 5 * MS, &[]);
     assert_eq!(out.nav, [Nav::Closed]);
     let back = state(2, 0b100, 0, 100);
-    assert_eq!(run(&mut filter, opened + 6 * MS, &[back.clone()]).0, [back]);
+    assert_eq!(
+        run(&mut filter, opened + 6 * MS, std::slice::from_ref(&back)).0,
+        [back]
+    );
 }
 
 #[test]

@@ -535,6 +535,13 @@ impl Session {
             .expect("a started session has negotiated")
     }
 
+    /// `LiGetPendingAudioDuration`: the milliseconds of audio queued for the renderer, counted
+    /// in the stream codec's packets (32 ms AC3 frames, PCM's 1 to 5 ms packets, Opus's
+    /// negotiated duration).
+    pub fn pending_audio_ms(&self) -> u32 {
+        self.parts.audio_shared.pending_ms()
+    }
+
     /// The host's resolved address.
     pub fn remote_address(&self) -> SocketAddr {
         self.parts
@@ -1022,6 +1029,7 @@ fn start(
             stream.audio.channel_count,
             u32::from(outcome.audio_packet_duration_ms),
         );
+        parts.audio_shared.packet_ms.store(duration, Ordering::Relaxed);
         let opus = match (
             outcome.high_quality_surround_enabled,
             outcome.opus.high_quality,

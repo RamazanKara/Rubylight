@@ -465,10 +465,7 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_getPendingAudi
     _: JNIEnv,
     _: JClass,
 ) -> jint {
-    engine::with_session(0, |s| {
-        let duration = i32::from(s.outcome().audio_packet_duration_ms);
-        s.stats().audio_queue_len as i32 * duration
-    })
+    engine::with_session(0, |s| s.pending_audio_ms() as jint)
 }
 
 #[no_mangle]

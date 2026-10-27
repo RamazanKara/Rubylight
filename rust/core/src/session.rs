@@ -1395,8 +1395,13 @@ mod tests {
             12_000,
             "the first report replaces the fallback share without an IDR"
         );
-        assert_eq!(auto.encoder_bitrate(true), 12_000, "a clean link: all video");
-        auto.record_fec_report_at(&report(1, 540), start + Duration::from_secs(1)).unwrap();
+        assert_eq!(
+            auto.encoder_bitrate(true),
+            12_000,
+            "a clean link: all video"
+        );
+        auto.record_fec_report_at(&report(1, 540), start + Duration::from_secs(1))
+            .unwrap();
         assert_eq!(auto.fec_percent(), 40);
         assert_eq!(
             auto.encoder_bitrate(false),
@@ -1472,7 +1477,8 @@ mod tests {
         assert_eq!(auto.video_fec_percent(true, 3_000), 20);
         assert_eq!(auto.recovery_fec_percent(), 20);
         // Above the configured share the statistical choice wins.
-        auto.record_fec_report_at(&report(1, 540), start + Duration::from_secs(1)).unwrap();
+        auto.record_fec_report_at(&report(1, 540), start + Duration::from_secs(1))
+            .unwrap();
         assert_eq!(auto.video_fec_percent(false, 30_000), 40);
         assert_eq!(auto.video_fec_percent(true, 30_000), 40);
         assert_eq!(auto.recovery_fec_percent(), 40);
@@ -1481,7 +1487,10 @@ mod tests {
         let host = Session::new(launch("host-recovery", Role::Stream), Negotiated::default());
         host.configure_fec_choice(FecChoice::Host, true, 20, 50);
         assert_eq!(host.recovery_fec_percent(), host.frame_fec_percent(true));
-        let fixed = Session::new(launch("fixed-recovery", Role::Stream), Negotiated::default());
+        let fixed = Session::new(
+            launch("fixed-recovery", Role::Stream),
+            Negotiated::default(),
+        );
         fixed.configure_fec_choice(FecChoice::Fixed(10), true, 20, 50);
         assert_eq!(fixed.video_fec_percent(true, 30_000), 10);
         assert_eq!(fixed.recovery_fec_percent(), 10);

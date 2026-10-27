@@ -83,6 +83,7 @@ public class NvConnection {
     private volatile boolean nativeHostControl;
     private volatile boolean nativeCouchMenu;
     private volatile boolean nativeUsbForwarding;
+    private volatile boolean nativeImageClipboard;
     private static Semaphore connectionAllowed = new Semaphore(1);
     private final boolean isMonkey;
     private final Context appContext;
@@ -1429,6 +1430,20 @@ public class NvConnection {
         return http.getClipboard();
     }
 
+    /**
+     * The PNG on the host's clipboard, or null while it holds no image. Each refusal the host documents is a
+     * {@link com.limelight.nvstream.http.ClipboardImageException}.
+     */
+    public byte[] getClipboardImage() throws IOException, XmlPullParserException {
+        if (!nativeImageClipboard) {
+            throw new IOException("Host has no image clipboard");
+        }
+        if (!refreshHostDetails().canReadClipboard()) {
+            throw new IOException("Host clipboard read permission denied");
+        }
+        return http.getClipboardImage();
+    }
+
     public void quitApp() throws IOException, XmlPullParserException {
         if (isMonkey || context.streamConfig.getApp().getRole() != NvApp.Role.STREAM ||
                 !refreshHostDetails().hasPermission(ComputerDetails.PERMISSION_LAUNCH)) {
@@ -1508,6 +1523,14 @@ public class NvConnection {
     }
 
     /**
+     * Whether the host carries PNG images on its clipboard ({@code clipboard.image}), as it last said; false until
+     * known. The clipboard read and write permissions still decide each direction.
+     */
+    public boolean hasImageClipboard() {
+        return nativeImageClipboard;
+    }
+
+    /**
      * Opens the menu the host draws into this stream. Blocks on HTTPS; the native API's error, with its code, comes
      * back as the cause of the IOException. The host checks the permission and that this device owns the stream.
      */
@@ -1545,6 +1568,7 @@ public class NvConnection {
                 nativeHostControl = capabilities.hostControl;
                 nativeCouchMenu = capabilities.has(NativeCapabilities.COUCH_MENU);
                 nativeUsbForwarding = capabilities.offersUsbForwarding();
+                nativeImageClipboard = capabilities.has(NativeCapabilities.CLIPBOARD_IMAGE);
                 if (appContext != null) {
                     new WakeTargets(appContext).refresh(hostDetails.uuid, capabilities, client);
                 }
@@ -1635,6 +1659,19 @@ public class NvConnection {
         }
         if (!isMonkey) {
             http.sendClipboard(text);
+        }
+    }
+
+    /** Puts {@code png} on the host's clipboard; the host's limits are checked before anything is sent. */
+    public void sendClipboardImage(byte[] png) throws IOException, XmlPullParserException {
+        if (!nativeImageClipboard) {
+            throw new IOException("Host has no image clipboard");
+        }
+        if (context.streamConfig.getApp().getRole() == NvApp.Role.REMOTE_MONITOR || !refreshHostDetails().canWriteClipboard()) {
+            throw new IOException("Host clipboard write permission denied");
+        }
+        if (!isMonkey) {
+            http.sendClipboardImage(png);
         }
     }
 

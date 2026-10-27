@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_clipboard_image_send">Envoyer l’image du presse-papiers à l’hôte</string>
+    <string name="stream_clipboard_image_receive">Copier l’image du presse-papiers de l’hôte</string>
+    <string name="stream_clipboard_image_empty">Le presse-papiers ne contient aucune image</string>
+    <string name="stream_clipboard_image_sent">Image du presse-papiers envoyée à l’hôte</string>
+    <string name="stream_clipboard_image_none">Le presse-papiers de l’hôte ne contient aucune image</string>
+    <string name="stream_clipboard_image_received">Image de l’hôte copiée dans le presse-papiers</string>
+    <string name="clipboard_image_too_large">L’image est trop grande pour le presse-papiers de l’hôte</string>
+    <string name="clipboard_image_not_png">Impossible de lire l’image</string>
+    <string name="clipboard_image_unsupported">Cet hôte ne peut pas partager d’images du presse-papiers</string>
+    <string name="clipboard_image_forbidden">L’hôte n’autorise pas cet appareil à utiliser son presse-papiers</string>
+    <string name="folders_title">Dossiers partagés</string>
+    <string name="folders_on_pc">Dossiers que %1$s partage avec cet appareil</string>
+    <string name="folders_loading">Chargement…</string>
+    <string name="folders_pair_first">Associez d’abord ce PC.</string>
+    <string name="folders_disabled">Ce PC ne partage aucun dossier. Partagez-en un dans l’interface web du PC et donnez-y accès à cet appareil.</string>
+    <string name="folders_no_grant">Ce PC ne partage aucun dossier avec cet appareil. Donnez-lui accès dans l’interface web du PC.</string>
+    <string name="folders_read_only">Lecture seule</string>
+    <string name="folders_read_write">Lecture et écriture</string>
+    <string name="folders_all">Tous les dossiers</string>
+    <string name="folders_up">Remonter d’un niveau</string>
+    <string name="folders_upload">Envoyer un fichier ici</string>
+    <string name="folders_empty">Ce dossier est vide.</string>
+    <string name="folders_unsupported_entry">Non pris en charge par Nightjar</string>
+    <string name="folders_retry">Réessayer</string>
+    <string name="folders_no_picker">Cet appareil n’a pas de sélecteur de fichiers pour cela.</string>
+    <string name="folders_downloading">Téléchargement de %1$s : %2$s sur %3$s</string>
+    <string name="folders_uploading">Envoi de %1$s : %2$s sur %3$s</string>
+    <string name="folders_downloaded">%1$s enregistré dans Téléchargements</string>
+    <string name="folders_saved">%1$s enregistré</string>
+    <string name="folders_uploaded">Envoyé sous le nom %1$s</string>
+    <string name="folders_cancelled">Transfert annulé.</string>
+    <string name="folders_failed">La requête a échoué : %1$s</string>
+    <string name="folders_local_failed">Cet appareil n’a pas pu lire ou écrire le fichier : %1$s</string>
+    <string name="folders_forbidden">Cet appareil n’a pas accès à ce dossier.</string>
+    <string name="folders_upload_forbidden">Cet appareil peut seulement télécharger depuis ce dossier.</string>
+    <string name="folders_not_found">Il n’est plus sur le PC.</string>
+    <string name="folders_invalid_name">Le PC n’accepte pas ce nom de fichier.</string>
+    <string name="folders_incomplete">Le fichier n’est pas arrivé en entier. Réessayez.</string>
+    <string name="folders_too_large">Le fichier est trop grand pour le PC.</string>
+    <string name="folders_storage_full">Le disque du PC est plein.</string>
+    <string name="folders_no_console_user">Personne n’est connecté sur le PC.</string>
+    <string name="folders_busy">Un autre transfert de cet appareil est en cours. Réessayez quand il sera terminé.</string>
+    <string name="folders_size_unknown">La taille du fichier est inconnue, il ne peut donc pas être envoyé.</string>
+</resources>

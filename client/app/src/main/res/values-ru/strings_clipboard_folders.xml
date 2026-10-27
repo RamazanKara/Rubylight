@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_clipboard_image_send">Отправить изображение из буфера обмена на хост</string>
+    <string name="stream_clipboard_image_receive">Скопировать изображение из буфера обмена хоста</string>
+    <string name="stream_clipboard_image_empty">В буфере обмена нет изображения</string>
+    <string name="stream_clipboard_image_sent">Изображение из буфера обмена отправлено на хост</string>
+    <string name="stream_clipboard_image_none">В буфере обмена хоста нет изображения</string>
+    <string name="stream_clipboard_image_received">Изображение с хоста скопировано в буфер обмена</string>
+    <string name="clipboard_image_too_large">Изображение слишком большое для буфера обмена хоста</string>
+    <string name="clipboard_image_not_png">Не удалось прочитать изображение</string>
+    <string name="clipboard_image_unsupported">Этот хост не может передавать изображения через буфер обмена</string>
+    <string name="clipboard_image_forbidden">Хост не разрешает этому устройству пользоваться его буфером обмена</string>
+    <string name="folders_title">Общие папки</string>
+    <string name="folders_on_pc">Папки, которые %1$s открывает этому устройству</string>
+    <string name="folders_loading">Загрузка…</string>
+    <string name="folders_pair_first">Сначала выполните сопряжение с этим ПК.</string>
+    <string name="folders_disabled">Этот ПК не открывает общих папок. Откройте папку в веб-интерфейсе ПК и дайте доступ этому устройству.</string>
+    <string name="folders_no_grant">Этот ПК не открывает папок этому устройству. Дайте ему доступ в веб-интерфейсе ПК.</string>
+    <string name="folders_read_only">Только чтение</string>
+    <string name="folders_read_write">Чтение и запись</string>
+    <string name="folders_all">Все папки</string>
+    <string name="folders_up">На уровень выше</string>
+    <string name="folders_upload">Загрузить файл сюда</string>
+    <string name="folders_empty">Эта папка пуста.</string>
+    <string name="folders_unsupported_entry">Не поддерживается Nightjar</string>
+    <string name="folders_retry">Повторить</string>
+    <string name="folders_no_picker">На этом устройстве нет подходящего средства выбора файлов.</string>
+    <string name="folders_downloading">Скачивание %1$s: %2$s из %3$s</string>
+    <string name="folders_uploading">Отправка %1$s: %2$s из %3$s</string>
+    <string name="folders_downloaded">%1$s сохранён в «Загрузки»</string>
+    <string name="folders_saved">%1$s сохранён</string>
+    <string name="folders_uploaded">Отправлено как %1$s</string>
+    <string name="folders_cancelled">Передача отменена.</string>
+    <string name="folders_failed">Запрос не выполнен: %1$s</string>
+    <string name="folders_local_failed">Этому устройству не удалось прочитать или записать файл: %1$s</string>
+    <string name="folders_forbidden">У этого устройства нет доступа к этой папке.</string>
+    <string name="folders_upload_forbidden">Это устройство может только скачивать из этой папки.</string>
+    <string name="folders_not_found">Этого больше нет на ПК.</string>
+    <string name="folders_invalid_name">ПК не принимает такое имя файла.</string>
+    <string name="folders_incomplete">Файл дошёл не полностью. Повторите попытку.</string>
+    <string name="folders_too_large">Файл слишком большой для ПК.</string>
+    <string name="folders_storage_full">Диск ПК заполнен.</string>
+    <string name="folders_no_console_user">На ПК никто не вошёл в систему.</string>
+    <string name="folders_busy">Идёт другая передача с этого устройства. Повторите, когда она закончится.</string>
+    <string name="folders_size_unknown">Размер файла неизвестен, поэтому его нельзя отправить.</string>
+</resources>

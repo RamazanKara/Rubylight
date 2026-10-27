@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_clipboard_image_send">Gửi hình ảnh trong bảng nhớ tạm đến máy chủ</string>
+    <string name="stream_clipboard_image_receive">Sao chép hình ảnh trong bảng nhớ tạm của máy chủ</string>
+    <string name="stream_clipboard_image_empty">Bảng nhớ tạm không có hình ảnh</string>
+    <string name="stream_clipboard_image_sent">Đã gửi hình ảnh trong bảng nhớ tạm đến máy chủ</string>
+    <string name="stream_clipboard_image_none">Bảng nhớ tạm của máy chủ không có hình ảnh</string>
+    <string name="stream_clipboard_image_received">Đã sao chép hình ảnh của máy chủ vào bảng nhớ tạm</string>
+    <string name="clipboard_image_too_large">Hình ảnh quá lớn cho bảng nhớ tạm của máy chủ</string>
+    <string name="clipboard_image_not_png">Không đọc được hình ảnh</string>
+    <string name="clipboard_image_unsupported">Máy chủ này không chia sẻ được hình ảnh qua bảng nhớ tạm</string>
+    <string name="clipboard_image_forbidden">Máy chủ không cho thiết bị này dùng bảng nhớ tạm của nó</string>
+    <string name="folders_title">Thư mục dùng chung</string>
+    <string name="folders_on_pc">Các thư mục %1$s chia sẻ với thiết bị này</string>
+    <string name="folders_loading">Đang tải…</string>
+    <string name="folders_pair_first">Hãy ghép nối với PC này trước.</string>
+    <string name="folders_disabled">PC này không chia sẻ thư mục nào. Hãy chia sẻ một thư mục trong giao diện web của PC và cấp quyền cho thiết bị này.</string>
+    <string name="folders_no_grant">PC này không chia sẻ thư mục nào với thiết bị này. Hãy cấp quyền trong giao diện web của PC.</string>
+    <string name="folders_read_only">Chỉ đọc</string>
+    <string name="folders_read_write">Đọc và ghi</string>
+    <string name="folders_all">Tất cả thư mục</string>
+    <string name="folders_up">Lên một cấp</string>
+    <string name="folders_upload">Tải tệp lên đây</string>
+    <string name="folders_empty">Thư mục này trống.</string>
+    <string name="folders_unsupported_entry">Nightjar không hỗ trợ</string>
+    <string name="folders_retry">Thử lại</string>
+    <string name="folders_no_picker">Thiết bị này không có trình chọn tệp cho việc này.</string>
+    <string name="folders_downloading">Đang tải xuống %1$s: %2$s / %3$s</string>
+    <string name="folders_uploading">Đang tải lên %1$s: %2$s / %3$s</string>
+    <string name="folders_downloaded">Đã lưu %1$s vào Tệp tải xuống</string>
+    <string name="folders_saved">Đã lưu %1$s</string>
+    <string name="folders_uploaded">Đã tải lên với tên %1$s</string>
+    <string name="folders_cancelled">Đã hủy truyền.</string>
+    <string name="folders_failed">Yêu cầu thất bại: %1$s</string>
+    <string name="folders_local_failed">Thiết bị này không đọc hoặc ghi được tệp: %1$s</string>
+    <string name="folders_forbidden">Thiết bị này không có quyền truy cập thư mục này.</string>
+    <string name="folders_upload_forbidden">Thiết bị này chỉ được tải xuống từ thư mục này.</string>
+    <string name="folders_not_found">Mục này không còn trên PC.</string>
+    <string name="folders_invalid_name">PC không nhận tên tệp này.</string>
+    <string name="folders_incomplete">Tệp không đến đầy đủ. Hãy thử lại.</string>
+    <string name="folders_too_large">Tệp quá lớn cho PC.</string>
+    <string name="folders_storage_full">Ổ đĩa của PC đã đầy.</string>
+    <string name="folders_no_console_user">Không ai đăng nhập trên PC.</string>
+    <string name="folders_busy">Thiết bị này đang có một lượt truyền khác. Hãy thử lại khi nó kết thúc.</string>
+    <string name="folders_size_unknown">Không rõ kích thước tệp nên không thể tải lên.</string>
+</resources>

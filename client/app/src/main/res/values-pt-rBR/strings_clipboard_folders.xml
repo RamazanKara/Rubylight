@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_clipboard_image_send">Enviar imagem da área de transferência ao host</string>
+    <string name="stream_clipboard_image_receive">Copiar imagem da área de transferência do host</string>
+    <string name="stream_clipboard_image_empty">A área de transferência não tem imagem</string>
+    <string name="stream_clipboard_image_sent">Imagem da área de transferência enviada ao host</string>
+    <string name="stream_clipboard_image_none">A área de transferência do host não tem imagem</string>
+    <string name="stream_clipboard_image_received">Imagem do host copiada para a área de transferência</string>
+    <string name="clipboard_image_too_large">A imagem é grande demais para a área de transferência do host</string>
+    <string name="clipboard_image_not_png">Não foi possível ler a imagem</string>
+    <string name="clipboard_image_unsupported">Este host não pode compartilhar imagens da área de transferência</string>
+    <string name="clipboard_image_forbidden">O host não permite que este dispositivo use a área de transferência dele</string>
+    <string name="folders_title">Pastas compartilhadas</string>
+    <string name="folders_on_pc">Pastas que %1$s compartilha com este dispositivo</string>
+    <string name="folders_loading">Carregando…</string>
+    <string name="folders_pair_first">Pareie com este PC primeiro.</string>
+    <string name="folders_disabled">Este PC não compartilha pastas. Compartilhe uma na interface web do PC e dê acesso a este dispositivo.</string>
+    <string name="folders_no_grant">Este PC não compartilha pastas com este dispositivo. Dê acesso a ele na interface web do PC.</string>
+    <string name="folders_read_only">Somente leitura</string>
+    <string name="folders_read_write">Leitura e gravação</string>
+    <string name="folders_all">Todas as pastas</string>
+    <string name="folders_up">Subir um nível</string>
+    <string name="folders_upload">Enviar um arquivo para cá</string>
+    <string name="folders_empty">Esta pasta está vazia.</string>
+    <string name="folders_unsupported_entry">Sem suporte no Nightjar</string>
+    <string name="folders_retry">Tentar novamente</string>
+    <string name="folders_no_picker">Este dispositivo não tem um seletor de arquivos para isso.</string>
+    <string name="folders_downloading">Baixando %1$s: %2$s de %3$s</string>
+    <string name="folders_uploading">Enviando %1$s: %2$s de %3$s</string>
+    <string name="folders_downloaded">%1$s salvo em Downloads</string>
+    <string name="folders_saved">%1$s salvo</string>
+    <string name="folders_uploaded">Enviado como %1$s</string>
+    <string name="folders_cancelled">Transferência cancelada.</string>
+    <string name="folders_failed">A solicitação falhou: %1$s</string>
+    <string name="folders_local_failed">Este dispositivo não conseguiu ler ou gravar o arquivo: %1$s</string>
+    <string name="folders_forbidden">Este dispositivo não tem acesso a esta pasta.</string>
+    <string name="folders_upload_forbidden">Este dispositivo só pode baixar desta pasta.</string>
+    <string name="folders_not_found">Não está mais no PC.</string>
+    <string name="folders_invalid_name">O PC não aceita este nome de arquivo.</string>
+    <string name="folders_incomplete">O arquivo não chegou inteiro. Tente novamente.</string>
+    <string name="folders_too_large">O arquivo é grande demais para o PC.</string>
+    <string name="folders_storage_full">O disco do PC está cheio.</string>
+    <string name="folders_no_console_user">Ninguém está conectado no PC.</string>
+    <string name="folders_busy">Outra transferência deste dispositivo está em andamento. Tente novamente quando ela terminar.</string>
+    <string name="folders_size_unknown">O tamanho do arquivo é desconhecido, então ele não pode ser enviado.</string>
+</resources>

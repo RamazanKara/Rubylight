@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_clipboard_image_send">Enviar imagen del portapapeles al servidor</string>
+    <string name="stream_clipboard_image_receive">Copiar imagen del portapapeles del servidor</string>
+    <string name="stream_clipboard_image_empty">El portapapeles no tiene ninguna imagen</string>
+    <string name="stream_clipboard_image_sent">Imagen del portapapeles enviada al servidor</string>
+    <string name="stream_clipboard_image_none">El portapapeles del servidor no tiene ninguna imagen</string>
+    <string name="stream_clipboard_image_received">Imagen del servidor copiada al portapapeles</string>
+    <string name="clipboard_image_too_large">La imagen es demasiado grande para el portapapeles del servidor</string>
+    <string name="clipboard_image_not_png">No se pudo leer la imagen</string>
+    <string name="clipboard_image_unsupported">Este servidor no puede compartir imágenes del portapapeles</string>
+    <string name="clipboard_image_forbidden">El servidor no permite a este dispositivo usar su portapapeles</string>
+    <string name="folders_title">Carpetas compartidas</string>
+    <string name="folders_on_pc">Carpetas que %1$s comparte con este dispositivo</string>
+    <string name="folders_loading">Cargando…</string>
+    <string name="folders_pair_first">Primero vincula este PC.</string>
+    <string name="folders_disabled">Este PC no comparte carpetas. Comparte una en la interfaz web del PC y da acceso a este dispositivo.</string>
+    <string name="folders_no_grant">Este PC no comparte carpetas con este dispositivo. Dale acceso en la interfaz web del PC.</string>
+    <string name="folders_read_only">Solo lectura</string>
+    <string name="folders_read_write">Lectura y escritura</string>
+    <string name="folders_all">Todas las carpetas</string>
+    <string name="folders_up">Subir un nivel</string>
+    <string name="folders_upload">Subir un archivo aquí</string>
+    <string name="folders_empty">Esta carpeta está vacía.</string>
+    <string name="folders_unsupported_entry">Nightjar no lo admite</string>
+    <string name="folders_retry">Reintentar</string>
+    <string name="folders_no_picker">Este dispositivo no tiene un selector de archivos para esto.</string>
+    <string name="folders_downloading">Descargando %1$s: %2$s de %3$s</string>
+    <string name="folders_uploading">Subiendo %1$s: %2$s de %3$s</string>
+    <string name="folders_downloaded">%1$s guardado en Descargas</string>
+    <string name="folders_saved">%1$s guardado</string>
+    <string name="folders_uploaded">Subido como %1$s</string>
+    <string name="folders_cancelled">Transferencia cancelada.</string>
+    <string name="folders_failed">La solicitud falló: %1$s</string>
+    <string name="folders_local_failed">Este dispositivo no pudo leer ni escribir el archivo: %1$s</string>
+    <string name="folders_forbidden">Este dispositivo no tiene acceso a esta carpeta.</string>
+    <string name="folders_upload_forbidden">Este dispositivo solo puede descargar de esta carpeta.</string>
+    <string name="folders_not_found">Ya no está en el PC.</string>
+    <string name="folders_invalid_name">El PC no acepta este nombre de archivo.</string>
+    <string name="folders_incomplete">El archivo no llegó completo. Inténtalo de nuevo.</string>
+    <string name="folders_too_large">El archivo es demasiado grande para el PC.</string>
+    <string name="folders_storage_full">El disco del PC está lleno.</string>
+    <string name="folders_no_console_user">No hay nadie con la sesión iniciada en el PC.</string>
+    <string name="folders_busy">Hay otra transferencia de este dispositivo en curso. Inténtalo cuando termine.</string>
+    <string name="folders_size_unknown">Se desconoce el tamaño del archivo, así que no se puede subir.</string>
+</resources>

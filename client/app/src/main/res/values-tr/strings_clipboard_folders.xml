@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_clipboard_image_send">Pano görüntüsünü ana bilgisayara gönder</string>
+    <string name="stream_clipboard_image_receive">Ana bilgisayarın pano görüntüsünü kopyala</string>
+    <string name="stream_clipboard_image_empty">Panoda görüntü yok</string>
+    <string name="stream_clipboard_image_sent">Pano görüntüsü ana bilgisayara gönderildi</string>
+    <string name="stream_clipboard_image_none">Ana bilgisayarın panosunda görüntü yok</string>
+    <string name="stream_clipboard_image_received">Ana bilgisayarın görüntüsü panoya kopyalandı</string>
+    <string name="clipboard_image_too_large">Görüntü ana bilgisayarın panosu için çok büyük</string>
+    <string name="clipboard_image_not_png">Görüntü okunamadı</string>
+    <string name="clipboard_image_unsupported">Bu ana bilgisayar pano görüntüsü paylaşamıyor</string>
+    <string name="clipboard_image_forbidden">Ana bilgisayar bu cihazın panosunu kullanmasına izin vermiyor</string>
+    <string name="folders_title">Paylaşılan klasörler</string>
+    <string name="folders_on_pc">%1$s adlı bilgisayarın bu cihazla paylaştığı klasörler</string>
+    <string name="folders_loading">Yükleniyor…</string>
+    <string name="folders_pair_first">Önce bu PC ile eşleştirin.</string>
+    <string name="folders_disabled">Bu PC hiç klasör paylaşmıyor. PC\'nin web arayüzünde bir klasör paylaşın ve bu cihaza erişim verin.</string>
+    <string name="folders_no_grant">Bu PC bu cihazla hiç klasör paylaşmıyor. PC\'nin web arayüzünde erişim verin.</string>
+    <string name="folders_read_only">Salt okunur</string>
+    <string name="folders_read_write">Okuma ve yazma</string>
+    <string name="folders_all">Tüm klasörler</string>
+    <string name="folders_up">Bir üst düzey</string>
+    <string name="folders_upload">Buraya dosya yükle</string>
+    <string name="folders_empty">Bu klasör boş.</string>
+    <string name="folders_unsupported_entry">Nightjar desteklemiyor</string>
+    <string name="folders_retry">Yeniden dene</string>
+    <string name="folders_no_picker">Bu cihazda bunun için bir dosya seçici yok.</string>
+    <string name="folders_downloading">%1$s indiriliyor: %2$s / %3$s</string>
+    <string name="folders_uploading">%1$s yükleniyor: %2$s / %3$s</string>
+    <string name="folders_downloaded">%1$s İndirilenler\'e kaydedildi</string>
+    <string name="folders_saved">%1$s kaydedildi</string>
+    <string name="folders_uploaded">%1$s olarak yüklendi</string>
+    <string name="folders_cancelled">Aktarım iptal edildi.</string>
+    <string name="folders_failed">İstek başarısız oldu: %1$s</string>
+    <string name="folders_local_failed">Bu cihaz dosyayı okuyamadı veya yazamadı: %1$s</string>
+    <string name="folders_forbidden">Bu cihazın bu klasöre erişimi yok.</string>
+    <string name="folders_upload_forbidden">Bu cihaz bu klasörden yalnızca indirme yapabilir.</string>
+    <string name="folders_not_found">Artık PC\'de değil.</string>
+    <string name="folders_invalid_name">PC bu dosya adını kabul etmiyor.</string>
+    <string name="folders_incomplete">Dosya eksiksiz ulaşmadı. Yeniden deneyin.</string>
+    <string name="folders_too_large">Dosya PC için çok büyük.</string>
+    <string name="folders_storage_full">PC\'nin diski dolu.</string>
+    <string name="folders_no_console_user">PC\'de oturum açmış kimse yok.</string>
+    <string name="folders_busy">Bu cihazdan başka bir aktarım sürüyor. Bittiğinde yeniden deneyin.</string>
+    <string name="folders_size_unknown">Dosyanın boyutu bilinmiyor, bu yüzden yüklenemiyor.</string>
+</resources>

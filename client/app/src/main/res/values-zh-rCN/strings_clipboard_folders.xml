@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_clipboard_image_send">将剪贴板图片发送到主机</string>
+    <string name="stream_clipboard_image_receive">复制主机剪贴板图片</string>
+    <string name="stream_clipboard_image_empty">剪贴板中没有图片</string>
+    <string name="stream_clipboard_image_sent">剪贴板图片已发送到主机</string>
+    <string name="stream_clipboard_image_none">主机剪贴板中没有图片</string>
+    <string name="stream_clipboard_image_received">已将主机图片复制到剪贴板</string>
+    <string name="clipboard_image_too_large">图片太大，主机剪贴板无法容纳</string>
+    <string name="clipboard_image_not_png">无法读取图片</string>
+    <string name="clipboard_image_unsupported">此主机无法共享剪贴板图片</string>
+    <string name="clipboard_image_forbidden">主机不允许此设备使用其剪贴板</string>
+    <string name="folders_title">共享文件夹</string>
+    <string name="folders_on_pc">%1$s 与此设备共享的文件夹</string>
+    <string name="folders_loading">正在加载…</string>
+    <string name="folders_pair_first">请先与此电脑配对。</string>
+    <string name="folders_disabled">此电脑未共享任何文件夹。请在电脑的网页界面中共享一个文件夹，并允许此设备访问。</string>
+    <string name="folders_no_grant">此电脑未与此设备共享任何文件夹。请在电脑的网页界面中授予访问权限。</string>
+    <string name="folders_read_only">只读</string>
+    <string name="folders_read_write">读写</string>
+    <string name="folders_all">所有文件夹</string>
+    <string name="folders_up">返回上一级</string>
+    <string name="folders_upload">上传文件到这里</string>
+    <string name="folders_empty">此文件夹为空。</string>
+    <string name="folders_unsupported_entry">Nightjar 不支持</string>
+    <string name="folders_retry">重试</string>
+    <string name="folders_no_picker">此设备没有可用于此操作的文件选择器。</string>
+    <string name="folders_downloading">正在下载 %1$s：%2$s / %3$s</string>
+    <string name="folders_uploading">正在上传 %1$s：%2$s / %3$s</string>
+    <string name="folders_downloaded">%1$s 已保存到“下载”</string>
+    <string name="folders_saved">%1$s 已保存</string>
+    <string name="folders_uploaded">已上传为 %1$s</string>
+    <string name="folders_cancelled">传输已取消。</string>
+    <string name="folders_failed">请求失败：%1$s</string>
+    <string name="folders_local_failed">此设备无法读取或写入该文件：%1$s</string>
+    <string name="folders_forbidden">此设备无权访问此文件夹。</string>
+    <string name="folders_upload_forbidden">此设备只能从此文件夹下载。</string>
+    <string name="folders_not_found">它已不在电脑上。</string>
+    <string name="folders_invalid_name">电脑不接受此文件名。</string>
+    <string name="folders_incomplete">文件未完整送达。请重试。</string>
+    <string name="folders_too_large">文件太大，电脑无法接收。</string>
+    <string name="folders_storage_full">电脑磁盘已满。</string>
+    <string name="folders_no_console_user">电脑上没有用户登录。</string>
+    <string name="folders_busy">此设备的另一项传输正在进行。请在其结束后重试。</string>
+    <string name="folders_size_unknown">文件大小未知，因此无法上传。</string>
+</resources>

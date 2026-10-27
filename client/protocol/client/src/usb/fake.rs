@@ -39,7 +39,15 @@ pub const DEVICE_DESCRIPTOR: [u8; 18] = [
 ];
 
 const fn endpoint(address: u8, attributes: u8, size: u16, interval: u8) -> [u8; 7] {
-    [7, 5, address, attributes, size as u8, (size >> 8) as u8, interval]
+    [
+        7,
+        5,
+        address,
+        attributes,
+        size as u8,
+        (size >> 8) as u8,
+        interval,
+    ]
 }
 
 /// Configuration 1: interface 0, alternate settings 0 (bulk and interrupt) and 1 (and the
@@ -112,7 +120,10 @@ impl FakeDevice {
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
-        self.inner.state.lock().unwrap_or_else(PoisonError::into_inner)
+        self.inner
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Queues an interrupt report.
@@ -141,18 +152,23 @@ impl FakeDevice {
         self.state().seen.clone()
     }
 
-    /// Waits for data or a report until `cancelled`; `None` when it was.
-    fn wait<T>(&self, cancelled: &AtomicBool, mut take: impl FnMut(&mut State) -> Option<T>) -> Result<T, i32> {
+    /// Waits for data or a report until `cancelled`. A cancelled transfer takes nothing, so
+    /// what arrives after an unlink goes to the next one.
+    fn wait<T>(
+        &self,
+        cancelled: &AtomicBool,
+        mut take: impl FnMut(&mut State) -> Option<T>,
+    ) -> Result<T, i32> {
         let mut state = self.state();
         loop {
             if state.unplugged {
                 return Err(wire::ENODEV);
             }
-            if let Some(value) = take(&mut state) {
-                return Ok(value);
-            }
             if cancelled.load(Ordering::SeqCst) {
                 return Err(wire::ECONNRESET);
+            }
+            if let Some(value) = take(&mut state) {
+                return Ok(value);
             }
             state = self
                 .inner

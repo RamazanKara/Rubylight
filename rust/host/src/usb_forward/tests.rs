@@ -58,7 +58,7 @@ struct Script {
 }
 
 /// A driver that imports the device like usbip-win2 does and hands its connection to the test.
-struct FakeVhci {
+pub(crate) struct FakeVhci {
     ready: bool,
     script: Script,
     /// How often the install check ran.
@@ -76,7 +76,7 @@ struct FakeVhci {
     stopped: Mutex<Vec<String>>,
 }
 impl FakeVhci {
-    fn new(ready: bool) -> (Arc<Self>, mpsc::Receiver<std::net::TcpStream>) {
+    pub(crate) fn new(ready: bool) -> (Arc<Self>, mpsc::Receiver<std::net::TcpStream>) {
         Self::scripted(ready, Script::default())
     }
     fn scripted(ready: bool, script: Script) -> (Arc<Self>, mpsc::Receiver<std::net::TcpStream>) {
@@ -98,7 +98,7 @@ impl FakeVhci {
         });
         (vhci, receiver)
     }
-    fn detached(&self) -> Vec<(u32, String)> {
+    pub(crate) fn detached(&self) -> Vec<(u32, String)> {
         self.detached.lock().unwrap().clone()
     }
     fn stopped(&self) -> Vec<String> {

@@ -89,6 +89,8 @@ struct Seen {
     control_messages: Option<Vec<u16>>,
     events: Vec<ControlEvent>,
     terminated: Option<i32>,
+    /// Where the host's USB messages go, as a platform hands them to its forwarder.
+    usb: Option<Arc<nightjar_core::usb::Forwarder>>,
 }
 #[derive(Clone, Default)]
 struct Recorder(Arc<Mutex<Seen>>);
@@ -127,7 +129,16 @@ impl Listener for Recorder {
         self.0.lock().unwrap().terminated = Some(error);
     }
     fn control_event(&self, event: ControlEvent) {
-        self.0.lock().unwrap().events.push(event);
+        let mut seen = self.0.lock().unwrap();
+        let usb = match (&event, &seen.usb) {
+            (ControlEvent::Usb(message), Some(usb)) => Some((usb.clone(), message.clone())),
+            _ => None,
+        };
+        seen.events.push(event);
+        drop(seen);
+        if let Some((usb, message)) = usb {
+            usb.on_message(message);
+        }
     }
 }
 
@@ -975,3 +986,5 @@ async fn nightjar_puts_the_host_to_sleep_once_allowed() -> Result<()> {
     assert_eq!(suspends.0.load(Ordering::SeqCst), 1);
     Ok(())
 }
+
+mod usb;

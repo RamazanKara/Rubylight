@@ -8,7 +8,7 @@ Rubylight, called Butterpollo until rc.29, is written in Rust: host, native help
 
 ## Unreleased
 
-- Nightjar on Android and desktop has an Error correction setting: leave it to the PC, let it follow the device's losses, or fix it at 10 to 50 %. On shaped Wi-Fi links following the device's losses cut median loss from 2.37 to 0.26 % and freezes from 21 to 1 against the PC's adaptive error correction.
+- Nightjar on Android and desktop has an Error correction setting: leave it to the PC, let it follow the device's losses, or fix it at 10 to 50 %. On shaped Wi-Fi links following the device's losses cut median loss from 2.37 to 0.26 % and freezes from 21 to 1 against the PC's adaptive error correction. The PC's setting stays the default until automatic has been measured on a phone over Wi-Fi. A link test before the first automatic bitrate is there too, as an Experimental setting that is off by default: on a shaped 50 Mbit/s link it held the encoder at 28-30 Mbps instead of 59, with more loss and freezes.
 
 ## New in 3.0.0-rc.3
 

@@ -30,6 +30,11 @@ import static org.junit.Assert.*;
 @Config(sdk = 29, application = Application.class)
 public class GameRecoveryTest {
     private static final String MICROPHONE_MUTED = "rubylight.microphoneMuted";
+    /** How long a background step may take before the test calls it hung; a loaded machine stays well inside it. */
+    private static final long HANG_GUARD_MS = 10_000;
+    /** Game's workers that wait for the stream's stop, then post the hand-off to the UI thread. */
+    private static final java.util.Set<String> HANDOFF_WORKERS =
+            java.util.Set.of("Stream reconnect", "Automatic stream recovery");
 
     @Test public void mergedManifestAllowsReturningToAStoppedStream() throws Exception {
         Game game = Robolectric.buildActivity(Game.class).get();
@@ -98,7 +103,7 @@ public class GameRecoveryTest {
             game.onPause();
             game.onStop();
             Thread stopping = ReflectionHelpers.getField(game, "connectionStopThread");
-            stopping.join(1000);
+            join(stopping);
             assertFalse(connection.isMicrophoneMutedForReconnect());
             game.onResume();
             assertRestoredMute(awaitRecoveryLaunch(game, 1), true);
@@ -129,7 +134,7 @@ public class GameRecoveryTest {
         ReflectionHelpers.setField(game, "conn", connection);
         ReflectionHelpers.callInstanceMethod(game, "stopConnection");
         Thread stopping = ReflectionHelpers.getField(game, "connectionStopThread");
-        stopping.join(1000);
+        join(stopping);
         assertFalse(connection.isMicrophoneMutedForReconnect());
         ReflectionHelpers.setField(game, "conn", null);
         assertRestoredMute(ReflectionHelpers.callInstanceMethod(game, "createReconnectIntent"), true);
@@ -298,7 +303,7 @@ public class GameRecoveryTest {
                 @Override public void quitApp() {
                     quitting.countDown();
                     // The host tears the stream down before /cancel answers.
-                    try { answered.await(2, java.util.concurrent.TimeUnit.SECONDS); }
+                    try { answered.await(HANG_GUARD_MS, java.util.concurrent.TimeUnit.MILLISECONDS); }
                     catch (InterruptedException e) { Thread.currentThread().interrupt(); }
                 }
                 // The game is still exiting, so the host does not look idle yet.
@@ -307,7 +312,7 @@ public class GameRecoveryTest {
             RecoveryBridge.connectivityTests = 0;
             try {
                 ReflectionHelpers.callInstanceMethod(game, "quitStreamApp");
-                assertTrue(quitting.await(1, java.util.concurrent.TimeUnit.SECONDS));
+                assertTrue(quitting.await(HANG_GUARD_MS, java.util.concurrent.TimeUnit.MILLISECONDS));
                 game.connectionTerminated(-1);
                 assertTrue(game.isFinishing());
                 assertNull(ReflectionHelpers.getField(game, "pendingRecovery"));
@@ -337,7 +342,7 @@ public class GameRecoveryTest {
         });
         try {
             ReflectionHelpers.callInstanceMethod(game, "quitStreamApp");
-            assertTrue(refused.await(1, java.util.concurrent.TimeUnit.SECONDS));
+            assertTrue(refused.await(HANG_GUARD_MS, java.util.concurrent.TimeUnit.MILLISECONDS));
             awaitHostAction(game);
             // The stream outlived the time a dropped stream takes to report.
             org.robolectric.shadows.ShadowLooper.idleMainLooper(16, java.util.concurrent.TimeUnit.SECONDS);
@@ -376,7 +381,7 @@ public class GameRecoveryTest {
                 RecoveryBridge.connectivityTests = 0;
                 try {
                     ReflectionHelpers.callInstanceMethod(game, request);
-                    assertTrue(failed.await(1, java.util.concurrent.TimeUnit.SECONDS));
+                    assertTrue(failed.await(HANG_GUARD_MS, java.util.concurrent.TimeUnit.MILLISECONDS));
                     awaitHostAction(game);
                     // The lost transport reports only after its timeout, well after the failure.
                     org.robolectric.shadows.ShadowLooper.idleMainLooper(9, java.util.concurrent.TimeUnit.SECONDS);
@@ -394,7 +399,9 @@ public class GameRecoveryTest {
     }
 
     private static void awaitHostAction(Game game) throws InterruptedException {
-        for (int i = 0; i < 100 && Boolean.TRUE.equals(ReflectionHelpers.getField(game, "hostActionInProgress")); i++) {
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(HANG_GUARD_MS);
+        while (Boolean.TRUE.equals(ReflectionHelpers.getField(game, "hostActionInProgress"))
+                && System.nanoTime() < deadline) {
             Thread.sleep(5);
             org.robolectric.shadows.ShadowLooper.idleMainLooper();
         }
@@ -725,24 +732,19 @@ public class GameRecoveryTest {
         ReflectionHelpers.setField(game, "conn", new MuteConnection() {
             @Override public void stop() {
                 stopEntered.countDown();
-                try { stopReleased.await(2, java.util.concurrent.TimeUnit.SECONDS); }
+                try { stopReleased.await(HANG_GUARD_MS, java.util.concurrent.TimeUnit.MILLISECONDS); }
                 catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
             }
         });
         try {
             ReflectionHelpers.callInstanceMethod(game, "reconnectStream");
-            assertTrue(stopEntered.await(1, java.util.concurrent.TimeUnit.SECONDS));
+            assertTrue(stopEntered.await(HANG_GUARD_MS, java.util.concurrent.TimeUnit.MILLISECONDS));
             // Home while the old connection is still closing: the stream ends, as before recovery.
             game.onPause();
             game.onStop();
             assertTrue(game.isFinishing());
             stopReleased.countDown();
-            Thread stopping = ReflectionHelpers.getField(game, "connectionStopThread");
-            stopping.join(1000);
-            for (int i = 0; i < 10; i++) {
-                Thread.sleep(5);
-                org.robolectric.Shadows.shadowOf(Looper.getMainLooper()).idle();
-            }
+            settleHandoff(game);
             assertNull(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
         } finally {
             stopReleased.countDown();
@@ -767,17 +769,39 @@ public class GameRecoveryTest {
     }
 
     private static Intent awaitRecoveryLaunch(Game game, int delaySeconds) throws InterruptedException {
-        Thread stopping = ReflectionHelpers.getField(game, "connectionStopThread");
-        if (stopping != null) stopping.join(1000);
+        join(ReflectionHelpers.getField(game, "connectionStopThread"));
         org.robolectric.shadows.ShadowLooper.idleMainLooper(delaySeconds, java.util.concurrent.TimeUnit.SECONDS);
-        for (int i = 0; i < 40; i++) {
-            Thread.sleep(5);
-            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+        return awaitStartedActivity(game);
+    }
+
+    /** The activity the hand-off started, once its workers have posted it; only a hang fails. */
+    private static Intent awaitStartedActivity(Game game) throws InterruptedException {
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(HANG_GUARD_MS);
+        while (true) {
+            settleHandoff(game);
             Intent retry = org.robolectric.Shadows.shadowOf(game).getNextStartedActivity();
             if (retry != null) return retry;
+            if (System.nanoTime() > deadline) fail("Recovery did not create the replacement activity");
+            Thread.sleep(5);
         }
-        fail("Recovery did not create the replacement activity");
-        return null;
+    }
+
+    /**
+     * Joins the stream's stop and the hand-off workers that wait for it, so whatever they post to
+     * the UI thread is queued, then runs it: a late continuation shows here, not after the test.
+     */
+    private static void settleHandoff(Game game) throws InterruptedException {
+        join(ReflectionHelpers.getField(game, "connectionStopThread"));
+        for (Thread thread : Thread.getAllStackTraces().keySet()) {
+            if (HANDOFF_WORKERS.contains(thread.getName())) join(thread);
+        }
+        org.robolectric.shadows.ShadowLooper.idleMainLooper();
+    }
+
+    private static void join(Thread thread) throws InterruptedException {
+        if (thread == null) return;
+        thread.join(HANG_GUARD_MS);
+        assertFalse(thread.getName() + " did not finish", thread.isAlive());
     }
 
     private static void cleanupRecovery(Game game) {
@@ -840,7 +864,7 @@ public class GameRecoveryTest {
         try {
             ReflectionHelpers.callInstanceMethod(game, "onPackedChromaFailure",
                     ReflectionHelpers.ClassParameter.from(String.class, "the GPU path failed"));
-            assertTrue(probe.ended.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            assertTrue(probe.ended.await(HANG_GUARD_MS, java.util.concurrent.TimeUnit.MILLISECONDS));
             // connectionTerminated asks the PC and tests the network: blocking calls, never on the UI thread.
             assertNotSame(Looper.getMainLooper().getThread(), probe.endedOn);
             assertEquals(1, probe.ends);
@@ -1055,25 +1079,20 @@ public class GameRecoveryTest {
                 new StreamConfiguration.Builder().build(), null, null) {
             @Override public void stop() {
                 stopEntered.countDown();
-                try { stopReleased.await(2, java.util.concurrent.TimeUnit.SECONDS); }
+                try { stopReleased.await(HANG_GUARD_MS, java.util.concurrent.TimeUnit.MILLISECONDS); }
                 catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
             }
         });
         try {
             assertTrue(ReflectionHelpers.callInstanceMethod(game, "tryAutomaticRecovery"));
-            assertTrue(stopEntered.await(1, java.util.concurrent.TimeUnit.SECONDS));
+            assertTrue(stopEntered.await(HANG_GUARD_MS, java.util.concurrent.TimeUnit.MILLISECONDS));
             org.robolectric.Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(1));
             // The delayed retry is now waiting for teardown on a worker thread.
             assertNull(ReflectionHelpers.getField(game, "pendingRecovery"));
             ReflectionHelpers.callInstanceMethod(game, "stopConnection");
             stopReleased.countDown();
-            Thread stopping = ReflectionHelpers.getField(game, "connectionStopThread");
-            stopping.join(1000);
             // Any late posted continuation must observe the cancellation generation.
-            for (int i = 0; i < 10; i++) {
-                Thread.sleep(5);
-                org.robolectric.Shadows.shadowOf(Looper.getMainLooper()).idle();
-            }
+            settleHandoff(game);
             assertNull(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
         } finally {
             stopReleased.countDown();
@@ -1094,15 +1113,7 @@ public class GameRecoveryTest {
         ReflectionHelpers.setField(game, "recoveryAppUuid", "captured-game");
         try {
             ReflectionHelpers.callInstanceMethod(game, "returnVideoToDevice");
-            Thread stopping = ReflectionHelpers.getField(game, "connectionStopThread");
-            stopping.join(1000);
-            android.content.Intent retry = null;
-            for (int i = 0; i < 20 && retry == null; i++) {
-                Thread.sleep(5);
-                org.robolectric.Shadows.shadowOf(Looper.getMainLooper()).idle();
-                retry = org.robolectric.Shadows.shadowOf(game).getNextStartedActivity();
-            }
-            assertNotNull(retry);
+            android.content.Intent retry = awaitStartedActivity(game);
             assertEquals(73, retry.getIntExtra(Game.EXTRA_APP_ID, 0));
             assertEquals("captured-game", retry.getStringExtra(Game.EXTRA_APP_UUID));
             assertFalse(retry.hasExtra("rubylight.outputDisplay"));
@@ -1129,14 +1140,14 @@ public class GameRecoveryTest {
                 new StreamConfiguration.Builder().build(), null, null) {
             @Override public void stop() {
                 stopEntered.countDown();
-                try { stopReleased.await(10, java.util.concurrent.TimeUnit.SECONDS); }
+                try { stopReleased.await(HANG_GUARD_MS, java.util.concurrent.TimeUnit.MILLISECONDS); }
                 catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
             }
         });
         try {
             if (automatic) assertTrue(ReflectionHelpers.callInstanceMethod(game, "tryAutomaticRecovery"));
             else ReflectionHelpers.callInstanceMethod(game, "reconnectStream");
-            assertTrue(stopEntered.await(1, java.util.concurrent.TimeUnit.SECONDS));
+            assertTrue(stopEntered.await(HANG_GUARD_MS, java.util.concurrent.TimeUnit.MILLISECONDS));
             org.robolectric.Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(1));
             assertNull(ReflectionHelpers.getField(game, "pendingRecovery"));
             assertFalse(ReflectionHelpers.callInstanceMethod(game, "isRecoveryAttempt"));
@@ -1149,10 +1160,7 @@ public class GameRecoveryTest {
             assertNotNull(dialog); assertTrue(dialog.isShowing());
             assertEquals(Boolean.FALSE, ReflectionHelpers.getField(game, "recoveryHandoffInProgress"));
             stopReleased.countDown();
-            Thread stopping = ReflectionHelpers.getField(game, "connectionStopThread"); stopping.join(1000);
-            for (int i = 0; i < 10; i++) {
-                Thread.sleep(5); org.robolectric.Shadows.shadowOf(Looper.getMainLooper()).idle();
-            }
+            settleHandoff(game);
             assertNull(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
         } finally {
             stopReleased.countDown();

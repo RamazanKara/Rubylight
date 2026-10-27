@@ -396,6 +396,8 @@ pub struct Stats {
     pub maps: u64,
     pub uniform: u64,
     pub stale: u64,
+    /// Keyframes, recovery pictures and first frames, and on AMF the frames
+    /// after them while the rate control settles.
     pub skipped_recovery: u64,
     /// Mean QP of low- minus high-importance blocks, with `encoder_focus_verify`.
     pub qp_delta: Option<f32>,

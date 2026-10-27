@@ -14,6 +14,13 @@ pub const Q_INDEX_SCALE: f32 = 4.0;
 const PROBE_WARMUP: u32 = 4;
 /// Measured probe frames with the left half important, then as many with the right.
 const PROBE_FRAMES: u32 = 3;
+/// Frames after a keyframe, a recovery picture or the encoder's first frame
+/// that carry no map. Any ROI map, even an all-zero one, lifts the
+/// latency-constrained rate control's limit on big frames from the frame it
+/// is on, so maps while the rate control settles after an IDR made frames of
+/// 75 to 145 KB against an 83 KB cap (HEVC 1080p60 at 20 Mbps, RX 7900 XT,
+/// 2026-10-27). Maps from the 16th frame on matched focus off; this is twice that.
+pub(crate) const SETTLE_FRAMES: u32 = 30;
 /// `IID_AMFSurface` (Surface.h), an inline function bindgen does not emit.
 const SURFACE_IID: AMFGuid = AMFGuid {
     data1: 0x3075dbe3,
@@ -166,7 +173,8 @@ pub(crate) fn importance_delta(qp: &Grid, importance: &Grid) -> Option<f32> {
 /// What one frame does with the newest finished map, given as `(value, uniform)`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Pick {
-    /// A keyframe, recovery picture or first frame: no map.
+    /// A keyframe, recovery picture or first frame, or one of the
+    /// [`SETTLE_FRAMES`] after them: no map.
     Skip,
     /// No map newer than the last one used.
     Stale,
@@ -174,8 +182,15 @@ enum Pick {
     Uniform,
     Attach,
 }
-fn pick(idr: bool, recover: bool, first: bool, map: Option<(u64, bool)>, last: u64) -> Pick {
-    if !encoder_focus::attach_for(idr, recover, first, false) {
+fn pick(
+    idr: bool,
+    recover: bool,
+    first: bool,
+    settling: bool,
+    map: Option<(u64, bool)>,
+    last: u64,
+) -> Pick {
+    if settling || !encoder_focus::attach_for(idr, recover, first, false) {
         return Pick::Skip;
     }
     match map {
@@ -184,6 +199,13 @@ fn pick(idr: bool, recover: bool, first: bool, map: Option<(u64, bool)>, last: u
         Some((_, true)) => Pick::Uniform,
         Some(_) => Pick::Attach,
     }
+}
+/// Counts one frame in `settled`, from 0 on a keyframe, recovery picture or
+/// first frame (`reset`); true while the frame is one of those or of the
+/// [`SETTLE_FRAMES`] after them.
+fn settle(settled: &mut u32, reset: bool) -> bool {
+    *settled = if reset { 0 } else { settled.saturating_add(1) };
+    *settled <= SETTLE_FRAMES
 }
 fn count(stats: &mut Stats, pick: Pick) {
     match pick {
@@ -208,6 +230,8 @@ pub(crate) struct State {
     settings: Option<crate::compute::FocusSettings>,
     /// The value of the last map a frame used.
     last: u64,
+    /// Frames since the last keyframe, recovery picture or first frame.
+    settled: u32,
     stats: Stats,
     /// Ask for QP feedback on one frame in this many that carry a map.
     verify: Option<u32>,
@@ -516,7 +540,8 @@ impl Encoder {
     }
     /// After `prepare_surface`, before SubmitInput: the newest finished map
     /// from a conversion up to this frame's (`conversion`), unless the frame
-    /// is a keyframe, a recovery picture or the encoder's first.
+    /// is a keyframe, a recovery picture or the encoder's first, or one of the
+    /// [`SETTLE_FRAMES`] after them.
     ///
     /// # Safety
     /// `surface` is this frame's live input surface.
@@ -528,9 +553,11 @@ impl Encoder {
         conversion: Option<u64>,
     ) -> Result<()> {
         let first = self.index == 0;
+        // Counted with focus off too: turning it on just after a keyframe still waits.
+        let settling = settle(&mut self.focus.settled, idr || recover || first);
         let (context, codec) = (self.context, self.codec);
         if let Some(fixed) = &self.focus.fixed {
-            if pick(idr, recover, first, Some((u64::MAX, false)), 0) == Pick::Attach {
+            if pick(idr, recover, first, false, Some((u64::MAX, false)), 0) == Pick::Attach {
                 // SAFETY: Per this function's contract.
                 unsafe {
                     attach(
@@ -558,6 +585,7 @@ impl Encoder {
                 idr,
                 recover,
                 first,
+                settling,
                 view.as_ref().map(|view| (view.value, view.uniform)),
                 self.focus.last,
             );
@@ -869,10 +897,10 @@ mod tests {
     #[test]
     fn no_map_on_keyframes_recovery_pictures_or_the_first_frame() {
         let fresh = Some((7, false));
-        assert_eq!(pick(true, false, false, fresh, 3), Pick::Skip);
-        assert_eq!(pick(false, true, false, fresh, 3), Pick::Skip);
-        assert_eq!(pick(false, false, true, fresh, 3), Pick::Skip);
-        assert_eq!(pick(false, false, false, fresh, 3), Pick::Attach);
+        assert_eq!(pick(true, false, false, false, fresh, 3), Pick::Skip);
+        assert_eq!(pick(false, true, false, false, fresh, 3), Pick::Skip);
+        assert_eq!(pick(false, false, true, false, fresh, 3), Pick::Skip);
+        assert_eq!(pick(false, false, false, false, fresh, 3), Pick::Attach);
         let mut stats = Stats::default();
         for picked in [
             Pick::Skip,
@@ -896,17 +924,56 @@ mod tests {
 
     #[test]
     fn a_map_is_used_once() {
-        assert_eq!(pick(false, false, false, Some((7, false)), 7), Pick::Stale);
-        assert_eq!(pick(false, false, false, Some((6, false)), 7), Pick::Stale);
-        assert_eq!(pick(false, false, false, None, 7), Pick::Stale);
-        assert_eq!(pick(false, false, false, Some((8, false)), 7), Pick::Attach);
+        assert_eq!(
+            pick(false, false, false, false, Some((7, false)), 7),
+            Pick::Stale
+        );
+        assert_eq!(
+            pick(false, false, false, false, Some((6, false)), 7),
+            Pick::Stale
+        );
+        assert_eq!(pick(false, false, false, false, None, 7), Pick::Stale);
+        assert_eq!(
+            pick(false, false, false, false, Some((8, false)), 7),
+            Pick::Attach
+        );
     }
 
     #[test]
     fn a_uniform_map_is_never_attached() {
-        assert_eq!(pick(false, false, false, Some((8, true)), 7), Pick::Uniform);
+        assert_eq!(
+            pick(false, false, false, false, Some((8, true)), 7),
+            Pick::Uniform
+        );
         // A keyframe skips before the map is looked at.
-        assert_eq!(pick(true, false, false, Some((8, true)), 7), Pick::Skip);
+        assert_eq!(
+            pick(true, false, false, false, Some((8, true)), 7),
+            Pick::Skip
+        );
+    }
+
+    #[test]
+    fn no_map_while_the_rate_control_settles() {
+        // Frame 0 is the first, frame 100 a keyframe, frame 200 a recovery
+        // picture: each and the SETTLE_FRAMES after it skip a fresh map.
+        let mut settled = 0;
+        let picks: Vec<Pick> = (0..300u32)
+            .map(|frame| {
+                let (idr, recover, first) = (frame == 100, frame == 200, frame == 0);
+                let settling = settle(&mut settled, idr || recover || first);
+                pick(idr, recover, first, settling, Some((u64::MAX, false)), 0)
+            })
+            .collect();
+        for start in [0, 100, 200] {
+            let window = start..=start + SETTLE_FRAMES as usize;
+            assert!(picks[window].iter().all(|&picked| picked == Pick::Skip));
+            let rest = start + SETTLE_FRAMES as usize + 1..start + 100;
+            assert!(picks[rest].iter().all(|&picked| picked == Pick::Attach));
+        }
+        // A settled stream stays settled.
+        let mut settled = u32::MAX;
+        assert!(!settle(&mut settled, false));
+        assert_eq!(settled, u32::MAX);
     }
 
     #[test]

@@ -1,4 +1,4 @@
-## English
+## en
 - **Shared colours with the console.** Nightjar uses the console's status colours: green means a PC or game is live, yellow means a warning, and red means poor. A state is always a word with a shape (dot, ring, triangle or cross), never colour alone, and every text colour meets 4.5:1 contrast in both the night and day themes.
 - **Host list.** A PC that is up shows a green dot next to its status. A PC that is waking, checking or not paired shows a neutral dot, and an offline PC shows an outlined ring. "Playing ..." is green, not amber, because amber now marks only actions and the selection.
 - **Library.** The Running chip on a game sits on a dark scrim with a green live dot, so it reads on any cover art.
@@ -6,7 +6,7 @@
 - **Spacing and motion.** The top bar, the TV overscan margin and the TV sheet and window animations use the console's spacing and motion steps. Animations still follow the system animation scale and stop when it is off.
 - **Desktop.** Nightjar for Windows and Linux uses the same colours, type sizes, spacing and corners as the console. A PC that is up or playing shows a green dot instead of amber, the Running badge sits on a dark backing with a green dot, and the main buttons are taller (44 points), so they are easier to hit. High contrast gets brighter green and yellow.
 
-## Deutsch
+## de
 - **Gemeinsame Farben mit der Konsole.** Nightjar nutzt die Statusfarben der Konsole: Grün heißt, ein PC oder Spiel läuft, Gelb ist eine Warnung, Rot heißt schlecht. Ein Zustand ist immer ein Wort mit einer Form (Punkt, Ring, Dreieck oder Kreuz), nie nur eine Farbe, und jede Textfarbe erreicht im Nacht- und im Tagdesign einen Kontrast von 4,5:1.
 - **PC-Liste.** Ein erreichbarer PC zeigt einen grünen Punkt neben seinem Status. Ein PC, der aufwacht, geprüft wird oder nicht gekoppelt ist, zeigt einen neutralen Punkt, ein Offline-PC einen leeren Ring. „Spielt ...“ ist grün statt gelb, denn Gelb steht jetzt nur noch für Aktionen und die Auswahl.
 - **Bibliothek.** Der Chip „Läuft“ an einem Spiel liegt auf einem dunklen Schleier mit grünem Live-Punkt und ist so auf jedem Cover lesbar.

@@ -1,4 +1,4 @@
-import json, os, pathlib, re, shutil, subprocess, sys, tempfile, textwrap, unittest
+import importlib.util, json, os, pathlib, re, shutil, subprocess, sys, tempfile, textwrap, unittest
 import xml.etree.ElementTree as ET
 
 
@@ -275,6 +275,14 @@ class NightjarNotes(unittest.TestCase):
                 self.assertFalse(self.out.exists())
                 self.assertFalse(self.changelog('en-US').exists())
                 self.assertTrue((self.notes / 'x.md').exists())
+
+    def test_the_repository_fragments_are_well_formed(self):
+        # A fragment with "## English" broke the release only at release time.
+        spec = importlib.util.spec_from_file_location('nightjar_notes', ROOT / 'tools/nightjar_notes.py')
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        bullets, files = notes.read(ROOT / 'client/notes.d')
+        self.assertEqual(len(bullets['en']) > 0, len(files) > 0)
 
     def test_an_existing_changelog_needs_force_and_keep_keeps_the_fragments(self):
         (self.notes / 'x.md').write_text('## en\n- A.\n## de\n- B.\n', encoding='utf-8')

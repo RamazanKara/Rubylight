@@ -576,6 +576,19 @@ mod tests {
     use crate::video::tests::early_chunks::{records, Blocks};
     use std::sync::mpsc;
 
+    /// How long a test waits for something it caused before calling it a hang. Only a hang
+    /// runs into it: no test passes or fails on how fast a thread gets scheduled.
+    const HANG_GUARD: Duration = Duration::from_secs(60);
+
+    /// Waits for `done`, polling: for state another thread changes without signalling the test.
+    fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
+        let deadline = Instant::now() + HANG_GUARD;
+        while !done() {
+            assert!(Instant::now() < deadline, "{what}");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
     fn next_item(queue: &FrameQueue) -> Item {
         queue.wait(&mut Vec::new()).expect("an item")
     }
@@ -659,13 +672,11 @@ mod tests {
             })
         };
         // It sleeps on the empty queue after giving its three buffers back.
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while lock(&queue.state).spare.len() != 3 {
-            assert!(Instant::now() < deadline, "the waiter never handed its buffers back");
-            std::thread::sleep(Duration::from_millis(2));
-        }
+        wait_until("the waiter never handed its buffers back", || {
+            lock(&queue.state).spare.len() == 3
+        });
         assert!(queue.offer_chunk(true, 0, &[1]));
-        assert_eq!(rx.recv_timeout(Duration::from_secs(5)).unwrap(), (true, 0));
+        assert_eq!(rx.recv_timeout(HANG_GUARD).unwrap(), (true, 0));
         waiter.join().unwrap();
     }
 
@@ -782,15 +793,16 @@ mod tests {
             }
         }
 
-        /// Everything seen until the decoder has been quiet for a moment, then stops it.
+        /// Stops the decoder once it has taken everything queued, and returns all it saw. The
+        /// tests queue everything before this, and the one item the decoder may still be
+        /// handling when the queue runs empty is finished before it sees the shutdown.
         fn finish(self) -> Vec<Seen> {
-            let mut all = Vec::new();
-            while let Ok(item) = self.seen.recv_timeout(Duration::from_millis(300)) {
-                all.push(item);
-            }
+            wait_until("the decoder never took everything queued", || {
+                lock(&self.shared.queue.state).items.is_empty()
+            });
             self.shared.queue.shutdown();
             self.thread.join().unwrap();
-            all
+            self.seen.try_iter().collect()
         }
     }
 

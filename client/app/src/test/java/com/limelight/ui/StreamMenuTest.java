@@ -560,4 +560,21 @@ public class StreamMenuTest {
         for (StreamMenu.Entry entry : entries) items.add(entry.item);
         return items;
     }
+
+    /** The stream menu on a 1080p TV, both pages: no text under the TV caption size, and the sheet inside the safe area. */
+    @Test @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void tvMenuTextIsReadableAndTheSheetFitsInsideTheOverscan() {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
+            Activity activity = controller.get();
+            activity.setTheme(R.style.StreamTheme);
+            StreamMenu.Options state = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+            state.hostMenu = true;
+            StreamMenu menu = new StreamMenu(activity, () -> state, item -> { });
+            menu.show();
+            assertEquals(java.util.Collections.emptyList(), TvAudit.findings(menu.sheet()));
+            menu.row(OVERLAY_PAGE).performClick();
+            assertEquals(java.util.Collections.emptyList(), TvAudit.findings(menu.sheet()));
+            menu.sheet().dismiss();
+        }
+    }
 }

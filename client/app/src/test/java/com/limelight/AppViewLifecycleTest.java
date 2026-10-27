@@ -414,4 +414,38 @@ public class AppViewLifecycleTest {
             controller.pause().stop().destroy();
         }
     }
+
+    /** A PC's app grid on a 1080p TV: readable text, nothing read or focused in the overscan band. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+    public void onATelevisionTheAppGridKeepsItsTextReadableAndInsideTheOverscan() throws Exception {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
+                .putExtra(AppView.UUID_EXTRA, "running-host").putExtra(AppView.NAME_EXTRA, "PC");
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup().visible();
+        try {
+            Library screen = controller.get();
+            android.widget.GridView grid = libraryWithRunningGame(screen, "sunshine-serverinfo.xml");
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            assertEquals(Collections.emptyList(), com.limelight.ui.TvAudit.findings(screen));
+            com.limelight.ui.TvScreensPreviewTest.previewIfRequested(screen, "AppView-library");
+            // The bar moved in to the overscan line and stays one press away: Up from the first row reaches it, and
+            // Right walks from Back over Search to the menu, and Left walks back.
+            View back = screen.findViewById(R.id.library_back);
+            View search = screen.findViewById(R.id.library_search_button);
+            View options = screen.findViewById(R.id.library_options);
+            com.limelight.ui.TvScreensPreviewTest.leaveTouchMode(screen);
+            assertTrue(grid.requestFocus());
+            grid.setSelection(0);
+            com.limelight.ui.TvScreensPreviewTest.settle(screen);
+            View up = grid.focusSearch(View.FOCUS_UP);
+            assertTrue("Up from the grid reaches the bar: " + up, up == back || up == search || up == options);
+            assertSame(search, back.focusSearch(View.FOCUS_RIGHT));
+            assertSame(options, search.focusSearch(View.FOCUS_RIGHT));
+            assertSame(search, options.focusSearch(View.FOCUS_LEFT));
+            assertSame(back, search.focusSearch(View.FOCUS_LEFT));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
 }

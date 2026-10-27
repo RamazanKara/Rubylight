@@ -2,4 +2,6 @@
 <resources>
     <dimen name="shell_overscan_horizontal">@dimen/space_3xl</dimen>
     <dimen name="shell_overscan_vertical">27dp</dimen>
+    <!-- What the horizontal overscan needs beyond AdaptiveLayout's 24dp TV margin. -->
+    <dimen name="shell_overscan_past_margin">24dp</dimen>
 </resources>

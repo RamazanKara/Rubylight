@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- A TV screen that opens: it fades in and settles from 97%. -->
 <set xmlns:android="http://schemas.android.com/apk/res/android" android:interpolator="@interpolator/tv_emph_dec">
-    <alpha android:fromAlpha="0" android:toAlpha="1" android:duration="220" />
+    <alpha android:fromAlpha="0" android:toAlpha="1" android:duration="@integer/motion_base" />
     <scale android:fromXScale="0.97" android:toXScale="1" android:fromYScale="0.97" android:toYScale="1"
-        android:pivotX="50%" android:pivotY="50%" android:duration="220" />
+        android:pivotX="50%" android:pivotY="50%" android:duration="@integer/motion_base" />
 </set>

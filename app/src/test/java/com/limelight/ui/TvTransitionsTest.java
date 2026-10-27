@@ -86,10 +86,41 @@ public class TvTransitionsTest {
             for (int i = 0; i < tweens.getLength(); i++) {
                 if (!(tweens.item(i) instanceof Element)) continue;
                 count++;
-                String duration = ((Element) tweens.item(i)).getAttribute("android:duration");
-                assertTrue(name + " lasts " + duration + " ms", Integer.parseInt(duration) <= 220);
+                int duration = motion(name, ((Element) tweens.item(i)).getAttribute("android:duration"));
+                assertTrue(name + " lasts " + duration + " ms", duration <= 220);
             }
             assertTrue(name, count > 0);
+        }
+    }
+
+    /** A duration in res/anim, which must name one of the shared motion tokens rather than a raw number. */
+    private static int motion(String anim, String duration) throws Exception {
+        assertTrue(anim + " uses a motion token, not " + duration, duration.startsWith("@integer/motion_"));
+        NodeList integers = parse("src/main/res/values/integers.xml").getElementsByTagName("integer");
+        for (int i = 0; i < integers.getLength(); i++) {
+            Element integer = (Element) integers.item(i);
+            if (("@integer/" + integer.getAttribute("name")).equals(duration)) {
+                return Integer.parseInt(integer.getTextContent().trim());
+            }
+        }
+        throw new AssertionError(duration + " is not in integers.xml");
+    }
+
+    @Test
+    public void motionTokensMatchTheConsoleAndSheetsAndWindowsUseThem() throws Exception {
+        assertEquals(120, motion("token", "@integer/motion_fast"));
+        assertEquals(200, motion("token", "@integer/motion_base"));
+        assertEquals(320, motion("token", "@integer/motion_slow"));
+        // Entrances run at the base duration and exits faster, so leaving a screen never feels slower than entering it.
+        String[][] expected = {{"tv_sheet_enter", "@integer/motion_base"}, {"tv_sheet_exit", "@integer/motion_fast"},
+                {"tv_open_enter", "@integer/motion_base"}, {"tv_open_exit", "@integer/motion_fast"},
+                {"tv_close_enter", "@integer/motion_base"}, {"tv_close_exit", "@integer/motion_fast"}};
+        for (String[] anim : expected) {
+            NodeList tweens = parse("src/main/res/anim/" + anim[0] + ".xml").getChildNodes();
+            for (int i = 0; i < tweens.getLength(); i++) {
+                if (!(tweens.item(i) instanceof Element)) continue;
+                assertEquals(anim[0], anim[1], ((Element) tweens.item(i)).getAttribute("android:duration"));
+            }
         }
     }
 

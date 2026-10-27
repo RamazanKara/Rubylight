@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Motion durations shared with the Rubylight console (its fast, base and slow durations), in ms. The system
+         scales them by the animator duration scale; never scale them again in code. TV focus zoom (160) and
+         press (80) keep their own timings, tuned for D-pad repeat. -->
+    <!-- Press, hover and toggles, and anything leaving the screen: exits run faster than entrances. -->
+    <integer name="motion_fast">120</integer>
+    <!-- Sheets, reveals, dialogs and TV screen changes. TV windows stay at or under 220 ms so a D-pad
+         press into a screen never waits on the animation. -->
+    <integer name="motion_base">200</integer>
+    <!-- Large screen changes on a phone or tablet. -->
+    <integer name="motion_slow">320</integer>
+</resources>

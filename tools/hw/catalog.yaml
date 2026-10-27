@@ -252,6 +252,26 @@ cases:
     status: pending
     note: 'Not run: on 2026-10-27 the Retroid answered ping at 192.168.4.107 but had no adb (no USB, no open TCP port). Needs the host bound to the PC''s LAN address on a test port and a firewall allow for the staged exe; steps in C:\src\butterpollo-release\unified\hw-queue.md (E3 passthrough)'
 
+  - id: keyboard-follows-text-fields-phone
+    device: user
+    title: Phone keyboard follows the host's text fields (Fold7, Nightjar)
+    command: 'stream Desktop from the Fold7, tap a text field, a number field and a password field in host apps, type "Grüße 👍" and backspace twice, tap outside; attach a hardware keyboard; turn the setting off'
+    preconditions: [idle]
+    pass: the soft keyboard opens with the field's type (digits for a number field, no suggestions for a password) and hides on leaving it; the host shows "Grüße"; nothing opens with a hardware keyboard or with Keyboard follows text fields off; the host log shows a Raise notice per field and a Lower after
+    output: the host log's text input lines (read after the user's run)
+    status: pending
+    note: steps in unified\user-tests.md (keyboard-follows-text-fields-fold7); the device needs the Keyboard permission
+
+  - id: keyboard-layout-stock-moonlight-german
+    device: user
+    title: German layout game with keys a stock Moonlight client does not normalize
+    command: 'set keyboard_layout = 00000407 and always_send_scancodes on the host, stream from stock Moonlight with a German keyboard, type ü, ö, ä, ß, z, y, # and < in a game that reads scan codes and in Notepad'
+    preconditions: [idle]
+    pass: each key gives the character printed on the German keyboard in the game and in Notepad; the host log names layout 00000407 from the setting; the user's input languages (Get-WinUserLanguageList, HKCU\Keyboard Layout\Preload) are the same before and after
+    output: the host log's keyboard layout lines (read after the user's run)
+    status: pending
+    note: stock Moonlight never sends the layout report (0x553E), so the host setting stands in for it
+
   - id: smoke-laptop
     device: laptop
     title: Real-client smoke from the laptop (Moonlight-qt, AV1 and HEVC, 1968x2184 HDR 120 fps, 30 s each)

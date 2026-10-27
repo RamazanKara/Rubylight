@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Presets on TV Settings' rail: a row like the sections around it (layout-television/settings_section), so Up and Down
+     move one row at a time. The phone's wrapping chips made it the rail's tallest row, and the D-pad scrolled inside it
+     instead of reaching Video (nightjar#7). Select opens the preset list; the value line names the preset in use. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="@dimen/settings_section_min_height"
+    android:gravity="center_vertical" android:paddingStart="28dp" android:paddingEnd="@dimen/space_l"
+    android:paddingTop="@dimen/settings_section_padding" android:paddingBottom="@dimen/settings_section_padding"
+    android:descendantFocusability="blocksDescendants" android:background="@drawable/tv_settings_rail_row">
+    <ImageView android:layout_width="24dp" android:layout_height="24dp"
+        android:layout_marginEnd="@dimen/space_l" android:src="@drawable/ic_speed"
+        app:tint="@color/tv_rail_icon" android:duplicateParentState="true" android:importantForAccessibility="no" />
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+        android:orientation="vertical">
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:maxLines="1" android:ellipsize="end" android:text="@string/stream_presets"
+            android:textAppearance="@style/TextAppearance.Nightjar.Title" android:textColor="?attr/colorOnSurface" />
+        <TextView android:id="@+id/preset_value" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="2dp" android:maxLines="1" android:ellipsize="end"
+            android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant" />
+    </LinearLayout>
+</LinearLayout>

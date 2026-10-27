@@ -51,11 +51,16 @@ public class PresetPreference extends Preference {
         super.onBindView(view);
         float refresh = DisplayFrameRatePolicy.maxRefreshRate(((Activity) getContext()).getWindowManager().getDefaultDisplay());
         String nativeResolution = PreferenceConfiguration.nativeResolution(getContext());
+        // TV's rail row (layout-television/settings_presets) has no chips or info button: Select opens the list.
         ChipGroup group = view.findViewById(R.id.preset_chips);
-        group.removeAllViews();
+        if (group != null) group.removeAllViews();
         String[] names = getContext().getResources().getStringArray(R.array.stream_preset_names);
         String selected = getContext().getString(R.string.settings_custom);
         for (StreamPreset preset : nativeResolution == null ? new StreamPreset[0] : StreamPreset.values()) {
+            if (group == null) {
+                if (preset.matches(getSharedPreferences(), nativeResolution, refresh)) selected = names[preset.ordinal()];
+                continue;
+            }
             Chip chip = new Chip(getContext());
             chip.setId(View.generateViewId());
             chip.setText(names[preset.ordinal()]);
@@ -74,7 +79,8 @@ public class PresetPreference extends Preference {
         Runnable showHelp = () ->
                 UiHelper.showDialog(getContext(), new NavigationDialogBuilder(getContext()).setTitle(R.string.stream_presets)
                         .setMessage(R.string.stream_presets_help).setPositiveButton(android.R.string.ok, null).create());
-        view.findViewById(R.id.preset_help).setOnClickListener(v -> showHelp.run());
+        View help = view.findViewById(R.id.preset_help);
+        if (help != null) help.setOnClickListener(v -> showHelp.run());
         view.setTag(R.id.preference_help, showHelp);
     }
 }

@@ -41,8 +41,13 @@ default, and it is what Windows Home uses: Home has no child sessions.
 
 A small viewer runs in your session and keeps the child session attached (it
 only has a display while it is attached) through the built-in Remote Desktop
-client over loopback, on the RDP port setup recorded; it warns rather than
-connecting to an RDP server it cannot authenticate. Windows shortcuts stay on
+client over loopback (`127.0.0.1`), on the RDP port setup recorded. The
+loopback server's certificate is self-signed, so the client does not
+authenticate it; instead, before every connect and reconnect the viewer checks
+that the Remote Desktop service listens on that port, that no other program
+listens on it (IPv4 or IPv6), and that RDP is still on, on that port. On any
+mismatch it refuses, says why in the panel and the log, and does not retry.
+Windows shortcuts stay on
 your own desktop. The panel
 starts and stops the child session and its host, sets its resolution and scale
 (`child_session_resolution`, `child_session_scale`; 1920x1080 at 100 % by

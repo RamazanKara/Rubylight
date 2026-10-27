@@ -945,6 +945,88 @@ fn restore_loads_a_signed_out_accounts_hive_and_unloads_it_after() {
     assert!(fake.machine.loaded_hives.contains(SID));
 }
 
+fn listener(address: &str, port: u16, pid: u32) -> Listener {
+    Listener {
+        address: address.parse().unwrap(),
+        port,
+        pid,
+    }
+}
+fn rdp_server() -> RdpServer {
+    RdpServer {
+        service_pid: 1200,
+        listeners: vec![
+            listener("0.0.0.0", 3390, 1200),
+            listener("::", 3390, 1200),
+            listener("0.0.0.0", 445, 4),
+            listener("127.0.0.1", 47989, 900),
+        ],
+        port_number: Some(3390),
+        deny_ts_connections: Some(0),
+    }
+}
+fn refusal(server: &RdpServer) -> String {
+    format!("{:#}", check_rdp_server(3390, server).unwrap_err())
+}
+
+#[test]
+fn the_viewer_connects_only_to_windows_own_rdp_listener() {
+    check_rdp_server(3390, &rdp_server()).unwrap();
+    // Listening on loopback only, or IPv4 only, is still Windows' own server.
+    let mut server = rdp_server();
+    server.listeners = vec![listener("127.0.0.1", 3390, 1200)];
+    check_rdp_server(3390, &server).unwrap();
+    // A squatter on the port, on IPv4 loopback or on IPv6, beside TermService.
+    for squatter in [
+        listener("127.0.0.1", 3390, 6666),
+        listener("::1", 3390, 6666),
+    ] {
+        let mut server = rdp_server();
+        server.listeners.push(squatter);
+        let error = refusal(&server);
+        assert!(
+            error.contains("another program (process 6666) listens on port 3390"),
+            "{error}"
+        );
+    }
+    // TermService stopped and another program on its port.
+    let mut server = rdp_server();
+    server.service_pid = 0;
+    server.listeners = vec![listener("0.0.0.0", 3390, 6666)];
+    let error = refusal(&server);
+    assert!(
+        error.contains("TermService) is not running") && error.contains("process 6666"),
+        "{error}"
+    );
+    // TermService listens on another port, or on a network address only.
+    let mut server = rdp_server();
+    server.listeners = vec![listener("0.0.0.0", 3389, 1200)];
+    assert!(refusal(&server).contains("does not listen on 127.0.0.1:3390"));
+    server.listeners = vec![listener("192.168.4.2", 3390, 1200)];
+    assert!(refusal(&server).contains("does not listen on 127.0.0.1:3390"));
+    // The registry moved the port or turned RDP off since setup.
+    let mut server = rdp_server();
+    server.port_number = Some(3389);
+    let error = refusal(&server);
+    assert!(
+        error.contains("set to port 3389, not the port 3390")
+            && error.contains("set up child sessions again"),
+        "{error}"
+    );
+    server.port_number = None;
+    assert!(refusal(&server).contains("set to port 3389"));
+    let mut server = rdp_server();
+    server.deny_ts_connections = Some(1);
+    assert!(refusal(&server).contains("fDenyTSConnections"));
+    server.deny_ts_connections = None;
+    assert!(refusal(&server).contains("fDenyTSConnections"));
+    // No port setup recorded: Windows' default.
+    let mut server = rdp_server();
+    server.port_number = None;
+    server.listeners = vec![listener("0.0.0.0", 3389, 1200)];
+    check_rdp_server(3389, &server).unwrap();
+}
+
 #[test]
 fn missing_lists_what_setup_still_has_to_do() {
     let fake = Fake::new();
@@ -1014,7 +1096,10 @@ fn a_damaged_saved_password_is_refused_without_quoting_it() {
         PasswordStore::new(path, FakeDpapi(SID)).load().unwrap_err()
     );
     assert!(error.contains("damaged"), "{error}");
-    assert!(!error.contains("hunter2") && !error.contains("104"), "{error}");
+    assert!(
+        !error.contains("hunter2") && !error.contains("104"),
+        "{error}"
+    );
 }
 
 /// Collects everything a tracing subscriber writes.

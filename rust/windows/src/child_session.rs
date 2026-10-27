@@ -13,13 +13,16 @@ pub mod viewer;
 
 use crate::text::{from_wide, to_wide};
 use anyhow::{Context, Result, bail};
-use butterpollo_core::child_session::{ActiveFirewall, Adapter, Hive, SystemSettings};
+use butterpollo_core::child_session::{
+    ActiveFirewall, Adapter, Hive, Listener, RDP_TCP, RdpServer, SystemSettings, TERMINAL_SERVER,
+};
 use std::os::windows::io::FromRawHandle;
 use windows::{
     Win32::{
         Foundation::{
-            ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND, ERROR_SUCCESS, GetLastError, HANDLE,
-            HLOCAL, LUID, LocalFree, SetLastError, VARIANT_TRUE, WIN32_ERROR,
+            ERROR_FILE_NOT_FOUND, ERROR_INSUFFICIENT_BUFFER, ERROR_PATH_NOT_FOUND, ERROR_SUCCESS,
+            GetLastError, HANDLE, HLOCAL, LUID, LocalFree, NO_ERROR, SetLastError, VARIANT_TRUE,
+            WIN32_ERROR,
         },
         Graphics::{
             Direct3D::D3D_FEATURE_LEVEL_11_0,
@@ -29,7 +32,14 @@ use windows::{
             },
             Dxgi::{CreateDXGIFactory1, DXGI_ADAPTER_FLAG_SOFTWARE, IDXGIAdapter1, IDXGIFactory1},
         },
-        NetworkManagement::WindowsFirewall::*,
+        NetworkManagement::{
+            IpHelper::{
+                GetExtendedTcpTable, MIB_TCP6ROW_OWNER_PID, MIB_TCP6TABLE_OWNER_PID,
+                MIB_TCPROW_OWNER_PID, MIB_TCPTABLE_OWNER_PID, TCP_TABLE_OWNER_PID_LISTENER,
+            },
+            WindowsFirewall::*,
+        },
+        Networking::WinSock::{ADDRESS_FAMILY, AF_INET, AF_INET6},
         Security::{
             AdjustTokenPrivileges,
             Cryptography::{
@@ -48,6 +58,11 @@ use windows::{
             RemoteDesktop::{
                 WTSEnableChildSessions, WTSGetChildSessionId, WTSIsChildSessionsEnabled,
                 WTSLogoffSession,
+            },
+            Services::{
+                CloseServiceHandle, OpenSCManagerW, OpenServiceW, QueryServiceStatusEx, SC_HANDLE,
+                SC_MANAGER_CONNECT, SC_STATUS_PROCESS_INFO, SERVICE_QUERY_STATUS, SERVICE_RUNNING,
+                SERVICE_STATUS_PROCESS,
             },
             Threading::{GetCurrentProcess, OpenProcessToken},
         },
@@ -138,6 +153,135 @@ pub fn sign_out(session: u32) -> Result<()> {
         .with_context(|| format!("Windows did not sign out session {session}"))
 }
 
+/// What answers on the RDP port now, for
+/// [`butterpollo_core::child_session::check_rdp_server`]: the Remote Desktop
+/// service's process, every IPv4 and IPv6 TCP listener and the RDP registry
+/// values. It only reads, so the viewer, an ordinary user, can.
+pub fn rdp_server() -> Result<RdpServer> {
+    // The service first: one that restarts in between no longer matches its listeners.
+    let service_pid = term_service_pid()?;
+    let mut listeners: Vec<Listener> = tcp_listeners::<MIB_TCPROW_OWNER_PID>(
+        AF_INET,
+        std::mem::offset_of!(MIB_TCPTABLE_OWNER_PID, table),
+    )?
+    .into_iter()
+    .map(|row| Listener {
+        // Network byte order, as it lies in memory.
+        address: std::net::Ipv4Addr::from(row.dwLocalAddr.to_ne_bytes()).into(),
+        port: local_port(row.dwLocalPort),
+        pid: row.dwOwningPid,
+    })
+    .collect();
+    listeners.extend(
+        tcp_listeners::<MIB_TCP6ROW_OWNER_PID>(
+            AF_INET6,
+            std::mem::offset_of!(MIB_TCP6TABLE_OWNER_PID, table),
+        )?
+        .into_iter()
+        .map(|row| Listener {
+            address: std::net::Ipv6Addr::from(row.ucLocalAddr).into(),
+            port: local_port(row.dwLocalPort),
+            pid: row.dwOwningPid,
+        }),
+    );
+    Ok(RdpServer {
+        service_pid,
+        listeners,
+        port_number: read_dword(&Hive::LocalMachine, RDP_TCP, "PortNumber")?,
+        deny_ts_connections: read_dword(
+            &Hive::LocalMachine,
+            TERMINAL_SERVER,
+            "fDenyTSConnections",
+        )?,
+    })
+}
+/// The port in a TCP table row: network byte order in the low 16 bits.
+fn local_port(raw: u32) -> u16 {
+    u16::from_be(raw as u16)
+}
+/// The Remote Desktop service's process, 0 when it is not running.
+fn term_service_pid() -> Result<u32> {
+    struct Handle(SC_HANDLE);
+    impl Drop for Handle {
+        fn drop(&mut self) {
+            // SAFETY: the handle came from OpenSCManagerW or OpenServiceW and is closed only here.
+            let _ = unsafe { CloseServiceHandle(self.0) };
+        }
+    }
+    // SAFETY: null names select this PC's service manager; the service name is a static
+    // NUL-terminated string; the status is the struct whose size is passed.
+    unsafe {
+        let manager = Handle(
+            OpenSCManagerW(PCWSTR::null(), PCWSTR::null(), SC_MANAGER_CONNECT)
+                .context("opening the service manager")?,
+        );
+        let service = Handle(
+            OpenServiceW(manager.0, w!("TermService"), SERVICE_QUERY_STATUS)
+                .context("opening the Remote Desktop service (TermService)")?,
+        );
+        let mut status = SERVICE_STATUS_PROCESS::default();
+        let mut needed = 0;
+        QueryServiceStatusEx(
+            service.0,
+            SC_STATUS_PROCESS_INFO,
+            Some(std::slice::from_raw_parts_mut(
+                (&mut status as *mut SERVICE_STATUS_PROCESS).cast(),
+                size_of::<SERVICE_STATUS_PROCESS>(),
+            )),
+            &mut needed,
+        )
+        .context("reading the Remote Desktop service's state")?;
+        Ok(if status.dwCurrentState == SERVICE_RUNNING {
+            status.dwProcessId
+        } else {
+            0
+        })
+    }
+}
+/// The rows of `GetExtendedTcpTable(TCP_TABLE_OWNER_PID_LISTENER)` for one
+/// address family; `offset` is where the rows start in its table.
+fn tcp_listeners<Row: Copy>(family: ADDRESS_FAMILY, offset: usize) -> Result<Vec<Row>> {
+    let mut size = 0u32;
+    // The table can grow between the size query and the read.
+    for _ in 0..8 {
+        // u64s: aligned for the table's u32 fields.
+        let mut buffer = vec![0u64; (size as usize).div_ceil(8)];
+        // SAFETY: `buffer` is writable for the `size` bytes passed.
+        let result = unsafe {
+            GetExtendedTcpTable(
+                Some(buffer.as_mut_ptr().cast()),
+                &mut size,
+                false,
+                u32::from(family.0),
+                TCP_TABLE_OWNER_PID_LISTENER,
+                0,
+            )
+        };
+        if result == ERROR_INSUFFICIENT_BUFFER.0 {
+            continue;
+        }
+        if result != NO_ERROR.0 {
+            return Err(windows::core::Error::from(WIN32_ERROR(result).to_hresult()))
+                .context("reading this PC's TCP listeners");
+        }
+        let bytes = (size as usize).min(buffer.len() * 8);
+        let base = buffer.as_ptr().cast::<u8>();
+        if bytes < 4 {
+            bail!("Windows returned a TCP table without its length");
+        }
+        // SAFETY: the count and every row read lie inside the `bytes` Windows filled.
+        unsafe {
+            let count = base.cast::<u32>().read() as usize;
+            if offset + count * size_of::<Row>() > bytes {
+                bail!("Windows returned a TCP table shorter than its count");
+            }
+            let rows = base.add(offset).cast::<Row>();
+            return Ok((0..count).map(|i| rows.add(i).read_unaligned()).collect());
+        }
+    }
+    bail!("this PC's TCP listeners kept changing while they were read")
+}
+
 fn root(hive: &Hive, path: &str) -> (HKEY, Vec<u16>) {
     match hive {
         Hive::LocalMachine => (HKEY_LOCAL_MACHINE, to_wide(path)),
@@ -224,31 +368,34 @@ const PROTOCOLS: [(NET_FW_IP_PROTOCOL, &str); 2] = [
     (NET_FW_IP_PROTOCOL_TCP, "TCP"),
     (NET_FW_IP_PROTOCOL_UDP, "UDP"),
 ];
+fn read_dword(hive: &Hive, path: &str, name: &str) -> Result<Option<u32>> {
+    let (root, key) = root(hive, path);
+    let value = to_wide(name);
+    let mut data = 0u32;
+    let mut size = size_of::<u32>() as u32;
+    // SAFETY: `key` and `value` are NUL-terminated and outlive the call, and `data` is the
+    // 4-byte buffer `size` names.
+    let read = unsafe {
+        RegGetValueW(
+            root,
+            PCWSTR(key.as_ptr()),
+            PCWSTR(value.as_ptr()),
+            RRF_RT_REG_DWORD,
+            None,
+            Some((&mut data as *mut u32).cast()),
+            Some(&mut size),
+        )
+    };
+    match read {
+        error if error.is_ok() => Ok(Some(data)),
+        error if absent(error) => Ok(None),
+        error => Err(windows::core::Error::from(error.to_hresult()))
+            .with_context(|| format!(r"reading {}\{path}\{name}", hive_name(hive))),
+    }
+}
 impl SystemSettings for NativeSettings {
     fn read_dword(&self, hive: &Hive, path: &str, name: &str) -> Result<Option<u32>> {
-        let (root, key) = root(hive, path);
-        let value = to_wide(name);
-        let mut data = 0u32;
-        let mut size = size_of::<u32>() as u32;
-        // SAFETY: `key` and `value` are NUL-terminated and outlive the call, and `data` is the
-        // 4-byte buffer `size` names.
-        let read = unsafe {
-            RegGetValueW(
-                root,
-                PCWSTR(key.as_ptr()),
-                PCWSTR(value.as_ptr()),
-                RRF_RT_REG_DWORD,
-                None,
-                Some((&mut data as *mut u32).cast()),
-                Some(&mut size),
-            )
-        };
-        match read {
-            error if error.is_ok() => Ok(Some(data)),
-            error if absent(error) => Ok(None),
-            error => Err(windows::core::Error::from(error.to_hresult()))
-                .with_context(|| format!(r"reading {}\{path}\{name}", hive_name(hive))),
-        }
+        read_dword(hive, path, name)
     }
     fn write_dword(&mut self, hive: &Hive, path: &str, name: &str, value: u32) -> Result<()> {
         let (root, key) = root(hive, path);
@@ -790,6 +937,36 @@ mod tests {
         assert!(super::modify_state_problem(NET_FW_MODIFY_STATE_INBOUND_BLOCKED).is_some());
         assert!(super::modify_state_problem(NET_FW_MODIFY_STATE(7)).is_some());
         assert_eq!(super::staging_name("x"), "x [new]");
+    }
+
+    #[test]
+    fn the_rdp_server_is_readable_and_ports_come_off_the_wire_order() {
+        // 3389 is 0x0D3D, stored as the bytes 0D 3D.
+        assert_eq!(
+            super::local_port(u32::from(u16::from_ne_bytes([0x0D, 0x3D]))),
+            3389
+        );
+        // Read-only: the service state, the TCP tables and two registry values.
+        let server = super::rdp_server().unwrap();
+        assert!(!server.listeners.is_empty());
+        assert!(server.listeners.iter().any(|l| l.address.is_ipv4()));
+        // This test's own listener shows up, with this process as its owner.
+        let socket = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = socket.local_addr().unwrap().port();
+        let server = super::rdp_server().unwrap();
+        assert!(
+            server
+                .listeners
+                .iter()
+                .any(|l| l.port == port && l.pid == std::process::id()),
+            "{port}"
+        );
+        // A squatter on a port is refused, whatever runs on this PC.
+        let error = butterpollo_core::child_session::check_rdp_server(port, &server).unwrap_err();
+        assert!(
+            format!("{error:#}").contains(&format!("process {}", std::process::id())),
+            "{error:#}"
+        );
     }
 
     #[test]

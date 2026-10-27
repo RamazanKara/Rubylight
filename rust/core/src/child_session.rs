@@ -1422,6 +1422,90 @@ pub fn firewall_missing(system: &dyn SystemSettings) -> Result<Vec<String>> {
     Ok(missing)
 }
 
+/// A TCP listener as Windows' TCP tables report it (`GetExtendedTcpTable`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Listener {
+    pub address: std::net::IpAddr,
+    pub port: u16,
+    pub pid: u32,
+}
+
+/// What the viewer reads before every connect ([`check_rdp_server`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RdpServer {
+    /// The Remote Desktop service's (TermService) process, 0 when it is not
+    /// running.
+    pub service_pid: u32,
+    /// Every IPv4 and IPv6 TCP listener on this PC.
+    pub listeners: Vec<Listener>,
+    /// RDP-Tcp's `PortNumber`; Windows' default when it has none.
+    pub port_number: Option<u32>,
+    pub deny_ts_connections: Option<u32>,
+}
+
+/// Refuse, with every reason, unless what answers on `127.0.0.1:rdp_port`
+/// is Windows' own RDP server: the Remote Desktop service listens there, no
+/// other process listens on that port (IPv4 or IPv6), and RDP is still on,
+/// on that port. The viewer's client does not authenticate the server
+/// (`AuthenticationLevel` 0: its certificate is self-signed and loopback has
+/// no Kerberos), so this check, before every connect and reconnect, is what
+/// keeps the password from another program on the port.
+pub fn check_rdp_server(rdp_port: u16, server: &RdpServer) -> Result<()> {
+    let mut problems = Vec::new();
+    let service = server.service_pid;
+    if service == 0 {
+        problems.push("the Remote Desktop service (TermService) is not running".to_string());
+    }
+    let on_port: Vec<&Listener> = server
+        .listeners
+        .iter()
+        .filter(|listener| listener.port == rdp_port)
+        .collect();
+    let mut others: Vec<u32> = on_port
+        .iter()
+        .filter(|listener| service == 0 || listener.pid != service)
+        .map(|listener| listener.pid)
+        .collect();
+    others.sort_unstable();
+    others.dedup();
+    if !others.is_empty() {
+        let pids: Vec<String> = others.iter().map(u32::to_string).collect();
+        problems.push(format!(
+            "another program (process {}) listens on port {rdp_port}",
+            pids.join(", ")
+        ));
+    }
+    let loopback = on_port.iter().any(|listener| {
+        listener.pid == service
+            && matches!(listener.address, std::net::IpAddr::V4(address) if address.is_unspecified() || address.is_loopback())
+    });
+    if service != 0 && !loopback {
+        problems.push(format!(
+            "the Remote Desktop service does not listen on 127.0.0.1:{rdp_port}"
+        ));
+    }
+    let live = server.port_number.unwrap_or(DEFAULT_RDP_PORT);
+    if live != u32::from(rdp_port) {
+        problems.push(format!(
+            "Remote Desktop is set to port {live}, not the port {rdp_port} setup recorded; set up child sessions again"
+        ));
+    }
+    if server.deny_ts_connections != Some(0) {
+        problems.push(
+            "Remote Desktop is turned off (fDenyTSConnections is not 0); set up child sessions again"
+                .to_string(),
+        );
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        bail!(
+            "refused to sign in to the child session over port {rdp_port}, because {}",
+            problems.join("; ")
+        )
+    }
+}
+
 /// A graphics adapter as DXGI reports it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Adapter {

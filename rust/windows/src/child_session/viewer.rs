@@ -10,14 +10,17 @@
 //! it (`src/LauncherApplication.cs`, `src/LauncherPolicy.cs`, MIT, see the
 //! module above): loopback, the user's own account, CredSSP, the child-session
 //! flag and `KeyboardHookMode = 2`, so Windows-key shortcuts stay on the
-//! user's own desktop. On top of Annex, the RDP port setup recorded and
-//! `AuthenticationLevel = 2`.
+//! user's own desktop. On top of Annex, the RDP port setup recorded,
+//! `127.0.0.1` rather than `localhost`, and a check before every connect that
+//! Windows' own RDP server, and nothing else, listens on that port
+//! ([`check_rdp_server`]): with `AuthenticationLevel = 0` the client does not
+//! authenticate the server itself.
 
 use crate::text::to_wide;
 use anyhow::{Context, Result, bail};
 use butterpollo_core::child_session::{
     Confirmation, DisplaySettings, LineReader, PasswordStore, RdpState, Secret, Viewer,
-    ViewerAction, ViewerCommand, ViewerStatus,
+    ViewerAction, ViewerCommand, ViewerStatus, check_rdp_server,
 };
 use std::{
     ffi::c_void,
@@ -292,7 +295,8 @@ impl Rdp {
         rdp_port: u16,
     ) -> Result<Vec<String>> {
         let control = &self.control;
-        put(control, "Server", &Value::text("localhost"))?;
+        // The IPv4 loopback address [`check_rdp_server`] checks, never a name to resolve.
+        put(control, "Server", &Value::text("127.0.0.1"))?;
         // The port setup recorded and keeps closed to the network: the client's default would
         // reach whatever listens on 3389 instead.
         put_in(
@@ -317,13 +321,15 @@ impl Rdp {
             "EnableCredSspSupport",
             &Value::yes(),
         )?;
-        // 2: the client warns instead of connecting to a server it cannot authenticate (0 would
-        // connect without a word).
+        // 0: connect without authenticating the server. The loopback server's certificate is
+        // self-signed and has no Kerberos, so 1 always refuses, and 2 opens a modal warning
+        // behind the minimized, never-activated window that stalls the viewer. The server is
+        // checked instead, before every connect ([`check_rdp_server`]).
         put_in(
             control,
             "AdvancedSettings5",
             "AuthenticationLevel",
-            &Value::int(2),
+            &Value::int(0),
         )?;
         self.extended("ConnectToChildSession", &Value::yes())?;
         let mut notices = Vec::new();
@@ -605,6 +611,9 @@ impl App {
                 .password
                 .as_ref()
                 .context("no Windows password to sign in with")?;
+            // Every connect, the automatic reconnects too, before the password reaches the
+            // client: a refusal detaches below and is not retried.
+            check_rdp_server(self.rdp_port, &super::rdp_server()?)?;
             let notices = self
                 .rdp
                 .configure(&account()?, password, self.display, self.rdp_port)?;
@@ -819,7 +828,14 @@ mod tests {
             .unwrap()
         };
         assert_eq!(read("AdvancedSettings2", "RDPPort"), 3390);
-        assert_eq!(read("AdvancedSettings5", "AuthenticationLevel"), 2);
+        assert_eq!(read("AdvancedSettings5", "AuthenticationLevel"), 0);
+        let server = get(&rdp.control, "Server").unwrap();
+        // SAFETY: the control returns the server name as a VT_BSTR.
+        let server = unsafe {
+            assert_eq!(server.0.Anonymous.Anonymous.vt, VT_BSTR);
+            server.0.Anonymous.Anonymous.Anonymous.bstrVal.to_string()
+        };
+        assert_eq!(server, "127.0.0.1");
         assert_eq!(rdp.state().unwrap(), RdpState::Disconnected);
         // SAFETY: the window belongs to this thread.
         unsafe { DestroyWindow(hwnd) }.unwrap();

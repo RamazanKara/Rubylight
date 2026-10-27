@@ -104,6 +104,8 @@ class FrameLatencyStats {
     private long scanoutTotalNs;
     private long scanoutMaxNs;
     private int scanoutFrames;
+    // Present intervals for the overlay's frame pacing lines; records only while the overlay is on.
+    private final PresentJitter presentJitter = new PresentJitter();
 
     FrameLatencyStats() {
         this(false);
@@ -571,6 +573,7 @@ class FrameLatencyStats {
                 addSample(2, frame.outputNs, renderNs);
                 addSample(3, frame.receiveNs, renderNs);
                 latencyProbe.onFrameRendered(frame.receiveNs, renderNs);
+                presentJitter.record(renderNs);
             }
             finish(frame, valid ? "rendered" : "invalid_render_time");
         }
@@ -646,6 +649,17 @@ class FrameLatencyStats {
         lastRenderRelease = null;
         fpsStartNs = 0;
         for (long[] times : frameTimes) Arrays.fill(times, 0);
+        presentJitter.clear();
+    }
+
+    /** Records present intervals only while the overlay shows them; switching starts an empty window. */
+    synchronized void setPresentJitterEnabled(boolean enabled) {
+        presentJitter.setEnabled(enabled);
+    }
+
+    /** The last present intervals counted in vsyncs of vsyncNs, or null while disabled or empty. */
+    synchronized PresentJitter.Snapshot presentJitter(long vsyncNs) {
+        return presentJitter.snapshot(vsyncNs);
     }
 
     synchronized float takeDecodeTimeMs() {

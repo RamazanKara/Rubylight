@@ -50,6 +50,30 @@ public final class PerformanceOverlay {
     }
 
     /**
+     * The debug overlay's frame pacing lines, as Moonlight V+'s jitter monitor shows them
+     * (qiin2333/moonlight-vplus, GPL-3.0): average present interval, jitter and judder, the share
+     * of frames per vsync count, and the window as a timeline. Null without a window.
+     */
+    @SuppressWarnings("deprecation")
+    static String presentJitterText(Context context, PresentJitter.Snapshot window) {
+        if (window == null || window.count == 0) return null;
+        Locale locale = context.getResources().getConfiguration().locale;
+        StringBuilder histogram = new StringBuilder();
+        for (int units = 0; units <= PresentJitter.MAX_UNITS; units++) {
+            if (window.histogram[units] == 0) continue;
+            if (histogram.length() > 0) histogram.append(" · ");
+            histogram.append(units).append(units == PresentJitter.MAX_UNITS ? "+" : "").append(": ")
+                    .append(measurement(locale, window.percent(units), "%.1f")).append('%');
+        }
+        return context.getString(R.string.perf_overlay_frame_pacing,
+                measurement(locale, window.averageMs, "%.1f"),
+                measurement(locale, window.jitterMs, "%.2f"),
+                measurement(locale, window.judderPercent, "%.1f")) + '\n' +
+                context.getString(R.string.perf_overlay_vsyncs_per_frame, histogram) + '\n' +
+                window.timeline();
+    }
+
+    /**
      * The "Host processing" line is the average of the video frame header's per-frame processing time,
      * the same number Artemis and Moonlight show (hostMs). It must stay that: users compare it with
      * those clients, and the host timing reports' present to last packet sent includes the network

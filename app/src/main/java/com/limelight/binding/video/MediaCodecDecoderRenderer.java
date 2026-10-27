@@ -276,6 +276,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             pollVulkan();
             frameLatencyStats.expire(System.nanoTime());
             flushLatencyCsv();
+            // The overlay can be toggled mid-stream; present intervals are recorded only while it shows.
+            frameLatencyStats.setPresentJitterEnabled(prefs.enablePerfOverlay);
             if (prefs.enablePerfOverlay) {
                 latencySummary = frameLatencyStats.summarize();
                 StringBuilder text = new StringBuilder(formatLatencyOverlay(context, latencySummary, shownDecodeTimeMs,
@@ -3592,6 +3594,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                         metric(frameRates[2], " FPS"))).append('\n');
             }
             video.append(context.getString(R.string.perf_overlay_presentdrops, presentDrops)).append('\n');
+            long vsyncNs;
+            synchronized (vsyncMonitor) {
+                vsyncNs = vsyncIntervalNs;
+            }
+            String pacing = PerformanceOverlay.presentJitterText(context, frameLatencyStats.presentJitter(vsyncNs));
+            if (pacing != null) video.append(pacing).append('\n');
             video.append((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_YUV444) != 0 ? "YUV 4:4:4" : "YUV 4:2:0");
             if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0) {
                 video.append(" 10-bit");

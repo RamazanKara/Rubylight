@@ -1376,4 +1376,57 @@ public class FrameLatencyStatsTest {
         assertEquals(1, reads[0]);
         assertFalse(heldTheLock[0]);
     }
+
+    // Decoded and released for display, waiting for its render or present report.
+    private static void releasedForDisplay(FrameLatencyStats stats, int number, long outputNs) {
+        long inputNs = outputNs - 3_000_000L;
+        stats.onDecoderInput(number, number, inputNs, inputNs, inputNs, (char) 0);
+        stats.onDecoderQueued(number, inputNs);
+        stats.onDecoderOutput(0, number, outputNs);
+        stats.onOutputReleased(0, outputNs, true, true);
+    }
+
+    @Test public void presentJitterCountsRenderedFramesOnlyWhileTheOverlayShowsIt() {
+        long vsync = 16_666_667L;
+        FrameLatencyStats stats = new FrameLatencyStats();
+        for (int i = 1; i <= 10; i++) timedOutput(stats, i, 1_000_000_000L + i * vsync, 5_000_000L, 0, 2_000_000L);
+        stats.setPresentJitterEnabled(true);
+        assertNull(stats.presentJitter(vsync));
+        for (int i = 11; i <= 31; i++) {
+            // Frame 20 is held for an extra vsync.
+            long outputNs = 1_000_000_000L + i * vsync + (i >= 20 ? vsync : 0);
+            timedOutput(stats, i, outputNs, 5_000_000L, 0, 2_000_000L);
+        }
+        PresentJitter.Snapshot window = stats.presentJitter(vsync);
+        assertEquals(20, window.count);
+        assertEquals(19, window.histogram[1]);
+        assertEquals(1, window.histogram[2]);
+
+        // A render time before the decoder's output is not a present.
+        releasedForDisplay(stats, 32, 1_000_000_000L + 33 * vsync);
+        stats.onFrameRendered(32, 1_000_000_000L);
+        assertEquals(20, stats.presentJitter(vsync).count);
+
+        stats.setPresentJitterEnabled(false);
+        assertNull(stats.presentJitter(vsync));
+    }
+
+    @Test public void presentJitterTakesVulkanQueueTimesAndForgetsTheLastPresentOnReset() {
+        long vsync = 8_333_333L;
+        FrameLatencyStats stats = new FrameLatencyStats();
+        stats.setPresentJitterEnabled(true);
+        for (int i = 1; i <= 5; i++) {
+            long outputNs = 1_000_000_000L + i * vsync;
+            releasedForDisplay(stats, i, outputNs);
+            stats.onFrameShown(i, outputNs + 1_000_000L, outputNs + 4_000_000L, outputNs + 5_000_000L);
+        }
+        assertEquals(4, stats.presentJitter(vsync).count);
+        assertEquals(1, stats.presentJitter(vsync).modeUnits);
+
+        stats.discardPending("codec_reset");
+        assertNull(stats.presentJitter(vsync));
+        // The first frame after the reset only starts the window again.
+        timedOutput(stats, 6, 2_000_000_000L, 3_000_000L, 0, 1_000_000L);
+        assertNull(stats.presentJitter(vsync));
+    }
 }

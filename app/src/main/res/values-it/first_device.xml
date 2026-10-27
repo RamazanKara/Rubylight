@@ -27,6 +27,8 @@
     <string name="perf_overlay_onscreenfps">Sullo schermo: %1$s</string>
     <string name="perf_overlay_shownfps">Renderizzati: %1$s</string>
     <string name="perf_overlay_presentdrops">Frame persi stimati al display: %1$d</string>
+    <string name="perf_overlay_frame_pacing">Cadenza dei fotogrammi: %1$s ms · jitter %2$s ms · scatti %3$s%%</string>
+    <string name="perf_overlay_vsyncs_per_frame">VSync per fotogramma: %1$s</string>
     <string name="perf_overlay_low_latency">Modalità bassa latenza: %1$s</string>
     <string name="perf_overlay_low_latency_android_vendor">Android + produttore del chip</string>
     <string name="perf_overlay_low_latency_android">Android</string>

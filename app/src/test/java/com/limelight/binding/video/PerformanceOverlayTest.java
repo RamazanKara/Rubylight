@@ -408,4 +408,36 @@ public class PerformanceOverlayTest {
         assertSame(base, PerformanceOverlay.withHardwareMetrics(context(Locale.US), base, null, false));
         assertSame(base, PerformanceOverlay.withHardwareMetrics(context(Locale.US), base, null, true));
     }
+
+    private static PresentJitter.Snapshot pacingWindow() {
+        long vsync = 16_666_667L;
+        PresentJitter jitter = new PresentJitter();
+        jitter.setEnabled(true);
+        long ns = 1_000_000_000L;
+        jitter.record(ns);
+        for (int i = 0; i < 40; i++) {
+            ns += (i == 9 ? 3 : i == 30 ? 0 : 1) * vsync + (i == 30 ? 2_000_000L : 0);
+            jitter.record(ns);
+        }
+        return jitter.snapshot(vsync);
+    }
+
+    @Test
+    public void framePacingShowsAverageJitterHistogramAndTimeline() {
+        PresentJitter.Snapshot window = pacingWindow();
+        String text = PerformanceOverlay.presentJitterText(context(Locale.US), window);
+        assertEquals(String.format(Locale.US, "Frame pacing: %.1f ms · jitter %.2f ms · judder 5.0%%\n",
+                window.averageMs, window.jitterMs) +
+                "Vsyncs per frame: 0: 2.5% · 1: 95.0% · 3: 2.5%\n" +
+                "▁▁▃▁▁▁▁▁▁▁", text);
+    }
+
+    @Test
+    public void framePacingUsesTheLocaleAndIsLeftOutWithoutAWindow() {
+        String text = PerformanceOverlay.presentJitterText(context(Locale.GERMANY), pacingWindow());
+        assertTrue(text, text.startsWith("Bildtakt: "));
+        assertTrue(text, text.contains("Ruckler 5,0%"));
+        assertTrue(text, text.contains("VSyncs pro Bild: 0: 2,5% · 1: 95,0% · 3: 2,5%"));
+        assertNull(PerformanceOverlay.presentJitterText(context(Locale.US), null));
+    }
 }

@@ -1,5 +1,5 @@
 # rusty_enet 0.4.0 (MIT, https://github.com/jabuwu/rusty_enet), changed in these ways only. Used
-# through [patch.crates-io] in protocol/Cargo.toml.
+# by path from protocol/client/Cargo.toml.
 # - src/c/protocol.rs, the round trip smoothing in the acknowledgement handler (marked
 #   "Nightjar"): five divisions round up like moonlight-common-c's ENet fork, so the smoothed
 #   round trip time converges on the samples. Variance decay: (v + 3) / 4 instead of v / 4.

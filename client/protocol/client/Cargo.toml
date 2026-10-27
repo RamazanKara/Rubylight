@@ -11,7 +11,11 @@ rubylight-protocol = { path = "../core" }
 aes = "0.8"
 aes-gcm = "0.10"
 cbc = { version = "0.1", features = ["alloc"] }
-rusty_enet = "0.4"
+# moonlight-common-c's ENet changes (vendor/rusty_enet): the smoothed round trip time rounds
+# up, and a datagram from another address than the peer's still counts. By path rather than
+# a workspace patch, so the Rubylight host's interop tests build this fork beside the host's
+# own rusty_enet.
+rusty_enet = { version = "0.4", path = "../vendor/rusty_enet" }
 # Host HTTP, pairing and encrypted RTSP. Pure Rust plus ring, so the same code builds for
 # Android, Windows and Linux without OpenSSL.
 rand_core = { version = "0.6", features = ["getrandom"] }

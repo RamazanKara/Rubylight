@@ -3,6 +3,12 @@
 //! asks for sleep through the real HTTP, HTTPS, RTSP, ENet and session workers on loopback.
 //! Only the reconnect fixture's capture, encoder and native input are fake.
 //!
+//! Nightjar builds with its own ENet fork (`client/protocol/vendor/rusty_enet`) beside the
+//! host's rusty_enet, as it ships. Its native API types are this repository's
+//! (`rust/core/native-api`, patched in the workspace's Cargo.toml), not the rev Nightjar pins
+//! (17fc45bb, v1.1.0 without the file transfer error codes): built against that rev, Nightjar
+//! reads `too_large` and the other file refusals as an unknown error.
+//!
 //! Nightjar's calls block. The test body runs on the runtime's own thread, not on a worker, so
 //! they don't hold up the host's tasks. Waits are long ([`LOADED`]): these tests run beside the
 //! whole suite on a busy machine.
@@ -281,9 +287,17 @@ async fn nightjar_roams_to_a_new_address_and_keeps_its_stream() -> Result<()> {
     .await;
     assert_eq!(session.roams(), 1);
     assert_eq!(session.client_ip(), IpAddr::from(MOVED));
-    let peer = || h.media.as_ref().unwrap().peers.lock().unwrap()[&(launch.id.clone(), false)];
+    // The roam drops the video peer until Nightjar's first ping on the new path.
+    let video = (launch.id.clone(), false);
     until("video to the new address", LOADED, || {
-        peer().ip() == IpAddr::from(MOVED)
+        h.media
+            .as_ref()
+            .unwrap()
+            .peers
+            .lock()
+            .unwrap()
+            .get(&video)
+            .is_some_and(|peer| peer.ip() == IpAddr::from(MOVED))
     })
     .await;
     let frames = recorder.frames();
@@ -459,20 +473,54 @@ fn fields(raw: &str) -> Result<Vec<String>> {
     Ok(names)
 }
 
-/// What Nightjar makes of `raw` without the field `name`: equal to the full reply's reading
-/// when Nightjar ignores the field.
-fn reading_without(raw: &str, name: &str, http_port: u16) -> Result<String> {
+/// `raw` with the field `name` removed (`None`) or set to `value`.
+fn edited(raw: &str, name: &str, value: Option<&str>) -> Result<String> {
     let mut root = xmltree::Element::parse(raw.as_bytes())?;
-    root.children
-        .retain(|n| n.as_element().is_none_or(|e| e.name != name));
+    match value {
+        None => root
+            .children
+            .retain(|n| n.as_element().is_none_or(|e| e.name != name)),
+        Some(value) => {
+            for field in root.children.iter_mut().filter_map(|n| n.as_mut_element()) {
+                if field.name == name {
+                    field.children = vec![xmltree::XMLNode::Text(value.into())];
+                }
+            }
+        }
+    }
     let mut text = vec![];
     root.write(&mut text)?;
-    reading(&ServerInfo::parse(&String::from_utf8(text)?, http_port)?)
+    Ok(String::from_utf8(text)?)
 }
-fn reading(info: &ServerInfo) -> Result<String> {
-    let mut info = info.clone();
-    info.raw.clear();
-    Ok(format!("{info:?}"))
+
+/// What Nightjar makes of the serverinfo reply `raw`, a refusal included.
+fn reading(raw: &str, http_port: u16) -> String {
+    match ServerInfo::parse(raw, http_port) {
+        Ok(mut info) => {
+            info.raw.clear();
+            format!("{info:?}")
+        }
+        Err(refused) => format!("refused: {refused:?}"),
+    }
+}
+
+/// Whether Nightjar's reading of `raw` changes when the field `name` goes missing or takes
+/// another value: a field Nightjar reads but that holds its default shows under one of them.
+/// Each is tried on the reply as sent and as a busy host's, which is when `currentgame` counts.
+fn reads(raw: &str, name: &str, http_port: u16) -> Result<bool> {
+    for raw in [
+        raw.to_owned(),
+        edited(raw, "state", Some("SUNSHINE_SERVER_BUSY"))?,
+    ] {
+        // Written back unedited, like the edits, so only the edit differs.
+        let full = reading(&edited(&raw, "", None)?, http_port);
+        for value in [None, Some("0"), Some("1"), Some("7"), Some("x")] {
+            if reading(&edited(&raw, name, value)?, http_port) != full {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
 }
 
 /// Every Feature Nightjar knows, as this host offers it to a paired device with every
@@ -517,8 +565,8 @@ fn expected(feature: Feature) -> Availability {
 }
 
 /// Serverinfo and the native API's capabilities as Nightjar reads them: every field the host
-/// sends is one Nightjar reads or knowingly ignores, every Feature Nightjar knows has this
-/// host's answer, and every native API feature the host lists is one the shared API defines.
+/// sends is one Nightjar reads or knowingly ignores, and every Feature Nightjar knows has this
+/// host's answer.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn nightjar_knows_every_capability_the_host_advertises() -> Result<()> {
     let h = Harness::new(10_000, 1).await?;
@@ -544,13 +592,16 @@ async fn nightjar_knows_every_capability_the_host_advertises() -> Result<()> {
         let Some((_, reading_of)) = known else {
             panic!("serverinfo field {name} is new: decide how Nightjar reads it");
         };
-        if let Reading::Ignored(why) = reading_of {
-            for reply in [&unpaired, &info] {
-                assert_eq!(
-                    reading_without(&reply.raw, name, h.ports.http)?,
-                    reading(reply)?,
-                    "Nightjar reads {name}, listed as ignored ({why})"
-                );
+        let mut read = false;
+        for reply in [&unpaired, &info] {
+            if fields(&reply.raw)?.contains(name) {
+                read |= reads(&reply.raw, name, h.ports.http)?;
+            }
+        }
+        match reading_of {
+            Reading::Read => assert!(read, "Nightjar ignores {name}, listed as read"),
+            Reading::Ignored(why) => {
+                assert!(!read, "Nightjar reads {name}, listed as ignored ({why})")
             }
         }
     }
@@ -562,28 +613,9 @@ async fn nightjar_knows_every_capability_the_host_advertises() -> Result<()> {
         );
     }
 
+    // Of the native API's features Nightjar reads only the file transfer ones, which
+    // `expected` and the file transfer tests check.
     let native = client.native_capabilities_with_files()?;
-    let defined = [
-        feature::LIBRARY,
-        feature::SESSION,
-        feature::CLOSE_GAME,
-        feature::RADEON_READ,
-        feature::RADEON_WRITE,
-        feature::SESSION_LAUNCHER,
-        feature::RADEON_PROFILE,
-        feature::COUCH_MENU,
-        feature::WAKE,
-        feature::AUDIO_NIGHT_MODE,
-        feature::AUDIO_HEADPHONE_SURROUND,
-        feature::FILES_UPLOAD,
-        feature::FILES_DOWNLOAD,
-    ];
-    for listed in &native.capabilities.features {
-        assert!(
-            defined.contains(&listed.as_str()),
-            "native API feature {listed} is not in the shared API"
-        );
-    }
     let capabilities = info.capabilities.with_native(&native);
     let offered: Vec<_> = Feature::ALL
         .into_iter()

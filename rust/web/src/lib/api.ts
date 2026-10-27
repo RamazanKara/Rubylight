@@ -588,6 +588,8 @@ export interface ChildSessionStatus {
   /** What setup still has to change; null when it could not be read (`missing_error`). */
   missing: string[] | null;
   missing_error: string | null;
+  /** Why this host starts no child session though they are set up (it runs without administrator rights); null otherwise. */
+  unavailable: string | null;
   /** Rubylight changed Windows settings that Restore puts back. */
   set_up: boolean;
   display: { width: number; height: number; scale: number } | null;

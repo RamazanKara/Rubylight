@@ -134,6 +134,8 @@
         <p class="muted">To use a child session, choose Child session or Automatic under Settings › Displays › Background mode.</p>
       {:else if current === 'inside'}
         <p class="muted">This is the child session’s own host. Manage the child session from the host on the PC’s screen.</p>
+      {:else if current === 'unavailable'}
+        <Banner tone="warn" title="Child sessions are unavailable in this host">{status.unavailable}</Banner>
       {:else if current === 'setup' && status.missing && status.missing.length > 0}
         <div class="stack">
           <p>Setup still has to change:</p>
@@ -169,7 +171,7 @@
           </div>
         </form>
       {/if}
-      {#if status.set_up}
+      {#if status.set_up && current !== 'unavailable'}
         <div class="row">
           <Button variant="danger" busy={running === 'restore'} onclick={restore}>Restore Windows settings</Button>
         </div>

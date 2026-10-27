@@ -17,6 +17,7 @@ const status = (overrides) => ({
   edition: 'Professional',
   missing: [],
   missing_error: null,
+  unavailable: null,
   set_up: true,
   display: { width: 1920, height: 1080, scale: 100 },
   display_error: null,
@@ -33,6 +34,10 @@ test('the panel offers setup, then start, and only when Background mode asks for
   assert.equal(step(status({ missing: ['Remote Desktop is off'] })), 'setup');
   assert.equal(step(status({ missing: null, missing_error: 'reading the account' })), 'setup', 'unread settings never offer Start');
   assert.equal(step(status({})), 'ready');
+  const unavailable = 'Child sessions are set up, but this host runs without administrator rights';
+  assert.equal(step(status({ unavailable })), 'unavailable', 'a host without administrator rights never offers Start');
+  assert.equal(step(status({ unavailable, missing: ['Remote Desktop is off'] })), 'unavailable', 'nor Setup');
+  assert.equal(step(status({ unavailable, mode: 'virtual_display' })), 'off');
 });
 
 test('every viewer phase is spelled out, with a failure in danger', () => {

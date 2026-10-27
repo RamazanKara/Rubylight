@@ -14,12 +14,15 @@ export const phases: Record<ChildSessionPhase, { label: string; tone: 'neutral' 
 
 /**
  * Which part of the panel applies: `off` until Background mode asks for a
- * child session, `inside` in the child session's own host, `setup` while
- * Windows settings are missing (or could not be read), `ready` to start.
+ * child session, `inside` in the child session's own host, `unavailable` in
+ * a host that can't check or change the settings (no administrator rights),
+ * `setup` while Windows settings are missing (or could not be read), `ready`
+ * to start.
  */
-export function step(status: ChildSessionStatus): 'off' | 'inside' | 'setup' | 'ready' {
+export function step(status: ChildSessionStatus): 'off' | 'inside' | 'unavailable' | 'setup' | 'ready' {
   if (status.mode === 'inside_child_session') return 'inside';
   if (status.mode === 'virtual_display') return 'off';
+  if (status.unavailable) return 'unavailable';
   return status.missing?.length === 0 ? 'ready' : 'setup';
 }
 

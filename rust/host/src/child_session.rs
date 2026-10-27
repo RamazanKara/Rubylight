@@ -1117,19 +1117,30 @@ static RULES: RulesCache = RulesCache::new();
 
 /// What the console shows.
 pub(crate) fn status(h: &Shared) -> Value {
+    let record = Record::new();
+    status_with(h, &record, elevated(), || {
+        let rdp_port = record.load()?.map(|state| state.rdp_port);
+        let system = native::NativeSettings::new()?;
+        let rules = RULES.get(Instant::now(), || logic::FirewallRules::read(&system))?;
+        logic::missing_with(&system, &native::console_user()?, rdp_port, &rules)
+    })
+}
+/// [`status`] for `record` in a host that is `elevated` or not, `missing`
+/// reading what setup still has to change. `unavailable` is why a host
+/// without administrator rights starts no child session ([`unverified`]).
+fn status_with(
+    h: &Shared,
+    record: &Record,
+    elevated: bool,
+    missing: impl FnOnce() -> Result<Vec<String>>,
+) -> Value {
     let config = h
         .config
         .read()
         .unwrap_or_else(PoisonError::into_inner)
         .clone();
     let decision = decision(&config);
-    let record = Record::new();
-    let missing = (|| {
-        let rdp_port = record.load()?.map(|state| state.rdp_port);
-        let system = native::NativeSettings::new()?;
-        let rules = RULES.get(Instant::now(), || logic::FirewallRules::read(&system))?;
-        logic::missing_with(&system, &native::console_user()?, rdp_port, &rules)
-    })();
+    let missing = missing();
     let display = DisplaySettings::parse(
         config.get(logic::RESOLUTION_KEY, ""),
         config.get(logic::SCALE_KEY, ""),
@@ -1167,6 +1178,7 @@ pub(crate) fn status(h: &Shared) -> Value {
         "edition": native::edition_id(),
         "missing": missing.as_ref().ok(),
         "missing_error": missing.as_ref().err().map(|error| format!("{error:#}")),
+        "unavailable": unverified(record, elevated),
         "set_up": record.path.is_file(),
         "display": display.as_ref().ok(),
         "display_error": display.as_ref().err().map(|error| format!("{error:#}")),
@@ -2031,6 +2043,27 @@ mod tests {
             |p| reports.push(p),
         );
         assert_eq!((checks, watched.last), (1, None));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn the_console_says_why_child_sessions_are_unavailable_in_this_host() {
+        let fixture = crate::state::test_support::Fixture::new();
+        let unread = || -> Result<Vec<String>> { bail!("not read in this test") };
+        // Set up, in a host without administrator rights: the reason the log gives.
+        let (directory, record) = set_up_record();
+        let status = status_with(&fixture.host, &record, false, unread);
+        let reason = unverified(&record, false).unwrap();
+        assert!(reason.contains("unavailable in this host"), "{reason}");
+        assert_eq!(status["unavailable"], json!(reason));
+        assert_eq!(status["set_up"], json!(true));
+        // Elevated, or never set up: nothing to say.
+        let elevated = status_with(&fixture.host, &record, true, unread);
+        assert!(elevated["unavailable"].is_null(), "{elevated}");
+        let empty = scratch();
+        let never = status_with(&fixture.host, &record_in(&empty), false, unread);
+        assert!(never["unavailable"].is_null(), "{never}");
+        std::fs::remove_dir_all(empty).unwrap();
         std::fs::remove_dir_all(directory).unwrap();
     }
 

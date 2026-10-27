@@ -2866,6 +2866,11 @@ pub struct Session<P = (), A = ()> {
     pub link_notices: std::sync::Mutex<crate::link_notice::LinkNotices>,
     /// Pipeline frame rates for a client that asked (0x553D), sent by the control loop.
     pub pipeline_rates: std::sync::Mutex<crate::pipeline_rates::Reporter>,
+    /// Keyboard follows focus for a client that asked (0x553B): fed by the focus watcher,
+    /// sent by the control loop.
+    pub text_input: std::sync::Mutex<crate::text_input::TextInputs>,
+    /// The device's newest keyboard layout report (0x553E).
+    pub keyboard_layout: std::sync::Mutex<Option<crate::keyboard_layout::KeyboardLayout>>,
     /// Zero of the video stream's RTP clock, set when its sender starts; clock sync
     /// replies (0x5537) are on this clock.
     pub media_epoch: std::sync::RwLock<Option<Instant>>,
@@ -2971,6 +2976,8 @@ impl<P, A> Session<P, A> {
             host_timings: Default::default(),
             link_notices: Default::default(),
             pipeline_rates: Default::default(),
+            text_input: Default::default(),
+            keyboard_layout: Default::default(),
             media_epoch: Default::default(),
             timing_record: Default::default(),
             encoder_focus: AtomicU8::new(crate::encoder_focus::Requested::Off.wire()),

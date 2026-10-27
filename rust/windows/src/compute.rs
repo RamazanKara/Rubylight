@@ -1001,11 +1001,12 @@ fn shader(entry: &[u8]) -> Result<&'static [u8]> {
     shader_bytecode(entry, b"cs_5_0\0").context("compute shader missing from the build")
 }
 /// Constants, two source views (t0, t1) and `uavs` output views from
-/// register `u{first}`.
+/// register `u{first}`, no output table for 0.
 fn root_signature(device: &ID3D12Device, first: u32, uavs: u32) -> Result<ID3D12RootSignature> {
     root_signature_with(device, first, uavs, &[])
 }
-/// [`root_signature`] followed by `extra` parameters.
+/// [`root_signature`] followed by `extra` parameters, from parameter 3 (2
+/// without outputs).
 fn root_signature_with(
     device: &ID3D12Device,
     first: u32,
@@ -1049,7 +1050,9 @@ fn root_signature_with(
                 },
                 ShaderVisibility: D3D12_SHADER_VISIBILITY_ALL,
             },
-            D3D12_ROOT_PARAMETER {
+        ];
+        if uavs > 0 {
+            parameters.push(D3D12_ROOT_PARAMETER {
                 ParameterType: D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE,
                 Anonymous: D3D12_ROOT_PARAMETER_0 {
                     DescriptorTable: D3D12_ROOT_DESCRIPTOR_TABLE {
@@ -1058,8 +1061,8 @@ fn root_signature_with(
                     },
                 },
                 ShaderVisibility: D3D12_SHADER_VISIBILITY_ALL,
-            },
-        ];
+            });
+        }
         parameters.extend_from_slice(extra);
         let mut blob = None;
         D3D12SerializeRootSignature(
@@ -1148,6 +1151,15 @@ struct Slot {
     capture: Option<crate::capture::GpuImage>,
     outputs: Vec<ID3D12Resource>,
     waits: Vec<ID3D12Fence>,
+    /// The HDR statistics pass reading the source after the conversion
+    /// (`compute_hdr_stats.rs`): 0 for none, `u64::MAX` while it is submitted.
+    stats: u64,
+}
+impl Slot {
+    /// When the slot's lists stop reading its inputs and views.
+    fn last(&self) -> u64 {
+        self.fence.max(self.stats)
+    }
 }
 struct PointerUpload {
     fence: u64,
@@ -1185,10 +1197,12 @@ pub struct Converter {
     packs_chroma: bool,
     /// The couch menu's pass, while an overlay is set.
     menu: menu::Menu,
+    /// HDR statistics, once [`Converter::enable_hdr_stats`] made them.
+    hdr_stats: Option<Box<hdr_stats::HdrStats>>,
 }
-// SAFETY: `mapped` and the focus readback pointers point into buffers this converter owns, the
-// D3D12 objects are free-threaded, and the command allocators and lists are used only through
-// `&mut self`.
+// SAFETY: `mapped` and the focus and HDR statistics readback pointers point into buffers this
+// converter owns, the D3D12 objects are free-threaded, and the command allocators and lists are
+// used only through `&mut self`.
 unsafe impl Send for Converter {}
 const SLOTS: usize = 4;
 /// Descriptors per slot: the source and pointer, up to three outputs, then
@@ -1328,6 +1342,7 @@ impl Converter {
                     capture: None,
                     outputs: Vec::new(),
                     waits: Vec::new(),
+                    stats: 0,
                 });
             }
             Ok(Self {
@@ -1351,6 +1366,7 @@ impl Converter {
                 focus: None,
                 packs_chroma: false,
                 menu: Default::default(),
+                hdr_stats: None,
             })
         }
     }
@@ -1502,7 +1518,7 @@ impl Converter {
         self.uploads
             .retain(|upload| !self.compute.completed(upload.fence));
         for slot in &mut self.slots {
-            if self.compute.completed(slot.fence) {
+            if self.compute.completed(slot.last()) {
                 slot.capture = None;
                 slot.inputs = [None, None, None];
                 slot.outputs.clear();
@@ -1627,8 +1643,9 @@ impl Converter {
         ensure_compute_texture_state(state)?;
         let slot = self.slot;
         self.slot = (self.slot + 1) % SLOTS;
-        self.compute.wait(self.slots[slot].fence)?;
+        self.compute.wait(self.slots[slot].last())?;
         self.slots[slot].capture = None;
+        self.slots[slot].stats = 0;
         let (entry, block) = match (self.packs_chroma, self.values[11]) {
             (false, _) => (&b"yuv420_menu_cs\0"[..], [2, 2]),
             (true, 2) => (&b"chroma_pack_menu_cs\0"[..], [2, 2]),
@@ -1810,12 +1827,19 @@ impl Converter {
                 .inspect_err(|_| self.compute.retire())?;
         }
         target.value = value;
-        Ok(Converted {
+        let converted = Converted {
             texture: target.texture.clone(),
             fence: target.fence.clone(),
             value: target.value,
             conversion: fence,
-        })
+        };
+        // Behind the encoder's signal, so the encoder never waits for it; the
+        // capture's source is read until it has run.
+        let read = self.hdr_stats_pass(slot, fence)?;
+        if let Some(ready) = ready.filter(|_| read != fence) {
+            ready.read_by(&self.compute, read)?;
+        }
+        Ok(converted)
     }
     /// Convert `source` into PyroWave's Y, Cb and Cr planes, full size or
     /// with chroma halved (`values[11]`), in textures the encoder shares
@@ -1845,8 +1869,9 @@ impl Converter {
         };
         let slot = self.slot;
         self.slot = (self.slot + 1) % SLOTS;
-        self.compute.wait(self.slots[slot].fence)?;
+        self.compute.wait(self.slots[slot].last())?;
         self.slots[slot].capture = None;
+        self.slots[slot].stats = 0;
         let menu = self.menu_pass(slot, b"pyro_menu_cs\0", 2, 3, [2, 2])?;
         self.slots[slot].inputs = [
             Some(source.clone()),
@@ -2040,12 +2065,18 @@ impl Drop for Converter {
             focus.retain(&mut work);
         }
         self.menu.retain(&mut work);
+        if let Some(stats) = &self.hdr_stats {
+            stats.retain(&mut work);
+        }
         work.finish(&self.compute);
         // SAFETY: `constants` was mapped once in `new`, and nothing writes through `mapped` after
         // this. Unmap ends CPU access; retained GPU work still owns the resource.
         unsafe { self.constants.Unmap(0, None) };
         if let Some(focus) = &self.focus {
             focus.unmap();
+        }
+        if let Some(stats) = &self.hdr_stats {
+            stats.unmap();
         }
     }
 }
@@ -2393,8 +2424,11 @@ impl Converter {
 #[cfg(test)]
 #[path = "compute_focus_tests.rs"]
 mod focus_tests;
+#[path = "compute_hdr_stats.rs"]
+mod hdr_stats;
 #[path = "compute_menu.rs"]
 mod menu;
+pub use hdr_stats::{HDR_STATS_BINS, HdrStatsReadout};
 /// A transition of every subresource; `drop_barriers` releases its reference.
 fn transition(
     resource: &ID3D12Resource,

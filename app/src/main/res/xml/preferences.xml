@@ -549,7 +549,7 @@
             android:key="checkbox_tell_host_wireless"
             android:title="@string/title_tell_host_wireless"
             android:dialogMessage="@string/summary_tell_host_wireless"
-            android:defaultValue="true" />
+            android:defaultValue="false" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_tell_host_link_speed"
             android:title="@string/title_tell_host_link_speed"

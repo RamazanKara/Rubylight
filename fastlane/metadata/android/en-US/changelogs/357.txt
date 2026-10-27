@@ -1,1 +1,1 @@
-Fixes laggy streams and PyroWave streams that dropped after a few seconds in 3.2.2. The decoding changes in the video path and the GPU boost default are undone; the higher decode thread priority and allocation-free frame statistics stay.
+Fixes laggy streams and PyroWave streams that dropped after a few seconds in 3.2.2. The decoding changes in the video path and the GPU boost default are undone; the higher decode thread priority and allocation-free frame statistics stay. "Tell the PC when on Wi-Fi" is now off by default: it held the network delay at 30-45 ms.

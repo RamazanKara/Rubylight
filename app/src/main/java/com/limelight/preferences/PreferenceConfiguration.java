@@ -241,7 +241,7 @@ public class PreferenceConfiguration {
     /** Seconds a stream waits for a silent network; 0 is off (see NetworkGrace). */
     public int networkGraceSeconds;
     /** Tell a Rubylight PC when the route to it is Wi-Fi or cellular. On unless switched off. */
-    public boolean tellHostWireless = true;
+    public boolean tellHostWireless = false;
     public boolean tellHostLinkSpeed = true;
     public boolean quickResume;
     public com.limelight.nvstream.AdaptiveQualityController.Mode adaptiveQualityMode =
@@ -1172,7 +1172,7 @@ public class PreferenceConfiguration {
         config.autoReconnect = prefs.getBoolean(AUTO_RECONNECT_PREF_STRING, false);
         config.networkGraceSeconds = com.limelight.utils.NetworkGrace.parseSeconds(
                 prefs.getString(NETWORK_GRACE_PREF_STRING, "0"));
-        config.tellHostWireless = prefs.getBoolean(TELL_HOST_WIRELESS_PREF_STRING, true);
+        config.tellHostWireless = prefs.getBoolean(TELL_HOST_WIRELESS_PREF_STRING, false);
         config.tellHostLinkSpeed = prefs.getBoolean(TELL_HOST_LINK_SPEED_PREF_STRING, true);
         config.quickResume = prefs.getBoolean(QUICK_RESUME_PREF_STRING, false);
         config.adaptiveQualityMode = com.limelight.nvstream.AdaptiveQualityController.Mode.parse(

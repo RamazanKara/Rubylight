@@ -854,7 +854,10 @@ fn physical_scale(client: &butterpollo_core::state::Client) -> i64 {
     // A value the host cannot use was reported when the device's settings
     // were applied to the stream; it leaves the scale as it is.
     if own
-        .update(&serde_json::Map::from_iter([(KEY.to_owned(), value.clone())]))
+        .update(&serde_json::Map::from_iter([(
+            KEY.to_owned(),
+            value.clone(),
+        )]))
         .is_err()
     {
         return 0;
@@ -922,7 +925,13 @@ fn plan_physical_turn(
     Ok(PhysicalTurn {
         degrees: Some(degrees),
         before,
-        after: before.map(|(width, height)| if quarter { (height, width) } else { (width, height) }),
+        after: before.map(|(width, height)| {
+            if quarter {
+                (height, width)
+            } else {
+                (width, height)
+            }
+        }),
     })
 }
 
@@ -992,9 +1001,9 @@ fn follow_turn(
     use butterpollo_core::config::DisplayAdjust;
     match follow {
         Follow::Virtual => {
-            let size = lease
-                .virtual_size()
-                .context("the virtual display is shared or not at the stream's size, so it keeps its shape")?;
+            let size = lease.virtual_size().context(
+                "the virtual display is shared or not at the stream's size, so it keeps its shape",
+            )?;
             let shaped =
                 butterpollo_core::display_policy::virtual_shape(DisplayAdjust::Auto, 0, size, to);
             if shaped == size {
@@ -1388,7 +1397,11 @@ impl Prepared {
         let physical = !virtual_mode && retained.is_none();
         let follow = (config.dd_rotation_option() == butterpollo_core::config::DisplayAdjust::Auto
             && retained.is_none())
-        .then_some(if virtual_mode { Follow::Virtual } else { Follow::Physical });
+        .then_some(if virtual_mode {
+            Follow::Virtual
+        } else {
+            Follow::Physical
+        });
         let turn = if physical {
             plan_physical_turn(
                 config,
@@ -2171,15 +2184,21 @@ pub(crate) mod tests {
         };
         assert_eq!(physical_scale(&client(serde_json::json!({}))), 0);
         assert_eq!(
-            physical_scale(&client(serde_json::json!({"dd_virtual_display_scale": 150}))),
+            physical_scale(&client(
+                serde_json::json!({"dd_virtual_display_scale": 150})
+            )),
             150
         );
         assert_eq!(
-            physical_scale(&client(serde_json::json!({"dd_virtual_display_scale": "-1"}))),
+            physical_scale(&client(
+                serde_json::json!({"dd_virtual_display_scale": "-1"})
+            )),
             -1
         );
         assert_eq!(
-            physical_scale(&client(serde_json::json!({"dd_virtual_display_scale": "big"}))),
+            physical_scale(&client(
+                serde_json::json!({"dd_virtual_display_scale": "big"})
+            )),
             0
         );
         assert_eq!(
@@ -2350,7 +2369,10 @@ pub(crate) mod tests {
             size: Some((2400, 1080)),
             ..Default::default()
         };
-        assert_eq!(follow_turn(&mut lease, Follow::Virtual, (1920, 1080), unread)?, None);
+        assert_eq!(
+            follow_turn(&mut lease, Follow::Virtual, (1920, 1080), unread)?,
+            None
+        );
         assert_eq!(lease.reshaped.get(), None);
         // A shared display, or one Windows refused, keeps its shape and says so.
         let mut lease = FakeLease::default();
@@ -2375,7 +2397,11 @@ pub(crate) mod tests {
             Some((1440, 2560))
         );
         assert_eq!(lease.calls, ["rotate 90"]);
-        assert_eq!(lease.reshaped.get(), None, "a physical display is turned, not reshaped");
+        assert_eq!(
+            lease.reshaped.get(),
+            None,
+            "a physical display is turned, not reshaped"
+        );
         // Turned, and the phone went back to landscape: the display turns upright.
         let reads = std::cell::RefCell::new(vec![(0, (2560, 1440)), (90, (1440, 2560))]);
         let read = || Ok(reads.borrow_mut().pop().unwrap());
@@ -2389,23 +2415,40 @@ pub(crate) mod tests {
         let mut lease = FakeLease::default();
         let reads = std::cell::RefCell::new(vec![(0, (2560, 1440))]);
         let read = || Ok(reads.borrow_mut().pop().unwrap());
-        assert_eq!(follow_turn(&mut lease, Follow::Physical, (2400, 1080), read)?, None);
+        assert_eq!(
+            follow_turn(&mut lease, Follow::Physical, (2400, 1080), read)?,
+            None
+        );
         assert!(lease.calls.is_empty());
         // Another stream keeps the display's rotation: nothing turned.
         let reads = std::cell::RefCell::new(vec![(0, (2560, 1440)), (0, (2560, 1440))]);
         let read = || Ok(reads.borrow_mut().pop().unwrap());
         let mut lease = FakeLease::default();
-        assert_eq!(follow_turn(&mut lease, Follow::Physical, (1080, 2400), read)?, None);
+        assert_eq!(
+            follow_turn(&mut lease, Follow::Physical, (1080, 2400), read)?,
+            None
+        );
         // A refused turn or an unreadable display fails.
         let mut lease = FakeLease {
             refuse_turn: true,
             ..Default::default()
         };
-        assert!(follow_turn(&mut lease, Follow::Physical, (1080, 2400), || Ok((0, (2560, 1440)))).is_err());
+        assert!(
+            follow_turn(&mut lease, Follow::Physical, (1080, 2400), || Ok((
+                0,
+                (2560, 1440)
+            )))
+            .is_err()
+        );
         let mut lease = FakeLease::default();
         assert!(
-            follow_turn(&mut lease, Follow::Physical, (1080, 2400), || anyhow::bail!("display unavailable"))
-                .is_err()
+            follow_turn(
+                &mut lease,
+                Follow::Physical,
+                (1080, 2400),
+                || anyhow::bail!("display unavailable")
+            )
+            .is_err()
         );
         assert!(lease.calls.is_empty());
         Ok(())

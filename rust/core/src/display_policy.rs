@@ -337,7 +337,7 @@ pub fn physical_rotation(
             {
                 return None;
             }
-            if current % 180 == 0 { 90 } else { 0 }
+            if current.is_multiple_of(180) { 90 } else { 0 }
         }
     };
     (wanted != current).then_some(wanted)

@@ -375,7 +375,11 @@ mod tests {
     }
 
     /// The settings whose features have shipped, so the console shows them.
-    const LIVE: &[&str] = &["audio_surround_714", "dd_rotation_option", "dd_manual_rotation"];
+    const LIVE: &[&str] = &[
+        "audio_surround_714",
+        "dd_rotation_option",
+        "dd_manual_rotation",
+    ];
 
     /// Each setting's key and default in extensions.ts, with LF or CRLF line
     /// ends (CI checks the repository out with CRLF).

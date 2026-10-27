@@ -145,7 +145,8 @@
           {hz(pipeline.source_mhz)} → {hz(pipeline.capture_mhz)} → {hz(pipeline.submit_mhz)} → {hz(pipeline.output_mhz)} fps
         </dd>
         <dd class="sub">
-          Shown by the display, captured, encoded and sent in the last second;
+          Shown by the display, captured, encoded and sent over the last
+          <span class="num">{(pipeline.window_ms / 1000).toFixed(1)}</span> s;
           <span class="num">{hz(pipeline.repeat_mhz)}</span> fps repeated an unchanged picture.
         </dd>
       </div>

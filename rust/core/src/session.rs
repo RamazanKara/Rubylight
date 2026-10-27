@@ -3112,7 +3112,6 @@ impl<P, A> Session<P, A> {
             link.rate.on_unrecoverable(frame, keyframe, now);
         }
     }
-    /// The link-rate state for the session API and the `stream timings` line.
     /// The running counts behind the pipeline frame rates.
     pub fn pipeline_counts(&self) -> crate::pipeline_rates::Counts {
         self.stats
@@ -3132,6 +3131,7 @@ impl<P, A> Session<P, A> {
             .map(crate::pipeline_rates::PipelineRates::from)
     }
 
+    /// The link-rate state for the session API and the `stream timings` line.
     pub fn link_rate_snapshot(&self) -> serde_json::Value {
         self.link_rate.lock().unwrap().rate.snapshot(Instant::now())
     }

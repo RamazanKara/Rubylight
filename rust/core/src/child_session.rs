@@ -1143,10 +1143,10 @@ pub trait SystemSettings {
     /// is signed out. True when this call loaded it, so it is unloaded after.
     fn load_user_hive(&mut self, sid: &str) -> Result<bool>;
     fn unload_user_hive(&mut self, sid: &str) -> Result<()>;
-    /// The TCP ports the Remote Desktop service listens on now
-    /// ([`RdpServer::service_ports`]), empty when it is not running. It reads
+    /// The TCP listeners of the Remote Desktop service's process now, none
+    /// when it is not running; [`RdpListeners::ports`] are RDP's. It reads
     /// `PortNumber` only when it starts, so these can differ from the registry.
-    fn rdp_listener_ports(&self) -> Result<Vec<u16>>;
+    fn rdp_listeners(&self) -> Result<RdpListeners>;
 }
 
 /// The firewall as it is in effect now ([`SystemSettings::active_firewall`]);
@@ -1248,6 +1248,14 @@ pub fn record(system: &dyn SystemSettings, user_sid: &str) -> Result<SetupState>
     })
 }
 
+/// The TCP ports the Remote Desktop service listens on now ([`RdpListeners::ports`]).
+fn rdp_ports(system: &dyn SystemSettings) -> Result<Vec<u16>> {
+    system
+        .rdp_listeners()
+        .and_then(|listeners| listeners.ports())
+        .context("reading the ports Remote Desktop listens on")
+}
+
 /// The port RDP-Tcp listens on now (`PortNumber`), Windows' default when unset.
 fn live_rdp_port(system: &dyn SystemSettings) -> Result<u16> {
     let port = system
@@ -1279,9 +1287,7 @@ pub fn setup(
     }
     // The block rule closes the registry's port; the service must listen on that one.
     let live = live_rdp_port(system)?;
-    let listening = system
-        .rdp_listener_ports()
-        .context("reading the ports Remote Desktop listens on")?;
+    let listening = rdp_ports(system)?;
     if let Some(port) = listening.iter().find(|port| **port != live) {
         bail!(
             "Remote Desktop listens on port {port} but is set to port {live}: Windows reads the port only when the Remote Desktop service starts. Restart the PC, then set up child sessions again. Nothing was changed."
@@ -1516,10 +1522,7 @@ pub fn firewall_missing(system: &dyn SystemSettings, rdp_port: u16) -> Result<Ve
     }
     // The registry can say one port while the service, which read it at its start, listens on
     // another.
-    for port in system
-        .rdp_listener_ports()
-        .context("reading the ports Remote Desktop listens on")?
-    {
+    for port in rdp_ports(system)? {
         if port != rdp_port {
             missing.push(format!(
                 "Remote Desktop listens on port {port}, not on the port {rdp_port} setup closed to the network; set up child sessions again"
@@ -1598,21 +1601,50 @@ pub struct RdpServer {
     pub port_number: Option<u32>,
     pub deny_ts_connections: Option<u32>,
 }
-impl RdpServer {
-    /// The TCP ports the Remote Desktop service listens on, sorted; empty
-    /// when it is not running.
-    pub fn service_ports(&self) -> Vec<u16> {
-        let mut ports: Vec<u16> = self
-            .listeners
-            .iter()
-            .filter(|listener| {
-                self.service_pid != 0 && listener.pid == self.service_pid && !listener.udp
-            })
-            .map(|listener| listener.port)
-            .collect();
+
+/// The Remote Desktop service's name (TermService), which Windows reports as
+/// the owner of its sockets.
+pub const RDP_SERVICE: &str = "TermService";
+
+/// The TCP listeners (IPv4 and IPv6) of the Remote Desktop service's process,
+/// as the host reads them ([`SystemSettings::rdp_listeners`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RdpListeners {
+    /// The process hosts other running services too: below Windows' svchost
+    /// split threshold the Remote Desktop service shares one with other
+    /// NetworkService services, such as Delivery Optimization (TCP 7680).
+    pub shared: bool,
+    pub listeners: Vec<ServiceListener>,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ServiceListener {
+    pub port: u16,
+    /// The service whose socket it is (its owner module,
+    /// `GetOwnerModuleFromTcpEntry`), read when the process is shared;
+    /// `svchost.exe` for a socket no service is tagged on.
+    pub owner: Option<String>,
+}
+impl RdpListeners {
+    /// The ports RDP listens on, sorted: every listener of the process, or,
+    /// when it is shared, those Windows names [`RDP_SERVICE`] the owner of.
+    /// Another service's socket, or one no service is tagged on (svchost.exe
+    /// itself), is not RDP's; a shared listener without an owner fails.
+    pub fn ports(&self) -> Result<Vec<u16>> {
+        let mut ports = Vec::new();
+        for listener in &self.listeners {
+            match &listener.owner {
+                _ if !self.shared => ports.push(listener.port),
+                Some(owner) if owner.eq_ignore_ascii_case(RDP_SERVICE) => ports.push(listener.port),
+                Some(_) => {}
+                None => bail!(
+                    "the Remote Desktop service shares its process with other services, and which of them listens on port {} was not read",
+                    listener.port
+                ),
+            }
+        }
         ports.sort_unstable();
         ports.dedup();
-        ports
+        Ok(ports)
     }
 }
 
@@ -1623,7 +1655,9 @@ impl RdpServer {
 /// on that port. The viewer's client does not authenticate the server
 /// (`AuthenticationLevel` 0: its certificate is self-signed and loopback has
 /// no Kerberos), so this check, before every connect and reconnect, is what
-/// keeps the password from another program on the port.
+/// keeps the password from another program on the port. It matches by
+/// process: a service sharing the Remote Desktop service's svchost runs in
+/// the same process and account, so it is no other program.
 pub fn check_rdp_server(rdp_port: u16, server: &RdpServer) -> Result<()> {
     let mut problems = Vec::new();
     let service = server.service_pid;

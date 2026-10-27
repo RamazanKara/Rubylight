@@ -555,9 +555,9 @@ struct Fake {
     stuck_writes: BTreeSet<String>,
     /// The firewall's state cannot be read (PowerShell or COM failing).
     firewall_unreadable: bool,
-    /// The TCP ports the Remote Desktop service listens on; None for the
-    /// registry's `PortNumber`, as after the service's start.
-    listening: Option<Vec<u16>>,
+    /// The Remote Desktop service's listeners; None for one on the
+    /// registry's `PortNumber` in its own process, as after the service's start.
+    listening: Option<RdpListeners>,
 }
 impl Fake {
     fn new() -> Self {
@@ -735,10 +735,10 @@ impl SystemSettings for Fake {
         anyhow::ensure!(self.machine.loaded_hives.remove(sid), "{sid} is not loaded");
         Ok(())
     }
-    fn rdp_listener_ports(&self) -> Result<Vec<u16>> {
+    fn rdp_listeners(&self) -> Result<RdpListeners> {
         match &self.listening {
-            Some(ports) => Ok(ports.clone()),
-            None => Ok(vec![live_rdp_port(self)?]),
+            Some(listeners) => Ok(listeners.clone()),
+            None => Ok(alone(&[live_rdp_port(self)?])),
         }
     }
 }
@@ -1064,7 +1064,7 @@ fn rdp_listening_on_another_port_than_the_registry_is_refused() {
     fake.machine
         .values
         .insert(key(Hive::LocalMachine, RDP_TCP, "PortNumber"), 3390);
-    fake.listening = Some(vec![3389]);
+    fake.listening = Some(alone(&[3389]));
     let before = fake.machine.clone();
     let error = format!("{:#}", set_up_err(&mut fake));
     assert!(
@@ -1076,7 +1076,7 @@ fn rdp_listening_on_another_port_than_the_registry_is_refused() {
     // After setup: the service moves without the registry (or the other way round).
     let mut fake = Fake::new();
     let state = set_up(&mut fake);
-    fake.listening = Some(vec![3389, 3391]);
+    fake.listening = Some(alone(&[3389, 3391]));
     let found = firewall_missing(&fake, state.rdp_port).unwrap();
     assert!(
         found
@@ -1085,32 +1085,103 @@ fn rdp_listening_on_another_port_than_the_registry_is_refused() {
         "{found:?}"
     );
     // Not running at all: nothing listens, nothing is open.
-    fake.listening = Some(Vec::new());
+    fake.listening = Some(alone(&[]));
     assert!(firewall_missing(&fake, state.rdp_port).unwrap().is_empty());
+}
+
+/// The Remote Desktop service alone in its process, listening on `ports`.
+fn alone(ports: &[u16]) -> RdpListeners {
+    RdpListeners {
+        shared: false,
+        listeners: ports
+            .iter()
+            .map(|&port| ServiceListener { port, owner: None })
+            .collect(),
+    }
+}
+/// The Remote Desktop service in a svchost it shares, as on PCs below
+/// Windows' split threshold: `rdp` its own ports, beside Delivery
+/// Optimization's 7680, a DNS client socket and one no service is tagged on.
+fn shared(rdp: &[u16]) -> RdpListeners {
+    let owned = |port, owner: &str| ServiceListener {
+        port,
+        owner: Some(owner.into()),
+    };
+    let mut listeners = vec![
+        owned(7680, "DoSvc"),
+        owned(5355, "Dnscache"),
+        owned(49702, "svchost.exe"),
+    ];
+    // Windows' module names keep the service's own casing; any casing matches.
+    listeners.extend(rdp.iter().map(|&port| owned(port, "termservice")));
+    listeners.extend(rdp.iter().map(|&port| owned(port, "TermService")));
+    RdpListeners {
+        shared: true,
+        listeners,
+    }
 }
 
 #[test]
 fn the_service_ports_are_its_own_tcp_listeners() {
-    let server = RdpServer {
-        service_pid: 40,
-        listeners: vec![
-            listener("0.0.0.0", 3389, 40),
-            listener("::", 3389, 40),
-            Listener {
-                udp: true,
-                ..listener("0.0.0.0", 3395, 40)
-            },
-            listener("127.0.0.1", 3390, 41),
-        ],
-        ..RdpServer::default()
-    };
-    assert_eq!(server.service_ports(), vec![3389]);
-    let stopped = RdpServer {
-        service_pid: 0,
-        listeners: vec![listener("0.0.0.0", 3389, 0)],
-        ..RdpServer::default()
-    };
-    assert!(stopped.service_ports().is_empty());
+    assert_eq!(alone(&[3389, 3389]).ports().unwrap(), vec![3389]);
+    assert!(RdpListeners::default().ports().unwrap().is_empty());
+    // Sharing a svchost: only the sockets Windows names TermService the owner of.
+    assert_eq!(shared(&[3390, 3389]).ports().unwrap(), vec![3389, 3390]);
+    assert!(shared(&[]).ports().unwrap().is_empty());
+    // A shared listener whose owner was not read could be RDP's: it fails, naming the port.
+    let mut unread = shared(&[3389]);
+    unread.listeners[0].owner = None;
+    let error = format!("{:#}", unread.ports().unwrap_err());
+    assert!(
+        error.contains("shares its process") && error.contains("port 7680"),
+        "{error}"
+    );
+}
+
+#[test]
+fn other_services_in_the_remote_desktop_svchost_are_not_drift() {
+    // DoSvc's 7680 in TermService's process once read as RDP listening on an
+    // unblocked port: setup refused, and a set-up PC had RDP turned off.
+    let mut fake = Fake::new();
+    fake.listening = Some(shared(&[3389]));
+    let state = set_up(&mut fake);
+    assert_eq!(state.rdp_port, 3389);
+    assert!(firewall_missing(&fake, 3389).unwrap().is_empty());
+    assert!(enforce_firewall(&mut fake, 3389).is_empty());
+    assert_eq!(
+        fake.read_dword(&Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections")
+            .unwrap(),
+        Some(0)
+    );
+    // TermService's own socket on another port still is.
+    fake.listening = Some(shared(&[3389, 3391]));
+    let found = firewall_missing(&fake, 3389).unwrap();
+    assert!(
+        found
+            .iter()
+            .any(|m| m.contains("listens on port 3391, not on the port 3389")),
+        "{found:?}"
+    );
+    // An owner that was not read fails closed: RDP goes off.
+    let mut unread = shared(&[3389]);
+    unread.listeners[1].owner = None;
+    fake.listening = Some(unread.clone());
+    let found = enforce_firewall(&mut fake, 3389);
+    assert!(
+        found[0].contains("could not be checked") && found[0].contains("port 5355"),
+        "{found:?}"
+    );
+    assert!(
+        found[1].contains("Remote Desktop was turned off"),
+        "{found:?}"
+    );
+    // Setup refuses before changing anything.
+    let mut fake = Fake::new();
+    fake.listening = Some(unread);
+    let before = fake.machine.clone();
+    let error = format!("{:#}", set_up_err(&mut fake));
+    assert!(error.contains("port 5355"), "{error}");
+    assert_eq!(fake.machine, before);
 }
 
 #[test]

@@ -14,15 +14,16 @@ pub mod viewer;
 use crate::text::{from_wide, to_wide};
 use anyhow::{Context, Result, bail};
 use butterpollo_core::child_session::{
-    ActiveFirewall, Adapter, Hive, Listener, RDP_TCP, RdpServer, SystemSettings, TERMINAL_SERVER,
+    ActiveFirewall, Adapter, Hive, Listener, RDP_SERVICE, RDP_TCP, RdpListeners, RdpServer,
+    ServiceListener, SystemSettings, TERMINAL_SERVER,
 };
 use std::os::windows::io::FromRawHandle;
 use windows::{
     Win32::{
         Foundation::{
-            ERROR_FILE_NOT_FOUND, ERROR_INSUFFICIENT_BUFFER, ERROR_PATH_NOT_FOUND, ERROR_SUCCESS,
-            GetLastError, HANDLE, HLOCAL, LUID, LocalFree, NO_ERROR, SetLastError, VARIANT_TRUE,
-            WIN32_ERROR,
+            ERROR_FILE_NOT_FOUND, ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA, ERROR_PATH_NOT_FOUND,
+            ERROR_SUCCESS, GetLastError, HANDLE, HLOCAL, LUID, LocalFree, NO_ERROR, SetLastError,
+            VARIANT_TRUE, WIN32_ERROR,
         },
         Graphics::{
             Direct3D::D3D_FEATURE_LEVEL_11_0,
@@ -34,10 +35,14 @@ use windows::{
         },
         NetworkManagement::{
             IpHelper::{
-                GetExtendedTcpTable, GetExtendedUdpTable, MIB_TCP6ROW_OWNER_PID,
-                MIB_TCP6TABLE_OWNER_PID, MIB_TCPROW_OWNER_PID, MIB_TCPTABLE_OWNER_PID,
+                GetExtendedTcpTable, GetExtendedUdpTable, GetOwnerModuleFromTcp6Entry,
+                GetOwnerModuleFromTcpEntry, MIB_TCP6ROW_OWNER_MODULE, MIB_TCP6ROW_OWNER_PID,
+                MIB_TCP6TABLE_OWNER_MODULE, MIB_TCP6TABLE_OWNER_PID, MIB_TCPROW_OWNER_MODULE,
+                MIB_TCPROW_OWNER_PID, MIB_TCPTABLE_OWNER_MODULE, MIB_TCPTABLE_OWNER_PID,
                 MIB_UDP6ROW_OWNER_PID, MIB_UDP6TABLE_OWNER_PID, MIB_UDPROW_OWNER_PID,
-                MIB_UDPTABLE_OWNER_PID, TCP_TABLE_OWNER_PID_LISTENER, UDP_TABLE_OWNER_PID,
+                MIB_UDPTABLE_OWNER_PID, TCP_TABLE_CLASS, TCP_TABLE_OWNER_MODULE_LISTENER,
+                TCP_TABLE_OWNER_PID_LISTENER, TCPIP_OWNER_MODULE_BASIC_INFO,
+                TCPIP_OWNER_MODULE_INFO_BASIC, UDP_TABLE_OWNER_PID,
             },
             WindowsFirewall::*,
         },
@@ -62,9 +67,11 @@ use windows::{
                 WTSLogoffSession,
             },
             Services::{
-                CloseServiceHandle, OpenSCManagerW, OpenServiceW, QueryServiceStatusEx, SC_HANDLE,
-                SC_MANAGER_CONNECT, SC_STATUS_PROCESS_INFO, SERVICE_QUERY_STATUS, SERVICE_RUNNING,
-                SERVICE_STATUS_PROCESS,
+                CloseServiceHandle, ENUM_SERVICE_STATUS_PROCESSW, EnumServicesStatusExW,
+                OpenSCManagerW, OpenServiceW, QueryServiceStatusEx, SC_ENUM_PROCESS_INFO,
+                SC_HANDLE, SC_MANAGER_CONNECT, SC_MANAGER_ENUMERATE_SERVICE,
+                SC_STATUS_PROCESS_INFO, SERVICE_ACTIVE, SERVICE_QUERY_STATUS, SERVICE_RUNNING,
+                SERVICE_STATUS_PROCESS, SERVICE_WIN32,
             },
             Threading::{GetCurrentProcess, OpenProcessToken},
         },
@@ -161,10 +168,11 @@ pub fn sign_out(session: u32) -> Result<()> {
 /// values. It only reads, so the viewer, an ordinary user, can.
 pub fn rdp_server() -> Result<RdpServer> {
     // The service first: one that restarts in between no longer matches its listeners.
-    let service_pid = term_service_pid()?;
+    let service_pid = service_pid(RDP_SERVICE)?;
     let mut listeners: Vec<Listener> = tcp_listeners::<MIB_TCPROW_OWNER_PID>(
         AF_INET,
         std::mem::offset_of!(MIB_TCPTABLE_OWNER_PID, table),
+        TCP_TABLE_OWNER_PID_LISTENER,
     )?
     .into_iter()
     .map(|row| Listener {
@@ -179,6 +187,7 @@ pub fn rdp_server() -> Result<RdpServer> {
         tcp_listeners::<MIB_TCP6ROW_OWNER_PID>(
             AF_INET6,
             std::mem::offset_of!(MIB_TCP6TABLE_OWNER_PID, table),
+            TCP_TABLE_OWNER_PID_LISTENER,
         )?
         .into_iter()
         .map(|row| Listener {
@@ -226,29 +235,215 @@ pub fn rdp_server() -> Result<RdpServer> {
         )?,
     })
 }
+/// The Remote Desktop service's TCP listeners, for
+/// [`SystemSettings::rdp_listeners`]; none when it is not running.
+pub fn rdp_listeners() -> Result<RdpListeners> {
+    match service_pid(RDP_SERVICE)? {
+        0 => Ok(RdpListeners::default()),
+        pid => service_listeners(pid),
+    }
+}
+/// The TCP listeners of a service's process. When it hosts other services
+/// too, which one owns each socket comes from `GetOwnerModuleFromTcpEntry`
+/// (the service tag of the thread that opened it); that needs to query the
+/// process, which the host (SYSTEM) can, and a socket it can't name fails.
+fn service_listeners(pid: u32) -> Result<RdpListeners> {
+    let services = services_in_process(pid)?;
+    if services == 0 {
+        bail!("the service process {pid} ended while its listeners were read");
+    }
+    if services == 1 {
+        let own = |port_pid: (u32, u32)| {
+            (port_pid.1 == pid).then(|| ServiceListener {
+                port: local_port(port_pid.0),
+                owner: None,
+            })
+        };
+        let mut listeners: Vec<ServiceListener> = tcp_listeners::<MIB_TCPROW_OWNER_PID>(
+            AF_INET,
+            std::mem::offset_of!(MIB_TCPTABLE_OWNER_PID, table),
+            TCP_TABLE_OWNER_PID_LISTENER,
+        )?
+        .into_iter()
+        .filter_map(|row| own((row.dwLocalPort, row.dwOwningPid)))
+        .collect();
+        listeners.extend(
+            tcp_listeners::<MIB_TCP6ROW_OWNER_PID>(
+                AF_INET6,
+                std::mem::offset_of!(MIB_TCP6TABLE_OWNER_PID, table),
+                TCP_TABLE_OWNER_PID_LISTENER,
+            )?
+            .into_iter()
+            .filter_map(|row| own((row.dwLocalPort, row.dwOwningPid))),
+        );
+        return Ok(RdpListeners {
+            shared: false,
+            listeners,
+        });
+    }
+    let mut listeners = Vec::new();
+    for row in tcp_listeners::<MIB_TCPROW_OWNER_MODULE>(
+        AF_INET,
+        std::mem::offset_of!(MIB_TCPTABLE_OWNER_MODULE, table),
+        TCP_TABLE_OWNER_MODULE_LISTENER,
+    )? {
+        if row.dwOwningPid == pid {
+            let port = local_port(row.dwLocalPort);
+            // SAFETY: `row` is a live row of the table; the buffer and size come from owner_module.
+            let owner = owner_module(port, pid, |buffer, size| unsafe {
+                GetOwnerModuleFromTcpEntry(&row, TCPIP_OWNER_MODULE_INFO_BASIC, buffer, size)
+            })?;
+            listeners.push(ServiceListener {
+                port,
+                owner: Some(owner),
+            });
+        }
+    }
+    for row in tcp_listeners::<MIB_TCP6ROW_OWNER_MODULE>(
+        AF_INET6,
+        std::mem::offset_of!(MIB_TCP6TABLE_OWNER_MODULE, table),
+        TCP_TABLE_OWNER_MODULE_LISTENER,
+    )? {
+        if row.dwOwningPid == pid {
+            let port = local_port(row.dwLocalPort);
+            // SAFETY: as above, for the IPv6 row.
+            let owner = owner_module(port, pid, |buffer, size| unsafe {
+                GetOwnerModuleFromTcp6Entry(&row, TCPIP_OWNER_MODULE_INFO_BASIC, buffer, size)
+            })?;
+            listeners.push(ServiceListener {
+                port,
+                owner: Some(owner),
+            });
+        }
+    }
+    Ok(RdpListeners {
+        shared: true,
+        listeners,
+    })
+}
+/// The module name `GetOwnerModuleFrom*Entry` (through `read`, which gets a
+/// buffer writable for the size it is passed) reports for a socket: a
+/// service's name, or the program's (`svchost.exe` for an untagged socket).
+fn owner_module(
+    port: u16,
+    pid: u32,
+    read: impl Fn(*mut std::ffi::c_void, &mut u32) -> u32,
+) -> Result<String> {
+    let failed = || format!("reading which service of process {pid} listens on TCP port {port}");
+    let mut size = 0u32;
+    let mut result = read(std::ptr::null_mut(), &mut size);
+    // u64s: aligned for the info struct's pointers.
+    let mut buffer = Vec::<u64>::new();
+    if result == ERROR_INSUFFICIENT_BUFFER.0 {
+        buffer = vec![0; (size as usize).div_ceil(8)];
+        result = read(buffer.as_mut_ptr().cast(), &mut size);
+    }
+    if result != NO_ERROR.0 {
+        return Err(windows::core::Error::from(WIN32_ERROR(result).to_hresult()))
+            .with_context(failed);
+    }
+    if buffer.len() * 8 < size_of::<TCPIP_OWNER_MODULE_BASIC_INFO>() {
+        bail!("{}: Windows returned no module", failed());
+    }
+    // SAFETY: Windows wrote the info struct at the start of the buffer; its name points into
+    // the buffer, which lives until the name is copied.
+    let name = unsafe {
+        buffer
+            .as_ptr()
+            .cast::<TCPIP_OWNER_MODULE_BASIC_INFO>()
+            .read()
+            .pModuleName
+    };
+    if name.is_null() {
+        bail!("{}: Windows returned no module name", failed());
+    }
+    // SAFETY: as above; the name is NUL-terminated.
+    unsafe { name.to_string() }.with_context(failed)
+}
+/// How many running services the process `pid` hosts (`EnumServicesStatusExW`).
+fn services_in_process(pid: u32) -> Result<usize> {
+    let manager = ServiceHandle(
+        // SAFETY: null names select this PC's service manager.
+        unsafe {
+            OpenSCManagerW(
+                PCWSTR::null(),
+                PCWSTR::null(),
+                SC_MANAGER_CONNECT | SC_MANAGER_ENUMERATE_SERVICE,
+            )
+        }
+        .context("opening the service manager")?,
+    );
+    // u64s: aligned for the entries' pointers. A resume handle reads the list in parts.
+    let mut buffer = vec![0u64; 8192];
+    let mut resume = 0u32;
+    let mut count = 0;
+    for _ in 0..64 {
+        let (mut needed, mut returned) = (0u32, 0u32);
+        // SAFETY: the byte view covers the live buffer, which the call fills with entries followed
+        // by the strings they point to.
+        let listed = unsafe {
+            EnumServicesStatusExW(
+                manager.0,
+                SC_ENUM_PROCESS_INFO,
+                SERVICE_WIN32,
+                SERVICE_ACTIVE,
+                Some(std::slice::from_raw_parts_mut(
+                    buffer.as_mut_ptr().cast::<u8>(),
+                    buffer.len() * 8,
+                )),
+                &mut needed,
+                &mut returned,
+                Some(&mut resume),
+                PCWSTR::null(),
+            )
+        };
+        let more = match listed {
+            Ok(()) => false,
+            Err(error) if error.code() == ERROR_MORE_DATA.to_hresult() => true,
+            Err(error) => return Err(error).context("listing the running services"),
+        };
+        let entries = buffer.as_ptr().cast::<ENUM_SERVICE_STATUS_PROCESSW>();
+        if returned as usize * size_of::<ENUM_SERVICE_STATUS_PROCESSW>() > buffer.len() * 8 {
+            bail!("Windows listed more services than its buffer holds");
+        }
+        // SAFETY: the `returned` entries lie at the start of the buffer, checked above.
+        count += (0..returned as usize)
+            .filter(|&i| unsafe { entries.add(i).read() }.ServiceStatusProcess.dwProcessId == pid)
+            .count();
+        if !more {
+            return Ok(count);
+        }
+        if returned == 0 {
+            bail!("a service entry did not fit in {} bytes", buffer.len() * 8);
+        }
+    }
+    bail!("this PC's services kept changing while they were listed")
+}
 /// The port in a TCP table row: network byte order in the low 16 bits.
 fn local_port(raw: u32) -> u16 {
     u16::from_be(raw as u16)
 }
-/// The Remote Desktop service's process, 0 when it is not running.
-fn term_service_pid() -> Result<u32> {
-    struct Handle(SC_HANDLE);
-    impl Drop for Handle {
-        fn drop(&mut self) {
-            // SAFETY: the handle came from OpenSCManagerW or OpenServiceW and is closed only here.
-            let _ = unsafe { CloseServiceHandle(self.0) };
-        }
+/// A service manager or service handle, closed on drop.
+struct ServiceHandle(SC_HANDLE);
+impl Drop for ServiceHandle {
+    fn drop(&mut self) {
+        // SAFETY: the handle came from OpenSCManagerW or OpenServiceW and is closed only here.
+        let _ = unsafe { CloseServiceHandle(self.0) };
     }
-    // SAFETY: null names select this PC's service manager; the service name is a static
-    // NUL-terminated string; the status is the struct whose size is passed.
+}
+/// A service's process, 0 when it is not running.
+fn service_pid(name: &str) -> Result<u32> {
+    let wide = to_wide(name);
+    // SAFETY: null names select this PC's service manager; the service name is NUL-terminated
+    // and outlives the call; the status is the struct whose size is passed.
     unsafe {
-        let manager = Handle(
+        let manager = ServiceHandle(
             OpenSCManagerW(PCWSTR::null(), PCWSTR::null(), SC_MANAGER_CONNECT)
                 .context("opening the service manager")?,
         );
-        let service = Handle(
-            OpenServiceW(manager.0, w!("TermService"), SERVICE_QUERY_STATUS)
-                .context("opening the Remote Desktop service (TermService)")?,
+        let service = ServiceHandle(
+            OpenServiceW(manager.0, PCWSTR(wide.as_ptr()), SERVICE_QUERY_STATUS)
+                .with_context(|| format!("opening the service {name}"))?,
         );
         let mut status = SERVICE_STATUS_PROCESS::default();
         let mut needed = 0;
@@ -261,7 +456,7 @@ fn term_service_pid() -> Result<u32> {
             )),
             &mut needed,
         )
-        .context("reading the Remote Desktop service's state")?;
+        .with_context(|| format!("reading the state of the service {name}"))?;
         Ok(if status.dwCurrentState == SERVICE_RUNNING {
             status.dwProcessId
         } else {
@@ -269,19 +464,16 @@ fn term_service_pid() -> Result<u32> {
         })
     }
 }
-/// The rows of `GetExtendedTcpTable(TCP_TABLE_OWNER_PID_LISTENER)` for one
-/// address family; `offset` is where the rows start in its table.
-fn tcp_listeners<Row: Copy>(family: ADDRESS_FAMILY, offset: usize) -> Result<Vec<Row>> {
+/// The rows of `GetExtendedTcpTable` for one address family and a listener
+/// `class` whose rows are `Row`; `offset` is where the rows start in its table.
+fn tcp_listeners<Row: Copy>(
+    family: ADDRESS_FAMILY,
+    offset: usize,
+    class: TCP_TABLE_CLASS,
+) -> Result<Vec<Row>> {
     // SAFETY: the buffer and size come from owner_table, writable for `size` bytes.
     owner_table("TCP", offset, |buffer, size| unsafe {
-        GetExtendedTcpTable(
-            Some(buffer),
-            size,
-            false,
-            u32::from(family.0),
-            TCP_TABLE_OWNER_PID_LISTENER,
-            0,
-        )
+        GetExtendedTcpTable(Some(buffer), size, false, u32::from(family.0), class, 0)
     })
 }
 /// The rows of `GetExtendedUdpTable(UDP_TABLE_OWNER_PID)` for one address
@@ -517,8 +709,8 @@ impl SystemSettings for NativeSettings {
         )?;
         parse_active(&output)
     }
-    fn rdp_listener_ports(&self) -> Result<Vec<u16>> {
-        Ok(rdp_server()?.service_ports())
+    fn rdp_listeners(&self) -> Result<RdpListeners> {
+        rdp_listeners()
     }
     fn enabled_rules(&self, group: &str) -> Result<Vec<String>> {
         parse_rule_ids(&run_rules_script(
@@ -1047,6 +1239,38 @@ mod tests {
             format!("{error:#}").contains(&format!("process {}", std::process::id())),
             "{error:#}"
         );
+    }
+
+    #[test]
+    fn a_shared_service_process_names_the_service_of_each_listener() {
+        // Read-only: the Remote Desktop service's listeners, whether it runs or not.
+        super::rdp_listeners().unwrap().ports().unwrap();
+        // RPC (RpcSs, TCP 135) runs on every Windows, on this PC in one svchost with
+        // RpcEptMapper: its listeners are named by service when the process is shared.
+        let pid = super::service_pid("RpcSs").unwrap();
+        assert_ne!(pid, 0);
+        let services = super::services_in_process(pid).unwrap();
+        assert!(services >= 1);
+        let rpc = super::service_listeners(pid).unwrap();
+        assert_eq!(rpc.shared, services > 1);
+        let endpoint_mapper = rpc.listeners.iter().find(|l| l.port == 135);
+        assert!(endpoint_mapper.is_some(), "{rpc:?}");
+        if rpc.shared {
+            assert!(
+                rpc.listeners
+                    .iter()
+                    .all(|l| l.owner.as_deref().is_some_and(|o| !o.is_empty())),
+                "{rpc:?}"
+            );
+            assert!(
+                endpoint_mapper
+                    .and_then(|l| l.owner.as_deref())
+                    .is_some_and(|owner| owner.eq_ignore_ascii_case("RpcSs")),
+                "{rpc:?}"
+            );
+        }
+        // No service runs in this test's process.
+        assert_eq!(super::services_in_process(std::process::id()).unwrap(), 0);
     }
 
     #[test]

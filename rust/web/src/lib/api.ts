@@ -320,6 +320,10 @@ export interface Client {
   host_control?: boolean | string | null;
   /** Sleep PC from this device. Sent as true or null; the host refuses anything else. */
   allow_sleep?: boolean | string | null;
+  /** USB forwarding from this device (3.0, not yet served). Sent as a boolean or null. */
+  allow_usb?: boolean | null;
+  /** Folder grants by folder id (3.0, not yet served). Null clears them. */
+  shared_folders?: Record<string, 'read' | 'write'> | null;
   do?: unknown;
   undo?: unknown;
   [extra: string]: unknown;

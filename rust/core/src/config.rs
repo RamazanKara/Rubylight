@@ -1061,6 +1061,15 @@ pub fn parse_integer(value: &str) -> Option<i64> {
     }
     value.parse().ok()
 }
+/// A shared folder's id, as `shared_folders` defines it and a device grant
+/// names it: 1 to 64 ASCII letters, digits, `-` or `_`, so that it never
+/// reads as a path.
+pub fn valid_folder_id(id: &str) -> bool {
+    (1..=64).contains(&id.len())
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
 /// The text of sunshine.conf. Editors save it as UTF-8 with or without a
 /// byte order mark, or as UTF-16 with one; anything else is read as the
 /// Windows ANSI code page (Windows-1252) rather than refused.
@@ -1175,6 +1184,16 @@ impl Ports {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn folder_ids_are_short_plain_names() {
+        for id in ["games", "saves-2", "a_b", &"x".repeat(64)] {
+            assert!(super::valid_folder_id(id), "{id}");
+        }
+        for id in ["", "../games", "a/b", "a b", "ü", &"x".repeat(65)] {
+            assert!(!super::valid_folder_id(id), "{id}");
+        }
+    }
+
     #[test]
     fn webrtc_video_is_paced_unless_the_measurement_switch_turns_it_off() {
         let mut config = super::Config::default();

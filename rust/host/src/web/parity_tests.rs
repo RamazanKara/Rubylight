@@ -337,6 +337,62 @@ async fn sleep_is_granted_only_as_a_boolean() {
 }
 
 #[tokio::test]
+async fn usb_and_folder_grants_are_saved_only_in_their_shape() {
+    let f = Fixture::new();
+    let client = f.client(u32::MAX);
+    let update = |change: Value| {
+        let mut body = json!({"uuid":client.uuid,"name":"Renamed"});
+        body.as_object_mut()
+            .unwrap()
+            .extend(change.as_object().unwrap().clone());
+        request(&f, "POST", "/api/clients/update", body)
+    };
+    for bad in [
+        json!({"allow_usb": "true"}),
+        json!({"allow_usb": 1}),
+        json!({"shared_folders": ["games"]}),
+        json!({"shared_folders": "games"}),
+        json!({"shared_folders": {"games": "admin"}}),
+        json!({"shared_folders": {"games": true}}),
+        json!({"shared_folders": {"": "read"}}),
+        json!({"shared_folders": {"../games": "read"}}),
+    ] {
+        value(update(bad.clone()).await, StatusCode::BAD_REQUEST).await;
+        let paired = f.host.paired.read().unwrap();
+        let device = &paired.clients[0];
+        assert!(!device.allows_usb() && !device.has_folders(), "{bad}");
+        assert!(!device.extra.contains_key("allow_usb"), "{bad}");
+        assert!(!device.extra.contains_key("shared_folders"), "{bad}");
+        assert_eq!(device.name, client.name, "nothing else changed");
+    }
+    value(
+        update(json!({"allow_usb": true, "shared_folders": {"games": "read", "saves-2": "write"}}))
+            .await,
+        StatusCode::OK,
+    )
+    .await;
+    let saved = butterpollo_core::state::PairedState::load(&f.host.paired_path).unwrap();
+    let device = &saved.clients[0];
+    assert!(device.allows_usb() && device.has_folders());
+    use butterpollo_core::native_api::folders::FolderAccess;
+    assert_eq!(
+        (
+            device.folder_access("games"),
+            device.folder_access("saves-2")
+        ),
+        (Some(FolderAccess::Read), Some(FolderAccess::Write))
+    );
+    value(
+        update(json!({"allow_usb": null, "shared_folders": null})).await,
+        StatusCode::OK,
+    )
+    .await;
+    let saved = butterpollo_core::state::PairedState::load(&f.host.paired_path).unwrap();
+    assert!(!saved.clients[0].extra.contains_key("allow_usb"));
+    assert!(!saved.clients[0].extra.contains_key("shared_folders"));
+}
+
+#[tokio::test]
 async fn host_control_cannot_be_granted_without_the_update_route() {
     let f = Fixture::new();
     let client = f.client(u32::MAX);

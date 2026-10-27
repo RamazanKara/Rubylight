@@ -87,16 +87,19 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 .iter_mut()
                 .find(|c| c.uuid == text("uuid"))
                 .ok_or_else(|| anyhow::anyhow!("client not found"))?;
-            // Host control and Sleep PC are granted only here, and only as a
-            // real boolean (null clears it). Anything else is refused before
-            // any change.
-            for key in ["host_control", "allow_sleep"] {
+            // Host control, Sleep PC and USB forwarding are granted only here,
+            // and only as a real boolean (null clears it). Anything else is
+            // refused before any change.
+            for key in ["host_control", "allow_sleep", "allow_usb"] {
                 if data
                     .get(key)
                     .is_some_and(|v| !v.is_boolean() && !v.is_null())
                 {
                     anyhow::bail!("{key} must be true, false or null");
                 }
+            }
+            if let Some(grants) = data.get("shared_folders") {
+                check_folder_grants(grants)?;
             }
             // A preset the host does not know is refused here, as it is for the
             // host's own setting, before anything is saved.
@@ -257,6 +260,22 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
         }
         _ => return Err(anyhow::anyhow!("unknown API endpoint")),
     })
+}
+
+/// `shared_folders` as the update takes it: null, which clears the grants, or
+/// an object from folder id to `"read"` or `"write"` (`Client::folder_access`).
+fn check_folder_grants(grants: &Value) -> anyhow::Result<()> {
+    let valid = grants.is_null()
+        || grants.as_object().is_some_and(|grants| {
+            grants.iter().all(|(id, access)| {
+                butterpollo_core::config::valid_folder_id(id)
+                    && matches!(access.as_str(), Some("read" | "write"))
+            })
+        });
+    if !valid {
+        anyhow::bail!("shared_folders must map folder ids to \"read\" or \"write\", or be null");
+    }
+    Ok(())
 }
 
 #[cfg(test)]

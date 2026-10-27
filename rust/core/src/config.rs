@@ -1158,8 +1158,6 @@ pub fn override_allowed(key: &str) -> bool {
         "client_cursor",
         "dd_rotation_option",
         "dd_manual_rotation",
-        "dd_scale_option",
-        "dd_manual_scale",
     ];
     ALLOWED.contains(&key)
 }

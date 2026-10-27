@@ -18,8 +18,6 @@ pub const SETTINGS_30: &[(&str, &str)] = &[
     ("qr_pairing", "false"),
     ("dd_rotation_option", "disabled"),
     ("dd_manual_rotation", "0"),
-    ("dd_scale_option", "disabled"),
-    ("dd_manual_scale", "100"),
     ("background_mode", "auto"),
     ("child_session_resolution", "1920x1080"),
     ("child_session_scale", "100"),
@@ -35,7 +33,8 @@ pub enum TouchMode {
     Trackpad,
 }
 
-/// `dd_rotation_option` and `dd_scale_option`, beside `dd_resolution_option`.
+/// `dd_rotation_option`, beside `dd_resolution_option`. Windows scaling has no
+/// option of its own: `dd_virtual_display_scale` sets it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DisplayAdjust {
     /// Leave the display as it is.
@@ -145,16 +144,6 @@ impl Config {
     pub fn dd_manual_rotation(&self) -> u16 {
         self.integer30("dd_manual_rotation", 0, |n| matches!(n, 0 | 90 | 180 | 270)) as u16
     }
-    /// `dd_scale_option`: `disabled` (the default), `auto` or `manual`.
-    pub fn dd_scale_option(&self) -> DisplayAdjust {
-        self.display_adjust("dd_scale_option")
-    }
-    /// `dd_manual_scale`: 100 to 500 percent in steps of 25, 100 by default.
-    pub fn dd_manual_scale(&self) -> u16 {
-        self.integer30("dd_manual_scale", 100, |n| {
-            (100..=500).contains(&n) && n % 25 == 0
-        }) as u16
-    }
     fn display_adjust(&self, key: &str) -> DisplayAdjust {
         self.choice30(
             key,
@@ -208,8 +197,6 @@ mod tests {
         "client_cursor",
         "dd_rotation_option",
         "dd_manual_rotation",
-        "dd_scale_option",
-        "dd_manual_scale",
     ];
 
     fn config(text: &str) -> Config {
@@ -243,8 +230,6 @@ mod tests {
                     c.qr_pairing(),
                     c.dd_rotation_option(),
                     c.dd_manual_rotation(),
-                    c.dd_scale_option(),
-                    c.dd_manual_scale(),
                     c.background_mode(),
                     c.child_session_resolution(),
                     c.child_session_scale(),
@@ -255,9 +240,9 @@ mod tests {
     }
 
     #[test]
-    fn there_are_17_unique_settings() {
+    fn there_are_15_unique_settings() {
         let keys: std::collections::BTreeSet<_> = SETTINGS_30.iter().map(|(k, _)| k).collect();
-        assert_eq!((SETTINGS_30.len(), keys.len()), (17, 17));
+        assert_eq!((SETTINGS_30.len(), keys.len()), (15, 15));
     }
 
     #[test]
@@ -274,8 +259,6 @@ mod tests {
         assert!(!c.qr_pairing());
         assert_eq!(c.dd_rotation_option(), DisplayAdjust::Disabled);
         assert_eq!(c.dd_manual_rotation(), 0);
-        assert_eq!(c.dd_scale_option(), DisplayAdjust::Disabled);
-        assert_eq!(c.dd_manual_scale(), 100);
         assert_eq!(c.background_mode(), BackgroundMode::Auto);
         assert_eq!(c.child_session_resolution(), (1920, 1080));
         assert_eq!(c.child_session_scale(), 100);
@@ -321,10 +304,6 @@ mod tests {
             "dd_rotation_option = sideways",
             "dd_manual_rotation = 45",
             "dd_manual_rotation = 360",
-            "dd_scale_option = big",
-            "dd_manual_scale = 110",
-            "dd_manual_scale = 75",
-            "dd_manual_scale = 525",
             "background_mode = session",
             "child_session_resolution = 1920",
             "child_session_resolution = 0x1080",
@@ -345,8 +324,6 @@ mod tests {
             "clipboard_image_max_mb = 64\n",
             "dd_rotation_option = manual\n",
             "dd_manual_rotation = 270\n",
-            "dd_scale_option = auto\n",
-            "dd_manual_scale = 125\n",
             "background_mode = child_session\n",
             "child_session_resolution = 2560x1440\n",
             "child_session_scale = 150\n",
@@ -357,8 +334,6 @@ mod tests {
         assert_eq!(c.clipboard_image_max_bytes(), 64 * 1024 * 1024);
         assert_eq!(c.dd_rotation_option(), DisplayAdjust::Manual);
         assert_eq!(c.dd_manual_rotation(), 270);
-        assert_eq!(c.dd_scale_option(), DisplayAdjust::Auto);
-        assert_eq!(c.dd_manual_scale(), 125);
         assert_eq!(c.background_mode(), BackgroundMode::ChildSession);
         assert_eq!(c.child_session_resolution(), (2560, 1440));
         assert_eq!(c.child_session_scale(), 150);

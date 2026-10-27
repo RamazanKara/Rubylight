@@ -282,6 +282,90 @@ pub fn parse_resolution(text: &str) -> Option<(u32, u32)> {
     let height = height.trim().parse::<u32>().ok()?;
     ((1..=16384).contains(&width) && (1..=16384).contains(&height)).then_some((width, height))
 }
+/// A `DISPLAYCONFIG_ROTATION` (1 upright to 4, 270° clockwise) in degrees.
+pub fn rotation_degrees(rotation: u32) -> Option<u16> {
+    match rotation {
+        1 => Some(0),
+        2 => Some(90),
+        3 => Some(180),
+        4 => Some(270),
+        _ => None,
+    }
+}
+/// Degrees clockwise as a `DISPLAYCONFIG_ROTATION`.
+pub fn rotation_code(degrees: u16) -> Option<u32> {
+    match degrees {
+        0 => Some(1),
+        90 => Some(2),
+        180 => Some(3),
+        270 => Some(4),
+        _ => None,
+    }
+}
+fn portrait((width, height): (u32, u32)) -> bool {
+    height > width
+}
+/// `size` in portrait or landscape: swapped when it has the other shape. A
+/// square stays as it is.
+pub fn oriented(size: (u32, u32), portrait: bool) -> (u32, u32) {
+    if size.0 != size.1 && self::portrait(size) != portrait {
+        (size.1, size.0)
+    } else {
+        size
+    }
+}
+/// The rotation in degrees a stream turns a physical display to under
+/// `dd_rotation_option`, or None to leave it as it is. `current` is its
+/// rotation now and `desktop` its size as the desktop shows it, turned.
+/// Following the stream turns the display only when its shape differs from
+/// the stream's: a turned display goes back upright, an upright one to 90°.
+pub fn physical_rotation(
+    option: crate::config::DisplayAdjust,
+    manual: u16,
+    current: u16,
+    desktop: (u32, u32),
+    stream: (u32, u32),
+) -> Option<u16> {
+    use crate::config::DisplayAdjust;
+    let wanted = match option {
+        DisplayAdjust::Disabled => return None,
+        DisplayAdjust::Manual => manual,
+        DisplayAdjust::Auto => {
+            if stream.0 == stream.1 || desktop.0 == desktop.1 || portrait(stream) == portrait(desktop)
+            {
+                return None;
+            }
+            if current % 180 == 0 { 90 } else { 0 }
+        }
+    };
+    (wanted != current).then_some(wanted)
+}
+/// The mode a physical display gets before it turns: the requested size in the
+/// shape the display shows now (`desktop`), so that it has the shape the turn
+/// gives it afterwards. Windows lists a display's modes in its current shape.
+pub fn mode_before_turn(requested: (u32, u32), desktop: (u32, u32)) -> (u32, u32) {
+    oriented(requested, portrait(desktop))
+}
+/// The size a stream's own virtual display is made at under
+/// `dd_rotation_option`: `size` swapped for 90° and 270°, or in the stream's
+/// shape when it follows the stream. A virtual display is shaped rather than
+/// turned, since a turned one would reach the encoder sideways; 180° leaves it
+/// as it is.
+pub fn virtual_shape(
+    option: crate::config::DisplayAdjust,
+    manual: u16,
+    size: (u32, u32),
+    stream: (u32, u32),
+) -> (u32, u32) {
+    use crate::config::DisplayAdjust;
+    match option {
+        DisplayAdjust::Disabled => size,
+        DisplayAdjust::Manual if manual % 180 == 90 => (size.1, size.0),
+        DisplayAdjust::Manual => size,
+        DisplayAdjust::Auto if stream.0 == stream.1 => size,
+        DisplayAdjust::Auto => oriented(size, portrait(stream)),
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Arrangement {
     Extended,
@@ -655,6 +739,72 @@ mod tests {
         assert_eq!(parse_resolution("2560x1440x120"), None);
         assert_eq!(parse_resolution("0x1440"), None);
         assert_eq!(parse_resolution(""), None);
+    }
+
+    #[test]
+    fn rotations_are_displayconfig_codes_one_to_four() {
+        use super::{rotation_code, rotation_degrees};
+        for (code, degrees) in [(1, 0), (2, 90), (3, 180), (4, 270)] {
+            assert_eq!(rotation_degrees(code), Some(degrees));
+            assert_eq!(rotation_code(degrees), Some(code));
+        }
+        assert_eq!(rotation_degrees(0), None);
+        assert_eq!(rotation_degrees(5), None);
+        assert_eq!(rotation_code(45), None);
+        assert_eq!(rotation_code(360), None);
+    }
+
+    #[test]
+    fn a_physical_display_turns_to_the_chosen_angle_or_the_streams_shape() {
+        use super::physical_rotation as turn;
+        use crate::config::DisplayAdjust::{Auto, Disabled, Manual};
+        let landscape = (2560, 1440);
+        let portrait = (1440, 2560);
+        let phone = (1080, 2400);
+        assert_eq!(turn(Disabled, 90, 0, landscape, phone), None);
+        // A chosen angle, unless the display has it already.
+        assert_eq!(turn(Manual, 90, 0, landscape, (1920, 1080)), Some(90));
+        assert_eq!(turn(Manual, 0, 270, portrait, phone), Some(0));
+        assert_eq!(turn(Manual, 180, 180, landscape, phone), None);
+        // A portrait phone turns a landscape display, a landscape stream turns
+        // it back; one already in the stream's shape stays as it is.
+        assert_eq!(turn(Auto, 0, 0, landscape, phone), Some(90));
+        assert_eq!(turn(Auto, 0, 180, landscape, phone), Some(90));
+        assert_eq!(turn(Auto, 0, 270, portrait, (2400, 1080)), Some(0));
+        assert_eq!(turn(Auto, 0, 270, portrait, phone), None);
+        assert_eq!(turn(Auto, 0, 0, landscape, (1920, 1080)), None);
+        // A monitor that is portrait upright turns to landscape for a landscape stream.
+        assert_eq!(turn(Auto, 0, 0, portrait, (1920, 1080)), Some(90));
+        // A square has no shape to follow.
+        assert_eq!(turn(Auto, 0, 0, landscape, (1024, 1024)), None);
+        assert_eq!(turn(Auto, 0, 0, (1024, 1024), phone), None);
+    }
+
+    #[test]
+    fn a_turned_physical_display_gets_its_mode_in_its_shape_before_the_turn() {
+        use super::mode_before_turn;
+        // A portrait phone's mode on a landscape display, which then turns to portrait.
+        assert_eq!(mode_before_turn((1080, 2400), (2560, 1440)), (2400, 1080));
+        assert_eq!(mode_before_turn((1920, 1080), (2560, 1440)), (1920, 1080));
+        assert_eq!(mode_before_turn((1920, 1080), (1440, 2560)), (1080, 1920));
+        assert_eq!(mode_before_turn((1024, 1024), (1440, 2560)), (1024, 1024));
+    }
+
+    #[test]
+    fn a_virtual_display_is_shaped_rather_than_turned() {
+        use super::virtual_shape as shape;
+        use crate::config::DisplayAdjust::{Auto, Disabled, Manual};
+        let phone = (1080, 2400);
+        assert_eq!(shape(Disabled, 90, (2560, 1440), phone), (2560, 1440));
+        assert_eq!(shape(Manual, 90, (1920, 1080), (1920, 1080)), (1080, 1920));
+        assert_eq!(shape(Manual, 270, (1080, 2400), phone), (2400, 1080));
+        assert_eq!(shape(Manual, 180, (1920, 1080), (1920, 1080)), (1920, 1080));
+        assert_eq!(shape(Manual, 0, (1920, 1080), phone), (1920, 1080));
+        // A device's landscape display mode takes a portrait phone's shape.
+        assert_eq!(shape(Auto, 0, (2560, 1440), phone), (1440, 2560));
+        assert_eq!(shape(Auto, 0, phone, phone), phone);
+        assert_eq!(shape(Auto, 0, (1440, 2560), (1920, 1080)), (2560, 1440));
+        assert_eq!(shape(Auto, 0, (2560, 1440), (1024, 1024)), (2560, 1440));
     }
 
     #[test]

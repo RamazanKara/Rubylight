@@ -514,7 +514,7 @@ test('shared folders are a live, Experimental list beside file transfer, empty b
 const live = ['audio_surround_714'];
 
 test('settings still pending stay out of the console, and shipped ones are in it', () => {
-  assert.equal(pending.length, 17);
+  assert.equal(pending.length, 15);
   for (const setting of pending) {
     const shipped = live.includes(setting.key);
     assert.equal(setting.pending === true, !shipped, setting.key);

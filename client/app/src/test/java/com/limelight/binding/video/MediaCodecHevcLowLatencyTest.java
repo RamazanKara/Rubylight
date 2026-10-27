@@ -41,6 +41,7 @@ public class MediaCodecHevcLowLatencyTest {
     private static final String HEVC = "video/hevc";
     private static final String AML_HEVC = "c2.amlogic.hevc.decoder";
     private static final String AML_LOW_LATENCY = "vendor.low-latency.enable";
+    private static final String OTHER_HEVC = "c2.acme.hevc.decoder";
 
     @Before
     public void setUp() {
@@ -69,13 +70,36 @@ public class MediaCodecHevcLowLatencyTest {
     }
 
     @Test
-    public void noDeviceIsAutomaticallyChangedWithoutTheOptIn() {
-        for (String model : new String[] {"MiTV-AYFR0", "Homatics Box 4K Pro V2", "Chromecast", "AFTMM"}) {
-            ShadowBuild.setModel(model);
-            MediaFormat format = tunedFormat(AML_HEVC, HEVC, false);
-            assertEquals(model, 1, format.getInteger(MediaFormat.KEY_LOW_LATENCY));
-            assertEquals(model, 1, format.getInteger(AML_LOW_LATENCY));
+    @Config(sdk = {28, 34})
+    public void amlogicHevcDecodersNeverGetTheFlagsWithoutTheOptIn() {
+        for (String name : new String[] {AML_HEVC, "OMX.amlogic.hevc.decoder.awesome2"}) {
+            for (String model : new String[] {"MiTV-AYFR0", "Homatics Box 4K Pro V2", "Chromecast", "AFTMM"}) {
+                ShadowBuild.setModel(model);
+                MediaCodecInfo decoder = decoder(name, HEVC);
+                for (int attempt = 0; attempt <= 5; attempt++) {
+                    MediaFormat format = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
+                    MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder, attempt, true, true, false, false);
+                    assertFalse(model, format.containsKey(MediaFormat.KEY_LOW_LATENCY));
+                    assertFalse(model, format.containsKey(AML_LOW_LATENCY));
+                    assertFalse(model, format.containsKey("vdec-lowlatency"));
+                }
+                // Decoder performance hints keep their own setting, as with the opt-in.
+                assertEquals(model, 0, tunedFormat(name, HEVC, false).getInteger(MediaFormat.KEY_PRIORITY));
+            }
+            // Their H.264 and AV1 decoders keep the flags.
+            assertEquals(1, tunedFormat("c2.amlogic.avc.decoder", "video/avc", false).getInteger(AML_LOW_LATENCY));
+            assertEquals(1, tunedFormat("c2.amlogic.av1.decoder", "video/av01", false).getInteger(MediaFormat.KEY_LOW_LATENCY));
         }
+        // HEVC RFI keeps its normal policy (erratum 22): referenceFrameInvalidationUses... below.
+    }
+
+    @Test
+    public void otherHevcDecodersKeepTheFlagsWithoutTheOptIn() {
+        for (String name : new String[] {OTHER_HEVC, "c2.qti.hevc.decoder", "c2.exynos.hevc.decoder"}) {
+            MediaFormat format = tunedFormat(name, HEVC, false);
+            assertEquals(name, 1, format.getInteger(MediaFormat.KEY_LOW_LATENCY));
+        }
+        assertEquals(1, tunedFormat(OTHER_HEVC, HEVC, false).getInteger(AML_LOW_LATENCY));
     }
 
     @Test
@@ -181,17 +205,23 @@ public class MediaCodecHevcLowLatencyTest {
     @Test
     @Config(shadows = RecordingCodec.class)
     public void streamStartupAndRestartApplyTheOptInWithoutReassertingDisabledFlags() {
-        for (boolean disable : new boolean[] {true, false}) {
+        // The opt-in on another decoder, no opt-in there, and an Amlogic decoder without the opt-in.
+        String[] names = {OTHER_HEVC, OTHER_HEVC, AML_HEVC};
+        boolean[] optIn = {true, false, false};
+        for (int run = 0; run < names.length; run++) {
+            RecordingCodec.name = names[run];
+            boolean disable = optIn[run] || names[run].equals(AML_HEVC);
             try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
                 PreferenceConfiguration prefs = new PreferenceConfiguration();
                 prefs.videoFormat = PreferenceConfiguration.FormatOption.AUTO;
                 prefs.codecLowLatency = prefs.vendorLowLatency = prefs.codecPerformance = true;
-                prefs.disableHevcLowLatency = disable;
+                prefs.disableHevcLowLatency = optIn[run];
                 MediaCodecDecoderRenderer renderer = new MediaCodecDecoderRenderer(activity.get(), prefs,
                         null, 0, false, false, "", null);
                 ReflectionHelpers.setField(renderer, "videoFormat", MoonBridge.VIDEO_FORMAT_H265);
-                ReflectionHelpers.setField(renderer, "hevcDecoder", decoder(AML_HEVC, HEVC));
-                ReflectionHelpers.setField(renderer, "refFrameInvalidationHevc", !disable);
+                ReflectionHelpers.setField(renderer, "hevcDecoder", decoder(names[run], HEVC));
+                // The Amlogic skip leaves RFI to its own policy; only the opt-in turns it off.
+                ReflectionHelpers.setField(renderer, "refFrameInvalidationHevc", !optIn[run]);
                 ReflectionHelpers.setField(renderer, "initialWidth", 1920);
                 ReflectionHelpers.setField(renderer, "initialHeight", 1080);
                 ReflectionHelpers.setField(renderer, "refreshRate", 60);
@@ -199,7 +229,7 @@ public class MediaCodecHevcLowLatencyTest {
                 try {
                     assertEquals(0, renderer.initializeDecoder(true));
                     assertEquals(disable ? 1 : 2, (int) ReflectionHelpers.getField(renderer, "outputBufferQueueLimit"));
-                    assertEquals(!disable, (boolean) ReflectionHelpers.getField(renderer, "refFrameInvalidationActive"));
+                    assertEquals(!optIn[run], (boolean) ReflectionHelpers.getField(renderer, "refFrameInvalidationActive"));
                     MediaFormat format = ReflectionHelpers.getField(renderer, "configuredFormat");
                     assertEquals(!disable, format.containsKey(MediaFormat.KEY_LOW_LATENCY));
                     assertEquals(!disable, format.containsKey(AML_LOW_LATENCY));
@@ -245,13 +275,14 @@ public class MediaCodecHevcLowLatencyTest {
     @Implements(MediaCodec.class)
     public static class RecordingCodec extends ShadowMediaCodec {
         static int runtimeParameterCalls;
+        static String name = AML_HEVC;
 
         @Implementation public String getName() {
-            return AML_HEVC;
+            return name;
         }
 
         @Implementation public MediaCodecInfo getCodecInfo() {
-            return decoder(AML_HEVC, HEVC);
+            return decoder(name, HEVC);
         }
 
         @Implementation public void setParameters(Bundle params) {

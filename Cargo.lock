@@ -424,6 +424,7 @@ dependencies = [
  "tempfile",
  "time",
  "tracing",
+ "tracing-subscriber",
  "uuid",
  "x509-parser",
  "zeroize",

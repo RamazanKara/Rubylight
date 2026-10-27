@@ -642,6 +642,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Mouse: desktop pointer", "Maus: Desktop-Zeiger"),
     ("Mouse: captured for games", "Maus: für Spiele erfasst"),
     ("Host lowered the bitrate to {} Mbps: network", "Host hat die Bitrate auf {} Mbit/s gesenkt: Netzwerk"),
+    ("{} source, {} captured, {} encoded, {} sent, {} repeated fps", "{0} Quelle, {1} erfasst, {2} kodiert, {3} gesendet, {4} wiederholt fps"),
     ("{} early/s, {} whole in the last second, {} fallbacks in all", "{0} früh/s, {1} ganz in der letzten Sekunde, {2} Rückfälle insgesamt"),
     // A PC's details page.
     ("View details", "Details anzeigen"),

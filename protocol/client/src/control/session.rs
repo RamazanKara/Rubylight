@@ -477,6 +477,7 @@ impl ControlSession {
             ptype::HOST_TIMING if extensions => events::host_timing(p),
             ptype::CLOCK_SYNC if extensions => events::clock_sync(p, now),
             ptype::LINK_NOTICE if extensions => events::link_notice(p),
+            ptype::PIPELINE_RATES if extensions => events::pipeline_rates(p),
             ptype::CURSOR_SHAPE if extensions && self.cursor_shapes => {
                 Some(events::cursor_shape(p))
             }
@@ -506,7 +507,7 @@ mod tests {
             feature_flags: 3,
             encryption_enabled: encryption::CONTROL_V2,
             control_messages: vec![
-                0x5530, 0x5531, 0x5532, 0x5534, 0x5535, 0x5536, 0x5537, 0x5538, 0x5540,
+                0x5530, 0x5531, 0x5532, 0x5534, 0x5535, 0x5536, 0x5537, 0x5538, 0x553D, 0x5540,
             ],
             client_roaming: false,
         }
@@ -703,6 +704,71 @@ mod tests {
             bare.send(ClientMessage::LinkNoticeRequest(LinkNoticeRequest {
                 enabled: true
             })),
+            Err(SendError::Unsupported)
+        );
+    }
+
+    #[test]
+    fn pipeline_rates_are_requested_and_heard() {
+        use rubylight_protocol::pipeline_rates::{PipelineRatesReport, PipelineRatesRequest};
+        let mut s = session(SessionOptions::default());
+        let t0 = Instant::now();
+        s.start(t0);
+        host_reads(&mut s);
+        let request = PipelineRatesRequest {
+            enabled: true,
+            interval_ms: 1000,
+        };
+        s.send(ClientMessage::PipelineRatesRequest(request)).unwrap();
+        let sent = host_reads(&mut s);
+        assert_eq!(sent.len(), 1);
+        assert_eq!((sent[0].0, sent[0].1, sent[0].2), (0, Delivery::Reliable, 0x553D));
+        assert_eq!(PipelineRatesRequest::decode(&sent[0].3), Some(request));
+
+        let report = PipelineRatesReport {
+            short_window: false,
+            window_ms: 1000,
+            source_mhz: 119_880,
+            capture_mhz: 120_000,
+            submit_mhz: 120_000,
+            output_mhz: 120_000,
+            repeat_mhz: 0,
+        };
+        let mut seq = 0;
+        let mut feed = |s: &mut ControlSession, payload: &[u8]| {
+            seq += 1;
+            s.handle_datagram(t0, &from_host(seq, 0x553D, payload))
+                .unwrap();
+        };
+        feed(&mut s, &report.encode());
+        // Fields a newer host appends are skipped; runts, giants and empty windows are dropped.
+        let mut longer = report.encode().to_vec();
+        longer.extend_from_slice(&[9; 4]);
+        feed(&mut s, &longer);
+        feed(&mut s, &report.encode()[..27]);
+        feed(&mut s, &[1; 300]);
+        let mut empty = report.encode();
+        empty[4..8].fill(0);
+        feed(&mut s, &empty);
+        assert_eq!(
+            s.take_events(),
+            [
+                ControlEvent::PipelineRates(report),
+                ControlEvent::PipelineRates(report),
+            ]
+        );
+
+        // A host that did not announce 0x553D is not asked.
+        let mut bare = ControlSession::new(
+            HostCapabilities {
+                control_messages: vec![0x5536],
+                ..rubylight()
+            },
+            &KEY,
+            SessionOptions::default(),
+        );
+        assert_eq!(
+            bare.send(ClientMessage::PipelineRatesRequest(request)),
             Err(SendError::Unsupported)
         );
     }

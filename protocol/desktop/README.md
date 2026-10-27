@@ -151,6 +151,10 @@ Why this combination:
   "Notice" line, "Host lowered the bitrate to X Mbps: network", while the host holds the
   bitrate down for the network; it clears when the host is back at the requested rate.
 
+  When the host announces pipeline rates (0x553D) the client asks for a report every second,
+  and the overlay adds a "Host pipeline" line: the frames per second the host's display
+  produced, captured, encoded, sent and repeated, "-" for a stage the host can't count.
+
 ### Files
 
 | File | Role |

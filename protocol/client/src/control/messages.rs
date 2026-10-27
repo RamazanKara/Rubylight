@@ -5,6 +5,7 @@ use rubylight_protocol::control::{
     ClockSyncRequest, DisplayCaps, HostTimingRequest, LinkNoticeRequest, Reconfigure,
 };
 use rubylight_protocol::phase_lock;
+use rubylight_protocol::pipeline_rates::PipelineRatesRequest;
 
 use super::wire::{channel, ptype, Delivery};
 use crate::control::haptics;
@@ -84,6 +85,8 @@ pub enum ClientMessage {
     ClockSync(ClockSyncRequest),
     /// Asks the host to say when it lowers the video bitrate for the network (0x5538).
     LinkNoticeRequest(LinkNoticeRequest),
+    /// Asks the host for its pipeline frame rates (0x553D) every interval, or to stop.
+    PipelineRatesRequest(PipelineRatesRequest),
     /// Asks the host to send its cursor image (0x5541) and leave it out of the video, or to
     /// stop.
     CursorShapeRequest {
@@ -114,6 +117,7 @@ impl ClientMessage {
             Self::HostTimingRequest(_) => ptype::HOST_TIMING,
             Self::ClockSync(_) => ptype::CLOCK_SYNC,
             Self::LinkNoticeRequest(_) => ptype::LINK_NOTICE,
+            Self::PipelineRatesRequest(_) => ptype::PIPELINE_RATES,
             Self::CursorShapeRequest { .. } => ptype::CURSOR_SHAPE_REQUEST,
             Self::ControllerMicrophone(_) => ptype::CONTROLLER_MICROPHONE,
             Self::ControllerAudioStatus { .. } => ptype::CONTROLLER_AUDIO_CONTROL,
@@ -145,6 +149,7 @@ impl ClientMessage {
             Self::HostTimingRequest(request) => request.encode().to_vec(),
             Self::ClockSync(request) => request.encode().to_vec(),
             Self::LinkNoticeRequest(request) => request.encode().to_vec(),
+            Self::PipelineRatesRequest(request) => request.encode().to_vec(),
             Self::CursorShapeRequest { enabled } => {
                 let edge = CURSOR_SHAPE_MAX_EDGE.to_le_bytes();
                 vec![CURSOR_SHAPE_VERSION, u8::from(*enabled), edge[0], edge[1]]
@@ -188,6 +193,7 @@ impl ClientMessage {
             | Self::HostTimingRequest(_)
             | Self::ClockSync(_)
             | Self::LinkNoticeRequest(_)
+            | Self::PipelineRatesRequest(_)
             | Self::CursorShapeRequest { .. }
             | Self::ControllerMicrophone(_)
             | Self::ControllerAudioStatus { .. } => Some(self.message_type()),

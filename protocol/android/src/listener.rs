@@ -260,6 +260,8 @@ impl Listener for Events {
                     ],
                 );
             }
+            // Android doesn't ask for the host's pipeline rates yet.
+            ControlEvent::PipelineRates(_) => {}
             ControlEvent::ClockSync { reply, received } => {
                 engine::clock_sync(&reply, platform::monotonic_us_at(received));
             }

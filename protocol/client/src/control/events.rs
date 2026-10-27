@@ -8,6 +8,7 @@ use rubylight_protocol::control::{
     HOST_TIMING_HEADER_BYTES, HOST_TIMING_MAX_RECORDS, HOST_TIMING_RECORD_BYTES,
     LINK_NOTICE_BYTES,
 };
+use rubylight_protocol::pipeline_rates::{PipelineRatesReport, PIPELINE_RATES_REPORT_BYTES};
 use rubylight_protocol::steam_controller::{SteamError, SteamHaptic, SteamSettings};
 
 use super::haptics::{self, Pcm};
@@ -230,6 +231,9 @@ pub enum ControlEvent {
     /// The host lowered, raised or restored the video bitrate for the network (0x5538), sent
     /// only after a [`ClientMessage::LinkNoticeRequest`](super::messages::ClientMessage).
     LinkNotice(LinkNotice),
+    /// The host's pipeline frame rates (0x553D), sent only after a
+    /// [`ClientMessage::PipelineRatesRequest`](super::messages::ClientMessage).
+    PipelineRates(PipelineRatesReport),
     /// A cursor shape (0x5541), while shapes are requested.
     CursorShape(CursorShape),
     /// A cursor shape message that broke a rule of the format.
@@ -417,6 +421,15 @@ pub(crate) fn link_notice(p: &[u8]) -> Option<ControlEvent> {
         return None;
     }
     LinkNotice::decode(p).map(ControlEvent::LinkNotice)
+}
+
+/// Pipeline frame rates: 28 bytes, and a newer host may append fields. Anything over 256
+/// bytes is not a report.
+pub(crate) fn pipeline_rates(p: &[u8]) -> Option<ControlEvent> {
+    if !(PIPELINE_RATES_REPORT_BYTES..=256).contains(&p.len()) {
+        return None;
+    }
+    PipelineRatesReport::decode(p).map(ControlEvent::PipelineRates)
 }
 
 pub(crate) fn cursor_shape(p: &[u8]) -> ControlEvent {

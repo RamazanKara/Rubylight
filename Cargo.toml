@@ -36,6 +36,16 @@ dbg_macro = "warn"
 todo = "warn"
 unimplemented = "warn"
 
+# Tests and clippy: line tables keep file:line in panics and backtraces of our
+# crates; dependencies get no debug info. A cold host test build's target dir
+# went from 25 to 10 GB. CI sets CARGO_PROFILE_DEV_DEBUG=0 on top; set it to
+# full for a debugger session.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

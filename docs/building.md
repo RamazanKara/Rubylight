@@ -86,6 +86,15 @@ cargo +1.98.1-x86_64-pc-windows-gnu test --workspace --locked
 cargo +1.98.1-x86_64-pc-windows-gnu clippy --workspace --all-targets --locked -- -D warnings
 ```
 
+### Faster local builds
+
+The dev and test profiles keep only line tables for the workspace crates (panics and backtraces still show file and line) and no debug info for dependencies, which keeps test target folders small (a cold test build of the core, Windows and host crates: 10 GB instead of 25). Set `CARGO_PROFILE_DEV_DEBUG=full` for a debugger session. Release builds keep their own profile. Two optional tools cut local build time further:
+
+- **sccache** caches compiled crates across target folders and checkouts: `cargo install sccache --locked --no-default-features`, then set `RUSTC_WRAPPER=sccache`, `SCCACHE_DIR` (not under `%LOCALAPPDATA%` if it is virtualized) and `CARGO_INCREMENTAL=0`.
+- **lld** links the test binaries faster than GNU ld: install `mingw-w64-ucrt-x86_64-lld` in MSYS2 and set `CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS=-Clink-arg=-fuse-ld=lld`. Not `RUSTFLAGS`: it would replace the display driver's `+crt-static`. Rust flags are part of every artifact's fingerprint and cache key, so set them the same way for every build or each change rebuilds everything.
+
+Keep target folders between runs instead of deleting them. Two checkouts may reuse one target folder one after the other but never at the same time, and the second must touch its sources first: Cargo compares modification times, so a checkout whose files are older than the folder's artifacts would test the other checkout's build.
+
 The display driver (`rust/drivers/rubylight-vdisplay`) is outside the main workspace; the build script builds it separately with the Windows Driver Kit. Nightjar (`client/`) keeps its own workspace in `client/protocol`; the host takes only its `rubylight-protocol` crate, by path.
 
 Hardware and environment-dependent tests are selected separately. Their fixtures can exercise capture, controllers or displays; choose a fixture for the intended machine and preserve its restoration checks. [PERFORMANCE.md](../rust/PERFORMANCE.md) records measured workloads.

@@ -575,9 +575,49 @@ impl OpusDecoder {
     }
 }
 
+/// A PCM packet (s16le, interleaved) as float samples in `pcm`, or `samples` frames of silence
+/// for a lost one. Returns the frames written: the packet's, capped to what `pcm` holds.
+pub fn pcm_s16le(packet: Option<&[u8]>, channels: usize, samples: usize, pcm: &mut [f32]) -> usize {
+    let channels = channels.max(1);
+    match packet {
+        Some(bytes) => {
+            let frames = (bytes.len() / 2 / channels).min(pcm.len() / channels);
+            for (out, pair) in pcm.iter_mut().zip(bytes.chunks_exact(2)).take(frames * channels) {
+                *out = f32::from(i16::from_le_bytes([pair[0], pair[1]])) / 32768.0;
+            }
+            frames
+        }
+        None => {
+            let frames = samples.min(pcm.len() / channels);
+            pcm[..frames * channels].fill(0.0);
+            frames
+        }
+    }
+}
+
 impl Drop for OpusDecoder {
     fn drop(&mut self) {
         unsafe { opus_multistream_decoder_destroy(self.raw.as_ptr()) };
+    }
+}
+
+#[cfg(test)]
+mod pcm_tests {
+    use super::pcm_s16le;
+
+    #[test]
+    fn pcm_packets_become_floats_and_lost_ones_silence() {
+        let mut pcm = vec![9.0f32; 8];
+        let bytes: Vec<u8> = [0i16, i16::MAX, i16::MIN, -16384].iter().flat_map(|v| v.to_le_bytes()).collect();
+        assert_eq!(pcm_s16le(Some(&bytes), 2, 240, &mut pcm), 2);
+        assert_eq!(&pcm[..4], &[0.0, 32767.0 / 32768.0, -1.0, -0.5]);
+        assert_eq!(pcm[4], 9.0);
+        // A lost packet is its duration of silence, capped to the buffer.
+        assert_eq!(pcm_s16le(None, 2, 3, &mut pcm), 3);
+        assert!(pcm[..6].iter().all(|&s| s == 0.0) && pcm[6] == 9.0);
+        assert_eq!(pcm_s16le(None, 2, 240, &mut pcm), 4);
+        // A packet longer than the buffer is cut to it.
+        assert_eq!(pcm_s16le(Some(&[1; 40]), 2, 240, &mut pcm), 4);
     }
 }
 

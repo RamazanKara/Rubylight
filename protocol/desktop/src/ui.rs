@@ -2059,6 +2059,9 @@ impl Launcher {
                     })
                     .response
             });
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["audio_passthrough"], "Audio passthrough (Experimental)", "Ask a Rubylight PC for uncompressed PCM audio instead of Opus: lossless, at 1.5 Mbps for stereo up to 6 Mbps for 7.1. Other PCs keep Opus.", |ui, s| {
+                toggle(ui, &mut s.audio_passthrough)
+            });
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["play_audio_on_host"], "Play audio on the PC too", "Keep sound on the PC's speakers while streaming.", |ui, s| {
                 toggle(ui, &mut s.play_audio_on_host)
             });

@@ -151,6 +151,8 @@ pub struct Settings {
     pub experimental_packed_444: bool,
     pub audio: AudioChannels,
     pub play_audio_on_host: bool,
+    /// Ask the PC for PCM audio instead of Opus (`pipeline::passthrough_codecs`).
+    pub audio_passthrough: bool,
     pub window_mode: WindowMode,
     pub video_scaling: VideoScaling,
     pub align_video_top: bool,
@@ -322,6 +324,7 @@ impl Default for Settings {
             experimental_packed_444: false,
             audio: AudioChannels::Stereo,
             play_audio_on_host: false,
+            audio_passthrough: false,
             window_mode: WindowMode::Borderless,
             video_scaling: VideoScaling::Fit,
             align_video_top: false,

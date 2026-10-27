@@ -882,7 +882,8 @@ public class GameRecoveryTest {
             ReflectionHelpers.callInstanceMethod(game, "cancelAutomaticRecovery");
             Intent reconnect = ReflectionHelpers.callInstanceMethod(game, "createReconnectIntent");
             assertTrue(reconnect.getBooleanExtra("PackedChromaOff", false));
-            Intent resume = ReflectionHelpers.callInstanceMethod(game, "createStreamHandoffIntent");
+            Intent resume = ReflectionHelpers.callInstanceMethod(game, "createStreamHandoffIntent",
+                    ReflectionHelpers.ClassParameter.from(String.class, com.limelight.utils.LaunchSource.RETURN));
             assertTrue(resume.getBooleanExtra("PackedChromaOff", false));
         } finally {
             ReflectionHelpers.setStaticField(MoonBridge.class, "connectionListener", null);

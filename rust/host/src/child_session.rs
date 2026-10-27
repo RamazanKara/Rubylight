@@ -1221,13 +1221,10 @@ mod tests {
             let ports = self.0.borrow().block_rules.get(block_rule).cloned();
             Ok(logic::ActiveFirewall {
                 allowed: self.enabled_rules(group)?,
-                blocked: ports.is_some(),
-                block_ports: ports
-                    .map(|ports| {
-                        let ports: Vec<String> = ports.iter().map(u16::to_string).collect();
-                        vec![ports.join(","); 2]
-                    })
+                blocks: ports
+                    .map(|ports| logic::BlockRule::added(block_rule, &ports))
                     .unwrap_or_default(),
+                overriding: Vec::new(),
                 unprotected: Vec::new(),
             })
         }

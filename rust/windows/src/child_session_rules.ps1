@@ -10,13 +10,19 @@
 #          ($env:BUTTERPOLLO_FIREWALL_ENABLED = 1) or off (0)
 #   active what is in effect now (the active store, group policy included):
 #          prints {"allowed": IDs of the group's enabled inbound allow rules,
-#          "blocked": whether the enabled inbound block rules
-#          "$env:BUTTERPOLLO_FIREWALL_BLOCK (TCP)" and "(UDP)" are both there,
-#          "block_ports": the local ports of each of those rules, comma-joined
-#          (the RDP port and Remote Desktop over WebSocket's, 3387 and 3392;
-#          the host checks the whole list, so a range or "Any" never passes),
-#          "unprotected": profiles with the firewall off or local rules ignored}
-param([Parameter(Mandatory)][ValidateSet('list', 'set', 'active')][string]$Mode)
+#          "blocks": the enabled inbound block rules
+#          "$env:BUTTERPOLLO_FIREWALL_BLOCK (TCP)" and "(UDP)", each with every
+#          condition that can narrow where it applies (Get-Conditions; the host
+#          requires its ports to be the RDP port and Remote Desktop over
+#          WebSocket's, 3387 and 3392, and everything else to be Any),
+#          "overriding": the enabled inbound allow rules that override block
+#          rules (authenticated bypass), each {name: its ID, protocol,
+#          local_ports}, "unprotected": profiles with the firewall off or local
+#          rules ignored}
+#   conditions
+#          what active prints for each block rule, for every rule of the group
+#          in effect; read-only (its test reads Windows' own rules with it)
+param([Parameter(Mandatory)][ValidateSet('list', 'set', 'active', 'conditions')][string]$Mode)
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 $group = $env:BUTTERPOLLO_FIREWALL_GROUP
@@ -32,10 +38,41 @@ function Get-Rules([hashtable]$Filter) {
 function Get-GroupRules([string]$Store = 'PersistentStore') {
     Get-Rules @{ PolicyStore = $Store; Group = $group }
 }
+# Values as one string, comma-joined; none is "".
+function Join-Values($Values) { @($Values | Where-Object { $null -ne $_ } | ForEach-Object { [string]$_ }) -join ',' }
+# Every condition that can narrow where $Rule applies, each as Windows names it ("Any" for none).
+function Get-Conditions($Rule) {
+    $ports = $Rule | Get-NetFirewallPortFilter
+    $addresses = $Rule | Get-NetFirewallAddressFilter
+    $application = $Rule | Get-NetFirewallApplicationFilter
+    $security = $Rule | Get-NetFirewallSecurityFilter
+    [ordered]@{
+        name = [string]$Rule.DisplayName
+        protocol = [string]$ports.Protocol
+        local_ports = Join-Values $ports.LocalPort
+        remote_ports = Join-Values $ports.RemotePort
+        profile = [string]$Rule.Profile
+        local_addresses = Join-Values $addresses.LocalAddress
+        remote_addresses = Join-Values $addresses.RemoteAddress
+        program = [string]$application.Program
+        package = [string]$application.Package
+        service = [string]($Rule | Get-NetFirewallServiceFilter).Service
+        interface_types = [string]($Rule | Get-NetFirewallInterfaceTypeFilter).InterfaceType
+        interfaces = Join-Values ($Rule | Get-NetFirewallInterfaceFilter).InterfaceAlias
+        platforms = Join-Values $Rule.Platform
+        dynamic_addresses = Join-Values $Rule.RemoteDynamicKeywordAddresses
+        local_users = [string]$security.LocalUser
+        remote_users = [string]$security.RemoteUser
+        remote_machines = [string]$security.RemoteMachine
+    }
+}
 
 if ($Mode -eq 'list') {
     $ids = @(Get-GroupRules | Where-Object { $_.Enabled -eq 'True' } | ForEach-Object { $_.Name })
     ConvertTo-Json -InputObject $ids -Compress
+} elseif ($Mode -eq 'conditions') {
+    $rules = @(Get-GroupRules 'ActiveStore' | ForEach-Object { Get-Conditions $_ })
+    ConvertTo-Json -Compress -Depth 4 -InputObject $rules
 } elseif ($Mode -eq 'active') {
     $block = $env:BUTTERPOLLO_FIREWALL_BLOCK
     if (-not $block) { throw 'no block rule was given' }
@@ -43,17 +80,25 @@ if ($Mode -eq 'list') {
     $allowed = @(Get-GroupRules 'ActiveStore' | Where-Object $inbound |
             Where-Object { $_.Action -eq 'Allow' } | ForEach-Object { $_.Name })
     $names = "$block (TCP)", "$block (UDP)"
-    $rules = @(Get-Rules @{ PolicyStore = 'ActiveStore'; DisplayName = $names } |
-            Where-Object $inbound | Where-Object { $_.Action -eq 'Block' })
-    $blocks = @($rules | ForEach-Object { $_.DisplayName })
-    $blocked = [bool](@($names | Where-Object { $blocks -ccontains $_ }).Count -eq $names.Count)
-    # The name is not enough: each rule's ports, which the host compares with the RDP port.
-    $ports = @($rules | ForEach-Object { @(($_ | Get-NetFirewallPortFilter).LocalPort) -join ',' })
+    # The name is not enough: each rule's ports, protocol and every other condition.
+    $blocks = @(Get-Rules @{ PolicyStore = 'ActiveStore'; DisplayName = $names } |
+            Where-Object $inbound | Where-Object { $_.Action -eq 'Block' } |
+            ForEach-Object { Get-Conditions $_ })
+    # An allow rule that overrides block rules wins over them, whatever its group.
+    $overriding = @(Get-NetFirewallSecurityFilter -PolicyStore ActiveStore -All |
+            Where-Object { $_.OverrideBlockRules -eq 'True' } | Get-NetFirewallRule |
+            Where-Object $inbound | Where-Object { $_.Action -eq 'Allow' } | ForEach-Object {
+                $ports = $_ | Get-NetFirewallPortFilter
+                [ordered]@{
+                    name = [string]$_.Name; protocol = [string]$ports.Protocol
+                    local_ports = Join-Values $ports.LocalPort
+                }
+            })
     $unprotected = @(Get-NetFirewallProfile -PolicyStore ActiveStore |
             Where-Object { $_.Enabled -ne 'True' -or $_.AllowLocalFirewallRules -eq 'False' } |
             ForEach-Object { [string]$_.Name })
-    ConvertTo-Json -Compress -InputObject ([ordered]@{
-            allowed = $allowed; blocked = $blocked; block_ports = $ports; unprotected = $unprotected
+    ConvertTo-Json -Compress -Depth 4 -InputObject ([ordered]@{
+            allowed = $allowed; blocks = $blocks; overriding = $overriding; unprotected = $unprotected
         })
 } else {
     $id = $env:BUTTERPOLLO_FIREWALL_RULE

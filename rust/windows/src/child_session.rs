@@ -1189,8 +1189,7 @@ mod tests {
                 "Rubylight test rule that does not exist",
             )
             .unwrap();
-        assert!(!active.blocked);
-        assert!(active.block_ports.is_empty(), "{active:?}");
+        assert!(active.blocks.is_empty(), "{active:?}");
         assert!(
             active.allowed.iter().all(|id| !id.contains(' ')),
             "{active:?}"
@@ -1215,21 +1214,44 @@ mod tests {
         assert!(super::local_ports(&[]).is_err());
     }
 
+    /// One block rule as the script's `active` mode prints it, from setup.
+    const BLOCK: &str = "{\"name\":\"Rubylight child session: RDP only on this PC (TCP)\",\"protocol\":\"TCP\",\"local_ports\":\"3387,3390,3392\",\"remote_ports\":\"Any\",\"profile\":\"Any\",\"local_addresses\":\"Any\",\"remote_addresses\":\"Any\",\"program\":\"Any\",\"package\":\"\",\"service\":\"Any\",\"interface_types\":\"Any\",\"interfaces\":\"Any\",\"platforms\":\"\",\"dynamic_addresses\":\"\",\"local_users\":\"Any\",\"remote_users\":\"Any\",\"remote_machines\":\"Any\"}";
+    fn active_json(blocks: &str, overriding: &str) -> String {
+        format!(
+            "\u{feff}{{\"allowed\":[\"RemoteDesktop-UserMode-In-TCP\"],\"blocks\":[{blocks}],\"overriding\":[{overriding}],\"unprotected\":[\"Domain\"]}}\r\n"
+        )
+    }
+
     #[test]
     fn the_active_firewall_parses_and_local_rule_states_are_named() {
+        use butterpollo_core::child_session::{BlockRule, OverridingRule};
         use windows::Win32::NetworkManagement::WindowsFirewall::*;
-        let active = super::parse_active(
-            "\u{feff}{\"allowed\":[\"RemoteDesktop-UserMode-In-TCP\"],\"blocked\":true,\"block_ports\":[\"3387,3390,3392\",\"3387,3390,3392\"],\"unprotected\":[\"Domain\"]}\r\n",
-        )
+        let active = super::parse_active(&active_json(
+            BLOCK,
+            "{\"name\":\"{bypass}\",\"protocol\":\"TCP\",\"local_ports\":\"3389\"}",
+        ))
         .unwrap();
         assert_eq!(active.allowed, ["RemoteDesktop-UserMode-In-TCP"]);
-        assert!(active.blocked);
-        assert_eq!(active.block_ports, ["3387,3390,3392", "3387,3390,3392"]);
+        let mut added = BlockRule::added(
+            "Rubylight child session: RDP only on this PC",
+            &butterpollo_core::child_session::block_ports(3390),
+        );
+        added.truncate(1);
+        assert_eq!(active.blocks, added);
+        assert_eq!(
+            active.overriding,
+            [OverridingRule {
+                name: "{bypass}".into(),
+                protocol: "TCP".into(),
+                local_ports: "3389".into()
+            }]
+        );
         assert_eq!(active.unprotected, ["Domain"]);
-        assert!(super::parse_active("{\"blocked\":true}").is_err());
-        // Without the ports, a block rule never reads as closing the RDP port.
         assert!(
-            super::parse_active("{\"allowed\":[],\"blocked\":true,\"unprotected\":[]}").is_err()
+            super::parse_active(&active_json("", ""))
+                .unwrap()
+                .blocks
+                .is_empty()
         );
         assert!(super::modify_state_problem(NET_FW_MODIFY_STATE_OK).is_none());
         let problem = super::modify_state_problem(NET_FW_MODIFY_STATE_GP_OVERRIDE).unwrap();
@@ -1237,6 +1259,87 @@ mod tests {
         assert!(super::modify_state_problem(NET_FW_MODIFY_STATE_INBOUND_BLOCKED).is_some());
         assert!(super::modify_state_problem(NET_FW_MODIFY_STATE(7)).is_some());
         assert_eq!(super::staging_name("x"), "x [new]");
+    }
+
+    #[test]
+    fn an_active_firewall_short_of_any_condition_never_parses() {
+        // The format before each rule's conditions were read.
+        assert!(
+            super::parse_active(
+                "{\"allowed\":[],\"blocked\":true,\"block_ports\":[\"3387,3389,3392\"],\"unprotected\":[]}"
+            )
+            .is_err()
+        );
+        for field in ["allowed", "blocks", "overriding", "unprotected"] {
+            let json = active_json(BLOCK, "").replace(&format!("\"{field}\":"), "\"other\":");
+            assert!(super::parse_active(&json).is_err(), "{field}");
+        }
+        // A block rule without one of its conditions never reads as one without it.
+        let block: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(BLOCK).unwrap();
+        assert_eq!(block.len(), 17);
+        for field in block.keys() {
+            let mut short = block.clone();
+            short.remove(field);
+            let json = active_json(&serde_json::to_string(&short).unwrap(), "");
+            assert!(super::parse_active(&json).is_err(), "{field}");
+        }
+        for field in ["name", "protocol", "local_ports"] {
+            let rule = "{\"name\":\"{bypass}\",\"protocol\":\"TCP\",\"local_ports\":\"3389\"}"
+                .replace(&format!("\"{field}\":"), "\"other\":");
+            assert!(
+                super::parse_active(&active_json("", &rule)).is_err(),
+                "{field}"
+            );
+        }
+        // Each condition comes through as Windows names it.
+        let narrowed = BLOCK
+            .replace(
+                "\"remote_addresses\":\"Any\"",
+                "\"remote_addresses\":\"LocalSubnet\"",
+            )
+            .replace("\"profile\":\"Any\"", "\"profile\":\"Domain, Private\"");
+        let active = super::parse_active(&active_json(&narrowed, "")).unwrap();
+        assert_eq!(active.blocks[0].remote_addresses, "LocalSubnet");
+        assert_eq!(
+            active.blocks[0].narrowed_by(),
+            [
+                "profile \"Domain, Private\"",
+                "remote address \"LocalSubnet\""
+            ]
+        );
+    }
+
+    #[test]
+    fn the_conditions_read_name_none_as_the_host_reads_it() {
+        // Read-only: Windows' own Remote Desktop rules in effect, as the script reads a block
+        // rule's conditions. They are tied to Remote Desktop's program and service and to
+        // nothing else, so every other condition must read as none.
+        let output = super::run_rules_script(
+            "conditions",
+            &[(
+                "BUTTERPOLLO_FIREWALL_GROUP",
+                butterpollo_core::child_session::REMOTE_DESKTOP_RULES,
+            )],
+        )
+        .unwrap();
+        let rules: Vec<butterpollo_core::child_session::BlockRule> =
+            serde_json::from_str(output.trim().trim_start_matches('\u{feff}')).unwrap();
+        let service = rules
+            .iter()
+            .find(|rule| rule.service.eq_ignore_ascii_case("termservice"))
+            .unwrap_or_else(|| panic!("{rules:?}"));
+        assert!(
+            ["TCP", "UDP"].contains(&service.protocol.as_str()),
+            "{service:?}"
+        );
+        let narrowed = service.narrowed_by();
+        assert_eq!(narrowed.len(), 2, "{service:?}");
+        assert!(narrowed[0].starts_with("program "), "{narrowed:?}");
+        assert!(
+            narrowed[1].eq_ignore_ascii_case("service \"termservice\""),
+            "{narrowed:?}"
+        );
     }
 
     #[test]

@@ -544,6 +544,8 @@ struct Machine {
     rules: BTreeMap<String, (String, String, bool)>,
     /// Name -> the ports it closes.
     block_rules: BTreeMap<String, Vec<u16>>,
+    /// Allow rules, of any group, that override block rules.
+    overriding: Vec<OverridingRule>,
     /// Accounts whose hive is under HKEY_USERS: signed in, or loaded.
     loaded_hives: BTreeSet<String>,
 }
@@ -622,6 +624,7 @@ impl Fake {
                 policy_allowed: Vec::new(),
                 rules,
                 block_rules: BTreeMap::new(),
+                overriding: Vec::new(),
                 loaded_hives: [SID.to_string(), "S-1-5-21-other".to_string()].into(),
             },
             log: Rc::default(),
@@ -707,14 +710,10 @@ impl SystemSettings for Fake {
         let block = self.machine.block_rules.get(block_rule).filter(|_| local);
         Ok(ActiveFirewall {
             allowed,
-            blocked: block.is_some(),
-            // The TCP and the UDP rule.
-            block_ports: block
-                .map(|ports| {
-                    let ports: Vec<String> = ports.iter().map(u16::to_string).collect();
-                    vec![ports.join(","); 2]
-                })
+            blocks: block
+                .map(|ports| BlockRule::added(block_rule, ports))
                 .unwrap_or_default(),
+            overriding: self.machine.overriding.clone(),
             unprotected: self.machine.policy_overrides.clone(),
         })
     }
@@ -1463,11 +1462,11 @@ fn a_moved_rdp_port_is_refused_until_setup_runs_again() {
     assert!(firewall_missing(&edited, 3389).unwrap().is_empty());
     // Ports that do not read as a list of ports never pass for them.
     for closed in ["3387-3392", "Any", "3387, 3389, 3392, x"] {
-        let active = ActiveFirewall {
-            blocked: true,
-            block_ports: vec![closed.into(), "3387,3389,3392".into()],
+        let mut active = ActiveFirewall {
+            blocks: BlockRule::added(BLOCK_RULE, &block_ports(3389)),
             ..ActiveFirewall::default()
         };
+        active.blocks[0].local_ports = closed.into();
         let found = firewall_missing_with(&edited, 3389, &active).unwrap();
         assert!(
             found
@@ -1510,6 +1509,217 @@ fn a_moved_rdp_port_is_refused_until_setup_runs_again() {
         missing(&fake, SID, Some(again.rdp_port))
             .unwrap()
             .is_empty()
+    );
+}
+
+/// What [`firewall_missing_with`] finds for the block rules as setup adds
+/// them, with `edit` applied first.
+fn found_for_blocks(edit: impl FnOnce(&mut Vec<BlockRule>)) -> Vec<String> {
+    let mut fake = Fake::new();
+    set_up(&mut fake);
+    let mut active = fake
+        .active_firewall(REMOTE_DESKTOP_RULES, BLOCK_RULE)
+        .unwrap();
+    edit(&mut active.blocks);
+    firewall_missing_with(&fake, 3389, &active).unwrap()
+}
+
+#[test]
+fn a_block_rule_with_any_condition_but_its_ports_fails_closed() {
+    // As setup adds them: both rules, every profile, nothing else.
+    assert!(found_for_blocks(|_| {}).is_empty());
+    for every in ["Domain, Private, Public", "Public, Domain, Private", "any"] {
+        let found = found_for_blocks(|rules| rules[0].profile = every.into());
+        assert!(found.is_empty(), "{every}: {found:?}");
+    }
+    // A rule that applies to fewer networks, addresses, programs or interfaces leaves
+    // the rest open: each condition is named, and setting up again replaces the rule.
+    type Edit = fn(&mut BlockRule);
+    let cases: [(&str, Edit); 17] = [
+        ("profile \"Domain\"", |rule| rule.profile = "Domain".into()),
+        ("profile \"Domain, Private\"", |rule| {
+            rule.profile = "Domain, Private".into()
+        }),
+        ("profile \"\"", |rule| rule.profile = String::new()),
+        ("remote port \"1-1024\"", |rule| {
+            rule.remote_ports = "1-1024".into()
+        }),
+        ("local address \"127.0.0.1\"", |rule| {
+            rule.local_addresses = "127.0.0.1".into()
+        }),
+        ("remote address \"LocalSubnet\"", |rule| {
+            rule.remote_addresses = "LocalSubnet".into()
+        }),
+        (
+            "program \"C:\\\\WINDOWS\\\\system32\\\\svchost.exe\"",
+            |rule| rule.program = r"C:\WINDOWS\system32\svchost.exe".into(),
+        ),
+        ("service \"termservice\"", |rule| {
+            rule.service = "termservice".into()
+        }),
+        ("interface type \"Wireless\"", |rule| {
+            rule.interface_types = "Wireless".into()
+        }),
+        ("interface \"Ethernet\"", |rule| {
+            rule.interfaces = "Ethernet".into()
+        }),
+        ("package \"S-1-15-2-1\"", |rule| {
+            rule.package = "S-1-15-2-1".into()
+        }),
+        ("platform \"6.2+\"", |rule| rule.platforms = "6.2+".into()),
+        ("dynamic address \"{id}\"", |rule| {
+            rule.dynamic_addresses = "{id}".into()
+        }),
+        ("local user \"D:(A;;CC;;;BA)\"", |rule| {
+            rule.local_users = "D:(A;;CC;;;BA)".into()
+        }),
+        ("remote user \"D:(A;;CC;;;BA)\"", |rule| {
+            rule.remote_users = "D:(A;;CC;;;BA)".into()
+        }),
+        ("remote computer \"D:(A;;CC;;;BA)\"", |rule| {
+            rule.remote_machines = "D:(A;;CC;;;BA)".into()
+        }),
+        // A value that is not read reads as a condition, not as none.
+        ("service \"\"", |rule| rule.service = String::new()),
+    ];
+    for (condition, edit) in cases {
+        let found = found_for_blocks(|rules| edit(&mut rules[1]));
+        assert_eq!(found.len(), 1, "{condition}: {found:?}");
+        assert!(
+            found[0].contains(&format!(
+                "\"{BLOCK_RULE} (UDP)\" blocks only for {condition},"
+            )) && found[0].contains("set up child sessions again"),
+            "{condition}: {found:?}"
+        );
+    }
+    // Each rule blocks the protocol it is named for.
+    for protocol in ["UDP", "Any", ""] {
+        let found = found_for_blocks(|rules| rules[0].protocol = protocol.into());
+        assert!(
+            found.iter().any(|m| m.contains(&format!(
+                "\"{BLOCK_RULE} (TCP)\" blocks protocol {protocol:?}, not the one it is named for"
+            ))),
+            "{protocol}: {found:?}"
+        );
+    }
+    assert!(found_for_blocks(|rules| rules[0].protocol = "tcp".into()).is_empty());
+    // Either rule gone leaves that protocol open; both gone, the rule is.
+    let found = found_for_blocks(|rules| {
+        rules.remove(1);
+    });
+    assert_eq!(
+        found,
+        [format!(
+            "the firewall rule \"{BLOCK_RULE} (UDP)\" is not in effect"
+        )]
+    );
+    let found = found_for_blocks(Vec::clear);
+    assert_eq!(
+        found,
+        [format!(
+            "the firewall rule \"{BLOCK_RULE}\" is not in effect"
+        )]
+    );
+    // A narrower copy beside the rule setup added still fails: every rule under the name counts.
+    let found = found_for_blocks(|rules| {
+        let mut copy = rules[0].clone();
+        copy.remote_addresses = "LocalSubnet".into();
+        rules.push(copy);
+    });
+    assert!(
+        found
+            .iter()
+            .any(|m| m.contains("blocks only for remote address \"LocalSubnet\"")),
+        "{found:?}"
+    );
+    // A rule under the name whose ports were not read never passes either.
+    let found = found_for_blocks(|rules| rules[1].local_ports = " ".into());
+    assert!(
+        found.iter().any(|m| m.contains("closes could not be read")),
+        "{found:?}"
+    );
+}
+
+fn overriding(protocol: &str, local_ports: &str) -> OverridingRule {
+    OverridingRule {
+        name: "{bypass}".into(),
+        protocol: protocol.into(),
+        local_ports: local_ports.into(),
+    }
+}
+
+#[test]
+fn an_allow_rule_that_overrides_block_rules_on_an_rdp_port_fails_closed() {
+    let wanted = block_ports(3389);
+    // Whatever can reach 3389, 3387 or 3392 over TCP or UDP opens it; what cannot reads as
+    // ports or ranges without them, or another protocol.
+    for (protocol, ports) in [
+        ("TCP", "3389"),
+        ("UDP", "3387"),
+        ("TCP", "80,3392"),
+        ("TCP", "3380-3400"),
+        ("TCP", "Any"),
+        ("Any", "Any"),
+        ("UDP", "RPC"),
+        ("TCP", ""),
+        ("6", "3389"),
+        ("256", "Any"),
+        ("", "Any"),
+        ("TCP", "80, 3389"),
+    ] {
+        assert!(
+            overriding(protocol, ports).opens(&wanted),
+            "{protocol} {ports}"
+        );
+    }
+    for (protocol, ports) in [
+        ("TCP", "80,443"),
+        ("UDP", "49152-65535"),
+        ("TCP", "3390-3391"),
+        ("ICMPv4", "Any"),
+        ("icmpv6", "Any"),
+        ("47", "Any"),
+    ] {
+        assert!(
+            !overriding(protocol, ports).opens(&wanted),
+            "{protocol} {ports}"
+        );
+    }
+    // On a set-up PC it turns RDP off.
+    let mut fake = Fake::new();
+    let state = set_up(&mut fake);
+    fake.machine.overriding = vec![overriding("TCP", "80,443")];
+    assert!(enforce_firewall(&mut fake, state.rdp_port).is_empty());
+    fake.machine.overriding.push(overriding("TCP", "3389"));
+    let found = enforce_firewall(&mut fake, state.rdp_port);
+    assert!(
+        found[0].contains("override block rules") && found[0].contains("{bypass}"),
+        "{found:?}"
+    );
+    assert!(
+        found
+            .last()
+            .unwrap()
+            .contains("Remote Desktop was turned off"),
+        "{found:?}"
+    );
+    assert_eq!(
+        fake.read_dword(&Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections")
+            .unwrap(),
+        Some(1)
+    );
+    // Setup refuses to turn RDP on past one.
+    let mut fake = Fake::new();
+    fake.machine.overriding = vec![overriding("UDP", "3392")];
+    let error = format!("{:#}", set_up_err(&mut fake));
+    assert!(
+        error.contains("override block rules") && error.contains("RDP was not turned on"),
+        "{error}"
+    );
+    assert_eq!(
+        fake.read_dword(&Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections")
+            .unwrap(),
+        Some(1)
     );
 }
 

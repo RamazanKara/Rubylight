@@ -1183,14 +1183,149 @@ pub trait SystemSettings: Registry {
 pub struct ActiveFirewall {
     /// IDs of the group's enabled inbound allow rules.
     pub allowed: Vec<String>,
-    /// Enabled inbound block rules under the name, for TCP and UDP both.
-    pub blocked: bool,
-    /// The local ports of each of those block rules
-    /// (`Get-NetFirewallPortFilter`'s `LocalPort`, comma-joined).
-    pub block_ports: Vec<String>,
+    /// The enabled inbound block rules under the name, `"<name> (TCP)"` and
+    /// `"<name> (UDP)"`, each with every condition that can narrow it.
+    pub blocks: Vec<BlockRule>,
+    /// The enabled inbound allow rules of any group that override block
+    /// rules (authenticated bypass): they win over [`BLOCK_RULE`].
+    pub overriding: Vec<OverridingRule>,
     /// Network profiles where the firewall is off or ignores local rules.
     pub unprotected: Vec<String>,
 }
+
+/// A block rule in effect, with each condition as Windows names it
+/// (`Get-NetFirewall*Filter`, values comma-joined): "Any" for none, and ""
+/// for none where Windows lists nothing (package, platforms, dynamic
+/// addresses). Every field is required.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct BlockRule {
+    /// Its display name.
+    pub name: String,
+    pub protocol: String,
+    pub local_ports: String,
+    pub remote_ports: String,
+    /// "Any", or the network profiles it applies to ("Domain, Private").
+    pub profile: String,
+    pub local_addresses: String,
+    pub remote_addresses: String,
+    pub program: String,
+    pub package: String,
+    pub service: String,
+    pub interface_types: String,
+    pub interfaces: String,
+    pub platforms: String,
+    pub dynamic_addresses: String,
+    pub local_users: String,
+    pub remote_users: String,
+    pub remote_machines: String,
+}
+impl BlockRule {
+    /// The TCP and the UDP rule [`SystemSettings::add_block_rule`] adds:
+    /// these local ports, and no other condition.
+    pub fn added(name: &str, ports: &[u16]) -> Vec<Self> {
+        let ports: Vec<String> = ports.iter().map(u16::to_string).collect();
+        BLOCK_PROTOCOLS
+            .iter()
+            .map(|protocol| Self {
+                name: format!("{name} ({protocol})"),
+                protocol: (*protocol).into(),
+                local_ports: ports.join(","),
+                remote_ports: ANY.into(),
+                profile: ANY.into(),
+                local_addresses: ANY.into(),
+                remote_addresses: ANY.into(),
+                program: ANY.into(),
+                package: String::new(),
+                service: ANY.into(),
+                interface_types: ANY.into(),
+                interfaces: ANY.into(),
+                platforms: String::new(),
+                dynamic_addresses: String::new(),
+                local_users: ANY.into(),
+                remote_users: ANY.into(),
+                remote_machines: ANY.into(),
+            })
+            .collect()
+    }
+    /// The conditions beside its protocol and local ports that keep it from
+    /// blocking every connection to them, each as "<condition> <value>";
+    /// empty when there is none. A value that does not read as none counts.
+    pub fn narrowed_by(&self) -> Vec<String> {
+        let mut found = Vec::new();
+        // All three profiles are every network, as "Any" is.
+        let profiles: Vec<&str> = self.profile.split(',').map(str::trim).collect();
+        let every = ["Domain", "Private", "Public"]
+            .iter()
+            .all(|wanted| profiles.iter().any(|p| p.eq_ignore_ascii_case(wanted)));
+        if !self.profile.trim().eq_ignore_ascii_case(ANY) && !every {
+            found.push(format!("profile {:?}", self.profile));
+        }
+        for (condition, value) in [
+            ("remote port", &self.remote_ports),
+            ("local address", &self.local_addresses),
+            ("remote address", &self.remote_addresses),
+            ("program", &self.program),
+            ("service", &self.service),
+            ("interface type", &self.interface_types),
+            ("interface", &self.interfaces),
+            ("local user", &self.local_users),
+            ("remote user", &self.remote_users),
+            ("remote computer", &self.remote_machines),
+        ] {
+            if !value.trim().eq_ignore_ascii_case(ANY) {
+                found.push(format!("{condition} {value:?}"));
+            }
+        }
+        for (condition, value) in [
+            ("package", &self.package),
+            ("platform", &self.platforms),
+            ("dynamic address", &self.dynamic_addresses),
+        ] {
+            if !value.trim().is_empty() {
+                found.push(format!("{condition} {value:?}"));
+            }
+        }
+        found
+    }
+}
+
+/// An allow rule that overrides block rules ([`ActiveFirewall::overriding`]).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct OverridingRule {
+    /// Its ID.
+    pub name: String,
+    pub protocol: String,
+    pub local_ports: String,
+}
+impl OverridingRule {
+    /// Whether it can let a connection to one of `ports` (TCP or UDP)
+    /// through. Only a protocol other than TCP and UDP, or local ports that
+    /// all read as ports or ranges without any of them, cannot; anything
+    /// else ("Any", a keyword such as "RPC", a value that does not read)
+    /// can.
+    pub fn opens(&self, ports: &[u16]) -> bool {
+        let protocol = self.protocol.trim();
+        if ["ICMPv4", "ICMPv6"]
+            .iter()
+            .any(|other| protocol.eq_ignore_ascii_case(other))
+            || protocol
+                .parse::<u16>()
+                .is_ok_and(|number| ![6, 17, 256].contains(&number))
+        {
+            return false;
+        }
+        !self.local_ports.split(',').all(|entry| {
+            let (low, high) = entry.split_once('-').unwrap_or((entry, entry));
+            match (low.trim().parse::<u16>(), high.trim().parse::<u16>()) {
+                (Ok(low), Ok(high)) => !ports.iter().any(|port| (low..=high).contains(port)),
+                _ => false,
+            }
+        })
+    }
+}
+const ANY: &str = "Any";
+/// The protocols of [`BLOCK_RULE`]'s two rules, each named `"<name> (<protocol>)"`.
+const BLOCK_PROTOCOLS: [&str; 2] = ["TCP", "UDP"];
 
 /// Every value setup changes, as it was before setup; saved once, before the
 /// first change, and put back on uninstall.
@@ -1267,8 +1402,7 @@ pub fn record(system: &dyn SystemSettings, user_sid: &str) -> Result<SetupState>
     let active = system
         .active_firewall(REMOTE_DESKTOP_RULES, BLOCK_RULE)
         .context("reading the firewall rules in effect")?;
-    if active.blocked
-        || !active.block_ports.is_empty()
+    if !active.blocks.is_empty()
         || CHANGES
             .iter()
             .zip(current)
@@ -1658,8 +1792,10 @@ fn rdp_off(system: &mut dyn Registry) -> Result<()> {
 /// What keeps the firewall from holding RDP to this PC now, empty when it
 /// does: `rdp_port` is the port setup recorded, which RDP must still listen
 /// on and the block rule must still close, with [`RDP_WEB_SOCKET_PORTS`]
-/// ([`block_ports`]): no more, no fewer. Setup checks it before RDP goes
-/// on, the host at its start and every child-session start.
+/// ([`block_ports`]): no more, no fewer, for TCP and UDP, with no other
+/// condition ([`BlockRule::narrowed_by`]) and no allow rule that overrides
+/// it ([`OverridingRule::opens`]). Setup checks it before RDP goes on, the
+/// host at its start and every child-session start.
 pub fn firewall_missing(system: &dyn SystemSettings, rdp_port: u16) -> Result<Vec<String>> {
     let active = system
         .active_firewall(REMOTE_DESKTOP_RULES, BLOCK_RULE)
@@ -1700,17 +1836,49 @@ fn firewall_missing_with(
             active.unprotected.join(", ")
         ));
     }
-    if !active.blocked {
-        missing.push(format!(
+    // Both rules, TCP and UDP; each rule under the name must block all it is named for.
+    let absent: Vec<&str> = BLOCK_PROTOCOLS
+        .into_iter()
+        .filter(|protocol| {
+            let name = format!("{BLOCK_RULE} ({protocol})");
+            !active.blocks.iter().any(|rule| rule.name == name)
+        })
+        .collect();
+    match absent[..] {
+        [] => {}
+        [protocol] => missing.push(format!(
+            "the firewall rule \"{BLOCK_RULE} ({protocol})\" is not in effect"
+        )),
+        _ => missing.push(format!(
             "the firewall rule \"{BLOCK_RULE}\" is not in effect"
-        ));
+        )),
+    }
+    for rule in &active.blocks {
+        let named = BLOCK_PROTOCOLS
+            .into_iter()
+            .find(|protocol| rule.name == format!("{BLOCK_RULE} ({protocol})"));
+        match named {
+            Some(protocol) if rule.protocol.trim().eq_ignore_ascii_case(protocol) => {}
+            _ => missing.push(format!(
+                "the firewall rule \"{}\" blocks protocol {:?}, not the one it is named for; set up child sessions again",
+                rule.name, rule.protocol
+            )),
+        }
+        let narrowed = rule.narrowed_by();
+        if !narrowed.is_empty() {
+            missing.push(format!(
+                "the firewall rule \"{}\" blocks only for {}, not every connection; set up child sessions again",
+                rule.name,
+                narrowed.join(", ")
+            ));
+        }
     }
     let wanted = block_ports(rdp_port);
     // Each rule's ports as a set; one that does not parse (a range, "Any") never matches.
     let mut others: Vec<&str> = active
-        .block_ports
+        .blocks
         .iter()
-        .map(|ports| ports.trim())
+        .map(|rule| rule.local_ports.trim())
         .filter(|ports| {
             let mut closed: Option<Vec<u16>> = ports
                 .split(',')
@@ -1720,14 +1888,31 @@ fn firewall_missing_with(
                 closed.sort_unstable();
                 closed.dedup();
             }
-            closed.as_ref() != Some(&wanted)
+            !ports.is_empty() && closed.as_ref() != Some(&wanted)
         })
         .collect();
     others.sort_unstable();
     others.dedup();
-    if active.blocked && active.block_ports.is_empty() {
+    if active
+        .blocks
+        .iter()
+        .any(|rule| rule.local_ports.trim().is_empty())
+    {
         missing.push(format!(
             "the ports the firewall rule \"{BLOCK_RULE}\" closes could not be read"
+        ));
+    }
+    // An allow rule that overrides block rules lets the network past this one.
+    let open: Vec<&str> = active
+        .overriding
+        .iter()
+        .filter(|rule| rule.opens(&wanted))
+        .map(|rule| rule.name.as_str())
+        .collect();
+    if !open.is_empty() {
+        missing.push(format!(
+            "firewall rules that override block rules let the network reach Remote Desktop past \"{BLOCK_RULE}\": {}; turn them off",
+            open.join(", ")
         ));
     }
     if !others.is_empty() {

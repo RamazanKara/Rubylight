@@ -28,7 +28,11 @@ default, and it is what Windows Home uses: Home has no child sessions.
      RDP is turned on only if the rules in effect (local rules merged with
      group policy) still block it: the block rule is in force for TCP and UDP,
      closes exactly the RDP port setup recorded (RDP must still listen on that
-     port) and the WebSocket ports, and no Remote Desktop allow rule is. When RDP moves to another port, the
+     port) and the WebSocket ports, on every network profile and with no
+     other condition (remote port, address, program, service, interface),
+     and no Remote Desktop allow rule is in force, nor any allow rule that
+     overrides block rules (authenticated bypass) for one of those ports.
+     When RDP moves to another port, the
      check refuses until you set up child sessions again, which follows the
      new port; the port is read both from the registry and from the port the
      Remote Desktop service really listens on, and setup refuses while the

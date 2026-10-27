@@ -180,8 +180,12 @@ fn finished_blocks_are_counted_for_the_fec_report() {
         }
     }
     let recovered = FecBlock {
+        frame: 1,
+        block_index: 0,
+        block_count: 1,
         data_shards: 9,
         parity_shards: 2,
+        arrived_shards: 9,
         missing_shards: 2,
         unrecovered: false,
     };
@@ -199,11 +203,28 @@ fn finished_blocks_are_counted_for_the_fec_report() {
         rx.receive(&packet, 7, &mut events);
     }
     let lost = FecBlock {
+        frame: 2,
+        arrived_shards: 8,
         missing_shards: 3,
         unrecovered: true,
         ..recovered
     };
     assert_eq!(fec_blocks(&events)[0], lost);
+
+    // Complete with parity still on the way: only the shards up to the last arrival count.
+    events.clear();
+    let packets = host.frame(&payload, 1);
+    for packet in &packets[..9] {
+        rx.receive(packet, 8, &mut events);
+    }
+    let early = FecBlock {
+        frame: 4,
+        arrived_shards: 9,
+        missing_shards: 0,
+        unrecovered: false,
+        ..recovered
+    };
+    assert_eq!(fec_blocks(&events), [early]);
 }
 
 #[test]

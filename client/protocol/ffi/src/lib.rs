@@ -15,7 +15,7 @@ use rubylight_protocol::control::{
     RECONFIGURE_BYTES,
 };
 use rubylight_protocol::present_clock::{Grid, PresentClock, Settings};
-use rubylight_protocol::fec_report::{FecTally, FEC_REPORT_BYTES};
+use rubylight_protocol::fec_report::{FecBlock, FecTally, FEC_REPORT_BYTES};
 use rubylight_protocol::phase_lock::{SlackWindow, REPORT_BYTES};
 use rubylight_protocol::pyrowave::{self, Records};
 
@@ -167,20 +167,37 @@ pub unsafe extern "C" fn rp_fec_tally_free(tally: *mut FecTally) {
     }
 }
 
-/// Counts one finished video FEC block, recovered or not, at `now_ms` on any monotonic clock.
+/// Counts one finished video FEC block, recovered or not, at `now_ms` on any monotonic clock,
+/// from the video queue's counters (`FecBlock`): `arrived_shards` that came and
+/// `missing_shards` holes before the last arrival.
 ///
 /// # Safety
 /// `tally` is live.
 #[no_mangle]
+#[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn rp_fec_tally_block(
     tally: *mut FecTally,
+    frame: u32,
+    block_index: u8,
+    block_count: u8,
     data_shards: u32,
     parity_shards: u32,
+    arrived_shards: u32,
     missing_shards: u32,
     unrecovered: bool,
     now_ms: u64,
 ) {
-    (*tally).block(data_shards, parity_shards, missing_shards, unrecovered, now_ms);
+    let block = FecBlock {
+        frame,
+        block_index,
+        block_count,
+        data_shards,
+        parity_shards,
+        arrived_shards,
+        missing_shards,
+        unrecovered,
+    };
+    (*tally).block(block, now_ms);
 }
 
 /// Writes the 24-byte report to `out` once its interval is a second old and returns true; an

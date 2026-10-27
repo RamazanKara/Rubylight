@@ -203,16 +203,7 @@ impl FecStatus {
 }
 
 /// The FEC outcome of every finished frame block, for the once-a-second loss report (0x5539).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct FecBlock {
-    pub data_shards: u32,
-    pub parity_shards: u32,
-    /// Shards that never arrived. A block that completed counts only the holes before its last
-    /// arrival: parity still in flight when the data was whole is not missing.
-    pub missing_shards: u32,
-    /// The block lost more shards than its parity could recover.
-    pub unrecovered: bool,
-}
+pub use rubylight_protocol::fec_report::FecBlock;
 
 /// What the receiver tells the control stream, in the order the C core would act on it.
 #[derive(Clone, Debug, PartialEq, Eq)]

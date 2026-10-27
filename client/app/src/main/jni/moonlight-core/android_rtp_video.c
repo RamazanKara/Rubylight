@@ -8,18 +8,14 @@ static void notifyOrdinaryFrameLost(unsigned int frame, bool speculative) {
     if (!PyroWaveRecordsEnabled) notifyFrameLost(frame, speculative);
 }
 
-// Every block that completed or was given up goes to the FEC loss report. A completed block
-// counts only the holes before its last arrival: parity still in flight is not missing.
+// Every block that completed or was given up goes to the FEC loss report with the queue's
+// counters; the tally (protocol/core/src/fec_report.rs) decides what they count.
 static void finishFecBlock(PRTP_VIDEO_QUEUE queue, bool unrecovered) {
-    uint32_t total = queue->bufferDataPackets + queue->bufferParityPackets;
-    uint32_t arrived = queue->receivedDataPackets + queue->receivedParityPackets;
-    uint32_t missing;
-    if (unrecovered) {
-        missing = total > arrived ? total - arrived : 0;
-    } else {
-        missing = queue->missingPackets < total ? queue->missingPackets : total;
-    }
-    rlFecBlockFinished(queue->bufferDataPackets, queue->bufferParityPackets, missing, unrecovered);
+    rlFecBlockFinished(queue->currentFrameNumber, queue->multiFecCurrentBlockNumber,
+                       queue->multiFecLastBlockNumber + 1, queue->bufferDataPackets,
+                       queue->bufferParityPackets,
+                       queue->receivedDataPackets + queue->receivedParityPackets,
+                       queue->missingPackets, unrecovered);
 }
 
 #define RL_FEC_BLOCK_FINISHED finishFecBlock

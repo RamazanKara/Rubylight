@@ -212,9 +212,9 @@ The layouts below are little-endian; byte 0 is the version, `1`.
 | 1 | u8 | flags | 0 (reserved) |
 | 2 | u16 | reserved | 0 |
 | 4 | u32 | seq | 0 for the stream's first report, then +1 |
-| 8 | u32 | data_shards | data shards of the video FEC blocks finished in this interval, received or missing |
+| 8 | u32 | data_shards | data shards of the video FEC blocks finished in this interval whose fate the client could see: up to the last shard that arrived in a block that recovered, all of a block that did not, and whole blocks that never arrived |
 | 12 | u32 | parity_shards | parity shards of those blocks |
-| 16 | u32 | missing_shards | shards of those blocks that never arrived, at most data + parity |
+| 16 | u32 | missing_shards | shards of those that never arrived, at most data + parity |
 | 20 | u16 | unrecovered_blocks | blocks that lost more shards than they had parity |
 | 22 | u16 | interval_ms | the measured interval, 250-5000 (nominally 1000) |
 

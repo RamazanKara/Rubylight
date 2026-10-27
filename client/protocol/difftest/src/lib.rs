@@ -201,7 +201,11 @@ pub fn describe_log(mut log: &[u8]) -> Vec<String> {
             b'C' => format!("received {} ltr {}", u32le(&mut log), take(&mut log, 1)[0]),
             b'W' => format!("saw {}", u32le(&mut log)),
             b'B' => format!(
-                "fec block {}+{} missing {} unrecovered {}",
+                "fec block {}.{}/{} {}+{} arrived {} missing {} unrecovered {}",
+                u32le(&mut log),
+                take(&mut log, 1)[0],
+                take(&mut log, 1)[0],
+                u32le(&mut log),
                 u32le(&mut log),
                 u32le(&mut log),
                 u32le(&mut log),

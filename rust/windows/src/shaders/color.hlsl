@@ -571,3 +571,49 @@ void focus_map_cs(uint3 id : SV_DispatchThreadID) {
     InterlockedMin(focusMap[0], value);
     InterlockedMax(focusMap[1], value);
 }
+// HDR dynamic metadata statistics (butterpollo_core::hdr_dynamic): PQ(maxRGB)
+// of the picture the conversion encodes, at the centres of at most 240x135
+// cells over the source, in 1024 equal PQ bins, with the samples' minimum and
+// maximum. A groupshared histogram per tile, folded into the frame's with one
+// atomic per occupied bin, after Foundation Sunshine's
+// hdr_luminance_analysis_cs.hlsl (AlkaidLab/foundation-sunshine, commit
+// 880f1ef). Copyright (c) Foundation Sunshine authors, GPL-3.0.
+cbuffer Stats : register(b3) {
+    uint2 statsGrid;
+};
+// {min, max} as float bits, then the bins.
+RWStructuredBuffer<uint> stats : register(u7);
+groupshared uint statsBins[1024];
+groupshared uint statsMin;
+groupshared uint statsMax;
+[numthreads(64, 1, 1)]
+void hdr_stats_clear_cs(uint3 id : SV_DispatchThreadID) {
+    if (id.x < 2 + 1024) stats[id.x] = id.x == 0 ? 0xffffffff : 0;
+}
+[numthreads(16, 16, 1)]
+void hdr_stats_cs(uint3 id : SV_DispatchThreadID, uint index : SV_GroupIndex) {
+    [unroll] for (uint clear = 0; clear < 4; clear++) statsBins[index + clear * 256] = 0;
+    if (index == 0) {
+        statsMin = 0xffffffff;
+        statsMax = 0;
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (all(id.xy < statsGrid)) {
+        float3 rgb = load(int2((2 * id.xy + 1) * sourceSize / (2 * statsGrid)));
+        if (pixel != 2) rgb = pq(gamut2020(rgb) / 125.0);
+        // Without the sign bit, the bits of floats in 0..=1 order as integers.
+        uint code = asuint(saturate(max(rgb.r, max(rgb.g, rgb.b)))) & 0x7fffffff;
+        InterlockedAdd(statsBins[min(uint(asfloat(code) * 1024), 1023)], 1);
+        InterlockedMin(statsMin, code);
+        InterlockedMax(statsMax, code);
+    }
+    GroupMemoryBarrierWithGroupSync();
+    [unroll] for (uint fold = 0; fold < 4; fold++) {
+        uint bin = index + fold * 256;
+        if (statsBins[bin] != 0) InterlockedAdd(stats[2 + bin], statsBins[bin]);
+    }
+    if (index == 0 && statsMin <= statsMax) {
+        InterlockedMin(stats[0], statsMin);
+        InterlockedMax(stats[1], statsMax);
+    }
+}

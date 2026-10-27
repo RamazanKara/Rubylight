@@ -38,23 +38,32 @@ jobs:
   desktop:
     # The Windows/Linux client: Linux build, unit tests and clippy (SDL3 is built from source).
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      # Twice the job sat silent in apt-get until the job timeout: a fresh runner's own
-      # package updates can hold the dpkg lock, and -qq hides the wait. Bounded and visible.
+      # The runner's Ubuntu mirror has crawled at about 45 kB/s (cmake's 11 MB alone took
+      # 4 minutes, and libudev-dev pulls a systemd update), three times past the job timeout.
+      # The downloaded packages are cached between runs; the runner image has its own cmake.
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          path: ~/apt-archives
+          key: desktop-apt-${{ runner.os }}-${{ hashFiles('.github/workflows/nightjar-android.yml') }}
+          restore-keys: desktop-apt-${{ runner.os }}-
       - name: Install desktop build packages
-        timeout-minutes: 10
+        timeout-minutes: 25
         run: |
-          apt='-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o DPkg::Lock::Timeout=300'
+          mkdir -p ~/apt-archives/partial
+          apt="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o DPkg::Lock::Timeout=300 -o Dir::Cache::Archives=$HOME/apt-archives -o APT::Keep-Downloaded-Packages=true"
           sudo apt-get $apt update -q
-          sudo apt-get $apt install -y -q --no-install-recommends cmake ninja-build pkg-config libclang-dev \
+          sudo apt-get $apt install -y -q --no-install-recommends ninja-build pkg-config libclang-dev \
             libavcodec-dev libavutil-dev libopus-dev libva-dev libx11-dev libxext-dev libxrandr-dev \
             libxcursor-dev libxi-dev libxss-dev libxfixes-dev libxtst-dev libxkbcommon-dev libwayland-dev \
             wayland-protocols libegl-dev libgl-dev libgles-dev libdrm-dev libgbm-dev libpulse-dev \
             libasound2-dev libpipewire-0.3-dev libudev-dev libdbus-1-dev libdecor-0-dev
+          sudo chown -R "$USER" ~/apt-archives
+          cmake --version | head -n 1
       - name: Test and lint the desktop client
         run: |
           cd protocol

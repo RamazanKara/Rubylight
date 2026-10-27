@@ -542,7 +542,8 @@ struct Machine {
     policy_allowed: Vec<String>,
     /// Rule ID -> (display name, group, enabled).
     rules: BTreeMap<String, (String, String, bool)>,
-    block_rules: BTreeMap<String, u16>,
+    /// Name -> the ports it closes.
+    block_rules: BTreeMap<String, Vec<u16>>,
     /// Accounts whose hive is under HKEY_USERS: signed in, or loaded.
     loaded_hives: BTreeSet<String>,
 }
@@ -709,7 +710,10 @@ impl SystemSettings for Fake {
             blocked: block.is_some(),
             // The TCP and the UDP rule.
             block_ports: block
-                .map(|port| vec![port.to_string(); 2])
+                .map(|ports| {
+                    let ports: Vec<String> = ports.iter().map(u16::to_string).collect();
+                    vec![ports.join(","); 2]
+                })
                 .unwrap_or_default(),
             unprotected: self.machine.policy_overrides.clone(),
         })
@@ -730,9 +734,10 @@ impl SystemSettings for Fake {
         rule.2 = enabled;
         Ok(())
     }
-    fn add_block_rule(&mut self, name: &str, port: u16) -> Result<()> {
-        self.note(format!("block {port}"));
-        self.machine.block_rules.insert(name.into(), port);
+    fn add_block_rule(&mut self, name: &str, ports: &[u16]) -> Result<()> {
+        let listed: Vec<String> = ports.iter().map(u16::to_string).collect();
+        self.note(format!("block {}", listed.join(",")));
+        self.machine.block_rules.insert(name.into(), ports.to_vec());
         Ok(())
     }
     fn remove_rule(&mut self, name: &str) -> Result<()> {
@@ -826,10 +831,14 @@ fn setup_saves_the_originals_before_the_first_change() {
     );
     assert!(fake.machine.child_sessions);
     assert!(fake.enabled_rules(REMOTE_DESKTOP_RULES).unwrap().is_empty());
-    assert_eq!(fake.machine.block_rules.get(BLOCK_RULE), Some(&3389));
+    // The RDP port, and Remote Desktop over WebSocket's.
+    assert_eq!(
+        fake.machine.block_rules.get(BLOCK_RULE),
+        Some(&vec![3387, 3389, 3392])
+    );
     // The block rule is in place before RDP is turned on.
     let position = |entry: &str| log.iter().position(|e| e == entry).unwrap();
-    assert!(position("block 3389") < position("write fDenyTSConnections"));
+    assert!(position("block 3387,3389,3392") < position("write fDenyTSConnections"));
     assert!(
         missing(&fake, SID, Some(state.rdp_port))
             .unwrap()
@@ -845,7 +854,10 @@ fn uninstall_restores_every_original_value() {
         .insert(key(Hive::LocalMachine, RDP_TCP, "PortNumber"), 3390);
     let before = fake.machine.clone();
     let state = set_up(&mut fake);
-    assert_eq!(fake.machine.block_rules.get(BLOCK_RULE), Some(&3390));
+    assert_eq!(
+        fake.machine.block_rules.get(BLOCK_RULE),
+        Some(&block_ports(3390))
+    );
     assert_ne!(fake.machine, before);
     // The state goes through its file between setup and uninstall.
     let state: SetupState = serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
@@ -938,7 +950,9 @@ fn a_pc_set_up_without_the_record_is_refused() {
     let error = format!("{:#}", record(&fake, SID).unwrap_err());
     assert!(error.contains("restore it there"), "{error}");
     let mut fake = Fake::new();
-    fake.machine.block_rules.insert(BLOCK_RULE.into(), 3389);
+    fake.machine
+        .block_rules
+        .insert(BLOCK_RULE.into(), block_ports(3389));
     let error = format!("{:#}", record(&fake, SID).unwrap_err());
     assert!(error.contains(BLOCK_RULE), "{error}");
     // RDP the user turned on is not a setup: it is recorded, and restore leaves it on.
@@ -1419,14 +1433,51 @@ fn a_moved_rdp_port_is_refused_until_setup_runs_again() {
     // The block rule closes another port than the one recorded (a rule edited by hand).
     let mut edited = Fake::new();
     set_up(&mut edited);
-    edited.machine.block_rules.insert(BLOCK_RULE.into(), 3390);
+    edited
+        .machine
+        .block_rules
+        .insert(BLOCK_RULE.into(), block_ports(3390));
     let found = firewall_missing(&edited, 3389).unwrap();
     assert!(
-        found
-            .iter()
-            .any(|m| m.contains("closes port 3390, not the RDP port 3389")),
+        found.iter().any(|m| m.contains(
+            "closes port 3387,3390,3392, not ports 3387,3389,3392 (the RDP port 3389 and Remote Desktop over WebSocket's)"
+        )),
         "{found:?}"
     );
+    // Remote Desktop over WebSocket's ports stay closed too, TCP and UDP: a rule that closes the
+    // RDP port alone (an earlier setup), or leaves one of them open, fails closed.
+    for ports in [vec![3389], vec![3387, 3389]] {
+        edited.machine.block_rules.insert(BLOCK_RULE.into(), ports);
+        let found = firewall_missing(&edited, 3389).unwrap();
+        assert!(
+            found.iter().any(|m| m.contains("not ports 3387,3389,3392")
+                && m.contains("set up child sessions again")),
+            "{found:?}"
+        );
+    }
+    // In any order, it is the same rule.
+    edited
+        .machine
+        .block_rules
+        .insert(BLOCK_RULE.into(), vec![3392, 3389, 3387]);
+    assert!(firewall_missing(&edited, 3389).unwrap().is_empty());
+    // Ports that do not read as a list of ports never pass for them.
+    for closed in ["3387-3392", "Any", "3387, 3389, 3392, x"] {
+        let active = ActiveFirewall {
+            blocked: true,
+            block_ports: vec![closed.into(), "3387,3389,3392".into()],
+            ..ActiveFirewall::default()
+        };
+        let found = firewall_missing_with(&edited, 3389, &active).unwrap();
+        assert!(
+            found
+                .iter()
+                .any(|m| m.contains(&format!("closes port {closed}, not"))),
+            "{closed}: {found:?}"
+        );
+    }
+    assert_eq!(block_ports(3387), [3387, 3392]);
+    assert_eq!(block_ports(3389), [3387, 3389, 3392]);
     // Setting up again follows the new port: the record, the block rule and the checks.
     let saved = Rc::new(RefCell::new(None));
     let into = saved.clone();
@@ -1451,7 +1502,10 @@ fn a_moved_rdp_port_is_refused_until_setup_runs_again() {
         state,
         "the originals stay"
     );
-    assert_eq!(fake.machine.block_rules.get(BLOCK_RULE), Some(&3390));
+    assert_eq!(
+        fake.machine.block_rules.get(BLOCK_RULE),
+        Some(&block_ports(3390))
+    );
     assert!(
         missing(&fake, SID, Some(again.rdp_port))
             .unwrap()
@@ -1500,7 +1554,9 @@ fn restore_finishes_every_step_and_reports_what_failed() {
         key(Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections"),
         0,
     );
-    expected.block_rules.insert(BLOCK_RULE.into(), 3389);
+    expected
+        .block_rules
+        .insert(BLOCK_RULE.into(), block_ports(3389));
     for id in &state.remote_desktop_rule_ids {
         expected.rules.get_mut(id).unwrap().2 = false;
     }

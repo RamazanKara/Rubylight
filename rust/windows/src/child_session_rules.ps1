@@ -12,7 +12,9 @@
 #          prints {"allowed": IDs of the group's enabled inbound allow rules,
 #          "blocked": whether the enabled inbound block rules
 #          "$env:BUTTERPOLLO_FIREWALL_BLOCK (TCP)" and "(UDP)" are both there,
-#          "block_ports": the local ports of each of those rules, comma-joined,
+#          "block_ports": the local ports of each of those rules, comma-joined
+#          (the RDP port and Remote Desktop over WebSocket's, 3387 and 3392;
+#          the host checks the whole list, so a range or "Any" never passes),
 #          "unprotected": profiles with the firewall off or local rules ignored}
 param([Parameter(Mandatory)][ValidateSet('list', 'set', 'active')][string]$Mode)
 $ErrorActionPreference = 'Stop'

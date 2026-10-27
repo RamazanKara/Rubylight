@@ -1122,7 +1122,7 @@ mod tests {
         child_sessions: bool,
         /// Rule ID -> enabled, all in the Remote Desktop group.
         rules: std::collections::BTreeMap<String, bool>,
-        block_rules: std::collections::BTreeMap<String, u16>,
+        block_rules: std::collections::BTreeMap<String, Vec<u16>>,
     }
     #[derive(Clone)]
     struct Pc(std::rc::Rc<std::cell::RefCell<Machine>>);
@@ -1199,12 +1199,15 @@ mod tests {
             Ok(None)
         }
         fn active_firewall(&self, group: &str, block_rule: &str) -> Result<logic::ActiveFirewall> {
-            let port = self.0.borrow().block_rules.get(block_rule).copied();
+            let ports = self.0.borrow().block_rules.get(block_rule).cloned();
             Ok(logic::ActiveFirewall {
                 allowed: self.enabled_rules(group)?,
-                blocked: port.is_some(),
-                block_ports: port
-                    .map(|port| vec![port.to_string(); 2])
+                blocked: ports.is_some(),
+                block_ports: ports
+                    .map(|ports| {
+                        let ports: Vec<String> = ports.iter().map(u16::to_string).collect();
+                        vec![ports.join(","); 2]
+                    })
                     .unwrap_or_default(),
                 unprotected: Vec::new(),
             })
@@ -1228,8 +1231,11 @@ mod tests {
                 .context("no such rule")? = enabled;
             Ok(())
         }
-        fn add_block_rule(&mut self, name: &str, port: u16) -> Result<()> {
-            self.0.borrow_mut().block_rules.insert(name.into(), port);
+        fn add_block_rule(&mut self, name: &str, ports: &[u16]) -> Result<()> {
+            self.0
+                .borrow_mut()
+                .block_rules
+                .insert(name.into(), ports.to_vec());
             Ok(())
         }
         fn remove_rule(&mut self, name: &str) -> Result<()> {

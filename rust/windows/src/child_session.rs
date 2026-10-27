@@ -752,12 +752,12 @@ impl SystemSettings for NativeSettings {
         .with_context(|| format!("switching the firewall rule {id}"))?;
         Ok(())
     }
-    fn add_block_rule(&mut self, name: &str, port: u16) -> Result<()> {
+    fn add_block_rule(&mut self, name: &str, ports: &[u16]) -> Result<()> {
         // The new rules go in beside the old ones, which stay until then: the
         // port is never left without a block rule.
         let staged = staging_name(name);
         self.remove_named(&staged)?;
-        self.add_block_rules(&staged, port)?;
+        self.add_block_rules(&staged, ports)?;
         self.remove_named(name)?;
         for (_, label) in PROTOCOLS {
             let (from, to) = (format!("{staged} ({label})"), format!("{name} ({label})"));
@@ -942,8 +942,22 @@ fn profile_folder(sid: &str) -> Result<String> {
     Ok(folder)
 }
 
+/// `ports` as a firewall rule's local ports: comma-separated. Never empty,
+/// which the firewall would read as every port.
+fn local_ports(ports: &[u16]) -> Result<String> {
+    if ports.is_empty() {
+        bail!("a block rule needs a port");
+    }
+    Ok(ports
+        .iter()
+        .map(u16::to_string)
+        .collect::<Vec<_>>()
+        .join(","))
+}
+
 impl NativeSettings {
-    fn add_block_rules(&mut self, name: &str, port: u16) -> Result<()> {
+    fn add_block_rules(&mut self, name: &str, ports: &[u16]) -> Result<()> {
+        let ports = BSTR::from(local_ports(ports)?);
         for (protocol, label) in PROTOCOLS {
             // SAFETY: COM is initialised (see `new`); the rule is a fresh in-process object and
             // each BSTR outlives its call.
@@ -951,11 +965,11 @@ impl NativeSettings {
                 let rule: INetFwRule = CoCreateInstance(&NetFwRule, None, CLSCTX_INPROC_SERVER)?;
                 rule.SetName(&BSTR::from(format!("{name} ({label})")))?;
                 rule.SetDescription(&BSTR::from(
-                    "Keeps Remote Desktop, which Rubylight's child session turns on, reachable only from this PC.",
+                    "Keeps Remote Desktop (and Remote Desktop over WebSocket), which Rubylight's child session turns on, reachable only from this PC.",
                 ))?;
                 rule.SetGrouping(&BSTR::from("Rubylight"))?;
                 rule.SetProtocol(protocol.0)?;
-                rule.SetLocalPorts(&BSTR::from(port.to_string()))?;
+                rule.SetLocalPorts(&ports)?;
                 rule.SetDirection(NET_FW_RULE_DIR_IN)?;
                 rule.SetAction(NET_FW_ACTION_BLOCK)?;
                 rule.SetProfiles(NET_FW_PROFILE2_ALL.0)?;
@@ -1190,15 +1204,27 @@ mod tests {
     }
 
     #[test]
+    fn a_block_rule_closes_every_port_it_is_given_and_never_every_port() {
+        use butterpollo_core::child_session::block_ports;
+        assert_eq!(
+            super::local_ports(&block_ports(3390)).unwrap(),
+            "3387,3390,3392"
+        );
+        assert_eq!(super::local_ports(&[3389]).unwrap(), "3389");
+        // An empty LocalPorts is any port.
+        assert!(super::local_ports(&[]).is_err());
+    }
+
+    #[test]
     fn the_active_firewall_parses_and_local_rule_states_are_named() {
         use windows::Win32::NetworkManagement::WindowsFirewall::*;
         let active = super::parse_active(
-            "\u{feff}{\"allowed\":[\"RemoteDesktop-UserMode-In-TCP\"],\"blocked\":true,\"block_ports\":[\"3390\",\"3390\"],\"unprotected\":[\"Domain\"]}\r\n",
+            "\u{feff}{\"allowed\":[\"RemoteDesktop-UserMode-In-TCP\"],\"blocked\":true,\"block_ports\":[\"3387,3390,3392\",\"3387,3390,3392\"],\"unprotected\":[\"Domain\"]}\r\n",
         )
         .unwrap();
         assert_eq!(active.allowed, ["RemoteDesktop-UserMode-In-TCP"]);
         assert!(active.blocked);
-        assert_eq!(active.block_ports, ["3390", "3390"]);
+        assert_eq!(active.block_ports, ["3387,3390,3392", "3387,3390,3392"]);
         assert_eq!(active.unprotected, ["Domain"]);
         assert!(super::parse_active("{\"blocked\":true}").is_err());
         // Without the ports, a block rule never reads as closing the RDP port.

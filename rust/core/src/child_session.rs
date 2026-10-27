@@ -1120,6 +1120,18 @@ pub const REMOTE_DESKTOP_RULES: &str = "@FirewallAPI.dll,-28752";
 /// The inbound block rule setup adds for the RDP port; block rules win over
 /// any allow rule, and loopback traffic bypasses the firewall.
 pub const BLOCK_RULE: &str = "Rubylight child session: RDP only on this PC";
+/// Remote Desktop over WebSocket's ports (TCP 3387, and 3392 with TLS),
+/// which [`BLOCK_RULE`] closes beside the RDP port: Windows can take RDP
+/// connections there too.
+pub const RDP_WEB_SOCKET_PORTS: [u16; 2] = [3387, 3392];
+/// The ports [`BLOCK_RULE`] closes for RDP on `rdp_port`, in order.
+pub fn block_ports(rdp_port: u16) -> Vec<u16> {
+    let mut ports = vec![rdp_port];
+    ports.extend(RDP_WEB_SOCKET_PORTS);
+    ports.sort_unstable();
+    ports.dedup();
+    ports
+}
 const DEFAULT_RDP_PORT: u32 = 3389;
 
 /// The registry's DWORD values: all [`turn_rdp_off`] needs, so it works when
@@ -1150,8 +1162,8 @@ pub trait SystemSettings: Registry {
     /// Turn exactly the rule with this ID on or off; it fails when the rule
     /// is gone or is not in the group.
     fn set_rule_enabled(&mut self, group: &str, id: &str, enabled: bool) -> Result<()>;
-    /// Add (or replace) inbound TCP and UDP block rules for a port under this name.
-    fn add_block_rule(&mut self, name: &str, port: u16) -> Result<()>;
+    /// Add (or replace) inbound TCP and UDP block rules for these ports under this name.
+    fn add_block_rule(&mut self, name: &str, ports: &[u16]) -> Result<()>;
     /// Remove the rules [`SystemSettings::add_block_rule`] added; removing
     /// rules that do not exist succeeds.
     fn remove_rule(&mut self, name: &str) -> Result<()>;
@@ -1357,7 +1369,7 @@ pub fn setup(
         }
     };
     system
-        .add_block_rule(BLOCK_RULE, state.rdp_port)
+        .add_block_rule(BLOCK_RULE, &block_ports(state.rdp_port))
         .context("adding the firewall rule that keeps RDP on this PC")?;
     for id in system.enabled_rules(REMOTE_DESKTOP_RULES)? {
         system
@@ -1645,7 +1657,8 @@ fn rdp_off(system: &mut dyn Registry) -> Result<()> {
 
 /// What keeps the firewall from holding RDP to this PC now, empty when it
 /// does: `rdp_port` is the port setup recorded, which RDP must still listen
-/// on and the block rule must still close. Setup checks it before RDP goes
+/// on and the block rule must still close, with [`RDP_WEB_SOCKET_PORTS`]
+/// ([`block_ports`]): no more, no fewer. Setup checks it before RDP goes
 /// on, the host at its start and every child-session start.
 pub fn firewall_missing(system: &dyn SystemSettings, rdp_port: u16) -> Result<Vec<String>> {
     let active = system
@@ -1692,12 +1705,23 @@ fn firewall_missing_with(
             "the firewall rule \"{BLOCK_RULE}\" is not in effect"
         ));
     }
-    let wanted = rdp_port.to_string();
+    let wanted = block_ports(rdp_port);
+    // Each rule's ports as a set; one that does not parse (a range, "Any") never matches.
     let mut others: Vec<&str> = active
         .block_ports
         .iter()
         .map(|ports| ports.trim())
-        .filter(|ports| *ports != wanted)
+        .filter(|ports| {
+            let mut closed: Option<Vec<u16>> = ports
+                .split(',')
+                .map(|port| port.trim().parse().ok())
+                .collect();
+            if let Some(closed) = &mut closed {
+                closed.sort_unstable();
+                closed.dedup();
+            }
+            closed.as_ref() != Some(&wanted)
+        })
         .collect();
     others.sort_unstable();
     others.dedup();
@@ -1707,9 +1731,11 @@ fn firewall_missing_with(
         ));
     }
     if !others.is_empty() {
+        let wanted: Vec<String> = wanted.iter().map(u16::to_string).collect();
         missing.push(format!(
-            "the firewall rule \"{BLOCK_RULE}\" closes port {}, not the RDP port {rdp_port}; set up child sessions again",
-            others.join(" and ")
+            "the firewall rule \"{BLOCK_RULE}\" closes port {}, not ports {} (the RDP port {rdp_port} and Remote Desktop over WebSocket's); set up child sessions again",
+            others.join(" and "),
+            wanted.join(",")
         ));
     }
     if !active.allowed.is_empty() {

@@ -21,13 +21,14 @@ default, and it is what Windows Home uses: Home has no child sessions.
    choose **Set up child sessions**. Setup:
    - turns on Windows child sessions;
    - turns on Remote Desktop for this PC only: Windows' own Remote Desktop
-     firewall rules stay off and a Rubylight block rule keeps the RDP port
-     closed to the network. Setup refuses when Windows Firewall is off for a
+     firewall rules stay off and a Rubylight block rule keeps the RDP port,
+     and Remote Desktop over WebSocket's ports (3387 and 3392), closed to the
+     network. Setup refuses when Windows Firewall is off for a
      network profile, or when group policy overrides the local firewall rules.
      RDP is turned on only if the rules in effect (local rules merged with
      group policy) still block it: the block rule is in force for TCP and UDP,
-     closes the RDP port setup recorded (RDP must still listen on that port),
-     and no Remote Desktop allow rule is. When RDP moves to another port, the
+     closes exactly the RDP port setup recorded (RDP must still listen on that
+     port) and the WebSocket ports, and no Remote Desktop allow rule is. When RDP moves to another port, the
      check refuses until you set up child sessions again, which follows the
      new port; the port is read both from the registry and from the port the
      Remote Desktop service really listens on, and setup refuses while the

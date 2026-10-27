@@ -8136,6 +8136,43 @@ too (mid-row age p50 5.77 and 5.33 ms in the two A legs at pace 900), so one ABB
 of the gain, not the 0.2 ms differences between the two runs. The first slice was ready 1.6 ms after the
 frame's first packet at pace 900 and 0.75 ms at 2100, the last 7.0 and 3.3 to 3.6 ms.
 
+## October 27: LTR recovery on H.264 and HEVC (1.4, Experimental, stays off)
+
+The ignored native test `amf::ltr_native_tests::native_ltr_recovery_after_lost_frames`, release build of
+branch `rl-ltr`, RX 7900 XT: a scrolling synthetic texture (no capture, display or network), 2560x1440 at
+120 fps, 50 Mbps, 360 frames. Frames from 241 on are dropped for the gap, then the encoder is told (the
+stock arm asks for a keyframe; the LTR arm, opted in with `rlLtrRecovery=1`, invalidates the lost frames).
+Both streams are decoded with ffmpeg 9.0.2 and the frames compared by hash to the clean stream of the same
+decoder. Bytes are the recovery frame; the stock IDR at that point was 82,213 B (H.264) and 90,801 B (HEVC),
+the mean inter frame about 40 KB and 42 KB.
+
+| Arm | Recovery frame | Bytes | Software decode | d3d11va and dxva2 |
+|---|---|---|---|---|
+| H.264 gap 1 | LTR P | 78,334 | identical | every frame after it differs |
+| H.264 gap 3 | LTR P | 117,886 | identical | every frame after it differs |
+| H.264 gap 7 | LTR P | 206,618 | identical | every frame after it differs |
+| H.264 gap 8 | LTR P | 203,776 | identical | every frame after it differs |
+| H.264 gap 11 | LTR P | 179,334 | identical | every frame after it differs |
+| H.264 gap 15 | IDR (invalidation refused) | 82,276 | identical | identical |
+| HEVC gap 1 | LTR P | 59,066 | identical | identical |
+| HEVC gap 3 | LTR P | 90,680 | identical | identical |
+| HEVC gap 7 | LTR P | 224,558 | identical | identical |
+| HEVC gap 8 | LTR P | 254,555 | 222 errors, nothing after the loss | same |
+
+No decoder logged an error on the H.264 LTR streams, but both hardware decoders showed a different picture
+from the recovery frame to the end of the stream (118 frames at gap 1), so a Windows client with hardware
+decode would keep a damaged picture until the next keyframe. HEVC at gap 8 decoded none of the 111 frames
+after the loss on any decoder: a freeze. Only HEVC at gap 1 saved bytes (35% smaller than the IDR); from
+gap 7 on the recovery frame is 2.2 to 2.8 times the IDR. The verdict: no improvement without freezes, so
+LTR stays off by default, behind its Experimental launch parameter, and no Nightjar setting asks for it.
+
+Not measured: HEVC gaps 11 and 15. The run stopped at the wrapper's 900 s limit while HEVC gap 11 was
+finishing; the test's own 2 s AMF stall check never fired and every arm printed its result, so it was a
+slow run (HEVC arms took 50 to 220 s), but the rule for an exit code 3 is to stop, so it was not rerun.
+Not run either: decodes on the NUC and the laptop. On the stock stream (before any loss), ffmpeg's
+d3d12va decoder failed with "No space for new Reference frame" after about 17 frames, Vulkan with
+`VK_ERROR_OUT_OF_DEVICE_MEMORY`, and `h264_amf` exited nonzero with no message, so those were left out.
+
 ## Hardware covered
 
 Measurements ran with AMD AMF on an RX 7900 XT host, with real-client Wi-Fi

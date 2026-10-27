@@ -1,6 +1,7 @@
 package com.limelight.nvstream;
 
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.FecChoice;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.preferences.HostDisplayChoice;
 
@@ -31,7 +32,9 @@ public class ConnectionContext {
     public String rtspSessionUrl;
     public boolean launchActionCompleted;
     public String preparedControllers = "";
-    
+    // The video FEC to ask for; null leaves it to the host and sends nothing
+    public FecChoice fecChoice;
+
     public int negotiatedWidth, negotiatedHeight;
     // HDR is asked for in the launch only when this is set; 10-bit SDR negotiates 10-bit without it.
     public boolean negotiatedHdr;

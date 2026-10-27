@@ -35,6 +35,7 @@ public final class AdaptiveLayout {
     private final Runnable deferredUpdate = this::update;
     private WindowInsetsCompat windowInsets = WindowInsetsCompat.CONSUMED;
     private FoldingFeature fold;
+    private Consumer<WindowInsetsCompat> insetsObserver;
 
     private AdaptiveLayout(Activity activity, View root, boolean handleSystemInsets) {
         this.activity = activity;
@@ -85,6 +86,7 @@ public final class AdaptiveLayout {
         ViewCompat.setOnApplyWindowInsetsListener(root, (view, appliedInsets) -> {
             windowInsets = appliedInsets;
             update();
+            if (insetsObserver != null) insetsObserver.accept(appliedInsets);
             return handleSystemInsets ? WindowInsetsCompat.CONSUMED : appliedInsets;
         });
         // Padding changed from inside a layout pass is lost: View.layout() clears the forced-layout flag
@@ -119,6 +121,15 @@ public final class AdaptiveLayout {
         ((AdaptiveLayout) root.getTag(R.id.adaptive_layout)).update();
         ViewCompat.requestApplyInsets(root);
         return (AdaptiveLayout) root.getTag(R.id.adaptive_layout);
+    }
+
+    /**
+     * Hears every inset dispatch to the root, after its safe area is applied; the root consumes
+     * them, so its children never do. Game follows the soft keyboard with it.
+     */
+    public void setInsetsObserver(Consumer<WindowInsetsCompat> observer) {
+        insetsObserver = observer;
+        ViewCompat.requestApplyInsets(root);
     }
 
     public void start() {

@@ -244,7 +244,7 @@
         </activity>
         <activity
             android:name=".Game"
-            android:windowSoftInputMode="stateHidden"
+            android:windowSoftInputMode="stateHidden|adjustNothing"
             android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection|density"
             android:supportsPictureInPicture="true"
             android:resizeableActivity="true"

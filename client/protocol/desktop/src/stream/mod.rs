@@ -210,6 +210,15 @@ pub fn stream_mode(settings: &Settings, display: Display) -> (u32, u32, u32, u32
     (w, h, fps, bitrate)
 }
 
+/// A new stream at the automatic bitrate times the link first when the PC offers the test
+/// (`Feature::BandwidthProbe`), and starts no higher than it holds. PyroWave has its own test and
+/// a minimum bitrate; a resume keeps the bitrate of the running session's launch.
+fn probes_first_bitrate(settings: &Settings, resume: bool, info: &ServerInfo) -> bool {
+    !resume && settings.bitrate_kbps == 0
+        && !matches!(settings.codec, CodecPreference::PyroWave | CodecPreference::PyroWave444)
+        && info.paired && info.capabilities.has(Feature::BandwidthProbe)
+}
+
 fn capped_bitrate(bitrate: u32, limit: u32) -> u32 {
     if limit == 0 { bitrate } else { bitrate.min(limit) }
 }
@@ -767,6 +776,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         virtual_display: settings.virtual_display,
         virtual_display_scale: settings.virtual_display_scale,
         host_display: settings.host_display.into(),
+        fec: Some(settings.error_correction.into()),
         ..Default::default()
     };
     let port = if plan.record.http_port == 0 {
@@ -796,6 +806,24 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         if !plan.info.paired || !plan.app.matches_running_app(plan.info.current_game, plan.info.current_game_uuid.as_deref()) {
             return Err("The original app is no longer running on the PC. Choose an app to start a new stream.".into());
         }
+    }
+    let bitrate = if probes_first_bitrate(settings, plan.resume, &plan.info) {
+        match client.probe_link(&plan.info) {
+            Ok(mbps) => {
+                let first = nightjar_core::http::probe_start_kbps(bitrate, mbps);
+                eprintln!("nightjar: bandwidth test {mbps:.1} Mbit/s, starting at {first} kbps");
+                first
+            }
+            // The stream still starts, at the automatic bitrate, and says why it was not tested.
+            Err(e) => {
+                eprintln!("nightjar: bandwidth test failed, starting at {bitrate} kbps: {e}");
+                bitrate
+            }
+        }
+    } else { bitrate };
+    if interrupt.is_interrupted() {
+        client.cancel_pending_requests();
+        return Err("Cancelled.".into());
     }
     let launched = if plan.resume {
         client.resume(&request, &plan.info)
@@ -3017,6 +3045,21 @@ mod tests {
         assert_eq!(capped_bitrate(bitrate, 5_000), 5_000);
         assert_eq!(capped_bitrate(4_000, 5_000), 4_000);
         assert_eq!(capped_bitrate(bitrate, 0), bitrate);
+    }
+
+    #[test]
+    fn only_a_new_stream_at_the_automatic_bitrate_tests_the_link_first() {
+        let info = |paired: u8, version: &str| ServerInfo::parse(&format!("<root status_code=\"200\"><uniqueid>pc</uniqueid><state>SERVER_FREE</state><PairStatus>{paired}</PairStatus><BandwidthProbeVersion>{version}</BandwidthProbeVersion></root>"), 47989).unwrap();
+        let offered = info(1, "1");
+        let auto = Settings::default();
+        assert!(probes_first_bitrate(&auto, false, &offered));
+        assert!(!probes_first_bitrate(&auto, true, &offered), "a resume keeps the session's bitrate");
+        assert!(!probes_first_bitrate(&Settings { bitrate_kbps: 30_000, ..Default::default() }, false, &offered));
+        for codec in [CodecPreference::PyroWave, CodecPreference::PyroWave444] {
+            assert!(!probes_first_bitrate(&Settings { codec, ..Default::default() }, false, &offered));
+        }
+        assert!(!probes_first_bitrate(&auto, false, &info(1, "0")), "a PC that does not offer the test");
+        assert!(!probes_first_bitrate(&auto, false, &info(0, "1")), "an unpaired PC");
     }
 
     #[test]

@@ -44,6 +44,7 @@ pub use native::{FilePermissions, NativeCapabilities};
 pub use network_path::{NetworkPath, MAX_NETWORK_PATH_BYTES};
 pub use pairing::{PairFailure, PairResult, PairStep};
 pub use power::{PowerError, PowerReply, Refusal};
+pub use probe::{probe_start_kbps, LINK_PROBE_BYTES, PROBE_FLOOR_KBPS, PROBE_START_SHARE};
 pub use remote_check::{ConnectionTestStats, RemoteCheck, RemoteOutcome, REMOTE_CHECK_PROBES};
 pub use serverinfo::ServerInfo;
 pub use transport::set_app_version;

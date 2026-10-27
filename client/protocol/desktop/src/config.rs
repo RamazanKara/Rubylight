@@ -230,6 +230,8 @@ pub struct Settings {
     pub virtual_display: bool,
     pub virtual_display_scale: u32,
     pub host_display: HostDisplay,
+    /// The video FEC asked for at launch from a PC that lets the client choose it.
+    pub error_correction: ErrorCorrection,
     pub full_range: bool,
     pub upscaling: Upscaling,
     pub upscale_sharpness: u32,
@@ -308,6 +310,31 @@ impl From<HostDisplay> for nightjar_core::http::HostDisplay {
     }
 }
 
+/// The video FEC this client asks for (`rlFecPercentage`): the PC's own, automatic from this
+/// device's loss reports, or a fixed share. Other PCs keep their own.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ErrorCorrection {
+    #[default]
+    Host,
+    Auto,
+    Percent(u8),
+}
+
+impl ErrorCorrection {
+    /// The fixed shares the settings offer; a hand-edited file may hold any 0-255.
+    pub const PERCENTAGES: [u8; 4] = [10, 20, 30, 50];
+}
+
+impl From<ErrorCorrection> for rubylight_protocol::fec_report::FecChoice {
+    fn from(value: ErrorCorrection) -> Self {
+        match value {
+            ErrorCorrection::Host => Self::Host,
+            ErrorCorrection::Auto => Self::Auto,
+            ErrorCorrection::Percent(percentage) => Self::Fixed(percentage),
+        }
+    }
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -366,6 +393,7 @@ impl Default for Settings {
             virtual_display: false,
             virtual_display_scale: 100,
             host_display: HostDisplay::HostDefault,
+            error_correction: ErrorCorrection::Host,
             full_range: false,
             upscaling: Upscaling::Bilinear,
             upscale_sharpness: 50,

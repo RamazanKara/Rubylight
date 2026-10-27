@@ -576,7 +576,7 @@
             <details class="custom-config" open={section === 'advanced'}><summary>Custom configuration keys <span class="count">{unknownKeys.length} stored</span></summary>{@render otherKeys(unknownKeys, true)}</details>
           {/if}
         </Panel>
-        {#if active.id === 'network'}<div class="row"><Button href="/tokens" icon="key">API tokens</Button><Button href="/maintenance#account">Account & sign-in</Button></div>{/if}
+        {#if active.id === 'network'}<div class="row"><Button href="/tokens" icon="key">API tokens</Button><Button href="/webhooks" icon="link">Webhooks</Button><Button href="/maintenance#account">Account & sign-in</Button></div>{/if}
         {#if active.id === 'general'}<div class="row"><Button href="/maintenance#host">Updates & restart</Button><Button href="/logs" icon="logs">View logs</Button></div>{/if}
       {/if}
     </div>

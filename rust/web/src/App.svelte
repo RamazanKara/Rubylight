@@ -21,6 +21,7 @@
   import Logs from './pages/Logs.svelte';
   import Maintenance from './pages/Maintenance.svelte';
   import Tokens from './pages/Tokens.svelte';
+  import Webhooks from './pages/Webhooks.svelte';
   import Login from './pages/Login.svelte';
   import Setup from './pages/Setup.svelte';
   import NotFound from './pages/NotFound.svelte';
@@ -65,6 +66,7 @@
     if (route.path === '/logs') return Logs;
     if (route.path === '/maintenance') return Maintenance;
     if (route.path === '/tokens') return Tokens;
+    if (route.path === '/webhooks') return Webhooks;
     return NotFound;
   });
   const bare = $derived(route.path === '/login' || route.path === '/setup' || session.state !== 'signed-in');

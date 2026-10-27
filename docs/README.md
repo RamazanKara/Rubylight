@@ -26,6 +26,7 @@ Rubylight runs on your Windows gaming PC; Moonlight runs on the device you play 
 | Use a USB device plugged into my client on the PC | [USB forwarding (Experimental)](usb-forwarding.md): setup, which devices forward, detaching. |
 | Stream to a Samsung TV or a browser | [WebRTC server (Experimental)](webrtc.md): setup, pairing, what streams, and the protocol extensions for client authors. |
 | Launch Steam games from Steam Deck with MoonDeck | [MoonDeck setup](configuration.md#moondeck) |
+| Tell another service when apps start or devices pair | [Webhooks](webhooks.md): signed events, verifying them and the replay window. |
 | Understand an away-from-home Tailscale connection | [Remote connection route](network-path.md): paired route diagnostics and what an unknown result means. |
 | **Fix a stream that will not start or feels wrong** | [Troubleshooting](troubleshooting.md): pairing, black screens, HDR colour, audio, controllers and smoothness. |
 

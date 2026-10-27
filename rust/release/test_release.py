@@ -703,6 +703,17 @@ class PortedCredits(unittest.TestCase):
         self.assertIn('video_hdr_metadata.cpp and video_hdr_bitstream.cpp', notice)
         self.assertIn('commit 3340d28', notice)
 
+    def test_release_notes_and_setting_text_carry_no_port_credits(self):
+        # Credits live in the code, NOTICE, AGENTS.md and the README, not in what users read per release.
+        texts = [*sorted((ROOT / 'rust/release/notes.d').glob('*.md')),
+                 *sorted((ROOT / 'client/notes.d').glob('*.md')),
+                 *sorted((ROOT / 'rust/web/src/lib/schema').glob('*.ts'))]
+        self.assertTrue(texts)
+        for path in texts:
+            text = path.read_text(encoding='utf-8')
+            for name in ('Foundation Sunshine', 'AlkaidLab', 'Annex'):
+                self.assertNotIn(name, text, path)
+
 
 if __name__ == '__main__':
     unittest.main()

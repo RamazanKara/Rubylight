@@ -4480,9 +4480,11 @@ fn pad_reports(
                 for (kind, payload) in &packets {
                     arbiter.game_feedback(*kind, payload, Instant::now());
                 }
-                sends.messages.extend(packets.into_iter().filter(|(kind, payload)| {
-                    rumble.forward(feedback_allowed(*kind), *kind, payload)
-                }))
+                sends
+                    .messages
+                    .extend(packets.into_iter().filter(|(kind, payload)| {
+                        rumble.forward(feedback_allowed(*kind), *kind, payload)
+                    }))
             }
             PadReport::Motion { id, capabilities } => {
                 sends.messages.extend(motion_requests(id, capabilities))
@@ -4719,6 +4721,37 @@ mod tests {
         assert_eq!(forward(false, &other), NONE);
         assert!(!rumble.forward(false, 0x5502, &[3, 0, 1, 2, 3]));
         assert!(rumble.forward(true, 0x5502, &[3, 0, 1, 2, 3]));
+    }
+    #[test]
+    fn the_control_pass_sends_feedback_through_the_rumble_filter() {
+        // The pass the control loop runs, so rumble off still stops a buzz once.
+        let report = |data: [u8; 8]| PadReport::Feedback {
+            id: 3,
+            kind: 4,
+            data: data.to_vec(),
+        };
+        let mut pcm = Default::default();
+        let mut arbiter = Default::default();
+        let mut rumble = RumbleForwarded::default();
+        let mut pass = |allowed: bool, data: [u8; 8]| {
+            pad_reports(
+                [report(data)],
+                |_| allowed,
+                true,
+                &[0; 16],
+                &mut pcm,
+                &mut arbiter,
+                &mut rumble,
+            )
+            .messages
+            .into_iter()
+            .map(|(kind, _)| kind)
+            .collect::<Vec<_>>()
+        };
+        let both = [RUMBLE_DATA, RUMBLE_TRIGGER_DATA];
+        assert_eq!(pass(true, [0, 9, 0, 7, 1, 0, 2, 0]), both);
+        assert_eq!(pass(false, [0; 8]), both);
+        assert_eq!(pass(false, [0; 8]), [0u16; 0]);
     }
     #[test]
     fn composite_feedback_preserves_partial_trigger_flags_and_rumble_layout() {

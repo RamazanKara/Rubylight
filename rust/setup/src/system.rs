@@ -1003,6 +1003,38 @@ pub fn firewall_remove(rule: &str) {
         Duration::from_secs(60),
     );
 }
+/// Whether a firewall rule named `rule` is there, read through Windows
+/// Firewall's own API: netsh says "no rule" in the PC's language and with the
+/// exit code of its other errors.
+pub fn firewall_rule_present(rule: &str) -> Result<bool> {
+    use windows::{
+        Win32::{
+            NetworkManagement::WindowsFirewall::{INetFwPolicy2, NetFwPolicy2},
+            System::Com::*,
+        },
+        core::BSTR,
+    };
+    // SAFETY: COM is initialised on this thread before the policy is used and released after it is dropped.
+    unsafe {
+        let initialized = CoInitializeEx(None, COINIT_APARTMENTTHREADED).is_ok();
+        let result = (|| -> Result<bool> {
+            let policy: INetFwPolicy2 = CoCreateInstance(&NetFwPolicy2, None, CLSCTX_INPROC_SERVER)
+                .context("opening Windows Firewall")?;
+            // A missing rule is ERROR_FILE_NOT_FOUND; anything else is not knowing.
+            match policy.Rules()?.Item(&BSTR::from(rule)) {
+                Ok(_) => Ok(true),
+                Err(error) if error.code() == ERROR_FILE_NOT_FOUND.to_hresult() => Ok(false),
+                Err(error) => {
+                    Err(error).with_context(|| format!("reading the firewall rule {rule}"))
+                }
+            }
+        })();
+        if initialized {
+            CoUninitialize();
+        }
+        result
+    }
+}
 pub fn trusted_folder(folder: &Path) -> Result<()> {
     if let Err(error) = std::fs::symlink_metadata(folder) {
         return if error.kind() == std::io::ErrorKind::NotFound {

@@ -117,7 +117,8 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<Removed> {
     // or crashing), this uninstaller turns Remote Desktop off itself and
     // reads it back, and the record stays, even through a factory reset:
     // Rubylight installed again restores the rest (Restore Windows
-    // settings). The uninstaller then exits with UNRESTORED_EXIT.
+    // settings). So it does when the record is gone but setup's block rule
+    // is still there. The uninstaller then exits with UNRESTORED_EXIT.
     let mut notes = Vec::new();
     let unrestored = restore_child_session(&install, progress);
     if let Some(problem) = &unrestored {
@@ -248,6 +249,7 @@ fn restore_child_session(install: &Path, progress: &Progress) -> Option<String> 
         &crate::install::profile(),
         install,
         &mut NativeRegistry,
+        child_session_block_rule_present,
         |program| {
             progress.set("Restoring the Windows settings child sessions changed…");
             // The record is the PC's, not the profile's: no --config-dir.
@@ -262,15 +264,19 @@ fn restore_child_session(install: &Path, progress: &Progress) -> Option<String> 
 /// [`restore_child_session`] for `profile`, running the host with `run`.
 /// Whatever keeps the settings from coming back, Remote Desktop is turned
 /// off here too: a host that never ran (missing, not starting), timed out
-/// or crashed did not turn it off itself.
+/// or crashed did not turn it off itself. Without a record, so does setup's
+/// block rule that `block_rule` finds still there ([`child_session_unrecorded`]).
 fn restore_child_session_with(
     profile: &Path,
     install: &Path,
     registry: &mut dyn MachineRegistry,
+    block_rule: impl FnOnce() -> Result<bool>,
     run: impl FnOnce(&Path) -> Result<(i32, String)>,
 ) -> Option<String> {
     let problem = match child_session_restore_pending(profile, install) {
-        None if !child_session_recorded(profile) => return None,
+        None if !child_session_recorded(profile) => {
+            child_session_unrecorded(&*registry, block_rule)?
+        }
         None => format!("{} is missing", install.join("butterpollo.exe").display()),
         Some(program) => match run(&program) {
             Ok((0, _)) => return None,
@@ -283,6 +289,44 @@ fn restore_child_session_with(
         problem.trim().trim_end_matches('.'),
         turn_rdp_off(registry)
     ))
+}
+/// The block rule child-session setup adds, as `"<name> (TCP)"` and
+/// `"<name> (UDP)"` (`butterpollo_core::child_session::BLOCK_RULE`).
+const CHILD_SESSION_BLOCK_RULE: &str = "Rubylight child session: RDP only on this PC";
+/// Without a record, as the host's `enforce_unrecorded`: Remote Desktop on
+/// while setup's block rule is still there (`block_rule`) was turned on by a
+/// setup whose record is gone, and nothing restores it; the problem to say
+/// before RDP is turned off. None with RDP off, or without the rule: RDP is
+/// then the user's own. A rule that can't be read changes nothing, said in
+/// the log.
+fn child_session_unrecorded(
+    registry: &dyn MachineRegistry,
+    block_rule: impl FnOnce() -> Result<bool>,
+) -> Option<String> {
+    if let Ok(Some(1)) = registry.read_dword(TERMINAL_SERVER, DENY_TS_CONNECTIONS) {
+        return None;
+    }
+    match block_rule() {
+        Ok(true) => Some(format!(
+            "their record is gone, but the firewall rule \"{CHILD_SESSION_BLOCK_RULE}\" setup adds is still there"
+        )),
+        Ok(false) => None,
+        Err(error) => {
+            line(format!(
+                "warning: whether the firewall rule \"{CHILD_SESSION_BLOCK_RULE}\" child-session setup adds is still there could not be read, so Remote Desktop was left as it is: {error:#}"
+            ));
+            None
+        }
+    }
+}
+/// Whether either of [`CHILD_SESSION_BLOCK_RULE`]'s rules is on this PC.
+fn child_session_block_rule_present() -> Result<bool> {
+    for protocol in ["TCP", "UDP"] {
+        if system::firewall_rule_present(&format!("{CHILD_SESSION_BLOCK_RULE} ({protocol})"))? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Where Remote Desktop is switched (`fDenyTSConnections`), and the group
@@ -637,9 +681,13 @@ mod tests {
         // The host is gone: nothing ran, so the uninstaller turns RDP off and reads it back.
         let (install, _root, profile) = recorded(false);
         let mut registry = FakeRegistry::rdp_on();
-        let note = restore_child_session_with(&profile, install.path(), &mut registry, |_| {
-            panic!("there is no host to run")
-        })
+        let note = restore_child_session_with(
+            &profile,
+            install.path(),
+            &mut registry,
+            || panic!("a record is there"),
+            |_| panic!("there is no host to run"),
+        )
         .unwrap();
         assert_eq!(registry.rdp(), Some(1));
         assert!(
@@ -659,12 +707,17 @@ mod tests {
         ];
         for outcome in outcomes {
             let mut registry = FakeRegistry::rdp_on();
-            let note =
-                restore_child_session_with(&profile, install.path(), &mut registry, |program| {
+            let note = restore_child_session_with(
+                &profile,
+                install.path(),
+                &mut registry,
+                || panic!("a record is there"),
+                |program| {
                     assert_eq!(program, install.path().join("butterpollo.exe"));
                     outcome()
-                })
-                .unwrap();
+                },
+            )
+            .unwrap();
             assert_eq!(registry.rdp(), Some(1), "{note}");
             assert!(note.contains("Remote Desktop was turned off"), "{note}");
             assert!(!note.contains(".."), "{note}");
@@ -672,10 +725,13 @@ mod tests {
         // Restored, or nothing to restore: RDP is left as the restore put it.
         let mut registry = FakeRegistry::rdp_on();
         assert_eq!(
-            restore_child_session_with(&profile, install.path(), &mut registry, |_| Ok((
-                0,
-                String::new()
-            ))),
+            restore_child_session_with(
+                &profile,
+                install.path(),
+                &mut registry,
+                || panic!("a record is there"),
+                |_| Ok((0, String::new()))
+            ),
             None
         );
         let root = tempfile::tempdir().unwrap();
@@ -684,6 +740,7 @@ mod tests {
                 &root.path().join("config"),
                 install.path(),
                 &mut registry,
+                || Ok(false),
                 |_| panic!("nothing to restore")
             ),
             None
@@ -691,11 +748,71 @@ mod tests {
         assert_eq!((registry.rdp(), registry.writes), (Some(0), 0));
     }
     #[test]
+    fn remote_desktop_setups_block_rule_outlived_its_record_for_is_turned_off() {
+        // No record, but setup's block rule is still there: RDP on is setup's, and nothing
+        // restores it, so it goes off as the host's enforce_unrecorded turns it off.
+        let install = tempfile::tempdir().unwrap();
+        write(&install.path().join("butterpollo.exe"), "");
+        let root = tempfile::tempdir().unwrap();
+        let profile = root.path().join("config");
+        let unrecorded = |registry: &mut FakeRegistry, block_rule: fn() -> Result<bool>| {
+            restore_child_session_with(&profile, install.path(), registry, block_rule, |_| {
+                panic!("there is no record to restore")
+            })
+        };
+        let mut registry = FakeRegistry::rdp_on();
+        let note = unrecorded(&mut registry, || Ok(true)).unwrap();
+        assert_eq!(registry.rdp(), Some(1));
+        assert!(
+            note.contains("their record is gone")
+                && note.contains(CHILD_SESSION_BLOCK_RULE)
+                && note.contains("Remote Desktop was turned off (fDenyTSConnections = 1)"),
+            "{note}"
+        );
+        // RDP is missing (on by default): the same.
+        let mut registry = FakeRegistry::default();
+        assert!(unrecorded(&mut registry, || Ok(true)).is_some());
+        assert_eq!(registry.rdp(), Some(1));
+        // Without the rule, RDP on is the user's own; with RDP off, nothing is open and the
+        // rule is not even looked for. A rule that can't be read changes nothing.
+        type BlockRule = fn() -> Result<bool>;
+        let cases: [(FakeRegistry, BlockRule); 3] = [
+            (FakeRegistry::rdp_on(), || Ok(false)),
+            (FakeRegistry::rdp_on(), || bail!("Windows Firewall is not running")),
+            (
+                {
+                    let mut off = FakeRegistry::default();
+                    off.set(TERMINAL_SERVER, 1);
+                    off
+                },
+                || panic!("RDP is off"),
+            ),
+        ];
+        for (mut registry, block_rule) in cases {
+            let before = registry.rdp();
+            assert_eq!(unrecorded(&mut registry, block_rule), None);
+            assert_eq!((registry.rdp(), registry.writes), (before, 0));
+        }
+    }
+    #[test]
+    fn a_firewall_rule_that_is_not_there_reads_as_missing() {
+        // Read-only on this PC: no rule has this name.
+        assert!(
+            !system::firewall_rule_present("Rubylight test: no rule has this name (TCP)").unwrap()
+        );
+    }
+    #[test]
     fn remote_desktop_that_stays_on_is_reported_loudly() {
         let (install, _root, profile) = recorded(false);
         let note = |registry: &mut FakeRegistry| {
-            restore_child_session_with(&profile, install.path(), registry, |_| unreachable!())
-                .unwrap()
+            restore_child_session_with(
+                &profile,
+                install.path(),
+                registry,
+                || unreachable!(),
+                |_| unreachable!(),
+            )
+            .unwrap()
         };
         let mut denied = FakeRegistry {
             denied: true,
@@ -823,6 +940,10 @@ mod tests {
         assert_eq!(
             CHILD_SESSION_RESTORE_FLAG,
             butterpollo_core::child_session::RESTORE_FLAG
+        );
+        assert_eq!(
+            CHILD_SESSION_BLOCK_RULE,
+            butterpollo_core::child_session::BLOCK_RULE
         );
     }
     fn package(root: &Path) {

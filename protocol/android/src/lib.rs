@@ -834,8 +834,10 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_sendController
 }
 
 /// Attaches the device Java's `UsbDeviceConnection` has open (`fd`, its node `path`) to the
-/// stream's host: the request id, or a `USB_*` code. The device is Rust's own from here; Java
-/// closes its connection.
+/// stream's host: the request id, or a `USB_*` code. Before it returns, Rust has its own copy
+/// of `fd` (a dup of the same usbfs file), which it closes when the attachment ends or fails.
+/// Java keeps its connection open until it hears the attachment ended and closes it then; the
+/// kernel lets go of the device once both are closed.
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_usbAttach(

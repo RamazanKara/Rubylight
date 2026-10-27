@@ -70,6 +70,19 @@ public class HostCapabilitiesContractTest {
             case SLEEP: return "sleep";
             case FILE_UPLOAD: return "file_upload";
             case FILE_DOWNLOAD: return "file_download";
+            case DOLBY_VISION: return "dolby_vision";
+            case HLG: return "hlg";
+            case CLIENT_FEC: return "client_fec";
+            case BANDWIDTH_PROBE: return "bandwidth_probe";
+            case USB_FORWARDING: return "usb_forwarding";
+            case AUDIO_PASSTHROUGH: return "audio_passthrough";
+            case SURROUND_714: return "surround_714";
+            case TEXT_INPUT: return "text_input";
+            case CLIENT_KEYBOARD_LAYOUT: return "client_keyboard_layout";
+            case PEN_BARREL_ROLL: return "pen_barrel_roll";
+            case PIPELINE_RATES: return "pipeline_rates";
+            case IMAGE_CLIPBOARD: return "image_clipboard";
+            case SHARED_FOLDERS: return "shared_folders";
             default: return null;
         }
     }
@@ -87,6 +100,8 @@ public class HostCapabilitiesContractTest {
             case HARDWARE_METRICS_OFF: return "hardware_metrics_off";
             case SLEEP_PERMISSION: return "sleep_permission";
             case FILE_PERMISSION: return "file_permission";
+            case USB_PERMISSION: return "usb_permission";
+            case FOLDER_PERMISSION: return "folder_permission";
             default: throw new AssertionError("Reason " + reason + " has no contract name");
         }
     }

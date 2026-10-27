@@ -29,6 +29,8 @@
     <string name="host_feature_reason_hardware_metrics_off">호스트 설정에서 하드웨어 측정값을 켜세요</string>
     <string name="host_feature_reason_sleep_permission">이 기기는 PC를 절전 모드로 전환할 수 없도록 설정되어 있습니다</string>
     <string name="host_feature_reason_file_permission">이 기기에 파일 권한이 없습니다. 호스트의 웹 UI에서 허용하세요</string>
+    <string name="host_feature_reason_usb_permission">USB 장치가 허용되지 않았습니다. 호스트 웹 UI에서 허용하세요</string>
+    <string name="host_feature_reason_folder_permission">공유 폴더가 허용되지 않았습니다. 호스트 웹 UI에서 허용하세요</string>
     <string name="host_feature_unknown">호스트가 지원하는 경우 적용됨</string>
     <string name="host_details_software_apollo">Apollo 호환 호스트</string>
     <string name="host_details_software_vibepollo">Vibepollo 호환 호스트</string>

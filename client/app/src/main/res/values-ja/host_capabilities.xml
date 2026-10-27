@@ -29,6 +29,8 @@
     <string name="host_feature_reason_hardware_metrics_off">ホストの設定でハードウェア測定値をオンにしてください</string>
     <string name="host_feature_reason_sleep_permission">このデバイスには PC をスリープする権限がありません</string>
     <string name="host_feature_reason_file_permission">このデバイスにはファイルの権限がありません。ホストのウェブ UI で許可してください</string>
+    <string name="host_feature_reason_usb_permission">USB デバイスは許可されていません。ホストの Web UI で許可してください</string>
+    <string name="host_feature_reason_folder_permission">共有フォルダーは許可されていません。ホストの Web UI で許可してください</string>
     <string name="host_feature_unknown">ホストが対応している場合に適用されます</string>
     <string name="host_details_software_apollo">Apollo 互換ホスト</string>
     <string name="host_details_software_vibepollo">Vibepollo 互換ホスト</string>

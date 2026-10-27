@@ -30,6 +30,19 @@
     "native_api": "unsupported:update_host",
     "sleep": "unsupported:update_host",
     "file_upload": "unsupported:update_host",
-    "file_download": "unsupported:update_host"
+    "file_download": "unsupported:update_host",
+    "dolby_vision": "unsupported",
+    "hlg": "unsupported",
+    "client_fec": "unsupported",
+    "bandwidth_probe": "unsupported",
+    "usb_forwarding": "unsupported:update_host",
+    "audio_passthrough": "unsupported",
+    "surround_714": "unsupported",
+    "text_input": "unsupported",
+    "client_keyboard_layout": "unsupported",
+    "pen_barrel_roll": "unsupported",
+    "pipeline_rates": "unsupported",
+    "image_clipboard": "unsupported:update_host",
+    "shared_folders": "unsupported:update_host"
   }
 }

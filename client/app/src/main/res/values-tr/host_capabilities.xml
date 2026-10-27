@@ -29,6 +29,8 @@
     <string name="host_feature_reason_hardware_metrics_off">Ana bilgisayarın ayarlarından donanım ölçümlerini açın</string>
     <string name="host_feature_reason_sleep_permission">Bu cihazın bilgisayarı uyutma izni yok</string>
     <string name="host_feature_reason_file_permission">Dosya izni yok: ana bilgisayarın web arayüzünden verin</string>
+    <string name="host_feature_reason_usb_permission">USB izni yok: ana bilgisayarın web arayüzünden verin</string>
+    <string name="host_feature_reason_folder_permission">Paylaşılan klasör izni yok: web arayüzünden verin</string>
     <string name="host_feature_unknown">Ana bilgisayar destekliyorsa geçerlidir</string>
     <string name="host_details_software_apollo">Apollo uyumlu ana bilgisayar</string>
     <string name="host_details_software_vibepollo">Vibepollo uyumlu ana bilgisayar</string>

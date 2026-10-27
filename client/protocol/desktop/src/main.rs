@@ -1382,13 +1382,15 @@ impl App {
     }
 
     fn end_stream(&mut self, exit: Exit) {
-        let Some((streaming, _timer)) = self.streaming.take() else {
+        let Some((mut streaming, _timer)) = self.streaming.take() else {
             return;
         };
         let host = streaming.host_id;
         let reconnect = if matches!(exit, Exit::Reconnect) || exit.retryable() {
             streaming.reconnect_plan(!matches!(exit, Exit::Reconnect))
         } else { None };
+        // The stream doctor's report when it found something, unless the stream goes on.
+        let health = streaming.health_summary().filter(|_| reconnect.is_none());
         eprintln!(
             "nightjar: stream ended ({})",
             match &exit {
@@ -1414,15 +1416,14 @@ impl App {
             self.cancelled = false;
             self.connecting = Some(Connecting::start(plan, self.waker.clone()));
         } else {
-        match exit {
-            Exit::CloseWindow => self.running = false,
-            Exit::User | Exit::Reconnect | Exit::Ended(None) => {}
-            Exit::Terminated(code) => {
-                if let Some(message) = stream::termination_text(code) {
-                    self.launcher.message(tr("The stream ended"), message);
-                }
-            }
-            Exit::Ended(Some(message)) => self.launcher.message(tr("The stream ended"), message),
+        let ended = match exit {
+            Exit::CloseWindow => { self.running = false; None }
+            Exit::User | Exit::Reconnect | Exit::Ended(None) => None,
+            Exit::Terminated(code) => stream::termination_text(code),
+            Exit::Ended(Some(message)) => Some(message),
+        };
+        if let Some((title, body)) = stream::doctor::after_stream(ended, health).filter(|_| self.running) {
+            self.launcher.message(title, body);
         }
         }
         // egui forgets held modifiers from before the stream.
@@ -1692,6 +1693,18 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                             if ui.add_enabled(!s.adaptive_bitrate && !s.bitrate_busy, egui::Button::new(tr("Apply bitrate"))).clicked() {
                                 s.set_bitrate();
                             }
+                        });
+                    }
+                    if s.facts.role != nightjar_core::http::AppRole::InputOnly {
+                        egui::CollapsingHeader::new(tr("Why did my stream stutter?")).id_salt("stream-health").show(ui, |ui| {
+                            let (text, offer) = s.health();
+                            ui.label(text);
+                            ui.horizontal(|ui| {
+                                if let Some(label) = stream::doctor::offer_label(offer) {
+                                    if ui.add_enabled(!s.bitrate_busy, egui::Button::new(label)).clicked() { s.health_trial(offer); }
+                                }
+                                if ui.button(tr("Copy report")).clicked() { s.copy_health(); }
+                            });
                         });
                     }
                     if s.facts.reconfigure {

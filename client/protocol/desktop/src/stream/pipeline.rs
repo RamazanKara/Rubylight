@@ -78,6 +78,8 @@ pub enum Notice {
     HostMenu(Result<(), String>),
     Bitrate { requested: u32, result: Result<u32, String> },
     AdaptiveBitrate(Result<(u32, u32), String>),
+    /// A step of the stream doctor's bitrate trial came back.
+    HealthTrial(super::doctor::TrialOutcome),
     /// Client roaming: the network watcher saw this device change networks.
     NetworkChanged(nightjar_core::session::NetworkHint),
 }

@@ -219,6 +219,7 @@ pub(crate) mod tests {
         ("radeon.rs", include_str!("radeon.rs")),
         ("gamepad.rs", include_str!("gamepad.rs")),
         ("usb.rs", include_str!("usb.rs")),
+        ("stream/doctor.rs", include_str!("stream/doctor.rs")),
     ];
 
     /// Read for its marked texts and its toasts only: the stream code keeps its own overlay lines.

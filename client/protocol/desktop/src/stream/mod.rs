@@ -13,6 +13,7 @@ pub mod present;
 mod microphone;
 mod cursor;
 mod bitrate;
+pub mod doctor;
 mod recovery;
 mod quality;
 mod touch;
@@ -45,6 +46,7 @@ use nightjar_core::http::{App, AppRole, ClientIdentity, Feature, HostClient, Lau
 use nightjar_core::input::packets::{modifier, mouse_button};
 use nightjar_core::sdp::*;
 use nightjar_core::session::{self, HostInfo, Interrupt, Location, NetworkHint, RoamingConfig, Session, SessionConfig, Stage};
+use nightjar_policy::health::TrialOffer;
 use nightjar_policy::stats::Stats;
 use rubylight_protocol::control::{HostTimingRequest, LinkNotice, LinkNoticeRequest, LinkState, Reconfigure, CLOCK_SYNC_MESSAGE_TYPE, HOST_TIMING_MESSAGE_TYPE, LINK_NOTICE_MESSAGE_TYPE, RECONFIGURE_MESSAGE_TYPE};
 use rubylight_protocol::pipeline_rates::{PipelineRatesReport, PipelineRatesRequest, PIPELINE_RATES_MESSAGE_TYPE, UNKNOWN};
@@ -1176,6 +1178,8 @@ pub struct Streaming {
     pub bitrate_kbps: u32,
     pub adaptive_bitrate: bool,
     bitrate_policy: Option<bitrate::Bitrate>,
+    /// The stream doctor: its report in the stream menu and after the stream, and the bitrate trial.
+    doctor: doctor::Doctor,
     pub quality_mode: QualityMode,
     quality_policy: Option<quality::Quality>,
     quality_ceiling: Reconfigure,
@@ -1330,6 +1334,7 @@ impl Streaming {
             bitrate_kbps,
             adaptive_bitrate: false,
             bitrate_policy: None,
+            doctor: doctor::Doctor::default(),
             quality_mode,
             quality_policy,
             quality_ceiling: mode,
@@ -1443,6 +1448,7 @@ impl Streaming {
         self.quality_mode = if self.facts.reconfigure { mode } else { QualityMode::Off };
         self.quality_policy = None;
         if self.quality_mode != QualityMode::Off {
+            self.doctor.trial.clear();
             if !self.request_mode(self.quality_ceiling) { self.quality_mode = QualityMode::Off; return; }
             match quality::Quality::new(mode, self.quality_ceiling, self.settings.quality_min_short_edge,
                 self.settings.quality_min_fps, self.started.elapsed().as_millis() as u64) {
@@ -1727,6 +1733,8 @@ impl Streaming {
                             if let Some(policy) = &mut self.bitrate_policy {
                                 policy.applied(requested, kbps, self.started.elapsed().as_millis() as u64);
                             } else {
+                                // A manual change replaces the doctor's trial.
+                                self.doctor.trial.clear();
                                 self.show_toast(trf("Bitrate set to {} kbps.", &[&kbps]));
                             }
                         }
@@ -1736,6 +1744,17 @@ impl Streaming {
                             self.show_toast(error);
                         }
                     }
+                }
+                Notice::HealthTrial(outcome) => {
+                    self.bitrate_busy = false;
+                    let (kbps, toast) = doctor::finished(&mut self.doctor.trial, outcome);
+                    if let Some(kbps) = kbps.filter(|kbps| *kbps > 0) {
+                        self.facts.bitrate_kbps = kbps as i32;
+                        self.bitrate_kbps = kbps;
+                    }
+                    // Automatic bitrate or quality started meanwhile: it owns the bitrate from here on.
+                    if self.adaptive_bitrate || self.quality_mode != QualityMode::Off { self.doctor.trial.clear(); }
+                    self.show_toast(toast);
                 }
                 Notice::Stage(_) | Notice::Reconnecting(_) | Notice::Started => {}
             }
@@ -1798,6 +1817,7 @@ impl Streaming {
                     self.window.timing_host_us += u64::from(r.host_us);
                     self.window.timing_encode_us += u64::from(r.encode_us);
                     self.window.timing_n += 1;
+                    self.doctor.host_sent(r.host_us);
                     self.timings.push_back((r.frame, u64::from(r.host_us)));
                     if self.timings.len() > 64 {
                         self.timings.pop_front();
@@ -1966,6 +1986,7 @@ impl Streaming {
         self.bitrate_policy = None;
         self.adaptive_bitrate = enabled && self.facts.runtime_bitrate && self.facts.role == AppRole::Stream;
         if !self.adaptive_bitrate { return; }
+        self.doctor.trial.clear();
         let client = lock(&self.shared.host_client).clone().expect("connected HTTP client");
         let shared = self.shared.clone();
         self.bitrate_busy = true;
@@ -1980,6 +2001,65 @@ impl Streaming {
             });
             shared.notify(Notice::AdaptiveBitrate(result));
         });
+    }
+
+    /// The trial the doctor offers with this report: none while automatic bitrate or quality owns
+    /// the bitrate, the host cannot change it mid-stream or another bitrate request runs.
+    fn trial_offer(&self, report: &nightjar_policy::health::Report) -> TrialOffer {
+        let automatic = self.adaptive_bitrate || self.quality_mode != QualityMode::Off;
+        self.doctor.trial.offer(report.can_suggest_bitrate(), self.facts.bitrate_kbps.max(0) as u32, self.facts.runtime_bitrate, automatic, self.bitrate_busy)
+    }
+
+    /// The stream doctor's report for the stream menu, and the trial it offers.
+    pub fn health(&mut self) -> (String, TrialOffer) {
+        let report = self.doctor.report(self.started.elapsed().as_millis() as u64);
+        let offer = self.trial_offer(&report);
+        let mut text = doctor::report_text(&report);
+        if offer != TrialOffer::None {
+            text.push_str("\n\n");
+            text.push_str(doctor::trial_help());
+        }
+        (text, offer)
+    }
+
+    /// Runs the step `offer` names if the doctor still offers it: lowers the host's live encoder
+    /// bitrate by a fifth, or goes back to the bitrate before the trial.
+    pub fn health_trial(&mut self, offer: TrialOffer) {
+        let report = self.doctor.report(self.started.elapsed().as_millis() as u64);
+        if offer == TrialOffer::None || self.trial_offer(&report) != offer { return; }
+        let client = lock(&self.shared.host_client).clone().expect("connected HTTP client");
+        let shared = self.shared.clone();
+        let trial = self.doctor.trial;
+        self.bitrate_busy = true;
+        std::thread::spawn(move || {
+            let live = || {
+                let info = client.server_info_https().map_err(|e| e.to_string())?;
+                if !info.capabilities.has(Feature::RuntimeBitrate) {
+                    return Err("The PC does not allow bitrate changes.".to_owned());
+                }
+                Ok(info.encoder_bitrate_kbps)
+            };
+            let outcome = doctor::run_trial(trial, offer == TrialOffer::Undo, live, |kbps| client.set_bitrate(kbps).map_err(|e| e.to_string()));
+            shared.notify(Notice::HealthTrial(outcome));
+        });
+    }
+
+    /// Copies the doctor's report to this device's clipboard.
+    pub fn copy_health(&mut self) {
+        let text = std::ffi::CString::new(self.health().0);
+        if text.as_ref().is_ok_and(|text| unsafe { SDL_SetClipboardText(text.as_ptr()) }) {
+            self.show_toast(tr("Report copied."));
+        } else {
+            self.show_toast(tr("Could not copy the report."));
+        }
+    }
+
+    /// The report for the screen after the stream when it found something; the log gets it either way.
+    pub fn health_summary(&mut self) -> Option<String> {
+        if self.facts.role == AppRole::InputOnly { return None; }
+        let report = self.doctor.report(self.started.elapsed().as_millis() as u64);
+        eprintln!("nightjar: stream health: {}", doctor::log_line(&report));
+        doctor::summary(&report)
     }
 
     pub fn toggle_menu(&mut self, window: *mut SDL_Window, pads: &mut Gamepads) {
@@ -2355,6 +2435,7 @@ impl Streaming {
             w.late += u32::from(p.late);
             w.network_us += p.decoded.enqueue_us.saturating_sub(p.decoded.receive_us);
             w.network_n += 1;
+            self.doctor.shown(p.decoded.host_latency, p.decoded.ready_us, presented);
             if let Some(csv) = &self.timing_csv {
                 let d = &p.decoded;
                 csv.row(crate::timing_csv::Row {
@@ -2616,7 +2697,7 @@ impl Streaming {
         // The window since the last tick, or since the last requested mode, which reset it.
         let decode_timing = quality::decode_timing(self.decode_generation, self.decode_window_us, now_us, self.facts.fps.max(0) as u32, &timing);
         self.decode_window_us = now_us;
-        let tick = Stats {
+        let mut tick = Stats {
             now_ms: self.started.elapsed().as_millis() as u64,
             recent_video: decoded > 0 && self.last_arrival.is_some_and(|(_, at)| now_us.saturating_sub(at) < 500_000),
             poor_connection: stats.connection_status == Some(nightjar_core::control::ConnectionStatus::Poor),
@@ -2628,9 +2709,13 @@ impl Streaming {
             received_fps: Some((received as f64 / secs) as f32),
             released_fps: Some((decoded as f64 / secs) as f32),
             shown_fps: Some((f64::from(w.shown) / secs) as f32),
-            host_includes_send: w.timing_n > 0,
             ..Default::default()
         };
+        self.doctor.timings(&mut tick);
+        // As on Android: no samples for input-only, or while a manual bitrate change or trial runs.
+        if self.facts.role != AppRole::InputOnly && !(self.bitrate_busy && !self.adaptive_bitrate) {
+            self.doctor.add(&tick);
+        }
         let quality_target = if let Some(policy) = &mut self.quality_policy {
             if self.menu_visible || !self.focused || self.pending_mode.is_some() { policy.suspend(); None }
             else {

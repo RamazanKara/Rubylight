@@ -63,12 +63,18 @@ fn offer(h: &Shared, config: &Config, dolby: u8) -> Offered {
     }
 }
 
+/// Off until AMF signals transfer 18 and the colour shader encodes HLG: until
+/// then HLG and Dolby Vision 8.4 stay unoffered, so no client can pick them.
+const ENCODER_WRITES_HLG: bool = false;
+
 /// HDR (A): the `rubylight_protocol::hdr` formats this host can encode now:
-/// Dolby Vision 8.1 beside PQ on HEVC Main10 while `hdr_dolby_vision` is on
+/// HLG on HEVC or AV1 Main10 while `hdr_hlg` is on, and Dolby Vision 8.1 (8.4
+/// with HLG) beside PQ on HEVC Main10 while `hdr_dolby_vision` is on
 /// (`extensions::hdr_offer`).
 fn hdr_formats(h: &Shared, config: &Config) -> u8 {
     butterpollo_core::extensions::hdr_offer(
         h.codecs.load(std::sync::atomic::Ordering::Acquire),
+        ENCODER_WRITES_HLG && config.hdr_hlg(),
         config.hdr_dolby_vision(),
     )
 }

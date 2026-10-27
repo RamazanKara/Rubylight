@@ -324,6 +324,12 @@ impl Negotiated {
     pub fn ten_bit(&self) -> bool {
         self.hdr || self.sdr_10bit
     }
+    /// An HDR stream with the HLG transfer (ARIB STD-B67) instead of PQ: HLG,
+    /// and Dolby Vision 8.4, whose base layer is HLG.
+    pub fn hlg(&self) -> bool {
+        use rubylight_protocol::hdr;
+        self.hdr && self.hdr_format & (hdr::HLG | hdr::DV_84) != 0
+    }
     pub fn color_matrix(&self) -> u8 {
         if self.hdr {
             2
@@ -821,6 +827,18 @@ mod tests {
         )
         .unwrap();
         assert!((both.pyrowave_client_link_mbps, both.client_wireless) == (0, true));
+    }
+    #[test]
+    fn hlg_and_dolby_vision_8_4_streams_take_the_hlg_transfer() {
+        let stream = |hdr, hdr_format| Negotiated {
+            hdr,
+            hdr_format,
+            ..Negotiated::default()
+        };
+        assert!(stream(true, 2).hlg() && stream(true, 8).hlg());
+        for (hdr, format) in [(true, 0), (true, 1), (true, 4), (false, 2), (false, 8)] {
+            assert!(!stream(hdr, format).hlg(), "{hdr} {format}");
+        }
     }
     #[test]
     fn the_3_0_choices_parse_as_numbers_and_default_to_stock() {

@@ -1,18 +1,23 @@
-//! Dolby Vision profile 8.1: one RPU (reference processing unit) per frame, as
-//! the HEVC NAL unit of type 62 that ends the access unit. Profile 8.1 is an
-//! HDR10 stream (HEVC Main10, PQ, BT.2020) with an RPU beside every frame, so a
-//! decoder without Dolby Vision plays the same bytes as HDR10.
+//! Dolby Vision profiles 8.1 and 8.4: one RPU (reference processing unit) per
+//! frame, as the HEVC NAL unit of type 62 that ends the access unit. Profile
+//! 8.1 is an HDR10 stream (HEVC Main10, PQ, BT.2020) and profile 8.4 an HLG one
+//! (HEVC Main10, ARIB STD-B67, BT.2020), each with an RPU beside every frame,
+//! so a decoder without Dolby Vision plays the same bytes as HDR10 or HLG.
 //!
-//! The RPU maps the base layer onto itself (an identity polynomial: the picture
-//! is the Dolby Vision signal), carries the standard PQ display-management
-//! matrices, and three CM v2.9 extension blocks: L1 (the frame's minimum,
-//! average and maximum PQ of maxRGB), L2 (neutral trims for the target display)
-//! and L6 (the stream's static HDR10 metadata).
+//! A profile 8.1 RPU maps the base layer onto itself (an identity polynomial:
+//! the picture is the Dolby Vision signal). A profile 8.4 RPU maps the HLG base
+//! layer onto the PQ Dolby Vision signal with a fixed reshaping (polynomial
+//! luma, MMR chroma) for a 1000-nit source display, the HLG reference peak.
+//! Both carry the standard PQ display-management matrices and three CM v2.9
+//! extension blocks: L1 (the frame's minimum, average and maximum PQ of
+//! maxRGB), L2 (neutral trims for the target display) and L6 (the stream's
+//! static HDR10 metadata).
 //!
-//! Syntax, default values and the L1 limits follow the `dolby_vision` crate of
-//! dovi_tool (quietvoid/dovi_tool, crate 3.4.0 at tag libdovi-3.4.0:
-//! `rpu/rpu_data_header.rs`, `rpu/rpu_data_mapping.rs`, `rpu/vdr_dm_data.rs`,
-//! `rpu/profiles/profile81.rs`, `rpu/extension_metadata/blocks`), Copyright
+//! Syntax, default values, the L1 limits and the 8.4 reshaping follow the
+//! `dolby_vision` crate of dovi_tool (quietvoid/dovi_tool, crate 3.4.0 at tag
+//! libdovi-3.4.0: `rpu/rpu_data_header.rs`, `rpu/rpu_data_mapping.rs`,
+//! `rpu/vdr_dm_data.rs`, `rpu/profiles/profile81.rs`,
+//! `rpu/profiles/profile84.rs`, `rpu/extension_metadata/blocks`), Copyright
 //! (c) 2026 quietvoid, MIT. FFmpeg's `libavcodec/dovi_rpudec.c` reads the same
 //! syntax.
 use crate::hdr::Metadata;
@@ -42,11 +47,32 @@ const YCC_TO_RGB: [i16; 9] = [9574, 0, 13802, 9574, -1540, -5348, 9574, 17610, 0
 const YCC_TO_RGB_OFFSETS: [u32; 3] = [16_777_216, 134_217_728, 134_217_728];
 const RGB_TO_LMS: [i16; 9] = [7222, 8771, 390, 2654, 12430, 1300, 0, 422, 15962];
 
-/// Whether a negotiated stream carries profile 8.1 RPUs: HDR HEVC whose client
-/// picked Dolby Vision 8.1 (`x-rl-video[0].hdrFormat`). Stock clients pick no
+/// The two profiles: 8.1 over an HDR10 base layer, 8.4 over an HLG one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Profile {
+    #[default]
+    P81,
+    P84,
+}
+
+/// The profile 8.4 source display (dovi_tool's `Profile84::dm_data`): 0.005 to
+/// 1000 nits in 12-bit PQ, the HLG reference display.
+const P84_SOURCE_MIN_PQ: u16 = 62;
+const P84_SOURCE_MAX_PQ: u16 = 3079;
+
+/// The RPU profile a negotiated stream carries: HDR HEVC whose client picked
+/// Dolby Vision 8.1 or 8.4 (`x-rl-video[0].hdrFormat`). Stock clients pick no
 /// format, so their streams stay byte for byte HDR10.
-pub fn negotiated(stream: &crate::rtsp::Negotiated) -> bool {
-    stream.hdr && stream.codec == 1 && stream.hdr_format == rubylight_protocol::hdr::DV_81
+pub fn negotiated(stream: &crate::rtsp::Negotiated) -> Option<Profile> {
+    use rubylight_protocol::hdr;
+    if !stream.hdr || stream.codec != 1 {
+        return None;
+    }
+    match stream.hdr_format {
+        hdr::DV_81 => Some(Profile::P81),
+        hdr::DV_84 => Some(Profile::P84),
+        _ => None,
+    }
 }
 
 /// A PQ signal value (0..=1) as the 12-bit code RPUs carry.
@@ -121,6 +147,7 @@ pub struct Frame {
     /// The frame starts a scene: the client's display management does not
     /// carry its temporal filtering across it.
     pub scene_refresh: bool,
+    pub profile: Profile,
 }
 
 impl Frame {
@@ -129,7 +156,10 @@ impl Frame {
     pub fn rpu(&self) -> Vec<u8> {
         let mut bits = Bits::with_prefix(RPU_PREFIX);
         header(&mut bits);
-        mapping(&mut bits);
+        match self.profile {
+            Profile::P81 => mapping(&mut bits),
+            Profile::P84 => mapping_84(&mut bits),
+        }
         self.dm_data(&mut bits);
         bits.align();
         let crc = crc32_mpeg2(&bits.bytes[1..]);
@@ -171,8 +201,15 @@ impl Frame {
         bits.put(2, 0); // signal_color_space: YCbCr
         bits.put(2, 0); // signal_chroma_format: 4:2:0
         bits.put(2, 1); // signal_full_range_flag
-        bits.put(12, nits_pq12(f32::from(metadata.minimum) / 10_000.).into()); // source_min_pq
-        bits.put(12, nits_pq12(f32::from(metadata.maximum_nits)).into()); // source_max_pq
+        let (source_min_pq, source_max_pq) = match self.profile {
+            Profile::P81 => (
+                nits_pq12(f32::from(metadata.minimum) / 10_000.),
+                nits_pq12(f32::from(metadata.maximum_nits)),
+            ),
+            Profile::P84 => (P84_SOURCE_MIN_PQ, P84_SOURCE_MAX_PQ),
+        };
+        bits.put(12, source_min_pq.into());
+        bits.put(12, source_max_pq.into());
         bits.put(10, SOURCE_DIAGONAL.into());
 
         // CM v2.9 extension blocks, in level order.
@@ -253,6 +290,115 @@ fn mapping(bits: &mut Bits) {
     }
 }
 
+/// Profile 8.4's luma reshaping: eight second-order pieces between these
+/// pivots (each the distance from the one before), and their coefficients as
+/// integer and 23-bit fractional parts.
+const P84_LUMA_PIVOTS: [u64; 9] = [63, 69, 230, 256, 256, 37, 16, 8, 7];
+const P84_LUMA_INT: [[i64; 3]; 8] = [
+    [-1, 1, -3],
+    [-1, 1, -2],
+    [0, 0, -1],
+    [0, 0, 0],
+    [0, -2, 1],
+    [6, -14, 8],
+    [13, -30, 16],
+    [28, -62, 34],
+];
+const P84_LUMA: [[u64; 3]; 8] = [
+    [7978928, 8332855, 4889184],
+    [8269552, 5186604, 3909327],
+    [1317527, 5338528, 7440486],
+    [2119979, 2065496, 2288524],
+    [7982780, 5409990, 1585336],
+    [3460436, 3197328, 615464],
+    [3921968, 6820672, 5546752],
+    [1947392, 1244640, 6094272],
+];
+
+/// One chroma component of profile 8.4: a third-order MMR (multivariate
+/// multiple regression) over the whole range, as a constant and three orders
+/// of seven coefficients, integer and 23-bit fractional parts.
+struct Mmr {
+    constant_int: i64,
+    constant: u64,
+    coefficient_int: [[i64; 7]; 3],
+    coefficient: [[u64; 7]; 3],
+}
+
+const P84_CHROMA: [Mmr; 2] = [
+    Mmr {
+        constant_int: 1,
+        constant: 1150183,
+        coefficient_int: [
+            [-1, -2, -5, 2, 5, 9, -12],
+            [-1, -1, 3, -1, -5, -12, 18],
+            [-1, 0, -2, 0, 2, 7, -19],
+        ],
+        coefficient: [
+            [87355, 6228986, 642500, 1023296, 6569512, 5128216, 4317296],
+            [
+                8299905, 5819931, 2324124, 7273546, 1562484, 3679480, 6357360,
+            ],
+            [8172981, 3261951, 5970055, 927142, 3525840, 5110348, 6236848],
+        ],
+    },
+    Mmr {
+        constant_int: -2,
+        constant: 6266112,
+        coefficient_int: [
+            [4, 0, 5, -2, -8, -1, 1],
+            [-4, -1, -6, 1, 12, 0, -4],
+            [1, 0, 2, -1, -8, -1, 4],
+        ],
+        coefficient: [
+            [193104, 5369128, 2553116, 8009648, 2772020, 3122453, 2961581],
+            [6769788, 2565605, 7864496, 4777288, 649616, 7036536, 1666406],
+            [406265, 2901521, 2680224, 146340, 1008052, 4366810, 5080852],
+        ],
+    },
+];
+
+/// rpu_data_mapping of profile 8.4: the HLG base layer reshaped onto the PQ
+/// signal, polynomial luma and MMR chroma (dovi_tool's
+/// `Profile84::rpu_data_mapping`).
+fn mapping_84(bits: &mut Bits) {
+    let denominator = u32::from(COEFFICIENT_LOG2_DENOM);
+    bits.ue(0); // vdr_rpu_id
+    bits.ue(0); // mapping_color_space
+    bits.ue(0); // mapping_chroma_format_idc
+    bits.ue(P84_LUMA_PIVOTS.len() as u64 - 2); // num_pivots_minus2
+    for pivot in P84_LUMA_PIVOTS {
+        bits.put(BL_BIT_DEPTH, pivot);
+    }
+    for _ in &P84_CHROMA {
+        bits.ue(0); // num_pivots_minus2
+        bits.put(BL_BIT_DEPTH, 0);
+        bits.put(BL_BIT_DEPTH, (1 << BL_BIT_DEPTH) - 1);
+    }
+    bits.ue(0); // num_x_partitions_minus1
+    bits.ue(0); // num_y_partitions_minus1
+    for (integers, fractions) in P84_LUMA_INT.iter().zip(&P84_LUMA) {
+        bits.ue(0); // mapping_idc: polynomial
+        bits.ue(1); // poly_order_minus1
+        for (&integer, &fraction) in integers.iter().zip(fractions) {
+            bits.se(integer); // poly_coef_int
+            bits.put(denominator, fraction); // poly_coef
+        }
+    }
+    for mmr in &P84_CHROMA {
+        bits.ue(1); // mapping_idc: MMR
+        bits.put(2, 2); // mmr_order_minus1
+        bits.se(mmr.constant_int);
+        bits.put(denominator, mmr.constant);
+        for (integers, fractions) in mmr.coefficient_int.iter().zip(&mmr.coefficient) {
+            for (&integer, &fraction) in integers.iter().zip(fractions) {
+                bits.se(integer); // mmr_coef_int
+                bits.put(denominator, fraction); // mmr_coef
+            }
+        }
+    }
+}
+
 /// One extension block of `length` bytes, zero-padded after `payload`.
 fn extension_block(bits: &mut Bits, level: u8, length: u64, payload: impl FnOnce(&mut Bits)) {
     bits.ue(length);
@@ -288,6 +434,7 @@ pub fn crc32_mpeg2(data: &[u8]) -> u32 {
 /// stream without statistics).
 #[derive(Clone, Debug)]
 pub struct Writer {
+    profile: Profile,
     metadata: Metadata,
     target_nits: u16,
     measured: Option<Level1>,
@@ -296,13 +443,24 @@ pub struct Writer {
 }
 
 impl Writer {
+    /// Profile 8.1 RPUs; [`Writer::with_profile`] picks 8.4.
     pub fn new(target_nits: u16) -> Self {
         Self {
+            profile: Profile::P81,
             metadata: Metadata::default(),
             target_nits,
             measured: None,
             refresh: true,
         }
+    }
+
+    pub fn with_profile(mut self, profile: Profile) -> Self {
+        self.profile = profile;
+        self
+    }
+
+    pub fn profile(&self) -> Profile {
+        self.profile
     }
 
     pub fn target_nits(&self) -> u16 {
@@ -349,6 +507,7 @@ impl Writer {
             target_nits: self.target_nits,
             metadata: self.metadata,
             scene_refresh: self.refresh || keyframe,
+            profile: self.profile,
         };
         self.refresh = false;
         frame

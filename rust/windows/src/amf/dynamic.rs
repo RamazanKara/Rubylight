@@ -1,6 +1,7 @@
 //! Dynamic HDR metadata in AMF's output: HDR10+ and HDR Vivid
-//! (`butterpollo_core::hdr_dynamic`) before each frame's first slice, and a
-//! Dolby Vision profile 8.1 RPU (`butterpollo_core::dovi`) after its last. The
+//! (`butterpollo_core::hdr_dynamic`; HDR Vivid alone on HLG streams) before
+//! each frame's first slice, and a Dolby Vision profile 8.1 or 8.4 RPU
+//! (`butterpollo_core::dovi`) after its last. The
 //! conversion's statistics pass (`compute_hdr_stats.rs` behind the compute
 //! conversion, `gpu_color/hdr_stats.rs` behind the D3D11 one) measures each
 //! frame once it went to the encoder; the newest finished sample is smoothed
@@ -19,10 +20,14 @@ use std::time::{Duration, Instant};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Wanted {
     pub(super) codec: Codec,
-    /// HDR10+ and HDR Vivid (`hdr_dynamic_metadata`).
+    /// HDR10+ and HDR Vivid (`hdr_dynamic_metadata`), HDR Vivid alone on an
+    /// HLG stream.
     pub(super) t35: bool,
-    /// A Dolby Vision 8.1 RPU on every frame ([`dovi::negotiated`]).
+    /// A Dolby Vision RPU on every frame ([`dovi::negotiated`]), profile 8.4
+    /// on an HLG stream, else 8.1.
     pub(super) dolby_vision: bool,
+    /// An HLG stream (`Negotiated::hlg`): HLG or Dolby Vision 8.4.
+    pub(super) hlg: bool,
 }
 
 impl Wanted {
@@ -32,13 +37,29 @@ impl Wanted {
             codec,
             t35: true,
             dolby_vision: false,
+            hlg: false,
         }
+    }
+
+    /// The units the statistics become, and the RPU profile.
+    fn writers(self, target_nits: u16) -> (Writer, Option<dovi::Writer>) {
+        let writer = Writer::new(self.codec);
+        let (writer, profile) = if self.hlg {
+            (writer.with_hlg(), dovi::Profile::P84)
+        } else {
+            (writer, dovi::Profile::P81)
+        };
+        let rpus = self
+            .dolby_vision
+            .then(|| dovi::Writer::new(target_nits).with_profile(profile));
+        (writer, rpus)
     }
 }
 
-/// HEVC or AV1 HDR streams with `hdr_dynamic_metadata` on, and HEVC streams
-/// whose client picked Dolby Vision 8.1. `None` leaves every output byte as
-/// AMF wrote it.
+/// HEVC or AV1 HDR streams with `hdr_dynamic_metadata` on (HEVC only for HLG:
+/// HDR Vivid has no AV1 carriage and HDR10+ describes PQ only), and HEVC
+/// streams whose client picked Dolby Vision 8.1 or 8.4. `None` leaves every
+/// output byte as AMF wrote it.
 pub(super) fn wanted(
     config: &butterpollo_core::rtsp::Negotiated,
     options: &butterpollo_core::config::Config,
@@ -46,10 +67,13 @@ pub(super) fn wanted(
     if !config.hdr {
         return None;
     }
+    let codec = Codec::from_video_format(config.codec)?;
+    let hlg = config.hlg();
     let wanted = Wanted {
-        codec: Codec::from_video_format(config.codec)?,
-        t35: options.hdr_dynamic_metadata(),
-        dolby_vision: dovi::negotiated(config),
+        codec,
+        t35: options.hdr_dynamic_metadata() && !(hlg && codec == Codec::Av1),
+        dolby_vision: dovi::negotiated(config).is_some(),
+        hlg,
     };
     (wanted.t35 || wanted.dolby_vision).then_some(wanted)
 }
@@ -106,13 +130,14 @@ fn off(warnings: &Warnings, code: &'static str, message: String) {
 /// is off, and Dolby Vision RPUs carry the static light levels.
 fn unmeasured(wanted: Wanted, stream: &str, why: &str, warnings: &Warnings) {
     if wanted.t35 {
-        off(
-            warnings,
-            "hdr_dynamic_metadata",
+        let message = if wanted.hlg {
+            format!("HDR Vivid is off for {stream}: {why}")
+        } else {
             format!(
                 "HDR10+ and HDR Vivid are off for {stream}: {why}. It carries static HDR10 metadata only"
-            ),
-        );
+            )
+        };
+        off(warnings, "hdr_dynamic_metadata", message);
     }
     if wanted.dolby_vision {
         off(
@@ -152,8 +177,10 @@ pub(super) fn start(
         Some(Ok(())) => {
             tracing::info!(
                 codec = ?wanted.codec,
-                hdr10_plus = wanted.t35,
+                hdr10_plus = wanted.t35 && !wanted.hlg,
+                vivid = wanted.t35 && wanted.codec == Codec::Hevc,
                 dolby_vision = wanted.dolby_vision,
+                hlg = wanted.hlg,
                 packed,
                 "HDR dynamic metadata on"
             );
@@ -170,7 +197,11 @@ pub(super) fn start(
     if !wanted.dolby_vision {
         return None;
     }
-    tracing::info!(codec = ?wanted.codec, "Dolby Vision 8.1 on, from the static metadata");
+    tracing::info!(
+        codec = ?wanted.codec,
+        hlg = wanted.hlg,
+        "Dolby Vision on, from the static metadata"
+    );
     Some(Box::new(Dynamic::with(
         Wanted {
             t35: false,
@@ -326,11 +357,12 @@ impl Dynamic {
     /// metadata, `hdr::Metadata::default`.
     pub(super) fn with(wanted: Wanted, measuring: bool) -> Self {
         let target = hdr_dynamic::target_display_nits(None, None);
+        let (writer, dovi) = wanted.writers(target);
         Self {
             wanted,
-            writer: Writer::new(wanted.codec),
+            writer,
             display_peak: target,
-            dovi: wanted.dolby_vision.then(|| dovi::Writer::new(target)),
+            dovi,
             measuring,
             sampled: 0,
             added: 0,
@@ -493,8 +525,9 @@ impl Drop for Dynamic {
         }
         tracing::info!(
             codec = ?self.writer.codec(),
-            hdr10_plus = self.wanted.t35,
+            hdr10_plus = self.wanted.t35 && !self.wanted.hlg,
             dolby_vision = self.dovi.is_some(),
+            hlg = self.wanted.hlg,
             frames = r.frames,
             spliced = r.spliced,
             stand_in = r.stand_in,
@@ -818,6 +851,7 @@ mod tests {
             codec: Codec::Hevc,
             t35,
             dolby_vision: true,
+            hlg: false,
         }
     }
 
@@ -848,6 +882,72 @@ mod tests {
         assert_eq!(wanted(&config(1, 0), &off), None);
         assert_eq!(wanted(&config(1, 1), &off), None);
         assert_eq!(wanted(&config(2, 4), &off), None);
+    }
+
+    #[test]
+    fn hlg_streams_want_hdr_vivid_on_hevc_and_dolby_vision_8_4() {
+        let on = butterpollo_core::config::Config::default();
+        let off =
+            butterpollo_core::config::Config::parse("hdr_dynamic_metadata = false\n").unwrap();
+        let config = |codec, hdr_format| butterpollo_core::rtsp::Negotiated {
+            codec,
+            hdr: true,
+            hdr_format,
+            ..Default::default()
+        };
+        let hlg = |t35, dolby_vision| Wanted {
+            codec: Codec::Hevc,
+            t35,
+            dolby_vision,
+            hlg: true,
+        };
+        assert_eq!(wanted(&config(1, 2), &on), Some(hlg(true, false)));
+        assert_eq!(wanted(&config(1, 2), &off), None);
+        assert_eq!(wanted(&config(1, 8), &on), Some(hlg(true, true)));
+        assert_eq!(wanted(&config(1, 8), &off), Some(hlg(false, true)));
+        // AV1 HLG: HDR Vivid has no AV1 carriage and HDR10+ is PQ only.
+        assert_eq!(wanted(&config(2, 2), &on), None);
+        // The writers follow: HLG units and 8.4 RPUs.
+        let (writer, rpus) = hlg(true, true).writers(1000);
+        assert!(writer.hlg());
+        assert_eq!(rpus.unwrap().profile(), dovi::Profile::P84);
+        let (writer, rpus) = dolby_vision(true).writers(1000);
+        assert!(!writer.hlg());
+        assert_eq!(rpus.unwrap().profile(), dovi::Profile::P81);
+    }
+
+    #[test]
+    fn a_dolby_vision_8_4_frame_carries_hdr_vivid_for_hlg_and_an_8_4_rpu() {
+        let warnings = Warnings::default();
+        let mut stats = FakeStats {
+            readout: Some(readout(6, 100, 700)),
+            ..Default::default()
+        };
+        let wanted = Wanted {
+            hlg: true,
+            ..dolby_vision(true)
+        };
+        let mut slot = start(wanted, false, Some(&mut stats), &warnings);
+        sample(&mut slot, Some(&mut stats), &warnings);
+        let dynamic = slot.as_deref_mut().unwrap();
+        let measured = readout(6, 100, 700).frame_stats().unwrap();
+        let units = hdr_dynamic::hlg_frame_units(Codec::Hevc, &measured).unwrap();
+        let mut rpus = dovi::Writer::new(1000).with_profile(dovi::Profile::P84);
+        rpus.sample(
+            &hdr_dynamic::StatsSmoother::default()
+                .update(&measured)
+                .unwrap(),
+        );
+        let rpu = rpus.frame(false).nal();
+        let frame = keyframe();
+        let at = insert_offset(Codec::Hevc, &frame).unwrap();
+        let (bytes, cap) = output(Some(dynamic), Unit::Whole, &frame, Some(5000), false);
+        assert_eq!(
+            bytes,
+            Some([&frame[..at], &units, &frame[at..], &rpu].concat())
+        );
+        assert_eq!(cap, Some(5000 + (units.len() + rpu.len()) as u64));
+        assert!(warnings.snapshot().is_empty());
     }
 
     #[test]

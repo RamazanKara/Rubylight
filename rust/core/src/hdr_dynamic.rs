@@ -252,11 +252,20 @@ impl Vivid {
         })
     }
 
-    /// The complete T.35 payload, from the country code on.
+    /// The complete T.35 payload of a PQ stream, from the country code on.
     pub fn to_t35(&self) -> Vec<u8> {
-        // Country China, provider 0x0004 (CUVA), provider-oriented code 0x0005,
-        // system_start_code 1.
-        let mut bits = BitWriter::with_prefix(&[0x26, 0x00, 0x04, 0x00, 0x05, 0x01]);
+        self.t35(VIVID_PQ)
+    }
+
+    /// The same statistics for an HLG stream: CUVA 005.1 carries them unchanged,
+    /// as PQ codes of display light, under system_start_code 2.
+    pub fn to_t35_hlg(&self) -> Vec<u8> {
+        self.t35(VIVID_HLG)
+    }
+
+    fn t35(&self, system_start_code: u8) -> Vec<u8> {
+        // Country China, provider 0x0004 (CUVA), provider-oriented code 0x0005.
+        let mut bits = BitWriter::with_prefix(&[0x26, 0x00, 0x04, 0x00, 0x05, system_start_code]);
         for code in [
             self.minimum_maxrgb,
             self.average_maxrgb,
@@ -270,6 +279,10 @@ impl Vivid {
         bits.bytes
     }
 }
+
+/// CUVA 005.1 system_start_code of a PQ and of an HLG stream.
+const VIVID_PQ: u8 = 0x01;
+const VIVID_HLG: u8 = 0x02;
 
 /// MSB-first bit writer; the last byte is padded with zeros.
 struct BitWriter {
@@ -333,6 +346,17 @@ pub fn frame_units(codec: Codec, stats: &FrameStats) -> Option<Vec<u8>> {
         units.extend(codec.t35_unit(&Vivid::from_stats(stats)?.to_t35()));
     }
     Some(units)
+}
+
+/// Every dynamic-metadata unit for one frame of an HLG stream: HDR Vivid on HEVC. HDR10+
+/// describes PQ streams only and HDR Vivid has no AV1 carriage, so an AV1 HLG frame
+/// carries none. `None` for invalid statistics.
+pub fn hlg_frame_units(codec: Codec, stats: &FrameStats) -> Option<Vec<u8>> {
+    let vivid = Vivid::from_stats(stats)?;
+    Some(match codec {
+        Codec::Hevc => codec.t35_unit(&vivid.to_t35_hlg()),
+        Codec::Av1 => Vec::new(),
+    })
 }
 
 const HEVC_PREFIX_SEI: u8 = 39;
@@ -416,6 +440,8 @@ pub fn spliced(codec: Codec, frame: &[u8], units: &[u8]) -> Option<Vec<u8>> {
 #[derive(Clone, Debug)]
 pub struct Writer {
     codec: Codec,
+    /// An HLG stream: [`hlg_frame_units`] instead of [`frame_units`].
+    hlg: bool,
     smoother: StatsSmoother,
     metadata: crate::hdr::Metadata,
     measured: bool,
@@ -429,6 +455,7 @@ impl Writer {
         let metadata = crate::hdr::Metadata::default();
         Self {
             codec,
+            hlg: false,
             smoother: StatsSmoother::default(),
             metadata,
             measured: false,
@@ -440,6 +467,37 @@ impl Writer {
         self.codec
     }
 
+    /// Units for an HLG stream ([`hlg_frame_units`]), its stand-in included.
+    pub fn with_hlg(mut self) -> Self {
+        self.hlg = true;
+        if !self.measured {
+            self.units = self.stand_in(&self.metadata);
+        }
+        self
+    }
+
+    pub fn hlg(&self) -> bool {
+        self.hlg
+    }
+
+    fn frame_units(&self, stats: &FrameStats) -> Option<Vec<u8>> {
+        if self.hlg {
+            hlg_frame_units(self.codec, stats)
+        } else {
+            frame_units(self.codec, stats)
+        }
+    }
+
+    /// The units of frames before the first sample, from the static levels.
+    fn stand_in(&self, metadata: &crate::hdr::Metadata) -> Vec<u8> {
+        if self.hlg {
+            hlg_frame_units(self.codec, &FrameStats::from_static(metadata))
+                .expect("static levels make valid statistics")
+        } else {
+            stand_in_units(self.codec, metadata)
+        }
+    }
+
     /// The stream's static HDR10 metadata. Until the first sample, the units are rebuilt
     /// from it; after, the measurements stand.
     pub fn set_metadata(&mut self, metadata: &crate::hdr::Metadata) {
@@ -448,7 +506,7 @@ impl Writer {
         }
         self.metadata = *metadata;
         if !self.measured {
-            self.units = stand_in_units(self.codec, metadata);
+            self.units = self.stand_in(metadata);
         }
     }
 
@@ -456,7 +514,7 @@ impl Writer {
     /// return `None` and keep the current units.
     pub fn sample(&mut self, raw: &FrameStats) -> Option<Smoothed> {
         let smoothed = self.smoother.update(raw)?;
-        self.units = frame_units(self.codec, &smoothed.stats)?;
+        self.units = self.frame_units(&smoothed.stats)?;
         self.measured = true;
         Some(smoothed)
     }
@@ -466,7 +524,7 @@ impl Writer {
         self.measured
     }
 
-    /// The units for the next frame; never empty.
+    /// The units for the next frame; empty only on AV1 HLG streams, which carry none.
     pub fn units(&self) -> &[u8] {
         &self.units
     }

@@ -27,6 +27,7 @@ fn frame() -> Frame {
         target_nits: 600,
         metadata: hdr10(),
         scene_refresh: true,
+        profile: Profile::P81,
     }
 }
 
@@ -49,7 +50,7 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 #[test]
-fn only_hdr_hevc_streams_that_picked_profile_8_1_carry_rpus() {
+fn only_hdr_hevc_streams_that_picked_profile_8_carry_rpus() {
     use rubylight_protocol::hdr;
     let stream = |codec, hdr, hdr_format| crate::rtsp::Negotiated {
         codec,
@@ -57,12 +58,28 @@ fn only_hdr_hevc_streams_that_picked_profile_8_1_carry_rpus() {
         hdr_format,
         ..Default::default()
     };
-    assert!(negotiated(&stream(1, true, hdr::DV_81)));
-    assert!(!negotiated(&stream(1, true, 0)), "stock clients pick none");
-    assert!(!negotiated(&stream(1, true, hdr::PQ)));
-    assert!(!negotiated(&stream(1, true, hdr::DV_84)), "8.4 needs HLG");
-    assert!(!negotiated(&stream(2, true, hdr::DV_81)), "AV1");
-    assert!(!negotiated(&stream(1, false, hdr::DV_81)), "SDR");
+    assert_eq!(negotiated(&stream(1, true, hdr::DV_81)), Some(Profile::P81));
+    assert_eq!(negotiated(&stream(1, true, hdr::DV_84)), Some(Profile::P84));
+    assert!(stream(1, true, hdr::DV_84).hlg(), "8.4 is HLG underneath");
+    assert_eq!(
+        negotiated(&stream(1, true, 0)),
+        None,
+        "stock clients pick none"
+    );
+    for (codec, hdr, format) in [
+        (1, true, hdr::PQ),
+        (1, true, hdr::HLG),
+        (2, true, hdr::DV_81),
+        (2, true, hdr::DV_84),
+        (1, false, hdr::DV_81),
+        (1, false, hdr::DV_84),
+    ] {
+        assert_eq!(
+            negotiated(&stream(codec, hdr, format)),
+            None,
+            "{codec} {hdr} {format}"
+        );
+    }
 }
 
 #[test]
@@ -99,6 +116,45 @@ const GOLDEN: &str = concat!(
     "000301a2566000035ea2566f9fceb1c256644ca00000100000030080000003008000000301c362243018",
     "60a5e308e0514000001a63e5affff000000300000300000300060207d80e15103008005dc32000c02b23",
     "8008008008008004000120c07d00064064001680d76703ed80",
+);
+
+#[test]
+fn a_profile_8_4_rpu_reshapes_hlg_for_a_1000_nit_source() {
+    // Checked with dovi_tool's `dolby_vision` 3.4.0: `DoviRpu::parse_unspec62_nalu`
+    // reads profile 8, a matching CRC, source 62..3079 and the same L1, L2 and
+    // L6 as 8.1, its mapping equals `Profile84::rpu_data_mapping()`, and its
+    // writer writes these bytes back unchanged.
+    let frame = Frame {
+        profile: Profile::P84,
+        ..frame()
+    };
+    let rpu = frame.rpu();
+    assert_eq!(&rpu[..3], &[0x19, 0x08, 0x09]);
+    let crc_at = rpu.len() - 5;
+    assert_eq!(
+        crc32_mpeg2(&rpu[1..crc_at]).to_be_bytes(),
+        rpu[crc_at..rpu.len() - 1]
+    );
+    assert_eq!(hex(&frame.nal()), GOLDEN_84);
+    // The writer keeps the profile it was given, frame after frame.
+    let mut writer = Writer::new(600).with_profile(Profile::P84);
+    assert_eq!(writer.profile(), Profile::P84);
+    assert_eq!(writer.frame(false).profile, Profile::P84);
+    assert_eq!(writer.frame(true).profile, Profile::P84);
+    assert_eq!(Writer::new(600).frame(false).profile, Profile::P81);
+}
+
+const GOLDEN_84: &str = concat!(
+    "000000017c0119080908406136506e203f114e6401000941002007801ffc00fffa7e6fec17f26373ca9a",
+    "60a7f8bbc14f242c2bba6cfa941a97d175a07c6219aa8164ae7e11628bae32be73af0b4a33191830b8a1",
+    "8d335503ac32640202590a2834ef60c01ee81340041528c0281c1db70003e92fde00225cfdc0522319ce",
+    "c0aa9d96f85fd0b139b8841f3a802b21f1404a7200c0660f0383fd4b02ec670d991bb4e3ddf8942cbebb",
+    "a065c127c024c202e0fe5adad8e2ff96d8c43c712d311ae6680e9bf49809ef955828b7e7400402f250d1",
+    "ed28149bd470be8dec022a930d1afa5154b4c2b44e74c7c69c97946f800b052395203027a643ad79e049",
+    "96d66418cbe6b118448a39681823ba4088f61b470a876844d8714d12b300001af512b37cfe758e12b322",
+    "6500000300800000040000030004000003000e1b112180c3052f1847028a00000300d31f2d7fff800000",
+    "030000030000030030103ec070a8803008005dc32000c02b238008008008008004000120c07d00064064",
+    "001680ab7ef1fe80",
 );
 
 #[test]

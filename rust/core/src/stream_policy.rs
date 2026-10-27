@@ -839,6 +839,25 @@ pub fn packed_drops_dolby_vision(
     }
     dropped
 }
+/// Why a packed 4:4:4 stream never carries HLG, for the log and the session
+/// warning.
+pub const PACKED_HLG: &str = "HLG is off for packed 4:4:4 streams: the device unpacks the packed picture itself and shows it as HDR10. The stream carries HDR10 and HDR10+ instead";
+/// A packed 4:4:4 stream whose client picked HLG streams HDR10, like one that
+/// picked Dolby Vision ([`packed_drops_dolby_vision`], which drops 8.4 as
+/// Dolby Vision first): the client's unpack shader shows the picture as PQ.
+/// The log and the session's warnings say so; any other stream clears the
+/// warning. Returns whether it dropped it.
+pub fn packed_drops_hlg(stream: &mut Negotiated, warnings: &crate::session::Warnings) -> bool {
+    let dropped = stream.chroma_packing != 0 && stream.hdr_format == rubylight_protocol::hdr::HLG;
+    if dropped {
+        tracing::warn!(hdr_format = stream.hdr_format, "{PACKED_HLG}");
+        warnings.set("hdr_hlg", PACKED_HLG);
+        stream.hdr_format = 0;
+    } else {
+        warnings.clear("hdr_hlg");
+    }
+    dropped
+}
 /// An HDR request streamed as ten-bit SDR: its HDR format pick goes with it.
 fn stream_sdr_10bit(stream: &mut Negotiated) {
     stream.sdr_10bit = true;

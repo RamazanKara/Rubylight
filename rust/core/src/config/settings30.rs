@@ -9,7 +9,6 @@ use std::path::PathBuf;
 
 /// Every 3.0 setting with its default, as `sunshine.conf` would spell it.
 pub const SETTINGS_30: &[(&str, &str)] = &[
-    ("hdr_hlg", "true"),
     ("audio_surround_714", "true"),
     ("pen_barrel_roll", "true"),
     ("touch_keyboard_digitizer", "false"),
@@ -98,10 +97,6 @@ impl Config {
         }
     }
 
-    /// HLG HDR for devices that ask for it (on by default).
-    pub fn hdr_hlg(&self) -> bool {
-        self.boolean("hdr_hlg", true)
-    }
     /// 7.1.4 surround sound (on by default).
     pub fn audio_surround_714(&self) -> bool {
         self.boolean("audio_surround_714", true)
@@ -321,9 +316,9 @@ mod tests {
     }
 
     #[test]
-    fn there_are_21_unique_settings() {
+    fn there_are_20_unique_settings() {
         let keys: std::collections::BTreeSet<_> = SETTINGS_30.iter().map(|(k, _)| k).collect();
-        assert_eq!((SETTINGS_30.len(), keys.len()), (21, 21));
+        assert_eq!((SETTINGS_30.len(), keys.len()), (20, 20));
     }
 
     #[test]

@@ -55,6 +55,18 @@ test('Dolby Vision is a live Experimental setting that says why packed 4:4:4 str
   assert.equal(differsFromDefault(setting, {}, { hdr_dolby_vision: false }), true);
 });
 
+test('HLG is a live, normal setting that leaves packed 4:4:4 streams on HDR10', () => {
+  const setting = settings.get('hdr_hlg');
+  assert.equal(setting.default, true);
+  assert.equal(setting.control.kind, 'toggle');
+  assert.equal(setting.category, 'video');
+  assert.equal(setting.label, 'HLG');
+  assert.match(setting.details, /Packed 4:4:4 streams stay HDR10/);
+  assert.doesNotMatch(`${setting.label} ${setting.description} ${setting.details}`, /experimental|Foundation/i);
+  assert.equal(pending.some(candidate => candidate.key === 'hdr_hlg'), false);
+  assert.equal(differsFromDefault(setting, {}, { hdr_hlg: false }), true);
+});
+
 test('descriptions stay to two short sentences and keep the finer points behind More', () => {
   for (const setting of schema.settings) {
     assert(setting.description.length <= 180, `${setting.key}: ${setting.description.length} characters`);
@@ -481,7 +493,7 @@ test('the keyboard follows text fields without their text, typing with the devic
 const live = ['audio_surround_714'];
 
 test('settings still pending stay out of the console, and shipped ones are in it', () => {
-  assert.equal(pending.length, 21);
+  assert.equal(pending.length, 20);
   for (const setting of pending) {
     const shipped = live.includes(setting.key);
     assert.equal(setting.pending === true, !shipped, setting.key);

@@ -347,6 +347,10 @@ async fn connection(
                         &mut negotiated,
                         &launch.warnings,
                     );
+                    butterpollo_core::stream_policy::packed_drops_hlg(
+                        &mut negotiated,
+                        &launch.warnings,
+                    );
                     negotiated.validate()?;
                     if negotiated.chroma_packing != 0 {
                         anyhow::ensure!(

@@ -2342,7 +2342,7 @@ fn a_stream_turned_into_ten_bit_sdr_drops_its_hdr_format_pick() {
 fn a_packed_stream_drops_dolby_vision_loudly_and_streams_hdr10() {
     use rubylight_protocol::hdr;
     let offered = crate::extensions::Offered {
-        hdr_formats: crate::extensions::hdr_offer(0x200, true),
+        hdr_formats: crate::extensions::hdr_offer(0x200, true, true),
         ..crate::extensions::Offered::NONE
     };
     let request = |packed: bool, format: u8| {
@@ -2365,7 +2365,7 @@ fn a_packed_stream_drops_dolby_vision_loudly_and_streams_hdr10() {
     assert!(packed_drops_dolby_vision(&mut packed, &warnings));
     // HDR10, which HDR10+ rides on, and what is streamed was offered.
     assert!(packed.hdr && packed.hdr_format == 0);
-    assert!(!crate::dovi::negotiated(&packed));
+    assert_eq!(crate::dovi::negotiated(&packed), None);
     offered.check_announce(&packed).unwrap();
     let shown = warnings.snapshot();
     assert_eq!(shown.len(), 1);
@@ -2380,12 +2380,52 @@ fn a_packed_stream_drops_dolby_vision_loudly_and_streams_hdr10() {
     let mut plain = request(false, hdr::DV_81);
     assert!(!packed_drops_dolby_vision(&mut plain, &warnings));
     assert_eq!(plain.hdr_format, hdr::DV_81);
-    assert!(crate::dovi::negotiated(&plain));
+    assert!(crate::dovi::negotiated(&plain).is_some());
     assert!(warnings.snapshot().is_empty());
     // A packed PQ pick is not Dolby Vision and stays.
     let mut pq = request(true, hdr::PQ);
     assert!(!packed_drops_dolby_vision(&mut pq, &warnings));
     assert_eq!(pq.hdr_format, hdr::PQ);
+    // Packed 8.4 goes as Dolby Vision, to HDR10 rather than HLG.
+    let mut p84 = request(true, hdr::DV_84);
+    assert!(packed_drops_dolby_vision(&mut p84, &warnings));
+    assert!(!packed_drops_hlg(&mut p84, &warnings));
+    assert!(p84.hdr && p84.hdr_format == 0 && !p84.hlg());
+}
+#[test]
+fn a_packed_stream_drops_hlg_loudly_and_streams_hdr10() {
+    let offered = crate::extensions::Offered {
+        hdr_formats: crate::extensions::hdr_offer(0x200, true, true),
+        ..crate::extensions::Offered::NONE
+    };
+    let request = |packing: &str, codec: u8| {
+        Negotiated::from_sdp(
+            format!(
+                "a=x-nv-video[0].dynamicRangeMode:1\na=x-nv-vqos[0].bitStreamFormat:{codec}\n{packing}a=x-rl-video[0].hdrFormat:2\n"
+            )
+            .as_bytes(),
+        )
+        .unwrap()
+    };
+    let warnings = crate::session::Warnings::default();
+    for codec in [1, 2] {
+        let mut packed = request("a=x-rl-video[0].chromaPacking:1\n", codec);
+        offered.check_announce(&packed).unwrap();
+        assert!(packed.hlg());
+        assert!(!packed_drops_dolby_vision(&mut packed, &warnings));
+        assert!(packed_drops_hlg(&mut packed, &warnings));
+        assert!(packed.hdr && packed.hdr_format == 0 && !packed.hlg());
+        offered.check_announce(&packed).unwrap();
+        let shown = warnings.snapshot();
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0].code, "hdr_hlg");
+        assert!(shown[0].message.contains("HDR10 and HDR10+ instead"));
+        // A 4:2:0 stream keeps HLG, and clears the warning.
+        let mut plain = request("", codec);
+        assert!(!packed_drops_hlg(&mut plain, &warnings));
+        assert!(plain.hlg());
+        assert!(warnings.snapshot().is_empty());
+    }
 }
 #[test]
 fn an_eight_bit_request_is_neither_hdr_nor_ten_bit() {

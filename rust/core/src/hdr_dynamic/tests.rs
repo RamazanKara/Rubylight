@@ -384,6 +384,47 @@ fn vivid_known_vector_and_round_trip() {
 }
 
 #[test]
+fn hlg_streams_carry_hdr_vivid_alone_with_system_start_code_2() {
+    let metadata = Vivid {
+        minimum_maxrgb: 0,
+        average_maxrgb: 0x123,
+        variance_maxrgb: 0x045,
+        maximum_maxrgb: 0xABC,
+    };
+    let t35 = metadata.to_t35_hlg();
+    assert_eq!(
+        t35,
+        [
+            0x26, 0x00, 0x04, 0x00, 0x05, 0x02, 0x00, 0x01, 0x23, 0x04, 0x5A, 0xBC, 0x00
+        ]
+    );
+    assert_eq!(parse_vivid(&t35), [0, 0x123, 0x045, 0xABC]);
+    // Only the start code differs from the PQ payload.
+    assert_eq!(t35[6..], metadata.to_t35()[6..]);
+
+    // HEVC: one SEI with HDR Vivid and no HDR10+ (PQ only).
+    let units = hlg_frame_units(Codec::Hevc, &sample()).unwrap();
+    let vivid = Vivid::from_stats(&sample()).unwrap().to_t35_hlg();
+    assert_eq!(units, Codec::Hevc.t35_unit(&vivid));
+    // AV1: HDR Vivid has no carriage there, so nothing.
+    assert_eq!(hlg_frame_units(Codec::Av1, &sample()), Some(Vec::new()));
+    let mut broken = sample();
+    broken.max_pq = 1.5;
+    assert_eq!(hlg_frame_units(Codec::Hevc, &broken), None);
+
+    let mut writer = Writer::new(Codec::Hevc).with_hlg();
+    assert!(writer.hlg() && !Writer::new(Codec::Hevc).hlg());
+    // Before the first sample, the HLG stand-in from the static levels.
+    let metadata = crate::hdr::Metadata::default();
+    assert_eq!(
+        writer.units(),
+        hlg_frame_units(Codec::Hevc, &FrameStats::from_static(&metadata)).unwrap()
+    );
+    writer.sample(&sample()).unwrap();
+    assert_eq!(writer.units(), units);
+}
+
+#[test]
 fn hevc_sei_wraps_and_escapes_the_payload() {
     let vivid = Vivid {
         minimum_maxrgb: 0,

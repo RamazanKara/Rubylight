@@ -99,6 +99,8 @@ public class NvHTTP {
     public static final int PYROWAVE_BANDWIDTH_PROBE_BYTES = 32 * 1024 * 1024;
     static final int MAX_XML_RESPONSE_BYTES = 256 * 1024;
     static final int MAX_APP_LIST_BYTES = 4 * 1024 * 1024;
+    // Every request to the host names this build, like the Rust transport does.
+    static final String USER_AGENT = "Nightjar/" + BuildConfig.VERSION_NAME;
 
     // Print URL and content to logcat on debug builds
     private static boolean verbose = BuildConfig.DEBUG;
@@ -201,6 +203,9 @@ public class NvHTTP {
                 .connectTimeout(LONG_CONNECTION_TIMEOUT, TimeUnit.MILLISECONDS)
                 .proxy(Proxy.NO_PROXY)
                 .fastFallback(false)
+                // The other clients and each call's variant are built from this one and keep it.
+                .addInterceptor(chain -> chain.proceed(chain.request().newBuilder()
+                        .header("User-Agent", USER_AGENT).build()))
                 .build();
 
         if (scopedAddress != null) {

@@ -96,7 +96,8 @@ public class DecoderTuningKeysTest {
             assertKeys(name, format, MTK_KEYS);
             assertEquals(name, 0, format.getInteger("vendor.mtk.vdec.vsync.adjust.enable"));
             assertEquals(name, 2, format.getInteger("vendor.mtk.vdec.dvfs.level"));
-            assertEquals(name, 4, format.getInteger("vendor.mtk.vdec.buffer.fetch.timeout.ms"));
+            // Try 0 asks for the shorter queues (Moonlight V+).
+            assertEquals(name, 2, format.getInteger("vendor.mtk.vdec.buffer.fetch.timeout.ms"));
             assertEquals(name, 0, format.getInteger("vendor.mtk.vdec.pq"));
             // The rate and priority pair sits behind the performance hints.
             assertAbsent(name, format, MediaFormat.KEY_OPERATING_RATE, MediaFormat.KEY_PRIORITY);
@@ -128,32 +129,78 @@ public class DecoderTuningKeysTest {
         String[] queues = {"vendor.mtk.vdec.input.max.queue.depth", "vendor.mtk.vdec.output.max.queue.depth",
                 "vendor.mtk.vdec.buffer.fetch.timeout.ms", "vendor.mtk.vdec.bq.guard.interval.time",
                 "vendor.mtk.vdec.preload.frame.count"};
-        int[] expected = {3, 3, 4, 4, 1};
+        // Try 0 the shorter queues with KEY_LOW_LATENCY, try 1 the full preset without it.
+        int[][] expected = {{2, 2, 2, 2, 0}, {3, 3, 4, 4, 1}};
+        // (MediaFormat.getKeys needs API 29, so the candidates are listed.)
+        java.util.Set<String> candidates = new java.util.LinkedHashSet<>(VendorLowLatencyKeys.MEDIATEK.keySet());
+        candidates.addAll(VendorLowLatencyKeys.KNOWN.keySet());
+        candidates.add(MediaFormat.KEY_LOW_LATENCY);
+        candidates.add(MediaFormat.KEY_OPERATING_RATE);
+        candidates.add("vdec-lowlatency");
         for (String name : new String[] {"c2.mtk.hevc.decoder", "OMX.MTK.VIDEO.DECODER.HEVC"}) {
-            // Try 0 the preset with KEY_LOW_LATENCY, try 1 the same preset without it.
-            for (int attempt = 0; attempt < 2; attempt++) {
-                MediaFormat format = tune(name, attempt, true);
-                for (int i = 0; i < queues.length; i++) {
-                    assertEquals(name + " try " + attempt + " " + queues[i], expected[i], format.getInteger(queues[i]));
+            for (boolean chipset : new boolean[] {false, true}) {
+                String label = name + (chipset ? " chipset" : "");
+                for (int attempt = 0; attempt < 2; attempt++) {
+                    MediaFormat format = chipset ? tuneChipset(name, attempt, true) : tune(name, attempt, true);
+                    for (int i = 0; i < queues.length; i++) {
+                        assertEquals(label + " try " + attempt + " " + queues[i], expected[attempt][i], format.getInteger(queues[i]));
+                    }
+                    assertEquals(label + " try " + attempt, attempt == 0, format.containsKey(MediaFormat.KEY_LOW_LATENCY));
                 }
-                assertEquals(name + " try " + attempt, attempt == 0, format.containsKey(MediaFormat.KEY_LOW_LATENCY));
-            }
-            // Every try sends a subset of the try before, with the same values: never stricter.
-            // (MediaFormat.getKeys needs API 29, so the candidates are listed.)
-            java.util.Set<String> candidates = new java.util.LinkedHashSet<>(VendorLowLatencyKeys.MEDIATEK.keySet());
-            candidates.addAll(VendorLowLatencyKeys.KNOWN.keySet());
-            candidates.add(MediaFormat.KEY_LOW_LATENCY);
-            MediaFormat previous = tune(name, 0, true);
-            for (int attempt = 1; attempt <= 5; attempt++) {
-                MediaFormat format = tune(name, attempt, true);
-                for (String key : candidates) {
-                    if (!format.containsKey(key)) continue;
-                    assertTrue(name + " try " + attempt + " adds " + key, previous.containsKey(key));
-                    assertEquals(name + " try " + attempt + " " + key, previous.getInteger(key), format.getInteger(key));
+                // Every try sends the keys of the try before or fewer, and a value changes only
+                // toward the full preset: a fallback is never stricter.
+                MediaFormat previous = chipset ? tuneChipset(name, 0, true) : tune(name, 0, true);
+                for (int attempt = 1; attempt <= 5; attempt++) {
+                    MediaFormat format = chipset ? tuneChipset(name, attempt, true) : tune(name, attempt, true);
+                    for (String key : candidates) {
+                        if (!format.containsKey(key)) continue;
+                        String what = label + " try " + attempt + " " + key;
+                        assertTrue(what + " added", previous.containsKey(key));
+                        int value = format.getInteger(key);
+                        assertTrue(what + " = " + value + " after " + previous.getInteger(key),
+                                value == previous.getInteger(key) ||
+                                        Integer.valueOf(value).equals(VendorLowLatencyKeys.MEDIATEK.get(key)));
+                    }
+                    previous = format;
                 }
-                previous = format;
             }
         }
+    }
+
+    @Test
+    public void mediaTekFirstTryAsksForShorterQueuesAndTheFallbackForTheFullPreset() {
+        assertSame(VendorLowLatencyKeys.MEDIATEK_SHORT, VendorLowLatencyKeys.mediaTekKeys(0));
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            assertSame("try " + attempt, VendorLowLatencyKeys.MEDIATEK, VendorLowLatencyKeys.mediaTekKeys(attempt));
+        }
+        // Same keys; only the five queue knobs differ, and each is shorter than the full preset's.
+        assertEquals(VendorLowLatencyKeys.MEDIATEK.keySet(), VendorLowLatencyKeys.MEDIATEK_SHORT.keySet());
+        java.util.Set<String> differing = new java.util.TreeSet<>();
+        for (Map.Entry<String, Integer> full : VendorLowLatencyKeys.MEDIATEK.entrySet()) {
+            int shortValue = VendorLowLatencyKeys.MEDIATEK_SHORT.get(full.getKey());
+            if (shortValue != full.getValue()) {
+                differing.add(full.getKey());
+                assertTrue(full.getKey(), shortValue < full.getValue());
+            }
+        }
+        assertEquals(new java.util.TreeSet<>(Arrays.asList("vendor.mtk.vdec.input.max.queue.depth",
+                "vendor.mtk.vdec.output.max.queue.depth", "vendor.mtk.vdec.buffer.fetch.timeout.ms",
+                "vendor.mtk.vdec.bq.guard.interval.time", "vendor.mtk.vdec.preload.frame.count")), differing);
+
+        // A MediaTek decoder whose try 0 failed gets the whole full preset on try 1.
+        for (String name : new String[] {"c2.mtk.hevc.decoder", "OMX.MTK.VIDEO.DECODER.HEVC"}) {
+            MediaFormat retry = tune(name, 1, false);
+            for (Map.Entry<String, Integer> key : VendorLowLatencyKeys.MEDIATEK.entrySet()) {
+                assertEquals(name + " try 1 " + key.getKey(), (int) key.getValue(), retry.getInteger(key.getKey()));
+            }
+            MediaFormat first = tune(name, 0, false);
+            for (Map.Entry<String, Integer> key : VendorLowLatencyKeys.MEDIATEK_SHORT.entrySet()) {
+                assertEquals(name + " try 0 " + key.getKey(), (int) key.getValue(), first.getInteger(key.getKey()));
+            }
+        }
+        // Other decoders get neither preset.
+        assertAbsent("Snapdragon", tune("c2.qti.hevc.decoder", 0, false), "vendor.mtk.vdec.input.max.queue.depth",
+                "vendor.mtk.vdec.preload.frame.count");
     }
 
     @Test

@@ -6,6 +6,9 @@
     <dimen name="space_l">16dp</dimen>
     <dimen name="space_xl">24dp</dimen>
     <dimen name="space_xxl">32dp</dimen>
+    <!-- The console's space-7 and space-8 steps: the TV overscan margin and the top app bar height. -->
+    <dimen name="space_3xl">48dp</dimen>
+    <dimen name="space_4xl">64dp</dimen>
     <dimen name="grid_spacing">8dp</dimen>
     <!-- The gap between library posters. On TV each poster's own padding already holds its glow (poster_glow). -->
     <dimen name="app_grid_spacing">8dp</dimen>
@@ -35,7 +38,7 @@
     <dimen name="fab_clearance">96dp</dimen>
     <!-- The top app bar's own start/end padding; its 48dp icon buttons then line up with the gutter. -->
     <dimen name="top_app_bar_padding">4dp</dimen>
-    <dimen name="top_app_bar_height">64dp</dimen>
+    <dimen name="top_app_bar_height">@dimen/space_4xl</dimen>
 
     <!-- The TV library's focus line (title and chips of the selected game): its height, and the longest its title runs before it ellipsizes. -->
     <dimen name="focus_line_height">40dp</dimen>

@@ -1,4 +1,4 @@
 <set xmlns:android="http://schemas.android.com/apk/res/android" android:interpolator="@android:interpolator/fast_out_linear_in">
-    <alpha android:fromAlpha="1" android:toAlpha="0" android:duration="120" />
-    <translate android:fromYDelta="0" android:toYDelta="2%" android:duration="120" />
+    <alpha android:fromAlpha="1" android:toAlpha="0" android:duration="@integer/motion_fast" />
+    <translate android:fromYDelta="0" android:toYDelta="2%" android:duration="@integer/motion_fast" />
 </set>

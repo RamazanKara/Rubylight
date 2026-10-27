@@ -8,6 +8,8 @@ Rubylight, called Butterpollo until rc.29, is written in Rust: host, native help
 
 ## Unreleased
 
+- Nightjar on Android and desktop has an Error correction setting: leave it to the PC, let it follow the device's losses, or fix it at 10 to 50 %. On shaped Wi-Fi links following the device's losses cut median loss from 2.37 to 0.26 % and freezes from 21 to 1 against the PC's adaptive error correction.
+
 ## New in 3.0.0-rc.3
 
 - **Fresher frames under VRR.** With variable refresh, Windows can capture each frame of a fast game twice or three times, a fraction of a millisecond to 4 ms apart. The host now times the game's own frames instead of each capture, so it waits for the game's next frame when it is close instead of taking an older copy. A 120 Hz game on a 60 fps VRR stream reaches the encoder with an age p95 of 2.3 ms instead of 3.7 ms (the October 24 measurement), and present to sent p95 is 4.7 ms instead of 6.4, at the same median and the same 60 fps. A 60 Hz game took a stale frame less often too, and a 240 Hz game measured the same; the 1000 Hz virtual display has no frame interval to wait for and works as before. [Numbers](PERFORMANCE.md#october-26-vrr-claims-follow-the-games-pictures).

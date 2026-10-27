@@ -282,8 +282,7 @@ cases:
     preconditions: [idle, gpu-lock]
     pass: compare PASSes (picture age p50 within 0.3 ms, p99 within 1 ms of the host arm) and the auto arms have no more fec_unrecoverable_frames, freezes or IDR requests than the host arms. Keep auto as Nightjar's default only if it is better or equal; otherwise Nightjar keeps host
     output: '{{out}}\host\results.jsonl, {{out}}\auto\results.jsonl'
-    status: pending
-    note: needs an elevated shell (linkspeed adds a firewall rule) and nightjar-cli in rl-link-client sending rlFecPercentage=auto and the 0x5539 loss reports, with linkspeed.py passing LINKSPEED_CLIENT_FEC to it; neither exists yet, so until then both arms are the host arm. The log line "client fec choice" confirms the auto arm
+    note: needs an elevated shell (linkspeed adds a firewall rule). The log line "client fec choice" confirms the auto arm. 2026-10-27 (rl-net 8aab90708): auto better on every count, wifi PASS, wifi-hi FAIL only on the no-change rule (5 change lines); median loss 2.37 → 0.26 %, freezes 21 → 1. fec_unrecoverable_frames is not reported. Default stays host until a real Wi-Fi phone run (rust/PERFORMANCE.md)
 
   - id: net-fec-split-nuc
     device: nuc
@@ -299,8 +298,7 @@ cases:
     preconditions: [idle, gpu-lock]
     pass: compare PASSes and the split arms lose no more frames than the host arms; their wire rate stays within the requested bitrate where the host arms exceed it by the FEC share. Keep the split only if better or equal
     output: '{{out}}\host\results.jsonl, {{out}}\split\results.jsonl'
-    status: pending
-    note: same client prerequisites as net-fec-auto-nuc (LINKSPEED_CLIENT_FEC in linkspeed.py and nightjar-cli)
+    note: needs an elevated shell, as net-fec-auto-nuc. 2026-10-27 (rl-net 8aab90708) FAIL, the split measured worse (median loss 1.26 against 0.74 %, p50 +1.72 ms, p99 +3.27 ms); not a default
 
   - id: net-bandwidth-probe-nuc
     device: nuc
@@ -316,8 +314,7 @@ cases:
     preconditions: [idle, gpu-lock]
     pass: compare PASSes and the probe arms lose less in their first 5 s (loss_first5s_percent) than the configured arms, with a mean encoder bitrate no lower than 90 % of theirs. Keep the probe for the first bitrate only if better or equal
     output: '{{out}}\configured\results.jsonl, {{out}}\probe\results.jsonl'
-    status: pending
-    note: needs nightjar-cli to probe before launch and linkspeed.py to pass LINKSPEED_CLIENT_PROBE; the host log line for the probe request and the client's chosen bitrate confirm the probe arm
+    note: needs an elevated shell, as net-fec-auto-nuc; the host log line for the probe request and the client's chosen bitrate confirm the probe arm. 2026-10-27 (rl-net 8aab90708) compare PASS but the case fails its encoder rule (28-30 against 59 Mbps mean; first bitrate 36.5-38.4 of 75) with more loss and freezes; loss_first5s_percent is not reported. The probe measured worse
 
   - id: net-fec-auto-retroid
     device: retroid

@@ -69,6 +69,25 @@ Encoding is not where the latency goes: a 32 ms AC3 frame takes about the time o
 
 The cost is the format's framing, and it is inherent: an AC3 or E-AC3 frame holds 1,536 samples, so the host waits 32 ms for a frame where Opus waits 5 ms. A sound reaches the network up to 27 ms later than with Opus (13.5 ms on average, at a uniform position in the frame), plus the 256-sample codec delay against Opus's 2.5 ms look-ahead (its specified value, not measured here), so about 30 ms at worst before the client. The receiver, soundbar or TV then buffers and decodes whole frames, which adds its own delay on top; no sink has been measured yet (user case `audio-passthrough-tv` in `tools/hw/catalog.yaml`). PCM passthrough has no encoder and no codec delay, in 5, 2 or 1 ms packets for 2, 6 or 8 channels. This is why Opus stays the default and the client setting says Dolby audio arrives later.
 
+## October 27: client error correction and a link test before the first bitrate (NUC)
+
+What the client-chosen FEC share (`rlFecPercentage`, the 0x5539 loss report) and a `GET /bandwidth-probe` before the first bitrate do under shaped loss. Harness `rust/release/linkspeed.py` with the NUC's nightjar-cli as the client (`LINKSPEED_CLIENT_FEC`, `LINKSPEED_CLIENT_PROBE`), rc.3 package with the B3 host build, RX 7900 XT, HEVC, 45 s per run, 3 runs per arm, the PC idle, one arm at a time under the GPU lock. The host log confirmed the client's choice (`client fec choice ... choice=auto` / `choice=20`). Run-to-run variance is high: host arms lost between 0.5 and 3 %. The Android unit tests ran beside the two link-test arms, so those may carry CPU contention.
+
+| Arm | Lost % (3 runs) | Freezes | IDR requests | Picture age p50 / p99 ms | Bitrate changes |
+| --- | --- | --- | --- | --- | --- |
+| wifi 20 Mbps, host's adaptive FEC (stayed at 20 %) | 2.09 / 0.74 / 1.06 | 12 / 2 / 8 | 20 / 9 / 11 | 21.0-26.0 / 42-49 | 10 / 7 / 0 |
+| wifi 20 Mbps, client auto (went to 50 %) | 0.52 / 1.01 / 1.14 | 1 / 8 / 8 | 7 / 11 / 14 | 16.0-18.1 / 31-32 | 0 / 0 / 0 |
+| wifi-hi 60 Mbps, host's adaptive FEC | 2.37 / 3.02 / 1.63 | 24 / 21 / 19 | 22 / 23 / 17 | — / 50-56 | 6 / 10 / 7 |
+| wifi-hi 60 Mbps, client auto | 0.17 / 1.71 / 0.26 | 1 / 7 / 1 | 5 / 8 / 4 | — / 32-36 | 0 / 5 / 0 |
+| wifi-hi, host fixed 20 % on top | 0.74 / 0.52 / 1.52 | 2 / 1 / 3 | 7 / 6 / 17 | 19.1-20.3 / — | 0 / 0 / 6 |
+| wifi-hi, client 20 % inside the budget | 1.26 / 1.04 / 1.29 | 3 / 2 / 13 | 14 / 10 / 16 | 21.3-22.6 / 35-46 | 4 / 4 / 7 |
+
+Client auto beat the host's adaptive FEC on every count: on wifi `compare` PASSed (p50 -4.9 ms, p99 -15.3 ms); on wifi-hi it failed only on its no-bitrate-change rule (5 change lines in one run) with p50 -0.63 ms, p99 -18.1 ms, median loss 2.37 → 0.26 % and freezes 21 → 1. The wifi-hi encoder held 38-47 Mbps against 26-36. The fixed 20 % share inside the budget measured worse than the host's 20 % on top (median loss 1.26 against 0.74 %, p50 +1.72 ms, p99 +3.27 ms) and sent 15-21 Mbit/s against 19-26.
+
+The link test on the 50 Mbit/s `r50-hevc-hi` link measured 45.6-48.0 Mbit/s in 0.70-0.74 s (4 MiB) and started the stream at 36.5-38.4 Mbps instead of 75. `compare` PASSed (p50 -0.07 ms, p99 +2.26 ms), but the tested arms lost 0.05 / 1.08 / 0 % against 0 / 0 / 0, froze 13 / 8 / 4 times against 2 / 6 / 7, and their encoder averaged 28-30 Mbps against 59; both arms sent 22-27 Mbit/s. `loss_first5s_percent` was not reported. The link test measured worse here.
+
+Decision: the client's Error correction setting defaults to the PC's setting, with auto as the better choice measured on these links; fixed shares stay options. Turning auto on by default waits for a real Wi-Fi run on a phone. The link test before the first bitrate measured worse and is to be turned off by default.
+
 ## October 27: AV1 intra refresh and recovery after a lost frame
 
 What negotiated AV1 intra refresh does on AMF when a frame is lost, and why the host now leaves it off. The fixture is the ignored native test `native_av1_intra_refresh_recovery_after_a_lost_frame` (report path in `BUTTERPOLLO_TEST_AV1_INTRA_REPORT`, ffmpeg in `BUTTERPOLLO_TEST_FFMPEG`): RX 7900 XT, driver 32.0.32015.7029, AV1 2560×1440 at 120 fps and 50 Mbps (a 52,083-byte frame budget), a synthetic texture scrolling 16 pixels a frame with no capture, display or network, 900 frames paced at 120 Hz, one run per arm under the GPU lock with the PC idle. Frame 480 is left out of a copy of the stream, and frame 481 carries the host's answer to the loss: nothing, a keyframe, or the invalidation of the lost frame. ffmpeg 9.0.2 with dav1d decodes both copies; a frame after the loss counts as recovered when its picture matches the full stream's (MD5). Debug test build; the byte counts come from the encoder.

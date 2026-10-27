@@ -84,7 +84,13 @@ pub fn virtual_scale(output: &str, configured: i64, width: u32, height: u32) -> 
         .iter()
         .find(|m| m.display_name == output)
         .context("virtual display is unavailable for scaling")?;
-    let desired = if configured < 0 {
+    set_dpi_scale(monitor, scale_percent(configured, width, height)?)
+}
+/// The percent `dd_virtual_display_scale` asks of a display of this size: the
+/// value itself, or for a negative one the scale nearest to what Windows
+/// recommends.
+pub(super) fn scale_percent(configured: i64, width: u32, height: u32) -> Result<u32> {
+    Ok(if configured < 0 {
         let ideal = f64::from(width.min(height)) * 100.0 / 864.0;
         *SCALES
             .iter()
@@ -96,8 +102,7 @@ pub fn virtual_scale(output: &str, configured: i64, width: u32, height: u32) -> 
             .unwrap()
     } else {
         u32::try_from(configured)?
-    };
-    set_dpi_scale(monitor, desired)
+    })
 }
 
 pub fn mode(name: &str) -> Result<DEVMODEW> {

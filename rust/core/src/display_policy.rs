@@ -331,7 +331,9 @@ pub fn physical_rotation(
         DisplayAdjust::Disabled => return None,
         DisplayAdjust::Manual => manual,
         DisplayAdjust::Auto => {
-            if stream.0 == stream.1 || desktop.0 == desktop.1 || portrait(stream) == portrait(desktop)
+            if stream.0 == stream.1
+                || desktop.0 == desktop.1
+                || portrait(stream) == portrait(desktop)
             {
                 return None;
             }

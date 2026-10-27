@@ -395,11 +395,16 @@ pub fn restore_positions() -> Result<()> {
 // Every stream holds a settings lease, including streams that inherit an existing
 // HDR mode. Restoration belongs to the last owner, so one client's departure
 // cannot change the display underneath another client.
+#[derive(Default)]
 struct Settings {
     users: usize,
     /// (previous, applied).
     mode: Option<(Timing, Timing)>,
     color: Option<(Monitor, bool, bool)>,
+    /// A physical display's `DISPLAYCONFIG_ROTATION`, (previous, applied).
+    rotation: Option<(u32, u32)>,
+    /// A physical display's Windows scale in percent, (previous, applied).
+    scale: Option<(u32, u32)>,
 }
 static SETTINGS: std::sync::Mutex<std::collections::BTreeMap<String, Settings>> =
     std::sync::Mutex::new(std::collections::BTreeMap::new());
@@ -432,6 +437,69 @@ fn adopt<T: PartialEq + Copy>(pending: Option<T>, current: T) -> Option<(T, T)> 
     pending
         .filter(|original| *original != current)
         .map(|original| (original, current))
+}
+/// Take a stream's part in a physical display's rotation or scale: change it
+/// when the stream is its sole user, and record (original, applied) for
+/// teardown. The original is one an earlier stream left pending, when the
+/// lease adopted it, else `current`. True when it changed.
+fn lease_setting<T: PartialEq + Copy>(
+    users: usize,
+    slot: &mut Option<(T, T)>,
+    current: T,
+    requested: T,
+    journal: impl FnOnce(T, T) -> Result<()>,
+    set: impl FnOnce(T) -> Result<()>,
+) -> Result<bool> {
+    if plan(users, None, &current, &requested) == Plan::Keep {
+        return Ok(false);
+    }
+    journal(current, requested)?;
+    let original = slot.map_or(current, |(original, _)| original);
+    *slot = Some((original, requested));
+    set(requested)?;
+    Ok(true)
+}
+/// A display's rotation, as `DISPLAYCONFIG_ROTATION` (1 upright to 4, 270°).
+pub(crate) fn rotation(id: &str) -> Result<u32> {
+    Topology::query()?
+        .rotations()
+        .remove(id)
+        .context("display is not active, so it has no rotation")
+}
+/// Turn one display, leaving the others as they are.
+pub(crate) fn set_rotation(id: &str, rotation: u32) -> Result<()> {
+    Topology::query()?.set_rotations(&std::collections::BTreeMap::from([(
+        id.to_owned(),
+        rotation,
+    )]))
+}
+/// The rotation in degrees and the desktop size of the display a physical
+/// stream on `output` gets, as [`Guard`] chooses it: read before the lease, so
+/// the stream can ask for its mode in the shape the display has before it turns.
+pub fn stream_display_rotation(output: &str) -> Result<(u16, (u32, u32))> {
+    let choices = monitors()?;
+    let chosen = choose(&choices, output).context("display unavailable")?;
+    let rotation = rotation(&chosen.device_id)?;
+    let desktop = mode(&chosen.display_name)?;
+    Ok((
+        butterpollo_core::display_policy::rotation_degrees(rotation)
+            .context("Windows reports an unknown display rotation")?,
+        (desktop.dmPelsWidth, desktop.dmPelsHeight),
+    ))
+}
+/// The physical display a stream on `output` streams: the one it names, or
+/// without a name the primary one.
+fn choose<'a>(choices: &'a [Monitor], output: &str) -> Option<&'a Monitor> {
+    choices.iter().find(|d| d.matches(output)).or_else(|| {
+        if output.is_empty() {
+            choices
+                .iter()
+                .find(|d| d.primary)
+                .or_else(|| choices.first())
+        } else {
+            None
+        }
+    })
 }
 /// Take a stream's part in a display's HDR: change it when the stream is
 /// its sole user and the display can, and record what teardown restores.
@@ -483,10 +551,16 @@ fn restore_settings(
     now: Option<&[Monitor]>,
     set_hdr: impl FnOnce(&Monitor, bool) -> Result<()>,
     restore_mode: impl FnOnce(Timing, Timing) -> Result<()>,
+    restore_rotation: impl FnOnce(u32, u32) -> Result<()>,
+    restore_scale: impl FnOnce(u32, u32) -> Result<()>,
 ) -> bool {
     let mut restored = true;
     let present = now.is_some_and(|all| all.iter().any(|m| m.device_id == identity));
-    if !present && !is_virtual && (settings.color.is_some() || settings.mode.is_some()) {
+    let changed = settings.color.is_some()
+        || settings.mode.is_some()
+        || settings.rotation.is_some()
+        || settings.scale.is_some();
+    if !present && !is_virtual && changed {
         restored = false;
         tracing::info!(output = %output, "display is gone; its settings are restored when it returns");
     }
@@ -497,11 +571,28 @@ fn restore_settings(
         restored = false;
         tracing::warn!(error=%e,"HDR restoration failed");
     }
+    // A display that is gone is not turned or scaled: it gets those back when
+    // it returns. The rotation goes first, since the mode applied was
+    // recorded in the shape the display had before it turned.
+    if let Some((previous, applied)) = settings.rotation
+        && present
+        && let Err(e) = restore_rotation(previous, applied)
+    {
+        restored = false;
+        tracing::warn!(error=%format!("{e:#}"),"display rotation restoration failed");
+    }
     if let Some((previous, applied)) = settings.mode
         && let Err(e) = restore_mode(previous, applied)
     {
         restored = false;
         tracing::warn!(error=%e,"display mode restoration failed");
+    }
+    if let Some((previous, applied)) = settings.scale
+        && present
+        && let Err(e) = restore_scale(previous, applied)
+    {
+        restored = false;
+        tracing::warn!(error=%format!("{e:#}"),"display scale restoration failed");
     }
     restored
 }
@@ -607,19 +698,7 @@ impl Guard {
             v.lock().unwrap().current_monitor()?
         } else {
             let choices = monitors()?;
-            choices
-                .iter()
-                .find(|d| d.matches(output))
-                .or_else(|| {
-                    if output.is_empty() {
-                        choices
-                            .iter()
-                            .find(|d| d.primary)
-                            .or_else(|| choices.first())
-                    } else {
-                        None
-                    }
-                })
+            choose(&choices, output)
                 .context("display unavailable")?
                 .clone()
         };
@@ -635,11 +714,7 @@ impl Guard {
         };
         let result = (|| -> Result<()> {
             let mut all = SETTINGS.lock().unwrap();
-            let settings = all.entry(guard.identity.clone()).or_insert(Settings {
-                users: 0,
-                mode: None,
-                color: None,
-            });
+            let settings = all.entry(guard.identity.clone()).or_default();
             settings.users += 1;
             // The first user takes over what an earlier stream left pending
             // on this display, so that its original values come back.
@@ -730,6 +805,20 @@ impl Guard {
                     .mode
                     .filter(|(original, applied)| original != applied);
             }
+            // The same for a rotation and a scale an earlier stream left: the
+            // display is read only when one is pending.
+            if guard.virtual_display.is_none() {
+                if settings.rotation.is_none()
+                    && let Some(original) = pending.rotation
+                {
+                    settings.rotation = adopt(Some(original), rotation(&guard.identity)?);
+                }
+                if settings.scale.is_none()
+                    && let Some(original) = pending.scale
+                {
+                    settings.scale = adopt(Some(original), dpi_scale(&chosen)?);
+                }
+            }
             lease_hdr(
                 settings,
                 &chosen,
@@ -748,6 +837,79 @@ impl Guard {
             guard.output = display.name.clone();
         }
         Ok(guard)
+    }
+    /// Turn this stream's physical display to `degrees` clockwise when the
+    /// stream is its sole user; teardown, or recovery after a crash, turns it
+    /// back. A display another stream uses keeps its rotation.
+    pub fn rotate(&mut self, degrees: u16) -> Result<()> {
+        if self.virtual_display.is_some() {
+            bail!("a virtual display is shaped for a stream, not turned");
+        }
+        let requested = butterpollo_core::display_policy::rotation_code(degrees)
+            .with_context(|| format!("{degrees}° is not a display rotation"))?;
+        let current = rotation(&self.identity)?;
+        let mut all = SETTINGS.lock().unwrap();
+        let settings = all
+            .get_mut(&self.identity)
+            .context("display has no settings lease")?;
+        let users = settings.users;
+        let turned = lease_setting(
+            users,
+            &mut settings.rotation,
+            current,
+            requested,
+            |before, applied| {
+                crate::display_recovery::rotation(&self.identity, &self.output, before, applied)
+            },
+            |rotation| set_rotation(&self.identity, rotation),
+        )?;
+        if turned {
+            tracing::info!(output = %self.output, degrees, "display turned for the stream");
+        } else if current != requested {
+            tracing::warn!(output = %self.output, degrees, "another stream uses this display; keeping its rotation and scaling this stream");
+        }
+        Ok(())
+    }
+    /// Give this stream's physical display the Windows scale
+    /// `dd_virtual_display_scale` asks for (0 leaves it) when the stream is its
+    /// sole user; teardown, or recovery after a crash, puts the user's back.
+    pub fn scale(&mut self, configured: i64) -> Result<()> {
+        if configured == 0 {
+            return Ok(());
+        }
+        if self.virtual_display.is_some() {
+            bail!("a virtual display's scale is set with the display, not leased");
+        }
+        let desktop = mode(&self.output)?;
+        let requested =
+            super::modes::scale_percent(configured, desktop.dmPelsWidth, desktop.dmPelsHeight)?;
+        let monitors = monitors()?;
+        let monitor = monitors
+            .iter()
+            .find(|m| m.device_id == self.identity)
+            .context("display is unavailable for scaling")?;
+        let current = dpi_scale(monitor)?;
+        let mut all = SETTINGS.lock().unwrap();
+        let settings = all
+            .get_mut(&self.identity)
+            .context("display has no settings lease")?;
+        let users = settings.users;
+        let scaled = lease_setting(
+            users,
+            &mut settings.scale,
+            current,
+            requested,
+            |before, applied| {
+                crate::display_recovery::scale(&self.identity, &self.output, before, applied)
+            },
+            |percent| set_dpi_scale(monitor, percent),
+        )?;
+        if scaled {
+            tracing::info!(output = %self.output, scale = requested, "display scaled for the stream");
+        } else if current != requested {
+            tracing::warn!(output = %self.output, scale = current, "another stream uses this display; keeping its scale");
+        }
+        Ok(())
     }
     /// Set the stream's mode on an owned virtual display again, after a step
     /// that lets Windows recall another one, such as applying a layout. A
@@ -812,14 +974,7 @@ impl Guard {
                         if !settings.contains_key(&self.identity) {
                             crate::display_recovery::release(&self.identity)?;
                         }
-                        settings
-                            .entry(chosen.device_id.clone())
-                            .or_insert(Settings {
-                                users: 0,
-                                mode: None,
-                                color: None,
-                            })
-                            .users += 1;
+                        settings.entry(chosen.device_id.clone()).or_default().users += 1;
                         self.identity = chosen.device_id.clone();
                     }
                 }
@@ -911,6 +1066,27 @@ impl Drop for Guard {
             monitors().ok().as_deref(),
             set_hdr,
             |previous, applied| restore_mode_rate(&self.output, &self.identity, previous, applied),
+            |previous, applied| {
+                crate::display_recovery::put_back(
+                    rotation(&self.identity),
+                    previous,
+                    applied,
+                    |previous| set_rotation(&self.identity, previous),
+                )
+            },
+            |previous, applied| {
+                let monitors = monitors()?;
+                let monitor = monitors
+                    .iter()
+                    .find(|m| m.device_id == self.identity)
+                    .context("display is unavailable for its scale")?;
+                crate::display_recovery::put_back(
+                    dpi_scale(monitor),
+                    previous,
+                    applied,
+                    |previous| set_dpi_scale(monitor, previous),
+                )
+            },
         );
         if restored && let Err(e) = crate::display_recovery::release(&self.identity) {
             tracing::warn!(error=%e,"display recovery journal cleanup failed");
@@ -1152,8 +1328,7 @@ mod tests {
         // The next stream wants HDR too, so it changes nothing.
         let mut settings = Settings {
             users: 1,
-            mode: None,
-            color: None,
+            ..Default::default()
         };
         let unchanged = |_: &Monitor, _| -> Result<()> { panic!("HDR is already on") };
         lease_hdr(
@@ -1165,6 +1340,8 @@ mod tests {
             unchanged,
         )?;
         let no_mode = |_, _| -> Result<()> { panic!("no mode recorded") };
+        let no_turn = |_, _| -> Result<()> { panic!("no rotation recorded") };
+        let no_scale = |_, _| -> Result<()> { panic!("no scale recorded") };
         // Away again at its end: the entry stays for recovery.
         assert!(!restore_settings(
             &settings,
@@ -1173,7 +1350,9 @@ mod tests {
             false,
             Some(&[]),
             unchanged,
-            no_mode
+            no_mode,
+            no_turn,
+            no_scale
         ));
         assert_eq!(
             crate::display_recovery::pending_in(&journal, "tv")?,
@@ -1191,7 +1370,9 @@ mod tests {
                 restored = Some(enabled);
                 Ok(())
             },
-            no_mode
+            no_mode,
+            no_turn,
+            no_scale
         ));
         assert_eq!(restored, Some(false));
         crate::display_recovery::release_in(&journal, "tv")?;
@@ -1202,8 +1383,7 @@ mod tests {
         // Without a pending entry a stream that changes nothing records nothing.
         let mut settings = Settings {
             users: 1,
-            mode: None,
-            color: None,
+            ..Default::default()
         };
         lease_hdr(
             &mut settings,
@@ -1221,8 +1401,7 @@ mod tests {
         // The TV was left in HDR; this stream wants SDR.
         let mut settings = Settings {
             users: 1,
-            mode: None,
-            color: None,
+            ..Default::default()
         };
         let mut journaled = None;
         let mut set = None;
@@ -1248,6 +1427,147 @@ mod tests {
         assert_eq!(adopt(Some(false), false), None);
         assert_eq!(adopt(None, true), None);
         Ok(())
+    }
+    #[test]
+    fn a_displays_sole_stream_turns_and_scales_it_and_teardown_turns_it_back_first() -> Result<()> {
+        let mut settings = Settings {
+            users: 1,
+            ..Default::default()
+        };
+        let mut journaled = Vec::new();
+        let mut set = Vec::new();
+        // Upright (1) to 90° (2), recorded before it turns.
+        assert!(lease_setting(
+            settings.users,
+            &mut settings.rotation,
+            1,
+            2,
+            |before, applied| {
+                journaled.push((before, applied));
+                Ok(())
+            },
+            |rotation| {
+                set.push(rotation);
+                Ok(())
+            },
+        )?);
+        assert!(lease_setting(
+            settings.users,
+            &mut settings.scale,
+            100,
+            150,
+            |before, applied| {
+                journaled.push((before, applied));
+                Ok(())
+            },
+            |_| Ok(()),
+        )?);
+        assert_eq!((journaled, set), (vec![(1, 2), (100, 150)], vec![2]));
+        assert_eq!(
+            (settings.rotation, settings.scale),
+            (Some((1, 2)), Some((100, 150)))
+        );
+        // Already at the angle, or a second stream: nothing changes.
+        let mut kept = None;
+        let nothing = |_, _| -> Result<()> { panic!("nothing to journal") };
+        assert!(!lease_setting(1, &mut kept, 2, 2, nothing, |_| panic!(
+            "not set"
+        ))?);
+        assert!(!lease_setting(2, &mut kept, 1, 2, nothing, |_| panic!(
+            "not set"
+        ))?);
+        assert_eq!(kept, None);
+        // An original an earlier stream left pending wins over the current value.
+        let mut adopted = adopt(Some(1), 4);
+        assert!(lease_setting(
+            1,
+            &mut adopted,
+            4,
+            2,
+            |_, _| Ok(()),
+            |_| Ok(())
+        )?);
+        assert_eq!(adopted, Some((1, 2)));
+        // A refused turn keeps the record: teardown finds the display unturned
+        // and leaves it, and recovery has the original until then.
+        let mut refused = None;
+        assert!(lease_setting(1, &mut refused, 1, 2, |_, _| Ok(()), |_| bail!("busy")).is_err());
+        assert_eq!(refused, Some((1, 2)));
+        settings.mode = Some(((2560, 1440, 60000), (2400, 1080, 120000)));
+        let order = std::cell::RefCell::new(Vec::new());
+        let present = [monitor("tv", 1, false)];
+        assert!(restore_settings(
+            &settings,
+            "tv",
+            "TV",
+            false,
+            Some(&present),
+            |_, _| panic!("HDR untouched"),
+            |previous, _| {
+                order
+                    .borrow_mut()
+                    .push(format!("mode {}x{}", previous.0, previous.1));
+                Ok(())
+            },
+            |previous, _| {
+                order.borrow_mut().push(format!("rotation {previous}"));
+                Ok(())
+            },
+            |previous, _| {
+                order.borrow_mut().push(format!("scale {previous}"));
+                Ok(())
+            },
+        ));
+        // The mode was recorded in the shape the display had before it turned.
+        assert_eq!(order.take(), ["rotation 1", "mode 2560x1440", "scale 100"]);
+        // Gone at the end: nothing is turned and the journal entry stays.
+        assert!(!restore_settings(
+            &settings,
+            "tv",
+            "TV",
+            false,
+            Some(&[]),
+            |_, _| panic!("HDR untouched"),
+            |_, _| Ok(()),
+            |_, _| panic!("a display that is gone is not turned"),
+            |_, _| panic!("a display that is gone is not scaled"),
+        ));
+        // A failed turn back keeps the entry for recovery too.
+        assert!(!restore_settings(
+            &settings,
+            "tv",
+            "TV",
+            false,
+            Some(&present),
+            |_, _| panic!("HDR untouched"),
+            |_, _| Ok(()),
+            |_, _| bail!("busy"),
+            |_, _| Ok(()),
+        ));
+        Ok(())
+    }
+    #[test]
+    fn a_physical_stream_takes_the_named_display_or_the_primary_one() {
+        let mut first = monitor("a", 1, false);
+        first.monitor_device_path = r"\\?\DISPLAY#A".into();
+        let mut primary = monitor("b", 2, false);
+        primary.primary = true;
+        primary.display_name = r"\\.\DISPLAY2".into();
+        primary.monitor_device_path = r"\\?\DISPLAY#B".into();
+        let choices = [first, primary];
+        assert_eq!(
+            choose(&choices, "a").map(|m| m.device_id.as_str()),
+            Some("a")
+        );
+        assert_eq!(
+            choose(&choices, "").map(|m| m.device_id.as_str()),
+            Some("b")
+        );
+        assert!(choose(&choices, "missing").is_none());
+        assert_eq!(
+            choose(&choices[..1], "").map(|m| m.device_id.as_str()),
+            Some("a")
+        );
     }
     #[test]
     fn previous_golden_snapshot_import_preserves_fractional_rates_clones_hdr_and_origins() {

@@ -42,6 +42,12 @@ struct Entry {
         crate::display::Snapshot,
         Vec<butterpollo_core::topology::Node>,
     )>,
+    /// A `DISPLAYCONFIG_ROTATION`, (original, applied).
+    #[serde(default)]
+    rotation: Option<(u32, u32)>,
+    /// The Windows scale in percent, (original, applied).
+    #[serde(default)]
+    scale: Option<(u32, u32)>,
 }
 impl Entry {
     fn display_settings(&self) -> Self {
@@ -53,6 +59,8 @@ impl Entry {
             mode_rate: self.mode_rate,
             position: self.position,
             microphone: self.microphone,
+            rotation: self.rotation,
+            scale: self.scale,
             ..Default::default()
         }
     }
@@ -68,9 +76,25 @@ impl Entry {
             || self.arrangement.is_some()
             || self.baseline.is_some()
             || self.activation.is_some()
+            || self.rotation.is_some()
+            || self.scale.is_some()
     }
 }
 
+/// Set `previous` back when a display still has the value a stream applied:
+/// one the user has changed since stays theirs.
+pub(crate) fn put_back<T: PartialEq>(
+    current: Result<T>,
+    previous: T,
+    applied: T,
+    set: impl FnOnce(T) -> Result<()>,
+) -> Result<()> {
+    if current? == applied {
+        set(previous)
+    } else {
+        Ok(())
+    }
+}
 /// Keep the original value until restoration succeeds (or the operation
 /// establishes that the user has since changed it).
 fn restored<T>(pending: &mut Option<T>, result: Result<()>) -> Result<()> {
@@ -321,6 +345,18 @@ pub fn hdr(id: &str, output: &str, before: bool, applied: bool) -> Result<()> {
         e.hdr = Some((e.hdr.map_or(before, |(original, _)| original), applied))
     })
 }
+/// A display's rotation, as `DISPLAYCONFIG_ROTATION`.
+pub fn rotation(id: &str, output: &str, before: u32, applied: u32) -> Result<()> {
+    change(id, output, |e| {
+        e.rotation = Some((e.rotation.map_or(before, |(original, _)| original), applied))
+    })
+}
+/// A display's Windows scale, in percent.
+pub fn scale(id: &str, output: &str, before: u32, applied: u32) -> Result<()> {
+    change(id, output, |e| {
+        e.scale = Some((e.scale.map_or(before, |(original, _)| original), applied))
+    })
+}
 pub fn external(pending: bool) -> Result<()> {
     change("external-limiter", "", |e| e.external = pending)
 }
@@ -389,6 +425,10 @@ pub struct Pending {
     /// (original, applied) width, height and refresh in millihertz.
     pub mode: Option<(Mode, Mode)>,
     pub profile: Option<Option<String>>,
+    /// The original `DISPLAYCONFIG_ROTATION`.
+    pub rotation: Option<u32>,
+    /// The original Windows scale, in percent.
+    pub scale: Option<u32>,
 }
 /// What an earlier stream left to restore on a display. A stream that takes
 /// the display over restores these rather than the values it finds, or its
@@ -417,6 +457,8 @@ pub(crate) fn pending_in(path: &Path, id: &str) -> Result<Pending> {
                 .profile
                 .as_ref()
                 .map(|(original, ..)| original.clone()),
+            rotation: entry.rotation.map(|(original, _)| original),
+            scale: entry.scale.map(|(original, _)| original),
         })
         .unwrap_or_default())
 }
@@ -435,6 +477,8 @@ pub(crate) fn release_in(path: &Path, id: &str) -> Result<()> {
         entry.mode = None;
         entry.mode_rate = None;
         entry.hdr = None;
+        entry.rotation = None;
+        entry.scale = None;
     }
     journal.entries.retain(|_, e| e.pending());
     butterpollo_core::state::write_json(path, &journal)
@@ -569,6 +613,22 @@ fn recover(path: &Path) -> Result<()> {
             };
             step(&what("HDR"), restored(&mut pending.hdr, result));
         }
+        // Before the mode: the mode applied was recorded in the shape the
+        // display had before it turned.
+        if let Some((previous, applied)) = entry.rotation {
+            step(
+                &what("rotation"),
+                restored(
+                    &mut pending.rotation,
+                    put_back(
+                        crate::display::rotation(id),
+                        previous,
+                        applied,
+                        |previous| crate::display::set_rotation(id, previous),
+                    ),
+                ),
+            );
+        }
         if let Some((previous, applied)) = entry.mode {
             step(
                 &what("mode"),
@@ -612,6 +672,20 @@ fn recover(path: &Path) -> Result<()> {
                         }
                         Ok(())
                     })(),
+                ),
+            );
+        }
+        if let Some((previous, applied)) = entry.scale {
+            step(
+                &what("scale"),
+                restored(
+                    &mut pending.scale,
+                    put_back(
+                        crate::display::dpi_scale(m),
+                        previous,
+                        applied,
+                        |previous| crate::display::set_dpi_scale(m, previous),
+                    ),
                 ),
             );
         }
@@ -803,6 +877,46 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn a_turned_or_scaled_display_gets_its_original_back_unless_the_user_changed_it() -> Result<()>
+    {
+        let mut set = Vec::new();
+        put_back(Ok(2), 1, 2, |previous| {
+            set.push(previous);
+            Ok(())
+        })?;
+        // Turned again at the PC since: the user's rotation stays.
+        put_back(Ok(4), 1, 2, |previous| {
+            set.push(previous);
+            Ok(())
+        })?;
+        assert_eq!(set, [1]);
+        // A display that cannot be read, or refuses, keeps its entry for later.
+        let mut pending = Some((100, 150));
+        let gone = put_back(Err(anyhow::anyhow!("gone")), 100, 150, |_| {
+            panic!("not read")
+        });
+        assert!(restored(&mut pending, gone).is_err());
+        let refused = put_back(Ok(150), 100, 150, |_| bail!("busy"));
+        assert!(restored(&mut pending, refused).is_err());
+        assert_eq!(pending, Some((100, 150)));
+        // A journal from before rotation and scale were kept reads without them.
+        let old: Entry = serde_json::from_str(r#"{"output":"","mode":null,"hdr":null}"#)?;
+        assert!(old.rotation.is_none() && old.scale.is_none());
+        // Either one alone keeps the entry, and recovery keeps both until restored.
+        let turned = Entry {
+            rotation: Some((1, 2)),
+            scale: Some((100, 150)),
+            ..Default::default()
+        };
+        assert!(turned.pending());
+        let kept = turned.display_settings();
+        assert_eq!(
+            (kept.rotation, kept.scale),
+            (Some((1, 2)), Some((100, 150)))
+        );
+        Ok(())
+    }
+    #[test]
     fn stalled_watcher_exit_is_bounded() -> Result<()> {
         use std::os::windows::process::CommandExt;
         let mut child = Command::new("cmd.exe")
@@ -906,6 +1020,8 @@ mod tests {
                     "hdr": [false, true],
                     "mode_rate": [[3840, 2160, 60000], [1920, 1080, 120000]],
                     "profile": [null, "hdr.icm", false],
+                    "rotation": [1, 2],
+                    "scale": [100, 150],
                 }},
             }))?,
         )?;
@@ -915,6 +1031,8 @@ mod tests {
                 hdr: Some(false),
                 mode: Some(((3840, 2160, 60000), (1920, 1080, 120000))),
                 profile: Some(None),
+                rotation: Some(1),
+                scale: Some(100),
             }
         );
         assert_eq!(pending_in(&path, "monitor")?, Pending::default());

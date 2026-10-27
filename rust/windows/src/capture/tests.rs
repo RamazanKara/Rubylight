@@ -180,6 +180,24 @@ fn headless_hardware_device_encodes_without_a_display_output() -> Result<()> {
 }
 
 #[test]
+fn desktop_duplication_refuses_a_turned_display_rather_than_stream_it_sideways() {
+    for upright in [DXGI_MODE_ROTATION_UNSPECIFIED, DXGI_MODE_ROTATION_IDENTITY] {
+        duplication_upright(upright, r"\\.\DISPLAY1").unwrap();
+    }
+    for turned in [
+        DXGI_MODE_ROTATION_ROTATE90,
+        DXGI_MODE_ROTATION_ROTATE180,
+        DXGI_MODE_ROTATION_ROTATE270,
+    ] {
+        let error = duplication_upright(turned, r"\\.\DISPLAY1")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(r"\\.\DISPLAY1 is turned"), "{error}");
+        assert!(error.contains("capture = auto or wgc"), "{error}");
+    }
+}
+
+#[test]
 fn a_missing_selected_capture_display_is_an_error_not_the_desktop() {
     let display = |name: &str, primary| Display {
         device_id: format!("id-{name}"),

@@ -738,6 +738,20 @@ pub struct Duplication {
     cursor: crate::cursor::State,
     frame_owned: bool,
 }
+/// Desktop Duplication hands a turned display's frames over as the display
+/// scans them out, sideways or upside down for the stream, so it refuses one
+/// rather than stream it so. Windows Graphics Capture captures it upright.
+fn duplication_upright(rotation: DXGI_MODE_ROTATION, output: &str) -> Result<()> {
+    if matches!(
+        rotation,
+        DXGI_MODE_ROTATION_UNSPECIFIED | DXGI_MODE_ROTATION_IDENTITY
+    ) {
+        return Ok(());
+    }
+    bail!(
+        "{output} is turned in Windows, and Desktop Duplication would stream it sideways. Use capture = auto or wgc, or turn the display upright"
+    )
+}
 impl Duplication {
     pub fn new(name: &str) -> Result<Self> {
         Self::new_format(name, false)
@@ -806,6 +820,7 @@ impl Duplication {
             width = desc.ModeDesc.Width, height = desc.ModeDesc.Height,
             x = gpu.display.x, y = gpu.display.y, rotation = desc.Rotation.0,
             format = desc.ModeDesc.Format.0, "Desktop Duplication opened");
+        duplication_upright(desc.Rotation, &gpu.display.display_name)?;
         Ok(Self {
             gpu,
             duplicate,

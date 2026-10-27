@@ -28,7 +28,9 @@ pub use modes::{
 };
 pub use recovery::{
     Guard, Retained, Snapshot, apply_layout, baseline_nodes, leased_displays, restore_positions,
+    stream_display_rotation,
 };
+pub(crate) use recovery::{rotation, set_rotation};
 pub use topology::{Monitor, Topology, edid_refresh, monitors};
 pub use virtual_display::{
     RenderAdapter, VirtualDisplay, VirtualOptions, configured_render_adapter,

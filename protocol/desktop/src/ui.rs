@@ -343,37 +343,37 @@ fn toggle(ui: &mut Ui, on: &mut bool) -> Response {
 }
 
 fn primary_button(ui: &mut Ui, text: &str) -> Response {
-    let button = egui::Button::new(RichText::new(tr(text)).color(ON_MOON).font(semibold(15.0)))
+    let button = egui::Button::new(RichText::new(tr(text)).color(ON_MOON).font(semibold(text::LABEL)))
         .fill(*MOON)
-        .corner_radius(CornerRadius::same(8))
-        .min_size(vec2(0.0, 36.0));
+        .corner_radius(CornerRadius::same(radius::CONTROL))
+        .min_size(vec2(0.0, CONTROL_HEIGHT));
     let response = ui.add(button);
-    focus_ring(ui, response.rect, &response, 8);
+    focus_ring(ui, response.rect, &response, radius::CONTROL);
     response
 }
 
 fn quiet_button(ui: &mut Ui, text: &str) -> Response {
-    let button = egui::Button::new(RichText::new(tr(text)).color(ON_SURFACE).font(semibold(15.0)))
+    let button = egui::Button::new(RichText::new(tr(text)).color(ON_SURFACE).font(semibold(text::LABEL)))
         .fill(*SURFACE_HIGHEST)
-        .corner_radius(CornerRadius::same(8))
-        .min_size(vec2(0.0, 36.0));
+        .corner_radius(CornerRadius::same(radius::CONTROL))
+        .min_size(vec2(0.0, CONTROL_HEIGHT));
     let response = ui.add(button);
-    focus_ring(ui, response.rect, &response, 8);
+    focus_ring(ui, response.rect, &response, radius::CONTROL);
     response
 }
 
 fn text_button(ui: &mut Ui, text: &str) -> Response {
-    let button = egui::Button::new(RichText::new(tr(text)).color(ON_SURFACE_VARIANT).font(semibold(15.0)))
+    let button = egui::Button::new(RichText::new(tr(text)).color(ON_SURFACE_VARIANT).font(semibold(text::LABEL)))
         .frame(false)
         .min_size(vec2(0.0, 36.0));
     let response = ui.add(button);
-    focus_ring(ui, response.rect, &response, 8);
+    focus_ring(ui, response.rect, &response, radius::CONTROL);
     response
 }
 
 /// A small pill that jumps to a section of the settings.
 fn chip(ui: &mut Ui, text: &str) -> Response {
-    let button = egui::Button::new(RichText::new(tr(text)).color(ON_SURFACE).font(semibold(13.5)))
+    let button = egui::Button::new(RichText::new(tr(text)).color(ON_SURFACE).font(semibold(text::CAPTION)))
         .fill(*SURFACE)
         .corner_radius(CornerRadius::same(14))
         .min_size(vec2(0.0, 28.0));
@@ -758,7 +758,7 @@ impl Launcher {
                 Screen::Home => {
                     egui::Image::from_texture((logo, vec2(30.0, 30.0))).ui(ui);
                     ui.add_space(4.0);
-                    ui.label(RichText::new("Nightjar").font(semibold(22.0)).color(PAPER));
+                    ui.label(RichText::new("Nightjar").font(semibold(text::SECTION)).color(PAPER));
                 }
                 Screen::Game { host, app } => {
                     if text_button(ui, "‹  Back").clicked() {
@@ -770,52 +770,52 @@ impl Launcher {
                         .and_then(|h| h.native.library.as_ref())
                         .and_then(|l| l.games.iter().find(|g| g.app_id == app))
                         .map_or("", |g| g.title.as_str());
-                    ui.label(RichText::new(name).font(semibold(22.0)).color(PAPER));
+                    ui.label(RichText::new(name).font(semibold(text::SECTION)).color(PAPER));
                 }
                 Screen::Hosts => {
                     egui::Image::from_texture((logo, vec2(30.0, 30.0))).ui(ui);
                     ui.add_space(4.0);
-                    ui.label(RichText::new("Nightjar").font(semibold(22.0)).color(PAPER));
+                    ui.label(RichText::new("Nightjar").font(semibold(text::SECTION)).color(PAPER));
                 }
                 Screen::Apps(id) => {
                     if text_button(ui, "‹  PCs").clicked() {
                         self.back(commands);
                     }
                     let name = view.hosts.get(id).map_or("", |h| h.display_name()).to_owned();
-                    ui.label(RichText::new(name).font(semibold(22.0)).color(PAPER));
+                    ui.label(RichText::new(name).font(semibold(text::SECTION)).color(PAPER));
                 }
                 Screen::HostDetails(id) => {
                     if text_button(ui, "‹  Back").clicked() {
                         self.back(commands);
                     }
                     let name = view.hosts.get(id).map_or("", |h| h.display_name()).to_owned();
-                    ui.label(RichText::new(name).font(semibold(22.0)).color(PAPER));
+                    ui.label(RichText::new(name).font(semibold(text::SECTION)).color(PAPER));
                 }
                 Screen::Settings => {
                     if text_button(ui, "‹  Back").clicked() {
                         self.back(commands);
                     }
-                    ui.label(RichText::new(tr("Settings")).font(semibold(22.0)).color(PAPER));
+                    ui.label(RichText::new(tr("Settings")).font(semibold(text::SECTION)).color(PAPER));
                 }
                 Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => {
                     if text_button(ui, "‹  Back").clicked() {
                         self.back(commands);
                     }
-                    ui.label(RichText::new(&self.edit_name).font(semibold(22.0)).color(PAPER));
+                    ui.label(RichText::new(&self.edit_name).font(semibold(text::SECTION)).color(PAPER));
                 }
                 Screen::Profiles => {
                     if text_button(ui, "‹  Settings").clicked() {
                         self.back(commands);
                     }
-                    ui.label(RichText::new(tr("Profiles")).font(semibold(22.0)).color(PAPER));
+                    ui.label(RichText::new(tr("Profiles")).font(semibold(text::SECTION)).color(PAPER));
                 }
                 Screen::Controllers => {
                     if text_button(ui, "‹  Settings").clicked() { self.back(commands); }
-                    ui.label(RichText::new(tr("Controller mappings")).font(semibold(22.0)).color(PAPER));
+                    ui.label(RichText::new(tr("Controller mappings")).font(semibold(text::SECTION)).color(PAPER));
                 }
                 Screen::Shortcuts => {
                     if text_button(ui, "‹  Settings").clicked() { self.back(commands); }
-                    ui.label(RichText::new(tr("Keyboard shortcuts")).font(semibold(22.0)).color(PAPER));
+                    ui.label(RichText::new(tr("Keyboard shortcuts")).font(semibold(text::SECTION)).color(PAPER));
                 }
             }
             // The actions sit at the right edge but are registered left to right, so Tab walks
@@ -873,11 +873,12 @@ impl Launcher {
     /// One of the header's top-level destinations; the current one is marked.
     fn destination(&mut self, ui: &mut Ui, name: &str, screen: Screen, commands: &mut Vec<Command>) {
         let current = self.screen == screen;
-        let text = RichText::new(tr(name))
-            .font(semibold(15.0))
+        // The same size as the header's other actions (`text_button`).
+        let label = RichText::new(tr(name))
+            .font(semibold(text::LABEL))
             .color(if current { PAPER } else { ON_SURFACE_VARIANT });
-        let response = ui.add(egui::Button::new(if current { text.underline() } else { text }).frame(false).min_size(vec2(0.0, 36.0)));
-        focus_ring(ui, response.rect, &response, 8);
+        let response = ui.add(egui::Button::new(if current { label.underline() } else { label }).frame(false).min_size(vec2(0.0, 36.0)));
+        focus_ring(ui, response.rect, &response, radius::CONTROL);
         if response.clicked() && !current {
             if let Some(save) = self.screen.save_command() {
                 commands.push(save);
@@ -895,7 +896,7 @@ impl Launcher {
     }
 
     fn hosts(&mut self, ui: &mut Ui, view: &View<'_>, commands: &mut Vec<Command>, logo: egui::TextureId) {
-        ui.label(RichText::new(tr("Your PCs")).font(semibold(30.0)).color(ON_SURFACE));
+        ui.label(RichText::new(tr("Your PCs")).font(semibold(text::TITLE)).color(ON_SURFACE));
         ui.label(
             RichText::new(tr("PCs running a Moonlight-compatible host on this network appear here. Add one by address if it doesn't."))
                 .color(ON_SURFACE_VARIANT),
@@ -907,9 +908,9 @@ impl Launcher {
                 egui::Image::from_texture((logo, vec2(72.0, 72.0))).ui(ui);
                 ui.add_space(14.0);
                 if self.identity_ready {
-                    ui.label(RichText::new(tr("Looking for PCs…")).font(semibold(18.0)));
+                    ui.label(RichText::new(tr("Looking for PCs…")).font(semibold(text::CARD_TITLE)));
                 } else {
-                    ui.label(RichText::new(tr("Creating this device's pairing key…")).font(semibold(18.0)));
+                    ui.label(RichText::new(tr("Creating this device's pairing key…")).font(semibold(text::CARD_TITLE)));
                 }
                 ui.label(
                     RichText::new(tr("Start Sunshine, Apollo, Vibepollo, Rubylight or GeForce Experience on your PC."))
@@ -956,7 +957,7 @@ impl Launcher {
             ui.label(
                 RichText::new(tr("Options for a PC: F2, right-click, the three dots, or the controller's X button. Ctrl+N adds a PC."))
                     .color(OUTLINE)
-                    .font(regular(13.0)),
+                    .font(regular(text::CAPTION)),
             );
         });
     }
@@ -976,7 +977,7 @@ impl Launcher {
                 });
             }
             Apps::Failed(e) => {
-                ui.label(RichText::new(tr("The library could not be loaded.")).font(semibold(18.0)));
+                ui.label(RichText::new(tr("The library could not be loaded.")).font(semibold(text::CARD_TITLE)));
                 ui.label(RichText::new(e).color(ERROR));
                 if quiet_button(ui, "Try again").clicked() {
                     commands.push(Command::Refresh(id));
@@ -1060,7 +1061,7 @@ impl Launcher {
             ui.vertical_centered(|ui| {
                 egui::Image::from_texture((logo, vec2(72.0, 72.0))).ui(ui);
                 ui.add_space(14.0);
-                ui.label(RichText::new(tr("No hosts yet")).font(semibold(18.0)));
+                ui.label(RichText::new(tr("No hosts yet")).font(semibold(text::CARD_TITLE)));
                 ui.label(RichText::new(tr("Pair Nightjar with a PC to see its games here.")).color(ON_SURFACE_VARIANT));
                 ui.add_space(12.0);
                 let r = primary_button(ui, "Open hosts");
@@ -1089,7 +1090,7 @@ impl Launcher {
             let mut first = true;
             if !starred.is_empty() {
                 section(ui, "Favourites");
-                ui.label(RichText::new(tr("Delete (keyboard) or Y (gamepad) removes the focused favourite.")).font(semibold(13.0)).color(ON_SURFACE_VARIANT));
+                ui.label(RichText::new(tr("Delete (keyboard) or Y (gamepad) removes the focused favourite.")).font(semibold(text::CAPTION)).color(ON_SURFACE_VARIANT));
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing = vec2(16.0, 16.0);
                     for (index, item) in starred.iter().enumerate() {
@@ -1211,7 +1212,7 @@ impl Launcher {
         let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
         let source = sources.iter().find(|s| s.id == host_id).expect("source of a listed host");
         let Some(game) = source.library.and_then(|l| l.games.iter().find(|g| g.app_id == app_id)) else {
-            ui.label(RichText::new(tr("This game is no longer in the PC's library.")).font(semibold(18.0)));
+            ui.label(RichText::new(tr("This game is no longer in the PC's library.")).font(semibold(text::CARD_TITLE)));
             let r = primary_button(ui, "Back");
             self.focus_item(&r, "back", true);
             if r.clicked() {
@@ -1254,16 +1255,16 @@ impl Launcher {
             request_cover(ui, view, host_id, app_id, &game.artwork.version, &response, commands);
             ui.vertical(|ui| {
                 ui.set_max_width(640.0);
-                ui.label(RichText::new(&game.title).font(semibold(30.0)).color(ON_SURFACE));
+                ui.label(RichText::new(&game.title).font(semibold(text::TITLE)).color(ON_SURFACE));
                 if let Some(store) = &game.store {
                     ui.label(RichText::new(&store.name).color(ON_SURFACE_VARIANT));
                 }
                 let (status, color) = match detail.state {
-                    GameState::Running => (trf("Running on {}", &[&source.name]), MOON),
+                    GameState::Running => (trf("Running on {}", &[&source.name]), OK),
                     GameState::Suspended => (trf("Suspended on {}", &[&source.name]), TERTIARY),
                     GameState::Idle => (trf("On {}", &[&source.name]), ON_SURFACE_VARIANT),
                 };
-                ui.label(RichText::new(status).font(semibold(16.0)).color(color));
+                ui.label(RichText::new(status).font(semibold(text::BODY)).color(color));
                 ui.add_space(8.0);
                 if host.reach == Reach::Offline {
                     ui.label(RichText::new(tr("This PC is offline. Your saved library is still here. Reconnect to play.")).color(ERROR));
@@ -1544,11 +1545,11 @@ impl Launcher {
                     if button.clicked() {
                         commands.push(Command::OpenWebUi(url.clone()));
                     }
-                    ui.label(RichText::new(url).font(regular(13.0)).color(OUTLINE));
+                    ui.label(RichText::new(url).font(regular(text::CAPTION)).color(OUTLINE));
                 }
                 // The PC has a web UI, but its saved address makes no link to it.
                 Some(Err(why)) => {
-                    ui.label(RichText::new(tr("Host web UI")).font(semibold(15.0)).color(ON_SURFACE));
+                    ui.label(RichText::new(tr("Host web UI")).font(semibold(text::BODY)).color(ON_SURFACE));
                     ui.label(RichText::new(why).color(ERROR));
                 }
             }
@@ -2184,7 +2185,7 @@ impl Launcher {
                      On a controller, Start+Select+LB+RB leaves.",
                 ))
                 .color(OUTLINE)
-                .font(regular(13.0)),
+                .font(regular(text::CAPTION)),
             );
             ui.add_space(24.0);
         });
@@ -2224,7 +2225,7 @@ impl Launcher {
                         .backdrop_color(Color32::from_black_alpha(150))
                         .show(ctx, |ui| {
                             ui.set_width(340.0);
-                            ui.label(RichText::new(host.display_name()).font(semibold(22.0)));
+                            ui.label(RichText::new(host.display_name()).font(semibold(text::SECTION)));
                             ui.add_space(6.0);
                             // The longest list scrolls in a small window (1280x720 at 150 %): room
                             // for the name, the frame and the Wake note.
@@ -2238,7 +2239,7 @@ impl Launcher {
                                     if *option == HostOption::Remove {
                                         ui.separator();
                                     }
-                                    let label = RichText::new(tr(option.label())).font(semibold(16.0));
+                                    let label = RichText::new(tr(option.label())).font(semibold(text::BODY));
                                     let label = if *option == HostOption::Remove { label.color(ERROR) } else { label };
                                     let blocked = match option {
                                         HostOption::Sleep => host.sleep_option().and_then(Result::err),
@@ -2252,7 +2253,7 @@ impl Launcher {
                                     })
                                     .inner;
                                     if let Some(why) = blocked {
-                                        ui.label(RichText::new(tr(why)).font(regular(13.0)).color(OUTLINE));
+                                        ui.label(RichText::new(tr(why)).font(regular(text::CAPTION)).color(OUTLINE));
                                     }
                                     focus_ring(ui, button.rect, &button, 8);
                                     if n == 0 && focus_first {
@@ -2268,7 +2269,7 @@ impl Launcher {
                                 ui.add_space(6.0);
                                 ui.label(
                                     RichText::new(tr("Pair once while the PC is on to enable Wake."))
-                                        .font(regular(13.0))
+                                        .font(regular(text::CAPTION))
                                         .color(OUTLINE),
                                 );
                             }
@@ -2289,7 +2290,7 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(420.0);
-                        ui.label(RichText::new(tr("Rename PC")).font(semibold(22.0)));
+                        ui.label(RichText::new(tr("Rename PC")).font(semibold(text::SECTION)));
                         ui.label(
                             RichText::new(tr("The name is kept on this device only. Leave it empty to use the PC's own name."))
                                 .color(ON_SURFACE_VARIANT),
@@ -2327,7 +2328,7 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(440.0);
-                        ui.label(RichText::new(trf("Remove {}?", &[&name])).font(semibold(22.0)));
+                        ui.label(RichText::new(trf("Remove {}?", &[&name])).font(semibold(text::SECTION)));
                         let body = if paired {
                             tr("This deletes the PC, its settings and its saved library from this device. The PC still lists this device as paired until you unpair it.")
                         } else {
@@ -2358,7 +2359,7 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(440.0);
-                        ui.label(RichText::new(trf("Unpair {}?", &[&name])).font(semibold(22.0)));
+                        ui.label(RichText::new(trf("Unpair {}?", &[&name])).font(semibold(text::SECTION)));
                         ui.label(
                             RichText::new(tr("The PC drops this device and its saved library is forgotten. It stays in the list; pair again to stream."))
                                 .color(ON_SURFACE_VARIANT),
@@ -2387,7 +2388,7 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(440.0);
-                        ui.label(RichText::new(trf("Put {} to sleep?", &[&name])).font(semibold(22.0)));
+                        ui.label(RichText::new(trf("Put {} to sleep?", &[&name])).font(semibold(text::SECTION)));
                         ui.label(
                             RichText::new(tr("Experimental. The PC sleeps only while no app or stream runs on it. Wake it with Wake up."))
                                 .color(ON_SURFACE_VARIANT),
@@ -2425,7 +2426,7 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(440.0);
-                        ui.label(RichText::new(tr("Connect to your PC")).font(semibold(22.0)));
+                        ui.label(RichText::new(tr("Connect to your PC")).font(semibold(text::SECTION)));
                         for step in PAIRING_STEPS {
                             ui.label(RichText::new(step).color(ON_SURFACE_VARIANT));
                         }
@@ -2448,7 +2449,7 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(440.0);
-                        ui.label(RichText::new(trf("Pairing with {} failed", &[&name])).font(semibold(22.0)));
+                        ui.label(RichText::new(trf("Pairing with {} failed", &[&name])).font(semibold(text::SECTION)));
                         ui.label(RichText::new(tr(body.as_str())).color(ON_SURFACE_VARIANT));
                         ui.add_space(12.0);
                         ui.horizontal(|ui| {
@@ -2479,7 +2480,7 @@ impl Launcher {
             Dialog::NetworkTest { stage } => {
                 egui::Modal::new(Id::unique("network-test")).frame(frame).backdrop_color(Color32::from_black_alpha(150)).show(ctx, |ui| {
                     ui.set_width(420.0);
-                    ui.label(RichText::new(tr("Network test")).font(semibold(22.0)));
+                    ui.label(RichText::new(tr("Network test")).font(semibold(text::SECTION)));
                     ui.horizontal(|ui| { spinner(ui, 10.0); ui.label(tr(stage.as_str())); });
                     let button = quiet_button(ui, "Cancel");
                     if focus_first { button.request_focus(); focused = true; }
@@ -2492,7 +2493,7 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(420.0);
-                        ui.label(RichText::new(if id.is_some() { tr("Edit shortcut") } else { tr("New shortcut") }).font(semibold(22.0)));
+                        ui.label(RichText::new(if id.is_some() { tr("Edit shortcut") } else { tr("New shortcut") }).font(semibold(text::SECTION)));
                         let edit = ui.add(egui::TextEdit::singleline(name).hint_text(tr("Shortcut name")));
                         if focus_first { edit.request_focus(); focused = true; }
                         ui.add(egui::TextEdit::singleline(chord).hint_text("CTRL + ALT + DELETE"));
@@ -2515,7 +2516,7 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(420.0);
-                        ui.label(RichText::new(trf("Delete {}?", &[&name])).font(semibold(22.0)));
+                        ui.label(RichText::new(trf("Delete {}?", &[&name])).font(semibold(text::SECTION)));
                         ui.horizontal(|ui| {
                             let button = quiet_button(ui, "Cancel");
                             if focus_first { button.request_focus(); focused = true; }
@@ -2534,7 +2535,7 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(420.0);
-                        ui.label(RichText::new(tr("Import keyboard shortcuts?")).font(semibold(22.0)));
+                        ui.label(RichText::new(tr("Import keyboard shortcuts?")).font(semibold(text::SECTION)));
                         ui.label(trf("Replace your {} saved shortcuts with {} from this file.", &[&self.shortcuts.data.len(), &entries.data.len()]));
                         egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
                             for entry in &entries.data { ui.label(format!("{} · {}", entry.name, entry.keys.join(" + "))); }
@@ -2555,7 +2556,7 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(420.0);
-                        ui.label(RichText::new(if id.is_some() { tr("Rename profile") } else { tr("New profile") }).font(semibold(22.0)));
+                        ui.label(RichText::new(if id.is_some() { tr("Rename profile") } else { tr("New profile") }).font(semibold(text::SECTION)));
                         let edit = ui.add(egui::TextEdit::singleline(name).hint_text(tr("Profile name")));
                         if focus_first { edit.request_focus(); focused = true; }
                         if let Some(error) = error { ui.label(RichText::new(error.as_str()).color(ERROR)); }
@@ -2591,7 +2592,7 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(420.0);
-                        ui.label(RichText::new(trf("Delete {}?", &[&name])).font(semibold(22.0)));
+                        ui.label(RichText::new(trf("Delete {}?", &[&name])).font(semibold(text::SECTION)));
                         ui.label(tr("If this profile is active, new streams will use main settings instead."));
                         ui.horizontal(|ui| {
                             let button = quiet_button(ui, "Cancel");
@@ -2611,7 +2612,7 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(420.0);
-                        ui.label(RichText::new(format!("{name}?")).font(semibold(22.0)));
+                        ui.label(RichText::new(format!("{name}?")).font(semibold(text::SECTION)));
                         ui.label(tr("This changes the session running on the PC. Ending an app can lose unsaved progress."));
                         ui.horizontal(|ui| {
                             let button = quiet_button(ui, "Cancel");
@@ -2633,7 +2634,7 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(420.0);
-                        ui.label(RichText::new(tr("Pair with one-time PIN")).font(semibold(22.0)));
+                        ui.label(RichText::new(tr("Pair with one-time PIN")).font(semibold(text::SECTION)));
                         ui.label(tr("Enter the PIN and passphrase created on the PC."));
                         let edit = ui.add(egui::TextEdit::singleline(pin).hint_text(tr("PIN")));
                         if focus_first {
@@ -2669,7 +2670,7 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(420.0);
-                        ui.label(RichText::new(tr("Add a PC")).font(semibold(22.0)));
+                        ui.label(RichText::new(tr("Add a PC")).font(semibold(text::SECTION)));
                         ui.label(
                             RichText::new(tr("Its IP address or name, with :port if the host uses another HTTP port."))
                                 .color(ON_SURFACE_VARIANT),
@@ -2709,7 +2710,7 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(440.0);
-                        ui.label(RichText::new(trf("Pair with {}", &[&name])).font(semibold(22.0)));
+                        ui.label(RichText::new(trf("Pair with {}", &[&name])).font(semibold(text::SECTION)));
                         if !pin.is_empty() {
                             ui.label(
                                 RichText::new(tr("Enter this PIN on the PC: in the host's web page (Sunshine, Apollo, Vibepollo and Rubylight have a PIN page), or in the prompt GeForce Experience shows."))
@@ -2754,7 +2755,7 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(440.0);
-                        ui.label(RichText::new(title.as_str()).font(semibold(22.0)));
+                        ui.label(RichText::new(title.as_str()).font(semibold(text::SECTION)));
                         ui.label(RichText::new(tr(body.as_str())).color(ON_SURFACE_VARIANT));
                         ui.add_space(12.0);
                         let r = primary_button(ui, "OK");
@@ -2774,7 +2775,7 @@ impl Launcher {
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
                         ui.set_width(440.0);
-                        ui.label(RichText::new(tr("Close the game on the PC?")).font(semibold(22.0)));
+                        ui.label(RichText::new(tr("Close the game on the PC?")).font(semibold(text::SECTION)));
                         ui.label(RichText::new(trf("{} closes on the PC. Unsaved progress is lost.", &[&name])).color(ON_SURFACE_VARIANT));
                         ui.add_space(12.0);
                         ui.horizontal(|ui| {
@@ -2804,7 +2805,7 @@ impl Launcher {
                             Some((_, name)) => trf("Quit {} and start {}?", &[&running, &name]),
                             None => trf("Quit {}?", &[&running]),
                         };
-                        ui.label(RichText::new(title).font(semibold(22.0)));
+                        ui.label(RichText::new(title).font(semibold(text::SECTION)));
                         ui.label(RichText::new(tr("Unsaved progress in the running app is lost.")).color(ON_SURFACE_VARIANT));
                         ui.add_space(12.0);
                         ui.horizontal(|ui| {
@@ -2995,7 +2996,7 @@ impl Launcher {
             .backdrop_color(Color32::from_black_alpha(170))
             .show(ctx, |ui| {
                 ui.set_width(400.0);
-                ui.label(RichText::new(&c.app).font(semibold(24.0)));
+                ui.label(RichText::new(&c.app).font(semibold(text::SECTION)));
                 ui.label(RichText::new(trf("on {}", &[&c.host])).color(ON_SURFACE_VARIANT));
                 ui.add_space(16.0);
                 ui.horizontal(|ui| {
@@ -3024,7 +3025,7 @@ fn waking(ctx: &egui::Context, host: &str, commands: &mut Vec<Command>) {
         .backdrop_color(Color32::from_black_alpha(170))
         .show(ctx, |ui| {
             ui.set_width(400.0);
-            ui.label(RichText::new(trf("Waking {}…", &[&host])).font(semibold(24.0)));
+            ui.label(RichText::new(trf("Waking {}…", &[&host])).font(semibold(text::SECTION)));
             ui.add_space(16.0);
             ui.horizontal(|ui| {
                 spinner(ui, 10.0);
@@ -3055,8 +3056,8 @@ fn scroll(ui: &mut Ui, id: &str, add: impl FnOnce(&mut Ui)) {
 /// A line of a details page: what it is, and its value.
 fn detail(ui: &mut Ui, label: &str, value: &str) {
     ui.horizontal_wrapped(|ui| {
-        ui.label(RichText::new(label).font(semibold(15.0)).color(ON_SURFACE));
-        ui.label(RichText::new(value).font(regular(15.0)).color(ON_SURFACE_VARIANT));
+        ui.label(RichText::new(label).font(semibold(text::BODY)).color(ON_SURFACE));
+        ui.label(RichText::new(value).font(regular(text::BODY)).color(ON_SURFACE_VARIANT));
     });
 }
 
@@ -3082,7 +3083,7 @@ fn remote_report(ui: &mut Ui, report: &crate::host_page::Report) {
     detail(ui, tr("Failed requests"), &report.loss_percent.map_or_else(unmeasured, |v| trf("{} %", &[&format!("{v:.0}")])));
     ui.label(
         RichText::new(tr("These are application-request measurements, not video packet loss or input latency."))
-            .font(regular(13.0))
+            .font(regular(text::CAPTION))
             .color(OUTLINE),
     );
 }
@@ -3184,7 +3185,7 @@ fn section_at(ui: &mut Ui, title: &str, jump: &mut Option<&'static str>) {
         ui.scroll_to_cursor(Some(Align::TOP));
         *jump = None;
     }
-    ui.label(RichText::new(tr(title).to_uppercase()).font(semibold(13.0)).color(MOON));
+    ui.label(RichText::new(tr(title).to_uppercase()).font(semibold(text::CAPTION)).color(MOON));
     ui.add_space(2.0);
 }
 
@@ -3229,8 +3230,8 @@ fn row(ui: &mut Ui, label: &str, description: &str, control: impl FnOnce(&mut Ui
                 let control_width = 240.0;
                 ui.vertical(|ui| {
                     ui.set_width((ui.available_width() - control_width - 16.0).max(200.0));
-                    ui.label(RichText::new(tr(label)).font(semibold(15.0)).color(ON_SURFACE));
-                    ui.label(RichText::new(tr(description)).font(regular(13.0)).color(ON_SURFACE_VARIANT));
+                    ui.label(RichText::new(tr(label)).font(semibold(text::BODY)).color(ON_SURFACE));
+                    ui.label(RichText::new(tr(description)).font(regular(text::CAPTION)).color(ON_SURFACE_VARIANT));
                 });
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     out = Some(control(ui));
@@ -3250,25 +3251,18 @@ fn host_card(ui: &mut Ui, host: &Host, line: Option<&str>) -> Response {
     } else {
         SURFACE
     };
-    painter.rect_filled(rect, CornerRadius::same(12), fill);
-    let (status, color) = match (host.reach, host.paired()) {
-        (Reach::Offline, _) => (tr("Offline").to_owned(), OUTLINE),
-        (Reach::Unknown, _) => (tr("Checking…").to_owned(), OUTLINE),
-        (Reach::Online, false) => (tr("Not paired · select to pair").to_owned(), TERTIARY),
-        (Reach::Online, true) => match host.running_app() {
-            Some(_) => (tr("Paired · an app is running").to_owned(), MOON),
-            None => (tr("Paired · ready").to_owned(), MOON),
-        },
-    };
-    // The moon dot: full when ready, a ring otherwise.
+    painter.rect_filled(rect, CornerRadius::same(radius::PANEL), fill);
+    let (status, color, ring) = host_status(host);
+    // The status dot: full and green when the PC is up and paired, a ring otherwise. Amber stays the
+    // action's colour, so it never stands for a state.
     let dot = Pos2::new(rect.left() + 26.0, rect.top() + 30.0);
     if host.reach == Reach::Online && host.paired() {
-        painter.circle_filled(dot, 7.0, MOON);
+        painter.circle_filled(dot, 7.0, OK);
     } else {
-        painter.circle_stroke(dot, 6.0, Stroke::new(2.0, color));
+        painter.circle_stroke(dot, 6.0, Stroke::new(2.0, ring));
     }
     // A long name ends in "…" before the three dots.
-    let mut name = egui::text::LayoutJob::simple_singleline(host.display_name().to_owned(), semibold(19.0), *ON_SURFACE);
+    let mut name = egui::text::LayoutJob::simple_singleline(host.display_name().to_owned(), semibold(text::CARD_TITLE), *ON_SURFACE);
     name.wrap = egui::text::TextWrapping::truncate_at_width(rect.width() - 44.0 - 46.0);
     let name = painter.layout_job(name);
     painter.galley(Pos2::new(rect.left() + 44.0, rect.top() + 30.0 - name.size().y / 2.0), name, *ON_SURFACE);
@@ -3276,7 +3270,7 @@ fn host_card(ui: &mut Ui, host: &Host, line: Option<&str>) -> Response {
         Pos2::new(rect.left() + 20.0, rect.top() + 62.0),
         Align2::LEFT_CENTER,
         &status,
-        regular(14.0),
+        regular(text::LABEL),
         *color,
     );
     let detail = match (line, host.info.as_ref().and_then(|i| i.gpu_type.clone())) {
@@ -3288,11 +3282,24 @@ fn host_card(ui: &mut Ui, host: &Host, line: Option<&str>) -> Response {
         Pos2::new(rect.left() + 20.0, rect.top() + 88.0),
         Align2::LEFT_CENTER,
         detail,
-        regular(13.0),
+        regular(text::CAPTION),
         *OUTLINE,
     );
-    focus_ring(ui, rect, &response, 12);
+    focus_ring(ui, rect, &response, radius::PANEL);
     response
+}
+
+/// What a PC's card says of it: the words, their colour, and the colour of the dot's ring.
+fn host_status(host: &Host) -> (String, Role, Role) {
+    match (host.reach, host.paired()) {
+        (Reach::Offline, _) => (tr("Offline").to_owned(), OUTLINE, OUTLINE),
+        (Reach::Unknown, _) => (tr("Checking…").to_owned(), ON_SURFACE_VARIANT, ON_SURFACE_VARIANT),
+        (Reach::Online, false) => (tr("Not paired · select to pair").to_owned(), TERTIARY, ON_SURFACE_VARIANT),
+        (Reach::Online, true) => match host.running_app() {
+            Some(_) => (tr("Paired · an app is running").to_owned(), OK, OK),
+            None => (tr("Paired · ready").to_owned(), OK, OK),
+        },
+    }
 }
 
 /// The cover art, or the night surface with the banner's orbits when the PC has none.
@@ -3320,10 +3327,25 @@ fn paint_cover(ui: &Ui, image: Rect, name: &str, art: Option<&Art>, running: boo
         }
     }
     if running {
-        let badge = Rect::from_min_size(image.left_top() + vec2(10.0, 10.0), vec2(76.0, 24.0));
-        painter.rect_filled(badge, CornerRadius::same(12), MOON);
-        painter.text(badge.center(), Align2::CENTER_CENTER, tr("Running"), semibold(12.5), *ON_MOON);
+        running_badge(&painter, image.left_top() + vec2(space::S, space::S));
     }
+}
+
+/// "Running" over a cover: a green dot and white words on the scrim, which reads over any art
+/// (the console's media pill). Returns where it went.
+fn running_badge(painter: &egui::Painter, at: Pos2) -> Rect {
+    const DOT: f32 = 4.0;
+    let words = painter.layout_no_wrap(tr("Running").to_owned(), semibold(text::CAPTION), Color32::WHITE);
+    let height = space::XL;
+    // The dot sits closer to the edge than the words do: it is lighter.
+    let width = space::S + DOT * 2.0 + space::S + words.size().x + space::M;
+    let badge = Rect::from_min_size(at, vec2(width, height));
+    painter.rect_filled(badge, CornerRadius::same((height / 2.0) as u8), SCRIM);
+    let dot = Pos2::new(badge.left() + space::S + DOT, badge.center().y);
+    painter.circle_filled(dot, DOT, OK);
+    let words_at = Pos2::new(dot.x + DOT + space::S, badge.center().y - words.size().y / 2.0);
+    painter.galley(words_at, words, Color32::WHITE);
+    badge
 }
 
 /// Delete, or Y on a gamepad (mapped to F3), takes the star off the focused favourite.
@@ -3358,7 +3380,7 @@ fn poster(ui: &mut Ui, name: &str, art: Option<&Art>, running: bool) -> Response
     paint_cover(ui, image, name, art, running);
     let painter = ui.painter_at(rect.expand(6.0));
     let label_color = if response.has_focus() { MOON } else { ON_SURFACE };
-    let galley = painter.layout(name.to_owned(), semibold(14.5), *label_color, POSTER_W);
+    let galley = painter.layout(name.to_owned(), semibold(text::LABEL), *label_color, POSTER_W);
     painter.galley(Pos2::new(rect.left() + 2.0, image.bottom() + 8.0), galley, *label_color);
     focus_ring(ui, image, &response, 10);
     response
@@ -3369,19 +3391,19 @@ fn continue_card(ui: &mut Ui, title: &str, line: &str, running: bool) -> Respons
     let (rect, response) = ui.allocate_exact_size(vec2(CARD_W, 84.0), Sense::click());
     let painter = ui.painter_at(rect.expand(6.0));
     let fill = if response.hovered() || response.has_focus() { SURFACE_HIGH } else { SURFACE };
-    painter.rect_filled(rect, CornerRadius::same(12), fill);
-    let color = if running { MOON } else { TERTIARY };
+    painter.rect_filled(rect, CornerRadius::same(radius::PANEL), fill);
+    let color = if running { OK } else { TERTIARY };
     let dot = Pos2::new(rect.left() + 26.0, rect.top() + 28.0);
     if running {
         painter.circle_filled(dot, 7.0, color);
     } else {
         painter.circle_stroke(dot, 6.0, Stroke::new(2.0, color));
     }
-    let text = ui.painter_at(rect);
-    let galley = text.layout_no_wrap(title.to_owned(), semibold(18.0), *ON_SURFACE);
-    text.galley(Pos2::new(rect.left() + 44.0, rect.top() + 28.0 - galley.size().y / 2.0), galley, *ON_SURFACE);
-    text.text(Pos2::new(rect.left() + 20.0, rect.top() + 60.0), Align2::LEFT_CENTER, line, regular(14.0), *color);
-    focus_ring(ui, rect, &response, 12);
+    let inside = ui.painter_at(rect);
+    let galley = inside.layout_no_wrap(title.to_owned(), semibold(text::CARD_TITLE), *ON_SURFACE);
+    inside.galley(Pos2::new(rect.left() + 44.0, rect.top() + 28.0 - galley.size().y / 2.0), galley, *ON_SURFACE);
+    inside.text(Pos2::new(rect.left() + 20.0, rect.top() + 60.0), Align2::LEFT_CENTER, line, regular(text::LABEL), *color);
+    focus_ring(ui, rect, &response, radius::PANEL);
     response
 }
 
@@ -4837,6 +4859,88 @@ mod tests {
 
     /// Screenshots of the main pages in both palettes, painted on the CPU from made-up PCs (no
     /// network): `NIGHTJAR_SHOTS=<dir> cargo test -p nightjar-desktop page_screenshots -- --ignored`.
+    #[test]
+    fn a_pc_that_is_up_reads_green_and_amber_never_stands_for_a_state() {
+        crate::theme::own_palette();
+        let records = vec![record("Up", true, true), record("Playing", true, true), record("Down", true, true), record("New", false, false), record("Unsure", true, true)];
+        let mut hosts = Hosts::without_discovery(records, Arc::new(|| {}));
+        hosts.list[0].reach = Reach::Online;
+        hosts.list[0].info = Some(answer(true, 0));
+        hosts.list[1].reach = Reach::Online;
+        hosts.list[1].info = Some(answer(true, 7));
+        hosts.list[2].reach = Reach::Offline;
+        hosts.list[3].reach = Reach::Online;
+        hosts.list[3].info = Some(answer(false, 0));
+        hosts.list[4].reach = Reach::Unknown;
+        let looks: Vec<_> = hosts.list.iter().map(host_status).collect();
+        for (host, (words, color, ring)) in hosts.list.iter().zip(&looks) {
+            assert!(!words.is_empty(), "{}: a state is always a word", host.record.name);
+            assert_ne!(**color, *MOON, "{}: amber is the action, not a state", host.record.name);
+            assert_ne!(**ring, *MOON, "{}: amber is the action, not a state", host.record.name);
+        }
+        assert_eq!([*looks[0].1, *looks[1].1], [*OK, *OK], "up and paired, playing or not, is green");
+        assert_eq!(*looks[2].1, *OUTLINE, "offline is quiet");
+        assert_eq!(*looks[3].1, *TERTIARY, "not paired is information");
+        assert_ne!(*looks[4].2, *OK, "a PC still being checked is not shown as up");
+    }
+
+    #[test]
+    fn the_running_badge_is_a_green_dot_and_white_words_on_the_scrim_that_fit() {
+        crate::theme::own_palette();
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        let mut badge = Rect::NOTHING;
+        let mut words = 0.0;
+        let mut output = egui::FullOutput::default();
+        for n in 0..2 {
+            let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(400.0, 300.0))), time: Some(f64::from(n)), ..Default::default() };
+            output = ctx.run_ui(input, |ui| {
+                badge = running_badge(ui.painter(), pos2(20.0, 20.0));
+                words = ui.painter().layout_no_wrap(tr("Running").to_owned(), semibold(text::CAPTION), Color32::WHITE).size().x;
+            });
+            output.textures_delta.clear();
+        }
+        assert!(badge.width() >= words + space::S * 3.0, "the badge is {} wide for words {words} wide", badge.width());
+        assert_eq!(badge.height(), space::XL);
+        let mut fills = Vec::new();
+        for clipped in &output.shapes {
+            match &clipped.shape {
+                egui::Shape::Rect(r) => fills.push(r.fill),
+                egui::Shape::Circle(c) => fills.push(c.fill),
+                _ => {}
+            }
+        }
+        assert!(fills.contains(&SCRIM), "the badge sits on the scrim: {fills:?}");
+        assert!(fills.contains(&*OK), "with a green dot: {fills:?}");
+        assert!(!fills.contains(&*MOON), "and no amber fill: {fills:?}");
+        assert!(collect_all_text(&output.shapes).iter().any(|t| t == tr("Running")));
+    }
+
+    #[test]
+    fn primary_and_quiet_buttons_take_the_control_height() {
+        crate::theme::own_palette();
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        let mut heights = [0.0; 2];
+        for n in 0..2 {
+            let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(400.0, 300.0))), time: Some(f64::from(n)), ..Default::default() };
+            let mut output = ctx.run_ui(input, |ui| {
+                heights = [primary_button(ui, "Play").rect.height(), quiet_button(ui, "Cancel").rect.height()];
+            });
+            output.textures_delta.clear();
+        }
+        assert_eq!(heights, [CONTROL_HEIGHT; 2]);
+    }
+
+    /// Every text drawn in `shapes`.
+    fn collect_all_text(shapes: &[egui::epaint::ClippedShape]) -> Vec<String> {
+        let mut drawn = Vec::new();
+        for clipped in shapes {
+            collect_text(&clipped.shape, &mut drawn);
+        }
+        drawn
+    }
+
     #[test]
     #[ignore = "writes PNGs; set NIGHTJAR_SHOTS"]
     fn page_screenshots() {

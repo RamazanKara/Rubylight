@@ -1544,7 +1544,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
             egui::Area::new(egui::Id::unique("input-only"))
                 .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
                 .show(&ctx, |ui| {
-                    ui.label(egui::RichText::new(tr("Remote Input connected")).font(theme::semibold(26.0)).color(theme::MOON));
+                    ui.label(egui::RichText::new(tr("Remote Input connected")).font(theme::semibold(theme::text::TITLE)).color(theme::MOON));
                     ui.label(&title);
                     ui.label(tr("Keyboard, mouse and controllers control the PC. Ctrl+Alt+Shift+Q disconnects."));
                 });
@@ -1734,7 +1734,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                         .corner_radius(egui::CornerRadius::same(10))
                         .inner_margin(egui::Margin::symmetric(14, 10))
                         .show(ui, |ui| {
-                            ui.label(egui::RichText::new(&title).font(theme::semibold(14.0)).color(theme::MOON));
+                            ui.label(egui::RichText::new(&title).font(theme::semibold(theme::text::LABEL)).color(theme::MOON));
                             ui.add_space(2.0);
                             ui.spacing_mut().interact_size.y = 16.0;
                             egui::Grid::new("stats").num_columns(2).spacing([14.0, 3.0]).show(ui, |ui| {
@@ -1743,8 +1743,8 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                     ui.end_row();
                                 }
                                 for (k, v) in &lines {
-                                    ui.label(egui::RichText::new(k).font(theme::regular(13.0)).color(theme::OUTLINE));
-                                    ui.label(egui::RichText::new(v).font(theme::regular(13.0)).color(theme::ON_SURFACE));
+                                    ui.label(egui::RichText::new(k).font(theme::regular(theme::text::CAPTION)).color(theme::OUTLINE));
+                                    ui.label(egui::RichText::new(v).font(theme::regular(theme::text::CAPTION)).color(theme::ON_SURFACE));
                                     ui.end_row();
                                 }
                             });
@@ -1760,7 +1760,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                         .corner_radius(egui::CornerRadius::same(18))
                         .inner_margin(egui::Margin::symmetric(18, 10))
                         .show(ui, |ui| {
-                            ui.label(egui::RichText::new(text).font(theme::regular(14.5)).color(theme::ON_SURFACE));
+                            ui.label(egui::RichText::new(text).font(theme::regular(theme::text::LABEL)).color(theme::ON_SURFACE));
                         });
                 });
         }

@@ -33,7 +33,9 @@ macro_rules! roles {
         const COUNT: usize = [$(Index::$name),*].len();
         const NORMAL: [Color32; COUNT] = [$($normal),*];
         const HIGH: [Color32; COUNT] = [$($high),*];
-        $(pub const $name: Role = Role(Index::$name as u8);)*
+        // The whole Android and console role set; a role no page draws yet still has its
+        // contrast checked by the tests.
+        $(#[allow(dead_code)] pub const $name: Role = Role(Index::$name as u8);)*
     };
 }
 
@@ -61,11 +63,56 @@ roles! {
     ON_MOON_CONTAINER: rgb(0xFFDDB0), rgb(0xFFFFFF);
     TERTIARY: rgb(0xAFC8E9), rgb(0xCFE2FF);
     ERROR: rgb(0xFFB4AB), rgb(0xFFCFC9);
+    // A failure that fills a shape (the console's --danger-soft) and its text.
+    ERROR_CONTAINER: rgb(0x93000A), rgb(0x93000A);
+    ON_ERROR_CONTAINER: rgb(0xFFDAD6), rgb(0xFFFFFF);
+    // Status (the console's --ok and --warn): up, ready, running; and something to look at. Warn is
+    // yellow because amber is the action, and it is never a filled shape: an icon and a word.
+    OK: rgb(0x5FD38D), rgb(0x7CF0A8);
+    WARN: rgb(0xF5D06B), rgb(0xFFE08A);
     // The orbit rings of the site banner.
     ORBIT: rgb(0x2A2D3A), rgb(0x2A2D3A);
     // Paper white of the wordmark.
     PAPER: rgb(0xF4EFE6), rgb(0xFFFFFF);
 }
+
+/// What text over game art sits on (the console's --media-bg, Android's `tv_chip_scrim`), the same
+/// in every palette: white on it over a white frame is still 9:1.
+pub const SCRIM: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 184);
+
+/// The console's 4-based spacing scale (`--space-1` to `--space-7`), in points.
+#[allow(dead_code, reason = "the whole console scale, so a new page picks a step instead of a literal")]
+pub mod space {
+    pub const XS: f32 = 4.0;
+    pub const S: f32 = 8.0;
+    pub const M: f32 = 12.0;
+    pub const L: f32 = 16.0;
+    pub const XL: f32 = 24.0;
+    pub const XXL: f32 = 32.0;
+    pub const XXXL: f32 = 48.0;
+}
+
+/// The console's type scale, in points.
+pub mod text {
+    pub const TITLE: f32 = 28.0;
+    pub const SECTION: f32 = 22.0;
+    pub const CARD_TITLE: f32 = 18.0;
+    pub const BODY: f32 = 16.0;
+    pub const LABEL: f32 = 14.0;
+    pub const CAPTION: f32 = 13.0;
+}
+
+/// The console's corners: chips, then buttons, fields and menus, then cards, panels and dialogs.
+#[allow(dead_code, reason = "the whole console scale, so a new page picks a step instead of a literal")]
+pub mod radius {
+    pub const SMALL: u8 = 6;
+    pub const CONTROL: u8 = 10;
+    pub const PANEL: u8 = 12;
+}
+
+/// Height of primary actions and list rows (the console's --control-height); dense inline controls
+/// keep `interact_size.y`.
+pub const CONTROL_HEIGHT: f32 = 44.0;
 
 fn palette(high: bool) -> &'static [Color32; COUNT] {
     if high { &HIGH } else { &NORMAL }
@@ -186,15 +233,16 @@ pub fn set_look(ctx: &egui::Context, high: bool, still: bool) {
     set_high_contrast(high);
     let mut style = (*ctx.global_style()).clone();
     style.text_styles = [
-        (TextStyle::Heading, semibold(26.0)),
-        (TextStyle::Body, regular(15.0)),
-        (TextStyle::Button, semibold(15.0)),
-        (TextStyle::Small, regular(12.5)),
-        (TextStyle::Monospace, FontId::new(13.0, FontFamily::Monospace)),
+        (TextStyle::Heading, semibold(text::TITLE)),
+        (TextStyle::Body, regular(text::BODY)),
+        (TextStyle::Button, semibold(text::LABEL)),
+        (TextStyle::Small, regular(text::CAPTION)),
+        (TextStyle::Monospace, FontId::new(text::CAPTION, FontFamily::Monospace)),
     ]
     .into();
-    style.spacing.item_spacing = egui::vec2(10.0, 10.0);
-    style.spacing.button_padding = egui::vec2(16.0, 9.0);
+    // Within a group; pages put `space::L` between groups.
+    style.spacing.item_spacing = egui::vec2(space::S, space::S);
+    style.spacing.button_padding = egui::vec2(space::L, 9.0);
     style.spacing.interact_size.y = 34.0;
     style.spacing.combo_width = 220.0;
     style.animation_time = if still { 0.0 } else { egui::Style::default().animation_time };
@@ -214,11 +262,11 @@ pub fn set_look(ctx: &egui::Context, high: bool, still: bool) {
     v.hyperlink_color = *MOON;
     v.selection.bg_fill = *MOON_CONTAINER;
     v.selection.stroke = Stroke::new(1.0, *ON_MOON_CONTAINER);
-    v.window_corner_radius = 14.into();
-    v.menu_corner_radius = 10.into();
+    v.window_corner_radius = radius::PANEL.into();
+    v.menu_corner_radius = radius::CONTROL.into();
     v.window_shadow = egui::Shadow::NONE;
     v.popup_shadow = egui::Shadow::NONE;
-    let radius = egui::CornerRadius::same(8);
+    let radius = egui::CornerRadius::same(radius::CONTROL);
     for (w, fill) in [
         (&mut v.widgets.noninteractive, *SURFACE),
         (&mut v.widgets.inactive, *SURFACE_HIGH),
@@ -519,7 +567,7 @@ mod tests {
     #[test]
     fn text_meets_wcag_aa_normally_and_seven_to_one_in_high_contrast() {
         for (high, floor) in [(false, 4.5), (true, 7.0)] {
-            for text in [ON_SURFACE, ON_SURFACE_VARIANT, OUTLINE, MOON, TERTIARY, ERROR] {
+            for text in [ON_SURFACE, ON_SURFACE_VARIANT, OUTLINE, MOON, TERTIARY, ERROR, OK, WARN] {
                 for ground in GROUNDS {
                     let ratio = contrast(color(high, text), color(high, ground));
                     assert!(ratio >= floor, "high={high}: text {text:?} on {ground:?} is {ratio:.2}:1, wants {floor}");
@@ -529,7 +577,50 @@ mod tests {
             assert!(on_moon >= floor, "high={high}: button text on the moon is {on_moon:.2}:1");
             let on_container = contrast(color(high, ON_MOON_CONTAINER), color(high, MOON_CONTAINER));
             assert!(on_container >= floor, "high={high}: text on a selection is {on_container:.2}:1");
+            let on_error = contrast(color(high, ON_ERROR_CONTAINER), color(high, ERROR_CONTAINER));
+            assert!(on_error >= floor, "high={high}: text on a failure is {on_error:.2}:1");
         }
+    }
+
+    #[test]
+    fn status_on_the_scrim_reads_over_a_white_frame() {
+        // Text over game art sits on the scrim; the worst frame behind it is white.
+        let ground = over(SCRIM, Color32::WHITE);
+        let white = contrast(Color32::WHITE, ground);
+        assert!(white >= 7.0, "white on the scrim is {white:.2}:1");
+        for high in [false, true] {
+            let ok = contrast(color(high, OK), ground);
+            assert!(ok >= 4.5, "high={high}: the running dot on the scrim is {ok:.2}:1");
+        }
+    }
+
+    #[test]
+    fn warn_stays_apart_from_the_amber_of_the_action() {
+        // They are close (the rule keeps warn out of filled shapes), but never the same colour.
+        for high in [false, true] {
+            assert_ne!(color(high, WARN), color(high, MOON), "high={high}");
+            assert!(color(high, WARN).g() > color(high, MOON).g(), "high={high}: warn is the yellower one");
+        }
+    }
+
+    #[test]
+    fn the_look_follows_the_console_type_space_and_shape() {
+        let ctx = egui::Context::default();
+        own_palette();
+        set_look(&ctx, false, false);
+        let style = ctx.global_style();
+        let size = |s: TextStyle| style.text_styles[&s].size;
+        assert_eq!(
+            [size(TextStyle::Heading), size(TextStyle::Body), size(TextStyle::Button), size(TextStyle::Small), size(TextStyle::Monospace)],
+            [28.0, 16.0, 14.0, 13.0, 13.0]
+        );
+        assert_eq!(style.spacing.item_spacing, egui::vec2(8.0, 8.0));
+        assert_eq!(style.spacing.button_padding.x, 16.0);
+        assert_eq!(style.visuals.widgets.inactive.corner_radius, egui::CornerRadius::same(10));
+        assert_eq!(style.visuals.window_corner_radius, egui::CornerRadius::same(12));
+        assert_eq!(style.visuals.menu_corner_radius, egui::CornerRadius::same(10));
+        assert_eq!([space::XS, space::S, space::M, space::L, space::XL, space::XXL, space::XXXL], [4.0, 8.0, 12.0, 16.0, 24.0, 32.0, 48.0]);
+        assert_eq!(CONTROL_HEIGHT, 44.0);
     }
 
     /// `top` (maybe translucent) painted over the opaque `ground`, as egui blends it.

@@ -45,6 +45,7 @@ use nightjar_core::input::packets::{modifier, mouse_button};
 use nightjar_core::sdp::*;
 use nightjar_core::session::{self, HostInfo, Interrupt, Location, NetworkHint, RoamingConfig, Session, SessionConfig, Stage};
 use rubylight_protocol::control::{HostTimingRequest, LinkNotice, LinkNoticeRequest, LinkState, Reconfigure, CLOCK_SYNC_MESSAGE_TYPE, HOST_TIMING_MESSAGE_TYPE, LINK_NOTICE_MESSAGE_TYPE, RECONFIGURE_MESSAGE_TYPE};
+use rubylight_protocol::pipeline_rates::{PipelineRatesReport, PipelineRatesRequest, PIPELINE_RATES_MESSAGE_TYPE, UNKNOWN};
 use rubylight_protocol::present_clock::ClockOffset;
 use sdl3_sys::everything::*;
 
@@ -107,6 +108,8 @@ pub struct Facts {
     pub host_timing: bool,
     /// The host says when it lowers the video bitrate because of the network (0x5538).
     pub link_notice: bool,
+    /// The host reports its pipeline frame rates (0x553D).
+    pub pipeline_rates: bool,
     pub clock_sync: bool,
     pub display_caps: bool,
     pub cursor_shapes: bool,
@@ -441,6 +444,19 @@ fn link_notice_line(notice: &LinkNotice) -> String {
     let mbps = f64::from(notice.current_kbps) / 1000.0;
     let mbps = if mbps >= 10.0 { format!("{mbps:.0}") } else { format!("{mbps:.1}") };
     trf("Host lowered the bitrate to {} Mbps: network", &[&mbps])
+}
+
+/// The overlay's host pipeline line: the frames per second each host stage handled over the
+/// host's last window (0x553D), "-" for a stage the host can't count.
+fn pipeline_rates_line(report: &PipelineRatesReport) -> String {
+    let fps = |mhz: u32| if mhz == UNKNOWN { "-".to_owned() } else { format!("{:.1}", f64::from(mhz) / 1000.0) };
+    trf("{} source, {} captured, {} encoded, {} sent, {} repeated fps", &[
+        &fps(report.source_mhz),
+        &fps(report.capture_mhz),
+        &fps(report.submit_mhz),
+        &fps(report.output_mhz),
+        &fps(report.repeat_mhz),
+    ])
 }
 
 /// The line logged when any session ends: what the decoder was given, and the frames lost
@@ -907,6 +923,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         format: outcome.negotiated_video_format,
         host_timing: outcome.host_control_messages.contains(&HOST_TIMING_MESSAGE_TYPE),
         link_notice: outcome.host_control_messages.contains(&LINK_NOTICE_MESSAGE_TYPE),
+        pipeline_rates: outcome.host_control_messages.contains(&PIPELINE_RATES_MESSAGE_TYPE),
         clock_sync: outcome.host_control_messages.contains(&CLOCK_SYNC_MESSAGE_TYPE),
         display_caps: outcome.host_control_messages.contains(&rubylight_protocol::control::DISPLAY_CAPS_MESSAGE_TYPE),
         cursor_shapes: plan.info.capabilities.has(Feature::CursorShape) && outcome.host_control_messages.contains(&0x5540),
@@ -1088,6 +1105,8 @@ pub struct Streaming {
     pub overlay: Overlay,
     /// What the host last said about holding the bitrate down for the network; `None` while it has not.
     link_notice: Option<LinkNotice>,
+    /// The host's latest pipeline frame rates; `None` until it sends them.
+    pipeline_rates: Option<PipelineRatesReport>,
     pub exit: Option<Exit>,
     pub toast: Option<(String, Instant)>,
     pub host_id: u64,
@@ -1171,6 +1190,10 @@ impl Streaming {
         if facts.link_notice {
             let _ = session.send(ClientMessage::LinkNoticeRequest(LinkNoticeRequest { enabled: true }));
         }
+        if facts.pipeline_rates {
+            // Every second, as the overlay refreshes.
+            let _ = session.send(ClientMessage::PipelineRatesRequest(PipelineRatesRequest { enabled: true, interval_ms: 1000 }));
+        }
         let settings = connecting.settings.clone();
         let microphone = if settings.microphone && !connecting.plan.microphone_muted && facts.role != AppRole::RemoteMonitor {
             if session.microphone_available() {
@@ -1212,6 +1235,7 @@ impl Streaming {
             overlay_visible: settings.overlay,
             overlay: Overlay::default(),
             link_notice: None,
+            pipeline_rates: None,
             exit: None,
             toast: None,
             host_id: connecting.host_id,
@@ -1637,6 +1661,7 @@ impl Streaming {
             ControlEvent::LinkNotice(notice) => {
                 self.link_notice = (notice.state != LinkState::Full).then_some(notice);
             }
+            ControlEvent::PipelineRates(report) => self.pipeline_rates = Some(report),
             ControlEvent::ClockSync { reply, received } => {
                 let receive_us = session::now_us().saturating_sub(received.elapsed().as_micros() as u64);
                 self.offset.add(&reply, receive_us);
@@ -2382,6 +2407,9 @@ impl Streaming {
         lines.push(("Audio".into(), audio));
         lines.push(("Bitrate".into(), format!("{:.1} Mbps{}", f64::from(self.facts.bitrate_kbps) / 1000.0,
             if self.adaptive_bitrate { ", automatic" } else { "" })));
+        if let Some(report) = &self.pipeline_rates {
+            lines.push(("Host pipeline".into(), pipeline_rates_line(report)));
+        }
         if let Some(notice) = &self.link_notice {
             lines.push(("Notice".into(), link_notice_line(notice)));
         }
@@ -3034,6 +3062,24 @@ mod tests {
         let b = c.host_us(600);
         // 1500 ticks of 90 kHz across the wrap, give or take the rounding.
         assert!((b - a - 16_667).abs() <= 1, "{}", b - a);
+    }
+
+    #[test]
+    fn the_pipeline_line_says_each_stage_in_fps() {
+        let report = PipelineRatesReport {
+            short_window: false,
+            window_ms: 1000,
+            source_mhz: 119_880,
+            capture_mhz: 240_000,
+            submit_mhz: 120_000,
+            output_mhz: 120_000,
+            repeat_mhz: 0,
+        };
+        assert_eq!(pipeline_rates_line(&report), "119.9 source, 240.0 captured, 120.0 encoded, 120.0 sent, 0.0 repeated fps");
+        let unknown = PipelineRatesReport { source_mhz: UNKNOWN, ..report };
+        assert!(pipeline_rates_line(&unknown).starts_with("- source, 240.0 captured"));
+        crate::strings::set(crate::strings::Lang::De);
+        assert_eq!(pipeline_rates_line(&report), "119.9 Quelle, 240.0 erfasst, 120.0 kodiert, 120.0 gesendet, 0.0 wiederholt fps");
     }
 
     #[test]

@@ -429,3 +429,57 @@ fn an_unlink_is_answered_only_once_the_device_stopped_the_transfer() {
     drop(driver);
     served.join().unwrap().unwrap();
 }
+
+#[test]
+fn a_blocking_unlink_waits_for_the_slice_that_still_runs() {
+    /// Sees the cancel flag only after a slice that takes a report anyway, as libusb's
+    /// synchronous read does.
+    struct Late {
+        started: AtomicBool,
+        took: AtomicBool,
+    }
+    impl crate::usb::BlockingDevice for Late {
+        fn describe(&self) -> wire::Device {
+            wire::Device {
+                busid: "1-1".into(),
+                ..wire::Device::default()
+            }
+        }
+        fn transfer(&self, _: &Transfer, cancelled: &AtomicBool) -> Reply {
+            self.started.store(true, Ordering::SeqCst);
+            while !cancelled.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            // The slice that was running when the flag went up ends with data.
+            std::thread::sleep(Duration::from_millis(200));
+            self.took.store(true, Ordering::SeqCst);
+            Reply::read(vec![1])
+        }
+    }
+    let device = Arc::new(Blocking::new(Late {
+        started: AtomicBool::new(false),
+        took: AtomicBool::new(false),
+    }));
+    let (tunnel, mut driver) = pipe();
+    let served = {
+        let device = device.clone();
+        std::thread::spawn(move || serve(tunnel, device))
+    };
+    driver.import("1-1").unwrap();
+    let waiting = driver.submit(1, wire::DIR_IN, 8, [0; 8], &[], &[]);
+    // Unlinked once it runs, so the cancel flag is what stops it.
+    while !device.device().started.load(Ordering::SeqCst) {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let unlink = driver.unlink(waiting);
+    assert_eq!(
+        status_of(&driver.reply(false).0),
+        (unlink, wire::ECONNRESET)
+    );
+    assert!(
+        device.device().took.load(Ordering::SeqCst),
+        "the unlink is answered only after the transfer took its last data"
+    );
+    drop(driver);
+    served.join().unwrap().unwrap();
+}

@@ -45,6 +45,8 @@ struct Inner<D> {
     device: D,
     lanes: Mutex<Lanes>,
     wake: Condvar,
+    /// A lane finished a transfer; an unlink waits on it.
+    stopped: Condvar,
 }
 
 impl<D> Inner<D> {
@@ -65,6 +67,7 @@ impl<D: BlockingDevice> Blocking<D> {
                 device,
                 lanes: Mutex::new(Lanes::default()),
                 wake: Condvar::new(),
+                stopped: Condvar::new(),
             }),
         }
     }
@@ -105,6 +108,7 @@ fn run_lane<D: BlockingDevice>(inner: Arc<Inner<D>>, lane: (u8, Direction)) {
         };
         let reply = inner.device.transfer(&job.transfer, &job.cancelled);
         inner.lanes().running.remove(&job.transfer.seqnum);
+        inner.stopped.notify_all();
         job.done.complete(reply);
     }
 }
@@ -151,6 +155,16 @@ impl<D: BlockingDevice> UsbDevice for Blocking<D> {
         let mut lanes = self.inner.lanes();
         if let Some(cancelled) = lanes.running.get(&seqnum) {
             cancelled.store(true, Ordering::SeqCst);
+            // The device sees the flag only between its slices, and the slice that runs may
+            // still take data (a key-up) the driver now expects the next transfer to get. The
+            // server answers the unlink once this returns, so wait for the lane to let go.
+            while lanes.running.contains_key(&seqnum) {
+                lanes = self
+                    .inner
+                    .stopped
+                    .wait(lanes)
+                    .unwrap_or_else(PoisonError::into_inner);
+            }
             return;
         }
         // Not started: it never runs. The server already dropped it, so its completion

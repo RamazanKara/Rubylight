@@ -141,4 +141,25 @@ export const settings: Setting[] = [
     default: 48289,
     pending: true,
   },
+  // Nucleus Co-op background streaming and co-op.
+  {
+    key: 'nucleus_path',
+    label: 'Nucleus Co-op folder',
+    description: "The folder of your own Nucleus Co-op copy. Empty: the host's own copy, which it downloads on first use.",
+    category: 'general',
+    group: 'Background streaming',
+    control: { kind: 'text', placeholder: 'C:\\Tools\\Nucleus Co-op', mono: true },
+    default: '',
+    pending: true,
+  },
+  {
+    key: 'nucleus_coop_players',
+    label: 'Co-op players',
+    description: "The most players a Nucleus co-op session gets. The game's handler and the free controller slots can allow fewer.",
+    category: 'general',
+    group: 'Background streaming',
+    control: { kind: 'number', min: 1, max: 4, step: 1 },
+    default: 4,
+    pending: true,
+  },
 ];

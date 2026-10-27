@@ -3,8 +3,18 @@
 //! The decision always carries its reason, which the log and the console
 //! show; a mode that was chosen but cannot run is an error, never another
 //! mode.
-use crate::config::BackgroundMode;
 use serde::Serialize;
+
+/// The background mode Nucleus Co-op's decision takes. Until the host runs
+/// Nucleus sessions, `background_mode` is read by
+/// [`crate::child_session::ModeSetting`] alone, whose `virtual_display` this
+/// mode's `Nucleus` is to replace.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BackgroundMode {
+    Auto,
+    ChildSession,
+    Nucleus,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]

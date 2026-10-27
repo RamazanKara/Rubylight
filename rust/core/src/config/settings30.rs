@@ -4,6 +4,7 @@
 //! host can't use is reported through [`invalid`] and the default applies,
 //! so a launch never fails because of one of these settings.
 use super::{Config, PORTS, first_report, invalid, unquote};
+use std::path::PathBuf;
 
 /// Every 3.0 setting with its default, as `sunshine.conf` would spell it.
 pub const SETTINGS_30: &[(&str, &str)] = &[
@@ -19,6 +20,9 @@ pub const SETTINGS_30: &[(&str, &str)] = &[
     ("dd_rotation_option", "disabled"),
     ("dd_manual_rotation", "0"),
     ("child_session_port", "48289"),
+    // Nucleus Co-op background streaming and co-op.
+    ("nucleus_path", ""),
+    ("nucleus_coop_players", "4"),
 ];
 
 /// `touch_mode`: how touches reach the PC.
@@ -143,6 +147,17 @@ impl Config {
             ],
         )
     }
+    /// The Nucleus Co-op folder: `nucleus_path`, or None for the host's own
+    /// copy, which it installs on first use.
+    pub fn nucleus_path(&self) -> Option<PathBuf> {
+        let value = self.text30("nucleus_path", "");
+        (!value.is_empty()).then(|| PathBuf::from(value))
+    }
+    /// The most players a co-op session gets (1 to 4, 4 by default); the
+    /// game's handler and the free controller slots can allow fewer.
+    pub fn nucleus_coop_players(&self) -> u32 {
+        self.integer30("nucleus_coop_players", 4, |n| (1..=4).contains(&n)) as u32
+    }
     /// The child session's base port, as `port` is for the host
     /// ([`super::Ports::from_base`]); 48289 by default, so its ports are 48284 to 48310.
     pub fn child_session_port(&self) -> u16 {
@@ -198,14 +213,15 @@ mod tests {
                     c.dd_manual_rotation(),
                     c.child_session_port(),
                 ),
+                (c.nucleus_path(), c.nucleus_coop_players()),
             )
         )
     }
 
     #[test]
-    fn there_are_12_unique_settings() {
+    fn there_are_14_unique_settings() {
         let keys: std::collections::BTreeSet<_> = SETTINGS_30.iter().map(|(k, _)| k).collect();
-        assert_eq!((SETTINGS_30.len(), keys.len()), (12, 12));
+        assert_eq!((SETTINGS_30.len(), keys.len()), (14, 14));
     }
 
     #[test]
@@ -225,6 +241,8 @@ mod tests {
         assert_eq!(c.child_session_port(), 48289);
         let ports = super::super::Ports::from_base(c.child_session_port());
         assert_eq!((ports.https, ports.rtsp), (48284, 48310));
+        assert_eq!(c.nucleus_path(), None);
+        assert_eq!(c.nucleus_coop_players(), 4);
     }
 
     #[test]
@@ -266,6 +284,8 @@ mod tests {
             "dd_manual_rotation = 360",
             "child_session_port = 1028",
             "child_session_port = 65515",
+            "nucleus_coop_players = 0",
+            "nucleus_coop_players = 5",
         ] {
             assert_eq!(answers(&config(text)), unset, "{text}");
         }
@@ -280,6 +300,8 @@ mod tests {
             "dd_rotation_option = manual\n",
             "dd_manual_rotation = 270\n",
             "child_session_port = 50000\n",
+            "nucleus_path = \"D:\\Tools\\Nucleus\"\n",
+            "nucleus_coop_players = 2\n",
         ));
         assert_eq!(c.touch_mode(), TouchMode::Trackpad);
         assert_eq!(c.touch_sensitivity(), 25);
@@ -287,6 +309,8 @@ mod tests {
         assert_eq!(c.dd_rotation_option(), DisplayAdjust::Manual);
         assert_eq!(c.dd_manual_rotation(), 270);
         assert_eq!(c.child_session_port(), 50000);
+        assert_eq!(c.nucleus_path(), Some(PathBuf::from("D:\\Tools\\Nucleus")));
+        assert_eq!(c.nucleus_coop_players(), 2);
         let folders = config(
             "shared_folders = [{\"id\": \"games\", \"name\": \"Games\", \"path\": \"D:\\\\Games\"}, {\"id\": \"saves-2\", \"name\": \"Saves\", \"path\": \"E:\\\\Saves\"}]",
         )

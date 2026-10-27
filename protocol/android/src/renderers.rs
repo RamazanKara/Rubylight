@@ -1,7 +1,8 @@
 //! nightjar-core's decoder and audio renderer, forwarded to MoonBridge's `bridgeDr*` and
 //! `bridgeAr*` callbacks as `callbacks.c` does (moonlight-common-c's Android binding, GPL-3.0,
 //! Cameron Gutman and contributors): parameter sets are submitted on their own, picture data
-//! in one buffer, and Opus is decoded here so Java receives PCM.
+//! in one buffer, and Opus is decoded here so Java receives PCM. Passthrough PCM goes on as
+//! shorts the same way; AC3 and E-AC3 frames go to `bridgeArPlayEncoded` as bytes.
 
 use jni::objects::{GlobalRef, JShortArray};
 
@@ -143,9 +144,25 @@ impl VideoDecoder for Video {
     }
 }
 
+/// What the stream's packets are, for [`Audio`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AudioMode {
+    Opus,
+    /// s16le samples, handed on as Java shorts like decoded Opus.
+    Pcm,
+    /// Whole AC3 or E-AC3 frames, handed on as bytes to a passthrough AudioTrack.
+    Encoded,
+}
+
+/// The largest AC3 or E-AC3 frame: E-AC3's 11-bit `frmsiz` counts up to 2048 16-bit words.
+const MAX_ENCODED_FRAME: usize = 4096;
+
 pub struct Audio {
     bridge: &'static Bridge,
     decoder: Option<opus::Decoder>,
+    mode: AudioMode,
+    /// The passthrough codecs this stream asked for, to say so when the stream plays Opus.
+    passthrough: u8,
     pcm: Vec<i16>,
     channels: usize,
     samples_per_frame: usize,
@@ -153,10 +170,12 @@ pub struct Audio {
 }
 
 impl Audio {
-    pub fn new(bridge: &'static Bridge) -> Self {
+    pub fn new(bridge: &'static Bridge, passthrough: u8) -> Self {
         Self {
             bridge,
             decoder: None,
+            mode: AudioMode::Opus,
+            passthrough,
             pcm: Vec::new(),
             channels: 0,
             samples_per_frame: 0,
@@ -165,12 +184,74 @@ impl Audio {
     }
 }
 
+/// A PCM packet (s16le, interleaved) into `pcm`, or silence for a lost one. Returns the samples
+/// written: the packet's, capped to `pcm`, or all of `pcm` for a lost packet.
+pub fn pcm_s16le(packet: Option<&[u8]>, pcm: &mut [i16]) -> usize {
+    match packet {
+        Some(bytes) => {
+            let samples = (bytes.len() / 2).min(pcm.len());
+            for (out, pair) in pcm.iter_mut().zip(bytes.chunks_exact(2)) {
+                *out = i16::from_le_bytes([pair[0], pair[1]]);
+            }
+            samples
+        }
+        None => {
+            pcm.fill(0);
+            pcm.len()
+        }
+    }
+}
+
 impl AudioRenderer for Audio {
     fn init(&mut self, setup: &AudioSetup) -> Result<(), i32> {
+        use rubylight_protocol::audio_ext::{CODEC_AC3, CODEC_EAC3, CODEC_OPUS, CODEC_PCM};
         let b = self.bridge;
+        let configuration = bridge::int(audio_configuration_to_int(setup.configuration));
+        self.mode = match setup.codec {
+            CODEC_OPUS => AudioMode::Opus,
+            CODEC_PCM => AudioMode::Pcm,
+            CODEC_AC3 | CODEC_EAC3 => AudioMode::Encoded,
+            other => {
+                platform::error(&format!(
+                    "The stream's audio codec {other} is not one this client plays"
+                ));
+                return Err(-1);
+            }
+        };
+        if self.mode == AudioMode::Opus && self.passthrough != 0 {
+            let message = "The PC offered no passthrough format this audio output plays. This stream plays Opus.";
+            platform::warn(message);
+            b.with_env(|env| {
+                let message = env.new_string(message)?;
+                b.void(
+                    env,
+                    b.m.display_message,
+                    &[bridge::object(message.as_ref())],
+                );
+                Ok(())
+            });
+        }
+        if self.mode == AudioMode::Encoded {
+            // The Java renderer opens an AC3 or E-AC3 AudioTrack, or refuses and says why.
+            let args = [configuration, bridge::int(i32::from(setup.codec))];
+            let result = b.with_env(|env| Ok(b.int(env, b.m.ar_init_encoded, &args).unwrap_or(-1)));
+            if result != 0 {
+                return Err(result);
+            }
+            let array = b.with_env(|env| {
+                let array = env.new_byte_array(MAX_ENCODED_FRAME as i32)?;
+                Ok(Some(env.new_global_ref(array)?))
+            });
+            if array.is_none() {
+                b.post(b.m.ar_cleanup, &[]);
+                return Err(-1);
+            }
+            self.array = array;
+            return Ok(());
+        }
         let opus_config = setup.opus;
         let args = [
-            bridge::int(audio_configuration_to_int(setup.configuration)),
+            configuration,
             bridge::int(opus_config.sample_rate as i32),
             bridge::int(setup.samples_per_frame as i32),
         ];
@@ -178,21 +259,25 @@ impl AudioRenderer for Audio {
         if result != 0 {
             return Err(result);
         }
-        let decoder = match opus::Decoder::new(
-            opus_config.sample_rate,
-            opus_config.channel_count,
-            opus_config.streams,
-            opus_config.coupled_streams,
-            &opus_config.mapping,
-        ) {
-            Ok(decoder) => decoder,
-            Err(code) => {
-                platform::error(&format!("Opus decoder creation failed: {code}"));
-                b.post(b.m.ar_cleanup, &[]);
-                return Err(-1);
-            }
-        };
-        self.channels = usize::from(opus_config.channel_count);
+        self.channels = usize::from(setup.configuration.channel_count);
+        if self.mode == AudioMode::Opus {
+            let decoder = match opus::Decoder::new(
+                opus_config.sample_rate,
+                opus_config.channel_count,
+                opus_config.streams,
+                opus_config.coupled_streams,
+                &opus_config.mapping,
+            ) {
+                Ok(decoder) => decoder,
+                Err(code) => {
+                    platform::error(&format!("Opus decoder creation failed: {code}"));
+                    b.post(b.m.ar_cleanup, &[]);
+                    return Err(-1);
+                }
+            };
+            self.channels = usize::from(opus_config.channel_count);
+            self.decoder = Some(decoder);
+        }
         self.samples_per_frame = setup.samples_per_frame as usize;
         self.pcm = vec![0; self.channels * self.samples_per_frame];
         let length = self.pcm.len() as i32;
@@ -204,7 +289,6 @@ impl AudioRenderer for Audio {
             b.post(b.m.ar_cleanup, &[]);
             return Err(-1);
         }
-        self.decoder = Some(decoder);
         self.array = array;
         Ok(())
     }
@@ -214,15 +298,42 @@ impl AudioRenderer for Audio {
     }
 
     fn play(&mut self, packet: Option<&[u8]>) {
-        let (Some(decoder), Some(array)) = (self.decoder.as_mut(), self.array.as_ref()) else {
+        let Some(array) = self.array.as_ref() else {
             return;
         };
-        let decoded = decoder.decode(packet, &mut self.pcm, self.samples_per_frame);
-        if decoded <= 0 {
-            return;
-        }
-        let samples = (decoded as usize * self.channels).min(self.pcm.len());
         let b = self.bridge;
+        let samples = match self.mode {
+            AudioMode::Encoded => {
+                // A lost frame writes nothing: the sink hears a gap, never a broken frame.
+                let Some(frame) = packet.filter(|frame| frame.len() <= MAX_ENCODED_FRAME) else {
+                    return;
+                };
+                b.with_env(|env| {
+                    env.set_byte_array_region(byte_array(array), 0, bridge::jbytes(frame))?;
+                    b.void(
+                        env,
+                        b.m.ar_play_encoded,
+                        &[
+                            bridge::object(array.as_obj()),
+                            bridge::int(frame.len() as i32),
+                        ],
+                    );
+                    Ok(())
+                });
+                return;
+            }
+            AudioMode::Pcm => pcm_s16le(packet, &mut self.pcm),
+            AudioMode::Opus => {
+                let Some(decoder) = self.decoder.as_mut() else {
+                    return;
+                };
+                let decoded = decoder.decode(packet, &mut self.pcm, self.samples_per_frame);
+                if decoded <= 0 {
+                    return;
+                }
+                (decoded as usize * self.channels).min(self.pcm.len())
+            }
+        };
         let pcm = &self.pcm[..samples];
         b.with_env(|env| {
             let shorts = <&JShortArray>::from(array.as_obj());
@@ -244,5 +355,25 @@ impl AudioRenderer for Audio {
         self.decoder = None;
         self.array = None;
         self.bridge.post(self.bridge.m.ar_cleanup, &[]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pcm_packets_become_samples_and_lost_ones_silence() {
+        let mut pcm = [7i16; 4];
+        assert_eq!(
+            pcm_s16le(Some(&[0x01, 0x00, 0xFF, 0xFF, 0x00, 0x80]), &mut pcm),
+            3
+        );
+        assert_eq!(pcm[..3], [1, -1, i16::MIN]);
+        assert_eq!(pcm_s16le(None, &mut pcm), 4);
+        assert_eq!(pcm, [0; 4]);
+        // A packet longer than the buffer is cut to it, never written past it.
+        assert_eq!(pcm_s16le(Some(&[1; 12]), &mut pcm), 4);
+        assert_eq!(pcm, [0x0101; 4]);
     }
 }

@@ -80,7 +80,8 @@ final class RustBridge {
                                       boolean hapticsPcm, int pyrowaveLinkMbps, int pyrowavePaceMbps,
                                       boolean clientWireless, int networkGracePeriodMs, boolean packed444,
                                       int packed444Modes, boolean remoteMonitor, boolean unbatchedInput,
-                                      boolean networkPriority, boolean roaming, boolean roamingMetered);
+                                      boolean networkPriority, boolean roaming, boolean roamingMetered,
+                                      int audioPassthrough);
     static native void stopConnection();
     static native void interruptConnection();
     static native boolean networkChanged(boolean metered);

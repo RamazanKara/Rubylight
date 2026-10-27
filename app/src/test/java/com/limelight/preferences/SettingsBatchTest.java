@@ -79,6 +79,11 @@ public class SettingsBatchTest {
         p.edit().putBoolean("checkbox_client_roaming", true).putBoolean("checkbox_rust_engine", false).commit();
         assertFalse(SettingRules.clientRoamingApplies(p));
         assertFalse(SettingRules.roamingMeteredApplies(p));
+        // Passthrough: the new engine on Android 10 or later.
+        assertFalse(SettingRules.audioPassthroughApplies(p, 29));
+        p.edit().putBoolean("checkbox_rust_engine", true).commit();
+        assertTrue(SettingRules.audioPassthroughApplies(p, 29));
+        assertFalse(SettingRules.audioPassthroughApplies(p, 28));
     }
 
     @Test

@@ -57,6 +57,11 @@ public class AndroidAudioRenderer implements AudioRenderer {
     private int routeRetries;
     // What the AudioTrack really got, for the problem report: granted mode, output burst, smallest buffer we allow.
     private int trackPerfMode = -1, outputBurst, floorFrames, trackMinBufferFrames;
+    // Passthrough: whole AC3 or E-AC3 frames to a compressed track the route decodes (Android 10 and later).
+    private AudioTrack encodedTrack;
+    private int encodedCodec, encodedBufferBytes;
+    // A passthrough output that cannot be rebuilt says so once per stream, not once a second.
+    private boolean encodedFailureShown;
 
     private static native long nativeOpenAudio(int sampleRate);
     private static native boolean nativeWriteAudio(long handle, short[] samples, int length);
@@ -595,6 +600,123 @@ public class AndroidAudioRenderer implements AudioRenderer {
     }
 
     @Override
+    public synchronized int setupEncoded(MoonBridge.AudioConfiguration audioConfiguration, int codec) {
+        stopped = false;
+        encodedFailureShown = false;
+        channels = audioConfiguration.channelCount;
+        sampleRate = AudioPassthrough.SAMPLE_RATE;
+        encodedCodec = codec;
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            return encodedFailed("needs Android 10 or later");
+        }
+        if (AudioPassthrough.encoding(codec) == 0 || AudioPassthrough.channelMask(channels) == 0) {
+            return encodedFailed(AudioPassthrough.names(codec) + " with " + channels + " channels is not a passthrough format");
+        }
+        return buildEncodedTrack();
+    }
+
+    private int buildEncodedTrack() {
+        int encoding = AudioPassthrough.encoding(encodedCodec);
+        int mask = AudioPassthrough.channelMask(channels);
+        try {
+            encodedBufferBytes = Math.max(AudioTrack.getMinBufferSize(sampleRate, mask, encoding),
+                    2 * AudioPassthrough.MAX_FRAME_BYTES);
+            encodedTrack = createEncodedTrack(encoding, mask, encodedBufferBytes);
+        } catch (RuntimeException e) {
+            encodedTrack = null;
+            return encodedFailed("the audio output refused " + AudioPassthrough.names(encodedCodec) + ": " + e.getMessage());
+        }
+        LimeLog.info("Audio output: " + AudioPassthrough.names(encodedCodec) + " passthrough, " + channels + " channels");
+        reportEncoded();
+        return 0;
+    }
+
+    // Loud: the log, the problem report and the stream's message line. Returns setup's error.
+    private int encodedFailed(String reason) {
+        LimeLog.severe("Audio passthrough: " + reason);
+        ProblemReport.setAudioDiagnostics("AudioTrack passthrough failed: codec=" + AudioPassthrough.names(encodedCodec) +
+                ", channels=" + channels + ", " + reason);
+        if (!encodedFailureShown) {
+            encodedFailureShown = true;
+            MoonBridge.bridgeClDisplayMessage("Audio passthrough failed: " + reason + ". Turn off Audio passthrough to hear Opus.");
+        }
+        return -1;
+    }
+
+    private void reportEncoded() {
+        AudioTrack current = encodedTrack;
+        int routed = -1;
+        if (current != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            try {
+                AudioDeviceInfo device = current.getRoutedDevice();
+                if (device != null) routed = device.getType();
+            } catch (RuntimeException ignored) {}
+        }
+        ProblemReport.setAudioDiagnostics("AudioTrack passthrough: codec=" + AudioPassthrough.names(encodedCodec) +
+                ", channels=" + channels + ", bufferBytes=" + encodedBufferBytes +
+                ", route=" + AudioDiagnostics.route(routed, new int[0]) + ", " + AudioDiagnostics.drops(lateDropped, droppedWrites));
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    AudioTrack createEncodedTrack(int encoding, int channelMask, int bufferBytes) {
+        AudioTrack created = new AudioTrack.Builder()
+                .setAudioFormat(AudioPassthrough.format(encoding, channelMask))
+                .setAudioAttributes(AudioPassthrough.attributes())
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .setBufferSizeInBytes(bufferBytes)
+                .build();
+        created.play();
+        return created;
+    }
+
+    // A lost frame never reaches here: the sink hears a gap, never a broken frame.
+    @Override
+    public synchronized void playEncodedAudio(byte[] frame, int length) {
+        if (stopped) return;
+        // The same 40 ms bound on pending audio as decoded packets.
+        if (pendingAudioMs() >= 40) {
+            lateDropped++;
+            return;
+        }
+        int written = writeEncoded(frame, length);
+        if (written == length) return;
+        droppedWrites++;
+        long now = uptimeMillis();
+        if (written == AudioTrack.ERROR_DEAD_OBJECT && now >= nextTrackRecreateAt) {
+            // A route change ends a compressed track; the new route may not take the format.
+            nextTrackRecreateAt = now + TRACK_RECREATE_INTERVAL_MS;
+            LimeLog.warning("Passthrough AudioTrack disconnected; recreating it");
+            releaseEncodedTrack();
+            buildEncodedTrack();
+        } else if (now >= nextWriteWarningAt) {
+            nextWriteWarningAt = now + TRACK_RECREATE_INTERVAL_MS;
+            LimeLog.warning("Passthrough AudioTrack write failed: " + written + " of " + length + " bytes; dropping the frame");
+            reportEncoded();
+        }
+    }
+
+    // Blocking and whole: a compressed track takes only complete frames.
+    int writeEncoded(byte[] frame, int length) {
+        AudioTrack current = encodedTrack;
+        if (current == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return AudioTrack.ERROR_DEAD_OBJECT;
+        return current.write(frame, 0, length, AudioTrack.WRITE_BLOCKING);
+    }
+
+    private void releaseEncodedTrack() {
+        AudioTrack oldTrack = encodedTrack;
+        encodedTrack = null;
+        if (oldTrack == null) return;
+        try {
+            oldTrack.pause();
+            oldTrack.flush();
+        } catch (IllegalStateException e) {
+            LimeLog.warning("Passthrough AudioTrack was already stopped during release");
+        } finally {
+            oldTrack.release();
+        }
+    }
+
+    @Override
     public synchronized void start() {
         // Allow equalizers to attach to this track, including a replacement after disconnect.
         audioFxWanted = true;
@@ -616,6 +738,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
             nativeAudio = 0;
         }
         releaseAudioTrack();
+        releaseEncodedTrack();
     }
 
     private void releaseAudioTrack() {

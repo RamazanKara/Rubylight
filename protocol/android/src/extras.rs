@@ -39,6 +39,13 @@ pub fn audio_configuration_from_int(value: i32) -> Option<AudioConfiguration> {
     })
 }
 
+/// The passthrough codecs Java found the audio route plays, as `audio_ext::CODEC_*` bits: PCM,
+/// AC3 and E-AC3 only, so a stray bit never asks the host for Opus as passthrough.
+pub fn audio_passthrough(codecs: i32) -> u8 {
+    use rubylight_protocol::audio_ext::{CODEC_AC3, CODEC_EAC3, CODEC_PCM};
+    (codecs & 0xFF) as u8 & (CODEC_PCM | CODEC_AC3 | CODEC_EAC3)
+}
+
 /// `STREAM_CFG_LOCAL`, `STREAM_CFG_REMOTE`, `STREAM_CFG_AUTO`.
 pub fn location(streaming_remotely: i32) -> Location {
     match streaming_remotely {
@@ -313,6 +320,16 @@ fn cpu_has_aes() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn passthrough_keeps_only_the_codecs_java_can_route() {
+        use rubylight_protocol::audio_ext::{CODEC_AC3, CODEC_EAC3, CODEC_OPUS, CODEC_PCM};
+        assert_eq!(audio_passthrough(0), 0);
+        assert_eq!(audio_passthrough(i32::from(CODEC_AC3 | CODEC_EAC3)), CODEC_AC3 | CODEC_EAC3);
+        assert_eq!(audio_passthrough(i32::from(CODEC_OPUS | CODEC_PCM)), CODEC_PCM);
+        assert_eq!(audio_passthrough(-1), CODEC_PCM | CODEC_AC3 | CODEC_EAC3);
+        assert_eq!(audio_passthrough(0x100), 0);
+    }
 
     #[test]
     fn the_roaming_settings_reach_the_session_with_platform_hints() {

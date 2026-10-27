@@ -522,4 +522,95 @@ public class AndroidAudioRendererTest {
         assertEquals(2, renderer.recreations);
         assertEquals(3, renderer.nextResult);
     }
+
+    private static final class EncodedRenderer extends AndroidAudioRenderer {
+        final List<int[]> tracks = new ArrayList<>();
+        final List<Integer> writes = new ArrayList<>();
+        int writeResult = Integer.MIN_VALUE;
+        boolean refuse;
+        long now = 1000;
+        int pendingMs;
+
+        EncodedRenderer() {
+            super(null, false, null);
+        }
+
+        @Override AudioTrack createEncodedTrack(int encoding, int channelMask, int bufferBytes) {
+            tracks.add(new int[] {encoding, channelMask, bufferBytes});
+            if (refuse) throw new UnsupportedOperationException("Cannot create AudioTrack");
+            return null;
+        }
+
+        @Override int writeEncoded(byte[] frame, int length) {
+            writes.add(length);
+            return writeResult == Integer.MIN_VALUE ? length : writeResult;
+        }
+
+        @Override long uptimeMillis() {
+            return now;
+        }
+
+        @Override int pendingAudioMs() {
+            return pendingMs;
+        }
+    }
+
+    private static final com.limelight.nvstream.jni.MoonBridge.AudioConfiguration SURROUND_51 =
+            new com.limelight.nvstream.jni.MoonBridge.AudioConfiguration(6, 0x3F);
+
+    @Test public void passthroughOpensACompressedTrackOfTheStreamsCodecAndLayout() {
+        EncodedRenderer renderer = new EncodedRenderer();
+        assertEquals(0, renderer.setupEncoded(SURROUND_51, AudioPassthrough.CODEC_EAC3));
+        assertEquals(1, renderer.tracks.size());
+        assertEquals(android.media.AudioFormat.ENCODING_E_AC3, renderer.tracks.get(0)[0]);
+        assertEquals(android.media.AudioFormat.CHANNEL_OUT_5POINT1, renderer.tracks.get(0)[1]);
+        // Room for two of the largest frames at least, so a blocking write never splits one.
+        assertTrue(renderer.tracks.get(0)[2] >= 2 * AudioPassthrough.MAX_FRAME_BYTES);
+        renderer.playEncodedAudio(new byte[2560], 2560);
+        assertEquals(List.of(2560), renderer.writes);
+    }
+
+    @Test public void passthroughRefusesWhatItCannotPlayInsteadOfPlayingSilence() {
+        EncodedRenderer renderer = new EncodedRenderer();
+        // PCM is not a compressed format, and AC3 has no 4.0 layout here.
+        assertEquals(-1, renderer.setupEncoded(SURROUND_51, AudioPassthrough.CODEC_PCM));
+        assertEquals(-1, renderer.setupEncoded(
+                new com.limelight.nvstream.jni.MoonBridge.AudioConfiguration(4, 0x33), AudioPassthrough.CODEC_AC3));
+        assertTrue(renderer.tracks.isEmpty());
+        // The output refuses the format.
+        renderer.refuse = true;
+        assertEquals(-1, renderer.setupEncoded(SURROUND_51, AudioPassthrough.CODEC_AC3));
+        assertEquals(1, renderer.tracks.size());
+    }
+
+    @Test public void deadPassthroughTrackIsRebuiltAtMostOnceASecondAndFailedFramesAreCounted() {
+        EncodedRenderer renderer = new EncodedRenderer();
+        assertEquals(0, renderer.setupEncoded(SURROUND_51, AudioPassthrough.CODEC_AC3));
+        renderer.writeResult = AudioTrack.ERROR_DEAD_OBJECT;
+        renderer.playEncodedAudio(new byte[2560], 2560);
+        assertEquals(2, renderer.tracks.size());
+        renderer.playEncodedAudio(new byte[2560], 2560);
+        assertEquals(2, renderer.tracks.size());
+        renderer.now += 1000;
+        renderer.playEncodedAudio(new byte[2560], 2560);
+        assertEquals(3, renderer.tracks.size());
+        // A partial write is a broken frame too.
+        renderer.writeResult = 100;
+        renderer.playEncodedAudio(new byte[2560], 2560);
+        assertEquals(3, renderer.tracks.size());
+        assertEquals(Long.valueOf(4), ReflectionHelpers.<Long>getField(renderer, "droppedWrites"));
+    }
+
+    @Test public void passthroughFramesKeepTheBoundOnPendingAudioAndStopWithTheStream() {
+        EncodedRenderer renderer = new EncodedRenderer();
+        assertEquals(0, renderer.setupEncoded(SURROUND_51, AudioPassthrough.CODEC_AC3));
+        renderer.pendingMs = 40;
+        renderer.playEncodedAudio(new byte[2560], 2560);
+        assertTrue(renderer.writes.isEmpty());
+        assertEquals(Long.valueOf(1), ReflectionHelpers.<Long>getField(renderer, "lateDropped"));
+        renderer.pendingMs = 0;
+        renderer.stop();
+        renderer.playEncodedAudio(new byte[2560], 2560);
+        assertTrue(renderer.writes.isEmpty());
+    }
 }

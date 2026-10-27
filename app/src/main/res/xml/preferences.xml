@@ -504,6 +504,12 @@
             android:title="@string/title_checkbox_enable_audiofx"
             android:dialogMessage="@string/summary_checkbox_enable_audiofx"
             android:defaultValue="false" />
+        <!-- Rust engine and Android 10 or later only (SettingRules.audioPassthroughApplies). -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_audio_passthrough"
+            android:title="@string/title_checkbox_audio_passthrough"
+            android:dialogMessage="@string/summary_checkbox_audio_passthrough"
+            android:defaultValue="false" />
     </PreferenceCategory>
 
     <!-- Streaming -->

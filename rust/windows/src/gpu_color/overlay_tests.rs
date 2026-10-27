@@ -2,6 +2,10 @@
 //! on every format, colour mode and path. Closed, every conversion stays bit
 //! for bit what it was before the overlay pass existed.
 use super::*;
+use crate::overlay::{
+    Overlay,
+    reference::{self, Layout},
+};
 use butterpollo_core::rtsp::Negotiated;
 use windows::Win32::Graphics::Direct3D12::{D3D12_FENCE_FLAG_NONE, ID3D12Fence};
 
@@ -34,6 +38,15 @@ enum Route {
 impl Kind {
     fn pyro(self) -> bool {
         matches!(self, Self::Pyro420 | Self::Pyro444)
+    }
+    fn layout(self) -> Layout {
+        match self {
+            Self::Yuv420 => Layout::Yuv420,
+            Self::Pack1 => Layout::Pack(1),
+            Self::Pack2 => Layout::Pack(2),
+            Self::Pyro420 => Layout::Pyro { yuv444: false },
+            Self::Pyro444 => Layout::Pyro { yuv444: true },
+        }
     }
 }
 /// Every format, colour mode and path the converters have.
@@ -131,7 +144,13 @@ impl Rig {
     }
     /// The converted planes' samples as stored: NV12 and P010 as one plane
     /// (luma rows, then interleaved chroma rows), PyroWave as three.
-    fn convert(&mut self, kind: Kind, colour: Colour, route: Route) -> Result<Vec<Vec<u16>>> {
+    fn convert(
+        &mut self,
+        kind: Kind,
+        colour: Colour,
+        route: Route,
+        overlay: Option<&Overlay>,
+    ) -> Result<Vec<Vec<u16>>> {
         let config = config(kind, colour);
         let image = if config.hdr { &self.hdr } else { &self.sdr };
         let source = (image.width, image.height, image.pixel);
@@ -149,6 +168,7 @@ impl Rig {
                     crate::compute::Converter::new(self.compute.clone(), WIDTH, HEIGHT, ten_bit)?;
                 converter.values = constants(&config, source, [100., 1.], None);
                 converter.values[11] = u32::from(config.yuv444);
+                converter.set_overlay(overlay);
                 let target = crate::compute::Planes {
                     planes: [
                         self.compute.open(&outputs.textures[0])?,
@@ -185,6 +205,7 @@ impl Rig {
                 return planes(&outputs.textures);
             }
             let mut converter = PlanarConverter::new(&self.gpu, &config, source)?;
+            converter.set_overlay(overlay);
             match route {
                 Route::D3d11Compute => {
                     anyhow::ensure!(converter.compute.is_some(), "no D3D11 plane shader")
@@ -206,6 +227,7 @@ impl Rig {
                 converter.pack_chroma()?;
             }
             converter.values = constants(&config, source, [100., 1.], None);
+            converter.set_overlay(overlay);
             let converted = converter.convert(
                 &self.compute.open(&image.texture)?,
                 crate::compute::format(image.pixel),
@@ -219,6 +241,7 @@ impl Rig {
         if route != Route::D3d11Compute {
             converter.compute = None;
         }
+        converter.set_overlay(overlay);
         converter.set_luminance([100., 1.]);
         let texture = converter.convert(image)?;
         anyhow::ensure!(
@@ -322,11 +345,11 @@ fn overlay_closed_outputs_match_their_fixture_hashes() -> Result<()> {
     let mut rig = Rig::new()?;
     let mut actual = Vec::new();
     for (kind, colour, route) in cases() {
-        let planes = rig.convert(kind, colour, route)?;
+        let planes = rig.convert(kind, colour, route, None)?;
         // A second run must agree, or the fixture would only record noise.
         assert_eq!(
             planes,
-            rig.convert(kind, colour, route)?,
+            rig.convert(kind, colour, route, None)?,
             "{kind:?} {colour:?} {route:?}"
         );
         actual.push((format!("{kind:?} {colour:?} {route:?}"), hash(&planes)));
@@ -342,5 +365,167 @@ fn overlay_closed_outputs_match_their_fixture_hashes() -> Result<()> {
             .eq(CLOSED.iter().copied()),
         "closed outputs differ from the fixture; they hash to:\n{table}"
     );
+    Ok(())
+}
+
+/// A 64x32 panel at (32, 16), magnified twice, every 2x2 block its own colour.
+fn panel(revision: u64) -> Overlay {
+    let (width, height) = (32, 16);
+    let mut rgba = vec![255; width * height * 4];
+    for (index, pixel) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+        let v = (index as u32 ^ revision as u32).wrapping_mul(2_246_822_519) >> 7;
+        pixel[..3].copy_from_slice(&[v as u8, (v >> 8) as u8, (v >> 16) as u8]);
+    }
+    Overlay {
+        revision,
+        origin: [32, 16],
+        size: [64, 32],
+        scale: 2,
+        rgba: rgba.into(),
+    }
+}
+/// A stored sample as the code the reference gives: P010 keeps codes in the
+/// upper ten bits, PyroWave's ten-bit planes over their full range.
+fn code(sample: u16, kind: Kind, ten_bit: bool) -> u16 {
+    match (ten_bit, kind.pyro()) {
+        (false, _) => sample,
+        (true, false) => sample >> 6,
+        (true, true) => (f64::from(sample) * 1023. / 65535.).round() as u16,
+    }
+}
+
+#[test]
+#[ignore = "requires D3D11 video UAVs and D3D12 compute"]
+fn overlay_matches_the_reference_inside_and_closed_outside() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let overlay = panel(1);
+    for (kind, colour, route) in cases() {
+        let label = format!("{kind:?} {colour:?} {route:?}");
+        let config = config(kind, colour);
+        let image = if config.hdr { &rig.hdr } else { &rig.sdr };
+        let values = constants(
+            &config,
+            (image.width, image.height, image.pixel),
+            [100., 1.],
+            None,
+        );
+        let expected = reference::expected(
+            &overlay,
+            reference::Colour::from_values(&values),
+            kind.layout(),
+            [WIDTH, HEIGHT],
+        );
+        let closed = rig.convert(kind, colour, route, None)?;
+        let open = rig.convert(kind, colour, route, Some(&overlay))?;
+        assert_eq!(expected.len(), open.len(), "{label}");
+        let mut inside = 0;
+        for (plane, ((expected, open), closed)) in
+            expected.iter().zip(&open).zip(&closed).enumerate()
+        {
+            assert_eq!(expected.len(), open.len(), "{label} plane {plane}");
+            for (index, (expected, (&open, &closed))) in
+                expected.iter().zip(open.iter().zip(closed)).enumerate()
+            {
+                match expected {
+                    None => {
+                        assert_eq!(open, closed, "{label} plane {plane} sample {index} outside")
+                    }
+                    Some(expected) => {
+                        let actual = code(open, kind, config.ten_bit());
+                        assert!(
+                            actual.abs_diff(*expected) <= 1,
+                            "{label} plane {plane} sample {index}: {actual}, expected {expected}"
+                        );
+                        inside += 1;
+                    }
+                }
+            }
+        }
+        assert!(inside > 0, "{label} has no panel samples");
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires D3D11 video UAVs and D3D12 compute"]
+fn overlay_uploads_once_per_revision_and_again_for_a_new_converter() -> Result<()> {
+    let rig = Rig::new()?;
+    let config = config(Kind::Yuv420, Colour::Sdr709);
+    let image = &rig.sdr;
+    let source = (image.width, image.height, image.pixel);
+    let opened = rig.compute.open(&image.texture)?;
+    let compute = || -> Result<crate::compute::Converter> {
+        let mut converter =
+            crate::compute::Converter::new(rig.compute.clone(), WIDTH, HEIGHT, false)?;
+        converter.values = constants(&config, source, [100., 1.], None);
+        Ok(converter)
+    };
+    let run = |converter: &mut crate::compute::Converter| -> Result<()> {
+        converter
+            .convert(&opened, crate::compute::format(image.pixel), None, image)?
+            .wait()
+    };
+    let mut converter = compute()?;
+    run(&mut converter)?;
+    assert_eq!(
+        converter.menu_counts(),
+        (0, 0),
+        "closed records no menu pass"
+    );
+    converter.set_overlay(Some(&panel(1)));
+    for _ in 0..3 {
+        run(&mut converter)?;
+    }
+    assert_eq!(converter.menu_counts(), (1, 3));
+    // More revisions than the ring holds, each read before the next.
+    for revision in 2..7 {
+        converter.set_overlay(Some(&panel(revision)));
+        run(&mut converter)?;
+    }
+    assert_eq!(converter.menu_counts(), (6, 8));
+    converter.set_overlay(None);
+    run(&mut converter)?;
+    assert_eq!(converter.menu_counts(), (6, 8), "closed again, no pass");
+    let mut rebuilt = compute()?;
+    rebuilt.set_overlay(Some(&panel(6)));
+    run(&mut rebuilt)?;
+    assert_eq!(
+        rebuilt.menu_counts(),
+        (1, 1),
+        "a rebuilt converter uploads again"
+    );
+
+    let mut graphics = Converter::new(&rig.gpu, &config, source)?;
+    graphics.compute = None;
+    graphics.convert(image)?;
+    assert_eq!(graphics.menu_counts(), (0, 0));
+    graphics.set_overlay(Some(&panel(1)));
+    graphics.convert(image)?;
+    graphics.convert(image)?;
+    assert_eq!(graphics.menu_counts(), (1, 2));
+    graphics.set_overlay(Some(&panel(2)));
+    graphics.convert(image)?;
+    assert_eq!(graphics.menu_counts(), (2, 3));
+
+    let pyro = self::config(Kind::Pyro420, Colour::Sdr709);
+    let mut planar = PlanarConverter::new(&rig.gpu, &pyro, source)?;
+    planar.compute = None;
+    planar.convert(image, [100., 1.])?;
+    assert_eq!(planar.menu_counts(), (0, 0), "closed draws no menu pass");
+    planar.set_overlay(Some(&panel(1)));
+    planar.convert(image, [100., 1.])?;
+    planar.convert(image, [100., 1.])?;
+    assert_eq!(planar.menu_counts(), (1, 2));
+    // A panel that does not fit the stream fails loudly.
+    graphics.set_overlay(Some(&Overlay {
+        origin: [96, 16],
+        ..panel(3)
+    }));
+    assert!(graphics.convert(image).is_err());
+    converter.set_overlay(Some(&Overlay {
+        origin: [96, 16],
+        ..panel(3)
+    }));
+    assert!(run(&mut converter).is_err());
     Ok(())
 }

@@ -813,6 +813,124 @@ fn set_up_scale(
     Ok((in_force, baseline))
 }
 
+/// The Windows scale a physical display takes for a stream: the device's own
+/// `dd_virtual_display_scale` override only. The host's setting and an app's
+/// are for virtual displays; a physical display's scale is the user's unless
+/// the device asks for one. 0 leaves it.
+fn physical_scale(client: &butterpollo_core::state::Client) -> i64 {
+    const KEY: &str = "dd_virtual_display_scale";
+    let Some(value) = client
+        .extra
+        .get("config_overrides")
+        .and_then(serde_json::Value::as_object)
+        .and_then(|overrides| overrides.get(KEY))
+    else {
+        return 0;
+    };
+    let mut own = Config::default();
+    // A value the host cannot use was reported when the device's settings
+    // were applied to the stream; it leaves the scale as it is.
+    if own
+        .update(&serde_json::Map::from_iter([(KEY.to_owned(), value.clone())]))
+        .is_err()
+    {
+        return 0;
+    }
+    own.integer(KEY, 0)
+}
+
+/// The size a stream's own virtual display is made at: `size` in the shape
+/// `dd_rotation_option` gives it. It is made in that shape rather than turned.
+fn virtual_display_size(config: &Config, size: (u32, u32), stream: (u32, u32)) -> (u32, u32) {
+    butterpollo_core::display_policy::virtual_shape(
+        config.dd_rotation_option(),
+        config.dd_manual_rotation(),
+        size,
+        stream,
+    )
+}
+
+/// How a stream turns its physical display (`dd_rotation_option`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct PhysicalTurn {
+    /// The rotation in degrees it turns to, or None to leave it.
+    degrees: Option<u16>,
+    /// The resolution asked of the display before the turn, in the shape it
+    /// has then.
+    before: Option<(u32, u32)>,
+    /// The resolution the desktop shows once it has turned.
+    after: Option<(u32, u32)>,
+}
+
+/// The turn a stream gives its physical display. `read` gives the display's
+/// rotation and desktop size; it is read only when the option can turn the
+/// display, and a display that cannot be read fails the stream rather than
+/// stream it unturned.
+fn plan_physical_turn(
+    config: &Config,
+    stream: (u32, u32),
+    resolution: Option<(u32, u32)>,
+    read: impl FnOnce() -> Result<(u16, (u32, u32))>,
+) -> Result<PhysicalTurn> {
+    let unturned = PhysicalTurn {
+        degrees: None,
+        before: resolution,
+        after: resolution,
+    };
+    let option = config.dd_rotation_option();
+    if option == butterpollo_core::config::DisplayAdjust::Disabled {
+        return Ok(unturned);
+    }
+    let (current, desktop) =
+        read().context("the display's rotation could not be read for dd_rotation_option")?;
+    let Some(degrees) = butterpollo_core::display_policy::physical_rotation(
+        option,
+        config.dd_manual_rotation(),
+        current,
+        desktop,
+        stream,
+    ) else {
+        return Ok(unturned);
+    };
+    let before =
+        resolution.map(|size| butterpollo_core::display_policy::mode_before_turn(size, desktop));
+    // A quarter turn swaps the desktop's width and height.
+    let quarter = (degrees + 360 - current) % 180 == 90;
+    Ok(PhysicalTurn {
+        degrees: Some(degrees),
+        before,
+        after: before.map(|(width, height)| if quarter { (height, width) } else { (width, height) }),
+    })
+}
+
+/// What a stream changes on its physical display beside the mode, so tests
+/// can stand in for the display lease.
+trait PhysicalAdjust {
+    fn rotate(&mut self, degrees: u16) -> Result<()>;
+    fn scale(&mut self, configured: i64) -> Result<()>;
+}
+impl PhysicalAdjust for Guard {
+    fn rotate(&mut self, degrees: u16) -> Result<()> {
+        Guard::rotate(self, degrees)
+    }
+    fn scale(&mut self, configured: i64) -> Result<()> {
+        Guard::scale(self, configured)
+    }
+}
+
+/// Turns, then scales, a stream's physical display. The turn comes first: the
+/// display's mode was set in its shape before the turn, and a recommended
+/// scale is read off the turned desktop. The lease puts both back.
+fn adjust_physical(lease: &mut impl PhysicalAdjust, turn: Option<u16>, scale: i64) -> Result<()> {
+    if let Some(degrees) = turn {
+        lease.rotate(degrees)?;
+    }
+    if scale != 0 {
+        lease.scale(scale)?;
+    }
+    Ok(())
+}
+
 impl Prepared {
     fn capture_target(&self) -> (String, u64) {
         self._retained.as_ref().map_or_else(
@@ -1116,12 +1234,12 @@ impl Prepared {
         {
             request.resolution = Some(resolution);
         }
-        if request.prefer_highest && !virtual_mode {
-            request.refresh =
-                Some(butterpollo_windows::display::highest_refresh(output, request.resolution)?.0);
-        }
         let (width, height) = if virtual_mode {
-            request.resolution.unwrap_or((render_width, render_height))
+            virtual_display_size(
+                config,
+                request.resolution.unwrap_or((render_width, render_height)),
+                (stream.width, stream.height),
+            )
         } else {
             (stream.width, stream.height)
         };
@@ -1149,6 +1267,28 @@ impl Prepared {
         } else {
             None
         };
+        // A physical display turns to the stream's shape (dd_rotation_option),
+        // read once it is on. Its mode is asked for in the shape it has before
+        // the turn, and its highest refresh looked up at that mode.
+        let physical = !virtual_mode && retained.is_none();
+        let turn = if physical {
+            plan_physical_turn(
+                config,
+                (stream.width, stream.height),
+                request.resolution,
+                || butterpollo_windows::display::stream_display_rotation(output),
+            )?
+        } else {
+            PhysicalTurn {
+                before: request.resolution,
+                after: request.resolution,
+                ..Default::default()
+            }
+        };
+        if request.prefer_highest && !virtual_mode {
+            request.refresh =
+                Some(butterpollo_windows::display::highest_refresh(output, turn.before)?.0);
+        }
         let virtual_options = butterpollo_windows::display::VirtualOptions {
             peak_nits: config.integer("hdr_peak_brightness", 1000).clamp(400, 2000) as u32,
             render_adapter: if virtual_mode {
@@ -1183,7 +1323,7 @@ impl Prepared {
                 && config.boolean("virtual_display_hdr_calibration", false),
             physical_calibration,
         );
-        let display = if retained.is_none() {
+        let mut display = if retained.is_none() {
             Some(Guard::new_virtual_options(
                 output,
                 virtual_mode,
@@ -1192,13 +1332,18 @@ impl Prepared {
                 height,
                 rate,
                 request.hdr,
-                request.resolution,
+                turn.before,
                 request.refresh.map(Rate),
                 &virtual_options,
             )?)
         } else {
             None
         };
+        // A virtual display was made in the stream's shape above and is never
+        // turned; a physical one turns and takes the device's own scale here.
+        if physical && let Some(guard) = display.as_mut() {
+            adjust_physical(guard, turn.degrees, physical_scale(&launch.client))?;
+        }
         let output = retained
             .as_ref()
             .map(|d| d.current_output())
@@ -1351,7 +1496,7 @@ impl Prepared {
         let requested = if virtual_mode {
             (Some((width, height)), Some(rate.0), request.hdr)
         } else {
-            (request.resolution, request.refresh, request.hdr)
+            (turn.after, request.refresh, request.hdr)
         };
         let mode_report = ModeReport::new(launch.warnings.clone(), requested, stream.fps_millihz());
         mode_report.publish(applied_mode(&output));
@@ -1884,6 +2029,171 @@ pub(crate) mod tests {
         // and a virtual display take the configured one.
         assert_eq!(virtual_display_scale(false, 125), 0);
         assert_eq!(virtual_display_scale(true, 125), 125);
+    }
+
+    fn rotation_config(option: &str, manual: &str) -> Config {
+        let mut config = Config::default();
+        config
+            .values
+            .insert("dd_rotation_option".into(), option.into());
+        config
+            .values
+            .insert("dd_manual_rotation".into(), manual.into());
+        config
+    }
+
+    #[test]
+    fn a_physical_display_takes_only_the_devices_own_scale() {
+        let client = |overrides: serde_json::Value| -> butterpollo_core::state::Client {
+            serde_json::from_value(serde_json::json!({
+                "name": "phone", "cert": "", "uuid": "u", "config_overrides": overrides,
+            }))
+            .unwrap()
+        };
+        assert_eq!(physical_scale(&client(serde_json::json!({}))), 0);
+        assert_eq!(
+            physical_scale(&client(serde_json::json!({"dd_virtual_display_scale": 150}))),
+            150
+        );
+        assert_eq!(
+            physical_scale(&client(serde_json::json!({"dd_virtual_display_scale": "-1"}))),
+            -1
+        );
+        assert_eq!(
+            physical_scale(&client(serde_json::json!({"dd_virtual_display_scale": "big"}))),
+            0
+        );
+        assert_eq!(
+            physical_scale(&client(serde_json::json!({"dd_rotation_option": "auto"}))),
+            0
+        );
+    }
+
+    #[test]
+    fn a_virtual_display_is_made_in_the_portrait_streams_shape() {
+        let phone = (1080, 2400);
+        assert_eq!(
+            virtual_display_size(&rotation_config("auto", "0"), (2560, 1440), phone),
+            (1440, 2560)
+        );
+        assert_eq!(
+            virtual_display_size(&rotation_config("manual", "90"), (1920, 1080), (1920, 1080)),
+            (1080, 1920)
+        );
+        assert_eq!(
+            virtual_display_size(&Config::default(), (2560, 1440), phone),
+            (2560, 1440)
+        );
+    }
+
+    #[test]
+    fn a_physical_display_turns_after_its_mode_is_set_in_its_shape_before_the_turn() -> Result<()> {
+        let phone = (1080, 2400);
+        let landscape = || Ok((0, (2560, 1440)));
+        // Off: the display is not even read.
+        let off = plan_physical_turn(&Config::default(), phone, Some(phone), || {
+            panic!("not read")
+        })?;
+        assert_eq!(
+            off,
+            PhysicalTurn {
+                degrees: None,
+                before: Some(phone),
+                after: Some(phone)
+            }
+        );
+        // A portrait phone turns a landscape display: its mode goes on landscape.
+        let auto = rotation_config("auto", "0");
+        assert_eq!(
+            plan_physical_turn(&auto, phone, Some(phone), landscape)?,
+            PhysicalTurn {
+                degrees: Some(90),
+                before: Some((2400, 1080)),
+                after: Some(phone)
+            }
+        );
+        // Without a resolution of its own the display keeps its mode and turns.
+        assert_eq!(
+            plan_physical_turn(&auto, phone, None, landscape)?.degrees,
+            Some(90)
+        );
+        // A display already in the stream's shape stays as it is.
+        assert_eq!(
+            plan_physical_turn(&auto, (1920, 1080), Some((1920, 1080)), landscape)?,
+            PhysicalTurn {
+                degrees: None,
+                before: Some((1920, 1080)),
+                after: Some((1920, 1080))
+            }
+        );
+        // Upside down keeps the shape.
+        assert_eq!(
+            plan_physical_turn(
+                &rotation_config("manual", "180"),
+                (1920, 1080),
+                Some((1920, 1080)),
+                landscape
+            )?,
+            PhysicalTurn {
+                degrees: Some(180),
+                before: Some((1920, 1080)),
+                after: Some((1920, 1080))
+            }
+        );
+        // A display turned to 270° goes back upright for a landscape stream.
+        assert_eq!(
+            plan_physical_turn(&auto, (1920, 1080), Some((1920, 1080)), || Ok((
+                270,
+                (1440, 2560)
+            )))?,
+            PhysicalTurn {
+                degrees: Some(0),
+                before: Some((1080, 1920)),
+                after: Some((1920, 1080))
+            }
+        );
+        // A display that cannot be read fails the stream.
+        assert!(plan_physical_turn(&auto, phone, None, || anyhow::bail!("gone")).is_err());
+        Ok(())
+    }
+
+    #[derive(Default)]
+    struct FakeLease {
+        calls: Vec<String>,
+        refuse_turn: bool,
+    }
+    impl PhysicalAdjust for FakeLease {
+        fn rotate(&mut self, degrees: u16) -> Result<()> {
+            self.calls.push(format!("rotate {degrees}"));
+            if self.refuse_turn {
+                anyhow::bail!("Windows refused the rotation");
+            }
+            Ok(())
+        }
+        fn scale(&mut self, configured: i64) -> Result<()> {
+            self.calls.push(format!("scale {configured}"));
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_physical_display_turns_before_it_scales_and_a_refused_turn_fails_the_stream() {
+        let mut lease = FakeLease::default();
+        adjust_physical(&mut lease, Some(90), 150).unwrap();
+        assert_eq!(lease.calls, ["rotate 90", "scale 150"]);
+        // Nothing to turn and the device's scale left alone: the lease is untouched.
+        let mut lease = FakeLease::default();
+        adjust_physical(&mut lease, None, 0).unwrap();
+        assert!(lease.calls.is_empty());
+        let mut lease = FakeLease::default();
+        adjust_physical(&mut lease, None, -1).unwrap();
+        assert_eq!(lease.calls, ["scale -1"]);
+        let mut lease = FakeLease {
+            refuse_turn: true,
+            ..Default::default()
+        };
+        assert!(adjust_physical(&mut lease, Some(90), 150).is_err());
+        assert_eq!(lease.calls, ["rotate 90"]);
     }
 
     #[test]

@@ -317,6 +317,7 @@ abstract class CargoAndroidBuild extends DefaultTask {
         def homeCargo = new File(System.getProperty('user.home'), ".cargo/bin/${windows ? 'cargo.exe' : 'cargo'}")
         if (!System.getenv('CARGO') && homeCargo.exists()) cargo = homeCargo.absolutePath
         def protocol = protocolDir.get().asFile
+        if (windows) checkMsys(cargo, protocol)
         def out = outputDir.get().asFile
         out.deleteDir()
         abis.get().each { abi ->
@@ -340,6 +341,29 @@ abstract class CargoAndroidBuild extends DefaultTask {
             def dir = new File(out, abi)
             dir.mkdirs()
             java.nio.file.Files.copy(lib.toPath(), new File(dir, lib.name).toPath())
+        }
+    }
+
+    // A windows-gnu toolchain links every build script with MSYS2's gcc. Without it cargo fails
+    // deep inside a dependency's build; this names the fix up front.
+    void checkMsys(String cargo, File protocol) {
+        def cargoDir = new File(cargo).parentFile
+        def rustc = cargoDir && new File(cargoDir, 'rustc.exe').isFile() ? new File(cargoDir, 'rustc.exe').absolutePath : 'rustc'
+        def version = new ByteArrayOutputStream()
+        execOperations.exec {
+            workingDir protocol
+            commandLine rustc, '-vV'
+            standardOutput = version
+        }
+        def host = version.toString().readLines().find { it.startsWith('host: ') }
+        if (!host?.endsWith('-gnu')) return
+        def path = (System.getenv('PATH') ?: '').split(File.pathSeparator).findAll { it }
+        def gcc = path.any { new File(it, 'gcc.exe').isFile() }
+        def libclang = System.getenv('LIBCLANG_PATH')
+        def clang = !libclang || new File(libclang, 'libclang.dll').isFile()
+        if (!gcc || !clang) {
+            def missing = !gcc ? 'gcc.exe is not on PATH' : "LIBCLANG_PATH=$libclang has no libclang.dll"
+            throw new GradleException("The Rust engine needs MSYS2 UCRT64 ($missing): put C:\\msys64\\ucrt64\\bin on PATH and set LIBCLANG_PATH=C:\\msys64\\ucrt64\\bin, then build again.")
         }
     }
 

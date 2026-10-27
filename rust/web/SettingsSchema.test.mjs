@@ -489,11 +489,24 @@ test('the keyboard follows text fields without their text, typing with the devic
   assert.equal(surrounding.visibleWhen({ keyboard_follows_focus: false }), false);
 });
 
+test('image clipboard is on by default, Experimental, and its limit follows it as the host checks it', () => {
+  const images = settings.get('clipboard_image');
+  assert.equal(images.default, true);
+  assert.match(images.label, /Experimental/);
+  const limit = settings.get('clipboard_image_max_mb');
+  assert.deepEqual([limit.category, limit.group, limit.default], ['general', 'Clipboard', 16]);
+  assert.equal(limit.visibleWhen({}), true);
+  assert.equal(limit.visibleWhen({ clipboard_image: 'disabled' }), false);
+  // core/src/config.rs: 1 to 64 MiB.
+  for (const ok of ['1', '16', '64']) assert.equal(numberError(limit, ok), '', ok);
+  for (const bad of ['0', '65', '1.5']) assert.notEqual(numberError(limit, bad), '', bad);
+});
+
 // The 3.0 settings whose features have shipped (settings30.rs keeps the same list).
 const live = ['audio_surround_714'];
 
 test('settings still pending stay out of the console, and shipped ones are in it', () => {
-  assert.equal(pending.length, 20);
+  assert.equal(pending.length, 18);
   for (const setting of pending) {
     const shipped = live.includes(setting.key);
     assert.equal(setting.pending === true, !shipped, setting.key);

@@ -3,9 +3,7 @@
 //! each workstream ships its feature. A value the
 //! host can't use is reported through [`invalid`] and the default applies,
 //! so a launch never fails because of one of these settings.
-use super::{Config, PORTS, first_report, invalid, refused, unquote, valid_folder_id};
-use serde::Deserialize;
-use std::path::PathBuf;
+use super::{Config, PORTS, first_report, invalid, unquote};
 
 /// Every 3.0 setting with its default, as `sunshine.conf` would spell it.
 pub const SETTINGS_30: &[(&str, &str)] = &[
@@ -16,8 +14,6 @@ pub const SETTINGS_30: &[(&str, &str)] = &[
     ("touch_sensitivity", "100"),
     ("touch_gestures", "true"),
     ("client_cursor", "true"),
-    ("clipboard_image", "true"),
-    ("clipboard_image_max_mb", "16"),
     ("shared_folders", "[]"),
     ("webhooks", "[]"),
     ("qr_pairing", "false"),
@@ -57,17 +53,6 @@ pub enum BackgroundMode {
     Auto,
     ChildSession,
     VirtualDisplay,
-}
-
-/// One entry of `shared_folders`.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SharedFolderConfig {
-    /// What device grants name; see [`valid_folder_id`].
-    pub id: String,
-    /// What the console and devices call the folder.
-    pub name: String,
-    pub path: PathBuf,
 }
 
 impl Config {
@@ -132,28 +117,6 @@ impl Config {
     /// Let a device draw the cursor itself (on by default).
     pub fn client_cursor(&self) -> bool {
         self.boolean("client_cursor", true)
-    }
-    /// Images on the shared clipboard, besides text (on by default).
-    pub fn clipboard_image(&self) -> bool {
-        self.boolean("clipboard_image", true)
-    }
-    /// The largest clipboard image in bytes (`clipboard_image_max_mb`, MiB,
-    /// 1 to 64, 16 by default).
-    pub fn clipboard_image_max_bytes(&self) -> u64 {
-        let mib = self.integer30("clipboard_image_max_mb", 16, |n| (1..=64).contains(&n));
-        mib as u64 * 1024 * 1024
-    }
-    /// `shared_folders`: a JSON list of id, name and path. A list that isn't
-    /// that, or repeats or misspells an id, is reported and none is shared.
-    pub fn shared_folders(&self) -> Vec<SharedFolderConfig> {
-        let value = self.get("shared_folders", "[]");
-        match parse_shared_folders(value) {
-            Ok(folders) => folders,
-            Err(error) => {
-                refused("shared_folders", value, &error);
-                Vec::new()
-            }
-        }
     }
     /// `webhooks` ([`crate::webhook::parse_webhooks`]). A list it refuses is
     /// reported without its text, which holds the secrets, and no hook is used.
@@ -233,27 +196,6 @@ impl Config {
     }
 }
 
-fn parse_shared_folders(text: &str) -> Result<Vec<SharedFolderConfig>, String> {
-    let folders: Vec<SharedFolderConfig> = serde_json::from_str(text)
-        .map_err(|e| format!("shared_folders is not a JSON list of folders: {e}"))?;
-    let mut ids = std::collections::BTreeSet::new();
-    for folder in &folders {
-        if !valid_folder_id(&folder.id) {
-            return Err(format!(
-                "shared folder id {:?} is not a plain name",
-                folder.id
-            ));
-        }
-        if !ids.insert(folder.id.as_str()) {
-            return Err(format!("shared folder id {:?} is listed twice", folder.id));
-        }
-        if folder.name.trim().is_empty() || folder.path.as_os_str().is_empty() {
-            return Err(format!("shared folder {} has no name or path", folder.id));
-        }
-    }
-    Ok(folders)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -314,9 +256,9 @@ mod tests {
     }
 
     #[test]
-    fn there_are_20_unique_settings() {
+    fn there_are_18_unique_settings() {
         let keys: std::collections::BTreeSet<_> = SETTINGS_30.iter().map(|(k, _)| k).collect();
-        assert_eq!((SETTINGS_30.len(), keys.len()), (20, 20));
+        assert_eq!((SETTINGS_30.len(), keys.len()), (18, 18));
     }
 
     #[test]

@@ -426,6 +426,26 @@ const network: Setting[] = [
     visibleWhen: (values) => on(values, 'file_transfer', false),
   },
   {
+    key: 'clipboard_image',
+    label: 'Copy images (Experimental)',
+    description: 'Let devices with clipboard permission copy images to and from this PC, besides text.',
+    details: 'Images travel as PNG. Windows programs get a bitmap and a PNG to paste.',
+    category: 'general',
+    group: 'Clipboard',
+    control: { kind: 'toggle' },
+    default: true,
+  },
+  {
+    key: 'clipboard_image_max_mb',
+    label: 'Largest image',
+    description: 'Images larger than this, as PNG, are refused in both directions.',
+    category: 'general',
+    group: 'Clipboard',
+    control: { kind: 'number', min: 1, max: 64, step: 1, unit: 'MiB' },
+    default: 16,
+    visibleWhen: (values) => on(values, 'clipboard_image', true),
+  },
+  {
     key: 'lan_encryption_mode',
     label: 'Local network encryption',
     description:

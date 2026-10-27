@@ -9,7 +9,7 @@ use std::{
 };
 
 mod settings30;
-pub use settings30::{BackgroundMode, DisplayAdjust, SETTINGS_30, SharedFolderConfig, TouchMode};
+pub use settings30::{BackgroundMode, DisplayAdjust, SETTINGS_30, TouchMode};
 
 /// Setting values Rubylight no longer offers, and what replaces each:
 /// the ViGEmBus controllers, which Sunshine, Apollo, Vibepollo and earlier
@@ -607,6 +607,37 @@ impl Config {
         let mbps = self.integer("file_transfer_stream_mbps", 50);
         (mbps > 0).then(|| (mbps as u64).saturating_mul(125_000))
     }
+    /// Images on the shared clipboard, besides text (on by default,
+    /// Experimental). A device still needs the clipboard's permission bits.
+    pub fn clipboard_image(&self) -> bool {
+        self.boolean("clipboard_image", true)
+    }
+    /// The largest clipboard image in bytes (`clipboard_image_max_mb`, MiB,
+    /// 1 to 64, 16 by default).
+    pub fn clipboard_image_max_bytes(&self) -> u64 {
+        let mut mib = self.integer("clipboard_image_max_mb", 16);
+        if !(1..=64).contains(&mib) {
+            invalid(
+                "clipboard_image_max_mb",
+                self.get("clipboard_image_max_mb", ""),
+            );
+            mib = 16;
+        }
+        mib as u64 * 1024 * 1024
+    }
+    /// `shared_folders` (Experimental): a JSON list of id, name and path. A
+    /// list that isn't that, repeats or misspells an id, or names a path that
+    /// isn't a folder on a drive of this PC is reported, and none is shared.
+    pub fn shared_folders(&self) -> Vec<SharedFolderConfig> {
+        let value = self.get("shared_folders", "[]");
+        match parse_shared_folders(value) {
+            Ok(folders) => folders,
+            Err(error) => {
+                refused("shared_folders", value, &error);
+                Vec::new()
+            }
+        }
+    }
     /// Whether the WebRTC media thread paces video (the default). `webrtc_pacing = false` sends
     /// every packet the moment str0m makes it; it exists to measure the two against each other.
     pub fn webrtc_pacing(&self) -> bool {
@@ -1201,6 +1232,61 @@ pub fn valid_folder_id(id: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
+/// Whether `path` can be a shared folder: absolute, on a drive of this PC,
+/// such as `D:\Games`. A network share (`\\server\share`), a device or
+/// verbatim path (`\\.\`, `\\?\`), a relative path, `.` or `..`, and a
+/// colon past the drive (an alternate data stream) are refused.
+pub fn valid_folder_root(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'\\' | b'/')
+        && !path[2..].contains(':')
+        && !path[3..]
+            .split(['\\', '/'])
+            .any(|part| part == "." || part == "..")
+}
+
+/// One entry of `shared_folders`.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SharedFolderConfig {
+    /// What device grants name; see [`valid_folder_id`].
+    pub id: String,
+    /// What the console and devices call the folder.
+    pub name: String,
+    /// See [`valid_folder_root`].
+    pub path: PathBuf,
+}
+
+fn parse_shared_folders(text: &str) -> Result<Vec<SharedFolderConfig>, String> {
+    let folders: Vec<SharedFolderConfig> = serde_json::from_str(text)
+        .map_err(|e| format!("shared_folders is not a JSON list of folders: {e}"))?;
+    let mut ids = std::collections::BTreeSet::new();
+    for folder in &folders {
+        if !valid_folder_id(&folder.id) {
+            return Err(format!(
+                "shared folder id {:?} is not a plain name",
+                folder.id
+            ));
+        }
+        if !ids.insert(folder.id.as_str()) {
+            return Err(format!("shared folder id {:?} is listed twice", folder.id));
+        }
+        if folder.name.trim().is_empty() || folder.path.as_os_str().is_empty() {
+            return Err(format!("shared folder {} has no name or path", folder.id));
+        }
+        if !folder.path.to_str().is_some_and(valid_folder_root) {
+            return Err(format!(
+                "shared folder {} is not a folder on a drive of this PC: {}",
+                folder.id,
+                folder.path.display()
+            ));
+        }
+    }
+    Ok(folders)
+}
 /// The text of sunshine.conf. Editors save it as UTF-8 with or without a
 /// byte order mark, or as UTF-16 with one; anything else is read as the
 /// Windows ANSI code page (Windows-1252) rather than refused.
@@ -1323,6 +1409,44 @@ mod tests {
         for id in ["", "../games", "a/b", "a b", "ü", &"x".repeat(65)] {
             assert!(!super::valid_folder_id(id), "{id}");
         }
+    }
+
+    #[test]
+    fn a_shared_folder_is_a_folder_on_a_drive() {
+        for root in [
+            r"D:\Games",
+            r"d:/Games/Saves",
+            r"E:\",
+            r"C:\Users\Player\My Games",
+        ] {
+            assert!(super::valid_folder_root(root), "{root}");
+        }
+        for root in [
+            "",
+            "Games",
+            r"\Games",
+            "D:",
+            "D:Games",
+            r"\\server\share",
+            r"\\?\D:\Games",
+            r"\\.\D:\Games",
+            r"\\?\UNC\server\share",
+            r"D:\Games\..\Windows",
+            r"D:\Games\.",
+            r"D:\Games:secret",
+            r"D:\..",
+        ] {
+            assert!(!super::valid_folder_root(root), "{root}");
+        }
+        let config = |path: &str| {
+            let list = serde_json::json!([{"id": "games", "name": "Games", "path": path}]);
+            super::Config::parse(&format!("shared_folders = {list}"))
+                .unwrap()
+                .shared_folders()
+        };
+        assert_eq!(config(r"D:\Games").len(), 1);
+        assert!(config(r"\\server\games").is_empty());
+        assert!(config("games").is_empty());
     }
 
     #[test]

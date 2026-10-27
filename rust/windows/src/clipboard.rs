@@ -205,35 +205,52 @@ fn image_png(
         }
         Ok(bytes[..end].to_vec())
     });
+    let too_large =
+        |error: &anyhow::Error| error.downcast_ref::<ImageError>() == Some(&ImageError::TooLarge);
+    // What made a format unusable, failed with when no later one is there.
+    let mut unusable = None;
     match passed {
         Ok(Some(bytes)) => return Ok(Some(bytes)),
         Ok(None) => {}
         // A broken PNG is no reason to drop the bitmap beside it.
-        Err(error) if error.downcast_ref::<ImageError>() != Some(&ImageError::TooLarge) => {
+        Err(error) if !too_large(&error) => {
             tracing::warn!("clipboard: the PNG format is unusable, reading the bitmap: {error:#}");
+            unusable = Some(error);
         }
         Err(error) => return Err(error),
     }
     for format in [CF_DIBV5, CF_DIB] {
         // Longer than any bitmap within the limits: refused before a copy.
-        let Some(dib) = copy(format, &|bytes| {
+        let read = copy(format, &|bytes| {
             if bytes.len() > clipboard_image::MAX_DIB_BYTES {
                 Err(ImageError::TooLarge.into())
             } else {
                 Ok(bytes.to_vec())
             }
-        })?
-        else {
-            continue;
-        };
-        return converting(move || {
-            let image = clipboard_image::decode_dib(&dib)?;
-            drop(dib);
-            fits(clipboard_image::encode_png(&image)?)
         })
-        .map(Some);
+        .and_then(|dib| {
+            dib.map(|dib| {
+                converting(move || {
+                    let image = clipboard_image::decode_dib(&dib)?;
+                    drop(dib);
+                    fits(clipboard_image::encode_png(&image)?)
+                })
+            })
+            .transpose()
+        });
+        match read {
+            Ok(Some(png)) => return Ok(Some(png)),
+            Ok(None) => {}
+            // Windows makes CF_DIB from CF_DIBV5 with another header, which
+            // can be one this reads.
+            Err(error) if format == CF_DIBV5 && !too_large(&error) => {
+                tracing::warn!("clipboard: CF_DIBV5 is unusable, reading CF_DIB: {error:#}");
+                unusable = Some(error);
+            }
+            Err(error) => return Err(error),
+        }
     }
-    Ok(None)
+    unusable.map_or(Ok(None), Err)
 }
 
 /// Puts the PNG `png` on the clipboard as a `CF_DIBV5` bitmap (Windows adds
@@ -307,6 +324,48 @@ mod tests {
         let too_large = image_png(PNG, 16, fake(vec![(PNG, padded)], &mut asked)).unwrap_err();
         assert_eq!(too_large.downcast_ref(), Some(&ImageError::TooLarge));
         assert_eq!(image_png(PNG, 1 << 20, fake(vec![], &mut asked)).unwrap(), None);
+    }
+
+    #[test]
+    fn an_unusable_dibv5_falls_through_to_cf_dib_and_is_reported_without_one() {
+        let image = picture();
+        let dib = clipboard_image::encode_dibv5(&image).unwrap();
+        // 8 bits a pixel: a palette this doesn't read.
+        let mut palette = dib.clone();
+        palette[14] = 8;
+        let mut asked = Vec::new();
+        let png = image_png(
+            PNG,
+            1 << 20,
+            fake(vec![(CF_DIBV5, palette.clone()), (CF_DIB, dib.clone())], &mut asked),
+        )
+        .unwrap()
+        .expect("the CF_DIB image");
+        assert_eq!(clipboard_image::decode_png(&png).unwrap(), image);
+        assert_eq!(asked, [PNG, CF_DIBV5, CF_DIB]);
+        // So does a CF_DIBV5 Windows fails to give.
+        let png = image_png(PNG, 1 << 20, |format, take: &dyn Fn(&[u8]) -> Result<Vec<u8>>| {
+            match format {
+                CF_DIBV5 => bail!("GetClipboardData failed"),
+                CF_DIB => take(&dib).map(Some),
+                _ => Ok(None),
+            }
+        })
+        .unwrap();
+        assert!(png.is_some());
+        // With nothing after it, what was wrong is the answer, not "no image".
+        let error = image_png(PNG, 1 << 20, fake(vec![(CF_DIBV5, palette)], &mut asked))
+            .unwrap_err();
+        assert!(matches!(
+            error.downcast_ref(),
+            Some(ImageError::Unsupported(_))
+        ));
+        let error = image_png(PNG, 1 << 20, fake(vec![(PNG, b"\x89PNG\r\n".to_vec())], &mut asked))
+            .unwrap_err();
+        assert!(matches!(
+            error.downcast_ref(),
+            Some(ImageError::Malformed(_))
+        ));
     }
 
     #[test]

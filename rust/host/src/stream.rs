@@ -4597,9 +4597,9 @@ struct ControlPeer {
     couch: crate::couch_menu::PeerMenu,
     /// Haptics from game audio for this peer's controllers.
     audio_haptics: audio_haptics::PeerHaptics,
-    /// The text field watcher and how much text it reads, while the client asked for text
-    /// input (0x553B); dropped with the peer at session end.
-    focus_watch: Option<(usize, butterpollo_windows::text_focus::FocusWatch)>,
+    /// The text field watcher, from the client's first text input request (0x553B); paused
+    /// while the client turned it off, and dropped with the peer at session end.
+    focus_watch: Option<butterpollo_windows::text_focus::FocusWatch>,
 }
 impl Drop for ControlPeer {
     fn drop(&mut self) {
@@ -4609,25 +4609,18 @@ impl Drop for ControlPeer {
     }
 }
 impl ControlPeer {
-    /// Starts, restarts or stops the text field watcher after a client's text input request
-    /// (0x553B). The watcher notes the newest focus in the session and wakes this loop, which
-    /// sends the notice; one that stopped reports nothing more.
+    /// Starts, pauses or resumes the text field watcher after a client's text input request
+    /// (0x553B): one thread per peer however often the client toggles. The watcher notes the
+    /// newest focus in the session and wakes this loop, which sends the notice; one that was
+    /// paused or stopped reports nothing more.
     fn watch_focus(&mut self, s: &Arc<Session>, watch: TextWatch, wake: &Arc<UdpSocket>) {
-        let max_text = match watch {
-            TextWatch::Off => {
-                self.focus_watch = None;
-                return;
-            }
-            TextWatch::On { max_text } => max_text,
-        };
-        if self
-            .focus_watch
-            .as_ref()
-            .is_some_and(|(reads, _)| *reads == max_text)
-        {
+        if let Some(watcher) = &self.focus_watch {
+            watcher.set(watch);
             return;
         }
-        self.focus_watch = None;
+        let TextWatch::On { max_text } = watch else {
+            return;
+        };
         let session = Arc::downgrade(s);
         let failed = session.clone();
         let wake = wake.clone();
@@ -4646,7 +4639,7 @@ impl ControlPeer {
             },
         );
         match started {
-            Ok(watcher) => self.focus_watch = Some((max_text, watcher)),
+            Ok(watcher) => self.focus_watch = Some(watcher),
             Err(error) => focus_watch_failed(s, &error),
         }
     }

@@ -8,11 +8,12 @@
 //! runs on the video or input paths.
 
 use anyhow::{Context, Result};
-use butterpollo_core::text_input::{self, Field, Focused, FocusedElement, Surrounding};
+use butterpollo_core::text_input::{self, Field, Focused, FocusedElement, Surrounding, Watch};
 use std::sync::{
-    Arc,
-    atomic::{AtomicBool, AtomicU32, Ordering},
+    Arc, Condvar, Mutex, MutexGuard, PoisonError,
+    atomic::{AtomicBool, Ordering},
 };
+use std::time::{Duration, Instant};
 use windows::{
     Win32::{
         Foundation::{LPARAM, WPARAM},
@@ -49,26 +50,66 @@ use windows::{
 const WAKE_FOCUS: u32 = WM_APP + 1;
 /// The followed field's text or selection changed.
 const WAKE_TEXT: u32 = WM_APP + 2;
+/// The client asked for another watch ([`FocusWatch::set`]).
+const WAKE_SET: u32 = WM_APP + 3;
 /// The text events followed in a field whose text is read.
 const TEXT_EVENTS: [UIA_EVENT_ID; 2] = [
     UIA_Text_TextChangedEventId,
     UIA_Text_TextSelectionChangedEventId,
 ];
+/// How long a new watcher waits for a stopped one still stuck in UI Automation.
+const LINGER_WAIT: Duration = if cfg!(test) {
+    Duration::from_millis(300)
+} else {
+    Duration::from_secs(5)
+};
 
-/// Watches the focus until dropped. Neither starting nor dropping waits for the watcher's
-/// thread: the control loop starts and stops it, and a UI Automation call stuck in a hung
-/// app must not hold up input.
+/// Stopped watchers whose thread has not ended yet, so a hung app costs at most one
+/// thread: the next watcher waits for it, then fails.
+static LINGERING: Mutex<usize> = Mutex::new(0);
+static ENDED: Condvar = Condvar::new();
+#[cfg(test)]
+static SPAWNED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Watches the focus until dropped, one thread for the watcher's whole life: the client's
+/// toggles pause and resume it ([`FocusWatch::set`]). Neither starting, setting nor
+/// dropping waits for the watcher's thread: the control loop drives it, and a UI
+/// Automation call stuck in a hung app must not hold up input.
 pub struct FocusWatch {
     control: Arc<Control>,
     worker: Option<std::thread::JoinHandle<()>>,
 }
 
-/// How the watcher is told to stop: its thread id once it has a message queue, and a flag
-/// for a stop that comes before.
+/// How the watcher is told what to do: its thread id once it has a message queue, the
+/// newest watch and whether it stopped, under one lock that also covers each report.
 #[derive(Default)]
 struct Control {
-    thread: AtomicU32,
-    stop: AtomicBool,
+    state: Mutex<State>,
+    /// Whether the thread ended, and whether it was dropped before, under [`LINGERING`].
+    ended: AtomicBool,
+    detached: AtomicBool,
+}
+
+struct State {
+    thread: u32,
+    stop: bool,
+    watch: Watch,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            thread: 0,
+            stop: false,
+            watch: Watch::Off,
+        }
+    }
+}
+
+impl Control {
+    fn state(&self) -> MutexGuard<'_, State> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
 }
 
 impl FocusWatch {
@@ -76,26 +117,45 @@ impl FocusWatch {
     /// focus left text fields, first for the focus at start. `max_text` above 0 also reads up
     /// to that many bytes around the cursor of a field that is not a password, and reports
     /// again when its text or selection changes. `failed` gets why UI Automation did not
-    /// start, on the same thread; `Err` only when there is no thread.
+    /// start or follow the focus again, on the same thread; `Err` only when there is no
+    /// thread.
     pub fn start(
         max_text: usize,
         report: impl Fn(Option<Focused>) + Send + 'static,
-        failed: impl FnOnce(anyhow::Error) + Send + 'static,
+        failed: impl Fn(anyhow::Error) + Send + 'static,
     ) -> Result<Self> {
         let control = Arc::new(Control::default());
+        control.state().watch = Watch::On { max_text };
         let shared = control.clone();
         let worker = std::thread::Builder::new()
             .name("text-focus".into())
             .spawn(move || {
-                if let Err(error) = run(max_text, &report, &shared) {
+                let _ended = Ended(&shared);
+                if let Err(error) = wait_for_lingering(&shared).and_then(|()| {
+                    // SAFETY: on this new thread, which owns the watcher's COM apartment.
+                    unsafe { run(&report, &failed, &shared) }
+                }) {
                     failed(error);
                 }
             })
             .context("the focus watcher thread did not start")?;
+        #[cfg(test)]
+        SPAWNED.fetch_add(1, Ordering::SeqCst);
         Ok(Self {
             control,
             worker: Some(worker),
         })
+    }
+
+    /// Pauses the watcher for [`Watch::Off`], which reports nothing more once this returns,
+    /// or resumes it, reading as much text as `On` says, and reports the focus again.
+    pub fn set(&self, watch: Watch) {
+        let mut state = self.control.state();
+        state.watch = watch;
+        // The thread reads the watch after it stores its id, under the same lock.
+        if state.thread != 0 {
+            post(state.thread, WAKE_SET);
+        }
     }
 
     /// Stops the watcher and waits for its thread.
@@ -109,16 +169,55 @@ impl FocusWatch {
 
 impl Drop for FocusWatch {
     fn drop(&mut self) {
-        // The watcher stores its id before it reads the flag, and this sets the flag before it
-        // reads the id: one of the two sees the other.
-        self.control.stop.store(true, Ordering::SeqCst);
-        let thread = self.control.thread.load(Ordering::SeqCst);
-        if thread != 0 {
-            post(thread, WM_QUIT);
+        {
+            // A report in progress finishes first; none comes after.
+            let mut state = self.control.state();
+            state.stop = true;
+            if state.thread != 0 {
+                post(state.thread, WM_QUIT);
+            }
+        }
+        let mut lingering = LINGERING.lock().unwrap_or_else(PoisonError::into_inner);
+        if !self.control.ended.load(Ordering::SeqCst) {
+            self.control.detached.store(true, Ordering::SeqCst);
+            *lingering += 1;
         }
         // Detached: it ends once UI Automation returns.
         drop(self.worker.take());
     }
+}
+
+/// Marks the watcher's thread ended, also when it panics.
+struct Ended<'a>(&'a Control);
+
+impl Drop for Ended<'_> {
+    fn drop(&mut self) {
+        let mut lingering = LINGERING.lock().unwrap_or_else(PoisonError::into_inner);
+        self.0.ended.store(true, Ordering::SeqCst);
+        if self.0.detached.load(Ordering::SeqCst) {
+            *lingering -= 1;
+            ENDED.notify_all();
+        }
+    }
+}
+
+/// Waits up to [`LINGER_WAIT`] for stopped watchers to end, so they never pile up behind a
+/// hung app.
+fn wait_for_lingering(control: &Control) -> Result<()> {
+    let deadline = Instant::now() + LINGER_WAIT;
+    let mut lingering = LINGERING.lock().unwrap_or_else(PoisonError::into_inner);
+    while *lingering > 0 && !control.state().stop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            anyhow::bail!("a focus watcher before this one is still stuck in UI Automation");
+        }
+        // Woken when one ends; a stop of this one is seen within the step.
+        lingering = ENDED
+            .wait_timeout(lingering, left.min(Duration::from_millis(50)))
+            .unwrap_or_else(PoisonError::into_inner)
+            .0;
+    }
+    Ok(())
 }
 
 fn post(thread: u32, message: u32) {
@@ -128,7 +227,11 @@ fn post(thread: u32, message: u32) {
     }
 }
 
-fn run(max_text: usize, report: &dyn Fn(Option<Focused>), control: &Control) -> Result<()> {
+unsafe fn run(
+    report: &dyn Fn(Option<Focused>),
+    failed: &dyn Fn(anyhow::Error),
+    control: &Control,
+) -> Result<()> {
     // SAFETY: COM is initialized and uninitialized on this thread, every UI Automation object
     // is created, used and released on it before CoUninitialize, and `message` is a live local
     // for every message call.
@@ -136,40 +239,54 @@ fn run(max_text: usize, report: &dyn Fn(Option<Focused>), control: &Control) -> 
         let mut message = MSG::default();
         // The thread needs a message queue before anything posts to it.
         let _ = PeekMessageW(&mut message, None, 0, 0, PM_NOREMOVE);
-        control.thread.store(GetCurrentThreadId(), Ordering::SeqCst);
-        if control.stop.load(Ordering::SeqCst) {
-            return Ok(());
+        {
+            let mut state = control.state();
+            state.thread = GetCurrentThreadId();
+            if state.stop {
+                return Ok(());
+            }
         }
         CoInitializeEx(None, COINIT_APARTMENTTHREADED)
             .ok()
             .context("COM did not start for the focus watcher")?;
-        // A watcher that was stopped while it read the focus must not report after the one
-        // that replaced it.
+        // Checked under the lock Drop and set take: once they return, a watcher that was
+        // stopped or paused while it read the focus reports nothing, so it never reports
+        // after the one that replaced it or after the client turned it off.
         let report = |focused: Option<Focused>| {
-            if !control.stop.load(Ordering::SeqCst) {
+            let state = control.state();
+            if !state.stop && state.watch != Watch::Off {
                 report(focused);
             }
         };
         let report: &dyn Fn(Option<Focused>) = &report;
-        let result = Watcher::new(max_text, GetCurrentThreadId()).map(|mut watcher| {
-            watcher.focus_moved(report);
+        let result = Watcher::new(GetCurrentThreadId()).map(|mut watcher| {
+            let watch = control.state().watch;
+            if let Err(error) = watcher.apply(watch, report) {
+                failed(error);
+            }
             while GetMessageW(&mut message, None, 0, 0).0 > 0 {
-                let (mut focus, mut text) = (false, false);
+                let (mut focus, mut text, mut set) = (false, false, false);
                 loop {
                     match message.message {
                         WAKE_FOCUS => focus = true,
                         WAKE_TEXT => text = true,
+                        WAKE_SET => set = true,
                         // COM's own window in this apartment.
                         _ => {
                             DispatchMessageW(&message);
                         }
                     }
-                    if !PeekMessageW(&mut message, None, WAKE_FOCUS, WAKE_TEXT, PM_REMOVE).as_bool()
+                    if !PeekMessageW(&mut message, None, WAKE_FOCUS, WAKE_SET, PM_REMOVE).as_bool()
                     {
                         break;
                     }
                 }
-                if focus {
+                if set {
+                    let watch = control.state().watch;
+                    if let Err(error) = watcher.apply(watch, report) {
+                        failed(error);
+                    }
+                } else if focus && watcher.registered {
                     watcher.focus_moved(report);
                 } else if text {
                     watcher.text_changed(report);
@@ -219,10 +336,12 @@ struct Watcher {
     element: u32,
     /// The field whose text events are followed.
     followed: Option<IUIAutomationElement>,
+    /// Whether the focus handler is registered: while the watch is on.
+    registered: bool,
 }
 
 impl Watcher {
-    unsafe fn new(max_text: usize, thread: u32) -> Result<Self> {
+    unsafe fn new(thread: u32) -> Result<Self> {
         // SAFETY: the caller initialized COM on this thread.
         unsafe {
             let automation: IUIAutomation =
@@ -248,19 +367,48 @@ impl Watcher {
             let focus_handler: IUIAutomationFocusChangedEventHandler = wake.into();
             let text_handler: IUIAutomationEventHandler =
                 windows::core::Interface::cast(&focus_handler)?;
-            automation
-                .AddFocusChangedEventHandler(&cache, &focus_handler)
-                .context("UI Automation does not report focus changes")?;
             Ok(Self {
                 automation,
                 cache,
                 focus_handler,
                 text_handler,
-                max_text,
+                max_text: 0,
                 field: None,
                 element: 0,
                 followed: None,
+                registered: false,
             })
+        }
+    }
+
+    /// Pauses for [`Watch::Off`]: no handlers and no field, so the next `On` counts the
+    /// field it finds as another one. `On` follows the focus again and reports it.
+    unsafe fn apply(&mut self, watch: Watch, report: &dyn Fn(Option<Focused>)) -> Result<()> {
+        // SAFETY: on the watcher's thread, with COM initialized.
+        unsafe {
+            match watch {
+                Watch::Off => {
+                    self.follow(None);
+                    if self.registered {
+                        self.registered = false;
+                        let _ = self
+                            .automation
+                            .RemoveFocusChangedEventHandler(&self.focus_handler);
+                    }
+                    self.field = None;
+                }
+                Watch::On { max_text } => {
+                    self.max_text = max_text;
+                    if !self.registered {
+                        self.automation
+                            .AddFocusChangedEventHandler(&self.cache, &self.focus_handler)
+                            .context("UI Automation does not report focus changes")?;
+                        self.registered = true;
+                    }
+                    self.focus_moved(report);
+                }
+            }
+            Ok(())
         }
     }
 
@@ -493,12 +641,28 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
 
+    /// The tests count threads and stuck watchers, which are process-wide.
+    static SERIAL: Mutex<()> = Mutex::new(());
+
+    fn serial() -> MutexGuard<'static, ()> {
+        SERIAL.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     fn failed(error: anyhow::Error) {
         panic!("UI Automation did not start: {error:#}");
     }
 
+    fn wait_until(done: impl Fn() -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !done() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(done(), "timed out");
+    }
+
     #[test]
     fn the_watcher_starts_reports_the_focus_and_stops() {
+        let _serial = serial();
         let reports = Arc::new(Mutex::new(0));
         let counted = reports.clone();
         let watch = FocusWatch::start(64, move |_| *counted.lock().unwrap() += 1, failed)
@@ -515,6 +679,7 @@ mod tests {
 
     #[test]
     fn a_watcher_stopped_right_after_start_ends() {
+        let _serial = serial();
         // Stopped before, while and after the thread gets its message queue.
         for _ in 0..20 {
             let watch = FocusWatch::start(0, |_| {}, failed).expect("the watcher starts");
@@ -522,5 +687,59 @@ mod tests {
             watch.stop_and_wait();
             assert!(started.elapsed() < std::time::Duration::from_secs(5));
         }
+        assert_eq!(*LINGERING.lock().unwrap(), 0);
+    }
+
+    /// The client's toggles pause and resume one thread; a paused watcher reports nothing.
+    #[test]
+    fn toggling_the_watch_keeps_one_thread() {
+        let _serial = serial();
+        let reports = Arc::new(Mutex::new(0));
+        let counted = reports.clone();
+        let spawned = SPAWNED.load(Ordering::SeqCst);
+        let watch = FocusWatch::start(0, move |_| *counted.lock().unwrap() += 1, failed)
+            .expect("the watcher starts");
+        wait_until(|| *reports.lock().unwrap() >= 1);
+        let thread = watch.control.state().thread;
+        for round in 0..20 {
+            watch.set(Watch::Off);
+            watch.set(Watch::On {
+                max_text: round % 2 * 64,
+            });
+        }
+        watch.set(Watch::Off);
+        let paused = *reports.lock().unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+        assert_eq!(*reports.lock().unwrap(), paused, "a paused watcher reported");
+        watch.set(Watch::On { max_text: 64 });
+        wait_until(|| *reports.lock().unwrap() > paused);
+        assert_eq!(watch.control.state().thread, thread);
+        assert_eq!(SPAWNED.load(Ordering::SeqCst), spawned + 1);
+        watch.stop_and_wait();
+    }
+
+    /// A watcher stuck in UI Automation holds up the next one, which fails instead of
+    /// adding a thread.
+    #[test]
+    fn a_watcher_after_a_stuck_one_fails() {
+        let _serial = serial();
+        *LINGERING.lock().unwrap() += 1;
+        let error = Arc::new(Mutex::new(None));
+        let noted = error.clone();
+        let watch = FocusWatch::start(
+            0,
+            |_| panic!("reported behind a stuck watcher"),
+            move |error| *noted.lock().unwrap() = Some(format!("{error:#}")),
+        )
+        .expect("the thread starts");
+        wait_until(|| error.lock().unwrap().is_some());
+        *LINGERING.lock().unwrap() -= 1;
+        assert!(
+            error.lock().unwrap().as_deref().unwrap().contains("still stuck"),
+            "{:?}",
+            error.lock().unwrap()
+        );
+        watch.stop_and_wait();
+        assert_eq!(*LINGERING.lock().unwrap(), 0);
     }
 }

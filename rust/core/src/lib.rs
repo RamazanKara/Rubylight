@@ -42,6 +42,7 @@ pub mod couch_menu;
 pub mod crypto;
 pub mod display_caps;
 pub mod display_policy;
+pub mod dovi;
 pub mod dualsense;
 pub mod edid;
 pub mod encoder_backlog;

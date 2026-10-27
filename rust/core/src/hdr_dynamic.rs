@@ -527,7 +527,7 @@ fn av1_insert_offset(frame: &[u8]) -> Option<usize> {
 }
 
 /// Emulation prevention: an 0x03 after every two zero bytes that precede a byte <= 3.
-fn escape(rbsp: &[u8], out: &mut Vec<u8>) {
+pub(crate) fn escape(rbsp: &[u8], out: &mut Vec<u8>) {
     let mut zeros = 0;
     for &byte in rbsp {
         if zeros == 2 && byte <= 3 {

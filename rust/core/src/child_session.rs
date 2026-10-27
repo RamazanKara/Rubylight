@@ -240,17 +240,25 @@ pub fn is_target(target: u32, current: u32, console: u32) -> bool {
 
 /// Whether the host may start the child-session host in `child`: a real
 /// session that is not the console's, signed in by the same Windows account
-/// (SIDs) as the console. The session ID comes from the viewer, a process of
-/// the unprivileged user, so the SYSTEM host checks it before it attaches
-/// anything there: another account's session is refused, never streamed.
+/// (SIDs) as the console, and reported by a viewer (in session `viewer`)
+/// that runs in the console session. The session ID comes from the viewer, a
+/// process of the unprivileged user, so the SYSTEM host checks it before it
+/// attaches anything there: another account's session is refused, never
+/// streamed.
 pub fn check_child_owner(
     child: u32,
     console: u32,
+    viewer: u32,
     child_user: &str,
     console_user: &str,
 ) -> Result<()> {
     if child == 0 || child > i32::MAX as u32 || child == console {
         bail!("session {child} is not a child session of this PC's screen; nothing is attached");
+    }
+    if viewer != console {
+        bail!(
+            "the child-session viewer runs in session {viewer}, not in the session at this PC's screen ({console}); session {child} is not attached or streamed"
+        );
     }
     if console_user.trim().is_empty() {
         bail!("nobody is signed in at this PC's screen; the child session is not attached");

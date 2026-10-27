@@ -382,7 +382,7 @@ fn follow(h: &Shared, running: &mut Running, status: &ViewerStatus) {
     {
         return;
     }
-    match start_host(h, status.child) {
+    match start_host(h, status.child, running.viewer.pid) {
         Ok(process) => {
             tracing::info!(
                 child = status.child,
@@ -399,9 +399,10 @@ fn follow(h: &Shared, running: &mut Running, status: &ViewerStatus) {
 }
 
 /// The child session's host: SYSTEM in that session, as the service runs the
-/// main host, only after the session is checked to be the console user's own.
-fn start_host(h: &Shared, child: u32) -> Result<Process> {
-    native::verify_child_owner(child)?;
+/// main host, only after the session is checked to be the console user's own,
+/// reported by the viewer at this PC's screen.
+fn start_host(h: &Shared, child: u32, viewer: u32) -> Result<Process> {
+    native::verify_child_owner(child, viewer)?;
     let (name, port) = {
         let config = h.config.read().unwrap_or_else(PoisonError::into_inner);
         (config.get("sunshine_name", "").to_owned(), config.port()?)

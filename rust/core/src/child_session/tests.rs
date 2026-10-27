@@ -1260,17 +1260,32 @@ fn without_d3d12_memory_size_decides_integrated() {
 
 #[test]
 fn only_the_console_users_own_child_session_is_attached() {
-    assert!(check_child_owner(5, 1, SID, SID).is_ok());
+    assert!(check_child_owner(5, 1, 1, SID, SID).is_ok());
     // SIDs compare without case.
-    assert!(check_child_owner(5, 1, &SID.to_lowercase(), SID).is_ok());
-    let other = check_child_owner(5, 1, "S-1-5-21-other", SID)
+    assert!(check_child_owner(5, 1, 1, &SID.to_lowercase(), SID).is_ok());
+    let other = check_child_owner(5, 1, 1, "S-1-5-21-other", SID)
         .unwrap_err()
         .to_string();
     assert!(other.contains("another Windows account"), "{other}");
     for (child, console) in [(0, 1), (1, 1), (u32::MAX, 1), (0x8000_0000, 1)] {
-        assert!(check_child_owner(child, console, SID, SID).is_err());
+        assert!(check_child_owner(child, console, console, SID, SID).is_err());
     }
-    assert!(check_child_owner(5, 1, "", "").is_err());
+    assert!(check_child_owner(5, 1, 1, "", "").is_err());
+}
+
+#[test]
+fn a_child_session_reported_from_outside_the_console_is_never_attached() {
+    // The same account signed in elsewhere (another RDP session, session 0)
+    // runs a viewer that names its own child session: refused.
+    for viewer in [0, 2, 5] {
+        let error = check_child_owner(5, 1, viewer, SID, SID)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains(&format!("runs in session {viewer}")) && error.contains("screen (1)"),
+            "{error}"
+        );
+    }
 }
 
 #[test]

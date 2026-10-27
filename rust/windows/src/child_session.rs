@@ -104,15 +104,24 @@ pub fn child_session_id() -> Option<u32> {
 }
 
 /// Refuse, with the reason, unless `child` is a session of the account signed
-/// in at this PC's screen ([`butterpollo_core::child_session::check_child_owner`]).
+/// in at this PC's screen and the viewer that reported it (process `viewer`)
+/// runs at that screen too ([`butterpollo_core::child_session::check_child_owner`]).
 /// Needs SYSTEM, as the host runs.
-pub fn verify_child_owner(child: u32) -> Result<()> {
+pub fn verify_child_owner(child: u32, viewer: u32) -> Result<()> {
     let console = crate::process::console_session();
+    let viewer_session = crate::process::process_session(viewer)
+        .with_context(|| format!("reading the session of the child-session viewer {viewer}"))?;
     let console_user = crate::process::session_user_sid(console)
         .context("reading the account signed in at this PC's screen")?;
     let child_user = crate::process::session_user_sid(child)
         .with_context(|| format!("reading the account of session {child}"))?;
-    butterpollo_core::child_session::check_child_owner(child, console, &child_user, &console_user)
+    butterpollo_core::child_session::check_child_owner(
+        child,
+        console,
+        viewer_session,
+        &child_user,
+        &console_user,
+    )
 }
 
 /// The account signed in at this PC's screen, as a SID string. Needs SYSTEM.

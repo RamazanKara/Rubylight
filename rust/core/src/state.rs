@@ -148,11 +148,12 @@ impl Client {
         self.enabled && self.extra.get("allow_usb") == Some(&Value::Bool(true))
     }
     /// This device's grant for shared folder `id`, from
-    /// `shared_folders: {"<id>": "read" | "write"}`. Any other value grants
-    /// nothing, and a disabled device has no grants.
+    /// `shared_folders: {"<id>": "read" | "write"}`. Any other value, or an id
+    /// the console would refuse (a hand-edited `"../x"`), grants nothing, and a
+    /// disabled device has no grants.
     pub fn folder_access(&self, id: &str) -> Option<rubylight_native_api::folders::FolderAccess> {
         use rubylight_native_api::folders::FolderAccess;
-        if !self.enabled {
+        if !self.enabled || !crate::config::valid_folder_id(id) {
             return None;
         }
         match self.extra.get("shared_folders")?.get(id)?.as_str()? {
@@ -800,6 +801,21 @@ mod tests {
         disabled.enabled = false;
         assert_eq!(disabled.folder_access("games"), None);
         assert!(!disabled.has_folders());
+    }
+    #[test]
+    fn a_hand_edited_folder_id_the_console_refuses_grants_nothing() {
+        for id in ["../x", "", "a/b", "a b", "games.", &"x".repeat(65)] {
+            let client = client_with(u32::MAX, json!({"shared_folders":{id:"write"}}));
+            assert_eq!(client.folder_access(id), None, "{id}");
+            assert!(!client.has_folders(), "{id}");
+        }
+        // Next to a good one, only the good one counts.
+        let client = client_with(
+            u32::MAX,
+            json!({"shared_folders":{"../x":"write","games":"read"}}),
+        );
+        assert_eq!(client.folder_access("../x"), None);
+        assert!(client.has_folders());
     }
     #[test]
     fn imported_vibepollo_sleep_opt_in_is_honoured() {

@@ -431,7 +431,7 @@ These are defined for 3.0 in `rubylight-native-api` and not yet served: no host 
 Both permissions are booleans in `permissions`, missing from older hosts and then `false`. Like host control, neither is a `perm` bit, and only the admin console sets them:
 
 - `usb` is `"allow_usb": true` in the device's `extra` map: only a JSON `true`, never a string, a number, a `perm` bit or Full control. `/api/clients/update` accepts `true`, `false` or `null` for it.
-- `shared_folders` is `true` when the device holds at least one folder grant. The grants are `"shared_folders": {"<folder id>": "read" | "write"}` in `extra`; `/api/clients/update` refuses anything else, and `null` clears them.
+- `shared_folders` is `true` when the device holds at least one folder grant. The grants are `"shared_folders": {"<folder id>": "read" | "write"}` in `extra`; `/api/clients/update` refuses anything else, and `null` clears them. A hand-edited grant it would refuse, such as `"../x"`, grants nothing.
 
 | Method | Path | Needs | Result |
 |---|---|---|---|

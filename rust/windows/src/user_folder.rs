@@ -45,7 +45,8 @@ pub const DEFAULT_SUBFOLDER: &str = "Rubylight";
 /// How many numbered names an upload tries before it gives up.
 const MAX_COLLISIONS: u32 = 9999;
 /// Marks this host's `.part` files until they are renamed, so a later open
-/// sweeps those a stopped host left behind and nobody else's. Unlike most
+/// of the file transfer folder sweeps those a stopped host left behind and
+/// nobody else's (shared folders are never swept). Unlike most
 /// attributes, a new file doesn't inherit it from its folder.
 const PART_MARKER: FILE_FLAGS_AND_ATTRIBUTES = FILE_ATTRIBUTE_HIDDEN;
 /// The Mark of the Web: Windows treats an upload like a download from the
@@ -466,19 +467,15 @@ impl UserFolder {
     }
 
     /// A directory of a shared folder that `pin` holds open, as the folder
-    /// uploads go to: its `.part` files are swept, nothing is created.
-    pub(crate) fn pinned(
-        path: PathBuf,
-        token: Option<Arc<OwnedHandle>>,
-        pin: File,
-    ) -> Result<Self, UserFolderError> {
-        let folder = Self {
+    /// uploads go to. Nothing is created and nothing swept: the folder is
+    /// the user's, so a hidden `.part` file there can be anyone's. One a
+    /// stopped host left behind stays, hidden and never listed.
+    pub(crate) fn pinned(path: PathBuf, token: Option<Arc<OwnedHandle>>, pin: File) -> Self {
+        Self {
             path,
             token,
             _pin: Some(Arc::new(pin)),
-        };
-        folder.as_user(|| folder.sweep())?;
-        Ok(folder)
+        }
     }
 
     /// Deletes the `.part` files of uploads a stopped host left behind.

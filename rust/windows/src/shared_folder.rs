@@ -215,7 +215,7 @@ impl SharedFolder {
     /// started, lives.
     pub fn upload_folder(&self, names: &[&str]) -> Result<UserFolder, UserFolderError> {
         let (dir, path) = self.dir(names)?;
-        UserFolder::pinned(path, self.token.clone(), dir)
+        Ok(UserFolder::pinned(path, self.token.clone(), dir))
     }
 
     /// Starts an upload of `name` into `folder`, from
@@ -514,6 +514,34 @@ mod tests {
         assert!(!missing.exists());
         assert!(SharedFolder::at(&rig.root.join("readme.txt"), None).is_err());
         assert!(SharedFolder::at(Path::new("shared"), None).is_err());
+    }
+
+    #[test]
+    fn a_hidden_part_file_of_the_users_survives_an_upload() {
+        use std::os::windows::fs::MetadataExt;
+        use windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_HIDDEN;
+        let rig = rig();
+        // Hidden as file transfer marks its own, by another program.
+        let foreign = rig.root.join("saves").join("foo.part");
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .attributes(FILE_ATTRIBUTE_HIDDEN.0)
+            .open(&foreign)
+            .unwrap()
+            .write_all(b"theirs")
+            .unwrap();
+        assert_ne!(
+            fs::metadata(&foreign).unwrap().file_attributes() & FILE_ATTRIBUTE_HIDDEN.0,
+            0
+        );
+        let folder = rig.folder.upload_folder(&["saves"]).unwrap();
+        let mut part = rig.folder.create_part(&folder, "slot2.sav").unwrap();
+        part.write_all(b"ours").unwrap();
+        assert_eq!(part.finish().unwrap(), "slot2.sav");
+        drop(folder);
+        rig.folder.upload_folder(&["saves"]).unwrap();
+        assert_eq!(fs::read(&foreign).unwrap(), b"theirs");
     }
 
     #[test]

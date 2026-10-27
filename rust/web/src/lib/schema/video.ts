@@ -355,6 +355,16 @@ const video: Setting[] = [
     default: true,
   },
   {
+    key: 'fec_max_percentage',
+    label: 'Most error correction a device may ask for',
+    description: 'The largest share of recovery packets a device may choose, as a percentage of the video packets.',
+    details: 'Devices that choose their own error correction, or let the host follow their loss reports, stay at or below it. Others use Error correction above.',
+    category: 'video',
+    group: 'Bitrate and network',
+    control: { kind: 'number', min: 0, max: 255, step: 1, unit: '%' },
+    default: 50,
+  },
+  {
     key: 'pyrowave_critical_fec_percentage',
     label: 'PyroWave error correction',
     description:

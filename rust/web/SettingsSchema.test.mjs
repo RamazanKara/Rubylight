@@ -435,10 +435,10 @@ test('sleep after idle takes 0 or 5 to 1440 minutes, as the host does, and its s
 });
 
 // The 3.0 settings whose features have shipped (settings30.rs keeps the same list).
-const live = ['audio_surround_714', 'fec_max_percentage', 'bandwidth_probe'];
+const live = ['audio_surround_714'];
 
 test('settings still pending stay out of the console, and shipped ones are in it', () => {
-  assert.equal(pending.length, 29);
+  assert.equal(pending.length, 27);
   for (const setting of pending) {
     const shipped = live.includes(setting.key);
     assert.equal(setting.pending === true, !shipped, setting.key);
@@ -465,6 +465,16 @@ test('PCM and Dolby Digital audio defaults on, keeps Opus for other devices and 
   assert.equal(setting.visibleWhen({ stream_audio: false }), false);
   assert.equal(differsFromDefault(setting, {}, {}), false);
   assert.equal(differsFromDefault(setting, {}, { audio_passthrough: false }), true);
+});
+
+test('the FEC cap and the bandwidth test are live in the console, not pending', () => {
+  for (const [key, category, value] of [['fec_max_percentage', 'video', 50], ['bandwidth_probe', 'network', true]]) {
+    const setting = settings.get(key);
+    assert.equal(setting?.category, category, key);
+    assert.equal(setting.default, value, key);
+    assert.equal(setting.pending, undefined, key);
+    assert.equal(pending.some(candidate => candidate.key === key), false, key);
+  }
 });
 
 test('pending keys are unique, and Foundation ports are neither credited in the console nor Experimental', () => {

@@ -500,6 +500,22 @@ impl Config {
     pub fn audio_passthrough(&self) -> bool {
         self.boolean("audio_passthrough", true)
     }
+    /// The most video FEC a device may ask for (`rlFecPercentage`) or reach
+    /// through its loss reports, in percent of the video packets
+    /// (`fec_max_percentage`, 0 to 255, 50 by default).
+    pub fn fec_max_percentage(&self) -> u8 {
+        let n = self.integer("fec_max_percentage", 50);
+        if !(0..=255).contains(&n) {
+            invalid("fec_max_percentage", self.get("fec_max_percentage", ""));
+            return 50;
+        }
+        n as u8
+    }
+    /// `GET /bandwidth-probe` for paired devices that time a download before
+    /// they pick a bitrate (`bandwidth_probe`, on by default).
+    pub fn bandwidth_probe(&self) -> bool {
+        self.boolean("bandwidth_probe", true)
+    }
     /// The WebRTC server for TV and browser clients (off by default).
     pub fn webrtc_server(&self) -> bool {
         self.boolean("webrtc_server", false)
@@ -1330,6 +1346,41 @@ mod tests {
         ] {
             assert_eq!(
                 super::Config::parse(text).unwrap().hdr_dynamic_metadata(),
+                on,
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_fec_cap_is_0_to_255_percent_and_50_unless_set() {
+        assert_eq!(super::Config::default().fec_max_percentage(), 50);
+        for (text, cap) in [
+            ("fec_max_percentage = 0\n", 0),
+            ("fec_max_percentage = 255\n", 255),
+            ("fec_max_percentage = 0x1e\n", 30),
+            ("fec_max_percentage = -1\n", 50),
+            ("fec_max_percentage = 256\n", 50),
+            ("fec_max_percentage = lots\n", 50),
+        ] {
+            assert_eq!(
+                super::Config::parse(text).unwrap().fec_max_percentage(),
+                cap,
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_bandwidth_probe_is_on_unless_turned_off() {
+        assert!(super::Config::default().bandwidth_probe());
+        for (text, on) in [
+            ("bandwidth_probe = true\n", true),
+            ("bandwidth_probe = disabled\n", false),
+            ("bandwidth_probe = 0\n", false),
+        ] {
+            assert_eq!(
+                super::Config::parse(text).unwrap().bandwidth_probe(),
                 on,
                 "{text}"
             );

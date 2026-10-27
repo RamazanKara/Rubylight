@@ -11,8 +11,6 @@ use std::path::PathBuf;
 pub const SETTINGS_30: &[(&str, &str)] = &[
     ("hdr_dolby_vision", "true"),
     ("hdr_hlg", "true"),
-    ("fec_max_percentage", "50"),
-    ("bandwidth_probe", "true"),
     ("usb_forwarding", "false"),
     ("usb_max_devices", "4"),
     ("audio_surround_714", "true"),
@@ -124,15 +122,6 @@ impl Config {
     /// HLG HDR for devices that ask for it (on by default).
     pub fn hdr_hlg(&self) -> bool {
         self.boolean("hdr_hlg", true)
-    }
-    /// The most error correction a device may ask for, in percent of the
-    /// video packets (`fec_max_percentage`, 0 to 255, 50 by default).
-    pub fn fec_max_percentage(&self) -> u8 {
-        self.integer30("fec_max_percentage", 50, |n| (0..=255).contains(&n)) as u8
-    }
-    /// The download a device may time before it picks a bitrate (on by default).
-    pub fn bandwidth_probe(&self) -> bool {
-        self.boolean("bandwidth_probe", true)
     }
     /// USB forwarding from devices with `allow_usb` (off by default).
     pub fn usb_forwarding(&self) -> bool {
@@ -337,7 +326,6 @@ mod tests {
     const PER_DEVICE: &[&str] = &[
         "hdr_dolby_vision",
         "hdr_hlg",
-        "fec_max_percentage",
         "audio_surround_714",
         "keyboard_follows_focus",
         "text_input_surrounding_text",
@@ -365,8 +353,6 @@ mod tests {
                     c.hdr_dynamic_metadata(),
                     c.hdr_dolby_vision(),
                     c.hdr_hlg(),
-                    c.fec_max_percentage(),
-                    c.bandwidth_probe(),
                     c.usb_forwarding(),
                     c.usb_max_devices(),
                     c.audio_surround_714(),
@@ -402,17 +388,15 @@ mod tests {
     }
 
     #[test]
-    fn there_are_29_unique_settings() {
+    fn there_are_27_unique_settings() {
         let keys: std::collections::BTreeSet<_> = SETTINGS_30.iter().map(|(k, _)| k).collect();
-        assert_eq!((SETTINGS_30.len(), keys.len()), (29, 29));
+        assert_eq!((SETTINGS_30.len(), keys.len()), (27, 27));
     }
 
     #[test]
     fn the_defaults_are_the_documented_values() {
         let c = Config::default();
         assert!(c.hdr_dynamic_metadata() && c.hdr_dolby_vision() && c.hdr_hlg());
-        assert_eq!(c.fec_max_percentage(), 50);
-        assert!(c.bandwidth_probe());
         assert!(!c.usb_forwarding());
         assert_eq!(c.usb_max_devices(), 4);
         assert!(c.audio_surround_714());
@@ -459,9 +443,6 @@ mod tests {
         let unset = answers(&Config::default());
         for text in [
             "hdr_hlg = maybe",
-            "fec_max_percentage = -1",
-            "fec_max_percentage = 256",
-            "fec_max_percentage = lots",
             "usb_max_devices = 0",
             "usb_max_devices = 17",
             "keyboard_layout = de",
@@ -501,7 +482,6 @@ mod tests {
     #[test]
     fn values_in_range_are_read() {
         let c = config(concat!(
-            "fec_max_percentage = 255\n",
             "usb_max_devices = 16\n",
             "keyboard_layout = 00000407\n",
             "touch_mode = trackpad\n",
@@ -516,7 +496,6 @@ mod tests {
             "child_session_scale = 150\n",
             "child_session_port = 50000\n",
         ));
-        assert_eq!(c.fec_max_percentage(), 255);
         assert_eq!(c.usb_max_devices(), 16);
         assert_eq!(c.keyboard_layout(), KeyboardLayoutSetting::Klid(0x407));
         assert_eq!(
@@ -571,11 +550,11 @@ mod tests {
                 "{key}"
             );
         }
-        assert_eq!(PER_DEVICE.len(), 15);
+        assert_eq!(PER_DEVICE.len(), 14);
     }
 
     /// The settings whose features have shipped, so the console shows them.
-    const LIVE: &[&str] = &["audio_surround_714", "fec_max_percentage", "bandwidth_probe"];
+    const LIVE: &[&str] = &["audio_surround_714"];
 
     /// Each setting's key and default in extensions.ts, with LF or CRLF line
     /// ends (CI checks the repository out with CRLF).

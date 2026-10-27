@@ -448,6 +448,15 @@ const network: Setting[] = [
     default: true,
   },
   {
+    key: 'bandwidth_probe',
+    label: 'Bandwidth test',
+    description: 'Lets paired devices time a short download to measure the network before they pick a bitrate.',
+    category: 'network',
+    group: 'Streams',
+    control: { kind: 'toggle' },
+    default: true,
+  },
+  {
     key: 'origin_web_ui_allowed',
     label: 'Console access',
     description:

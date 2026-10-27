@@ -271,6 +271,8 @@ pub struct RtspOutcome {
     pub opus: OpusConfigs,
     pub high_quality_surround_enabled: bool,
     pub audio_packet_duration_ms: u8,
+    /// The `audio_ext::CODEC_*` bit the ANNOUNCE asked for, 0 for stock Opus.
+    pub audio_codec: u8,
     pub pyrowave_records_enabled: bool,
     pub audio_port: u16,
     pub video_port: u16,
@@ -491,6 +493,7 @@ impl Handshake {
                 opus: OpusConfigs::default(),
                 high_quality_surround_enabled: false,
                 audio_packet_duration_ms: 5,
+                audio_codec: 0,
                 pyrowave_records_enabled: false,
                 audio_port: 0,
                 video_port: 0,
@@ -661,6 +664,11 @@ impl Handshake {
             .describe
             .clone()
             .unwrap_or_else(|| DescribeInfo::parse(""));
+        let audio_codec = crate::audio::passthrough::pick_codec(
+            self.out.config.audio_passthrough,
+            describe.audio_codecs,
+            self.out.config.audio.channel_count,
+        );
         let sdp = sdp::generate(&sdp::SdpParams {
             config: &self.out.config,
             app_version: self.quad(),
@@ -675,12 +683,13 @@ impl Handshake {
             mic_port: self.out.mic_port,
             high_quality_surround_supported: self.out.opus.high_quality.is_some(),
             pyrowave_records_enabled: self.out.pyrowave_records_enabled,
-            // Nothing asks for a 3.0 HDR format or audio codec yet.
+            // Nothing asks for a 3.0 HDR format yet.
             hdr_format: 0,
             hdr_formats_offered: describe.hdr_formats,
-            audio_codec: 0,
+            audio_codec,
             audio_codecs_offered: describe.audio_codecs,
         });
+        self.out.audio_codec = audio_codec;
         self.out.encryption_enabled = sdp.encryption_enabled;
         self.out.audio_encryption_enabled = sdp.audio_encryption_enabled;
         self.out.config.packet_size = sdp.packet_size;

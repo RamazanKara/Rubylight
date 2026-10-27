@@ -1,11 +1,12 @@
 //! Audio receive: RTP reordering with 4+2 Reed-Solomon FEC and AES-CBC decryption, yielding
-//! Opus packets in order with a marker for each packet that could not be recovered. Opus
-//! decoding belongs to the app.
+//! payloads (Opus, or a passthrough codec's: see [`passthrough`]) in order with a marker for
+//! each packet that could not be recovered. Decoding belongs to the app.
 //!
 //! Ported from moonlight-common-c (GPL-3.0, Cameron Gutman and contributors):
 //! `RtpAudioQueue.c` and the receive and decrypt steps of `AudioStream.c`, with Nightjar's
 //! patches. `protocol/difftest` checks it against that C.
 
+pub mod passthrough;
 mod queue;
 
 use aes::cipher::block_padding::Pkcs7;
@@ -38,7 +39,7 @@ pub struct AudioConfig {
 /// One step of audio for the decoder, in order.
 #[derive(Debug, PartialEq, Eq)]
 pub enum AudioOutput<'a> {
-    /// An Opus packet.
+    /// A packet's payload: Opus, PCM, or one chunk of an AC3 or E-AC3 frame.
     Packet(&'a [u8]),
     /// A packet was lost: run packet loss concealment for one packet duration.
     Lost,
@@ -65,6 +66,8 @@ pub struct AudioReceiver {
     received_data: bool,
     packet: Vec<u8>,
     plain: Vec<u8>,
+    /// AC3 and E-AC3 streams: their chunks put back together into frames.
+    frames: Option<passthrough::FrameAssembler>,
 }
 
 impl AudioReceiver {
@@ -81,12 +84,34 @@ impl AudioReceiver {
             received_data: false,
             packet: Vec::with_capacity(MAX_PACKET_SIZE),
             plain: Vec::with_capacity(MAX_PACKET_SIZE + 16),
+            frames: None,
         }
+    }
+
+    /// An AC3 or E-AC3 stream: `receive` hands on whole frames, put together from their
+    /// chunks, and [`AudioOutput::Lost`] once per frame lost.
+    pub fn assemble_frames(&mut self) {
+        self.frames = Some(passthrough::FrameAssembler::default());
     }
 
     /// Processes one datagram received at `now_us` (monotonic microseconds) and passes the
     /// packets now due to `out`.
     pub fn receive(&mut self, datagram: &[u8], now_us: u64, out: &mut impl FnMut(AudioOutput<'_>)) {
+        match self.frames.take() {
+            Some(mut frames) => {
+                self.receive_packets(datagram, now_us, &mut |output| frames.push(output, out));
+                self.frames = Some(frames);
+            }
+            None => self.receive_packets(datagram, now_us, out),
+        }
+    }
+
+    fn receive_packets(
+        &mut self,
+        datagram: &[u8],
+        now_us: u64,
+        out: &mut impl FnMut(AudioOutput<'_>),
+    ) {
         let datagram = &datagram[..datagram.len().min(MAX_PACKET_SIZE)];
         if datagram.len() < 12 {
             return;
@@ -136,8 +161,13 @@ impl AudioReceiver {
         }
     }
 
+    /// The queue's counts; frames whose chunks were not an AC3 or E-AC3 frame count as invalid.
     pub fn stats(&self) -> AudioStats {
-        self.queue.stats
+        let mut stats = self.queue.stats;
+        if let Some(frames) = &self.frames {
+            stats.packet_count_invalid += frames.invalid;
+        }
+        stats
     }
 
     /// `decodeInputData`: decrypts if needed and hands the Opus payload on.

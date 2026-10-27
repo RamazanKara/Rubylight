@@ -23,7 +23,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|p| p.into_inner())
 }
 
-/// An Opus packet, or `None` for one lost (packet loss concealment).
+/// A packet in the stream's codec, or `None` for one lost (packet loss concealment).
 type Item = Option<Vec<u8>>;
 
 #[derive(Default)]
@@ -205,7 +205,7 @@ fn receive_thread(
         receiver.receive(&buffer[..length], now_us(), &mut |output| {
             shared.packets.fetch_add(1, Ordering::Relaxed);
             let item = match output {
-                AudioOutput::Packet(opus) => Some(opus),
+                AudioOutput::Packet(packet) => Some(packet),
                 AudioOutput::Lost => None,
             };
             match direct.as_mut() {

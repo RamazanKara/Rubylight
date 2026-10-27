@@ -162,6 +162,38 @@ fn the_roaming_advertisement_reaches_the_outcome() {
 }
 
 #[test]
+fn the_announce_asks_for_the_passthrough_codec_both_sides_take() {
+    use rubylight_protocol::audio_ext::{CODEC_AC3, CODEC_EAC3, CODEC_PCM};
+    let announce_of = |passthrough: u8, offered: &str| {
+        let mut p = params(None);
+        p.config.audio = AudioConfiguration::SURROUND_51;
+        p.config.audio_passthrough = passthrough;
+        let mut handshake = Handshake::new(p).unwrap();
+        let sent = run(&mut handshake, |method, target| {
+            if method == "DESCRIBE" {
+                ok(2, "", &format!("{DESCRIBE}{offered}"))
+            } else {
+                sunshine_host(method, target)
+            }
+        });
+        let announce = sent.into_iter().find(|r| r.starts_with("ANNOUNCE")).unwrap();
+        (announce, handshake.finish().unwrap().audio_codec)
+    };
+    let (announce, codec) = announce_of(CODEC_AC3 | CODEC_EAC3, "a=x-rl-audio.codecs:14\r\n");
+    assert!(announce.contains("a=x-rl-audio.codec:8 \r\n"), "{announce}");
+    assert_eq!(codec, CODEC_EAC3);
+    let (announce, codec) = announce_of(CODEC_PCM | CODEC_AC3, "a=x-rl-audio.codecs:6\r\n");
+    assert!(announce.contains("a=x-rl-audio.codec:2 \r\n"), "{announce}");
+    assert_eq!(codec, CODEC_PCM);
+    // Passthrough off, or a host that offers nothing: no key, Opus.
+    for (passthrough, offered) in [(0, "a=x-rl-audio.codecs:14\r\n"), (CODEC_AC3, "")] {
+        let (announce, codec) = announce_of(passthrough, offered);
+        assert!(!announce.contains("x-rl-audio.codec"), "{announce}");
+        assert_eq!(codec, 0);
+    }
+}
+
+#[test]
 fn microphone_refusals_cost_only_the_microphone() {
     let mut handshake = Handshake::new(params(None)).unwrap();
     run(&mut handshake, |method, target| {

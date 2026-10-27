@@ -2986,7 +2986,7 @@ impl Media {
                                 }
                                 // Budget for the parity a recovery picture uses,
                                 // even while ordinary frames use adaptive FEC.
-                                recovery_packetizer.fec_percent = s.frame_fec_percent(true);
+                                recovery_packetizer.fec_percent = s.recovery_fec_percent();
                                 let pace = crate::video_send::recovery::preview_pace(&s, &c, &recovery_packetizer, period, peer, encode_route.unwrap().1);
                                 let cap = butterpollo_core::network_pacing::recovery_frame_cap(
                                     pace.bps, bitrate, period, recovery_packetizer.fec_percent,

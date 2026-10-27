@@ -1440,6 +1440,53 @@ mod tests {
         assert_eq!(fec_split_kbps(1, 255), 1);
     }
     #[test]
+    fn auto_fec_keeps_the_configured_share_for_recovery_frames() {
+        use crate::extensions::FecChoice;
+        use crate::statistical_fec::FecReport;
+        let report = |seq, missing| {
+            FecReport {
+                seq,
+                data_shards: 900,
+                parity_shards: 180,
+                missing_shards: missing,
+                unrecovered_blocks: 0,
+                interval_ms: 1000,
+            }
+            .encode()
+        };
+        let stream = Negotiated {
+            packet_size: 1024,
+            fps: 60,
+            ..Default::default()
+        };
+        let auto = Session::new(launch("auto-recovery", Role::Stream), stream);
+        auto.configure_fec_choice(FecChoice::Auto, true, 20, 40);
+        auto.bitrate.store(12_000, Ordering::Release);
+        let start = Instant::now();
+        auto.record_fec_report_at(&report(0, 0), start).unwrap();
+        // A clean link: ordinary frames go without parity, but a keyframe or
+        // the frame after an invalidation keeps the configured 20 %, and the
+        // recovery budget is planned with the same share.
+        assert_eq!(auto.video_fec_percent(false, 30_000), 0);
+        assert_eq!(auto.video_fec_percent(true, 30_000), 20);
+        assert_eq!(auto.video_fec_percent(true, 3_000), 20);
+        assert_eq!(auto.recovery_fec_percent(), 20);
+        // Above the configured share the statistical choice wins.
+        auto.record_fec_report_at(&report(1, 540), start + Duration::from_secs(1)).unwrap();
+        assert_eq!(auto.video_fec_percent(false, 30_000), 40);
+        assert_eq!(auto.video_fec_percent(true, 30_000), 40);
+        assert_eq!(auto.recovery_fec_percent(), 40);
+
+        // Without Auto the plan is the host's recovery share, as before.
+        let host = Session::new(launch("host-recovery", Role::Stream), Negotiated::default());
+        host.configure_fec_choice(FecChoice::Host, true, 20, 50);
+        assert_eq!(host.recovery_fec_percent(), host.frame_fec_percent(true));
+        let fixed = Session::new(launch("fixed-recovery", Role::Stream), Negotiated::default());
+        fixed.configure_fec_choice(FecChoice::Fixed(10), true, 20, 50);
+        assert_eq!(fixed.video_fec_percent(true, 30_000), 10);
+        assert_eq!(fixed.recovery_fec_percent(), 10);
+    }
+    #[test]
     fn adaptive_fec_follows_reports_and_stays_fixed_without_them_or_when_off() {
         let start = Instant::now();
         // A client that never reports: the configured percentage, for minutes.
@@ -3353,10 +3400,13 @@ impl<P, A> Session<P, A> {
     /// Data shards of an average frame at the current bitrate: statistical
     /// FEC's percentage for frames sent in parts and for pacing estimates.
     fn typical_fec_shards(&self) -> usize {
-        let bytes = u64::from(self.bitrate.load(Ordering::Relaxed)) * 1000
+        self.fec_shards(self.typical_frame_bytes())
+    }
+    /// Bytes of an average frame at the current bitrate.
+    fn typical_frame_bytes(&self) -> usize {
+        (u64::from(self.bitrate.load(Ordering::Relaxed)) * 1000
             / 8
-            / u64::from(self.config.fps.max(1));
-        self.fec_shards(bytes as usize)
+            / u64::from(self.config.fps.max(1))) as usize
     }
     /// Data shards of a video frame of `payload_bytes`, as the packetizer splits it.
     fn fec_shards(&self, payload_bytes: usize) -> usize {
@@ -3364,14 +3414,34 @@ impl<P, A> Session<P, A> {
     }
     /// The FEC percentage for a whole video frame of `payload_bytes` about to
     /// be packetized: under `rlFecPercentage=auto` the statistical choice for
-    /// its size, otherwise [`Self::frame_fec_percent`].
+    /// its size, and for a recovery frame at least the configured percentage
+    /// as [`Self::frame_fec_percent`] gives it; otherwise
+    /// [`Self::frame_fec_percent`].
     pub fn video_fec_percent(&self, recovery: bool, payload_bytes: usize) -> usize {
-        if self.client_fec_on.load(Ordering::Acquire)
-            && let Some(fec) = self.client_fec.lock().unwrap().as_ref()
-        {
-            return fec.percent(Instant::now(), self.fec_shards(payload_bytes));
+        if self.client_fec_on.load(Ordering::Acquire) {
+            let statistical = self
+                .client_fec
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|fec| fec.percent(Instant::now(), self.fec_shards(payload_bytes)));
+            if let Some(percent) = statistical {
+                return if recovery {
+                    percent.max(self.adaptive_fec.lock().unwrap().ceiling())
+                } else {
+                    percent
+                };
+            }
         }
         self.frame_fec_percent(recovery)
+    }
+    /// The FEC percentage to budget a recovery frame's parity with before it
+    /// is encoded: [`Self::video_fec_percent`] for an average frame.
+    pub fn recovery_fec_percent(&self) -> usize {
+        if self.client_fec_on.load(Ordering::Acquire) {
+            return self.video_fec_percent(true, self.typical_frame_bytes());
+        }
+        self.frame_fec_percent(true)
     }
     /// The FEC percentage for the next video frame.
     pub fn fec_percent(&self) -> usize {

@@ -136,10 +136,20 @@ public final class AppTheme {
                 UI_SCALE.equals(key) || UI_MODE.equals(key) || Motion.REDUCE_MOTION.equals(key);
     }
 
-    /** The night palette whatever the system says; OLED black is a darker variant of it. */
+    /**
+     * The night palette whatever the system says; OLED black is a darker variant of it. A TV always has it: its screens
+     * draw on the dark TV canvas (tv_canvas, tv_settings_canvas), where the day palette's dark text could not be read,
+     * and a TV whose system theme is light (a Shield) would otherwise get exactly that.
+     */
     public static boolean isDark(Context context) {
-        return isOledBlack(context) ||
+        return isOledBlack(context) || isTelevision(context) ||
                 PreferenceManager.getDefaultSharedPreferences(context).getBoolean(ALWAYS_DARK, false);
+    }
+
+    /** Whether the context lays out as a TV: a TV, or the TV interface chosen in Settings (see {@link #scaled}). */
+    static boolean isTelevision(Context context) {
+        return (context.getResources().getConfiguration().uiMode & Configuration.UI_MODE_TYPE_MASK)
+                == Configuration.UI_MODE_TYPE_TELEVISION;
     }
 
     /** Theme for the app's own screens. The stream activity is always dark and only takes black surfaces. */

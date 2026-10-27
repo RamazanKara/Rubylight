@@ -13,5 +13,6 @@
     <string name="overlay_off">Aus</string>
     <string name="title_theme">Design</string>
     <string name="theme_system">System</string>
+    <string name="theme_system_tv">System (auf dem TV dunkel)</string>
     <string name="theme_dark">Dunkel</string>
 </resources>

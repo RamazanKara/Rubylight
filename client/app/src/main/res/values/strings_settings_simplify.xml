@@ -13,6 +13,8 @@
     <string name="overlay_off">Off</string>
     <string name="title_theme">Theme</string>
     <string name="theme_system">System</string>
+    <!-- TV screens are drawn for a dark room and stay dark when the system theme is light (AppTheme.isDark). -->
+    <string name="theme_system_tv">System (dark on a TV)</string>
     <string name="theme_dark">Dark</string>
     <string-array name="overlay_choice_names" translatable="false"><item>@string/overlay_off</item><item>@string/overlay_compact</item><item>@string/overlay_statistics</item><item>@string/overlay_debug</item></string-array>
     <string-array name="theme_choice_names" translatable="false"><item>@string/theme_system</item><item>@string/theme_dark</item><item>@string/title_oled_black</item></string-array>

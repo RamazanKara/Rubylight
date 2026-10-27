@@ -167,6 +167,8 @@ pub struct Audio {
     channels: usize,
     samples_per_frame: usize,
     array: Option<GlobalRef>,
+    /// An AC3 or E-AC3 frame over [`MAX_ENCODED_FRAME`] was dropped and logged.
+    oversized_logged: bool,
 }
 
 impl Audio {
@@ -180,8 +182,26 @@ impl Audio {
             channels: 0,
             samples_per_frame: 0,
             array: None,
+            oversized_logged: false,
         }
     }
+}
+
+/// The AC3 or E-AC3 frame to play: `None` for a lost frame, or one over [`MAX_ENCODED_FRAME`],
+/// which no valid frame is. The first such frame of a stream is logged.
+fn playable_frame<'a>(packet: Option<&'a [u8]>, logged: &mut bool) -> Option<&'a [u8]> {
+    let frame = packet?;
+    if frame.len() <= MAX_ENCODED_FRAME {
+        return Some(frame);
+    }
+    if !*logged {
+        *logged = true;
+        platform::warn(&format!(
+            "Dropped a {}-byte passthrough audio frame, over the {MAX_ENCODED_FRAME}-byte maximum; later ones are dropped unlogged",
+            frame.len()
+        ));
+    }
+    None
 }
 
 /// A PCM packet (s16le, interleaved) into `pcm`, or silence for a lost one. Returns the samples
@@ -305,7 +325,7 @@ impl AudioRenderer for Audio {
         let samples = match self.mode {
             AudioMode::Encoded => {
                 // A lost frame writes nothing: the sink hears a gap, never a broken frame.
-                let Some(frame) = packet.filter(|frame| frame.len() <= MAX_ENCODED_FRAME) else {
+                let Some(frame) = playable_frame(packet, &mut self.oversized_logged) else {
                     return;
                 };
                 b.with_env(|env| {
@@ -375,5 +395,19 @@ mod tests {
         // A packet longer than the buffer is cut to it, never written past it.
         assert_eq!(pcm_s16le(Some(&[1; 12]), &mut pcm), 4);
         assert_eq!(pcm, [0x0101; 4]);
+    }
+
+    #[test]
+    fn oversized_passthrough_frames_are_dropped_and_logged_once() {
+        let mut logged = false;
+        let frame = [0u8; MAX_ENCODED_FRAME];
+        assert_eq!(playable_frame(Some(&frame), &mut logged), Some(&frame[..]));
+        assert_eq!(playable_frame(None, &mut logged), None);
+        assert!(!logged);
+        let oversized = [0u8; MAX_ENCODED_FRAME + 1];
+        assert_eq!(playable_frame(Some(&oversized), &mut logged), None);
+        assert!(logged);
+        assert_eq!(playable_frame(Some(&oversized), &mut logged), None);
+        assert_eq!(playable_frame(Some(&frame), &mut logged), Some(&frame[..]));
     }
 }

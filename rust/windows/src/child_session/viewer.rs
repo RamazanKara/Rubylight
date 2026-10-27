@@ -401,6 +401,51 @@ impl Rdp {
     }
 }
 
+/// What [`App`] does to the RDP client and this PC's RDP server: [`Rdp`] and
+/// [`check_rdp_server`] here, a fake in the tests, so the order of the check
+/// and the connect is tested without a real client.
+trait Client {
+    fn state(&self) -> Result<RdpState>;
+    fn disconnect_reason(&self) -> Option<i32>;
+    fn configure(
+        &self,
+        account: &str,
+        password: &Secret,
+        display: DisplaySettings,
+        rdp_port: u16,
+    ) -> Result<Vec<String>>;
+    /// That Windows' own RDP server, and nothing else, listens on `rdp_port`.
+    fn check_server(&self, rdp_port: u16) -> Result<()>;
+    fn connect(&self) -> Result<()>;
+    fn disconnect(&self) -> Result<()>;
+}
+impl Client for Rdp {
+    fn state(&self) -> Result<RdpState> {
+        Rdp::state(self)
+    }
+    fn disconnect_reason(&self) -> Option<i32> {
+        Rdp::disconnect_reason(self)
+    }
+    fn configure(
+        &self,
+        account: &str,
+        password: &Secret,
+        display: DisplaySettings,
+        rdp_port: u16,
+    ) -> Result<Vec<String>> {
+        Rdp::configure(self, account, password, display, rdp_port)
+    }
+    fn check_server(&self, rdp_port: u16) -> Result<()> {
+        check_rdp_server(rdp_port, &super::rdp_server()?)
+    }
+    fn connect(&self) -> Result<()> {
+        Rdp::connect(self)
+    }
+    fn disconnect(&self) -> Result<()> {
+        Rdp::disconnect(self)
+    }
+}
+
 unsafe extern "system" fn window(
     hwnd: HWND,
     message: u32,
@@ -498,8 +543,8 @@ fn account() -> Result<String> {
     ))
 }
 
-struct App {
-    rdp: Rdp,
+struct App<C: Client = Rdp> {
+    rdp: C,
     hwnd: HWND,
     viewer: Viewer,
     store: PasswordStore<super::UserDpapi>,
@@ -514,7 +559,30 @@ struct App {
     reported: Option<ViewerStatus>,
     quit: bool,
 }
-impl App {
+impl<C: Client> App<C> {
+    fn new(
+        rdp: C,
+        hwnd: HWND,
+        store: PasswordStore<super::UserDpapi>,
+        current: u32,
+        console: u32,
+    ) -> Self {
+        Self {
+            rdp,
+            hwnd,
+            viewer: Viewer::default(),
+            store,
+            password: None,
+            display: DisplaySettings::default(),
+            rdp_port: 3389,
+            clock: Instant::now(),
+            current,
+            console,
+            notice: None,
+            reported: None,
+            quit: false,
+        }
+    }
     fn now(&self) -> u64 {
         self.clock.elapsed().as_millis() as u64
     }
@@ -655,7 +723,7 @@ impl App {
                     self.rdp
                         .configure(&account()?, password, self.display, self.rdp_port)
                 },
-                || check_rdp_server(self.rdp_port, &super::rdp_server()?),
+                || self.rdp.check_server(self.rdp_port),
                 || self.rdp.connect(),
             )
         })();
@@ -786,21 +854,13 @@ pub fn run() -> Result<()> {
     // SAFETY: the window belongs to this thread; a zero result means no timer, which the
     // command wake-ups still cover.
     unsafe { SetTimer(Some(hwnd), 1, POLL_MS, None) };
-    let mut app = App {
+    let mut app = App::new(
         rdp,
         hwnd,
-        viewer: Viewer::default(),
-        store: PasswordStore::new(password, super::UserDpapi),
-        password: None,
-        display: DisplaySettings::default(),
-        rdp_port: 3389,
-        clock: Instant::now(),
+        PasswordStore::new(password, super::UserDpapi),
         current,
         console,
-        notice: None,
-        reported: None,
-        quit: false,
-    };
+    );
     let (sender, commands) = mpsc::channel();
     let handle = hwnd.0 as isize;
     std::thread::spawn(move || read_commands(handle, sender));
@@ -973,6 +1033,89 @@ mod tests {
         .unwrap_err();
         assert!(format!("{error:#}").contains("process 6666"), "{error:#}");
         assert_eq!(*steps.borrow(), ["configure"]);
+    }
+
+    /// The RDP client and this PC's server as the steps the viewer takes; the
+    /// check refuses when told to.
+    #[derive(Default)]
+    struct Steps {
+        steps: std::cell::RefCell<Vec<String>>,
+        refuse: std::cell::Cell<bool>,
+    }
+    impl Steps {
+        fn step(&self, step: String) {
+            self.steps.borrow_mut().push(step);
+        }
+        fn take(&self) -> Vec<String> {
+            self.steps.take()
+        }
+    }
+    impl Client for Steps {
+        fn state(&self) -> Result<RdpState> {
+            Ok(RdpState::Disconnected)
+        }
+        fn disconnect_reason(&self) -> Option<i32> {
+            None
+        }
+        fn configure(
+            &self,
+            _: &str,
+            password: &Secret,
+            _: DisplaySettings,
+            rdp_port: u16,
+        ) -> Result<Vec<String>> {
+            self.step(format!("configure {rdp_port} {}", password.expose()));
+            Ok(Vec::new())
+        }
+        fn check_server(&self, rdp_port: u16) -> Result<()> {
+            self.step(format!("check {rdp_port}"));
+            if self.refuse.get() {
+                bail!("another program (process 6666) listens on port {rdp_port}");
+            }
+            Ok(())
+        }
+        fn connect(&self) -> Result<()> {
+            self.step("connect".into());
+            Ok(())
+        }
+        fn disconnect(&self) -> Result<()> {
+            self.step("disconnect".into());
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn the_viewer_checks_the_server_right_before_every_connect() {
+        let folder = tempfile::tempdir().unwrap();
+        let store = PasswordStore::new(folder.path().join("password.bin"), super::super::UserDpapi);
+        let mut app = App::new(Steps::default(), HWND::default(), store, 1, 1);
+        app.command(ViewerCommand::Start {
+            display: DisplaySettings::default(),
+            rdp_port: 3390,
+            password: Some(Secret::new("correct horse".into())),
+        });
+        let connected = ["configure 3390 correct horse", "check 3390", "connect"];
+        assert_eq!(app.rdp.take(), connected);
+        // The viewer's own reconnects are checked too.
+        app.command(ViewerCommand::Reconnect);
+        assert_eq!(app.rdp.take(), connected);
+        // A refused server is never connected to, and the console says why.
+        app.rdp.refuse.set(true);
+        app.command(ViewerCommand::Reconnect);
+        assert_eq!(
+            app.rdp.take(),
+            ["configure 3390 correct horse", "check 3390"]
+        );
+        let status = app.status();
+        assert_eq!(status.phase, butterpollo_core::child_session::Phase::Idle);
+        assert!(
+            status.message.contains("process 6666"),
+            "{}",
+            status.message
+        );
+        // Not retried on its own.
+        app.poll();
+        assert_eq!(app.rdp.take(), Vec::<String>::new());
     }
 
     #[test]

@@ -165,6 +165,9 @@ pub struct StreamConfig {
     pub video_capabilities: u32,
     /// CAPABILITY_* of the audio decoder.
     pub audio_capabilities: u32,
+    /// The `audio_ext::CODEC_*` bits besides Opus (PCM, AC3, E-AC3) the audio output can play
+    /// for `audio`'s channels, when the user turned passthrough on; 0 streams Opus.
+    pub audio_passthrough: u8,
     /// Ask for PCM controller haptics (Nightjar's USB DualSense setting).
     pub haptics_pcm: bool,
     /// The user turned the microphone on.
@@ -201,6 +204,7 @@ impl Default for StreamConfig {
             client_wireless: false,
             video_capabilities: 0,
             audio_capabilities: 0,
+            audio_passthrough: 0,
             haptics_pcm: false,
             microphone: false,
             pyrowave_records_supported: false,

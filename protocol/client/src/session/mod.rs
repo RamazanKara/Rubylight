@@ -200,6 +200,11 @@ pub struct AudioSetup {
     pub configuration: AudioConfiguration,
     /// The high-quality configuration when high-quality surround is on, else the normal one.
     pub opus: OpusConfig,
+    /// The codec of the packets [`AudioRenderer::play`] gets, one `audio_ext::CODEC_*` bit:
+    /// `CODEC_OPUS`, `CODEC_PCM` (s16le samples), or `CODEC_AC3` or `CODEC_EAC3` (one whole
+    /// frame per packet). Only the platform's `StreamConfig::audio_passthrough` brings anything
+    /// but Opus.
+    pub codec: u8,
     pub packet_duration_ms: u32,
     /// 48 samples per millisecond of packet.
     pub samples_per_frame: u32,
@@ -211,7 +216,8 @@ pub struct AudioSetup {
 pub trait AudioRenderer: Send {
     fn init(&mut self, setup: &AudioSetup) -> Result<(), i32>;
     fn start(&mut self) {}
-    /// An Opus packet in order, or `None` for a lost one (run packet loss concealment).
+    /// A packet in [`AudioSetup::codec`] in order, or `None` for a lost one (run packet loss
+    /// concealment, or play a packet's worth of silence).
     fn play(&mut self, packet: Option<&[u8]>);
     fn stop(&mut self) {}
     fn cleanup(&mut self) {}
@@ -1006,7 +1012,15 @@ fn start(
     listener.stage_starting(Stage::AudioStreamStart);
     if !config.input_only {
         let mut renderer = audio_renderer;
-        let duration = u32::from(outcome.audio_packet_duration_ms);
+        let codec = match outcome.audio_codec {
+            0 => rubylight_protocol::audio_ext::CODEC_OPUS,
+            codec => codec,
+        };
+        let duration = crate::audio::passthrough::packet_ms(
+            codec,
+            stream.audio.channel_count,
+            u32::from(outcome.audio_packet_duration_ms),
+        );
         let opus = match (
             outcome.high_quality_surround_enabled,
             outcome.opus.high_quality,
@@ -1017,6 +1031,7 @@ fn start(
         let setup = AudioSetup {
             configuration: stream.audio,
             opus,
+            codec,
             packet_duration_ms: duration,
             samples_per_frame: 48 * duration,
         };
@@ -1025,7 +1040,7 @@ fn start(
             return Err(audio_fail(code, "the audio renderer init failed".into()));
         }
         renderer.start();
-        let receiver = AudioReceiver::new(AudioConfig {
+        let mut receiver = AudioReceiver::new(AudioConfig {
             packet_duration_ms: duration,
             app_version: outcome.app_version,
             encryption: outcome.audio_encryption_enabled.then_some(AudioEncryption {
@@ -1033,6 +1048,12 @@ fn start(
                 iv: stream.remote_input_aes_iv,
             }),
         });
+        if matches!(
+            codec,
+            rubylight_protocol::audio_ext::CODEC_AC3 | rubylight_protocol::audio_ext::CODEC_EAC3
+        ) {
+            receiver.assemble_frames();
+        }
         let Some(socket) = parts.audio_socket.as_ref() else {
             parts.audio_renderer = Some(renderer);
             return Err(audio_fail(

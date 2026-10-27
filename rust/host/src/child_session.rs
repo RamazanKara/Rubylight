@@ -48,11 +48,11 @@ struct Record {
     create_folder: fn(&Path) -> std::io::Result<()>,
     create_file: fn(&Path) -> std::io::Result<File>,
     /// Err unless SYSTEM or Administrators own the open file or folder, which
-    /// `path` names, and alone may write it.
+    /// `path` names, and alone may write it; [`Foreign`] when it is not theirs.
     trusted: fn(&File, &Path) -> Result<()>,
     /// Err unless SYSTEM or Administrators own the open data root the folder
-    /// is made in (`%ProgramData%\Butterpollo`), which `path` names, and it
-    /// is no link elsewhere.
+    /// is made in (`%ProgramData%\Butterpollo`), which `path` names, and alone
+    /// may write it, and it is no link elsewhere.
     trusted_root: fn(&File, &Path) -> Result<()>,
     /// Whether this process has administrator rights, which setup and
     /// restore need.
@@ -196,27 +196,57 @@ impl Record {
         }
     }
 }
+/// What [`Record`]'s `trusted` refuses: a link, or a file or folder SYSTEM
+/// and Administrators do not own and alone write, which setup never made.
+/// One that can't be checked is a plain error.
+#[derive(Debug)]
+struct Foreign {
+    /// The record's folder: setup makes it for SYSTEM and Administrators
+    /// alone, in a data root only they can write, so one that is not holds no
+    /// setup of Rubylight's.
+    folder: bool,
+    problem: String,
+}
+impl std::fmt::Display for Foreign {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.problem)
+    }
+}
+impl std::error::Error for Foreign {}
+/// Whether `error` is the record's folder refused as [`Foreign`].
+fn foreign_folder(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<Foreign>()
+        .is_some_and(|foreign| foreign.folder)
+}
 /// [`Record`]'s check on this PC, on the open `file` (`path` names it):
 /// owned by SYSTEM or Administrators, which alone may write it, and not a
-/// link elsewhere.
+/// link elsewhere; [`Foreign`] when it is not.
 fn administrators_own(file: &File, path: &Path) -> Result<()> {
     use std::os::windows::fs::MetadataExt;
     let metadata = file
         .metadata()
         .with_context(|| format!("reading {}", path.display()))?;
+    let foreign = |problem: String| -> Result<()> {
+        Err(Foreign {
+            folder: metadata.is_dir(),
+            problem,
+        }
+        .into())
+    };
     if metadata.file_attributes() & 0x400 != 0 {
-        bail!(
+        return foreign(format!(
             "{} is a link to elsewhere, not Rubylight's; Rubylight does not use it",
             path.display()
-        );
+        ));
     }
     let owner = butterpollo_windows::process::open_file_owner(file)
         .with_context(|| format!("reading the owner of {}", path.display()))?;
     if !matches!(owner.as_str(), "S-1-5-18" | "S-1-5-32-544") {
-        bail!(
+        return foreign(format!(
             "{} is owned by {owner}, not by SYSTEM or Administrators, so another program may have written it; Rubylight does not use it. Delete it, turn Remote Desktop off, then set up child sessions again",
             path.display()
-        );
+        ));
     }
     let writers = butterpollo_windows::process::open_file_writers(file)
         .with_context(|| format!("reading the permissions of {}", path.display()))?;
@@ -224,17 +254,18 @@ fn administrators_own(file: &File, path: &Path) -> Result<()> {
         .iter()
         .find(|sid| !matches!(sid.as_str(), "S-1-5-18" | "S-1-5-32-544"))
     {
-        bail!(
+        return foreign(format!(
             "{} can be written by {other}, not only by SYSTEM and Administrators, so another program may have written it; Rubylight does not use it. Delete it, turn Remote Desktop off, then set up child sessions again",
             path.display()
-        );
+        ));
     }
     Ok(())
 }
 /// [`Record`]'s check of the data root on this PC, on the open `file`
-/// (`path` names it): owned by SYSTEM or Administrators, as the installer
-/// leaves it, and not a link elsewhere. An owner may change its permissions
-/// and move the record's folder out of it.
+/// (`path` names it): owned by SYSTEM or Administrators, which alone may
+/// write it, as the installer leaves it, and not a link elsewhere. An owner
+/// may change its permissions and move the record's folder out of it; a
+/// writer may make that folder first.
 fn administrators_own_root(file: &File, path: &Path) -> Result<()> {
     use std::os::windows::fs::MetadataExt;
     let metadata = file
@@ -251,6 +282,17 @@ fn administrators_own_root(file: &File, path: &Path) -> Result<()> {
     if !matches!(owner.as_str(), "S-1-5-18" | "S-1-5-32-544") {
         bail!(
             "{} is owned by {owner}, not by SYSTEM or Administrators, so another program may control it; Rubylight does not keep its child-session record in it and nothing was changed. Run Rubylight's setup again, which gives it to Administrators, then set up child sessions again",
+            path.display()
+        );
+    }
+    let writers = butterpollo_windows::process::open_file_writers(file)
+        .with_context(|| format!("reading the permissions of {}", path.display()))?;
+    if let Some(other) = writers
+        .iter()
+        .find(|sid| !matches!(sid.as_str(), "S-1-5-18" | "S-1-5-32-544"))
+    {
+        bail!(
+            "{} can be written by {other}, not only by SYSTEM and Administrators, so another program may make its own folders in it; Rubylight does not keep its child-session record in it and nothing was changed. Run Rubylight's setup again, which leaves it to Administrators, then set up child sessions again",
             path.display()
         );
     }
@@ -493,8 +535,9 @@ const CHECK_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 /// [`CHECK_TRIES`]; on the last try it turns RDP off instead. What a check
 /// finds is never tried again: it turns RDP off at once. It fails closed: a
 /// record that cannot be read turns RDP off too (`enforce(None, _)`), and so
-/// does a settings lock another process holds too long. The problem for the
-/// log and the console, None when there is none or setup never ran.
+/// does a settings lock another process holds too long. A record folder
+/// setup never made ([`Foreign`]) changes nothing and is said. The problem
+/// for the log and the console, None when there is none or setup never ran.
 fn secure_rdp(
     record: &Record,
     mut enforce: impl FnMut(Option<u16>, bool) -> Result<Vec<String>>,
@@ -526,6 +569,13 @@ fn secure_rdp(
         let port = match record.load() {
             Ok(None) => return None,
             Ok(Some(state)) => Some(state.rdp_port),
+            // Setup never made that folder, so no setup of Rubylight's turned RDP on: turned off
+            // for it, any user who makes one would turn an administrator's own RDP off.
+            Err(error) if foreign_folder(&error) => {
+                return Some(format!(
+                    "{error:#}. Setup makes that folder for SYSTEM and Administrators alone, so it holds no setup of Rubylight's: Remote Desktop is left as it is, and the child session does not start until the folder is gone."
+                ));
+            }
             Err(error) => {
                 found.push(format!("{error:#}"));
                 None
@@ -1452,39 +1502,134 @@ mod tests {
         let directory = scratch();
         let trusted = record_in(&directory);
         trusted.save(&recorded()).unwrap();
-        let foreign = Record {
-            trusted: |_, path| bail!("{} is owned by S-1-5-21-9", path.display()),
+        /// [`administrators_own`]'s refusal of `path`.
+        fn foreign(path: &Path) -> Result<()> {
+            Err(Foreign {
+                folder: path.extension().is_none(),
+                problem: format!("{} is owned by S-1-5-21-9", path.display()),
+            }
+            .into())
+        }
+        let foreign_file = Record {
+            trusted: |_, path| match path.extension() {
+                None => Ok(()),
+                Some(_) => foreign(path),
+            },
             ..trusted.clone()
         };
-        let error = format!("{:#}", foreign.load().unwrap_err());
-        assert!(error.contains("S-1-5-21-9"), "{error}");
-        // Restore and setup refuse it; the firewall check turns RDP off, as without a record.
-        let pc = Pc::new();
-        assert!(restore_saved(&foreign, pc.open()).is_err());
-        assert!(setup_in(&foreign, USER, pc.open()).is_err());
-        assert_eq!(pc.now(), Pc::new().now());
-        let mut ports = Vec::new();
-        let problem = secure_rdp(
-            &foreign,
-            |port, _| {
-                ports.push(port);
-                Ok(vec!["Remote Desktop was turned off (fDenyTSConnections = 1), so it is not open to the network".into()])
+        let foreign_folder = Record {
+            trusted: |_, path| foreign(path),
+            ..trusted.clone()
+        };
+        // A folder that can't be checked is no proof that setup never made it.
+        let unchecked_folder = Record {
+            trusted: |_, path| match path.extension() {
+                None => bail!("reading the owner of {}: access denied", path.display()),
+                Some(_) => Ok(()),
             },
+            ..trusted.clone()
+        };
+        let turned_off = || -> Result<Vec<String>> {
+            Ok(vec!["Remote Desktop was turned off (fDenyTSConnections = 1), so it is not open to the network".into()])
+        };
+        for record in [&foreign_file, &foreign_folder, &unchecked_folder] {
+            let error = format!("{:#}", record.load().unwrap_err());
+            assert!(
+                error.contains("S-1-5-21-9") || error.contains("access denied"),
+                "{error}"
+            );
+            // Restore and setup refuse it.
+            let pc = Pc::new();
+            assert!(restore_saved(record, pc.open()).is_err());
+            assert!(setup_in(record, USER, pc.open()).is_err());
+            assert_eq!(pc.now(), Pc::new().now());
+        }
+        // A record another account wrote into setup's folder, or a folder that can't be
+        // checked: the firewall check turns RDP off, as without a record.
+        for record in [&foreign_file, &unchecked_folder] {
+            let mut ports = Vec::new();
+            let problem = secure_rdp(
+                record,
+                |port, _| {
+                    ports.push(port);
+                    turned_off()
+                },
+                no_wait,
+            )
+            .unwrap();
+            assert_eq!(ports, [None]);
+            assert!(
+                problem.contains("S-1-5-21-9") || problem.contains("access denied"),
+                "{problem}"
+            );
+            assert!(problem.contains("Remote Desktop was turned off"), "{problem}");
+        }
+        // A folder setup never made holds no setup of Rubylight's: any user could make one in
+        // a data root they can write, so RDP, the user's own, is left as it is. Still said.
+        let problem = secure_rdp(
+            &foreign_folder,
+            |_, _| panic!("the firewall was checked for a folder setup never made"),
             no_wait,
         )
         .unwrap();
-        assert_eq!(ports, [None]);
-        assert!(problem.contains("S-1-5-21-9"), "{problem}");
+        assert!(
+            problem.contains("is owned by S-1-5-21-9")
+                && problem.contains("Remote Desktop is left as it is"),
+            "{problem}"
+        );
+        let mut reported = Vec::new();
+        let mut watched = Watched::default();
+        for _ in 0..2 {
+            watch(
+                &foreign_folder,
+                &mut watched,
+                true,
+                |_, _| panic!("the firewall was checked for a folder setup never made"),
+                || panic!("there is a record"),
+                no_wait,
+                |problem| reported.push(problem),
+            );
+        }
+        assert_eq!(reported, [problem]);
         // A folder someone else made first is not saved into.
         std::fs::remove_dir_all(&directory).unwrap();
         let squatted = record_in(&directory);
         std::fs::create_dir_all(squatted.folder()).unwrap();
         let squatted = Record {
-            trusted: foreign.trusted,
+            trusted: foreign_folder.trusted,
             ..squatted
         };
         assert!(squatted.save(&recorded()).is_err());
         assert!(!squatted.path.exists());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn this_pcs_check_tells_a_folder_setup_never_made_from_a_file() {
+        // Under %TEMP%, which its user can write: never SYSTEM's and Administrators' alone,
+        // whether this test runs elevated or not.
+        let directory = scratch();
+        let file = directory.join(logic::SETUP_FILE);
+        std::fs::write(&file, "{}").unwrap();
+        for (path, folder) in [(&directory, true), (&file, false)] {
+            let open = butterpollo_windows::process::open_unfollowed(path, folder).unwrap();
+            match administrators_own(&open, path) {
+                Ok(()) => panic!("{} passed as administrators' own", path.display()),
+                Err(error) => {
+                    let foreign = error.downcast_ref::<Foreign>().unwrap();
+                    assert_eq!(foreign.folder, folder, "{error:#}");
+                    assert_eq!(foreign_folder(&error), folder);
+                }
+            }
+        }
+        // Checked through a context too.
+        let error = administrators_own(
+            &butterpollo_windows::process::open_unfollowed(&directory, true).unwrap(),
+            &directory,
+        )
+        .unwrap_err()
+        .context("opening the record");
+        assert!(foreign_folder(&error));
         std::fs::remove_dir_all(directory).unwrap();
     }
 
@@ -1608,23 +1753,24 @@ mod tests {
         assert!(error.contains("is a link to elsewhere"), "{error}");
         assert_eq!(std::fs::read_dir(&target).unwrap().count(), 0);
         // A folder: refused unless SYSTEM or Administrators own it, as this test's own does
-        // only when it runs elevated.
+        // only when it runs elevated, and alone may write it, which %TEMP%'s user may too.
         let own = Record {
             trusted_root: administrators_own_root,
             ..record_in(&target)
         };
-        let owner = butterpollo_windows::process::open_file_owner(
-            &butterpollo_windows::process::open_unfollowed(&target, true).unwrap(),
-        )
-        .unwrap();
-        match own.save(&recorded()) {
-            Ok(()) => assert!(matches!(owner.as_str(), "S-1-5-18" | "S-1-5-32-544")),
-            Err(error) => {
-                let error = format!("{error:#}");
-                assert!(error.contains(&format!("is owned by {owner}")), "{error}");
-                assert!(!own.folder().exists());
-            }
+        let open = butterpollo_windows::process::open_unfollowed(&target, true).unwrap();
+        let owner = butterpollo_windows::process::open_file_owner(&open).unwrap();
+        let writers = butterpollo_windows::process::open_file_writers(&open).unwrap();
+        drop(open);
+        let administrators = |sid: &str| matches!(sid, "S-1-5-18" | "S-1-5-32-544");
+        let error = format!("{:#}", own.save(&recorded()).unwrap_err());
+        if administrators(&owner) {
+            let other = writers.iter().find(|sid| !administrators(sid.as_str())).unwrap();
+            assert!(error.contains(&format!("can be written by {other}")), "{error}");
+        } else {
+            assert!(error.contains(&format!("is owned by {owner}")), "{error}");
         }
+        assert!(!own.folder().exists());
         std::fs::remove_dir(&link).unwrap();
         std::fs::remove_dir_all(directory).unwrap();
     }

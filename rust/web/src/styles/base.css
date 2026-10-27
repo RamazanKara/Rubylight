@@ -119,5 +119,8 @@ summary {
   *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+    /* One near-instant run, not a flicker: pulses and spinners hold still. */
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
   }
 }

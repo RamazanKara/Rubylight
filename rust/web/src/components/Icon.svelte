@@ -38,6 +38,7 @@
     file: 'M6 3h8l4 4v14H6zM14 3v4h4',
     drive: 'M3 13h18v6H3zM3 13l3-8h12l3 8M17 16h.01',
     up: 'M12 19V5M6 11l6-6 6 6',
+    info: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 11v6M12 7.5h.01',
   } as const;
   export type IconName = keyof typeof paths;
 </script>

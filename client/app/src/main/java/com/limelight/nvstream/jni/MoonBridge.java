@@ -862,7 +862,8 @@ public class MoonBridge {
     public static final int CONTROL_MESSAGE_CURSOR_SHAPE_REQUEST = 0x5540;
 
     // The 3.0 extensions (protocol/core/src/ids.rs). Defined so hostSupportsControlMessage can ask
-    // for them; nothing sends them yet.
+    // for them; nothing sends them yet. MoonBridgeControlMessagesTest holds these and the cursor
+    // shape request to test resources protocol/control-messages.txt, which nightjar-core checks too.
     public static final int CONTROL_MESSAGE_FEC_REPORT = 0x5539;
     public static final int CONTROL_MESSAGE_USB = 0x553A;
     public static final int CONTROL_MESSAGE_TEXT_INPUT = 0x553B;

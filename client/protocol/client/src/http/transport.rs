@@ -861,6 +861,9 @@ pub(crate) fn upgrade(request: &Request<'_>, cancel: &Cancel, protocol: &str, fi
     }
 }
 
+/// How long [`Upgraded::close`] waits to send the host its close_notify.
+const CLOSE_NOTIFY_WAIT: Duration = Duration::from_millis(100);
+
 /// A TLS connection the host switched to another protocol. One thread may read while others
 /// write: a read waits for bytes without holding the TLS state.
 pub struct Upgraded {
@@ -942,8 +945,26 @@ impl Upgraded {
         Ok(())
     }
 
-    /// Closes the connection, waking a blocked read or write.
+    /// Closes the connection, waking a blocked read or write. The host first gets a TLS
+    /// close_notify, a clean end, unless a write that holds the connection doesn't finish
+    /// within [`CLOSE_NOTIFY_WAIT`]: the shutdown wakes it.
     pub fn close(&self) {
+        let deadline = std::time::Instant::now() + CLOSE_NOTIFY_WAIT;
+        let tls = loop {
+            match self.tls.try_lock() {
+                Ok(tls) => break Some(tls),
+                Err(std::sync::TryLockError::Poisoned(poisoned)) => break Some(poisoned.into_inner()),
+                Err(std::sync::TryLockError::WouldBlock) if std::time::Instant::now() >= deadline => break None,
+                Err(std::sync::TryLockError::WouldBlock) => std::thread::sleep(Duration::from_millis(1)),
+            }
+        };
+        if let Some(mut tls) = tls {
+            let UpgradedTls { conn, socket, .. } = &mut *tls;
+            conn.send_close_notify();
+            // Never waits long on a host that stopped reading.
+            let _ = socket.set_write_timeout(Some(CLOSE_NOTIFY_WAIT));
+            while conn.wants_write() && conn.write_tls(socket).is_ok_and(|n| n > 0) {}
+        }
         let _ = self.socket.shutdown(Shutdown::Both);
         #[cfg(windows)]
         abort_blocked_io(&self.socket);
@@ -1449,6 +1470,34 @@ mod tests {
         upgraded.read_exact(&mut back).unwrap();
         assert!(server.join().unwrap() == sent, "the host got all of it in order");
         assert!(back == sent, "and the client all of its answer");
+    }
+
+    #[test]
+    fn closing_an_upgraded_connection_ends_its_tls_cleanly_and_wakes_a_read() {
+        let host_name = Host::parse("127.0.0.1").unwrap();
+        let (port, config, server) = tls_host(|mut tls| {
+            let mut head = Vec::new();
+            while !head.ends_with(b"\r\n\r\n") {
+                let mut byte = [0];
+                tls.read_exact(&mut byte).unwrap();
+                head.push(byte[0]);
+            }
+            tls.write_all(b"HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: test/1\r\n\r\n").unwrap();
+            // A host that sees the end as an error tells the client its device failed.
+            tls.read(&mut [0; 16]).map_err(|e| e.kind())
+        });
+        let request = Request { host: &host_name, port, target: "tunnel", tls: Some(config),
+            timeouts: Timeouts { connect: Duration::from_secs(1), read: Some(Duration::from_secs(10)) }, body_limit: 1024 };
+        let Ok(Ok(upgraded)) = upgrade(&request, &Cancel::default(), "test/1", &[]) else { panic!("no upgrade") };
+        let upgraded = Arc::new(upgraded);
+        let reading = upgraded.clone();
+        let reader = std::thread::spawn(move || reading.read(&mut [0; 16]).map_err(|e| e.kind()));
+        std::thread::sleep(Duration::from_millis(100));
+        let started = std::time::Instant::now();
+        upgraded.close();
+        assert!(started.elapsed() < Duration::from_secs(1), "{:?}", started.elapsed());
+        assert_eq!(server.join().unwrap(), Ok(0), "the host reads a close_notify");
+        assert!(matches!(reader.join().unwrap(), Ok(0) | Err(_)), "the blocked read returns");
     }
 
     #[test]

@@ -1,4 +1,4 @@
-import pathlib, sys, unittest
+import pathlib, sys, tempfile, unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import dev  # noqa: E402
@@ -108,6 +108,30 @@ class Plan(unittest.TestCase):
     def test_target_dir_follows_the_worktree(self):
         self.assertEqual(dev.default_target(pathlib.Path(r'C:\src\rl-tools')), pathlib.Path(r'C:\src\rl-target-tools'))
         self.assertEqual(dev.default_target(pathlib.Path(r'C:\src\rubylight-rel')), pathlib.Path(r'C:\src\rl-target'))
+
+
+class QuickLog(unittest.TestCase):
+    def quick(self, exit_line):
+        # As rl-quick writes it under Windows PowerShell: Out-File -Encoding utf8 for its own
+        # lines (a BOM each time), `*>>` appends cargo's output as UTF-16LE with CRLF.
+        utf8 = lambda s: '\ufeff'.encode('utf-8') + (s + '\r\n').encode('utf-8')
+        utf16 = lambda s: '\ufeff'.encode('utf-16-le') + (s + '\r\n').encode('utf-16-le')
+        data = (utf8('== test') + utf16('test result: ok. 3 passed; 0 failed') + utf16('Grüße')
+                + utf8(exit_line))
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory, 'host.log.quick')
+            path.write_bytes(data)
+            return dev.read_quick(path)
+
+    def test_mixed_encodings_still_show_the_exit_line(self):
+        text, passed = self.quick('EXIT 0')
+        self.assertTrue(passed, repr(text))
+        self.assertIn('\ntest result: ok. 3 passed; 0 failed\n', text)
+        self.assertNotIn('\x00', text)
+
+    def test_a_failure_or_a_missing_log_fails(self):
+        self.assertFalse(self.quick('EXIT 1')[1])
+        self.assertEqual(dev.read_quick(pathlib.Path('missing.quick')), ('', False))
 
 
 if __name__ == '__main__':

@@ -281,6 +281,18 @@ def stop_stray_vite(root, log):
     run(['powershell', '-NoProfile', '-Command', script], log, root)
 
 
+def read_quick(path):
+    """rl-quick's log as text, and whether it ended with EXIT 0.
+
+    Windows PowerShell appends cargo's output (`*>>`) as UTF-16LE between its own UTF-8
+    lines, so the file mixes both: drop the NULs and byte order marks, keep the ASCII.
+    """
+    data = path.read_bytes() if path.exists() else b''
+    text = data.replace(b'\x00', b'').decode('utf-8', errors='replace')
+    text = text.replace('﻿', '').replace('��', '').replace('\r\n', '\n')
+    return text, re.search(r'(?m)^EXIT 0\s*$', text) is not None
+
+
 def execute(check, root, log, target):
     log.write_text('', encoding='utf-8')
     if check.kind == 'host':
@@ -289,11 +301,11 @@ def execute(check, root, log, target):
                    f"-Jobs 4 -Log '{log}.quick'")
         code = run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command], log, root)
         quick = pathlib.Path(f'{log}.quick')
-        text = quick.read_text(encoding='utf-8-sig', errors='replace') if quick.exists() else ''
+        text, passed = read_quick(quick)
         with open(log, 'a', encoding='utf-8') as f:
             f.write(text)
         quick.unlink(missing_ok=True)
-        return code == 0 and re.search(r'(?m)^EXIT 0\s*$', text) is not None
+        return code == 0 and passed
     if check.kind == 'client':
         args = [a for spec in client_specs(root, check.items) for a in ('-p', spec)]
         env = client_env(f'{target}-client')

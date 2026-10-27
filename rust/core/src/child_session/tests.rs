@@ -80,10 +80,16 @@ fn mode_setting_parses_and_rejects_typos() {
 fn the_child_desktop_defaults_to_1080p_at_100_percent() {
     let display = DisplaySettings::parse("", "").unwrap();
     assert_eq!(display, DisplaySettings::default());
-    assert_eq!((display.width, display.height, display.scale), (1920, 1080, 100));
+    assert_eq!(
+        (display.width, display.height, display.scale),
+        (1920, 1080, 100)
+    );
     assert_eq!(display.rdp_scale_factors(), (100, 180));
     let display = DisplaySettings::parse("2560X1440", "150 %").unwrap();
-    assert_eq!((display.width, display.height, display.scale), (2560, 1440, 150));
+    assert_eq!(
+        (display.width, display.height, display.scale),
+        (2560, 1440, 150)
+    );
     for (resolution, scale) in [
         ("1920", ""),
         ("100x100", ""),
@@ -152,7 +158,14 @@ fn attached(viewer: &mut Viewer, now: u64) {
     );
     assert!(
         viewer
-            .poll(now + 2000, RdpState::Connected, None, Some(7), CURRENT, CONSOLE)
+            .poll(
+                now + 2000,
+                RdpState::Connected,
+                None,
+                Some(7),
+                CURRENT,
+                CONSOLE
+            )
             .is_empty()
     );
     assert_eq!(viewer.phase(), Phase::Connected);
@@ -203,18 +216,39 @@ fn a_rejected_password_is_dropped_and_never_retried() {
     viewer.connect(0, RdpState::Disconnected, Some(true));
     assert!(
         viewer
-            .poll(2000, RdpState::Disconnected, Some(0), None, CURRENT, CONSOLE)
+            .poll(
+                2000,
+                RdpState::Disconnected,
+                Some(0),
+                None,
+                CURRENT,
+                CONSOLE
+            )
             .is_empty()
     );
     assert_eq!(
-        viewer.poll(4000, RdpState::Disconnected, Some(0), None, CURRENT, CONSOLE),
+        viewer.poll(
+            4000,
+            RdpState::Disconnected,
+            Some(0),
+            None,
+            CURRENT,
+            CONSOLE
+        ),
         vec![ViewerAction::DropPassword]
     );
     assert_eq!(viewer.phase(), Phase::SignInFailed);
     assert!(viewer.message().contains("Nothing was saved"));
     assert!(
         viewer
-            .poll(30_000, RdpState::Disconnected, Some(0), None, CURRENT, CONSOLE)
+            .poll(
+                30_000,
+                RdpState::Disconnected,
+                Some(0),
+                None,
+                CURRENT,
+                CONSOLE
+            )
             .is_empty()
     );
 }
@@ -226,7 +260,14 @@ fn a_dropped_viewer_reconnects_after_six_seconds() {
     // The RDP client dropped (not a sign-out).
     assert!(
         viewer
-            .poll(4000, RdpState::Disconnected, Some(3), None, CURRENT, CONSOLE)
+            .poll(
+                4000,
+                RdpState::Disconnected,
+                Some(3),
+                None,
+                CURRENT,
+                CONSOLE
+            )
             .is_empty()
     );
     assert_eq!(viewer.phase(), Phase::Reconnecting);
@@ -234,11 +275,25 @@ fn a_dropped_viewer_reconnects_after_six_seconds() {
     assert!(!viewer.gate().accepts(viewer.gate().generation(), 7));
     assert!(
         viewer
-            .poll(6000, RdpState::Disconnected, Some(3), None, CURRENT, CONSOLE)
+            .poll(
+                6000,
+                RdpState::Disconnected,
+                Some(3),
+                None,
+                CURRENT,
+                CONSOLE
+            )
             .is_empty()
     );
     assert_eq!(
-        viewer.poll(6001, RdpState::Disconnected, Some(3), None, CURRENT, CONSOLE),
+        viewer.poll(
+            6001,
+            RdpState::Disconnected,
+            Some(3),
+            None,
+            CURRENT,
+            CONSOLE
+        ),
         vec![ViewerAction::Connect]
     );
 }
@@ -253,7 +308,14 @@ fn reconnect_disconnects_first_then_connects_at_once() {
     );
     assert_eq!(viewer.child(), 0);
     assert_eq!(
-        viewer.poll(5100, RdpState::Disconnected, Some(1), None, CURRENT, CONSOLE),
+        viewer.poll(
+            5100,
+            RdpState::Disconnected,
+            Some(1),
+            None,
+            CURRENT,
+            CONSOLE
+        ),
         vec![ViewerAction::Connect]
     );
     // Disconnected already: connect right away.
@@ -271,13 +333,27 @@ fn signing_out_inside_the_child_session_returns_to_start() {
         attached(&mut viewer, 0);
         assert!(
             viewer
-                .poll(4000, RdpState::Disconnected, Some(reason), None, CURRENT, CONSOLE)
+                .poll(
+                    4000,
+                    RdpState::Disconnected,
+                    Some(reason),
+                    None,
+                    CURRENT,
+                    CONSOLE
+                )
                 .is_empty()
         );
         assert_eq!(viewer.phase(), Phase::SignedOut);
         assert!(
             viewer
-                .poll(60_000, RdpState::Disconnected, Some(reason), None, CURRENT, CONSOLE)
+                .poll(
+                    60_000,
+                    RdpState::Disconnected,
+                    Some(reason),
+                    None,
+                    CURRENT,
+                    CONSOLE
+                )
                 .is_empty()
         );
     }
@@ -315,7 +391,11 @@ fn end_session_signs_out_the_confirmed_child_only() {
     );
     assert_eq!(viewer.phase(), Phase::SigningOut);
     // A second request while signing out does nothing.
-    assert!(viewer.end_session(3000, approval, 7, CURRENT, CONSOLE).is_err());
+    assert!(
+        viewer
+            .end_session(3000, approval, 7, CURRENT, CONSOLE)
+            .is_err()
+    );
     // The desktop is still up 15 s later: the viewer drops it.
     assert!(
         viewer
@@ -328,7 +408,14 @@ fn end_session_signs_out_the_confirmed_child_only() {
     );
     assert!(
         viewer
-            .poll(19_000, RdpState::Disconnected, Some(1), None, CURRENT, CONSOLE)
+            .poll(
+                19_000,
+                RdpState::Disconnected,
+                Some(1),
+                None,
+                CURRENT,
+                CONSOLE
+            )
             .is_empty()
     );
     assert_eq!(viewer.phase(), Phase::SignedOut);
@@ -340,8 +427,22 @@ fn an_approval_from_before_a_reattach_is_refused() {
     let mut viewer = Viewer::default();
     attached(&mut viewer, 0);
     let approval = viewer.confirm();
-    viewer.poll(4000, RdpState::Disconnected, Some(3), None, CURRENT, CONSOLE);
-    viewer.poll(10_100, RdpState::Disconnected, Some(3), None, CURRENT, CONSOLE);
+    viewer.poll(
+        4000,
+        RdpState::Disconnected,
+        Some(3),
+        None,
+        CURRENT,
+        CONSOLE,
+    );
+    viewer.poll(
+        10_100,
+        RdpState::Disconnected,
+        Some(3),
+        None,
+        CURRENT,
+        CONSOLE,
+    );
     viewer.poll(12_000, RdpState::Connected, None, Some(7), CURRENT, CONSOLE);
     assert_eq!(viewer.child(), 7);
     assert_eq!(
@@ -355,7 +456,9 @@ fn a_refused_sign_out_goes_back_to_the_desktop() {
     let mut viewer = Viewer::default();
     attached(&mut viewer, 0);
     let approval = viewer.confirm();
-    viewer.end_session(3000, approval, 7, CURRENT, CONSOLE).unwrap();
+    viewer
+        .end_session(3000, approval, 7, CURRENT, CONSOLE)
+        .unwrap();
     viewer.end_failed("access denied");
     assert_eq!(viewer.phase(), Phase::Connected);
     assert!(viewer.message().contains("access denied"));
@@ -372,7 +475,14 @@ fn stopping_detaches_and_does_not_reconnect() {
     assert_eq!(viewer.phase(), Phase::Idle);
     assert!(
         viewer
-            .poll(60_000, RdpState::Disconnected, Some(1), None, CURRENT, CONSOLE)
+            .poll(
+                60_000,
+                RdpState::Disconnected,
+                Some(1),
+                None,
+                CURRENT,
+                CONSOLE
+            )
             .is_empty()
     );
 }
@@ -395,9 +505,16 @@ struct Fake {
 impl Fake {
     fn new() -> Self {
         let mut values = BTreeMap::new();
-        values.insert(key(Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections"), 1);
         values.insert(
-            key(Hive::User(SID.into()), RDP_CLIENT, "RemoteDesktop_SuppressWhenMinimized"),
+            key(Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections"),
+            1,
+        );
+        values.insert(
+            key(
+                Hive::User(SID.into()),
+                RDP_CLIENT,
+                "RemoteDesktop_SuppressWhenMinimized",
+            ),
             0,
         );
         // Another user's value is never touched.
@@ -411,9 +528,21 @@ impl Fake {
         );
         let mut rules = BTreeMap::new();
         for (name, group, enabled) in [
-            ("Remote Desktop - User Mode (TCP-In)", REMOTE_DESKTOP_RULES, true),
-            ("Remote Desktop - User Mode (UDP-In)", REMOTE_DESKTOP_RULES, true),
-            ("Remote Desktop - Shadow (TCP-In)", REMOTE_DESKTOP_RULES, false),
+            (
+                "Remote Desktop - User Mode (TCP-In)",
+                REMOTE_DESKTOP_RULES,
+                true,
+            ),
+            (
+                "Remote Desktop - User Mode (UDP-In)",
+                REMOTE_DESKTOP_RULES,
+                true,
+            ),
+            (
+                "Remote Desktop - Shadow (TCP-In)",
+                REMOTE_DESKTOP_RULES,
+                false,
+            ),
             ("Rubylight", "", true),
         ] {
             rules.insert(name.to_string(), (group.to_string(), enabled));
@@ -439,14 +568,20 @@ fn key(hive: Hive, path: &str, name: &str) -> (Hive, String, String) {
 }
 impl SystemSettings for Fake {
     fn read_dword(&self, hive: &Hive, path: &str, name: &str) -> Result<Option<u32>> {
-        Ok(self.machine.values.get(&key(hive.clone(), path, name)).copied())
+        Ok(self
+            .machine
+            .values
+            .get(&key(hive.clone(), path, name))
+            .copied())
     }
     fn write_dword(&mut self, hive: &Hive, path: &str, name: &str, value: u32) -> Result<()> {
         if self.fail_writes.contains(name) {
             bail!("access denied");
         }
         self.note(format!("write {name}"));
-        self.machine.values.insert(key(hive.clone(), path, name), value);
+        self.machine
+            .values
+            .insert(key(hive.clone(), path, name), value);
         Ok(())
     }
     fn delete_value(&mut self, hive: &Hive, path: &str, name: &str) -> Result<()> {
@@ -474,13 +609,11 @@ impl SystemSettings for Fake {
             .map(|(name, _)| name.clone())
             .collect())
     }
-    fn set_rule_enabled(&mut self, name: &str, enabled: bool) -> Result<()> {
+    fn set_rule_enabled(&mut self, group: &str, name: &str, enabled: bool) -> Result<()> {
         self.note(format!("rule {name} {enabled}"));
-        self.machine
-            .rules
-            .get_mut(name)
-            .context("no such rule")?
-            .1 = enabled;
+        let rule = self.machine.rules.get_mut(name).context("no such rule")?;
+        anyhow::ensure!(rule.0 == group, "{name} is not in {group}");
+        rule.1 = enabled;
         Ok(())
     }
     fn add_block_rule(&mut self, name: &str, port: u16) -> Result<()> {
@@ -528,10 +661,20 @@ fn setup_saves_the_originals_before_the_first_change() {
     );
     // What Annex's setup sets, plus the block rule for the RDP port.
     let read = |hive: Hive, path: &str, name: &str| fake.read_dword(&hive, path, name).unwrap();
-    assert_eq!(read(Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections"), Some(0));
-    assert_eq!(read(Hive::LocalMachine, WINSTATIONS, "DWMFRAMEINTERVAL"), Some(8));
     assert_eq!(
-        read(Hive::User(SID.into()), RDP_CLIENT, "RemoteDesktop_SuppressWhenMinimized"),
+        read(Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections"),
+        Some(0)
+    );
+    assert_eq!(
+        read(Hive::LocalMachine, WINSTATIONS, "DWMFRAMEINTERVAL"),
+        Some(8)
+    );
+    assert_eq!(
+        read(
+            Hive::User(SID.into()),
+            RDP_CLIENT,
+            "RemoteDesktop_SuppressWhenMinimized"
+        ),
         Some(2)
     );
     assert_eq!(
@@ -554,17 +697,22 @@ fn setup_saves_the_originals_before_the_first_change() {
 #[test]
 fn uninstall_restores_every_original_value() {
     let mut fake = Fake::new();
-    fake.machine.values.insert(key(Hive::LocalMachine, RDP_TCP, "PortNumber"), 3390);
+    fake.machine
+        .values
+        .insert(key(Hive::LocalMachine, RDP_TCP, "PortNumber"), 3390);
     let before = fake.machine.clone();
     let state = set_up(&mut fake);
     assert_eq!(fake.machine.block_rules.get(BLOCK_RULE), Some(&3390));
     assert_ne!(fake.machine, before);
     // The state goes through its file between setup and uninstall.
-    let state: SetupState =
-        serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
+    let state: SetupState = serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
     restore(&mut fake, &state).unwrap();
     assert_eq!(fake.machine, before);
-    assert!(fake.log.borrow().contains(&"delete DWMFRAMEINTERVAL".to_string()));
+    assert!(
+        fake.log
+            .borrow()
+            .contains(&"delete DWMFRAMEINTERVAL".to_string())
+    );
 }
 
 #[test]
@@ -654,7 +802,9 @@ impl Dpapi for FakeDpapi {
         if blob.len() <= tag || &blob[..tag] != self.0.as_bytes() || blob[tag] != 0 {
             bail!("the data is invalid");
         }
-        Ok(Zeroizing::new(blob[tag + 1..].iter().map(|byte| byte ^ 0x5a).collect()))
+        Ok(Zeroizing::new(
+            blob[tag + 1..].iter().map(|byte| byte ^ 0x5a).collect(),
+        ))
     }
 }
 
@@ -668,7 +818,11 @@ fn the_password_roundtrips_through_dpapi_and_can_be_forgotten() {
     store.save(&Secret::new(PASSWORD.into())).unwrap();
     assert!(store.saved());
     let on_disk = std::fs::read(&path).unwrap();
-    assert!(!on_disk.windows(PASSWORD.len()).any(|w| w == PASSWORD.as_bytes()));
+    assert!(
+        !on_disk
+            .windows(PASSWORD.len())
+            .any(|w| w == PASSWORD.as_bytes())
+    );
     assert_eq!(store.load().unwrap().unwrap().expose(), PASSWORD);
     // Another Windows user can't decrypt it, and the error says what to do.
     let other = PasswordStore::new(path.clone(), FakeDpapi("S-1-5-21-other"));
@@ -744,13 +898,20 @@ fn viewer_commands_carry_the_password_only_on_the_wire() {
         }
         other => panic!("{other:?}"),
     }
-    let saved: ViewerCommand =
-        serde_json::from_str(r#"{"command":"start","display":{"width":1920,"height":1080,"scale":100}}"#)
-            .unwrap();
+    let saved: ViewerCommand = serde_json::from_str(
+        r#"{"command":"start","display":{"width":1920,"height":1080,"scale":100}}"#,
+    )
+    .unwrap();
     assert!(matches!(saved, ViewerCommand::Start { password: None, .. }));
     let end: ViewerCommand =
         serde_json::from_str(r#"{"command":"end_session","child":7,"generation":3}"#).unwrap();
-    assert!(matches!(end, ViewerCommand::EndSession { child: 7, generation: 3 }));
+    assert!(matches!(
+        end,
+        ViewerCommand::EndSession {
+            child: 7,
+            generation: 3
+        }
+    ));
     let status = ViewerStatus {
         phase: Phase::Connected,
         message: "attached".into(),
@@ -788,7 +949,12 @@ fn an_integrated_gpu_beside_a_discrete_one_is_called_out() {
     let all = [igpu.clone(), dgpu.clone(), basic.clone()];
 
     let verdict = gpu_verdict(Some(&dgpu), &all);
-    assert_eq!(verdict, GpuVerdict::Discrete { name: dgpu.name.clone() });
+    assert_eq!(
+        verdict,
+        GpuVerdict::Discrete {
+            name: dgpu.name.clone()
+        }
+    );
     assert_eq!(gpu_problem(&verdict), None);
 
     let verdict = gpu_verdict(Some(&igpu), &all);
@@ -800,8 +966,12 @@ fn an_integrated_gpu_beside_a_discrete_one_is_called_out() {
         }
     );
     let problem = gpu_problem(&verdict).unwrap();
-    assert!(problem.contains("integrated GPU AMD Radeon(TM) Graphics, not on AMD Radeon RX 7900 XT"));
-    assert!(problem.contains("Use hardware graphics adapters for all Remote Desktop Services sessions"));
+    assert!(
+        problem.contains("integrated GPU AMD Radeon(TM) Graphics, not on AMD Radeon RX 7900 XT")
+    );
+    assert!(
+        problem.contains("Use hardware graphics adapters for all Remote Desktop Services sessions")
+    );
     assert!(problem.contains("High performance"));
     assert!(problem.contains("never encodes in software"));
 
@@ -812,7 +982,11 @@ fn an_integrated_gpu_beside_a_discrete_one_is_called_out() {
             discrete: Some(dgpu.name.clone())
         }
     );
-    assert!(gpu_problem(&verdict).unwrap().contains("Basic Render Driver"));
+    assert!(
+        gpu_problem(&verdict)
+            .unwrap()
+            .contains("Basic Render Driver")
+    );
     assert!(gpu_problem(&gpu_verdict(None, &all)).is_some());
 }
 
@@ -855,7 +1029,9 @@ fn the_child_host_gets_its_own_ports_and_name() {
     let main = crate::config::Ports::from_base(47989);
     let child = crate::config::Ports::from_base(CHILD_BASE_PORT);
     let ports = |p: &crate::config::Ports| {
-        [p.http, p.https, p.web, p.video, p.control, p.audio, p.mic, p.rtsp]
+        [
+            p.http, p.https, p.web, p.video, p.control, p.audio, p.mic, p.rtsp,
+        ]
     };
     for port in ports(&child) {
         assert!(!ports(&main).contains(&port), "{port}");

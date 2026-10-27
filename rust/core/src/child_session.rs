@@ -440,7 +440,12 @@ impl Viewer {
     /// Start the desktop. `password` is None when none is saved or entered,
     /// `Some(true)` for a newly entered one, which is saved only once it has
     /// signed in, so a typo is never remembered.
-    pub fn connect(&mut self, now: u64, state: RdpState, password: Option<bool>) -> Vec<ViewerAction> {
+    pub fn connect(
+        &mut self,
+        now: u64,
+        state: RdpState,
+        password: Option<bool>,
+    ) -> Vec<ViewerAction> {
         if self.ending || state != RdpState::Disconnected {
             return Vec::new();
         }
@@ -464,7 +469,12 @@ impl Viewer {
         );
         vec![ViewerAction::Connect]
     }
-    pub fn reconnect(&mut self, now: u64, state: RdpState, password: Option<bool>) -> Vec<ViewerAction> {
+    pub fn reconnect(
+        &mut self,
+        now: u64,
+        state: RdpState,
+        password: Option<bool>,
+    ) -> Vec<ViewerAction> {
         if self.ending {
             return Vec::new();
         }
@@ -564,7 +574,10 @@ impl Viewer {
                 Phase::Connected,
                 "The child session is attached. You can keep using your own desktop.",
             ),
-            RdpState::Connecting => self.set(Phase::Connecting, "Windows is opening the child session's desktop."),
+            RdpState::Connecting => self.set(
+                Phase::Connecting,
+                "Windows is opening the child session's desktop.",
+            ),
             RdpState::Disconnected if self.want_reconnect => self.set(
                 Phase::Reconnecting,
                 "The viewer disconnected. The child session's apps keep running; reconnecting.",
@@ -682,7 +695,10 @@ pub enum ViewerCommand {
     Show,
     /// Sign out the child session the console showed (`child` and
     /// `generation` from the status the user confirmed).
-    EndSession { child: u32, generation: u64 },
+    EndSession {
+        child: u32,
+        generation: u64,
+    },
     ForgetPassword,
     Quit,
 }
@@ -698,13 +714,18 @@ impl ViewerCommand {
 mod wire_secret {
     use super::Secret;
     use serde::{Deserialize, Deserializer, Serializer};
-    pub fn serialize<S: Serializer>(value: &Option<Secret>, serializer: S) -> Result<S::Ok, S::Error> {
+    pub fn serialize<S: Serializer>(
+        value: &Option<Secret>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
         match value {
             Some(secret) => serializer.serialize_some(secret.expose()),
             None => serializer.serialize_none(),
         }
     }
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Secret>, D::Error> {
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<Secret>, D::Error> {
         Option::<Secret>::deserialize(deserializer)
     }
 }
@@ -770,8 +791,9 @@ impl<D: Dpapi> PasswordStore<D> {
             .dpapi
             .unprotect(&blob)
             .context("the saved password can't be decrypted for this Windows user; forget it and enter it again")?;
-        let text = String::from_utf8(plain.to_vec())
-            .map_err(|_| anyhow::anyhow!("the saved password is damaged; forget it and enter it again"))?;
+        let text = String::from_utf8(plain.to_vec()).map_err(|_| {
+            anyhow::anyhow!("the saved password is damaged; forget it and enter it again")
+        })?;
         Ok(Some(Secret::new(text)))
     }
     /// Forget the saved password; false when none was saved.
@@ -820,10 +842,12 @@ pub trait SystemSettings {
     fn firewall_on(&self) -> Result<bool>;
     /// Names of the enabled rules in a firewall group.
     fn enabled_rules(&self, group: &str) -> Result<Vec<String>>;
-    fn set_rule_enabled(&mut self, name: &str, enabled: bool) -> Result<()>;
-    /// Add (or replace) an inbound TCP and UDP block rule for a port.
+    /// Turn every rule of that name in the group on or off.
+    fn set_rule_enabled(&mut self, group: &str, name: &str, enabled: bool) -> Result<()>;
+    /// Add (or replace) inbound TCP and UDP block rules for a port under this name.
     fn add_block_rule(&mut self, name: &str, port: u16) -> Result<()>;
-    /// Removing a rule that does not exist succeeds.
+    /// Remove the rules [`SystemSettings::add_block_rule`] added; removing
+    /// rules that do not exist succeeds.
     fn remove_rule(&mut self, name: &str) -> Result<()>;
 }
 
@@ -919,7 +943,10 @@ pub fn setup(
 ) -> Result<SetupState> {
     // RDP is reachable only over loopback because the firewall blocks it;
     // with the firewall off it would be open to the network.
-    if !system.firewall_on().context("reading the Windows Firewall state")? {
+    if !system
+        .firewall_on()
+        .context("reading the Windows Firewall state")?
+    {
         bail!(
             "Windows Firewall is off for at least one network profile, so turning on RDP would open it to the network. Turn the firewall on, then set up child sessions again. Nothing was changed."
         );
@@ -941,12 +968,17 @@ pub fn setup(
         .context("adding the firewall rule that keeps RDP on this PC")?;
     for name in system.enabled_rules(REMOTE_DESKTOP_RULES)? {
         system
-            .set_rule_enabled(&name, false)
+            .set_rule_enabled(REMOTE_DESKTOP_RULES, &name, false)
             .with_context(|| format!("turning off the firewall rule {name}"))?;
     }
     for change in &CHANGES {
         system
-            .write_dword(&hive(change, user_sid), change.path, change.name, change.value)
+            .write_dword(
+                &hive(change, user_sid),
+                change.path,
+                change.name,
+                change.value,
+            )
             .with_context(|| format!("setting {}", change.name))?;
     }
     system
@@ -978,7 +1010,7 @@ pub fn restore(system: &mut dyn SystemSettings, state: &SetupState) -> Result<()
         }
     }
     for name in &state.remote_desktop_rules_enabled {
-        if let Err(error) = system.set_rule_enabled(name, true) {
+        if let Err(error) = system.set_rule_enabled(REMOTE_DESKTOP_RULES, name, true) {
             problems.push(format!("firewall rule {name}: {error:#}"));
         }
     }
@@ -1005,7 +1037,9 @@ pub fn missing(system: &dyn SystemSettings, user_sid: &str) -> Result<Vec<String
         missing.push("Windows child sessions are off".to_string());
     }
     for change in &CHANGES {
-        if system.read_dword(&hive(change, user_sid), change.path, change.name)? != Some(change.value) {
+        if system.read_dword(&hive(change, user_sid), change.path, change.name)?
+            != Some(change.value)
+        {
             missing.push(format!("{} is not {}", change.name, change.value));
         }
     }
@@ -1045,9 +1079,16 @@ impl Adapter {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum GpuVerdict {
-    Discrete { name: String },
-    Integrated { name: String, discrete: Option<String> },
-    Software { discrete: Option<String> },
+    Discrete {
+        name: String,
+    },
+    Integrated {
+        name: String,
+        discrete: Option<String>,
+    },
+    Software {
+        discrete: Option<String>,
+    },
     Unknown,
 }
 /// `render` is the adapter of the display the child-session host captures.

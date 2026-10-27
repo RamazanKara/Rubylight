@@ -13,4 +13,6 @@
     <string name="stream_hdr_host_sdr">Poproszono o HDR, ale komputer zgłasza SDR. Włącz w Windows HDR dla strumieniowanego ekranu.</string>
     <string name="stream_hdr_no_metadata">HDR jest włączony, ale komputer nie wysłał danych masteringu, więc jasność może wyglądać źle.</string>
     <string name="stream_hdr_output_not_pq">HDR jest włączony, ale dekoder tego urządzenia zgłasza wyjście bez HDR, więc kolory mogą wyglądać blado.</string>
+    <string name="stream_hdr_hlg_needs_direct_output">Ten ekran pokazuje HDR tylko jako HLG, którego „Renderowanie przez Vulkan” nie potrafi narysować, więc strumień jest w SDR.</string>
+    <string name="stream_hdr_pq_on_hlg_screen">Ten ekran pokazuje HDR tylko jako HLG, ale PC wysyła HDR10, więc jasność i kolory mogą wyglądać źle.</string>
 </resources>

@@ -13,4 +13,6 @@
     <string name="stream_hdr_host_sdr">HDR을 요청했지만 PC가 SDR로 보고합니다. Windows에서 스트리밍하는 디스플레이의 HDR을 켜세요.</string>
     <string name="stream_hdr_no_metadata">HDR은 켜져 있지만 PC가 마스터링 데이터를 보내지 않아 밝기가 이상하게 보일 수 있습니다.</string>
     <string name="stream_hdr_output_not_pq">HDR은 켜져 있지만 이 기기의 디코더가 HDR이 아닌 출력을 보고해 색이 바래 보일 수 있습니다.</string>
+    <string name="stream_hdr_hlg_needs_direct_output">이 화면은 HDR을 HLG로만 표시하며 ‘Vulkan으로 렌더링’은 HLG를 그릴 수 없어 스트림은 SDR입니다.</string>
+    <string name="stream_hdr_pq_on_hlg_screen">이 화면은 HDR을 HLG로만 표시하지만 PC가 HDR10을 보내고 있어 밝기와 색이 잘못 보일 수 있습니다.</string>
 </resources>

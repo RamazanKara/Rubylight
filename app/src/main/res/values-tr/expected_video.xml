@@ -13,4 +13,6 @@
     <string name="stream_hdr_host_sdr">HDR istendi ancak PC SDR bildiriyor. Windows’ta yayınlanan ekran için HDR’yi açın.</string>
     <string name="stream_hdr_no_metadata">HDR açık ancak PC mastering verisi göndermedi, bu yüzden parlaklık yanlış görünebilir.</string>
     <string name="stream_hdr_output_not_pq">HDR açık ancak bu cihazın kod çözücüsü HDR olmayan bir çıkış bildiriyor, bu yüzden renkler soluk görünebilir.</string>
+    <string name="stream_hdr_hlg_needs_direct_output">Bu ekran HDR’yi yalnızca HLG olarak gösterir ve “Vulkan ile işle” HLG çizemez, bu yüzden yayın SDR.</string>
+    <string name="stream_hdr_pq_on_hlg_screen">Bu ekran HDR’yi yalnızca HLG olarak gösterir ancak bilgisayar HDR10 gönderiyor, bu yüzden parlaklık ve renkler yanlış görünebilir.</string>
 </resources>

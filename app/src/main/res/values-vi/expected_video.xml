@@ -13,4 +13,6 @@
     <string name="stream_hdr_host_sdr">Đã yêu cầu HDR nhưng PC báo SDR. Hãy bật HDR trong Windows cho màn hình đang phát.</string>
     <string name="stream_hdr_no_metadata">HDR đang bật nhưng PC không gửi dữ liệu mastering, nên độ sáng có thể trông sai.</string>
     <string name="stream_hdr_output_not_pq">HDR đang bật nhưng bộ giải mã của thiết bị này báo đầu ra không phải HDR, nên màu có thể trông nhạt.</string>
+    <string name="stream_hdr_hlg_needs_direct_output">Màn hình này chỉ hiển thị HDR dưới dạng HLG, mà “Kết xuất qua Vulkan” không vẽ được, nên luồng ở SDR.</string>
+    <string name="stream_hdr_pq_on_hlg_screen">Màn hình này chỉ hiển thị HDR dưới dạng HLG, nhưng PC gửi HDR10, nên độ sáng và màu có thể trông sai.</string>
 </resources>

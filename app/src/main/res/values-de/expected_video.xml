@@ -13,4 +13,6 @@
     <string name="stream_hdr_host_sdr">HDR wurde angefordert, aber der PC meldet SDR. Aktiviere in Windows HDR für den gestreamten Bildschirm.</string>
     <string name="stream_hdr_no_metadata">HDR ist an, aber der PC hat keine Mastering-Daten gesendet, daher kann die Helligkeit falsch wirken.</string>
     <string name="stream_hdr_output_not_pq">HDR ist an, aber der Decoder dieses Geräts meldet eine Ausgabe ohne HDR, daher können die Farben blass wirken.</string>
+    <string name="stream_hdr_hlg_needs_direct_output">Dieser Bildschirm zeigt HDR nur als HLG, das „Über Vulkan rendern“ nicht zeichnen kann, daher läuft der Stream in SDR.</string>
+    <string name="stream_hdr_pq_on_hlg_screen">Dieser Bildschirm zeigt HDR nur als HLG, aber der PC sendet HDR10, daher können Helligkeit und Farben falsch wirken.</string>
 </resources>

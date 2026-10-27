@@ -1703,6 +1703,17 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         this.sdr10 = sdr10;
     }
 
+    /**
+     * The Vulkan renderer will present a HEVC or AV1 stream that is not packed, as setupUpscaling
+     * then chooses it: its surface is BT.2020/PQ only. Game asks before the stream to refuse HDR on
+     * a screen that has HLG alone (HdrPolicy.Refusal.HLG_NEEDS_DIRECT_OUTPUT).
+     */
+    public static boolean vulkanPresents(PreferenceConfiguration prefs) {
+        return VideoRendererChoice.choose(prefs.vulkanRender, false, Build.VERSION.SDK_INT,
+                VulkanRendererBridge::isSupported, false, prefs.upscalingMode).renderer ==
+                VideoRendererChoice.Renderer.VULKAN;
+    }
+
     @Override
     public int pickHdrFormat(int hostHdrFormats, int videoFormats, boolean packed444) {
         if (hostHdrFormats == 0) return 0;
@@ -1710,15 +1721,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         // The outputs this client draws itself are BT.2020/PQ surfaces (HdrFormatPolicy).
         String pqSurface = packed444 ? "packed full chroma" :
                 (videoFormats & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 ? "PyroWave" :
-                VideoRendererChoice.choose(prefs.vulkanRender, false, Build.VERSION.SDK_INT,
-                        VulkanRendererBridge::isSupported, false, prefs.upscalingMode).renderer ==
-                        VideoRendererChoice.Renderer.VULKAN ? "the Vulkan renderer" : null;
+                vulkanPresents(prefs) ? "the Vulkan renderer" : null;
         int format = HdrFormatPolicy.pick(hostHdrFormats, displayTypes, dolbyVisionDecoder != null, pqSurface != null);
         LimeLog.info("HDR formats: the PC offers 0x" + Integer.toHexString(hostHdrFormats) + ", asking for " +
                 HdrFormatPolicy.name(format) + (pqSurface != null ? " (" + pqSurface + " draws PQ only)" :
                 dolbyVisionDecoder == null ? " (no Dolby Vision decoder)" : ""));
         if (pqSurface != null && !HdrPolicy.hasHdr10(displayTypes) &&
                 HdrFormatPolicy.hlgInstead(hostHdrFormats, displayTypes)) {
+            // Game names it on the status line (HdrPolicy.Status.PQ_ON_HLG_SCREEN).
             LimeLog.warning("The screen reports HLG and no HDR10, but " + pqSurface +
                     " draws PQ only: this stream is HDR10");
         }

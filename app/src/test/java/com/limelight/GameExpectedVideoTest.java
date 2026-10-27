@@ -61,7 +61,7 @@ public class GameExpectedVideoTest {
     @Test public void everyRefusalReasonNotesItsOwnTextOnce() {
         for (HdrPolicy.Refusal refusal : new HdrPolicy.Refusal[] {HdrPolicy.Refusal.ANDROID_TOO_OLD,
                 HdrPolicy.Refusal.MODE_WITHOUT_HDR10, HdrPolicy.Refusal.DECODER_WITHOUT_HDR10,
-                HdrPolicy.Refusal.DISPLAY_WITHOUT_HDR10}) {
+                HdrPolicy.Refusal.DISPLAY_WITHOUT_HDR10, HdrPolicy.Refusal.HLG_NEEDS_DIRECT_OUTPUT}) {
             Game game = game();
             StreamMessages messages = ReflectionHelpers.getField(game, "messages");
             ReflectionHelpers.callInstanceMethod(game, "refuseHdr",
@@ -69,6 +69,15 @@ public class GameExpectedVideoTest {
             ReflectionHelpers.callInstanceMethod(game, "checkHdrStatus");
             assertEquals(refusal.toString(), 1, messages.notes().size());
         }
+    }
+
+    @Test public void anHlgOnlyScreenNamesItsOwnRefusalAndAPqStream() {
+        Game game = game();
+        StreamMessages messages = ReflectionHelpers.getField(game, "messages");
+        ReflectionHelpers.callInstanceMethod(game, "refuseHdr", ReflectionHelpers.ClassParameter.from(
+                HdrPolicy.Refusal.class, HdrPolicy.Refusal.HLG_NEEDS_DIRECT_OUTPUT));
+        assertEquals(1, count(messages.notes(), game.getString(R.string.stream_hdr_hlg_needs_direct_output)));
+        assertEquals(R.string.stream_hdr_pq_on_hlg_screen, Game.hdrStatusText(HdrPolicy.Status.PQ_ON_HLG_SCREEN));
     }
 
     @Test public void theRefreshSwitchPollIsPostedOnConnectAndRemovedOnTeardown() {

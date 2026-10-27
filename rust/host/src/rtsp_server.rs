@@ -343,6 +343,10 @@ async fn connection(
                     if negotiated.chroma_packing == 0 {
                         butterpollo_core::stream_policy::apply_color(&mut negotiated, &config);
                     }
+                    butterpollo_core::stream_policy::packed_drops_dolby_vision(
+                        &mut negotiated,
+                        &launch.warnings,
+                    );
                     negotiated.validate()?;
                     if negotiated.chroma_packing != 0 {
                         anyhow::ensure!(

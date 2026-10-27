@@ -2339,6 +2339,55 @@ fn a_stream_turned_into_ten_bit_sdr_drops_its_hdr_format_pick() {
     assert!(stream.hdr && stream.hdr_format == 2);
 }
 #[test]
+fn a_packed_stream_drops_dolby_vision_loudly_and_streams_hdr10() {
+    use rubylight_protocol::hdr;
+    let offered = crate::extensions::Offered {
+        hdr_formats: crate::extensions::hdr_offer(0x200, true),
+        ..crate::extensions::Offered::NONE
+    };
+    let request = |packed: bool, format: u8| {
+        let packing = if packed {
+            "a=x-rl-video[0].chromaPacking:1\n"
+        } else {
+            ""
+        };
+        Negotiated::from_sdp(
+            format!(
+                "a=x-nv-video[0].dynamicRangeMode:1\na=x-nv-vqos[0].bitStreamFormat:1\n{packing}a=x-rl-video[0].hdrFormat:{format}\n"
+            )
+            .as_bytes(),
+        )
+        .unwrap()
+    };
+    let warnings = crate::session::Warnings::default();
+    let mut packed = request(true, hdr::DV_81);
+    offered.check_announce(&packed).unwrap();
+    assert!(packed_drops_dolby_vision(&mut packed, &warnings));
+    // HDR10, which HDR10+ rides on, and what is streamed was offered.
+    assert!(packed.hdr && packed.hdr_format == 0);
+    assert!(!crate::dovi::negotiated(&packed));
+    offered.check_announce(&packed).unwrap();
+    let shown = warnings.snapshot();
+    assert_eq!(shown.len(), 1);
+    assert_eq!(shown[0].code, "hdr_dolby_vision");
+    assert!(
+        shown[0]
+            .message
+            .contains("unpacks the packed picture itself")
+    );
+    assert!(shown[0].message.contains("HDR10 and HDR10+ instead"));
+    // A 4:2:0 stream keeps its pick, and the next stream clears the warning.
+    let mut plain = request(false, hdr::DV_81);
+    assert!(!packed_drops_dolby_vision(&mut plain, &warnings));
+    assert_eq!(plain.hdr_format, hdr::DV_81);
+    assert!(crate::dovi::negotiated(&plain));
+    assert!(warnings.snapshot().is_empty());
+    // A packed PQ pick is not Dolby Vision and stays.
+    let mut pq = request(true, hdr::PQ);
+    assert!(!packed_drops_dolby_vision(&mut pq, &warnings));
+    assert_eq!(pq.hdr_format, hdr::PQ);
+}
+#[test]
 fn an_eight_bit_request_is_neither_hdr_nor_ten_bit() {
     let config = Config::parse("prefer_sdr_10bit=true\n").unwrap();
     for sdr_requested in [false, true] {

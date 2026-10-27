@@ -172,6 +172,11 @@ pub struct Negotiated {
     /// (`x-rl-video[0].clientWireless:1`); false when absent or 0 (unknown).
     #[serde(default)]
     pub client_wireless: bool,
+    /// The client asked for long-term reference recovery on H.264 and HEVC
+    /// (`rubylight_protocol::ltr_recovery`, a launch parameter, not SDP; set
+    /// at ANNOUNCE). AV1 has it without asking.
+    #[serde(default)]
+    pub ltr_recovery: bool,
     /// The pace the client's calibration found loss-free, in Mbps
     /// (`x-ss-video[0].pyrowavePaceMbps`), 0 when it has none.
     #[serde(default)]
@@ -232,6 +237,7 @@ impl Default for Negotiated {
             pyrowave_records: false,
             pyrowave_client_link_mbps: 0,
             client_wireless: false,
+            ltr_recovery: false,
             pyrowave_client_pace_mbps: 0,
             pyrowave_row_order: false,
             packet_size: 1024,
@@ -422,6 +428,16 @@ impl Negotiated {
         )?)?;
         n.validate()?;
         Ok(n)
+    }
+    /// What the client asked for in its `/launch` or `/resume` query rather
+    /// than in the ANNOUNCE.
+    pub fn apply_launch_options(&mut self, options: &BTreeMap<String, String>) {
+        use rubylight_protocol::ltr_recovery;
+        self.ltr_recovery = ltr_recovery::requested(
+            options
+                .get(ltr_recovery::LAUNCH_PARAMETER)
+                .map(String::as_str),
+        );
     }
     pub fn validate(&self) -> Result<()> {
         if self.chroma_packing != 0
@@ -770,6 +786,25 @@ mod tests {
             describe(0, 7, 0, true, true, true, false, false)
                 .contains("a=x-ss-pyrowave.bitstream:186f0393\r\n")
         );
+    }
+    #[test]
+    fn ltr_recovery_comes_from_the_launch_query_and_only_for_a_one() {
+        let launch = |value: Option<&str>| {
+            let mut n = Negotiated::from_sdp(b"a=x-nv-vqos[0].bitStreamFormat:1\n").unwrap();
+            let options = value
+                .map(|value| BTreeMap::from([("rlLtrRecovery".to_string(), value.to_string())]))
+                .unwrap_or_default();
+            n.apply_launch_options(&options);
+            n.ltr_recovery
+        };
+        assert!(!Negotiated::default().ltr_recovery);
+        assert!(launch(Some("1")));
+        for value in [None, Some("0"), Some("true"), Some("")] {
+            assert!(!launch(value), "{value:?}");
+        }
+        // An SDP line does not ask for it.
+        let sdp = Negotiated::from_sdp(b"a=rlLtrRecovery:1\na=x-rl-video[0].ltrRecovery:1\n");
+        assert!(!sdp.unwrap().ltr_recovery);
     }
     #[test]
     fn the_client_wireless_hint_is_on_only_for_a_one() {

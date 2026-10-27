@@ -248,6 +248,7 @@ async fn connection(
                 }
                 "ANNOUNCE" => {
                     let mut negotiated = Negotiated::from_sdp(&req.body)?;
+                    negotiated.apply_launch_options(&launch.options);
                     if negotiated.audio_channels == 2
                         && let Some(host) = req.headers.get("host")
                     {

@@ -746,16 +746,24 @@ impl Encoder {
             // Only for a value the user set: the default asks for long-term
             // references in AV1 alone, and every H.264 and HEVC probe at
             // startup warned otherwise.
-            if config.codec != 2
+            if config.codec <= 1
+                && !config.ltr_recovery
                 && options.values.contains_key("amd_ltr_frames")
                 && options.integer("amd_ltr_frames", 0) > 0
             {
                 tracing::warn!(
-                    "amd_ltr_frames applies to AV1 only: H.264 and HEVC reference invalidation froze the picture on a test decoder, so they recover with keyframes"
+                    "amd_ltr_frames applies to AV1, and to H.264 and HEVC only for a client that asks (rlLtrRecovery): their reference invalidation froze the picture on a test decoder, so they recover with keyframes"
                 );
             }
             let requested_ltr =
-                butterpollo_core::encoder_policy::amf_ltr_requested(options, config.codec);
+                butterpollo_core::encoder_policy::amf_ltr_requested(options, config);
+            if config.codec <= 1 && requested_ltr > 0 {
+                tracing::info!(
+                    codec = config.codec,
+                    requested_ltr,
+                    "client asked for long-term reference recovery (Experimental)"
+                );
+            }
             let ltr_count = butterpollo_core::encoder_policy::amf_ltr_frames(options, config);
             if ltr_count < requested_ltr {
                 tracing::info!(
@@ -2264,5 +2272,7 @@ impl Drop for Encoder {
 mod focus_native_tests;
 #[cfg(test)]
 mod intra_refresh_native_tests;
+#[cfg(test)]
+mod ltr_native_tests;
 #[cfg(test)]
 mod tests;

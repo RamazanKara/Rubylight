@@ -136,15 +136,17 @@ pub fn amf_offers_invalidation(config: &Config) -> bool {
     config.integer("amd_ltr_frames", AMF_LTR_DEFAULT) > 0
 }
 /// The long-term references `amd_ltr_frames` asks AMF to keep for reference
-/// invalidation, before the client's budget: AV1 only. On 2026-10-10, under
-/// air outages with the test client's d3d11va decoder, the first HEVC frame
-/// after an invalidation was rejected ("Error constructing the frame RPS"),
-/// and every picture after it: AMF's four-bit POC wraps every 16 frames and
-/// the long-term reference it names resolves to a missing picture after a
-/// longer loss. H.264 kept showing pictures seconds old until the end of the
-/// run. Neither decoder asked for a keyframe.
-pub fn amf_ltr_requested(config: &Config, codec: u8) -> usize {
-    if codec != 2 {
+/// invalidation, before the client's budget: AV1, and H.264 and HEVC only for
+/// a client that asked (`Negotiated::ltr_recovery`, Experimental). On
+/// 2026-10-10, under air outages with the test client's d3d11va decoder, the
+/// first HEVC frame after an invalidation was rejected ("Error constructing
+/// the frame RPS"), and every picture after it: AMF's four-bit POC wraps every
+/// 16 frames and the long-term reference it names resolves to a missing
+/// picture after a longer loss. H.264 kept showing pictures seconds old until
+/// the end of the run. Neither decoder asked for a keyframe, so a stock
+/// client never gets them.
+pub fn amf_ltr_requested(config: &Config, stream: &Negotiated) -> usize {
+    if stream.codec != 2 && !(stream.ltr_recovery && stream.codec <= 1) {
         return 0;
     }
     config
@@ -157,7 +159,7 @@ pub fn amf_ltr_frames(config: &Config, stream: &Negotiated) -> usize {
     if amf_intra_refresh(stream) {
         return 0;
     }
-    let requested = amf_ltr_requested(config, stream.codec);
+    let requested = amf_ltr_requested(config, stream);
     if stream.references == 0 {
         requested
     } else {
@@ -786,7 +788,7 @@ mod tests {
     }
 
     #[test]
-    fn amf_h264_and_hevc_never_keep_long_term_references() {
+    fn amf_h264_and_hevc_keep_long_term_references_only_when_the_client_asks() {
         for text in ["", "amd_ltr_frames=1\n", "amd_ltr_frames=4\n"] {
             let config = Config::parse(text).unwrap();
             for codec in [0, 1] {
@@ -794,27 +796,55 @@ mod tests {
                     codec,
                     ..Default::default()
                 };
-                assert_eq!(amf_ltr_requested(&config, codec), 0);
+                assert_eq!(amf_ltr_requested(&config, &stream), 0);
                 assert_eq!(amf_ltr_frames(&config, &stream), 0);
             }
         }
+        let av1 = Negotiated {
+            codec: 2,
+            ..Default::default()
+        };
         let config = Config::parse("amd_ltr_frames=1\n").unwrap();
-        assert_eq!(amf_ltr_requested(&config, 2), 1);
+        assert_eq!(amf_ltr_requested(&config, &av1), 1);
+        // The Experimental opt-in: the same setting and budget as AV1.
+        let off = Config::parse("amd_ltr_frames=0\n").unwrap();
+        for codec in [0, 1] {
+            let asked = Negotiated {
+                codec,
+                ltr_recovery: true,
+                ..Default::default()
+            };
+            assert_eq!(amf_ltr_requested(&Config::default(), &asked), 4);
+            assert_eq!(amf_ltr_requested(&config, &asked), 1);
+            assert_eq!(amf_ltr_requested(&off, &asked), 0);
+            let budget = Negotiated {
+                references: 3,
+                ..asked.clone()
+            };
+            assert_eq!(amf_ltr_frames(&Config::default(), &budget), 2);
+        }
+        // PyroWave keeps no long-term references.
+        let pyrowave = Negotiated {
+            codec: 3,
+            ltr_recovery: true,
+            ..Default::default()
+        };
+        assert_eq!(amf_ltr_requested(&Config::default(), &pyrowave), 0);
     }
 
     #[test]
     fn amf_offers_invalidation_with_four_anchors_unless_turned_off() {
         let unset = Config::default();
         assert!(amf_offers_invalidation(&unset));
-        assert_eq!(amf_ltr_requested(&unset, 2), 4);
         let av1 = Negotiated {
             codec: 2,
             ..Default::default()
         };
+        assert_eq!(amf_ltr_requested(&unset, &av1), 4);
         assert_eq!(amf_ltr_frames(&unset, &av1), 4);
         let off = Config::parse("amd_ltr_frames=0\n").unwrap();
         assert!(!amf_offers_invalidation(&off));
-        assert_eq!(amf_ltr_requested(&off, 2), 0);
+        assert_eq!(amf_ltr_requested(&off, &av1), 0);
     }
 
     #[test]

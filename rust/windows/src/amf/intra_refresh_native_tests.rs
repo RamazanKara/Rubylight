@@ -476,7 +476,12 @@ fn native_hevc_intra_refresh_decodes_across_gops_and_forced_recovery() -> Result
 
 /// A detailed picture scrolled by `offset` pixels, so every frame is predicted
 /// from the one before it and a lost frame's error drifts until refreshed.
-fn scrolled(device: &Device, width: usize, height: usize, offset: usize) -> Result<GpuImage> {
+pub(super) fn scrolled(
+    device: &Device,
+    width: usize,
+    height: usize,
+    offset: usize,
+) -> Result<GpuImage> {
     let mut bytes = vec![0; width * height * 4];
     for (y, row) in bytes.chunks_exact_mut(width * 4).enumerate() {
         for (x, pixel) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {

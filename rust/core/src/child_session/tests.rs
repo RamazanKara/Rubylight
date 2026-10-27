@@ -555,6 +555,9 @@ struct Fake {
     stuck_writes: BTreeSet<String>,
     /// The firewall's state cannot be read (PowerShell or COM failing).
     firewall_unreadable: bool,
+    /// Turning child sessions on fails, or succeeds while they stay off.
+    child_sessions_fail: bool,
+    child_sessions_stay_off: bool,
     /// The Remote Desktop service's listeners; None for one on the
     /// registry's `PortNumber` in its own process, as after the service's start.
     listening: Option<RdpListeners>,
@@ -622,6 +625,8 @@ impl Fake {
             fail_writes: BTreeSet::new(),
             stuck_writes: BTreeSet::new(),
             firewall_unreadable: false,
+            child_sessions_fail: false,
+            child_sessions_stay_off: false,
             listening: None,
         }
     }
@@ -671,7 +676,10 @@ impl SystemSettings for Fake {
     }
     fn set_child_sessions(&mut self, enabled: bool) -> Result<()> {
         self.note(format!("child sessions {enabled}"));
-        self.machine.child_sessions = enabled;
+        if enabled && self.child_sessions_fail {
+            bail!("the call failed");
+        }
+        self.machine.child_sessions = enabled && !self.child_sessions_stay_off;
         Ok(())
     }
     fn firewall_problem(&self) -> Result<Option<String>> {
@@ -920,6 +928,49 @@ fn setup_never_turns_on_rdp_when_group_policy_overrides_the_firewall_rules() {
 }
 fn set_up_err(fake: &mut Fake) -> anyhow::Error {
     setup(fake, None, SID, |_| Ok(())).unwrap_err()
+}
+
+#[test]
+fn a_setup_that_fails_after_turning_rdp_on_turns_it_off_again() {
+    let rdp = |fake: &Fake| {
+        fake.read_dword(&Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections")
+            .unwrap()
+    };
+    let failing: [(&str, fn(&mut Fake)); 3] = [
+        ("the call failed", |fake| fake.child_sessions_fail = true),
+        ("did not turn on child sessions", |fake| {
+            fake.child_sessions_stay_off = true
+        }),
+        ("setting DWMFRAMEINTERVAL", |fake| {
+            fake.fail_writes.insert("DWMFRAMEINTERVAL".into());
+        }),
+    ];
+    for (cause, fail) in failing {
+        let mut fake = Fake::new();
+        fail(&mut fake);
+        let error = format!("{:#}", set_up_err(&mut fake));
+        assert!(error.contains(cause), "{error}");
+        assert!(
+            error.contains("Remote Desktop was turned off again"),
+            "{error}"
+        );
+        assert!(
+            fake.log
+                .borrow()
+                .contains(&"write fDenyTSConnections".to_string())
+        );
+        assert_eq!(rdp(&fake), Some(1), "{cause}");
+    }
+    // RDP that cannot be turned off again is said as loudly.
+    let mut fake = Fake::new();
+    fake.child_sessions_fail = true;
+    fake.stuck_writes.insert("fDenyTSConnections".into());
+    fake.machine.values.insert(
+        key(Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections"),
+        0,
+    );
+    let error = format!("{:#}", set_up_err(&mut fake));
+    assert!(error.contains("Remote Desktop is still on"), "{error}");
 }
 
 #[test]

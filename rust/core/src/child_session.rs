@@ -1335,6 +1335,20 @@ pub fn setup(
             open.join("; ")
         );
     }
+    // From the first write on, RDP may be on: whatever fails after it turns RDP off again.
+    if let Err(error) = turn_on(system, user_sid) {
+        let outcome = match rdp_off(system) {
+            Ok(()) => format!("Remote Desktop was turned off again ({} = 1)", CHANGES[0].name),
+            Err(off) => format!(
+                "Remote Desktop is still on: turning it off failed ({off:#}); turn it off in Windows' settings or choose Restore Windows settings now"
+            ),
+        };
+        bail!("{error:#}. {outcome}");
+    }
+    Ok(state)
+}
+/// Setup's changes once the firewall keeps RDP on this PC: RDP on, then child sessions.
+fn turn_on(system: &mut dyn SystemSettings, user_sid: &str) -> Result<()> {
     for change in &CHANGES {
         system
             .write_dword(
@@ -1351,7 +1365,7 @@ pub fn setup(
     if !system.child_sessions_enabled()? {
         bail!("Windows did not turn on child sessions; this edition may not have them");
     }
-    Ok(state)
+    Ok(())
 }
 
 /// Put every value back as it was before setup. Every step runs even when an
@@ -1494,7 +1508,21 @@ pub fn check_firewall(system: &mut dyn SystemSettings, rdp_port: u16) -> Result<
 /// over the value written here). What was done, for the report.
 pub fn turn_rdp_off(system: &mut dyn Registry) -> String {
     let change = &CHANGES[0];
-    let off = system
+    match rdp_off(system) {
+        Ok(()) => format!(
+            "Remote Desktop was turned off ({} = 1), so it is not open to the network",
+            change.name
+        ),
+        Err(error) => format!(
+            "turning Remote Desktop off failed ({}: {error:#}): turn it off in Windows' settings or choose Restore Windows settings now",
+            change.name
+        ),
+    }
+}
+/// [`turn_rdp_off`], Err when RDP may still be on.
+fn rdp_off(system: &mut dyn Registry) -> Result<()> {
+    let change = &CHANGES[0];
+    system
         .write_dword(&Hive::LocalMachine, change.path, change.name, 1)
         .and_then(
             |()| match system.read_dword(&Hive::LocalMachine, change.path, change.name)? {
@@ -1510,17 +1538,7 @@ pub fn turn_rdp_off(system: &mut dyn Registry) -> String {
                 ),
                 _ => Ok(()),
             }
-        });
-    match off {
-        Ok(()) => format!(
-            "Remote Desktop was turned off ({} = 1), so it is not open to the network",
-            change.name
-        ),
-        Err(error) => format!(
-            "turning Remote Desktop off failed ({}: {error:#}): turn it off in Windows' settings or choose Restore Windows settings now",
-            change.name
-        ),
-    }
+        })
 }
 
 /// What keeps the firewall from holding RDP to this PC now, empty when it

@@ -11,8 +11,6 @@ use std::path::PathBuf;
 pub const SETTINGS_30: &[(&str, &str)] = &[
     ("hdr_dolby_vision", "true"),
     ("hdr_hlg", "true"),
-    ("usb_forwarding", "false"),
-    ("usb_max_devices", "4"),
     ("audio_surround_714", "true"),
     ("pen_barrel_roll", "true"),
     ("touch_keyboard_digitizer", "false"),
@@ -108,14 +106,6 @@ impl Config {
     /// HLG HDR for devices that ask for it (on by default).
     pub fn hdr_hlg(&self) -> bool {
         self.boolean("hdr_hlg", true)
-    }
-    /// USB forwarding from devices with `allow_usb` (off by default).
-    pub fn usb_forwarding(&self) -> bool {
-        self.boolean("usb_forwarding", false)
-    }
-    /// How many forwarded USB devices the host takes at once (1 to 16, 4 by default).
-    pub fn usb_max_devices(&self) -> u8 {
-        self.integer30("usb_max_devices", 4, |n| (1..=16).contains(&n)) as u8
     }
     /// 7.1.4 surround sound (on by default).
     pub fn audio_surround_714(&self) -> bool {
@@ -306,8 +296,6 @@ mod tests {
                     c.hdr_dynamic_metadata(),
                     c.hdr_dolby_vision(),
                     c.hdr_hlg(),
-                    c.usb_forwarding(),
-                    c.usb_max_devices(),
                     c.audio_surround_714(),
                     c.pen_barrel_roll(),
                 ),
@@ -338,17 +326,15 @@ mod tests {
     }
 
     #[test]
-    fn there_are_24_unique_settings() {
+    fn there_are_22_unique_settings() {
         let keys: std::collections::BTreeSet<_> = SETTINGS_30.iter().map(|(k, _)| k).collect();
-        assert_eq!((SETTINGS_30.len(), keys.len()), (24, 24));
+        assert_eq!((SETTINGS_30.len(), keys.len()), (22, 22));
     }
 
     #[test]
     fn the_defaults_are_the_documented_values() {
         let c = Config::default();
         assert!(c.hdr_dynamic_metadata() && c.hdr_dolby_vision() && c.hdr_hlg());
-        assert!(!c.usb_forwarding());
-        assert_eq!(c.usb_max_devices(), 4);
         assert!(c.audio_surround_714());
         assert!(c.pen_barrel_roll() && !c.touch_keyboard_digitizer());
         assert_eq!(c.touch_mode(), TouchMode::Client);
@@ -391,8 +377,6 @@ mod tests {
         let unset = answers(&Config::default());
         for text in [
             "hdr_hlg = maybe",
-            "usb_max_devices = 0",
-            "usb_max_devices = 17",
             "touch_mode = pen",
             "touch_sensitivity = 24",
             "touch_sensitivity = 401",
@@ -427,7 +411,6 @@ mod tests {
     #[test]
     fn values_in_range_are_read() {
         let c = config(concat!(
-            "usb_max_devices = 16\n",
             "touch_mode = trackpad\n",
             "touch_sensitivity = 25\n",
             "clipboard_image_max_mb = 64\n",
@@ -440,7 +423,6 @@ mod tests {
             "child_session_scale = 150\n",
             "child_session_port = 50000\n",
         ));
-        assert_eq!(c.usb_max_devices(), 16);
         assert_eq!(c.touch_mode(), TouchMode::Trackpad);
         assert_eq!(c.touch_sensitivity(), 25);
         assert_eq!(c.clipboard_image_max_bytes(), 64 * 1024 * 1024);

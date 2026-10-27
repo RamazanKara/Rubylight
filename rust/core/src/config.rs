@@ -550,6 +550,23 @@ impl Config {
     pub fn file_transfer(&self) -> bool {
         self.boolean("file_transfer", false)
     }
+    /// USB forwarding from devices with `allow_usb` (off by default,
+    /// Experimental).
+    pub fn usb_forwarding(&self) -> bool {
+        self.boolean("usb_forwarding", false)
+    }
+    /// How many forwarded USB devices the host takes at once
+    /// (`usb_max_devices`, 1 to 16, 4 by default). Outside that is reported
+    /// and the default is used.
+    pub fn usb_max_devices(&self) -> u8 {
+        let n = self.integer("usb_max_devices", 4);
+        if (1..=16).contains(&n) {
+            n as u8
+        } else {
+            invalid("usb_max_devices", self.get("usb_max_devices", ""));
+            4
+        }
+    }
     /// The host-drawn couch menu (on by default, Experimental). Off means no
     /// input filter, no menu worker and no `session.couch_menu` feature.
     pub fn couch_menu(&self) -> bool {
@@ -1334,6 +1351,25 @@ mod tests {
             assert_eq!(config.file_transfer_max_bytes(), 4096 << 20, "{bad}");
             assert_eq!(config.file_transfer_dir(), None);
         }
+    }
+
+    #[test]
+    fn usb_forwarding_is_off_with_4_devices_at_once() {
+        let mut config = super::Config::default();
+        assert!(!config.usb_forwarding());
+        assert_eq!(config.usb_max_devices(), 4);
+        let saved = serde_json::json!({"usb_forwarding": "enabled", "usb_max_devices": "16"});
+        config.update(saved.as_object().unwrap()).unwrap();
+        assert!(config.usb_forwarding());
+        assert_eq!(config.usb_max_devices(), 16);
+        for bad in ["0", "17", "-1", "lots"] {
+            let saved = serde_json::json!({ "usb_max_devices": bad });
+            config.update(saved.as_object().unwrap()).unwrap();
+            assert_eq!(config.usb_max_devices(), 4, "{bad}");
+        }
+        let saved = serde_json::json!({"usb_max_devices": 1});
+        config.update(saved.as_object().unwrap()).unwrap();
+        assert_eq!(config.usb_max_devices(), 1);
     }
 
     #[test]

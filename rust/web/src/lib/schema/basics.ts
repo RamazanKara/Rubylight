@@ -259,6 +259,27 @@ const general: Setting[] = [
     control: { kind: 'toggle' },
     default: false,
   },
+  {
+    key: 'usb_forwarding',
+    label: 'USB forwarding (Experimental)',
+    description:
+      'Let the devices you allow attach their USB devices to this PC during a stream. Each device also needs Allow USB devices.',
+    details: 'Needs the usbip-win2 driver on this PC. A device is detached when its stream ends.',
+    category: 'general',
+    group: 'USB devices',
+    control: { kind: 'toggle' },
+    default: false,
+  },
+  {
+    key: 'usb_max_devices',
+    label: 'USB devices at once',
+    description: 'How many USB devices this PC takes from devices at the same time.',
+    category: 'general',
+    group: 'USB devices',
+    control: { kind: 'number', min: 1, max: 16, step: 1 },
+    default: 4,
+    visibleWhen: (values) => on(values, 'usb_forwarding', false),
+  },
 ];
 
 const encryption: Option[] = [

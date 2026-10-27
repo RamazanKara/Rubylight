@@ -419,6 +419,20 @@ test('file transfer is off by default, its options show once it is on, and the d
   assert.deepEqual(computeChanges(settings, { file_transfer: null }, sent), { file_transfer: null });
 });
 
+test('USB forwarding is live, Experimental and off, and takes 1 to 16 devices once it is on', () => {
+  const forwarding = settings.get('usb_forwarding');
+  assert.deepEqual([forwarding.category, forwarding.group, forwarding.default, forwarding.advanced], ['general', 'USB devices', false, false]);
+  assert.match(forwarding.label, /Experimental/);
+  assert.equal(pending.some(setting => setting.key.startsWith('usb_')), false);
+  const devices = settings.get('usb_max_devices');
+  assert.deepEqual([devices.category, devices.group, devices.default], ['general', 'USB devices', 4]);
+  assert.equal(devices.visibleWhen({}), false);
+  assert.equal(devices.visibleWhen({ usb_forwarding: 'enabled' }), true);
+  // core/src/config.rs: 1 to 16.
+  for (const ok of ['1', '16']) assert.equal(numberError(devices, ok), '', ok);
+  for (const bad of ['0', '17']) assert.notEqual(numberError(devices, bad), '', bad);
+});
+
 test('sleep after idle takes 0 or 5 to 1440 minutes, as the host does, and its suspended option follows it', () => {
   const minutes = settings.get('sleep_after_idle_minutes');
   assert.deepEqual([minutes.category, minutes.group, minutes.default, minutes.advanced], ['general', 'Power', 0, false]);
@@ -454,7 +468,7 @@ test('the keyboard follows text fields without their text, typing with the devic
 const live = ['audio_surround_714'];
 
 test('settings still pending stay out of the console, and shipped ones are in it', () => {
-  assert.equal(pending.length, 24);
+  assert.equal(pending.length, 22);
   for (const setting of pending) {
     const shipped = live.includes(setting.key);
     assert.equal(setting.pending === true, !shipped, setting.key);

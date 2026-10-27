@@ -330,6 +330,9 @@ fec_max_percentage = 40
         0,
         "no loss, no parity"
     );
+    // Nightjar sends one a second; reports closer than this count without a
+    // new estimate.
+    tokio::time::sleep(butterpollo_core::statistical_fec::MIN_ESTIMATE_INTERVAL).await;
     session.record_fec_report(&report(1, 540).encode()).unwrap();
     assert_eq!(
         session.video_fec_percent(true, 30_000),

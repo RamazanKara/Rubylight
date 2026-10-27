@@ -17,9 +17,12 @@
 //!   percentage applies, and zero loss after a gap keeps it for a whole
 //!   window before protection drops to zero.
 //!
-//! The binomial tails are computed when a report changes the estimate (on the
-//! control thread, once a second at most); a frame only walks the integer
-//! layout and compares its blocks' parity with that table.
+//! The binomial tails are computed when a report changes the estimate, on the
+//! control thread and outside the lock frames take ([`StatisticalFec::observe`],
+//! then [`PendingEstimate::build`] and [`StatisticalFec::install`]); reports
+//! closer than [`MIN_ESTIMATE_INTERVAL`] are counted without a new estimate. A
+//! frame only walks the integer layout and compares its blocks' parity with
+//! that table.
 use std::time::{Duration, Instant};
 
 pub use rubylight_protocol::fec_report::{FEC_REPORT_MESSAGE_TYPE, FecReport};
@@ -34,6 +37,9 @@ pub const WINDOW_SECONDS: usize = 10;
 pub const WINDOW: Duration = Duration::from_secs(WINDOW_SECONDS as u64);
 /// Reports older than this are stale: the host's percentage applies again.
 pub const FEEDBACK_TIMEOUT: Duration = Duration::from_secs(3);
+/// Reports closer than this to the last estimate are counted but don't
+/// re-estimate: a client sends one a second, and each estimate builds tables.
+pub const MIN_ESTIMATE_INTERVAL: Duration = Duration::from_millis(500);
 /// More shards than any real second carries is a broken report.
 pub const MAX_REPORTED_SHARDS: u64 = 1_000_000;
 /// Reed-Solomon over GF(256): data and parity of one block.
@@ -67,6 +73,29 @@ impl std::fmt::Display for Rejected {
     }
 }
 
+/// A new loss estimate whose parity tables are still to be built.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PendingEstimate {
+    loss: f64,
+}
+
+impl PendingEstimate {
+    /// Builds the tables from the binomial tails, the costly part of an estimate.
+    pub fn build(self) -> Estimate {
+        Estimate {
+            loss: self.loss,
+            required: required_parity(self.loss),
+        }
+    }
+}
+
+/// A loss estimate with its parity tables, for [`StatisticalFec::install`].
+#[derive(Debug)]
+pub struct Estimate {
+    loss: f64,
+    required: Vec<[u8; MAX_BLOCK_SHARDS + 1]>,
+}
+
 #[derive(Debug)]
 pub struct StatisticalFec {
     maximum: u8,
@@ -78,10 +107,14 @@ pub struct StatisticalFec {
     last: Option<(u32, Instant)>,
     /// Set by a gap in the reports: zero loss counts only a full window later.
     resumed: Option<Instant>,
+    /// When the window was last estimated.
+    estimated: Option<Instant>,
     loss: Option<f64>,
     /// Parity a block needs, by block count and data shards; [`UNREACHABLE`]
     /// when it cannot fit. Empty until the estimate shows loss.
     required: Vec<[u8; MAX_BLOCK_SHARDS + 1]>,
+    /// The loss of the last estimate handed out for its tables.
+    pending: Option<f64>,
     logged: Option<usize>,
     logged_at: Option<Instant>,
 }
@@ -98,8 +131,10 @@ impl StatisticalFec {
             buckets: [Bucket::default(); WINDOW_SECONDS],
             last: None,
             resumed: None,
+            estimated: None,
             loss: None,
             required: Vec::new(),
+            pending: None,
             logged: None,
             logged_at: None,
         }
@@ -140,13 +175,30 @@ impl StatisticalFec {
         self.loss
     }
 
-    /// Takes one report. A report without shards (a second without video)
-    /// keeps the reports fresh and the sequence continuous.
+    /// Takes one report and builds the tables of a new estimate at once; see
+    /// [`Self::observe`] for a caller that holds a lock frames also take.
     pub fn report(&mut self, now: Instant, report: &FecReport) -> Result<(), Rejected> {
+        if let Some(pending) = self.observe(now, report)? {
+            self.install(pending.build());
+        }
+        Ok(())
+    }
+
+    /// Counts one report. A report without shards (a second without video)
+    /// keeps the reports fresh and the sequence continuous. A new estimate
+    /// with loss comes back to be built (without this lock) and installed;
+    /// until then frames keep the previous one. A report less than
+    /// [`MIN_ESTIMATE_INTERVAL`] after the last estimate only counts.
+    pub fn observe(
+        &mut self,
+        now: Instant,
+        report: &FecReport,
+    ) -> Result<Option<PendingEstimate>, Rejected> {
         let sent = u64::from(report.data_shards) + u64::from(report.parity_shards);
         if sent > MAX_REPORTED_SHARDS {
             return Err(Rejected::Implausible);
         }
+        let mut gap = false;
         if let Some((seq, at)) = self.last {
             let delta = report.seq.wrapping_sub(seq);
             if delta == 0 || delta >= 1 << 31 {
@@ -156,6 +208,7 @@ impl StatisticalFec {
                 // Don't join observations across an unknown gap.
                 self.buckets = [Bucket::default(); WINDOW_SECONDS];
                 self.resumed = Some(now);
+                gap = true;
             }
         }
         self.last = Some((report.seq, now));
@@ -169,6 +222,14 @@ impl StatisticalFec {
         }
         bucket.sent += sent;
         bucket.missing += u64::from(report.missing_shards).min(sent);
+        if !gap
+            && self
+                .estimated
+                .is_some_and(|at| now.saturating_duration_since(at) < MIN_ESTIMATE_INTERVAL)
+        {
+            return Ok(None);
+        }
+        self.estimated = Some(now);
         let loss = self
             .buckets
             .iter()
@@ -179,14 +240,33 @@ impl StatisticalFec {
             })
             .map(|b| b.missing as f64 / b.sent as f64)
             .reduce(f64::max);
-        if loss != self.loss {
-            self.loss = loss;
-            self.required = match loss {
-                Some(loss) if loss > 0. => required_parity(loss),
-                _ => Vec::new(),
-            };
+        if loss == self.loss {
+            self.pending = None;
+            return Ok(None);
         }
-        Ok(())
+        match loss {
+            Some(loss) if loss > 0. => {
+                self.pending = Some(loss);
+                Ok(Some(PendingEstimate { loss }))
+            }
+            _ => {
+                // No loss needs no tables.
+                self.pending = None;
+                self.loss = loss;
+                self.required = Vec::new();
+                Ok(None)
+            }
+        }
+    }
+
+    /// Installs the estimate [`Self::observe`] handed out last; an older one,
+    /// or one for another stream, is dropped.
+    pub fn install(&mut self, estimate: Estimate) {
+        if self.pending == Some(estimate.loss) {
+            self.pending = None;
+            self.loss = Some(estimate.loss);
+            self.required = estimate.required;
+        }
     }
 
     /// The percentage for a frame of `data_shards`.
@@ -464,6 +544,64 @@ mod tests {
         .unwrap();
         assert_eq!(fec.loss(), Some(0.01));
         assert!(fec.percent(idle, 100) > 0);
+    }
+
+    #[test]
+    fn a_new_estimate_is_built_outside_and_installed_once() {
+        let start = Instant::now();
+        let mut fec = StatisticalFec::new(50, 20, 0, start);
+        let pending = fec.observe(start, &report(0, 600, 30)).unwrap().unwrap();
+        // Until its tables are in, frames keep the previous estimate.
+        assert_eq!(fec.loss(), None);
+        assert_eq!(fec.percent(start, 100), 20);
+        fec.install(pending.build());
+        assert_eq!(fec.loss(), Some(0.05));
+        let lossy = fec.percent(start, 100);
+        assert!(lossy > 0 && lossy < 50, "{lossy}");
+        // An estimate overtaken by a newer one is dropped.
+        let now = start + Duration::from_secs(1);
+        let older = fec.observe(now, &report(1, 600, 60)).unwrap().unwrap();
+        let later = now + Duration::from_secs(1);
+        let newer = fec.observe(later, &report(2, 600, 300)).unwrap().unwrap();
+        fec.install(older.build());
+        assert_eq!(fec.loss(), Some(0.05), "the stale estimate is dropped");
+        fec.install(newer.build());
+        assert_eq!(fec.loss(), Some(0.5));
+        // So is one for another stream.
+        let mut other = StatisticalFec::new(50, 20, 0, start);
+        let pending = fec
+            .observe(later + Duration::from_secs(1), &report(3, 600, 600))
+            .unwrap()
+            .unwrap();
+        other.install(pending.build());
+        assert_eq!(other.loss(), None);
+        // No loss needs no tables.
+        let mut clean = StatisticalFec::new(50, 20, 0, start);
+        assert_eq!(clean.observe(start, &report(0, 600, 0)).unwrap(), None);
+        assert_eq!(clean.loss(), Some(0.));
+    }
+
+    #[test]
+    fn reports_closer_than_the_interval_count_without_an_estimate() {
+        let start = Instant::now();
+        let mut fec = StatisticalFec::new(50, 20, 0, start);
+        fec.report(start, &report(0, 600, 0)).unwrap();
+        // A flood: counted, the sequence stays continuous, no tables.
+        for seq in 1..100 {
+            let at = start + Duration::from_millis(u64::from(seq));
+            assert_eq!(fec.observe(at, &report(seq, 600, 60)).unwrap(), None);
+        }
+        assert_eq!(fec.loss(), Some(0.));
+        assert_eq!(fec.percent(start, 100), 0);
+        // The next report past the interval estimates with everything counted.
+        fec.report(start + MIN_ESTIMATE_INTERVAL, &report(100, 600, 0))
+            .unwrap();
+        assert_eq!(fec.loss(), Some(99. * 60. / (101. * 600.)));
+        assert!(fec.percent(start + MIN_ESTIMATE_INTERVAL, 100) > 0);
+        // A gap always estimates afresh.
+        let gap = start + MIN_ESTIMATE_INTERVAL + Duration::from_millis(1);
+        fec.report(gap, &report(102, 600, 0)).unwrap();
+        assert_eq!(fec.loss(), Some(0.));
     }
 
     #[test]

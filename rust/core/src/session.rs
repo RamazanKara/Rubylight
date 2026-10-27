@@ -1385,9 +1385,10 @@ mod tests {
         };
         let auto = Session::new(launch("auto", Role::Stream), stream);
         assert_eq!(auto.configure_fec_choice(FecChoice::Auto, true, 20, 40), 20);
+        let start = Instant::now();
         auto.bitrate.store(12_000, Ordering::Release);
         assert_eq!(auto.encoder_bitrate(false), 10_000, "12 Mbps at 20 % FEC");
-        auto.record_fec_report(&report(0, 0)).unwrap();
+        auto.record_fec_report_at(&report(0, 0), start).unwrap();
         assert_eq!(auto.fec_percent(), 0);
         assert_eq!(
             auto.encoder_bitrate(false),
@@ -1395,7 +1396,7 @@ mod tests {
             "the first report replaces the fallback share without an IDR"
         );
         assert_eq!(auto.encoder_bitrate(true), 12_000, "a clean link: all video");
-        auto.record_fec_report(&report(1, 540)).unwrap();
+        auto.record_fec_report_at(&report(1, 540), start + Duration::from_secs(1)).unwrap();
         assert_eq!(auto.fec_percent(), 40);
         assert_eq!(
             auto.encoder_bitrate(false),
@@ -3307,15 +3308,34 @@ impl<P, A> Session<P, A> {
         &self,
         payload: &[u8],
     ) -> std::result::Result<(crate::statistical_fec::FecReport, bool), String> {
+        self.record_fec_report_at(payload, Instant::now())
+    }
+    fn record_fec_report_at(
+        &self,
+        payload: &[u8],
+        now: Instant,
+    ) -> std::result::Result<(crate::statistical_fec::FecReport, bool), String> {
         let report = crate::statistical_fec::FecReport::decode(payload)
             .ok_or_else(|| format!("malformed ({} bytes)", payload.len()))?;
+        let (first, pending) = {
+            let mut client = self.client_fec.lock().unwrap();
+            let Some(fec) = client.as_mut() else {
+                return Ok((report, false));
+            };
+            let first = !fec.reported();
+            (first, fec.observe(now, &report).map_err(|e| e.to_string())?)
+        };
+        // The tables are built without the lock every frame takes: frames keep
+        // the previous estimate until they are in.
+        let estimate = pending.map(crate::statistical_fec::PendingEstimate::build);
         let mut client = self.client_fec.lock().unwrap();
         let Some(fec) = client.as_mut() else {
-            return Ok((report, false));
+            // The stream left statistical FEC meanwhile.
+            return Ok((report, true));
         };
-        let now = Instant::now();
-        let first = !fec.reported();
-        fec.report(now, &report).map_err(|e| e.to_string())?;
+        if let Some(estimate) = estimate {
+            fec.install(estimate);
+        }
         let percent = fec.percent(now, self.typical_fec_shards());
         self.fec_percent.store(percent as u32, Ordering::Release);
         drop(client);

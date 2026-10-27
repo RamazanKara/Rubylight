@@ -194,6 +194,36 @@ fn the_announce_asks_for_the_passthrough_codec_both_sides_take() {
 }
 
 #[test]
+fn the_asked_hdr_format_reaches_the_announce_and_the_outcome() {
+    use rubylight_protocol::hdr::{DV_81, DV_84, HLG};
+    // (asked, the DESCRIBE offer, what the ANNOUNCE carries)
+    for (asked, offered, announced) in [
+        (DV_81, Some(DV_81 | HLG), DV_81),
+        (HLG, Some(15), HLG),
+        // Not offered, or a host without the extension: stock HDR, no key.
+        (DV_84, Some(DV_81 | HLG), 0),
+        (DV_81, None, 0),
+        (0, Some(15), 0),
+    ] {
+        let mut p = params(None);
+        p.config.hdr_format = asked;
+        let mut handshake = Handshake::new(p).unwrap();
+        let sent = run(&mut handshake, |method, target| match (method, offered) {
+            ("DESCRIBE", Some(bits)) => {
+                ok(2, "", &format!("{DESCRIBE}a=x-rl-video.hdrFormats:{bits}\r\n"))
+            }
+            _ => sunshine_host(method, target),
+        });
+        let outcome = handshake.finish().unwrap();
+        assert_eq!(outcome.negotiated_video_format, VIDEO_FORMAT_H265_MAIN10);
+        assert_eq!(outcome.hdr_format, announced, "{asked} of {offered:?}");
+        let line = format!("a=x-rl-video[0].hdrFormat:{announced} \r\n");
+        assert_eq!(sent[6].contains(&line), announced != 0, "{asked} of {offered:?}");
+        assert_eq!(outcome.sdp.contains("hdrFormat:"), announced != 0);
+    }
+}
+
+#[test]
 fn microphone_refusals_cost_only_the_microphone() {
     let mut handshake = Handshake::new(params(None)).unwrap();
     run(&mut handshake, |method, target| {

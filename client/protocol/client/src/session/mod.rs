@@ -239,6 +239,10 @@ pub trait Listener: Send + Sync {
     /// name why a 10-bit packed request streams 8-bit, and so the client can remember them for
     /// its next launch (which comes before DESCRIBE).
     fn host_packed444_modes(&self, _modes: u8) {}
+    /// The HDR format this stream's ANNOUNCE asked for (one `rubylight_protocol::hdr` bit, 0 for
+    /// stock HDR), called with [`Listener::host_packed444_modes`]: before the decoder's setup, so
+    /// it decodes what the host was actually asked for.
+    fn announced_hdr_format(&self, _format: u8) {}
     /// The stream ended without [`Session::stop`]: the host's reason, a control stream
     /// failure, a video timeout or a socket error. Called once, on its own thread, so it may
     /// stop the session.
@@ -830,6 +834,7 @@ fn start(
     }
     listener.host_control_messages(&outcome.host_control_messages);
     listener.host_packed444_modes(outcome.host_packed444_modes);
+    listener.announced_hdr_format(outcome.hdr_format);
     listener.stage_complete(Stage::RtspHandshake);
     check_interrupt(Stage::RtspHandshake)?;
 

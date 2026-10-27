@@ -177,6 +177,9 @@ pub struct StreamConfig {
     /// Ask the host to send PyroWave records in picture row order (`pyrowaveRowOrder`), which a
     /// client that decodes bands as they arrive relies on. Only sent with records.
     pub pyrowave_row_order: bool,
+    /// The HDR format to ask a Rubylight 3.0 host for (one `rubylight_protocol::hdr` bit), 0 for
+    /// stock HDR. The ANNOUNCE carries it only under [`SdpParams::hdr_format`]'s rules.
+    pub hdr_format: u8,
 }
 
 impl Default for StreamConfig {
@@ -209,6 +212,7 @@ impl Default for StreamConfig {
             microphone: false,
             pyrowave_records_supported: false,
             pyrowave_row_order: false,
+            hdr_format: 0,
         }
     }
 }
@@ -281,6 +285,8 @@ pub struct Sdp {
     pub packet_size: i32,
     pub high_quality_surround_enabled: bool,
     pub audio_packet_duration_ms: u8,
+    /// The HDR format the description asks for, 0 for none (stock HDR).
+    pub hdr_format: u8,
 }
 
 /// The URL form of an address: IPv6 in brackets.
@@ -459,6 +465,12 @@ pub fn generate(p: &SdpParams<'_>) -> Sdp {
         a.add("x-nv-general.enableRecoveryMode", "0");
     }
 
+    // Every Rubylight host is past generation 4, where the 3.0 extensions go.
+    let hdr_format = if quad[0] >= 4 {
+        announced_hdr_format(p)
+    } else {
+        None
+    };
     let channels = c.audio.channel_count as i32;
     if quad[0] >= 4 {
         let slices = match (p.video_capabilities >> 24) as u8 {
@@ -503,7 +515,7 @@ pub fn generate(p: &SdpParams<'_>) -> Sdp {
         }
         // The 3.0 extensions, only when asked for and offered: a host without them never sees
         // the keys.
-        if let Some(hdr_format) = announced_hdr_format(p) {
+        if let Some(hdr_format) = hdr_format {
             a.add(rubylight_protocol::hdr::ANNOUNCE_ATTRIBUTE, hdr_format);
         }
         if let Some(codec) = one_offered_bit(p.audio_codec, p.audio_codecs_offered) {
@@ -576,6 +588,7 @@ pub fn generate(p: &SdpParams<'_>) -> Sdp {
         packet_size,
         high_quality_surround_enabled: high_quality,
         audio_packet_duration_ms: duration,
+        hdr_format: hdr_format.unwrap_or(0),
     }
 }
 

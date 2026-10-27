@@ -18,6 +18,8 @@ final class VendorLowLatencyKeys {
     static final Map<String, Integer> TEGRA;
     // The whole MediaTek preset, set on MediaTek decoders by name. Experimental: no MediaTek device here.
     static final Map<String, Integer> MEDIATEK;
+    // The MediaTek preset for the second configure try: shorter queues and waits, no preload.
+    static final Map<String, Integer> MEDIATEK_SHORT;
     // The Samsung Exynos preset, set on Exynos decoders by name. Experimental: no Exynos device here.
     static final Map<String, Integer> EXYNOS;
     // Google Codec2 frame rate key, read by Android 16 (API 36) and newer, the level Moonlight X gates it on. Experimental: no Tensor device here.
@@ -104,6 +106,18 @@ final class VendorLowLatencyKeys {
         mtk.put("vendor.mtk.vdec.frame-drop.policy", 0);
         MEDIATEK = Collections.unmodifiableMap(mtk);
 
+        // Moonlight V+ (qiin2333/moonlight-vplus, GPL-3.0) tiers the preset by configure try: when
+        // the first try fails to start, the next one asks for one frame less queueing, half the
+        // fetch and guard waits and no preload. V+ goes down to depth 1 on later tries; here the
+        // preset leaves after the second try, so those tries keep only the plain switches.
+        Map<String, Integer> mtkShort = new LinkedHashMap<>(mtk);
+        mtkShort.put("vendor.mtk.vdec.preload.frame.count", 0);
+        mtkShort.put("vendor.mtk.vdec.buffer.fetch.timeout.ms", 2);
+        mtkShort.put("vendor.mtk.vdec.bq.guard.interval.time", 2);
+        mtkShort.put("vendor.mtk.vdec.input.max.queue.depth", 2);
+        mtkShort.put("vendor.mtk.vdec.output.max.queue.depth", 2);
+        MEDIATEK_SHORT = Collections.unmodifiableMap(mtkShort);
+
         // Moonlight X (MoreOrLessSoftware's mlsoft-x branch, GPL-3.0) sends all three to every
         // Exynos decoder, H.264, HEVC and AV1: the low-latency switch, the shortest output queue
         // and no output delay. The switch is declared by H.264 decoders only (issue 26), so the
@@ -150,9 +164,12 @@ final class VendorLowLatencyKeys {
         return keys;
     }
 
-    /** The whole MediaTek preset, set by name whether or not the decoder lists it. */
-    static Map<String, Integer> mediaTekKeys() {
-        return MEDIATEK;
+    /**
+     * The whole MediaTek preset for a configure try, set by name whether or not the decoder lists
+     * it: the full preset first, then the shorter one.
+     */
+    static Map<String, Integer> mediaTekKeys(int tryNumber) {
+        return tryNumber == 0 ? MEDIATEK : MEDIATEK_SHORT;
     }
 
     static boolean isMediaTekDetectOnly(Collection<String> integerParams) {

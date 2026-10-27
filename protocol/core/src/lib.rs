@@ -9,10 +9,21 @@
 
 extern crate alloc;
 
+pub mod audio_ext;
 pub mod control;
+pub mod cursor_shape;
+pub mod fec_report;
+pub mod hdr;
+pub mod ids;
+pub mod keyboard_layout;
 pub mod packed444;
+pub mod pairing_uri;
+pub mod pen;
 pub mod phase_lock;
+pub mod pipeline_rates;
 pub mod present_clock;
 pub mod pyrowave;
 pub mod roaming;
 pub mod steam_controller;
+pub mod text_input;
+pub mod usb;

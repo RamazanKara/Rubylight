@@ -93,8 +93,8 @@ impl Encoder {
             encoder.set_hdr_metadata(metadata);
         }
     }
-    /// The display peak HDR10+ dynamic metadata is written for. PyroWave
-    /// carries none.
+    /// The receiver's display peak, for dynamic metadata that names a target
+    /// display. PyroWave carries none.
     pub fn set_hdr_target(&mut self, nits: u16) {
         if let Self::Amf(encoder) = self {
             encoder.set_hdr_target(nits);

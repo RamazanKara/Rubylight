@@ -3503,12 +3503,12 @@ impl<P, A> Session<P, A> {
     }
     /// Record receiver capabilities for diagnostics. They describe the output
     /// panel, not the source pixels, so must not update stream HDR metadata;
-    /// only the dynamic metadata's target display follows them.
+    /// only the receiver display peak the encoder is told follows them.
     pub fn record_display_caps(&self, payload: &[u8]) -> Option<crate::display_caps::Update> {
         self.hdr_source.lock().unwrap().on_payload(payload)
     }
-    /// The display peak HDR10+ is written for
-    /// ([`crate::display_caps::HdrSource::target_nits`]).
+    /// The receiver's display peak, for dynamic metadata that names a target
+    /// display ([`crate::display_caps::HdrSource::target_nits`]).
     pub fn hdr_target_nits(&self) -> u16 {
         self.hdr_source.lock().unwrap().target_nits()
     }

@@ -32,9 +32,11 @@ impl HdrSource {
         Some(Update { caps, changed })
     }
 
-    /// The display peak dynamic metadata (`hdr_dynamic`) is written for: the receiver's
-    /// reported peak, else the source display's, else 1000 nits. Dynamic metadata names its
-    /// target display per frame, so following the receiver there changes no static value.
+    /// The receiver's display peak, for dynamic metadata that names a target display
+    /// ([`crate::hdr_dynamic::target_display_nits`]): the receiver's reported peak, else
+    /// the source display's, else 1000 nits. Such metadata names its target per frame, so
+    /// following the receiver there changes no static value. HDR10+ profile A and HDR
+    /// Vivid name none.
     pub fn target_nits(&self) -> u16 {
         crate::hdr_dynamic::target_display_nits(
             self.caps
@@ -102,7 +104,7 @@ mod tests {
     }
 
     #[test]
-    fn dynamic_metadata_targets_the_receiver_then_the_source_display() {
+    fn the_display_peak_is_the_receivers_then_the_source_displays() {
         let mut source = HdrSource::default();
         assert_eq!(source.target_nits(), 1000);
         source.display = Some(Metadata::display(600., 0.01, 300.));

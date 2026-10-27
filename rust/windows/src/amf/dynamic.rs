@@ -4,7 +4,7 @@
 //! the newest finished sample is smoothed into the units every output frame
 //! carries from then on. Nothing waits for a sample: a frame that comes out
 //! before its own has finished carries the previous one, and frames before the
-//! first sample carry none.
+//! first sample carry a stand-in from the static HDR10 levels.
 use crate::compute::HdrStatsReadout;
 use crate::encoder::Unit;
 use butterpollo_core::hdr_dynamic::{self, Codec, Writer};
@@ -147,6 +147,7 @@ pub(super) fn output(
 /// One encoder's dynamic metadata.
 pub(super) struct Dynamic {
     writer: Writer,
+    display_peak: u16,
     /// The conversion the last sample measured: each is smoothed once.
     sampled: u64,
     /// Bytes the current frame's first unit gained. Its frame cap grows by
@@ -160,6 +161,8 @@ pub(super) struct Dynamic {
 struct Report {
     frames: u64,
     spliced: u64,
+    /// Spliced with the static stand-in, before the first sample.
+    stand_in: u64,
     samples: u64,
     scene_cuts: u64,
     invalid: u64,
@@ -194,11 +197,12 @@ impl Cost {
 }
 
 impl Dynamic {
-    /// Until the stream names its target display, the 1000-nit default of
+    /// Until the stream names its display peak, the 1000-nit default of
     /// [`hdr_dynamic::target_display_nits`].
     pub(super) fn new(codec: Codec) -> Self {
         Self {
-            writer: Writer::new(codec, hdr_dynamic::target_display_nits(None, None)),
+            writer: Writer::new(codec),
+            display_peak: hdr_dynamic::target_display_nits(None, None),
             sampled: 0,
             added: 0,
             report: Report::default(),
@@ -209,16 +213,22 @@ impl Dynamic {
     pub(super) fn sampled(&self) -> u64 {
         self.sampled
     }
-    /// The target display peak HDR10+ is written for.
+    /// The receiver's display peak. HDR10+ profile A and HDR Vivid name no
+    /// target display, so the units stay as they are.
     pub(super) fn set_target(&mut self, nits: u16) {
-        if self.writer.target_nits() != nits {
+        if self.display_peak != nits {
             tracing::info!(
                 nits,
-                previous = self.writer.target_nits(),
-                "HDR dynamic metadata target display"
+                previous = self.display_peak,
+                "HDR dynamic metadata receiver display peak"
             );
-            self.writer.set_target_nits(nits);
+            self.display_peak = nits;
         }
+    }
+    /// The stream's static HDR10 metadata, which frames before the first
+    /// sample carry as a stand-in.
+    pub(super) fn set_metadata(&mut self, metadata: butterpollo_core::hdr::Metadata) {
+        self.writer.set_metadata(&metadata);
     }
     pub(super) fn submitted(&mut self, started: Instant) {
         self.report.submit.add(started);
@@ -269,8 +279,8 @@ impl Dynamic {
         }
     }
     /// The first unit of an output frame with the current units in it, or
-    /// `None` to send it as it is: before the first sample, when it has no
-    /// insertion point, or when AMF produced nothing.
+    /// `None` to send it as it is: when it has no insertion point, or when
+    /// AMF produced nothing.
     pub(super) fn first_unit(&mut self, bytes: &[u8]) -> Option<Vec<u8>> {
         let started = Instant::now();
         self.added = 0;
@@ -279,9 +289,6 @@ impl Dynamic {
         }
         self.report.frames += 1;
         let units = self.writer.units();
-        if units.is_empty() {
-            return None;
-        }
         let Some(spliced) = hdr_dynamic::spliced(self.writer.codec(), bytes, units) else {
             if self.report.no_insertion == 0 {
                 tracing::warn!(
@@ -295,6 +302,7 @@ impl Dynamic {
         };
         self.added = units.len() as u64;
         self.report.spliced += 1;
+        self.report.stand_in += u64::from(!self.writer.measured());
         self.report.splice.add(started);
         Some(spliced)
     }
@@ -313,9 +321,9 @@ impl Drop for Dynamic {
         }
         tracing::info!(
             codec = ?self.writer.codec(),
-            target_nits = self.writer.target_nits(),
             frames = r.frames,
             spliced = r.spliced,
+            stand_in = r.stand_in,
             samples = r.samples,
             scene_cuts = r.scene_cuts,
             invalid = r.invalid,
@@ -386,25 +394,54 @@ mod tests {
     }
 
     #[test]
-    fn frames_before_the_first_sample_go_out_unchanged() {
+    fn frames_before_the_first_sample_carry_the_static_stand_in() {
         let mut dynamic = Dynamic::new(Codec::Hevc);
-        assert_eq!(dynamic.first_unit(&keyframe()), None);
-        assert_eq!(dynamic.cap(Some(5000)), Some(5000));
-        // Nothing finished yet: still nothing to send.
+        let frame = keyframe();
+        let at = insert_offset(Codec::Hevc, &frame).unwrap();
+        let with = |metadata: &butterpollo_core::hdr::Metadata| {
+            let units = frame_units(Codec::Hevc, &FrameStats::from_static(metadata)).unwrap();
+            (
+                [&frame[..at], &units, &frame[at..]].concat(),
+                units.len() as u64,
+            )
+        };
+        // Frame 0 comes out before its statistics: it carries the stand-in.
+        let (expected, added) = with(&Default::default());
+        assert_eq!(dynamic.first_unit(&frame), Some(expected));
+        assert_eq!(dynamic.cap(Some(5000)), Some(5000 + added));
+        // The stream's static metadata rebuilds it.
+        let mut metadata = butterpollo_core::hdr::Metadata::display(600., 0.01, 300.);
+        metadata.max_cll = 450;
+        dynamic.set_metadata(metadata);
+        // Nothing finished yet: still the stand-in.
         dynamic.take(Ok(None), Instant::now());
-        assert_eq!(dynamic.first_unit(&keyframe()), None);
+        assert_eq!(dynamic.first_unit(&frame), Some(with(&metadata).0));
         assert_eq!(dynamic.sampled(), 0);
+        assert_eq!((dynamic.report.spliced, dynamic.report.stand_in), (2, 2));
+        // An invalid first sample keeps it too.
+        let mut empty = readout(4, 0, 0);
+        empty.histogram.fill(0);
+        dynamic.take(Ok(Some(empty)), Instant::now());
+        assert_eq!(dynamic.first_unit(&frame), Some(with(&metadata).0));
+        // A sample replaces it.
+        let sample = readout(5, 200, 600);
+        let units = frame_units(Codec::Hevc, &sample.frame_stats().unwrap()).unwrap();
+        dynamic.take(Ok(Some(sample)), Instant::now());
+        assert_eq!(
+            dynamic.first_unit(&frame),
+            Some([&frame[..at], &units, &frame[at..]].concat())
+        );
+        assert_eq!((dynamic.report.spliced, dynamic.report.stand_in), (4, 3));
     }
 
     #[test]
     fn a_sample_is_spliced_into_every_frame_until_the_next() {
         let mut dynamic = Dynamic::new(Codec::Hevc);
-        dynamic.set_target(600);
         let first = readout(7, 200, 600);
         let stats = first.frame_stats().unwrap();
         dynamic.take(Ok(Some(first)), Instant::now());
         assert_eq!(dynamic.sampled(), 7, "the next readout must be newer");
-        let units = frame_units(Codec::Hevc, &stats, 600).unwrap();
+        let units = frame_units(Codec::Hevc, &stats).unwrap();
         let frame = keyframe();
         let at = insert_offset(Codec::Hevc, &frame).unwrap();
         let expected = [&frame[..at], &units, &frame[at..]].concat();
@@ -426,7 +463,7 @@ mod tests {
         let dark = readout(9, 10, 80);
         let dark_stats = dark.frame_stats().unwrap();
         dynamic.take(Ok(Some(dark)), Instant::now());
-        let units = frame_units(Codec::Hevc, &dark_stats, 600).unwrap();
+        let units = frame_units(Codec::Hevc, &dark_stats).unwrap();
         assert_eq!(
             dynamic.first_unit(&frame),
             Some([&frame[..at], &units, &frame[at..]].concat())
@@ -639,7 +676,7 @@ mod tests {
     fn slice_output_carries_dynamic_metadata_on_each_frames_first_unit() {
         let mut dynamic = Dynamic::new(Codec::Hevc);
         let sample = readout(2, 150, 650);
-        let units = frame_units(Codec::Hevc, &sample.frame_stats().unwrap(), 1000).unwrap();
+        let units = frame_units(Codec::Hevc, &sample.frame_stats().unwrap()).unwrap();
         dynamic.take(Ok(Some(sample)), Instant::now());
         let grown = Some(5000 + units.len() as u64);
         let mut sequencer = super::super::units::Sequencer::default();
@@ -720,40 +757,32 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(wanted(&config, &off), None, "the setting is off");
-        // Off, and on before the first sample: what AMF wrote, unspliced.
-        let mut unsampled = Dynamic::new(Codec::Hevc);
-        for mut dynamic in [None, Some(&mut unsampled)] {
-            let mut sequencer = super::super::units::Sequencer::default();
-            for (pts, (meta, units)) in frames().into_iter().enumerate() {
-                let sent = deliver(
-                    &mut sequencer,
-                    dynamic.as_deref_mut(),
-                    pts as i64,
-                    meta,
-                    &units,
-                );
-                let input: Vec<u8> = units.iter().flat_map(|(_, bytes)| bytes.clone()).collect();
-                let bytes: Vec<u8> = sent
-                    .iter()
-                    .flat_map(|(_, bytes, _)| bytes.clone())
-                    .collect();
-                assert_eq!(bytes, input);
-                assert!(sent.iter().all(|&(_, _, cap)| cap == Some(5000)));
-            }
+        // Off: what AMF wrote, unspliced.
+        let mut sequencer = super::super::units::Sequencer::default();
+        for (pts, (meta, units)) in frames().into_iter().enumerate() {
+            let sent = deliver(&mut sequencer, None, pts as i64, meta, &units);
+            let input: Vec<u8> = units.iter().flat_map(|(_, bytes)| bytes.clone()).collect();
+            let bytes: Vec<u8> = sent
+                .iter()
+                .flat_map(|(_, bytes, _)| bytes.clone())
+                .collect();
+            assert_eq!(bytes, input);
+            assert!(sent.iter().all(|&(_, _, cap)| cap == Some(5000)));
         }
         assert_eq!(output(None, Unit::Whole, &keyframe(), None), (None, None));
     }
 
     #[test]
-    fn a_new_target_rewrites_the_current_units() {
+    fn the_receivers_display_peak_leaves_the_units() {
         let mut dynamic = Dynamic::new(Codec::Hevc);
         let sample = readout(1, 300, 700);
         let stats: FrameStats = sample.frame_stats().unwrap();
         dynamic.take(Ok(Some(sample)), Instant::now());
         dynamic.set_target(2600);
+        assert_eq!(dynamic.display_peak, 2600);
         let frame = keyframe();
         let at = insert_offset(Codec::Hevc, &frame).unwrap();
-        let units = frame_units(Codec::Hevc, &stats, 2600).unwrap();
+        let units = frame_units(Codec::Hevc, &stats).unwrap();
         assert_eq!(
             dynamic.first_unit(&frame),
             Some([&frame[..at], &units, &frame[at..]].concat())

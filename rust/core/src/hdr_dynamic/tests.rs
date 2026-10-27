@@ -36,10 +36,12 @@ struct ParsedHdr10Plus {
     application_version: u32,
     num_windows: u32,
     target: u32,
+    target_actual_peak: bool,
     maxscl: [u32; 3],
     average_maxrgb: u32,
     distribution: Vec<(u32, u32)>,
     fraction_bright_pixels: u32,
+    mastering_actual_peak: bool,
     tone_mapping: bool,
     saturation_mapping: bool,
 }
@@ -57,7 +59,8 @@ fn parse_hdr10plus(t35: &[u8]) -> ParsedHdr10Plus {
     };
     assert_eq!(parsed.num_windows, 1, "this parser covers one window");
     parsed.target = r.bits(27);
-    if r.bits(1) == 1 {
+    parsed.target_actual_peak = r.bits(1) == 1;
+    if parsed.target_actual_peak {
         let (rows, columns) = (r.bits(5), r.bits(5));
         for _ in 0..rows * columns {
             r.bits(4);
@@ -71,7 +74,8 @@ fn parse_hdr10plus(t35: &[u8]) -> ParsedHdr10Plus {
         parsed.distribution.push((r.bits(7), r.bits(17)));
     }
     parsed.fraction_bright_pixels = r.bits(10);
-    if r.bits(1) == 1 {
+    parsed.mastering_actual_peak = r.bits(1) == 1;
+    if parsed.mastering_actual_peak {
         let (rows, columns) = (r.bits(5), r.bits(5));
         for _ in 0..rows * columns {
             r.bits(4);
@@ -212,15 +216,14 @@ fn pq_matches_st_2084_reference_points() {
 #[test]
 fn hdr10plus_known_vector_from_the_syntax_table() {
     let metadata = Hdr10Plus {
-        target_nits: 1000,
         maxscl: 0,
         average_maxrgb: 0,
         distribution: [0; 9],
     };
-    // Derived by hand: num_windows 01, 1000 in 27 bits, the nine 7-bit percentages
-    // 24 bits apart, everything else zero, 331 bits padded to 42 bytes.
+    // Derived by hand: num_windows 01, a zero 27-bit target (profile A), the nine 7-bit
+    // percentages 24 bits apart, everything else zero, 331 bits padded to 42 bytes.
     let mut expected = vec![
-        0xB5, 0x00, 0x3C, 0x00, 0x01, 0x04, 0x01, 0x40, 0x00, 0x1F, 0x40,
+        0xB5, 0x00, 0x3C, 0x00, 0x01, 0x04, 0x01, 0x40, 0x00, 0x00, 0x00,
     ];
     expected.extend([0; 8]);
     expected.extend([
@@ -235,12 +238,12 @@ fn hdr10plus_known_vector_from_the_syntax_table() {
 
 #[test]
 fn hdr10plus_round_trips_through_an_independent_parser() {
-    let metadata = Hdr10Plus::from_stats(&sample(), 1200).unwrap();
+    let metadata = Hdr10Plus::from_stats(&sample()).unwrap();
     let t35 = metadata.to_t35();
     assert_eq!(t35.len(), 49);
     let parsed = parse_hdr10plus(&t35);
     assert_eq!(parsed.application_version, 1);
-    assert_eq!(parsed.target, 1200);
+    assert_eq!(parsed.target, 0, "profile A");
     assert_eq!(parsed.maxscl, [metadata.maxscl; 3]);
     assert_eq!(
         parsed.average_maxrgb, 1800,
@@ -252,18 +255,69 @@ fn hdr10plus_round_trips_through_an_independent_parser() {
     assert_eq!(percentiles, metadata.distribution);
     assert_eq!(parsed.fraction_bright_pixels, 0);
     assert!(!parsed.tone_mapping && !parsed.saturation_mapping);
+}
 
-    // Built by hand past ST 2094-40's range: written at the 10000-nit limit.
-    let over = Hdr10Plus {
-        target_nits: 40_000,
-        ..metadata
-    };
-    assert_eq!(parse_hdr10plus(&over.to_t35()).target, 10_000);
+/// What hdr10plus_tool 1.7.2 (`hdr10plus::metadata::Hdr10PlusMetadata::validate`) and
+/// ST 2094-40 Annex C ask of profile A: application 4 version 1, one window, a zero target
+/// display with no curve, none of the optional peak or saturation fields, no bright-pixel
+/// fraction, and the nine percentages in order.
+fn assert_profile_a(t35: &[u8]) {
+    let parsed = parse_hdr10plus(t35);
+    assert_eq!(parsed.application_version, 1);
+    assert_eq!(parsed.num_windows, 1);
+    assert_eq!(
+        parsed.target, 0,
+        "targeted_system_display_maximum_luminance must be zero for profile A"
+    );
+    assert!(!parsed.tone_mapping, "profile A carries no Bezier curve");
+    assert!(!parsed.target_actual_peak && !parsed.mastering_actual_peak);
+    assert!(!parsed.saturation_mapping);
+    assert_eq!(parsed.fraction_bright_pixels, 0);
+    let percentages: Vec<u32> = parsed.distribution.iter().map(|(p, _)| *p).collect();
+    assert_eq!(percentages, [1, 5, 10, 25, 50, 75, 90, 95, 99]);
+    let values = parsed.maxscl.into_iter().chain([parsed.average_maxrgb]);
+    assert!(
+        values
+            .chain(parsed.distribution.iter().map(|(_, v)| *v))
+            .all(|v| v <= 100_000)
+    );
+}
+
+#[test]
+fn hdr10plus_is_valid_profile_a_for_every_kind_of_frame() {
+    let mut bright = sample();
+    bright.max_pq = 1.;
+    bright.percentiles_pq = [1.; 9];
+    bright.mean_nits = 10_000.;
+    let stand_in = FrameStats::from_static(&crate::hdr::Metadata::default());
+    for stats in [sample(), FrameStats::default(), bright, stand_in] {
+        assert_profile_a(&Hdr10Plus::from_stats(&stats).unwrap().to_t35());
+    }
+    // The units as spliced: the SEI and the OBU carry the same profile A payload.
+    for codec in [Codec::Hevc, Codec::Av1] {
+        let mut writer = Writer::new(codec);
+        for units in [writer.units().to_vec(), {
+            writer.sample(&sample()).unwrap();
+            writer.units().to_vec()
+        }] {
+            let t35 = match codec {
+                Codec::Hevc => {
+                    // HDR10+ first, then HDR Vivid, each behind its own start code.
+                    let vivid = (1..units.len() - 3)
+                        .find(|&at| units[at..at + 4] == [0, 0, 0, 1])
+                        .unwrap();
+                    parse_hevc_sei(&units[..vivid]).remove(0).1
+                }
+                Codec::Av1 => parse_av1_metadata(&units).1,
+            };
+            assert_profile_a(&t35);
+        }
+    }
 }
 
 #[test]
 fn hdr10plus_takes_maxscl_from_p99_and_fixes_the_reserved_slots() {
-    let metadata = Hdr10Plus::from_stats(&sample(), 1000).unwrap();
+    let metadata = Hdr10Plus::from_stats(&sample()).unwrap();
     // P99 is 1500 nits; the 4000-nit maximum is not what maxSCL reports.
     assert!(
         (metadata.maxscl as i64 - 15_000).abs() <= 2,
@@ -283,23 +337,16 @@ fn hdr10plus_takes_maxscl_from_p99_and_fixes_the_reserved_slots() {
     stats.percentiles_pq = [0.1; 9];
     stats.percentiles_pq[1] = 0.9;
     stats.mean_nits = 400.;
-    let metadata = Hdr10Plus::from_stats(&stats, 1000).unwrap();
+    let metadata = Hdr10Plus::from_stats(&stats).unwrap();
     assert_eq!(metadata.maxscl, 4000, "never below the average");
     assert_eq!(metadata.distribution[1], 0);
 
     let mut broken = sample();
     broken.percentiles_pq[3] = f32::NAN;
-    assert_eq!(Hdr10Plus::from_stats(&broken, 1000), None);
+    assert_eq!(Hdr10Plus::from_stats(&broken), None);
     broken = sample();
     broken.mean_nits = -1.;
-    assert_eq!(Hdr10Plus::from_stats(&broken, 1000), None);
-    assert_eq!(Hdr10Plus::from_stats(&sample(), 0).unwrap().target_nits, 1);
-    assert_eq!(
-        Hdr10Plus::from_stats(&sample(), 20_000)
-            .unwrap()
-            .target_nits,
-        10_000
-    );
+    assert_eq!(Hdr10Plus::from_stats(&broken), None);
 }
 
 #[test]
@@ -365,7 +412,7 @@ fn hevc_sei_wraps_and_escapes_the_payload() {
     assert_eq!(hevc_t35_sei(&zeros), expected);
     assert_eq!(parse_hevc_sei(&expected), [(4, zeros)]);
 
-    let hdr10plus = Hdr10Plus::from_stats(&sample(), 1000).unwrap().to_t35();
+    let hdr10plus = Hdr10Plus::from_stats(&sample()).unwrap().to_t35();
     assert_eq!(parse_hevc_sei(&hevc_t35_sei(&hdr10plus)), [(4, hdr10plus)]);
 
     // payloadSize of 255 or more takes 0xFF continuation bytes.
@@ -407,7 +454,7 @@ fn av1_obu_carries_the_payload_with_its_size() {
     expected.push(0x80);
     assert_eq!(av1_t35_obu(&vivid), expected);
 
-    let hdr10plus = Hdr10Plus::from_stats(&sample(), 1000).unwrap().to_t35();
+    let hdr10plus = Hdr10Plus::from_stats(&sample()).unwrap().to_t35();
     assert_eq!(parse_av1_metadata(&av1_t35_obu(&hdr10plus)), (4, hdr10plus));
     // Sizes of 128 or more take a second leb128 byte.
     let long = vec![0xB5; 200];
@@ -463,10 +510,10 @@ fn hevc_insert_offset_lands_before_the_first_slice() {
     let short = [&aud[1..], &p_slice[1..]].concat();
     assert_eq!(insert_offset(Codec::Hevc, &short), Some(aud.len() - 1));
 
-    let hdr10plus = Hdr10Plus::from_stats(&sample(), 1000).unwrap().to_t35();
+    let hdr10plus = Hdr10Plus::from_stats(&sample()).unwrap().to_t35();
     let vivid = Vivid::from_stats(&sample()).unwrap().to_t35();
     let (hdr10plus_nal, vivid_nal) = (hevc_t35_sei(&hdr10plus), hevc_t35_sei(&vivid));
-    let units = frame_units(Codec::Hevc, &sample(), 1000).unwrap();
+    let units = frame_units(Codec::Hevc, &sample()).unwrap();
     assert_eq!(units, [hdr10plus_nal.clone(), vivid_nal.clone()].concat());
     let mut spliced = keyframe.clone();
     assert!(splice(Codec::Hevc, &mut spliced, &units));
@@ -481,7 +528,7 @@ fn hevc_insert_offset_lands_before_the_first_slice() {
 
 #[test]
 fn hevc_without_an_insertion_point_stays_unchanged() {
-    let units = frame_units(Codec::Hevc, &sample(), 1000).unwrap();
+    let units = frame_units(Codec::Hevc, &sample()).unwrap();
     let parameter_sets = [nal(32, &[0x0C]), nal(33, &[0x01]), nal(34, &[0xC1])].concat();
     let length_prefixed = vec![0, 0, 0, 7, 0x26, 0x01, 0xAF, 0x12, 0x34, 0x56, 0x78];
     let mut forbidden = nal(1, &[0xD0]);
@@ -521,8 +568,8 @@ fn av1_insert_offset_lands_after_the_sequence_header() {
     extended.extend(&frame_obu);
     assert_eq!(insert_offset(Codec::Av1, &extended), Some(4));
 
-    let units = frame_units(Codec::Av1, &sample(), 1000).unwrap();
-    let hdr10plus = Hdr10Plus::from_stats(&sample(), 1000).unwrap().to_t35();
+    let units = frame_units(Codec::Av1, &sample()).unwrap();
+    let hdr10plus = Hdr10Plus::from_stats(&sample()).unwrap().to_t35();
     assert_eq!(
         units,
         av1_t35_obu(&hdr10plus),
@@ -541,7 +588,7 @@ fn av1_insert_offset_lands_after_the_sequence_header() {
 
 #[test]
 fn av1_without_an_insertion_point_stays_unchanged() {
-    let units = frame_units(Codec::Av1, &sample(), 1000).unwrap();
+    let units = frame_units(Codec::Av1, &sample()).unwrap();
     let td = obu(2, &[]);
     let headers_only = [td.clone(), obu(1, &[0x00, 0x0A])].concat();
     let mut sizeless = td.clone();
@@ -617,6 +664,49 @@ fn histogram_statistics_follow_the_bins() {
 }
 
 #[test]
+fn the_stand_in_follows_the_static_levels() {
+    use crate::hdr::Metadata;
+    let near = |nits: f32, expected: f32| (nits - expected).abs() <= expected * 2e-3;
+    // MaxCLL first, MaxFALL as the mean.
+    let mut metadata = Metadata::display(1000., 0.01, 400.);
+    (metadata.max_cll, metadata.max_fall) = (800, 200);
+    let stats = FrameStats::from_static(&metadata);
+    assert!(stats.is_valid());
+    assert_eq!((stats.min_pq, stats.max_pq), (0., nits_to_pq(800.)));
+    assert_eq!(stats.percentiles_pq[8], stats.max_pq, "P99 at the peak");
+    assert!(stats.percentiles_pq.is_sorted());
+    assert_eq!(stats.mean_nits, 200.);
+    let hdr10plus = Hdr10Plus::from_stats(&stats).unwrap();
+    assert!(
+        (hdr10plus.maxscl as i64 - 8000).abs() <= 2,
+        "{}",
+        hdr10plus.maxscl
+    );
+    assert_eq!(hdr10plus.average_maxrgb, 2000);
+
+    // Without light levels: the mastering peak, and the spread's own linear mean.
+    let stats = FrameStats::from_static(&Metadata::display(600., 0.01, 300.));
+    assert!(near(pq_to_nits(stats.max_pq), 600.));
+    assert!(stats.mean_nits > 0. && stats.mean_nits < 600.);
+    // A MaxFALL above the peak is not taken.
+    (metadata.max_cll, metadata.max_fall) = (500, 900);
+    assert!(FrameStats::from_static(&metadata).mean_nits < 500.);
+    // No peak at all: 1000 nits; one past PQ's range: 10000.
+    metadata = Metadata {
+        maximum_nits: 0,
+        ..Metadata::default()
+    };
+    assert!(near(
+        pq_to_nits(FrameStats::from_static(&metadata).max_pq),
+        1000.
+    ));
+    metadata.max_cll = u16::MAX;
+    let stats = FrameStats::from_static(&metadata);
+    assert!(stats.is_valid());
+    assert_eq!(stats.max_pq, 1.);
+}
+
+#[test]
 fn target_display_prefers_client_then_host_then_1000() {
     assert_eq!(target_display_nits(Some(800.), Some(1500.)), 800);
     assert_eq!(target_display_nits(None, Some(1500.)), 1500);
@@ -681,8 +771,8 @@ fn smoothing_follows_slowly_and_snaps_at_a_scene_cut() {
 fn frame_units_reject_invalid_statistics() {
     let mut broken = sample();
     broken.min_pq = -0.1;
-    assert_eq!(frame_units(Codec::Hevc, &broken, 1000), None);
-    assert_eq!(frame_units(Codec::Av1, &broken, 1000), None);
+    assert_eq!(frame_units(Codec::Hevc, &broken), None);
+    assert_eq!(frame_units(Codec::Av1, &broken), None);
     assert_eq!(Codec::from_video_format(1), Some(Codec::Hevc));
     assert_eq!(Codec::from_video_format(2), Some(Codec::Av1));
     assert_eq!(Codec::from_video_format(0), None);
@@ -692,7 +782,7 @@ fn frame_units_reject_invalid_statistics() {
 fn spliced_copies_as_splice_inserts() {
     let headers = [nal(32, &[0x0C]), nal(33, &[0x01]), nal(34, &[0xC1])].concat();
     let keyframe = [headers.clone(), nal(19, &[0xAF, 0x12])].concat();
-    let units = frame_units(Codec::Hevc, &sample(), 1000).unwrap();
+    let units = frame_units(Codec::Hevc, &sample()).unwrap();
     let mut expected = keyframe.clone();
     assert!(splice(Codec::Hevc, &mut expected, &units));
     let copy = spliced(Codec::Hevc, &keyframe, &units).unwrap();
@@ -706,7 +796,7 @@ fn spliced_copies_as_splice_inserts() {
     assert_eq!(spliced(Codec::Hevc, &headers, &units), None);
 
     let av1 = [obu(2, &[]), obu(1, &[0x0A, 0x0B]), obu(6, &[0x10, 0x20])].concat();
-    let units = frame_units(Codec::Av1, &sample(), 1000).unwrap();
+    let units = frame_units(Codec::Av1, &sample()).unwrap();
     let mut expected = av1.clone();
     assert!(splice(Codec::Av1, &mut expected, &units));
     assert_eq!(spliced(Codec::Av1, &av1, &units), Some(expected));
@@ -714,29 +804,36 @@ fn spliced_copies_as_splice_inserts() {
 
 #[test]
 fn writer_keeps_the_last_sample_until_the_next() {
-    let mut writer = Writer::new(Codec::Hevc, 1000);
-    assert!(
-        writer.units().is_empty(),
-        "no units before the first sample"
+    let mut writer = Writer::new(Codec::Hevc);
+    let default_stand_in = FrameStats::from_static(&crate::hdr::Metadata::default());
+    assert_eq!(
+        writer.units(),
+        frame_units(Codec::Hevc, &default_stand_in).unwrap(),
+        "the first frames carry the stand-in"
+    );
+    assert!(!writer.measured());
+    // An invalid first sample keeps the stand-in.
+    let mut broken = sample();
+    broken.max_pq = f32::NAN;
+    assert_eq!(writer.sample(&broken), None);
+    assert!(!writer.measured());
+    // Static metadata rebuilds the stand-in until the first sample.
+    let mut metadata = crate::hdr::Metadata::display(600., 0.01, 300.);
+    metadata.max_cll = 450;
+    writer.set_metadata(&metadata);
+    assert_eq!(
+        writer.units(),
+        frame_units(Codec::Hevc, &FrameStats::from_static(&metadata)).unwrap()
     );
     assert!(writer.sample(&sample()).unwrap().scene_cut);
-    assert_eq!(
-        writer.units(),
-        frame_units(Codec::Hevc, &sample(), 1000).unwrap()
-    );
-
-    // The target changes the units of the same statistics.
-    writer.set_target_nits(600);
-    assert_eq!(writer.target_nits(), 600);
-    assert_eq!(
-        writer.units(),
-        frame_units(Codec::Hevc, &sample(), 600).unwrap()
-    );
+    assert!(writer.measured());
+    assert_eq!(writer.units(), frame_units(Codec::Hevc, &sample()).unwrap());
+    // After it, measurements stand.
+    writer.set_metadata(&crate::hdr::Metadata::default());
+    assert_eq!(writer.units(), frame_units(Codec::Hevc, &sample()).unwrap());
 
     // Invalid statistics keep the units.
     let before = writer.units().to_vec();
-    let mut broken = sample();
-    broken.max_pq = f32::NAN;
     assert_eq!(writer.sample(&broken), None);
     assert_eq!(writer.units(), before);
 
@@ -747,18 +844,16 @@ fn writer_keeps_the_last_sample_until_the_next() {
     assert!(!step.scene_cut);
     assert_eq!(
         writer.units(),
-        frame_units(Codec::Hevc, &step.stats, 600).unwrap()
+        frame_units(Codec::Hevc, &step.stats).unwrap()
     );
-    assert_ne!(
-        writer.units(),
-        frame_units(Codec::Hevc, &brighter, 600).unwrap()
-    );
+    assert_ne!(writer.units(), frame_units(Codec::Hevc, &brighter).unwrap());
 
-    let mut av1 = Writer::new(Codec::Av1, 1000);
-    av1.sample(&sample()).unwrap();
-    assert_eq!(av1.codec(), Codec::Av1);
+    let mut av1 = Writer::new(Codec::Av1);
     assert_eq!(
         av1.units(),
-        frame_units(Codec::Av1, &sample(), 1000).unwrap()
+        frame_units(Codec::Av1, &default_stand_in).unwrap()
     );
+    av1.sample(&sample()).unwrap();
+    assert_eq!(av1.codec(), Codec::Av1);
+    assert_eq!(av1.units(), frame_units(Codec::Av1, &sample()).unwrap());
 }

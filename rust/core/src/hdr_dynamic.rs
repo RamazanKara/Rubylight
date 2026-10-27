@@ -99,6 +99,38 @@ impl FrameStats {
         })
     }
 
+    /// A stand-in for frames no measurement covers, from the stream's static HDR10 levels:
+    /// maxRGB spread evenly in PQ from black to the content peak (MaxCLL, else the
+    /// mastering display's peak, else 1000 nits), with MaxFALL as the linear mean when it
+    /// is set and below the peak. A display that tone-maps from it treats the frame as it
+    /// would with static HDR10 alone. The first frames of a stream come out before their
+    /// statistics pass has finished, and HDR10+ wants metadata on every frame.
+    pub fn from_static(metadata: &crate::hdr::Metadata) -> Self {
+        let peak = [metadata.max_cll, metadata.maximum_nits]
+            .into_iter()
+            .find(|&nits| nits > 0)
+            .map_or(1000., |nits| f32::from(nits).min(10_000.));
+        let max_pq = nits_to_pq(peak);
+        let percentiles_pq =
+            PERCENTAGES.map(|percentage| max_pq * (f32::from(percentage) / 99.).min(1.));
+        // The linear mean of the even PQ spread, from 64 equal steps.
+        let spread_nits = (0..64)
+            .map(|step| pq_to_nits(max_pq * (step as f32 + 0.5) / 64.))
+            .sum::<f32>()
+            / 64.;
+        let mean_nits = match f32::from(metadata.max_fall) {
+            fall if fall > 0. && fall <= peak => fall,
+            _ => spread_nits,
+        };
+        Self {
+            min_pq: 0.,
+            mean_pq: max_pq / 2.,
+            max_pq,
+            mean_nits,
+            percentiles_pq,
+        }
+    }
+
     /// Every value finite and in range: PQ values in 0..=1, `mean_nits` in 0..=10000.
     pub fn is_valid(&self) -> bool {
         let unit = |value: f32| (0. ..=1.).contains(&value);
@@ -110,8 +142,9 @@ impl FrameStats {
     }
 }
 
-/// The peak luminance dynamic metadata targets: the client display's reported peak, else
-/// the host display's, else 1000 nits, within 1..=10000.
+/// The receiver's display peak, for metadata that names a target display: the client
+/// display's reported peak, else the host display's, else 1000 nits, within 1..=10000.
+/// HDR10+ as written here (profile A) and HDR Vivid name none, so neither depends on it.
 pub fn target_display_nits(client_peak: Option<f32>, host_peak: Option<f32>) -> u16 {
     [client_peak, host_peak]
         .into_iter()
@@ -120,14 +153,15 @@ pub fn target_display_nits(client_peak: Option<f32>, host_peak: Option<f32>) -> 
         .map_or(1000, |nits| nits.min(10_000.).round() as u16)
 }
 
-/// One window of HDR10+ metadata as transmitted.
+/// One window of HDR10+ profile A metadata as transmitted: the frame's statistics with
+/// targeted_system_display_maximum_luminance 0 and no tone-mapping curve, so the display
+/// tone-maps for itself. Profile B would carry a Bezier curve for one target display,
+/// which a host cannot check against what the receiver's panel does.
 ///
-/// Every luminance field is normalized to the 10000-nit PQ peak in units of 1/100000,
-/// never to the target display: consumers multiply straight back out by 10000.
+/// Every luminance field is normalized to the 10000-nit PQ peak in units of 1/100000:
+/// consumers multiply straight back out by 10000.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Hdr10Plus {
-    /// targeted_system_display_maximum_luminance, nits.
-    pub target_nits: u16,
     /// maxscl, carried for all three components.
     pub maxscl: u32,
     pub average_maxrgb: u32,
@@ -137,7 +171,7 @@ pub struct Hdr10Plus {
 
 impl Hdr10Plus {
     /// `None` for invalid statistics.
-    pub fn from_stats(stats: &FrameStats, target_nits: u16) -> Option<Self> {
+    pub fn from_stats(stats: &FrameStats) -> Option<Self> {
         if !stats.is_valid() {
             return None;
         }
@@ -156,7 +190,6 @@ impl Hdr10Plus {
             distribution[slot] = value;
         }
         Some(Self {
-            target_nits: target_nits.clamp(1, 10_000),
             maxscl,
             average_maxrgb,
             distribution,
@@ -164,13 +197,13 @@ impl Hdr10Plus {
     }
 
     /// The complete T.35 payload, from the country code on: one full-frame window, no
-    /// tone-mapping curve.
+    /// target display and no tone-mapping curve (profile A).
     pub fn to_t35(&self) -> Vec<u8> {
         // Country US, provider 0x003C, provider-oriented code 0x0001, application
         // identifier 4 (ST 2094-40), application version 1.
         let mut bits = BitWriter::with_prefix(&[0xB5, 0x00, 0x3C, 0x00, 0x01, 4, 1]);
         bits.put(2, 1); // num_windows
-        bits.put(27, u32::from(self.target_nits.min(10_000)));
+        bits.put(27, 0); // targeted_system_display_maximum_luminance: profile A has none
         bits.put(1, 0); // targeted_system_display_actual_peak_luminance_flag
         for _ in 0..3 {
             bits.put(17, self.maxscl.min(100_000));
@@ -183,7 +216,7 @@ impl Hdr10Plus {
         }
         bits.put(10, 0); // fraction_bright_pixels
         bits.put(1, 0); // mastering_display_actual_peak_luminance_flag
-        bits.put(1, 0); // tone_mapping_flag
+        bits.put(1, 0); // tone_mapping_flag: profile A carries no Bezier curve
         bits.put(1, 0); // color_saturation_mapping_flag
         bits.bytes
     }
@@ -294,8 +327,8 @@ impl Codec {
 /// Every dynamic-metadata unit for one frame of a PQ stream, concatenated for [`splice`]:
 /// HDR10+, and on HEVC also HDR Vivid, which defines a carriage for HEVC but none for AV1.
 /// `None` for invalid statistics.
-pub fn frame_units(codec: Codec, stats: &FrameStats, target_nits: u16) -> Option<Vec<u8>> {
-    let mut units = codec.t35_unit(&Hdr10Plus::from_stats(stats, target_nits)?.to_t35());
+pub fn frame_units(codec: Codec, stats: &FrameStats) -> Option<Vec<u8>> {
+    let mut units = codec.t35_unit(&Hdr10Plus::from_stats(stats)?.to_t35());
     if codec == Codec::Hevc {
         units.extend(codec.t35_unit(&Vivid::from_stats(stats)?.to_t35()));
     }
@@ -378,24 +411,28 @@ pub fn spliced(codec: Codec, frame: &[u8], units: &[u8]) -> Option<Vec<u8>> {
 }
 
 /// One stream's dynamic metadata: each new analysis sample, smoothed, becomes the units
-/// every frame carries until the next sample. Frames before the first sample carry none.
+/// every frame carries until the next sample. Frames before the first valid sample carry
+/// the stand-in of [`FrameStats::from_static`], so every frame has units.
 #[derive(Clone, Debug)]
 pub struct Writer {
     codec: Codec,
-    target_nits: u16,
     smoother: StatsSmoother,
-    stats: Option<FrameStats>,
+    metadata: crate::hdr::Metadata,
+    measured: bool,
     units: Vec<u8>,
 }
 
 impl Writer {
-    pub fn new(codec: Codec, target_nits: u16) -> Self {
+    /// Until the stream names its static metadata, the stand-in comes from
+    /// `hdr::Metadata::default`.
+    pub fn new(codec: Codec) -> Self {
+        let metadata = crate::hdr::Metadata::default();
         Self {
             codec,
-            target_nits,
             smoother: StatsSmoother::default(),
-            stats: None,
-            units: Vec::new(),
+            metadata,
+            measured: false,
+            units: stand_in_units(codec, &metadata),
         }
     }
 
@@ -403,22 +440,15 @@ impl Writer {
         self.codec
     }
 
-    pub fn target_nits(&self) -> u16 {
-        self.target_nits
-    }
-
-    /// A new target display peak. The current units are rebuilt for it; the smoothing
-    /// carries on.
-    pub fn set_target_nits(&mut self, nits: u16) {
-        if nits == self.target_nits {
+    /// The stream's static HDR10 metadata. Until the first sample, the units are rebuilt
+    /// from it; after, the measurements stand.
+    pub fn set_metadata(&mut self, metadata: &crate::hdr::Metadata) {
+        if *metadata == self.metadata {
             return;
         }
-        self.target_nits = nits;
-        if let Some(units) = self
-            .stats
-            .and_then(|stats| frame_units(self.codec, &stats, nits))
-        {
-            self.units = units;
+        self.metadata = *metadata;
+        if !self.measured {
+            self.units = stand_in_units(self.codec, metadata);
         }
     }
 
@@ -426,15 +456,25 @@ impl Writer {
     /// return `None` and keep the current units.
     pub fn sample(&mut self, raw: &FrameStats) -> Option<Smoothed> {
         let smoothed = self.smoother.update(raw)?;
-        self.units = frame_units(self.codec, &smoothed.stats, self.target_nits)?;
-        self.stats = Some(smoothed.stats);
+        self.units = frame_units(self.codec, &smoothed.stats)?;
+        self.measured = true;
         Some(smoothed)
     }
 
-    /// The units for the next frame, empty before the first sample.
+    /// The units come from a sample, not the static stand-in.
+    pub fn measured(&self) -> bool {
+        self.measured
+    }
+
+    /// The units for the next frame; never empty.
     pub fn units(&self) -> &[u8] {
         &self.units
     }
+}
+
+fn stand_in_units(codec: Codec, metadata: &crate::hdr::Metadata) -> Vec<u8> {
+    frame_units(codec, &FrameStats::from_static(metadata))
+        .expect("static levels make valid statistics")
 }
 
 fn hevc_insert_offset(frame: &[u8]) -> Option<usize> {

@@ -1308,8 +1308,9 @@ impl Encoder {
             &self.warnings,
         )
     }
-    /// The display peak HDR10+ is written for
-    /// (`butterpollo_core::display_caps::HdrSource::target_nits`).
+    /// The receiver's display peak
+    /// (`butterpollo_core::display_caps::HdrSource::target_nits`). HDR10+
+    /// profile A names no target display, so it does not change the units.
     pub fn set_hdr_target(&mut self, nits: u16) {
         if let Some(dynamic) = self.dynamic.as_deref_mut() {
             dynamic.set_target(nits);
@@ -1318,7 +1319,11 @@ impl Encoder {
     /// Write HDR10 static metadata (the mastering display and light levels)
     /// into the bitstream. Clients that size HDR from the stream rather than from the
     /// control channel's copy otherwise get no mastering metadata at all.
+    /// Dynamic metadata takes its first frames' stand-in from it.
     pub fn set_hdr_metadata(&mut self, metadata: butterpollo_core::hdr::Metadata) {
+        if let Some(dynamic) = self.dynamic.as_deref_mut() {
+            dynamic.set_metadata(metadata);
+        }
         if !self.config.hdr || self.codec == 0 || self.config.chroma_packing != 0 {
             return;
         }

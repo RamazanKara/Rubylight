@@ -85,6 +85,8 @@ export interface Setting {
   /** Takes effect only after the host restarts. */
   restart?: boolean;
   advanced?: boolean;
+  /** Defined for 3.0; hidden until its workstream ships it. */
+  pending?: boolean;
 }
 
 export interface Schema {

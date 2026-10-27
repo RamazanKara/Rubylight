@@ -5,6 +5,7 @@ import { settings as basics } from './schema/basics';
 import { settings as video } from './schema/video';
 import { settings as display } from './schema/display';
 import { settings as library } from './schema/library';
+import { settings as extensions } from './schema/extensions';
 
 const categories: Category[] = [
   { id: 'general', label: 'General', description: 'Host name, pairing, updates and logs' },
@@ -71,7 +72,9 @@ const basicKeys = new Set([
 
 export const schema: Schema = {
   categories,
-  settings: [...basics, ...video, ...display, ...library].map(setting => ({ ...setting, advanced: !basicKeys.has(setting.key) })),
+  settings: [...basics, ...video, ...display, ...library, ...extensions]
+    .filter(setting => !setting.pending)
+    .map(setting => ({ ...setting, advanced: !basicKeys.has(setting.key) })),
 };
 
 export const settingGroups: Category[] = [

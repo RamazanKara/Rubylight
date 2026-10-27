@@ -7,6 +7,7 @@ const { schema } = await server.ssrLoadModule('/src/lib/settings-schema.ts');
 const values =await server.ssrLoadModule('/src/components/settings/values.ts');
 const { computeChanges, describeDefault, differsFromDefault, effective, numberError, toServerCommands } = values;
 const { matchesSetting, searchWords } = await server.ssrLoadModule('/src/components/settings/search.ts');
+const { settings: pending } = await server.ssrLoadModule('/src/lib/schema/extensions.ts');
 const settings = new Map(schema.settings.map(setting => [setting.key, setting]));
 const categoryOf = setting => schema.categories.find(category => category.id === setting.category);
 
@@ -418,4 +419,23 @@ test('sleep after idle takes 0 or 5 to 1440 minutes, as the host does, and its s
   assert.equal(suspended.visibleWhen({}), false);
   assert.equal(suspended.visibleWhen({ sleep_after_idle_minutes: '30' }), true);
   assert.equal(suspended.visibleWhen({ sleep_after_idle_minutes: 0 }), false);
+});
+
+test('settings still pending stay out of the console', () => {
+  assert.equal(pending.length, 31);
+  for (const setting of pending) {
+    assert.equal(setting.pending, true, setting.key);
+    assert.equal(settings.has(setting.key), false, setting.key);
+    assert.ok(schema.categories.some(category => category.id === setting.category), setting.key);
+  }
+});
+
+test('pending keys are unique and Foundation ports are credited, not Experimental', () => {
+  const keys = pending.map(setting => setting.key);
+  assert.equal(new Set(keys).size, keys.length);
+  const ported = pending.filter(setting => /Foundation Sunshine/.test(setting.details ?? ''));
+  assert.deepEqual(ported.map(setting => setting.key), ['hdr_dynamic_metadata', 'fec_max_percentage']);
+  for (const setting of ported) {
+    assert.doesNotMatch(`${setting.label} ${setting.description} ${setting.details}`, /Experimental/, setting.key);
+  }
 });

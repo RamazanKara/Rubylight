@@ -153,7 +153,7 @@ impl<D: BlockingDevice> UsbDevice for Blocking<D> {
             cancelled.store(true, Ordering::SeqCst);
             return;
         }
-        // Not started: it never runs. The server already answered it, so its completion
+        // Not started: it never runs. The server already dropped it, so its completion
         // writes nothing.
         for queue in lanes.queues.values_mut() {
             queue.retain(|job| job.transfer.seqnum != seqnum);

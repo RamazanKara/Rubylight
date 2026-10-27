@@ -4,6 +4,7 @@
 use super::{Event, Gamepads};
 use anyhow::Result;
 use butterpollo_core::input::Batch;
+use butterpollo_core::steam_feedback::{SteamHaptic, SteamPads};
 use butterpollo_core::{controller_audio, haptics};
 use std::{
     collections::VecDeque,
@@ -24,6 +25,8 @@ const POLL: Duration = Duration::from_millis(8);
 const RETRY: Duration = Duration::from_secs(10);
 /// Events waiting for a stalled driver beyond this many are dropped.
 const QUEUE_LIMIT: usize = 1024;
+/// Moonlight's rumble packet, which synthesized Steam Controller rumble uses.
+const RUMBLE_DATA: u16 = 0x010b;
 
 /// What the gamepad thread hands back to the control stream.
 #[derive(Debug, PartialEq)]
@@ -54,6 +57,11 @@ pub(super) trait Pads {
         vec![]
     }
     fn speaker(&mut self) -> Vec<haptics::Frame> {
+        vec![]
+    }
+    /// Haptic reports Steam wrote to a virtual Steam Controller. No pinned
+    /// driver has that profile yet.
+    fn steam_haptics(&mut self) -> Vec<SteamHaptic> {
         vec![]
     }
     fn audio(&mut self, _id: u16, _kind: u16, _payload: &[u8]) {}
@@ -112,6 +120,8 @@ struct Shared {
     wake: Condvar,
     stop: AtomicBool,
     parked: AtomicBool,
+    /// The client's Haptics setting, which Steam Controller rumble follows.
+    haptics_on: AtomicBool,
     ready: AtomicU16,
     audio_ready: AtomicU16,
 }
@@ -267,6 +277,7 @@ impl GamepadThread {
             wake: Condvar::new(),
             stop: AtomicBool::new(false),
             parked: AtomicBool::new(false),
+            haptics_on: AtomicBool::new(true),
             ready: AtomicU16::new(0),
             audio_ready: AtomicU16::new(0),
         });
@@ -343,6 +354,13 @@ impl GamepadThread {
         drop(queue);
         self.shared.wake.notify_all();
     }
+    /// Follow the client's Haptics setting: turning it off stops Steam
+    /// Controller rumble and drops its pending pulses at the next poll.
+    pub(super) fn set_haptics(&self, enabled: bool) {
+        self.shared.haptics_on.store(enabled, Ordering::Release);
+        drop(self.shared.queue.lock());
+        self.shared.wake.notify_all();
+    }
     /// Release controls immediately while keeping the device identity for reconnect.
     pub fn audio(&self, id: u16, kind: u16, payload: &[u8]) {
         let mut queue = self.shared.audio_input.lock().unwrap();
@@ -368,6 +386,8 @@ impl GamepadThread {
         self.shared.haptics.lock().unwrap().retain_controllers(0);
         self.shared.speaker.lock().unwrap().retain_controllers(0);
         self.shared.audio_input.lock().unwrap().clear();
+        // A new client starts with haptics on, as its injector does.
+        self.shared.haptics_on.store(true, Ordering::Release);
         self.shared.parked.store(false, Ordering::Release);
     }
     /// Only the blocking HTTPS launch worker waits here, never the control loop.
@@ -442,6 +462,17 @@ fn run<P: Pads>(
             let _ = waker.send(&[1]);
         }
     };
+    // Synthesized Steam Controller rumble, sent whenever a motor changes.
+    let mut steam = SteamPads::default();
+    let send_steam = |steam: &mut SteamPads| {
+        for (id, low, high) in steam.changes(Instant::now()) {
+            report(PadReport::Feedback {
+                id,
+                kind: RUMBLE_DATA,
+                data: [low.to_le_bytes(), high.to_le_bytes()].concat(),
+            });
+        }
+    };
     let mut pads: Option<P> = None;
     let mut retry: Option<Instant> = None;
     let mut poll_at = Instant::now();
@@ -483,6 +514,11 @@ fn run<P: Pads>(
                 shared.warnings.lock().unwrap().event("input_gamepad_injection", format!("Controller release failed ({error:#}); held controls may remain active. Check the virtual gamepad driver."), butterpollo_core::session::EVENT_PERIOD);
             }
         }
+        if release {
+            // Released or parked at session end: no rumble outlives it.
+            steam.retain(0);
+            send_steam(&mut steam);
+        }
         for event in events.drain(..) {
             if stopping() {
                 return;
@@ -510,13 +546,19 @@ fn run<P: Pads>(
             let Some(pads) = &mut pads else { continue };
             pads.warnings(shared.warnings.lock().unwrap().clone());
             match &event {
-                Event::Arrival { id, .. } if *id < 16 => shared
-                    .haptics
-                    .lock()
-                    .unwrap()
-                    .retain_controllers(!(1 << *id)),
+                Event::Arrival { id, .. } if *id < 16 => {
+                    shared
+                        .haptics
+                        .lock()
+                        .unwrap()
+                        .retain_controllers(!(1 << *id));
+                    steam.retain(!(1 << *id));
+                    send_steam(&mut steam);
+                }
                 Event::Controller { active, .. } => {
-                    shared.haptics.lock().unwrap().retain_controllers(*active)
+                    shared.haptics.lock().unwrap().retain_controllers(*active);
+                    steam.retain(*active);
+                    send_steam(&mut steam);
                 }
                 _ => {}
             }
@@ -574,6 +616,15 @@ fn run<P: Pads>(
             for (id, kind, data) in pads.feedback() {
                 report(PadReport::Feedback { id, kind, data });
             }
+            let steam_haptics = pads.steam_haptics();
+            if shared.haptics_on.load(Ordering::Acquire) && !shared.parked.load(Ordering::Acquire) {
+                for haptic in &steam_haptics {
+                    steam.apply(haptic, now);
+                }
+            } else {
+                steam.retain(0);
+            }
+            send_steam(&mut steam);
             let audio_input = shared.audio_input.lock().unwrap().take(Instant::now());
             for input in audio_input {
                 if !shared.parked.load(Ordering::Acquire) {
@@ -768,6 +819,152 @@ mod tests {
             .iter()
             .filter(|entry| entry.starts_with("audio "))
             .count()
+    }
+
+    /// A virtual Steam Controller: the reports the test queues are what Steam
+    /// wrote to it since the last poll.
+    struct SteamFake {
+        reports: Arc<Mutex<Vec<SteamHaptic>>>,
+        plugged: bool,
+    }
+    impl Pads for SteamFake {
+        fn apply(&mut self, _: &Event) -> Result<()> {
+            self.plugged = true;
+            Ok(())
+        }
+        fn refresh(&mut self) -> Result<()> {
+            Ok(())
+        }
+        fn feedback(&mut self) -> Vec<(u16, u16, Vec<u8>)> {
+            vec![]
+        }
+        fn steam_haptics(&mut self) -> Vec<SteamHaptic> {
+            std::mem::take(&mut self.reports.lock().unwrap())
+        }
+        fn motion_supported(&self, _: u16) -> bool {
+            false
+        }
+        fn plugged(&self) -> bool {
+            self.plugged
+        }
+        fn release_all(&mut self) -> Result<()> {
+            Ok(())
+        }
+    }
+    fn steam_fake() -> (GamepadThread, Arc<Mutex<Vec<SteamHaptic>>>) {
+        let reports = Arc::new(Mutex::new(Vec::new()));
+        let pads = GamepadThread::spawn_reported(
+            {
+                let reports = reports.clone();
+                move || {
+                    Ok(SteamFake {
+                        reports: reports.clone(),
+                        plugged: false,
+                    })
+                }
+            },
+            Default::default(),
+        )
+        .unwrap();
+        (pads, reports)
+    }
+    /// Steam's 0x82 tone on both pads at full gain, held 10 s unless stopped.
+    fn steam_tone(reports: &Mutex<Vec<SteamHaptic>>) {
+        let tone = SteamHaptic::new(0, &[0x82, 2, 3, 0]).unwrap();
+        reports.lock().unwrap().push(tone);
+    }
+    const ON: [u8; 4] = [0xff; 4];
+    const OFF: [u8; 4] = [0; 4];
+    /// Controller 0's rumble reports, collected until `last` comes or a
+    /// second passes.
+    fn rumbles_until(pads: &GamepadThread, last: Option<[u8; 4]>) -> Vec<Vec<u8>> {
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let mut rumbles = Vec::new();
+        while Instant::now() < deadline {
+            for report in pads.reports() {
+                if let PadReport::Feedback {
+                    id: 0,
+                    kind: RUMBLE_DATA,
+                    data,
+                } = report
+                {
+                    rumbles.push(data);
+                }
+            }
+            if last.is_some_and(|last| rumbles.last().is_some_and(|data| *data == last)) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        rumbles
+    }
+    /// No rumble for 100 ms, a dozen feedback polls.
+    fn quiet(pads: &GamepadThread) -> bool {
+        let deadline = Instant::now() + Duration::from_millis(100);
+        while Instant::now() < deadline {
+            if pads.reports().any(|report| {
+                matches!(
+                    report,
+                    PadReport::Feedback {
+                        kind: RUMBLE_DATA,
+                        ..
+                    }
+                )
+            }) {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        true
+    }
+
+    #[test]
+    fn steam_rumble_stops_when_its_controller_leaves() {
+        let (pads, reports) = steam_fake();
+        pads.send(state(0, 1, 0, 0));
+        steam_tone(&reports);
+        assert_eq!(rumbles_until(&pads, Some(ON)), [ON]);
+        pads.send(state(0, 0, 0, 0));
+        assert_eq!(rumbles_until(&pads, Some(OFF)), [OFF]);
+        // Its held tone does not come back.
+        assert!(quiet(&pads));
+    }
+
+    #[test]
+    fn steam_rumble_follows_the_clients_haptics_setting() {
+        let (pads, reports) = steam_fake();
+        let mut injector = super::super::Injector::new(r"\\.\DISPLAY99", "vhf").unwrap();
+        injector.gamepads = Arc::new(pads);
+        injector.gamepads.send(state(0, 1, 0, 0));
+        steam_tone(&reports);
+        assert_eq!(rumbles_until(&injector.gamepads, Some(ON)), [ON]);
+        injector.apply(&Event::Haptics(false)).unwrap();
+        assert_eq!(rumbles_until(&injector.gamepads, Some(OFF)), [OFF]);
+        // Reports while haptics are off are dropped, not held for later.
+        steam_tone(&reports);
+        assert!(quiet(&injector.gamepads));
+        injector.apply(&Event::Haptics(true)).unwrap();
+        assert!(quiet(&injector.gamepads));
+        steam_tone(&reports);
+        assert_eq!(rumbles_until(&injector.gamepads, Some(ON)), [ON]);
+    }
+
+    #[test]
+    fn steam_rumble_does_not_outlive_a_parked_session() {
+        let (pads, reports) = steam_fake();
+        pads.send(state(0, 1, 0, 0));
+        steam_tone(&reports);
+        assert_eq!(rumbles_until(&pads, Some(ON)), [ON]);
+        // The session ends with the motors running. Its reconnect starts
+        // from stopped motors, so the same tone reaches the new client.
+        pads.park();
+        // The thread takes the release before it polls again.
+        Gate::default().wait_until(|| !pads.shared.queue.lock().unwrap().release);
+        pads.activate();
+        pads.send(state(0, 1, 0, 0));
+        steam_tone(&reports);
+        let rumbles = rumbles_until(&pads, Some(ON));
+        assert_eq!(rumbles.last(), Some(&ON.to_vec()), "{rumbles:?}");
     }
 
     #[test]

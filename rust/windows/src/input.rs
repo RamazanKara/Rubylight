@@ -772,7 +772,10 @@ impl Injector {
                 rotation,
                 tilt,
             } => self.pen(*event, *tool, *buttons, *x, *y, *pressure, *rotation, *tilt)?,
-            Haptics(enabled) => self.haptics = *enabled,
+            Haptics(enabled) => {
+                self.haptics = *enabled;
+                self.gamepads.set_haptics(*enabled);
+            }
             // Only the VHF Steam Controller profile takes them, and no pinned
             // driver has it yet.
             SteamAttributes(_) => {}

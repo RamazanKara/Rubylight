@@ -1,8 +1,9 @@
 //! Rumble for a client without the Steam Controller's pads, synthesized from
 //! the haptic output reports Steam writes to a virtual Steam Controller, as
-//! Vibepollo's `synthesize_steam_rumble` does. Experimental and unused until
-//! a driver with the Steam Controller profile is pinned.
-use rubylight_protocol::steam_controller::SteamHaptic;
+//! Vibepollo's `synthesize_steam_rumble` does. Experimental: the gamepad
+//! thread folds them in, but no pinned driver has the Steam Controller
+//! profile to produce them yet.
+pub use rubylight_protocol::steam_controller::SteamHaptic;
 use std::time::{Duration, Instant};
 
 /// Sides a report addressed ([`SteamRumble::apply`]).
@@ -136,6 +137,47 @@ impl SteamRumble {
             self.right = motor;
         }
         sides
+    }
+}
+
+/// Every controller's synthesized rumble and the strengths last sent for it,
+/// so each change goes out once and a clear stops only motors that ran.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SteamPads {
+    pads: [SteamRumble; 16],
+    sent: [(u16, u16); 16],
+}
+impl SteamPads {
+    /// Folds a report in at `now`; one for a controller past 15 is ignored.
+    pub fn apply(&mut self, haptic: &SteamHaptic, now: Instant) {
+        if let Some(pad) = self.pads.get_mut(usize::from(haptic.controller)) {
+            pad.apply(haptic, now);
+        }
+    }
+
+    /// Stops every controller outside `active` and drops its pending holds:
+    /// one the client removed, or all of them when the client turns haptics
+    /// off or the session ends. The stops come with the next [`Self::changes`].
+    pub fn retain(&mut self, active: u16) {
+        for (id, pad) in self.pads.iter_mut().enumerate() {
+            if active & (1 << id) == 0 {
+                *pad = SteamRumble::default();
+            }
+        }
+    }
+
+    /// The (controller, low, high) rumble of each controller whose motors
+    /// changed at `now` since the last call.
+    pub fn changes(&mut self, now: Instant) -> Vec<(u16, u16, u16)> {
+        let mut changes = Vec::new();
+        for (id, (pad, sent)) in self.pads.iter().zip(&mut self.sent).enumerate() {
+            let rumble = pad.rumble(now);
+            if rumble != *sent {
+                *sent = rumble;
+                changes.push((id as u16, rumble.0, rumble.1));
+            }
+        }
+        changes
     }
 }
 
@@ -330,5 +372,31 @@ mod tests {
             assert_eq!(rumble.apply(&haptic(report), now), 0);
         }
         assert_eq!(rumble, SteamRumble::default());
+    }
+
+    #[test]
+    fn cleared_controllers_stop_once_and_drop_their_holds() {
+        let now = Instant::now();
+        let tone = |controller| SteamHaptic::new(controller, &[0x82, 2, 3, 0]).unwrap();
+        let mut pads = SteamPads::default();
+        pads.apply(&tone(0), now);
+        pads.apply(&tone(1), now);
+        pads.apply(&tone(16), now);
+        let on = (u16::MAX, u16::MAX);
+        assert_eq!(pads.changes(now), [(0, on.0, on.1), (1, on.0, on.1)]);
+        assert_eq!(pads.changes(now), []);
+        // Removing controller 1 stops it once; controller 0 keeps going.
+        pads.retain(1);
+        assert_eq!(pads.changes(now), [(1, 0, 0)]);
+        pads.retain(1);
+        assert_eq!(pads.changes(now), []);
+        // Clearing everything drops the 10 s hold: nothing restarts it.
+        pads.retain(0);
+        assert_eq!(pads.changes(now), [(0, 0, 0)]);
+        assert_eq!(pads.changes(now + Duration::from_millis(1)), []);
+        assert_eq!(pads, SteamPads::default());
+        // A controller that never ran sends no stop.
+        pads.retain(0);
+        assert_eq!(pads.changes(now), []);
     }
 }

@@ -4178,9 +4178,11 @@ impl Media {
                                     }
                                 }
                                 PadReport::Feedback { id, kind, data } => messages.extend(
-                                    feedback_packets(id, kind, &data)
-                                        .into_iter()
-                                        .filter(|(kind, _)| i.feedback_allowed(*kind)),
+                                    feedback_packets(id, kind, &data).into_iter().filter(
+                                        |(kind, payload)| {
+                                            i.feedback_allowed(*kind) || rumble_stop(*kind, payload)
+                                        },
+                                    ),
                                 ),
                                 PadReport::Motion { id, capabilities } => {
                                     messages.extend(motion_requests(id, capabilities))
@@ -4431,6 +4433,11 @@ fn haptics_negotiated(config: &butterpollo_core::rtsp::Negotiated, channels: usi
         && config.moonlight_features & haptics::FEATURE != 0
         && channels > usize::from(haptics::CHANNEL)
 }
+/// A rumble packet that stops both motors. It goes out even with rumble off:
+/// clearing rumble after the client turned haptics off must reach the motors.
+fn rumble_stop(kind: u16, payload: &[u8]) -> bool {
+    kind == RUMBLE_DATA && payload.len() == 10 && payload[6..].iter().all(|byte| *byte == 0)
+}
 pub(crate) fn feedback_packets(id: u16, kind: u16, data: &[u8]) -> Vec<(u16, Vec<u8>)> {
     if kind == controller_audio::CONTROL && data.len() == 12 {
         return vec![(kind, data.to_vec())];
@@ -4575,6 +4582,17 @@ mod tests {
         config.moonlight_features = 3;
         assert!(!haptics_negotiated(&config, 9));
         assert!(!haptics_negotiated(&Default::default(), 9));
+    }
+    #[test]
+    fn only_a_rumble_stop_passes_with_rumble_off() {
+        // The stop the gamepad thread sends when haptics turn off, a
+        // controller leaves or the pads are released.
+        let (kind, stop) = feedback_packets(3, RUMBLE_DATA, &[0; 4]).remove(0);
+        assert!(rumble_stop(kind, &stop));
+        let (kind, running) = feedback_packets(3, RUMBLE_DATA, &[0, 0, 1, 0]).remove(0);
+        assert!(!rumble_stop(kind, &running));
+        assert!(!rumble_stop(RUMBLE_TRIGGER_DATA, &[3, 0, 0, 0, 0, 0]));
+        assert!(!rumble_stop(RUMBLE_DATA, &[0; 6]));
     }
     #[test]
     fn composite_feedback_preserves_partial_trigger_flags_and_rumble_layout() {

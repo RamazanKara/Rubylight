@@ -1,0 +1,1 @@
+- **Rumble stops reach the client with rumble off.** A client that turns rumble off mid-buzz still gets the game's stop, so its motors don't stay on. Steam Controller rumble the host synthesizes (Experimental: no shipped driver produces it yet) stops when the controller is removed, when the client turns haptics off and when the session ends, and its pending pulses are dropped.

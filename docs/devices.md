@@ -77,6 +77,7 @@ Measured values are median decode times in milliseconds from the decoder benchma
 | Samsung Galaxy A37 | Samsung s5e8845 | 16 | 11.17 | 11.53 | — | `rtc-ext-dec-low-latency` (H.264 only) | Nightjar 0.8.0, 120 Hz. [#24](https://github.com/RamazanKara/nightjar/issues/24) |
 | Samsung Galaxy A37 | Samsung s5e8845 | 16 | 12.26 | 11.55 | — | `rtc-ext-dec-low-latency` (H.264 only) | Nightjar 3.0.0, 120 Hz. No change from 0.8.0. 3.1.0 sends more Exynos keys; retest pending. [#26](https://github.com/RamazanKara/nightjar/issues/26) |
 | Samsung  a37 | Samsung s5e8845 | 16 | 10.63 | 12.35 | — | `rtc-ext-dec-low-latency` (H.264 only) | Nightjar 3.2.1; no latency test. [#40](https://github.com/RamazanKara/nightjar/issues/40) |
+| Samsung Galaxy S24+ (Exynos) | Samsung s5e9945 | 17 | 12.79 | 12.72 | 10.53 | `rtc-ext-dec-low-latency` (H.264 only) | Nightjar 3.2.3, 120 Hz. [#43](https://github.com/RamazanKara/nightjar/issues/43) |
 <!-- device-results:end -->
 
 Still to measure:

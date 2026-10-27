@@ -779,6 +779,93 @@
         },
         "latencyTest": null
       }
+    },
+    {
+      "issue": 43,
+      "added": "2026-10-27",
+      "name": "Samsung Galaxy S24+ (Exynos)",
+      "results": {
+        "format": "nightjar-device-results",
+        "version": 1,
+        "app": {
+          "name": "Nightjar",
+          "version": "3.2.3",
+          "build": 357
+        },
+        "device": {
+          "manufacturer": "samsung",
+          "model": "SM-S926B",
+          "codename": "e2s",
+          "socManufacturer": "Samsung",
+          "socModel": "s5e9945",
+          "hardware": "s5e9945",
+          "board": "s5e9945",
+          "android": "17",
+          "sdk": 37,
+          "gpu": "ANGLE ((Samsung Xclipse 940) on Vulkan 1.3.304)"
+        },
+        "decoderBenchmark": {
+          "measured": true,
+          "clip": "1920x1080@60",
+          "results": [
+            {
+              "codec": "H.264",
+              "mime": "video/avc",
+              "decoder": "c2.exynos.h264.decoder",
+              "medianDecodeMs": 12.79,
+              "featureLowLatency": true,
+              "vendorLowLatencyKeys": [
+                "vendor.rtc-ext-dec-low-latency.enable"
+              ]
+            },
+            {
+              "codec": "HEVC",
+              "mime": "video/hevc",
+              "decoder": "c2.exynos.hevc.decoder",
+              "medianDecodeMs": 12.72,
+              "featureLowLatency": true,
+              "vendorLowLatencyKeys": []
+            },
+            {
+              "codec": "AV1",
+              "mime": "video/av01",
+              "decoder": "c2.exynos.av1.decoder",
+              "medianDecodeMs": 10.53,
+              "featureLowLatency": true,
+              "vendorLowLatencyKeys": []
+            }
+          ]
+        },
+        "latencyTest": {
+          "panelHz": 120,
+          "audioSampleRate": 48000,
+          "audioFramesPerBuffer": 192,
+          "frameIntervalMs": {
+            "samples": 1131,
+            "mean": 8.84,
+            "p95": 8.41,
+            "p99": 41.62
+          },
+          "frameCallbackDelayMs": {
+            "samples": 1132,
+            "mean": 1.52,
+            "p95": 2.7,
+            "p99": 4.32
+          },
+          "inputDispatchAgeMs": {
+            "samples": 473,
+            "mean": 3.53,
+            "p95": 6,
+            "p99": 8
+          },
+          "timerWakeupDelayMs": {
+            "samples": 99,
+            "mean": 0.31,
+            "p95": 1,
+            "p99": 1
+          }
+        }
+      }
     }
   ]
 }

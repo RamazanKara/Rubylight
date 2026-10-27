@@ -2489,7 +2489,9 @@ mod tests {
             &BTreeMap::new(),
         )
         .unwrap();
-        let code = child.wait(Duration::from_secs(10)).unwrap();
+        // whoami /groups took 12 s on a PC busy with parallel builds: the limit only
+        // catches a hang, not slowness.
+        let code = child.wait(Duration::from_secs(60)).unwrap();
         // Localized output uses the OEM code page; the SIDs are ASCII.
         let groups =
             String::from_utf8_lossy(&std::fs::read(output).unwrap_or_default()).into_owned();

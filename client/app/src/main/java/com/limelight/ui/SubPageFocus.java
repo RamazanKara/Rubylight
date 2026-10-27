@@ -25,7 +25,7 @@ public final class SubPageFocus {
     }
 
     /** Whether the page is driven by a remote, controller or keyboard rather than by touch. */
-    static boolean directional(Activity activity, View content) {
+    public static boolean directional(Activity activity, View content) {
         return (activity.getResources().getConfiguration().uiMode & Configuration.UI_MODE_TYPE_MASK)
                 == Configuration.UI_MODE_TYPE_TELEVISION || !content.isInTouchMode();
     }

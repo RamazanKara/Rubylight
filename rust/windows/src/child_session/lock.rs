@@ -4,7 +4,9 @@
 //! Windows settings, one at a time. A `Global\` named mutex, so it holds
 //! across sessions too, that SYSTEM, elevated administrators and its creator
 //! open. A mutex of that name another program made first (any user can make
-//! `Global\` ones) is refused by its owner, never waited for.
+//! `Global\` ones) is refused by its owner, never waited for: in an elevated
+//! process, one SYSTEM or Administrators do not own, which the account's own
+//! unelevated programs could make too.
 
 use crate::text::to_wide;
 use anyhow::{Context, Result, bail};
@@ -224,14 +226,32 @@ mod tests {
 
     #[test]
     fn only_a_lock_of_rubylight_s_own_accounts_is_taken() {
+        use crate::process::owner_trusted;
+        let own = "S-1-5-21-1-2-3-1001";
+        // Unelevated, it makes its account's; elevated, the Administrators group's.
+        for makes in [own, "S-1-5-32-544"] {
+            for trusted in ["S-1-5-18", "S-1-5-32-544"] {
+                assert!(owner_trusted(trusted, own, makes), "{trusted}");
+            }
+            // Users, Everyone, another account.
+            for other in ["S-1-5-32-545", "S-1-1-0", "S-1-5-21-1-2-3-999999"] {
+                assert!(!owner_trusted(other, own, makes), "{other}");
+            }
+        }
+        // Its account's only while it makes those itself: elevated, the account's unelevated
+        // programs, any of them, could have made it first.
+        assert!(owner_trusted(own, own, own));
+        assert!(!owner_trusted(own, own, "S-1-5-32-544"));
+        // This process, as it is.
         let own = crate::process::own_sid().unwrap();
-        for trusted in ["S-1-5-18", "S-1-5-32-544", own.as_str()] {
-            assert!(crate::process::trusted_owner(trusted).unwrap(), "{trusted}");
-        }
-        // Users, Everyone, another account.
-        for other in ["S-1-5-32-545", "S-1-1-0", "S-1-5-21-1-2-3-999999"] {
-            assert!(!crate::process::trusted_owner(other).unwrap(), "{other}");
-        }
+        let makes = crate::process::default_owner().unwrap();
+        assert!(crate::process::trusted_owner(&makes).unwrap(), "{makes}");
+        assert_eq!(
+            crate::process::trusted_owner(&own).unwrap(),
+            makes == own || own == "S-1-5-18",
+            "{own} makes {makes}"
+        );
+        assert!(!crate::process::trusted_owner("S-1-5-21-1-2-3-999999").unwrap());
         // A lock this process makes is its own, or the Administrators group's when elevated.
         let lock = NamedLock::acquire(&name(), Duration::ZERO)
             .unwrap()

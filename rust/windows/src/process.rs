@@ -125,12 +125,30 @@ pub fn own_sid() -> Result<String> {
     token_user_sid(&token()?)
 }
 /// Whether an object owned by `owner` (a SID) is one this process can trust
-/// with machine-wide settings: SYSTEM's, the Administrators group's (what an
-/// elevated administrator makes), or this process's own account's (what an
-/// unelevated process makes; a program of that account can do what this
-/// process does anyway). Never another user's.
+/// with machine-wide settings ([`owner_trusted`]).
 pub fn trusted_owner(owner: &str) -> Result<bool> {
-    Ok(matches!(owner, "S-1-5-18" | "S-1-5-32-544") || owner == own_sid()?)
+    let token = token()?;
+    Ok(owner_trusted(
+        owner,
+        &token_user_sid(&token)?,
+        &token_owner_sid(&token)?,
+    ))
+}
+/// [`trusted_owner`] for a process that runs as `own` and gives what it
+/// makes to `makes` (its default owner): SYSTEM's and the Administrators
+/// group's (what SYSTEM and an elevated administrator make), and `own`'s
+/// only when it makes those itself (an unelevated process: a program of that
+/// account can do what it does anyway). An elevated administrator makes the
+/// Administrators group's; its account's own are what that account's
+/// unelevated programs make, any of which could make one first. Never
+/// another user's.
+pub(crate) fn owner_trusted(owner: &str, own: &str, makes: &str) -> bool {
+    matches!(owner, "S-1-5-18" | "S-1-5-32-544") || (owner == own && makes == own)
+}
+/// The owner what this process makes gets ([`token_owner_sid`]).
+#[cfg(test)]
+pub(crate) fn default_owner() -> Result<String> {
+    token_owner_sid(&token()?)
 }
 /// The owner (a SID) of the kernel object `handle` opens with `READ_CONTROL`.
 pub fn handle_owner(handle: HANDLE) -> Result<String> {
@@ -263,6 +281,28 @@ fn token_user_sid(token: &OwnedHandle) -> Result<String> {
         let sid = text.to_string();
         let _ = LocalFree(Some(HLOCAL(text.0.cast())));
         sid.context("Windows returned an invalid user SID")
+    }
+}
+/// The owner what `token` makes gets: its account, or the Administrators
+/// group for an elevated administrator.
+fn token_owner_sid(token: &OwnedHandle) -> Result<String> {
+    // SAFETY: `buffer` is usize-aligned and holds a TOKEN_OWNER once the call succeeds, whose SID
+    // points into it.
+    unsafe {
+        let mut buffer = [0usize; 64];
+        let mut needed = 0;
+        GetTokenInformation(
+            raw(token),
+            TokenOwner,
+            Some(buffer.as_mut_ptr().cast()),
+            size_of::<[usize; 64]>() as u32,
+            &mut needed,
+        )?;
+        anyhow::ensure!(
+            needed as usize >= size_of::<TOKEN_OWNER>(),
+            "Windows returned an invalid token owner"
+        );
+        sid_text((*buffer.as_ptr().cast::<TOKEN_OWNER>()).Owner)
     }
 }
 /// SYSTEM and Administrators own it and alone have access.

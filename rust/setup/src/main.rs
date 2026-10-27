@@ -437,9 +437,15 @@ fn run_uninstall(args: &Arguments) -> i32 {
         uninstall::uninstall(&options, &progress)
     });
     match result {
-        Ok(()) => {
+        Ok(notes) => {
             if !args.quiet {
-                ui::finished(TITLE, "Rubylight was removed", "", true, None);
+                ui::finished(
+                    TITLE,
+                    "Rubylight was removed",
+                    &notes.join("\n\n"),
+                    true,
+                    None,
+                );
             }
             0
         }

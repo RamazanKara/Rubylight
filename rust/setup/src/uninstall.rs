@@ -60,7 +60,9 @@ fn is_package(folder: &Path) -> bool {
             .any(|entry| entry.path.eq_ignore_ascii_case("butterpollo.exe"))
     })
 }
-pub fn uninstall(options: &Options, progress: &Progress) -> Result<()> {
+/// Remove Rubylight; the notes are problems the user must see, though the
+/// removal itself went through.
+pub fn uninstall(options: &Options, progress: &Progress) -> Result<Vec<String>> {
     let Some(install) = install_location() else {
         bail!("Rubylight is not installed on this PC");
     };
@@ -78,31 +80,13 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<()> {
     remove_earlier_folder(&install);
     // Child-session setup (Experimental) turned on Remote Desktop, child
     // sessions and firewall rules; the host that recorded them puts them back
-    // while it is still installed. On failure its record stays for a retry.
-    if let Some(program) = child_session_restore_pending(&crate::install::profile(), &install) {
-        progress.set("Restoring the Windows settings child sessions changed…");
-        let profile = crate::install::profile().display().to_string();
-        match system::run(
-            &program.display().to_string(),
-            &[CHILD_SESSION_RESTORE_FLAG, "--config-dir", &profile],
-            Duration::from_secs(180),
-        ) {
-            Ok((0, _)) => {}
-            Ok((code, output)) => line(format!(
-                "warning: restoring the child-session settings failed ({code}): {output}"
-            )),
-            Err(error) => line(format!(
-                "warning: restoring the child-session settings: {error:#}"
-            )),
-        }
-    } else if crate::install::profile()
-        .join(CHILD_SESSION_SETUP_FILE)
-        .is_file()
-    {
-        line(format!(
-            "warning: child-session settings were not restored: {} is missing",
-            install.join("butterpollo.exe").display()
-        ));
+    // while it is still installed. On failure its record stays for a retry,
+    // even through a factory reset.
+    let mut notes = Vec::new();
+    let unrestored = restore_child_session(&install, progress);
+    if let Some(problem) = &unrestored {
+        line(format!("warning: {problem}"));
+        notes.push(problem.clone());
     }
 
     let powershell = format!(
@@ -177,7 +161,19 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<()> {
     remove_leftover_folders(&install, &touched);
     if options.factory_reset {
         progress.set("Deleting settings and paired devices…");
-        let _ = std::fs::remove_dir_all(profile().parent().unwrap_or(&profile()));
+        let record = profile().join(CHILD_SESSION_SETUP_FILE);
+        remove_profile(
+            profile().parent().unwrap_or(&profile()),
+            unrestored.is_some().then_some(record.as_path()),
+        );
+        if unrestored.is_some() {
+            let kept = format!(
+                "The factory reset kept {} so the Windows settings can still be restored: install Rubylight again and choose Restore Windows settings under Maintenance in the console.",
+                record.display()
+            );
+            line(format!("warning: {kept}"));
+            notes.push(kept);
+        }
     }
     // This program may run from the folder being removed: delete it once it
     // has exited, then the folder if nothing else is left in it (rd without
@@ -198,7 +194,65 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<()> {
     } else {
         let _ = std::fs::remove_dir(&install);
     }
-    Ok(())
+    Ok(notes)
+}
+/// Put back the Windows settings child-session setup changed, through the
+/// installed host; the reason when they were not restored and its record
+/// is still needed. None when there was nothing to restore or it worked.
+fn restore_child_session(install: &Path, progress: &Progress) -> Option<String> {
+    let profile = crate::install::profile();
+    let Some(program) = child_session_restore_pending(&profile, install) else {
+        return profile.join(CHILD_SESSION_SETUP_FILE).is_file().then(|| {
+            format!(
+                "The Windows settings child sessions changed (Remote Desktop, its firewall rules, child sessions) were not restored: {} is missing.",
+                install.join("butterpollo.exe").display()
+            )
+        });
+    };
+    progress.set("Restoring the Windows settings child sessions changed…");
+    let restored = system::run(
+        &program.display().to_string(),
+        &[
+            CHILD_SESSION_RESTORE_FLAG,
+            "--config-dir",
+            &profile.display().to_string(),
+        ],
+        Duration::from_secs(180),
+    );
+    match restored {
+        Ok((0, _)) => None,
+        Ok((code, output)) => Some(format!(
+            "The Windows settings child sessions changed (Remote Desktop, its firewall rules, child sessions) were not restored ({code}): {}",
+            output.trim()
+        )),
+        Err(error) => Some(format!(
+            "The Windows settings child sessions changed (Remote Desktop, its firewall rules, child sessions) were not restored: {error:#}"
+        )),
+    }
+}
+/// Delete `root` for a factory reset, all but `keep` (a file inside it) when
+/// given. Best effort, like the rest of the removal.
+fn remove_profile(root: &Path, keep: Option<&Path>) {
+    let Some(keep) = keep.filter(|keep| keep.starts_with(root) && keep.is_file()) else {
+        let _ = std::fs::remove_dir_all(root);
+        return;
+    };
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path == keep {
+            continue;
+        }
+        if keep.starts_with(&path) {
+            remove_profile(&path, Some(keep));
+        } else if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            let _ = std::fs::remove_dir_all(&path);
+        } else {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
 }
 /// The HDR Vulkan layer that the host registers from `install` while it runs.
 pub(crate) fn remove_layers(install: &Path) {
@@ -390,6 +444,33 @@ mod tests {
             child_session_restore_pending(profile.path(), install.path()),
             None
         );
+    }
+    #[test]
+    fn a_factory_reset_keeps_the_child_session_record_a_failed_restore_needs() {
+        let root = tempfile::tempdir().unwrap();
+        let profile = root.path().join("config");
+        let record = profile.join(CHILD_SESSION_SETUP_FILE);
+        let fill = || {
+            write(&record, "{}");
+            write(&profile.join("sunshine.conf"), "x");
+            write(&profile.join("credentials").join("cacert.pem"), "x");
+            write(&profile.join("logs").join("butterpollo.log"), "x");
+            write(&root.path().join("state.json"), "x");
+        };
+        fill();
+        remove_profile(root.path(), Some(&record));
+        assert!(record.is_file(), "the record stays for a retry");
+        assert_eq!(
+            files_in(root.path()).unwrap(),
+            vec![record.clone()],
+            "everything else is deleted"
+        );
+        assert_eq!(std::fs::read_dir(&profile).unwrap().count(), 1);
+
+        // Restored, or nothing to restore: the whole profile goes.
+        fill();
+        remove_profile(root.path(), None);
+        assert!(!root.path().exists());
     }
     #[test]
     fn child_session_restore_uses_the_hosts_record_and_flag() {

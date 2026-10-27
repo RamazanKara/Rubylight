@@ -71,6 +71,65 @@ class LinkSpeedHarness(unittest.TestCase):
             self.assertEqual(json.loads((out / 'result.json').read_text())['error'], result['error'])
             self.assertEqual(result['client_exit'], 'none')
 
+    def test_client_choices_reach_the_container_and_the_result(self):
+        calls = []
+        nuc = lambda *command, **kw: None
+        popen = lambda command, **kw: calls.append(command) or 'client'
+        spec = ls.arms()['wifi']
+        env = {'LINKSPEED_CLIENT_FEC': 'auto', 'LINKSPEED_CLIENT_PROBE': '1'}
+        with mock.patch.dict(ls.os.environ, env), mock.patch.object(ls, 'nuc', nuc), \
+                mock.patch.object(ls.subprocess, 'Popen', popen):
+            ls.start_client(spec)
+        self.assertIn("docker exec -e LINKSPEED_CLIENT_FEC=auto -e LINKSPEED_CLIENT_PROBE=1 ljs python3", calls[0][-1])
+        with mock.patch.dict(ls.os.environ, {'LINKSPEED_CLIENT_FEC': '', 'LINKSPEED_CLIENT_PROBE': ''}):
+            self.assertEqual(ls.client_env(), [])
+        with tempfile.TemporaryDirectory() as directory:
+            out = pathlib.Path(directory)
+            (out / 'spec.json').write_text(json.dumps(dict(spec, steps_issued=[], client_choices=env)))
+            (out / 'probe.json').write_text(json.dumps({'mbps': 140.0, 'first_kbps': 20000}))
+            result = ls.analyse(out)
+            self.assertEqual(result['client_choices'], env)
+            self.assertEqual(result['probe']['first_kbps'], 20000)
+
+
+class LinkSpeedClient(unittest.TestCase):
+    """What the NUC client asks for must match Nightjar: rlFecPercentage values and the probe's first bitrate."""
+
+    def setUp(self):
+        import linkspeed_client
+        self.client = linkspeed_client
+
+    def test_fec_choices(self):
+        for value in ('host', 'auto', '0', '20', '255'):
+            self.assertEqual(self.client.fec_choice(value), value)
+        for value in (None, ''):
+            self.assertIsNone(self.client.fec_choice(value))
+        for value in ('256', '-1', 'Auto', '1e2', ' 5', '0020'):
+            with self.assertRaises(SystemExit):
+                self.client.fec_choice(value)
+
+    def test_first_bitrate_is_a_share_of_the_probe_never_above_the_setting(self):
+        self.assertEqual(self.client.first_bitrate_kbps(20000, 500.0), 20000)
+        self.assertEqual(self.client.first_bitrate_kbps(75000, 50.0), 40000)
+        self.assertEqual(self.client.first_bitrate_kbps(20000, 1.0), 2000)
+
+    def test_probe_counts_a_body_the_host_cut_short(self):
+        class Response:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def raise_for_status(self): pass
+            def iter_content(self, size): return [b'x' * 65536] * 8
+        session = mock.Mock()
+        session.get.return_value = Response()
+        measured = self.client.probe(session, 'https://h:1')
+        self.assertEqual(measured['bytes'], 8 * 65536)
+        self.assertGreater(measured['mbps'], 0)
+        session.get.assert_called_once()
+        self.assertEqual(session.get.call_args.kwargs['params'], {'bytes': 4 * 1024 * 1024})
+        session.get.return_value.iter_content = lambda size: []
+        with self.assertRaisesRegex(RuntimeError, 'returned 0 bytes'):
+            self.client.probe(session, 'https://h:1')
+
 
 if __name__ == '__main__':
     unittest.main()

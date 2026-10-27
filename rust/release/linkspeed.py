@@ -16,6 +16,8 @@ writes a summary row to <work>/results.jsonl; step arms change the rate during t
 An arm is `r<rate>-<codec>-<def|hi|4k>`, `step-<a>-<b>-<a>`, `wifi`, or a healthy-link arm
 `hz-r<rate>-hevc-<mbps>`; `ARM@tag` runs the arm again into its own folder (a repeat for compare and noise).
 Loss memory is reset before every arm unless --keep-memory is given.
+LINKSPEED_CLIENT_FEC (host, auto or 0-255) and LINKSPEED_CLIENT_PROBE=1 make the client choose its FEC at
+launch and start at its bandwidth probe (linkspeed_client.py); each arm's spec.json and result keep the choices.
 `run` needs an elevated shell: it adds a firewall rule that lets the NUC in to the package's exe.
 The host holds C:\\src\\butterpollo-release\\GPU-LOCK while a batch runs (it waits for other agents).
 """
@@ -23,7 +25,8 @@ import argparse, csv, hashlib, json, os, pathlib, re, shlex, subprocess, sys, th
 import xml.etree.ElementTree as ET
 import requests, urllib3
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+HERE = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
 from e2e_host import installed_idle  # noqa: E402
 import timing_report as tr  # noqa: E402
 import linkcompare as lc  # noqa: E402
@@ -36,7 +39,9 @@ LOCK = pathlib.Path(os.environ.get('LINKSPEED_LOCK', r'C:\src\butterpollo-releas
 LOCK_NAME = os.environ.get('LINKSPEED_LOCK_NAME', 'link-speed')
 PROFILE = pathlib.Path(os.environ.get('LINKSPEED_PROFILE', r'C:\tests\linkspeed'))
 DEFAULT_PACKAGE = pathlib.Path(r'C:\src\butterpollo-release\3.0.0-beta.1\release\butterpollo-rust-release')
-MOTION_PROBE = pathlib.Path(r'C:\src\rl-target\release\examples\motion_probe.exe')
+MOTION_PROBE = pathlib.Path(os.environ.get('LINKSPEED_MOTION_PROBE', r'C:\src\rl-target\release\examples\motion_probe.exe'))
+# What the client asks for (linkspeed_client.py): rlFecPercentage at launch, and a bandwidth probe before it.
+CLIENT_CHOICES = ('LINKSPEED_CLIENT_FEC', 'LINKSPEED_CLIENT_PROBE')
 IPERF3 = pathlib.Path(r'C:\src\rl-link-tools\iperf3\iperf3.exe')
 NUC_WORK = '/work'
 NUC_WORK_HOST = 'rl-link/work'
@@ -252,6 +257,9 @@ class Host:
         self.client_uuid = paired['uuid']
         for name in ('client.pem', 'client-key.pem'):
             subprocess.run(['scp', '-q', str(work / name), f'nuc:{NUC_WORK_HOST}/{name}'], check=True)
+        # The client side runs this checkout's scripts, never a copy from an earlier batch.
+        for script in ('linkspeed_client.py', 'linkshape.sh'):
+            subprocess.run(['scp', '-q', str(HERE / script), f'nuc:{NUC_WORK_HOST}/{script}'], check=True)
         print('paired', uid, flush=True)
 
 
@@ -316,12 +324,17 @@ def require_elevated():
         raise RuntimeError('linkspeed.py run needs an elevated shell: it adds the firewall rule that lets the NUC client reach the host')
 
 
+def client_env():
+    """`docker exec -e` options for the client choices this batch makes."""
+    return [arg for name in CLIENT_CHOICES if os.environ.get(name) for arg in ('-e', f'{name}={os.environ[name]}')]
+
+
 def start_client(spec):
     """Start the NUC client for one arm, writing into an empty output folder in the container."""
     remote = f'{NUC_WORK}/{spec["name"]}'
     # A client that cannot reach the host writes nothing there; an earlier run's files must not stand in for its output.
     container('rm', '-rf', '--', remote)
-    command = ['docker', 'exec', 'ljs', 'python3', f'{NUC_WORK}/linkspeed_client.py', LAN_IP, str(PORT), spec['codec'],
+    command = ['docker', 'exec', *client_env(), 'ljs', 'python3', f'{NUC_WORK}/linkspeed_client.py', LAN_IP, str(PORT), spec['codec'],
                str(spec['width']), str(spec['height']), str(spec['fps']), str(spec['seconds']), str(spec['kbps']), remote]
     return subprocess.Popen(['ssh', '-o', 'BatchMode=yes', 'nuc', shlex.join(command)], text=True, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT)
@@ -397,7 +410,9 @@ def run_arm(spec, host, work, sampler_admin, keep_memory=False):
     chunk = host.log.read_bytes()[log_offset:].decode(errors='replace')
     keep = [l for l in chunk.splitlines() if ' TRACE ' not in l and 'AMF encoder settings' not in l]
     (out / 'host-events.log').write_text('\n'.join(keep) + '\n')
-    (out / 'spec.json').write_text(json.dumps(dict(spec, steps_issued=steps, wall_seconds=time.perf_counter() - started), indent=1))
+    choices = {name: os.environ[name] for name in CLIENT_CHOICES if os.environ.get(name)}
+    (out / 'spec.json').write_text(json.dumps(dict(spec, steps_issued=steps, wall_seconds=time.perf_counter() - started,
+                                                   client_choices=choices), indent=1))
     return analyse(out)
 
 
@@ -418,7 +433,9 @@ def read_kv_lines(text, marker):
 def analyse(out):
     spec = json.loads((out / 'spec.json').read_text())
     result = dict(name=spec['name'], rate=spec['rate'], codec=spec['codec'], kbps=spec['kbps'], queue_ms=spec['queue'],
-                  size=f"{spec['width']}x{spec['height']}", steps=spec['steps_issued'])
+                  size=f"{spec['width']}x{spec['height']}", steps=spec['steps_issued'], client_choices=spec.get('client_choices', {}))
+    if (out / 'probe.json').exists():
+        result['probe'] = json.loads((out / 'probe.json').read_text())
     client_log = (out / 'client.log').read_text(errors='replace') if (out / 'client.log').exists() else ''
     result['client_exit'] = (out / 'exit').read_text().strip() if (out / 'exit').exists() else 'none'
     result['client_summary'] = [l[:200] for l in client_log.splitlines() if l.startswith(('RESULT', 'STEADY', 'PERFORMANCE'))][:4]

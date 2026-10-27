@@ -529,6 +529,21 @@ mod tests {
     }
 
     #[test]
+    fn our_own_features_no_device_here_proved_say_experimental_in_both_languages() {
+        let shown = |file: &str, text: &str| marked().iter().any(|m| m.file == file && m.text == text);
+        for (file, text) in [
+            ("ui.rs", "Shared folders (Experimental)"),
+            ("main.rs", "Send image to PC (Experimental)"),
+            ("main.rs", "Copy PC image here (Experimental)"),
+        ] {
+            assert!(shown(file, text), "{file} shows {text:?}");
+            assert!(translate(Lang::De, text).ends_with(" (Experimentell)"), "{text:?}");
+        }
+        // The text clipboard is established: no label.
+        assert!(shown("main.rs", "Send clipboard to PC") && shown("main.rs", "Copy PC clipboard here"));
+    }
+
+    #[test]
     fn placeholders_report_order_and_form() {
         assert_eq!(placeholders("{} of {}"), [(0, false), (1, false)]);
         assert_eq!(placeholders("{1} von {0} {{}}"), [(1, true), (0, true)]);

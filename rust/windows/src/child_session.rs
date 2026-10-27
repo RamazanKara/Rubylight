@@ -1,7 +1,8 @@
 //! Windows side of background streaming in a child session: the edition, the
 //! child-session calls, the registry, firewall and DPAPI behind the seams of
-//! [`butterpollo_core::child_session`], the GPU the session renders on, and
-//! the RDP viewer that keeps the child session attached ([`viewer`]).
+//! [`butterpollo_core::child_session`], the GPU the session renders on, the
+//! lock setup and restore take across processes ([`lock`]), and the RDP
+//! viewer that keeps the child session attached ([`viewer`]).
 //!
 //! Ported from Annex (mattxslv/annex, MIT, Copyright (c) 2026 mattxslv; the
 //! license text is in `third-party/licenses/annex-LICENSE.txt`): the Windows
@@ -9,6 +10,7 @@
 //! child-session calls of `src/Annex.cs` and the RDP client hosting of
 //! `src/LauncherApplication.cs`.
 
+pub mod lock;
 pub mod viewer;
 
 use crate::text::{from_wide, to_wide};

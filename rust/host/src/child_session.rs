@@ -87,10 +87,36 @@ pub(crate) fn check_at_startup(h: &Shared) {
 
 /// Setup, restore and the firewall checks change the same Windows settings,
 /// one at a time: a check that turned RDP off between restore's write of the
-/// original value and its read-back would lose the user's own value.
+/// original value and its read-back would lose the user's own value. The
+/// viewer's start holds it too, so no restore runs between its checks and the
+/// viewer it starts.
+///
+/// Two locks, always taken in this order and let go of in reverse, so neither
+/// waits on the other: the cross-process [`native::lock::setup_lock`] (the
+/// uninstaller's `--child-session-restore`, another host), then this process's
+/// own [`SETTINGS`]. [`RUNNING`] is only ever taken after both, or alone.
 static SETTINGS: Mutex<()> = Mutex::new(());
-fn settings_lock() -> MutexGuard<'static, ()> {
-    SETTINGS.lock().unwrap_or_else(PoisonError::into_inner)
+/// Both settings locks; the fields drop in their order, so [`SETTINGS`] first.
+struct SettingsLock {
+    _settings: MutexGuard<'static, ()>,
+    _system: native::lock::NamedLock,
+}
+/// How long [`settings_lock`] waits for another process.
+fn settings_wait() -> std::time::Duration {
+    #[cfg(test)]
+    if let Some(wait) = tests::SETTINGS_WAIT.get() {
+        return wait;
+    }
+    native::lock::SETUP_LOCK_TIMEOUT
+}
+/// Both settings locks, Err when another process holds the cross-process one
+/// longer than [`settings_wait`].
+fn settings_lock() -> Result<SettingsLock> {
+    let system = native::lock::setup_lock(settings_wait())?;
+    Ok(SettingsLock {
+        _settings: SETTINGS.lock().unwrap_or_else(PoisonError::into_inner),
+        _system: system,
+    })
 }
 
 /// How often [`secure_rdp`] tries a check that could not run (Windows
@@ -104,20 +130,37 @@ const CHECK_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 /// run (`Err`, nothing changed) is tried again after `wait`, up to
 /// [`CHECK_TRIES`]; on the last try it turns RDP off instead. What a check
 /// finds is never tried again: it turns RDP off at once. It fails closed: a
-/// record that cannot be read turns RDP off too (`enforce(None, _)`). The
-/// problem for the log and the console, None when there is none or setup
-/// never ran.
+/// record that cannot be read turns RDP off too (`enforce(None, _)`), and so
+/// does a settings lock another process holds too long. The problem for the
+/// log and the console, None when there is none or setup never ran.
 fn secure_rdp(
     directory: &Path,
     mut enforce: impl FnMut(Option<u16>, bool) -> Result<Vec<String>>,
     mut wait: impl FnMut(std::time::Duration),
 ) -> Option<String> {
+    // Setup never ran here: nothing to check, and no lock to take, which an unelevated host may
+    // not be allowed to. A setup that runs meanwhile is as if it ran right after this check.
+    if matches!(setup_path(directory).try_exists(), Ok(false)) {
+        return None;
+    }
     let mut found = Vec::new();
     for attempt in 1..=CHECK_TRIES {
         let last = attempt == CHECK_TRIES;
-        let settings = settings_lock();
         // Only the try that ends this reports.
         found.clear();
+        // Its wait was long enough not to try again. It fails closed: RDP goes off, as without
+        // a record, even though a restore holding the lock may then lose the user's own value.
+        let settings = match settings_lock() {
+            Ok(settings) => settings,
+            Err(error) => {
+                found.push(format!("the firewall could not be checked ({error:#})"));
+                match enforce(None, true) {
+                    Ok(done) => found.extend(done),
+                    Err(error) => found.push(format!("{error:#}")),
+                }
+                break;
+            }
+        };
         let port = match load_saved(directory) {
             Ok(None) => return None,
             Ok(Some(state)) => Some(state.rdp_port),
@@ -233,9 +276,9 @@ fn save_state(directory: &Path, state: &SetupState) -> Result<()> {
         .with_context(|| format!("writing {}", temporary.display()))?;
     std::fs::rename(&temporary, &path).with_context(|| format!("saving {}", path.display()))
 }
-/// `restore` ([`restore_saved`]) under the settings lock.
+/// `restore` ([`restore_saved`]) under the settings locks.
 fn restore_locked(directory: &Path, restore: impl FnOnce(&Path) -> Result<bool>) -> Result<bool> {
-    let _settings = settings_lock();
+    let _settings = settings_lock()?;
     restore(directory)
 }
 /// Put back what setup changed, then forget it; false when setup never ran.
@@ -280,13 +323,13 @@ pub(crate) fn setup(h: &Shared) -> Result<SetupState> {
     Ok(state)
 }
 /// [`logic::setup`] for `user` through the settings `open` makes, under the
-/// settings lock.
+/// settings locks.
 fn setup_in<S: SystemSettings>(
     directory: &Path,
     user: &str,
     open: impl FnOnce() -> Result<S>,
 ) -> Result<SetupState> {
-    let _settings = settings_lock();
+    let _settings = settings_lock()?;
     let saved = load_saved(directory)?;
     logic::setup(&mut open()?, saved, user, |state| {
         save_state(directory, state)
@@ -294,10 +337,13 @@ fn setup_in<S: SystemSettings>(
 }
 
 /// Stop the viewer and the child session's host, then put back what setup
-/// changed. False when setup never ran here.
+/// changed. False when setup never ran here. Both under the settings locks,
+/// so no start comes in between.
 pub(crate) fn restore(h: &Shared) -> Result<bool> {
-    quit();
-    let restored = restore_locked(&h.directory, restore_saved)?;
+    let restored = restore_locked(&h.directory, |directory| {
+        quit();
+        restore_saved(directory)
+    })?;
     if restored {
         tracing::info!("the Windows settings child-session setup changed are restored");
     }
@@ -327,6 +373,8 @@ pub(crate) fn start(h: &Shared, password: Option<logic::Secret>) -> Result<()> {
         report(problem.clone());
         bail!("{problem}");
     }
+    // From the settings check to the viewer's command: no setup or restore in between.
+    let _settings = settings_lock()?;
     let system = native::NativeSettings::new()?;
     let user = native::console_user()?;
     let missing = match load_saved(&h.directory)? {
@@ -684,6 +732,12 @@ pub(crate) fn status(h: &Shared) -> Value {
 mod tests {
     use super::*;
 
+    thread_local! {
+        /// [`settings_wait`] on this test thread, when not the host's.
+        pub(super) static SETTINGS_WAIT: std::cell::Cell<Option<std::time::Duration>> =
+            const { std::cell::Cell::new(None) };
+    }
+
     #[test]
     fn the_mode_is_off_until_asked_for_and_a_bad_value_says_why() {
         let config = |text: &str| Config::parse(text).unwrap();
@@ -917,7 +971,7 @@ mod tests {
                 // Another thread gets the lock (other tests may hold it a moment).
                 let (locked, lock) = std::sync::mpsc::channel();
                 std::thread::spawn(move || {
-                    let _settings = settings_lock();
+                    let _settings = settings_lock().unwrap();
                     locked.send(()).unwrap();
                 });
                 assert!(
@@ -975,12 +1029,20 @@ mod tests {
         std::fs::remove_dir_all(directory).unwrap();
     }
 
-    /// `run`, on another thread, signals only after this test lets go of the
-    /// settings lock.
+    /// The settings locks as this process holds them, or only the
+    /// cross-process one, as the uninstaller or another host holds it.
+    type Hold = fn() -> Box<dyn std::any::Any>;
+    const HOLDERS: [Hold; 2] = [
+        || Box::new(settings_lock().unwrap()),
+        || Box::new(native::lock::setup_lock(settings_wait()).unwrap()),
+    ];
+    /// `run`, on another thread, signals only after this test lets go of what
+    /// `hold` took.
     fn waits_for_the_settings_lock<T: Send + 'static>(
+        hold: Hold,
         run: impl FnOnce(std::sync::mpsc::Sender<()>) -> T + Send + 'static,
     ) -> T {
-        let settings = settings_lock();
+        let settings = hold();
         let (reached, reach) = std::sync::mpsc::channel();
         let thread = std::thread::spawn(move || run(reached));
         assert!(
@@ -999,38 +1061,40 @@ mod tests {
     #[test]
     fn setup_and_restore_wait_for_the_settings_lock() {
         let directory = scratch();
-        // The uninstaller's restore.
-        let config = directory.clone();
-        let code = waits_for_the_settings_lock(move |reached| {
-            restore_exit_code_with(Some(config), |_| {
-                reached.send(()).unwrap();
-                Ok(true)
-            })
-        });
-        assert_eq!(code, 0);
-        // The console's restore.
-        let config = directory.clone();
-        let restored = waits_for_the_settings_lock(move |reached| {
-            restore_locked(&config, |_| {
-                reached.send(()).unwrap();
-                Ok(false)
-            })
-        });
-        assert!(!restored.unwrap());
-        // Setup opens Windows' settings only under the lock.
-        let config = directory.clone();
-        let error = waits_for_the_settings_lock(move |reached| {
-            setup_in(
-                &config,
-                "S-1-5-21-1",
-                || -> Result<native::NativeSettings> {
+        for hold in HOLDERS {
+            // The uninstaller's restore.
+            let config = directory.clone();
+            let code = waits_for_the_settings_lock(hold, move |reached| {
+                restore_exit_code_with(Some(config), |_| {
                     reached.send(()).unwrap();
-                    bail!("not on this PC")
-                },
-            )
-        })
-        .unwrap_err();
-        assert!(format!("{error:#}").contains("not on this PC"), "{error:#}");
+                    Ok(true)
+                })
+            });
+            assert_eq!(code, 0);
+            // The console's restore.
+            let config = directory.clone();
+            let restored = waits_for_the_settings_lock(hold, move |reached| {
+                restore_locked(&config, |_| {
+                    reached.send(()).unwrap();
+                    Ok(false)
+                })
+            });
+            assert!(!restored.unwrap());
+            // Setup opens Windows' settings only under the lock.
+            let config = directory.clone();
+            let error = waits_for_the_settings_lock(hold, move |reached| {
+                setup_in(
+                    &config,
+                    "S-1-5-21-1",
+                    || -> Result<native::NativeSettings> {
+                        reached.send(()).unwrap();
+                        bail!("not on this PC")
+                    },
+                )
+            })
+            .unwrap_err();
+            assert!(format!("{error:#}").contains("not on this PC"), "{error:#}");
+        }
         std::fs::remove_dir_all(directory).unwrap();
     }
 
@@ -1048,34 +1112,59 @@ mod tests {
             rdp_port: 3390,
         };
         save_state(&directory, &state).unwrap();
-        let settings = settings_lock();
-        let (checked, checks) = std::sync::mpsc::channel();
-        let check = {
-            let directory = directory.clone();
-            std::thread::spawn(move || {
+        for hold in HOLDERS {
+            let (checked, checks) = std::sync::mpsc::channel();
+            let config = directory.clone();
+            let problem = waits_for_the_settings_lock(hold, move |reached| {
                 secure_rdp(
-                    &directory,
+                    &config,
                     |port, _| {
                         checked.send(port).unwrap();
+                        reached.send(()).unwrap();
                         Ok(Vec::new())
                     },
                     no_wait,
                 )
-            })
-        };
+            });
+            assert_eq!(problem, None);
+            assert_eq!(checks.try_recv().unwrap(), Some(3390));
+        }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn a_check_that_cannot_get_the_lock_fails_closed() {
+        let directory = set_up_record();
+        // Another process holds the cross-process lock for longer than the check waits.
+        let lock = native::lock::setup_lock(settings_wait()).unwrap();
+        let problem = std::thread::spawn({
+            let directory = directory.clone();
+            move || {
+                SETTINGS_WAIT.set(Some(std::time::Duration::from_millis(300)));
+                let mut tries = Vec::new();
+                let problem = secure_rdp(
+                    &directory,
+                    |port, last| {
+                        tries.push((port, last));
+                        Ok(vec!["Remote Desktop was turned off (fDenyTSConnections = 1), so it is not open to the network".into()])
+                    },
+                    |_| panic!("waited to try again"),
+                );
+                // Turned off without the firewall, as without a record.
+                assert_eq!(tries, [(None, true)]);
+                problem
+            }
+        })
+        .join()
+        .unwrap()
+        .unwrap();
+        drop(lock);
         assert!(
-            checks
-                .recv_timeout(std::time::Duration::from_millis(200))
-                .is_err()
+            problem.contains("the firewall could not be checked")
+                && problem.contains("still setting up or restoring")
+                && problem.contains("Remote Desktop was turned off"),
+            "{problem}"
         );
-        drop(settings);
-        assert_eq!(
-            checks
-                .recv_timeout(std::time::Duration::from_secs(10))
-                .unwrap(),
-            Some(3390)
-        );
-        assert_eq!(check.join().unwrap(), None);
         std::fs::remove_dir_all(directory).unwrap();
     }
 

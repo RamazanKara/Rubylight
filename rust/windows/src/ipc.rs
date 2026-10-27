@@ -25,7 +25,7 @@ fn raw(handle: &OwnedHandle) -> HANDLE {
     HANDLE(handle.as_raw_handle())
 }
 
-struct Descriptor(PSECURITY_DESCRIPTOR);
+pub(crate) struct Descriptor(pub(crate) PSECURITY_DESCRIPTOR);
 impl Drop for Descriptor {
     fn drop(&mut self) {
         // SAFETY: `self.0` is null (which LocalFree accepts) or the converted security descriptor,

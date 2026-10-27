@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_audio_passthrough">Наскрізний вивід звуку (експериментально)</string>
+    <string name="summary_checkbox_audio_passthrough">Запитує в ПК з Rubylight звук у форматі, який ваш аудіовихід відтворює як є: нестиснений PCM або Dolby Digital (AC3) чи Dolby Digital Plus (E-AC3) для ресивера, саундбара або телевізора, що його декодує. Потрібні Android 10 або новіший і Новий рушій трансляції. Звук Dolby надходить блоками по 32 мс, тому пізніше, ніж Opus. Інші ПК і виходи лишаються на Opus.</string>
+</resources>

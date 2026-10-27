@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_audio_passthrough">Przekazywanie dźwięku bez zmian (eksperymentalne)</string>
+    <string name="summary_checkbox_audio_passthrough">Prosi komputer z Rubylight o dźwięk w formacie, który twoje wyjście audio odtwarza bez zmian: nieskompresowane PCM albo Dolby Digital (AC3) lub Dolby Digital Plus (E-AC3) dla amplitunera, soundbaru lub telewizora, który go dekoduje. Wymaga Androida 10 lub nowszego i opcji Nowy silnik strumieniowania. Dźwięk Dolby przychodzi w blokach po 32 ms, więc dociera później niż Opus. Inne komputery i wyjścia zostają przy Opus.</string>
+</resources>

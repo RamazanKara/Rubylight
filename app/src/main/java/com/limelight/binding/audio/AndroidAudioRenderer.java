@@ -616,6 +616,10 @@ public class AndroidAudioRenderer implements AudioRenderer {
     }
 
     private int buildEncodedTrack() {
+        // setupEncoded checked already; this keeps the route-change rebuild on Android 10 too.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            return encodedFailed("needs Android 10 or later");
+        }
         int encoding = AudioPassthrough.encoding(encodedCodec);
         int mask = AudioPassthrough.channelMask(channels);
         try {

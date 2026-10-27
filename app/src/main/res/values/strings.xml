@@ -157,8 +157,6 @@
     <string name="summary_audio_config_list">Use 5.1 or 7.1 sound with your home theater.</string>
     <string name="title_checkbox_enable_audiofx">Allow system audio effects</string>
     <string name="summary_checkbox_enable_audiofx">Lets Android equalizers and effects process the sound. Can add audio delay.</string>
-    <string name="title_checkbox_audio_passthrough">Audio passthrough (Experimental)</string>
-    <string name="summary_checkbox_audio_passthrough">Asks a Rubylight PC for the sound in a format your audio output plays as is: uncompressed PCM, or Dolby Digital (AC3) or Dolby Digital Plus (E-AC3) for a receiver, soundbar or TV that decodes it. Needs Android 10 or later and the New streaming engine. Dolby audio comes in 32 ms frames, so it arrives later than Opus. Other PCs and outputs keep Opus.</string>
 
     <string name="category_gamepad_settings">Controllers</string>
     <string name="title_checkbox_multi_controller">Multiple controllers</string>

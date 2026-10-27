@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_audio_passthrough">오디오 패스스루(실험적)</string>
+    <string name="summary_checkbox_audio_passthrough">오디오 출력이 그대로 재생할 수 있는 형식으로 Rubylight PC에 소리를 요청합니다. 압축되지 않은 PCM, 또는 이를 디코딩하는 리시버, 사운드바, TV용 Dolby Digital(AC3)이나 Dolby Digital Plus(E-AC3)입니다. Android 10 이상과 새 스트리밍 엔진이 필요합니다. Dolby 오디오는 32 ms 단위로 오므로 Opus보다 늦게 도착합니다. 다른 PC와 출력은 Opus를 유지합니다.</string>
+</resources>

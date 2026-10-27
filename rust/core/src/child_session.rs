@@ -1481,6 +1481,7 @@ pub fn setup(
             "Remote Desktop listens on port {port} but is set to port {live}: Windows reads the port only when the Remote Desktop service starts. Restart the PC, then set up child sessions again. Nothing was changed."
         );
     }
+    let again = saved.is_some();
     let state = match saved {
         // RDP moved to another port since: the record follows it (restore never writes the
         // port), so the block rule and the viewer use the port RDP listens on now.
@@ -1502,21 +1503,10 @@ pub fn setup(
             state
         }
     };
-    system
-        .add_block_rule(BLOCK_RULE, &block_ports(state.rdp_port))
-        .context("adding the firewall rule that keeps RDP on this PC")?;
-    for id in system.enabled_rules(REMOTE_DESKTOP_RULES)? {
-        system
-            .set_rule_enabled(REMOTE_DESKTOP_RULES, &id, false)
-            .with_context(|| format!("turning off the firewall rule {id}"))?;
-    }
-    // Checked where it counts, before RDP is on: what is in effect now.
-    let open = firewall_missing(system, state.rdp_port)?;
-    if !open.is_empty() {
-        bail!(
-            "{}, so turning on RDP would open it to the network. RDP was not turned on; Restore Windows settings puts the firewall rules back.",
-            open.join("; ")
-        );
+    // Setting up again finds RDP on already (the earlier setup's, or the user's own): whatever
+    // fails before setup turns it on turns it off.
+    if let Err(error) = close_to_network(system, state.rdp_port) {
+        bail!("{error:#}. {}.", keep_rdp_off(system, again));
     }
     // From the first write on, RDP may be on: whatever fails after it turns RDP off again.
     if let Err(error) = turn_on(system, user_sid, state.rdp_port, wait) {
@@ -1532,6 +1522,53 @@ pub fn setup(
         bail!("{error:#}. {outcome}");
     }
     Ok(state)
+}
+/// Setup's firewall changes: the block rule in, Remote Desktop's own rules
+/// off, then checked where it counts, before RDP is on: what is in effect now.
+fn close_to_network(system: &mut dyn SystemSettings, rdp_port: u16) -> Result<()> {
+    system
+        .add_block_rule(BLOCK_RULE, &block_ports(rdp_port))
+        .context("adding the firewall rule that keeps RDP on this PC")?;
+    for id in system.enabled_rules(REMOTE_DESKTOP_RULES)? {
+        system
+            .set_rule_enabled(REMOTE_DESKTOP_RULES, &id, false)
+            .with_context(|| format!("turning off the firewall rule {id}"))?;
+    }
+    let open = firewall_missing(system, rdp_port)?;
+    if !open.is_empty() {
+        bail!(
+            "{}, so Remote Desktop would be open to the network",
+            open.join("; ")
+        );
+    }
+    Ok(())
+}
+/// After [`close_to_network`] failed: RDP that may be on (setting up `again`,
+/// or `fDenyTSConnections` not 1) is turned off, read back. What happened, for
+/// the message; a first setup that finds RDP off leaves it alone.
+fn keep_rdp_off(system: &mut dyn SystemSettings, again: bool) -> String {
+    let change = &CHANGES[0];
+    let off = matches!(
+        system.read_dword(&Hive::LocalMachine, change.path, change.name),
+        Ok(Some(1))
+    );
+    if off && !again {
+        return "RDP was not turned on; Restore Windows settings puts the firewall rules back"
+            .into();
+    }
+    match rdp_off(system) {
+        Ok(()) if off => format!(
+            "Remote Desktop stays off ({} = 1); Restore Windows settings puts the firewall rules back",
+            change.name
+        ),
+        Ok(()) => format!(
+            "Remote Desktop was on, so it was turned off ({} = 1); Restore Windows settings puts back the firewall rules and the settings from before setup",
+            change.name
+        ),
+        Err(off) => format!(
+            "Remote Desktop is still on: turning it off failed ({off:#}); turn it off in Windows' settings or choose Restore Windows settings now"
+        ),
+    }
 }
 /// Setup's changes once the firewall keeps RDP on this PC: RDP on, then child
 /// sessions, then the firewall checked again once RDP listens, as it is then.

@@ -1775,6 +1775,86 @@ fn an_allow_rule_that_overrides_block_rules_on_an_rdp_port_fails_closed() {
 }
 
 #[test]
+fn setting_up_again_past_an_overriding_rule_turns_rdp_off() {
+    let rdp = |fake: &Fake| {
+        fake.read_dword(&Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections")
+            .unwrap()
+    };
+    // RDP is on from the setup before; an allow rule now overrides the block rule.
+    let mut fake = Fake::new();
+    let state = set_up(&mut fake);
+    assert_eq!(rdp(&fake), Some(0));
+    fake.machine.overriding = vec![overriding("TCP", "3389")];
+    let error = format!(
+        "{:#}",
+        setup(&mut fake, Some(state.clone()), SID, |_| Ok(()), no_wait).unwrap_err()
+    );
+    assert!(
+        error.contains("override block rules")
+            && error.contains("Remote Desktop was on, so it was turned off"),
+        "{error}"
+    );
+    assert!(!error.contains("not turned on"), "{error}");
+    assert_eq!(rdp(&fake), Some(1));
+    // Restore still puts back the value from before setup.
+    fake.machine.overriding.clear();
+    restore(&mut fake, &state).unwrap();
+    assert_eq!(rdp(&fake), Some(1));
+    // A first setup finding the user's own RDP on turns it off too; restore turns it back on.
+    let mut fake = Fake::new();
+    fake.machine.values.insert(
+        key(Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections"),
+        0,
+    );
+    fake.machine.overriding = vec![overriding("UDP", "3392")];
+    let saved = Rc::new(RefCell::new(None));
+    let keep = saved.clone();
+    let error = format!(
+        "{:#}",
+        setup(
+            &mut fake,
+            None,
+            SID,
+            |state| {
+                *keep.borrow_mut() = Some(state.clone());
+                Ok(())
+            },
+            no_wait
+        )
+        .unwrap_err()
+    );
+    assert!(error.contains("so it was turned off"), "{error}");
+    assert_eq!(rdp(&fake), Some(1));
+    fake.machine.overriding.clear();
+    restore(&mut fake, &saved.take().unwrap()).unwrap();
+    assert_eq!(rdp(&fake), Some(0));
+    // Setting up again with RDP off already: it stays off, said as it is.
+    let mut fake = Fake::new();
+    let state = set_up(&mut fake);
+    fake.machine.values.insert(
+        key(Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections"),
+        1,
+    );
+    fake.machine.overriding = vec![overriding("TCP", "Any")];
+    let error = format!(
+        "{:#}",
+        setup(&mut fake, Some(state.clone()), SID, |_| Ok(()), no_wait).unwrap_err()
+    );
+    assert!(error.contains("Remote Desktop stays off"), "{error}");
+    // RDP that cannot be turned off is said as loudly.
+    let mut fake = Fake::new();
+    let state = set_up(&mut fake);
+    fake.stuck_writes.insert("fDenyTSConnections".into());
+    fake.machine.overriding = vec![overriding("TCP", "3389")];
+    let error = format!(
+        "{:#}",
+        setup(&mut fake, Some(state), SID, |_| Ok(()), no_wait).unwrap_err()
+    );
+    assert!(error.contains("Remote Desktop is still on"), "{error}");
+    assert_eq!(rdp(&fake), Some(0));
+}
+
+#[test]
 fn setup_for_another_account_is_refused() {
     let mut fake = Fake::new();
     let state = set_up(&mut fake);

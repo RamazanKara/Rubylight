@@ -637,6 +637,46 @@ public class NvHTTPParityTest {
         assertThrows(IllegalArgumentException.class, () -> FecChoice.fixed(-1));
     }
 
+    // The Error correction setting stores the wire value; anything else leaves it to the PC.
+    @Test
+    public void theFecSettingReadsBackAsItsChoice() {
+        assertEquals(FecChoice.HOST, FecChoice.fromPreference("host"));
+        assertEquals(FecChoice.AUTO, FecChoice.fromPreference("auto"));
+        assertEquals(FecChoice.fixed(20), FecChoice.fromPreference("20"));
+        assertEquals(FecChoice.fixed(0), FecChoice.fromPreference("0"));
+        assertEquals(FecChoice.fixed(255), FecChoice.fromPreference("255"));
+        for (String other : new String[] {null, "", "256", "-1", "20 %", "1000", "Auto"}) {
+            assertEquals(other, FecChoice.HOST, FecChoice.fromPreference(other));
+        }
+    }
+
+    // 80 % of the measured link, never above the setting and never below 2 Mbit/s unless the
+    // setting itself is lower.
+    @Test
+    public void aLinkTestOnlyLowersTheFirstBitrate() {
+        assertEquals(20000, NvHTTP.probeStartKbps(40000, 25));
+        assertEquals(40000, NvHTTP.probeStartKbps(40000, 500));
+        assertEquals(40000, NvHTTP.probeStartKbps(40000, Double.POSITIVE_INFINITY));
+        assertEquals(2000, NvHTTP.probeStartKbps(40000, 1));
+        assertEquals(2000, NvHTTP.probeStartKbps(40000, 0));
+        assertEquals(2000, NvHTTP.probeStartKbps(40000, Double.NaN));
+        assertEquals(1500, NvHTTP.probeStartKbps(1500, 1));
+    }
+
+    // A link test counts only an octet-stream body of at most the requested size, and never an empty one.
+    @Test
+    public void aLinkTestBodyMustBeBinaryNonEmptyAndNoLargerThanAsked() throws Exception {
+        MediaType binary = MediaType.get("application/octet-stream");
+        assertEquals(1000, NvHTTP.readLinkProbe(ResponseBody.create(new byte[1000], binary)));
+        assertEquals(NvHTTP.LINK_PROBE_BYTES,
+                NvHTTP.readLinkProbe(ResponseBody.create(new byte[NvHTTP.LINK_PROBE_BYTES], binary)));
+        assertThrows(java.io.IOException.class, () -> NvHTTP.readLinkProbe(ResponseBody.create(new byte[0], binary)));
+        assertThrows(java.io.IOException.class, () -> NvHTTP.readLinkProbe(
+                ResponseBody.create(new byte[NvHTTP.LINK_PROBE_BYTES + 1], binary)));
+        assertThrows(java.io.IOException.class, () -> NvHTTP.readLinkProbe(
+                ResponseBody.create(new byte[1000], MediaType.get("text/html"))));
+    }
+
     @Test
     public void renderScaleDoesNotChangeTheStreamViewport() throws Exception {
         ConnectionContext context = context("butterpollo-serverinfo.xml");

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_fec_choice">Коррекция ошибок</string>
+    <string name="summary_fec_choice">Сколько данных для восстановления ПК с Rubylight добавляет к видео. «Автоматически» подстраивается под потери этого устройства. Другие ПК используют свою настройку.</string>
+    <string name="fec_choice_host">Настройка ПК</string>
+    <string name="fec_choice_auto">Автоматически</string>
+</resources>

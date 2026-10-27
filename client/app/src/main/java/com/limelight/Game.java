@@ -1219,6 +1219,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .setResumeOnly(isResumeOnlyStream())
                 .setAllowIdleSessionEnd(!getIntent().getBooleanExtra(EXTRA_RECOVERY_MEDIA_FAILURE, false))
                 .setBitrate(smallStream ? InputOnlyPolicy.SMALL_BITRATE_KBPS : prefConfig.bitrate)
+                .setProbeFirstBitrate(!smallStream && prefConfig.automaticBitrate)
+                .setFecChoice(prefConfig.fecChoice)
                 .setEnableSops(!smallStream && prefConfig.enableSops)
                 .enableLocalAudioPlayback(smallStream || prefConfig.playHostAudio)
                 .setMaxPacketSize(1392)
@@ -6451,7 +6453,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 }
                 findViewById(R.id.inputOnlyStatus).setVisibility(
                         app.getRole() == NvApp.Role.INPUT_ONLY || externalPresentation != null ? View.VISIBLE : View.GONE);
-                currentBitrate = prefConfig.bitrate;
+                // A link test before the launch may have started the stream lower than the setting.
+                currentBitrate = app.isSmallStreamInputOnly() ? prefConfig.bitrate : conn.getStartBitrateKbps();
                 warnIfBelowPyroWaveFloor(currentBitrate);
                 if (autoBitrateAtStart()) {
                     setAdaptiveBitrateEnabled(true, false);

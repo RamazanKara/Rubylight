@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_fec_choice">Error correction</string>
+    <string name="summary_fec_choice">How much recovery data a Rubylight PC adds to the video. Automatic follows this device\'s losses. Other PCs use their own setting.</string>
+    <string name="fec_choice_host">PC\'s setting</string>
+    <string name="fec_choice_auto">Automatic</string>
+    <string name="fec_choice_10" translatable="false">10 %</string>
+    <string name="fec_choice_20" translatable="false">20 %</string>
+    <string name="fec_choice_30" translatable="false">30 %</string>
+    <string name="fec_choice_50" translatable="false">50 %</string>
+    <string-array name="fec_choice_names"><item>@string/fec_choice_host</item><item>@string/fec_choice_auto</item><item>@string/fec_choice_10</item><item>@string/fec_choice_20</item><item>@string/fec_choice_30</item><item>@string/fec_choice_50</item></string-array>
+    <string-array name="fec_choice_values" translatable="false"><item>host</item><item>auto</item><item>10</item><item>20</item><item>30</item><item>50</item></string-array>
+</resources>

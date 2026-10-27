@@ -26,4 +26,26 @@ public final class FecChoice {
         }
         return new FecChoice(Integer.toString(percentage));
     }
+
+    /** A stored list_fec_choice value (host, auto or 0-255); anything else is the host's own. */
+    public static FecChoice fromPreference(String value) {
+        if (AUTO.wireValue.equals(value)) return AUTO;
+        if (value != null && value.matches("[0-9]{1,3}")) {
+            int percentage = Integer.parseInt(value);
+            if (percentage <= 255) return fixed(percentage);
+        }
+        return HOST;
+    }
+
+    @Override public boolean equals(Object other) {
+        return other instanceof FecChoice && ((FecChoice) other).wireValue.equals(wireValue);
+    }
+
+    @Override public int hashCode() {
+        return wireValue.hashCode();
+    }
+
+    @Override public String toString() {
+        return wireValue;
+    }
 }

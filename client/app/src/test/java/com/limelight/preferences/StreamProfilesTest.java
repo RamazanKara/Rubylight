@@ -188,6 +188,27 @@ public class StreamProfilesTest {
         assertNull(wifi.layers.profileId);
     }
 
+    // The bitrate is automatic, and a new stream may be link-tested, only when nobody chose it:
+    // not in the main settings, a profile, this PC or this game. The mobile data limit is not a choice.
+    @Test
+    public void theBitrateIsAutomaticUntilALayerOrTheUserSetsIt() {
+        PreferenceConfiguration.readPreferences(app);
+        SharedPreferences main = PreferenceManager.getDefaultSharedPreferences(app);
+        main.edit().putString(PreferenceConfiguration.MOBILE_BITRATE_PREF_STRING, "15000").commit();
+        assertTrue(PreferenceConfiguration.readPreferences(app).automaticBitrate);
+        assertTrue(PreferenceConfiguration.readPreferences(app, "pc",
+                com.limelight.nvstream.http.HostCapabilities.UNKNOWN, "game", 3, StreamLayers.Network.MOBILE).automaticBitrate);
+
+        AppStreamSettings.save(app, "pc", "game", 3, values("v2;bitrate=30000"));
+        assertFalse(PreferenceConfiguration.readPreferences(app, "pc",
+                com.limelight.nvstream.http.HostCapabilities.UNKNOWN, "game", 3, StreamLayers.Network.WIFI).automaticBitrate);
+        assertTrue("another game", PreferenceConfiguration.readPreferences(app, "pc",
+                com.limelight.nvstream.http.HostCapabilities.UNKNOWN, "other", 4, StreamLayers.Network.WIFI).automaticBitrate);
+
+        main.edit().putInt("seekbar_bitrate_kbps", 40000).putBoolean("bitrate_user_set", true).commit();
+        assertFalse(PreferenceConfiguration.readPreferences(app).automaticBitrate);
+    }
+
     @Test
     public void aMobileLimitOutsideTheChoicesIsReadSafely() {
         assertEquals(0, PreferenceConfiguration.mobileBitrateLimit("0"));

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_fec_choice">Correction d’erreurs</string>
+    <string name="summary_fec_choice">Quantité de données de récupération qu’un PC Rubylight ajoute à la vidéo. Automatique suit les pertes de cet appareil. Les autres PC utilisent leur propre réglage.</string>
+    <string name="fec_choice_host">Réglage du PC</string>
+    <string name="fec_choice_auto">Automatique</string>
+</resources>

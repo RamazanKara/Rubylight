@@ -315,6 +315,7 @@ public class SettingsKeysTest {
         reads.put("list_network_grace", new Read("0", "30", c -> c.networkGraceSeconds));
         reads.put("checkbox_tell_host_wireless", new Read(true, false, c -> c.tellHostWireless));
         reads.put("checkbox_tell_host_link_speed", new Read(true, false, c -> c.tellHostLinkSpeed));
+        reads.put("list_fec_choice", new Read("host", "20", c -> c.fecChoice));
         reads.put("checkbox_disable_warnings", new Read(false, true, c -> c.disableWarnings));
         reads.put("list_languages", new Read("default", "de", c -> c.language));
         reads.put("checkbox_small_icon_mode", new Read(false, true, c -> c.smallIconMode));

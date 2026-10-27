@@ -357,7 +357,7 @@
 
     <style name="Widget.Nightjar.Button.Destructive" parent="Widget.Material3.Button.TextButton">
         <item name="android:minHeight">@dimen/touch_target</item>
-        <item name="android:textColor">?attr/colorError</item>
+        <item name="android:textColor">@color/text_error</item>
         <item name="iconTint">?attr/colorError</item>
         <item name="rippleColor">@color/error_ripple</item>
         <item name="strokeWidth">?attr/nightjarFocusRingWidth</item>

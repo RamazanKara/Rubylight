@@ -37,6 +37,8 @@ import java.util.concurrent.Executors;
 public class GpuDriverSettings extends NightjarActivity {
     private static final int IMPORT_DRIVER = 1;
     private DriverWork work;
+    /** The choice or button that had focus before the last rebuild, until it has focus again. */
+    private String focusKey;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -64,6 +66,11 @@ public class GpuDriverSettings extends NightjarActivity {
 
     private void refresh() {
         LinearLayout content = findViewById(R.id.gpu_driver_content);
+        // A rebuild replaces every view: remember what had focus, so the remote stays on the same choice or button
+        // instead of falling to the toolbar or the first row. While the work runs everything is disabled, so the
+        // key waits for the rebuild that enables it again.
+        View focused = content.findFocus();
+        if (focused != null && focused.getTag(R.id.focus_key) != null) focusKey = (String) focused.getTag(R.id.focus_key);
         content.removeAllViews();
         boolean busy = Boolean.TRUE.equals(work.busy.getValue());
         boolean supported = supportsDrivers();
@@ -111,7 +118,36 @@ public class GpuDriverSettings extends NightjarActivity {
                         return app.getString(R.string.gpu_driver_removed);
                     });
                 }).setNegativeButton(android.R.string.cancel, null).show());
+        importButton.setTag(R.id.focus_key, "import");
+        removeButton.setTag(R.id.focus_key, "remove");
+        restoreFocus(content, busy);
         com.limelight.ui.SubPageFocus.apply(this, content);
+    }
+
+    /**
+     * Puts focus back on the view that had it before the rebuild, once that view is enabled again. A view that is
+     * gone (a removed driver) or stays disabled after the work leaves the first focus to {@link com.limelight.ui.SubPageFocus}.
+     */
+    private void restoreFocus(LinearLayout content, boolean busy) {
+        if (focusKey == null) return;
+        View target = findByFocusKey(content, focusKey);
+        if (target != null && target.isEnabled() && target.requestFocus()) {
+            focusKey = null;
+        } else if (!busy) {
+            focusKey = null;
+        }
+    }
+
+    private static View findByFocusKey(View view, String key) {
+        if (key.equals(view.getTag(R.id.focus_key))) return view;
+        if (view instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View found = findByFocusKey(group.getChildAt(i), key);
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     /** Whether custom drivers can load here. The debug build's demo mode shows the screen as on a supported phone. */
@@ -124,8 +160,14 @@ public class GpuDriverSettings extends NightjarActivity {
         radio.setId(View.generateViewId());
         radio.setText(label);
         radio.setTag(driver);
+        radio.setTag(R.id.focus_key, "choice:" + (driver == null ? "system" : driver.id));
         radio.setEnabled(enabled);
-        group.addView(radio);
+        // Full width: the label wraps inside the gutter instead of being cut at a measured width, the focus outline
+        // spans the row like every other Settings row, and Up/Down on a remote move straight from row to row.
+        radio.setMinHeight(getResources().getDimensionPixelSize(R.dimen.touch_target));
+        int inset = getResources().getDimensionPixelSize(R.dimen.space_s);
+        radio.setPaddingRelative(radio.getPaddingStart(), inset, inset, inset);
+        group.addView(radio, new RadioGroup.LayoutParams(RadioGroup.LayoutParams.MATCH_PARENT, RadioGroup.LayoutParams.WRAP_CONTENT));
         if (checked) group.check(radio.getId());
     }
 

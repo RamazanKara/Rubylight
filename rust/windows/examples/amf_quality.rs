@@ -226,6 +226,9 @@ fn main() -> anyhow::Result<()> {
     all_sizes.sort_unstable();
     latencies.sort_by(f64::total_cmp);
     sizes.sort_unstable();
+    // Frames other than keyframes the rate control let past its cap.
+    let frame_cap = encoder.frame_cap();
+    let over_cap = frame_cap.map(|cap| sizes.iter().filter(|&&bytes| bytes as u64 > cap).count());
     let focus_stats = encoder.focus_stats().unwrap_or_default();
     let percentile = |values: &[f64], p: usize| {
         values
@@ -265,7 +268,8 @@ fn main() -> anyhow::Result<()> {
             "focus_qp_delta": focus_stats.qp_delta,
             "focus_first_map_frame": first_map.map(|(index, _)| index),
             "focus_first_map_bytes": first_map.map(|(_, bytes)| bytes),
-            "frame_cap_bytes": encoder.frame_cap(),
+            "frame_cap_bytes": frame_cap,
+            "frames_over_cap": over_cap,
             "frame_bytes_head": head,
         })
     );

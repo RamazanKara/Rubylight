@@ -118,6 +118,8 @@ export interface Draft {
   host_control: boolean;
   /** Lets the device put the host to sleep while it is idle; off unless granted here. */
   allow_sleep: boolean;
+  /** Lets the device attach its USB devices to the host; off unless granted here. */
+  allow_usb: boolean;
   do: CommandRow[];
   undo: CommandRow[];
 }
@@ -199,6 +201,8 @@ export function toDraft(client: Client): Draft {
     host_control: client.host_control === true || client.host_control === 'true',
     // Only a JSON true counts, as in Vibepollo.
     allow_sleep: client.allow_sleep === true,
+    // As the host reads it (Client::allows_usb): only a JSON true.
+    allow_usb: client.allow_usb === true,
     do: commandRows(client.do),
     undo: commandRows(client.undo),
   };
@@ -250,6 +254,7 @@ function serialise(draft: Draft): Changes {
     // The host takes only a boolean or null here; null removes the grant.
     host_control: draft.host_control ? true : null,
     allow_sleep: draft.allow_sleep ? true : null,
+    allow_usb: draft.allow_usb ? true : null,
     // The host rejects a null command list, so an empty list is sent instead.
     do: commands(draft.do),
     undo: commands(draft.undo),
@@ -258,11 +263,15 @@ function serialise(draft: Draft): Changes {
 
 /**
  * Whether saving ends the device's running stream. The host does that only when
- * the device is turned off or loses a permission bit; other edits, including
- * Host control, apply from the next request or stream.
+ * the device is turned off, loses a permission bit or loses USB devices (its
+ * attached ones go with the stream); other edits, including Host control,
+ * apply from the next request or stream.
  */
 export function savingEndsStream(connected: boolean, before: Draft, after: Draft): boolean {
-  return connected && ((before.enabled && !after.enabled) || (before.perm & ~after.perm) !== 0);
+  return (
+    connected &&
+    ((before.enabled && !after.enabled) || (before.perm & ~after.perm) !== 0 || (before.allow_usb && !after.allow_usb))
+  );
 }
 
 /** Only the keys whose stored value would change. */

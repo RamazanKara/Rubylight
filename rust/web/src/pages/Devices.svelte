@@ -10,8 +10,10 @@
   import ClientAgent from '../components/devices/ClientAgent.svelte';
   import DeviceEditor from '../components/devices/DeviceEditor.svelte';
   import PairPanel from '../components/devices/PairPanel.svelte';
+  import UsbDevices from '../components/devices/UsbDevices.svelte';
+  import { showUsb } from '../components/devices/usb';
   import { grantedLabels, permissionSummary } from '../components/devices/device';
-  import { api, type Client } from '../lib/api';
+  import { api, type Client, type UsbAttachment } from '../lib/api';
   import { confirm, failed, notify } from '../lib/feedback.svelte';
   import { poll } from '../lib/format';
   import { guardNavigation } from '../lib/router.svelte';
@@ -28,6 +30,41 @@
   const acting = $derived(busy !== '' || editorSaving);
   let latestLoad = 0;
   let knownDevices: Set<string> | null = null;
+  let usbDevices = $state<UsbAttachment[]>([]);
+  let usbError = $state('');
+  /** The USB attachment being detached. */
+  let usbBusy = $state<number | null>(null);
+  let latestUsbLoad = 0;
+
+  // Its own request and error, so a host without USB forwarding still lists its devices.
+  async function loadUsb() {
+    const id = ++latestUsbLoad;
+    try {
+      const result = await api.usb.list();
+      if (id !== latestUsbLoad) return;
+      usbDevices = result.devices;
+      usbError = '';
+    } catch (error) {
+      if (id === latestUsbLoad) usbError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  async function detachUsb(device: UsbAttachment) {
+    if (usbBusy !== null) return;
+    usbBusy = device.id;
+    try {
+      await api.usb.detach(device.id);
+      notify(`Detached ${device.name} from ${device.client}.`, 'ok');
+    } catch (error) {
+      failed(`Detaching ${device.name} failed`, error);
+    } finally {
+      try {
+        await loadUsb();
+      } finally {
+        usbBusy = null;
+      }
+    }
+  }
 
   async function load() {
     // A poll that started before a save must not put the old values back.
@@ -54,7 +91,7 @@
     }
   }
 
-  onMount(() => poll(load, 5000));
+  onMount(() => poll(() => Promise.all([load(), loadUsb()]), 5000));
 
   $effect(() => {
     if (!editorDirty) return;
@@ -257,6 +294,10 @@
     </ul>
   {/if}
 </Panel>
+
+{#if usbError || showUsb(clients, usbDevices)}
+  <UsbDevices devices={usbDevices} error={usbError} busy={usbBusy} ondetach={detachUsb} />
+{/if}
 
 <style>
   .more { position: relative; }

@@ -53,9 +53,9 @@
     dirty = changed;
   });
 
-  // Custom permissions, or a granted Host control or Sleep PC, open the section.
+  // Custom permissions, or a granted Host control, Sleep PC or USB devices, open the section.
   // Nothing closes it again: unticking a box must not snap it shut under the cursor.
-  const granted = () => permissionSummary(draft.perm) === 'Custom' || draft.host_control || draft.allow_sleep;
+  const granted = () => permissionSummary(draft.perm) === 'Custom' || draft.host_control || draft.allow_sleep || draft.allow_usb;
   let permissionsOpen = $state(untrack(granted));
   $effect(() => {
     if (granted()) permissionsOpen = true;
@@ -223,6 +223,10 @@
                 Sleep PC: put this PC to sleep from this device while nothing is running (Experimental)
               </label>
             {/if}
+            <label class="check">
+              <input type="checkbox" bind:checked={draft.allow_usb} />
+              USB devices: attach USB devices plugged into this device to this PC during a stream (Experimental)
+            </label>
           {/if}
         </fieldset>
       {/each}

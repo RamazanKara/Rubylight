@@ -324,13 +324,31 @@ export interface Client {
   host_control?: boolean | string | null;
   /** Sleep PC from this device. Sent as true or null; the host refuses anything else. */
   allow_sleep?: boolean | string | null;
-  /** USB forwarding from this device (3.0, not yet served). Sent as a boolean or null. */
+  /** USB forwarding from this device. Sent as true or null; only a JSON true grants it. */
   allow_usb?: boolean | null;
   /** Folder grants by folder id (3.0, not yet served). Null clears them. */
   shared_folders?: Record<string, 'read' | 'write'> | null;
   do?: unknown;
   undo?: unknown;
   [extra: string]: unknown;
+}
+/** A USB device a paired device forwards to this PC (`GET /api/usb`). */
+export interface UsbAttachment {
+  id: number;
+  /** The paired device's name. */
+  client: string;
+  name: string;
+  vid: number;
+  pid: number;
+  class: number;
+  speed: number;
+  busid: string;
+  /** `detach_failed`: the driver kept it; detaching it again retries. */
+  state: 'waiting' | 'opening' | 'attached' | 'detaching' | 'detach_failed';
+  /** The driver's hub port once attached. */
+  port: number | null;
+  since_unix_ms: number;
+  error: string | null;
 }
 export interface PendingPairing {
   uniqueid: string;
@@ -843,6 +861,11 @@ export const api = {
     /** Applies exactly `changes`, as `status` listed them; 409 when they changed since. */
     fixWake: (changes: string[], fastStartupOff: boolean) =>
       post<PowerFixResult>('/api/power/wake/fix', { changes, fast_startup_off: fastStartupOff }, ACTION_TIMEOUT_MS),
+  },
+  usb: {
+    list: () => get<{ status: true; devices: UsbAttachment[] }>('/api/usb'),
+    // The host runs usbip.exe for a device the driver kept, so this can take a while.
+    detach: (id: number) => post<Ok>('/api/usb/detach', { id }, ACTION_TIMEOUT_MS),
   },
   tokens: {
     list: () => get<{ status: true; tokens: ApiToken[] }>('/api/tokens'),

@@ -215,6 +215,8 @@ struct Watcher {
     max_text: usize,
     /// The focused text field.
     field: Option<(IUIAutomationElement, Field)>,
+    /// Counts on each time the focus moves to another text field ([`Focused::element`]).
+    element: u32,
     /// The field whose text events are followed.
     followed: Option<IUIAutomationElement>,
 }
@@ -256,6 +258,7 @@ impl Watcher {
                 text_handler,
                 max_text,
                 field: None,
+                element: 0,
                 followed: None,
             })
         }
@@ -280,6 +283,17 @@ impl Watcher {
                 .filter(|(_, field)| self.max_text > 0 && !field.sensitive)
                 .map(|(element, _)| element.clone());
             self.follow(read);
+            // Focus events also come for the element that has it; only another one counts.
+            let same = match (&self.field, &field) {
+                (Some((before, _)), Some((element, _))) => self
+                    .automation
+                    .CompareElements(before, element)
+                    .is_ok_and(|same| same.as_bool()),
+                _ => false,
+            };
+            if field.is_some() && !same {
+                self.element = self.element.wrapping_add(1);
+            }
             self.field = field;
             self.report(report);
         }
@@ -301,6 +315,7 @@ impl Watcher {
             report(self.field.as_ref().map(|(element, field)| {
                 Focused {
                     field: *field,
+                    element: self.element,
                     surrounding: (self.max_text > 0 && !field.sensitive)
                         .then(|| read_text(element, self.max_text))
                         .flatten(),

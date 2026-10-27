@@ -144,6 +144,10 @@ pub struct Surrounding {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Focused {
     pub field: Field,
+    /// Which element has the focus: the watcher counts on each time it moves to another one.
+    /// Two fields of one kind look the same without their text, and the client must still
+    /// hear the move, or it keeps composing a word typed into the field before.
+    pub element: u32,
     pub surrounding: Option<Surrounding>,
 }
 
@@ -215,6 +219,7 @@ pub enum Watch {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Context {
     field: Field,
+    element: u32,
     text: String,
     selection: (u16, u16),
 }
@@ -326,6 +331,7 @@ impl TextInputs {
                 field,
                 text,
                 selection,
+                ..
             }) => TextInputNotice {
                 kind,
                 input_type: field.input_type,
@@ -366,12 +372,14 @@ impl TextInputs {
                 let (text, start, end) = bound(surrounding, max_text);
                 Context {
                     field: focused.field,
+                    element: focused.element,
                     text,
                     selection: (start, end),
                 }
             }
             _ => Context {
                 field: focused.field,
+                element: focused.element,
                 text: String::new(),
                 selection: (SELECTION_UNKNOWN, SELECTION_UNKNOWN),
             },
@@ -561,8 +569,13 @@ mod tests {
     }
 
     fn focused(name: &str, text: &str) -> Option<Focused> {
+        in_element(name, text, 1)
+    }
+
+    fn in_element(name: &str, text: &str, element: u32) -> Option<Focused> {
         Some(Focused {
             field: classify(&edit(name)).unwrap(),
+            element,
             surrounding: Some(around(text, Some((text.len(), text.len())))),
         })
     }
@@ -658,6 +671,7 @@ mod tests {
                     ..edit("x")
                 })
                 .unwrap(),
+                element: 2,
                 surrounding: Some(around("hunter2", Some((7, 7)))),
             }),
             later,
@@ -704,5 +718,26 @@ mod tests {
         inputs.on_request(&request(false, 0), true, false);
         inputs.note(focused("Name", ""), now);
         assert_eq!(notice(inputs.take(now + LOWER_DELAY * 2)).serial, 3);
+    }
+
+    /// Two fields of one kind look the same to the client when it asked for no text; moving
+    /// from one to the other is still an update, so it stops composing the word it was.
+    #[test]
+    fn moving_to_another_field_of_the_same_kind_is_an_update() {
+        let now = Instant::now();
+        let mut inputs = TextInputs::default();
+        inputs.on_request(&request(false, 0), true, false);
+        inputs.note(in_element("First name", "", 1), now);
+        assert_eq!(notice(inputs.take(now)).kind, NoticeKind::Raise);
+        // The same element again, as UI Automation reports a refocus: nothing.
+        inputs.note(in_element("First name", "", 1), now + INTERVAL);
+        assert_eq!(inputs.take(now + INTERVAL), None);
+        inputs.note(in_element("Last name", "", 2), now + INTERVAL);
+        let update = notice(inputs.take(now + INTERVAL));
+        assert_eq!(
+            (update.kind, update.input_type, update.serial),
+            (NoticeKind::Update, InputType::Text, 2)
+        );
+        assert!(update.text.is_empty());
     }
 }

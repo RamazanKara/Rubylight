@@ -102,6 +102,16 @@ public final class HostTextField {
         return options;
     }
 
+    /**
+     * This field started over, after the host moved its focus to another field or a tap or click
+     * on the stream may have moved its caret: what this one composed is on the host and final, and
+     * the new one knows no text, so the next word is not diffed against the last.
+     */
+    public HostTextField fresh() {
+        finishComposing();
+        return new HostTextField(type, flags);
+    }
+
     /** setComposingText: the composing text becomes text. */
     public boolean compose(CharSequence text, Sink sink) {
         return replaceComposing(text == null ? "" : text.toString(), sink);

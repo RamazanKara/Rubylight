@@ -1790,6 +1790,7 @@ fn text_field(
             no_autocapitalize: false,
             enter_action: false,
         },
+        element: 1,
         surrounding: Some(Surrounding {
             text: "hello world".into(),
             selection: Some((5, 5)),

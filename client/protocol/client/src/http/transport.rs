@@ -1201,9 +1201,12 @@ mod tests {
     fn probe_deadline_closes_a_stalled_body() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
+        // The body never comes: the server holds the connection until the client gives up, so
+        // only the probe's deadline can end it. The hang guard is far past that deadline.
+        let hang_guard = Duration::from_secs(30);
         let server = std::thread::spawn(move || {
             let (mut socket, _) = listener.accept().unwrap();
-            socket.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            socket.set_read_timeout(Some(hang_guard)).unwrap();
             let mut head = Vec::new();
             while !head.ends_with(b"\r\n\r\n") {
                 let mut byte = [0]; socket.read_exact(&mut byte).unwrap(); head.push(byte[0]);
@@ -1214,11 +1217,13 @@ mod tests {
         let host = Host::parse("127.0.0.1").unwrap();
         let mut headers_seen = false;
         let started = std::time::Instant::now();
+        // Long enough that a loaded PC still gets the headers in; 150 ms was not.
         let result = probe(&Request { host: &host, port, target: "probe", tls: None,
             timeouts: Timeouts { connect: Duration::from_secs(1), read: None }, body_limit: 1 },
-            &Cancel::default(), Duration::from_millis(150), &mut |_, _, _| { headers_seen = true; Ok(()) });
-        assert!(headers_seen && result.is_err());
-        assert!(started.elapsed() < Duration::from_secs(2));
+            &Cancel::default(), Duration::from_secs(2), &mut |_, _, _| { headers_seen = true; Ok(()) });
+        assert!(headers_seen, "the headers came after the probe's deadline: {result:?}");
+        assert!(result.is_err(), "{result:?}");
+        assert!(started.elapsed() < hang_guard / 2, "the probe waited for the server: {:?}", started.elapsed());
         server.join().unwrap();
     }
 
@@ -1754,15 +1759,16 @@ mod tests {
         let (port, server) = host(move |mut socket| {
             read_head_of(&mut socket);
             socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len()).as_bytes()).unwrap();
-            for piece in body.chunks(1000) {
-                std::thread::sleep(Duration::from_millis(150));
+            for piece in body.chunks(500) {
+                std::thread::sleep(Duration::from_millis(100));
                 socket.write_all(piece).unwrap();
             }
         });
         let request = Request { host: &host_name, port, target: "f", tls: None,
-            timeouts: Timeouts { connect: Duration::from_secs(1), read: Some(Duration::from_millis(400)) }, body_limit: 1024 };
+            timeouts: Timeouts { connect: Duration::from_secs(1), read: Some(Duration::from_secs(1)) }, body_limit: 1024 };
         let mut sink = Vec::new();
-        // 900 ms in all, more than twice the timeout, but never 400 ms without a byte.
+        // 1.2 s or more in all, past the timeout, but a byte every 100 ms: a loaded PC that
+        // stretches a gap tenfold still keeps it under the timeout (150 ms against 400 ms did not).
         download(&request, &Cancel::default(), &mut sink, &mut |_, _| {}, &Cancel::default()).unwrap();
         assert!(sink == sent);
         server.join().unwrap();

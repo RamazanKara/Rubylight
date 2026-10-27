@@ -8,11 +8,17 @@ import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
+import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.ByteBuffer;
+import java.nio.file.Files;
 
 import okhttp3.MediaType;
 import okhttp3.ResponseBody;
+import okio.Okio;
 
 /** The host's image clipboard limits, checked on both sides of the transfer as nightjar-core checks them. */
 public class ClipboardImageExceptionTest {
@@ -77,17 +83,78 @@ public class ClipboardImageExceptionTest {
         assertEquals(500, other.getErrorCode());
     }
 
+    private static byte[] written(ResponseBody body) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        assertEquals(body.contentLength(), ClipboardImageException.writePng(body, out));
+        return out.toByteArray();
+    }
+
     @Test
     public void aReceivedImageMustBeAPngOfTypeImagePng() throws IOException {
         byte[] image = png(4, 4);
-        assertArrayEquals(image, ClipboardImageException.readPng(ResponseBody.create(image, MediaType.get("image/png"))));
-        assertThrows(IOException.class, () -> ClipboardImageException.readPng(
+        assertArrayEquals(image, written(ResponseBody.create(image, MediaType.get("image/png"))));
+        assertThrows(IOException.class, () -> written(
                 ResponseBody.create(image, MediaType.get("application/octet-stream"))));
-        assertThrows(IOException.class, () -> ClipboardImageException.readPng(ResponseBody.create(image, null)));
+        assertThrows(IOException.class, () -> written(ResponseBody.create(image, null)));
         assertEquals(ClipboardImageException.Reason.NOT_PNG, assertThrows(ClipboardImageException.class,
-                () -> ClipboardImageException.readPng(ResponseBody.create("<html>", MediaType.get("image/png")))).reason);
+                () -> written(ResponseBody.create("<html>", MediaType.get("image/png")))).reason);
         assertEquals(ClipboardImageException.Reason.TOO_LARGE, assertThrows(ClipboardImageException.class,
-                () -> ClipboardImageException.readPng(ResponseBody.create(new byte[ClipboardImageException.MAX_BYTES + 1],
+                () -> written(ResponseBody.create(new byte[ClipboardImageException.MAX_BYTES + 1],
                         MediaType.get("image/png")))).reason);
+    }
+
+    /** A PNG header followed by zeros, {@code length} bytes in all, made as it is read. */
+    private static InputStream endless(long length) {
+        byte[] head = png(4, 4);
+        return new InputStream() {
+            long at;
+            @Override public int read() {
+                byte[] one = new byte[1];
+                return read(one, 0, 1) == -1 ? -1 : one[0] & 0xff;
+            }
+            @Override public int read(byte[] buffer, int offset, int count) {
+                if (at >= length) return -1;
+                int n = (int) Math.min(count, length - at);
+                for (int i = 0; i < n; i++) buffer[offset + i] = at + i < head.length ? head[(int) (at + i)] : 0;
+                at += n;
+                return n;
+            }
+        };
+    }
+
+    @Test
+    public void aReceivedImageOfUnknownLengthIsStreamedAndCutAtTheLimit() throws IOException {
+        long[] kept = {0};
+        OutputStream counting = new OutputStream() {
+            @Override public void write(int b) { kept[0]++; }
+            @Override public void write(byte[] b, int off, int len) { kept[0] += len; }
+        };
+        ResponseBody chunked = ResponseBody.create(Okio.buffer(Okio.source(endless(ClipboardImageException.MAX_BYTES + 1L))),
+                MediaType.get("image/png"), -1);
+        assertEquals(ClipboardImageException.Reason.TOO_LARGE, assertThrows(ClipboardImageException.class,
+                () -> ClipboardImageException.writePng(chunked, counting)).reason);
+        assertTrue("wrote " + kept[0], kept[0] <= ClipboardImageException.MAX_BYTES);
+        ResponseBody fits = ResponseBody.create(Okio.buffer(Okio.source(endless(ClipboardImageException.MAX_BYTES))),
+                MediaType.get("image/png"), -1);
+        kept[0] = 0;
+        assertEquals(ClipboardImageException.MAX_BYTES, ClipboardImageException.writePng(fits, counting));
+        assertEquals(ClipboardImageException.MAX_BYTES, kept[0]);
+    }
+
+    @Test
+    public void aFileIsCheckedByItsHeaderAndLength() throws IOException {
+        File file = File.createTempFile("clipboard", ".png");
+        try {
+            Files.write(file.toPath(), png(64, 32));
+            assertArrayEquals(new int[] {64, 32}, ClipboardImageException.pngSize(file));
+            Files.write(file.toPath(), png(16385, 1));
+            assertEquals(ClipboardImageException.Reason.TOO_LARGE, assertThrows(ClipboardImageException.class,
+                    () -> ClipboardImageException.pngSize(file)).reason);
+            Files.write(file.toPath(), new byte[] {1, 2, 3});
+            assertEquals(ClipboardImageException.Reason.NOT_PNG, assertThrows(ClipboardImageException.class,
+                    () -> ClipboardImageException.pngSize(file)).reason);
+        } finally {
+            assertTrue(file.delete());
+        }
     }
 }

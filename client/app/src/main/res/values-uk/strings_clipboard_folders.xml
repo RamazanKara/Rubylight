@@ -1,15 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">Надіслати зображення з буфера обміну на хост</string>
-    <string name="stream_clipboard_image_receive">Копіювати зображення з буфера обміну хоста</string>
+    <string name="stream_clipboard_image_send">Надіслати зображення з буфера обміну на хост (експериментально)</string>
+    <string name="stream_clipboard_image_receive">Копіювати зображення з буфера обміну хоста (експериментально)</string>
     <string name="stream_clipboard_image_empty">У буфері обміну немає зображення</string>
     <string name="stream_clipboard_image_sent">Зображення з буфера обміну надіслано на хост</string>
     <string name="stream_clipboard_image_none">У буфері обміну хоста немає зображення</string>
     <string name="stream_clipboard_image_received">Зображення з хоста скопійовано в буфер обміну</string>
     <string name="clipboard_image_too_large">Зображення завелике для буфера обміну хоста</string>
     <string name="clipboard_image_not_png">Не вдалося прочитати зображення</string>
-    <string name="clipboard_image_unsupported">Цей хост не може передавати зображення через буфер обміну</string>
+    <string name="clipboard_image_no_host">Цей хост не може передавати зображення через буфер обміну</string>
     <string name="clipboard_image_forbidden">Хост не дозволяє цьому пристрою користуватися його буфером обміну</string>
+    <string name="clipboard_image_unsupported">Хост не зміг перетворити це зображення</string>
+    <string name="stream_clipboard_not_copied">Текст не скопійовано: трансляцію завершено</string>
+    <string name="stream_clipboard_image_not_copied">Зображення не скопійовано: трансляцію завершено</string>
     <string name="folders_title">Спільні папки</string>
     <string name="folders_on_pc">Папки, які %1$s відкриває цьому пристрою</string>
     <string name="folders_loading">Завантаження…</string>
@@ -43,4 +46,9 @@
     <string name="folders_no_console_user">На ПК ніхто не ввійшов у систему.</string>
     <string name="folders_busy">Триває інше передавання з цього пристрою. Спробуйте ще раз, коли воно завершиться.</string>
     <string name="folders_size_unknown">Розмір файлу невідомий, тому його не можна вивантажити.</string>
+    <string name="folders_unsupported">Цей ПК не пропонує спільних папок: його хост застарий або ще не відкрив жодної. Відкрийте папку у вебінтерфейсі ПК.</string>
+    <string name="folders_save_lost">Файл для збереження було втрачено, поки було відкрито вікно збереження. Нічого не збережено.</string>
+    <string name="folders_partial_left">%1$s Неповний файл залишився в %2$s.</string>
+    <string name="folders_bad_path">Nightjar не може відкрити цей шлях: %1$s</string>
+    <string name="host_menu_folders_note">Експериментально</string>
 </resources>

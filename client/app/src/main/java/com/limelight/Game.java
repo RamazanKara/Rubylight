@@ -4217,7 +4217,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 }
                 String incoming = send ? null : conn.getClipboard();
                 runOnUiThread(() -> {
-                    if (!foreground || generation != foregroundGeneration || !connected || isFinishing() || !hasWindowFocus()) {
+                    // Window focus is not asked: a toast or the stream menu's dialog holds it while the stream stays.
+                    if (!foreground || generation != foregroundGeneration || !connected || isFinishing()) {
+                        if (!send) {
+                            messages.alert(R.string.stream_clipboard_not_copied, Toast.LENGTH_LONG);
+                        }
                         return;
                     }
                     if (!send) {
@@ -4253,64 +4257,94 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             return;
         }
         ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-        android.net.Uri image = null;
+        ClipData current = null;
         if (send) {
             try {
-                image = ClipboardImages.imageUri(clipboard.getPrimaryClip(), getContentResolver());
+                current = clipboard.getPrimaryClip();
             } catch (RuntimeException e) {
                 showHostActionError(e, foregroundGeneration);
                 return;
             }
-            if (image == null) {
+            if (current == null || current.getItemCount() == 0) {
                 messages.alert(R.string.stream_clipboard_image_empty, Toast.LENGTH_SHORT);
                 return;
             }
         }
-        final android.net.Uri outgoing = image;
+        final ClipData outgoing = current;
         final int generation = foregroundGeneration;
         hostActionInProgress = true;
         new Thread(() -> {
+            java.io.File staged = null;
             try {
                 if (send) {
-                    conn.sendClipboardImage(ClipboardImages.readPng(getContentResolver(), outgoing));
+                    // The image's type comes from its provider, which may block: never asked on the main thread.
+                    android.net.Uri image = ClipboardImages.imageUri(outgoing, getContentResolver());
+                    if (image == null) {
+                        showClipboardImageResult(R.string.stream_clipboard_image_empty, generation);
+                        return;
+                    }
+                    staged = ClipboardImages.readPng(this, image);
+                    conn.sendClipboardImage(staged);
                     showClipboardImageResult(R.string.stream_clipboard_image_sent, generation);
                     return;
                 }
-                byte[] png = conn.getClipboardImage();
-                if (png == null) {
+                staged = ClipboardImages.newIncoming(this);
+                boolean found;
+                try (java.io.OutputStream out = new java.io.FileOutputStream(staged)) {
+                    found = conn.getClipboardImage(out);
+                }
+                if (!found) {
                     showClipboardImageResult(R.string.stream_clipboard_image_none, generation);
                     return;
                 }
-                android.net.Uri incoming = ClipboardImages.store(this, png);
-                runOnUiThread(() -> {
-                    if (!foreground || generation != foregroundGeneration || !connected || isFinishing() || !hasWindowFocus()) {
-                        return;
-                    }
-                    ClipData clip = ClipData.newUri(getContentResolver(), BuildConfig.BRAND_NAME, incoming);
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                        PersistableBundle extras = new PersistableBundle();
-                        extras.putBoolean("android.content.extra.IS_SENSITIVE", true);
-                        clip.getDescription().setExtras(extras);
-                    }
-                    try {
-                        clipboard.setPrimaryClip(clip);
-                    } catch (RuntimeException e) {
-                        showHostActionError(e, generation);
-                        return;
-                    }
-                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-                        messages.alert(R.string.stream_clipboard_image_received, Toast.LENGTH_SHORT);
-                    }
-                });
+                java.io.File incoming = staged;
+                staged = null;
+                runOnUiThread(() -> placeClipboardImage(clipboard, incoming, generation));
             } catch (ClipboardImageException e) {
                 LimeLog.warning("Clipboard image refused: " + e.getMessage());
                 showClipboardImageResult(ClipboardImages.message(e.reason), generation);
+            } catch (OutOfMemoryError e) {
+                LimeLog.warning("Clipboard image out of memory: " + e);
+                showClipboardImageResult(R.string.clipboard_image_too_large, generation);
             } catch (IOException | XmlPullParserException | RuntimeException e) {
                 showHostActionError(e, generation);
             } finally {
+                if (staged != null) {
+                    ClipboardImages.discard(staged);
+                }
                 runOnUiThread(() -> hostActionInProgress = false);
             }
         }, "Clipboard image transfer").start();
+    }
+
+    /**
+     * Puts the host's image, streamed to {@code image}, on this device's clipboard; the images before it go only once
+     * it is there. A stream that closed meanwhile gets it said, not a silent drop.
+     */
+    private void placeClipboardImage(ClipboardManager clipboard, java.io.File image, int generation) {
+        // Window focus is not asked: a toast or the stream menu's dialog holds it while the stream stays.
+        if (!foreground || generation != foregroundGeneration || !connected || isFinishing()) {
+            ClipboardImages.discard(image);
+            messages.alert(R.string.stream_clipboard_image_not_copied, Toast.LENGTH_LONG);
+            return;
+        }
+        try {
+            ClipData clip = ClipData.newUri(getContentResolver(), BuildConfig.BRAND_NAME, ClipboardImages.share(this, image));
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                PersistableBundle extras = new PersistableBundle();
+                extras.putBoolean("android.content.extra.IS_SENSITIVE", true);
+                clip.getDescription().setExtras(extras);
+            }
+            clipboard.setPrimaryClip(clip);
+        } catch (RuntimeException e) {
+            ClipboardImages.discard(image);
+            showHostActionError(e, generation);
+            return;
+        }
+        ClipboardImages.keepOnly(this, image);
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            messages.alert(R.string.stream_clipboard_image_received, Toast.LENGTH_SHORT);
+        }
     }
 
     private void showClipboardImageResult(int message, int generation) {

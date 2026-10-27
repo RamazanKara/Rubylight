@@ -1,15 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">클립보드 이미지를 호스트로 보내기</string>
-    <string name="stream_clipboard_image_receive">호스트 클립보드 이미지 복사</string>
+    <string name="stream_clipboard_image_send">클립보드 이미지를 호스트로 보내기(실험적)</string>
+    <string name="stream_clipboard_image_receive">호스트 클립보드 이미지 복사(실험적)</string>
     <string name="stream_clipboard_image_empty">클립보드에 이미지가 없습니다</string>
     <string name="stream_clipboard_image_sent">클립보드 이미지를 호스트로 보냈습니다</string>
     <string name="stream_clipboard_image_none">호스트 클립보드에 이미지가 없습니다</string>
     <string name="stream_clipboard_image_received">호스트 이미지를 클립보드에 복사했습니다</string>
     <string name="clipboard_image_too_large">이미지가 호스트 클립보드에 비해 너무 큽니다</string>
     <string name="clipboard_image_not_png">이미지를 읽을 수 없습니다</string>
-    <string name="clipboard_image_unsupported">이 호스트는 클립보드 이미지를 공유할 수 없습니다</string>
+    <string name="clipboard_image_no_host">이 호스트는 클립보드 이미지를 공유할 수 없습니다</string>
     <string name="clipboard_image_forbidden">호스트가 이 기기의 클립보드 사용을 허용하지 않습니다</string>
+    <string name="clipboard_image_unsupported">호스트가 이 이미지를 변환하지 못했습니다</string>
+    <string name="stream_clipboard_not_copied">텍스트를 복사하지 못했습니다: 스트림이 종료되었습니다</string>
+    <string name="stream_clipboard_image_not_copied">이미지를 복사하지 못했습니다: 스트림이 종료되었습니다</string>
     <string name="folders_title">공유 폴더</string>
     <string name="folders_on_pc">%1$s에서 이 기기와 공유하는 폴더</string>
     <string name="folders_loading">불러오는 중…</string>
@@ -43,4 +46,9 @@
     <string name="folders_no_console_user">PC에 로그인한 사용자가 없습니다.</string>
     <string name="folders_busy">이 기기의 다른 전송이 진행 중입니다. 끝난 후 다시 시도하세요.</string>
     <string name="folders_size_unknown">파일 크기를 알 수 없어 업로드할 수 없습니다.</string>
+    <string name="folders_unsupported">이 PC는 공유 폴더를 제공하지 않습니다. 호스트가 오래되었거나 아직 공유한 폴더가 없습니다. PC의 웹 UI에서 폴더를 공유하세요.</string>
+    <string name="folders_save_lost">저장 대화상자가 열려 있는 동안 저장할 파일 정보가 사라졌습니다. 아무것도 저장되지 않았습니다.</string>
+    <string name="folders_partial_left">%1$s 일부만 받은 파일이 %2$s에 남아 있습니다.</string>
+    <string name="folders_bad_path">Nightjar가 열 수 없는 경로입니다: %1$s</string>
+    <string name="host_menu_folders_note">실험적</string>
 </resources>

@@ -1,15 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">Wyślij obraz ze schowka do hosta</string>
-    <string name="stream_clipboard_image_receive">Kopiuj obraz ze schowka hosta</string>
+    <string name="stream_clipboard_image_send">Wyślij obraz ze schowka do hosta (eksperymentalne)</string>
+    <string name="stream_clipboard_image_receive">Kopiuj obraz ze schowka hosta (eksperymentalne)</string>
     <string name="stream_clipboard_image_empty">Schowek nie zawiera obrazu</string>
     <string name="stream_clipboard_image_sent">Obraz ze schowka wysłany do hosta</string>
     <string name="stream_clipboard_image_none">Schowek hosta nie zawiera obrazu</string>
     <string name="stream_clipboard_image_received">Obraz z hosta skopiowany do schowka</string>
     <string name="clipboard_image_too_large">Obraz jest za duży dla schowka hosta</string>
     <string name="clipboard_image_not_png">Nie udało się odczytać obrazu</string>
-    <string name="clipboard_image_unsupported">Ten host nie może udostępniać obrazów ze schowka</string>
+    <string name="clipboard_image_no_host">Ten host nie może udostępniać obrazów ze schowka</string>
     <string name="clipboard_image_forbidden">Host nie pozwala temu urządzeniu używać swojego schowka</string>
+    <string name="clipboard_image_unsupported">Host nie mógł przekonwertować tego obrazu</string>
+    <string name="stream_clipboard_not_copied">Nie skopiowano tekstu: strumień został zamknięty</string>
+    <string name="stream_clipboard_image_not_copied">Nie skopiowano obrazu: strumień został zamknięty</string>
     <string name="folders_title">Udostępnione foldery</string>
     <string name="folders_on_pc">Foldery, które %1$s udostępnia temu urządzeniu</string>
     <string name="folders_loading">Wczytywanie…</string>
@@ -43,4 +46,9 @@
     <string name="folders_no_console_user">Nikt nie jest zalogowany na komputerze.</string>
     <string name="folders_busy">Trwa inne przesyłanie z tego urządzenia. Spróbuj ponownie, gdy się skończy.</string>
     <string name="folders_size_unknown">Rozmiar pliku jest nieznany, więc nie można go wysłać.</string>
+    <string name="folders_unsupported">Ten komputer nie oferuje folderów udostępnionych: jego host jest za stary albo nie udostępnia jeszcze żadnego. Udostępnij folder w interfejsie WWW komputera.</string>
+    <string name="folders_save_lost">Plik do zapisania został utracony, gdy okno zapisu było otwarte. Nic nie zapisano.</string>
+    <string name="folders_partial_left">%1$s Niepełny plik pozostał w %2$s.</string>
+    <string name="folders_bad_path">Nightjar nie może otworzyć tej ścieżki: %1$s</string>
+    <string name="host_menu_folders_note">Eksperymentalne</string>
 </resources>

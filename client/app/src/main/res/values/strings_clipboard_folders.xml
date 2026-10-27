@@ -1,15 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">Send clipboard image to host</string>
-    <string name="stream_clipboard_image_receive">Copy host clipboard image</string>
+    <string name="stream_clipboard_image_send">Send clipboard image to host (Experimental)</string>
+    <string name="stream_clipboard_image_receive">Copy host clipboard image (Experimental)</string>
     <string name="stream_clipboard_image_empty">The clipboard has no image</string>
     <string name="stream_clipboard_image_sent">Clipboard image sent to host</string>
     <string name="stream_clipboard_image_none">The host clipboard has no image</string>
     <string name="stream_clipboard_image_received">Host image copied to clipboard</string>
     <string name="clipboard_image_too_large">The image is too large for the host clipboard</string>
     <string name="clipboard_image_not_png">The image could not be read</string>
-    <string name="clipboard_image_unsupported">This host cannot share clipboard images</string>
+    <string name="clipboard_image_no_host">This host cannot share clipboard images</string>
     <string name="clipboard_image_forbidden">The host does not let this device use its clipboard</string>
+    <string name="clipboard_image_unsupported">The host could not convert this image</string>
+    <string name="stream_clipboard_not_copied">Text not copied: the stream closed</string>
+    <string name="stream_clipboard_image_not_copied">Image not copied: the stream closed</string>
     <string name="folders_title">Shared folders</string>
     <string name="folders_on_pc">Folders %1$s shares with this device</string>
     <string name="folders_loading">Loading…</string>
@@ -43,4 +46,9 @@
     <string name="folders_no_console_user">Nobody is signed in on the PC.</string>
     <string name="folders_busy">Another transfer from this device is running. Try again when it ends.</string>
     <string name="folders_size_unknown">The file\'s size is unknown, so it cannot be uploaded.</string>
+    <string name="folders_unsupported">This PC offers no shared folders: its host is too old for them, or it shares none yet. Share one in the PC\'s web UI.</string>
+    <string name="folders_save_lost">The file to save was lost while the save dialog was open. Nothing was saved.</string>
+    <string name="folders_partial_left">%1$s A partial file is left at %2$s.</string>
+    <string name="folders_bad_path">Not a path Nightjar can open: %1$s</string>
+    <string name="host_menu_folders_note">Experimental</string>
 </resources>

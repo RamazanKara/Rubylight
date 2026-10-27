@@ -1,6 +1,10 @@
 package com.limelight.nvstream.http;
 
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.Arrays;
 
 import okhttp3.MediaType;
@@ -20,6 +24,8 @@ public final class ClipboardImageException extends IOException {
         UNSUPPORTED,
         /** 403: the image clipboard is off, the device lacks the clipboard permission or has no stream of its own. */
         FORBIDDEN,
+        /** The host offers no image clipboard at all (an older or other host); nothing was asked. */
+        NO_HOST_SUPPORT,
     }
 
     /** The most bytes an image may have: the top of the host's clipboard_image_max_mb (1 to 64, 16 by default). */
@@ -45,8 +51,13 @@ public final class ClipboardImageException extends IOException {
 
     /** The width and height a PNG's header gives, once its signature, IHDR chunk and the host's limits check out. */
     public static int[] pngSize(byte[] png) throws ClipboardImageException {
-        if (png.length > MAX_BYTES) {
-            throw new ClipboardImageException(Reason.TOO_LARGE, "The image has " + png.length + " bytes, over " + MAX_BYTES);
+        return pngSize(png, png.length);
+    }
+
+    /** {@link #pngSize(byte[])} of a PNG of {@code length} bytes that starts with {@code png}. */
+    static int[] pngSize(byte[] png, long length) throws ClipboardImageException {
+        if (length > MAX_BYTES) {
+            throw new ClipboardImageException(Reason.TOO_LARGE, "The image has " + length + " bytes, over " + MAX_BYTES);
         }
         if (png.length < 24 || !Arrays.equals(Arrays.copyOf(png, 8), PNG_SIGNATURE)) {
             throw new ClipboardImageException(Reason.NOT_PNG, "Not a PNG image");
@@ -82,17 +93,53 @@ public final class ClipboardImageException extends IOException {
         }
     }
 
-    /** A 200 answer's PNG: of type image/png, within the limits and with a PNG header. */
-    static byte[] readPng(ResponseBody body) throws IOException {
+    /**
+     * Streams a 200 answer's PNG into {@code out} and returns its length: of type image/png, within the limits and
+     * with a PNG header. Only 64 KiB is held at a time; on a throw {@code out} has a part of it, for the caller to
+     * delete.
+     */
+    static long writePng(ResponseBody body, OutputStream out) throws IOException {
         MediaType type = body.contentType();
         if (type == null || !type.type().equalsIgnoreCase("image") || !type.subtype().equalsIgnoreCase("png")) {
             throw new IOException("The PC sent " + type + " for a clipboard image");
         }
-        if (body.source().request(MAX_BYTES + 1L)) {
-            throw new ClipboardImageException(Reason.TOO_LARGE, "The PC's image is over " + MAX_BYTES + " bytes");
+        if (body.contentLength() > MAX_BYTES) {
+            throw new ClipboardImageException(Reason.TOO_LARGE, "The PC's image has " + body.contentLength()
+                    + " bytes, over " + MAX_BYTES);
         }
-        byte[] png = body.bytes();
-        pngSize(png);
-        return png;
+        return copyPng(body.byteStream(), out);
+    }
+
+    /** Copies a PNG from {@code in} to {@code out}, checking its header first and its length as it goes. */
+    public static long copyPng(InputStream in, OutputStream out) throws IOException {
+        byte[] head = new byte[24];
+        int got = 0, read;
+        while (got < head.length && (read = in.read(head, got, head.length - got)) != -1) {
+            got += read;
+        }
+        pngSize(Arrays.copyOf(head, got), got);
+        out.write(head, 0, got);
+        long length = got;
+        byte[] buffer = new byte[64 * 1024];
+        while ((read = in.read(buffer)) != -1) {
+            length += read;
+            if (length > MAX_BYTES) {
+                throw new ClipboardImageException(Reason.TOO_LARGE, "The image has over " + MAX_BYTES + " bytes");
+            }
+            out.write(buffer, 0, read);
+        }
+        return length;
+    }
+
+    /** The size of the PNG in {@code file}, checked like {@link #pngSize(byte[])}, read from its header alone. */
+    public static int[] pngSize(File file) throws IOException {
+        byte[] head = new byte[24];
+        int got = 0, read;
+        try (InputStream in = new FileInputStream(file)) {
+            while (got < head.length && (read = in.read(head, got, head.length - got)) != -1) {
+                got += read;
+            }
+        }
+        return pngSize(Arrays.copyOf(head, got), file.length());
     }
 }

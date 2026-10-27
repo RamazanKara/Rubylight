@@ -1,15 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">Отправить изображение из буфера обмена на хост</string>
-    <string name="stream_clipboard_image_receive">Скопировать изображение из буфера обмена хоста</string>
+    <string name="stream_clipboard_image_send">Отправить изображение из буфера обмена на хост (экспериментально)</string>
+    <string name="stream_clipboard_image_receive">Скопировать изображение из буфера обмена хоста (экспериментально)</string>
     <string name="stream_clipboard_image_empty">В буфере обмена нет изображения</string>
     <string name="stream_clipboard_image_sent">Изображение из буфера обмена отправлено на хост</string>
     <string name="stream_clipboard_image_none">В буфере обмена хоста нет изображения</string>
     <string name="stream_clipboard_image_received">Изображение с хоста скопировано в буфер обмена</string>
     <string name="clipboard_image_too_large">Изображение слишком большое для буфера обмена хоста</string>
     <string name="clipboard_image_not_png">Не удалось прочитать изображение</string>
-    <string name="clipboard_image_unsupported">Этот хост не может передавать изображения через буфер обмена</string>
+    <string name="clipboard_image_no_host">Этот хост не может передавать изображения через буфер обмена</string>
     <string name="clipboard_image_forbidden">Хост не разрешает этому устройству пользоваться его буфером обмена</string>
+    <string name="clipboard_image_unsupported">Хост не смог преобразовать это изображение</string>
+    <string name="stream_clipboard_not_copied">Текст не скопирован: трансляция завершилась</string>
+    <string name="stream_clipboard_image_not_copied">Изображение не скопировано: трансляция завершилась</string>
     <string name="folders_title">Общие папки</string>
     <string name="folders_on_pc">Папки, которые %1$s открывает этому устройству</string>
     <string name="folders_loading">Загрузка…</string>
@@ -43,4 +46,9 @@
     <string name="folders_no_console_user">На ПК никто не вошёл в систему.</string>
     <string name="folders_busy">Идёт другая передача с этого устройства. Повторите, когда она закончится.</string>
     <string name="folders_size_unknown">Размер файла неизвестен, поэтому его нельзя отправить.</string>
+    <string name="folders_unsupported">Этот ПК не предлагает общих папок: его хост слишком старый или ещё не открыл ни одной. Откройте папку в веб-интерфейсе ПК.</string>
+    <string name="folders_save_lost">Файл для сохранения был потерян, пока было открыто окно сохранения. Ничего не сохранено.</string>
+    <string name="folders_partial_left">%1$s Неполный файл остался в %2$s.</string>
+    <string name="folders_bad_path">Nightjar не может открыть этот путь: %1$s</string>
+    <string name="host_menu_folders_note">Экспериментально</string>
 </resources>

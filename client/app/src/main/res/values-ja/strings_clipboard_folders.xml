@@ -1,15 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">クリップボードの画像をホストに送信</string>
-    <string name="stream_clipboard_image_receive">ホストのクリップボードの画像をコピー</string>
+    <string name="stream_clipboard_image_send">クリップボードの画像をホストに送信（試験運用）</string>
+    <string name="stream_clipboard_image_receive">ホストのクリップボードの画像をコピー（試験運用）</string>
     <string name="stream_clipboard_image_empty">クリップボードに画像がありません</string>
     <string name="stream_clipboard_image_sent">クリップボードの画像をホストに送信しました</string>
     <string name="stream_clipboard_image_none">ホストのクリップボードに画像がありません</string>
     <string name="stream_clipboard_image_received">ホストの画像をクリップボードにコピーしました</string>
     <string name="clipboard_image_too_large">画像がホストのクリップボードには大きすぎます</string>
     <string name="clipboard_image_not_png">画像を読み取れませんでした</string>
-    <string name="clipboard_image_unsupported">このホストはクリップボードの画像を共有できません</string>
+    <string name="clipboard_image_no_host">このホストはクリップボードの画像を共有できません</string>
     <string name="clipboard_image_forbidden">ホストはこのデバイスにクリップボードの使用を許可していません</string>
+    <string name="clipboard_image_unsupported">ホストはこの画像を変換できませんでした</string>
+    <string name="stream_clipboard_not_copied">テキストはコピーされませんでした: ストリームが終了しました</string>
+    <string name="stream_clipboard_image_not_copied">画像はコピーされませんでした: ストリームが終了しました</string>
     <string name="folders_title">共有フォルダー</string>
     <string name="folders_on_pc">%1$s がこのデバイスと共有しているフォルダー</string>
     <string name="folders_loading">読み込み中…</string>
@@ -43,4 +46,9 @@
     <string name="folders_no_console_user">PC に誰もサインインしていません。</string>
     <string name="folders_busy">このデバイスから別の転送が実行中です。終了してからもう一度お試しください。</string>
     <string name="folders_size_unknown">ファイルのサイズが不明なため、アップロードできません。</string>
+    <string name="folders_unsupported">この PC は共有フォルダーを提供していません。ホストが古いか、まだ共有していません。PC の Web UI でフォルダーを共有してください。</string>
+    <string name="folders_save_lost">保存ダイアログを開いている間に保存するファイルの情報が失われました。何も保存されていません。</string>
+    <string name="folders_partial_left">%1$s 途中までのファイルが %2$s に残っています。</string>
+    <string name="folders_bad_path">Nightjar はこのパスを開けません: %1$s</string>
+    <string name="host_menu_folders_note">試験運用</string>
 </resources>

@@ -1431,17 +1431,22 @@ public class NvConnection {
     }
 
     /**
-     * The PNG on the host's clipboard, or null while it holds no image. Each refusal the host documents is a
-     * {@link com.limelight.nvstream.http.ClipboardImageException}.
+     * Streams the PNG on the host's clipboard into {@code out}, or returns false while it holds no image. Each
+     * refusal the host documents is a {@link com.limelight.nvstream.http.ClipboardImageException}.
      */
-    public byte[] getClipboardImage() throws IOException, XmlPullParserException {
+    public boolean getClipboardImage(java.io.OutputStream out) throws IOException, XmlPullParserException {
         if (!nativeImageClipboard) {
-            throw new IOException("Host has no image clipboard");
+            throw noImageClipboard();
         }
         if (!refreshHostDetails().canReadClipboard()) {
             throw new IOException("Host clipboard read permission denied");
         }
-        return http.getClipboardImage();
+        return http.getClipboardImage(out);
+    }
+
+    private static IOException noImageClipboard() {
+        return new com.limelight.nvstream.http.ClipboardImageException(
+                com.limelight.nvstream.http.ClipboardImageException.Reason.NO_HOST_SUPPORT, "Host has no image clipboard");
     }
 
     public void quitApp() throws IOException, XmlPullParserException {
@@ -1662,10 +1667,10 @@ public class NvConnection {
         }
     }
 
-    /** Puts {@code png} on the host's clipboard; the host's limits are checked before anything is sent. */
-    public void sendClipboardImage(byte[] png) throws IOException, XmlPullParserException {
+    /** Puts the PNG in {@code png} on the host's clipboard; the host's limits are checked before anything is sent. */
+    public void sendClipboardImage(java.io.File png) throws IOException, XmlPullParserException {
         if (!nativeImageClipboard) {
-            throw new IOException("Host has no image clipboard");
+            throw noImageClipboard();
         }
         if (context.streamConfig.getApp().getRole() == NvApp.Role.REMOTE_MONITOR || !refreshHostDetails().canWriteClipboard()) {
             throw new IOException("Host clipboard write permission denied");

@@ -276,7 +276,7 @@ POST /api/native/v1/radeon/settings
 
 ## Wake targets (`wake`)
 
-Status: contract only (3.0.0-rc.3 work, [design](wake-and-audio-design.md) A.2, A.3 and A.6). Types in `rubylight_native_api::wake`, fixture `rust/core/native-api/tests/fixtures/wake.json`.
+Status: served (after 3.0.0-rc.3, [design](wake-and-audio-design.md) A.2, A.3 and A.6). Types in `rubylight_native_api::wake`, fixture `rust/core/native-api/tests/fixtures/wake.json`.
 
 ```http
 GET /api/native/v1/wake
@@ -315,7 +315,7 @@ GET /api/native/v1/wake
 - Any paired device with List, View or Launch can read it. Paired clients already see `<mac>` in `/serverinfo`; this adds the PC's other physical adapters. Virtual and VPN adapters are never listed.
 - `primary` is the MAC `/serverinfo` reports to this client, in the same `aa:bb:cc:dd:ee:ff` format, chosen by the host's MAC policy. It is `null` when no physical adapter is connected (`/serverinfo` then sends zeros).
 - `targets` lists every physical adapter, connected or not. `kind` is `ethernet` or `wifi`. `route` is true for the adapter this request came in through; every `route` is false when the client came through a VPN or another virtual adapter, which a sleeping PC can't be woken through without a relay on its LAN. `broadcasts` are the adapter's IPv4 subnet-directed broadcasts.
-- `targets[].state`: `ready`, `needs_setup` (a wake setting is off; the console's Fix button changes it), `unknown` (the settings could not be read, for example because PowerShell is blocked) or `experimental` (Wi-Fi).
+- `targets[].state`: `ready`, `needs_setup` (a wake setting is off; an administrator's `POST /api/power/wake/fix` from the console changes it), `unknown` (the settings could not be read, for example because PowerShell is blocked) or `experimental` (Wi-Fi).
 - `checks[].id`: `wake_enabled` (Allow this device to wake the computer), `magic_packet` (`*WakeOnMagicPacket`), `magic_packet_only`, `wake_on_pattern` (information only), `modern_standby_magic_packet` (Modern Standby PCs whose adapter has it) and `shutdown_wake` (a vendor's wake from shutdown, information only). `checks[].state`: `ok`, `warning`, `error` or `unknown`.
 - `system.sleep` is `s3` or `none`. `fast_startup` is `active` (on, with hibernate available), `inactive` (on, but hibernate is off, so it has no effect) or `off`. `shutdown_wake` is always `firmware_unknown`: waking from shutdown depends on firmware settings Windows can't read.
 - `idle_sleep` is the host's own sleep after idle: `state` is `off`, `armed`, `blocked` or `unsupported`, `minutes` is `sleep_after_idle_minutes` (0 when off), and `reason` says what blocks it or why it is unsupported (`null` otherwise).

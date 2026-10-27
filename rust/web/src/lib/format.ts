@@ -45,7 +45,8 @@ export function polled(): boolean {
   return polling > 0;
 }
 
-function marked<T>(task: () => T): T {
+/** Run `task` as a poll: for a page's own timer outside `poll`. */
+export function marked<T>(task: () => T): T {
   polling++;
   try {
     return task();

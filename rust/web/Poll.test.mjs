@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { createTestServer } from './test-server.mjs';
 
 const server = await createTestServer();
-const { poll } = await server.ssrLoadModule('/src/lib/format.ts');
+const { marked, poll } = await server.ssrLoadModule('/src/lib/format.ts');
 const { api } = await server.ssrLoadModule('/src/lib/api.ts');
 
 test('polled requests say so, so a page left open does not keep the PC awake', async () => {
@@ -24,9 +24,12 @@ test('polled requests say so, so a page left open does not keep the PC awake', a
     stop();
     // What the user asks for is not a poll.
     await api.metadata();
+    // A page's own timer (the Updates panel) marks its reload too.
+    await marked(() => api.updates.state());
     assert.deepEqual(seen, [
       { path: '/api/metadata', poll: '1' },
       { path: '/api/metadata', poll: null },
+      { path: '/api/updates', poll: '1' },
     ]);
   } finally {
     delete globalThis.fetch;

@@ -7,7 +7,7 @@
   import LoadState from '../LoadState.svelte';
   import { api, type UpdatesState } from '../../lib/api';
   import { confirm, failed } from '../../lib/feedback.svelte';
-  import { ago, when } from '../../lib/format';
+  import { ago, marked, when } from '../../lib/format';
   import { link } from '../../lib/router.svelte';
   import { refreshMetadata, session } from '../../lib/session.svelte';
   import { localTime, reason } from './util';
@@ -46,7 +46,8 @@
     } finally {
       if (alive && !document.hidden) {
         const active = updates?.checking || queued || updates?.last_install?.phase === 'installing';
-        timer = setTimeout(load, active ? 2000 : 30000);
+        // A poll, not someone at the console (sleep after idle).
+        timer = setTimeout(() => marked(load), active ? 2000 : 30000);
       }
     }
   }

@@ -104,7 +104,7 @@ impl Fixture {
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
-        self.host.stop_app();
+        self.host.stop_app(crate::state::AppStop::Test);
         // The journal writer must be done before the directory goes.
         self.host.session_flush();
         let _ = std::fs::remove_dir_all(&self.host.directory);

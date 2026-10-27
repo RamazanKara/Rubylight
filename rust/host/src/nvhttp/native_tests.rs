@@ -540,7 +540,7 @@ async fn library_lists_the_added_games_with_ids_that_survive_a_rename() {
             .collect::<Vec<_>>(),
         [false, true, false]
     );
-    s.host().stop_app();
+    s.host().stop_app(crate::state::AppStop::Test);
 
     // A rename keeps the ids and changes the revision. The app id is the CRC
     // of the name, so it moves, and `install_id` and `game_id` are the keys.

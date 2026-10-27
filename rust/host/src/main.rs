@@ -492,7 +492,7 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
     drop(webrtc);
     tasks.abort_all();
     while tasks.join_next().await.is_some() {}
-    h.stop_app();
+    h.stop_app(state::AppStop::Shutdown);
     h.session_shutdown();
     // Whatever a session changed goes back before the host exits; the restore thread has had the
     // work since the session reset above. The wait is blocking, so it leaves the async executor.

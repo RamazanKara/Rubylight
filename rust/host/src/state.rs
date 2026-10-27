@@ -221,12 +221,73 @@ pub struct Host {
     pub wake: crate::wake::Wake,
     pub assets: PathBuf,
 }
+/// Why the running app is stopped, and the client that asked: each stop logs it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AppStop<'a> {
+    /// A client's `/cancel`, Moonlight's Quit.
+    Cancel(&'a str),
+    /// A client's launch with the Terminate control.
+    Terminate(&'a str),
+    /// WebRTC's stop-host-session or switch-session.
+    WebRtc(&'a str),
+    /// Close game from the session controls.
+    CloseGame(&'a str),
+    /// Close in the web UI.
+    WebUi,
+    /// Quit app in the tray.
+    Tray,
+    /// The app exited by itself.
+    Exited,
+    /// The deferred app failed to start.
+    LaunchFailed,
+    /// The host shuts down.
+    Shutdown,
+    #[cfg(test)]
+    Test,
+}
+impl<'a> AppStop<'a> {
+    pub fn reason(self) -> &'static str {
+        match self {
+            Self::Cancel(_) => "cancel",
+            Self::Terminate(_) => "terminate",
+            Self::WebRtc(_) => "webrtc",
+            Self::CloseGame(_) => "close game",
+            Self::WebUi => "web ui",
+            Self::Tray => "tray",
+            Self::Exited => "exited",
+            Self::LaunchFailed => "launch failed",
+            Self::Shutdown => "shutdown",
+            #[cfg(test)]
+            Self::Test => "test",
+        }
+    }
+    /// The uuid of the client that asked, as the app's owner is.
+    pub fn client(self) -> Option<&'a str> {
+        match self {
+            Self::Cancel(client)
+            | Self::Terminate(client)
+            | Self::WebRtc(client)
+            | Self::CloseGame(client) => Some(client),
+            _ => None,
+        }
+    }
+}
 impl Host {
-    pub fn stop_app(&self) {
+    pub fn stop_app(&self, why: AppStop<'_>) {
         let teardown = self.session_teardown(crate::session_control::Scope::Game);
         // Stopping the app waits for it to exit, up to its exit timeout and
         // undo commands: never under the lock every serverinfo request takes.
         let app = self.current_app.lock().unwrap().take();
+        if let Some(app) = &app {
+            tracing::info!(
+                reason = why.reason(),
+                by = why.client(),
+                app = %app.name,
+                app_id = app.id,
+                owner = %app.owner,
+                "stopping the application"
+            );
+        }
         drop(app);
         let audio = self.app_audio.lock().unwrap().take();
         let displays = std::mem::take(&mut *self.app_display.lock().unwrap());

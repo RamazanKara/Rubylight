@@ -77,7 +77,7 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 .unwrap()
                 .stop_role(butterpollo_core::session::Role::Stream, None);
             drop(canceled);
-            h.stop_app();
+            h.stop_app(crate::state::AppStop::WebUi);
             json!({"status":true})
         }
         ("POST", "/api/apps/launch") => {

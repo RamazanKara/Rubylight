@@ -1,5 +1,5 @@
 use crate::{
-    state::{Launch, PendingPin, Sessions, Shared},
+    state::{AppStop, Launch, PendingPin, Sessions, Shared},
     tls::Connection,
 };
 use anyhow::{Context, Result, bail};
@@ -1580,8 +1580,8 @@ pub(crate) fn stop_streams(h: &Shared, terminate_app: Option<&str>) -> StopStrea
         (sessions.stop_role(Role::Stream, None), ids)
     };
     drop(canceled);
-    if terminate_app.is_some() {
-        h.stop_app();
+    if let Some(client) = terminate_app {
+        h.stop_app(AppStop::WebRtc(client));
     }
     if wait_for_teardown(&h.sessions, &ids, Duration::from_secs(10)) {
         StopStreams::Stopped
@@ -1650,7 +1650,7 @@ fn validate_launch_request(
             drop(confirmations);
             let canceled = h.sessions.lock().unwrap().stop_role(Role::Stream, None);
             drop(canceled);
-            h.stop_app();
+            h.stop_app(AppStop::Terminate(&client.uuid));
             return ControlFlow::Break(xml(
                 410,
                 &[("gamesession", "0".into())],
@@ -2142,7 +2142,7 @@ fn cancel_app(h: Shared, connection: Connection) -> Response {
     }
     let canceled = h.sessions.lock().unwrap().stop_role(Role::Stream, None);
     drop(canceled);
-    h.stop_app();
+    h.stop_app(AppStop::Cancel(&client.uuid));
     xml(200, &[("cancel", "1".into())], None)
 }
 async fn unpair(State(h): State<Shared>, Extension(connection): Extension<Connection>) -> Response {

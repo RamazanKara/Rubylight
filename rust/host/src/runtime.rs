@@ -1,5 +1,8 @@
 //! Host housekeeping and user actions, independent of listener setup.
-use crate::{maintenance, state::Shared};
+use crate::{
+    maintenance,
+    state::{AppStop, Shared},
+};
 use butterpollo_core::session::Role;
 use butterpollo_windows::{process::StopSignal, tray::Action};
 use std::{
@@ -72,7 +75,7 @@ fn start_deferred(h: &Shared) {
                 tracing::warn!(%error, app = %app.name, "deferred application failed to start");
                 let canceled = h.sessions.lock().unwrap().stop_role(Role::Stream, None);
                 drop(canceled);
-                h.stop_app();
+                h.stop_app(AppStop::LaunchFailed);
             }
         }
     });
@@ -99,7 +102,7 @@ fn user_action(h: &Shared, action: Action, web_port: u16) {
                 let _transition = h.launch_transition.lock().unwrap();
                 let canceled = h.sessions.lock().unwrap().stop_role(Role::Stream, None);
                 drop(canceled);
-                h.stop_app();
+                h.stop_app(AppStop::Tray);
             });
         }
         Action::CheckUpdates => maintenance::trigger_update(h, true),
@@ -260,7 +263,7 @@ pub async fn maintain(
                 if application_finished(&h) {
                     let canceled = h.sessions.lock().unwrap().stop_role(Role::Stream, None);
                     drop(canceled);
-                    h.stop_app();
+                    h.stop_app(AppStop::Exited);
                 }
             }));
         }

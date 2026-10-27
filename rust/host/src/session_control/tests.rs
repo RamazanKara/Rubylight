@@ -646,7 +646,7 @@ fn the_stock_stop_paths_end_the_game_and_the_session() {
     let setup = Setup::new("");
     let session = setup.streaming();
     session.stop();
-    setup.host().stop_app();
+    setup.host().stop_app(crate::state::AppStop::Test);
     let snapshot = setup.host().session_snapshot();
     assert_eq!(snapshot.state, State::Idle);
     assert!(!snapshot.game_running);
@@ -672,7 +672,7 @@ fn cleanup_repeats_safely_in_every_order() {
     for _ in 0..3 {
         let _ = h.end_session(None);
         let _ = h.close_game(setup.uuid());
-        h.stop_app();
+        h.stop_app(crate::state::AppStop::Test);
         crate::runtime::release_displays(&h);
         h.reap_paused_display();
         h.session_tick();
@@ -820,7 +820,7 @@ fn a_clean_shutdown_leaves_no_journal_to_recover() {
     let session = setup.streaming();
     assert!(setup.journal().is_some());
     session.stop();
-    setup.host().stop_app();
+    setup.host().stop_app(crate::state::AppStop::Test);
     setup.host().session_shutdown();
     assert_eq!(setup.journal(), None);
     assert_eq!(setup.host().recover_session(), None);
@@ -855,4 +855,58 @@ fn a_journal_that_could_not_be_deleted_is_deleted_by_a_later_try() {
     drop(sender);
     writer.join().unwrap();
     let _ = std::fs::remove_dir_all(&directory);
+}
+
+#[test]
+fn a_stop_logs_its_reason_the_client_that_asked_and_the_app() {
+    let setup = Setup::new("");
+    setup.suspended();
+    let game = setup.game();
+    let path = setup.host().directory.join("app-stop.log");
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .without_time()
+        .with_ansi(false)
+        .with_target(false)
+        .with_writer(std::sync::Mutex::new(std::fs::File::create(&path).unwrap()))
+        .finish();
+    tracing::subscriber::with_default(subscriber, || {
+        assert_eq!(setup.host().close_game(setup.uuid()), Ok(Outcome::Done));
+        // Nothing runs any more: a second stop has nothing to log.
+        setup.host().stop_app(crate::state::AppStop::Shutdown);
+    });
+    let log = std::fs::read_to_string(path).unwrap();
+    let stops: Vec<&str> = log
+        .lines()
+        .filter(|line| line.contains("stopping the application"))
+        .collect();
+    assert_eq!(stops.len(), 1, "{log}");
+    for field in [
+        "reason=\"close game\"".to_owned(),
+        format!("by=\"{}\"", setup.uuid()),
+        format!("app={}", game.name),
+        format!("owner={}", setup.uuid()),
+        "app_id=".to_owned(),
+    ] {
+        assert!(stops[0].contains(&field), "{field} missing: {log}");
+    }
+}
+
+#[test]
+fn each_stop_names_its_reason_and_only_client_stops_name_a_client() {
+    use crate::state::AppStop;
+    let cases = [
+        (AppStop::Cancel("a"), "cancel", Some("a")),
+        (AppStop::Terminate("b"), "terminate", Some("b")),
+        (AppStop::WebRtc("c"), "webrtc", Some("c")),
+        (AppStop::CloseGame("d"), "close game", Some("d")),
+        (AppStop::WebUi, "web ui", None),
+        (AppStop::Tray, "tray", None),
+        (AppStop::Exited, "exited", None),
+        (AppStop::LaunchFailed, "launch failed", None),
+        (AppStop::Shutdown, "shutdown", None),
+    ];
+    for (stop, reason, client) in cases {
+        assert_eq!((stop.reason(), stop.client()), (reason, client), "{stop:?}");
+    }
 }

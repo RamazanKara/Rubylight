@@ -134,14 +134,58 @@ pub fn trusted_owner(owner: &str) -> Result<bool> {
 }
 /// The owner (a SID) of the kernel object `handle` opens with `READ_CONTROL`.
 pub fn handle_owner(handle: HANDLE) -> Result<String> {
-    use windows::Win32::Security::Authorization::{GetSecurityInfo, SE_KERNEL_OBJECT};
+    owner_of(
+        handle,
+        windows::Win32::Security::Authorization::SE_KERNEL_OBJECT,
+    )
+}
+/// The owner (a SID) of the file or folder `file` has open: of the object
+/// then read through it, which the path could have been swapped for since.
+pub fn open_file_owner(file: &std::fs::File) -> Result<String> {
+    owner_of(
+        HANDLE(file.as_raw_handle()),
+        windows::Win32::Security::Authorization::SE_FILE_OBJECT,
+    )
+}
+/// `path` opened to check and read through one handle: a link is opened
+/// itself, never followed, and the file is not written while it is open. A
+/// `folder` cannot be renamed or deleted while it is open, so a file opened
+/// in it after it was checked is in the folder checked.
+pub fn open_unfollowed(path: &Path, folder: bool) -> std::io::Result<std::fs::File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows::Win32::Storage::FileSystem::{
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_LIST_DIRECTORY,
+        FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, READ_CONTROL,
+    };
+    let mut options = std::fs::OpenOptions::new();
+    if folder {
+        // Listing is data access: a handle with only attribute or security
+        // access holds no share mode, and the folder could still be renamed.
+        options
+            .access_mode(FILE_LIST_DIRECTORY.0 | READ_CONTROL.0 | FILE_READ_ATTRIBUTES.0)
+            .share_mode((FILE_SHARE_READ | FILE_SHARE_WRITE).0)
+            .custom_flags((FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT).0);
+    } else {
+        // Delete is shared so a newer record can still take its name.
+        options
+            .read(true)
+            .share_mode((FILE_SHARE_READ | FILE_SHARE_DELETE).0)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0);
+    }
+    options.open(path)
+}
+fn owner_of(
+    handle: HANDLE,
+    kind: windows::Win32::Security::Authorization::SE_OBJECT_TYPE,
+) -> Result<String> {
+    use windows::Win32::Security::Authorization::GetSecurityInfo;
     let mut owner = PSID::default();
     let mut descriptor = PSECURITY_DESCRIPTOR::default();
     // SAFETY: `owner` points into `descriptor`, read before it is freed once with LocalFree.
     unsafe {
         GetSecurityInfo(
             handle,
-            SE_KERNEL_OBJECT,
+            kind,
             OWNER_SECURITY_INFORMATION,
             Some(&mut owner),
             None,
@@ -1966,6 +2010,41 @@ mod tests {
         let mut text = String::new();
         reader.read_to_string(&mut text).unwrap();
         assert_eq!(text, "ping");
+    }
+    #[test]
+    fn a_file_is_checked_and_read_through_one_handle_in_a_folder_that_stays() {
+        use super::*;
+        use std::io::Read;
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        let folder = root.join("windows-settings");
+        std::fs::create_dir_all(&folder).unwrap();
+        let path = folder.join("record.json");
+        std::fs::write(&path, "first").unwrap();
+        let held = open_unfollowed(&folder, true).unwrap();
+        assert_eq!(
+            open_file_owner(&held).unwrap(),
+            file_owner(&folder).unwrap()
+        );
+        // The folder checked is the one the file is opened in.
+        assert!(std::fs::rename(&folder, root.join("moved")).is_err());
+        let mut file = open_unfollowed(&path, false).unwrap();
+        assert_eq!(open_file_owner(&file).unwrap(), file_owner(&path).unwrap());
+        // Not written while open; a newer record can still take the name, and what was
+        // checked is what is read.
+        assert!(std::fs::OpenOptions::new().write(true).open(&path).is_err());
+        let newer = folder.join("record.tmp");
+        std::fs::write(&newer, "second").unwrap();
+        std::fs::rename(&newer, &path).unwrap();
+        let mut text = String::new();
+        file.read_to_string(&mut text).unwrap();
+        assert_eq!(text, "first");
+        drop((file, held));
+        std::fs::rename(&folder, root.join("moved")).unwrap();
+        assert_eq!(
+            open_unfollowed(&folder, true).unwrap_err().kind(),
+            std::io::ErrorKind::NotFound
+        );
     }
     #[test]
     fn a_piped_child_reads_stdin_and_answers_on_stdout_and_stderr_inside_the_job() {

@@ -42,8 +42,9 @@ struct Record {
     /// Make SYSTEM and Administrators alone the folder's (or file's) owner
     /// and users.
     restrict: fn(&Path) -> Result<()>,
-    /// Err unless SYSTEM or Administrators own the path.
-    trusted: fn(&Path) -> Result<()>,
+    /// Err unless SYSTEM or Administrators own the open file or folder, which
+    /// `path` names.
+    trusted: fn(&File, &Path) -> Result<()>,
 }
 impl Record {
     /// This PC's record, and the profile in `directory`'s own from before.
@@ -74,19 +75,43 @@ impl Record {
             None => self.read(&self.legacy, false),
         }
     }
+    /// The record at `path` (in the PC's folder when `in_folder`), checked and
+    /// read through one handle, so what is read is what was checked.
     fn read(&self, path: &Path, in_folder: bool) -> Result<Option<SetupState>> {
-        let text = match std::fs::read_to_string(path) {
-            Ok(text) => text,
+        // Held until the file is read: it can't be swapped for another folder meanwhile.
+        let _folder = if in_folder {
+            match self.open_folder()? {
+                Some(folder) => Some(folder),
+                None => return Ok(None),
+            }
+        } else {
+            None
+        };
+        let mut file = match butterpollo_windows::process::open_unfollowed(path, false) {
+            Ok(file) => file,
             Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error).with_context(|| format!("reading {}", path.display())),
         };
-        if in_folder {
-            (self.trusted)(self.folder())?;
-        }
-        (self.trusted)(path)?;
+        (self.trusted)(&file, path)?;
+        let mut text = String::new();
+        file.read_to_string(&mut text)
+            .with_context(|| format!("reading {}", path.display()))?;
         serde_json::from_str(&text)
             .map(Some)
             .with_context(|| format!("reading {}", path.display()))
+    }
+    /// The PC's folder, open and checked; None when there is none. It can't
+    /// be renamed or deleted while open.
+    fn open_folder(&self) -> Result<Option<File>> {
+        let folder = self.folder();
+        match butterpollo_windows::process::open_unfollowed(folder, true) {
+            Ok(open) => {
+                (self.trusted)(&open, folder)?;
+                Ok(Some(open))
+            }
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error).with_context(|| format!("opening {}", folder.display())),
+        }
     }
     /// Save it in a folder only SYSTEM and Administrators can write.
     fn save(&self, state: &SetupState) -> Result<()> {
@@ -96,7 +121,10 @@ impl Record {
                 .with_context(|| format!("creating {}", folder.display()))?;
             (self.restrict)(folder)?;
         }
-        (self.trusted)(folder)?;
+        // Held while the record is written into it.
+        let _folder = self
+            .open_folder()?
+            .with_context(|| format!("{} is gone", folder.display()))?;
         let temporary = self.path.with_extension("tmp");
         std::fs::write(&temporary, serde_json::to_vec_pretty(state)?)
             .with_context(|| format!("writing {}", temporary.display()))?;
@@ -141,19 +169,21 @@ impl Record {
             .with_context(|| format!("removing {}", self.legacy.display()))
     }
 }
-/// [`Record`]'s check on this PC: owned by SYSTEM or Administrators, and not a
-/// link elsewhere.
-fn administrators_own(path: &Path) -> Result<()> {
+/// [`Record`]'s check on this PC, on the open `file` (`path` names it):
+/// owned by SYSTEM or Administrators, and not a link elsewhere.
+fn administrators_own(file: &File, path: &Path) -> Result<()> {
     use std::os::windows::fs::MetadataExt;
-    let metadata =
-        std::fs::symlink_metadata(path).with_context(|| format!("reading {}", path.display()))?;
+    let metadata = file
+        .metadata()
+        .with_context(|| format!("reading {}", path.display()))?;
     if metadata.file_attributes() & 0x400 != 0 {
         bail!(
             "{} is a link to elsewhere, not Rubylight's; Rubylight does not use it",
             path.display()
         );
     }
-    let owner = butterpollo_windows::process::file_owner(path)?;
+    let owner = butterpollo_windows::process::open_file_owner(file)
+        .with_context(|| format!("reading the owner of {}", path.display()))?;
     if !matches!(owner.as_str(), "S-1-5-18" | "S-1-5-32-544") {
         bail!(
             "{} is owned by {owner}, not by SYSTEM or Administrators, so another program may have written it; Rubylight does not use it. Delete it, turn Remote Desktop off, then set up child sessions again",
@@ -972,7 +1002,7 @@ mod tests {
             path: directory.join(logic::SETUP_FOLDER).join(logic::SETUP_FILE),
             legacy: profile.join(logic::SETUP_FILE),
             restrict: |_| Ok(()),
-            trusted: |_| Ok(()),
+            trusted: |_, _| Ok(()),
         }
     }
     fn write_record(record: &Record, text: &str) {
@@ -1180,7 +1210,7 @@ mod tests {
         let trusted = record_in(&directory);
         trusted.save(&recorded()).unwrap();
         let foreign = Record {
-            trusted: |path| bail!("{} is owned by S-1-5-21-9", path.display()),
+            trusted: |_, path| bail!("{} is owned by S-1-5-21-9", path.display()),
             ..trusted.clone()
         };
         let error = format!("{:#}", foreign.load().unwrap_err());
@@ -1212,6 +1242,37 @@ mod tests {
         };
         assert!(squatted.save(&recorded()).is_err());
         assert!(!squatted.path.exists());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn the_record_read_is_the_one_whose_owner_was_checked() {
+        // Checked by its path, then read by its path, another file could take its place in
+        // between. The check here swaps one in: what is read is still the file checked.
+        let directory = scratch();
+        let record = Record {
+            trusted: |file, path| {
+                if path.extension().is_none() {
+                    // The folder stays where it is while open.
+                    assert!(std::fs::rename(path, path.with_extension("moved")).is_err());
+                    return Ok(());
+                }
+                let swapped = path.with_extension("swap");
+                let other = SetupState {
+                    rdp_port: 3391,
+                    ..recorded()
+                };
+                std::fs::write(&swapped, serde_json::to_vec(&other).unwrap()).unwrap();
+                std::fs::rename(&swapped, path).unwrap();
+                assert!(file.metadata().unwrap().len() > 0);
+                Ok(())
+            },
+            ..record_in(&directory)
+        };
+        record.save(&recorded()).unwrap();
+        assert_eq!(record.load().unwrap(), Some(recorded()));
+        // The next read finds the file swapped in, through its own check.
+        assert_eq!(record.load().unwrap().unwrap().rdp_port, 3391);
         std::fs::remove_dir_all(directory).unwrap();
     }
 

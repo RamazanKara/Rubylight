@@ -87,15 +87,14 @@ pub fn slice_delivery(config: &Config, codec: u8) -> u8 {
 }
 /// AVC intra refresh requires two retained references in AMF. A client that
 /// negotiated only one must use IDR recovery instead of exceeding its budget.
+/// AV1 never refreshes: the stream is configured as one that never asked and
+/// recovers from a loss by reference invalidation. On the RX 7900 XT AV1
+/// refresh turned long-term references off, so a loss cost a 101 KB keyframe
+/// against a 48 KB invalidated frame, inter frames grew from 34 to 51 KB, and
+/// refresh alone never decoded again (rust/PERFORMANCE.md, October 27).
 pub fn amf_intra_refresh(stream: &Negotiated) -> bool {
-    stream.intra_refresh && !(stream.codec == 0 && stream.references == 1)
+    stream.intra_refresh && stream.codec != 2 && !(stream.codec == 0 && stream.references == 1)
 }
-
-/// AV1 refresh when negotiated: AMF's continuous mode, one stripe of the
-/// picture per frame over 300 frames. The native backend checks that the
-/// driver offers both before asking for them.
-pub const AMF_AV1_INTRA_REFRESH_MODE: i64 = 2;
-pub const AMF_AV1_INTRA_REFRESH_STRIPES: i64 = 300;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AmfHevcIntraRefresh {
@@ -155,7 +154,7 @@ pub fn amf_ltr_requested(config: &Config, codec: u8) -> usize {
 /// AMF keeps LTR anchors alongside the rolling short-term reference. The
 /// decoder's negotiated budget includes both; zero means it imposed no limit.
 pub fn amf_ltr_frames(config: &Config, stream: &Negotiated) -> usize {
-    if stream.intra_refresh {
+    if amf_intra_refresh(stream) {
         return 0;
     }
     let requested = amf_ltr_requested(config, stream.codec);
@@ -536,34 +535,21 @@ pub fn amf(config: &Config, stream: &Negotiated) -> Result<Vec<Property>> {
         );
     }
     if intra_refresh {
-        if codec == 2 {
-            add(
-                "Av1IntraRefreshMode".into(),
-                Value::Integer(AMF_AV1_INTRA_REFRESH_MODE),
-                true,
-            );
-            add(
-                "Av1IntraRefreshNumOfStripes".into(),
-                Value::Integer(AMF_AV1_INTRA_REFRESH_STRIPES),
-                true,
-            );
-        } else {
-            let block = if codec == 0 { 16 } else { 64 };
-            let blocks = stream.width.div_ceil(block) * stream.height.div_ceil(block);
-            // HEVC first establishes this existing policy. Its whole-row/GOP
-            // override is applied together by the native backend so either
-            // unsupported setting can restore this known streaming behavior.
-            add(
-                if codec == 0 {
-                    "IntraRefreshMBsNumberPerSlot"
-                } else {
-                    "HevcIntraRefreshCTBsNumberPerSlot"
-                }
-                .into(),
-                Value::Integer(blocks.div_ceil(blocks.clamp(1, 299)) as i64),
-                true,
-            );
-        }
+        let block = if codec == 0 { 16 } else { 64 };
+        let blocks = stream.width.div_ceil(block) * stream.height.div_ceil(block);
+        // HEVC first establishes this existing policy. Its whole-row/GOP
+        // override is applied together by the native backend so either
+        // unsupported setting can restore this known streaming behavior.
+        add(
+            if codec == 0 {
+                "IntraRefreshMBsNumberPerSlot"
+            } else {
+                "HevcIntraRefreshCTBsNumberPerSlot"
+            }
+            .into(),
+            Value::Integer(blocks.div_ceil(blocks.clamp(1, 299)) as i64),
+            true,
+        );
     }
     Ok(output)
 }
@@ -935,31 +921,60 @@ mod tests {
                 .is_none()
             );
         }
-        for codec in [0, 2] {
-            let stream = Negotiated {
-                codec,
-                width: 3840,
-                height: 2160,
+        let stream = Negotiated {
+            width: 3840,
+            height: 2160,
+            intra_refresh: true,
+            ..Default::default()
+        };
+        let properties = amf(&Config::default(), &stream).unwrap();
+        assert!(properties.iter().any(|p| {
+            p.name == "IntraRefreshMBsNumberPerSlot" && p.value == Value::Integer(109)
+        }));
+        assert!(!properties.iter().any(|p| p.name.starts_with("Hevc")));
+    }
+
+    #[test]
+    fn av1_that_asked_for_intra_refresh_is_configured_as_a_stream_that_never_asked() {
+        for references in [0, 1, 2, 5] {
+            let asked = Negotiated {
+                codec: 2,
+                width: 2560,
+                height: 1440,
+                references,
                 intra_refresh: true,
                 ..Default::default()
             };
-            let properties = amf(&Config::default(), &stream).unwrap();
-            let expected: &[(&str, i64)] = if codec == 0 {
-                &[("IntraRefreshMBsNumberPerSlot", 109)]
-            } else {
-                &[
-                    ("Av1IntraRefreshMode", 2),
-                    ("Av1IntraRefreshNumOfStripes", 300),
-                ]
+            let never_asked = Negotiated {
+                intra_refresh: false,
+                ..asked.clone()
             };
-            for (name, value) in expected {
-                assert!(
-                    properties
-                        .iter()
-                        .any(|p| { p.name == *name && p.value == Value::Integer(*value) })
-                );
-            }
-            assert!(!properties.iter().any(|p| p.name.starts_with("Hevc")));
+            assert!(!amf_intra_refresh(&asked));
+            assert!(amf_hevc_intra_refresh(&asked).is_none());
+            let config = Config::default();
+            let properties = |stream| {
+                amf(&config, stream)
+                    .unwrap()
+                    .into_iter()
+                    .map(|p| (p.name, p.value, p.required))
+                    .collect::<Vec<_>>()
+            };
+            assert!(
+                !properties(&asked)
+                    .iter()
+                    .any(|p| p.0.contains("IntraRefresh"))
+            );
+            assert_eq!(properties(&asked), properties(&never_asked));
+            // Loss recovery keeps its long-term references for invalidation.
+            assert_eq!(
+                amf_ltr_frames(&config, &asked),
+                amf_ltr_frames(&config, &never_asked)
+            );
+            assert_eq!(
+                amf_ltr_frames(&config, &asked) > 0,
+                references != 1,
+                "{references}"
+            );
         }
     }
 
@@ -1106,6 +1121,7 @@ mod tests {
         for (requested, expected) in [(-1, 0), (0, 0), (1, 1), (4, 4), (99, 4)] {
             let config = Config::parse(&format!("amd_ltr_frames={requested}\n")).unwrap();
             assert_eq!(amf_ltr_frames(&config, &stream), expected);
+            // AV1 does not refresh, so asking for it keeps the anchors.
             assert_eq!(
                 amf_ltr_frames(
                     &config,
@@ -1114,7 +1130,7 @@ mod tests {
                         ..stream.clone()
                     }
                 ),
-                0
+                expected
             );
         }
     }

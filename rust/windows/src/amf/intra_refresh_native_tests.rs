@@ -613,9 +613,9 @@ fn psnr_after_loss(
         .collect())
 }
 
-/// Recovery after one lost AV1 frame with and without negotiated intra
-/// refresh: how long the decoder shows a damaged picture, and the keyframes
-/// each recovery costs. The lost frame is dropped from a copy of the stream;
+/// Recovery after one lost AV1 frame with intra refresh forced and with the
+/// default policy, which leaves it off: how long the decoder shows a damaged
+/// picture, and the keyframes each recovery costs. The lost frame is dropped from a copy of the stream;
 /// nothing else differs between the two decodes.
 #[test]
 #[ignore = "requires an idle AMD GPU, AMF, independent FFmpeg and a task-owned report path"]
@@ -647,7 +647,8 @@ fn native_av1_intra_refresh_recovery_after_a_lost_frame() -> Result<()> {
         .collect::<Result<Vec<_>>>()?;
     let mut reports = Vec::new();
     let mut failures = Vec::new();
-    // (name, negotiated refresh, what the host sends for the loss)
+    // Every arm's client negotiates refresh, as an Xbox does. (name, refresh
+    // forced past the policy that turns it off, what the host sends for the loss)
     for (name, refresh, recovery) in [
         ("refresh", true, "nothing"),
         ("refresh_keyframe", true, "keyframe"),
@@ -661,15 +662,18 @@ fn native_av1_intra_refresh_recovery_after_a_lost_frame() -> Result<()> {
             rate_millihz: 120_000,
             bitrate_kbps: 50_000,
             codec: 2,
-            intra_refresh: refresh,
+            intra_refresh: true,
             ..Default::default()
         };
-        let mut encoder = Encoder::new_gpu(
+        intra_refresh::force_av1(refresh);
+        let encoder = Encoder::new_gpu(
             &config,
             device.clone(),
             &Default::default(),
             Some(compute.clone()),
-        )?;
+        );
+        intra_refresh::force_av1(false);
+        let mut encoder = encoder?;
         let mut properties = serde_json::Map::new();
         for property in [
             intra_refresh::AV1_MODE,
@@ -680,18 +684,13 @@ fn native_av1_intra_refresh_recovery_after_a_lost_frame() -> Result<()> {
         ] {
             properties.insert(property.into(), serde_json::json!(encoder.read(property)));
         }
-        for property in [intra_refresh::AV1_MODE, intra_refresh::AV1_STRIPES] {
-            let range = encoder.range(property);
-            properties.insert(
-                format!("{property}Range"),
-                serde_json::json!(range.map(|range| [range.minimum, range.maximum])),
-            );
-        }
+        let established = intra_refresh::AV1_REFRESH
+            .iter()
+            .all(|&(property, value)| encoder.read(property) == Some(value));
         anyhow::ensure!(
-            !refresh
-                || encoder.read(intra_refresh::AV1_MODE)
-                    == Some(butterpollo_core::encoder_policy::AMF_AV1_INTRA_REFRESH_MODE),
-            "{name}: refresh not established: {properties:?}"
+            established == refresh,
+            "{name}: refresh {} established: {properties:?}",
+            if refresh { "not" } else { "unexpectedly" }
         );
         let full_path = report.with_extension(format!("{name}.obu"));
         let lossy_path = report.with_extension(format!("{name}.lossy.obu"));
@@ -756,7 +755,8 @@ fn native_av1_intra_refresh_recovery_after_a_lost_frame() -> Result<()> {
             .map(|frame| frame.1)
             .collect();
         let result = serde_json::json!({
-            "variant": name, "intra_refresh": refresh, "recovery": recovery,
+            "variant": name, "negotiated_intra_refresh": config.intra_refresh,
+            "intra_refresh": refresh, "recovery": recovery,
             "adapter": device.display.adapter, "width": WIDTH, "height": HEIGHT,
             "fps": 120, "bitrate_kbps": config.bitrate_kbps, "frames": FRAMES, "lost_frame": LOST,
             "source": "scrolling synthetic texture, 16 px a frame; no capture/display/network",
@@ -782,11 +782,18 @@ fn native_av1_intra_refresh_recovery_after_a_lost_frame() -> Result<()> {
         // Refresh alone is recorded, not required: on 32.0.32015.7029 dav1d
         // rejects every frame after the loss until a keyframe arrives.
         let recovers = recovery == "nothing" || damaged.len() == FRAMES - 1;
-        if clean.len() != FRAMES || !clean_errors.is_empty() || !recovers {
+        // The default path answers the loss with the invalidated frame, not a
+        // keyframe.
+        let invalidates = recovery != "invalidation"
+            || (invalidated == Some(true) && !frames[LOST + 1].0 && identical_from == 0);
+        if clean.len() != FRAMES || !clean_errors.is_empty() || !recovers || !invalidates {
             failures.push(format!(
-                "{name}: decoded {} clean and {} lossy frames",
+                "{name}: decoded {} clean and {} lossy frames; invalidation {invalidated:?}, frame {} keyframe {}, identical from {}",
                 clean.len(),
-                damaged.len()
+                damaged.len(),
+                LOST + 1,
+                frames[LOST + 1].0,
+                LOST + 1 + identical_from
             ));
         }
         reports.push(result);

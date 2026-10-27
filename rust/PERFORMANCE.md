@@ -6,7 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
-| AV1 intra refresh on AMF: keyframes, frame sizes and recovery after a lost frame, against LTR invalidation and keyframes | [October 27, AV1 intra refresh and recovery after a lost frame](#october-27-av1-intra-refresh-and-recovery-after-a-lost-frame) |
+| AV1 intra refresh on AMF: keyframes, frame sizes and recovery after a lost frame, against LTR invalidation and keyframes (refresh turned off) | [October 27, AV1 intra refresh and recovery after a lost frame](#october-27-av1-intra-refresh-and-recovery-after-a-lost-frame) |
 | A 60 Hz game's repeated frames under VRR: holding later compositions of a claimed frame, simulation and 60/120/240 Hz ABBA (not kept) | [October 26, holding later compositions (not kept)](#october-26-holding-later-compositions-of-a-claimed-frame-not-kept) |
 | Replying from the address the client reached (#54): send-path cost of matched, routed and pinned replies against the calls before the fix, batch and single datagram | [October 26, replying from the address the client reached](#october-26-replying-from-the-address-the-client-reached-54) |
 | VRR claims that follow the game's pictures: a 120 Hz game on a 60 fps VRR stream, age and present-to-sent p95, late claims; 240 and 60 Hz games | [October 26, VRR claims follow the game's pictures](#october-26-vrr-claims-follow-the-games-pictures) |
@@ -52,7 +52,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 ## October 27: AV1 intra refresh and recovery after a lost frame
 
-What negotiated AV1 intra refresh does on AMF when a frame is lost. The fixture is the ignored native test `native_av1_intra_refresh_recovery_after_a_lost_frame` (report path in `BUTTERPOLLO_TEST_AV1_INTRA_REPORT`, ffmpeg in `BUTTERPOLLO_TEST_FFMPEG`): RX 7900 XT, driver 32.0.32015.7029, AV1 2560×1440 at 120 fps and 50 Mbps (a 52,083-byte frame budget), a synthetic texture scrolling 16 pixels a frame with no capture, display or network, 900 frames paced at 120 Hz, one run per arm under the GPU lock with the PC idle. Frame 480 is left out of a copy of the stream, and frame 481 carries the host's answer to the loss: nothing, a keyframe, or the invalidation of the lost frame. ffmpeg 9.0.2 with dav1d decodes both copies; a frame after the loss counts as recovered when its picture matches the full stream's (MD5). Debug test build; the byte counts come from the encoder.
+What negotiated AV1 intra refresh does on AMF when a frame is lost, and why the host now leaves it off. The fixture is the ignored native test `native_av1_intra_refresh_recovery_after_a_lost_frame` (report path in `BUTTERPOLLO_TEST_AV1_INTRA_REPORT`, ffmpeg in `BUTTERPOLLO_TEST_FFMPEG`): RX 7900 XT, driver 32.0.32015.7029, AV1 2560×1440 at 120 fps and 50 Mbps (a 52,083-byte frame budget), a synthetic texture scrolling 16 pixels a frame with no capture, display or network, 900 frames paced at 120 Hz, one run per arm under the GPU lock with the PC idle. Frame 480 is left out of a copy of the stream, and frame 481 carries the host's answer to the loss: nothing, a keyframe, or the invalidation of the lost frame. ffmpeg 9.0.2 with dav1d decodes both copies; a frame after the loss counts as recovered when its picture matches the full stream's (MD5). Debug test build; the byte counts come from the encoder.
 
 | Arm | Keyframes (bytes) | Frame 481 (bytes) | Largest frame after the first | Mean inter frame | Lossy copy decoded | Recovered from |
 | --- | --- | --- | ---: | ---: | --- | --- |
@@ -61,9 +61,11 @@ What negotiated AV1 intra refresh does on AMF when a frame is lost. The fixture 
 | no refresh, invalidation | 1 (203,795) | 47,592, inter | 66,072 | 33,515 | 899 of 899 | frame 481 |
 | no refresh, keyframe | 2 (203,795 / 99,990) | 99,990, keyframe | 99,990 | 36,067 | 899 of 899 | frame 481 |
 
-The driver reads back `Av1IntraRefreshMode` 2 and 300 stripes with refresh and turns long-term references off (`Av1MaxNumLTRFrames` 0, against 4 without refresh), so it refuses the host's invalidation and a loss costs a keyframe. `GetPropertyInfo` fails for both refresh properties while `GetProperty` reads them, so the host checks for them with `GetProperty`.
+The driver reads back `Av1IntraRefreshMode` 2 and 300 stripes with refresh and turns long-term references off (`Av1MaxNumLTRFrames` 0, against 4 without refresh), so it refuses the host's invalidation and a loss costs a keyframe. `GetPropertyInfo` fails for both refresh properties while `GetProperty` reads them.
 
 Refresh alone never recovers: AMF's AV1 stream signals frame IDs (`frame_id_numbers_present_flag`), and every refresh frame refers to and replaces reference slot 0, so after the loss dav1d rejects every frame header to the end of the run. With the keyframe the host sends, recovery is immediate but costs a 101,162-byte keyframe where the invalidated frame without refresh is 47,592 bytes, and inter frames average 51,203 bytes against 33,515 (without refresh the encoder stays under its budget on this source). On this driver refresh measured worse on every count.
+
+Decision: AMF AV1 no longer asks for intra refresh. A client that negotiates it gets the stream of one that never asked, keeps its long-term references and recovers from a loss with the invalidated frame (the "no refresh, invalidation" row). H.264 and HEVC refresh are unchanged. The refresh arms now force it with a test-only switch (`intra_refresh::force_av1`) so the measurement repeats; every arm negotiates refresh, and the invalidation arm fails unless the invalidated frame, not a keyframe, restores the picture. Rerun the same day with the policy in place: every arm gave the byte counts in the table, and the default path, asked for refresh and left without it (`Av1IntraRefreshMode` 0, `Av1MaxNumLTRFrames` 4), had its invalidation accepted and matched the full stream from frame 481.
 
 ## October 26: holding later compositions of a claimed frame (not kept)
 

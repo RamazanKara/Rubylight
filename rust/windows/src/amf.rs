@@ -381,7 +381,8 @@ impl Encoder {
     ) -> Result<Self> {
         let mut effective_config = config.clone();
         effective_config.intra_refresh =
-            butterpollo_core::encoder_policy::amf_intra_refresh(config);
+            butterpollo_core::encoder_policy::amf_intra_refresh(config)
+                || intra_refresh::av1_forced(config);
         let slice_blocks = butterpollo_core::encoder_policy::slice_delivery(options, config.codec);
         if slice_blocks > 0 && effective_config.intra_refresh {
             effective_config.intra_refresh = false;
@@ -390,10 +391,16 @@ impl Encoder {
             );
         }
         if config.intra_refresh && !effective_config.intra_refresh && slice_blocks == 0 {
-            tracing::warn!(
-                client_max_reference_frames = config.references,
-                "AMF H.264 intra refresh requires two references; using larger IDR recovery frames for this decoder. Reduce bitrate if recovery stutters or use a client with two-reference support"
-            );
+            if config.codec == 2 {
+                tracing::info!(
+                    "AMF AV1 does not use the intra refresh the client asked for: a lost frame is recovered by reference invalidation (rust/PERFORMANCE.md, October 27)"
+                );
+            } else {
+                tracing::warn!(
+                    client_max_reference_frames = config.references,
+                    "AMF H.264 intra refresh requires two references; using larger IDR recovery frames for this decoder. Reduce bitrate if recovery stutters or use a client with two-reference support"
+                );
+            }
         }
         let config = &effective_config;
         // VCN encodes 4:2:0 only: neither AMF nor D3D12 video encoding offers a
@@ -596,18 +603,8 @@ impl Encoder {
                 unit_idr_reported: false,
                 focus: Default::default(),
             };
-            // Negotiated AV1 refresh only where the driver offers it.
-            let without_refresh = intra_refresh::av1_without_refresh(config, || {
-                (
-                    e.range(intra_refresh::AV1_MODE),
-                    e.range(intra_refresh::AV1_STRIPES),
-                )
-            });
-            if without_refresh.is_some() {
-                e.config.intra_refresh = false;
-            }
-            let config = without_refresh.as_ref().unwrap_or(config);
             let mut properties = butterpollo_core::encoder_policy::amf(options, config)?;
+            properties.extend(intra_refresh::av1_forced_properties(config));
             guard_smart_access_video(&mut properties);
             for property in properties {
                 if let Err(error) = e.apply(&property) {
@@ -819,13 +816,6 @@ impl Encoder {
                     },
                 )?;
             }
-            if config.codec == 2 && config.intra_refresh {
-                intra_refresh::av1_validate(
-                    e.read(intra_refresh::AV1_MODE),
-                    e.read(intra_refresh::AV1_STRIPES),
-                    &warnings,
-                );
-            }
             // Learn only when the initialized driver reports its buffering
             // requirements. A preset can change these during Init.
             let preanalysis = match config.codec {
@@ -898,40 +888,6 @@ impl Encoder {
             }
             let rate = value.__bindgen_anon_1.rateValue;
             Some((rate.num, rate.den))
-        }
-    }
-    /// An integer property's range as the driver describes it, unbounded
-    /// where it gives none; `None` when the driver does not know the property.
-    /// The RX 7900 XT driver 32.0.32015.7029 has the AV1 refresh properties
-    /// without describing them.
-    fn range(&self, name: &str) -> Option<intra_refresh::Range> {
-        // SAFETY: Self retains the component and runtime that own the borrowed
-        // property info; the name outlives the queries, the pointer is checked
-        // and each variant's tag is checked before its union member is read.
-        unsafe {
-            let table = &*(*self.component).pVtbl;
-            let name = to_wide(name);
-            let mut info = ptr::null();
-            if (table.GetPropertyInfo.unwrap())(self.component, name.as_ptr(), &mut info)
-                != AMF_RESULT_AMF_OK
-                || info.is_null()
-            {
-                let mut current = int(0);
-                return ((table.GetProperty.unwrap())(self.component, name.as_ptr(), &mut current)
-                    == AMF_RESULT_AMF_OK)
-                    .then_some(intra_refresh::Range::default());
-            }
-            let integer = |value: &AMFVariantStruct| {
-                if value.type_ == AMF_VARIANT_TYPE_AMF_VARIANT_INT64 {
-                    Some(value.__bindgen_anon_1.int64Value)
-                } else {
-                    None
-                }
-            };
-            Some(intra_refresh::Range {
-                minimum: integer(&(*info).minValue),
-                maximum: integer(&(*info).maxValue),
-            })
         }
     }
     fn validate_packed_capacity(&self) -> Result<()> {

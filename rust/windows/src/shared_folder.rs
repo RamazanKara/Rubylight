@@ -78,19 +78,7 @@ impl SharedFolder {
             .into());
         }
         let resolved = PathBuf::from(final_path(&handle)?);
-        if resolved.to_str().is_none_or(|path| {
-            path.get(..8)
-                .is_some_and(|p| p.eq_ignore_ascii_case(r"\\?\UNC\"))
-        }) {
-            return Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                format!(
-                    "the shared folder {} leads to a network share",
-                    root.display()
-                ),
-            )
-            .into());
-        }
+        local_root(root, &resolved)?;
         Ok(Self {
             root: resolved,
             token,
@@ -232,6 +220,34 @@ impl SharedFolder {
         }
         Ok(part)
     }
+}
+
+/// Fails unless `resolved`, where Windows resolved the shared folder `root`,
+/// is a UTF-8 path on this PC rather than a network share.
+fn local_root(root: &Path, resolved: &Path) -> io::Result<()> {
+    let Some(path) = resolved.to_str() else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "the shared folder {} resolves to {}, which is not valid Unicode",
+                root.display(),
+                resolved.display()
+            ),
+        ));
+    };
+    if path
+        .get(..8)
+        .is_some_and(|p| p.eq_ignore_ascii_case(r"\\?\UNC\"))
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            format!(
+                "the shared folder {} leads to the network share {path}",
+                root.display()
+            ),
+        ));
+    }
+    Ok(())
 }
 
 fn as_user<T>(
@@ -514,6 +530,24 @@ mod tests {
         assert!(!missing.exists());
         assert!(SharedFolder::at(&rig.root.join("readme.txt"), None).is_err());
         assert!(SharedFolder::at(Path::new("shared"), None).is_err());
+    }
+
+    #[test]
+    fn a_root_leading_to_a_share_or_a_name_that_is_not_unicode_says_which() {
+        use std::os::windows::ffi::OsStringExt;
+        let root = Path::new(r"D:\Games");
+        assert!(local_root(root, Path::new(r"\\?\D:\Games")).is_ok());
+        let share = local_root(root, Path::new(r"\\?\unc\nas\games")).unwrap_err();
+        assert_eq!(share.kind(), io::ErrorKind::Unsupported);
+        assert!(share.to_string().contains("network share"), "{share}");
+        // A lone surrogate, which NTFS allows in a name.
+        let mut name: Vec<u16> = r"\\?\D:\".encode_utf16().collect();
+        name.push(0xd800);
+        let odd = local_root(root, &PathBuf::from(std::ffi::OsString::from_wide(&name)))
+            .unwrap_err();
+        assert_eq!(odd.kind(), io::ErrorKind::InvalidData);
+        assert!(odd.to_string().contains("not valid Unicode"), "{odd}");
+        assert!(!odd.to_string().contains("network"), "{odd}");
     }
 
     #[test]

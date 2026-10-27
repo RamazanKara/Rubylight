@@ -3563,6 +3563,17 @@ mod tests {
         /// The same text with where it landed and the clip it was drawn in.
         placed: Vec<(String, Rect, Rect)>,
         waking: Option<String>,
+        /// Every texture change since the first frame, and the last frame's shapes, for screenshots.
+        textures: egui::TexturesDelta,
+        shapes: Vec<egui::epaint::ClippedShape>,
+        /// The display's scale (1 everywhere but in screenshots).
+        native_ppp: f32,
+    }
+
+    impl Drop for Frames {
+        fn drop(&mut self) {
+            self.textures.clear();
+        }
     }
 
     impl Frames {
@@ -3583,32 +3594,67 @@ mod tests {
             if !apps.is_empty() {
                 hosts.list[0].apps = Apps::Loaded(apps);
             }
-            let mut frames = Self { ctx, l, hosts, pads: Gamepads::default(), time: 0.0, size: vec2(1280.0, 720.0), drawn: Vec::new(), placed: Vec::new(), waking: None };
+            let mut frames = Self::over(ctx, l, hosts);
             frames.settle();
             frames
         }
 
         fn frame(&mut self, events: Vec<egui::Event>) -> Vec<Command> {
             self.time += 0.05;
-            let input = egui::RawInput {
+            let mut input = egui::RawInput {
                 screen_rect: Some(Rect::from_min_size(Pos2::ZERO, self.size)),
                 time: Some(self.time),
                 events,
                 focused: true,
                 ..Default::default()
             };
+            input.viewports.entry(egui::ViewportId::ROOT).or_default().native_pixels_per_point = Some(self.native_ppp);
             let mut commands = Vec::new();
-            let mut output = self.ctx.run_ui(input, |ui| {
+            let output = self.ctx.run_ui(input, |ui| {
                 commands = self.l.ui(ui, View { hosts: &self.hosts, pads: &self.pads, connecting: None, waking: self.waking.clone() });
             });
-            output.textures_delta.clear();
+            // Only screenshots read the textures; everyone else lets them go.
+            if self.native_ppp == 1.0 {
+                let mut delta = output.textures_delta;
+                delta.clear();
+            } else {
+                self.textures.append(output.textures_delta);
+            }
             self.drawn.clear();
             self.placed.clear();
             for clipped in &output.shapes {
                 collect_text(&clipped.shape, &mut self.drawn);
                 collect_placed(&clipped.shape, clipped.clip_rect, &mut self.placed);
             }
+            self.shapes = output.shapes;
             commands
+        }
+
+        fn over(ctx: egui::Context, l: Launcher, hosts: Hosts) -> Self {
+            Self {
+                ctx,
+                l,
+                hosts,
+                pads: Gamepads::default(),
+                time: 0.0,
+                size: vec2(1280.0, 720.0),
+                drawn: Vec::new(),
+                placed: Vec::new(),
+                waking: None,
+                textures: Default::default(),
+                shapes: Vec::new(),
+                native_ppp: 1.0,
+            }
+        }
+
+        /// Paints the last frame into `<dir>/<name>.png`. Needs `native_ppp` set before the first frame.
+        fn shoot(&self, dir: &std::path::Path, name: &str) {
+            let ppp = self.ctx.pixels_per_point();
+            let primitives = self.ctx.tessellate(self.shapes.clone(), ppp);
+            let mut canvas = crate::shot::Canvas::new((self.size.x * ppp) as usize, (self.size.y * ppp) as usize);
+            canvas.update_textures(&self.textures);
+            canvas.paint(&primitives, ppp);
+            canvas.save(&dir.join(format!("{name}.png")));
         }
 
         fn settle(&mut self) -> Vec<Command> {
@@ -4787,5 +4833,67 @@ mod tests {
         f.settle();
         f.press(Key::Enter);
         assert!(matches!(f.l.dialog, Dialog::Otp { .. }), "a one-time PIN failure goes back to the PIN form");
+    }
+
+    /// Screenshots of the main pages in both palettes, painted on the CPU from made-up PCs (no
+    /// network): `NIGHTJAR_SHOTS=<dir> cargo test -p nightjar-desktop page_screenshots -- --ignored`.
+    #[test]
+    #[ignore = "writes PNGs; set NIGHTJAR_SHOTS"]
+    fn page_screenshots() {
+        let Some(dir) = std::env::var_os("NIGHTJAR_SHOTS").map(std::path::PathBuf::from) else { return };
+        std::fs::create_dir_all(&dir).expect("the folder for the screenshots");
+        let prefix = std::env::var("NIGHTJAR_SHOTS_PREFIX").unwrap_or_default();
+        let named = |name: &str, id| nightjar_core::http::App { name: name.into(), ..game(id) };
+        let games = vec![named("Hollow Knight", 7), named("Forza Horizon 5", 9), named("Desktop", 11), named("Steam Big Picture", 13)];
+        for high in [false, true] {
+            let look = if high { "high-contrast" } else { "normal" };
+            let fresh = || {
+                crate::theme::own_palette();
+                let ctx = egui::Context::default();
+                crate::theme::apply(&ctx);
+                let mut l = launcher(false, false);
+                l.settings.high_contrast = high;
+                l.go(Screen::Hosts);
+                let records = vec![
+                    HostRecord { address: "192.0.2.10".into(), ..record("Living Room PC", true, true) },
+                    HostRecord { address: "192.0.2.11".into(), ..record("Office PC", true, true) },
+                    HostRecord { address: "192.0.2.12".into(), ..record("Studio", false, false) },
+                    HostRecord { address: "192.0.2.13".into(), ..record("Laptop", true, false) },
+                ];
+                let mut hosts = Hosts::without_discovery(records, Arc::new(|| {}));
+                hosts.list[0].reach = Reach::Online;
+                hosts.list[0].info = Some(answer(true, 7));
+                hosts.list[0].apps = Apps::Loaded(games.clone());
+                hosts.list[1].reach = Reach::Offline;
+                hosts.list[2].reach = Reach::Online;
+                hosts.list[2].info = Some(answer(false, 0));
+                hosts.list[3].reach = Reach::Unknown;
+                let mut f = Frames::over(ctx, l, hosts);
+                f.size = vec2(1280.0, 800.0);
+                f.native_ppp = 1.5;
+                f.settle();
+                f
+            };
+            let shoot = |f: &mut Frames, page: &str| {
+                f.settle();
+                f.shoot(&dir, &format!("{prefix}{page}-{look}-desktop"));
+            };
+            let mut f = fresh();
+            shoot(&mut f, "hosts");
+            let id = f.hosts.list[0].id;
+            f.l.go(Screen::Apps(id));
+            shoot(&mut f, "library");
+            f.l.go(Screen::Settings);
+            shoot(&mut f, "settings");
+            let mut f = fresh();
+            let last = host_options(&f.hosts.list[0]).len() - 1;
+            f.press(Key::F2);
+            shoot(&mut f, "host-options");
+            for _ in 0..last {
+                f.press(Key::ArrowDown);
+            }
+            f.press(Key::Enter);
+            shoot(&mut f, "confirm-remove");
+        }
     }
 }

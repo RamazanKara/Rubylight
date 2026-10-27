@@ -27,6 +27,8 @@ mod network_test;
 mod radeon;
 mod sdl;
 mod session_page;
+#[cfg(test)]
+mod shot;
 mod session_ui;
 mod shortcuts;
 mod stream;

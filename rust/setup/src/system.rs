@@ -12,7 +12,8 @@ use std::{
 use windows::{
     Win32::{
         Foundation::{
-            CloseHandle, ERROR_INSUFFICIENT_BUFFER, ERROR_SERVICE_MARKED_FOR_DELETE, ERROR_SUCCESS,
+            CloseHandle, ERROR_FILE_NOT_FOUND, ERROR_INSUFFICIENT_BUFFER,
+            ERROR_SERVICE_MARKED_FOR_DELETE, ERROR_SUCCESS,
         },
         System::{Registry::*, Services::*, Threading::*},
         UI::Shell::*,
@@ -690,6 +691,30 @@ pub fn registry_dword(root: HKEY, path: &str, value: &str, view: REG_SAM_FLAGS) 
         ) == ERROR_SUCCESS
             && kind == REG_DWORD)
             .then_some(data)
+    }
+}
+/// A DWORD under HKLM (64-bit view): None when the key or the value does not
+/// exist, Err when it cannot be read or is not a DWORD.
+pub fn machine_dword(path: &str, value: &str) -> Result<Option<u32>> {
+    let (key, name) = (wide(path), wide(value));
+    let mut data = 0u32;
+    let mut size = 4u32;
+    // SAFETY: `key` and `name` are NUL-terminated and `data` holds the four bytes `size` names.
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_LOCAL_MACHINE,
+            PCWSTR(key.as_ptr()),
+            PCWSTR(name.as_ptr()),
+            RRF_RT_REG_DWORD | RRF_SUBKEY_WOW6464KEY,
+            None,
+            Some((&mut data as *mut u32).cast()),
+            Some(&mut size),
+        )
+    };
+    match status {
+        ERROR_SUCCESS => Ok(Some(data)),
+        ERROR_FILE_NOT_FOUND => Ok(None),
+        other => bail!("cannot read HKLM\\{path}\\{value} ({})", other.0),
     }
 }
 pub struct Key(pub HKEY);

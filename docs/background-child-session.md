@@ -64,8 +64,11 @@ default, and it is what Windows Home uses: Home has no child sessions.
      restore it there first. Only the main host sets up and restores, in
      child-session mode; the child session's own host never does.
      **Restore Windows settings** puts them all back, and so does uninstalling
-     Rubylight. When the uninstaller's restore fails, it turns Remote Desktop
-     off, keeps the record and exits with code 2.
+     Rubylight. When the uninstaller's restore fails or cannot run (the host
+     is missing, does not start, times out or crashes), the uninstaller turns
+     Remote Desktop off itself (`fDenyTSConnections = 1`, read back, and no
+     group policy keeping it on), says so in its note, keeps the record and
+     exits with code 2.
 3. Enter your **Windows password** (not your PIN) in the panel and start the
    child session. The password is stored for your account only, encrypted with
    Windows DPAPI, and never logged; **Forget saved password** deletes it.

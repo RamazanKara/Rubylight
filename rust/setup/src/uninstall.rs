@@ -112,10 +112,12 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<Removed> {
     remove_earlier_folder(&install);
     // Child-session setup (Experimental) turned on Remote Desktop, child
     // sessions and firewall rules; the host that recorded them puts them back
-    // while it is still installed. A restore that fails turns Remote Desktop
-    // off, and its record stays, even through a factory reset: Rubylight
-    // installed again restores the rest (Restore Windows settings). The
-    // uninstaller then exits with UNRESTORED_EXIT.
+    // while it is still installed. When they are not restored (the restore
+    // failed, or could not run: the host missing, not starting, timing out
+    // or crashing), this uninstaller turns Remote Desktop off itself and
+    // reads it back, and the record stays, even through a factory reset:
+    // Rubylight installed again restores the rest (Restore Windows
+    // settings). The uninstaller then exits with UNRESTORED_EXIT.
     let mut notes = Vec::new();
     let unrestored = restore_child_session(&install, progress);
     if let Some(problem) = &unrestored {
@@ -239,33 +241,103 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<Removed> {
 }
 /// Put back the Windows settings child-session setup changed, through the
 /// installed host; the reason when they were not restored and its record
-/// is still needed. None when there was nothing to restore or it worked.
+/// is still needed, with what was done about Remote Desktop. None when there
+/// was nothing to restore or it worked.
 fn restore_child_session(install: &Path, progress: &Progress) -> Option<String> {
-    let profile = crate::install::profile();
-    let Some(program) = child_session_restore_pending(&profile, install) else {
-        return child_session_recorded(&profile).then(|| {
-            format!(
-                "The Windows settings child sessions changed (Remote Desktop, its firewall rules, child sessions) were not restored: {} is missing.",
-                install.join("butterpollo.exe").display()
+    restore_child_session_with(
+        &crate::install::profile(),
+        install,
+        &mut NativeRegistry,
+        |program| {
+            progress.set("Restoring the Windows settings child sessions changed…");
+            // The record is the PC's, not the profile's: no --config-dir.
+            system::run(
+                &program.display().to_string(),
+                &[CHILD_SESSION_RESTORE_FLAG],
+                Duration::from_secs(180),
             )
-        });
+        },
+    )
+}
+/// [`restore_child_session`] for `profile`, running the host with `run`.
+/// Whatever keeps the settings from coming back, Remote Desktop is turned
+/// off here too: a host that never ran (missing, not starting), timed out
+/// or crashed did not turn it off itself.
+fn restore_child_session_with(
+    profile: &Path,
+    install: &Path,
+    registry: &mut dyn MachineRegistry,
+    run: impl FnOnce(&Path) -> Result<(i32, String)>,
+) -> Option<String> {
+    let problem = match child_session_restore_pending(profile, install) {
+        None if !child_session_recorded(profile) => return None,
+        None => format!("{} is missing", install.join("butterpollo.exe").display()),
+        Some(program) => match run(&program) {
+            Ok((0, _)) => return None,
+            Ok((code, output)) => format!("({code}) {}", output.trim()),
+            Err(error) => format!("{error:#}"),
+        },
     };
-    progress.set("Restoring the Windows settings child sessions changed…");
-    // The record is the PC's, not the profile's: no --config-dir.
-    let restored = system::run(
-        &program.display().to_string(),
-        &[CHILD_SESSION_RESTORE_FLAG],
-        Duration::from_secs(180),
-    );
-    match restored {
-        Ok((0, _)) => None,
-        Ok((code, output)) => Some(format!(
-            "The Windows settings child sessions changed (Remote Desktop, its firewall rules, child sessions) were not restored ({code}): {}",
-            output.trim()
-        )),
-        Err(error) => Some(format!(
-            "The Windows settings child sessions changed (Remote Desktop, its firewall rules, child sessions) were not restored: {error:#}"
-        )),
+    Some(format!(
+        "The Windows settings child sessions changed (Remote Desktop, its firewall rules, child sessions) were not restored: {}. {}.",
+        problem.trim().trim_end_matches('.'),
+        turn_rdp_off(registry)
+    ))
+}
+
+/// Where Remote Desktop is switched (`fDenyTSConnections`), and the group
+/// policy that wins over it (`butterpollo_core::child_session`'s
+/// `TERMINAL_SERVER` and `TERMINAL_SERVICES_POLICY`).
+const TERMINAL_SERVER: &str = r"SYSTEM\CurrentControlSet\Control\Terminal Server";
+const TERMINAL_SERVICES_POLICY: &str = r"SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services";
+const DENY_TS_CONNECTIONS: &str = "fDenyTSConnections";
+/// HKLM's DWORD values, all [`turn_rdp_off`] needs: [`NativeRegistry`] on
+/// this PC, a fake in tests.
+trait MachineRegistry {
+    fn read_dword(&self, path: &str, name: &str) -> Result<Option<u32>>;
+    fn write_dword(&mut self, path: &str, name: &str, value: u32) -> Result<()>;
+}
+struct NativeRegistry;
+impl MachineRegistry for NativeRegistry {
+    fn read_dword(&self, path: &str, name: &str) -> Result<Option<u32>> {
+        system::machine_dword(path, name)
+    }
+    fn write_dword(&mut self, path: &str, name: &str, value: u32) -> Result<()> {
+        system::write_key(
+            HKEY_LOCAL_MACHINE,
+            path,
+            &[(name, system::Value::Number(value))],
+        )
+    }
+}
+/// Turn Remote Desktop off (`fDenyTSConnections = 1`), read it back, and
+/// check that no group policy keeps it on, as the host does
+/// (`butterpollo_core::child_session::turn_rdp_off`). What was done, for
+/// the note.
+fn turn_rdp_off(registry: &mut dyn MachineRegistry) -> String {
+    let off = registry
+        .write_dword(TERMINAL_SERVER, DENY_TS_CONNECTIONS, 1)
+        .and_then(
+            |()| match registry.read_dword(TERMINAL_SERVER, DENY_TS_CONNECTIONS)? {
+                Some(1) => Ok(()),
+                now => bail!("it reads {now:?} after writing 1"),
+            },
+        )
+        .and_then(
+            |()| match registry.read_dword(TERMINAL_SERVICES_POLICY, DENY_TS_CONNECTIONS)? {
+                Some(0) => bail!(
+                    "group policy keeps Remote Desktop on ({DENY_TS_CONNECTIONS} = 0 under HKLM\\{TERMINAL_SERVICES_POLICY}), which wins over this setting"
+                ),
+                _ => Ok(()),
+            },
+        );
+    match off {
+        Ok(()) => format!(
+            "Remote Desktop was turned off ({DENY_TS_CONNECTIONS} = 1), so it is not open to the network"
+        ),
+        Err(error) => format!(
+            "Turning Remote Desktop off failed ({DENY_TS_CONNECTIONS}: {error:#}): turn it off in Windows' settings (System, Remote Desktop) now"
+        ),
     }
 }
 /// Delete `root` for a factory reset, all but `keep` (files inside it). Best
@@ -507,6 +579,184 @@ mod tests {
         assert_eq!(
             child_session_restore_pending(&profile, install.path()),
             None
+        );
+    }
+    /// HKLM as the uninstaller sees it: RDP on, as child-session setup left it.
+    #[derive(Default)]
+    struct FakeRegistry {
+        values: std::collections::BTreeMap<(String, String), u32>,
+        /// Writes fail (access denied).
+        denied: bool,
+        /// Writes succeed without changing the value.
+        stuck: bool,
+        writes: usize,
+    }
+    impl FakeRegistry {
+        fn rdp_on() -> Self {
+            let mut registry = Self::default();
+            registry.set(TERMINAL_SERVER, 0);
+            registry
+        }
+        fn set(&mut self, path: &str, value: u32) {
+            self.values
+                .insert((path.into(), DENY_TS_CONNECTIONS.into()), value);
+        }
+        fn rdp(&self) -> Option<u32> {
+            self.read_dword(TERMINAL_SERVER, DENY_TS_CONNECTIONS)
+                .unwrap()
+        }
+    }
+    impl MachineRegistry for FakeRegistry {
+        fn read_dword(&self, path: &str, name: &str) -> Result<Option<u32>> {
+            Ok(self.values.get(&(path.into(), name.into())).copied())
+        }
+        fn write_dword(&mut self, path: &str, name: &str, value: u32) -> Result<()> {
+            self.writes += 1;
+            if self.denied {
+                bail!("access denied");
+            }
+            if !self.stuck {
+                self.values.insert((path.into(), name.into()), value);
+            }
+            Ok(())
+        }
+    }
+    /// A recorded setup with the host installed (`exe`) or not.
+    fn recorded(exe: bool) -> (tempfile::TempDir, tempfile::TempDir, PathBuf) {
+        let install = tempfile::tempdir().unwrap();
+        if exe {
+            write(&install.path().join("butterpollo.exe"), "");
+        }
+        let root = tempfile::tempdir().unwrap();
+        let profile = root.path().join("config");
+        write(&child_session_record(&profile), "{}");
+        (install, root, profile)
+    }
+    #[test]
+    fn a_restore_that_cannot_run_turns_remote_desktop_off_itself() {
+        // The host is gone: nothing ran, so the uninstaller turns RDP off and reads it back.
+        let (install, _root, profile) = recorded(false);
+        let mut registry = FakeRegistry::rdp_on();
+        let note = restore_child_session_with(&profile, install.path(), &mut registry, |_| {
+            panic!("there is no host to run")
+        })
+        .unwrap();
+        assert_eq!(registry.rdp(), Some(1));
+        assert!(
+            note.contains("butterpollo.exe is missing")
+                && note.contains("Remote Desktop was turned off (fDenyTSConnections = 1)"),
+            "{note}"
+        );
+        // The host does not start, times out (killed) or crashes: the same.
+        let (install, _root, profile) = recorded(true);
+        type Outcome = fn() -> Result<(i32, String)>;
+        let outcomes: [Outcome; 4] = [
+            || bail!("starting butterpollo.exe: access denied"),
+            || bail!("butterpollo.exe did not finish within 180 s"),
+            || Ok((-1073741819, String::new())),
+            // A restore that failed: the host turned RDP off already; again does no harm.
+            || Ok((1, "were not restored: access denied.".into())),
+        ];
+        for outcome in outcomes {
+            let mut registry = FakeRegistry::rdp_on();
+            let note =
+                restore_child_session_with(&profile, install.path(), &mut registry, |program| {
+                    assert_eq!(program, install.path().join("butterpollo.exe"));
+                    outcome()
+                })
+                .unwrap();
+            assert_eq!(registry.rdp(), Some(1), "{note}");
+            assert!(note.contains("Remote Desktop was turned off"), "{note}");
+            assert!(!note.contains(".."), "{note}");
+        }
+        // Restored, or nothing to restore: RDP is left as the restore put it.
+        let mut registry = FakeRegistry::rdp_on();
+        assert_eq!(
+            restore_child_session_with(&profile, install.path(), &mut registry, |_| Ok((
+                0,
+                String::new()
+            ))),
+            None
+        );
+        let root = tempfile::tempdir().unwrap();
+        assert_eq!(
+            restore_child_session_with(
+                &root.path().join("config"),
+                install.path(),
+                &mut registry,
+                |_| panic!("nothing to restore")
+            ),
+            None
+        );
+        assert_eq!((registry.rdp(), registry.writes), (Some(0), 0));
+    }
+    #[test]
+    fn remote_desktop_that_stays_on_is_reported_loudly() {
+        let (install, _root, profile) = recorded(false);
+        let note = |registry: &mut FakeRegistry| {
+            restore_child_session_with(&profile, install.path(), registry, |_| unreachable!())
+                .unwrap()
+        };
+        let mut denied = FakeRegistry {
+            denied: true,
+            ..FakeRegistry::rdp_on()
+        };
+        let found = note(&mut denied);
+        assert!(
+            found.contains("Turning Remote Desktop off failed")
+                && found.contains("access denied")
+                && found.contains("turn it off in Windows' settings"),
+            "{found}"
+        );
+        // Written but read back on.
+        let mut stuck = FakeRegistry {
+            stuck: true,
+            ..FakeRegistry::rdp_on()
+        };
+        let found = note(&mut stuck);
+        assert!(
+            found.contains("Turning Remote Desktop off failed")
+                && found.contains("it reads Some(0) after writing 1"),
+            "{found}"
+        );
+        // Group policy wins over the value written.
+        let mut policy = FakeRegistry::rdp_on();
+        policy.set(TERMINAL_SERVICES_POLICY, 0);
+        let found = note(&mut policy);
+        assert_eq!(policy.rdp(), Some(1));
+        assert!(
+            found.contains("Turning Remote Desktop off failed") && found.contains("group policy"),
+            "{found}"
+        );
+        // A policy that turns it off is no problem.
+        let mut off = FakeRegistry::rdp_on();
+        off.set(TERMINAL_SERVICES_POLICY, 1);
+        assert!(note(&mut off).contains("Remote Desktop was turned off"));
+    }
+    #[test]
+    fn the_uninstaller_switches_remote_desktop_where_the_host_does() {
+        use butterpollo_core::child_session as host;
+        assert_eq!(TERMINAL_SERVER, host::TERMINAL_SERVER);
+        assert_eq!(TERMINAL_SERVICES_POLICY, host::TERMINAL_SERVICES_POLICY);
+        // Read-only on this PC: the value is a DWORD or absent, and a missing one reads as None.
+        let value = NativeRegistry
+            .read_dword(TERMINAL_SERVER, DENY_TS_CONNECTIONS)
+            .unwrap();
+        assert!(matches!(value, None | Some(0) | Some(1)), "{value:?}");
+        assert_eq!(
+            NativeRegistry
+                .read_dword(r"SOFTWARE\Rubylight\No\Such\Key", "Missing")
+                .unwrap(),
+            None
+        );
+        // A value that is not a DWORD is an error, not a missing one.
+        assert!(
+            NativeRegistry
+                .read_dword(
+                    r"SOFTWARE\Microsoft\Windows NT\CurrentVersion",
+                    "ProductName"
+                )
+                .is_err()
         );
     }
     #[test]

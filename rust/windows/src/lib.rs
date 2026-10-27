@@ -29,6 +29,7 @@ pub mod display;
 pub mod display_arrangement;
 pub mod display_recovery;
 pub mod encoder;
+pub mod ffmpeg;
 pub mod files;
 pub mod firewall;
 pub mod foreground;

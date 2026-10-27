@@ -352,8 +352,8 @@ public final class HostCapabilities {
         }
         boolean uploadPermission = permission(permissions, "file_upload");
         boolean downloadPermission = permission(permissions, "file_download");
-        boolean usbPermission = permission(permissions, "usb");
-        boolean folderPermission = permission(permissions, "shared_folders");
+        boolean usbPermission = granted(permissions, "usb");
+        boolean folderPermission = granted(permissions, "shared_folders");
         if (evidence == null) {
             return UNKNOWN;
         }
@@ -384,6 +384,11 @@ public final class HostCapabilities {
     /** False when absent, as from a host without file transfer; a value that is not a boolean is an error. */
     private static boolean permission(JSONObject permissions, String key) throws JSONException {
         return permissions.has(key) && typed(permissions, key, Boolean.class);
+    }
+
+    /** A 3.0 permission: anything but {@code true} is refused, so a host that sends it wrong keeps file transfer. */
+    private static boolean granted(JSONObject permissions, String key) {
+        return Boolean.TRUE.equals(permissions.opt(key));
     }
 
     /** Stored capabilities, or {@link #UNKNOWN} for anything missing, damaged or in another format. */

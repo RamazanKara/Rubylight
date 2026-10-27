@@ -81,11 +81,17 @@ pub struct FilePermissions {
     pub file_upload: bool,
     #[serde(default)]
     pub file_download: bool,
-    #[serde(default)]
+    /// The 3.0 permissions read anything but a bool as refused, so a host that gets them wrong
+    /// loses only them, not the file permissions beside them.
+    #[serde(default, deserialize_with = "bool_or_false")]
     pub usb: bool,
     /// The device has at least one folder grant.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "bool_or_false")]
     pub shared_folders: bool,
+}
+
+fn bool_or_false<'de, D: Deserializer<'de>>(deserializer: D) -> Result<bool, D::Error> {
+    Ok(serde_json::Value::deserialize(deserializer)?.as_bool().unwrap_or(false))
 }
 
 /// `GET /capabilities` with the fields of newer hosts, read from the same body.
@@ -323,12 +329,27 @@ mod tests {
         // An older host has neither.
         let read = decode::<NativeCapabilities>(response(200, &body("")), path).unwrap();
         assert_eq!(read.files, FilePermissions::default());
-        // A permission that is not a bool, or no Capabilities at all, is malformed.
-        for broken in [
-            body(r#","file_upload":1"#),
-            body(r#","usb":"true""#),
-            r#"{"permissions":{}}"#.into(),
-        ] {
+        // A 3.0 permission that is not a bool is refused; the rest of the body still counts.
+        for odd in [r#""true""#, "1", "null", "{}"] {
+            let read = decode::<NativeCapabilities>(
+                response(
+                    200,
+                    &body(&format!(r#","file_upload":true,"usb":{odd},"shared_folders":{odd}"#)),
+                ),
+                path,
+            )
+            .unwrap();
+            assert_eq!(
+                read.files,
+                FilePermissions {
+                    file_upload: true,
+                    ..Default::default()
+                },
+                "{odd}"
+            );
+        }
+        // An older permission that is not a bool, or no Capabilities at all, is malformed.
+        for broken in [body(r#","file_upload":1"#), r#"{"permissions":{}}"#.into()] {
             assert!(matches!(
                 decode::<NativeCapabilities>(response(200, &broken), path),
                 Err(Error::Malformed(_))

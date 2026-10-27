@@ -1,6 +1,7 @@
 package com.limelight.nvstream.jni;
 
 import com.limelight.LimeLog;
+import com.limelight.nativeapi.HostEndpoint;
 import com.limelight.nvstream.NvConnectionListener;
 import com.limelight.nvstream.av.audio.AudioRenderer;
 import com.limelight.nvstream.av.video.HostTimingReport;
@@ -412,6 +413,55 @@ public class MoonBridge {
     // receive thread; only between an accepted sendCursorShapeRequest(true) and the next false.
     public static void bridgeClCursorShape(byte[] message) {
         if (connectionListener != null) connectionListener.cursorShape(message);
+    }
+
+    // USB forwarding (0x553A, docs/control-messages.md), Rust engine only: what
+    // usbAttach returns instead of a request id.
+    public static final int USB_NO_STREAM = -1;
+    public static final int USB_BUSY = -2;
+    public static final int USB_UNSUPPORTED = -3;
+    public static final int USB_DEVICE_FAILED = -4;
+    public static final int USB_INVALID = -5;
+    public static final int USB_HOST_FAILED = -6;
+
+    private static volatile Runnable usbListener;
+
+    /** Runs on any thread whenever usbList() may have changed; null stops. */
+    public static void setUsbListener(Runnable listener) {
+        usbListener = listener;
+    }
+
+    public static void bridgeClUsbChanged() {
+        Runnable listener = usbListener;
+        if (listener != null) listener.run();
+    }
+
+    /**
+     * Asks the host to attach the device open on fd (a UsbDeviceConnection's, which the caller
+     * may close afterwards) at its usbfs path: a request id, or USB_*.
+     */
+    public static int usbAttach(int fd, String path, String name, HostEndpoint host) {
+        if (!rustStream) return USB_NO_STREAM;
+        if (host == null) return USB_HOST_FAILED;
+        return RustBridge.usbAttach(fd, path, name, host.address, host.httpPort, host.httpsPort,
+                host.serverCertificatePem, host.uniqueId, host.clientCertificateDer,
+                host.clientPrivateKeyPkcs8);
+    }
+
+    /** Detaches an attachment of this stream; false when it is not attached. */
+    public static boolean usbDetach(int requestId) {
+        return rustStream && RustBridge.usbDetach(requestId);
+    }
+
+    /** This stream's attachments as JSON (src/usb.rs's list_json), "[]" without any. */
+    public static String usbList() {
+        if (!rustStream) return "[]";
+        String list = RustBridge.usbList();
+        if (list == null) {
+            LimeLog.severe("USB: the attachment list did not reach Java");
+            return "[]";
+        }
+        return list;
     }
 
     public static boolean sendControllerAudio(int kind, byte[] payload) {

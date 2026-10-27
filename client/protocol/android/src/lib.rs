@@ -21,7 +21,7 @@ mod usb;
 use std::time::Duration;
 
 use jni::objects::{JByteArray, JClass, JLongArray, JShortArray, JString};
-use jni::sys::{jboolean, jbyte, jfloat, jint, jlong, jshort, JNI_FALSE, JNI_TRUE};
+use jni::sys::{jboolean, jbyte, jfloat, jint, jlong, jshort, jstring, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 
 use nightjar_core::control::ClientMessage;
@@ -921,7 +921,7 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_usbDetach(
 pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_usbList(
     env: JNIEnv,
     _: JClass,
-) -> jni::sys::jstring {
+) -> jstring {
     match env.new_string(usb::list_json()) {
         Ok(list) => list.into_raw(),
         Err(_) => std::ptr::null_mut(),

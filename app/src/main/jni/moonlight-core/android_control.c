@@ -1,7 +1,10 @@
 #include <jni.h>
 
 // Keep the pinned core intact while sharing its encryption, sequence and ENet mutex.
+static void flushFecReport(void);
+#define RL_LOSS_STATS_TICK flushFecReport
 #include "moonlight-common-c/src/ControlStream.c"
+#undef RL_LOSS_STATS_TICK
 
 JNIEXPORT jboolean JNICALL
 Java_com_limelight_nvstream_jni_MoonBridge_cSendServerCommand(JNIEnv *env, jclass clazz, jbyteArray payload) {
@@ -152,6 +155,46 @@ Java_com_limelight_nvstream_jni_MoonBridge_cHostSupportsControlMessage(JNIEnv *e
     (void)env; (void)clazz;
     if (messageType < 0 || messageType > 0xFFFF) return JNI_FALSE;
     return hostSupportsControlMessage((uint16_t)messageType) ? JNI_TRUE : JNI_FALSE;
+}
+
+// FEC loss report (protocol/core/src/fec_report.rs): once a second, tell a Rubylight host how many
+// video shards of the finished FEC blocks never arrived, so its auto FEC follows this network.
+// The video receive thread counts; the loss-stats thread sends beside its periodic ping, so the
+// receive path never waits for ENet. Only hosts that announce 0x5539 in a=x-rl-control get it.
+#include "fec_report.h"
+
+static pthread_mutex_t fecReportMutex = PTHREAD_MUTEX_INITIALIZER;
+static RpFecTally* fecReportTally;
+
+void resetFecReports(void) {
+    pthread_mutex_lock(&fecReportMutex);
+    if (fecReportTally) rp_fec_tally_free(fecReportTally);
+    fecReportTally = rp_fec_tally_new();
+    pthread_mutex_unlock(&fecReportMutex);
+}
+
+void rlFecBlockFinished(uint32_t dataShards, uint32_t parityShards, uint32_t missingShards, bool unrecovered) {
+    if (!hostSupportsControlMessage(RP_FEC_REPORT_MESSAGE_TYPE)) return;
+    pthread_mutex_lock(&fecReportMutex);
+    if (fecReportTally) {
+        rp_fec_tally_block(fecReportTally, dataShards, parityShards, missingShards, unrecovered, PltGetMillis());
+    }
+    pthread_mutex_unlock(&fecReportMutex);
+}
+
+static void flushFecReport(void) {
+    if (!hostSupportsControlMessage(RP_FEC_REPORT_MESSAGE_TYPE)) return;
+    uint8_t report[RP_FEC_REPORT_BYTES];
+    bool ready = false;
+    pthread_mutex_lock(&fecReportMutex);
+    if (fecReportTally) ready = rp_fec_tally_report(fecReportTally, PltGetMillis(), report);
+    pthread_mutex_unlock(&fecReportMutex);
+    if (!ready || !encryptedControlStream || stopping || peer == NULL) return;
+    // Unreliable: a lost report is replaced a second later.
+    if (!sendMessageAndForget(RP_FEC_REPORT_MESSAGE_TYPE, (short)sizeof(report), report,
+                              CTRL_CHANNEL_GENERIC, 0, false)) {
+        Limelog("FEC report: send failed: %d\n", (int)LastSocketError());
+    }
 }
 
 // Display HDR luminance (protocol/core/src/control.rs, DisplayCaps): sent at stream start and

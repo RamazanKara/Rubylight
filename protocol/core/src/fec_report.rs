@@ -119,6 +119,55 @@ impl FecReport {
     }
 }
 
+/// A client's video FEC outcomes since its last [`FecReport`], on a millisecond clock.
+#[derive(Clone, Debug, Default)]
+pub struct FecTally {
+    report: FecReport,
+    /// When the interval began: the first block counted, then each report.
+    since_ms: Option<u64>,
+    next_seq: u32,
+}
+
+impl FecTally {
+    /// Counts one finished FEC block, recovered or not; the first one starts the interval.
+    pub fn block(
+        &mut self,
+        data_shards: u32,
+        parity_shards: u32,
+        missing_shards: u32,
+        unrecovered: bool,
+        now_ms: u64,
+    ) {
+        self.since_ms.get_or_insert(now_ms);
+        let report = &mut self.report;
+        report.data_shards = report.data_shards.saturating_add(data_shards);
+        report.parity_shards = report.parity_shards.saturating_add(parity_shards);
+        report.missing_shards = report.missing_shards.saturating_add(missing_shards);
+        report.unrecovered_blocks = report
+            .unrecovered_blocks
+            .saturating_add(u16::from(unrecovered));
+    }
+
+    /// The report once its interval is [`NOMINAL_INTERVAL_MS`] old, which starts the next
+    /// interval. An interval without video gives nothing, and one past [`MAX_INTERVAL_MS`] (a
+    /// stalled sender) is dropped: its counts can't be timed.
+    pub fn take(&mut self, now_ms: u64) -> Option<FecReport> {
+        let elapsed = now_ms.saturating_sub(self.since_ms?);
+        if elapsed < u64::from(NOMINAL_INTERVAL_MS) {
+            return None;
+        }
+        let mut report = core::mem::take(&mut self.report);
+        self.since_ms = Some(now_ms);
+        if report.data_shards == 0 || elapsed > u64::from(MAX_INTERVAL_MS) {
+            return None;
+        }
+        report.seq = self.next_seq;
+        report.interval_ms = elapsed as u16;
+        self.next_seq = self.next_seq.wrapping_add(1);
+        Some(report)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,5 +247,48 @@ mod tests {
             };
             assert_eq!(FecReport::decode(&report.encode()), Some(report));
         }
+    }
+
+    #[test]
+    fn the_tally_reports_once_a_second_and_drops_what_it_cannot_time() {
+        let mut tally = FecTally::default();
+        assert_eq!(tally.take(5_000), None, "nothing counted yet");
+        tally.block(10, 2, 1, false, 1_000);
+        tally.block(10, 2, 12, true, 1_400);
+        assert_eq!(tally.take(1_999), None, "under a second");
+        let first = tally.take(2_050).unwrap();
+        assert_eq!(
+            first,
+            FecReport {
+                seq: 0,
+                data_shards: 20,
+                parity_shards: 4,
+                missing_shards: 13,
+                unrecovered_blocks: 1,
+                interval_ms: 1_050,
+            }
+        );
+        assert_eq!(FecReport::decode(&first.encode()), Some(first));
+        // A second without video sends nothing but still starts the next interval.
+        assert_eq!(tally.take(3_100), None);
+        tally.block(5, 1, 0, false, 3_200);
+        let second = tally.take(4_100).unwrap();
+        assert_eq!(
+            (second.seq, second.data_shards, second.interval_ms),
+            (1, 5, 1_000)
+        );
+        // A stalled sender: counts older than five seconds are dropped, the sequence goes on.
+        tally.block(5, 1, 0, false, 4_200);
+        assert_eq!(tally.take(9_101), None);
+        tally.block(5, 1, 0, false, 9_200);
+        assert_eq!(tally.take(10_101).unwrap().seq, 2);
+        // Counts saturate instead of wrapping.
+        let mut full = FecTally::default();
+        for _ in 0..3 {
+            full.block(u32::MAX, u32::MAX, u32::MAX, true, 0);
+        }
+        let report = full.take(1_000).unwrap();
+        assert_eq!(report.data_shards, u32::MAX);
+        assert_eq!(report.unrecovered_blocks, 3);
     }
 }

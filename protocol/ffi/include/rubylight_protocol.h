@@ -48,6 +48,22 @@ bool rp_slack_window_report(RpSlackWindow *window, size_t min_frames, uint8_t *o
 #define RP_DISPLAY_CAPS_BYTES 16
 void rp_display_caps_encode(bool hdr, float max_nits, float max_average_nits, float min_nits, uint8_t *out);
 
+// Video FEC loss report (core/src/fec_report.rs, client to host): once a second, the shards of
+// the FEC blocks finished in the interval and how many never arrived. Only hosts that announce
+// it in a=x-rl-control receive it.
+#define RP_FEC_REPORT_MESSAGE_TYPE 0x5539
+#define RP_FEC_REPORT_BYTES 24
+
+typedef struct RpFecTally RpFecTally;
+
+RpFecTally *rp_fec_tally_new(void);
+void rp_fec_tally_free(RpFecTally *tally);
+// Counts one finished FEC block, recovered or not; now_ms is any monotonic millisecond clock.
+void rp_fec_tally_block(RpFecTally *tally, uint32_t data_shards, uint32_t parity_shards,
+                        uint32_t missing_shards, bool unrecovered, uint64_t now_ms);
+// Writes the report to out once its interval is a second old; false otherwise (nothing to send).
+bool rp_fec_tally_report(RpFecTally *tally, uint64_t now_ms, uint8_t *out);
+
 // Change resolution or frame rate mid-stream (client to host, 2.2.0+).
 #define RP_RECONFIGURE_MESSAGE_TYPE 0x5532
 #define RP_RECONFIGURE_BYTES 12

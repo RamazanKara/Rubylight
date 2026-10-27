@@ -1,0 +1,55 @@
+Hooks for Nightjar's once-a-second video FEC loss report (0x5539, protocol/core/src/fec_report.rs):
+every FEC block that completes or is given up calls RL_FEC_BLOCK_FINISHED, and the loss-stats
+thread calls RL_LOSS_STATS_TICK beside the periodic ping to a Sunshine host. Both are no-ops
+unless the including wrapper (android_rtp_video.c, android_control.c) defines them, so the video
+path and the differential tests are unchanged otherwise. Applies after clock-sync.patch.
+
+diff --git a/src/ControlStream.c b/src/ControlStream.c
+index 16355a0..64ea71f 100644
+--- a/src/ControlStream.c
++++ b/src/ControlStream.c
+@@ -1644,6 +1644,11 @@ static void lossStatsThreadFunc(void* context) {
+ 
+                     free(queuedFrameStatus);
+                 }
++
++#ifdef RL_LOSS_STATS_TICK
++                // Nightjar's once-a-second FEC loss report goes out with the periodic ping.
++                RL_LOSS_STATS_TICK();
++#endif
+             }
+ 
+             // Send the message (and don't expect a response)
+diff --git a/src/RtpVideoQueue.c b/src/RtpVideoQueue.c
+index a4e022e..169aa17 100644
+--- a/src/RtpVideoQueue.c
++++ b/src/RtpVideoQueue.c
+@@ -17,6 +17,11 @@
+ // RTP packets use a 90 KHz presentation timestamp clock
+ #define PTS_DIVISOR 90
+ 
++// Nightjar counts every finished FEC block for its loss report (android_rtp_video.c).
++#ifndef RL_FEC_BLOCK_FINISHED
++#define RL_FEC_BLOCK_FINISHED(queue, unrecovered) ((void)0)
++#endif
++
+ void RtpvInitializeQueue(PRTP_VIDEO_QUEUE queue) {
+     reed_solomon_init();
+     memset(queue, 0, sizeof(*queue));
+@@ -596,6 +601,7 @@ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_
+         if (queue->pendingFecBlockList.count != 0) {
+             // Report the final status of the FEC queue before dropping this frame
+             reportFinalFrameFecStatus(queue);
++            RL_FEC_BLOCK_FINISHED(queue, true);
+ 
+             if (queue->multiFecLastBlockNumber != 0) {
+                 Limelog("Unrecoverable frame %d (block %d of %d): %d+%d=%d received < %d needed\n",
+@@ -776,6 +782,8 @@ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_
+         // Try to submit this frame. If we haven't received enough packets,
+         // this will fail and we'll keep waiting.
+         if (reconstructFrame(queue) == 0) {
++            RL_FEC_BLOCK_FINISHED(queue, false);
++
+             // Stage the complete FEC block for use once reassembly is complete
+             stageCompleteFecBlock(queue);
+ 

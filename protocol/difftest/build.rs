@@ -24,12 +24,14 @@ const PATCHES: &[&str] = &[
     "video-recv-buffer.patch",
     "clock-sync.patch",
     "prefix-sei.patch",
+    "fec-report.patch",
 ];
 
 const WRAPPERS: &[&str] = &[
     "android_rtp_video.c",
     "android_depacketizer.c",
     "pyrowave_protocol.h",
+    "fec_report.h",
 ];
 
 fn main() {

@@ -15,6 +15,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.limelight.AppView;
+import com.limelight.FolderBrowserActivity;
 import com.limelight.R;
 import com.limelight.computers.ComputerManagerService;
 import com.limelight.computers.HostActions;
@@ -757,6 +758,9 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
                 break;
             case HostMenu.PC_SETTINGS:
                 HostStreamSettings.show(this, details.uuid, details.displayName());
+                break;
+            case HostMenu.SHARED_FOLDERS:
+                FolderBrowserActivity.open(this, details);
                 break;
             case HostMenu.RENAME:
                 hostActions.rename(details);

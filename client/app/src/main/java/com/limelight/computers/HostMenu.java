@@ -17,7 +17,7 @@ import java.util.function.IntConsumer;
 
 /**
  * A PC's options, one list for the PCs screen and for Home. In this order: Open library, Resume and Quit,
- * Pair, one-time PIN, Wake or Sleep, PC settings, Rename, Unpair or Pairing help, then Remove PC last. The
+ * Shared folders, Pair, one-time PIN, Wake or Sleep, PC settings, Rename, Unpair or Pairing help, then Remove PC last. The
  * screen that shows it decides what each action does; this class only knows what is offered for which state.
  */
 public final class HostMenu {
@@ -39,6 +39,7 @@ public final class HostMenu {
     public static final int PAIRING_HELP = 14;
     public static final int RENAME = 15;
     public static final int SLEEP = 16;
+    public static final int SHARED_FOLDERS = 17;
 
     private HostMenu() {
     }
@@ -63,6 +64,9 @@ public final class HostMenu {
                         ? activity.getString(R.string.pc_menu_quit_game, runningGame)
                         : activity.getString(R.string.applist_menu_quit));
             }
+        }
+        if (hasSharedFolders(details, state)) {
+            add(sheet, onAction, SHARED_FOLDERS, R.drawable.ic_folder, activity.getString(R.string.folders_title));
         }
         if (state == PcGridAdapter.RowState.NOT_PAIRED) {
             add(sheet, onAction, PAIR, R.drawable.ic_lock, activity.getString(R.string.pcview_menu_pair_pc));
@@ -121,6 +125,15 @@ public final class HostMenu {
             return SleepEntry.ENABLED;
         }
         return sleep.reason == HostCapabilities.Reason.SLEEP_PERMISSION ? SleepEntry.DISABLED : SleepEntry.HIDDEN;
+    }
+
+    /**
+     * Shared folders on a paired, online PC with the native API. Whether it shares any with this device takes a
+     * request, so the folders screen answers that; serverinfo does not say.
+     */
+    static boolean hasSharedFolders(ComputerDetails details, PcGridAdapter.RowState state) {
+        return (state == PcGridAdapter.RowState.RUNNING || state == PcGridAdapter.RowState.READY)
+                && details.caps.has(HostCapabilities.Feature.NATIVE_API);
     }
 
     private static void add(ActionSheet sheet, IntConsumer onAction, int action, int icon, String label) {

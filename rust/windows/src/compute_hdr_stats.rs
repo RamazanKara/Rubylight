@@ -6,6 +6,10 @@
 //! buffer. Nothing waits for it on the CPU: [`Converter::latest_hdr_stats`]
 //! returns the newest finished result, so a late pass only keeps the previous
 //! one current.
+//!
+//! The pass and its readback follow Foundation Sunshine's
+//! hdr_luminance_analysis_cs.hlsl (AlkaidLab/foundation-sunshine, commit
+//! 880f1ef). Copyright (c) Foundation Sunshine authors, GPL-3.0.
 use super::*;
 use butterpollo_core::hdr_dynamic::FrameStats;
 

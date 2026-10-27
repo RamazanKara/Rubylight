@@ -25,6 +25,10 @@ The HDR10+ (SMPTE ST 2094-40) and HDR Vivid (CUVA 005.1) metadata writers, their
 statistics and scene-cut thresholds, and the HEVC SEI and AV1 metadata OBU splice
 (rust/core/src/hdr_dynamic.rs) are ported in part from Foundation Sunshine commit
 880f1ef: video_hdr_metadata.h, video_hdr_metadata.cpp and video_hdr_bitstream.cpp.
+The GPU luminance statistics those writers take, the hdr_stats_cs compute shader
+(rust/windows/src/shaders/color.hlsl) and its dispatch and readback
+(rust/windows/src/compute_hdr_stats.rs), follow Foundation Sunshine's
+hdr_luminance_analysis_cs.hlsl from the same commit.
 Copyright (c) Foundation Sunshine authors, GPL-3.0.
 
 InputPlumber and SDL

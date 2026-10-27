@@ -683,5 +683,26 @@ class LinkCompare(unittest.TestCase):
 NS = '{http://signpath.io/artifact-configuration/v1}'
 
 
+class PortedCredits(unittest.TestCase):
+    """Code ported from Foundation Sunshine is credited by file in NOTICE and AGENTS.md."""
+
+    PORTED = ['rust/core/src/hdr_dynamic.rs', 'rust/windows/src/shaders/color.hlsl',
+              'rust/windows/src/compute_hdr_stats.rs']
+
+    def test_notice_and_agents_name_every_ported_hdr_file(self):
+        notice = ' '.join((ROOT / 'NOTICE').read_text(encoding='utf-8').split())
+        agents = (ROOT / 'AGENTS.md').read_text(encoding='utf-8').splitlines()[2]
+        for path in self.PORTED:
+            self.assertIn('Foundation Sunshine', (ROOT / path).read_text(encoding='utf-8'), path)
+            self.assertIn(path, notice)
+            self.assertIn(path, agents)
+        self.assertIn('hdr_luminance_analysis_cs.hlsl', notice)
+        self.assertIn('hdr_stats_cs', notice)
+        self.assertIn('hdr_stats_cs', agents)
+        # The earlier credits stay.
+        self.assertIn('video_hdr_metadata.cpp and video_hdr_bitstream.cpp', notice)
+        self.assertIn('commit 3340d28', notice)
+
+
 if __name__ == '__main__':
     unittest.main()

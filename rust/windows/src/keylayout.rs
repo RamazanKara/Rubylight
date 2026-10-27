@@ -46,7 +46,11 @@ impl Layout {
         use anyhow::{Context, bail};
         use windows::Win32::{
             Foundation::FreeLibrary,
-            System::LibraryLoader::{GetProcAddress, LoadLibraryW},
+            System::{
+                LibraryLoader::{GetProcAddress, LOAD_LIBRARY_SEARCH_SYSTEM32, LoadLibraryExW},
+                ProcessStatus::{GetModuleInformation, MODULEINFO},
+                Threading::GetCurrentProcess,
+            },
         };
         let file = layout_file(klid)?;
         if !file.to_ascii_lowercase().ends_with(".dll")
@@ -74,32 +78,73 @@ impl Layout {
             .chain([0])
             .collect();
         // SAFETY: The path is terminated. A layout file is a system DLL that Windows
-        // itself loads into every desktop session.
-        let module = unsafe { LoadLibraryW(windows::core::PCWSTR(path.as_ptr())) }
-            .with_context(|| format!("loading {file} for keyboard layout {klid:08X}"))?;
+        // itself loads into every desktop session; it and what it imports come from the
+        // system folder only. Loading it as an image still runs its DllMain, as Windows'
+        // own loading does; mapping it as a data file would mean relocating the tables'
+        // pointers by hand.
+        let module = unsafe {
+            LoadLibraryExW(
+                windows::core::PCWSTR(path.as_ptr()),
+                None,
+                LOAD_LIBRARY_SEARCH_SYSTEM32,
+            )
+        }
+        .with_context(|| format!("loading {file} for keyboard layout {klid:08X}"))?;
         // SAFETY: The module stays loaded until FreeLibrary below and the name is
         // terminated. KbdLayerDescriptor takes nothing and returns the layout's static
         // KBDTABLES, which KbdTables is the start of; its scan code table has
-        // max_vsc_to_vk entries. The table is copied before the module is freed.
+        // max_vsc_to_vk entries. Both are read only once they lie inside the loaded
+        // image, aligned, and the table is copied before the module is freed.
         let table = unsafe {
-            let table = GetProcAddress(module, windows::core::s!("KbdLayerDescriptor"))
-                .map(|descriptor| {
-                    let descriptor: unsafe extern "system" fn() -> *const KbdTables =
-                        std::mem::transmute(descriptor);
-                    descriptor()
-                })
-                .and_then(|tables| tables.as_ref())
-                .filter(|tables| !tables.vsc_to_vk.is_null())
-                .map(|tables| {
-                    std::slice::from_raw_parts(tables.vsc_to_vk, usize::from(tables.max_vsc_to_vk))
-                        .to_vec()
-                });
+            let mut info = MODULEINFO::default();
+            let image = GetModuleInformation(
+                GetCurrentProcess(),
+                module,
+                &mut info,
+                std::mem::size_of::<MODULEINFO>() as u32,
+            )
+            .map(|()| (info.lpBaseOfDll as usize, info.SizeOfImage as usize));
+            let table = match image {
+                Err(error) => Err(format!("has no image information ({error})")),
+                Ok((base, size)) => {
+                    match GetProcAddress(module, windows::core::s!("KbdLayerDescriptor")) {
+                        None => Err("has no keyboard layout tables".to_owned()),
+                        Some(descriptor) => {
+                            let descriptor: unsafe extern "system" fn() -> *const KbdTables =
+                                std::mem::transmute(descriptor);
+                            let tables = descriptor();
+                            if tables.is_null() {
+                                Err("has no keyboard layout tables".to_owned())
+                            } else if !in_image(base, size, tables as usize, size_of::<KbdTables>())
+                                || !tables.is_aligned()
+                            {
+                                Err(OUTSIDE.to_owned())
+                            } else {
+                                let tables = &*tables;
+                                let length = usize::from(tables.max_vsc_to_vk);
+                                if tables.vsc_to_vk.is_null()
+                                    || !tables.vsc_to_vk.is_aligned()
+                                    || !in_image(
+                                        base,
+                                        size,
+                                        tables.vsc_to_vk as usize,
+                                        length * size_of::<u16>(),
+                                    )
+                                {
+                                    Err(OUTSIDE.to_owned())
+                                } else {
+                                    Ok(std::slice::from_raw_parts(tables.vsc_to_vk, length)
+                                        .to_vec())
+                                }
+                            }
+                        }
+                    }
+                }
+            };
             let _ = FreeLibrary(module);
             table
         };
-        let Some(table) = table else {
-            bail!("{file} has no keyboard layout tables");
-        };
+        let table = table.map_err(|reason| anyhow::anyhow!("{file} {reason}"))?;
         let layout = Self::from_table(klid, &table);
         if layout.scancodes.iter().all(|&scan| scan == 0) {
             bail!("{file} maps no keys");
@@ -134,6 +179,14 @@ impl Layout {
             .copied()
             .filter(|&scan| scan != 0)
     }
+}
+
+/// Why tables are refused that point out of the layout file's image.
+const OUTSIDE: &str = "has keyboard layout tables outside its image";
+
+/// Whether `len` bytes from `start` lie inside the image of `size` bytes at `base`.
+fn in_image(base: usize, size: usize, start: usize, len: usize) -> bool {
+    start >= base && len <= size && start - base <= size - len
 }
 
 /// The layout DLL Windows lists for a layout id.
@@ -299,6 +352,79 @@ mod tests {
     fn unknown_layouts_fail_naming_the_id() {
         let error = format!("{:#}", Layout::load(0x0bad_0407).unwrap_err());
         assert!(error.contains("0BAD0407"), "{error}");
+    }
+
+    /// Layout tables are read only inside the image they came from, the end included.
+    #[test]
+    fn tables_outside_the_image_are_refused() {
+        let (base, size) = (0x1000_0000, 0x4000);
+        assert!(in_image(base, size, base, size));
+        assert!(in_image(base, size, base + 0x100, 0x200));
+        assert!(in_image(base, size, base + size - 2, 2));
+        assert!(!in_image(base, size, base + size - 1, 2));
+        assert!(!in_image(base, size, base - 2, 2));
+        assert!(!in_image(base, size, base + size, 0x10));
+        assert!(!in_image(base, size, base, size + 1));
+        assert!(!in_image(base, size, 0, 0));
+        assert!(!in_image(base, size, usize::MAX - 1, 4));
+    }
+
+    /// Every layout this PC lists reads from inside its own image.
+    #[test]
+    fn every_installed_layout_loads() {
+        use windows::Win32::System::Registry::*;
+        let mut key = HKEY::default();
+        // SAFETY: The name is terminated and `key` is closed below.
+        unsafe {
+            RegOpenKeyExW(
+                HKEY_LOCAL_MACHINE,
+                windows::core::w!("SYSTEM\\CurrentControlSet\\Control\\Keyboard Layouts"),
+                None,
+                KEY_READ,
+                &mut key,
+            )
+        }
+        .ok()
+        .unwrap();
+        let mut loaded = 0;
+        for index in 0.. {
+            let mut name = [0u16; 16];
+            let mut length = name.len() as u32;
+            // SAFETY: `name` is live and writable for `length` characters.
+            let result = unsafe {
+                RegEnumKeyExW(
+                    key,
+                    index,
+                    Some(windows::core::PWSTR(name.as_mut_ptr())),
+                    &mut length,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+            };
+            if result.is_err() {
+                break;
+            }
+            let name = String::from_utf16_lossy(&name[..length as usize]);
+            let Ok(klid) = u32::from_str_radix(&name, 16) else {
+                continue;
+            };
+            // A layout whose file Windows no longer ships fails on its own, naming it.
+            match Layout::load(klid) {
+                Ok(layout) => {
+                    assert_eq!(layout.klid(), klid);
+                    loaded += 1;
+                }
+                Err(error) => {
+                    let error = format!("{error:#}");
+                    assert!(!error.contains(OUTSIDE), "{name}: {error}");
+                }
+            }
+        }
+        // SAFETY: Opened above.
+        let _ = unsafe { RegCloseKey(key) };
+        assert!(loaded > 50, "{loaded} layouts loaded");
     }
 
     /// The first of two scan codes for one key wins; flags in the high byte are ignored.

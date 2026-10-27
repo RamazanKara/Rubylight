@@ -533,6 +533,9 @@ impl Viewer {
     /// keep running, without a display, until it attaches again.
     pub fn detach(&mut self, state: RdpState) -> Vec<ViewerAction> {
         self.want_reconnect = false;
+        // No attempt is in flight: a new password that has not signed in yet stays unverified
+        // (so the next attempt still checks it), but is never judged by this one.
+        self.last_attempt = None;
         self.gate.update(0, false);
         self.child = 0;
         self.set(
@@ -544,6 +547,17 @@ impl Viewer {
         } else {
             vec![ViewerAction::Disconnect]
         }
+    }
+    /// The viewer refused to connect (the RDP server check, or a setting the
+    /// session needs): detach, with the reason, and no retry. The password
+    /// never reached Windows, so it is neither saved nor dropped.
+    pub fn refuse(&mut self, state: RdpState, reason: &str) -> Vec<ViewerAction> {
+        let actions = self.detach(state);
+        self.set(
+            Phase::Idle,
+            &format!("The child session's desktop was not opened: {reason}"),
+        );
+        actions
     }
     /// One poll of the RDP client. `found` is the child-session ID Windows
     /// reports for the viewer's session, `current` the viewer's own session.
@@ -1086,6 +1100,9 @@ pub enum Hive {
 pub const TERMINAL_SERVER: &str = r"SYSTEM\CurrentControlSet\Control\Terminal Server";
 pub const WINSTATIONS: &str = r"SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations";
 pub const RDP_TCP: &str = r"SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp";
+/// Group policy for Remote Desktop; its `fDenyTSConnections` overrides [`TERMINAL_SERVER`]'s.
+pub const TERMINAL_SERVICES_POLICY: &str =
+    r"SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services";
 pub const RDP_CLIENT: &str = r"Software\Microsoft\Terminal Server Client";
 /// The firewall group of Windows' own "Remote Desktop" inbound rules.
 pub const REMOTE_DESKTOP_RULES: &str = "@FirewallAPI.dll,-28752";
@@ -1126,6 +1143,10 @@ pub trait SystemSettings {
     /// is signed out. True when this call loaded it, so it is unloaded after.
     fn load_user_hive(&mut self, sid: &str) -> Result<bool>;
     fn unload_user_hive(&mut self, sid: &str) -> Result<()>;
+    /// The TCP ports the Remote Desktop service listens on now
+    /// ([`RdpServer::service_ports`]), empty when it is not running. It reads
+    /// `PortNumber` only when it starts, so these can differ from the registry.
+    fn rdp_listener_ports(&self) -> Result<Vec<u16>>;
 }
 
 /// The firewall as it is in effect now ([`SystemSettings::active_firewall`]);
@@ -1254,6 +1275,16 @@ pub fn setup(
     {
         bail!(
             "{problem}, so turning on RDP would open it to the network. Fix that, then set up child sessions again. Nothing was changed."
+        );
+    }
+    // The block rule closes the registry's port; the service must listen on that one.
+    let live = live_rdp_port(system)?;
+    let listening = system
+        .rdp_listener_ports()
+        .context("reading the ports Remote Desktop listens on")?;
+    if let Some(port) = listening.iter().find(|port| **port != live) {
+        bail!(
+            "Remote Desktop listens on port {port} but is set to port {live}: Windows reads the port only when the Remote Desktop service starts. Restart the PC, then set up child sessions again. Nothing was changed."
         );
     }
     let state = match saved {
@@ -1425,13 +1456,22 @@ pub fn settings_missing(system: &dyn SystemSettings, user_sid: &str) -> Result<V
 /// firewall that no longer keeps RDP on this PC never leaves it open to the
 /// network. The host runs it at its start and before every child-session
 /// start. Empty when the check passed; otherwise what it found, then what
-/// was done about it. Setting up again turns RDP back on, and restore still
-/// puts back the value from before setup.
-pub fn enforce_firewall(system: &mut dyn SystemSettings, rdp_port: u16) -> Result<Vec<String>> {
-    let mut found = firewall_missing(system, rdp_port)?;
-    if found.is_empty() {
-        return Ok(found);
+/// was done about it. It fails closed: a check that cannot run counts as a
+/// failed one. Setting up again turns RDP back on, and restore still puts
+/// back the value from before setup.
+pub fn enforce_firewall(system: &mut dyn SystemSettings, rdp_port: u16) -> Vec<String> {
+    let mut found = firewall_missing(system, rdp_port)
+        .unwrap_or_else(|error| vec![format!("the firewall could not be checked ({error:#})")]);
+    if !found.is_empty() {
+        found.push(turn_rdp_off(system));
     }
+    found
+}
+
+/// Turn Remote Desktop off (`fDenyTSConnections = 1`), read it back, and
+/// make sure no group policy keeps it on ([`TERMINAL_SERVICES_POLICY`] wins
+/// over the value written here). What was done, for the report.
+pub fn turn_rdp_off(system: &mut dyn SystemSettings) -> String {
     let change = &CHANGES[0];
     let off = system
         .write_dword(&Hive::LocalMachine, change.path, change.name, 1)
@@ -1440,8 +1480,17 @@ pub fn enforce_firewall(system: &mut dyn SystemSettings, rdp_port: u16) -> Resul
                 Some(1) => Ok(()),
                 now => bail!("it reads {now:?} after writing 1"),
             },
-        );
-    found.push(match off {
+        )
+        .and_then(|()| {
+            match system.read_dword(&Hive::LocalMachine, TERMINAL_SERVICES_POLICY, change.name)? {
+                Some(0) => bail!(
+                    "group policy keeps Remote Desktop on ({} = 0 under HKLM\\{TERMINAL_SERVICES_POLICY}), which wins over this setting",
+                    change.name
+                ),
+                _ => Ok(()),
+            }
+        });
+    match off {
         Ok(()) => format!(
             "Remote Desktop was turned off ({} = 1), so it is not open to the network",
             change.name
@@ -1450,8 +1499,7 @@ pub fn enforce_firewall(system: &mut dyn SystemSettings, rdp_port: u16) -> Resul
             "turning Remote Desktop off failed ({}: {error:#}): turn it off in Windows' settings or choose Restore Windows settings now",
             change.name
         ),
-    });
-    Ok(found)
+    }
 }
 
 /// What keeps the firewall from holding RDP to this PC now, empty when it
@@ -1463,8 +1511,20 @@ pub fn firewall_missing(system: &dyn SystemSettings, rdp_port: u16) -> Result<Ve
     let live = live_rdp_port(system)?;
     if live != rdp_port {
         missing.push(format!(
-            "Remote Desktop listens on port {live} now, not on the port {rdp_port} setup closed to the network; set up child sessions again"
+            "Remote Desktop is set to port {live} now, not to the port {rdp_port} setup closed to the network; set up child sessions again"
         ));
+    }
+    // The registry can say one port while the service, which read it at its start, listens on
+    // another.
+    for port in system
+        .rdp_listener_ports()
+        .context("reading the ports Remote Desktop listens on")?
+    {
+        if port != rdp_port {
+            missing.push(format!(
+                "Remote Desktop listens on port {port}, not on the port {rdp_port} setup closed to the network; set up child sessions again"
+            ));
+        }
     }
     if let Some(problem) = system
         .firewall_problem()
@@ -1515,12 +1575,15 @@ pub fn firewall_missing(system: &dyn SystemSettings, rdp_port: u16) -> Result<Ve
     Ok(missing)
 }
 
-/// A TCP listener as Windows' TCP tables report it (`GetExtendedTcpTable`).
+/// A listener as Windows' TCP and UDP tables report it
+/// (`GetExtendedTcpTable`, `GetExtendedUdpTable`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Listener {
     pub address: std::net::IpAddr,
     pub port: u16,
     pub pid: u32,
+    /// A UDP socket rather than a TCP listener: RDP's UDP transport.
+    pub udp: bool,
 }
 
 /// What the viewer reads before every connect ([`check_rdp_server`]).
@@ -1529,16 +1592,34 @@ pub struct RdpServer {
     /// The Remote Desktop service's (TermService) process, 0 when it is not
     /// running.
     pub service_pid: u32,
-    /// Every IPv4 and IPv6 TCP listener on this PC.
+    /// Every IPv4 and IPv6 TCP listener and UDP socket on this PC.
     pub listeners: Vec<Listener>,
     /// RDP-Tcp's `PortNumber`; Windows' default when it has none.
     pub port_number: Option<u32>,
     pub deny_ts_connections: Option<u32>,
 }
+impl RdpServer {
+    /// The TCP ports the Remote Desktop service listens on, sorted; empty
+    /// when it is not running.
+    pub fn service_ports(&self) -> Vec<u16> {
+        let mut ports: Vec<u16> = self
+            .listeners
+            .iter()
+            .filter(|listener| {
+                self.service_pid != 0 && listener.pid == self.service_pid && !listener.udp
+            })
+            .map(|listener| listener.port)
+            .collect();
+        ports.sort_unstable();
+        ports.dedup();
+        ports
+    }
+}
 
 /// Refuse, with every reason, unless what answers on `127.0.0.1:rdp_port`
 /// is Windows' own RDP server: the Remote Desktop service listens there, no
-/// other process listens on that port (IPv4 or IPv6), and RDP is still on,
+/// other process listens on that port (TCP or UDP, which RDP's UDP
+/// transport uses, over IPv4 or IPv6), and RDP is still on,
 /// on that port. The viewer's client does not authenticate the server
 /// (`AuthenticationLevel` 0: its certificate is self-signed and loopback has
 /// no Kerberos), so this check, before every connect and reconnect, is what
@@ -1564,12 +1645,13 @@ pub fn check_rdp_server(rdp_port: u16, server: &RdpServer) -> Result<()> {
     if !others.is_empty() {
         let pids: Vec<String> = others.iter().map(u32::to_string).collect();
         problems.push(format!(
-            "another program (process {}) listens on port {rdp_port}",
+            "another program (process {}) listens on port {rdp_port} (TCP or UDP)",
             pids.join(", ")
         ));
     }
     let loopback = on_port.iter().any(|listener| {
         listener.pid == service
+            && !listener.udp
             && matches!(listener.address, std::net::IpAddr::V4(address) if address.is_unspecified() || address.is_loopback())
     });
     if service != 0 && !loopback {

@@ -29,12 +29,18 @@ default, and it is what Windows Home uses: Home has no child sessions.
      closes the RDP port setup recorded (RDP must still listen on that port),
      and no Remote Desktop allow rule is. When RDP moves to another port, the
      check refuses until you set up child sessions again, which follows the
-     new port. That check runs at setup, again at
+     new port; the port is read both from the registry and from the port the
+     Remote Desktop service really listens on, and setup refuses while the
+     two differ (restart the PC first). That check runs at setup, again at
      every host start and before every child-session start. When it fails
-     after setup, Rubylight turns Remote Desktop off at once
-     (`fDenyTSConnections = 1`), says so loudly in the console and the log,
-     and refuses to start the child session until you fix the firewall and
-     set up child sessions again;
+     after setup, or cannot run at all (or Rubylight's setup record cannot be
+     read), Rubylight turns Remote Desktop off at once
+     (`fDenyTSConnections = 1`), reads that back, says so loudly in the
+     console and the log, and refuses to start the child session until you
+     fix the firewall and set up child sessions again. A group policy that
+     keeps Remote Desktop on (`fDenyTSConnections = 0` under
+     `HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services`) wins
+     over that, so Rubylight reports it as a failure to turn RDP off;
    - raises the session frame rate (`DWMFRAMEINTERVAL = 8`, about 120 fps);
    - lets the Remote Desktop client keep drawing while minimized
      (`RemoteDesktop_SuppressWhenMinimized = 2`);
@@ -48,10 +54,12 @@ A small viewer runs in your session and keeps the child session attached (it
 only has a display while it is attached) through the built-in Remote Desktop
 client over loopback (`127.0.0.1`), on the RDP port setup recorded. The
 loopback server's certificate is self-signed, so the client does not
-authenticate it; instead, before every connect and reconnect the viewer checks
-that the Remote Desktop service listens on that port, that no other program
-listens on it (IPv4 or IPv6), and that RDP is still on, on that port. On any
-mismatch it refuses, says why in the panel and the log, and does not retry.
+authenticate it; instead, right before every connect and reconnect the viewer
+checks that the Remote Desktop service listens on that port, that no other
+program listens on it (TCP or UDP, IPv4 or IPv6), and that RDP is still on, on
+that port. The client's own automatic reconnect is off, so every reconnect
+goes through that check. On any mismatch it refuses, says why in the panel
+and the log, and does not retry.
 Windows shortcuts stay on
 your own desktop. The panel
 starts and stops the child session and its host, sets its resolution and scale

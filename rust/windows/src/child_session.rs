@@ -34,8 +34,10 @@ use windows::{
         },
         NetworkManagement::{
             IpHelper::{
-                GetExtendedTcpTable, MIB_TCP6ROW_OWNER_PID, MIB_TCP6TABLE_OWNER_PID,
-                MIB_TCPROW_OWNER_PID, MIB_TCPTABLE_OWNER_PID, TCP_TABLE_OWNER_PID_LISTENER,
+                GetExtendedTcpTable, GetExtendedUdpTable, MIB_TCP6ROW_OWNER_PID,
+                MIB_TCP6TABLE_OWNER_PID, MIB_TCPROW_OWNER_PID, MIB_TCPTABLE_OWNER_PID,
+                MIB_UDP6ROW_OWNER_PID, MIB_UDP6TABLE_OWNER_PID, MIB_UDPROW_OWNER_PID,
+                MIB_UDPTABLE_OWNER_PID, TCP_TABLE_OWNER_PID_LISTENER, UDP_TABLE_OWNER_PID,
             },
             WindowsFirewall::*,
         },
@@ -155,7 +157,7 @@ pub fn sign_out(session: u32) -> Result<()> {
 
 /// What answers on the RDP port now, for
 /// [`butterpollo_core::child_session::check_rdp_server`]: the Remote Desktop
-/// service's process, every IPv4 and IPv6 TCP listener and the RDP registry
+/// service's process, every IPv4 and IPv6 TCP listener and UDP port, and the RDP registry
 /// values. It only reads, so the viewer, an ordinary user, can.
 pub fn rdp_server() -> Result<RdpServer> {
     // The service first: one that restarts in between no longer matches its listeners.
@@ -170,6 +172,7 @@ pub fn rdp_server() -> Result<RdpServer> {
         address: std::net::Ipv4Addr::from(row.dwLocalAddr.to_ne_bytes()).into(),
         port: local_port(row.dwLocalPort),
         pid: row.dwOwningPid,
+        udp: false,
     })
     .collect();
     listeners.extend(
@@ -182,6 +185,34 @@ pub fn rdp_server() -> Result<RdpServer> {
             address: std::net::Ipv6Addr::from(row.ucLocalAddr).into(),
             port: local_port(row.dwLocalPort),
             pid: row.dwOwningPid,
+            udp: false,
+        }),
+    );
+    // RDP's UDP transport: a squatter there would take the session's traffic.
+    listeners.extend(
+        udp_listeners::<MIB_UDPROW_OWNER_PID>(
+            AF_INET,
+            std::mem::offset_of!(MIB_UDPTABLE_OWNER_PID, table),
+        )?
+        .into_iter()
+        .map(|row| Listener {
+            address: std::net::Ipv4Addr::from(row.dwLocalAddr.to_ne_bytes()).into(),
+            port: local_port(row.dwLocalPort),
+            pid: row.dwOwningPid,
+            udp: true,
+        }),
+    );
+    listeners.extend(
+        udp_listeners::<MIB_UDP6ROW_OWNER_PID>(
+            AF_INET6,
+            std::mem::offset_of!(MIB_UDP6TABLE_OWNER_PID, table),
+        )?
+        .into_iter()
+        .map(|row| Listener {
+            address: std::net::Ipv6Addr::from(row.ucLocalAddr).into(),
+            port: local_port(row.dwLocalPort),
+            pid: row.dwOwningPid,
+            udp: true,
         }),
     );
     Ok(RdpServer {
@@ -241,45 +272,69 @@ fn term_service_pid() -> Result<u32> {
 /// The rows of `GetExtendedTcpTable(TCP_TABLE_OWNER_PID_LISTENER)` for one
 /// address family; `offset` is where the rows start in its table.
 fn tcp_listeners<Row: Copy>(family: ADDRESS_FAMILY, offset: usize) -> Result<Vec<Row>> {
+    // SAFETY: the buffer and size come from owner_table, writable for `size` bytes.
+    owner_table("TCP", offset, |buffer, size| unsafe {
+        GetExtendedTcpTable(
+            Some(buffer),
+            size,
+            false,
+            u32::from(family.0),
+            TCP_TABLE_OWNER_PID_LISTENER,
+            0,
+        )
+    })
+}
+/// The rows of `GetExtendedUdpTable(UDP_TABLE_OWNER_PID)` for one address
+/// family: every bound UDP port, which is all a UDP listener is.
+fn udp_listeners<Row: Copy>(family: ADDRESS_FAMILY, offset: usize) -> Result<Vec<Row>> {
+    // SAFETY: the buffer and size come from owner_table, writable for `size` bytes.
+    owner_table("UDP", offset, |buffer, size| unsafe {
+        GetExtendedUdpTable(
+            Some(buffer),
+            size,
+            false,
+            u32::from(family.0),
+            UDP_TABLE_OWNER_PID,
+            0,
+        )
+    })
+}
+/// The rows of an IP Helper table `read` fills: a u32 count, then rows from
+/// `offset`. `read` gets a buffer writable for the size it is passed.
+fn owner_table<Row: Copy>(
+    protocol: &str,
+    offset: usize,
+    read: impl Fn(*mut std::ffi::c_void, &mut u32) -> u32,
+) -> Result<Vec<Row>> {
     let mut size = 0u32;
     // The table can grow between the size query and the read.
     for _ in 0..8 {
         // u64s: aligned for the table's u32 fields.
         let mut buffer = vec![0u64; (size as usize).div_ceil(8)];
-        // SAFETY: `buffer` is writable for the `size` bytes passed.
-        let result = unsafe {
-            GetExtendedTcpTable(
-                Some(buffer.as_mut_ptr().cast()),
-                &mut size,
-                false,
-                u32::from(family.0),
-                TCP_TABLE_OWNER_PID_LISTENER,
-                0,
-            )
-        };
+        let result = read(buffer.as_mut_ptr().cast(), &mut size);
         if result == ERROR_INSUFFICIENT_BUFFER.0 {
             continue;
         }
         if result != NO_ERROR.0 {
             return Err(windows::core::Error::from(WIN32_ERROR(result).to_hresult()))
-                .context("reading this PC's TCP listeners");
+                .with_context(|| format!("reading this PC's {protocol} listeners"));
         }
         let bytes = (size as usize).min(buffer.len() * 8);
         let base = buffer.as_ptr().cast::<u8>();
         if bytes < 4 {
-            bail!("Windows returned a TCP table without its length");
+            bail!("Windows returned a {protocol} table without its length");
         }
         // SAFETY: the count and every row read lie inside the `bytes` Windows filled.
         unsafe {
             let count = base.cast::<u32>().read() as usize;
             if offset + count * size_of::<Row>() > bytes {
-                bail!("Windows returned a TCP table shorter than its count");
+                bail!("Windows returned a {protocol} table shorter than its count");
             }
             let rows = base.add(offset).cast::<Row>();
             return Ok((0..count).map(|i| rows.add(i).read_unaligned()).collect());
         }
     }
-    bail!("this PC's TCP listeners kept changing while they were read")
+    bail!("this PC's {protocol} listeners kept changing while they were read")
 }
 
 fn root(hive: &Hive, path: &str) -> (HKEY, Vec<u16>) {
@@ -461,6 +516,9 @@ impl SystemSettings for NativeSettings {
             ],
         )?;
         parse_active(&output)
+    }
+    fn rdp_listener_ports(&self) -> Result<Vec<u16>> {
+        Ok(rdp_server()?.service_ports())
     }
     fn enabled_rules(&self, group: &str) -> Result<Vec<String>> {
         parse_rule_ids(&run_rules_script(
@@ -964,10 +1022,26 @@ mod tests {
             server
                 .listeners
                 .iter()
-                .any(|l| l.port == port && l.pid == std::process::id()),
+                .any(|l| l.port == port && l.pid == std::process::id() && !l.udp),
             "{port}"
         );
         // A squatter on a port is refused, whatever runs on this PC.
+        let error = butterpollo_core::child_session::check_rdp_server(port, &server).unwrap_err();
+        assert!(
+            format!("{error:#}").contains(&format!("process {}", std::process::id())),
+            "{error:#}"
+        );
+        // A bound UDP port shows up too, so a UDP squatter is refused as well.
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let port = socket.local_addr().unwrap().port();
+        let server = super::rdp_server().unwrap();
+        assert!(
+            server
+                .listeners
+                .iter()
+                .any(|l| l.port == port && l.pid == std::process::id() && l.udp),
+            "{port}"
+        );
         let error = butterpollo_core::child_session::check_rdp_server(port, &server).unwrap_err();
         assert!(
             format!("{error:#}").contains(&format!("process {}", std::process::id())),

@@ -79,35 +79,52 @@ pub(crate) fn log_mode(config: &Config) {
 pub(crate) fn check_at_startup(h: &Shared) {
     let directory = h.directory.clone();
     std::thread::spawn(move || {
-        let firewall = |port| logic::enforce_firewall(&mut native::NativeSettings::new()?, port);
-        if let Some(problem) = startup_problem(&directory, firewall) {
+        if let Some(problem) = secure_rdp(&directory, native_enforce) {
             report(problem);
         }
     });
 }
-/// `firewall` checks the firewall for the RDP port setup recorded, turning
-/// RDP off when it fails ([`logic::enforce_firewall`]).
-fn startup_problem(
-    directory: &Path,
-    firewall: impl FnOnce(u16) -> Result<Vec<String>>,
-) -> Option<String> {
-    match load_saved(directory) {
-        Ok(None) => None,
-        Err(error) => Some(format!("{error:#}")),
-        Ok(Some(state)) => firewall_problem(firewall(state.rdp_port)),
-    }
+
+/// Setup, restore and the firewall checks change the same Windows settings,
+/// one at a time: a check that turned RDP off between restore's write of the
+/// original value and its read-back would lose the user's own value.
+static SETTINGS: Mutex<()> = Mutex::new(());
+fn settings_lock() -> MutexGuard<'static, ()> {
+    SETTINGS.lock().unwrap_or_else(PoisonError::into_inner)
 }
-/// What [`logic::enforce_firewall`] found, for the log and the console.
-fn firewall_problem(found: Result<Vec<String>>) -> Option<String> {
-    match found {
-        Ok(found) if found.is_empty() => None,
-        Ok(found) => Some(format!(
-            "child sessions are set up, but the firewall no longer keeps Remote Desktop on this PC: {}. Fix that, then set up child sessions again (or choose Restore Windows settings); the child session does not start until then.",
+
+/// When child sessions are set up here, [`logic::enforce_firewall`] for the
+/// port setup recorded, through `enforce`. It fails closed: a record that
+/// cannot be read turns RDP off too (`enforce(None)`). The problem for the log
+/// and the console, None when there is none or setup never ran.
+fn secure_rdp(
+    directory: &Path,
+    enforce: impl FnOnce(Option<u16>) -> Vec<String>,
+) -> Option<String> {
+    let _settings = settings_lock();
+    let (port, mut found) = match load_saved(directory) {
+        Ok(None) => return None,
+        Ok(Some(state)) => (Some(state.rdp_port), Vec::new()),
+        Err(error) => (None, vec![format!("{error:#}")]),
+    };
+    found.extend(enforce(port));
+    (!found.is_empty()).then(|| {
+        format!(
+            "child sessions are set up, but the firewall may no longer keep Remote Desktop on this PC: {}. Fix that, then set up child sessions again (or choose Restore Windows settings); the child session does not start until then.",
             found.join("; ")
-        )),
-        Err(error) => Some(format!(
-            "child sessions are set up, so Remote Desktop is on, but the firewall could not be checked: {error:#}"
-        )),
+        )
+    })
+}
+/// [`secure_rdp`]'s `enforce` on this PC.
+fn native_enforce(port: Option<u16>) -> Vec<String> {
+    match native::NativeSettings::new() {
+        Ok(mut system) => match port {
+            Some(port) => logic::enforce_firewall(&mut system, port),
+            None => vec![logic::turn_rdp_off(&mut system)],
+        },
+        Err(error) => vec![format!(
+            "Windows Firewall could not be opened ({error:#}), so Remote Desktop could not be checked or turned off: turn it off in Windows' settings or choose Restore Windows settings now"
+        )],
     }
 }
 
@@ -116,7 +133,11 @@ fn firewall_problem(found: Result<Vec<String>>) -> Option<String> {
 /// or setup never ran here, 1 with the reason on stderr.
 pub(crate) fn restore_exit_code(config_dir: Option<PathBuf>) -> i32 {
     let directory = config_dir.unwrap_or_else(butterpollo_core::paths::installed_profile);
-    match restore_saved(&directory) {
+    let restored = {
+        let _settings = settings_lock();
+        restore_saved(&directory)
+    };
+    match restored {
         Ok(true) => {
             println!("Restored the Windows settings child-session setup changed.");
             0
@@ -188,6 +209,7 @@ fn report(problem: String) {
 /// Set up child sessions for the account signed in at this PC's screen.
 pub(crate) fn setup(h: &Shared) -> Result<SetupState> {
     let user = native::console_user()?;
+    let _settings = settings_lock();
     let saved = load_saved(&h.directory)?;
     let state = logic::setup(&mut native::NativeSettings::new()?, saved, &user, |state| {
         save_state(&h.directory, state)
@@ -200,7 +222,10 @@ pub(crate) fn setup(h: &Shared) -> Result<SetupState> {
 /// changed. False when setup never ran here.
 pub(crate) fn restore(h: &Shared) -> Result<bool> {
     quit();
-    let restored = restore_saved(&h.directory)?;
+    let restored = {
+        let _settings = settings_lock();
+        restore_saved(&h.directory)?
+    };
     if restored {
         tracing::info!("the Windows settings child-session setup changed are restored");
     }
@@ -224,20 +249,16 @@ pub(crate) fn start(h: &Shared, password: Option<logic::Secret>) -> Result<()> {
         config.get(logic::RESOLUTION_KEY, ""),
         config.get(logic::SCALE_KEY, ""),
     )?;
-    let mut system = native::NativeSettings::new()?;
+    // The port setup recorded, which RDP and the block rule must still match;
+    // on a mismatch, or a check that cannot run, RDP goes off.
+    if let Some(problem) = secure_rdp(&h.directory, native_enforce) {
+        report(problem.clone());
+        bail!("{problem}");
+    }
+    let system = native::NativeSettings::new()?;
     let user = native::console_user()?;
     let missing = match load_saved(&h.directory)? {
-        // The port setup recorded, which RDP and the block rule must still
-        // match; on a mismatch RDP goes off.
-        Some(state) => {
-            if let Some(problem) =
-                firewall_problem(logic::enforce_firewall(&mut system, state.rdp_port))
-            {
-                report(problem.clone());
-                bail!("{problem}");
-            }
-            logic::settings_missing(&system, &user)?
-        }
+        Some(_) => logic::settings_missing(&system, &user)?,
         None => logic::missing(&system, &user, None)?,
     };
     if !missing.is_empty() {
@@ -651,8 +672,8 @@ mod tests {
     #[test]
     fn a_set_up_pc_checks_its_firewall_at_the_hosts_start() {
         let directory = scratch();
-        let never = |_| -> Result<Vec<String>> { panic!("no setup, no check") };
-        assert_eq!(startup_problem(&directory, never), None);
+        let never = |_| -> Vec<String> { panic!("no setup, no check") };
+        assert_eq!(secure_rdp(&directory, never), None);
         let state = SetupState {
             version: 1,
             user_sid: "S-1-5-21-1".into(),
@@ -666,17 +687,17 @@ mod tests {
         save_state(&directory, &state).unwrap();
         // Checked for the port setup recorded.
         assert_eq!(
-            startup_problem(&directory, |port| {
-                assert_eq!(port, 3390);
-                Ok(Vec::new())
+            secure_rdp(&directory, |port| {
+                assert_eq!(port, Some(3390));
+                Vec::new()
             }),
             None
         );
-        let problem = startup_problem(&directory, |_| {
-            Ok(vec![
+        let problem = secure_rdp(&directory, |_| {
+            vec![
                 "the block rule is not in effect".into(),
                 "Remote Desktop was turned off (fDenyTSConnections = 1), so it is not open to the network".into(),
-            ])
+            ]
         })
         .unwrap();
         assert!(
@@ -685,11 +706,59 @@ mod tests {
                 && !problem.contains("so Remote Desktop is on"),
             "{problem}"
         );
-        let problem = startup_problem(&directory, |_| bail!("COM failed")).unwrap();
+        // A record that cannot be read still turns RDP off, and says why.
+        std::fs::write(setup_path(&directory), "not json").unwrap();
+        let problem = secure_rdp(&directory, |port| {
+            assert_eq!(port, None);
+            vec!["Remote Desktop was turned off (fDenyTSConnections = 1), so it is not open to the network".into()]
+        })
+        .unwrap();
         assert!(
-            problem.contains("could not be checked: COM failed"),
+            problem.contains(logic::SETUP_FILE)
+                && problem.contains("Remote Desktop was turned off"),
             "{problem}"
         );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn the_startup_check_waits_for_setup_and_restore() {
+        let directory = scratch();
+        let state = SetupState {
+            version: 1,
+            user_sid: "S-1-5-21-1".into(),
+            deny_ts_connections: Some(1),
+            dwm_frame_interval: None,
+            suppress_when_minimized: None,
+            child_sessions: false,
+            remote_desktop_rule_ids: Vec::new(),
+            rdp_port: 3390,
+        };
+        save_state(&directory, &state).unwrap();
+        let settings = settings_lock();
+        let (checked, checks) = std::sync::mpsc::channel();
+        let check = {
+            let directory = directory.clone();
+            std::thread::spawn(move || {
+                secure_rdp(&directory, |port| {
+                    checked.send(port).unwrap();
+                    Vec::new()
+                })
+            })
+        };
+        assert!(
+            checks
+                .recv_timeout(std::time::Duration::from_millis(200))
+                .is_err()
+        );
+        drop(settings);
+        assert_eq!(
+            checks
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .unwrap(),
+            Some(3390)
+        );
+        assert_eq!(check.join().unwrap(), None);
         std::fs::remove_dir_all(directory).unwrap();
     }
 

@@ -256,6 +256,45 @@ fn a_rejected_password_is_dropped_and_never_retried() {
 }
 
 #[test]
+fn a_refused_connect_keeps_a_new_password_and_says_why() {
+    let poll = |viewer: &mut Viewer, now| {
+        viewer.poll(now, RdpState::Disconnected, Some(0), None, CURRENT, CONSOLE)
+    };
+    let mut viewer = Viewer::default();
+    assert_eq!(
+        viewer.connect(0, RdpState::Disconnected, Some(true)),
+        vec![ViewerAction::Connect]
+    );
+    // The RDP server check refused: the password never reached Windows.
+    assert!(
+        viewer
+            .refuse(
+                RdpState::Disconnected,
+                "another program (process 6666) listens on port 3390"
+            )
+            .is_empty()
+    );
+    for now in [4000, 30_000] {
+        assert!(poll(&mut viewer, now).is_empty(), "no drop, no retry");
+    }
+    assert_eq!(viewer.phase(), Phase::Idle);
+    assert!(
+        viewer.message().contains("process 6666"),
+        "{}",
+        viewer.message()
+    );
+    // The same password, tried again, is still checked: a wrong one is still dropped.
+    viewer.connect(40_000, RdpState::Disconnected, Some(false));
+    assert_eq!(poll(&mut viewer, 44_000), vec![ViewerAction::DropPassword]);
+    // A plain stop after a new password is no sign-in failure either.
+    let mut viewer = Viewer::default();
+    viewer.connect(0, RdpState::Disconnected, Some(true));
+    viewer.detach(RdpState::Disconnected);
+    assert!(poll(&mut viewer, 4000).is_empty());
+    assert_eq!(viewer.phase(), Phase::Idle);
+}
+
+#[test]
 fn a_dropped_viewer_reconnects_after_six_seconds() {
     let mut viewer = Viewer::default();
     attached(&mut viewer, 0);
@@ -511,6 +550,14 @@ struct Fake {
     machine: Machine,
     log: Rc<RefCell<Vec<String>>>,
     fail_writes: BTreeSet<String>,
+    /// Writes that succeed without changing the value (a value something
+    /// else puts back at once).
+    stuck_writes: BTreeSet<String>,
+    /// The firewall's state cannot be read (PowerShell or COM failing).
+    firewall_unreadable: bool,
+    /// The TCP ports the Remote Desktop service listens on; None for the
+    /// registry's `PortNumber`, as after the service's start.
+    listening: Option<Vec<u16>>,
 }
 impl Fake {
     fn new() -> Self {
@@ -573,6 +620,9 @@ impl Fake {
             },
             log: Rc::default(),
             fail_writes: BTreeSet::new(),
+            stuck_writes: BTreeSet::new(),
+            firewall_unreadable: false,
+            listening: None,
         }
     }
     fn note(&self, entry: String) {
@@ -601,6 +651,9 @@ impl SystemSettings for Fake {
             );
         }
         self.note(format!("write {name}"));
+        if self.stuck_writes.contains(name) {
+            return Ok(());
+        }
         self.machine
             .values
             .insert(key(hive.clone(), path, name), value);
@@ -623,6 +676,9 @@ impl SystemSettings for Fake {
         Ok(self.machine.firewall_problem.clone())
     }
     fn active_firewall(&self, group: &str, block_rule: &str) -> Result<ActiveFirewall> {
+        if self.firewall_unreadable {
+            bail!("PowerShell exited with 1");
+        }
         // Local rules take effect only where no group policy overrides them.
         let local = self.machine.policy_overrides.is_empty();
         let mut allowed = self.machine.policy_allowed.clone();
@@ -678,6 +734,12 @@ impl SystemSettings for Fake {
         self.note(format!("unload {sid}"));
         anyhow::ensure!(self.machine.loaded_hives.remove(sid), "{sid} is not loaded");
         Ok(())
+    }
+    fn rdp_listener_ports(&self) -> Result<Vec<u16>> {
+        match &self.listening {
+            Some(ports) => Ok(ports.clone()),
+            None => Ok(vec![live_rdp_port(self)?]),
+        }
     }
 }
 
@@ -888,15 +950,11 @@ fn a_firewall_that_stops_holding_rdp_turns_it_off() {
     let mut fake = Fake::new();
     let state = set_up(&mut fake);
     // The firewall still holds it: nothing found, RDP stays on.
-    assert!(
-        enforce_firewall(&mut fake, state.rdp_port)
-            .unwrap()
-            .is_empty()
-    );
+    assert!(enforce_firewall(&mut fake, state.rdp_port).is_empty());
     assert_eq!(rdp(&fake), Some(0));
     // The firewall goes off later: RDP goes off with it, and the report says both.
     fake.machine.firewall_problem = Some("Windows Firewall is off for the Public profile".into());
-    let found = enforce_firewall(&mut fake, state.rdp_port).unwrap();
+    let found = enforce_firewall(&mut fake, state.rdp_port);
     assert_eq!(rdp(&fake), Some(1));
     assert!(found[0].contains("Windows Firewall is off"), "{found:?}");
     assert!(
@@ -911,7 +969,7 @@ fn a_firewall_that_stops_holding_rdp_turns_it_off() {
     set_up(&mut stuck);
     stuck.machine.policy_overrides = vec!["Domain".into()];
     stuck.fail_writes.insert("fDenyTSConnections".into());
-    let found = enforce_firewall(&mut stuck, 3389).unwrap();
+    let found = enforce_firewall(&mut stuck, 3389);
     assert_eq!(rdp(&stuck), Some(0));
     assert!(
         found
@@ -933,6 +991,129 @@ fn a_firewall_that_stops_holding_rdp_turns_it_off() {
 }
 
 #[test]
+fn a_firewall_that_cannot_be_checked_turns_rdp_off_too() {
+    let rdp = |fake: &Fake| {
+        fake.read_dword(&Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections")
+            .unwrap()
+    };
+    let mut fake = Fake::new();
+    let state = set_up(&mut fake);
+    fake.firewall_unreadable = true;
+    let found = enforce_firewall(&mut fake, state.rdp_port);
+    assert_eq!(rdp(&fake), Some(1), "fails closed");
+    assert!(
+        found[0].contains("could not be checked") && found[0].contains("PowerShell exited"),
+        "{found:?}"
+    );
+    assert!(
+        found
+            .last()
+            .unwrap()
+            .contains("Remote Desktop was turned off"),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn turning_rdp_off_is_read_back_and_policy_cannot_keep_it_on() {
+    // The write succeeds, but the value stays 0.
+    let mut fake = Fake::new();
+    set_up(&mut fake);
+    fake.stuck_writes.insert("fDenyTSConnections".into());
+    let done = turn_rdp_off(&mut fake);
+    assert!(
+        done.contains("turning Remote Desktop off failed")
+            && done.contains("reads Some(0) after writing 1"),
+        "{done}"
+    );
+    // Group policy's value wins over the one written here.
+    let mut fake = Fake::new();
+    set_up(&mut fake);
+    fake.machine.values.insert(
+        key(
+            Hive::LocalMachine,
+            TERMINAL_SERVICES_POLICY,
+            "fDenyTSConnections",
+        ),
+        0,
+    );
+    let done = turn_rdp_off(&mut fake);
+    assert!(
+        done.contains("turning Remote Desktop off failed") && done.contains("group policy"),
+        "{done}"
+    );
+    // A policy that turns RDP off, or none, is fine.
+    fake.machine.values.insert(
+        key(
+            Hive::LocalMachine,
+            TERMINAL_SERVICES_POLICY,
+            "fDenyTSConnections",
+        ),
+        1,
+    );
+    assert!(
+        turn_rdp_off(&mut fake).contains("Remote Desktop was turned off"),
+        "policy 1"
+    );
+}
+
+#[test]
+fn rdp_listening_on_another_port_than_the_registry_is_refused() {
+    // PortNumber changed, but the service still listens on the port it read at its start.
+    let mut fake = Fake::new();
+    fake.machine
+        .values
+        .insert(key(Hive::LocalMachine, RDP_TCP, "PortNumber"), 3390);
+    fake.listening = Some(vec![3389]);
+    let before = fake.machine.clone();
+    let error = format!("{:#}", set_up_err(&mut fake));
+    assert!(
+        error.contains("listens on port 3389 but is set to port 3390")
+            && error.contains("Nothing was changed"),
+        "{error}"
+    );
+    assert_eq!(fake.machine, before);
+    // After setup: the service moves without the registry (or the other way round).
+    let mut fake = Fake::new();
+    let state = set_up(&mut fake);
+    fake.listening = Some(vec![3389, 3391]);
+    let found = firewall_missing(&fake, state.rdp_port).unwrap();
+    assert!(
+        found
+            .iter()
+            .any(|m| m.contains("listens on port 3391, not on the port 3389")),
+        "{found:?}"
+    );
+    // Not running at all: nothing listens, nothing is open.
+    fake.listening = Some(Vec::new());
+    assert!(firewall_missing(&fake, state.rdp_port).unwrap().is_empty());
+}
+
+#[test]
+fn the_service_ports_are_its_own_tcp_listeners() {
+    let server = RdpServer {
+        service_pid: 40,
+        listeners: vec![
+            listener("0.0.0.0", 3389, 40),
+            listener("::", 3389, 40),
+            Listener {
+                udp: true,
+                ..listener("0.0.0.0", 3395, 40)
+            },
+            listener("127.0.0.1", 3390, 41),
+        ],
+        ..RdpServer::default()
+    };
+    assert_eq!(server.service_ports(), vec![3389]);
+    let stopped = RdpServer {
+        service_pid: 0,
+        listeners: vec![listener("0.0.0.0", 3389, 0)],
+        ..RdpServer::default()
+    };
+    assert!(stopped.service_ports().is_empty());
+}
+
+#[test]
 fn a_moved_rdp_port_is_refused_until_setup_runs_again() {
     let mut fake = Fake::new();
     let state = set_up(&mut fake);
@@ -946,7 +1127,7 @@ fn a_moved_rdp_port_is_refused_until_setup_runs_again() {
         firewall_missing(&fake, state.rdp_port).unwrap(),
     ] {
         assert!(
-            found.iter().any(|m| m.contains("listens on port 3390 now")
+            found.iter().any(|m| m.contains("is set to port 3390 now")
                 && m.contains("port 3389")
                 && m.contains("set up child sessions again")),
             "{found:?}"
@@ -1069,6 +1250,7 @@ fn listener(address: &str, port: u16, pid: u32) -> Listener {
         address: address.parse().unwrap(),
         port,
         pid,
+        udp: false,
     }
 }
 fn rdp_server() -> RdpServer {
@@ -1096,9 +1278,28 @@ fn the_viewer_connects_only_to_windows_own_rdp_listener() {
     server.listeners = vec![listener("127.0.0.1", 3390, 1200)];
     check_rdp_server(3390, &server).unwrap();
     // A squatter on the port, on IPv4 loopback or on IPv6, beside TermService.
+    // TermService's own UDP transport on the port is Windows' server too.
+    let mut server = rdp_server();
+    server.listeners.push(Listener {
+        udp: true,
+        ..listener("0.0.0.0", 3390, 1200)
+    });
+    check_rdp_server(3390, &server).unwrap();
+    // But a UDP socket alone is not the TCP listener the client connects to.
+    server.listeners.retain(|listener| listener.udp);
+    assert!(
+        refusal(&server).contains("does not listen on 127.0.0.1:3390"),
+        "{}",
+        refusal(&server)
+    );
+    // A squatter on the port, on IPv4 loopback or on IPv6, TCP or UDP, beside TermService.
     for squatter in [
         listener("127.0.0.1", 3390, 6666),
         listener("::1", 3390, 6666),
+        Listener {
+            udp: true,
+            ..listener("127.0.0.1", 3390, 6666)
+        },
     ] {
         let mut server = rdp_server();
         server.listeners.push(squatter);

@@ -60,6 +60,7 @@ pub mod service;
 pub mod steam;
 pub mod telemetry;
 mod text;
+pub mod text_focus;
 pub mod timing;
 pub mod tray;
 pub mod user_folder;

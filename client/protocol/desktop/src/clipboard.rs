@@ -102,8 +102,8 @@ pub fn write(image: Prepared) -> Result<(), String> {
         mime: *const std::ffi::c_char,
         size: *mut usize,
     ) -> *const std::ffi::c_void {
-        // SAFETY: `userdata` is the Prepared boxed below, alive until `cleanup`.
-        let image = unsafe { &*userdata.cast::<Prepared>() };
+        // SAFETY: `userdata` is the Handed<Prepared> boxed by `hand_over`, alive until `cleanup`.
+        let image = unsafe { &(*userdata.cast::<Handed<Prepared>>()).value };
         if mime.is_null() || unsafe { CStr::from_ptr(mime) } != image.mime {
             unsafe { *size = 0 };
             return std::ptr::null();
@@ -111,27 +111,82 @@ pub fn write(image: Prepared) -> Result<(), String> {
         unsafe { *size = image.data.len() };
         image.data.as_ptr().cast()
     }
-    unsafe extern "C" fn cleanup(userdata: *mut std::ffi::c_void) {
-        // SAFETY: SDL calls this once, when the data is replaced or the clipboard cleared.
-        drop(unsafe { Box::from_raw(userdata.cast::<Prepared>()) });
-    }
     let types = [image.mime.as_ptr()];
-    let userdata = Box::into_raw(Box::new(image));
-    // SAFETY: SDL owns `userdata` from here on and frees it through `cleanup`, also when
-    // setting fails (the next set or SDL_Quit cancels it).
-    if unsafe {
-        SDL_SetClipboardData(
-            Some(provide),
-            Some(cleanup),
-            userdata.cast(),
-            types.as_ptr(),
-            types.len(),
-        )
-    } {
+    let mut error = String::new();
+    let set = hand_over(
+        image,
+        |userdata| {
+            // SAFETY: valid callbacks and NUL-terminated types; SDL frees `userdata` through
+            // `cleanup` once it has taken it.
+            let set = unsafe {
+                SDL_SetClipboardData(
+                    Some(provide),
+                    Some(cleanup::<Prepared>),
+                    userdata,
+                    types.as_ptr(),
+                    types.len(),
+                )
+            };
+            if !set {
+                error = crate::sdl::error();
+            }
+            set
+        },
+        // SAFETY: main thread, like the set.
+        || unsafe {
+            SDL_ClearClipboardData();
+        },
+    );
+    if set {
         Ok(())
+    } else if error.is_empty() {
+        Err("the clipboard could not be set".into())
     } else {
-        Err(crate::sdl::error())
+        Err(error)
     }
+}
+
+/// What SDL holds as clipboard userdata: the value, and a flag its drop raises.
+struct Handed<T> {
+    value: T,
+    dropped: std::rc::Rc<std::cell::Cell<bool>>,
+}
+
+impl<T> Drop for Handed<T> {
+    fn drop(&mut self) {
+        self.dropped.set(true);
+    }
+}
+
+unsafe extern "C" fn cleanup<T>(userdata: *mut std::ffi::c_void) {
+    // SAFETY: SDL calls this once, when the data is replaced or the clipboard cleared.
+    drop(unsafe { Box::from_raw(userdata.cast::<Handed<T>>()) });
+}
+
+/// Hands `value` to `set` as clipboard userdata freed through [`cleanup`]. When setting fails,
+/// SDL may or may not have kept it (it keeps it when the platform refused, and returns before
+/// taking it on bad arguments or without video): `clear` makes SDL let go of what it kept,
+/// through `cleanup`, and what it never took is freed here. Whether `set` succeeded.
+fn hand_over<T>(
+    value: T,
+    set: impl FnOnce(*mut std::ffi::c_void) -> bool,
+    clear: impl FnOnce(),
+) -> bool {
+    let dropped = std::rc::Rc::new(std::cell::Cell::new(false));
+    let userdata = Box::into_raw(Box::new(Handed {
+        value,
+        dropped: dropped.clone(),
+    }));
+    if set(userdata.cast()) {
+        return true;
+    }
+    clear();
+    if !dropped.get() {
+        // SAFETY: SDL returned before taking `userdata`, or `clear` would have freed it: it
+        // can only fail to clear without video, when it could not have taken it either.
+        drop(unsafe { Box::from_raw(userdata) });
+    }
+    false
 }
 
 fn encode_png(image: &RgbaImage) -> Result<Vec<u8>, String> {
@@ -448,6 +503,53 @@ mod tests {
         } else {
             assert_eq!(prepared.data, png);
         }
+    }
+
+    /// Counts its drops.
+    struct Probe(std::rc::Rc<std::cell::Cell<u32>>);
+
+    impl Drop for Probe {
+        fn drop(&mut self) {
+            self.0.set(self.0.get() + 1);
+        }
+    }
+
+    #[test]
+    fn the_image_handed_to_sdl_is_freed_once_whether_or_not_setting_works() {
+        let drops = std::rc::Rc::new(std::cell::Cell::new(0));
+        // SDL returns before taking it: freed here.
+        let cleared = std::cell::Cell::new(false);
+        assert!(!hand_over(
+            Probe(drops.clone()),
+            |_| false,
+            || cleared.set(true)
+        ));
+        assert!(cleared.get(), "SDL is told to let go");
+        assert_eq!(drops.get(), 1);
+
+        // SDL keeps it and the platform refuses: clearing frees it through the cleanup.
+        let kept = std::cell::Cell::new(std::ptr::null_mut());
+        let set = |userdata| {
+            kept.set(userdata);
+            false
+        };
+        // SAFETY: what SDL_ClearClipboardData does with the data it holds.
+        let clear = || unsafe { cleanup::<Probe>(kept.get()) };
+        assert!(!hand_over(Probe(drops.clone()), set, clear));
+        assert_eq!(drops.get(), 2);
+
+        // Set: SDL frees it, when the next set or SDL_Quit cancels it.
+        assert!(hand_over(
+            Probe(drops.clone()),
+            |userdata| {
+                kept.set(userdata);
+                true
+            },
+            || panic!("nothing to clear")
+        ));
+        assert_eq!(drops.get(), 2);
+        unsafe { cleanup::<Probe>(kept.get()) };
+        assert_eq!(drops.get(), 3);
     }
 
     #[test]

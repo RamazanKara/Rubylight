@@ -282,7 +282,7 @@ cases:
     preconditions: [idle, gpu-lock]
     pass: compare PASSes (picture age p50 within 0.3 ms, p99 within 1 ms of the host arm) and the auto arms have no more fec_unrecoverable_frames, freezes or IDR requests than the host arms. Keep auto as Nightjar's default only if it is better or equal; otherwise Nightjar keeps host
     output: '{{out}}\host\results.jsonl, {{out}}\auto\results.jsonl'
-    note: needs an elevated shell (linkspeed adds a firewall rule). The log line "client fec choice" confirms the auto arm. 2026-10-27 (rl-net 8aab90708): auto better on every count, wifi PASS, wifi-hi FAIL only on the no-change rule (5 change lines); median loss 2.37 → 0.26 %, freezes 21 → 1. fec_unrecoverable_frames is not reported. Default stays host until a real Wi-Fi phone run (rust/PERFORMANCE.md)
+    note: 'needs an elevated shell (linkspeed adds a firewall rule). The log line "client fec choice" confirms the auto arm. 2026-10-27 (rl-net 8aab90708): auto better on every count, wifi PASS, wifi-hi FAIL only on the no-change rule (5 change lines); median loss 2.37 → 0.26 %, freezes 21 → 1. fec_unrecoverable_frames is not reported. Default stays host until a real Wi-Fi phone run (rust/PERFORMANCE.md)'
 
   - id: net-fec-split-nuc
     device: nuc

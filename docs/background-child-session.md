@@ -55,8 +55,13 @@ default, and it is what Windows Home uses: Home has no child sessions.
    - records every original value first, in one record for the whole PC
      (`%ProgramData%\Butterpollo\windows-settings\child_session_setup.json`,
      which only SYSTEM and Administrators can change and anyone can read;
-     Rubylight refuses a record anyone else owns), whichever Rubylight host
-     set it up. A host without administrator rights (a portable one) can't
+     Rubylight refuses a record anyone else owns, and setup refuses a
+     `%ProgramData%\Butterpollo` that is a link or that anyone else owns),
+     whichever Rubylight host set it up. When the record is gone but
+     setup's block rule is still in effect, the host (at its start, and once
+     after the record goes) turns Remote Desktop off and says so loudly:
+     remove the rule, then set up again. A host without administrator
+     rights (a portable one) can't
      check the firewall or turn Remote Desktop off, so it starts no child
      session and says why in its log; the service, or a host run as
      administrator, does. Setup

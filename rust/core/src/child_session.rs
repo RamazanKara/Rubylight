@@ -1750,6 +1750,23 @@ pub fn check_firewall(system: &mut dyn SystemSettings, rdp_port: u16) -> Result<
     }
     Ok(found)
 }
+/// On a PC with no setup record: when setup's block rule is in effect anyway
+/// (the record is gone), child sessions were set up here and nothing checks
+/// the firewall for them, so Remote Desktop is turned off at once. Empty
+/// without the rule: RDP, on or off, is then the user's own. Err when the
+/// rules in effect could not be read, with nothing changed.
+pub fn enforce_unrecorded(system: &mut dyn SystemSettings) -> Result<Vec<String>> {
+    let active = system
+        .active_firewall(REMOTE_DESKTOP_RULES, BLOCK_RULE)
+        .context("reading the firewall rules in effect")?;
+    if active.blocks.is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(vec![
+        format!("the firewall rule \"{BLOCK_RULE}\" that setup adds is in effect"),
+        turn_rdp_off(system),
+    ])
+}
 
 /// Turn Remote Desktop off (`fDenyTSConnections = 1`), read it back, and
 /// make sure no group policy keeps it on ([`TERMINAL_SERVICES_POLICY`] wins

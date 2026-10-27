@@ -50,6 +50,10 @@ struct Record {
     /// Err unless SYSTEM or Administrators own the open file or folder, which
     /// `path` names, and alone may write it.
     trusted: fn(&File, &Path) -> Result<()>,
+    /// Err unless SYSTEM or Administrators own the open data root the folder
+    /// is made in (`%ProgramData%\Butterpollo`), which `path` names, and it
+    /// is no link elsewhere.
+    trusted_root: fn(&File, &Path) -> Result<()>,
     /// Whether this process has administrator rights, which setup and
     /// restore need.
     elevated: fn() -> Result<bool>,
@@ -62,6 +66,7 @@ impl Record {
             create_folder: butterpollo_windows::process::create_folder_administrators_readable,
             create_file: butterpollo_windows::process::create_file_administrators_readable,
             trusted: administrators_own,
+            trusted_root: administrators_own_root,
             elevated: butterpollo_windows::process::elevated,
         }
     }
@@ -108,16 +113,18 @@ impl Record {
             Err(error) => Err(error).with_context(|| format!("opening {}", folder.display())),
         }
     }
-    /// Save it in a folder only SYSTEM and Administrators can write. The
-    /// folder and file are made with those permissions, never given them
-    /// after: in between, another program could open them for writing.
+    /// Save it in a folder only SYSTEM and Administrators can write, in a
+    /// data root they own. The folder and file are made with those
+    /// permissions, never given them after: in between, another program could
+    /// open them for writing.
     fn save(&self, state: &SetupState) -> Result<()> {
         let text = serde_json::to_vec_pretty(state)?;
         let folder = self.folder();
-        if let Some(root) = folder.parent() {
-            std::fs::create_dir_all(root)
-                .with_context(|| format!("creating {}", root.display()))?;
-        }
+        // Held while the folder is made in it.
+        let _root = folder
+            .parent()
+            .map(|root| self.open_root(root))
+            .transpose()?;
         match (self.create_folder)(folder) {
             // One that was there is checked as it is opened.
             Err(error) if error.kind() != ErrorKind::AlreadyExists => {
@@ -155,6 +162,23 @@ impl Record {
             let _ = std::fs::remove_file(&temporary);
         }
         saved
+    }
+    /// The data root `root`, open and checked. Made as the installer makes it
+    /// when there is none (SYSTEM and Administrators its owner and only
+    /// writers), never with its parents: `%ProgramData%` is there. It can't be
+    /// renamed or deleted while open.
+    fn open_root(&self, root: &Path) -> Result<File> {
+        match (self.create_folder)(root) {
+            // One that was there is checked as it is opened.
+            Err(error) if error.kind() != ErrorKind::AlreadyExists => {
+                return Err(error).with_context(|| format!("creating {}", root.display()));
+            }
+            _ => {}
+        }
+        let open = butterpollo_windows::process::open_unfollowed(root, true)
+            .with_context(|| format!("opening {}", root.display()))?;
+        (self.trusted_root)(&open, root)?;
+        Ok(open)
     }
     /// Forget it, once everything is restored.
     fn remove(&self) -> Result<()> {
@@ -196,6 +220,31 @@ fn administrators_own(file: &File, path: &Path) -> Result<()> {
     {
         bail!(
             "{} can be written by {other}, not only by SYSTEM and Administrators, so another program may have written it; Rubylight does not use it. Delete it, turn Remote Desktop off, then set up child sessions again",
+            path.display()
+        );
+    }
+    Ok(())
+}
+/// [`Record`]'s check of the data root on this PC, on the open `file`
+/// (`path` names it): owned by SYSTEM or Administrators, as the installer
+/// leaves it, and not a link elsewhere. An owner may change its permissions
+/// and move the record's folder out of it.
+fn administrators_own_root(file: &File, path: &Path) -> Result<()> {
+    use std::os::windows::fs::MetadataExt;
+    let metadata = file
+        .metadata()
+        .with_context(|| format!("reading {}", path.display()))?;
+    if metadata.file_attributes() & 0x400 != 0 {
+        bail!(
+            "{} is a link to elsewhere, not Rubylight's folder, so Rubylight does not keep its child-session record in it; nothing was changed",
+            path.display()
+        );
+    }
+    let owner = butterpollo_windows::process::open_file_owner(file)
+        .with_context(|| format!("reading the owner of {}", path.display()))?;
+    if !matches!(owner.as_str(), "S-1-5-18" | "S-1-5-32-544") {
+        bail!(
+            "{} is owned by {owner}, not by SYSTEM or Administrators, so another program may control it; Rubylight does not keep its child-session record in it and nothing was changed. Run Rubylight's setup again, which gives it to Administrators, then set up child sessions again",
             path.display()
         );
     }
@@ -244,18 +293,20 @@ pub(crate) fn log_mode(config: &Config) {
 /// From the host's start on, every [`WATCH_EVERY`], when child sessions are
 /// set up here: RDP stays on until restore, so a firewall that no longer
 /// keeps it on this PC turns RDP off and is said loudly (and [`start`]
-/// refuses until setup runs again).
+/// refuses until setup runs again). Without a record, setup's traces are
+/// looked for at the start and once after a record goes.
 pub(crate) fn check_at_startup() {
     let record = Record::new();
     let elevated = elevated();
     std::thread::spawn(move || {
-        let mut last = None;
+        let mut watched = Watched::default();
         loop {
             watch(
                 &record,
-                &mut last,
+                &mut watched,
                 elevated,
                 native_enforce,
+                native_unrecorded,
                 std::thread::sleep,
                 report,
             );
@@ -266,32 +317,99 @@ pub(crate) fn check_at_startup() {
 /// How often the host checks the firewall while child sessions are set up:
 /// one firewall read, off any stream's path.
 const WATCH_EVERY: std::time::Duration = std::time::Duration::from_secs(60);
+/// What [`watch`] keeps from one round to the next.
+#[derive(Default)]
+struct Watched {
+    /// What the last round said, so what stays is said once.
+    last: Option<String>,
+    /// Whether setup's traces were looked for since the record was last
+    /// there: one firewall read when the host starts without a record, and
+    /// one after a record goes, not one every round on a PC never set up.
+    traced: bool,
+}
 /// One [`secure_rdp`] round of [`check_at_startup`]: a problem is reported
-/// when it is new (`last` holds the one before), not every round it stays.
-/// A host that is not `elevated` checks nothing and changes nothing; while
-/// setup ran here it says once that child sessions are unavailable in it.
+/// when it is new (`watched` holds the one before), not every round it
+/// stays. Without a record, [`secure_unrecorded`] through `unrecorded`, once
+/// until a record is there again. A host that is not `elevated` checks
+/// nothing and changes nothing; while setup ran here it says once that child
+/// sessions are unavailable in it.
 fn watch(
     record: &Record,
-    last: &mut Option<String>,
+    watched: &mut Watched,
     elevated: bool,
     enforce: impl FnMut(Option<u16>, bool) -> Result<Vec<String>>,
+    unrecorded: impl FnOnce() -> Result<Vec<String>>,
     wait: impl FnMut(std::time::Duration),
     mut report: impl FnMut(String),
 ) {
     if let Some(reason) = unverified(record, elevated) {
-        if last.as_ref() != Some(&reason) {
+        if watched.last.as_ref() != Some(&reason) {
             tracing::warn!("{reason}");
         }
-        *last = Some(reason);
+        watched.last = Some(reason);
         return;
     }
-    let problem = secure_rdp(record, enforce, wait);
+    let problem = match secure_rdp(record, enforce, wait) {
+        None if elevated && !watched.traced && !record.may_exist() => {
+            match secure_unrecorded(record, unrecorded) {
+                Ok(found) => {
+                    watched.traced = true;
+                    found
+                }
+                // Tried again next round: Windows Firewall may not be up yet.
+                Err(error) => {
+                    let warning = format!(
+                        "could not check whether child sessions were set up on this PC without a record: {error:#}"
+                    );
+                    if watched.last.as_ref() != Some(&warning) {
+                        tracing::warn!("{warning}");
+                    }
+                    watched.last = Some(warning);
+                    return;
+                }
+            }
+        }
+        problem => {
+            if record.may_exist() {
+                watched.traced = false;
+            }
+            problem
+        }
+    };
     if let Some(problem) = &problem
-        && last.as_ref() != Some(problem)
+        && watched.last.as_ref() != Some(problem)
     {
         report(problem.clone());
     }
-    *last = problem;
+    watched.last = problem;
+}
+/// When there is no record, [`logic::enforce_unrecorded`] through
+/// `unrecorded`, under the settings locks: a setup saves its record before
+/// it adds the block rule, so one running meanwhile is not taken for a setup
+/// whose record is gone. The problem for the log and the console, None when
+/// setup's block rule is not in effect or there is a record now. Err when
+/// that could not be told, with nothing changed.
+fn secure_unrecorded(
+    record: &Record,
+    unrecorded: impl FnOnce() -> Result<Vec<String>>,
+) -> Result<Option<String>> {
+    let _settings = settings_lock()?;
+    if record.may_exist() {
+        return Ok(None);
+    }
+    let found = unrecorded()?;
+    Ok((!found.is_empty()).then(|| {
+        format!(
+            "child sessions were set up on this PC, but Rubylight's record of that setup ({}) is gone, so nothing checked that the firewall keeps Remote Desktop on this PC: {}. Remove the firewall rule \"{}\", then set up child sessions again; without the record, the settings from before setup can't be restored.",
+            record.path.display(),
+            found.join("; "),
+            logic::BLOCK_RULE
+        )
+    }))
+}
+/// [`secure_unrecorded`]'s `unrecorded` on this PC.
+fn native_unrecorded() -> Result<Vec<String>> {
+    logic::enforce_unrecorded(&mut native::NativeSettings::new()?)
 }
 
 /// Whether this host has administrator rights; when that can't be told, as
@@ -1107,6 +1225,7 @@ mod tests {
                     .open(path)
             },
             trusted: |_, _| Ok(()),
+            trusted_root: |_, _| Ok(()),
             elevated: || Ok(true),
         }
     }
@@ -1401,16 +1520,35 @@ mod tests {
         };
         record.save(&recorded()).unwrap();
         record.save(&recorded()).unwrap();
-        // Made with their permissions: the folder each time (there the second), every file
-        // before it takes the record's name.
+        // Made with their permissions: the data root and the folder each time (there the
+        // second), every file before it takes the record's name.
         let temporary = record.path.with_extension("tmp");
         let folder = record.folder().to_path_buf();
         assert_eq!(
             CREATED.take(),
-            [folder.clone(), temporary.clone(), folder, temporary.clone()]
+            [
+                directory.clone(),
+                folder.clone(),
+                temporary.clone(),
+                directory.clone(),
+                folder,
+                temporary.clone()
+            ]
         );
         assert_eq!(record.load().unwrap(), Some(recorded()));
         assert!(!temporary.exists());
+        // A data root that is not there is made with them too, never with its parents.
+        let root = directory.join("data");
+        let rooted = Record {
+            create_folder: record.create_folder,
+            create_file: record.create_file,
+            ..record_in(&root)
+        };
+        rooted.save(&recorded()).unwrap();
+        assert_eq!(CREATED.take()[..2], [root.clone(), rooted.folder().into()]);
+        let orphan = record_in(&directory.join("gone").join("data"));
+        assert!(orphan.save(&recorded()).is_err());
+        assert!(!directory.join("gone").exists());
         // A folder that could not be made is not saved into.
         let unmade = Record {
             create_folder: |_| Err(ErrorKind::PermissionDenied.into()),
@@ -1418,6 +1556,58 @@ mod tests {
         };
         assert!(unmade.save(&recorded()).is_err());
         assert!(!unmade.folder().exists());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn a_data_root_administrators_do_not_own_is_never_saved_into() {
+        // Its owner could change its permissions and swap the record's folder in it.
+        let directory = scratch();
+        let foreign = Record {
+            trusted_root: |_, path| bail!("{} is owned by S-1-5-21-9", path.display()),
+            ..record_in(&directory)
+        };
+        let error = format!("{:#}", foreign.save(&recorded()).unwrap_err());
+        assert!(error.contains("S-1-5-21-9"), "{error}");
+        assert!(!foreign.folder().exists());
+        // A link is opened itself, never followed, and refused on this PC's check.
+        let target = directory.join("elsewhere");
+        std::fs::create_dir(&target).unwrap();
+        let link = directory.join("linked");
+        let status = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&link)
+            .arg(&target)
+            .stdout(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success(), "mklink /J failed");
+        let linked = Record {
+            trusted_root: administrators_own_root,
+            ..record_in(&link)
+        };
+        let error = format!("{:#}", linked.save(&recorded()).unwrap_err());
+        assert!(error.contains("is a link to elsewhere"), "{error}");
+        assert_eq!(std::fs::read_dir(&target).unwrap().count(), 0);
+        // A folder: refused unless SYSTEM or Administrators own it, as this test's own does
+        // only when it runs elevated.
+        let own = Record {
+            trusted_root: administrators_own_root,
+            ..record_in(&target)
+        };
+        let owner = butterpollo_windows::process::open_file_owner(
+            &butterpollo_windows::process::open_unfollowed(&target, true).unwrap(),
+        )
+        .unwrap();
+        match own.save(&recorded()) {
+            Ok(()) => assert!(matches!(owner.as_str(), "S-1-5-18" | "S-1-5-32-544")),
+            Err(error) => {
+                let error = format!("{error:#}");
+                assert!(error.contains(&format!("is owned by {owner}")), "{error}");
+                assert!(!own.folder().exists());
+            }
+        }
+        std::fs::remove_dir(&link).unwrap();
         std::fs::remove_dir_all(directory).unwrap();
     }
 
@@ -1602,23 +1792,37 @@ mod tests {
 
     #[test]
     fn the_firewall_is_watched_while_child_sessions_are_set_up() {
-        let mut last = None;
+        let mut watched = Watched::default();
         let mut reports = Vec::new();
-        // Not set up: no check.
+        // Not set up: no check, and setup's traces looked for once, not every round.
         let empty = scratch();
         let never = |_, _| -> Result<Vec<String>> { panic!("no setup, no check") };
-        watch(&record_in(&empty), &mut last, true, never, no_wait, |p| {
-            reports.push(p)
-        });
+        let mut traced = 0;
+        for _ in 0..3 {
+            watch(
+                &record_in(&empty),
+                &mut watched,
+                true,
+                never,
+                || {
+                    traced += 1;
+                    Ok(Vec::new())
+                },
+                no_wait,
+                |p| reports.push(p),
+            );
+        }
+        assert_eq!(traced, 1);
         std::fs::remove_dir_all(empty).unwrap();
         // Set up: every round checks, and a problem is reported once while it stays.
         let (directory, record) = set_up_record();
+        let untraced = || -> Result<Vec<String>> { panic!("a record: no traces looked for") };
         let rounds = [false, true, true, false, true];
         let mut checks = 0;
         for open in rounds {
             watch(
                 &record,
-                &mut last,
+                &mut watched,
                 true,
                 |port, _| {
                     assert_eq!(port, Some(3390));
@@ -1629,6 +1833,7 @@ mod tests {
                         Vec::new()
                     })
                 },
+                untraced,
                 no_wait,
                 |problem| reports.push(problem),
             );
@@ -1637,21 +1842,135 @@ mod tests {
         assert_eq!(reports.len(), 2, "{reports:?}");
         assert!(reports[0].contains("the block rule is not in effect"));
         assert!(WATCH_EVERY <= std::time::Duration::from_secs(60));
+        // The record goes: its traces are looked for again, once.
+        record.remove().unwrap();
+        for _ in 0..2 {
+            watch(
+                &record,
+                &mut watched,
+                true,
+                never,
+                || {
+                    traced += 1;
+                    Ok(Vec::new())
+                },
+                no_wait,
+                |p| reports.push(p),
+            );
+        }
+        assert_eq!((traced, reports.len()), (2, 2));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn a_setup_whose_record_is_gone_turns_rdp_off_at_the_hosts_start() {
+        // Set up, then the record went (deleted, say): nothing checks the firewall for it.
+        let directory = scratch();
+        let record = record_in(&directory);
+        let pc = Pc::new();
+        let mut settings = pc.clone();
+        settings
+            .add_block_rule(logic::BLOCK_RULE, &logic::block_ports(3389))
+            .unwrap();
+        settings
+            .write_dword(
+                &logic::Hive::LocalMachine,
+                logic::TERMINAL_SERVER,
+                "fDenyTSConnections",
+                0,
+            )
+            .unwrap();
+        let never = |_, _| -> Result<Vec<String>> { panic!("no record, no firewall check") };
+        let mut reports = Vec::new();
+        // Unelevated: it can change nothing, so it looks for nothing.
+        let mut watched = Watched::default();
+        let untraced = || -> Result<Vec<String>> { panic!("an unelevated host looks for nothing") };
+        watch(
+            &record,
+            &mut watched,
+            false,
+            never,
+            untraced,
+            no_wait,
+            |p| reports.push(p),
+        );
+        assert!(reports.is_empty() && watched.last.is_none(), "{reports:?}");
+        // Rules that cannot be read: said in the log once, tried again the next round.
+        for _ in 0..2 {
+            watch(
+                &record,
+                &mut watched,
+                true,
+                never,
+                || anyhow::bail!("PowerShell exited with 1"),
+                no_wait,
+                |p| reports.push(p),
+            );
+        }
+        assert!(reports.is_empty(), "{reports:?}");
+        let warning = watched.last.clone().unwrap();
+        assert!(warning.contains("PowerShell exited with 1"), "{warning}");
+        assert!(!watched.traced);
+        assert_eq!(
+            pc.now().values.get(&hive_key(
+                &logic::Hive::LocalMachine,
+                logic::TERMINAL_SERVER,
+                "fDenyTSConnections"
+            )),
+            Some(&0)
+        );
+        // Read: RDP goes off, and the console and the log say why, loudly and once.
+        for _ in 0..2 {
+            let mut settings = pc.clone();
+            watch(
+                &record,
+                &mut watched,
+                true,
+                never,
+                move || logic::enforce_unrecorded(&mut settings),
+                no_wait,
+                |p| reports.push(p),
+            );
+        }
+        assert_eq!(
+            pc.now().values.get(&hive_key(
+                &logic::Hive::LocalMachine,
+                logic::TERMINAL_SERVER,
+                "fDenyTSConnections"
+            )),
+            Some(&1)
+        );
+        assert_eq!(reports.len(), 1, "{reports:?}");
+        let problem = &reports[0];
+        assert!(
+            problem.contains(logic::BLOCK_RULE)
+                && problem.contains(logic::SETUP_FILE)
+                && problem.contains("is gone")
+                && problem.contains("Remote Desktop was turned off"),
+            "{problem}"
+        );
         std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn a_host_without_administrator_rights_says_child_sessions_are_unavailable_in_it() {
         let never = |_, _| -> Result<Vec<String>> { panic!("an unelevated host checks nothing") };
+        let untraced = || -> Result<Vec<String>> { panic!("an unelevated host looks for nothing") };
         let mut reports = Vec::new();
         // Not set up: nothing to say.
         let empty = scratch();
-        let mut last = None;
+        let mut watched = Watched::default();
         assert_eq!(unverified(&record_in(&empty), false), None);
-        watch(&record_in(&empty), &mut last, false, never, no_wait, |p| {
-            reports.push(p)
-        });
-        assert_eq!(last, None);
+        watch(
+            &record_in(&empty),
+            &mut watched,
+            false,
+            never,
+            untraced,
+            no_wait,
+            |p| reports.push(p),
+        );
+        assert_eq!(watched.last, None);
         std::fs::remove_dir_all(empty).unwrap();
         // Set up and readable: unavailable here, said in the log, never reported as a problem.
         let (directory, record) = set_up_record();
@@ -1662,11 +1981,17 @@ mod tests {
         );
         assert!(reason.contains("unavailable in this host"), "{reason}");
         for _ in 0..2 {
-            watch(&record, &mut last, false, never, no_wait, |p| {
-                reports.push(p)
-            });
+            watch(
+                &record,
+                &mut watched,
+                false,
+                never,
+                untraced,
+                no_wait,
+                |p| reports.push(p),
+            );
         }
-        assert_eq!(last.as_deref(), Some(reason.as_str()));
+        assert_eq!(watched.last.as_deref(), Some(reason.as_str()));
         // A record it can't read (an older one only administrators may read): the same, with why.
         let unreadable = Record {
             trusted: |_, path| bail!("Access is denied reading {}", path.display()),
@@ -1680,25 +2005,32 @@ mod tests {
             "{reason}"
         );
         assert!(reason.contains("unavailable in this host"), "{reason}");
-        watch(&unreadable, &mut last, false, never, no_wait, |p| {
-            reports.push(p)
-        });
+        watch(
+            &unreadable,
+            &mut watched,
+            false,
+            never,
+            untraced,
+            no_wait,
+            |p| reports.push(p),
+        );
         assert!(reports.is_empty(), "{reports:?}");
         // Elevated: it checks, as before.
         assert_eq!(unverified(&unreadable, true), None);
         let mut checks = 0;
         watch(
             &record,
-            &mut last,
+            &mut watched,
             true,
             |_, _| {
                 checks += 1;
                 Ok(Vec::new())
             },
+            untraced,
             no_wait,
             |p| reports.push(p),
         );
-        assert_eq!((checks, last), (1, None));
+        assert_eq!((checks, watched.last), (1, None));
         std::fs::remove_dir_all(directory).unwrap();
     }
 

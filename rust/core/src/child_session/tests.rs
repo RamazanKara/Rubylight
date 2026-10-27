@@ -1183,6 +1183,57 @@ fn a_firewall_that_stops_holding_rdp_turns_it_off() {
 }
 
 #[test]
+fn a_setup_whose_record_is_gone_turns_rdp_off() {
+    let rdp = |fake: &Fake| {
+        fake.read_dword(&Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections")
+            .unwrap()
+    };
+    // Never set up: the user's own RDP stays as it is, on or off.
+    let mut own = Fake::new();
+    own.write_dword(
+        &Hive::LocalMachine,
+        TERMINAL_SERVER,
+        "fDenyTSConnections",
+        0,
+    )
+    .unwrap();
+    assert!(enforce_unrecorded(&mut own).unwrap().is_empty());
+    assert_eq!(rdp(&own), Some(0));
+    // Set up, then the record went: setup's block rule says so, and RDP goes off.
+    let mut fake = Fake::new();
+    set_up(&mut fake);
+    assert_eq!(rdp(&fake), Some(0));
+    let found = enforce_unrecorded(&mut fake).unwrap();
+    assert_eq!(rdp(&fake), Some(1));
+    assert!(
+        found.len() == 2
+            && found[0].contains(BLOCK_RULE)
+            && found[1].contains("Remote Desktop was turned off (fDenyTSConnections = 1)"),
+        "{found:?}"
+    );
+    // One that cannot turn it off says so.
+    let mut stuck = Fake::new();
+    set_up(&mut stuck);
+    stuck.fail_writes.insert("fDenyTSConnections".into());
+    let found = enforce_unrecorded(&mut stuck).unwrap();
+    assert_eq!(rdp(&stuck), Some(0));
+    assert!(
+        found[1].contains("turning Remote Desktop off failed"),
+        "{found:?}"
+    );
+    // Rules that cannot be read change nothing: without a record, RDP may be the user's own.
+    let mut unreadable = Fake::new();
+    set_up(&mut unreadable);
+    unreadable.firewall_unreadable = true;
+    let error = enforce_unrecorded(&mut unreadable).unwrap_err();
+    assert!(
+        format!("{error:#}").contains("PowerShell exited"),
+        "{error:#}"
+    );
+    assert_eq!(rdp(&unreadable), Some(0));
+}
+
+#[test]
 fn a_firewall_that_cannot_be_checked_turns_rdp_off_too() {
     let rdp = |fake: &Fake| {
         fake.read_dword(&Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections")

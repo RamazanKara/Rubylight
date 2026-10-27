@@ -58,6 +58,25 @@ async fn couch_menu_refuses_bad_bodies_permissions_and_other_sessions() {
 }
 
 #[tokio::test]
+async fn couch_menu_off_for_the_device_is_unadvertised() {
+    let s = Setup::new();
+    let listed = async || {
+        let capabilities: Capabilities =
+            serde_json::from_slice(&s.get("/capabilities").await.body).unwrap();
+        capabilities
+            .features
+            .iter()
+            .any(|f| f == "session.couch_menu")
+    };
+    assert!(listed().await);
+    s.host().paired.write().unwrap().clients[0].extra.insert(
+        "config_overrides".into(),
+        serde_json::json!({"couch_menu": false}),
+    );
+    assert!(!listed().await, "the device's own setting turns it off");
+}
+
+#[tokio::test]
 async fn couch_menu_off_is_temporarily_unavailable_and_unadvertised() {
     let s = Setup::new();
     let session = s.streaming();

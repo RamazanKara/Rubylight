@@ -457,20 +457,31 @@ fn sets_peak(overrides: &serde_json::Map<String, serde_json::Value>) -> bool {
         })
 }
 
-pub(crate) fn effective_config(h: &Shared, launch: &Launch) -> Result<Config> {
+/// The host configuration with `client`'s own settings, for answers outside
+/// a stream (the native capabilities): no app has its say yet.
+pub(crate) fn device_config(
+    h: &Shared,
+    client: &butterpollo_core::state::Client,
+) -> Result<Config> {
     let mut config = h.config.read().unwrap().clone();
+    device_layer(&mut config, client)?;
+    butterpollo_core::stream_preset::fill(&mut config);
+    Ok(config)
+}
+
+/// Applies the device's overrides. Returns whether they chose the peak
+/// brightness.
+fn device_layer(config: &mut Config, client: &butterpollo_core::state::Client) -> Result<bool> {
     let mut peak_chosen = false;
-    if let Some(overrides) = launch
-        .client
+    if let Some(overrides) = client
         .extra
         .get("config_overrides")
         .and_then(serde_json::Value::as_object)
     {
         peak_chosen |= sets_peak(overrides);
-        apply_overrides(&mut config, overrides)?;
+        apply_overrides(config, overrides)?;
     }
-    if let Some(value) = launch
-        .client
+    if let Some(value) = client
         .extra
         .get("prefer_10bit_sdr")
         .filter(|v| !v.is_null() && v.as_str() != Some(""))
@@ -483,6 +494,12 @@ pub(crate) fn effective_config(h: &Shared, launch: &Launch) -> Result<Config> {
                 .unwrap_or_else(|| value.to_string()),
         );
     }
+    Ok(peak_chosen)
+}
+
+pub(crate) fn effective_config(h: &Shared, launch: &Launch) -> Result<Config> {
+    let mut config = h.config.read().unwrap().clone();
+    let mut peak_chosen = device_layer(&mut config, &launch.client)?;
     let app = h
         .apps
         .read()

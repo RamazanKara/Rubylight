@@ -277,10 +277,19 @@ async fn expect_empty_body(request: Request) -> Result<(), Failure> {
 
 async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connection>) -> Reply {
     let client = caller(&h, &c)?;
-    let (file_transfer, couch_menu) = {
-        let config = h.config.read().unwrap_or_else(PoisonError::into_inner);
-        (config.file_transfer(), config.couch_menu())
-    };
+    let file_transfer = h
+        .config
+        .read()
+        .unwrap_or_else(PoisonError::into_inner)
+        .file_transfer();
+    // The device's own settings can turn the couch menu off.
+    let couch_menu = crate::stream::device_config(&h, &client).map_or_else(
+        |error| {
+            tracing::warn!(client = %client.name, error = %format!("{error:#}"), "couch menu: the device's configuration did not load; not offering the menu");
+            false
+        },
+        |config| config.couch_menu(),
+    );
     let name = crate::network::host_name(&h.config.read().unwrap_or_else(PoisonError::into_inner));
     Ok(json(
         StatusCode::OK,

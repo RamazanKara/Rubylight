@@ -547,6 +547,7 @@ const SERVERINFO_FIELDS: &[(&str, Reading)] = &[
     ("PyroWaveCriticalFecPercentage", Reading::Read),
     ("PyroWaveMinParityShards", Reading::Read),
     ("FecControlVersion", Reading::Read),
+    ("BandwidthProbeVersion", Reading::Read),
     ("AudioCodecs", Reading::Read),
     ("AudioLayouts", Reading::Read),
     ("PipelineRatesVersion", Reading::Read),
@@ -655,6 +656,7 @@ fn expected(feature: Feature) -> Availability {
         | Feature::HostTiming
         | Feature::PipelineRates
         | Feature::ClientFec
+        | Feature::BandwidthProbe
         | Feature::WebUi
         | Feature::NativeApi
         | Feature::Sleep
@@ -681,7 +683,6 @@ fn expected(feature: Feature) -> Availability {
         // The 3.0 extensions are defined but offered by nothing yet.
         Feature::DolbyVision
         | Feature::Hlg
-        | Feature::BandwidthProbe
         | Feature::UsbForwarding
         | Feature::TextInput
         | Feature::ClientKeyboardLayout

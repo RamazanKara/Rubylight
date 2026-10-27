@@ -40,9 +40,9 @@ fn client_fec(_h: &Shared, _config: &Config) -> bool {
     true
 }
 
-/// Network (B): `GET /bandwidth-probe`.
-fn bandwidth_probe(_h: &Shared, _config: &Config) -> bool {
-    false
+/// Network (B): `GET /bandwidth-probe`, while `bandwidth_probe` is on.
+pub fn bandwidth_probe(_h: &Shared, config: &Config) -> bool {
+    config.bandwidth_probe()
 }
 
 /// USB forwarding (C): the 0x553A channel.

@@ -194,6 +194,8 @@ pub struct Host {
     pub launch_transition: Mutex<()>,
     /// Sleep PC tokens and the suspend backend.
     pub power: crate::power_action::PowerActions,
+    /// Each paired client's `GET /bandwidth-probe` cooldown and budget.
+    pub bandwidth_probes: Mutex<butterpollo_core::bandwidth_probe::Limiter>,
     /// File transfer uploads and downloads, all paced together.
     pub file_transfers: crate::native_api::files::Transfers,
     /// The session state machine and its journal.
@@ -507,6 +509,7 @@ impl Host {
             current_app: Mutex::new(None),
             launch_transition: Mutex::new(()),
             power: Default::default(),
+            bandwidth_probes: Default::default(),
             file_transfers: Default::default(),
             session: Mutex::new(session),
             confirmations: Mutex::new(Default::default()),

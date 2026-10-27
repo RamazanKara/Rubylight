@@ -493,6 +493,7 @@ async fn serverinfo_for_a_default_config_is_byte_identical() {
              <SleepSupported>{sleep}</SleepSupported>\
              <SleepAllowed>0</SleepAllowed>\
              <FecControlVersion>1</FecControlVersion>\
+             <BandwidthProbeVersion>1</BandwidthProbeVersion>\
              <AudioCodecs>3</AudioCodecs>\
              <AudioLayouts>15</AudioLayouts>\
              <PipelineRatesVersion>1</PipelineRatesVersion>\
@@ -546,6 +547,7 @@ async fn serverinfo_for_a_default_config_is_byte_identical() {
              <ControllerPreparation>1</ControllerPreparation>\
              <VirtualDisplayHDRCapable>true</VirtualDisplayHDRCapable>\
              <FecControlVersion>1</FecControlVersion>\
+             <BandwidthProbeVersion>1</BandwidthProbeVersion>\
              <AudioCodecs>3</AudioCodecs>\
              <AudioLayouts>15</AudioLayouts>\
              <PipelineRatesVersion>1</PipelineRatesVersion>\

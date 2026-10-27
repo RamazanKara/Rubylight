@@ -308,6 +308,8 @@ pub struct View<'a> {
 
 const CARD_W: f32 = 300.0;
 const CARD_H: f32 = 112.0;
+/// The card's inner margin left and right of its status and detail lines.
+const CARD_PAD: f32 = 20.0;
 const POSTER_W: f32 = 168.0;
 const POSTER_H: f32 = 224.0;
 const CONTENT_MAX: f32 = 1180.0;
@@ -3479,27 +3481,36 @@ fn host_card(ui: &mut Ui, host: &Host, line: Option<&str>) -> Response {
     name.wrap = egui::text::TextWrapping::truncate_at_width(rect.width() - 44.0 - 46.0);
     let name = painter.layout_job(name);
     painter.galley(Pos2::new(rect.left() + 44.0, rect.top() + 30.0 - name.size().y / 2.0), name, *ON_SURFACE);
-    painter.text(
-        Pos2::new(rect.left() + 20.0, rect.top() + 62.0),
-        Align2::LEFT_CENTER,
-        &status,
-        regular(text::LABEL),
-        *color,
-    );
     let detail = match (line, host.info.as_ref().and_then(|i| i.gpu_type.clone())) {
         (Some(line), _) => line.to_owned(),
         (None, Some(gpu)) if !gpu.is_empty() => format!("{}  ·  {gpu}", host.record.address),
         _ => host.record.address.clone(),
     };
-    painter.text(
-        Pos2::new(rect.left() + 20.0, rect.top() + 88.0),
-        Align2::LEFT_CENTER,
-        detail,
-        regular(text::CAPTION),
-        *OUTLINE,
-    );
+    // The state and the address with the GPU end in "…" inside the card's padding; whatever was cut
+    // is in the tooltip.
+    let status_cut = card_line(&painter, rect, 62.0, &status, regular(text::LABEL), *color);
+    let detail_cut = card_line(&painter, rect, 88.0, &detail, regular(text::CAPTION), *OUTLINE);
+    let tooltip = match (status_cut, detail_cut) {
+        (false, false) => None,
+        (true, false) => Some(status),
+        (false, true) => Some(detail),
+        (true, true) => Some(format!("{status}\n{detail}")),
+    };
     focus_ring(ui, rect, &response, radius::PANEL);
-    response
+    match tooltip {
+        Some(text) => response.on_hover_text(text),
+        None => response,
+    }
+}
+
+/// One line of a card at `y` from its top, cut with "…" at the card's padding. True when it was cut.
+fn card_line(painter: &egui::Painter, card: Rect, y: f32, text: &str, font: egui::FontId, color: Color32) -> bool {
+    let mut job = egui::text::LayoutJob::simple_singleline(text.to_owned(), font, color);
+    job.wrap = egui::text::TextWrapping::truncate_at_width(card.width() - 2.0 * CARD_PAD);
+    let galley = painter.layout_job(job);
+    let cut = galley.elided;
+    painter.galley(Pos2::new(card.left() + CARD_PAD, card.top() + y - galley.size().y / 2.0), galley, color);
+    cut
 }
 
 /// What a PC's card says of it: the words, their colour, and the colour of the dot's ring.
@@ -5221,6 +5232,78 @@ mod tests {
         drawn
     }
 
+    /// What each text shape shows on screen (a cut line ends in "…"), with where it landed.
+    fn collect_visible(shape: &egui::Shape, out: &mut Vec<(String, Rect)>) {
+        match shape {
+            egui::Shape::Text(text) => {
+                let shown: String = text.galley.rows.iter().map(|row| row.text()).collect();
+                out.push((shown, text.galley.rect.translate(text.pos.to_vec2())));
+            }
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| collect_visible(s, out)),
+            _ => {}
+        }
+    }
+
+    /// A PC with a long IPv6 address and GPU name; `zoomed` is the smallest window SDL allows at 150 %, in German.
+    fn long_detail_card(zoomed: bool) -> (Frames, String) {
+        let address = "fd12:3456:789a:bcde:f012:3456:789a:bcde";
+        let mut info = answer(true, 0);
+        info.gpu_type = Some("AMD Radeon RX 7900 XTX Phantom Gaming OC".into());
+        let mut f = Frames::with(HostRecord { address: address.into(), ..record("Living Room PC", true, true) }, Reach::Online, Some(info), Vec::new());
+        if zoomed {
+            fit_150(&mut f);
+            f.size = vec2(720.0 / 1.5, 480.0 / 1.5);
+        }
+        f.settle();
+        (f, format!("{address}  ·  AMD Radeon RX 7900 XTX Phantom Gaming OC"))
+    }
+
+    fn visible(f: &Frames) -> Vec<(String, Rect)> {
+        let mut shown = Vec::new();
+        for clipped in &f.shapes {
+            collect_visible(&clipped.shape, &mut shown);
+        }
+        shown
+    }
+
+    fn hover_card(f: &mut Frames, card: Rect) {
+        f.frame(vec![egui::Event::PointerMoved(card.center())]);
+        for _ in 0..30 {
+            f.frame(Vec::new());
+        }
+    }
+
+    #[test]
+    fn a_long_address_and_gpu_end_in_an_ellipsis_inside_the_card_and_the_tooltip_shows_them_whole() {
+        for zoomed in [false, true] {
+            let (mut f, full) = long_detail_card(zoomed);
+            let (card, _) = f.card_and_dots();
+            assert!(card.right() <= f.size.x, "{zoomed}: the card {card:?} fits the window");
+            let (line, rect) = visible(&f).into_iter().find(|(t, _)| t.starts_with("fd12:")).expect("the address line is drawn");
+            assert!(line.ends_with('…') && line.chars().count() < full.chars().count(), "{zoomed}: the line is cut: {line}");
+            assert!(rect.right() <= card.right() - CARD_PAD + 0.5, "{zoomed}: {line} ends at {} in a card ending at {}", rect.right(), card.right());
+            assert!(rect.left() >= card.left(), "{zoomed}: the line starts inside the card");
+            // The state line above it still fits whole.
+            let status = host_status(&f.hosts.list[0]).0;
+            assert!(visible(&f).iter().any(|(t, _)| *t == status), "{zoomed}: {status} is drawn whole");
+            hover_card(&mut f, card);
+            assert!(visible(&f).iter().any(|(t, _)| *t == full), "{zoomed}: the tooltip shows the whole line: {:?}", visible(&f));
+        }
+    }
+
+    #[test]
+    fn a_short_detail_line_is_drawn_whole_with_no_tooltip() {
+        let (mut f, _) = long_detail_card(false);
+        f.hosts.list[0].record.address = "192.0.2.7".into();
+        f.hosts.list[0].info.as_mut().expect("the answer").gpu_type = Some("RX 7900 XT".into());
+        f.settle();
+        let (card, _) = f.card_and_dots();
+        hover_card(&mut f, card);
+        let shown = visible(&f);
+        let lines: Vec<_> = shown.iter().filter(|(t, _)| t == "192.0.2.7  ·  RX 7900 XT").collect();
+        assert_eq!(lines.len(), 1, "drawn once, whole, and no tooltip: {shown:?}");
+    }
+
     #[test]
     #[ignore = "writes PNGs; set NIGHTJAR_SHOTS"]
     fn page_screenshots() {
@@ -5285,5 +5368,24 @@ mod tests {
             f.press(Key::F2);
             shoot(&mut f, "host-options-short-window");
         }
+        // A long address and GPU end in "…" and the tooltip shows them whole.
+        crate::theme::own_palette();
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        let mut l = launcher(false, false);
+        l.go(Screen::Hosts);
+        let address = "fd12:3456:789a:bcde:f012:3456:789a:bcde";
+        let mut hosts = Hosts::without_discovery(vec![HostRecord { address: address.into(), ..record("Living Room PC", true, true) }], Arc::new(|| {}));
+        let mut info = answer(true, 0);
+        info.gpu_type = Some("AMD Radeon RX 7900 XTX Phantom Gaming OC".into());
+        hosts.list[0].reach = Reach::Online;
+        hosts.list[0].info = Some(info);
+        let mut f = Frames::over(ctx, l, hosts);
+        f.size = vec2(720.0, 480.0);
+        f.native_ppp = 1.5;
+        f.settle();
+        let card = f.ctx.read_response(f.ctx.memory(|m| m.focused()).expect("the card has focus")).expect("the card").rect;
+        hover_card(&mut f, card);
+        f.shoot(&dir, &format!("{prefix}hosts-long-detail-desktop"));
     }
 }

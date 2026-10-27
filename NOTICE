@@ -54,6 +54,16 @@ InputPlumber (https://github.com/ShadowBlip/InputPlumber, GPLv3), and the input
 report layout and button bits from SDL's SDL_hidapi_steamdeck.c and
 controller_structs.h (https://github.com/libsdl-org/SDL, zlib license).
 
+Moonlight V+
+
+Nightjar's soft keyboard for the host's text fields
+(client/app/src/main/java/com/limelight/ui/HostKeyboard.java) follows Moonlight V+
+(https://github.com/qiin2333/moonlight-vplus, GPL-3.0) at commit 5840bab3: it opens
+only for focus that follows the user's own input, does not reopen a keyboard the user
+closed for the same field, and moves the stream up over the keyboard with V+'s viewport
+offset (RemoteTextContextPolicy.kt, ImeAvoidanceSession.kt) instead of resizing the
+window.
+
 Composite DualSense haptics
 
 The Rust composite DualSense implementation was adapted for Rubylight on

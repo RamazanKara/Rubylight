@@ -101,12 +101,29 @@ public final class PerformanceOverlay {
         return Health.GOOD;
     }
 
+    // The overlay is always over video, so it takes the night (media) tones of the shared status tokens:
+    // night_status_ok, night_status_warn, night_error, night_on_surface_variant and night_tertiary in palette.xml.
+    static final int MEDIA_OK = 0xff5fd38d;
+    static final int MEDIA_WARN = 0xfff5d06b;
+    static final int MEDIA_ERROR = 0xffffb4ab;
+    static final int MEDIA_INK_2 = 0xffc1c4d2;
+    static final int MEDIA_INFO = 0xffafc8e9;
+
     static int healthColor(Health health) {
         switch (health) {
-            case GOOD: return 0xff69db7c;
-            case FAIR: return 0xffffc857;
-            case POOR: return 0xffff6b6b;
-            default: return 0xff9aa0ae;
+            case GOOD: return MEDIA_OK;
+            case FAIR: return MEDIA_WARN;
+            case POOR: return MEDIA_ERROR;
+            default: return MEDIA_INK_2;
+        }
+    }
+
+    /** The compact line's mark: a dot while the stream is fine, a triangle or a cross when not, so shape says it too. */
+    static String healthGlyph(Health health) {
+        switch (health) {
+            case FAIR: return "▲";
+            case POOR: return "✕";
+            default: return "●";
         }
     }
 
@@ -149,9 +166,9 @@ public final class PerformanceOverlay {
             values.add(context.getString(R.string.overlay_compact_loss, measurement(locale, frameLossPercent, "%.1f")));
         }
         if (values.isEmpty()) return "";
-        SpannableString text = new SpannableString("● " + android.text.TextUtils.join(" · ", values));
-        text.setSpan(new HealthSpan(health(healthFps, receivedFps, networkMs, frameLossPercent, decodeMs)),
-                0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        Health health = health(healthFps, receivedFps, networkMs, frameLossPercent, decodeMs);
+        SpannableString text = new SpannableString(healthGlyph(health) + " " + android.text.TextUtils.join(" · ", values));
+        text.setSpan(new HealthSpan(health), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         return text;
     }
 
@@ -200,7 +217,7 @@ public final class PerformanceOverlay {
         SpannableStringBuilder text = new SpannableStringBuilder(base);
         int start = text.length();
         for (String note : notes) text.append('\n').append(note);
-        text.setSpan(new ForegroundColorSpan(0xffc1c4d2), start, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        text.setSpan(new ForegroundColorSpan(MEDIA_INK_2), start, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         return text;
     }
 
@@ -210,7 +227,7 @@ public final class PerformanceOverlay {
         return context.getString(R.string.link_notice_lowered, status.currentMbps(locale));
     }
 
-    /** The overlay with the host's lowered-bitrate notice as a last line in amber; the overlay itself when there is none. */
+    /** The overlay with the host's lowered-bitrate notice as a last line in the warn colour; the overlay itself when there is none. */
     public static CharSequence withLinkNotice(Context context, CharSequence base, LinkNoticeStatus status) {
         if (status == null) return base;
         SpannableStringBuilder text = new SpannableStringBuilder(base);
@@ -282,7 +299,7 @@ public final class PerformanceOverlay {
         int start = text.length();
         text.append(title);
         text.setSpan(new StyleSpan(Typeface.BOLD), start, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        text.setSpan(new ForegroundColorSpan(0xffa5d8ff), start, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        text.setSpan(new ForegroundColorSpan(MEDIA_INFO), start, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         text.append('\n').append(body);
     }
 }

@@ -343,6 +343,11 @@ public class AppViewLifecycleTest {
             TextView chip = tile.findViewById(R.id.grid_status);
             assertEquals(View.VISIBLE, chip.getVisibility());
             assertEquals(screen.getString(R.string.app_running), chip.getText().toString());
+            // Live, not an action: the green live dot on the art scrim, never the amber fill.
+            assertEquals(androidx.core.content.ContextCompat.getColor(screen, R.color.card_chip_text), chip.getCurrentTextColor());
+            assertEquals(androidx.core.content.ContextCompat.getColor(screen, R.color.card_chip_scrim),
+                    androidx.core.view.ViewCompat.getBackgroundTintList(chip).getDefaultColor());
+            assertNotNull(chip.getCompoundDrawablesRelative()[0]);
             assertEquals("Racing Game, " + screen.getString(R.string.app_running), tile.getContentDescription().toString());
             View other = grid.getAdapter().getView(position(grid, "Desktop"), null, grid);
             assertEquals(View.GONE, ((TextView) other.findViewById(R.id.grid_status)).getVisibility());

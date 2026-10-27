@@ -249,15 +249,23 @@ public class AppGridAdapter extends GenericGridAdapter<AppView.AppObject> {
         parentView.setContentDescription(description);
     }
 
-    /** The Running / Hidden chip of a game: shown only when one applies, amber for a running game, neutral for a hidden one. */
+    /**
+     * The Running / Hidden chip of a game: shown only when one applies. A running game is live, so its chip is the
+     * home screen's: white on the art scrim with the green live dot (amber stays for actions and selection). A hidden
+     * one is neutral.
+     */
     public static void bindStatusChip(TextView status, AppView.AppObject obj) {
         status.setVisibility(obj.isRunning || obj.isHidden ? View.VISIBLE : View.GONE);
         if (obj.isRunning || obj.isHidden) {
+            Context context = status.getContext();
             status.setText(obj.isRunning ? (obj.isHidden ? R.string.app_running_hidden : R.string.app_running) : R.string.app_hidden);
-            ViewCompat.setBackgroundTintList(status, ColorStateList.valueOf(MaterialColors.getColor(status, obj.isRunning ?
-                    com.google.android.material.R.attr.colorPrimaryContainer : com.google.android.material.R.attr.colorSurfaceContainerHigh)));
-            status.setTextColor(MaterialColors.getColor(status, obj.isRunning ?
-                    com.google.android.material.R.attr.colorOnPrimaryContainer : com.google.android.material.R.attr.colorOnSurface));
+            ViewCompat.setBackgroundTintList(status, ColorStateList.valueOf(obj.isRunning ?
+                    androidx.core.content.ContextCompat.getColor(context, R.color.card_chip_scrim) :
+                    MaterialColors.getColor(status, com.google.android.material.R.attr.colorSurfaceContainerHigh)));
+            status.setTextColor(obj.isRunning ? androidx.core.content.ContextCompat.getColor(context, R.color.card_chip_text) :
+                    MaterialColors.getColor(status, com.google.android.material.R.attr.colorOnSurface));
+            status.setCompoundDrawablePadding(context.getResources().getDimensionPixelSize(R.dimen.space_xs));
+            status.setCompoundDrawablesRelativeWithIntrinsicBounds(obj.isRunning ? R.drawable.ic_live_dot : 0, 0, 0, 0);
         }
     }
 

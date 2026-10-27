@@ -18,6 +18,7 @@
                 android:textAppearance="@style/TextAppearance.Nightjar.Title" android:textColor="?attr/colorOnSurface"
                 android:maxLines="2" android:ellipsize="end" android:importantForAccessibility="no" />
             <TextView android:id="@+id/grid_status" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:drawablePadding="@dimen/space_s" android:gravity="center_vertical|start"
                 android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant"
                 android:maxLines="2" android:ellipsize="end" android:importantForAccessibility="no" />
             <TextView android:id="@+id/grid_update" android:layout_width="match_parent" android:layout_height="wrap_content"

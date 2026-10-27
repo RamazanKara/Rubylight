@@ -415,13 +415,37 @@ fn media_port() -> (u16, UdpSocket) {
             index < MEDIA_PORTS,
             "fixture WebRTC media port range exhausted"
         );
-        let port = 44000 + ((start + index) % MEDIA_PORTS) * 2;
+        let Some(port) = media_pair(start, index) else {
+            continue;
+        };
         if let Ok(claim) = UdpSocket::bind(address(port + 1))
             && UdpSocket::bind(address(port)).is_ok()
         {
             return (port, claim);
         }
     }
+}
+/// The `index`th media port pair after `start`, unless it touches a
+/// [`reserved`] port.
+fn media_pair(start: u16, index: u16) -> Option<u16> {
+    let port = 44000 + ((start + index) % MEDIA_PORTS) * 2;
+    (!reserved(port) && !reserved(port + 1)).then_some(port)
+}
+
+/// A process starting at the host's ports skips them (14 pairs) and the
+/// harness's (14 more) instead of failing every test that asks for a port.
+#[test]
+fn media_pairs_skip_the_reserved_ports() {
+    let pairs: Vec<_> = (0..MEDIA_PORTS)
+        .filter_map(|index| media_pair((47984 - 44000) / 2, index))
+        .collect();
+    assert_eq!(pairs[0], 48012);
+    assert_eq!(pairs.len(), usize::from(MEDIA_PORTS) - 28);
+    assert!(
+        pairs
+            .iter()
+            .all(|&port| (44000..50000).contains(&port) && !reserved(port) && !reserved(port + 1))
+    );
 }
 
 /// A host with the Moonlight workers, the WebRTC server and its media transport.

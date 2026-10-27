@@ -413,8 +413,12 @@ fn setup_state(what: &str, session: &Session, client: &Client) -> String {
     )
 }
 
+/// The host's default ports and the release harness's, which no fixture takes.
+fn reserved(port: u16) -> bool {
+    (47984..=48010).contains(&port) || (48518..=48544).contains(&port)
+}
 fn address(port: u16) -> SocketAddr {
-    assert!(!(47984..=48010).contains(&port) && !(48518..=48544).contains(&port));
+    assert!(!reserved(port));
     ([127, 0, 0, 1], port).into()
 }
 const CLIENT_PORTS: u16 = 64000 - 52000;

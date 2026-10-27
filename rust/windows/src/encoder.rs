@@ -359,6 +359,26 @@ impl Encoder {
         }
     }
 }
+// The couch menu's hook, apart from the rest so the encoder's other features
+// can change beside it.
+impl Encoder {
+    /// Draw the couch menu's panel into the next pictures, or stop with
+    /// `None` (docs/couch-menu-design.md 6.1). Only GPU frames get it: a CPU
+    /// [`Encoder::encode`] fails while it is set.
+    pub fn set_overlay(&mut self, overlay: Option<crate::overlay::Overlay>) {
+        match self {
+            Self::Amf(e) => e.overlay = overlay,
+            Self::Pyrowave(e) => e.overlay = overlay,
+        }
+    }
+    /// Whether a panel is set.
+    pub fn has_overlay(&self) -> bool {
+        match self {
+            Self::Amf(e) => e.overlay.is_some(),
+            Self::Pyrowave(e) => e.overlay.is_some(),
+        }
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

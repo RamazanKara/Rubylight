@@ -447,6 +447,8 @@ pub struct Encoder {
     /// The next picture repeats the last one encoded.
     pub(crate) repeat: bool,
     pub(crate) luminance: [f32; 2],
+    /// The couch menu's panel, drawn by the conversion while set.
+    pub(crate) overlay: Option<crate::overlay::Overlay>,
     bitstream: Vec<u8>,
     packets: Vec<p::pyrowave_packet>,
     row_order_notice: Notice,
@@ -512,6 +514,7 @@ impl Encoder {
             interval: interval(config),
             repeat: false,
             luminance: [100., 1.],
+            overlay: None,
             bitstream: vec![],
             packets: vec![],
             row_order_notice: Notice::default(),
@@ -609,6 +612,10 @@ impl Encoder {
         self.interval = interval(&self.config);
     }
     pub fn encode(&mut self, image: &Image, idr: bool, kbps: u32) -> Result<Vec<Encoded>> {
+        anyhow::ensure!(
+            self.overlay.is_none(),
+            "couch menu: needs wgc_direct_encoder_input"
+        );
         self.encode_gpu(&GpuImage::upload(&self.d3d, image)?, idr, kbps)
     }
     pub fn encode_gpu(&mut self, image: &GpuImage, _idr: bool, kbps: u32) -> Result<Vec<Encoded>> {
@@ -709,11 +716,12 @@ impl Encoder {
                 .as_mut()
                 .filter(|_| crate::compute::shareable(&image.texture));
             let converted = if let Some(compute) = compute {
+                compute.converter.set_overlay(self.overlay.as_ref());
                 compute.convert(image, &self.config, self.luminance, after, i.counter)
             } else {
-                self.converter
-                    .as_mut()
-                    .unwrap()
+                let converter = self.converter.as_mut().unwrap();
+                converter.set_overlay(self.overlay.as_ref());
+                converter
                     .convert(image, self.luminance)
                     .and_then(|()| Ok(i.context.Signal(&i.fence, i.counter)?))
                     .inspect(|()| {

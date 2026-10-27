@@ -255,6 +255,8 @@ pub struct Encoder {
     references: butterpollo_core::ltr::References,
     ownership: Box<gpu::Ownership>,
     pub(crate) luminance: [f32; 2],
+    /// The couch menu's panel, drawn by the conversion while set.
+    pub(crate) overlay: Option<crate::overlay::Overlay>,
     /// Successfully applied metadata and any pending retry/keyframe.
     hdr_metadata: metadata::State,
     /// Conversion on a D3D12 compute queue, with AMF on D3D12.
@@ -573,6 +575,7 @@ impl Encoder {
                 references: Default::default(),
                 ownership: gpu::Ownership::new(),
                 luminance: [100., 1.],
+                overlay: None,
                 hdr_metadata: metadata::State::default(),
                 compute,
                 last_query: None,
@@ -1868,6 +1871,10 @@ impl Encoder {
     /// A CPU image, such as the codec probe's, goes through the same GPU
     /// conversion as a capture.
     pub fn encode(&mut self, image: &Image, idr: bool, bitrate: u32) -> Result<Vec<Encoded>> {
+        anyhow::ensure!(
+            self.overlay.is_none(),
+            "couch menu: needs wgc_direct_encoder_input"
+        );
         let image = GpuImage::upload(&self._device, image).context("AMF image upload")?;
         self.encode_gpu(&image, idr, bitrate)
     }
@@ -2046,6 +2053,7 @@ impl Encoder {
                 self.luminance,
                 image.cursor.as_ref(),
             );
+            input.converter.set_overlay(self.overlay.as_ref());
             let converted = timed("compute conversion", || {
                 input.converter.convert(
                     &texture,
@@ -2069,11 +2077,9 @@ impl Encoder {
             {
                 self.gpu_convert = Some(gpu::Converter::new(&self._device, &self.config, source)?);
             }
-            self.gpu_convert
-                .as_mut()
-                .unwrap()
-                .color
-                .set_luminance(self.luminance);
+            let color = &mut self.gpu_convert.as_mut().unwrap().color;
+            color.set_luminance(self.luminance);
+            color.set_overlay(self.overlay.as_ref());
             let (surface, texture) = timed("graphics conversion", || {
                 self.gpu_convert
                     .as_mut()

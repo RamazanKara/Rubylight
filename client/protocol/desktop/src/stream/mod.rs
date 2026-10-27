@@ -45,6 +45,7 @@ use nightjar_core::http::{App, AppRole, ClientIdentity, Feature, HostClient, Lau
 use nightjar_core::input::packets::{modifier, mouse_button};
 use nightjar_core::sdp::*;
 use nightjar_core::session::{self, HostInfo, Interrupt, Location, NetworkHint, RoamingConfig, Session, SessionConfig, Stage};
+use nightjar_policy::stats::Stats;
 use rubylight_protocol::control::{HostTimingRequest, LinkNotice, LinkNoticeRequest, LinkState, Reconfigure, CLOCK_SYNC_MESSAGE_TYPE, HOST_TIMING_MESSAGE_TYPE, LINK_NOTICE_MESSAGE_TYPE, RECONFIGURE_MESSAGE_TYPE};
 use rubylight_protocol::pipeline_rates::{PipelineRatesReport, PipelineRatesRequest, PIPELINE_RATES_MESSAGE_TYPE, UNKNOWN};
 use rubylight_protocol::present_clock::ClockOffset;
@@ -94,7 +95,7 @@ pub struct LaunchPlan {
     pub network: crate::network::Network,
     pub pace: Option<crate::config::PaceCalibration>,
     pub host_link_mbps: u32,
-    pub recovery: Option<recovery::Recovery>,
+    pub recovery: Option<recovery::Backoff>,
 }
 
 /// The stream's negotiated shape.
@@ -333,7 +334,7 @@ impl Connecting {
     }
 
     pub fn start(mut plan: LaunchPlan, waker: Waker) -> Self {
-        if let Some(recovery) = &mut plan.recovery { recovery.begin(Instant::now()); }
+        if let Some(recovery) = &mut plan.recovery { recovery.begin(recovery::now_ms()); }
         // Host-time pacing schedules every picture; the other modes keep only the newest.
         let limit = if plan.pacing == PacingMode::HostTimes { 8 } else { 2 };
         let shared = Shared::new(waker.clone(), limit);
@@ -369,7 +370,7 @@ impl Connecting {
 
     /// Ok(Some) once streaming, Err with a message on failure.
     pub fn poll(&mut self) -> Result<Option<(Session, Facts)>, String> {
-        let expired = self.plan.recovery.as_ref().is_some_and(|r| r.remaining(Instant::now()).is_zero());
+        let expired = self.plan.recovery.as_ref().is_some_and(|r| r.remaining(recovery::now_ms()) == 0);
         if expired { self.cancel(); }
         let notices = std::mem::take(&mut *lock(&self.shared.notices));
         let mut keep = Vec::new();
@@ -430,9 +431,9 @@ impl From<&str> for ConnectError {
 fn connect_with_recovery(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) -> Result<(Session, Facts), ConnectError> {
     loop {
         if let Some(recovery) = &mut plan.recovery {
-            let delay = recovery.next_delay(Instant::now()).ok_or("Automatic recovery exhausted its retry budget.")?;
-            shared.notify(Notice::Reconnecting(recovery.attempts));
-            let until = Instant::now() + delay;
+            let delay = recovery.next_delay(recovery::now_ms()).ok_or("Automatic recovery exhausted its retry budget.")?;
+            shared.notify(Notice::Reconnecting(recovery.attempts() as usize));
+            let until = Instant::now() + Duration::from_millis(delay);
             while Instant::now() < until {
                 if interrupt.is_interrupted() { return Err("Cancelled.".into()); }
                 std::thread::sleep(Duration::from_millis(20).min(until.saturating_duration_since(Instant::now())));
@@ -1178,6 +1179,9 @@ pub struct Streaming {
     pub quality_mode: QualityMode,
     quality_policy: Option<quality::Quality>,
     quality_ceiling: Reconfigure,
+    /// The decoder sampling window: its start on the session clock and the requested mode it counts.
+    decode_window_us: u64,
+    decode_generation: i64,
     pub requested_mode: Reconfigure,
     pending_mode: Option<(Reconfigure, Instant)>,
     display_change: Option<Instant>,
@@ -1266,9 +1270,20 @@ impl Streaming {
         } else { None };
         let bitrate_kbps = facts.bitrate_kbps.max(1) as u32;
         let mode = Reconfigure { width: facts.width as u16, height: facts.height as u16, fps_millihz: facts.fps as u32 * 1000 };
-        let quality_mode = if facts.reconfigure { settings.adaptive_quality } else { QualityMode::Off };
-        let quality_policy = (quality_mode != QualityMode::Off).then(|| quality::Quality::new(
-            quality_mode, mode, settings.quality_min_short_edge, settings.quality_min_fps, 0));
+        let mut quality_mode = if facts.reconfigure { settings.adaptive_quality } else { QualityMode::Off };
+        let mut quality_failed = false;
+        let quality_policy = match quality_mode {
+            QualityMode::Off => None,
+            _ => match quality::Quality::new(quality_mode, mode, settings.quality_min_short_edge, settings.quality_min_fps, 0) {
+                Ok(policy) => Some(policy),
+                Err(error) => {
+                    eprintln!("nightjar: automatic quality off for {}x{}@{}: {error}", facts.width, facts.height, facts.fps);
+                    quality_mode = QualityMode::Off;
+                    quality_failed = true;
+                    None
+                }
+            },
+        };
         let backlog = connecting.shared.pacer_backlog.clone();
         // The stream controls read the attachments each time they are drawn.
         let usb = if settings.usb_forwarding { lock(&connecting.shared.host_client).clone() } else { None }
@@ -1318,6 +1333,8 @@ impl Streaming {
             quality_mode,
             quality_policy,
             quality_ceiling: mode,
+            decode_window_us: session::now_us(),
+            decode_generation: 0,
             requested_mode: mode,
             pending_mode: None,
             display_change: None,
@@ -1353,6 +1370,9 @@ impl Streaming {
             timings: VecDeque::new(),
         };
         streaming.report_keyboard_layout();
+        if quality_failed {
+            streaming.show_toast(tr("Automatic quality stopped: the stream reported no size or frame rate."));
+        }
         streaming
     }
 
@@ -1404,7 +1424,7 @@ impl Streaming {
         plan.microphone_muted = self.microphone_muted;
         if automatic {
             let recovery = plan.recovery.get_or_insert_with(Default::default);
-            recovery.reset_after(self.started.elapsed());
+            recovery.reset_after(self.started.elapsed().as_millis() as u64);
         } else {
             plan.recovery = None;
         }
@@ -1424,8 +1444,16 @@ impl Streaming {
         self.quality_policy = None;
         if self.quality_mode != QualityMode::Off {
             if !self.request_mode(self.quality_ceiling) { self.quality_mode = QualityMode::Off; return; }
-            self.quality_policy = Some(quality::Quality::new(mode, self.quality_ceiling,
-                self.settings.quality_min_short_edge, self.settings.quality_min_fps, self.started.elapsed().as_millis() as u64));
+            match quality::Quality::new(mode, self.quality_ceiling, self.settings.quality_min_short_edge,
+                self.settings.quality_min_fps, self.started.elapsed().as_millis() as u64) {
+                Ok(policy) => self.quality_policy = Some(policy),
+                Err(error) => {
+                    eprintln!("nightjar: automatic quality: {error}");
+                    self.quality_mode = QualityMode::Off;
+                    self.show_toast(tr("Automatic quality stopped: the stream reported no size or frame rate."));
+                    return;
+                }
+            }
             if !self.adaptive_bitrate && !self.bitrate_busy { self.enable_adaptive_bitrate(true); }
         }
     }
@@ -1454,7 +1482,11 @@ impl Streaming {
         self.facts.fps = request.fps_millihz.div_ceil(1000) as i32;
         self.shared.fps_millihz.store(request.fps_millihz, Ordering::Relaxed);
         *lock(&self.shared.decode_window) = pipeline::DecodeWindow::default();
-        if let Some(rate) = &mut self.bitrate_policy { rate.set_fps(request.fps_millihz); }
+        self.decode_window_us = session::now_us();
+        self.decode_generation += 1;
+        if let Some(rate) = &mut self.bitrate_policy {
+            rate.set_mode(u32::from(request.width), u32::from(request.height), request.fps_millihz.div_ceil(1000));
+        }
         true
     }
 
@@ -1472,9 +1504,18 @@ impl Streaming {
         self.quality_ceiling = request;
         if self.quality_mode == QualityMode::Off { self.request_mode(request); }
         else if let Some(policy) = &mut self.quality_policy {
-            let request = policy.rebase(self.quality_mode, request, self.settings.quality_min_short_edge,
-                self.settings.quality_min_fps, self.started.elapsed().as_millis() as u64);
-            if !self.request_mode(request) { self.quality_policy = None; self.quality_mode = QualityMode::Off; }
+            let started = match policy.rebase(request, self.started.elapsed().as_millis() as u64) {
+                Ok(Some(request)) => self.request_mode(request),
+                other => {
+                    eprintln!("nightjar: automatic quality: no request for {request:?}: {other:?}");
+                    self.show_toast(tr("This stream cannot use the requested size or frame rate."));
+                    false
+                }
+            };
+            if !started {
+                self.quality_policy = None;
+                self.quality_mode = QualityMode::Off;
+            }
         }
     }
 
@@ -1667,7 +1708,9 @@ impl Streaming {
                         Ok((ceiling, current)) => {
                             self.facts.bitrate_kbps = current as i32;
                             self.bitrate_kbps = current;
-                            self.bitrate_policy = Some(bitrate::Bitrate::new(ceiling, current, self.facts.fps, self.started.elapsed().as_millis() as u64));
+                            self.bitrate_policy = Some(bitrate::Bitrate::new(self.facts.format, ceiling, current, self.facts.fps.max(1) as u32,
+                                (u32::from(self.requested_mode.width), u32::from(self.requested_mode.height)),
+                                self.started.elapsed().as_millis() as u64));
                         }
                         Err(error) => {
                             self.adaptive_bitrate = false;
@@ -2569,40 +2612,54 @@ impl Streaming {
         }
         self.overlay = Overlay { lines };
         let timing = std::mem::take(&mut *lock(&self.shared.decode_window));
-        let recent = decoded > 0 && self.last_arrival.is_some_and(|(_, at)| session::now_us().saturating_sub(at) < 500_000);
-        let poor = stats.connection_status == Some(nightjar_core::control::ConnectionStatus::Poor);
+        let now_us = session::now_us();
+        // The window since the last tick, or since the last requested mode, which reset it.
+        let decode_timing = quality::decode_timing(self.decode_generation, self.decode_window_us, now_us, self.facts.fps.max(0) as u32, &timing);
+        self.decode_window_us = now_us;
+        let tick = Stats {
+            now_ms: self.started.elapsed().as_millis() as u64,
+            recent_video: decoded > 0 && self.last_arrival.is_some_and(|(_, at)| now_us.saturating_sub(at) < 500_000),
+            poor_connection: stats.connection_status == Some(nightjar_core::control::ConnectionStatus::Poor),
+            fps: self.facts.fps.max(0) as u32,
+            loss_percent: (completed + drops > 0).then_some(loss as f32),
+            decode_ms: (decoded > 0).then_some(decode_ms as f32),
+            jitter_ms: (self.jitter_ms >= 0.0).then_some(self.jitter_ms as f32),
+            queue_ms: (timing.samples > 0).then(|| (timing.queue_us as f64 / f64::from(timing.samples) / 1000.0) as f32),
+            received_fps: Some((received as f64 / secs) as f32),
+            released_fps: Some((decoded as f64 / secs) as f32),
+            shown_fps: Some((f64::from(w.shown) / secs) as f32),
+            host_includes_send: w.timing_n > 0,
+            ..Default::default()
+        };
         let quality_target = if let Some(policy) = &mut self.quality_policy {
             if self.menu_visible || !self.focused || self.pending_mode.is_some() { policy.suspend(); None }
-            else { policy.sample(quality::Sample {
-                now: self.started.elapsed().as_millis() as u64, recent, poor,
-                loss: if completed + drops > 0 { loss } else { -1.0 },
-                decode_ms: if decoded > 0 { decode_ms } else { -1.0 }, jitter_ms: self.jitter_ms,
-                queue_ms: if timing.samples > 0 { timing.queue_us as f64 / f64::from(timing.samples) / 1000.0 } else { -1.0 },
-                bitrate_has_room: self.bitrate_busy || self.bitrate_policy.as_ref().is_some_and(|p| p.has_room()),
-                samples: timing.samples, late: timing.late, span_us: timing.last_us.saturating_sub(timing.first_us),
-            }) }
+            else {
+                let has_room = self.bitrate_busy || self.bitrate_policy.as_ref().is_some_and(|p| p.has_room());
+                policy.sample(&tick, has_room, decode_timing.as_ref())
+            }
         } else { None };
         if let Some(target) = quality_target {
-            if self.request_mode(target) {
-                self.quality_policy.as_mut().expect("active quality policy").applied(target, self.started.elapsed().as_millis() as u64);
-            } else { self.quality_policy = None; self.quality_mode = QualityMode::Off; }
+            let applied = if self.request_mode(target) {
+                self.quality_policy.as_mut().expect("active quality policy").applied(target, tick.now_ms)
+                    .map_err(|error| eprintln!("nightjar: automatic quality: {target:?} not applied: {error}")).is_ok()
+            } else { false };
+            if !applied { self.quality_policy = None; self.quality_mode = QualityMode::Off; }
         }
         if !self.bitrate_busy {
             if let Some(policy) = &mut self.bitrate_policy {
                 if self.menu_visible || !self.focused {
                     policy.suspend();
                 } else {
-                    let recent = decoded > 0 && self.last_arrival.is_some_and(|(_, at)| session::now_us().saturating_sub(at) < 500_000);
-                    let poor = stats.connection_status == Some(nightjar_core::control::ConnectionStatus::Poor);
-                    let loss = if completed + drops > 0 { loss } else { -1.0 };
-                    let decode_ms = if decoded > 0 { decode_ms } else { -1.0 };
-                    let now = self.started.elapsed().as_millis() as u64;
                     let target = if self.facts.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
-                        let record_loss = if timing.record_samples > 0 { timing.record_loss_milli as f64 / f64::from(timing.record_samples) / 1000.0 } else { -1.0 };
-                        policy.pyrowave_sample(now, recent, poor, [loss.max(record_loss),
-                            if timing.samples > 0 { timing.queue_us as f64 / f64::from(timing.samples) / 1000.0 } else { -1.0 },
-                            decode_ms, self.jitter_ms])
-                    } else { policy.sample(now, recent, poor, loss, decode_ms, self.jitter_ms) };
+                        // PyroWave also loses frames that are recovered without their records.
+                        let record_loss = (timing.record_samples > 0)
+                            .then(|| (timing.record_loss_milli as f64 / f64::from(timing.record_samples) / 1000.0) as f32);
+                        let loss_percent = match (tick.loss_percent, record_loss) {
+                            (Some(a), Some(b)) => Some(a.max(b)),
+                            (a, b) => a.or(b),
+                        };
+                        policy.sample(&Stats { loss_percent, ..tick })
+                    } else { policy.sample(&tick) };
                     if let Some(target) = target {
                         self.bitrate_kbps = target;
                         self.set_bitrate();

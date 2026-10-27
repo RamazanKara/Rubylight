@@ -657,6 +657,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Enable Send system keys to use shortcuts with the Windows key.", "Aktiviere „Systemtasten senden“, um Kürzel mit der Windows-Taste zu verwenden."),
     ("Shortcut was not sent: {}", "Kürzel wurde nicht gesendet: {}"),
     ("The PC did not confirm the requested size. Automatic quality stopped.", "Der PC hat die gewünschte Größe nicht bestätigt. Die automatische Qualität wurde beendet."),
+    ("Automatic quality stopped: the stream reported no size or frame rate.", "Die automatische Qualität wurde beendet: Der Stream hat keine Größe oder Bildrate gemeldet."),
     ("Cannot show {} pictures", "Bilder im Format {} können nicht angezeigt werden"),
     ("Cannot show {} pictures: {}", "Bilder im Format {0} können nicht angezeigt werden: {1}"),
     ("GPU upscaling is unavailable; using bilinear scaling.", "GPU-Hochskalierung ist nicht verfügbar; bilineare Skalierung wird verwendet."),

@@ -82,14 +82,14 @@ public class TvScreensPreviewTest {
                 Activity screen = controller.get();
                 leaveTouchMode(screen);
                 settle(screen);
-                System.out.println("PREVIEW " + name + " " + shot + " focus=" + screen.getWindow().getDecorView().findFocus());
+                System.out.println("PREVIEW " + name + " " + shot + " focus=" + describe(screen.getWindow().getDecorView().findFocus()));
                 capture(screen, new File(directory, "tv-" + shot + ".png"));
-                for (int i = 1; i <= 2; i++) {
+                for (int i = 1; i <= 6; i++) {
                     key(screen, KeyEvent.KEYCODE_DPAD_DOWN);
                     settle(screen);
-                    System.out.println("PREVIEW " + name + " " + shot + " down" + i + " focus=" + screen.getWindow().getDecorView().findFocus());
+                    System.out.println("PREVIEW " + name + " " + shot + " down" + i + " focus=" + describe(screen.getWindow().getDecorView().findFocus()));
+                    if (i == 2) capture(screen, new File(directory, "tv-" + shot + "-down2.png"));
                 }
-                capture(screen, new File(directory, "tv-" + shot + "-down2.png"));
             } catch (Throwable t) {
                 System.out.println("PREVIEW " + name + " " + shot + " FAILED " + t);
             }
@@ -132,14 +132,34 @@ public class TvScreensPreviewTest {
                 + " listFocus=" + list.hasFocus());
     }
 
+    private static String describe(View view) {
+        if (view == null) return "none";
+        String id = view.getId() == View.NO_ID || view.getId() < 0x01000000 ? "" : view.getResources().getResourceEntryName(view.getId());
+        String text = view instanceof android.widget.TextView ? " '" + ((android.widget.TextView) view).getText() + "'" : "";
+        android.graphics.Rect r = new android.graphics.Rect();
+        view.getGlobalVisibleRect(r);
+        return view.getClass().getSimpleName() + " " + id + text + " " + r.toShortString();
+    }
+
     public static void leaveTouchMode(Activity screen) {
         Object root = ReflectionHelpers.callInstanceMethod(screen.getWindow().getDecorView(), "getViewRootImpl");
         ReflectionHelpers.callInstanceMethod(root, "ensureTouchMode",
                 ReflectionHelpers.ClassParameter.from(boolean.class, false));
     }
 
+    /**
+     * Presses and releases a key. A direction no view used moves focus the way the window does (ViewRootImpl's focus
+     * navigation, which Robolectric's dispatch skips).
+     */
     public static void key(Activity target, int keyCode) {
-        target.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, keyCode));
+        boolean handled = target.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, keyCode));
+        int direction = keyCode == KeyEvent.KEYCODE_DPAD_DOWN ? View.FOCUS_DOWN : keyCode == KeyEvent.KEYCODE_DPAD_UP ? View.FOCUS_UP
+                : keyCode == KeyEvent.KEYCODE_DPAD_LEFT ? View.FOCUS_LEFT : keyCode == KeyEvent.KEYCODE_DPAD_RIGHT ? View.FOCUS_RIGHT : 0;
+        View focused = target.getWindow().getDecorView().findFocus();
+        if (!handled && direction != 0 && focused != null) {
+            View next = focused.focusSearch(direction);
+            if (next != null && next != focused) next.requestFocus(direction);
+        }
         target.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, keyCode));
     }
 

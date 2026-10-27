@@ -16,6 +16,7 @@ pub mod native_api;
 mod opus;
 mod platform;
 mod renderers;
+mod usb;
 
 use std::time::Duration;
 
@@ -829,5 +830,100 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_sendController
     match extras::controller_audio_message(kind, &bytes) {
         Some(message) => jbool(engine::send(message)),
         None => JNI_FALSE,
+    }
+}
+
+/// Attaches the device Java's `UsbDeviceConnection` has open (`fd`, its node `path`) to the
+/// stream's host: the request id, or a `USB_*` code. The device is Rust's own from here; Java
+/// closes its connection.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_usbAttach(
+    mut env: JNIEnv,
+    _: JClass,
+    fd: jint,
+    path: JString,
+    name: JString,
+    address: JString,
+    http_port: jint,
+    https_port: jint,
+    server_certificate_pem: JString,
+    unique_id: JString,
+    client_certificate_der: JByteArray,
+    client_private_key_pkcs8: JByteArray,
+) -> jint {
+    let bytes = |array: &JByteArray| {
+        (!array.is_null())
+            .then(|| env.convert_byte_array(array).ok())
+            .flatten()
+    };
+    let (certificate, key) = (
+        bytes(&client_certificate_der),
+        bytes(&client_private_key_pkcs8),
+    );
+    let endpoint = (|| {
+        Some(native_api::Endpoint {
+            address: string(&mut env, &address)?,
+            http_port: u16::try_from(http_port).ok()?,
+            https_port: u16::try_from(https_port).unwrap_or(0),
+            server_certificate_pem: string(&mut env, &server_certificate_pem)?,
+            unique_id: string(&mut env, &unique_id)?,
+            client_certificate_der: certificate?,
+            client_private_key_pkcs8: key?,
+        })
+    })();
+    let (Some(endpoint), Some(path), Some(name)) =
+        (endpoint, string(&mut env, &path), string(&mut env, &name))
+    else {
+        platform::error("USB: usbAttach without its host or device");
+        return usb::INVALID;
+    };
+    let device = match usb::open(fd, &path) {
+        Ok(device) => device,
+        Err(e) => {
+            platform::error(&format!("USB: {name} at {path} did not open: {e}"));
+            return usb::DEVICE_FAILED;
+        }
+    };
+    let make = move || {
+        let host = native_api::client(&endpoint).map_err(|e| e.to_string())?;
+        let send = |message| {
+            engine::with_session(Err(nightjar_core::control::SendError::Stopped), |s| {
+                s.send(message)
+            })
+        };
+        let changed = || {
+            if let Some(bridge) = bridge::get() {
+                bridge.post(bridge.m.usb_changed, &[]);
+            }
+        };
+        Ok(nightjar_core::usb::Forwarder::for_host(
+            std::sync::Arc::new(host),
+            send,
+            changed,
+        ))
+    };
+    usb::attach(make, device, &name)
+}
+
+/// Detaches an attachment `usbAttach` made; false when it is not attached.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_usbDetach(
+    _: JNIEnv,
+    _: JClass,
+    request_id: jint,
+) -> jboolean {
+    jbool(u32::try_from(request_id).is_ok_and(usb::detach))
+}
+
+/// This stream's attachments as JSON, oldest first: `[]` without any.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_usbList(
+    env: JNIEnv,
+    _: JClass,
+) -> jni::sys::jstring {
+    match env.new_string(usb::list_json()) {
+        Ok(list) => list.into_raw(),
+        Err(_) => std::ptr::null_mut(),
     }
 }

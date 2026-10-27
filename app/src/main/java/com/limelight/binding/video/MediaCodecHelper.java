@@ -622,9 +622,18 @@ public class MediaCodecHelper {
 
         boolean setNewOption = false;
 
-        // Some TV firmware accepts these flags but displays HEVC as a slideshow (erratum 22).
-        // This is opt-in on any device, independent of decoder performance hints.
-        boolean disableLowLatency = disableHevcLowLatency && "video/hevc".equals(videoFormat.getString(MediaFormat.KEY_MIME));
+        // Some TV firmware accepts these flags but displays HEVC as a slideshow (erratum 22). The
+        // switch turns them off for HEVC on any device, independent of decoder performance hints.
+        // Amlogic HEVC decoders never get them, as Moonlight V+ (qiin2333/moonlight-vplus,
+        // GPL-3.0) does by default: they configure fine and then show about one frame a second
+        // (V+ issue 499, moonlight-android 1584), which no configure fallback can catch.
+        boolean hevc = "video/hevc".equals(videoFormat.getString(MediaFormat.KEY_MIME));
+        boolean amlogicHevc = hevc && isDecoderInList(amlogicDecoderPrefixes, decoderInfo.getName());
+        boolean disableLowLatency = hevc && (disableHevcLowLatency || amlogicHevc);
+        if (amlogicHevc && !disableHevcLowLatency && tryNumber == 0 && (lowLatency || vendorLowLatency)) {
+            LimeLog.warning("HEVC low-latency flags omitted on Amlogic decoder " + decoderInfo.getName() +
+                    ": they stall its display (erratum 22)");
+        }
         boolean useVendorOptions = vendorLowLatency && !disableLowLatency;
         if (lowLatency && !disableLowLatency && tryNumber < 1) {
             // Official Android 11+ low latency option (KEY_LOW_LATENCY). Many decoders honour it

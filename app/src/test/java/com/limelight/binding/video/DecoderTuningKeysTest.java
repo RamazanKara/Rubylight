@@ -288,10 +288,12 @@ public class DecoderTuningKeysTest {
         String[][] cases = {
                 {"c2.exynos.hevc.decoder", "vendor.rtc-ext-dec-low-latency.enable"},
                 {"OMX.hisi.video.decoder.hevc", "vendor.hisi-ext-low-latency-video-dec.video-scene-for-low-latency-req"},
-                {"c2.amlogic.hevc.decoder", "vendor.low-latency.enable"},
+                // Amlogic HEVC decoders get no low-latency flags (MediaCodecHevcLowLatencyTest).
+                {"c2.amlogic.avc.decoder", "vendor.low-latency.enable"},
         };
         for (String[] c : cases) {
-            MediaFormat format = tune(c[0], 0, false);
+            MediaFormat format = MediaFormat.createVideoFormat(c[0].contains(".avc.") ? "video/avc" : HEVC, 1920, 1080);
+            MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder(c[0]), 0, true, true, false, false);
             assertEquals(c[0], 1, format.getInteger(c[1]));
             assertAbsent(c[0], format, QTI_KEYS);
             assertAbsent(c[0], format, MTK_KEYS);

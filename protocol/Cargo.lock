@@ -1239,6 +1239,7 @@ dependencies = [
  "libloading",
  "mdns-sd",
  "nightjar-core",
+ "nightjar-policy",
  "pkg-config",
  "rubylight-protocol 0.1.0",
  "rusb",

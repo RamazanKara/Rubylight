@@ -1,47 +1,11 @@
-use std::time::{Duration, Instant};
+//! Which failures reconnect automatically. The retry budget is nightjar-policy's [`Backoff`] on the
+//! session clock: it outlives each stream, so a stream's own start cannot be its time base.
 
-use nightjar_core::session::Stage;
+use nightjar_core::session::{self, Stage};
+pub use nightjar_policy::recovery::{transient_termination, Backoff};
 
-pub const WINDOW: Duration = Duration::from_secs(60);
-const DELAYS: [u64; 5] = [1, 2, 4, 8, 12];
-
-#[derive(Clone, Default)]
-pub struct Recovery {
-    pub attempts: usize,
-    started: Option<Instant>,
-}
-
-impl Recovery {
-    pub fn begin(&mut self, now: Instant) {
-        self.started.get_or_insert(now);
-    }
-
-    pub fn reset_after(&mut self, connected: Duration) {
-        if connected >= Duration::from_secs(30) {
-            *self = Self::default();
-        }
-    }
-
-    pub fn remaining(&self, now: Instant) -> Duration {
-        self.started.map_or(WINDOW, |started| {
-            WINDOW.saturating_sub(now.duration_since(started))
-        })
-    }
-
-    pub fn next_delay(&mut self, now: Instant) -> Option<Duration> {
-        let delay = Duration::from_secs(*DELAYS.get(self.attempts)?);
-        self.started.get_or_insert(now);
-        if delay >= self.remaining(now) {
-            return None;
-        }
-        self.attempts += 1;
-        Some(delay)
-    }
-}
-
-pub fn transient_termination(code: i32) -> bool {
-    matches!(code, -102..=-100 | -1 | 32 | 54 | 57 | 60 | 64 | 100..=104 | 107 | 110..=113
-        | 10050..=10054 | 10057 | 10060 | 10061 | 10064 | 10065)
+pub fn now_ms() -> u64 {
+    session::now_us() / 1000
 }
 
 pub fn transient_start(stage: Stage, code: i32) -> bool {
@@ -67,22 +31,26 @@ pub fn transient_http(error: &nightjar_core::http::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nightjar_policy::recovery::{STABLE_MS, WINDOW_MS};
 
     #[test]
     fn retries_are_bounded_across_short_connections() {
-        let start = Instant::now();
-        let mut recovery = Recovery::default();
-        let mut now = start;
-        for (attempt, seconds) in DELAYS.into_iter().enumerate() {
-            assert_eq!(recovery.next_delay(now), Some(Duration::from_secs(seconds)));
-            assert_eq!(recovery.attempts, attempt + 1);
-            now += Duration::from_secs(seconds + 1);
-            recovery.reset_after(Duration::from_secs(1));
+        let mut recovery = Backoff::default();
+        let mut now = 5_000;
+        for (attempt, seconds) in [1, 2, 4, 8, 12].into_iter().enumerate() {
+            assert_eq!(recovery.next_delay(now), Some(seconds * 1000));
+            assert_eq!(recovery.attempts() as usize, attempt + 1);
+            now += (seconds + 1) * 1000;
+            recovery.reset_after(1000);
         }
         assert_eq!(recovery.next_delay(now), None);
-        recovery.reset_after(Duration::from_secs(30));
-        assert_eq!(recovery.next_delay(now), Some(Duration::from_secs(1)));
-        assert_eq!(recovery.next_delay(now + WINDOW), None);
+        recovery.reset_after(STABLE_MS);
+        assert_eq!(recovery.next_delay(now), Some(1000));
+        assert_eq!(recovery.next_delay(now + WINDOW_MS), None);
+        // The window starts at the drop, before the first attempt.
+        let mut dropped = Backoff::default();
+        dropped.begin(now);
+        assert_eq!(dropped.remaining(now + WINDOW_MS), 0);
     }
 
     #[test]

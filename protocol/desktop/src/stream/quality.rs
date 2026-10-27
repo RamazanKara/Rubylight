@@ -1,6 +1,9 @@
-//! Android's bounded resolution/frame-rate ladder, using fresh desktop decoder observations.
+//! Automatic quality: nightjar-policy's bounded resolution/frame-rate ladder (Android's), asked for
+//! in the desktop's millihertz requests.
 
 use crate::config::QualityMode;
+use nightjar_policy::quality::{AdaptiveQualityController, Bounds, DecodeTiming, Mode, QualityError, Target};
+use nightjar_policy::stats::Stats;
 use rubylight_protocol::control::Reconfigure;
 
 pub fn target(width: u32, height: u32, fps_millihz: u32) -> Option<Reconfigure> {
@@ -8,184 +11,202 @@ pub fn target(width: u32, height: u32, fps_millihz: u32) -> Option<Reconfigure> 
     Reconfigure::decode(&request.encode())
 }
 
-pub struct Sample {
-    pub now: u64,
-    pub recent: bool,
-    pub poor: bool,
-    pub loss: f64,
-    pub decode_ms: f64,
-    pub jitter_ms: f64,
-    pub queue_ms: f64,
-    pub bitrate_has_room: bool,
-    pub samples: u32,
-    pub late: u32,
-    pub span_us: u64,
+fn mode(mode: QualityMode) -> Mode {
+    match mode {
+        QualityMode::Off => Mode::Off,
+        QualityMode::Motion => Mode::Motion,
+        QualityMode::Detail => Mode::Detail,
+        QualityMode::Battery => Mode::Battery,
+    }
+}
+
+/// The ladder counts whole frames per second; a fractional ceiling such as 59.94 is its rung at 60.
+fn hz(fps_millihz: u32) -> u32 { fps_millihz.div_ceil(1000) }
+
+/// One decoder sampling window of the pipeline's [`DecodeWindow`](super::pipeline::DecodeWindow),
+/// on the session clock in microseconds. `generation` changes with every requested mode, so a window
+/// that spans a change never counts.
+pub fn decode_timing(generation: i64, start_us: u64, end_us: u64, fps: u32, window: &super::pipeline::DecodeWindow) -> Option<DecodeTiming> {
+    // The early-decode path counts frames without their times; no times, no tail evidence.
+    if window.first_us == 0 { return None; }
+    let ns = |us: u64| i64::try_from(us.saturating_mul(1000)).unwrap_or(i64::MAX);
+    Some(DecodeTiming {
+        generation,
+        window_start_ns: ns(start_us),
+        window_end_ns: ns(end_us),
+        first_sample_ns: ns(window.first_us),
+        last_sample_ns: ns(window.last_us),
+        fps: i32::try_from(fps).unwrap_or(i32::MAX),
+        samples: i32::try_from(window.samples).unwrap_or(i32::MAX),
+        late_frames: i32::try_from(window.late).unwrap_or(i32::MAX),
+    })
 }
 
 pub struct Quality {
-    levels: Vec<Reconfigure>,
-    level: usize,
-    battery_ceiling: usize,
-    last_change: u64,
-    healthy_since: Option<u64>,
-    last_sample: Option<u64>,
-    device_pressure: u32,
-    network_pressure: u32,
-    tail_pressure: u32,
+    policy: AdaptiveQualityController,
+    /// The exact request at the top of the ladder.
+    ceiling: Reconfigure,
 }
 
 impl Quality {
-    pub fn new(mode: QualityMode, ceiling: Reconfigure, min_edge: u32, min_fps: u32, now: u64) -> Self {
-        let (width, height) = (u32::from(ceiling.width), u32::from(ceiling.height));
-        let edge = width.min(height);
-        let floor = min_edge.max(256).min(edge);
-        let floor_fps = (min_fps.max(15) * 1000).min(ceiling.fps_millihz);
-        let mut sizes = vec![(width, height)];
-        let mut next = edge;
-        while next > floor {
-            next = floor.max(next * 4 / 5);
-            let size = ((width * next).div_ceil(edge * 2) * 2, (height * next).div_ceil(edge * 2) * 2);
-            if sizes.last() != Some(&size) { sizes.push(size); }
+    /// The floors below the protocol's 256 lines are raised to it.
+    pub fn new(quality: QualityMode, ceiling: Reconfigure, min_edge: u32, min_fps: u32, now: u64) -> Result<Self, QualityError> {
+        let bounds = Bounds { min_short_edge: min_edge.max(256), min_fps, align_width: 2, align_height: 2 };
+        let policy = AdaptiveQualityController::new(mode(quality), u32::from(ceiling.width), u32::from(ceiling.height),
+            hz(ceiling.fps_millihz), bounds, now)?;
+        Ok(Self { policy, ceiling })
+    }
+
+    fn request(&self, rung: Target) -> Option<Reconfigure> {
+        let fps_millihz = if rung.fps == hz(self.ceiling.fps_millihz) { self.ceiling.fps_millihz } else { rung.fps * 1000 };
+        target(rung.width, rung.height, fps_millihz)
+    }
+
+    fn rung(request: Reconfigure) -> Target {
+        Target { width: u32::from(request.width), height: u32::from(request.height), fps: hz(request.fps_millihz) }
+    }
+
+    pub fn current(&self) -> Option<Reconfigure> { self.request(self.policy.current()) }
+
+    /// A display change keeps the reduction level; returns the request at that level.
+    pub fn rebase(&mut self, ceiling: Reconfigure, now: u64) -> Result<Option<Reconfigure>, QualityError> {
+        self.policy.resize_ceiling(u32::from(ceiling.width), u32::from(ceiling.height), hz(ceiling.fps_millihz), now)?;
+        self.ceiling = ceiling;
+        Ok(self.current())
+    }
+
+    /// `bitrate_has_room` gives automatic bitrate the first answer to network pressure.
+    pub fn sample(&mut self, stats: &Stats, bitrate_has_room: bool, timing: Option<&DecodeTiming>) -> Option<Reconfigure> {
+        let next = self.policy.sample_timed(stats, bitrate_has_room, timing)?;
+        let request = self.request(next);
+        if request.is_none() {
+            eprintln!("nightjar: automatic quality: {next} is no valid stream request");
         }
-        let mut rates = vec![ceiling.fps_millihz];
-        for rate in [120_000, 90_000, 60_000, 45_000, 30_000] {
-            if rate < ceiling.fps_millihz && rate > floor_fps { rates.push(rate); }
-        }
-        if rates.last() != Some(&floor_fps) { rates.push(floor_fps); }
-        let mut levels = vec![ceiling];
-        let (mut size, mut rate) = (0, 0);
-        while size + 1 < sizes.len() || rate + 1 < rates.len() {
-            let lower_size = match mode {
-                QualityMode::Motion => size + 1 < sizes.len(),
-                QualityMode::Detail => rate + 1 >= rates.len(),
-                _ => size + 1 < sizes.len() && (rate + 1 >= rates.len() || levels.len() % 2 == 0),
-            };
-            if lower_size { size += 1; } else { rate += 1; }
-            levels.push(target(sizes[size].0, sizes[size].1, rates[rate]).expect("bounded ladder"));
-        }
-        let battery_ceiling = if mode == QualityMode::Battery {
-            levels.iter().position(|t| t.fps_millihz <= floor_fps.max(60_000)
-                && u32::from(t.width.min(t.height)) <= floor.max(1080)).unwrap_or(levels.len() - 1)
-        } else { 0 };
-        Self { levels, level: 0, battery_ceiling, last_change: now, healthy_since: None,
-            last_sample: None, device_pressure: 0, network_pressure: 0, tail_pressure: 0 }
+        request
     }
 
-    pub fn current(&self) -> Reconfigure { self.levels[self.level] }
-
-    pub fn rebase(&mut self, mode: QualityMode, ceiling: Reconfigure, min_edge: u32, min_fps: u32, now: u64) -> Reconfigure {
-        let level = self.level;
-        *self = Self::new(mode, ceiling, min_edge, min_fps, now);
-        self.level = level.min(self.levels.len() - 1);
-        self.current()
+    pub fn applied(&mut self, request: Reconfigure, now: u64) -> Result<(), QualityError> {
+        self.policy.applied(Self::rung(request), now)
     }
 
-    pub fn sample(&mut self, s: Sample) -> Option<Reconfigure> {
-        if !s.recent { self.suspend(); return None; }
-        if self.last_sample.is_some_and(|last| s.now.saturating_sub(last) > 2000 || s.now <= last) { self.suspend(); }
-        self.last_sample = Some(s.now);
-        let frame_ms = 1_000_000.0 / f64::from(self.current().fps_millihz);
-        let valid_tail = s.samples >= 12 && (500_000..=2_000_000).contains(&s.span_us);
-        let tail = valid_tail && s.late >= 3 && u64::from(s.late) * 10 >= u64::from(s.samples);
-        let device = s.decode_ms >= frame_ms * 2.0;
-        let network = s.poor || s.loss >= 3.0 || s.queue_ms >= 20.0f64.max(frame_ms * 2.0);
-        self.device_pressure = if device { self.device_pressure + 1 } else { 0 };
-        self.network_pressure = if network && !s.bitrate_has_room { self.network_pressure + 1 } else { 0 };
-        self.tail_pressure = if tail { self.tail_pressure + 1 } else { 0 };
-        if device || network || tail || self.level < self.battery_ceiling {
-            self.healthy_since = None;
-            if s.now.saturating_sub(self.last_change) >= 15_000 && self.level + 1 < self.levels.len()
-                && (self.device_pressure >= 4 || self.tail_pressure >= 4 || self.network_pressure >= 8 || self.level < self.battery_ceiling) {
-                return Some(self.levels[self.level + 1]);
-            }
-        } else {
-            let healthy = valid_tail && u64::from(s.late) * 50 <= u64::from(s.samples)
-                && (0.0..0.5).contains(&s.loss) && (0.0..frame_ms * 1.5).contains(&s.decode_ms)
-                && (0.0..5.0f64.max(frame_ms * 0.25)).contains(&s.jitter_ms)
-                && (0.0..4.0f64.max(frame_ms / 2.0)).contains(&s.queue_ms);
-            if !healthy { self.healthy_since = None; }
-            else if let Some(since) = self.healthy_since {
-                if self.level > self.battery_ceiling && s.now.saturating_sub(since) >= 30_000
-                    && s.now.saturating_sub(self.last_change) >= 30_000 { return Some(self.levels[self.level - 1]); }
-            } else { self.healthy_since = Some(s.now); }
-        }
-        None
-    }
-
-    pub fn applied(&mut self, request: Reconfigure, now: u64) {
-        self.level = self.levels.iter().position(|r| *r == request).expect("target from this ladder");
-        self.last_change = now;
-        self.suspend();
-    }
-
-    pub fn suspend(&mut self) {
-        self.healthy_since = None;
-        self.last_sample = None;
-        self.device_pressure = 0;
-        self.network_pressure = 0;
-        self.tail_pressure = 0;
-    }
+    pub fn suspend(&mut self) { self.policy.suspend(); }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::stream::pipeline::DecodeWindow;
 
-    fn sample(now: u64) -> Sample {
-        Sample { now, recent: true, poor: false, loss: 0.0, decode_ms: 2.0, jitter_ms: 1.0,
-            queue_ms: 1.0, bitrate_has_room: false, samples: 60, late: 0, span_us: 980_000 }
+    fn tick(now_ms: u64) -> Stats {
+        Stats { now_ms, recent_video: true, fps: 60, loss_percent: Some(0.0), decode_ms: Some(2.0),
+            jitter_ms: Some(1.0), queue_ms: Some(1.0), ..Default::default() }
+    }
+
+    /// A healthy one-second window ending at `now_ms`, 60 frames over 980 ms.
+    fn window(now_ms: u64, generation: i64, fps: u32) -> Option<DecodeTiming> {
+        let end = now_ms * 1000;
+        let w = DecodeWindow { samples: 60, first_us: end - 990_000, last_us: end - 10_000, ..Default::default() };
+        decode_timing(generation, end - 1_000_000, end, fps, &w)
+    }
+
+    fn levels(q: &mut Quality) -> Vec<Reconfigure> {
+        // A slow decoder walks every mode down its whole ladder, one rung per 15 s.
+        let mut seen = vec![q.current().unwrap()];
+        for step in 0..64 {
+            let now = 15_000 * (step + 1);
+            let mut s = tick(now);
+            s.decode_ms = Some(200.0);
+            for k in 0..3 { s.now_ms = now - 3000 + k * 1000; assert_eq!(q.sample(&s, false, None), None); }
+            s.now_ms = now;
+            let Some(next) = q.sample(&s, false, None) else { break };
+            q.applied(next, now).unwrap();
+            seen.push(next);
+        }
+        seen
     }
 
     #[test]
-    fn ladders_keep_floors_aspect_and_priority() {
+    fn ladders_keep_floors_aspect_priority_and_valid_requests() {
         let top = target(1920, 1080, 144_000).unwrap();
-        for mode in [QualityMode::Motion, QualityMode::Detail, QualityMode::Battery] {
-            let q = Quality::new(mode, top, 720, 30, 0);
-            for t in &q.levels {
+        for quality in [QualityMode::Motion, QualityMode::Detail, QualityMode::Battery] {
+            let mut q = Quality::new(quality, top, 720, 30, 0).unwrap();
+            let seen = levels(&mut q);
+            assert!(seen.len() > 3, "{quality:?}: {seen:?}");
+            for t in &seen {
                 assert!(t.width <= 1920 && (720..=1080).contains(&t.height));
                 assert!((30_000..=144_000).contains(&t.fps_millihz));
                 assert!((f64::from(t.width) / f64::from(t.height) - 16.0 / 9.0).abs() < 0.005);
                 assert_eq!(Reconfigure::decode(&t.encode()), Some(*t));
             }
-            if mode == QualityMode::Motion { assert_eq!(q.levels[1].fps_millihz, 144_000); }
-            if mode == QualityMode::Detail { assert_eq!(q.levels[1].width, 1920); }
+            if quality == QualityMode::Motion { assert_eq!(seen[1].fps_millihz, 144_000); }
+            if quality == QualityMode::Detail { assert_eq!(seen[1].width, 1920); }
         }
         assert!(target(100_000, 1080, 60_000).is_none());
         assert!(target(1921, 1080, 60_000).is_none());
+        // The protocol's 256-line minimum holds even when the setting asks for less.
+        let mut small = Quality::new(QualityMode::Motion, target(640, 360, 60_000).unwrap(), 0, 15, 0).unwrap();
+        assert!(levels(&mut small).iter().all(|t| t.height >= 256));
+    }
+
+    #[test]
+    fn a_fractional_ceiling_keeps_its_exact_rate() {
+        let top = target(1920, 1080, 59_940).unwrap();
+        let mut q = Quality::new(QualityMode::Detail, top, 720, 30, 0).unwrap();
+        assert_eq!(q.current(), Some(top));
+        let seen = levels(&mut q);
+        assert_eq!(seen[1], target(1920, 1080, 45_000).unwrap());
+        assert!(seen.iter().filter(|t| t.fps_millihz % 1000 != 0).all(|t| t.fps_millihz == 59_940));
     }
 
     #[test]
     fn display_changes_preserve_adaptive_reduction() {
-        let mut quality = Quality::new(QualityMode::Motion, target(1920, 1080, 60_000).unwrap(), 720, 30, 0);
-        quality.applied(quality.levels[1], 15_000);
-        let mode = quality.rebase(QualityMode::Motion, target(2560, 1440, 120_000).unwrap(), 720, 30, 20_000);
-        assert_eq!(mode, target(2048, 1152, 120_000).unwrap());
-        assert_eq!(quality.level, 1);
+        let mut q = Quality::new(QualityMode::Motion, target(1920, 1080, 60_000).unwrap(), 720, 30, 0).unwrap();
+        let lower = levels(&mut q)[1];
+        q.applied(lower, 15_000).unwrap();
+        let mode = q.rebase(target(2560, 1440, 120_000).unwrap(), 20_000).unwrap();
+        assert_eq!(mode, target(2048, 1152, 120_000));
+        // A rung of the old ladder is foreign now.
+        assert_eq!(q.applied(lower, 21_000), Err(QualityError::ForeignTarget));
     }
 
     #[test]
     fn sustained_pressure_and_fresh_recovery_only() {
         let top = target(1920, 1080, 60_000).unwrap();
-        let mut q = Quality::new(QualityMode::Motion, top, 720, 30, 0);
-        for now in 12..15 { let mut s = sample(now * 1000); s.decode_ms = 40.0; assert_eq!(q.sample(s), None); }
-        let mut s = sample(15_000); s.decode_ms = 40.0;
-        let lower = q.sample(s).unwrap();
-        assert_eq!(q.current(), top);
-        q.applied(lower, 15_000);
-        for now in 16..46 { assert_eq!(q.sample(sample(now * 1000)), None); }
-        assert_eq!(q.sample(sample(46_000)), Some(top));
+        let mut q = Quality::new(QualityMode::Motion, top, 720, 30, 0).unwrap();
+        for now in 12..15 {
+            let mut s = tick(now * 1000);
+            s.decode_ms = Some(40.0);
+            assert_eq!(q.sample(&s, false, window(now * 1000, 1, 60).as_ref()), None);
+        }
+        let mut s = tick(15_000);
+        s.decode_ms = Some(40.0);
+        let lower = q.sample(&s, false, window(15_000, 1, 60).as_ref()).unwrap();
+        assert_eq!(q.current(), Some(top));
+        q.applied(lower, 15_000).unwrap();
+        // Recovery needs 30 s of fresh healthy windows at the new rate.
+        for now in 16..46 { assert_eq!(q.sample(&tick(now * 1000), false, window(now * 1000, 2, 60).as_ref()), None); }
+        assert_eq!(q.sample(&tick(46_000), false, window(46_000, 2, 60).as_ref()), Some(top));
+        // Without decoder timing, a healthy stream never counts as recovered.
         q.suspend();
-        let mut stale = sample(80_000); stale.span_us = 0;
-        assert_eq!(q.sample(stale), None);
-        assert_eq!(q.current(), lower);
+        for now in 47..90 { assert_eq!(q.sample(&tick(now * 1000), false, None), None); }
+        assert_eq!(q.current(), Some(lower));
     }
 
     #[test]
     fn bitrate_gets_first_chance_at_network_pressure() {
-        let mut q = Quality::new(QualityMode::Detail, target(1920, 1080, 60_000).unwrap(), 720, 30, 0);
-        for now in 15..25 { let mut s = sample(now * 1000); s.loss = 8.0; s.bitrate_has_room = true; assert_eq!(q.sample(s), None); }
-        for now in 25..32 { let mut s = sample(now * 1000); s.loss = 8.0; assert_eq!(q.sample(s), None); }
-        let mut s = sample(32_000); s.loss = 8.0;
-        assert!(q.sample(s).is_some());
+        let mut q = Quality::new(QualityMode::Detail, target(1920, 1080, 60_000).unwrap(), 720, 30, 0).unwrap();
+        let lossy = |now: u64| Stats { loss_percent: Some(8.0), ..tick(now) };
+        for now in 15..25 { assert_eq!(q.sample(&lossy(now * 1000), true, None), None); }
+        for now in 25..32 { assert_eq!(q.sample(&lossy(now * 1000), false, None), None); }
+        assert!(q.sample(&lossy(32_000), false, None).is_some());
+    }
+
+    #[test]
+    fn decode_windows_without_times_are_no_evidence() {
+        let w = DecodeWindow { samples: 60, ..Default::default() };
+        assert_eq!(decode_timing(1, 0, 1_000_000, 60, &w), None);
+        let t = window(5000, 3, 60).unwrap();
+        assert_eq!((t.samples, t.late_frames, t.fps, t.generation), (60, 0, 60, 3));
+        assert!(t.first_sample_ns > t.window_start_ns && t.last_sample_ns <= t.window_end_ns);
     }
 }

@@ -87,6 +87,12 @@ impl Shared {
     pub fn new() -> Self {
         Self::default()
     }
+    /// Refused with `reason` until [`Shared::refuse`] says otherwise.
+    pub fn refusing(reason: impl Into<String>) -> Self {
+        let shared = Self::new();
+        shared.refuse(Some(reason.into()));
+        shared
+    }
     /// The packed state: one `Acquire` load, for the video loop.
     pub fn load(&self) -> u64 {
         self.state.load(Ordering::Acquire)

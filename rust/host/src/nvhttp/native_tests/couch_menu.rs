@@ -16,10 +16,18 @@ async fn couch_menu(s: &Setup, connection: &Connection, body: &str) -> Reply {
     .await
 }
 
+/// The stream's control peer connects and stores what the stream allows.
+fn follow(s: &Setup, session: &Arc<Session>) -> bool {
+    crate::couch_menu::PeerMenu::default().follow(session, || {
+        crate::stream::effective_config(s.host(), &session.launch)
+    })
+}
+
 #[tokio::test]
 async fn couch_menu_opens_and_closes_the_callers_stream() {
     let s = Setup::new();
     let session = s.streaming();
+    assert!(follow(&s, &session));
     let reply = couch_menu(&s, &s.connection, r#"{"open":true}"#).await;
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
     assert_eq!(reply.json(), serde_json::json!({"open": true}));
@@ -79,13 +87,14 @@ async fn couch_menu_off_for_the_device_is_unadvertised() {
 #[tokio::test]
 async fn couch_menu_off_is_temporarily_unavailable_and_unadvertised() {
     let s = Setup::new();
-    let session = s.streaming();
     s.host()
         .config
         .write()
         .unwrap()
         .values
         .insert("couch_menu".into(), "false".into());
+    let session = s.streaming();
+    assert!(!follow(&s, &session));
     couch_menu(&s, &s.connection, r#"{"open":true}"#)
         .await
         .assert_error(503, "temporarily_unavailable");

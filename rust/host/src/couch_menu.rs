@@ -102,31 +102,40 @@ impl PeerMenu {
             size,
             ..Self::default()
         };
-        if s.launch.role == Role::InputOnly {
-            return false;
-        }
-        let c = match config() {
-            Ok(c) => c,
-            Err(error) => {
-                tracing::warn!(error = %format!("{error:#}"), "couch menu: configuration unavailable; the menu is off for this stream");
-                s.couch_menu
-                    .refuse(Some("couch menu: the configuration did not load".into()));
-                return false;
+        // What the stream allows is read here once; `request` and the
+        // filter follow the stored refusal, not later edits.
+        let reason = if s.launch.role == Role::InputOnly {
+            refusal(s.launch.role, true, size)
+        } else {
+            match config() {
+                Err(error) => {
+                    tracing::warn!(error = %format!("{error:#}"), "couch menu: configuration unavailable; the menu is off for this stream");
+                    Some("couch menu: the configuration did not load".into())
+                }
+                Ok(c) if !c.couch_menu() => Some(
+                    "couch menu: off for this stream (couch_menu); a change applies from the \
+                     next stream"
+                        .into(),
+                ),
+                Ok(c) => {
+                    self.direct = c.boolean("wgc_direct_encoder_input", true);
+                    self.filter = Some(Filter::new(
+                        s.couch_menu.clone(),
+                        OpenWith::from_config(&c),
+                        size[0],
+                        size[1],
+                    ));
+                    refusal(s.launch.role, self.direct, size)
+                }
             }
         };
-        if !c.couch_menu() {
-            return false;
+        let refused = reason.is_some();
+        s.couch_menu.refuse(reason);
+        // A second peer of the session can see another configuration.
+        if refused {
+            s.couch_menu.close();
         }
-        self.direct = c.boolean("wgc_direct_encoder_input", true);
-        s.couch_menu
-            .refuse(refusal(s.launch.role, self.direct, size));
-        self.filter = Some(Filter::new(
-            s.couch_menu.clone(),
-            OpenWith::from_config(&c),
-            size[0],
-            size[1],
-        ));
-        true
+        self.filter.is_some()
     }
     /// When the filter wants an empty batch: a hold completing.
     pub(crate) fn next_due(&self) -> Option<Instant> {
@@ -561,24 +570,9 @@ pub(crate) fn request(h: &Shared, client: &Client, open: bool) -> Result<bool, F
         s.couch_menu.close();
         return Ok(false);
     }
-    let c = crate::stream::effective_config(h, &s.launch)
-        .map_err(|error| Failure::internal("read the configuration", format!("{error:#}")))?;
-    if !c.couch_menu() {
-        return Err(Failure::new(
-            ErrorCode::TemporarilyUnavailable,
-            "The couch menu is off on this host (couch_menu).",
-        ));
-    }
-    // The control peer stores the refusal of the stream as it started; this
-    // also covers a session whose control peer has not connected yet.
-    let mode = s.stream_mode();
-    if let Some(reason) = refusal(
-        s.launch.role,
-        c.boolean("wgc_direct_encoder_input", true),
-        [mode.width, mode.height],
-    ) {
-        return Err(Failure::new(ErrorCode::TemporarilyUnavailable, reason));
-    }
+    // The control peer stored what the stream allows as it started (off,
+    // read-back, input-only, too small); until it connects the menu is
+    // refused, so an open always has a filter and a worker behind it.
     s.couch_menu
         .open()
         .map_err(|reason| Failure::new(ErrorCode::TemporarilyUnavailable, reason))?;
@@ -784,6 +778,7 @@ mod tests {
             ..client.clone()
         };
         let s = f.session(client.clone(), Role::Stream);
+        PeerMenu::default().follow(&s, || crate::stream::effective_config(&f.host, &s.launch));
         assert_eq!(
             code(request(&f.host, &other, true)),
             ErrorCode::NotSessionOwner
@@ -792,46 +787,82 @@ mod tests {
         assert!(request(&f.host, &client, true).unwrap(), "idempotent");
         assert!(!request(&f.host, &client, false).unwrap());
         assert!(!request(&f.host, &client, false).unwrap(), "idempotent");
-        f.host
-            .config
-            .write()
-            .unwrap()
-            .values
-            .insert("wgc_direct_encoder_input".into(), "false".into());
+    }
+
+    #[test]
+    fn couch_menu_off_at_stream_start_stays_off_for_the_stream() {
+        for key in ["couch_menu", "wgc_direct_encoder_input"] {
+            let f = Fixture::new();
+            let client = f.client(VIEW | LAUNCH);
+            let set = |value: &str| {
+                f.host
+                    .config
+                    .write()
+                    .unwrap()
+                    .values
+                    .insert(key.into(), value.into());
+            };
+            set("false");
+            let s = f.session(client.clone(), Role::Stream);
+            let mut peer = PeerMenu::default();
+            peer.follow(&s, || crate::stream::effective_config(&f.host, &s.launch));
+            // Turned on mid-stream: no filter, chord or worker would follow
+            // an open, or the encoder would not draw it.
+            set("true");
+            assert_eq!(
+                request(&f.host, &client, true).unwrap_err().code(),
+                ErrorCode::TemporarilyUnavailable,
+                "{key}"
+            );
+            assert!(!menu::Shared::is_open(s.couch_menu.load()), "{key}");
+            // Closing works with the menu off.
+            assert!(!request(&f.host, &client, false).unwrap());
+        }
+    }
+
+    #[test]
+    fn couch_menu_request_waits_for_the_control_peer() {
+        let f = Fixture::new();
+        let client = f.client(VIEW | LAUNCH);
+        let s = f.session(client.clone(), Role::Stream);
         assert_eq!(
-            code(request(&f.host, &client, true)),
+            request(&f.host, &client, true).unwrap_err().code(),
             ErrorCode::TemporarilyUnavailable
         );
         assert!(!menu::Shared::is_open(s.couch_menu.load()));
+        let mut peer = PeerMenu::default();
+        assert!(peer.follow(&s, || crate::stream::effective_config(&f.host, &s.launch)));
+        assert!(request(&f.host, &client, true).unwrap());
+        // On at stream start, a later change waits for the next stream.
         f.host
             .config
             .write()
             .unwrap()
             .values
             .insert("couch_menu".into(), "false".into());
-        assert_eq!(
-            code(request(&f.host, &client, true)),
-            ErrorCode::TemporarilyUnavailable
-        );
-        // Closing works with the menu off.
         assert!(!request(&f.host, &client, false).unwrap());
+        assert!(request(&f.host, &client, true).unwrap());
     }
 
     #[test]
     fn couch_menu_request_refuses_an_input_only_session() {
         let f = Fixture::new();
         let client = f.client(VIEW | LAUNCH);
-        f.session(client.clone(), Role::InputOnly);
-        assert_eq!(
-            request(&f.host, &client, true).unwrap_err().code(),
-            ErrorCode::TemporarilyUnavailable
+        let s = f.session(client.clone(), Role::InputOnly);
+        assert!(!PeerMenu::default().follow(&s, || panic!("an input-only stream reads no config")));
+        let failure = request(&f.host, &client, true).unwrap_err();
+        assert_eq!(failure.code(), ErrorCode::TemporarilyUnavailable);
+        assert!(
+            failure.message().contains("input-only"),
+            "{}",
+            failure.message()
         );
     }
 
     #[test]
     fn couch_menu_worker_draws_the_open_menu_and_closes_on_back() {
         let f = Fixture::new();
-        let s = f.session(f.client(VIEW | LAUNCH), Role::Stream);
+        let (s, _peer) = followed(&f, Role::Stream);
         let mut workers = Workers::default();
         s.couch_menu.open().unwrap();
         workers.send(&f.host, &s, vec![Nav::Opened]);

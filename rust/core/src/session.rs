@@ -2706,7 +2706,11 @@ impl<P, A> Session<P, A> {
             }),
             roams: AtomicU32::new(0),
             audio: Default::default(),
-            couch_menu: Default::default(),
+            // The control peer stores what the stream allows when it
+            // connects; WebRTC sessions have none.
+            couch_menu: Arc::new(crate::couch_menu::Shared::refusing(
+                "couch menu: this stream's control connection has not started",
+            )),
         })
     }
     /// The client's IP: the launch's, or the one it last roamed to.

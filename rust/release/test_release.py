@@ -192,6 +192,18 @@ class ReleaseVersions(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('no fragments', result.stdout)
 
+    def test_fragments_refuses_arguments_and_moves_nothing(self):
+        # "fragments.py --help" once moved every fragment into the notes.
+        notes = self.root / 'rust/RELEASE_NOTES.md'
+        before = notes.read_text(encoding='utf-8')
+        fragment = self.root / 'rust/release/notes.d/roaming.md'
+        fragment.write_text('- Roaming.\n', encoding='utf-8')
+        result = self.run_tool('fragments.py', '--help')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('takes no arguments', result.stderr)
+        self.assertTrue(fragment.exists())
+        self.assertEqual(notes.read_text(encoding='utf-8'), before)
+
     @unittest.skipUnless(BASH and pathlib.Path(BASH).is_file(), 'Bash is not installed')
     def test_reuse_requires_a_push_build_with_an_available_artifact(self):
         workflow = (ROOT / '.github/workflows/rust-windows.yml').read_text(encoding='utf-8')

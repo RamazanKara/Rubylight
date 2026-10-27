@@ -10,7 +10,7 @@ it. This moves every fragment's bullets, in file name order, to the end of
 "## Unreleased" (creating it above the newest "## New in") and deletes the
 fragments. bump.py does the same before it opens the new version's section.
 """
-import pathlib, re
+import pathlib, re, sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 NOTES_D = 'rust/release/notes.d'
@@ -53,6 +53,9 @@ def merge(lines, bullets):
 
 
 def main():
+    # It takes no options: "--help" once moved every fragment.
+    if sys.argv[1:]:
+        sys.exit(f'{__doc__.strip()}\n\nfragments.py takes no arguments; nothing was moved')
     bullets, files = read(ROOT / NOTES_D)
     if not files:
         print(f'no fragments in {NOTES_D}')

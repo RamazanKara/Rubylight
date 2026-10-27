@@ -34,7 +34,11 @@ test('HDR dynamic metadata defaults on and ships HDR Vivid as a normal feature',
   assert.equal(setting.default, true);
   assert.equal(setting.control.kind, 'toggle');
   assert.equal(setting.category, 'video');
-  assert.match(setting.details, /HDR Vivid \(CUVA 005\.1\) statistics, ported in part from Foundation Sunshine\./);
+  assert.match(
+    setting.details,
+    /The HDR10\+ and HDR Vivid writers and the luminance statistics they use are ported from Foundation Sunshine\./,
+  );
+  assert.doesNotMatch(setting.details, /in part/);
   assert.doesNotMatch(`${setting.label} ${setting.description} ${setting.details}`, /experimental/i);
   assert.equal(differsFromDefault(setting, {}, {}), false);
   assert.equal(differsFromDefault(setting, {}, { hdr_dynamic_metadata: false }), true);

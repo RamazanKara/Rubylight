@@ -63,7 +63,12 @@ fn string(env: &mut JNIEnv, value: &JString) -> Option<String> {
 pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_init(
     mut env: JNIEnv,
     _: JClass,
+    app_version: JString,
 ) -> jboolean {
+    // Requests to the host send `User-Agent: Nightjar/<versionName>`.
+    if let Some(version) = string(&mut env, &app_version) {
+        nightjar_core::http::set_app_version(&version);
+    }
     match bridge::init(&mut env) {
         Ok(()) => JNI_TRUE,
         Err(e) => {

@@ -8,7 +8,7 @@
 
 use std::collections::VecDeque;
 use std::net::UdpSocket;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 
@@ -84,6 +84,16 @@ pub struct AudioShared {
     pub queue: PacketQueue,
     pub stats: Mutex<AudioStats>,
     pub packets: AtomicU64,
+    /// The milliseconds of audio in each queued item: the Opus packet duration, PCM's packet
+    /// for the channel count or one 32 ms AC3 or E-AC3 frame (`passthrough::packet_ms`).
+    pub packet_ms: AtomicU32,
+}
+
+impl AudioShared {
+    /// `LiGetPendingAudioDuration`: the milliseconds of audio waiting for the renderer.
+    pub fn pending_ms(&self) -> u32 {
+        self.queue.len() as u32 * self.packet_ms.load(Ordering::Relaxed)
+    }
 }
 
 pub struct AudioStream {
@@ -237,5 +247,35 @@ mod tests {
         assert_eq!(queue.wait(), Some(None));
         queue.shutdown();
         assert_eq!(queue.wait(), None);
+    }
+
+    /// The pending duration counts each item as the packet the renderer gets, not the SDP's
+    /// Opus duration: 32 ms AC3 frames and 1 ms 7.1 PCM packets, 5 ms Opus as before.
+    #[test]
+    fn pending_audio_counts_the_codec_packet_duration() {
+        use crate::audio::passthrough::packet_ms;
+        use rubylight_protocol::audio_ext::{CODEC_AC3, CODEC_EAC3, CODEC_OPUS, CODEC_PCM};
+        for (codec, channels, expected) in [
+            (CODEC_AC3, 6, 4 * 32),
+            (CODEC_EAC3, 2, 4 * 32),
+            (CODEC_PCM, 8, 4),
+            (CODEC_PCM, 6, 4 * 2),
+            (CODEC_OPUS, 2, 4 * 5),
+            (CODEC_OPUS, 8, 4 * 5),
+        ] {
+            let shared = AudioShared::default();
+            assert_eq!(shared.pending_ms(), 0);
+            shared
+                .packet_ms
+                .store(packet_ms(codec, channels, 5), Ordering::Relaxed);
+            for _ in 0..4 {
+                shared.queue.offer(Some(vec![0]));
+            }
+            assert_eq!(
+                shared.pending_ms(),
+                expected,
+                "codec {codec}, {channels} channels"
+            );
+        }
     }
 }

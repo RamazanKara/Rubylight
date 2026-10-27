@@ -1,6 +1,6 @@
 # Release tooling
 
-Keep pending changes under `## Unreleased` in `rust/RELEASE_NOTES.md`. The version-bump tool moves that section into the new release automatically, also when `--notes` supplies additional release text.
+Pending changes go in fragments, one file per topic: `rust/release/notes.d/<topic>.md` (see [its README](notes.d/README.md)), so parallel branches never edit `rust/RELEASE_NOTES.md` at once. The version-bump tool moves `## Unreleased` and then the fragments, in file name order, into the new release and deletes the fragments, also when `--notes` supplies additional release text. `python rust/release/fragments.py` collects the fragments into `## Unreleased` between releases. Nightjar's fragments in `client/notes.d` become its "What's new" draft and store changelogs with `tools/nightjar_notes.py`.
 
 A release is a pushed tag:
 

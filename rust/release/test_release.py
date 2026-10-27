@@ -14,6 +14,7 @@ class ReleaseVersions(unittest.TestCase):
         for name in ('Cargo.toml', 'Cargo.lock', 'README.md', 'docs/README.md',
                      'docs/getting-started.md', 'rust/README.md', 'rust/RELEASE_NOTES.md',
                      'rust/release/bump.py', 'rust/release/notes.py', 'rust/release/body.md',
+                     'rust/release/fragments.py', 'rust/release/notes.d/README.md',
                      'rust/web/package.json', 'rust/web/package-lock.json'):
             target = self.root / name
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -137,6 +138,60 @@ class ReleaseVersions(unittest.TestCase):
             for name in ('Cargo.toml', 'Cargo.lock', 'rust/web/package.json', 'rust/web/package-lock.json'):
                 shutil.copyfile(ROOT / name, self.root / name)
 
+    def test_bump_assembles_the_note_fragments_after_the_pending_notes(self):
+        notes = self.root / 'rust/RELEASE_NOTES.md'
+        history = re.sub(r'(?ms)^## Unreleased\n.*?(?=^## )', '', notes.read_text(encoding='utf-8'))
+        notes.write_text(history.replace(f'## New in {self.version}',
+                                         f'## Unreleased\n\n- Pending.\n\n## New in {self.version}', 1),
+                         encoding='utf-8')
+        fragments = self.root / 'rust/release/notes.d'
+        (fragments / 'b-usb.md').write_text('# USB\n<!-- host side -->\n- USB forwarding.\n  Experimental.\n',
+                                            encoding='utf-8')
+        (fragments / 'a-hdr.md').write_text('- Dolby Vision.\n- HLG.\n', encoding='utf-8')
+        major, minor, patch = map(int, self.version.split('-')[0].split('.'))
+        new = f'{major}.{minor}.{patch + 1}'
+        result = self.run_tool('bump.py', new)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        updated = notes.read_text(encoding='utf-8')
+        section = updated.split(f'## New in {new}\n', 1)[1].split('\n## ', 1)[0]
+        self.assertEqual(section.strip(), '- Pending.\n- Dolby Vision.\n- HLG.\n- USB forwarding.\n  Experimental.')
+        self.assertNotIn('## Unreleased', updated)
+        self.assertNotIn('host side', updated)
+        self.assertEqual(sorted(p.name for p in fragments.iterdir()), ['README.md'])
+
+    def test_a_malformed_fragment_stops_bump_before_it_writes(self):
+        (self.root / 'rust/release/notes.d/x.md').write_text('Just a sentence.\n', encoding='utf-8')
+        cargo = (self.root / 'Cargo.toml').read_text(encoding='utf-8')
+        notes = (self.root / 'rust/RELEASE_NOTES.md').read_text(encoding='utf-8')
+        result = self.run_tool('bump.py', '9.9.9')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('x.md', result.stderr)
+        self.assertEqual((self.root / 'Cargo.toml').read_text(encoding='utf-8'), cargo)
+        self.assertEqual((self.root / 'rust/RELEASE_NOTES.md').read_text(encoding='utf-8'), notes)
+        self.assertTrue((self.root / 'rust/release/notes.d/x.md').exists())
+
+    def test_fragments_collect_into_unreleased_between_releases(self):
+        notes = self.root / 'rust/RELEASE_NOTES.md'
+        history = re.sub(r'(?ms)^## Unreleased\n.*?(?=^## )', '', notes.read_text(encoding='utf-8'))
+        fragment = self.root / 'rust/release/notes.d/roaming.md'
+        for existing in ('', '- Already here.'):
+            with self.subTest(existing=existing):
+                start = history.replace(f'## New in {self.version}',
+                                        f'## Unreleased\n\n{existing}\n\n## New in {self.version}', 1) \
+                    if existing else history
+                notes.write_text(start, encoding='utf-8')
+                fragment.write_text('- Roaming.\n', encoding='utf-8')
+                result = self.run_tool('fragments.py')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                updated = notes.read_text(encoding='utf-8')
+                pending = updated.split('## Unreleased\n', 1)[1].split('\n## ', 1)[0]
+                self.assertEqual(pending.strip(), (existing + '\n' if existing else '') + '- Roaming.')
+                self.assertLess(updated.index('## Unreleased'), updated.index(f'## New in {self.version}'))
+                self.assertFalse(fragment.exists())
+        result = self.run_tool('fragments.py')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('no fragments', result.stdout)
+
     @unittest.skipUnless(BASH and pathlib.Path(BASH).is_file(), 'Bash is not installed')
     def test_reuse_requires_a_push_build_with_an_available_artifact(self):
         workflow = (ROOT / '.github/workflows/rust-windows.yml').read_text(encoding='utf-8')
@@ -166,6 +221,77 @@ class ReleaseVersions(unittest.TestCase):
                                         cwd=self.root, env=env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(out.read_text(encoding='utf-8'), expected)
+
+
+class NightjarNotes(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = pathlib.Path(self.temp.name)
+        for name in ('tools/nightjar_notes.py', 'client/app/build.gradle', 'client/notes.d/README.md'):
+            (self.root / name).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / name, self.root / name)
+        self.code = int(re.search(r'versionCode\s*=?\s*(\d+)',
+                                  (ROOT / 'client/app/build.gradle').read_text(encoding='utf-8'))[1])
+        self.notes = self.root / 'client/notes.d'
+        self.out = self.root / 'whats-new.md'
+
+    def run_tool(self, *args):
+        return subprocess.run([sys.executable, str(self.root / 'tools/nightjar_notes.py'), '--out', str(self.out),
+                               *args], capture_output=True, text=True, encoding='utf-8')
+
+    def changelog(self, locale, code=None):
+        return self.root / f'client/fastlane/metadata/android/{locale}/changelogs/{code or self.code}.txt'
+
+    def test_fragments_become_the_draft_and_both_changelogs(self):
+        (self.notes / 'b-menu.md').write_text('## en\n- The **stream menu** opens\n  with a long press.\n\n'
+                                              '## de\n- Das **Stream-Menü** öffnet sich\n  mit langem Drücken.\n',
+                                              encoding='utf-8')
+        (self.notes / 'a-tv.md').write_text('<!-- nightjar#7 -->\n## de\n- Neues [TV-Design](https://x.test).\n'
+                                            '## en\n- A new [TV design](https://x.test).\n', encoding='utf-8')
+        result = self.run_tool()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        draft = self.out.read_text(encoding='utf-8')
+        self.assertEqual(draft, "## What's new\n\n- A new [TV design](https://x.test).\n"
+                                '- The **stream menu** opens with a long press.\n\n**Tested.** \n')
+        self.assertEqual(self.changelog('en-US').read_text(encoding='utf-8'),
+                         '• A new TV design.\n• The stream menu opens with a long press.\n')
+        self.assertEqual(self.changelog('de').read_text(encoding='utf-8'),
+                         '• Neues TV-Design.\n• Das Stream-Menü öffnet sich mit langem Drücken.\n')
+        self.assertEqual([p.name for p in self.notes.iterdir()], ['README.md'])
+
+    def test_mistakes_change_nothing(self):
+        cases = {
+            'needs a list': '## en\n- Only English.\n',
+            'unknown section': '## en\n- A.\n## fr\n- B.\n',
+            "Google Play's 500": '## en\n' + '- A long sentence about streaming.\n' * 20 + '## de\n- B.\n',
+        }
+        for message, text in cases.items():
+            with self.subTest(message=message):
+                (self.notes / 'x.md').write_text(text, encoding='utf-8')
+                result = self.run_tool()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+                self.assertFalse(self.out.exists())
+                self.assertFalse(self.changelog('en-US').exists())
+                self.assertTrue((self.notes / 'x.md').exists())
+
+    def test_an_existing_changelog_needs_force_and_keep_keeps_the_fragments(self):
+        (self.notes / 'x.md').write_text('## en\n- A.\n## de\n- B.\n', encoding='utf-8')
+        self.changelog('de').parent.mkdir(parents=True)
+        self.changelog('de').write_text('published\n', encoding='utf-8')
+        result = self.run_tool()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('exists', result.stderr)
+        self.assertEqual(self.changelog('de').read_text(encoding='utf-8'), 'published\n')
+        result = self.run_tool('--version-code', str(self.code + 1), '--keep')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.changelog('de', self.code + 1).read_text(encoding='utf-8'), '• B.\n')
+        self.assertTrue((self.notes / 'x.md').exists())
+        result = self.run_tool('--force')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.changelog('de').read_text(encoding='utf-8'), '• B.\n')
+        self.assertFalse((self.notes / 'x.md').exists())
 
 
 class Signing(unittest.TestCase):

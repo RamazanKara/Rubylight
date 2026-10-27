@@ -8,13 +8,17 @@ Updates the workspace version (Cargo.toml and the workspace crates in
 Cargo.lock); the full version, "Download <label>" and "For <label>," in the
 READMEs and docs; the title, history and installer names in
 rust/RELEASE_NOTES.md; and adds a "## New in <label>" section above the
-previous one: the contents of --notes, or the bullets to fill in.
+previous one: "## Unreleased", the fragments in rust/release/notes.d
+(fragments.py; deleted once they are in), then the contents of --notes, or
+the bullets to fill in.
 
 The label is the version, except that 2.0.0 release candidates were "rc.N".
 Alpha and beta versions keep their full version so that 3.0.0-alpha.1 and
 3.1.0-alpha.1 get different sections.
 """
 import argparse, pathlib, re, sys
+
+import fragments
 
 parser = argparse.ArgumentParser()
 parser.add_argument('version')
@@ -24,6 +28,8 @@ root = pathlib.Path(__file__).resolve().parents[2]
 new = args.version.removeprefix('v')
 VERSION = r'\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?'
 assert re.fullmatch(VERSION, new), new
+# Read before anything is written, so a malformed fragment changes nothing.
+bullets, fragment_files = fragments.read(root / fragments.NOTES_D)
 
 
 def label(version):
@@ -74,7 +80,7 @@ for name in ('package.json', 'package-lock.json'):
     path.write_text(text, encoding='utf-8', newline='')
 
 notes = root / 'rust/RELEASE_NOTES.md'
-lines = notes.read_text(encoding='utf-8').split('\n')
+lines = fragments.merge(notes.read_text(encoding='utf-8').split('\n'), bullets)
 assert old in lines[0], lines[0]
 lines[0] = lines[0].replace(old, new)
 history = next(i for i, l in enumerate(lines) if l.startswith('**Release history:** '))
@@ -105,5 +111,9 @@ for setup in ('butterpollo-setup', 'rubylight-setup'):
 for package in ('butterpollo-rust', 'rubylight'):
     text = text.replace(f'{package}-{old}-windows-x64.zip`', f'rubylight-{new}-windows-x64.zip`')
 notes.write_text(text, encoding='utf-8', newline='')
+for path in fragment_files:
+    path.unlink()
+if fragment_files:
+    print(f'{len(fragment_files)} fragments from {fragments.NOTES_D} are in the notes and deleted')
 print(f'{old} -> {new}; {count} crates in Cargo.lock; fill in "## New in {label(new)}" in rust/RELEASE_NOTES.md'
       if not args.notes else f'{old} -> {new}; {count} crates in Cargo.lock')

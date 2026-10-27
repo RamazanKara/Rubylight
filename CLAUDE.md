@@ -25,12 +25,13 @@ Read the relevant doc instead of exploring: [docs/building.md](docs/building.md)
 - Disk fills up: share `C:\src\rl-target` across worktrees and delete stale worktree `target\` folders.
 - `core.autocrlf=input`: keep LF (`open(..., newline='')`); edit with the Edit tool, not patch scripts.
 - Heredocs and PowerShell here-strings break here: write multi-line scripts and commit messages to a file (`python f.py || exit 1`, `git commit -F f`). Join rebase and push with `&&`, never `;` or a pipe, and grep for `^<<<<<<<` before `git add`.
+- Fast loop: `tools\dev.ps1 check` runs only the checks the changed files need (`-DryRun` for the plan); `tools\wt.ps1 new|rm <topic>` makes or removes `C:\src\rl-<topic>` with its own `C:\src\rl-target-<topic>`; hardware cases live in `tools/hw/catalog.yaml`, run per device with `tools\hw\run.ps1 -Batch <device>`.
 - Parallel agents each get their own worktree. Never `git stash` (shared across worktrees); move changes with `git diff --binary` and `git apply -3`.
 
 ## CI and release
 - CI: `.github/workflows/rust-windows.yml` (windows-2022, 2× minutes) on pushes to main touching `rust/**`, `client/protocol/**`, Cargo or toolchain files; docs-only commits skip it. `nightjar-android.yml` runs on `client/**` (`client/.github/workflows` only run in the nightjar mirror). Always pass `-R RamazanKara/Rubylight` to `gh`.
 - Versions: patch bump for fixes, minor for features; fewer, well-tested releases. Commit style: `fix(stream): ...`, no model names.
-- Release (details in rust/release/README.md): changes go under `## Unreleased` in `rust/RELEASE_NOTES.md`. Run `python rust/release/bump.py X.Y.Z`, fill in `## New in X.Y.Z` with a "Tested." paragraph of our own measurements, check it with `python rust/release/notes.py vX.Y.Z --out body.md`, commit, push main.
+- Release (details in rust/release/README.md): changes go in `rust/release/notes.d/<topic>.md` fragments (Nightjar: `client/notes.d`, EN and DE, assembled by `tools/nightjar_notes.py`). Run `python rust/release/bump.py X.Y.Z`, fill in `## New in X.Y.Z` with a "Tested." paragraph of our own measurements, check it with `python rust/release/notes.py vX.Y.Z --out body.md`, commit, push main.
 - Tag the exact SHA whose main run is green, not HEAD: `git tag -a vX.Y.Z -m "Rubylight X.Y.Z" <sha> && git push origin vX.Y.Z`. Expect 3 assets (setup exe, zip, SHA256SUMS), then run `rust/release/check.ps1 vX.Y.Z` on this PC.
 - Never delete a published release or move a tag unless the user says so.
 

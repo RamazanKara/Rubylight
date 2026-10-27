@@ -710,7 +710,11 @@ mod tests {
         watch.set(Watch::Off);
         let paused = *reports.lock().unwrap();
         std::thread::sleep(Duration::from_millis(200));
-        assert_eq!(*reports.lock().unwrap(), paused, "a paused watcher reported");
+        assert_eq!(
+            *reports.lock().unwrap(),
+            paused,
+            "a paused watcher reported"
+        );
         watch.set(Watch::On { max_text: 64 });
         wait_until(|| *reports.lock().unwrap() > paused);
         assert_eq!(watch.control.state().thread, thread);
@@ -735,7 +739,12 @@ mod tests {
         wait_until(|| error.lock().unwrap().is_some());
         *LINGERING.lock().unwrap() -= 1;
         assert!(
-            error.lock().unwrap().as_deref().unwrap().contains("still stuck"),
+            error
+                .lock()
+                .unwrap()
+                .as_deref()
+                .unwrap()
+                .contains("still stuck"),
             "{:?}",
             error.lock().unwrap()
         );

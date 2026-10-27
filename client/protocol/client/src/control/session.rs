@@ -733,15 +733,21 @@ mod tests {
             "blocks before start are not counted"
         );
 
-        // A second without video sends nothing; the next report still follows with seq 1.
+        // A second without video sends a report without shards, so the host's reports stay
+        // fresh; the next one follows with seq 2.
         s.poll(first + Duration::from_millis(1000));
-        assert!(reports(&mut s).is_empty());
+        let idle = reports(&mut s);
+        assert_eq!(idle.len(), 1);
+        assert_eq!(
+            (idle[0].1.seq, idle[0].1.data_shards, idle[0].1.parity_shards),
+            (1, 0, 0)
+        );
         let second = first + Duration::from_millis(2100);
         s.fec_block(block(0, false), second - Duration::from_millis(500));
         s.poll(second);
         let sent = reports(&mut s);
         assert_eq!(sent.len(), 1);
-        assert_eq!((sent[0].1.seq, sent[0].1.interval_ms), (1, 1100));
+        assert_eq!((sent[0].1.seq, sent[0].1.interval_ms), (2, 1100));
 
         // A stall past 5 s can't be timed: dropped, and counting starts again.
         s.fec_block(block(0, false), second);

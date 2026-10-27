@@ -218,7 +218,7 @@ The layouts below are little-endian; byte 0 is the version, `1`.
 | 20 | u16 | unrecovered_blocks | blocks that lost more shards than they had parity |
 | 22 | u16 | interval_ms | the measured interval, 250-5000 (nominally 1000) |
 
-The client sends one every second while `0x5539` is offered. The host acts on it only when the launch asked for `rlFecPercentage=auto`, and logs it otherwise.
+The client sends one every second while `0x5539` is offered, from its first video block on; a second without video sends one with zero shards, which keeps the host's reports fresh. The host acts on it only when the launch asked for `rlFecPercentage=auto`, and logs it otherwise.
 
 ### 0x553A USB forwarding
 

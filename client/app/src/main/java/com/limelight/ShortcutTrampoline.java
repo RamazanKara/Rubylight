@@ -29,6 +29,7 @@ import com.limelight.nvstream.wol.WakeTargets;
 import com.limelight.utils.CacheHelper;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.FrontendEntry;
+import com.limelight.utils.LaunchSource;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.SpinnerDialog;
 import com.limelight.utils.UiHelper;
@@ -47,6 +48,8 @@ import java.util.UUID;
 
 public class ShortcutTrampoline extends Activity {
     private String uuidString;
+    // A shortcut's or frontend's start, and the app that sent it: the stream logs it.
+    private String launchSource = LaunchSource.SHORTCUT;
     private NvApp app;
     private ArrayList<Intent> intentStack = new ArrayList<>();
 
@@ -240,7 +243,8 @@ public class ShortcutTrampoline extends Activity {
                 if (details.runningGameId == 0 || app.getControl() != NvApp.Control.NONE ||
                         details.caps.has(HostCapabilities.Feature.HOST_CONFIRMS_REPLACEMENT) ||
                         app.matchesRunningApp(details.runningGameId, details.runningGameUuid)) {
-                    intentStack.add(ServerHelper.createStartIntent(ShortcutTrampoline.this, app, details, managerBinder));
+                    intentStack.add(ServerHelper.createStartIntent(ShortcutTrampoline.this, app, details, managerBinder,
+                            launchSource));
 
                     // Close this activity
                     finish();
@@ -250,7 +254,8 @@ public class ShortcutTrampoline extends Activity {
                 } else {
                     // Create the start intent immediately, so we can safely unbind the managerBinder
                     // below before we return.
-                    final Intent startIntent = ServerHelper.createStartIntent(ShortcutTrampoline.this, app, details, managerBinder);
+                    final Intent startIntent = ServerHelper.createStartIntent(ShortcutTrampoline.this, app, details,
+                            managerBinder, launchSource);
 
                     UiHelper.displayQuitConfirmationDialog(ShortcutTrampoline.this, new Runnable() {
                         @Override
@@ -291,7 +296,8 @@ public class ShortcutTrampoline extends Activity {
                 if (details.runningGameId != 0
                         && !PinGate.needsPinForStream(ShortcutTrampoline.this, uuidString)) {
                     intentStack.add(ServerHelper.createStartIntent(ShortcutTrampoline.this,
-                            new NvApp(null, details.runningGameId, false), details, managerBinder));
+                            new NvApp(null, details.runningGameId, false), details, managerBinder,
+                            LaunchSource.SHORTCUT_RUNNING));
                 }
 
                 // Now start the activities
@@ -377,7 +383,11 @@ public class ShortcutTrampoline extends Activity {
         UiHelper.notifyNewRootView(this);
 
         // Beacon, ES-DE, Daijisho and other frontends hand us a game entry file instead of extras
-        if (Intent.ACTION_VIEW.equals(getIntent().getAction()) && getIntent().getData() != null) {
+        boolean frontend = Intent.ACTION_VIEW.equals(getIntent().getAction()) && getIntent().getData() != null;
+        Uri referrer = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP_MR1 ?
+                getReferrer() : null;
+        launchSource = LaunchSource.external(frontend, referrer != null ? referrer.getHost() : null);
+        if (frontend) {
             Intent entryIntent = readFrontendEntry(getIntent().getData());
             if (entryIntent == null) {
                 return;

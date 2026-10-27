@@ -31,6 +31,7 @@ import com.limelight.ui.Motion;
 import com.limelight.ui.NightjarActivity;
 import com.limelight.ui.ShellBar;
 import com.limelight.ui.TopAppBar;
+import com.limelight.utils.LaunchSource;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.UiHelper;
 
@@ -741,7 +742,8 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
                 if (binder == null) {
                     hostActions.showError(details.displayName(), getString(R.string.error_manager_not_running), null);
                 } else if (action == HostMenu.RESUME) {
-                    ServerHelper.doStart(this, HostMenu.runningApp(null, details), details, binder);
+                    ServerHelper.doStart(this, HostMenu.runningApp(null, details), details, binder,
+                            LaunchSource.CONSOLE_RESUME);
                 } else {
                     UiHelper.displayQuitConfirmationDialog(this, () -> ServerHelper.doQuit(this, details,
                             HostMenu.runningApp(null, details), binder, null), null);

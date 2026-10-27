@@ -616,7 +616,7 @@ impl App {
                     Ok(()) => {
                         if let Some((host, app)) = self.pending_launch.take() {
                             if host == id {
-                                self.launch(host, app, false);
+                                self.launch(host, app, false, LaunchFrom::Replace);
                             }
                         }
                     }
@@ -758,7 +758,7 @@ impl App {
 
     fn command(&mut self, command: Command) {
         match command {
-            Command::Launch { host, app, resume } => self.launch(host, app, resume),
+            Command::Launch { host, app, resume } => self.launch(host, app, resume, LaunchFrom::Launcher),
             Command::ToggleFavourite(entry) => {
                 config::toggle_favourite(&mut self.launcher.favourites, entry);
                 if let Err(e) = self.store.save_favourites(&self.launcher.favourites) {
@@ -775,7 +775,7 @@ impl App {
                         tr("The running app changed"),
                         tr("The PC runs another app now. Check the screen and try again."),
                     ),
-                    console::Running::Gone => self.launch(host, app, false),
+                    console::Running::Gone => self.launch(host, app, false, LaunchFrom::Replace),
                     console::Running::Same => {
                         self.pending_launch = Some((host, app));
                         self.hosts.quit_app(host);
@@ -1072,7 +1072,7 @@ impl App {
                 self.hosts.pair(id, auto.pin.clone(), None);
             }
             autostream::Step::LoadApps(id) => self.hosts.load_apps(id),
-            autostream::Step::Launch(host, app) => self.launch(host, app, false),
+            autostream::Step::Launch(host, app) => self.launch(host, app, false, LaunchFrom::Autostream),
             autostream::Step::Fail(why) => {
                 auto.fail(&why);
                 self.running = false;
@@ -1105,7 +1105,7 @@ impl App {
             cli::Step::Wait => {}
             cli::Step::OpenApps(id) => self.command(Command::OpenApps(id)),
             cli::Step::LoadApps(id) => self.hosts.load_apps(id),
-            cli::Step::Launch(host, app, resume) => self.launch(host, app, resume),
+            cli::Step::Launch(host, app, resume) => self.launch(host, app, resume, LaunchFrom::CommandLine),
             cli::Step::Fail(why) => {
                 cli.fail(&why);
                 self.running = false;
@@ -1117,8 +1117,10 @@ impl App {
         }
     }
 
-    fn launch(&mut self, host_id: u64, app_id: i32, resume: bool) {
-        if self.connecting.is_some() || self.network_launch.is_some() { return; }
+    fn launch(&mut self, host_id: u64, app_id: i32, resume: bool, from: LaunchFrom) {
+        let busy = self.connecting.is_some() || self.network_launch.is_some();
+        eprintln!("nightjar: {}", launch_line(from, app_id, resume, busy));
+        if busy { return; }
         self.network_launch = Some((host_id, app_id, resume));
         self.network_query = Some(network::query(self.waker.clone()));
     }
@@ -1805,6 +1807,39 @@ fn remove_host(
     save_hosts(store, hosts);
 }
 
+/// What asked for a launch. The log names it, so it shows what had the PC start or replace a game.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LaunchFrom {
+    /// A tile, Continue playing or Resume in the launcher.
+    Launcher,
+    /// The launcher's prompt to quit the running app and start this one.
+    Replace,
+    /// `--autostream`.
+    Autostream,
+    /// A `--host` command line.
+    CommandLine,
+}
+
+impl LaunchFrom {
+    fn as_str(self) -> &'static str {
+        match self {
+            LaunchFrom::Launcher => "launcher",
+            LaunchFrom::Replace => "launcher, quit and start",
+            LaunchFrom::Autostream => "autostream",
+            LaunchFrom::CommandLine => "command line",
+        }
+    }
+}
+
+fn launch_line(from: LaunchFrom, app_id: i32, resume: bool, busy: bool) -> String {
+    format!(
+        "launch from {}: app {app_id}{}{}",
+        from.as_str(),
+        if resume { ", resume" } else { "" },
+        if busy { ", ignored: another stream is starting" } else { "" }
+    )
+}
+
 /// What a launch can do with a PC's app list as it is now.
 enum LaunchApp {
     Ready(nightjar_core::http::App),
@@ -1835,6 +1870,18 @@ mod shot;
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn a_launch_logs_what_asked_for_it() {
+        assert_eq!(launch_line(LaunchFrom::Launcher, 5, false, false), "launch from launcher: app 5");
+        assert_eq!(launch_line(LaunchFrom::Launcher, 5, true, false), "launch from launcher: app 5, resume");
+        assert_eq!(
+            launch_line(LaunchFrom::Replace, 7, false, true),
+            "launch from launcher, quit and start: app 7, ignored: another stream is starting"
+        );
+        assert_eq!(launch_line(LaunchFrom::Autostream, 1, false, false), "launch from autostream: app 1");
+        assert_eq!(launch_line(LaunchFrom::CommandLine, 2, true, false), "launch from command line: app 2, resume");
+    }
 
     #[test]
     fn a_launch_waits_for_an_app_list_being_read_again_instead_of_dropping() {

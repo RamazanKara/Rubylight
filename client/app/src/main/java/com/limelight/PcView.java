@@ -33,6 +33,7 @@ import com.limelight.update.UpdateFlow;
 import com.limelight.utils.CacheHelper;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.HelpLauncher;
+import com.limelight.utils.LaunchSource;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.ShortcutHelper;
 import com.limelight.utils.UiHelper;
@@ -587,7 +588,8 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
                     hostActions.showError(computer.details.displayName(), getString(R.string.error_manager_not_running), null);
                     return true;
                 }
-                ServerHelper.doStart(this, HostMenu.runningApp(computer.runningGame, computer.details), computer.details, managerBinder);
+                ServerHelper.doStart(this, HostMenu.runningApp(computer.runningGame, computer.details), computer.details, managerBinder,
+                        LaunchSource.PC_RESUME);
                 return true;
 
             case QUIT_ID:

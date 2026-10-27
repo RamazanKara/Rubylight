@@ -31,6 +31,7 @@ import com.limelight.ui.TopAppBar;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.limelight.utils.CacheHelper;
 import com.limelight.utils.Dialog;
+import com.limelight.utils.LaunchSource;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.ShortcutHelper;
 import androidx.appcompat.widget.SearchView;
@@ -788,7 +789,7 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
                 showAppListStatus(R.string.library_offline);
                 return;
             }
-            ServerHelper.doStart(this, app.app, computer, managerBinder, true);
+            ServerHelper.doStart(this, app.app, computer, managerBinder, true, LaunchSource.LIBRARY_INPUT_ONLY);
         });
     }
 
@@ -838,7 +839,7 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
      */
     private void startInsteadOfRunning(AppObject app) {
         if (hostConfirmsReplacement() || !computer.hasPermission(ComputerDetails.PERMISSION_LAUNCH)) {
-            ServerHelper.doStart(this, app.app, computer, managerBinder);
+            ServerHelper.doStart(this, app.app, computer, managerBinder, LaunchSource.LIBRARY_REPLACE);
             return;
         }
         AppObject running = runningApp();
@@ -847,7 +848,8 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
                         getString(R.string.library_replace_message_named, running.app.getAppName(), app.app.getAppName()) :
                         getString(R.string.library_replace_message, app.app.getAppName()))
                 .setPositiveButton(R.string.library_replace_confirm,
-                        (dialog, which) -> ServerHelper.doStart(this, app.app, computer, managerBinder))
+                        (dialog, which) -> ServerHelper.doStart(this, app.app, computer, managerBinder,
+                                LaunchSource.LIBRARY_REPLACE))
                 .setNegativeButton(android.R.string.cancel, null).create());
     }
 
@@ -864,7 +866,7 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
 
             case START_OR_RESUME_ID:
                 // Resume is the same as start for us
-                ServerHelper.doStart(AppView.this, app.app, computer, managerBinder);
+                ServerHelper.doStart(AppView.this, app.app, computer, managerBinder, LaunchSource.LIBRARY_MENU);
                 return true;
 
             case QUIT_ID:
@@ -1083,7 +1085,7 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
                 if (hostRunningGame && !app.isRunning && app.app.getControl() == NvApp.Control.NONE) {
                     startInsteadOfRunning(app);
                 } else {
-                    ServerHelper.doStart(AppView.this, app.app, computer, managerBinder, arg1);
+                    ServerHelper.doStart(AppView.this, app.app, computer, managerBinder, arg1, LaunchSource.LIBRARY_TAP);
                 }
             }
         });

@@ -87,14 +87,16 @@ public class ServerHelper {
         return i;
     }
 
+    /** {@code source} says what asked for the start (see {@link LaunchSource}); the stream logs it. */
     public static Intent createStartIntent(Activity parent, NvApp app, ComputerDetails computer,
-                                           ComputerManagerService.ComputerManagerBinder managerBinder) {
-        return createStartIntent(parent, app, computer, managerBinder, true);
+                                           ComputerManagerService.ComputerManagerBinder managerBinder, String source) {
+        return createStartIntent(parent, app, computer, managerBinder, true, source);
     }
 
     /** {@code record} false leaves the "Continue playing" entry to whoever really starts the stream (the PIN screen). */
     private static Intent createStartIntent(Activity parent, NvApp app, ComputerDetails computer,
-                                            ComputerManagerService.ComputerManagerBinder managerBinder, boolean record) {
+                                            ComputerManagerService.ComputerManagerBinder managerBinder, boolean record,
+                                            String source) {
         if (record && app.getRole() == NvApp.Role.STREAM) {
             // Every start goes through here, so this is the list "Continue playing" reads.
             new PreferencesRecentsStore(parent).record(
@@ -112,6 +114,7 @@ public class ServerHelper {
         intent.putExtra(Game.EXTRA_UNIQUEID, managerBinder.getUniqueId());
         intent.putExtra(Game.EXTRA_PC_UUID, computer.uuid);
         intent.putExtra(Game.EXTRA_PC_NAME, computer.displayName());
+        LaunchSource.put(intent, source);
         try {
             if (computer.serverCert != null) {
                 intent.putExtra(Game.EXTRA_SERVER_CERT, computer.serverCert.getEncoded());
@@ -122,15 +125,16 @@ public class ServerHelper {
         return intent;
     }
 
+    /** Starts the game; {@code source} says what asked for it (see {@link LaunchSource}). */
     public static void doStart(Activity parent, NvApp app, ComputerDetails computer,
-                               ComputerManagerService.ComputerManagerBinder managerBinder) {
-        doStart(parent, app, computer, managerBinder, false);
+                               ComputerManagerService.ComputerManagerBinder managerBinder, String source) {
+        doStart(parent, app, computer, managerBinder, false, source);
     }
 
     /** Starts the game; on a TV the stream's window grows out of {@code origin}, the poster that was chosen. */
     public static void doStart(Activity parent, NvApp app, ComputerDetails computer,
-                               ComputerManagerService.ComputerManagerBinder managerBinder, View origin) {
-        doStart(parent, app, computer, managerBinder, false, launchOptions(parent, origin));
+                               ComputerManagerService.ComputerManagerBinder managerBinder, View origin, String source) {
+        doStart(parent, app, computer, managerBinder, false, launchOptions(parent, origin), source);
     }
 
     /**
@@ -151,19 +155,20 @@ public class ServerHelper {
 
     /** Starts the game; with {@code smallStreamInputOnly}, as Input-only over a small stream this device does not show. */
     public static void doStart(Activity parent, NvApp app, ComputerDetails computer,
-                               ComputerManagerService.ComputerManagerBinder managerBinder, boolean smallStreamInputOnly) {
-        doStart(parent, app, computer, managerBinder, smallStreamInputOnly, null);
+                               ComputerManagerService.ComputerManagerBinder managerBinder, boolean smallStreamInputOnly,
+                               String source) {
+        doStart(parent, app, computer, managerBinder, smallStreamInputOnly, null, source);
     }
 
     private static void doStart(Activity parent, NvApp app, ComputerDetails computer,
                                 ComputerManagerService.ComputerManagerBinder managerBinder, boolean smallStreamInputOnly,
-                                android.os.Bundle options) {
+                                android.os.Bundle options, String source) {
         if (computer.state == ComputerDetails.State.OFFLINE || computer.activeAddress == null) {
             Toast.makeText(parent, parent.getResources().getString(R.string.pair_pc_offline), Toast.LENGTH_SHORT).show();
             return;
         }
         boolean pin = PinGate.needsPinForStream(parent, computer.uuid);
-        Intent intent = createStartIntent(parent, app, computer, managerBinder, !pin);
+        Intent intent = createStartIntent(parent, app, computer, managerBinder, !pin, source);
         if (smallStreamInputOnly) {
             intent.putExtra(Game.EXTRA_SMALL_STREAM_INPUT_ONLY, true);
         }

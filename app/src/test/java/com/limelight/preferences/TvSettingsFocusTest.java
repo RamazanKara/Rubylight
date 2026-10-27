@@ -94,7 +94,7 @@ public class TvSettingsFocusTest {
         ListView list = sections(screen);
         assertTrue("the rail has the first focus", list.hasFocus());
         // Up to the top: Search, then the rows in their TV order.
-        for (int i = 0; i < list.getCount(); i++) press(screen, KeyEvent.KEYCODE_DPAD_UP);
+        for (int i = 0; i < list.getCount() && list.getSelectedItemPosition() != 0; i++) press(screen, KeyEvent.KEYCODE_DPAD_UP);
         assertEquals(StreamSettings.SEARCH_ROW_KEY, keyAt(list, list.getSelectedItemPosition()));
         List<String> visited = new ArrayList<>();
         visited.add(keyAt(list, list.getSelectedItemPosition()));

@@ -550,9 +550,14 @@ fn expected(feature: Feature) -> Availability {
         | Feature::NativeApi
         | Feature::Sleep => Supported,
         Feature::ServerCommands => Unsupported(Some(Reason::NoCommands)),
-        // Display modes are the virtual display's.
+        // Display modes are the virtual display's. Before Windows 11 (CI's Server 2022)
+        // the default mode is disabled, so the host says it is off, not missing a driver.
         Feature::VirtualDisplay | Feature::VirtualDisplayHdr | Feature::HostDisplayModes => {
-            Unsupported(Some(Reason::VirtualDisplayDriver))
+            if butterpollo_windows::display::virtual_display_os() {
+                Unsupported(Some(Reason::VirtualDisplayDriver))
+            } else {
+                Unsupported(Some(Reason::VirtualDisplayOff))
+            }
         }
         Feature::HardwareMetrics => Unsupported(Some(Reason::HardwareMetricsOff)),
         // No PyroWave encoder: ServerCodecModeSupport has no PyroWave profile.

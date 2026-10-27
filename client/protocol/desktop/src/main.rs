@@ -13,6 +13,7 @@ mod cli;
 mod clipboard;
 mod config;
 mod console;
+mod folders_page;
 mod controller_audio;
 mod controller_mouse;
 mod gamepad;
@@ -97,6 +98,15 @@ impl Drop for TimerResolution {
     }
 }
 
+/// What a file dialog of the shared folder browser was opened for, with where the browser was
+/// then.
+enum FolderPick {
+    /// The folder to save the PC's file `name` in.
+    Download { host: u64, at: folders_page::Place, name: String },
+    /// The file to upload.
+    Upload { host: u64, at: folders_page::Place },
+}
+
 struct App {
     window: *mut SDL_Window,
     renderer: *mut SDL_Renderer,
@@ -113,6 +123,8 @@ struct App {
     pending_launch: Option<(u64, i32)>,
     identity: Option<Receiver<Result<ClientIdentity, String>>>,
     shortcut_file: Option<(bool, sdl::FileChoice)>,
+    /// A folder to download into, or a file to upload, being chosen for the shared folder browser.
+    folder_pick: Option<(FolderPick, sdl::FileChoice)>,
     network_query: Option<Receiver<network::Network>>,
     network_test: Option<network_test::Test>,
     network_launch: Option<(u64, i32, bool)>,
@@ -356,6 +368,7 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
         pending_launch: None,
         identity: None,
         shortcut_file: None,
+        folder_pick: None,
         network_query: Some(network::query(waker.clone())),
         network_test: None,
         network_launch: None,
@@ -584,6 +597,16 @@ impl App {
                     Ok(None) => {}
                     Err(e) => self.launcher.message(tr("File dialog unavailable"), e),
                 }
+            }
+        }
+        if let Some(result) = self.folder_pick.as_ref().and_then(|(_, receiver)| receiver.try_recv().ok()) {
+            let pick = self.folder_pick.take().map(|(pick, _)| pick);
+            match (pick, result) {
+                (Some(FolderPick::Download { host, at, name }), Ok(Some(dir))) => self.launcher.folders.download(host, &at, &name, dir),
+                (Some(FolderPick::Upload { host, at }), Ok(Some(file))) => self.launcher.folders.upload(host, &at, file),
+                (_, Err(e)) => self.launcher.message(tr("File dialog unavailable"), e),
+                // Cancelled.
+                (_, Ok(None)) | (None, Ok(Some(_))) => {}
             }
         }
         if let Some(receiver) = &self.identity {
@@ -944,6 +967,23 @@ impl App {
             Command::RemoteCheck(id) => {
                 if let Some(host) = self.hosts.get(id) {
                     host_page::start_check(&mut self.launcher.remote, self.hosts.identity(), host, self.waker.clone());
+                }
+            }
+            Command::SharedFolders(id) => {
+                if let Some(host) = self.hosts.get(id) {
+                    folders_page::start(&mut self.launcher.folders, self.hosts.identity(), host, self.waker.clone());
+                }
+            }
+            Command::FolderDownload { host, name } => {
+                let at = self.launcher.folders.state_for(host).map(|open| open.place.clone());
+                if let (None, Some(at)) = (&self.folder_pick, at) {
+                    self.folder_pick = Some((FolderPick::Download { host, at, name }, sdl::choose_path(self.window, true)));
+                }
+            }
+            Command::FolderUpload(host) => {
+                let at = self.launcher.folders.state_for(host).map(|open| open.place.clone());
+                if let (None, Some(at)) = (&self.folder_pick, at) {
+                    self.folder_pick = Some((FolderPick::Upload { host, at }, sdl::choose_path(self.window, false)));
                 }
             }
             Command::OpenWebUi(url) => {

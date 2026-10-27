@@ -207,6 +207,7 @@ mod tests {
     const SOURCES: [(&str, &str); 12] = [
         ("ui.rs", include_str!("ui.rs")),
         ("host_page.rs", include_str!("host_page.rs")),
+        ("folders_page.rs", include_str!("folders_page.rs")),
         ("session_ui.rs", include_str!("session_ui.rs")),
         ("session_page.rs", include_str!("session_page.rs")),
         ("main.rs", include_str!("main.rs")),

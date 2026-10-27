@@ -119,6 +119,8 @@ pub struct Facts {
     /// The host takes this device's keyboard layout (0x553E).
     pub keyboard_layout: bool,
     pub clipboard: bool,
+    /// The PC takes and gives PNG images on its clipboard (Experimental).
+    pub image_clipboard: bool,
     pub server_commands: Vec<String>,
     pub runtime_bitrate: bool,
     pub reconfigure: bool,
@@ -970,6 +972,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
             && outcome.host_control_messages.contains(&rubylight_protocol::keyboard_layout::KEYBOARD_LAYOUT_MESSAGE_TYPE)
             && role != AppRole::RemoteMonitor,
         clipboard: plan.info.capabilities.has(Feature::Clipboard) && role != AppRole::RemoteMonitor,
+        image_clipboard: plan.info.capabilities.has(Feature::ImageClipboard) && role != AppRole::RemoteMonitor,
         server_commands: if plan.info.capabilities.has(Feature::ServerCommands) && role != AppRole::RemoteMonitor {
             plan.info.server_commands.iter().take(256).cloned().collect()
         } else { Vec::new() },
@@ -1628,6 +1631,17 @@ impl Streaming {
                         Err(error) => self.show_toast(error),
                     }
                 }
+                Notice::ClipboardImage(result) => {
+                    self.clipboard_busy = false;
+                    match result {
+                        Ok(Some(image)) => match crate::clipboard::write(image) {
+                            Ok(()) => self.show_toast(tr("PC image copied to this device.")),
+                            Err(error) => self.show_toast(trf("Could not put the PC's image on this device's clipboard: {}", &[&error])),
+                        },
+                        Ok(None) => self.show_toast(tr("Image sent to the PC.")),
+                        Err(error) => self.show_toast(error),
+                    }
+                }
                 Notice::Control(event) => self.control_event(event, pads),
                 Notice::ServerCommand(result) => {
                     self.command_busy = false;
@@ -1821,6 +1835,44 @@ impl Streaming {
                 }.map_err(|e| e.to_string())
             });
             shared.notify(Notice::Clipboard(result));
+        });
+    }
+
+    /// Sends the image on this device's clipboard to the PC, or (`send` false) puts the PC's
+    /// image on this device's clipboard. Every failure says what failed.
+    pub fn clipboard_image(&mut self, send: bool) {
+        if !self.facts.image_clipboard || self.clipboard_busy { return; }
+        let client = lock(&self.shared.host_client).clone().expect("connected HTTP client");
+        let local = if send {
+            match crate::clipboard::read() {
+                Ok(Some(local)) => Some(local),
+                Ok(None) => {
+                    self.show_toast(tr("The clipboard on this device holds no image."));
+                    return;
+                }
+                Err(error) => {
+                    self.show_toast(trf("Could not read the image on this device's clipboard: {}", &[&error]));
+                    return;
+                }
+            }
+        } else { None };
+        let shared = self.shared.clone();
+        self.clipboard_busy = true;
+        std::thread::spawn(move || {
+            let result = match local {
+                Some(local) => crate::clipboard::to_png(local)
+                    .map_err(|e| trf("Could not convert the image on this device's clipboard to PNG: {}", &[&e]))
+                    .and_then(|png| client.send_clipboard_image(&png).map_err(|e| image_error(e, true)))
+                    .map(|()| None),
+                None => match client.clipboard_image() {
+                    Ok(Some(png)) => crate::clipboard::from_png(&png)
+                        .map(Some)
+                        .map_err(|e| trf("Could not read the PC's image: {}", &[&e])),
+                    Ok(None) => Err(tr("The PC's clipboard holds no image.").to_owned()),
+                    Err(e) => Err(image_error(e, false)),
+                },
+            };
+            shared.notify(Notice::ClipboardImage(result));
         });
     }
 
@@ -2912,6 +2964,21 @@ impl Streaming {
     }
 }
 
+/// What the stream menu says when the PC's image clipboard refused or failed (`send`: this
+/// device's image to the PC).
+fn image_error(error: nightjar_core::http::ImageClipboardError, send: bool) -> String {
+    use nightjar_core::http::ImageClipboardError as E;
+    match error {
+        E::TooLarge(why) => trf("The image is too large for the PC's clipboard: {}", &[&why]),
+        E::NotPng(why) if send => trf("The image on this device's clipboard is no valid PNG: {}", &[&why]),
+        E::NotPng(why) => trf("The PC sent no valid PNG image: {}", &[&why]),
+        E::Unsupported if send => tr("The PC could not read this image.").to_owned(),
+        E::Unsupported => tr("The PC could not convert the image on its clipboard.").to_owned(),
+        E::Forbidden => tr("The PC refused its image clipboard to this device. Check the device's clipboard permissions on the PC; images move only during a stream of this device.").to_owned(),
+        E::Host(e) => trf("The PC's image clipboard did not answer: {}", &[&e]),
+    }
+}
+
 /// Ctrl+Alt+Shift is Nightjar's own chord; every other one, a host's own menu chord such as
 /// Ctrl+Alt+Backspace included, goes to the PC like any key.
 fn local_chord(modifiers: SDL_Keymod) -> bool {
@@ -2950,6 +3017,26 @@ fn key_input(scancode: SDL_Scancode, held: SDL_Keymod, system_keys: bool, right_
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_image_clipboard_refusal_says_its_own_reason() {
+        use nightjar_core::http::{Error, ImageClipboardError as E};
+        let texts = [
+            image_error(E::TooLarge("20 MB".into()), true),
+            image_error(E::NotPng("bad header".into()), true),
+            image_error(E::NotPng("bad header".into()), false),
+            image_error(E::Unsupported, true),
+            image_error(E::Unsupported, false),
+            image_error(E::Forbidden, false),
+            image_error(E::Host(Error::Cancelled), false),
+        ];
+        assert!(texts[0].contains("too large") && texts[0].contains("20 MB"));
+        assert!(texts[1].contains("this device") && texts[1].contains("bad header"));
+        assert!(texts[2].contains("The PC sent"));
+        assert!(texts[6].contains(&Error::Cancelled.to_string()));
+        let distinct: HashSet<&String> = texts.iter().collect();
+        assert_eq!(distinct.len(), texts.len(), "{texts:#?}");
+    }
 
     #[test]
     fn ctrl_alt_backspace_goes_to_the_pc_and_only_ctrl_alt_shift_stays_local() {

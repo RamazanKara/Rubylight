@@ -70,6 +70,9 @@ pub enum Notice {
     /// Audio passthrough was asked for, but the PC sends Opus; the stream plays on with a message.
     PassthroughOpus,
     Clipboard(Result<Option<String>, String>),
+    /// An image sent to the PC (`None`) or taken from it, ready for the clipboard here; the
+    /// error is the text to show.
+    ClipboardImage(Result<Option<crate::clipboard::Prepared>, String>),
     ServerCommand(Result<Vec<u8>, String>),
     /// The host's answer to opening its menu; the error is the text to show.
     HostMenu(Result<(), String>),

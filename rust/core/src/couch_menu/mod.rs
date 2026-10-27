@@ -374,6 +374,10 @@ mod tests {
                             assert_eq!(frame.size, [16, 16]);
                             reads.fetch_add(1, Ordering::Relaxed);
                         }
+                        // A panel is freed once no read is in flight, and four
+                        // readers that never pause starve that on a two-core CI
+                        // runner. The video loop reads once per frame.
+                        std::thread::yield_now();
                     }
                 })
             })

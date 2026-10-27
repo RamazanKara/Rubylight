@@ -57,6 +57,7 @@ pub mod pyrowave;
 pub mod radeon;
 pub mod rtss;
 pub mod service;
+pub mod shared_folder;
 pub mod steam;
 pub mod telemetry;
 mod text;

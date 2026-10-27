@@ -63,6 +63,10 @@ pub enum UserFolderError {
     InvalidName(NameError),
     /// The name is a folder or a link (a symbolic link or a junction).
     NotPlainFile,
+    /// What Windows opened is not the path asked for below a shared folder's
+    /// root: a link or mount point on the way leads elsewhere, or a name was
+    /// another name (8.3) of the file.
+    OutsideFolder,
     Io(io::Error),
 }
 impl std::fmt::Display for UserFolderError {
@@ -74,6 +78,9 @@ impl std::fmt::Display for UserFolderError {
             ),
             Self::InvalidName(error) => error.fmt(f),
             Self::NotPlainFile => f.write_str("not a plain file"),
+            Self::OutsideFolder => f.write_str(
+                "the path leaves the shared folder through a link, or names a file by another name",
+            ),
             Self::Io(error) => error.fmt(f),
         }
     }
@@ -100,7 +107,7 @@ impl From<NameError> for UserFolderError {
 
 /// A Win32 failure as the `io::Error` std would report, so callers can
 /// match its kind (`StorageFull`, `AlreadyExists`, ...).
-fn os_error(error: windows::core::Error) -> io::Error {
+pub(crate) fn os_error(error: windows::core::Error) -> io::Error {
     let code = error.code().0 as u32;
     if code & 0xFFFF_0000 == 0x8007_0000 {
         io::Error::from_raw_os_error((code & 0xFFFF) as i32)
@@ -111,9 +118,9 @@ fn os_error(error: windows::core::Error) -> io::Error {
 
 /// This thread runs as the user until the guard drops, also when the work
 /// fails or panics. Not `Send`: the impersonation belongs to this thread.
-struct Impersonation(PhantomData<*const ()>);
+pub(crate) struct Impersonation(PhantomData<*const ()>);
 impl Impersonation {
-    fn begin(token: Option<&OwnedHandle>) -> io::Result<Option<Self>> {
+    pub(crate) fn begin(token: Option<&OwnedHandle>) -> io::Result<Option<Self>> {
         let Some(token) = token else { return Ok(None) };
         // SAFETY: token is an open primary token of the signed-in user; the
         // returned guard reverts the impersonation on this thread.
@@ -137,7 +144,7 @@ impl Drop for Impersonation {
 /// session when the host runs as SYSTEM, the same user without
 /// administrator rights when it runs elevated, and none when the host
 /// already is that user.
-fn user_token() -> Result<Option<OwnedHandle>, UserFolderError> {
+pub(crate) fn user_token() -> Result<Option<OwnedHandle>, UserFolderError> {
     if !crate::process::is_system() {
         return standard_user(crate::process::standard_user_token());
     }
@@ -211,7 +218,7 @@ fn downloads(token: Option<&OwnedHandle>) -> Result<PathBuf, UserFolderError> {
 
 /// A plain file: not a folder or a link. Other reparse points, such as
 /// compressed (WOF), deduplicated or cloud files, hold the file's own data.
-fn plain(metadata: &Metadata) -> bool {
+pub(crate) fn plain(metadata: &Metadata) -> bool {
     metadata.is_file()
 }
 
@@ -235,7 +242,7 @@ fn verbatim(path: &Path) -> io::Result<Vec<u16>> {
     Ok([keep.as_slice(), &path[from..]].concat())
 }
 
-fn raw(file: &File) -> HANDLE {
+pub(crate) fn raw(file: &File) -> HANDLE {
     HANDLE(file.as_raw_handle())
 }
 
@@ -306,9 +313,47 @@ fn unmark(file: &File) -> io::Result<()> {
     .map_err(os_error)
 }
 
+/// The open plain file opened again, as the user, without
+/// FILE_FLAG_OPEN_REPARSE_POINT, so a compressed, deduplicated or cloud file
+/// reads as its data; with its length.
+pub(crate) fn reopen_for_data(
+    token: Option<&OwnedHandle>,
+    file: &File,
+) -> Result<(File, u64), UserFolderError> {
+    let reopened = {
+        let _user = Impersonation::begin(token)?;
+        // SAFETY: the handle is open for the call.
+        unsafe {
+            ReOpenFile(
+                raw(file),
+                FILE_GENERIC_READ.0,
+                FILE_SHARE_READ,
+                FILE_FLAGS_AND_ATTRIBUTES(0),
+            )
+        }
+        .map_err(os_error)?
+    };
+    // SAFETY: ReOpenFile returned a new open handle only this File closes.
+    let file = unsafe { File::from_raw_handle(reopened.0) };
+    let len = file.metadata()?.len();
+    Ok((file, len))
+}
+
 /// The name the open file has in its folder, as stored on disk: the long
 /// name even when it was opened by its 8.3 short name.
 fn final_name(file: &File) -> io::Result<OsString> {
+    let path = final_path(file)?;
+    let path: Vec<u16> = path.encode_wide().collect();
+    let start = path
+        .iter()
+        .rposition(|&unit| unit == u16::from(b'\\'))
+        .map_or(0, |separator| separator + 1);
+    Ok(OsString::from_wide(&path[start..]))
+}
+
+/// The whole path of the open file as Windows resolved it, with the `\\?\`
+/// prefix: links followed and 8.3 short names replaced by the long ones.
+pub(crate) fn final_path(file: &File) -> io::Result<OsString> {
     let mut path = vec![0u16; 512];
     loop {
         // SAFETY: the handle is open and path is a writable buffer.
@@ -324,11 +369,7 @@ fn final_name(file: &File) -> io::Result<OsString> {
         // Too small: len is the size needed, with the NUL.
         path.resize(len, 0);
     }
-    let start = path
-        .iter()
-        .rposition(|&unit| unit == u16::from(b'\\'))
-        .map_or(0, |separator| separator + 1);
-    Ok(OsString::from_wide(&path[start..]))
+    Ok(OsString::from_wide(&path))
 }
 
 /// Writes the Mark of the Web next to the data of the file at `path`.
@@ -355,6 +396,9 @@ pub struct FileEntry {
 pub struct UserFolder {
     path: PathBuf,
     token: Option<Arc<OwnedHandle>>,
+    /// A shared folder's directory, held open without delete sharing so it
+    /// can't be moved or swapped for a link while an upload uses it.
+    _pin: Option<Arc<File>>,
 }
 impl UserFolder {
     /// The transfer folder, created if missing: `custom` when the host's
@@ -398,11 +442,31 @@ impl UserFolder {
     }
 
     fn at(path: PathBuf, token: Option<Arc<OwnedHandle>>) -> Result<Self, UserFolderError> {
-        let folder = Self { path, token };
+        let folder = Self {
+            path,
+            token,
+            _pin: None,
+        };
         folder.as_user(|| {
             fs::create_dir_all(&folder.path)?;
             folder.sweep()
         })?;
+        Ok(folder)
+    }
+
+    /// A directory of a shared folder that `pin` holds open, as the folder
+    /// uploads go to: its `.part` files are swept, nothing is created.
+    pub(crate) fn pinned(
+        path: PathBuf,
+        token: Option<Arc<OwnedHandle>>,
+        pin: File,
+    ) -> Result<Self, UserFolderError> {
+        let folder = Self {
+            path,
+            token,
+            _pin: Some(Arc::new(pin)),
+        };
+        folder.as_user(|| folder.sweep())?;
         Ok(folder)
     }
 
@@ -515,24 +579,7 @@ impl UserFolder {
             )
             .into());
         }
-        // Opened again without FILE_FLAG_OPEN_REPARSE_POINT, so a compressed,
-        // deduplicated or cloud file reads as its data.
-        let reopened = self.as_user(|| {
-            // SAFETY: the handle is open for the call.
-            unsafe {
-                ReOpenFile(
-                    raw(&file),
-                    FILE_GENERIC_READ.0,
-                    FILE_SHARE_READ,
-                    FILE_FLAGS_AND_ATTRIBUTES(0),
-                )
-            }
-            .map_err(os_error)
-        })?;
-        // SAFETY: ReOpenFile returned a new open handle only this File closes.
-        let file = unsafe { File::from_raw_handle(reopened.0) };
-        let len = file.metadata()?.len();
-        Ok((file, len))
+        reopen_for_data(self.token.as_deref(), &file)
     }
 
     /// The plain files in the folder, by name. Subfolders, links, uploads
@@ -627,6 +674,10 @@ pub struct PartFile {
 impl PartFile {
     pub fn part_path(&self) -> Option<&Path> {
         self.part.as_deref()
+    }
+    /// The open `.part` file, until it is finished or discarded.
+    pub(crate) fn file(&self) -> Option<&File> {
+        self.file.as_ref()
     }
 
     /// Closes the upload and gives it the first free numbered name, which
@@ -1303,6 +1354,7 @@ mod tests {
         let folder = UserFolder {
             path: dir.path().to_path_buf(),
             token: Some(Arc::new(own_token())),
+            _pin: None,
         };
         assert!(!impersonating());
         assert!(folder.as_user(|| Ok(impersonating())).unwrap());

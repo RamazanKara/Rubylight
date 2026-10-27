@@ -103,6 +103,38 @@ pub fn check_stored_name(name: &str) -> Result<(), NameError> {
     check(name, MAX_STORED_NAME_UNITS)
 }
 
+/// The longest name of a file or folder in a shared folder: a whole Windows
+/// path component.
+pub const MAX_FOLDER_NAME_UNITS: usize = 255;
+/// How many folders deep a device may ask for in a shared folder.
+pub const MAX_FOLDER_DEPTH: usize = 64;
+
+/// Checks the name of a file or folder in a shared folder, listed or asked
+/// for: the rules of [`check_name`], up to [`MAX_FOLDER_NAME_UNITS`].
+pub fn check_folder_name(name: &str) -> Result<(), NameError> {
+    check(name, MAX_FOLDER_NAME_UNITS)
+}
+
+/// Splits a device's path in a shared folder (`saves/slot1.sav`: names
+/// between `/`, empty for the folder itself) into its names, each checked
+/// with [`check_folder_name`]. Nothing is resolved or rewritten: an empty
+/// name (`a//b`, a leading or trailing `/`), `.`, `..`, a stream name, a
+/// device name and more than [`MAX_FOLDER_DEPTH`] names are refused, and
+/// `\` is refused inside a name.
+pub fn folder_path(path: &str) -> Result<Vec<&str>, NameError> {
+    if path.is_empty() {
+        return Ok(Vec::new());
+    }
+    let names: Vec<&str> = path.split('/').collect();
+    if names.len() > MAX_FOLDER_DEPTH {
+        return Err(NameError::TooLong);
+    }
+    for name in &names {
+        check_folder_name(name)?;
+    }
+    Ok(names)
+}
+
 fn check(name: &str, max_units: usize) -> Result<(), NameError> {
     if name.is_empty() {
         return Err(NameError::Empty);
@@ -371,6 +403,51 @@ mod tests {
         // The other rules hold as for uploads.
         assert_eq!(check_stored_name("a:b"), Err(NameError::StreamSeparator));
         assert_eq!(check_stored_name("x.part"), Err(NameError::PartSuffix));
+    }
+
+    #[test]
+    fn a_shared_folder_path_is_split_into_names_that_stay_in_the_folder() {
+        assert_eq!(folder_path(""), Ok(vec![]));
+        assert_eq!(folder_path("saves"), Ok(vec!["saves"]));
+        assert_eq!(
+            folder_path("saves/Slot 1/ä.sav"),
+            Ok(vec!["saves", "Slot 1", "ä.sav"])
+        );
+        // A whole Windows path component, longer than an upload's name.
+        let long = "a".repeat(MAX_FOLDER_NAME_UNITS);
+        assert_eq!(folder_path(&long), Ok(vec![long.as_str()]));
+        let deepest = vec!["d"; MAX_FOLDER_DEPTH].join("/");
+        assert_eq!(folder_path(&deepest).map(|n| n.len()), Ok(MAX_FOLDER_DEPTH));
+        for (path, error) in [
+            ("..", NameError::ParentFolder),
+            ("saves/../..", NameError::ParentFolder),
+            (".", NameError::TrailingDotOrSpace),
+            ("saves/./x", NameError::TrailingDotOrSpace),
+            ("/saves", NameError::Empty),
+            ("saves/", NameError::Empty),
+            ("saves//x", NameError::Empty),
+            ("saves\\..\\x", NameError::PathSeparator),
+            ("C:/Windows", NameError::StreamSeparator),
+            ("x.txt:hidden", NameError::StreamSeparator),
+            ("x.txt::$DATA", NameError::StreamSeparator),
+            ("saves/CON", NameError::ReservedDeviceName),
+            ("nul.txt", NameError::ReservedDeviceName),
+            ("Com1 .txt/x", NameError::ReservedDeviceName),
+            ("conin$", NameError::ReservedDeviceName),
+            ("x.mp4.PART", NameError::PartSuffix),
+            ("x ", NameError::TrailingDotOrSpace),
+            ("x\u{202e}gpj.exe", NameError::FormatCharacter),
+            ("a\u{0}b", NameError::ControlCharacter),
+            ("a*b", NameError::InvalidCharacter),
+        ] {
+            assert_eq!(folder_path(path), Err(error), "{path:?}");
+        }
+        assert_eq!(
+            folder_path(&"a".repeat(MAX_FOLDER_NAME_UNITS + 1)),
+            Err(NameError::TooLong)
+        );
+        let deeper = vec!["d"; MAX_FOLDER_DEPTH + 1].join("/");
+        assert_eq!(folder_path(&deeper), Err(NameError::TooLong));
     }
 
     #[test]

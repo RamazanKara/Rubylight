@@ -23,6 +23,16 @@ pub(super) trait AudioSink {
     /// in the audio thread's stream, in 48 kHz samples, counting every packet and any audio the
     /// endpoint lost, whether or not it was sent.
     fn send(&mut self, opus: &[u8], captured: Instant, position: u64) -> Result<usize>;
+    /// Send one AC3 or E-AC3 frame in its `parts`, which share an RTP timestamp. Only
+    /// GameStream negotiates passthrough codecs.
+    fn send_frame(
+        &mut self,
+        _parts: &[Vec<u8>],
+        _captured: Instant,
+        _position: u64,
+    ) -> Result<usize> {
+        anyhow::bail!("this transport carries only Opus audio")
+    }
 }
 
 /// Where the audio thread is in its stream, in 48 kHz samples. It counts what the thread encoded
@@ -378,6 +388,29 @@ impl AudioSink for GameStreamAudio<'_> {
             // A lost audio packet is concealed by the client; only a broken socket stops the audio.
             if !butterpollo_windows::net::send_datagram(self.socket, &packet, peer)? {
                 unsent += 1;
+            }
+        }
+        Ok(unsent)
+    }
+
+    fn send_frame(
+        &mut self,
+        parts: &[Vec<u8>],
+        _captured: Instant,
+        _position: u64,
+    ) -> Result<usize> {
+        let Some(peer) = self.peer else {
+            return Ok(parts.len());
+        };
+        let mut unsent = 0;
+        for (index, part) in parts.iter().enumerate() {
+            for packet in self
+                .packetizer
+                .encode_part(part, index + 1 == parts.len())?
+            {
+                if !butterpollo_windows::net::send_datagram(self.socket, &packet, peer)? {
+                    unsent += 1;
+                }
             }
         }
         Ok(unsent)

@@ -47,9 +47,37 @@ fn usb(_h: &Shared, _config: &Config) -> bool {
     false
 }
 
-/// Audio (E): `audio_ext::CODEC_*` bits besides Opus.
-fn audio_codecs(_h: &Shared, _config: &Config) -> u8 {
-    0
+/// Audio (E): `audio_ext::CODEC_*` bits besides Opus, while `audio_passthrough` is on: PCM,
+/// and AC3 and E-AC3 when FFmpeg's libraries beside the host load.
+fn audio_codecs(_h: &Shared, config: &Config) -> u8 {
+    use butterpollo_core::audio_ext::{CODEC_AC3, CODEC_EAC3, CODEC_PCM};
+    if !config.audio_passthrough() {
+        return 0;
+    }
+    CODEC_PCM
+        | if ffmpeg_ready() {
+            CODEC_AC3 | CODEC_EAC3
+        } else {
+            0
+        }
+}
+
+/// Whether FFmpeg's AC3 encoder loads from the host's directory, checked once and logged when
+/// it doesn't.
+fn ffmpeg_ready() -> bool {
+    static READY: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *READY.get_or_init(|| {
+        let probe = std::env::current_exe()
+            .map_err(anyhow::Error::from)
+            .and_then(|exe| butterpollo_windows::ffmpeg::probe(exe.parent().unwrap()));
+        match probe {
+            Ok(()) => true,
+            Err(error) => {
+                tracing::warn!(error = %format!("{error:#}"), "Dolby Digital audio is not offered: FFmpeg's AC3 encoder did not load");
+                false
+            }
+        }
+    })
 }
 
 /// Audio (E): 7.1.4 Opus, while `audio_surround_714` is on. The capture

@@ -257,6 +257,10 @@ async fn connection(
                     let config = crate::stream::effective_config(&h, &launch)?;
                     // The client's own picks, before host policy turns HDR off.
                     crate::extensions::offered(&h, &config).check_announce(&negotiated)?;
+                    crate::stream::audio_encoder::check_announce(
+                        std::env::current_exe()?.parent().unwrap(),
+                        &negotiated,
+                    )?;
                     let required_encryption =
                         crate::network::encryption_mode(&config, peer.ip()) == 2;
                     // The FEC and audio share of the client's bitrate is expected;

@@ -3,7 +3,8 @@
 use super::*;
 
 /// The DESCRIBE answer's body. Only the input feature flags (what this PC's Windows can
-/// inject) and the microphone port vary.
+/// inject) and the microphone port vary. `x-rl-audio.codecs:3` is Opus and PCM: the test
+/// binary's folder has no FFmpeg for AC3 and E-AC3.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn describe_for_a_default_config_is_byte_identical() -> Result<()> {
     let h = Harness::new(10_000, 1).await?;
@@ -26,6 +27,7 @@ async fn describe_for_a_default_config_is_byte_identical() -> Result<()> {
              a=fmtp:97 surround-params=21101\r\n\
              a=fmtp:97 surround-params=660014523\r\n\
              a=fmtp:97 surround-params=88001456723\r\n\
+             a=x-rl-audio.codecs:3\r\n\
              a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
              a=x-rl-audio.layout714Hq:12,12,0,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
              a=x-rl-control:0x553d\r\n\
@@ -74,6 +76,7 @@ async fn describe_with_packed_444_and_the_microphone_is_byte_identical() -> Resu
              a=x-rl-video.packed444Version:1\r\n\
              a=x-rl-video.packed444Modes:15\r\n\
              a=x-rl-video.packed444LayeredModes:10\r\n\
+             a=x-rl-audio.codecs:3\r\n\
              a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
              a=x-rl-audio.layout714Hq:12,12,0,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
              a=x-rl-control:0x553d\r\n\
@@ -156,6 +159,41 @@ async fn a_default_host_streams_the_7_1_4_a_client_asks_for() -> Result<()> {
         )
         .await?;
     assert_eq!(session.config.audio_channels, 12);
+    h.end(&session, client).await?;
+    h.finish().await
+}
+
+/// A default host offers PCM, so a client that picks it streams with it. Without FFmpeg beside
+/// the host (the test binary's folder has none) Dolby Digital is not offered, and picking it
+/// anyway is refused, never streamed as something else.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_default_host_streams_the_pcm_a_client_picks_and_refuses_dolby_without_ffmpeg()
+-> Result<()> {
+    let h = Harness::new(10_000, 1).await?;
+    let launch = h.launch(0, false).await?;
+    let stock = "a=x-nv-video[0].clientViewportWd:640\r\na=x-nv-video[0].clientViewportHt:480\r\n";
+    for (sequence, sdp) in [
+        (20, "a=x-rl-audio.codec:4\r\n"),
+        (
+            21,
+            "a=x-nv-audio.surround.numChannels:6\r\na=x-nv-audio.surround.channelMask:63\r\na=x-rl-audio.codec:8\r\n",
+        ),
+    ] {
+        let response = h
+            .rtsp(&launch, sequence, "ANNOUNCE", &format!("{stock}{sdp}"))
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(response.starts_with("RTSP/1.0 400"), "{response}");
+        assert!(response.contains("was not offered"), "{response}");
+    }
+    let (session, client) = h
+        .play_announcing(&launch, 0, "a=x-rl-audio.codec:2\r\n")
+        .await?;
+    assert_eq!(
+        (session.config.audio_codec, session.config.audio_channels),
+        (2, 2)
+    );
     h.end(&session, client).await?;
     h.finish().await
 }

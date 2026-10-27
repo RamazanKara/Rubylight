@@ -15,7 +15,6 @@ pub const SETTINGS_30: &[(&str, &str)] = &[
     ("bandwidth_probe", "true"),
     ("usb_forwarding", "false"),
     ("usb_max_devices", "4"),
-    ("audio_passthrough", "true"),
     ("audio_surround_714", "true"),
     ("pen_barrel_roll", "true"),
     ("keyboard_follows_focus", "true"),
@@ -142,10 +141,6 @@ impl Config {
     /// How many forwarded USB devices the host takes at once (1 to 16, 4 by default).
     pub fn usb_max_devices(&self) -> u8 {
         self.integer30("usb_max_devices", 4, |n| (1..=16).contains(&n)) as u8
-    }
-    /// PCM, Dolby Digital and Dolby Digital Plus audio (on by default).
-    pub fn audio_passthrough(&self) -> bool {
-        self.boolean("audio_passthrough", true)
     }
     /// 7.1.4 surround sound (on by default).
     pub fn audio_surround_714(&self) -> bool {
@@ -343,7 +338,6 @@ mod tests {
         "hdr_dolby_vision",
         "hdr_hlg",
         "fec_max_percentage",
-        "audio_passthrough",
         "audio_surround_714",
         "keyboard_follows_focus",
         "text_input_surrounding_text",
@@ -375,7 +369,6 @@ mod tests {
                     c.bandwidth_probe(),
                     c.usb_forwarding(),
                     c.usb_max_devices(),
-                    c.audio_passthrough(),
                     c.audio_surround_714(),
                     c.pen_barrel_roll(),
                     c.keyboard_follows_focus(),
@@ -409,9 +402,9 @@ mod tests {
     }
 
     #[test]
-    fn there_are_31_unique_settings() {
+    fn there_are_29_unique_settings() {
         let keys: std::collections::BTreeSet<_> = SETTINGS_30.iter().map(|(k, _)| k).collect();
-        assert_eq!((SETTINGS_30.len(), keys.len()), (30, 30));
+        assert_eq!((SETTINGS_30.len(), keys.len()), (29, 29));
     }
 
     #[test]
@@ -422,7 +415,7 @@ mod tests {
         assert!(c.bandwidth_probe());
         assert!(!c.usb_forwarding());
         assert_eq!(c.usb_max_devices(), 4);
-        assert!(c.audio_passthrough() && c.audio_surround_714());
+        assert!(c.audio_surround_714());
         assert!(c.pen_barrel_roll() && c.keyboard_follows_focus());
         assert!(!c.text_input_surrounding_text() && !c.touch_keyboard_digitizer());
         assert_eq!(c.keyboard_layout(), KeyboardLayoutSetting::Client);
@@ -578,7 +571,7 @@ mod tests {
                 "{key}"
             );
         }
-        assert_eq!(PER_DEVICE.len(), 16);
+        assert_eq!(PER_DEVICE.len(), 15);
     }
 
     /// The settings whose features have shipped, so the console shows them.

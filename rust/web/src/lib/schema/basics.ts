@@ -533,6 +533,20 @@ const audio: Setting[] = [
     visibleWhen: streamsAudio,
   },
   {
+    key: 'audio_passthrough',
+    label: 'PCM and Dolby Digital audio',
+    description:
+      'Offers uncompressed PCM, Dolby Digital and Dolby Digital Plus audio to devices that ask for it, for TVs and receivers that decode it themselves. Other devices keep Opus.',
+    details:
+      'PCM carries stereo up to 7.1.4 and takes about 1.5 Mbit/s per stereo pair. Dolby Digital and Dolby Digital Plus carry stereo and 5.1 in 32 ms frames, so their sound arrives a little later than Opus. A device that asks for a format this PC cannot encode is refused with the reason.',
+    category: 'audio',
+    group: 'Sound',
+    control: { kind: 'toggle' },
+    default: true,
+    inactiveHint: "Turn on Stream audio to use this setting.",
+    visibleWhen: streamsAudio,
+  },
+  {
     key: 'audio_sink',
     label: 'Audio device',
     description:

@@ -438,7 +438,7 @@ test('sleep after idle takes 0 or 5 to 1440 minutes, as the host does, and its s
 const live = ['audio_surround_714'];
 
 test('settings still pending stay out of the console, and shipped ones are in it', () => {
-  assert.equal(pending.length, 30);
+  assert.equal(pending.length, 29);
   for (const setting of pending) {
     const shipped = live.includes(setting.key);
     assert.equal(setting.pending === true, !shipped, setting.key);
@@ -454,13 +454,26 @@ test('7.1.4 surround is Experimental and says the heights need a 7.1.4 device', 
   assert.equal(setting.default, true);
 });
 
+test('PCM and Dolby Digital audio defaults on, keeps Opus for other devices and follows Stream audio', () => {
+  const setting = settings.get('audio_passthrough');
+  assert.equal(setting.default, true);
+  assert.equal(setting.control.kind, 'toggle');
+  assert.equal(setting.category, 'audio');
+  assert.match(setting.description, /Other devices keep Opus/);
+  assert.match(setting.details, /refused with the reason/);
+  assert.equal(setting.visibleWhen({}), true);
+  assert.equal(setting.visibleWhen({ stream_audio: false }), false);
+  assert.equal(differsFromDefault(setting, {}, {}), false);
+  assert.equal(differsFromDefault(setting, {}, { audio_passthrough: false }), true);
+});
+
 test('pending keys are unique, and Foundation ports are neither credited in the console nor Experimental', () => {
   const keys = pending.map(setting => setting.key);
   assert.equal(new Set(keys).size, keys.length);
   for (const setting of pending) {
     assert.doesNotMatch(`${setting.label} ${setting.description} ${setting.details ?? ''}`, /Foundation|Annex/, setting.key);
   }
-  for (const key of ['hdr_dynamic_metadata', 'fec_max_percentage']) {
+  for (const key of ['hdr_dynamic_metadata', 'fec_max_percentage', 'audio_passthrough']) {
     const setting = settings.get(key) ?? pending.find(candidate => candidate.key === key);
     assert.doesNotMatch(`${setting.label} ${setting.description} ${setting.details ?? ''}`, /Experimental/, key);
   }

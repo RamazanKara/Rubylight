@@ -1,5 +1,6 @@
 use crate::state::{Launch, Session, Shared};
 use butterpollo_core::{controller_audio, haptics};
+pub(crate) mod audio_encoder;
 mod audio_haptics;
 mod audio_sink;
 mod background;
@@ -12,7 +13,9 @@ mod game_audio;
 mod qos;
 mod roaming;
 pub(crate) mod slices;
+use audio_encoder::AudioEncoder;
 use audio_sink::{AudioPace, AudioSink, GameStreamAudio, WebRtcAudio};
+use butterpollo_core::audio_passthrough::Codec;
 use qos::Tagged;
 #[cfg(test)]
 pub(crate) mod reconnect_tests;
@@ -3225,13 +3228,33 @@ impl Media {
         let mut audio_check = Instant::now();
         let mut audio_error: Option<String> = None;
         let directory = std::env::current_exe()?.parent().unwrap().to_owned();
-        let (mut opus, _) = open_audio_encoder(
-            &directory,
-            &s,
-            webrtc
-                .as_ref()
-                .map(crate::webrtc::media::AudioSender::layout),
-        )?;
+        // A GameStream client may pick PCM, AC3 or E-AC3 in its ANNOUNCE; WebRTC is Opus.
+        let codec = match webrtc {
+            Some(_) => Codec::Opus,
+            None => Codec::from_announce(s.config.audio_codec, s.config.audio_channels)?,
+        };
+        let packet_ms = codec.packet_ms(s.config.audio_channels, s.config.audio_packet_ms)?;
+        let mut encoder = match codec {
+            Codec::Opus => AudioEncoder::Opus(
+                open_audio_encoder(
+                    &directory,
+                    &s,
+                    webrtc
+                        .as_ref()
+                        .map(crate::webrtc::media::AudioSender::layout),
+                )?
+                .0,
+            ),
+            codec => {
+                tracing::info!(
+                    codec = codec.name(),
+                    channels = s.config.audio_channels,
+                    packet_ms,
+                    "audio passthrough"
+                );
+                AudioEncoder::passthrough(&directory, codec, s.config.audio_channels)?
+            }
+        };
         let mut output: Box<dyn AudioSink + '_> = match webrtc {
             Some(sender) => Box::new(WebRtcAudio(sender)),
             None => Box::new(GameStreamAudio::new(
@@ -3242,15 +3265,15 @@ impl Media {
                     s.launch.key,
                     s.launch.key_id,
                     s.config.encryption & 4 != 0,
-                    u32::from(s.config.audio_packet_ms),
+                    u32::from(packet_ms),
                 ),
                 s.config.audio_qos,
             )),
         };
-        let frames = 48 * usize::from(s.config.audio_packet_ms);
+        let frames = 48 * usize::from(packet_ms);
         let client_channels = usize::from(s.config.audio_channels);
         let start = Instant::now();
-        let interval = Duration::from_millis(u64::from(s.config.audio_packet_ms));
+        let interval = Duration::from_millis(u64::from(packet_ms));
         let mut loss = butterpollo_core::audio::HostLoss::default();
         // Packet deadlines, silence for a quiet endpoint, and where each packet sits in the
         // stream in 48 kHz samples; the WebRTC RTP clock follows that, not wall time.
@@ -3404,7 +3427,7 @@ impl Media {
             if ready {
                 for (samples, at) in packets.iter_mut().zip(positions) {
                     couch.process(&s.audio, &s.launch.warnings, samples);
-                    for _ in 0..output.send(&opus.encode(samples)?, now, at)? {
+                    for _ in 0..encoder.send(output.as_mut(), samples, now, at)? {
                         loss.unsent();
                     }
                     // Haptics from game audio analyse a copy of what went out,

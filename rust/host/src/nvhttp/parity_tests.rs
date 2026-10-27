@@ -443,6 +443,7 @@ async fn serverinfo_for_a_default_config_is_byte_identical() {
     let version = env!("CARGO_PKG_VERSION");
     let profile = butterpollo_core::migration::profile_id(&f.host.directory);
     let sleep = u8::from(f.host.power.supported());
+    // AudioCodecs 3 is Opus and PCM: the test binary's folder has no FFmpeg for AC3 and E-AC3.
     assert_eq!(
         paired,
         format!(
@@ -491,6 +492,7 @@ async fn serverinfo_for_a_default_config_is_byte_identical() {
              <PowerActionVersion>1</PowerActionVersion>\
              <SleepSupported>{sleep}</SleepSupported>\
              <SleepAllowed>0</SleepAllowed>\
+             <AudioCodecs>3</AudioCodecs>\
              <AudioLayouts>15</AudioLayouts>\
              <PipelineRatesVersion>1</PipelineRatesVersion>\
              </root>"
@@ -542,6 +544,7 @@ async fn serverinfo_for_a_default_config_is_byte_identical() {
              <VirtualDisplayDriverReady>false</VirtualDisplayDriverReady>\
              <ControllerPreparation>1</ControllerPreparation>\
              <VirtualDisplayHDRCapable>true</VirtualDisplayHDRCapable>\
+             <AudioCodecs>3</AudioCodecs>\
              <AudioLayouts>15</AudioLayouts>\
              <PipelineRatesVersion>1</PipelineRatesVersion>\
              </root>"

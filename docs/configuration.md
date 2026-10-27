@@ -237,6 +237,26 @@ Choose a direct executable entry or explicitly select System audio to resolve
 those cases. Arbitrary multi-application selection and separate volume mixing
 are not implemented in this first game-only mode.
 
+## PCM and Dolby Digital audio
+
+**PCM and Dolby Digital audio** (`audio_passthrough`, default `true`) offers
+three formats besides Opus to clients that pick one, for TVs, soundbars and
+receivers that decode the sound themselves. Stock Moonlight clients never see
+the offer and keep Opus.
+
+| Format | Channels | Rate |
+| --- | --- | --- |
+| PCM (16-bit, 48 kHz) | stereo, 5.1, 7.1, 7.1.4 | about 1.5 Mbit/s per stereo pair |
+| Dolby Digital (AC3) | stereo, 5.1 | 192 or 640 kbit/s |
+| Dolby Digital Plus (E-AC3) | stereo, 5.1 | 256 or 768 kbit/s |
+
+Dolby Digital and Dolby Digital Plus are encoded by FFmpeg's libraries, which
+the installer puts beside `butterpollo.exe`; without them the host offers PCM
+only and logs why. Dolby frames are 32 ms of sound each, so they arrive a little
+later than Opus. A client that asks for a format or layout this PC cannot encode,
+such as Dolby Digital Plus 7.1, is refused with the reason when the stream
+starts, and never gets other audio than it picked.
+
 ## Background streaming
 
 Background streaming lets a device play while someone keeps using the PC, for

@@ -494,6 +494,12 @@ impl Config {
     pub fn hdr_dynamic_metadata(&self) -> bool {
         self.boolean("hdr_dynamic_metadata", true)
     }
+    /// PCM, Dolby Digital (AC3) and Dolby Digital Plus (E-AC3) audio for clients that pick one
+    /// (`audio_passthrough`, on by default): serverinfo and DESCRIBE offer the codecs, and stock
+    /// clients keep Opus. AC3 and E-AC3 also need FFmpeg's libraries beside the host.
+    pub fn audio_passthrough(&self) -> bool {
+        self.boolean("audio_passthrough", true)
+    }
     /// The WebRTC server for TV and browser clients (off by default).
     pub fn webrtc_server(&self) -> bool {
         self.boolean("webrtc_server", false)
@@ -1280,6 +1286,22 @@ mod tests {
         config.update(saved.as_object().unwrap()).unwrap();
         assert!(!config.webrtc_rtx());
         assert_eq!(config.webrtc_loss_permille(), 1000);
+    }
+
+    #[test]
+    fn audio_passthrough_is_on_unless_turned_off() {
+        assert!(super::Config::default().audio_passthrough());
+        for (text, on) in [
+            ("audio_passthrough = true\n", true),
+            ("audio_passthrough = disabled\n", false),
+            ("audio_passthrough = 0\n", false),
+        ] {
+            assert_eq!(
+                super::Config::parse(text).unwrap().audio_passthrough(),
+                on,
+                "{text}"
+            );
+        }
     }
 
     #[test]

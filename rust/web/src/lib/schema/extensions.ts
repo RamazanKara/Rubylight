@@ -74,15 +74,6 @@ export const settings: Setting[] = [
     pending: true,
   },
   {
-    key: 'audio_passthrough',
-    label: 'PCM and Dolby Digital audio',
-    description: 'Offers uncompressed PCM, Dolby Digital and Dolby Digital Plus audio to devices that ask for it.',
-    category: 'audio',
-    control: switches,
-    default: true,
-    pending: true,
-  },
-  {
     key: 'audio_surround_714',
     label: '7.1.4 surround (Experimental)',
     description: 'Offers 7.1.4 surround sound to devices that ask for it. Height channels stay silent unless the captured playback device has them.',

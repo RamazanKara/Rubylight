@@ -45,6 +45,7 @@ pub const GLOBAL: &[Setting] = settings! {
     "Audio" => [
         "virtual_sink", "Virtual audio device", Text;
         "stream_audio", "Stream audio", Bool;
+        "audio_passthrough", "PCM, Dolby Digital and Dolby Digital Plus audio", Bool;
         "audio_sink_capture_only", "Capture selected audio without changing defaults", Bool;
         "auto_capture_sink", "Follow audio device changes", Bool;
         "keep_sink_default", "Keep virtual speakers as the default during streaming", Bool;

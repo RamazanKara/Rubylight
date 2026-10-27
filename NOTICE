@@ -21,6 +21,12 @@ reasoning behind it, are derived from Foundation Sunshine: AlkaidLab/foundation-
 commit 3340d28 ("feat(amf): align AMD aggressive defaults with FFmpeg amfenc",
 AlkaidLab/foundation-sunshine#666) by qiin2333. Both projects are licensed under GPLv3.
 
+The HDR10+ (SMPTE ST 2094-40) and HDR Vivid (CUVA 005.1) metadata writers, their
+statistics and scene-cut thresholds, and the HEVC SEI and AV1 metadata OBU splice
+(rust/core/src/hdr_dynamic.rs) are ported in part from Foundation Sunshine commit
+880f1ef: video_hdr_metadata.h, video_hdr_metadata.cpp and video_hdr_bitstream.cpp.
+Copyright (c) Foundation Sunshine authors, GPL-3.0.
+
 InputPlumber and SDL
 
 The virtual Steam Deck controller (rust/core/src/steam_deck.rs) uses the Steam Deck's

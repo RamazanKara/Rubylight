@@ -1,6 +1,6 @@
 # Notes for AI coding agents
 
-Rubylight is a Windows game-streaming host for Moonlight clients on AMD Radeon, written by **RamazanKara** (<https://github.com/RamazanKara/Rubylight>). It is licensed under **GPL-3.0-only** ([LICENSE](LICENSE)). It builds on other people's work, which [NOTICE](NOTICE), [rust/THIRD_PARTY.md](rust/THIRD_PARTY.md) and the README credits section name.
+Rubylight is a Windows game-streaming host for Moonlight clients on AMD Radeon, written by **RamazanKara** (<https://github.com/RamazanKara/Rubylight>). It is licensed under **GPL-3.0-only** ([LICENSE](LICENSE)). It builds on other people's work, which [NOTICE](NOTICE), [rust/THIRD_PARTY.md](rust/THIRD_PARTY.md) and the README credits section name. Among them, the dynamic HDR metadata writers (`rust/core/src/hdr_dynamic.rs`) are ported in part from Foundation Sunshine (AlkaidLab/foundation-sunshine, GPL-3.0) by its authors.
 
 ## If you copy, port or derive from this code
 

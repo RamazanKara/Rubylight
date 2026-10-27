@@ -50,6 +50,7 @@ pub mod file_transfer;
 pub mod framegen;
 pub mod haptics;
 pub mod hdr;
+pub mod hdr_dynamic;
 pub mod host_timing;
 pub mod hotkey;
 pub mod input;

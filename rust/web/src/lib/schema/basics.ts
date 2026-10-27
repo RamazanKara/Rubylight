@@ -419,7 +419,7 @@ const network: Setting[] = [
     description:
       'Let a device whose network address changes, such as a phone moving from Wi-Fi to mobile data, keep its stream instead of reconnecting. Experimental.',
     details:
-      'Only devices that support it, such as Nightjar, use it. The device proves the new address with the stream key before the host sends anything there, and the host then drops what still arrives from the old one. Moonlight clients that do not support it stream as before. Applies to the next stream.',
+      'Only devices that support it, such as Nightjar, use it. The device proves the new address with the stream key before the host sends anything there, and the host then drops what still arrives from the old one. Moonlight clients that do not support it stream as before. Turning it off stops roaming at once; turning it on applies from the next stream.',
     category: 'network',
     group: 'Streams',
     control: { kind: 'toggle' },

@@ -366,7 +366,7 @@ dependencies = [
  "rustls",
  "rustls-pemfile",
  "rustls-webpki",
- "rusty_enet 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rusty_enet 0.4.0+rubylight-host",
  "serde",
  "serde_json",
  "sha2",
@@ -2554,9 +2554,7 @@ dependencies = [
 
 [[package]]
 name = "rusty_enet"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1c0b43e27d8d86bb3a15b9eac232b6d78a06afee258a9861deb5a0d15b65c33"
+version = "0.4.0+rubylight-host"
 dependencies = [
  "js-sys",
 ]

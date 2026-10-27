@@ -13,9 +13,12 @@
 #   cleared on reset; src/peer.rs the setter. The wire protocol is unchanged.
 # - src/c/protocol.rs, enet_protocol_check_timeouts: the `1 << (send_attempts - 1)` disconnect
 #   test saturates instead of overflowing past 32 attempts, which the resends can reach.
+# - version: `+rubylight-host` build metadata, so the lockfile can tell this copy from Nightjar's
+#   own fork (client/protocol/vendor/rusty_enet, also 0.4.0), which the host's interop tests
+#   build beside it. Both still match `rusty_enet = "0.4"`.
 [package]
 name = "rusty_enet"
-version = "0.4.0"
+version = "0.4.0+rubylight-host"
 edition = "2021"
 description = "ENet for Rust (and wasm!) transpiled from C."
 homepage = "https://github.com/jabuwu/rusty_enet"

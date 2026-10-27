@@ -1,3 +1,5 @@
+<h1 align="center"><a href="https://github.com/RamazanKara/Rubylight/issues/59"><b>Rubylight 3.0 is coming: see what's new</b></a></h1>
+
 <p align="center">
   <img src="docs/media/banner.svg" width="900" alt="Rubylight: Written in Rust. Built for Radeon. Made for Moonlight.">
 </p>

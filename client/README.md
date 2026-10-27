@@ -1,3 +1,5 @@
+<h1 align="center"><a href="https://github.com/RamazanKara/nightjar/issues/44"><b>The next Nightjar is coming: see what's new</b></a></h1>
+
 <p align="center">
   <img src="docs/assets/banner.png" width="800" alt="Nightjar: low-latency game streaming from your PC">
 </p>

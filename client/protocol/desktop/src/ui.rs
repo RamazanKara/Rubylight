@@ -1602,7 +1602,7 @@ impl Launcher {
     fn shared_folders(&mut self, ui: &mut Ui, id: u64, commands: &mut Vec<Command>) {
         use crate::folders_page::{size_text, Place};
         use nightjar_core::http::EntryKind;
-        section(ui, "Shared folders");
+        section(ui, "Shared folders (Experimental)");
         let Some(open) = self.folders.state_for(id) else {
             let button = row(ui, "Shared folders", "Browse the folders this PC shares with this device, download files from them and, with a write grant, upload to them. The PC opens them as the user signed in on it.", |ui| {
                 quiet_button(ui, "Browse")

@@ -1,8 +1,8 @@
 //! What this host offers of the 3.0 protocol extensions
 //! (`butterpollo_core::extensions`), one function per offer so each
-//! workstream turns on only its own. Everything is off: serverinfo and
-//! DESCRIBE stay what stock clients read, and an ANNOUNCE that picks an
-//! extension is refused.
+//! workstream turns on only its own. An offer adds serverinfo fields and
+//! DESCRIBE lines that stock clients don't read; an ANNOUNCE that picks an
+//! extension that is off is refused.
 use butterpollo_core::config::Config;
 use butterpollo_core::extensions::Offered;
 
@@ -77,9 +77,10 @@ fn cursor_shape(_h: &Shared, _config: &Config) -> bool {
     false
 }
 
-/// Diagnostics (B): pipeline frame rates.
+/// Diagnostics (B): pipeline frame rates. Every stream counts them, off the
+/// hot path, and reports only to a client that asks.
 fn pipeline_rates(_h: &Shared, _config: &Config) -> bool {
-    false
+    true
 }
 
 /// The native API features of the 3.0 extensions, appended to

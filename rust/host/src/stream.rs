@@ -1819,6 +1819,10 @@ impl Media {
                     // A keyframe a while after an AMF reference-invalidation recovery.
                     let mut confirm_keyframe: Option<Instant> = None;
                     let mut timing_due = Instant::now() + Duration::from_secs(5);
+                    // Pipeline frame rates: the capture slot's counts this stream
+                    // has taken, and the 5 s timing log's own window.
+                    let mut pipeline_follow = butterpollo_core::pipeline_rates::Follow::default();
+                    let mut pipeline_log = butterpollo_core::pipeline_rates::Sampler::default();
                     let mut last_image: Option<Arc<GpuImage>> = None;
                     // The couch menu's panel; one atomic load a frame while closed.
                     let mut menu = crate::couch_menu::VideoOverlay::default();
@@ -2389,6 +2393,11 @@ impl Media {
                                         let timing = window.snapshot();
                                         let link = s.link_rate_snapshot();
                                         let ms = |key: &str| timing[key].as_f64().unwrap_or(0.);
+                                        // Pipeline frame rates since the last summary; none in the first.
+                                        let rates = pipeline_log.sample(Instant::now(), s.pipeline_counts(), Duration::from_secs(5));
+                                        let fps_of = |pick: fn(&butterpollo_core::pipeline_rates::PipelineRates) -> Option<u32>| {
+                                            rates.as_ref().map(butterpollo_core::pipeline_rates::PipelineRates::from).as_ref().and_then(pick).map(|mhz| f64::from(mhz) / 1000.)
+                                        };
                                         let split = |pick: fn(&(u64, u64)) -> u64| {
                                             let mut values: Vec<u64> = claim_ages.iter().map(pick).collect();
                                             values.sort_unstable();
@@ -2417,6 +2426,11 @@ impl Media {
 
                                         tracing::info!(
                                             fps=ms("fps"),
+                                            source_fps=fps_of(|r| r.source_mhz),
+                                            capture_fps=fps_of(|r| r.capture_mhz),
+                                            submit_fps=fps_of(|r| r.submit_mhz),
+                                            output_fps=fps_of(|r| r.output_mhz),
+                                            repeat_fps=fps_of(|r| r.repeat_mhz),
                                             host_mean_ms=ms("host_processing_mean_ms"),
                                             host_p95_ms=ms("host_processing_p95_ms"),
                                             host_p99_ms=ms("host_processing_p99_ms"),
@@ -3047,6 +3061,10 @@ impl Media {
                                 );
                             }
                             let call_latency = begin.elapsed();
+                            let (slot, pictures, captures) = latest.frame_counts();
+                            let (pictures, captures) = pipeline_follow.advance(slot, pictures, captures);
+                            s.stats.pipeline.captured(pictures, captures);
+                            s.stats.pipeline.submitted(!fresh);
                             if fresh {
                                 claims.borrow_mut().push(butterpollo_core::performance::Claim {
                                     key: presented_image.captured,
@@ -3811,6 +3829,20 @@ impl Media {
                                     ),
                                 }
                             }
+                            butterpollo_core::pipeline_rates::PIPELINE_RATES_MESSAGE_TYPE => {
+                                let counts = s.pipeline_counts();
+                                match s.pipeline_rates.lock().unwrap().on_request(Instant::now(), &payload, counts) {
+                                    Some(enabled) => tracing::info!(
+                                        client = %s.launch.client.name,
+                                        enabled,
+                                        "pipeline rate reports"
+                                    ),
+                                    None => tracing::debug!(
+                                        len = payload.len(),
+                                        "invalid pipeline rates request"
+                                    ),
+                                }
+                            }
                             butterpollo_core::display_caps::DISPLAY_CAPS_MESSAGE_TYPE => {
                                 match s.record_display_caps(&payload) {
                                     Some(update) if update.changed => {
@@ -4009,6 +4041,21 @@ impl Media {
                                 ),
                             );
                         }
+                    }
+                    // Pipeline frame rates for a client that asked (0x553D); unreliable
+                    // like the timing reports, as the next one replaces a lost one.
+                    let rates = s.pipeline_rates.lock().unwrap().take(Instant::now(), || s.pipeline_counts());
+                    if let Some(report) = rates
+                        && let Ok(message) = p.encrypt(
+                            &s,
+                            butterpollo_core::pipeline_rates::PIPELINE_RATES_MESSAGE_TYPE,
+                            &report,
+                        )
+                    {
+                        let _ = host.peer_mut(*peer_id).send(
+                            0,
+                            &Packet::new(message, PacketKind::AlwaysUnreliable { sequenced: false }),
+                        );
                     }
                     if poll_feedback && let Some((old, new)) = s.tick_fec(Instant::now()) {
                         tracing::info!(

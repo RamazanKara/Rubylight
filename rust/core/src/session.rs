@@ -357,6 +357,29 @@ mod tests {
         assert_eq!(ceiling(&session), 250_000);
     }
     #[test]
+    fn the_console_gets_pipeline_rates_once_a_window_is_complete() {
+        let session = Session::new(launch("rates", Role::Stream), Negotiated::default());
+        assert!(session.info()["pipeline_rates"].is_null());
+        session.stats.pipeline.captured(1, 2);
+        session.stats.pipeline.submitted(true);
+        session.stats.frames.fetch_add(1, Ordering::Relaxed);
+        assert_eq!(
+            session.pipeline_counts(),
+            crate::pipeline_rates::Counts {
+                source: 1,
+                capture: 2,
+                submit: 1,
+                output: 1,
+                repeat: 1,
+            }
+        );
+        std::thread::sleep(crate::pipeline_rates::CONSOLE_WINDOW);
+        let rates = &session.info()["pipeline_rates"];
+        assert!(rates["window_ms"].as_u64().unwrap() >= 1000, "{rates}");
+        assert!(rates["capture_mhz"].as_u64().unwrap() > 0, "{rates}");
+        assert!(rates["repeat_mhz"].as_u64().unwrap() > 0, "{rates}");
+    }
+    #[test]
     fn client_fec_is_exposed_as_telemetry_without_changing_stream_decisions() {
         let session = Session::new(launch("fec", Role::Stream), Negotiated::default());
         session.idr.store(false, Ordering::Relaxed);
@@ -2549,6 +2572,10 @@ pub struct Stats {
     /// Last frame offered to the video socket, plus one; zero means none yet.
     pub video_frame: AtomicU64,
     pub performance: std::sync::Mutex<crate::performance::Performance>,
+    /// The stages `frames` doesn't count, for the pipeline frame rates.
+    pub pipeline: crate::pipeline_rates::Counters,
+    /// The console's pipeline frame rates, over `pipeline_rates::CONSOLE_WINDOW`.
+    pub pipeline_console: std::sync::Mutex<crate::pipeline_rates::Sampler>,
 }
 pub struct Session<P = (), A = ()> {
     pub encoder: std::sync::RwLock<String>,
@@ -2605,6 +2632,8 @@ pub struct Session<P = (), A = ()> {
     /// Tells a client that asked (0x5538) when the host holds the bitrate down for the
     /// network; fed by `tick_link_rate`, sent by the control loop.
     pub link_notices: std::sync::Mutex<crate::link_notice::LinkNotices>,
+    /// Pipeline frame rates for a client that asked (0x553D), sent by the control loop.
+    pub pipeline_rates: std::sync::Mutex<crate::pipeline_rates::Reporter>,
     /// Zero of the video stream's RTP clock, set when its sender starts; clock sync
     /// replies (0x5537) are on this clock.
     pub media_epoch: std::sync::RwLock<Option<Instant>>,
@@ -2705,6 +2734,7 @@ impl<P, A> Session<P, A> {
             hdr_source: Default::default(),
             host_timings: Default::default(),
             link_notices: Default::default(),
+            pipeline_rates: Default::default(),
             media_epoch: Default::default(),
             timing_record: Default::default(),
             encoder_focus: AtomicU8::new(crate::encoder_focus::Requested::Off.wire()),
@@ -3083,6 +3113,25 @@ impl<P, A> Session<P, A> {
         }
     }
     /// The link-rate state for the session API and the `stream timings` line.
+    /// The running counts behind the pipeline frame rates.
+    pub fn pipeline_counts(&self) -> crate::pipeline_rates::Counts {
+        self.stats
+            .pipeline
+            .counts(self.stats.frames.load(Ordering::Relaxed))
+    }
+
+    /// The console's pipeline frame rates; `None` until a window is complete.
+    fn console_pipeline_rates(&self) -> Option<crate::pipeline_rates::PipelineRates> {
+        let counts = self.pipeline_counts();
+        self.stats
+            .pipeline_console
+            .lock()
+            .unwrap()
+            .sample(Instant::now(), counts, crate::pipeline_rates::CONSOLE_WINDOW)
+            .as_ref()
+            .map(crate::pipeline_rates::PipelineRates::from)
+    }
+
     pub fn link_rate_snapshot(&self) -> serde_json::Value {
         self.link_rate.lock().unwrap().rate.snapshot(Instant::now())
     }
@@ -3534,7 +3583,7 @@ impl<P, A> Session<P, A> {
             .lock()
             .unwrap()
             .window(Instant::now());
-        serde_json::json!({"warnings":warnings,"encoder":*self.encoder.read().unwrap(),"uuid":self.launch.client.uuid,"device_name":self.launch.client.name,"width":width,"height":height,"fps":fps,"requested_fps":requested_fps,"video_format":self.config.codec,"hdr":self.config.hdr,"vrr":self.config.vrr_low_latency,"encoder_bitrate_kbps":self.bitrate.load(Ordering::Relaxed),"adaptive_bitrate":self.adaptive_bitrate.lock().unwrap().snapshot(),"link_rate":self.link_rate_snapshot(),"packet_pacing":self.automatic_pacing.lock().unwrap().snapshot(),"fec_percent":self.fec_percent(),"pyrowave_minimum_kbps":(self.config.codec == 3).then(|| crate::pyrowave::minimum_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"pyrowave_recommended_kbps":(self.config.codec == 3).then(|| crate::pyrowave::recommended_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"audio_channels":self.config.audio_channels,"state":if self.stopping(){"STOPPING"}else{"RUNNING"},"frames_sent":self.stats.frames.load(Ordering::Relaxed),"frames_replaced":self.stats.frames_replaced.load(Ordering::Relaxed),"packets_sent":self.stats.packets.load(Ordering::Relaxed),"bytes_sent":self.stats.bytes.load(Ordering::Relaxed),"idr_requests":self.stats.idr_requests.load(Ordering::Relaxed),"reference_invalidations":self.stats.reference_invalidations.load(Ordering::Relaxed),"send_loss_recoveries":self.stats.send_loss_recoveries.load(Ordering::Relaxed),"slice_delivery_overflows":self.stats.slice_delivery_overflows.load(Ordering::Relaxed),"encode_latency_ms":self.stats.latency_us.load(Ordering::Relaxed) as f64/1000.,"performance":performance.snapshot(),"uptime_seconds":self.started.elapsed().as_secs_f64(),"role":self.launch.role})
+        serde_json::json!({"warnings":warnings,"encoder":*self.encoder.read().unwrap(),"uuid":self.launch.client.uuid,"device_name":self.launch.client.name,"width":width,"height":height,"fps":fps,"requested_fps":requested_fps,"video_format":self.config.codec,"hdr":self.config.hdr,"vrr":self.config.vrr_low_latency,"encoder_bitrate_kbps":self.bitrate.load(Ordering::Relaxed),"adaptive_bitrate":self.adaptive_bitrate.lock().unwrap().snapshot(),"link_rate":self.link_rate_snapshot(),"packet_pacing":self.automatic_pacing.lock().unwrap().snapshot(),"fec_percent":self.fec_percent(),"pyrowave_minimum_kbps":(self.config.codec == 3).then(|| crate::pyrowave::minimum_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"pyrowave_recommended_kbps":(self.config.codec == 3).then(|| crate::pyrowave::recommended_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"audio_channels":self.config.audio_channels,"state":if self.stopping(){"STOPPING"}else{"RUNNING"},"frames_sent":self.stats.frames.load(Ordering::Relaxed),"frames_replaced":self.stats.frames_replaced.load(Ordering::Relaxed),"packets_sent":self.stats.packets.load(Ordering::Relaxed),"bytes_sent":self.stats.bytes.load(Ordering::Relaxed),"idr_requests":self.stats.idr_requests.load(Ordering::Relaxed),"reference_invalidations":self.stats.reference_invalidations.load(Ordering::Relaxed),"send_loss_recoveries":self.stats.send_loss_recoveries.load(Ordering::Relaxed),"slice_delivery_overflows":self.stats.slice_delivery_overflows.load(Ordering::Relaxed),"encode_latency_ms":self.stats.latency_us.load(Ordering::Relaxed) as f64/1000.,"performance":performance.snapshot(),"pipeline_rates":self.console_pipeline_rates(),"uptime_seconds":self.started.elapsed().as_secs_f64(),"role":self.launch.role})
     }
 }
 pub struct Sessions<P = (), A = ()> {

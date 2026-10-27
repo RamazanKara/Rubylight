@@ -106,6 +106,10 @@ pub(super) struct Latest<T> {
     origin: Instant,
     trace_source_id: u64,
     recovering: AtomicBool,
+    /// Running counts of publications and of the pictures among them (see
+    /// `Freshness::picture_interval`), for the pipeline frame rates.
+    captures: AtomicU64,
+    pictures: AtomicU64,
 }
 impl<T> Latest<T> {
     pub(super) fn new() -> Self {
@@ -124,7 +128,18 @@ impl<T> Latest<T> {
             origin: Instant::now(),
             trace_source_id: NEXT_SOURCE_ID.fetch_add(1, Ordering::Relaxed),
             recovering: AtomicBool::new(false),
+            captures: AtomicU64::new(0),
+            pictures: AtomicU64::new(0),
         }
+    }
+    /// This slot's identity and its running picture and capture counts, for
+    /// `pipeline_rates::Follow`.
+    pub(super) fn frame_counts(&self) -> (usize, u64, u64) {
+        (
+            self.trace_source_id as usize,
+            self.pictures.load(Ordering::Relaxed),
+            self.captures.load(Ordering::Relaxed),
+        )
     }
     pub(super) fn subscribe(&self, session: Weak<crate::state::Session>) -> Result<Arc<Consumer>> {
         let state = self.state.lock().unwrap();
@@ -253,10 +268,15 @@ impl<T> Latest<T> {
             return Ok(());
         }
         state.recovery.captured = true;
+        let picture = state.cadence.picture_start();
         state.cadence.observe(
             nanos(captured.saturating_duration_since(self.origin)),
             nanos(now.saturating_duration_since(captured)),
         );
+        self.captures.fetch_add(1, Ordering::Relaxed);
+        if state.cadence.picture_start() != picture {
+            self.pictures.fetch_add(1, Ordering::Relaxed);
+        }
         if tracing::enabled!(target: "pacing", tracing::Level::TRACE) {
             let capture_id = state.trace.observe(&image);
             tracing::trace!(

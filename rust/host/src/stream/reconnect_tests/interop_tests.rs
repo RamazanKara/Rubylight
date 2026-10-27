@@ -205,7 +205,7 @@ async fn stream(
 }
 
 /// The host's control extensions Nightjar must know, in the order the host announces them.
-const CONTROL_EXTENSIONS: [u16; 9] = [
+const CONTROL_EXTENSIONS: [u16; 10] = [
     ptype::PHASE_LOCK_REPORT,
     ptype::DISPLAY_CAPS,
     ptype::RECONFIGURE,
@@ -215,6 +215,7 @@ const CONTROL_EXTENSIONS: [u16; 9] = [
     ptype::HOST_TIMING,
     ptype::CLOCK_SYNC,
     ptype::LINK_NOTICE,
+    ptype::PIPELINE_RATES,
 ];
 
 /// Launch, the RTSP handshake and the control stream both ways: Nightjar's keyframe request
@@ -443,6 +444,7 @@ const SERVERINFO_FIELDS: &[(&str, Reading)] = &[
     ("PyroWaveWireBudgetVersion", Reading::Read),
     ("PyroWaveCriticalFecPercentage", Reading::Read),
     ("PyroWaveMinParityShards", Reading::Read),
+    ("PipelineRatesVersion", Reading::Read),
     (
         "RustHostSessionCount",
         Reading::Ignored("diagnostics for scripts and the release harness"),
@@ -546,6 +548,7 @@ fn expected(feature: Feature) -> Availability {
         | Feature::RemoteSessionTiles
         | Feature::HostConfirmsReplacement
         | Feature::HostTiming
+        | Feature::PipelineRates
         | Feature::WebUi
         | Feature::NativeApi
         | Feature::Sleep => Supported,
@@ -577,7 +580,6 @@ fn expected(feature: Feature) -> Availability {
         | Feature::TextInput
         | Feature::ClientKeyboardLayout
         | Feature::PenBarrelRoll
-        | Feature::PipelineRates
         | Feature::ImageClipboard
         | Feature::SharedFolders => Unsupported(None),
     }

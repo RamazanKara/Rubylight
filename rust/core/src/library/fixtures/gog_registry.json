@@ -1,0 +1,13 @@
+{
+  "gameID": "1207658924",
+  "gameName": "Unreal Tournament 2004",
+  "path": "D:\\GOG Games\\Unreal Tournament 2004",
+  "exe": "D:\\GOG Games\\Unreal Tournament 2004\\System\\UT2004.exe",
+  "exeFile": "UT2004.exe",
+  "launchCommand": "\"D:\\GOG Games\\Unreal Tournament 2004\\System\\UT2004.exe\" ",
+  "launchParam": "-nohomedir",
+  "workingDir": "D:\\GOG Games\\Unreal Tournament 2004\\System",
+  "dependsOn": "",
+  "productID": "1207658924",
+  "ver": "3369.3"
+}

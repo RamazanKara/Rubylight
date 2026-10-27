@@ -3,6 +3,7 @@ use anyhow::{Context, Result, bail, ensure};
 use prost::Message;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -15,9 +16,10 @@ pub enum Source {
     Ubisoft,
     Gog,
     Microsoft,
+    Local,
 }
 impl Source {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Steam,
         Self::Epic,
         Self::Battlenet,
@@ -25,6 +27,7 @@ impl Source {
         Self::Ubisoft,
         Self::Gog,
         Self::Microsoft,
+        Self::Local,
     ];
     pub fn key(self) -> &'static str {
         match self {
@@ -35,6 +38,7 @@ impl Source {
             Self::Ubisoft => "ubisoft",
             Self::Gog => "gog",
             Self::Microsoft => "microsoft",
+            Self::Local => "local",
         }
     }
     pub fn name(self) -> &'static str {
@@ -46,8 +50,104 @@ impl Source {
             Self::Ubisoft => "Ubisoft Connect",
             Self::Gog => "GOG",
             Self::Microsoft => "Microsoft Store and Xbox",
+            Self::Local => "Game folders",
         }
     }
+    /// What Playnite calls the library plugin for this launcher, in [`name_key`] form.
+    fn playnite_plugin(self) -> Option<&'static str> {
+        match self {
+            Self::Steam => Some("steam"),
+            Self::Epic => Some("epic"),
+            Self::Battlenet => Some("battlenet"),
+            Self::Ea => Some("ea"),
+            Self::Ubisoft => Some("ubisoft"),
+            Self::Gog => Some("gog"),
+            Self::Microsoft => Some("xbox"),
+            Self::Local => None,
+        }
+    }
+}
+
+/// Which launchers the scan reads (`library_*` keys). Steam, Playnite and the
+/// other launchers have their own settings; these are the ones added with the
+/// game folders.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Settings {
+    pub epic: bool,
+    pub gog: bool,
+    /// Folders whose subfolders are games, one game per subfolder.
+    pub local_folders: Vec<PathBuf>,
+    /// Game folders the folder scan leaves out, by folder name or full path.
+    pub local_exclude: Vec<String>,
+}
+impl Default for Settings {
+    fn default() -> Self {
+        Self::from_config(&crate::config::Config::default())
+    }
+}
+impl Settings {
+    pub fn from_config(config: &crate::config::Config) -> Self {
+        Self {
+            epic: config.boolean("library_epic_enabled", true),
+            gog: config.boolean("library_gog_enabled", true),
+            local_folders: config
+                .list("library_local_folders")
+                .into_iter()
+                .map(|folder| PathBuf::from(folder.trim()))
+                .collect(),
+            local_exclude: config
+                .list("library_local_exclude")
+                .into_iter()
+                .map(|entry| entry.trim().to_owned())
+                .collect(),
+        }
+    }
+    /// Whether the scan reads `source`. Game folders are read when there are some.
+    pub fn enabled(&self, source: Source) -> bool {
+        match source {
+            Source::Epic => self.epic,
+            Source::Gog => self.gog,
+            Source::Local => !self.local_folders.is_empty(),
+            _ => true,
+        }
+    }
+    /// Whether the folder scan leaves out the game folder `folder`.
+    pub fn excluded(&self, folder: &Path) -> bool {
+        let name = folder.file_name().map(|name| name.to_string_lossy());
+        self.local_exclude.iter().any(|entry| {
+            same_folder(entry, &folder.to_string_lossy())
+                || name
+                    .as_deref()
+                    .is_some_and(|name| name.eq_ignore_ascii_case(entry))
+        })
+    }
+}
+
+/// Letters and digits only, in lower case: "DOOM Eternal™" and "Doom Eternal" are one name.
+fn name_key(name: &str) -> String {
+    name.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+/// A folder path compared as Windows does: any case, either slash, no trailing slash.
+fn folder_key(path: &str) -> String {
+    path.trim()
+        .replace('/', "\\")
+        .trim_end_matches('\\')
+        .to_lowercase()
+}
+fn same_folder(a: &str, b: &str) -> bool {
+    !a.trim().is_empty() && folder_key(a) == folder_key(b)
+}
+/// Whether `path` is `folder` or inside it.
+fn within(path: &str, folder: &str) -> bool {
+    let (path, folder) = (folder_key(path), folder_key(folder));
+    !folder.is_empty()
+        && (path == folder
+            || path
+                .strip_prefix(&folder)
+                .is_some_and(|rest| rest.starts_with('\\')))
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -122,6 +222,28 @@ impl Game {
             || app["uuid"].as_str() == Some(&self.uuid())
             || (self.source == Source::Steam
                 && crate::steam::app_id_of(app).is_some_and(|id| id.to_string() == self.id))
+            || self.synced_copy(app)
+    }
+    /// An app Steam or Playnite already keeps for this game, or one that starts
+    /// from this game folder. Playnite starts its games itself and keeps no
+    /// folder, so its apps are known by name and library plugin. The same title
+    /// from two launchers stays two games.
+    fn synced_copy(&self, app: &Value) -> bool {
+        let text = |key: &str| app[key].as_str().unwrap_or("");
+        let name = name_key(&self.name);
+        let same_name = !name.is_empty() && name_key(text("name")) == name;
+        if same_name && !text("playnite-id").is_empty() {
+            let plugin = name_key(text("playnite-plugin-name"));
+            return self
+                .source
+                .playnite_plugin()
+                .is_none_or(|launcher| plugin.starts_with(launcher));
+        }
+        self.source == Source::Local
+            && ((same_name && !text("steam-id").is_empty())
+                || ["working-dir", "launcher-install-dir", "steam-install-dir"]
+                    .into_iter()
+                    .any(|key| same_folder(text(key), &self.install_dir)))
     }
     fn app(&self) -> Result<Value> {
         if let Some(reason) = &self.unavailable_reason {
@@ -624,13 +746,7 @@ pub fn gog(bytes: &[u8], folder: &Path, galaxy: Option<&Path>) -> Result<Option<
         .context("The GOG game has no primary play action.")?;
     let executable = relative_file(folder, action["path"].as_str().unwrap_or(""))?;
     let launch = if let Some(galaxy) = galaxy {
-        Launch::Program {
-            program: galaxy.to_string_lossy().into_owned(),
-            arguments: format!(
-                "/launchViaAutostart /gameId={id} /command=runGame /path=\"{}\"",
-                folder.display()
-            ),
-        }
+        galaxy_launch(galaxy, id, folder)
     } else {
         Launch::Program {
             program: executable.to_string_lossy().into_owned(),
@@ -646,6 +762,197 @@ pub fn gog(bytes: &[u8], folder: &Path, galaxy: Option<&Path>) -> Result<Option<
         game.working_dir = relative_file(folder, working)?;
     }
     Ok(Some(game))
+}
+fn galaxy_launch(galaxy: &Path, id: &str, folder: &Path) -> Launch {
+    Launch::Program {
+        program: galaxy.to_string_lossy().into_owned(),
+        arguments: format!(
+            "/launchViaAutostart /gameId={id} /command=runGame /path=\"{}\"",
+            folder.display()
+        ),
+    }
+}
+
+/// A GOG game from the values of its `SOFTWARE\GOG.com\Games\<id>` registry key, for an
+/// install with no `goggame-<id>.info` (older offline installers write only the registry).
+/// Galaxy starts it when it is installed, otherwise its own program does. DLC (`dependsOn`)
+/// is not a game of its own.
+pub fn gog_registry(
+    values: &BTreeMap<String, String>,
+    galaxy: Option<&Path>,
+) -> Result<Option<Game>> {
+    let get = |key: &str| {
+        values
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(key))
+            .map_or("", |(_, value)| value.trim())
+    };
+    let id = get("gameID");
+    ensure!(
+        !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()),
+        "Invalid GOG game ID."
+    );
+    if !get("dependsOn").is_empty() {
+        return Ok(None);
+    }
+    let name = get("gameName");
+    ensure!(!name.is_empty(), "The GOG game {id} has no name.");
+    let folder = get("path");
+    ensure!(
+        !folder.is_empty(),
+        "The GOG game {name} has no installation folder."
+    );
+    let program = get("exe");
+    ensure!(
+        within(program, folder) && !same_folder(program, folder),
+        "The GOG game {name} has no program in its installation folder."
+    );
+    let folder = Path::new(folder);
+    let launch = match galaxy {
+        Some(galaxy) => galaxy_launch(galaxy, id, folder),
+        None => Launch::Program {
+            program: program.into(),
+            arguments: get("launchParam").into(),
+        },
+    };
+    let mut game = Game::new(Source::Gog, id.into(), name.into(), folder, Some(launch));
+    let working = get("workingDir");
+    if galaxy.is_none() && within(working, &game.install_dir) {
+        game.working_dir = working.into();
+    }
+    Ok(Some(game))
+}
+
+/// A program below a game folder: its path relative to the folder, and its size.
+pub struct Program {
+    pub path: PathBuf,
+    pub size: u64,
+}
+/// Folders below a game folder that never hold the game's own program.
+pub const LOCAL_SKIPPED_FOLDERS: [&str; 16] = [
+    "_commonredist",
+    "commonredist",
+    "redist",
+    "redistributables",
+    "_redist",
+    "__installer",
+    "installer",
+    "installers",
+    "directx",
+    "dotnet",
+    "vcredist",
+    "prereqs",
+    "support",
+    "easyanticheat",
+    "battleye",
+    "crashreporter",
+];
+/// Whether a program (by file name) is part of a game's install, not the game: setup,
+/// uninstallers, redistributables, crash reporters, updaters and anti-cheat services.
+fn helper_program(file: &str) -> bool {
+    let stem = file.to_lowercase();
+    let stem = stem.strip_suffix(".exe").unwrap_or(&stem);
+    [
+        "unins",
+        "setup",
+        "install",
+        "redist",
+        "directx",
+        "dotnet",
+        "crash",
+        "bugreport",
+        "errorreport",
+        "reporter",
+        "update",
+        "patcher",
+        "prereq",
+        "easyanticheat",
+        "battleye",
+        "uploader",
+        "helper",
+        "cefprocess",
+        "touchup",
+        "cleanup",
+        "activation",
+        "config",
+    ]
+    .iter()
+    .any(|part| stem.contains(part))
+        || matches!(stem, "eac" | "be" | "be_service" | "dxsetup")
+}
+/// The game in `folder`, a subfolder of one of the configured game folders, started by
+/// the program `programs` lists below it (at most two folders deep). Helpers
+/// ([`helper_program`]) and anything in [`LOCAL_SKIPPED_FOLDERS`] are never it. The program
+/// nearest the top wins, then one named like the folder, then the largest. The game is
+/// known by its folder, so a newer program does not make it a new game.
+pub fn local(folder: &Path, programs: &[Program]) -> Option<Game> {
+    let name = folder.file_name()?.to_string_lossy().trim().to_owned();
+    let title = name_key(&name);
+    let program = programs
+        .iter()
+        .filter(|program| {
+            let mut parts = program.path.components().rev();
+            let file = parts.next().map(|part| part.as_os_str().to_string_lossy());
+            file.is_some_and(|file| file.to_lowercase().ends_with(".exe") && !helper_program(&file))
+                && program.path.components().count() <= 3
+                && parts.all(|part| {
+                    matches!(part, Component::Normal(_))
+                        && !LOCAL_SKIPPED_FOLDERS
+                            .contains(&part.as_os_str().to_string_lossy().to_lowercase().as_str())
+                })
+        })
+        .min_by_key(|program| {
+            let stem = name_key(
+                &program
+                    .path
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy(),
+            );
+            let named = stem.len() >= 3 && (title.contains(&stem) || stem.contains(&title));
+            (
+                program.path.components().count(),
+                !named,
+                std::cmp::Reverse(program.size),
+                program.path.clone(),
+            )
+        })?;
+    let program = folder.join(program.path.components().collect::<PathBuf>());
+    let mut game = Game::new(
+        Source::Local,
+        folder_key(&folder.to_string_lossy()),
+        name,
+        folder,
+        Some(Launch::Program {
+            program: program.to_string_lossy().into_owned(),
+            arguments: String::new(),
+        }),
+    );
+    if let Some(parent) = program.parent() {
+        game.working_dir = parent.into();
+    }
+    Some(game)
+}
+
+/// The scan's games once every source is read, sorted by name: one per launcher and id,
+/// and no game-folder entry for a folder a launcher already lists, one inside it, or one
+/// that holds a launcher's games (a library, not a game).
+pub fn finish(mut games: Vec<Game>) -> Vec<Game> {
+    let mut seen = std::collections::BTreeSet::new();
+    games.retain(|game| seen.insert((game.source, game.id.clone())));
+    let launcher_folders: Vec<String> = games
+        .iter()
+        .filter(|game| game.source != Source::Local)
+        .map(|game| game.install_dir.clone())
+        .collect();
+    games.retain(|game| {
+        game.source != Source::Local
+            || !launcher_folders.iter().any(|folder| {
+                within(&game.install_dir, folder) || within(folder, &game.install_dir)
+            })
+    });
+    games.sort_by_cached_key(|game| (game.name.to_lowercase(), game.source, game.id.clone()));
+    games
 }
 
 #[cfg(test)]

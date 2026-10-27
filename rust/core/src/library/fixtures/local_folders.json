@@ -1,0 +1,32 @@
+{
+  "Hades": [
+    ["Hades.exe", 52428800],
+    ["unins000.exe", 3145728],
+    ["_CommonRedist/vcredist/2019/VC_redist.x64.exe", 25165824]
+  ],
+  "The Witcher 3": [
+    ["bin/x64/witcher3.exe", 62914560],
+    ["bin/x64/CrashReporter.exe", 1048576],
+    ["redist/DXSETUP.exe", 524288]
+  ],
+  "Celeste": [
+    ["Celeste.exe", 2097152],
+    ["Launcher.exe", 10485760],
+    ["UnityCrashHandler64.exe", 1572864],
+    ["setup.exe", 8388608]
+  ],
+  "Runtimes": [
+    ["vc_redist.x64.exe", 25165824],
+    ["DXSETUP.exe", 524288],
+    ["Uninstall.exe", 1048576],
+    ["EasyAntiCheat/EasyAntiCheat_EOS_Setup.exe", 8388608],
+    ["Support/dotNetFx40_Full_setup.exe", 884736]
+  ],
+  "Too Deep": [
+    ["Game/Binaries/Win64/Game-Win64-Shipping.exe", 104857600],
+    ["readme.txt", 1024]
+  ],
+  "Portal Clone": [
+    ["portal.exe", 4194304]
+  ]
+}

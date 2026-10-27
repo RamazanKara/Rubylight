@@ -29,12 +29,28 @@ pub const FILE_DOWNLOAD: u32 = 1 << 19;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Scan {
     installed: BTreeSet<String>,
+    /// Source keys the scan did not read (turned off): their games' state is unknown.
+    skipped: BTreeSet<String>,
 }
 impl Scan {
     pub fn new(game_ids: impl IntoIterator<Item = String>) -> Self {
         Self {
             installed: game_ids.into_iter().collect(),
+            skipped: BTreeSet::new(),
         }
+    }
+    /// The scan did not read these sources, so it says nothing about their games.
+    pub fn skipping(mut self, sources: impl IntoIterator<Item = Source>) -> Self {
+        self.skipped
+            .extend(sources.into_iter().map(|source| source.key().to_owned()));
+        self
+    }
+    /// Whether the game is installed, `None` when the scan did not read its source.
+    pub fn installed(&self, game_id: &str) -> Option<bool> {
+        let source = game_id
+            .split_once(':')
+            .map_or(game_id, |(source, _)| source);
+        (!self.skipped.contains(source)).then(|| self.contains(game_id))
     }
     pub fn from_games(games: &[crate::library::Game]) -> Self {
         Self::new(
@@ -139,7 +155,7 @@ pub fn library_with(
             None => (None, None),
         };
         let installed = match (&game_id, scan) {
-            (Some(game_id), Some(scan)) => Some(scan.contains(game_id)),
+            (Some(game_id), Some(scan)) => scan.installed(game_id),
             _ => None,
         };
         games.push(Game {
@@ -425,6 +441,17 @@ mod tests {
         assert_eq!(library.games[1].store.as_ref().unwrap().name, "Epic Games");
         let none = super::library(&[dota()], None, None);
         assert_eq!(none.games[0].installed, None);
+    }
+
+    #[test]
+    fn a_source_turned_off_leaves_its_games_installed_state_unknown() {
+        let epic = app(
+            json!({"name": "Kept", "uuid": "k", "launcher-source": "epic", "launcher-id": "x"}),
+        );
+        let scan = Scan::new(["steam:570".into()]).skipping([Source::Epic]);
+        let library = library(&[dota(), epic], Some(&scan), None);
+        assert_eq!(library.games[0].installed, Some(true));
+        assert_eq!(library.games[1].installed, None);
     }
 
     #[test]

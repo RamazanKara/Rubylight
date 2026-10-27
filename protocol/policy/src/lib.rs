@@ -8,6 +8,7 @@
 pub mod bitrate;
 pub mod health;
 pub mod launch;
+pub mod overlay;
 pub mod pyrowave;
 pub mod quality;
 pub mod recovery;

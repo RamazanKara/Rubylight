@@ -79,20 +79,21 @@ pub(crate) fn log_mode(config: &Config) {
 pub(crate) fn check_at_startup(h: &Shared) {
     let directory = h.directory.clone();
     std::thread::spawn(move || {
-        let firewall = || logic::firewall_missing(&native::NativeSettings::new()?);
+        let firewall = |port| logic::firewall_missing(&native::NativeSettings::new()?, port);
         if let Some(problem) = startup_problem(&directory, firewall) {
             report(problem);
         }
     });
 }
+/// `firewall` checks the firewall for the RDP port setup recorded.
 fn startup_problem(
     directory: &Path,
-    firewall: impl FnOnce() -> Result<Vec<String>>,
+    firewall: impl FnOnce(u16) -> Result<Vec<String>>,
 ) -> Option<String> {
     match load_saved(directory) {
         Ok(None) => None,
         Err(error) => Some(format!("{error:#}")),
-        Ok(Some(_)) => match firewall() {
+        Ok(Some(state)) => match firewall(state.rdp_port) {
             Ok(missing) if missing.is_empty() => None,
             Ok(missing) => Some(format!(
                 "child sessions are set up, so Remote Desktop is on, but the firewall no longer keeps it on this PC: {}. Fix that, or choose Restore Windows settings; the child session does not start until then.",
@@ -218,7 +219,13 @@ pub(crate) fn start(h: &Shared, password: Option<logic::Secret>) -> Result<()> {
         config.get(logic::RESOLUTION_KEY, ""),
         config.get(logic::SCALE_KEY, ""),
     )?;
-    let missing = logic::missing(&native::NativeSettings::new()?, &native::console_user()?)?;
+    // The port setup recorded, which RDP and the block rule must still match.
+    let rdp_port = load_saved(&h.directory)?.map(|state| state.rdp_port);
+    let missing = logic::missing(
+        &native::NativeSettings::new()?,
+        &native::console_user()?,
+        rdp_port,
+    )?;
     if !missing.is_empty() {
         bail!("set up child sessions first: {}", missing.join("; "));
     }
@@ -511,7 +518,14 @@ pub(crate) fn status(h: &Shared) -> Value {
         .unwrap_or_else(PoisonError::into_inner)
         .clone();
     let decision = decision(&config);
-    let missing = (|| logic::missing(&native::NativeSettings::new()?, &native::console_user()?))();
+    let missing = (|| {
+        let rdp_port = load_saved(&h.directory)?.map(|state| state.rdp_port);
+        logic::missing(
+            &native::NativeSettings::new()?,
+            &native::console_user()?,
+            rdp_port,
+        )
+    })();
     let display = DisplaySettings::parse(
         config.get(logic::RESOLUTION_KEY, ""),
         config.get(logic::SCALE_KEY, ""),
@@ -623,7 +637,7 @@ mod tests {
     #[test]
     fn a_set_up_pc_checks_its_firewall_at_the_hosts_start() {
         let directory = scratch();
-        let never = || -> Result<Vec<String>> { panic!("no setup, no check") };
+        let never = |_| -> Result<Vec<String>> { panic!("no setup, no check") };
         assert_eq!(startup_problem(&directory, never), None);
         let state = SetupState {
             version: 1,
@@ -633,11 +647,18 @@ mod tests {
             suppress_when_minimized: None,
             child_sessions: false,
             remote_desktop_rule_ids: Vec::new(),
-            rdp_port: 3389,
+            rdp_port: 3390,
         };
         save_state(&directory, &state).unwrap();
-        assert_eq!(startup_problem(&directory, || Ok(Vec::new())), None);
-        let problem = startup_problem(&directory, || {
+        // Checked for the port setup recorded.
+        assert_eq!(
+            startup_problem(&directory, |port| {
+                assert_eq!(port, 3390);
+                Ok(Vec::new())
+            }),
+            None
+        );
+        let problem = startup_problem(&directory, |_| {
             Ok(vec!["the block rule is not in effect".into()])
         })
         .unwrap();
@@ -646,7 +667,7 @@ mod tests {
                 && problem.contains("Restore Windows settings"),
             "{problem}"
         );
-        let problem = startup_problem(&directory, || bail!("COM failed")).unwrap();
+        let problem = startup_problem(&directory, |_| bail!("COM failed")).unwrap();
         assert!(
             problem.contains("could not be checked: COM failed"),
             "{problem}"

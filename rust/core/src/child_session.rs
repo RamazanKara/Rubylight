@@ -1136,6 +1136,9 @@ pub struct ActiveFirewall {
     pub allowed: Vec<String>,
     /// Enabled inbound block rules under the name, for TCP and UDP both.
     pub blocked: bool,
+    /// The local ports of each of those block rules
+    /// (`Get-NetFirewallPortFilter`'s `LocalPort`, comma-joined).
+    pub block_ports: Vec<String>,
     /// Network profiles where the firewall is off or ignores local rules.
     pub unprotected: Vec<String>,
 }
@@ -1208,10 +1211,6 @@ pub fn record(system: &dyn SystemSettings, user_sid: &str) -> Result<SetupState>
             .read_dword(&hive(change, user_sid), change.path, change.name)
             .with_context(|| format!("reading {}", change.name))
     };
-    let port = system
-        .read_dword(&Hive::LocalMachine, RDP_TCP, "PortNumber")
-        .context("reading the RDP port")?
-        .unwrap_or(DEFAULT_RDP_PORT);
     Ok(SetupState {
         version: 1,
         user_sid: user_sid.into(),
@@ -1224,8 +1223,17 @@ pub fn record(system: &dyn SystemSettings, user_sid: &str) -> Result<SetupState>
         remote_desktop_rule_ids: system
             .enabled_rules(REMOTE_DESKTOP_RULES)
             .context("listing the Remote Desktop firewall rules")?,
-        rdp_port: u16::try_from(port).context("the RDP port is out of range")?,
+        rdp_port: live_rdp_port(system)?,
     })
+}
+
+/// The port RDP-Tcp listens on now (`PortNumber`), Windows' default when unset.
+fn live_rdp_port(system: &dyn SystemSettings) -> Result<u16> {
+    let port = system
+        .read_dword(&Hive::LocalMachine, RDP_TCP, "PortNumber")
+        .context("reading the RDP port")?
+        .unwrap_or(DEFAULT_RDP_PORT);
+    u16::try_from(port).context("the RDP port is out of range")
 }
 
 /// Set up child sessions. The original values are recorded and saved (through
@@ -1249,7 +1257,16 @@ pub fn setup(
         );
     }
     let state = match saved {
-        Some(state) if state.user_sid == user_sid => state,
+        // RDP moved to another port since: the record follows it (restore never writes the
+        // port), so the block rule and the viewer use the port RDP listens on now.
+        Some(mut state) if state.user_sid == user_sid => {
+            let live = live_rdp_port(system)?;
+            if state.rdp_port != live {
+                state.rdp_port = live;
+                save(&state).context("saving the new RDP port")?;
+            }
+            state
+        }
         Some(state) => bail!(
             "child sessions were set up for another Windows account ({}); restore that setup first",
             state.user_sid
@@ -1269,7 +1286,7 @@ pub fn setup(
             .with_context(|| format!("turning off the firewall rule {id}"))?;
     }
     // Checked where it counts, before RDP is on: what is in effect now.
-    let open = firewall_missing(system)?;
+    let open = firewall_missing(system, state.rdp_port)?;
     if !open.is_empty() {
         bail!(
             "{}, so turning on RDP would open it to the network. RDP was not turned on; Restore Windows settings puts the firewall rules back.",
@@ -1369,7 +1386,12 @@ pub fn restore(system: &mut dyn SystemSettings, state: &SetupState) -> Result<()
 }
 
 /// What is still missing for child sessions, empty when setup is complete.
-pub fn missing(system: &dyn SystemSettings, user_sid: &str) -> Result<Vec<String>> {
+/// `rdp_port` is the port setup recorded, None when there is no record yet.
+pub fn missing(
+    system: &dyn SystemSettings,
+    user_sid: &str,
+    rdp_port: Option<u16>,
+) -> Result<Vec<String>> {
     let mut missing = Vec::new();
     if !system.child_sessions_enabled()? {
         missing.push("Windows child sessions are off".to_string());
@@ -1384,15 +1406,26 @@ pub fn missing(system: &dyn SystemSettings, user_sid: &str) -> Result<Vec<String
     if !system.enabled_rules(REMOTE_DESKTOP_RULES)?.is_empty() {
         missing.push("Windows' Remote Desktop firewall rules are on".to_string());
     }
-    missing.extend(firewall_missing(system)?);
+    let rdp_port = match rdp_port {
+        Some(port) => port,
+        None => live_rdp_port(system)?,
+    };
+    missing.extend(firewall_missing(system, rdp_port)?);
     Ok(missing)
 }
 
 /// What keeps the firewall from holding RDP to this PC now, empty when it
-/// does. Setup checks it before RDP goes on, the host at its start and every
-/// child-session start through [`missing`].
-pub fn firewall_missing(system: &dyn SystemSettings) -> Result<Vec<String>> {
+/// does: `rdp_port` is the port setup recorded, which RDP must still listen
+/// on and the block rule must still close. Setup checks it before RDP goes
+/// on, the host at its start and every child-session start.
+pub fn firewall_missing(system: &dyn SystemSettings, rdp_port: u16) -> Result<Vec<String>> {
     let mut missing = Vec::new();
+    let live = live_rdp_port(system)?;
+    if live != rdp_port {
+        missing.push(format!(
+            "Remote Desktop listens on port {live} now, not on the port {rdp_port} setup closed to the network; set up child sessions again"
+        ));
+    }
     if let Some(problem) = system
         .firewall_problem()
         .context("reading the Windows Firewall state")?
@@ -1411,6 +1444,26 @@ pub fn firewall_missing(system: &dyn SystemSettings) -> Result<Vec<String>> {
     if !active.blocked {
         missing.push(format!(
             "the firewall rule \"{BLOCK_RULE}\" is not in effect"
+        ));
+    }
+    let wanted = rdp_port.to_string();
+    let mut others: Vec<&str> = active
+        .block_ports
+        .iter()
+        .map(|ports| ports.trim())
+        .filter(|ports| *ports != wanted)
+        .collect();
+    others.sort_unstable();
+    others.dedup();
+    if active.blocked && active.block_ports.is_empty() {
+        missing.push(format!(
+            "the ports the firewall rule \"{BLOCK_RULE}\" closes could not be read"
+        ));
+    }
+    if !others.is_empty() {
+        missing.push(format!(
+            "the firewall rule \"{BLOCK_RULE}\" closes port {}, not the RDP port {rdp_port}; set up child sessions again",
+            others.join(" and ")
         ));
     }
     if !active.allowed.is_empty() {

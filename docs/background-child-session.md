@@ -25,8 +25,11 @@ default, and it is what Windows Home uses: Home has no child sessions.
      closed to the network. Setup refuses when Windows Firewall is off for a
      network profile, or when group policy overrides the local firewall rules.
      RDP is turned on only if the rules in effect (local rules merged with
-     group policy) still block it: the block rule is in force for TCP and UDP
-     and no Remote Desktop allow rule is. That check runs at setup, again at
+     group policy) still block it: the block rule is in force for TCP and UDP,
+     closes the RDP port setup recorded (RDP must still listen on that port),
+     and no Remote Desktop allow rule is. When RDP moves to another port, the
+     check refuses until you set up child sessions again, which follows the
+     new port. That check runs at setup, again at
      every host start (a failure is reported loudly in the console and the
      log), and before every child-session start, which refuses until it
      passes;

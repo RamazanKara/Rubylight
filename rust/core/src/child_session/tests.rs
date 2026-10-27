@@ -629,9 +629,14 @@ impl SystemSettings for Fake {
         if local {
             allowed.extend(self.enabled_rules(group)?);
         }
+        let block = self.machine.block_rules.get(block_rule).filter(|_| local);
         Ok(ActiveFirewall {
             allowed,
-            blocked: local && self.machine.block_rules.contains_key(block_rule),
+            blocked: block.is_some(),
+            // The TCP and the UDP rule.
+            block_ports: block
+                .map(|port| vec![port.to_string(); 2])
+                .unwrap_or_default(),
             unprotected: self.machine.policy_overrides.clone(),
         })
     }
@@ -739,7 +744,11 @@ fn setup_saves_the_originals_before_the_first_change() {
     // The block rule is in place before RDP is turned on.
     let position = |entry: &str| log.iter().position(|e| e == entry).unwrap();
     assert!(position("block 3389") < position("write fDenyTSConnections"));
-    assert!(missing(&fake, SID).unwrap().is_empty());
+    assert!(
+        missing(&fake, SID, Some(state.rdp_port))
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -853,11 +862,11 @@ fn set_up_err(fake: &mut Fake) -> anyhow::Error {
 fn the_firewall_is_checked_again_after_setup() {
     let mut fake = Fake::new();
     set_up(&mut fake);
-    assert!(firewall_missing(&fake).unwrap().is_empty());
+    assert!(firewall_missing(&fake, 3389).unwrap().is_empty());
     // Someone removes the block rule, or group policy changes later: the
     // host's start and every child-session start see it.
     fake.machine.block_rules.clear();
-    let found = missing(&fake, SID).unwrap();
+    let found = missing(&fake, SID, Some(3389)).unwrap();
     assert!(
         found
             .iter()
@@ -866,8 +875,65 @@ fn the_firewall_is_checked_again_after_setup() {
     );
     set_up(&mut fake);
     fake.machine.policy_overrides = vec!["Public".into()];
-    let found = firewall_missing(&fake).unwrap();
+    let found = firewall_missing(&fake, 3389).unwrap();
     assert!(found.iter().any(|m| m.contains("Public")), "{found:?}");
+}
+
+#[test]
+fn a_moved_rdp_port_is_refused_until_setup_runs_again() {
+    let mut fake = Fake::new();
+    let state = set_up(&mut fake);
+    assert_eq!(state.rdp_port, 3389);
+    // Someone moves RDP to another port after setup: the block rule closes the old one.
+    fake.machine
+        .values
+        .insert(key(Hive::LocalMachine, RDP_TCP, "PortNumber"), 3390);
+    for found in [
+        missing(&fake, SID, Some(state.rdp_port)).unwrap(),
+        firewall_missing(&fake, state.rdp_port).unwrap(),
+    ] {
+        assert!(
+            found.iter().any(|m| m.contains("listens on port 3390 now")
+                && m.contains("port 3389")
+                && m.contains("set up child sessions again")),
+            "{found:?}"
+        );
+    }
+    // The block rule closes another port than the one recorded (a rule edited by hand).
+    let mut edited = Fake::new();
+    set_up(&mut edited);
+    edited.machine.block_rules.insert(BLOCK_RULE.into(), 3390);
+    let found = firewall_missing(&edited, 3389).unwrap();
+    assert!(
+        found
+            .iter()
+            .any(|m| m.contains("closes port 3390, not the RDP port 3389")),
+        "{found:?}"
+    );
+    // Setting up again follows the new port: the record, the block rule and the checks.
+    let saved = Rc::new(RefCell::new(None));
+    let into = saved.clone();
+    let again = setup(&mut fake, Some(state.clone()), SID, move |state| {
+        *into.borrow_mut() = Some(state.clone());
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(again.rdp_port, 3390);
+    assert_eq!(saved.borrow().as_ref(), Some(&again));
+    assert_eq!(
+        SetupState {
+            rdp_port: 3389,
+            ..again.clone()
+        },
+        state,
+        "the originals stay"
+    );
+    assert_eq!(fake.machine.block_rules.get(BLOCK_RULE), Some(&3390));
+    assert!(
+        missing(&fake, SID, Some(again.rdp_port))
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -1030,7 +1096,7 @@ fn the_viewer_connects_only_to_windows_own_rdp_listener() {
 #[test]
 fn missing_lists_what_setup_still_has_to_do() {
     let fake = Fake::new();
-    let missing = missing(&fake, SID).unwrap();
+    let missing = missing(&fake, SID, None).unwrap();
     assert!(missing.iter().any(|m| m.contains("child sessions are off")));
     assert!(missing.iter().any(|m| m.contains("DWMFRAMEINTERVAL")));
     assert!(missing.iter().any(|m| m.contains("firewall rules are on")));

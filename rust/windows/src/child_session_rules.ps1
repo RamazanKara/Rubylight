@@ -12,6 +12,7 @@
 #          prints {"allowed": IDs of the group's enabled inbound allow rules,
 #          "blocked": whether the enabled inbound block rules
 #          "$env:BUTTERPOLLO_FIREWALL_BLOCK (TCP)" and "(UDP)" are both there,
+#          "block_ports": the local ports of each of those rules, comma-joined,
 #          "unprotected": profiles with the firewall off or local rules ignored}
 param([Parameter(Mandatory)][ValidateSet('list', 'set', 'active')][string]$Mode)
 $ErrorActionPreference = 'Stop'
@@ -40,14 +41,17 @@ if ($Mode -eq 'list') {
     $allowed = @(Get-GroupRules 'ActiveStore' | Where-Object $inbound |
             Where-Object { $_.Action -eq 'Allow' } | ForEach-Object { $_.Name })
     $names = "$block (TCP)", "$block (UDP)"
-    $blocks = @(Get-Rules @{ PolicyStore = 'ActiveStore'; DisplayName = $names } |
-            Where-Object $inbound | Where-Object { $_.Action -eq 'Block' } | ForEach-Object { $_.DisplayName })
+    $rules = @(Get-Rules @{ PolicyStore = 'ActiveStore'; DisplayName = $names } |
+            Where-Object $inbound | Where-Object { $_.Action -eq 'Block' })
+    $blocks = @($rules | ForEach-Object { $_.DisplayName })
     $blocked = [bool](@($names | Where-Object { $blocks -ccontains $_ }).Count -eq $names.Count)
+    # The name is not enough: each rule's ports, which the host compares with the RDP port.
+    $ports = @($rules | ForEach-Object { @(($_ | Get-NetFirewallPortFilter).LocalPort) -join ',' })
     $unprotected = @(Get-NetFirewallProfile -PolicyStore ActiveStore |
             Where-Object { $_.Enabled -ne 'True' -or $_.AllowLocalFirewallRules -eq 'False' } |
             ForEach-Object { [string]$_.Name })
     ConvertTo-Json -Compress -InputObject ([ordered]@{
-            allowed = $allowed; blocked = $blocked; unprotected = $unprotected
+            allowed = $allowed; blocked = $blocked; block_ports = $ports; unprotected = $unprotected
         })
 } else {
     $id = $env:BUTTERPOLLO_FIREWALL_RULE

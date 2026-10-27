@@ -908,6 +908,7 @@ mod tests {
             )
             .unwrap();
         assert!(!active.blocked);
+        assert!(active.block_ports.is_empty(), "{active:?}");
         assert!(
             active.allowed.iter().all(|id| !id.contains(' ')),
             "{active:?}"
@@ -924,13 +925,18 @@ mod tests {
     fn the_active_firewall_parses_and_local_rule_states_are_named() {
         use windows::Win32::NetworkManagement::WindowsFirewall::*;
         let active = super::parse_active(
-            "\u{feff}{\"allowed\":[\"RemoteDesktop-UserMode-In-TCP\"],\"blocked\":true,\"unprotected\":[\"Domain\"]}\r\n",
+            "\u{feff}{\"allowed\":[\"RemoteDesktop-UserMode-In-TCP\"],\"blocked\":true,\"block_ports\":[\"3390\",\"3390\"],\"unprotected\":[\"Domain\"]}\r\n",
         )
         .unwrap();
         assert_eq!(active.allowed, ["RemoteDesktop-UserMode-In-TCP"]);
         assert!(active.blocked);
+        assert_eq!(active.block_ports, ["3390", "3390"]);
         assert_eq!(active.unprotected, ["Domain"]);
         assert!(super::parse_active("{\"blocked\":true}").is_err());
+        // Without the ports, a block rule never reads as closing the RDP port.
+        assert!(
+            super::parse_active("{\"allowed\":[],\"blocked\":true,\"unprotected\":[]}").is_err()
+        );
         assert!(super::modify_state_problem(NET_FW_MODIFY_STATE_OK).is_none());
         let problem = super::modify_state_problem(NET_FW_MODIFY_STATE_GP_OVERRIDE).unwrap();
         assert!(problem.contains("group policy"), "{problem}");

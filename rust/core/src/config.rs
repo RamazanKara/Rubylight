@@ -682,6 +682,11 @@ impl Config {
         {
             bail!("sleep_after_idle_minutes must be 0 (off) or between 5 and 1440");
         }
+        for key in crate::audio_haptics::SETTINGS {
+            if changed(key) {
+                crate::audio_haptics::check(key, &next.values[key])?;
+            }
+        }
         for key in crate::couch_menu::chord::SETTINGS {
             if changed(key)
                 && let Some(warning) = crate::couch_menu::chord::check(key, &next.values[key])
@@ -929,6 +934,10 @@ pub fn override_allowed(key: &str) -> bool {
         "couch_menu_hold_ms",
         "couch_menu_corner_hold_ms",
         "couch_menu_keyboard_chord",
+        "audio_haptics",
+        "audio_haptics_strength",
+        "audio_haptics_curve",
+        "audio_haptics_gate",
         // Audio, video and display automation
         "audio_sink",
         "audio_capture_mode",
@@ -1844,6 +1853,39 @@ webrtc_media_port = 99999
             object.insert(key.into(), true.into());
             config.update(&object).unwrap();
             assert!(config.boolean(key, false), "{key} as a JSON boolean");
+        }
+    }
+    #[test]
+    fn audio_haptics_settings_are_checked_on_save_and_override_per_device() {
+        use crate::audio_haptics::{CURVE, ENABLED, GATE, SETTINGS, STRENGTH};
+        let mut config = super::Config::default();
+        for (key, value) in [
+            (ENABLED, "true"),
+            (STRENGTH, "0"),
+            (STRENGTH, "200"),
+            (CURVE, "soft"),
+            (GATE, "-80"),
+            (GATE, "-10"),
+        ] {
+            change(&mut config, key, value).unwrap();
+        }
+        for (key, value) in [
+            (ENABLED, "sometimes"),
+            (STRENGTH, "250"),
+            (CURVE, "wobbly"),
+            (GATE, "0"),
+        ] {
+            let error = change(&mut config, key, value).unwrap_err();
+            assert!(error.to_string().contains(key), "{key}={value}: {error}");
+        }
+        let mut object = serde_json::Map::new();
+        object.insert(STRENGTH.into(), 300.into());
+        assert!(config.update(&object).is_err());
+        object.insert(STRENGTH.into(), serde_json::Value::Null);
+        config.update(&object).unwrap();
+        assert!(!config.values.contains_key(STRENGTH));
+        for key in SETTINGS {
+            assert!(super::override_allowed(key), "{key}");
         }
     }
     #[test]

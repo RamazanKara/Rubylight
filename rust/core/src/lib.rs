@@ -22,6 +22,7 @@ pub mod amd_gpu;
 pub mod audio;
 pub mod audio_defaults;
 pub mod audio_dsp;
+pub mod audio_haptics;
 pub mod audio_scope;
 pub mod auth;
 pub mod background;

@@ -2622,6 +2622,9 @@ pub struct Session<P = (), A = ()> {
     /// Night mode and headphone surround: the live choice and why either
     /// doesn't apply. Written through `audio_dsp::{state, apply}`.
     pub audio: crate::audio_dsp::Controls,
+    /// The sent audio's copy for haptics from game audio, filled only while a
+    /// controller wants it (`audio_haptics`).
+    pub audio_haptics: crate::audio_haptics::Tap,
     /// The host-drawn couch menu: open flag, revision and panel, shared by the
     /// control loop, the menu worker, the video loop and the native API.
     pub couch_menu: Arc<crate::couch_menu::Shared>,
@@ -2712,6 +2715,7 @@ impl<P, A> Session<P, A> {
             }),
             roams: AtomicU32::new(0),
             audio: Default::default(),
+            audio_haptics: Default::default(),
             // The control peer stores what the stream allows when it
             // connects; WebRTC sessions have none.
             couch_menu: Arc::new(crate::couch_menu::Shared::refusing(

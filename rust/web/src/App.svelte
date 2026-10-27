@@ -207,7 +207,7 @@
     z-index: 100;
     top: 8px;
     left: 8px;
-    padding: 10px 16px;
+    padding: 10px var(--space-4);
     background: var(--panel);
     border: 2px solid var(--focus);
     border-radius: var(--radius);
@@ -262,7 +262,7 @@
     align-items: center;
     gap: 10px;
     font-family: var(--font-display);
-    font-weight: 650;
+    font-weight: var(--weight-bold);
     font-size: 25px;
     text-decoration: none;
     letter-spacing: -0.01em;
@@ -272,7 +272,7 @@
     place-items: center;
     width: 40px;
     height: 40px;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     background: var(--accent);
     color: var(--accent-ink);
     font-weight: 800;
@@ -283,8 +283,8 @@
     border: 0;
     background: none;
     padding: 10px;
-    min-width: 44px;
-    min-height: 44px;
+    min-width: var(--control-height);
+    min-height: var(--control-height);
     cursor: pointer;
   }
   nav {
@@ -295,7 +295,7 @@
   }
   .nav-group {
     display: grid;
-    gap: 8px;
+    gap: var(--space-2);
   }
   .tools {
     margin-top: auto;
@@ -336,7 +336,7 @@
     min-width: 0;
   }
   .host .name {
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
     overflow-wrap: anywhere;
   }
   .host .muted {
@@ -365,7 +365,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    gap: var(--space-2);
     flex-wrap: wrap;
     font-size: var(--text-sm);
   }
@@ -380,7 +380,7 @@
     display: grid;
     place-items: center;
     width: 44px;
-    height: 44px;
+    height: var(--control-height);
     padding: 0;
     border: 0;
     border-radius: 4px;
@@ -404,8 +404,8 @@
     border: 1px solid var(--line);
     border-radius: var(--radius);
     background: none;
-    padding: 10px 8px;
-    min-height: 44px;
+    padding: 10px var(--space-2);
+    min-height: var(--control-height);
     font-size: var(--text-xs);
     color: var(--ink-2);
     cursor: pointer;
@@ -453,14 +453,14 @@
       display: grid;
     }
     nav a {
-      min-height: 44px;
+      min-height: var(--control-height);
     }
     .theme button {
       width: 44px;
-      height: 44px;
+      height: var(--control-height);
     }
     .foot-button {
-      min-height: 44px;
+      min-height: var(--control-height);
       padding: 6px 14px;
     }
     main {

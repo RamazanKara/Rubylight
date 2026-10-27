@@ -411,7 +411,7 @@
 </form>
 
 <style>
-  .override > summary { padding: 16px 24px; font-weight: 600; border-bottom: 1px solid var(--line); }
+  .override > summary { padding: var(--space-4) var(--space-5); font-weight: var(--weight-semibold); border-bottom: 1px solid var(--line); }
   .override[open] > summary { border-bottom: 0; }
   .editor {
     display: grid;
@@ -467,15 +467,15 @@
     min-width: 0;
   }
   legend {
-    padding: 0 4px;
+    padding: 0 var(--space-1);
     font-size: var(--text-xs);
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
     color: var(--muted);
   }
   .check {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     font-size: var(--text-sm);
     cursor: pointer;
   }

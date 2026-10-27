@@ -173,11 +173,11 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 4px var(--space-2);
+    gap: var(--space-1) var(--space-2);
     min-height: 22px;
   }
   .label {
-    font-weight: 560;
+    font-weight: var(--weight-medium);
     font-size: var(--text);
     line-height: 1.35;
   }
@@ -187,7 +187,7 @@
   .tag {
     padding: 0 7px;
     border: 1px solid var(--line);
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     font-size: var(--text-xs);
     line-height: 18px;
     color: var(--muted);
@@ -207,12 +207,12 @@
   .more summary {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--space-1);
     width: fit-content;
     padding: 2px 0;
     color: var(--ink-2);
     font-size: var(--text-xs);
-    font-weight: 560;
+    font-weight: var(--weight-medium);
     cursor: pointer;
     list-style: none;
   }
@@ -227,7 +227,7 @@
     border-right: 1.5px solid currentColor;
     border-bottom: 1.5px solid currentColor;
     transform: translateY(-2px) rotate(45deg);
-    transition: transform 0.12s;
+    transition: transform var(--duration-fast);
   }
   .more[open] summary::after {
     transform: translateY(1px) rotate(225deg);
@@ -238,10 +238,10 @@
     text-underline-offset: 2px;
   }
   .more p {
-    margin-top: 4px;
+    margin-top: var(--space-1);
     padding-left: var(--space-3);
     border-left: 2px solid var(--line);
-    line-height: 1.5;
+    line-height: var(--leading);
   }
   .dependency {
     margin-top: 2px;
@@ -267,7 +267,7 @@
   }
   .state {
     color: var(--ink);
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
   }
   .invalid .state {
     color: var(--danger);
@@ -303,7 +303,7 @@
     font-size: var(--text-xs);
     line-height: 1.45;
     color: var(--warn);
-    font-weight: 560;
+    font-weight: var(--weight-medium);
   }
   /* Lists, commands and JSON: the control spans the row under the text. */
   .full .layout {
@@ -354,7 +354,7 @@
   @media (max-width: 520px) {
     .more summary,
     .link {
-      min-height: 44px;
+      min-height: var(--control-height);
     }
   }
 </style>

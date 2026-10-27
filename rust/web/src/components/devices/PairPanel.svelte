@@ -36,17 +36,17 @@
 
 <style>
   .steps { display: grid; gap: 28px; padding: 0; margin: 0; list-style: none; }
-  .steps > li { display: flex; align-items: flex-start; gap: 24px; }
-  .step { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border: 2px solid var(--line-strong); border-radius: 50%; font-weight: 650; }
-  .step-body { flex: 1; min-width: 0; display: grid; gap: 12px; padding-top: 4px; }
-  .host-address { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 24px; padding: 16px 20px; background: var(--sunken); border: 1px solid var(--line); border-radius: var(--radius); }
+  .steps > li { display: flex; align-items: flex-start; gap: var(--space-5); }
+  .step { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border: 2px solid var(--line-strong); border-radius: 50%; font-weight: var(--weight-bold); }
+  .step-body { flex: 1; min-width: 0; display: grid; gap: var(--space-3); padding-top: var(--space-1); }
+  .host-address { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3) var(--space-5); padding: var(--space-4) 20px; background: var(--sunken); border: 1px solid var(--line); border-radius: var(--radius); }
   .host-address strong { font-weight: 500; }
   .host-address .num { color: var(--ink-2); font-size: var(--text-sm); }
-  .copy { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; font-size: var(--text-sm); }
-  .requests { display: grid; gap: 12px; list-style: none; padding: 0; margin: 0; }
+  .copy { display: inline-flex; align-items: center; gap: var(--space-1); margin-left: auto; font-size: var(--text-sm); }
+  .requests { display: grid; gap: var(--space-3); list-style: none; padding: 0; margin: 0; }
   .waiting { padding: 20px; background: var(--sunken); border: 1px dashed var(--line-strong); border-radius: var(--radius); }
-  .alternatives { margin: 16px 0 0 60px; }
-  .alternatives > p { margin-bottom: 16px; font-size: var(--text-sm); }
+  .alternatives { margin: var(--space-4) 0 0 60px; }
+  .alternatives > p { margin-bottom: var(--space-4); font-size: var(--text-sm); }
   .addresses { font-size: var(--text-sm); }
-  @media (max-width: 600px) { .steps > li { gap: 12px; } .step { width: 28px; height: 28px; } .host-address { gap: 8px; padding: 12px; } .copy { margin-left: 0; } .alternatives { margin-left: 40px; } }
+  @media (max-width: 600px) { .steps > li { gap: var(--space-3); } .step { width: 28px; height: 28px; } .host-address { gap: var(--space-2); padding: var(--space-3); } .copy { margin-left: 0; } .alternatives { margin-left: 40px; } }
 </style>

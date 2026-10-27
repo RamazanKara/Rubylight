@@ -66,7 +66,7 @@
     align-items: center;
     gap: 10px;
     font-family: var(--font-display);
-    font-weight: 650;
+    font-weight: var(--weight-bold);
     font-size: 19px;
   }
   .mark {

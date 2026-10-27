@@ -32,7 +32,7 @@
   h2 {
     font-family: var(--font);
     font-size: var(--text-sm);
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
     /* On the page background, --muted is short of 4.5:1. */
     color: var(--ink-2);
   }

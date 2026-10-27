@@ -34,7 +34,7 @@
     display: flex;
     gap: var(--space-3);
     align-items: center;
-    min-height: 44px;
+    min-height: var(--control-height);
     cursor: pointer;
   }
   .disabled {
@@ -57,8 +57,8 @@
     background: var(--panel);
     position: relative;
     transition:
-      background 0.12s,
-      border-color 0.12s;
+      background var(--duration-fast),
+      border-color var(--duration-fast);
   }
   .thumb {
     position: absolute;
@@ -68,7 +68,7 @@
     height: 12px;
     border-radius: 50%;
     background: var(--ink-2);
-    transition: transform 0.12s;
+    transition: transform var(--duration-fast);
   }
   .toggle:not(.disabled):hover .track {
     border-color: var(--ink-2);
@@ -82,7 +82,7 @@
     transform: translateX(18px);
   }
   input:focus-visible + .track {
-    outline: 2px solid var(--focus);
+    outline: var(--focus-width) solid var(--focus);
     outline-offset: 2px;
   }
   .text {
@@ -91,7 +91,7 @@
     gap: 2px;
   }
   .label {
-    font-weight: 560;
+    font-weight: var(--weight-medium);
     font-size: var(--text-sm);
   }
   .hint {

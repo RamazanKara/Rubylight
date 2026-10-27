@@ -189,7 +189,7 @@
   h4 {
     margin: 0;
     font-size: var(--text-sm);
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
   }
   .text {
     font-size: var(--text-sm);

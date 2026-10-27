@@ -129,7 +129,7 @@
   }
   .head {
     font-size: var(--text-xs);
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
     color: var(--muted);
   }
   .head::after {
@@ -144,7 +144,7 @@
   }
   .cell {
     display: grid;
-    gap: 4px;
+    gap: var(--space-1);
     min-width: 0;
   }
   /* Column headings label the inputs on wide screens; each row says it on narrow ones. */
@@ -228,7 +228,7 @@
       overflow: visible;
       clip: auto;
       font-size: var(--text-xs);
-      font-weight: 600;
+      font-weight: var(--weight-semibold);
       color: var(--muted);
     }
     .controls {

@@ -66,7 +66,7 @@
   h3 {
     font-size: var(--text-sm);
     color: var(--muted);
-    font-weight: 560;
+    font-weight: var(--weight-medium);
   }
   ul {
     margin: 0;
@@ -92,11 +92,11 @@
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 4px var(--space-2);
+    gap: var(--space-1) var(--space-2);
     min-width: 0;
   }
   .name {
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
     overflow-wrap: anywhere;
   }
   .detail {

@@ -107,7 +107,7 @@
   }
   .code {
     font-size: 34px;
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
     line-height: 1;
     letter-spacing: 0.18em;
   }
@@ -117,7 +117,7 @@
   }
   .details {
     display: grid;
-    gap: 4px;
+    gap: var(--space-1);
     flex: 1 1 200px;
     font-size: var(--text-sm);
   }

@@ -156,7 +156,7 @@
   summary {
     padding: var(--space-2) var(--space-3);
     cursor: pointer;
-    font-weight: 560;
+    font-weight: var(--weight-medium);
   }
   details p {
     padding: 0 var(--space-3) var(--space-3);

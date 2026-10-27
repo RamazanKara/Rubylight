@@ -114,7 +114,7 @@
   }
   .info {
     display: grid;
-    gap: 4px;
+    gap: var(--space-1);
     min-width: 0;
     justify-items: start;
   }
@@ -122,11 +122,11 @@
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
-    gap: 4px var(--space-3);
+    gap: var(--space-1) var(--space-3);
     font-size: var(--text-sm);
   }
   .head strong {
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
   }
   .scopes {
     font-size: var(--text-xs);

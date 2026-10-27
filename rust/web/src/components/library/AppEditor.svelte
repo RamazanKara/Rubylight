@@ -388,7 +388,7 @@
 </div>
 
 <style>
-  .launch-options > :global(.field), .launch-options > :global(.detached) { margin-top: 16px; }
+  .launch-options > :global(.field), .launch-options > :global(.detached) { margin-top: var(--space-4); }
   .editor {
     display: grid;
     gap: var(--space-5);
@@ -398,7 +398,7 @@
     justify-self: start;
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--space-1);
     font-size: var(--text-sm);
     color: var(--ink-2);
     text-decoration: none;

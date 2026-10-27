@@ -620,7 +620,7 @@
   .preset-note strong { color: var(--ink); }
   .preset-error, .preset-error strong { color: var(--danger); }
   .custom-config { border-top: 1px solid var(--line); }
-  .custom-config > summary { padding: 16px 24px; }
+  .custom-config > summary { padding: var(--space-4) var(--space-5); }
   .frame {
     /* The layout follows the room the page has, whatever the shell around it. */
     container-type: inline-size;
@@ -650,18 +650,18 @@
     pointer-events: none;
   }
   .search .input {
-    padding-left: 32px;
+    padding-left: var(--space-6);
   }
   .picker {
     display: none;
     gap: 6px;
     font-size: var(--text-sm);
-    font-weight: 560;
+    font-weight: var(--weight-medium);
   }
   nav ul {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: var(--space-1);
     margin: 0;
     padding: 0;
     list-style: none;
@@ -669,8 +669,8 @@
   nav a {
     display: grid;
     gap: 1px;
-    padding: 12px 14px;
-    min-height: 44px;
+    padding: var(--space-3) 14px;
+    min-height: var(--control-height);
     border-radius: var(--radius);
     color: var(--ink-2);
     text-decoration: none;
@@ -688,7 +688,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    font-weight: 560;
+    font-weight: var(--weight-medium);
     font-size: var(--text-sm);
   }
   .dot {
@@ -737,7 +737,7 @@
   .group-title {
     padding: var(--space-5) var(--space-5) var(--space-2);
     font-size: var(--text);
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
     color: var(--ink);
   }
   .group:first-child .group-title {
@@ -760,7 +760,7 @@
     gap: var(--space-2);
     padding: var(--space-4) var(--space-5);
     font-size: var(--text);
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
     cursor: pointer;
     list-style: none;
   }
@@ -772,13 +772,13 @@
   }
   .advanced summary :global(svg) {
     color: var(--muted);
-    transition: transform 0.12s;
+    transition: transform var(--duration-fast);
   }
   .advanced[open] summary :global(svg) {
     transform: rotate(90deg);
   }
   .count {
-    font-weight: 400;
+    font-weight: var(--weight-regular);
     font-size: var(--text-sm);
     color: var(--muted);
   }
@@ -791,7 +791,7 @@
     gap: var(--space-2);
     padding: var(--space-4) var(--space-5);
     font-size: var(--text);
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
     cursor: pointer;
     list-style: none;
   }
@@ -803,7 +803,7 @@
   }
   .fold > summary :global(svg) {
     color: var(--muted);
-    transition: transform 0.12s;
+    transition: transform var(--duration-fast);
   }
   .fold[open] > summary :global(svg) {
     transform: rotate(90deg);
@@ -825,7 +825,7 @@
     gap: var(--space-3);
     min-height: 36px;
     font-size: var(--text-sm);
-    font-weight: 560;
+    font-weight: var(--weight-medium);
     color: var(--ink-2);
     cursor: pointer;
   }
@@ -848,13 +848,13 @@
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 4px var(--space-2);
+    gap: var(--space-1) var(--space-2);
     font-size: var(--text-sm);
-    font-weight: 560;
+    font-weight: var(--weight-medium);
   }
   .problem {
     color: var(--danger);
-    font-weight: 400;
+    font-weight: var(--weight-regular);
   }
   .actions {
     display: flex;
@@ -891,7 +891,7 @@
     .show-keys,
     .fold > summary,
     .advanced summary {
-      min-height: 44px;
+      min-height: var(--control-height);
     }
   }
 </style>

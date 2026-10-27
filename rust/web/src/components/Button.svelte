@@ -53,11 +53,11 @@
     border-radius: var(--radius);
     background: var(--panel);
     color: var(--ink);
-    font-weight: 560;
+    font-weight: var(--weight-medium);
     font-size: var(--text-sm);
     line-height: 1.3;
     padding: 11px 18px;
-    min-height: 44px;
+    min-height: var(--control-height);
     cursor: pointer;
     text-decoration: none;
     max-width: 100%;
@@ -66,7 +66,7 @@
        button break its label mid-word ("Brow se"). */
     overflow-wrap: break-word;
     text-align: center;
-    transition: background 0.12s, border-color 0.12s;
+    transition: background var(--duration-fast), border-color var(--duration-fast);
   }
   .sm {
     padding: 9px 13px;

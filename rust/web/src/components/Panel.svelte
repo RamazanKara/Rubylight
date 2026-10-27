@@ -47,8 +47,8 @@
 </section>
 
 <style>
-  summary { padding: 20px 24px; font-weight: 600; }
-  .description { display: block; margin-top: 4px; font-weight: 400; font-size: var(--text-sm); }
+  summary { padding: 20px var(--space-5); font-weight: var(--weight-semibold); }
+  .description { display: block; margin-top: var(--space-1); font-weight: var(--weight-regular); font-size: var(--text-sm); }
   details[open] > summary { border-bottom: 1px solid var(--line); }
   .panel {
     background: var(--panel);

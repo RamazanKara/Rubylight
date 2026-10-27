@@ -148,7 +148,7 @@
   /* Matches the section headings above it. */
   h3 {
     font-size: var(--text);
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
   }
   .intro p {
     font-size: var(--text-sm);
@@ -174,7 +174,7 @@
     display: grid;
     grid-template-columns: minmax(120px, 220px) minmax(0, 1fr);
     align-items: center;
-    gap: 4px var(--space-3);
+    gap: var(--space-1) var(--space-3);
     padding: var(--space-2) var(--space-3);
   }
   li + li {
@@ -199,7 +199,7 @@
   }
   .changed {
     color: var(--ink);
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
   }
   .remove {
     flex: none;
@@ -235,7 +235,7 @@
   }
   .add-action {
     /* Line up with the inputs, below the labels. */
-    padding-top: 24px;
+    padding-top: var(--space-5);
   }
   @media (max-width: 620px) {
     li,

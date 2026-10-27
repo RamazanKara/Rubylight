@@ -244,7 +244,7 @@
   }
   .candidate {
     display: grid;
-    gap: 4px;
+    gap: var(--space-1);
     width: 100%;
     padding: 0;
     border: 0;

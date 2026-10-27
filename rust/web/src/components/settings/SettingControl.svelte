@@ -516,7 +516,7 @@
   }
   .cell-label {
     font-size: var(--text-xs);
-    font-weight: 560;
+    font-weight: var(--weight-medium);
     color: var(--ink-2);
   }
   .command-foot {
@@ -554,7 +554,7 @@
   @media (max-width: 520px) {
     .cell {
       grid-template-columns: minmax(0, 1fr);
-      gap: 4px;
+      gap: var(--space-1);
     }
   }
 </style>

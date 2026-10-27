@@ -41,7 +41,7 @@
     grid-column: 1 / -1;
   }
   label {
-    font-weight: 560;
+    font-weight: var(--weight-medium);
     font-size: var(--text-sm);
   }
   .hint,

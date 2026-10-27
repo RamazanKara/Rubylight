@@ -17,10 +17,10 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 2px 8px;
-    border-radius: 999px;
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-pill);
     font-size: var(--text-xs);
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
     line-height: 1.6;
     white-space: nowrap;
     background: var(--sunken);
@@ -53,7 +53,7 @@
     height: 7px;
     border-radius: 50%;
     background: currentColor;
-    animation: beat 1.6s ease-in-out infinite;
+    animation: beat var(--pulse-duration) ease-in-out infinite;
   }
   @keyframes beat {
     50% {

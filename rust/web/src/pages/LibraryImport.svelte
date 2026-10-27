@@ -121,37 +121,37 @@
 <p class="muted source-help">Automatic Steam and Playnite synchronization is available in <a href="/library" use:link>Manage sources</a>.</p>
 
 <style>
-  .back { width: fit-content; min-height: 44px; display: inline-flex; align-items: center; color: var(--muted); text-decoration: none; }
+  .back { width: fit-content; min-height: var(--control-height); display: inline-flex; align-items: center; color: var(--muted); text-decoration: none; }
   .filters { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(180px, 240px); gap: 20px; margin-bottom: 20px; }
-  .filters label { display: grid; gap: 8px; }
+  .filters label { display: grid; gap: var(--space-2); }
   .games { list-style: none; margin: 0; padding: 0; }
   .games li { border-top: 1px solid var(--line); }
-  .game { display: flex; gap: 18px; align-items: center; padding: 16px 0; cursor: pointer; }
+  .game { display: flex; gap: 18px; align-items: center; padding: var(--space-4) 0; cursor: pointer; }
   input[type='checkbox'] { flex: 0 0 20px; width: 20px; height: 20px; accent-color: var(--accent); }
   .cover { width: 52px; flex: 0 0 52px; }
   .cover :global(.initials) { font-size: 20px; }
-  .game-name { display: grid; gap: 4px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .game-name { display: grid; gap: var(--space-1); flex: 1; min-width: 0; overflow-wrap: anywhere; }
   .game-name .muted, .game-state { font-size: var(--text-sm); }
   .game-state { color: var(--muted); }
   .select-all { display: flex; align-items: center; gap: 18px; min-height: 56px; }
   .select-all span { margin-left: auto; font-size: var(--text-sm); }
-  .empty { display: grid; justify-items: start; gap: 16px; padding: 32px 0; }
-  .sources { margin-top: 24px; color: var(--muted); }
-  .source { display: flex; justify-content: space-between; gap: 16px; padding: 8px 0; }
+  .empty { display: grid; justify-items: start; gap: var(--space-4); padding: var(--space-6) 0; }
+  .sources { margin-top: var(--space-5); color: var(--muted); }
+  .source { display: flex; justify-content: space-between; gap: var(--space-4); padding: var(--space-2) 0; }
   .sources .error { overflow-wrap: anywhere; }
   .import-bar.has-selection { position: sticky; bottom: 16px; }
-  .import-bar { display: flex; justify-content: space-between; align-items: center; gap: 24px; padding: 20px 24px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); box-shadow: var(--shadow); }
-  .import-bar p { display: grid; gap: 4px; }
+  .import-bar { display: flex; justify-content: space-between; align-items: center; gap: var(--space-5); padding: 20px var(--space-5); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); box-shadow: var(--shadow); }
+  .import-bar p { display: grid; gap: var(--space-1); }
   .import-bar .muted, .source-help { font-size: var(--text-sm); }
-  .result { display: grid; gap: 8px; padding: 16px 0; }
+  .result { display: grid; gap: var(--space-2); padding: var(--space-4) 0; }
   @media (max-width: 600px) {
     .filters { grid-template-columns: 1fr; }
-    .game { display: grid; grid-template-columns: 20px 52px minmax(0, 1fr); gap: 4px 12px; }
+    .game { display: grid; grid-template-columns: 20px 52px minmax(0, 1fr); gap: var(--space-1) var(--space-3); }
     .game > input, .game > .cover { grid-row: span 2; }
     .game-state { grid-column: 3; }
-    .select-all { flex-wrap: wrap; gap: 8px; }
+    .select-all { flex-wrap: wrap; gap: var(--space-2); }
     .select-all span { margin-left: 0; }
-    .import-bar { padding: 16px; gap: 12px; }
+    .import-bar { padding: var(--space-4); gap: var(--space-3); }
     .import-bar.has-selection { bottom: 8px; }
     .import-bar .muted { display: none; }
   }

@@ -350,7 +350,7 @@
     border-top: 0;
   }
   .name {
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
     min-width: 0;
     overflow-wrap: anywhere;
   }
@@ -384,7 +384,7 @@
     touch-action: none;
   }
   .surface:focus-visible {
-    outline: 2px solid var(--focus);
+    outline: var(--focus-width) solid var(--focus);
     outline-offset: 2px;
   }
   .surface:fullscreen {

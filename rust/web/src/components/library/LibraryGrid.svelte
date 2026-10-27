@@ -230,7 +230,7 @@
     pointer-events: none;
   }
   .search .input {
-    padding-left: 32px;
+    padding-left: var(--space-6);
   }
   .sort {
     display: flex;
@@ -311,7 +311,7 @@
     left: 6px;
   }
   .name {
-    font-weight: 560;
+    font-weight: var(--weight-medium);
     font-size: var(--text-sm);
     line-height: 1.35;
     overflow-wrap: anywhere;

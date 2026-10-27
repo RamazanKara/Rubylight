@@ -215,7 +215,7 @@
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 4px var(--space-4);
+    gap: var(--space-1) var(--space-4);
     padding: 7px var(--space-3);
     border-bottom: 1px solid var(--line);
   }

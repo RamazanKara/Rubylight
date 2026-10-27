@@ -51,8 +51,8 @@
     border: 1px solid var(--muted);
     background: var(--panel);
     transition:
-      background 0.12s,
-      border-color 0.12s;
+      background var(--duration-fast),
+      border-color var(--duration-fast);
   }
   .thumb {
     position: absolute;
@@ -63,8 +63,8 @@
     border-radius: 50%;
     background: var(--ink-2);
     transition:
-      transform 0.12s,
-      width 0.12s;
+      transform var(--duration-fast),
+      width var(--duration-fast);
   }
   input:hover + .track {
     border-color: var(--ink-2);
@@ -78,7 +78,7 @@
     transform: translateX(18px);
   }
   input:focus-visible + .track {
-    outline: 2px solid var(--focus);
+    outline: var(--focus-width) solid var(--focus);
     outline-offset: 2px;
   }
 </style>

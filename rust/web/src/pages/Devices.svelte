@@ -259,7 +259,7 @@
 <style>
   .more { position: relative; }
   .more summary { padding: 10px 14px; }
-  .more-actions { display: grid; gap: 8px; padding: 12px; min-width: 180px; background: var(--panel-raised); border: 1px solid var(--line); border-radius: var(--radius); }
+  .more-actions { display: grid; gap: var(--space-2); padding: var(--space-3); min-width: 180px; background: var(--panel-raised); border: 1px solid var(--line); border-radius: var(--radius); }
   .device > :global(svg) { flex: none; color: var(--ink-2); }
   .network-memory {
     margin: var(--space-1) 0 0;
@@ -293,7 +293,7 @@
     justify-content: space-between;
     gap: var(--space-2) var(--space-4);
     flex-wrap: wrap;
-    padding: 24px;
+    padding: var(--space-5);
   }
   .open .device {
     background: var(--sunken);
@@ -311,7 +311,7 @@
     flex-wrap: wrap;
   }
   .name {
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
     overflow-wrap: anywhere;
   }
   .meta {

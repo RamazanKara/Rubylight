@@ -4,14 +4,14 @@
 .textarea {
   width: 100%;
   min-width: 0;
-  min-height: 44px;
+  min-height: var(--control-height);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   background: var(--panel);
   color: var(--ink);
-  padding: 8px 10px;
+  padding: var(--space-2) 10px;
   font-size: var(--text);
-  line-height: 1.4;
+  line-height: var(--leading-snug);
 }
 .input:hover,
 .select:hover,
@@ -21,7 +21,7 @@
 .input:focus,
 .select:focus,
 .textarea:focus {
-  outline: 2px solid var(--focus);
+  outline: var(--focus-width) solid var(--focus);
   outline-offset: 0;
   border-color: transparent;
 }
@@ -72,7 +72,7 @@
 }
 .table th {
   text-align: left;
-  font-weight: 560;
+  font-weight: var(--weight-medium);
   color: var(--muted);
   padding: 9px var(--space-5);
   border-bottom: 1px solid var(--line);
@@ -92,7 +92,7 @@
 .facts {
   display: grid;
   grid-template-columns: fit-content(16em) minmax(0, 1fr);
-  gap: 8px var(--space-5);
+  gap: var(--space-2) var(--space-5);
   margin: 0;
   font-size: var(--text-sm);
 }

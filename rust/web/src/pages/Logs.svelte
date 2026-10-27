@@ -313,11 +313,11 @@
     }
     .step {
       width: 44px;
-      height: 44px;
+      height: var(--control-height);
     }
     .search .input,
     .level .select {
-      min-height: 44px;
+      min-height: var(--control-height);
     }
     /* Read out in full, shown short so the level and both actions share a line. */
     .extra {

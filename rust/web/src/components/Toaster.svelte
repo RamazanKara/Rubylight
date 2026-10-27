@@ -27,7 +27,7 @@
     gap: var(--space-3);
     align-items: flex-start;
     justify-content: space-between;
-    padding: 11px 12px 11px 14px;
+    padding: 11px var(--space-3) 11px 14px;
     border-radius: var(--radius);
     background: var(--panel-raised);
     border: 1px solid var(--line);

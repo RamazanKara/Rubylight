@@ -87,7 +87,7 @@
     gap: var(--space-2);
   }
   .name {
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
     overflow-wrap: anywhere;
   }
   .age {

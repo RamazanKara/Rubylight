@@ -101,8 +101,8 @@
   }
   legend {
     padding: 0;
-    margin-bottom: 4px;
-    font-weight: 560;
+    margin-bottom: var(--space-1);
+    font-weight: var(--weight-medium);
     font-size: var(--text-sm);
   }
   .hint {

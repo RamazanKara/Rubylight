@@ -82,7 +82,7 @@
     align-items: center;
     gap: 10px;
     font-family: var(--font-display);
-    font-weight: 650;
+    font-weight: var(--weight-bold);
     font-size: 19px;
   }
   .mark {
@@ -115,8 +115,8 @@
   }
   .remember {
     display: flex;
-    min-height: 44px;
-    gap: 8px;
+    min-height: var(--control-height);
+    gap: var(--space-2);
     align-items: center;
     font-size: var(--text-sm);
   }

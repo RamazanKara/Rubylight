@@ -83,7 +83,7 @@
     color: var(--ink-2);
   }
   strong {
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
     color: var(--ink);
   }
   code {

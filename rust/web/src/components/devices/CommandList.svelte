@@ -56,7 +56,7 @@
   }
   legend {
     padding: 0;
-    font-weight: 560;
+    font-weight: var(--weight-medium);
     font-size: var(--text-sm);
   }
   .hint,

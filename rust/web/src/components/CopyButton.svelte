@@ -46,7 +46,7 @@
     display: inline-grid;
     place-items: center;
     width: 44px;
-    height: 44px;
+    height: var(--control-height);
     padding: 0;
     border: 1px solid transparent;
     border-radius: var(--radius);
@@ -60,5 +60,5 @@
     background: var(--sunken);
     border-color: var(--line);
   }
-  .copy.labelled { display: inline-flex; gap: 8px; width: auto; padding: 10px; }
+  .copy.labelled { display: inline-flex; gap: var(--space-2); width: auto; padding: 10px; }
 </style>

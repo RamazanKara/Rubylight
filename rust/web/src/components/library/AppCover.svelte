@@ -50,7 +50,7 @@
   }
   .initials {
     font-family: var(--font-display);
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
     font-size: 34px;
     letter-spacing: 0.02em;
     color: var(--muted);

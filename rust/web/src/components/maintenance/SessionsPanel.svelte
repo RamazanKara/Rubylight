@@ -133,7 +133,7 @@
     flex-wrap: wrap;
     gap: var(--space-2);
     font-size: var(--text-sm);
-    font-weight: 560;
+    font-weight: var(--weight-medium);
   }
   .meta {
     display: flex;

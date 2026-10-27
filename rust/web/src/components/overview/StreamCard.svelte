@@ -257,7 +257,7 @@
   figure {
     margin: 0;
     display: grid;
-    gap: 4px;
+    gap: var(--space-1);
   }
   figcaption {
     display: flex;

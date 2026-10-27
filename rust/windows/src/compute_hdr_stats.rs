@@ -1,10 +1,11 @@
 //! HDR dynamic metadata statistics on the compute queue
-//! (`butterpollo_core::hdr_dynamic`): after an HDR conversion has queued the
-//! encoder's signal, a list of its own reads the same source through the
-//! slot's views and constants, histograms PQ(maxRGB) on a grid of at most
-//! 240x135 samples and copies it into the slot's readback buffer. Nothing
-//! waits for it on the CPU: [`Converter::latest_hdr_stats`] returns the newest
-//! finished result, so a late pass only keeps the previous one current.
+//! (`butterpollo_core::hdr_dynamic`): once an HDR frame went to the encoder,
+//! [`Converter::submit_hdr_stats`] runs a list of its own that reads the same
+//! source through the slot's views and constants, histograms PQ(maxRGB) on a
+//! grid of at most 240x135 samples and copies it into the slot's readback
+//! buffer. Nothing waits for it on the CPU: [`Converter::latest_hdr_stats`]
+//! returns the newest finished result, so a late pass only keeps the previous
+//! one current.
 use super::*;
 use butterpollo_core::hdr_dynamic::FrameStats;
 
@@ -15,6 +16,9 @@ const WORDS: usize = 2 + HDR_STATS_BINS;
 const BYTES: u64 = 4 * WORDS as u64;
 /// The most sample cells across and down: 16x16 pixel cells on a 4K source.
 const GRID: (u32, u32) = (240, 135);
+/// `Slot::stats` while `convert` has left a pass for
+/// [`Converter::submit_hdr_stats`]; `u64::MAX` marks one being submitted.
+pub(super) const QUEUED: u64 = u64::MAX - 1;
 
 /// Sample cells across and down a `width` x `height` source, one per pixel
 /// on a smaller one.
@@ -76,8 +80,11 @@ struct StatsSlot {
     /// Persistently mapped READBACK copy of the words.
     readback: ID3D12Resource,
     mapped: *const u32,
+    /// The conversion and grid `convert` left for
+    /// [`Converter::submit_hdr_stats`].
+    queued: Option<(u64, (u32, u32))>,
     /// The conversion the slot's last pass measured and its sample count;
-    /// `None` once the slot converted without one.
+    /// `None` once the slot converts again.
     measured: Option<(u64, u64)>,
 }
 /// The statistics pass's GPU objects.
@@ -239,6 +246,7 @@ impl Converter {
                     list,
                     readback,
                     mapped: mapped.cast_const().cast::<u32>(),
+                    queued: None,
                     measured: None,
                 });
             }
@@ -252,47 +260,91 @@ impl Converter {
         }));
         Ok(())
     }
+    /// `slot` converts again: its last pass has finished (`Slot::last`) and a
+    /// pass still queued is dropped.
+    pub(super) fn reset_hdr_stats(&mut self, slot: usize) {
+        self.slots[slot].stats = 0;
+        if let Some(stats) = self.hdr_stats.as_deref_mut() {
+            stats.slots[slot].queued = None;
+            stats.slots[slot].measured = None;
+        }
+    }
     /// After `convert` queued the encoder's signal for `slot`'s `conversion`:
-    /// the statistics pass over its source, when enabled and the stream is
-    /// HDR. Returns the last fence value that reads the source.
-    pub(super) fn hdr_stats_pass(&mut self, slot: usize, conversion: u64) -> Result<u64> {
+    /// leave the statistics pass over its source for
+    /// [`Converter::submit_hdr_stats`], when enabled and the stream is HDR.
+    pub(super) fn queue_hdr_stats(&mut self, slot: usize, conversion: u64) {
         let Some(stats) = self.hdr_stats.as_deref_mut() else {
-            return Ok(conversion);
+            return;
         };
-        stats.slots[slot].measured = None;
+        // A capture read on another queue's timeline would have to wait for
+        // the pass on the CPU (`Ready::read_by`).
+        let foreign = self.slots[slot]
+            .capture
+            .as_ref()
+            .and_then(|capture| capture.ready.as_ref())
+            .is_some_and(|ready| {
+                ready.readers.is_some() && ready.reader_fence.as_ref() != Some(&self.compute.fence)
+            });
         // cbuffer Config: hdr=5.
-        if self.values[5] == 0 {
-            return Ok(conversion);
+        if self.values[5] == 0 || foreign {
+            return;
         }
-        let grid = grid(self.values[0], self.values[1]);
-        let StatsSlot {
-            allocator,
-            list,
-            readback,
-            ..
-        } = &stats.slots[slot];
-        // SAFETY: `convert` waited for the slot's previous lists (`Slot::last`) before writing
-        // this conversion's views and constants, which stay until the slot comes round again and
-        // waits for this list too.
-        unsafe {
-            let views = D3D12_GPU_DESCRIPTOR_HANDLE {
-                ptr: self.heap.GetGPUDescriptorHandleForHeapStart().ptr
-                    + (slot * VIEWS * self.increment as usize) as u64,
+        stats.slots[slot].queued = Some((conversion, grid(self.values[0], self.values[1])));
+        self.slots[slot].stats = QUEUED;
+    }
+    /// Submit the statistics passes `convert` left, oldest first. Call it
+    /// once the frame went to the encoder: nothing in the conversion's path
+    /// records, submits or waits for a pass. A pass not submitted before its
+    /// slot converts again is dropped.
+    pub fn submit_hdr_stats(&mut self) -> Result<()> {
+        loop {
+            let Some(stats) = self.hdr_stats.as_deref_mut() else {
+                return Ok(());
             };
-            let config = self.constants.GetGPUVirtualAddress() + (slot * 256) as u64;
-            allocator.Reset()?;
-            list.Reset(allocator, None)?;
-            stats.record(list, &self.heap, views, config, grid, readback);
-            list.Close()?;
+            let Some((slot, (conversion, grid))) = (0..SLOTS)
+                .filter_map(|slot| stats.slots[slot].queued.map(|queued| (slot, queued)))
+                .min_by_key(|&(_, (conversion, _))| conversion)
+            else {
+                return Ok(());
+            };
+            stats.slots[slot].queued = None;
+            self.slots[slot].stats = 0;
+            let StatsSlot {
+                allocator,
+                list,
+                readback,
+                ..
+            } = &stats.slots[slot];
+            // SAFETY: `convert` waited for the slot's previous lists (`Slot::last`) before
+            // writing this conversion's views and constants, and the slot keeps them and its
+            // capture until it converts again, after this list has run.
+            unsafe {
+                let views = D3D12_GPU_DESCRIPTOR_HANDLE {
+                    ptr: self.heap.GetGPUDescriptorHandleForHeapStart().ptr
+                        + (slot * VIEWS * self.increment as usize) as u64,
+                };
+                let config = self.constants.GetGPUVirtualAddress() + (slot * 256) as u64;
+                allocator.Reset()?;
+                list.Reset(allocator, None)?;
+                stats.record(list, &self.heap, views, config, grid, readback);
+                list.Close()?;
+            }
+            self.slots[slot].stats = u64::MAX;
+            let fence = self
+                .compute
+                .execute(list)
+                .inspect_err(|_| self.compute.retire())?;
+            self.slots[slot].stats = fence;
+            stats.slots[slot].measured = Some((conversion, u64::from(grid.0) * u64::from(grid.1)));
+            // The capture's pool copy must not overwrite the source before the pass has read it.
+            if let Some(ready) = self.slots[slot]
+                .capture
+                .as_ref()
+                .and_then(|capture| capture.ready.as_ref())
+            {
+                ready.read_by(&self.compute, fence)?;
+            }
         }
-        self.slots[slot].stats = u64::MAX;
-        let fence = self
-            .compute
-            .execute(list)
-            .inspect_err(|_| self.compute.retire())?;
-        self.slots[slot].stats = fence;
-        stats.slots[slot].measured = Some((conversion, u64::from(grid.0) * u64::from(grid.1)));
-        Ok(fence)
     }
     /// The newest finished statistics whose conversion is above `newer_than`.
     /// Only asks the fence: never waits.

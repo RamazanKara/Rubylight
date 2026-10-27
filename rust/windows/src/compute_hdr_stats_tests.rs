@@ -103,10 +103,13 @@ impl Rig {
         converter.enable_hdr_stats()?;
         Ok(converter)
     }
-    /// Convert `image` as a pooled capture, then wait for everything on the
-    /// queue. The capture's readers must cover the statistics pass too, which
-    /// still reads the source after the conversion.
-    fn convert(&self, converter: &mut Converter, image: &Image) -> Result<Converted> {
+    /// Convert `image` as a pooled capture, leaving its statistics queued.
+    /// Returns the conversion, its slot and the capture's readers.
+    fn queue(
+        &self,
+        converter: &mut Converter,
+        image: &Image,
+    ) -> Result<(Converted, usize, Arc<AtomicU64>)> {
         let mut source = GpuImage::upload(&self.gpu, image)?;
         let readers = Arc::new(AtomicU64::new(0));
         source.ready = Some(Ready {
@@ -121,6 +124,16 @@ impl Rig {
         let slot = (0..SLOTS)
             .find(|&slot| converter.slots[slot].fence == converted.conversion)
             .context("the conversion's slot")?;
+        assert_eq!(readers.load(Ordering::Acquire), converted.conversion);
+        Ok((converted, slot, readers))
+    }
+    /// [`Rig::queue`], submit the statistics, then wait for everything on the
+    /// queue. The capture's readers must cover the pass, which still reads
+    /// the source after the conversion.
+    fn convert(&self, converter: &mut Converter, image: &Image) -> Result<Converted> {
+        let (converted, slot, readers) = self.queue(converter, image)?;
+        converter.submit_hdr_stats()?;
+        assert_ne!(converter.slots[slot].stats, QUEUED);
         assert_eq!(
             readers.load(Ordering::Acquire),
             converter.slots[slot].last(),
@@ -345,11 +358,100 @@ fn hdr_stats_follow_hdr_conversions_only() -> Result<()> {
     converter.values[5] = 0;
     converter.values[4] = 1;
     let converted = rig.convert(&mut converter, &hdr)?;
+    let slot = (0..SLOTS)
+        .find(|&slot| converter.slots[slot].fence == converted.conversion)
+        .context("the conversion's slot")?;
+    assert_eq!(converter.slots[slot].stats, 0);
+    let stats = converter.hdr_stats.as_deref().context("statistics on")?;
+    assert_eq!(stats.slots[slot].queued, None);
+    assert_eq!(stats.slots[slot].measured, None);
     assert!(
         converter
             .latest_hdr_stats(converted.conversion - 1)?
             .is_none()
     );
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires D3D12 compute"]
+fn hdr_stats_skip_captures_read_on_another_timeline() -> Result<()> {
+    let rig = Rig::new()?;
+    let hdr = scrgb(64, 32, |_, _| 5.);
+    let mut converter = rig.converter(&hdr)?;
+    let mut source = GpuImage::upload(&rig.gpu, &hdr)?;
+    // SAFETY: A new fence on the queue's live device.
+    let other: ID3D12Fence = unsafe { rig.compute.device.CreateFence(0, D3D12_FENCE_FLAG_NONE)? };
+    source.ready = Some(Ready {
+        fence: rig.compute.fence.clone(),
+        value: 0,
+        device: rig.compute.device.as_raw() as usize,
+        readers: Some(Arc::new(AtomicU64::new(0))),
+        reader_fence: Some(other),
+    });
+    let opened = rig.compute.open(&source.texture)?;
+    let converted = converter.convert(&opened, format(hdr.pixel), None, &source)?;
+    // Its pass would make `submit_hdr_stats` wait for the GPU on the CPU.
+    let slot = (0..SLOTS)
+        .find(|&slot| converter.slots[slot].fence == converted.conversion)
+        .context("the conversion's slot")?;
+    assert_eq!(converter.slots[slot].stats, 0);
+    converter.submit_hdr_stats()?;
+    assert_eq!(converter.slots[slot].stats, 0);
+    Ok(())
+}
+
+/// Opens a gate the queue waits behind, also when the test fails first.
+struct Gate(ID3D12Fence);
+impl Drop for Gate {
+    fn drop(&mut self) {
+        // SAFETY: A CPU-side signal of a live fence.
+        let _ = unsafe { self.0.Signal(1) };
+    }
+}
+
+#[test]
+#[ignore = "requires D3D12 compute"]
+fn hdr_stats_pass_holds_the_capture_until_it_has_run() -> Result<()> {
+    let rig = Rig::new()?;
+    let hdr = scrgb(64, 32, |x, _| 10. * x as f32);
+    let mut converter = rig.converter(&hdr)?;
+    let (converted, slot, readers) = rig.queue(&mut converter, &hdr)?;
+    // `convert` submits nothing for the statistics: the encoder's frame is ready without them.
+    assert_eq!(converter.slots[slot].stats, QUEUED);
+    converted.wait()?;
+    rig.compute.wait(rig.compute.signal()?)?;
+    converter.release_completed();
+    assert!(
+        converter.slots[slot].capture.is_some(),
+        "a queued pass lost its source"
+    );
+    // A pass the GPU has not run yet keeps the capture and has no readout.
+    // SAFETY: A new fence on the queue's live device; the queue waits for it until `gate`
+    // drops, before `converter` does.
+    let gate = unsafe {
+        let gate = Gate(rig.compute.device.CreateFence(0, D3D12_FENCE_FLAG_NONE)?);
+        rig.compute.queue.Wait(&gate.0, 1)?;
+        gate
+    };
+    converter.submit_hdr_stats()?;
+    let pass = converter.slots[slot].stats;
+    assert!(pass > converted.conversion && pass != QUEUED);
+    assert_eq!(readers.load(Ordering::Acquire), pass);
+    converter.release_completed();
+    assert!(
+        converter.slots[slot].capture.is_some(),
+        "an unfinished pass lost its source"
+    );
+    assert!(converter.latest_hdr_stats(0)?.is_none());
+    drop(gate);
+    rig.compute.wait(rig.compute.signal()?)?;
+    converter.release_completed();
+    assert!(converter.slots[slot].capture.is_none());
+    let readout = converter
+        .latest_hdr_stats(0)?
+        .context("statistics once the pass ran")?;
+    assert_eq!(readout.conversion, converted.conversion);
     Ok(())
 }
 

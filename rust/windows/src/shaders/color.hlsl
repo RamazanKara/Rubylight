@@ -572,8 +572,9 @@ void focus_map_cs(uint3 id : SV_DispatchThreadID) {
     InterlockedMax(focusMap[1], value);
 }
 // HDR dynamic metadata statistics (butterpollo_core::hdr_dynamic): PQ(maxRGB)
-// of the picture the conversion encodes, at the centres of at most 240x135
-// cells over the source, in 1024 equal PQ bins, with the samples' minimum and
+// of the source as the conversion loads it (pointer drawn, before scaling and
+// the couch menu), at the centres of at most 240x135 cells, in 1024 equal PQ
+// bins, with the samples' minimum and
 // maximum. A groupshared histogram per tile, folded into the frame's with one
 // atomic per occupied bin, after Foundation Sunshine's
 // hdr_luminance_analysis_cs.hlsl (AlkaidLab/foundation-sunshine, commit

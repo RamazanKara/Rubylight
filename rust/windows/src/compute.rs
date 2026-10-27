@@ -1152,13 +1152,17 @@ struct Slot {
     outputs: Vec<ID3D12Resource>,
     waits: Vec<ID3D12Fence>,
     /// The HDR statistics pass reading the source after the conversion
-    /// (`compute_hdr_stats.rs`): 0 for none, `u64::MAX` while it is submitted.
+    /// (`compute_hdr_stats.rs`): 0 for none, [`hdr_stats::QUEUED`] until it is
+    /// submitted, `u64::MAX` while it is.
     stats: u64,
 }
 impl Slot {
-    /// When the slot's lists stop reading its inputs and views.
+    /// When the slot's submitted lists stop reading its inputs and views.
     fn last(&self) -> u64 {
-        self.fence.max(self.stats)
+        match self.stats {
+            hdr_stats::QUEUED => self.fence,
+            stats => self.fence.max(stats),
+        }
     }
 }
 struct PointerUpload {
@@ -1518,7 +1522,8 @@ impl Converter {
         self.uploads
             .retain(|upload| !self.compute.completed(upload.fence));
         for slot in &mut self.slots {
-            if self.compute.completed(slot.last()) {
+            // A queued statistics pass still reads the capture once submitted.
+            if slot.stats != hdr_stats::QUEUED && self.compute.completed(slot.last()) {
                 slot.capture = None;
                 slot.inputs = [None, None, None];
                 slot.outputs.clear();
@@ -1645,7 +1650,7 @@ impl Converter {
         self.slot = (self.slot + 1) % SLOTS;
         self.compute.wait(self.slots[slot].last())?;
         self.slots[slot].capture = None;
-        self.slots[slot].stats = 0;
+        self.reset_hdr_stats(slot);
         let (entry, block) = match (self.packs_chroma, self.values[11]) {
             (false, _) => (&b"yuv420_menu_cs\0"[..], [2, 2]),
             (true, 2) => (&b"chroma_pack_menu_cs\0"[..], [2, 2]),
@@ -1833,12 +1838,7 @@ impl Converter {
             value: target.value,
             conversion: fence,
         };
-        // Behind the encoder's signal, so the encoder never waits for it; the
-        // capture's source is read until it has run.
-        let read = self.hdr_stats_pass(slot, fence)?;
-        if let Some(ready) = ready.filter(|_| read != fence) {
-            ready.read_by(&self.compute, read)?;
-        }
+        self.queue_hdr_stats(slot, fence);
         Ok(converted)
     }
     /// Convert `source` into PyroWave's Y, Cb and Cr planes, full size or
@@ -1871,7 +1871,7 @@ impl Converter {
         self.slot = (self.slot + 1) % SLOTS;
         self.compute.wait(self.slots[slot].last())?;
         self.slots[slot].capture = None;
-        self.slots[slot].stats = 0;
+        self.reset_hdr_stats(slot);
         let menu = self.menu_pass(slot, b"pyro_menu_cs\0", 2, 3, [2, 2])?;
         self.slots[slot].inputs = [
             Some(source.clone()),

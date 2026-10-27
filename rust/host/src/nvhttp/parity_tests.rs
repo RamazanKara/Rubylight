@@ -491,6 +491,7 @@ async fn serverinfo_for_a_default_config_is_byte_identical() {
              <PowerActionVersion>1</PowerActionVersion>\
              <SleepSupported>{sleep}</SleepSupported>\
              <SleepAllowed>0</SleepAllowed>\
+             <AudioLayouts>15</AudioLayouts>\
              <PipelineRatesVersion>1</PipelineRatesVersion>\
              </root>"
         ),
@@ -541,6 +542,7 @@ async fn serverinfo_for_a_default_config_is_byte_identical() {
              <VirtualDisplayDriverReady>false</VirtualDisplayDriverReady>\
              <ControllerPreparation>1</ControllerPreparation>\
              <VirtualDisplayHDRCapable>true</VirtualDisplayHDRCapable>\
+             <AudioLayouts>15</AudioLayouts>\
              <PipelineRatesVersion>1</PipelineRatesVersion>\
              </root>"
         ),

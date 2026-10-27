@@ -52,9 +52,10 @@ fn audio_codecs(_h: &Shared, _config: &Config) -> u8 {
     0
 }
 
-/// Audio (E): 7.1.4.
-fn surround_714(_h: &Shared, _config: &Config) -> bool {
-    false
+/// Audio (E): 7.1.4 Opus, while `audio_surround_714` is on. The capture
+/// takes a 7.1.4 endpoint's heights, and leaves them silent on any other.
+fn surround_714(_h: &Shared, config: &Config) -> bool {
+    config.audio_surround_714()
 }
 
 /// Input (F): IME text input.

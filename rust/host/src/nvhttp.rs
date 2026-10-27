@@ -2006,7 +2006,8 @@ fn prepare_launch_app(
                 .get("surroundAudioInfo")
                 .and_then(|s| s.parse::<u32>().ok())
                 .map_or(2, |v| v & 0xffff) as usize;
-            let channels = if matches!(channels, 2 | 6 | 8) {
+            // 12 is 7.1.4; ANNOUNCE refuses it later unless it is offered.
+            let channels = if matches!(channels, 2 | 6 | 8 | 12) {
                 channels
             } else {
                 2

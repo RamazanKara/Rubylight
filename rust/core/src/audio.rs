@@ -1,5 +1,6 @@
 //! Bounded audio buffering, speaker mapping and fractional resampling.
 use anyhow::{Result, bail};
+use rubylight_protocol::audio_ext;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
@@ -21,6 +22,20 @@ impl OpusLayout {
             (6, true) => (6, 0, vec![0, 1, 4, 5, 2, 3], 1536000),
             (8, false) => (5, 3, vec![0, 1, 4, 5, 6, 7, 2, 3], 450000),
             (8, true) => (8, 0, vec![0, 1, 4, 5, 6, 7, 2, 3], 2048000),
+            // 7.1.4, as the host's DESCRIBE offers it (`audio_ext::LAYOUT_714*`).
+            (12, quality) => {
+                let (layout, bitrate) = if quality {
+                    (audio_ext::LAYOUT_714_HQ, audio_ext::BITRATE_714_HQ)
+                } else {
+                    (audio_ext::LAYOUT_714, audio_ext::BITRATE_714)
+                };
+                (
+                    i32::from(layout.streams),
+                    i32::from(layout.coupled),
+                    layout.mapping.to_vec(),
+                    bitrate as i32,
+                )
+            }
             _ => bail!("unsupported Opus layout"),
         };
         let mut layout = Self {
@@ -75,7 +90,7 @@ pub struct Resampler {
 }
 impl Resampler {
     pub fn new(rate: u32, channels: usize) -> Result<Self> {
-        if !(8000..=384000).contains(&rate) || !matches!(channels, 2 | 6 | 8) {
+        if !(8000..=384000).contains(&rate) || !matches!(channels, 2 | 6 | 8 | 12) {
             bail!("unsupported audio rate or layout");
         }
         Ok(Self {
@@ -302,6 +317,11 @@ impl HostLoss {
         Some(report)
     }
 }
+/// The Windows speaker bits of Moonlight's channel order, FL FR FC LFE BL BR SL SR, then
+/// 7.1.4's heights TFL TFR TBL TBR (`audio_ext::CHANNEL_MASK_714`).
+const MOONLIGHT_SPEAKERS: [u32; 12] = [
+    1, 2, 4, 8, 16, 32, 512, 1024, 0x1000, 0x4000, 0x8000, 0x20000,
+];
 /// The Windows speaker bit of each of an endpoint's channels, 0 for one
 /// without a known position; a mask that doesn't match the channel count
 /// means the standard order.
@@ -312,7 +332,7 @@ pub fn speakers(input_channels: usize, mask: u32) -> Vec<u32> {
             .map(|i| 1 << i)
             .collect()
     } else {
-        let standard = [1, 2, 4, 8, 16, 32, 512, 1024];
+        let standard = MOONLIGHT_SPEAKERS;
         if input_channels == 1 {
             vec![4]
         } else {
@@ -322,13 +342,16 @@ pub fn speakers(input_channels: usize, mask: u32) -> Vec<u32> {
         }
     }
 }
-/// Windows speaker mask -> Moonlight's FL, FR, FC, LFE, BL, BR, SL, SR order.
+/// Windows speaker mask -> Moonlight's FL, FR, FC, LFE, BL, BR, SL, SR order, and for 7.1.4
+/// TFL, TFR, TBL, TBR after it. Each speaker the endpoint has goes to its own channel; a
+/// 7.1.4 client of an endpoint without heights gets silent heights rather than an upmix
+/// that would invent them.
 pub fn mix_matrix(
     input_channels: usize,
     mask: u32,
     output_channels: usize,
 ) -> Result<Vec<Vec<f32>>> {
-    if input_channels == 0 || input_channels > 32 || !matches!(output_channels, 2 | 6 | 8) {
+    if input_channels == 0 || input_channels > 32 || !matches!(output_channels, 2 | 6 | 8 | 12) {
         bail!("invalid speaker layout");
     }
     let speakers = speakers(input_channels, mask);
@@ -357,7 +380,7 @@ pub fn mix_matrix(
         matrix[0][0] = 1.;
         matrix[1][0] = 1.;
     } else {
-        for (ch, bit) in [1, 2, 4, 8, 16, 32, 512, 1024]
+        for (ch, bit) in MOONLIGHT_SPEAKERS
             .into_iter()
             .take(output_channels)
             .enumerate()
@@ -408,6 +431,111 @@ mod tests {
                 OpusLayout::select(6, false, None).unwrap()
             );
         }
+    }
+    /// The decoded channel each input channel takes, by RFC 7845 section 5.1.1: coupled
+    /// stream `j` decodes to channels `2j` and `2j + 1`, mono stream `k` to `M + k`.
+    fn decoded_channels(layout: &OpusLayout) -> Vec<(usize, Option<usize>)> {
+        let coupled = layout.coupled as usize;
+        layout
+            .mapping
+            .iter()
+            .map(|&index| {
+                let index = usize::from(index);
+                if index < 2 * coupled {
+                    (index / 2, Some(index % 2))
+                } else {
+                    (index - coupled, None)
+                }
+            })
+            .collect()
+    }
+    #[test]
+    fn seven_one_four_layouts_are_rfc_7845_mapping_tables_with_paired_speakers() {
+        for (quality, streams, coupled, bitrate) in [
+            (false, 7, 5, audio_ext::BITRATE_714),
+            (true, 12, 0, audio_ext::BITRATE_714_HQ),
+        ] {
+            let layout = OpusLayout::select(12, quality, None).unwrap();
+            assert_eq!(
+                (layout.channels, layout.streams, layout.coupled),
+                (12, streams, coupled)
+            );
+            assert_eq!(layout.bitrate, bitrate as i32);
+            // Family 255 (RFC 7845 5.1.1.4): N + M decoded channels, each entry below it,
+            // and here every decoded channel used once, so nothing is duplicated or lost.
+            let mut seen = layout.mapping.clone();
+            seen.sort_unstable();
+            assert_eq!(seen, (0..12).collect::<Vec<u8>>(), "{quality}");
+            // It matches what DESCRIBE offers.
+            let offered = if quality {
+                audio_ext::LAYOUT_714_HQ
+            } else {
+                audio_ext::LAYOUT_714
+            };
+            assert_eq!(layout.mapping, offered.mapping);
+            let decoded = decoded_channels(&layout);
+            if !quality {
+                // The left/right pairs (fronts, backs, sides, top fronts, top backs) share a
+                // coupled stream as family 1 couples them; centre and LFE are mono.
+                for (left, right) in [(0, 1), (4, 5), (6, 7), (8, 9), (10, 11)] {
+                    assert_eq!(decoded[left].0, decoded[right].0, "{left}");
+                    assert_eq!(
+                        (decoded[left].1, decoded[right].1),
+                        (Some(0), Some(1)),
+                        "{left}"
+                    );
+                }
+                assert_eq!(decoded[2].1, None);
+                assert_eq!(decoded[3].1, None);
+            }
+        }
+        // surroundParams is single digits, so a custom 12-channel layout cannot be named.
+        assert!(!OpusLayout::valid_custom("12750110"));
+    }
+    #[test]
+    fn five_one_is_rfc_7845_family_one() {
+        // Family 1's 5.1 (RFC 7845 5.1.1.2): 4 streams, 2 coupled, mapping 0 4 1 2 3 5 in
+        // Vorbis order L C R RL RR LFE. Moonlight orders FL FR FC LFE BL BR.
+        let family_one = [0u8, 4, 1, 2, 3, 5];
+        let vorbis_of_moonlight = [0, 2, 1, 5, 3, 4];
+        let layout = OpusLayout::select(6, false, None).unwrap();
+        assert_eq!((layout.streams, layout.coupled), (4, 2));
+        let reordered: Vec<u8> = vorbis_of_moonlight
+            .iter()
+            .map(|&vorbis| family_one[vorbis])
+            .collect();
+        assert_eq!(layout.mapping, reordered);
+    }
+    #[test]
+    fn seven_one_four_capture_keeps_every_speaker_and_invents_no_heights() {
+        let mask = audio_ext::CHANNEL_MASK_714;
+        let matrix = mix_matrix(12, mask, 12).unwrap();
+        // The endpoint's channels are in bit order: FL FR FC LFE BL BR SL SR TFL TFR TBL
+        // TBR is also Moonlight's 7.1.4 order, so this is the identity.
+        for (output, row) in matrix.iter().enumerate() {
+            for (input, gain) in row.iter().enumerate() {
+                assert_eq!(*gain, if input == output { 1. } else { 0. });
+            }
+        }
+        // A 7.1 endpoint feeds the bed and leaves the heights silent.
+        let matrix = mix_matrix(8, 0x63f, 12).unwrap();
+        for (output, row) in matrix.iter().enumerate() {
+            for (input, gain) in row.iter().enumerate() {
+                assert_eq!(*gain, if input == output { 1. } else { 0. }, "{output}");
+            }
+        }
+        assert!(matrix[8..].iter().flatten().all(|v| *v == 0.));
+        // Stereo goes to the fronts only.
+        let matrix = mix_matrix(2, 3, 12).unwrap();
+        assert_eq!((matrix[0][0], matrix[1][1]), (1., 1.));
+        assert!(matrix[2..].iter().flatten().all(|v| *v == 0.));
+        // 7.1 clients of a 7.1.4 endpoint keep their bed as before.
+        let matrix = mix_matrix(12, mask, 8).unwrap();
+        for (output, row) in matrix.iter().enumerate() {
+            assert_eq!(row[output], 1.);
+        }
+        assert!(Resampler::new(48000, 12).is_ok());
+        assert!(Resampler::new(48000, 10).is_err());
     }
     #[test]
     fn fractional_rates_do_not_overrun_and_remain_bounded() {

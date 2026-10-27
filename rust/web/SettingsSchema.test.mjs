@@ -434,13 +434,24 @@ test('sleep after idle takes 0 or 5 to 1440 minutes, as the host does, and its s
   assert.equal(suspended.visibleWhen({ sleep_after_idle_minutes: 0 }), false);
 });
 
-test('settings still pending stay out of the console', () => {
+// The 3.0 settings whose features have shipped (settings30.rs keeps the same list).
+const live = ['audio_surround_714'];
+
+test('settings still pending stay out of the console, and shipped ones are in it', () => {
   assert.equal(pending.length, 30);
   for (const setting of pending) {
-    assert.equal(setting.pending, true, setting.key);
-    assert.equal(settings.has(setting.key), false, setting.key);
+    const shipped = live.includes(setting.key);
+    assert.equal(setting.pending === true, !shipped, setting.key);
+    assert.equal(settings.has(setting.key), shipped, setting.key);
     assert.ok(schema.categories.some(category => category.id === setting.category), setting.key);
   }
+});
+
+test('7.1.4 surround is Experimental and says the heights need a 7.1.4 device', () => {
+  const setting = settings.get('audio_surround_714');
+  assert.match(setting.label, /\(Experimental\)$/);
+  assert.match(setting.description, /Height channels stay silent/);
+  assert.equal(setting.default, true);
 });
 
 test('pending keys are unique, and Foundation ports are neither credited in the console nor Experimental', () => {

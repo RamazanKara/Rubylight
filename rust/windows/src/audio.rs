@@ -948,6 +948,8 @@ mod tests {
             (6, true, None),
             (8, false, None),
             (8, true, None),
+            (12, false, None),
+            (12, true, None),
             (6, true, Some("642543210")),
         ] {
             for packet_ms in [5, 10, 20] {

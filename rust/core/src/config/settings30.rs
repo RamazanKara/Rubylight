@@ -581,6 +581,9 @@ mod tests {
         assert_eq!(PER_DEVICE.len(), 16);
     }
 
+    /// The settings whose features have shipped, so the console shows them.
+    const LIVE: &[&str] = &["audio_surround_714"];
+
     /// Each setting's key and default in extensions.ts, with LF or CRLF line
     /// ends (CI checks the repository out with CRLF).
     fn schema_settings(schema: &str) -> Vec<(&str, &str)> {
@@ -597,9 +600,10 @@ mod tests {
                 .and_then(|line| line.strip_suffix(','))
                 .unwrap_or_else(|| panic!("{key}'s default does not end its line with a comma"))
                 .trim_matches('\'');
-            assert!(
+            assert_eq!(
                 entry.contains("\n    pending: true,"),
-                "{key} is not pending"
+                !LIVE.contains(&key),
+                "{key} is pending only until its feature ships"
             );
             listed.push((key, default));
         }

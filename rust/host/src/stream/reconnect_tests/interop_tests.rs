@@ -444,6 +444,7 @@ const SERVERINFO_FIELDS: &[(&str, Reading)] = &[
     ("PyroWaveWireBudgetVersion", Reading::Read),
     ("PyroWaveCriticalFecPercentage", Reading::Read),
     ("PyroWaveMinParityShards", Reading::Read),
+    ("AudioLayouts", Reading::Read),
     ("PipelineRatesVersion", Reading::Read),
     (
         "RustHostSessionCount",
@@ -551,7 +552,9 @@ fn expected(feature: Feature) -> Availability {
         | Feature::PipelineRates
         | Feature::WebUi
         | Feature::NativeApi
-        | Feature::Sleep => Supported,
+        | Feature::Sleep
+        // 7.1.4 is on by default.
+        | Feature::Surround714 => Supported,
         Feature::ServerCommands => Unsupported(Some(Reason::NoCommands)),
         // Display modes are the virtual display's. Before Windows 11 (CI's Server 2022)
         // the default mode is disabled, so the host says it is off, not missing a driver.
@@ -576,7 +579,6 @@ fn expected(feature: Feature) -> Availability {
         | Feature::BandwidthProbe
         | Feature::UsbForwarding
         | Feature::AudioPassthrough
-        | Feature::Surround714
         | Feature::TextInput
         | Feature::ClientKeyboardLayout
         | Feature::PenBarrelRoll

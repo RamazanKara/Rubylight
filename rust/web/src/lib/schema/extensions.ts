@@ -84,12 +84,11 @@ export const settings: Setting[] = [
   },
   {
     key: 'audio_surround_714',
-    label: '7.1.4 surround',
-    description: 'Offers 7.1.4 surround sound to devices that ask for it.',
+    label: '7.1.4 surround (Experimental)',
+    description: 'Offers 7.1.4 surround sound to devices that ask for it. Height channels stay silent unless the captured playback device has them.',
     category: 'audio',
     control: switches,
     default: true,
-    pending: true,
   },
   {
     key: 'pen_barrel_roll',

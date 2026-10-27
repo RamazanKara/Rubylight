@@ -708,6 +708,8 @@ fn virtual_format(channels: usize, sample: Sample, side: bool) -> Vec<u8> {
             6 if side => 0x60f,
             6 => 0x3f,
             8 => 0x63f,
+            // 7.1.4: 7.1 and TFL TFR TBL TBR (`audio_ext::CHANNEL_MASK_714`).
+            12 => 0x2d63f,
             _ => 3,
         },
         SubFormat: GUID::from_u128(if sample == Sample::Float32 {
@@ -745,8 +747,8 @@ fn valid_bits(bytes: &[u8]) -> u16 {
     format.wBitsPerSample
 }
 fn virtual_formats(channels: usize, preferred_bits: u16) -> Result<Vec<Vec<u8>>> {
-    if !matches!(channels, 2 | 6 | 8) {
-        bail!("virtual audio requires stereo, 5.1 or 7.1");
+    if !matches!(channels, 2 | 6 | 8 | 12) {
+        bail!("virtual audio requires stereo, 5.1, 7.1 or 7.1.4");
     }
     let samples = if channels == 2 {
         // Retain the old host's stereo preference, including spatial audio.
@@ -1312,7 +1314,7 @@ mod tests {
             std::mem::offset_of!(PolicyVtbl, default),
             13 * size_of::<usize>()
         );
-        for (channels, mask) in [(2, 3), (6, 0x3f), (8, 0x63f)] {
+        for (channels, mask) in [(2, 3), (6, 0x3f), (8, 0x63f), (12, 0x2d63f)] {
             let bytes = virtual_format(channels, Sample::Pcm24, false);
             // SAFETY: `bytes` is a whole WAVEFORMATEXTENSIBLE from virtual_format, read unaligned.
             let format =

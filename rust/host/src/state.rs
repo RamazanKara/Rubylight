@@ -206,6 +206,9 @@ pub struct Host {
     pub updates: Mutex<Value>,
     pub metadata: Mutex<Option<(Instant, Value)>>,
     pub serverinfo_cache: Mutex<crate::nvhttp::ServerInfoCache>,
+    /// The `User-Agent` of each paired device's latest `/serverinfo`, by
+    /// device UUID, for the console's client warnings. Not saved.
+    pub client_agents: Mutex<BTreeMap<String, String>>,
     /// The encoder family the capability probe selected for H.264.
     pub probed_encoder: Mutex<&'static str>,
     /// Why each codec the last probe pass did not advertise is missing.
@@ -455,6 +458,7 @@ impl Host {
             assets,
             metadata: Mutex::new(None),
             serverinfo_cache: Mutex::new(Default::default()),
+            client_agents: Mutex::new(BTreeMap::new()),
             probed_encoder: Mutex::new(""),
             codec_missing: Mutex::new(Vec::new()),
             radeon: crate::radeon_session::Radeon::default(),

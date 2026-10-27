@@ -250,3 +250,48 @@ async fn stock_cancel_without_launch_permission_is_refused_and_leaves_the_game()
     assert!(!reply.text().contains("<cancel>1</cancel>"));
     assert!(s.game_running());
 }
+
+/// `/serverinfo` from `connection` with this `User-Agent`, if any.
+async fn serverinfo_from(f: &Fixture, connection: &Connection, agent: Option<&str>) {
+    let mut request = Request::builder().method("GET").uri("/serverinfo");
+    if let Some(agent) = agent {
+        request = request.header(header::USER_AGENT, agent);
+    }
+    let response = router(f.host.clone(), true)
+        .layer(Extension(connection.clone()))
+        .oneshot(request.body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn serverinfo_keeps_a_paired_devices_user_agent_for_the_console() {
+    let s = Setup::new();
+    let agent = || {
+        s.host()
+            .client_agents
+            .lock()
+            .unwrap()
+            .get(&s.client.uuid)
+            .cloned()
+    };
+    serverinfo_from(&s.f, &s.connection, Some("Nightjar/3.2.0 (Android)")).await;
+    assert_eq!(agent().as_deref(), Some("Nightjar/3.2.0 (Android)"));
+    // A long header is cut, and a request without one forgets it.
+    serverinfo_from(&s.f, &s.connection, Some(&"x".repeat(1000))).await;
+    assert_eq!(agent().map(|a| a.len()), Some(256));
+    serverinfo_from(&s.f, &s.connection, None).await;
+    assert_eq!(agent(), None);
+    // Over plain HTTP, or unpaired, the caller is nobody's device.
+    serverinfo_from(&s.f, &s.f.connection(false), Some("Moonlight/6.1.0")).await;
+    assert_eq!(agent(), None);
+    let unpaired = Fixture::new();
+    serverinfo_from(
+        &unpaired,
+        &unpaired.connection(true),
+        Some("Moonlight/6.1.0"),
+    )
+    .await;
+    assert!(unpaired.host.client_agents.lock().unwrap().is_empty());
+}

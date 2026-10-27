@@ -105,6 +105,53 @@ pub(super) fn tail(h: &Shared, uri: &axum::http::Uri) -> Response {
     }
 }
 
+/// How much of the log's end the analysis reads, as much as the export holds.
+const ANALYSIS_BYTES: u64 = 8 * 1024 * 1024;
+
+/// The log analysis findings: what failed recently, in plain language.
+pub(super) async fn analysis(h: &Shared) -> Response {
+    let path = crate::maintenance::log_path(h);
+    let result = tokio::task::spawn_blocking(move || analyze_file(&path, ANALYSIS_BYTES)).await;
+    match result {
+        Ok(Ok(value)) => axum::Json(value).into_response(),
+        Ok(Err(err)) => error(StatusCode::INTERNAL_SERVER_ERROR, &err.to_string()),
+        Err(err) => error(StatusCode::INTERNAL_SERVER_ERROR, &err.to_string()),
+    }
+}
+
+fn analyze_file(path: &std::path::Path, max: u64) -> std::io::Result<Value> {
+    use std::io::{Read, Seek};
+    let mut file = match std::fs::File::open(path) {
+        Ok(file) => file,
+        // A host that has not written its log yet has nothing to report.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(
+                json!({"status":true,"findings":[],"since":null,"until":null,"read_bytes":0}),
+            );
+        }
+        Err(e) => return Err(e),
+    };
+    let start = file.metadata()?.len().saturating_sub(max);
+    file.seek(std::io::SeekFrom::Start(start))?;
+    let mut bytes = vec![];
+    file.take(max).read_to_end(&mut bytes)?;
+    // Skip the line the window cuts into.
+    let text = String::from_utf8_lossy(&bytes);
+    let text = match (start, text.find('\n')) {
+        (0, _) => &text[..],
+        (_, Some(end)) => &text[end + 1..],
+        (_, None) => "",
+    };
+    let analysis = butterpollo_core::log_analysis::analyze(text);
+    Ok(json!({
+        "status": true,
+        "findings": analysis.findings,
+        "since": analysis.since,
+        "until": analysis.until,
+        "read_bytes": bytes.len(),
+    }))
+}
+
 pub(super) fn export(h: &Shared, path: &str) -> Response {
     use std::io::{Read, Seek};
     let result = (|| -> std::io::Result<String> {
@@ -129,4 +176,56 @@ pub(super) fn export(h: &Shared, path: &str) -> Response {
         );
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::analyze_file;
+
+    #[test]
+    fn the_analysis_explains_the_logs_end_and_skips_the_cut_line() {
+        let dir =
+            std::env::temp_dir().join(format!("butterpollo-analysis-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("butterpollo.log");
+        assert_eq!(
+            analyze_file(&path, 1 << 20).unwrap()["findings"],
+            serde_json::json!([])
+        );
+        let hang = "2026-10-20T12:40:20.129623Z  WARN butterpollo_windows::amf: slow encoder call call=\"AMF SubmitInput\" elapsed_ms=34787\n";
+        let timeout = "2026-10-20T12:41:00.000000Z  WARN butterpollo::stream: client control stream timed out client=SM-F946B\n";
+        std::fs::write(&path, format!("{hang}{hang}{timeout}")).unwrap();
+        let all = analyze_file(&path, 1 << 20).unwrap();
+        let ids: Vec<_> = all["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| {
+                (
+                    f["id"].as_str().unwrap().to_owned(),
+                    f["count"].as_u64().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            ids,
+            [
+                ("client_timeout".to_owned(), 1),
+                ("encoder_hang".to_owned(), 2)
+            ]
+        );
+        assert_eq!(all["since"], "2026-10-20T12:40:20.129623Z");
+        let link = all["findings"][1]["link"].as_str().unwrap();
+        assert!(
+            link.ends_with(
+                "troubleshooting.md#the-picture-freezes-and-the-gpu-resets-during-a-stream"
+            ),
+            "{link}"
+        );
+        // A window that starts inside the second hang line counts only the whole lines after it.
+        let cut = analyze_file(&path, (hang.len() + timeout.len() - 10) as u64).unwrap();
+        assert_eq!(cut["findings"].as_array().unwrap().len(), 1);
+        assert_eq!(cut["findings"][0]["id"], "client_timeout");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

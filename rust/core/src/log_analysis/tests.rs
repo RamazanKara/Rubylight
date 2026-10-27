@@ -148,7 +148,11 @@ fn rule_ids_are_unique_and_texts_are_filled_in() {
     let mut ids = std::collections::BTreeSet::new();
     for rule in RULES {
         assert!(ids.insert(rule.id), "{} twice", rule.id);
-        assert!(!rule.all.is_empty() || !rule.any.is_empty(), "{} matches every line", rule.id);
+        assert!(
+            !rule.all.is_empty() || !rule.any.is_empty(),
+            "{} matches every line",
+            rule.id
+        );
         for text in [rule.title, rule.explanation, rule.fix, rule.anchor] {
             assert!(!text.trim().is_empty(), "{}", rule.id);
         }
@@ -224,10 +228,20 @@ fn repeats_count_once_with_the_first_and_last_time() {
     ]
     .join("\n");
     let analysis = analyze(&text);
-    assert_eq!(analysis.since.as_deref(), Some("2026-10-03T18:42:40.788653Z"));
-    assert_eq!(analysis.until.as_deref(), Some("2026-10-06T17:52:04.000000Z"));
+    assert_eq!(
+        analysis.since.as_deref(),
+        Some("2026-10-03T18:42:40.788653Z")
+    );
+    assert_eq!(
+        analysis.until.as_deref(),
+        Some("2026-10-06T17:52:04.000000Z")
+    );
     let ids: Vec<_> = analysis.findings.iter().map(|f| f.id).collect();
-    assert_eq!(ids, ["encoder_stream_failure", "capture_access_lost"], "newest first");
+    assert_eq!(
+        ids,
+        ["encoder_stream_failure", "capture_access_lost"],
+        "newest first"
+    );
     let encoder = &analysis.findings[0];
     assert_eq!((encoder.count, encoder.level), (2, "error"));
     let capture = &analysis.findings[1];
@@ -253,9 +267,13 @@ fn a_line_counts_for_its_first_rule_only() {
     );
     assert_eq!(only(&line), Some("codec_unsupported"));
     // The hang rule needs the field as a number at the threshold.
-    let at = format!("{T}  WARN butterpollo_windows::amf: slow encoder call call=\"AMF Init\" elapsed_ms=2000");
+    let at = format!(
+        "{T}  WARN butterpollo_windows::amf: slow encoder call call=\"AMF Init\" elapsed_ms=2000"
+    );
     assert_eq!(only(&at), Some("encoder_hang"));
-    let text = format!("{T}  WARN butterpollo_windows::amf: slow encoder call call=\"AMF Init\" elapsed_ms=fast");
+    let text = format!(
+        "{T}  WARN butterpollo_windows::amf: slow encoder call call=\"AMF Init\" elapsed_ms=fast"
+    );
     assert_eq!(only(&text), None);
 }
 
@@ -265,4 +283,3 @@ fn long_lines_are_quoted_shortened_on_a_character_boundary() {
     let finding = &analyze(&line).findings[0];
     assert_eq!(finding.sample.chars().count(), SAMPLE_CHARS);
 }
-

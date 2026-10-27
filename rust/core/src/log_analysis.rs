@@ -73,7 +73,10 @@ pub const RULES: &[Rule] = &[
     Rule {
         id: "encoder_stall",
         category: Category::Encoder,
-        all: &["stream thread stopped making progress", "phase=\"encoding\""],
+        all: &[
+            "stream thread stopped making progress",
+            "phase=\"encoding\"",
+        ],
         any: &[],
         // Half-second stalls are a busy GPU; an encoder hang lasts seconds.
         at_least: Some(("stalled_ms", 2000)),
@@ -226,7 +229,10 @@ pub const RULES: &[Rule] = &[
     Rule {
         id: "capture_stall",
         category: Category::Capture,
-        all: &["stream thread stopped making progress", "thread=\"capture\""],
+        all: &[
+            "stream thread stopped making progress",
+            "thread=\"capture\"",
+        ],
         any: &[],
         at_least: None,
         title: "Capture stalled",
@@ -253,7 +259,12 @@ pub const RULES: &[Rule] = &[
         id: "upnp_failed",
         category: Category::Network,
         all: &["UPnP"],
-        any: &["mapping failed", "mapping timed out", "already owned", "could not be renewed"],
+        any: &[
+            "mapping failed",
+            "mapping timed out",
+            "already owned",
+            "could not be renewed",
+        ],
         at_least: None,
         title: "The router did not forward the ports",
         explanation: "UPnP is on, but the router refused or did not answer the port forwarding request. Devices outside your network cannot reach this PC.",

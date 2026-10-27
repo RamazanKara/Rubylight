@@ -294,11 +294,15 @@ async fn hardware_metrics(
 async fn serverinfo(
     State(h): State<Shared>,
     Extension(connection): Extension<Connection>,
+    headers: axum::http::HeaderMap,
 ) -> Response {
     h.request_codec_probe();
     h.wait_for_startup_codecs(STARTUP_CODEC_WAIT).await;
     let config = h.config.read().unwrap().clone();
     let client = authenticated(&h, &connection, 0).ok();
+    if let Some(client) = &client {
+        note_client_agent(&h, &client.uuid, &headers);
+    }
     let paired = client.is_some();
     // The peer port does not affect the routed interface. Keep its IPv6 scope.
     let mut peer = connection.peer;
@@ -356,6 +360,21 @@ async fn serverinfo(
         pyrowave_link,
         driver_ready,
     )
+}
+/// Keeps what the device's client calls itself, for the console's warning
+/// about known-broken client builds. A request without one clears it.
+fn note_client_agent(h: &Shared, uuid: &str, headers: &axum::http::HeaderMap) {
+    let agent = headers
+        .get(axum::http::header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.trim().chars().take(256).collect::<String>())
+        .unwrap_or_default();
+    let mut agents = h.client_agents.lock().unwrap();
+    if agent.is_empty() {
+        agents.remove(uuid);
+    } else {
+        agents.insert(uuid.to_owned(), agent);
+    }
 }
 #[allow(clippy::too_many_arguments)]
 fn serverinfo_response(

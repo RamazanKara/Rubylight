@@ -19,6 +19,7 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 .filter(|s| !s.stopping())
                 .map(|s| s.launch.client.uuid.clone())
                 .collect::<std::collections::HashSet<_>>();
+            let agents = h.client_agents.lock().unwrap().clone();
             let clients: Vec<_> = h
                 .paired
                 .read()
@@ -38,6 +39,10 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                         .get(&c.uuid)
                         .cloned()
                         .unwrap_or_else(|| json!([]));
+                    let agent = agents.get(&c.uuid).map(String::as_str);
+                    v["client_agent"] = json!(agent);
+                    v["client_warning"] =
+                        client_warning(butterpollo_core::client_warnings::BROKEN_CLIENTS, agent);
                     v
                 })
                 .collect();
@@ -136,6 +141,8 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                         | "enabled"
                         | "connected"
                         | "network_loss_routes"
+                        | "client_agent"
+                        | "client_warning"
                 ) {
                     // null clears a per-device setting.
                     if v.is_null() {
@@ -300,6 +307,19 @@ fn check_folder_grants(grants: &Value) -> anyhow::Result<()> {
         anyhow::bail!("shared_folders must map folder ids to \"read\" or \"write\", or be null");
     }
     Ok(())
+}
+
+/// The console's warning for a client build on `list`; it never refuses one.
+fn client_warning(
+    list: &[butterpollo_core::client_warnings::BrokenClient],
+    agent: Option<&str>,
+) -> Value {
+    agent
+        .and_then(|agent| butterpollo_core::client_warnings::warning_in(list, agent))
+        .map_or(
+            Value::Null,
+            |broken| json!({"problem": broken.problem, "link": broken.link}),
+        )
 }
 
 #[cfg(test)]
@@ -514,6 +534,47 @@ mod tests {
             }),
             json!("this PC only has Modern Standby, so Windows would hibernate it")
         );
+    }
+
+    #[test]
+    fn the_device_list_names_the_client_and_warns_only_about_listed_builds() {
+        let f = Fixture::new();
+        let client = f.client(PERM);
+        let listed = || handle(&f.host, "GET", "/api/clients/list", &json!({})).unwrap();
+        assert_eq!(listed()["clients"][0]["client_agent"], json!(null));
+        assert_eq!(listed()["clients"][0]["client_warning"], json!(null));
+        f.host
+            .client_agents
+            .lock()
+            .unwrap()
+            .insert(client.uuid.clone(), "Nightjar/3.2.0".into());
+        assert_eq!(listed()["clients"][0]["client_agent"], "Nightjar/3.2.0");
+        // The shipped list names no build, so nothing is flagged.
+        assert_eq!(listed()["clients"][0]["client_warning"], json!(null));
+        let list = [butterpollo_core::client_warnings::BrokenClient {
+            product: "Nightjar",
+            from: (3, 2, 0),
+            fixed: (3, 2, 1),
+            problem: "freezes",
+            link: "https://github.com/RamazanKara/Rubylight/issues/0",
+        }];
+        assert_eq!(
+            super::client_warning(&list, Some("Nightjar/3.2.0")),
+            json!({"problem": "freezes", "link": "https://github.com/RamazanKara/Rubylight/issues/0"})
+        );
+        assert_eq!(
+            super::client_warning(&list, Some("Nightjar/3.2.1")),
+            json!(null)
+        );
+        assert_eq!(super::client_warning(&list, None), json!(null));
+        // What the host saw is not a setting the console can write.
+        update(
+            &f,
+            json!({"uuid": client.uuid, "client_agent": "x", "client_warning": {"problem": "y"}}),
+        );
+        let paired = f.host.paired.read().unwrap();
+        assert!(!paired.clients[0].extra.contains_key("client_agent"));
+        assert!(!paired.clients[0].extra.contains_key("client_warning"));
     }
 
     #[test]

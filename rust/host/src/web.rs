@@ -248,6 +248,7 @@ fn token_catalog() -> Vec<auth::Scope> {
         ("/api/otp", &["POST"][..]),
         ("/api/clients/pending", &["GET"][..]),
         ("/api/logs/tail", &["GET"][..]),
+        ("/api/logs/analysis", &["GET"][..]),
         ("/api/library/discovery", &["GET"][..]),
         ("/api/library/import", &["POST"][..]),
         ("/api/steam/status", &["GET"][..]),
@@ -803,6 +804,9 @@ pub(crate) async fn api(
     }
     if method == Method::GET && path == "/api/logs/tail" {
         return logs::tail(&h, &uri);
+    }
+    if method == Method::GET && path == "/api/logs/analysis" {
+        return logs::analysis(&h).await;
     }
     if method == Method::GET && matches!(path, "/api/logs" | "/api/logs/export") {
         return logs::export(&h, path);

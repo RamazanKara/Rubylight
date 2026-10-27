@@ -1,6 +1,9 @@
 use super::*;
 use butterpollo_core::network_pacing::{self, ClientPath, Pacer};
-use butterpollo_windows::{net::Batch, timing::Timer};
+use butterpollo_windows::{
+    net::{Batch, Link},
+    timing::Timer,
+};
 
 pub(super) fn run(
     shared: &Slot,
@@ -15,9 +18,7 @@ pub(super) fn run(
     let mut batch = Batch::default();
     let mut pacer = Pacer::new(Instant::now());
     let mut route = butterpollo_windows::net::Link::default();
-    let mut link_due = Instant::now();
-    // The session's roams when `route` was routed.
-    let mut roams = current.roams();
+    let mut route_check = RouteCheck::new(Instant::now(), current.roams());
     while !shared.stop.load(Ordering::Acquire)
         && !current.stopping()
         && !host.stop.load(Ordering::Acquire)
@@ -34,50 +35,12 @@ pub(super) fn run(
             ready.take()
         };
         let Some(frame) = frame else { continue };
-        // A client that roamed takes another route, as H.26x video does.
-        let report = Instant::now() >= link_due || current.roams() != roams;
+        let report = route_check.due(Instant::now(), current.roams());
         if report {
-            roams = current.roams();
             route = butterpollo_windows::net::routed_link(frame.peer);
-            link_due = Instant::now() + Duration::from_secs(2);
         }
-        // The client's hints, until it roams away from the path they describe.
-        let client = ClientPath {
-            link_bps: u64::from(current.client_link_mbps()) * 1_000_000,
-            pace_bps: u64::from(current.client_pace_mbps()) * 1_000_000,
-        };
-        // Use a stable budget so different scene sizes cannot continually
-        // reset the controller's feedback window. Warn on actual wire demand.
-        let needed = network_pacing::pyrowave_wire_rate_bps(
-            current.bitrate.load(Ordering::Acquire),
-            current.config.packet_size,
-            current.config.pyrowave_records,
-            current.stream_mode().period(),
-        );
-        let base = network_pacing::pyrowave_route_rate_bps(
-            config.integer("pacing_max_bitrate_kbps", 0),
-            frame.kbps,
-            route.bps,
-            network_pacing::route_is_wireless(
-                route.wireless,
-                current.client_wireless_sets_route_pacing(),
-            ),
-            needed,
-            client,
-        );
-        let paced = current.video_pacing_bps(base, needed);
-        let safe = network_pacing::pyrowave_route_rate_bps(
-            0,
-            frame.kbps,
-            route.bps,
-            true,
-            needed,
-            ClientPath {
-                pace_bps: 0,
-                ..client
-            },
-        );
-        let bps = current.keyframe_loss_bps(paced, safe, frame.wire_frame, true);
+        let client = client_path(&current);
+        let bps = pace(&current, &config, frame.kbps, frame.wire_frame, route);
         if report {
             network_pacing::report_rate(
                 &current.launch.warnings,
@@ -188,4 +151,134 @@ pub(super) fn run(
         }
     }
     Ok(())
+}
+
+/// How often the sender routes its client's address again.
+const ROUTE_INTERVAL: Duration = Duration::from_secs(2);
+
+/// When the sender routes its client's address again: every [`ROUTE_INTERVAL`], and at
+/// once after a roam, whose path takes another route, as H.26x video does.
+struct RouteCheck {
+    due: Instant,
+    /// The session's roams when the route was last routed.
+    roams: u32,
+}
+
+impl RouteCheck {
+    fn new(now: Instant, roams: u32) -> Self {
+        Self { due: now, roams }
+    }
+
+    /// Whether to route again now, with the session at `roams`.
+    fn due(&mut self, now: Instant, roams: u32) -> bool {
+        if now < self.due && roams == self.roams {
+            return false;
+        }
+        self.roams = roams;
+        self.due = now + ROUTE_INTERVAL;
+        true
+    }
+}
+
+/// The client's hints, until it roams away from the path they describe.
+fn client_path(current: &Session) -> ClientPath {
+    ClientPath {
+        link_bps: u64::from(current.client_link_mbps()) * 1_000_000,
+        pace_bps: u64::from(current.client_pace_mbps()) * 1_000_000,
+    }
+}
+
+/// The pace for picture `wire_frame` of `kbps` on `route`.
+fn pace(current: &Session, config: &Config, kbps: u32, wire_frame: u32, route: Link) -> u64 {
+    let client = client_path(current);
+    // Use a stable budget so different scene sizes cannot continually
+    // reset the controller's feedback window. Warn on actual wire demand.
+    let needed = network_pacing::pyrowave_wire_rate_bps(
+        current.bitrate.load(Ordering::Acquire),
+        current.config.packet_size,
+        current.config.pyrowave_records,
+        current.stream_mode().period(),
+    );
+    let base = network_pacing::pyrowave_route_rate_bps(
+        config.integer("pacing_max_bitrate_kbps", 0),
+        kbps,
+        route.bps,
+        network_pacing::route_is_wireless(
+            route.wireless,
+            current.client_wireless_sets_route_pacing(),
+        ),
+        needed,
+        client,
+    );
+    let paced = current.video_pacing_bps(base, needed);
+    let safe = network_pacing::pyrowave_route_rate_bps(
+        0,
+        kbps,
+        route.bps,
+        true,
+        needed,
+        ClientPath {
+            pace_bps: 0,
+            ..client
+        },
+    );
+    current.keyframe_loss_bps(paced, safe, wire_frame, true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use butterpollo_core::session::Role;
+
+    #[test]
+    fn a_roam_routes_the_new_path_at_once() {
+        let now = Instant::now();
+        let mut check = RouteCheck::new(now, 0);
+        assert!(check.due(now, 0), "the first picture");
+        assert!(!check.due(now + Duration::from_millis(10), 0));
+        assert!(check.due(now + Duration::from_millis(20), 1), "a roam");
+        assert!(!check.due(now + Duration::from_millis(30), 1));
+        assert!(check.due(now + Duration::from_millis(20) + ROUTE_INTERVAL, 1));
+    }
+
+    /// A client's link and pace hints pace a PyroWave stream until the client roams:
+    /// the new path is paced as for a client that sent none.
+    #[test]
+    fn a_roamed_clients_old_link_hints_no_longer_pace_pyrowave() {
+        let fixture = crate::state::test_support::Fixture::new();
+        let stream = |link, pace| {
+            let session = Session::new(
+                fixture.launch(fixture.client(0), Role::Stream),
+                butterpollo_core::rtsp::Negotiated {
+                    codec: 3,
+                    bitrate_kbps: 40_000,
+                    pyrowave_client_link_mbps: link,
+                    pyrowave_client_pace_mbps: pace,
+                    ..Default::default()
+                },
+            );
+            session.bitrate.store(40_000, Ordering::Release);
+            session.configure_keyframe_loss(true);
+            session
+        };
+        let config = Config::default();
+        let route = Link {
+            bps: 1_000_000_000,
+            ..Default::default()
+        };
+        let unhinted = pace(&stream(0, 0), &config, 40_000, 1, route);
+        let session = stream(50, 45);
+        assert_eq!(pace(&session, &config, 40_000, 1, route), 45_000_000);
+        assert_ne!(unhinted, 45_000_000);
+        session.roamed("198.51.100.4".parse().unwrap(), Instant::now());
+        session.new_network_path();
+        assert_eq!(
+            (
+                client_path(&session).link_bps,
+                client_path(&session).pace_bps
+            ),
+            (0, 0)
+        );
+        assert_eq!(pace(&session, &config, 40_000, 2, route), unhinted);
+    }
 }

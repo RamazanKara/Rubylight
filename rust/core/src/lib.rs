@@ -34,6 +34,7 @@ pub mod browse;
 pub mod capture_policy;
 pub mod catalog;
 pub mod child_session;
+pub mod client_cursor;
 pub mod client_warnings;
 pub mod clipboard_image;
 pub mod clock_sync;

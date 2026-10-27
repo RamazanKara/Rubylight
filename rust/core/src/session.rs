@@ -2928,6 +2928,9 @@ pub struct Session<P = (), A = ()> {
     /// The layout id the device's newest keyboard layout report (0x553E) resolved to, on
     /// arrival; None when it named none the host knows, or sent none.
     pub keyboard_layout: std::sync::Mutex<Option<u32>>,
+    /// The cursor a client that asked (0x5540) draws itself: noted by the video stream,
+    /// which then leaves the pointer out, and sent by the control loop.
+    pub client_cursor: crate::client_cursor::ClientCursor,
     /// Zero of the video stream's RTP clock, set when its sender starts; clock sync
     /// replies (0x5537) are on this clock.
     pub media_epoch: std::sync::RwLock<Option<Instant>>,
@@ -3035,6 +3038,7 @@ impl<P, A> Session<P, A> {
             pipeline_rates: Default::default(),
             text_input: Default::default(),
             keyboard_layout: Default::default(),
+            client_cursor: Default::default(),
             media_epoch: Default::default(),
             timing_record: Default::default(),
             encoder_focus: AtomicU8::new(crate::encoder_focus::Requested::Off.wire()),

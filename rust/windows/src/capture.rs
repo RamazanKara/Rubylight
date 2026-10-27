@@ -980,7 +980,35 @@ pub struct GpuImage {
     /// the display driver's); it goes back with the last clone of this image.
     lease: Option<std::sync::Arc<bridge::Lease>>,
 }
+/// A shown pointer Desktop Duplication supplied beside a picture.
+pub struct PointerShape<'a> {
+    pub width: u32,
+    pub height: u32,
+    /// The point that clicks, from the shape's top left.
+    pub hotspot: [i32; 2],
+    /// Logic alpha (0 transparent, 128 inverts the screen by the pixel's color, 255
+    /// opaque) for monochrome and masked shapes; straight alpha otherwise.
+    pub logic: bool,
+    /// `width * height` RGBA pixels, rows top to bottom; a shape seen again shares them.
+    pub pixels: &'a std::sync::Arc<[u8]>,
+}
 impl GpuImage {
+    /// The pointer drawn into this picture, when the capture supplies it apart from the
+    /// desktop (Desktop Duplication) and it is shown.
+    pub fn pointer(&self) -> Option<PointerShape<'_>> {
+        self.cursor.as_ref().map(|cursor| PointerShape {
+            width: cursor.width,
+            height: cursor.height,
+            hotspot: cursor.hotspot,
+            logic: cursor.logic,
+            pixels: &cursor.pixels,
+        })
+    }
+    /// Leave the pointer out of this picture, for a device that draws it itself. Only a
+    /// pointer the capture supplies apart can be left out.
+    pub fn leave_pointer_out(&mut self) {
+        self.cursor = None;
+    }
     /// Order D3D11 work on `gpu` submitted after this call after the write
     /// `ready` waits for. Every D3D11 reader of `texture` calls it first; only
     /// a fence ring's texture lent in place needs it, which the compute

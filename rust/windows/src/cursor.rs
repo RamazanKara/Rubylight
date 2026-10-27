@@ -83,6 +83,8 @@ pub(crate) struct Cursor {
     pub width: u32,
     pub height: u32,
     pub position: [i32; 2],
+    /// The point that clicks, from the shape's top left.
+    pub hotspot: [i32; 2],
     pub logic: bool,
     pub(crate) pixels: std::sync::Arc<[u8]>,
 }
@@ -90,13 +92,16 @@ impl Cursor {
     #[cfg(test)]
     pub fn new(gpu: &Device, info: &DXGI_OUTDUPL_POINTER_SHAPE_INFO, bytes: &[u8]) -> Result<Self> {
         let shape = decode(info, bytes)?;
-        Self::upload(
-            gpu,
-            shape.width,
-            shape.height,
-            shape.logic,
-            shape.pixels.into(),
-        )
+        Ok(Self {
+            hotspot: [info.HotSpot.x, info.HotSpot.y],
+            ..Self::upload(
+                gpu,
+                shape.width,
+                shape.height,
+                shape.logic,
+                shape.pixels.into(),
+            )?
+        })
     }
     /// A decoded shape as a texture on `gpu`.
     fn upload(
@@ -144,6 +149,7 @@ impl Cursor {
             width,
             height,
             position: [0; 2],
+            hotspot: [0; 2],
             logic,
             pixels,
         })
@@ -210,9 +216,18 @@ pub(crate) struct State {
 /// out the old adapter while anything still holds the old device.
 #[derive(Clone, Default)]
 pub(crate) struct Carried {
-    shape: Option<(u32, u32, bool, std::sync::Arc<[u8]>)>,
+    shape: Option<CarriedShape>,
     position: [i32; 2],
     visible: bool,
+}
+/// The last shape's pixels, without the GPU copy.
+#[derive(Clone)]
+struct CarriedShape {
+    width: u32,
+    height: u32,
+    hotspot: [i32; 2],
+    logic: bool,
+    pixels: std::sync::Arc<[u8]>,
 }
 impl State {
     fn shape(
@@ -227,11 +242,12 @@ impl State {
             self.shape_device = device;
         }
         let shape = decode(info, bytes)?;
+        let hotspot = [info.HotSpot.x, info.HotSpot.y];
         if let Some(cursor) = self
             .shapes
             .get(shape.width, shape.height, shape.logic, &shape.pixels)
         {
-            return Ok(cursor);
+            return Ok(Cursor { hotspot, ..cursor });
         }
         let cursor = Cursor::upload(
             gpu,
@@ -247,14 +263,17 @@ impl State {
             cursor.pixels.clone(),
             cursor.clone(),
         );
-        Ok(cursor)
+        Ok(Cursor { hotspot, ..cursor })
     }
     pub fn carry(&self) -> Carried {
         Carried {
-            shape: self
-                .cursor
-                .as_ref()
-                .map(|c| (c.width, c.height, c.logic, c.pixels.clone())),
+            shape: self.cursor.as_ref().map(|c| CarriedShape {
+                width: c.width,
+                height: c.height,
+                hotspot: c.hotspot,
+                logic: c.logic,
+                pixels: c.pixels.clone(),
+            }),
             position: self.position,
             visible: self.visible,
         }
@@ -264,8 +283,11 @@ impl State {
         if self.cursor.is_some() {
             return Ok(());
         }
-        if let Some((width, height, logic, pixels)) = carried.shape {
-            self.cursor = Some(Cursor::upload(gpu, width, height, logic, pixels)?);
+        if let Some(shape) = carried.shape {
+            self.cursor = Some(Cursor {
+                hotspot: shape.hotspot,
+                ..Cursor::upload(gpu, shape.width, shape.height, shape.logic, shape.pixels)?
+            });
             self.position = carried.position;
             self.visible = carried.visible;
         }
@@ -336,7 +358,7 @@ mod tests {
             Width: 2,
             Height: 2,
             Pitch: 8,
-            ..Default::default()
+            HotSpot: windows::Win32::Foundation::POINT { x: 1, y: 0 },
         };
         let bytes: Vec<u8> = (0..16).collect();
         let carried = {
@@ -361,8 +383,8 @@ mod tests {
             .snapshot()
             .context("the carried pointer is not drawn")?;
         assert_eq!(
-            (cursor.position, cursor.width, cursor.height),
-            ([10, 20], 2, 2)
+            (cursor.position, cursor.width, cursor.height, cursor.hotspot),
+            ([10, 20], 2, 2, [1, 0])
         );
         assert_eq!(&cursor.pixels[..4], &[2, 1, 0, 3]);
         // A pointer the new duplication reported already is kept.

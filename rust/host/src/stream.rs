@@ -1857,6 +1857,9 @@ impl Media {
                     let mut last_image: Option<Arc<GpuImage>> = None;
                     // The couch menu's panel; one atomic load a frame while closed.
                     let mut menu = crate::couch_menu::VideoOverlay::default();
+                    // The device draws the pointer (0x5540): it is left out of the video.
+                    let mut pointer_left_out = false;
+                    let mut pointer_warned = false;
                     let mut encoded_at = Instant::now();
                     // Keep the legacy age split beside WGC's signed raw stamp
                     // offset: a future stamp must not look like instant delivery.
@@ -3000,8 +3003,31 @@ impl Media {
                                 );
                                 let _ = active.set_frame_cap(cap);
                             }
-                            // A repeat with a new panel is a new picture.
-                            active.set_repeat(!fresh && !menu.dirty);
+                            // The device draws the pointer: only Desktop Duplication supplies
+                            // it apart, so with any other capture it stays in the video and the
+                            // device is told to hide its own.
+                            let leave_pointer_out = s.client_cursor.active() && {
+                                let ddx = latest.backend() == "ddx";
+                                let pointer = image.pointer().filter(|_| ddx).map(|p| butterpollo_core::client_cursor::Pointer {
+                                    width: p.width,
+                                    height: p.height,
+                                    hotspot: p.hotspot,
+                                    logic: p.logic,
+                                    pixels: p.pixels,
+                                });
+                                if s.client_cursor.note(pointer, &image.gpu.display.display_name) {
+                                    let _ = m.control_wake.send(&[1]);
+                                }
+                                if !ddx && !std::mem::replace(&mut pointer_warned, true) {
+                                    tracing::warn!(capture = latest.backend(), "the device-drawn cursor needs Desktop Duplication capture; the pointer stays in the video");
+                                }
+                                ddx
+                            };
+                            let pointer_toggled = leave_pointer_out != pointer_left_out;
+                            pointer_left_out = leave_pointer_out;
+                            // A repeat with a new panel, or with the pointer put in or left out,
+                            // is a new picture.
+                            active.set_repeat(!fresh && !menu.dirty && !pointer_toggled);
                             menu.dirty = false;
                             // A map that failed on a frame turned focus off in
                             // the encoder; keep it off for the stream, loudly.
@@ -3019,6 +3045,7 @@ impl Media {
                             }
                             let mut presented_image = image.as_ref().clone();
                             if !fresh { presented_image.captured = Instant::now(); }
+                            if leave_pointer_out { presented_image.leave_pointer_out(); }
                             progress.mark(crate::stall_watch::Phase::Encode);
                             let encode_trace_started = trace_send.then(Instant::now);
                             let encoded = (|| -> Result<Vec<butterpollo_windows::encoder::Encoded>> {
@@ -3644,6 +3671,7 @@ impl Media {
                                     couch: Default::default(),
                                     audio_haptics: Default::default(),
                                     keyboard_layout: Default::default(),
+                                    cursor_owner: peer.id().0,
                                     focus_watch: None,
                                 },
                             );
@@ -4016,6 +4044,32 @@ impl Media {
                                     ),
                                 }
                             }
+                            // The device draws the cursor (0x5540): the stream leaves it
+                            // out of the video, and the pass below sends its shapes.
+                            butterpollo_core::client_cursor::CURSOR_SHAPE_REQUEST_MESSAGE_TYPE => {
+                                let Ok(config) = effective_config(&h, &s.launch) else {
+                                    continue;
+                                };
+                                let offered = crate::extensions::offered(&h, &config).cursor_shape;
+                                match s
+                                    .client_cursor
+                                    .on_request(&payload, offered, p.cursor_owner)
+                                {
+                                    Some(enabled) => {
+                                        tracing::info!(
+                                            client = %s.launch.client.name,
+                                            enabled,
+                                            "client-drawn cursor"
+                                        );
+                                        let _ = self.control_wake.send(&[1]);
+                                    }
+                                    None => tracing::debug!(
+                                        len = payload.len(),
+                                        offered,
+                                        "invalid or unoffered cursor shape request"
+                                    ),
+                                }
+                            }
                             // The registry checks the setting and the device's permission and
                             // queues the answer, which the pass below sends.
                             butterpollo_core::usb_forward::USB_MESSAGE_TYPE if encrypted => {
@@ -4352,6 +4406,32 @@ impl Media {
                             }
                         }
                     }
+                    // The device-drawn cursor's shapes (0x5541): reliable, the newest at
+                    // most every 16 ms.
+                    let shape = s
+                        .client_cursor
+                        .take(p.cursor_owner, Instant::now(), |output| {
+                            butterpollo_windows::display::output_scale(output)
+                        });
+                    if let Some(shape) = shape {
+                        match p.encrypt(
+                            &s,
+                            butterpollo_core::client_cursor::CURSOR_SHAPE_MESSAGE_TYPE,
+                            &shape,
+                        ) {
+                            Ok(message) => {
+                                if let Err(e) = host
+                                    .peer_mut(*peer_id)
+                                    .send(0, &Packet::new(message, PacketKind::Reliable))
+                                {
+                                    tracing::warn!(error = %e, "cursor shape not sent");
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!(error = %format!("{e:#}"), "cursor shape not encrypted");
+                            }
+                        }
+                    }
                     // USB forwarding's answers and detaches (0x553A), reliable and in order.
                     for usb in h.usb.take(&p.id, Instant::now()) {
                         let sent = usb
@@ -4603,6 +4683,7 @@ impl Media {
                             p.injector.as_ref().and_then(Injector::next_due),
                             p.couch.next_due(),
                             p.audio_haptics.arbiter.next_due(),
+                            p.session.as_ref().and_then(|s| s.client_cursor.next_due()),
                         ]
                     })
                     .flatten()
@@ -4705,6 +4786,8 @@ struct ControlPeer {
     audio_haptics: audio_haptics::PeerHaptics,
     /// The keyboard layout keys go with (0x553E, `keyboard_layout`).
     keyboard_layout: keyboard_layout::PeerLayout,
+    /// This peer's index, which owns a client-drawn cursor session it enabled.
+    cursor_owner: usize,
     /// The text field watcher, from the client's first text input request (0x553B); paused
     /// while the client turned it off, and dropped with the peer at session end.
     focus_watch: Option<butterpollo_windows::text_focus::FocusWatch>,
@@ -4713,6 +4796,10 @@ impl Drop for ControlPeer {
     fn drop(&mut self) {
         if let Some(injector) = &mut self.injector {
             injector.detach_gamepads();
+        }
+        // The cursor goes back into the video when its device leaves.
+        if let Some(s) = &self.session {
+            s.client_cursor.end(self.cursor_owner);
         }
     }
 }

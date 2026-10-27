@@ -30,8 +30,7 @@ pub async fn probe_serverinfo_audio(config: &Config) -> anyhow::Result<()> {
     if !config.audio_passthrough() {
         return Ok(());
     }
-    let exe = std::env::current_exe()?;
-    let directory = exe.parent().unwrap().to_owned();
+    let directory = crate::stream::audio_encoder::ffmpeg_directory()?;
     if crate::stream::audio_encoder::dolby_codecs_probed(&directory, 2).is_none() {
         tokio::task::spawn_blocking(move || {
             crate::stream::audio_encoder::dolby_codecs(&directory, 2)

@@ -153,31 +153,62 @@ async fn connection(
         // DESCRIBE offers, and ANNOUNCE accepts, AC3 and E-AC3 only where FFmpeg's encoder
         // opens for the launch's channel count, and an ANNOUNCE's pick is opened for its own:
         // each probe loads FFmpeg (once per codec and channel count), off the async task. An
-        // SDP that doesn't parse is refused below.
+        // SDP that doesn't parse is refused below. Without passthrough nothing but Opus is
+        // offered, which needs no FFmpeg. A probe that can't run (FFmpeg's folder unknown, or
+        // the probe panicked) refuses the request with a 500, never by dropping the connection.
         let mut dolby = 0;
         let mut audio_check = None;
+        let mut probe_failed = None;
         if matches!(req.method.as_str(), "DESCRIBE" | "ANNOUNCE") {
             use crate::stream::audio_encoder::{check_announce, dolby_codecs, launch_channels};
-            let directory = std::env::current_exe()?.parent().unwrap().to_owned();
+            let directory = ffmpeg_directory(&h);
             let channels = launch_channels(&launch.options);
             let passthrough = crate::stream::effective_config(&h, &launch)
                 .is_ok_and(|config| config.audio_passthrough());
             let announced = (req.method == "ANNOUNCE")
                 .then(|| Negotiated::from_sdp(&req.body).ok())
                 .flatten();
-            (dolby, audio_check) = tokio::task::spawn_blocking(move || {
-                (
-                    if passthrough {
-                        dolby_codecs(&directory, channels)
-                    } else {
-                        0
-                    },
+            #[cfg(test)]
+            let panics = h
+                .reconnect_fixture
+                .as_ref()
+                .is_some_and(|fixture| fixture.ffmpeg_probe_panics());
+            let probe = tokio::task::spawn_blocking(move || -> Result<_> {
+                #[cfg(test)]
+                if panics {
+                    panic!("the test's FFmpeg probe panics");
+                }
+                if !passthrough {
+                    // The ANNOUNCE's offer check refuses any codec but Opus first.
+                    return Ok((0, announced.map(|_| Ok(()))));
+                }
+                let directory = directory?;
+                Ok((
+                    dolby_codecs(&directory, channels),
                     announced.map(|n| check_announce(&directory, &n)),
-                )
+                ))
             })
-            .await?;
+            .await
+            .context("FFmpeg's passthrough audio probe did not finish")
+            .flatten();
+            match probe {
+                Ok(probed) => (dolby, audio_check) = probed,
+                Err(error) => {
+                    tracing::error!(
+                        client = %launch.client.name,
+                        method = %req.method,
+                        error = %format!("{error:#}"),
+                        "passthrough audio could not be probed: the request is refused"
+                    );
+                    probe_failed = Some(error);
+                }
+            }
         }
+        let host_fault = probe_failed.is_some();
         let result = (|| -> Result<()> {
+            if let Some(error) = probe_failed.take() {
+                return Err(error);
+            }
             // The launch may have been replaced, started or expired since
             // the snapshot above; a live one is claimed by this request.
             h.sessions.lock().unwrap().claim(&launch.id)?;
@@ -477,8 +508,11 @@ async fn connection(
         })();
         if let Err(error) = result {
             tracing::warn!(client = %launch.client.name, method = %req.method, error = %format!("{error:#}"), "RTSP request rejected");
-            code = 400;
-            reason = "Bad Request";
+            (code, reason) = if host_fault {
+                (500, "Internal Server Error")
+            } else {
+                (400, "Bad Request")
+            };
             headers.clear();
             body = format!("{error:#}").into_bytes();
         }
@@ -536,6 +570,18 @@ fn handshake_deadline(h: &Shared) -> Duration {
     }
     let _ = h;
     HANDSHAKE_DEADLINE
+}
+/// The folder FFmpeg's libraries load from, or the reconnect matrix's failure to find it.
+fn ffmpeg_directory(h: &Shared) -> Result<std::path::PathBuf> {
+    #[cfg(test)]
+    if h.reconnect_fixture
+        .as_ref()
+        .is_some_and(|f| f.ffmpeg_directory_unknown())
+    {
+        bail!("the test host's folder is unknown");
+    }
+    let _ = h;
+    crate::stream::audio_encoder::ffmpeg_directory()
 }
 /// Whether the host takes client microphones on this stream.
 fn takes_mic(config: &butterpollo_core::config::Config, media: &crate::stream::Media) -> bool {

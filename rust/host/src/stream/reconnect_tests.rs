@@ -76,6 +76,11 @@ pub(crate) struct Fixture {
     resume_app_preparation: AtomicBool,
     /// The RTSP handshake deadline in ms, in place of the host's 10 s (0 keeps it).
     rtsp_deadline_ms: AtomicU64,
+    /// DESCRIBE and ANNOUNCE don't find the folder FFmpeg loads from, as when the host's own
+    /// path can't be read.
+    ffmpeg_directory_unknown: AtomicBool,
+    /// DESCRIBE and ANNOUNCE's FFmpeg probe panics.
+    ffmpeg_probe_panics: AtomicBool,
 }
 
 pub(crate) struct Slot(Arc<AtomicUsize>);
@@ -181,6 +186,12 @@ impl Fixture {
     pub(crate) fn rtsp_deadline(&self) -> Option<Duration> {
         let ms = self.rtsp_deadline_ms.load(Ordering::Acquire);
         (ms != 0).then(|| Duration::from_millis(ms))
+    }
+    pub(crate) fn ffmpeg_directory_unknown(&self) -> bool {
+        self.ffmpeg_directory_unknown.load(Ordering::Acquire)
+    }
+    pub(crate) fn ffmpeg_probe_panics(&self) -> bool {
+        self.ffmpeg_probe_panics.load(Ordering::Acquire)
     }
     pub(crate) fn retain_resources(&self) {
         self.resources_retained.fetch_add(1, Ordering::AcqRel);

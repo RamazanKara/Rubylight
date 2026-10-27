@@ -168,6 +168,55 @@ async fn a_default_host_streams_the_7_1_4_a_client_asks_for() -> Result<()> {
     h.finish().await
 }
 
+/// A DESCRIBE or ANNOUNCE whose passthrough probe can't run, because FFmpeg's folder is unknown
+/// or the probe panicked, is answered with a 500 saying why instead of a dropped connection, and
+/// the launch streams once the probe runs again. Without passthrough no probe is needed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_passthrough_probe_that_cannot_run_is_answered_with_an_error() -> Result<()> {
+    let h = Harness::new(10_000, 1).await?;
+    let launch = h.launch(0, false).await?;
+    let stock = "a=x-nv-video[0].clientViewportWd:640\r\na=x-nv-video[0].clientViewportHt:480\r\n";
+    let mut sequence = 20;
+    for (flag, message) in [
+        (
+            &h.fixture.ffmpeg_directory_unknown,
+            "the test host's folder is unknown",
+        ),
+        (
+            &h.fixture.ffmpeg_probe_panics,
+            "FFmpeg's passthrough audio probe did not finish",
+        ),
+    ] {
+        flag.store(true, Ordering::Release);
+        for (method, body) in [("DESCRIBE", ""), ("ANNOUNCE", stock)] {
+            sequence += 1;
+            let response = h
+                .rtsp(&launch, sequence, method, body)
+                .await
+                .unwrap_err()
+                .to_string();
+            assert!(
+                response.starts_with("RTSP/1.0 500 Internal Server Error"),
+                "{method}: {response}"
+            );
+            assert!(response.contains(message), "{method}: {response}");
+        }
+        flag.store(false, Ordering::Release);
+    }
+    let (session, client) = h.play(&launch).await?;
+    h.end(&session, client).await?;
+    h.finish().await?;
+
+    let h = Harness::configured(10_000, 1, "audio_passthrough=false\n").await?;
+    h.fixture
+        .ffmpeg_directory_unknown
+        .store(true, Ordering::Release);
+    let launch = h.launch(0, false).await?;
+    let (session, client) = h.play(&launch).await?;
+    h.end(&session, client).await?;
+    h.finish().await
+}
+
 /// A default host offers PCM, so a client that picks it streams with it. Without FFmpeg beside
 /// the host (the test binary's folder has none) Dolby Digital is not offered, and picking it
 /// anyway is refused, never streamed as something else.

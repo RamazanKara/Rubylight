@@ -117,6 +117,18 @@ fn dolby_bits(channels: u8, mut opens: impl FnMut(Codec) -> Option<bool>) -> Opt
     Some(bits)
 }
 
+/// The folder FFmpeg's libraries load from: the host executable's.
+pub(crate) fn ffmpeg_directory() -> Result<PathBuf> {
+    let exe = std::env::current_exe()
+        .context("the host's own path, where FFmpeg's libraries load from, is unknown")?;
+    exe.parent().map(Path::to_owned).with_context(|| {
+        format!(
+            "{} has no folder for FFmpeg's libraries to load from",
+            exe.display()
+        )
+    })
+}
+
 /// The channel count a launch's `surroundAudioInfo` asks for, read as `/launch` reads it: 2, 6,
 /// 8 or 12 (7.1.4), and stereo for anything else.
 pub(crate) fn launch_channels(options: &BTreeMap<String, String>) -> u8 {

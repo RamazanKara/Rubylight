@@ -3258,7 +3258,7 @@ impl Media {
         let mut sink = String::new();
         let mut audio_check = Instant::now();
         let mut audio_error: Option<String> = None;
-        let directory = std::env::current_exe()?.parent().unwrap().to_owned();
+        let directory = audio_encoder::ffmpeg_directory()?;
         // A GameStream client may pick PCM, AC3 or E-AC3 in its ANNOUNCE; WebRTC is Opus.
         let codec = match webrtc {
             Some(_) => Codec::Opus,

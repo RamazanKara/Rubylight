@@ -267,3 +267,64 @@ cases:
     pass: exit 0, at least 115 fps received and host processing under 5 ms per codec (smoke.json)
     output: '{{out}}\smoke.json'
     note: no -Version, so nothing is uploaded to the release
+
+  - id: net-fec-auto-nuc
+    device: nuc
+    title: 'A/B under loss: the host''s adaptive FEC against FEC from the client''s loss reports (rlFecPercentage=auto), NUC wifi arms'
+    command: |
+      & {{python}} rust\release\linkspeed.py run wifi wifi@2 wifi@3 wifi-hi wifi-hi@2 wifi-hi@3 --work {{out}}\host --package {{package}}
+      if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      $env:LINKSPEED_CLIENT_FEC = 'auto'
+      & {{python}} rust\release\linkspeed.py run wifi wifi@2 wifi@3 wifi-hi wifi-hi@2 wifi-hi@3 --work {{out}}\auto --package {{package}}
+      if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      & {{python}} rust\release\linkspeed.py compare {{out}}\host {{out}}\auto --repeats 3
+      exit $LASTEXITCODE
+    preconditions: [idle, gpu-lock]
+    pass: compare PASSes (picture age p50 within 0.3 ms, p99 within 1 ms of the host arm) and the auto arms have no more fec_unrecoverable_frames, freezes or IDR requests than the host arms. Keep auto as Nightjar's default only if it is better or equal; otherwise Nightjar keeps host
+    output: '{{out}}\host\results.jsonl, {{out}}\auto\results.jsonl'
+    status: pending
+    note: needs an elevated shell (linkspeed adds a firewall rule) and nightjar-cli in rl-link-client sending rlFecPercentage=auto and the 0x5539 loss reports, with linkspeed.py passing LINKSPEED_CLIENT_FEC to it; neither exists yet, so until then both arms are the host arm. The log line "client fec choice" confirms the auto arm
+
+  - id: net-fec-split-nuc
+    device: nuc
+    title: 'A/B under loss: a fixed client FEC share inside the video budget (rlFecPercentage=20) against the host''s 20 % on top of it, NUC wifi-hi'
+    command: |
+      & {{python}} rust\release\linkspeed.py run wifi-hi wifi-hi@2 wifi-hi@3 --work {{out}}\host --package {{package}} --config fec_percentage=20 --config adaptive_fec=false
+      if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      $env:LINKSPEED_CLIENT_FEC = '20'
+      & {{python}} rust\release\linkspeed.py run wifi-hi wifi-hi@2 wifi-hi@3 --work {{out}}\split --package {{package}} --config fec_percentage=20 --config adaptive_fec=false
+      if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      & {{python}} rust\release\linkspeed.py compare {{out}}\host {{out}}\split --repeats 3
+      exit $LASTEXITCODE
+    preconditions: [idle, gpu-lock]
+    pass: compare PASSes and the split arms lose no more frames than the host arms; their wire rate stays within the requested bitrate where the host arms exceed it by the FEC share. Keep the split only if better or equal
+    output: '{{out}}\host\results.jsonl, {{out}}\split\results.jsonl'
+    status: pending
+    note: same client prerequisites as net-fec-auto-nuc (LINKSPEED_CLIENT_FEC in linkspeed.py and nightjar-cli)
+
+  - id: net-bandwidth-probe-nuc
+    device: nuc
+    title: First bitrate from GET /bandwidth-probe against the configured bitrate on a 50 Mbit/s link (NUC)
+    command: |
+      & {{python}} rust\release\linkspeed.py run r50-hevc-hi r50-hevc-hi@2 r50-hevc-hi@3 --work {{out}}\configured --package {{package}}
+      if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      $env:LINKSPEED_CLIENT_PROBE = '1'
+      & {{python}} rust\release\linkspeed.py run r50-hevc-hi r50-hevc-hi@2 r50-hevc-hi@3 --work {{out}}\probe --package {{package}}
+      if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      & {{python}} rust\release\linkspeed.py compare {{out}}\configured {{out}}\probe --repeats 3
+      exit $LASTEXITCODE
+    preconditions: [idle, gpu-lock]
+    pass: compare PASSes and the probe arms lose less in their first 5 s (loss_first5s_percent) than the configured arms, with a mean encoder bitrate no lower than 90 % of theirs. Keep the probe for the first bitrate only if better or equal
+    output: '{{out}}\configured\results.jsonl, {{out}}\probe\results.jsonl'
+    status: pending
+    note: needs nightjar-cli to probe before launch and linkspeed.py to pass LINKSPEED_CLIENT_PROBE; the host log line for the probe request and the client's chosen bitrate confirm the probe arm
+
+  - id: net-fec-auto-retroid
+    device: retroid
+    title: 'A/B on real Wi-Fi: Nightjar on the Retroid with error correction Host against Auto (60 s each, HEVC 1080p60, 40 Mbps)'
+    command: 'Write-Error "not scripted yet: see note"; exit 1'
+    preconditions: [idle, gpu-lock]
+    pass: over three 60 s runs per arm, Auto has no more unrecoverable frames, IDR requests or freezes than Host (host log "stream timings" and fec counters) and its host processing stays within 0.3 ms. Keep Auto as the default only if better or equal
+    output: '{{out}}\host-*.log, {{out}}\auto-*.log (host log excerpts), {{out}}\nightjar-*.txt (overlay stats)'
+    status: pending
+    note: needs the Nightjar error-correction setting (Host, Auto, percentage) and the 0x5539 sender. Steps through adb, one arm at a time with the device about 8 m and one wall from the access point; read "client fec choice" and the 5 s "stream timings" lines from the host log after each run

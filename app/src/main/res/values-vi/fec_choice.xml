@@ -4,4 +4,6 @@
     <string name="summary_fec_choice">Lượng dữ liệu khôi phục mà PC chạy Rubylight thêm vào video. Tự động theo mức mất gói của thiết bị này. Các PC khác dùng cài đặt riêng.</string>
     <string name="fec_choice_host">Cài đặt của PC</string>
     <string name="fec_choice_auto">Tự động</string>
+    <string name="title_link_probe">Kiểm tra kết nối trước bitrate đầu tiên (Thử nghiệm)</string>
+    <string name="summary_link_probe">Luồng mới ở bitrate tự động sẽ kiểm tra kết nối tới PC chạy Rubylight trước và không bắt đầu cao hơn mức kết nối chịu được.</string>
 </resources>

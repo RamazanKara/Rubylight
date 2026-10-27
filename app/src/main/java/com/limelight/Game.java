@@ -1219,7 +1219,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .setResumeOnly(isResumeOnlyStream())
                 .setAllowIdleSessionEnd(!getIntent().getBooleanExtra(EXTRA_RECOVERY_MEDIA_FAILURE, false))
                 .setBitrate(smallStream ? InputOnlyPolicy.SMALL_BITRATE_KBPS : prefConfig.bitrate)
-                .setProbeFirstBitrate(!smallStream && prefConfig.automaticBitrate)
+                .setProbeFirstBitrate(!smallStream && prefConfig.probesFirstBitrate())
                 .setFecChoice(prefConfig.fecChoice)
                 .setEnableSops(!smallStream && prefConfig.enableSops)
                 .enableLocalAudioPlayback(smallStream || prefConfig.playHostAudio)

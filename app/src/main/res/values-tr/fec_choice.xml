@@ -4,4 +4,6 @@
     <string name="summary_fec_choice">Rubylight PC\'nin videoya eklediği kurtarma verisi miktarı. Otomatik, bu cihazın kayıplarına göre ayarlanır. Diğer PC\'ler kendi ayarlarını kullanır.</string>
     <string name="fec_choice_host">PC ayarı</string>
     <string name="fec_choice_auto">Otomatik</string>
+    <string name="title_link_probe">İlk bit hızından önce bağlantı testi (Deneysel)</string>
+    <string name="summary_link_probe">Otomatik bit hızındaki yeni bir yayın önce Rubylight PC\'ye olan bağlantıyı test eder ve bağlantının taşıyabileceğinden yüksek başlamaz.</string>
 </resources>

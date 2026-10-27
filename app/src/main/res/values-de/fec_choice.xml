@@ -4,4 +4,6 @@
     <string name="summary_fec_choice">Wie viele Wiederherstellungsdaten ein Rubylight-PC dem Video hinzufügt. Automatisch richtet sich nach den Verlusten dieses Geräts. Andere PCs nutzen ihre eigene Einstellung.</string>
     <string name="fec_choice_host">Einstellung des PCs</string>
     <string name="fec_choice_auto">Automatisch</string>
+    <string name="title_link_probe">Verbindungstest vor der ersten Bitrate (experimentell)</string>
+    <string name="summary_link_probe">Ein neuer Stream mit automatischer Bitrate testet zuerst die Verbindung zu einem Rubylight-PC und startet nicht höher, als sie trägt.</string>
 </resources>

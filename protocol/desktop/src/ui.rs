@@ -2109,6 +2109,9 @@ impl Launcher {
                         }
                     }).response
             });
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["link_probe"], "Link test before the first bitrate (Experimental)", "A new stream at the automatic bitrate tests the link to a Rubylight PC first and starts no higher than it holds.", |ui, s| {
+                toggle(ui, &mut s.link_probe)
+            });
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["network_grace_ms"], "Network interruption grace", "Keep the session alive through brief network interruptions.", |ui, s| {
                 egui::ComboBox::from_id_salt("network-grace")
                     .selected_text(trf("{} seconds", &[&(s.network_grace_ms / 1000)]))

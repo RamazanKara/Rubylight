@@ -232,6 +232,10 @@ pub struct Settings {
     pub host_display: HostDisplay,
     /// The video FEC asked for at launch from a PC that lets the client choose it.
     pub error_correction: ErrorCorrection,
+    /// Link test before the first bitrate (Experimental): a new stream at the automatic bitrate
+    /// times `GET /bandwidth-probe` first and starts at no more than 80 % of it. Off by default:
+    /// on the NUC it started streams lower with more loss and freezes (rust/PERFORMANCE.md).
+    pub link_probe: bool,
     pub full_range: bool,
     pub upscaling: Upscaling,
     pub upscale_sharpness: u32,
@@ -394,6 +398,7 @@ impl Default for Settings {
             virtual_display_scale: 100,
             host_display: HostDisplay::HostDefault,
             error_correction: ErrorCorrection::Host,
+            link_probe: false,
             full_range: false,
             upscaling: Upscaling::Bilinear,
             upscale_sharpness: 50,
@@ -1345,6 +1350,15 @@ mod tests {
         assert!(old.tell_host_link_speed && !old.tell_host_wireless);
         let off: Settings = serde_json::from_str(r#"{"tell_host_link_speed":false}"#).unwrap();
         assert!(!off.tell_host_link_speed);
+    }
+
+    #[test]
+    fn the_link_test_before_the_first_bitrate_is_off_by_default_and_in_old_files() {
+        assert!(!Settings::default().link_probe);
+        let old: Settings = serde_json::from_str(r#"{"fps":60,"bitrate_kbps":0}"#).unwrap();
+        assert!(!old.link_probe);
+        let on: Settings = serde_json::from_str(r#"{"link_probe":true}"#).unwrap();
+        assert!(on.link_probe);
     }
 
     #[test]

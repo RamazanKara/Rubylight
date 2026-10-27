@@ -85,6 +85,7 @@ public class PreferenceConfiguration {
     private static final String TELL_HOST_WIRELESS_PREF_STRING = "checkbox_tell_host_wireless";
     private static final String TELL_HOST_LINK_SPEED_PREF_STRING = "checkbox_tell_host_link_speed";
     static final String FEC_CHOICE_PREF_STRING = "list_fec_choice";
+    static final String LINK_PROBE_PREF_STRING = "checkbox_link_probe";
     private static final String QUICK_RESUME_PREF_STRING = "checkbox_quick_resume";
     private static final String AUTO_RECONNECT_DEFAULT_OFF_PREF_STRING = "auto_reconnect_default_off";
     private static final String ENABLE_PERF_OVERLAY_STRING = "checkbox_enable_perf_overlay";
@@ -253,6 +254,11 @@ public class PreferenceConfiguration {
      * a new stream may test the link first and start lower (the mobile data limit still caps it).
      */
     public boolean automaticBitrate;
+    /**
+     * Link test before the first bitrate (Experimental). Off by default: on the NUC it started
+     * streams lower with more loss and freezes (rust/PERFORMANCE.md, October 27).
+     */
+    public boolean linkProbe;
     public boolean quickResume;
     public com.limelight.nvstream.AdaptiveQualityController.Mode adaptiveQualityMode =
             com.limelight.nvstream.AdaptiveQualityController.Mode.OFF;
@@ -334,6 +340,11 @@ public class PreferenceConfiguration {
     // Present MediaCodec frames through the GLES path even when nothing is upscaled.
     // Present MediaCodec frames through the native Vulkan renderer, which paces them itself.
     public boolean vulkanRender;
+
+    /** A new stream tests the link before its first bitrate: switched on, and the bitrate is automatic. */
+    public boolean probesFirstBitrate() {
+        return linkProbe && automaticBitrate;
+    }
 
     public static boolean isNativeResolution(int width, int height) {
         // It's not a native resolution if it matches an existing resolution option
@@ -1189,6 +1200,7 @@ public class PreferenceConfiguration {
         config.tellHostWireless = prefs.getBoolean(TELL_HOST_WIRELESS_PREF_STRING, true);
         config.tellHostLinkSpeed = prefs.getBoolean(TELL_HOST_LINK_SPEED_PREF_STRING, true);
         config.fecChoice = FecChoice.fromPreference(prefs.getString(FEC_CHOICE_PREF_STRING, FecChoice.HOST.wireValue));
+        config.linkProbe = prefs.getBoolean(LINK_PROBE_PREF_STRING, false);
         config.quickResume = prefs.getBoolean(QUICK_RESUME_PREF_STRING, false);
         config.adaptiveQualityMode = com.limelight.nvstream.AdaptiveQualityController.Mode.parse(
                 prefs.getString("adaptive_quality_mode", "off"));

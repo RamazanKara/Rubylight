@@ -4,4 +4,6 @@
     <string name="summary_fec_choice">Quantos dados de recuperação um PC com Rubylight adiciona ao vídeo. Automático acompanha as perdas deste dispositivo. Outros PCs usam a própria configuração.</string>
     <string name="fec_choice_host">Configuração do PC</string>
     <string name="fec_choice_auto">Automático</string>
+    <string name="title_link_probe">Teste da conexão antes da primeira taxa de bits (experimental)</string>
+    <string name="summary_link_probe">Uma nova transmissão com a taxa de bits automática testa primeiro a conexão com um PC com Rubylight e não começa acima do que ela aguenta.</string>
 </resources>

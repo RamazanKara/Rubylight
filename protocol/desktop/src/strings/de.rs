@@ -356,6 +356,8 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Error correction", "Fehlerkorrektur"),
     ("How much recovery data a Rubylight PC adds to the video. Automatic follows this device's losses. Other PCs use their own setting.", "Wie viele Wiederherstellungsdaten ein Rubylight-PC dem Video hinzufügt. Automatisch richtet sich nach den Verlusten dieses Geräts. Andere PCs nutzen ihre eigene Einstellung."),
     ("PC's setting", "Einstellung des PCs"),
+    ("Link test before the first bitrate (Experimental)", "Verbindungstest vor der ersten Bitrate (Experimentell)"),
+    ("A new stream at the automatic bitrate tests the link to a Rubylight PC first and starts no higher than it holds.", "Ein neuer Stream mit automatischer Bitrate testet zuerst die Verbindung zu einem Rubylight-PC und startet nicht höher, als sie trägt."),
     ("Network interruption grace", "Toleranz bei Netzwerkunterbrechungen"),
     ("Keep the session alive through brief network interruptions.", "Die Sitzung bei kurzen Netzwerkunterbrechungen am Leben halten."),
     ("Client roaming (Experimental)", "Netzwerkwechsel (Experimentell)"),

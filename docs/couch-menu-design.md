@@ -203,7 +203,10 @@ Per session, `Arc<couch_menu::Shared>` lives in core `Session` (field `couch_men
 ```rust
 pub struct Shared {
     state: AtomicU64,                 // bit 63 open, low 63 bits revision
-    frame: Mutex<Option<Arc<Frame>>>, // published panel: origin, size, scale, rgba (Arc<[u8]>)
+    lock: Mutex<()>,                  // held by every change of state and frame
+    frame: AtomicPtr<Frame>,          // published panel (Arc::into_raw): origin, size, target, scale, rgba;
+                                      // the video loop reads it without the lock
+    refusal: Mutex<Option<String>>,   // why open() fails; set by the control peer at stream start
     wake: Mutex<Option<Box<dyn Fn() + Send + Sync>>>, // stream loop wake (capture_wake.set())
     control_wake: Mutex<Option<Box<dyn Fn() + Send + Sync>>>, // control loop wake
 }
@@ -325,12 +328,12 @@ A full-plane pass while open is the price of keeping the packed layouts in one c
 
 ### 7.1 Native API (additive; crate `rubylight-native-api` 1.0.0 to 1.1.0)
 
-- `feature::COUCH_MENU = "session.couch_menu"`. It is advertised when `couch_menu = true` (the default) and the caller may see sessions.
+- `feature::COUCH_MENU = "session.couch_menu"`. It is advertised when `couch_menu = true` (the default) for the caller's device, after its own overrides, and the caller may see sessions.
 - `POST /api/native/v1/session/couch-menu`, body `CouchMenuRequest { open: bool }` with `deny_unknown_fields`. It returns `CouchMenu { open: bool }`.
 - Rules:
   - The caller needs View or Launch and must own a `streaming` session.
   - Otherwise the reply is `no_session`, `not_session_owner` or `permission_required`.
-  - The reply is `temporarily_unavailable` when the feature is off, on the readback path, or for an input-only session.
+  - The reply is `temporarily_unavailable` when the feature is off, on the readback path, or for an input-only session. These are read once, when the stream's control connection starts; a change applies from the next stream. Before the control connection is up (and for WebRTC sessions, which have none) the reply is also `temporarily_unavailable`.
   - The call is idempotent.
 - Old clients ignore the new feature. Stock Moonlight never sees any of it.
 

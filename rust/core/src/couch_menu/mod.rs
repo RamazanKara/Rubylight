@@ -15,7 +15,8 @@ pub mod layout;
 pub mod model;
 pub mod render;
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::ptr;
+use std::sync::atomic::{AtomicPtr, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 pub use filter::{Filter, Outcome};
@@ -51,9 +52,9 @@ pub enum Nav {
 pub struct Frame {
     pub origin: [u32; 2],
     pub size: [u32; 2],
-    pub scale: u32,
     /// The stream size it was laid out for.
     pub target: [u32; 2],
+    pub scale: u32,
     pub rgba: Arc<[u8]>,
 }
 
@@ -64,15 +65,20 @@ type Wake = Mutex<Option<Box<dyn Fn() + Send + Sync>>>;
 ///
 /// `state` packs the open flag (bit 63) and a revision (the low 63 bits)
 /// that rises on every change, so the video loop does one atomic load per
-/// frame and touches the frame lock only when that value changes.
+/// frame and reads the panel, without a lock, only when that value changes.
 #[derive(Default)]
 pub struct Shared {
     state: AtomicU64,
     /// Rises on every open, so a close and reopen between two filter passes
     /// is still seen as one.
     opens: AtomicU64,
-    /// The published panel, and the lock every change of `state` holds.
-    frame: Mutex<Option<Arc<Frame>>>,
+    /// Held by every change of `state` and `frame`; never by a reader.
+    lock: Mutex<()>,
+    /// The published panel, from `Arc::into_raw`, or null.
+    frame: AtomicPtr<Frame>,
+    /// Readers between loading `frame` and holding their own reference: a
+    /// change frees the panel it replaced only once there are none.
+    readers: AtomicUsize,
     /// Why the menu cannot open in this session (read-back encode path,
     /// stream too small), set by the host.
     refusal: Mutex<Option<String>>,
@@ -142,7 +148,7 @@ impl Shared {
             if !Self::is_open(state) {
                 return None;
             }
-            *frame = None;
+            *frame = Some(None);
             Some(0)
         });
         if changed {
@@ -158,27 +164,45 @@ impl Shared {
             if !Self::is_open(state) {
                 return None;
             }
-            *frame = new.take();
+            *frame = Some(new.take());
             Some(Self::OPEN)
         })
     }
-    /// The published panel, if the menu is open and one was drawn.
+    /// The published panel, if the menu is open and one was drawn. Takes no
+    /// lock: the video loop calls it.
     pub fn frame(&self) -> Option<Arc<Frame>> {
-        self.frame.lock().unwrap().clone()
+        self.readers.fetch_add(1, Ordering::SeqCst);
+        let raw = self.frame.load(Ordering::SeqCst);
+        let frame = (!raw.is_null()).then(|| {
+            // SAFETY: `raw` came from `Arc::into_raw` in `replace`, which
+            // frees a panel it swapped out only after `readers` drops to
+            // zero, and this reader is counted until it holds its reference.
+            unsafe {
+                Arc::increment_strong_count(raw);
+                Arc::from_raw(raw)
+            }
+        });
+        self.readers.fetch_sub(1, Ordering::SeqCst);
+        frame
     }
     pub(crate) fn opens(&self) -> u64 {
         self.opens.load(Ordering::Acquire)
     }
-    /// Applies `f` under the frame lock; `f` returns the new open bit or
-    /// `None` for no change. Raises the revision and wakes the stream loop
-    /// (outside the lock) on a change.
-    fn change(&self, f: impl FnOnce(u64, &mut Option<Arc<Frame>>) -> Option<u64>) -> bool {
+    /// Applies `f` under the lock; `f` returns the new open bit or `None`
+    /// for no change, and sets `Some(panel)` to replace the panel. Raises the
+    /// revision and wakes the stream loop (outside the lock) on a change.
+    fn change(&self, f: impl FnOnce(u64, &mut Option<Option<Arc<Frame>>>) -> Option<u64>) -> bool {
         {
-            let mut frame = self.frame.lock().unwrap();
+            let _lock = self.lock.lock().unwrap();
             let state = self.state.load(Ordering::Acquire);
+            let mut frame = None;
             let Some(open) = f(state, &mut frame) else {
                 return false;
             };
+            // Before the state, so whoever sees the new state sees this panel.
+            if let Some(frame) = frame {
+                self.replace(frame);
+            }
             let revision = Self::revision(state).wrapping_add(1) & !Self::OPEN;
             self.state.store(open | revision, Ordering::Release);
         }
@@ -187,9 +211,37 @@ impl Shared {
         }
         true
     }
+    /// Swaps in `new` and frees the panel it replaced; under `lock`.
+    fn replace(&self, new: Option<Arc<Frame>>) {
+        let new = new.map_or(ptr::null_mut(), |frame| Arc::into_raw(frame).cast_mut());
+        let old = self.frame.swap(new, Ordering::SeqCst);
+        if old.is_null() {
+            return;
+        }
+        // A reader that loaded `old` is counted until it holds its own
+        // reference: a few instructions, on the video loop.
+        while self.readers.load(Ordering::SeqCst) != 0 {
+            std::thread::yield_now();
+        }
+        // SAFETY: `old` came from `Arc::into_raw` above and is no longer in
+        // `frame`; every reader that could have loaded it holds its own
+        // reference by now.
+        drop(unsafe { Arc::from_raw(old) });
+    }
     fn wake_control(&self) {
         if let Some(wake) = &*self.control_wake.lock().unwrap() {
             wake();
+        }
+    }
+}
+
+impl Drop for Shared {
+    fn drop(&mut self) {
+        let raw = *self.frame.get_mut();
+        if !raw.is_null() {
+            // SAFETY: from `Arc::into_raw` in `replace`; nobody else can
+            // read `frame` any more.
+            drop(unsafe { Arc::from_raw(raw) });
         }
     }
 }
@@ -203,6 +255,7 @@ mod tests {
         Frame {
             origin: [16, 32],
             size: [288, 272],
+            target: [1920, 1080],
             scale: 1,
             rgba: vec![255; 288 * 272 * 4].into(),
         }
@@ -255,7 +308,6 @@ mod tests {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let (weak, log) = (Arc::downgrade(&shared), seen.clone());
         shared.set_wake(move || {
-            target: [1920, 1080],
             let shared = weak.upgrade().unwrap();
             let open = Shared::is_open(shared.load());
             log.lock().unwrap().push((open, shared.opens()));
@@ -277,5 +329,78 @@ mod tests {
         assert_eq!(shared.load(), 0);
         shared.refuse(None);
         assert_eq!(shared.open(), Ok(true));
+    }
+
+    #[test]
+    fn couch_menu_shared_reads_the_panel_while_a_change_holds_the_lock() {
+        let shared = Arc::new(Shared::new());
+        shared.open().unwrap();
+        assert!(shared.publish(frame()));
+        let held = shared.lock.lock().unwrap();
+        let (sender, read) = std::sync::mpsc::channel();
+        let reader = shared.clone();
+        std::thread::spawn(move || {
+            let _ = sender.send(reader.frame().map(|frame| frame.origin));
+        });
+        assert_eq!(
+            read.recv_timeout(std::time::Duration::from_secs(5)),
+            Ok(Some([16, 32])),
+            "the video loop does not wait for the menu worker"
+        );
+        drop(held);
+    }
+
+    #[test]
+    fn couch_menu_shared_panels_survive_racing_reads_and_are_freed() {
+        use std::sync::atomic::AtomicBool;
+        let shared = Arc::new(Shared::new());
+        let rgba: Arc<[u8]> = vec![255; 16 * 16 * 4].into();
+        let panel = |n: u32| Frame {
+            origin: [16 * (n % 64), 0],
+            size: [16, 16],
+            target: [1920, 1080],
+            scale: 1,
+            rgba: rgba.clone(),
+        };
+        shared.open().unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let reads = Arc::new(AtomicUsize::new(0));
+        let readers: Vec<_> = (0..4)
+            .map(|_| {
+                let (shared, stop, reads) = (shared.clone(), stop.clone(), reads.clone());
+                std::thread::spawn(move || {
+                    while !stop.load(Ordering::Relaxed) {
+                        if let Some(frame) = shared.frame() {
+                            assert_eq!(frame.size, [16, 16]);
+                            reads.fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
+                })
+            })
+            .collect();
+        // Until the readers raced the changes for a while, also on a busy
+        // machine.
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        let mut n = 0;
+        while n < 20_000 || reads.load(Ordering::Relaxed) < 20_000 {
+            assert!(std::time::Instant::now() < until, "the readers did not run");
+            assert!(shared.publish(panel(n)));
+            n += 1;
+        }
+        stop.store(true, Ordering::Relaxed);
+        for reader in readers {
+            reader.join().unwrap();
+        }
+        assert_eq!(
+            Arc::strong_count(&rgba),
+            2,
+            "only the published panel is alive"
+        );
+        shared.close();
+        assert_eq!(Arc::strong_count(&rgba), 1, "closing frees it");
+        shared.open().unwrap();
+        assert!(shared.publish(panel(0)));
+        drop(shared);
+        assert_eq!(Arc::strong_count(&rgba), 1, "dropping the state frees it");
     }
 }

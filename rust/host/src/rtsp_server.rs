@@ -150,6 +150,22 @@ async fn connection(
         let mut body = Vec::new();
         let mut code = 200;
         let mut reason = "OK";
+        // An ANNOUNCE's AC3 or E-AC3 pick opens FFmpeg's encoder (once per codec and channel
+        // count), off the async task. An SDP that doesn't parse is refused below.
+        let mut audio_check = None;
+        if req.method == "ANNOUNCE"
+            && let Ok(n) = Negotiated::from_sdp(&req.body)
+        {
+            audio_check = Some(
+                tokio::task::spawn_blocking(move || {
+                    crate::stream::audio_encoder::check_announce(
+                        std::env::current_exe()?.parent().unwrap(),
+                        &n,
+                    )
+                })
+                .await?,
+            );
+        }
         let result = (|| -> Result<()> {
             // The launch may have been replaced, started or expired since
             // the snapshot above; a live one is claimed by this request.
@@ -271,10 +287,9 @@ async fn connection(
                     let config = crate::stream::effective_config(&h, &launch)?;
                     // The client's own picks, before host policy turns HDR off.
                     crate::extensions::offered(&h, &config).check_announce(&negotiated)?;
-                    crate::stream::audio_encoder::check_announce(
-                        std::env::current_exe()?.parent().unwrap(),
-                        &negotiated,
-                    )?;
+                    audio_check
+                        .take()
+                        .context("the ANNOUNCE's audio codec was not checked")??;
                     let required_encryption =
                         crate::network::encryption_mode(&config, peer.ip()) == 2;
                     // The FEC and audio share of the client's bitrate is expected;

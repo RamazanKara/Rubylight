@@ -8,7 +8,92 @@ use butterpollo_core::{
     rtsp::Negotiated,
 };
 use butterpollo_windows::{audio::Opus, ffmpeg::Ac3Encoder};
-use std::{path::Path, time::Instant};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::{LazyLock, Mutex},
+    time::{Duration, Instant},
+};
+
+/// The wait before a failed FFmpeg probe runs again, doubled after each failure up to
+/// [`PROBE_RETRY_MAX`].
+const PROBE_RETRY: Duration = Duration::from_secs(10);
+const PROBE_RETRY_MAX: Duration = Duration::from_secs(600);
+
+static PROBES: LazyLock<Probes> = LazyLock::new(Probes::default);
+
+enum Probe {
+    Ready,
+    Failed {
+        error: String,
+        retry_at: Instant,
+        backoff: Duration,
+    },
+}
+
+/// Whether FFmpeg's AC3 or E-AC3 encoder opens for a channel count, so DESCRIBE and ANNOUNCE
+/// don't load FFmpeg each time: a success is kept, a failure until its retry is due, which
+/// waits twice as long after each failure (FFmpeg's libraries may be put back while the host
+/// runs).
+#[derive(Default)]
+struct Probes {
+    entries: Mutex<HashMap<(PathBuf, &'static str, u8), Probe>>,
+}
+
+impl Probes {
+    /// The cached result for `codec` and `channels`, or `probe`'s, run with whether it is a
+    /// retry. Concurrent callers wait for one probe.
+    fn get(
+        &self,
+        directory: &Path,
+        codec: Codec,
+        channels: u8,
+        now: Instant,
+        probe: impl FnOnce(bool) -> Result<()>,
+    ) -> Result<()> {
+        let key = (directory.to_owned(), codec.name(), channels);
+        let mut entries = self.entries.lock().unwrap();
+        let backoff = match entries.get(&key) {
+            Some(Probe::Ready) => return Ok(()),
+            Some(Probe::Failed {
+                error, retry_at, ..
+            }) if now < *retry_at => bail!("{error}"),
+            Some(Probe::Failed { backoff, .. }) => (*backoff * 2).min(PROBE_RETRY_MAX),
+            None => PROBE_RETRY,
+        };
+        let result = probe(backoff > PROBE_RETRY);
+        entries.insert(
+            key,
+            match &result {
+                Ok(()) => Probe::Ready,
+                Err(error) => Probe::Failed {
+                    error: format!("{error:#}"),
+                    retry_at: now + backoff,
+                    backoff,
+                },
+            },
+        );
+        result
+    }
+}
+
+/// Opens FFmpeg's encoder for `codec` and `channels` once (blocking), and again after a failure
+/// once its retry is due. A failure is logged, as a warning the first time.
+fn dolby_ready(directory: &Path, codec: Codec, channels: u8) -> Result<()> {
+    PROBES.get(directory, codec, channels, Instant::now(), |retry| {
+        let result = dolby(directory, codec, channels).map(drop);
+        if let Err(error) = &result {
+            let error = format!("{error:#}");
+            let codec = codec.name();
+            if retry {
+                tracing::debug!(%error, codec, channels, "FFmpeg's encoder still does not open");
+            } else {
+                tracing::warn!(%error, codec, channels, "FFmpeg's encoder does not open: the codec is not offered for these channels");
+            }
+        }
+        result
+    })
+}
 
 pub(super) enum AudioEncoder {
     Opus(Opus),
@@ -63,8 +148,9 @@ fn dolby(directory: &Path, codec: Codec, channels: u8) -> Result<Ac3Encoder> {
 }
 
 /// Refuses an ANNOUNCE whose passthrough codec this host can't encode for its channels (FFmpeg
-/// has no E-AC3 7.1) by opening the encoder the stream would use, so the client hears why before
-/// it sets up its audio, and no stream starts with other audio than it picked.
+/// has no E-AC3 7.1) by opening the encoder the stream would use, once per codec and channel
+/// count ([`dolby_ready`]; blocking), so the client hears why before it sets up its audio, and
+/// no stream starts with other audio than it picked.
 pub(crate) fn check_announce(directory: &Path, n: &Negotiated) -> Result<()> {
     check(directory, n.audio_codec, n.audio_channels)
 }
@@ -73,16 +159,12 @@ fn check(directory: &Path, bits: u8, channels: u8) -> Result<()> {
     let codec = Codec::from_announce(bits, channels)?;
     match codec {
         Codec::Opus | Codec::Pcm => Ok(()),
-        Codec::Ac3 | Codec::Eac3 => {
-            dolby(directory, codec, channels)
-                .map(drop)
-                .with_context(|| {
-                    format!(
-                        "this host cannot encode {} for {channels} audio channels",
-                        codec.name()
-                    )
-                })
-        }
+        Codec::Ac3 | Codec::Eac3 => dolby_ready(directory, codec, channels).with_context(|| {
+            format!(
+                "this host cannot encode {} for {channels} audio channels",
+                codec.name()
+            )
+        }),
     }
 }
 
@@ -169,6 +251,66 @@ mod tests {
         let error = format!("{:#}", check(nowhere, CODEC_AC3, 8).unwrap_err());
         assert!(error.contains("cannot carry 8"), "{error}");
         assert!(check(nowhere, CODEC_AC3 | CODEC_PCM, 2).is_err());
+    }
+
+    #[test]
+    fn ffmpeg_probes_once_per_codec_and_channels_and_retries_failures_later() {
+        use super::{PROBE_RETRY, PROBE_RETRY_MAX, Probes};
+        use std::{cell::RefCell, time::Duration};
+        let probes = Probes::default();
+        let directory = Path::new("C:\\ffmpeg");
+        let start = Instant::now();
+        let calls = RefCell::new(Vec::new());
+        let get = |codec, channels, after: Duration, works: bool| {
+            probes
+                .get(directory, codec, channels, start + after, |retry| {
+                    calls.borrow_mut().push((codec, channels, retry));
+                    if works {
+                        Ok(())
+                    } else {
+                        anyhow::bail!("no FFmpeg")
+                    }
+                })
+                .map_err(|error| error.to_string())
+        };
+        // A success is kept: each ANNOUNCE after the first is a lookup.
+        let zero = Duration::ZERO;
+        assert!(get(Codec::Ac3, 2, zero, true).is_ok());
+        assert!(get(Codec::Ac3, 2, Duration::from_secs(3600), false).is_ok());
+        // Each codec and channel count is probed on its own.
+        assert!(get(Codec::Ac3, 6, zero, true).is_ok());
+        assert_eq!(get(Codec::Eac3, 2, zero, false).unwrap_err(), "no FFmpeg");
+        assert_eq!(
+            *calls.borrow(),
+            [
+                (Codec::Ac3, 2, false),
+                (Codec::Ac3, 6, false),
+                (Codec::Eac3, 2, false)
+            ]
+        );
+        // A failure stands until its retry, which waits twice as long each time, up to the cap.
+        calls.borrow_mut().clear();
+        let mut at = zero;
+        for wait in [10, 20, 40, 80, 160, 320, 600, 600] {
+            let wait = Duration::from_secs(wait);
+            assert_eq!(
+                get(Codec::Eac3, 2, at + wait - Duration::from_millis(1), true).unwrap_err(),
+                "no FFmpeg"
+            );
+            at += wait;
+            assert!(get(Codec::Eac3, 2, at, false).is_err());
+        }
+        assert_eq!(calls.borrow().len(), 8);
+        assert!(calls.borrow().iter().all(|&(_, _, retry)| retry));
+        assert_eq!(
+            (PROBE_RETRY, PROBE_RETRY_MAX),
+            (Duration::from_secs(10), Duration::from_secs(600))
+        );
+        // Once FFmpeg opens, the result is kept.
+        at += PROBE_RETRY_MAX;
+        assert!(get(Codec::Eac3, 2, at, true).is_ok());
+        assert!(get(Codec::Eac3, 2, at, false).is_ok());
+        assert_eq!(calls.borrow().len(), 9);
     }
 
     #[test]

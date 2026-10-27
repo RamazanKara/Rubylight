@@ -137,7 +137,10 @@ pub struct Open {
     /// The number of the listing being waited for; a later one replaces it.
     ask: u64,
     pub transfer: Option<Transfer>,
+    /// Why the listing failed.
     pub error: Option<String>,
+    /// Why the last transfer failed or did not start; a listing neither shows nor clears it.
+    pub transfer_error: Option<String>,
     /// What the last transfer did.
     pub done: Option<String>,
     answers: Receiver<Answer>,
@@ -189,6 +192,7 @@ impl SharedFolders {
             ask: 0,
             transfer: None,
             error: None,
+            transfer_error: None,
             done: None,
             answers,
             sender,
@@ -236,20 +240,20 @@ impl SharedFolders {
             open.waker.clone(),
         );
         let place = open.place.clone();
-        spawn(
-            "shared folders",
-            move || {
-                let answer = match place {
-                    Place::Folders => Answer::Folders(ask, source.folders()),
-                    Place::Dir { folder, path } => {
-                        Answer::Entries(ask, source.entries(&folder.id, &path))
-                    }
-                };
-                let _ = sender.send(answer);
-                waker();
-            },
-            open,
-        );
+        let started = spawn("shared folders", move || {
+            let answer = match place {
+                Place::Folders => Answer::Folders(ask, source.folders()),
+                Place::Dir { folder, path } => {
+                    Answer::Entries(ask, source.entries(&folder.id, &path))
+                }
+            };
+            let _ = sender.send(answer);
+            waker();
+        });
+        if let Err(e) = started {
+            open.loading = false;
+            open.error = Some(e);
+        }
     }
 
     fn go(&mut self, place: Place) {
@@ -257,7 +261,16 @@ impl SharedFolders {
             open.place = place;
             open.entries = None;
             open.done = None;
+            open.transfer_error = None;
             self.list();
+        }
+    }
+
+    /// Says on the page of `host` why a transfer did not start.
+    pub fn transfer_refused(&mut self, host: u64, why: String) {
+        if let Some(open) = self.for_host(host) {
+            open.done = None;
+            open.transfer_error = Some(why);
         }
     }
 
@@ -299,16 +312,18 @@ impl SharedFolders {
     }
 
     /// Downloads the file `name` of the directory `at` into `dir`. `at` is where the browser was
-    /// when the file was picked; it may have moved on while the folder here was chosen.
-    pub fn download(&mut self, host: u64, at: &Place, name: &str, dir: PathBuf) {
+    /// when the file was picked; it may have moved on while the folder here was chosen. False
+    /// when the browser of `host` is closed, so the page that chose it is gone.
+    pub fn download(&mut self, host: u64, at: &Place, name: &str, dir: PathBuf) -> bool {
         let Some(open) = self.for_host(host) else {
-            return;
+            return false;
         };
+        // Only a directory lists files to pick.
         let Place::Dir { folder, path } = at.clone() else {
-            return;
+            return true;
         };
-        if open.transfer.is_some() {
-            return;
+        if refuse_second_transfer(open) {
+            return true;
         }
         let remote = child_path(&path, name);
         start_transfer(
@@ -325,30 +340,33 @@ impl SharedFolders {
                 },
             ),
         );
+        true
     }
 
-    /// Uploads the file at `local` into the directory `at`, under its own name; `at` as for
-    /// [`Self::download`].
-    pub fn upload(&mut self, host: u64, at: &Place, local: PathBuf) {
+    /// Uploads the file at `local` into the directory `at`, under its own name; `at` and the
+    /// answer as for [`Self::download`].
+    pub fn upload(&mut self, host: u64, at: &Place, local: PathBuf) -> bool {
         let Some(open) = self.for_host(host) else {
-            return;
+            return false;
         };
+        // Only a directory with a write grant offers an upload.
         let Place::Dir { folder, path } = at.clone() else {
-            return;
+            return true;
         };
-        if open.transfer.is_some() {
-            return;
+        if refuse_second_transfer(open) {
+            return true;
         }
         let Some(name) = local
             .file_name()
             .and_then(|n| n.to_str())
             .map(str::to_owned)
         else {
-            open.error = Some(trf(
+            open.done = None;
+            open.transfer_error = Some(trf(
                 "The PC takes only file names in Unicode: {}",
                 &[&local.display()],
             ));
-            return;
+            return true;
         };
         let remote = child_path(&path, &name);
         start_transfer(
@@ -367,6 +385,7 @@ impl SharedFolders {
                 },
             ),
         );
+        true
     }
 
     pub fn cancel_transfer(&mut self, host: u64) {
@@ -417,9 +436,10 @@ impl SharedFolders {
                     match result {
                         Ok(said) => {
                             open.done = Some(said);
+                            open.transfer_error = None;
                             relist |= changed;
                         }
-                        Err(e) => open.error = Some(folder_error(&e)),
+                        Err(e) => open.transfer_error = Some(folder_error(&e)),
                     }
                 }
             }
@@ -451,36 +471,46 @@ fn start_transfer(open: &mut Open, upload: bool, name: String, job: Box<Job>) {
         transfer.progress.clone(),
         transfer.stop.clone(),
     );
-    open.error = None;
+    open.transfer_error = None;
     open.done = None;
     open.transfer = Some(transfer);
-    spawn(
-        "shared folder transfer",
-        move || {
-            let mut report = |done, total| {
-                progress.done.store(done, Ordering::Relaxed);
-                progress.total.store(total, Ordering::Relaxed);
-                waker();
-            };
-            let result = job(source.as_ref(), &mut report, &stop);
-            let (said, changed) = match result {
-                Ok((said, changed)) => (Ok(said), changed),
-                Err(e) => (Err(e), false),
-            };
-            let _ = sender.send(Answer::Done(said, changed));
+    let started = spawn("shared folder transfer", move || {
+        let mut report = |done, total| {
+            progress.done.store(done, Ordering::Relaxed);
+            progress.total.store(total, Ordering::Relaxed);
             waker();
-        },
-        open,
-    );
+        };
+        let result = job(source.as_ref(), &mut report, &stop);
+        let (said, changed) = match result {
+            Ok((said, changed)) => (Ok(said), changed),
+            Err(e) => (Err(e), false),
+        };
+        let _ = sender.send(Answer::Done(said, changed));
+        waker();
+    });
+    if let Err(e) = started {
+        open.transfer = None;
+        open.transfer_error = Some(e);
+    }
 }
 
-/// Runs `work` on its own thread; one that cannot start says why on the page.
-fn spawn(name: &str, work: impl FnOnce() + Send + 'static, open: &mut Open) {
-    if let Err(e) = std::thread::Builder::new().name(name.into()).spawn(work) {
-        open.loading = false;
-        open.transfer = None;
-        open.error = Some(trf("Could not start the request: {}", &[&e]));
+/// One transfer at a time: a second one says so on the page instead of starting.
+fn refuse_second_transfer(open: &mut Open) -> bool {
+    if open.transfer.is_none() {
+        return false;
     }
+    open.done = None;
+    open.transfer_error = Some(tr("Another transfer is still running.").to_owned());
+    true
+}
+
+/// Runs `work` on its own thread; why it could not start, as the page says it.
+fn spawn(name: &str, work: impl FnOnce() + Send + 'static) -> Result<(), String> {
+    std::thread::Builder::new()
+        .name(name.into())
+        .spawn(work)
+        .map(drop)
+        .map_err(|e| trf("Could not start the request: {}", &[&e]))
 }
 
 /// What failed, in the page's words, then the error as it came.
@@ -529,13 +559,13 @@ pub fn size_text(bytes: u64) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use nightjar_core::http::{EntryKind, FolderAccess, FolderEntry};
     use std::sync::Mutex;
 
     #[derive(Default)]
-    struct Fake {
+    pub(crate) struct Fake {
         calls: Mutex<Vec<String>>,
         /// Uploads read the whole file here.
         uploaded: Mutex<Vec<u8>>,
@@ -630,12 +660,12 @@ mod tests {
         }
     }
 
-    fn waker() -> Waker {
+    pub(crate) fn waker() -> Waker {
         Arc::new(|| {})
     }
 
     /// Polls until nothing is running.
-    fn settle(folders: &mut SharedFolders, host: u64) {
+    pub(crate) fn settle(folders: &mut SharedFolders, host: u64) {
         for _ in 0..500 {
             folders.poll(Some(host));
             if folders
@@ -649,7 +679,7 @@ mod tests {
         panic!("the browser did not settle");
     }
 
-    fn calls(fake: &Fake) -> Vec<String> {
+    pub(crate) fn calls(fake: &Fake) -> Vec<String> {
         fake.calls.lock().unwrap().clone()
     }
 
@@ -778,7 +808,12 @@ mod tests {
             std::env::temp_dir().join("nightjar-no-such-file-to-upload.bin"),
         );
         settle(&mut folders, 7);
-        let error = folders.state_for(7).unwrap().error.clone().unwrap();
+        let error = folders
+            .state_for(7)
+            .unwrap()
+            .transfer_error
+            .clone()
+            .unwrap();
         assert!(
             error.starts_with("The file on this device could not be read"),
             "{error}"
@@ -810,6 +845,86 @@ mod tests {
         let open = folders.state_for(7).unwrap();
         assert_eq!(open.place, Place::Folders);
         assert!(open.entries.is_none());
+    }
+
+    fn saves() -> Place {
+        Place::Dir {
+            folder: SharedFolder {
+                id: "saves".into(),
+                name: "Saves".into(),
+                access: FolderAccess::Write,
+            },
+            path: String::new(),
+        }
+    }
+
+    #[test]
+    fn transfer_errors_stay_apart_from_listing_errors() {
+        // A failed upload is the transfer's: listing again neither hides nor clears it.
+        let fake = Arc::new(Fake::default());
+        let mut folders = SharedFolders::default();
+        folders.open(7, fake, waker());
+        settle(&mut folders, 7);
+        folders.enter_folder(7, folders.state_for(7).unwrap().folders[0].clone());
+        settle(&mut folders, 7);
+        let missing = std::env::temp_dir().join("nightjar-no-such-file-to-upload.bin");
+        assert!(folders.upload(7, &saves(), missing));
+        settle(&mut folders, 7);
+        folders.list();
+        settle(&mut folders, 7);
+        let open = folders.state_for(7).unwrap();
+        assert!(open.transfer_error.is_some(), "{:?}", open.error);
+        assert_eq!(open.error, None, "the listing worked");
+        assert!(open.entries.is_some());
+
+        // A failed listing stays when a transfer starts and fails on its own.
+        let refusing = Arc::new(Fake {
+            refuse: Some((FileRefusal::NotFound, 404)),
+            ..Default::default()
+        });
+        folders.open(7, refusing, waker());
+        settle(&mut folders, 7);
+        let listing = folders.state_for(7).unwrap().error.clone().unwrap();
+        assert!(folders.download(7, &saves(), "a.txt", std::env::temp_dir()));
+        settle(&mut folders, 7);
+        let open = folders.state_for(7).unwrap();
+        assert_eq!(open.error.as_ref(), Some(&listing));
+        let transfer = open.transfer_error.as_deref().unwrap();
+        assert!(transfer.contains("no longer there"), "{transfer}");
+        // A transfer that works clears only its own error.
+        let fake = Arc::new(Fake::default());
+        folders.open(7, fake, waker());
+        settle(&mut folders, 7);
+        folders.transfer_refused(7, "earlier".into());
+        assert!(folders.download(7, &saves(), "a.txt", std::env::temp_dir()));
+        settle(&mut folders, 7);
+        let open = folders.state_for(7).unwrap();
+        assert_eq!(
+            (open.error.as_deref(), open.transfer_error.as_deref()),
+            (None, None)
+        );
+        assert!(open.done.is_some());
+    }
+
+    #[test]
+    fn a_second_transfer_says_one_is_running_and_a_closed_browser_takes_none() {
+        let fake = Arc::new(Fake::default());
+        let mut folders = SharedFolders::default();
+        folders.open(7, fake.clone(), waker());
+        settle(&mut folders, 7);
+        assert!(folders.download(7, &saves(), "a.txt", std::env::temp_dir()));
+        let local = std::env::temp_dir().join("nightjar-second-transfer.txt");
+        assert!(folders.upload(7, &saves(), local.clone()));
+        let said = folders.state_for(7).unwrap().transfer_error.clone();
+        assert_eq!(said.as_deref(), Some("Another transfer is still running."));
+        settle(&mut folders, 7);
+        assert!(!calls(&fake).iter().any(|c| c.starts_with("upload")));
+
+        // Leaving the page closes the browser: what was chosen for it is not started.
+        folders.poll(None);
+        assert!(!folders.download(7, &saves(), "a.txt", std::env::temp_dir()));
+        assert!(!folders.upload(7, &saves(), local));
+        assert_eq!(calls(&fake).len(), 2, "{:?}", calls(&fake));
     }
 
     #[test]

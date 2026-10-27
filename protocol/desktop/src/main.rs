@@ -600,13 +600,10 @@ impl App {
             }
         }
         if let Some(result) = self.folder_pick.as_ref().and_then(|(_, receiver)| receiver.try_recv().ok()) {
-            let pick = self.folder_pick.take().map(|(pick, _)| pick);
-            match (pick, result) {
-                (Some(FolderPick::Download { host, at, name }), Ok(Some(dir))) => self.launcher.folders.download(host, &at, &name, dir),
-                (Some(FolderPick::Upload { host, at }), Ok(Some(file))) => self.launcher.folders.upload(host, &at, file),
-                (_, Err(e)) => self.launcher.message(tr("File dialog unavailable"), e),
-                // Cancelled.
-                (_, Ok(None)) | (None, Ok(Some(_))) => {}
+            if let Some((pick, _)) = self.folder_pick.take() {
+                if let Some((title, body)) = finish_folder_pick(&mut self.launcher.folders, pick, result) {
+                    self.launcher.message(title, body);
+                }
             }
         }
         if let Some(receiver) = &self.identity {
@@ -975,16 +972,12 @@ impl App {
                 }
             }
             Command::FolderDownload { host, name } => {
-                let at = self.launcher.folders.state_for(host).map(|open| open.place.clone());
-                if let (None, Some(at)) = (&self.folder_pick, at) {
-                    self.folder_pick = Some((FolderPick::Download { host, at, name }, sdl::choose_path(self.window, true)));
-                }
+                let window = self.window;
+                start_folder_pick(&mut self.folder_pick, &mut self.launcher.folders, host, |at| FolderPick::Download { host, at, name }, || sdl::choose_path(window, true));
             }
             Command::FolderUpload(host) => {
-                let at = self.launcher.folders.state_for(host).map(|open| open.place.clone());
-                if let (None, Some(at)) = (&self.folder_pick, at) {
-                    self.folder_pick = Some((FolderPick::Upload { host, at }, sdl::choose_path(self.window, false)));
-                }
+                let window = self.window;
+                start_folder_pick(&mut self.folder_pick, &mut self.launcher.folders, host, |at| FolderPick::Upload { host, at }, || sdl::choose_path(window, false));
             }
             Command::OpenWebUi(url) => {
                 if let Some((title, body)) = host_page::open_web_ui(&url, sdl::open_url) {
@@ -1924,6 +1917,48 @@ fn launch_app(apps: &Apps, app_id: i32) -> LaunchApp {
     }
 }
 
+/// Opens the dialog choosing where the shared folder browser of `host` saves a download, or
+/// what it uploads. One dialog at a time: with one open, the page says so.
+fn start_folder_pick(
+    slot: &mut Option<(FolderPick, sdl::FileChoice)>,
+    folders: &mut folders_page::SharedFolders,
+    host: u64,
+    pick: impl FnOnce(folders_page::Place) -> FolderPick,
+    choose: impl FnOnce() -> sdl::FileChoice,
+) {
+    // Only the browser's own page asks.
+    let Some(at) = folders.state_for(host).map(|open| open.place.clone()) else { return };
+    if slot.is_some() {
+        folders.transfer_refused(host, tr("A file dialog is already open. Finish it first.").to_owned());
+        return;
+    }
+    *slot = Some((pick(at), choose()));
+}
+
+/// Starts what a dialog of the shared folder browser chose; the message to show, if any.
+fn finish_folder_pick(
+    folders: &mut folders_page::SharedFolders,
+    pick: FolderPick,
+    result: Result<Option<PathBuf>, String>,
+) -> Option<(String, String)> {
+    let chosen = match result {
+        Err(e) => return Some((tr("File dialog unavailable").to_owned(), e)),
+        // Cancelled.
+        Ok(None) => return None,
+        Ok(Some(chosen)) => chosen,
+    };
+    let taken = match pick {
+        FolderPick::Download { host, at, name } => folders.download(host, &at, &name, chosen),
+        FolderPick::Upload { host, at } => folders.upload(host, &at, chosen),
+    };
+    (!taken).then(|| {
+        (
+            tr("Transfer not started").to_owned(),
+            tr("The shared folders were closed while the file dialog was open. Open them again to transfer the file.").to_owned(),
+        )
+    })
+}
+
 // Test only, and declared down here: `strings.rs` reads this file up to its first test item.
 #[cfg(test)]
 mod shot;
@@ -1963,6 +1998,37 @@ mod tests {
         assert!(matches!(launch_app(&Apps::NotLoaded, 5), LaunchApp::Gone));
         // A reload that ends in an error is shown, not dropped.
         assert!(matches!(launch_app(&Apps::Failed("x".into()), 5), LaunchApp::Failed(why) if why == "x"));
+    }
+
+    #[test]
+    fn a_second_file_dialog_is_refused_on_the_page_and_a_late_choice_is_reported() {
+        use folders_page::tests::{calls, settle, waker, Fake};
+        let fake = Arc::new(Fake::default());
+        let mut folders = folders_page::SharedFolders::default();
+        folders.open(7, fake.clone(), waker());
+        settle(&mut folders, 7);
+        let mut slot = None;
+        let (_sender, receiver) = std::sync::mpsc::channel();
+        start_folder_pick(&mut slot, &mut folders, 7, |at| FolderPick::Upload { host: 7, at }, || receiver);
+        assert!(slot.is_some());
+        start_folder_pick(&mut slot, &mut folders, 7, |_| panic!("no second pick"), || panic!("no second dialog"));
+        let said = folders.state_for(7).unwrap().transfer_error.clone();
+        assert_eq!(said.as_deref(), Some("A file dialog is already open. Finish it first."));
+
+        let (pick, _) = slot.take().unwrap();
+        assert_eq!(finish_folder_pick(&mut folders, pick, Ok(None)), None, "cancelled");
+        let pick = FolderPick::Download { host: 7, at: folders_page::Place::Folders, name: "a.txt".into() };
+        let (title, body) = finish_folder_pick(&mut folders, pick, Err("no portal".into())).unwrap();
+        assert_eq!((title.as_str(), body.as_str()), ("File dialog unavailable", "no portal"));
+
+        // The page was left while the dialog was open.
+        folders.poll(None);
+        let at = folders_page::Place::Folders;
+        let pick = FolderPick::Upload { host: 7, at };
+        let (title, body) = finish_folder_pick(&mut folders, pick, Ok(Some(std::env::temp_dir()))).unwrap();
+        assert_eq!(title, "Transfer not started");
+        assert!(body.contains("closed while the file dialog was open"), "{body}");
+        assert_eq!(calls(&fake), ["folders"]);
     }
 
     fn record(unique_id: &str) -> config::HostRecord {

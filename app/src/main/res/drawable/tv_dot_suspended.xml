@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The amber status dot: a suspended game, or a PC that is waking or being checked. -->
+<!-- The neutral status dot: a suspended game, or a PC that is not paired, waking or being checked. Neutral, not amber,
+     since amber means an action or the selection. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
-    <solid android:color="?attr/colorPrimary" />
+    <solid android:color="?attr/colorOnSurfaceVariant" />
     <size android:width="8dp" android:height="8dp" />
 </shape>

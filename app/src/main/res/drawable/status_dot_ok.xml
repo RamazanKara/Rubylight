@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The ok status dot on the app's own surfaces (a phone row): a PC that is up or playing. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="@color/status_ok" />
+    <size android:width="8dp" android:height="8dp" />
+</shape>

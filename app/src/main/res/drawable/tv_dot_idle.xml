@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The grey status dot: a PC that is offline or not paired. -->
+<!-- The outlined status dot: a PC that is offline. Hollow, so it reads apart from the filled dots by shape, not colour alone. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
-    <solid android:color="?attr/colorOnSurfaceVariant" />
+    <solid android:color="@android:color/transparent" />
+    <stroke android:width="1.5dp" android:color="?attr/colorOutline" />
     <size android:width="8dp" android:height="8dp" />
 </shape>

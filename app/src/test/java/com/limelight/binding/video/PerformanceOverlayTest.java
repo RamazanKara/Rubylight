@@ -248,7 +248,7 @@ public class PerformanceOverlayTest {
         assertFalse(text.toString().contains("\n"));
         // The figure is the measured network round trip, labelled as one: never a sum passed off as latency.
         assertFalse(text.toString().contains("13 ms"));
-        assertEquals(0xff69db7c, dotColor(text));
+        assertEquals(0xff5fd38d, dotColor(text));
         assertEquals("Stream good: 119.9 FPS · 8 ms RTT · 0.1% loss",
                 PerformanceOverlay.describeCompact(context(Locale.US), text));
     }
@@ -260,12 +260,12 @@ public class PerformanceOverlayTest {
         CharSequence compact = PerformanceOverlay.compactText(context, 119.94f, 120, 8, 0.14f, 4.6f);
         CharSequence with = PerformanceOverlay.withLinkNotice(context, compact, status);
         assertEquals("● 119.9 FPS · 8 ms RTT · 0.1% loss\nHost lowered the bitrate to 38 Mbps: network", with.toString());
-        assertEquals(0xff69db7c, dotColor(with));
+        assertEquals(0xff5fd38d, dotColor(with));
         android.text.Spanned spanned = (android.text.Spanned) with;
         android.text.style.ForegroundColorSpan[] amber = spanned.getSpans(compact.length(), with.length(),
                 android.text.style.ForegroundColorSpan.class);
         assertEquals(1, amber.length);
-        assertEquals(0xffffc857, amber[0].getForegroundColor());
+        assertEquals(0xfff5d06b, amber[0].getForegroundColor());
         assertEquals(compact.length(), spanned.getSpanStart(amber[0]));
         assertSame(compact, PerformanceOverlay.withLinkNotice(context, compact, null));
         String statistics = PerformanceOverlay.statisticsText(context, "AV1", 60, 60, 20, 0, 8, 1, 2, -1, 4, 1, false).toString();
@@ -313,8 +313,29 @@ public class PerformanceOverlayTest {
         assertEquals(PerformanceOverlay.Health.POOR, PerformanceOverlay.health(80, 120, 8, 0, 4));
         assertEquals(PerformanceOverlay.Health.UNKNOWN, PerformanceOverlay.health(-1, 60, -1, -1, 4));
         CharSequence poor = PerformanceOverlay.compactText(context(Locale.US), 30, 60, 120, 7, 4);
-        assertEquals(0xffff6b6b, dotColor(poor));
+        assertEquals(0xffffb4ab, dotColor(poor));
         assertTrue(PerformanceOverlay.describeCompact(context(Locale.US), poor).startsWith("Stream poor: "));
+        // Shape says it as well as colour: a triangle for fair, a cross for poor.
+        assertTrue(poor.toString().startsWith("✕ "));
+        CharSequence fair = PerformanceOverlay.compactText(context(Locale.US), 119.9f, 120, 8, 1.2f, 4);
+        assertTrue(fair.toString().startsWith("▲ "));
+        assertTrue(PerformanceOverlay.describeCompact(context(Locale.US), fair).startsWith("Stream struggling: "));
+    }
+
+    @Test
+    public void overlayColoursAreTheNightStatusTokens() {
+        // Over video the overlay uses the media (night) tones whatever the app theme is.
+        Context context = context(Locale.US);
+        assertEquals(androidx.core.content.ContextCompat.getColor(context, com.limelight.R.color.night_status_ok),
+                PerformanceOverlay.healthColor(PerformanceOverlay.Health.GOOD));
+        assertEquals(androidx.core.content.ContextCompat.getColor(context, com.limelight.R.color.night_status_warn),
+                PerformanceOverlay.healthColor(PerformanceOverlay.Health.FAIR));
+        assertEquals(androidx.core.content.ContextCompat.getColor(context, com.limelight.R.color.night_error),
+                PerformanceOverlay.healthColor(PerformanceOverlay.Health.POOR));
+        assertEquals(androidx.core.content.ContextCompat.getColor(context, com.limelight.R.color.night_on_surface_variant),
+                PerformanceOverlay.healthColor(PerformanceOverlay.Health.UNKNOWN));
+        assertEquals(androidx.core.content.ContextCompat.getColor(context, com.limelight.R.color.night_tertiary),
+                PerformanceOverlay.MEDIA_INFO);
     }
 
     @Test

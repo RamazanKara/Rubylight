@@ -146,8 +146,12 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
         String status = statusText(context, obj);
         TextView statusView = parentView.findViewById(R.id.grid_status);
         statusView.setText(status);
-        statusView.setTextColor(MaterialColors.getColor(statusView, state == RowState.RUNNING ?
-                androidx.appcompat.R.attr.colorPrimary : com.google.android.material.R.attr.colorOnSurfaceVariant));
+        // A state is a word plus an icon, never colour alone; a PC playing a game reads in the ok colour, not the amber
+        // that marks actions and selection.
+        statusView.setTextColor(state == RowState.RUNNING ?
+                androidx.core.content.ContextCompat.getColor(context, R.color.status_ok) :
+                MaterialColors.getColor(statusView, com.google.android.material.R.attr.colorOnSurfaceVariant));
+        statusView.setCompoundDrawablesRelativeWithIntrinsicBounds(phoneDot(state), 0, 0, 0);
 
         ImageView backdrop = parentView.findViewById(R.id.grid_backdrop);
         if (backdrop != null) {
@@ -213,7 +217,19 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
         }
     }
 
-    /** A TV tile's status dot: green for a PC that is up, amber for one waiting on something, grey for one that is away. */
+    /**
+     * A phone row's status dot: the theme's ok colour for a PC that is up (the TV's green is the night tone, made for its
+     * dark tiles), and the TV's neutral dots otherwise.
+     */
+    public static int phoneDot(RowState state) {
+        int dot = dot(state);
+        return dot == R.drawable.tv_dot_live ? R.drawable.status_dot_ok : dot;
+    }
+
+    /**
+     * A TV tile's status dot: green for a PC that is up, a filled neutral dot for one waiting on something (not paired,
+     * waking, checking), and an outlined one for a PC that is offline.
+     */
     public static int dot(RowState state) {
         switch (state) {
             case RUNNING:

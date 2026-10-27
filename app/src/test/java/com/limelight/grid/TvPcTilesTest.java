@@ -138,6 +138,11 @@ public class TvPcTilesTest {
         assertEquals(R.drawable.tv_dot_suspended, PcGridAdapter.dot(PcGridAdapter.RowState.NOT_PAIRED));
         assertEquals(R.drawable.tv_dot_suspended, PcGridAdapter.dot(PcGridAdapter.RowState.WAKING));
         assertEquals(R.drawable.tv_dot_idle, PcGridAdapter.dot(PcGridAdapter.RowState.OFFLINE));
+        // Phone rows: the theme's ok dot for a PC that is up, the same neutral dot and ring otherwise.
+        assertEquals(R.drawable.status_dot_ok, PcGridAdapter.phoneDot(PcGridAdapter.RowState.RUNNING));
+        assertEquals(R.drawable.status_dot_ok, PcGridAdapter.phoneDot(PcGridAdapter.RowState.READY));
+        assertEquals(R.drawable.tv_dot_suspended, PcGridAdapter.phoneDot(PcGridAdapter.RowState.CHECKING));
+        assertEquals(R.drawable.tv_dot_idle, PcGridAdapter.phoneDot(PcGridAdapter.RowState.OFFLINE));
         assertEquals(R.drawable.tv_tile_bg_live, TileBackdrops.gradient(PcGridAdapter.RowState.READY));
         assertEquals(R.drawable.tv_tile_bg_attention, TileBackdrops.gradient(PcGridAdapter.RowState.NOT_PAIRED));
         assertEquals(R.drawable.tv_tile_bg_idle, TileBackdrops.gradient(PcGridAdapter.RowState.OFFLINE));

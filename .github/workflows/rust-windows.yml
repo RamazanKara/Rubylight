@@ -7,10 +7,11 @@ on:
     # GitHub ignores paths for tag pushes, so a tag always runs.
     tags: ['v2.*', 'v3.*']
     # Changes to docs and Markdown alone don't run CI; a release of such a
-    # commit builds it in the windows job.
-    paths: ['rust/**', '!rust/**/*.md', 'Cargo.*', 'rust-toolchain.toml', '.cargo/**', 'clippy.toml', 'third-party/**', '.github/workflows/rust-windows.yml']
+    # commit builds it in the windows job. The host builds Nightjar's protocol
+    # crate from client/protocol by path.
+    paths: ['rust/**', '!rust/**/*.md', 'client/protocol/**', '!client/protocol/**/*.md', 'Cargo.*', 'rust-toolchain.toml', '.cargo/**', 'clippy.toml', 'third-party/**', '.github/workflows/rust-windows.yml']
   pull_request:
-    paths: ['rust/**', '!rust/**/*.md', 'Cargo.*', 'rust-toolchain.toml', '.cargo/**', 'clippy.toml', 'third-party/**', '.github/workflows/rust-windows.yml']
+    paths: ['rust/**', '!rust/**/*.md', 'client/protocol/**', '!client/protocol/**/*.md', 'Cargo.*', 'rust-toolchain.toml', '.cargo/**', 'clippy.toml', 'third-party/**', '.github/workflows/rust-windows.yml']
   workflow_dispatch:
     inputs:
       publish:

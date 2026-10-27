@@ -1,0 +1,99 @@
+name: Nightjar Android
+
+# Nightjar's android.yml for client/ in this repo. The nightjar mirror keeps
+# running client/.github/workflows (including pre-releases and releases).
+on:
+  push:
+    branches: [main]
+    # Docs, store listing and artwork sources don't change the APK.
+    paths: ['client/**', '!client/**/*.md', '!client/docs/**', '!client/fastlane/**', '!client/store-assets/**', '!client/LICENSE.txt', '!client/.github/**', '.github/workflows/nightjar-android.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # The root rust-toolchain.toml pins the host's compiler; Nightjar builds with
+  # stable, as in the mirror.
+  RUSTUP_TOOLCHAIN: stable
+
+defaults:
+  run:
+    working-directory: client
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Check generated settings and documentation links
+        run: |
+          python3 scripts/generate-settings.py
+          git diff --exit-code -- docs/settings.md
+          node --test scripts/check-doc-links.test.mjs scripts/build-release.test.mjs scripts/add-device-results.test.mjs scripts/device-docs.test.mjs scripts/device-results-issue.test.mjs
+          node scripts/check-doc-links.mjs
+          node scripts/device-docs.mjs --check
+  desktop:
+    # The Windows/Linux client: Linux build, unit tests and clippy (SDL3 is built from source).
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Test and lint the desktop client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends cmake ninja-build pkg-config libclang-dev \
+            libavcodec-dev libavutil-dev libopus-dev libva-dev libx11-dev libxext-dev libxrandr-dev \
+            libxcursor-dev libxi-dev libxss-dev libxfixes-dev libxtst-dev libxkbcommon-dev libwayland-dev \
+            wayland-protocols libegl-dev libgl-dev libgles-dev libdrm-dev libgbm-dev libpulse-dev \
+            libasound2-dev libpipewire-0.3-dev libudev-dev libdbus-1-dev libdecor-0-dev
+          cd protocol
+          cargo clippy -p nightjar-desktop --all-targets --locked -- -D warnings
+          cargo test -p nightjar-desktop --locked
+  build:
+    needs: docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Test and rebuild the shipped Rust protocol
+        run: |
+          rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+          sudo apt-get update -qq
+          sudo apt-get install -y llvm libssl-dev
+          bash protocol/build-android.sh
+      - name: Configure a disposable signing key for minified build validation
+        run: |
+          keytool -genkeypair -keystore "$RUNNER_TEMP/validation.p12" -storetype PKCS12 \
+            -alias validation -keyalg RSA -keysize 3072 -validity 2 \
+            -dname 'CN=Nightjar CI validation' -storepass validation -keypass validation
+          echo "BP_KEYSTORE=$RUNNER_TEMP/validation.p12" >> "$GITHUB_ENV"
+          echo 'BP_KEYSTORE_PASSWORD=validation' >> "$GITHUB_ENV"
+          echo 'BP_KEY_ALIAS=validation' >> "$GITHUB_ENV"
+          echo 'BP_KEY_PASSWORD=validation' >> "$GITHUB_ENV"
+      - name: Build both flavors, lint and run unit tests
+        run: >-
+          bash gradlew --no-daemon --max-workers=2
+          :app:assembleNonRootDebug :app:assembleNonRootRelease :app:assembleRootRelease
+          :app:lintNonRootDebug :app:lintNonRootRelease :app:lintRootRelease
+          :app:testNonRootDebugUnitTest :app:testRootDebugUnitTest
+      - name: Check all native regressions with sanitizers
+        run: |
+          bash scripts/test-native.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: nightjar-debug
+          path: client/app/build/outputs/apk/nonRoot/debug/app-nonRoot-debug.apk
+          if-no-files-found: error

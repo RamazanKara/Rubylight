@@ -923,12 +923,21 @@ impl Upgraded {
     }
 
     /// Sends `bytes` whole, as one write.
-    pub fn write_all(&self, bytes: &[u8]) -> std::io::Result<()> {
+    pub fn write_all(&self, mut bytes: &[u8]) -> std::io::Result<()> {
         let mut tls = self.tls();
         let UpgradedTls { conn, socket, .. } = &mut *tls;
-        conn.writer().write_all(bytes)?;
-        while conn.wants_write() {
-            conn.write_tls(socket)?;
+        while !bytes.is_empty() {
+            // rustls takes as much as its send buffer holds, 64 KiB, and none until it drained.
+            let n = conn.writer().write(bytes)?;
+            if n == 0 && !conn.wants_write() {
+                return Err(ErrorKind::WriteZero.into());
+            }
+            bytes = &bytes[n..];
+            while conn.wants_write() {
+                if conn.write_tls(socket)? == 0 {
+                    return Err(ErrorKind::WriteZero.into());
+                }
+            }
         }
         Ok(())
     }
@@ -1410,6 +1419,36 @@ mod tests {
             serve(tls)
         });
         (port, client, server)
+    }
+
+    #[test]
+    fn an_upgraded_connection_carries_writes_larger_than_the_tls_buffer() {
+        let host_name = Host::parse("127.0.0.1").unwrap();
+        let sent: Vec<u8> = (0..1 << 20).map(|at: usize| (at % 251) as u8).collect();
+        let length = sent.len();
+        let (port, config, server) = tls_host(move |mut tls| {
+            let mut head = Vec::new();
+            while !head.ends_with(b"\r\n\r\n") {
+                let mut byte = [0];
+                tls.read_exact(&mut byte).unwrap();
+                head.push(byte[0]);
+            }
+            tls.write_all(b"HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: test/1\r\n\r\n").unwrap();
+            let mut got = vec![0; length];
+            tls.read_exact(&mut got).unwrap();
+            // And back, as large.
+            tls.write_all(&got).unwrap();
+            tls.flush().unwrap();
+            got
+        });
+        let request = Request { host: &host_name, port, target: "tunnel", tls: Some(config),
+            timeouts: Timeouts { connect: Duration::from_secs(1), read: Some(Duration::from_secs(10)) }, body_limit: 1024 };
+        let Ok(Ok(upgraded)) = upgrade(&request, &Cancel::default(), "test/1", &[]) else { panic!("no upgrade") };
+        upgraded.write_all(&sent).unwrap();
+        let mut back = vec![0; length];
+        upgraded.read_exact(&mut back).unwrap();
+        assert!(server.join().unwrap() == sent, "the host got all of it in order");
+        assert!(back == sent, "and the client all of its answer");
     }
 
     #[test]

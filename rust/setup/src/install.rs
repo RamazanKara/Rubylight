@@ -1120,7 +1120,7 @@ fn run_driver_script(script: &Path, args: &[&str], notes: &mut Vec<String>, name
 fn driver_error_note(error: &anyhow::Error, name: &str) -> String {
     match error.downcast_ref::<system::StillRunning>() {
         Some(running) => format!(
-            "The {name} driver was still being {} after {} s and goes on in the background. If it does not work once that finishes, run setup again; the setup log has the details.",
+            "The {name} driver was still being {} after {} s and goes on in the background. If it does not work once that finishes, run setup again.",
             action(name),
             running.seconds
         ),
@@ -1640,6 +1640,9 @@ mod tests {
             "{note}"
         );
         assert!(!note.contains("could not"), "{note}");
+        // The task's own log is removed at the deadline, so its result
+        // never reaches the setup log.
+        assert!(!note.contains("setup log"), "{note}");
         let late = late.context("waiting for the task");
         assert!(driver_error_note(&late, LIBVIRTUALDISPLAY).contains("still being removed"));
         let failed = anyhow::anyhow!("creating the setup task failed (1)");

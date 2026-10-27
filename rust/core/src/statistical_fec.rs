@@ -129,6 +129,11 @@ impl StatisticalFec {
         usize::from(self.fallback)
     }
 
+    /// Whether a report was accepted since the stream started.
+    pub fn reported(&self) -> bool {
+        self.last.is_some()
+    }
+
     /// The worst second's share of missing shards in the window, if any
     /// second had shards.
     pub fn loss(&self) -> Option<f64> {

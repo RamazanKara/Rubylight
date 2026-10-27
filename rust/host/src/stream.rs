@@ -2973,7 +2973,8 @@ impl Media {
                             }
                             let recovering = idr || invalidation.is_some();
                             // A client-chosen FEC share moves the encoder's part of the
-                            // budget only at a fence: an IDR or a new encoder.
+                            // budget at a fence (an IDR or a new encoder) or after a
+                            // statistical FEC report; a new rate needs no keyframe.
                             let bitrate = s.encoder_bitrate(idr || rebuilt);
                             if s.config.codec != 3 {
                                 let now = Instant::now();

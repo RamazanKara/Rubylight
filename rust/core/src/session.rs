@@ -1357,7 +1357,7 @@ mod tests {
         assert_eq!(reconnect.bitrate.load(Ordering::Acquire), 40_000);
     }
     #[test]
-    fn a_client_fec_share_splits_the_encoder_budget_only_at_a_fence() {
+    fn a_client_fec_share_splits_the_encoder_budget_at_a_fence_or_a_report() {
         use crate::extensions::FecChoice;
         use crate::statistical_fec::FecReport;
         let report = |seq, missing| {
@@ -1389,19 +1389,41 @@ mod tests {
         assert_eq!(auto.encoder_bitrate(false), 10_000, "12 Mbps at 20 % FEC");
         auto.record_fec_report(&report(0, 0)).unwrap();
         assert_eq!(auto.fec_percent(), 0);
-        assert_eq!(auto.encoder_bitrate(false), 10_000, "no fence, no step");
         assert_eq!(
-            auto.encoder_bitrate(true),
+            auto.encoder_bitrate(false),
             12_000,
-            "a clean link: all video"
+            "the first report replaces the fallback share without an IDR"
         );
+        assert_eq!(auto.encoder_bitrate(true), 12_000, "a clean link: all video");
         auto.record_fec_report(&report(1, 540)).unwrap();
         assert_eq!(auto.fec_percent(), 40);
-        assert_eq!(auto.encoder_bitrate(false), 12_000);
-        assert_eq!(auto.encoder_bitrate(true), 8_571, "12 Mbps × 100 / 140");
+        assert_eq!(
+            auto.encoder_bitrate(false),
+            8_571,
+            "rising loss moves the split at once: 12 Mbps × 100 / 140"
+        );
+        let within = |s: &Session| {
+            u64::from(s.encoder_bitrate(false)) * (100 + s.fec_percent() as u64) / 100 <= 12_000
+        };
+        assert!(within(&auto), "video and parity fit the budget");
+        assert_eq!(auto.encoder_bitrate(true), 8_571);
+        // A small fall keeps the split until a fence, a larger one moves it.
+        auto.fec_percent.store(36, Ordering::Release);
+        auto.follow_fec_report(false);
+        assert_eq!(auto.encoder_bitrate(false), 8_571, "within the hysteresis");
+        auto.fec_percent.store(30, Ordering::Release);
+        auto.follow_fec_report(false);
+        assert_eq!(auto.encoder_bitrate(false), 9_230, "12 Mbps × 100 / 130");
+        auto.fec_percent.store(31, Ordering::Release);
+        auto.follow_fec_report(false);
+        assert_eq!(auto.encoder_bitrate(false), 9_160, "any rise moves it");
+        assert!(within(&auto));
         // A new budget (a client /bitrate) applies at once, at the latched share.
         auto.bitrate.store(7_000, Ordering::Release);
-        assert_eq!(auto.encoder_bitrate(false), 5_000);
+        assert_eq!(auto.encoder_bitrate(false), 5_343);
+        // A host-FEC session never follows reports.
+        host.follow_fec_report(true);
+        assert_eq!(host.encoder_bitrate(false), 12_000);
 
         let fixed = Session::new(launch("fixed", Role::Stream), Negotiated::default());
         assert_eq!(
@@ -2768,6 +2790,9 @@ pub struct Stats {
 }
 /// The encoder's share of a video `budget` that also carries `fec` percent
 /// parity: budget × 100 / (100 + fec), at least 1 Kbps of a non-zero budget.
+/// Points a statistical FEC share must fall before the encoder's split
+/// follows it between fences.
+const FEC_SPLIT_HYSTERESIS: u32 = 5;
 fn fec_split_kbps(budget: u32, fec: u32) -> u32 {
     if budget == 0 {
         return 0;
@@ -3233,8 +3258,10 @@ impl<P, A> Session<P, A> {
     /// The encoder's bitrate for the next frame. With a client-chosen FEC
     /// share F, `bitrate` is the video budget and the encoder gets
     /// budget × 100 / (100 + F), so video and parity together fit it. F moves
-    /// only at a `fence`, an IDR or a new encoder, so FEC alone never steps
-    /// the rate inside a GOP. Host bitrate adaptation already budgets FEC:
+    /// at a `fence`, an IDR or a new encoder, and under
+    /// `rlFecPercentage=auto` also after a report (see
+    /// [`Self::follow_fec_report`]): the encoder takes the new rate on the next
+    /// frame, without a keyframe. Host bitrate adaptation already budgets FEC:
     /// while it runs, the encoder gets `bitrate` as it is.
     ///
     /// The split follows Foundation Sunshine's `encoder_bitrate_from_total_bitrate`
@@ -3245,14 +3272,34 @@ impl<P, A> Session<P, A> {
             return budget;
         }
         if fence {
-            let share = if self.adaptive_bitrate.lock().unwrap().active() {
-                0
-            } else {
-                self.fec_percent() as u32
-            };
-            self.fec_split.store(share, Ordering::Release);
+            self.fec_split
+                .store(self.fec_split_share(), Ordering::Release);
         }
         fec_split_kbps(budget, self.fec_split.load(Ordering::Acquire))
+    }
+    /// The FEC share the encoder's budget leaves room for now.
+    fn fec_split_share(&self) -> u32 {
+        if self.adaptive_bitrate.lock().unwrap().active() {
+            0
+        } else {
+            self.fec_percent() as u32
+        }
+    }
+    /// Moves the split after an accepted statistical FEC report instead of
+    /// waiting for the next fence: at the first report, which replaces the
+    /// fallback share the stream started with, whenever the share rises (so
+    /// video and parity stay within the budget), and when it falls by more
+    /// than [`FEC_SPLIT_HYSTERESIS`] points, so a noisy estimate doesn't step
+    /// the rate every second.
+    fn follow_fec_report(&self, first: bool) {
+        if !self.fec_split_on.load(Ordering::Acquire) {
+            return;
+        }
+        let share = self.fec_split_share();
+        let latched = self.fec_split.load(Ordering::Acquire);
+        if first || share > latched || latched - share > FEC_SPLIT_HYSTERESIS {
+            self.fec_split.store(share, Ordering::Release);
+        }
     }
     /// Takes a 0x5539 FEC report: the report and whether statistical FEC
     /// used it (only under `rlFecPercentage=auto`), or why it was refused.
@@ -3267,9 +3314,12 @@ impl<P, A> Session<P, A> {
             return Ok((report, false));
         };
         let now = Instant::now();
+        let first = !fec.reported();
         fec.report(now, &report).map_err(|e| e.to_string())?;
         let percent = fec.percent(now, self.typical_fec_shards());
         self.fec_percent.store(percent as u32, Ordering::Release);
+        drop(client);
+        self.follow_fec_report(first);
         Ok((report, true))
     }
     /// Data shards of an average frame at the current bitrate: statistical

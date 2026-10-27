@@ -6,6 +6,7 @@ import android.util.AttributeSet;
 import android.view.View;
 import android.view.ViewParent;
 import android.view.ViewTreeObserver;
+import android.widget.AbsListView;
 import android.widget.AdapterView;
 import androidx.appcompat.widget.AppCompatTextView;
 
@@ -75,12 +76,32 @@ public class ExpandingSummaryView extends AppCompatTextView implements ViewTreeO
         post(this::showRow);
     }
 
+    @Override
+    protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
+        super.onSizeChanged(width, height, oldWidth, oldHeight);
+        // The post in update() can run before the grown row is laid out; its new size is known here.
+        if (collapsedLines != Integer.MAX_VALUE && oldHeight > 0 && height > oldHeight) post(this::showRow);
+    }
+
+    /**
+     * Scrolls the grown row above the list's bottom padding. The list's own rectangle request lets it reach into that
+     * padding, but a D-pad press only moves the selection when the selected row ends above it: otherwise the press
+     * scrolls instead, and Down took two presses (TV Settings' rail, nightjar#7). The row's top stays in view.
+     */
+    static void reveal(AbsListView list, View row) {
+        // The list's padding here includes its selector's, which the D-pad's check uses.
+        int over = row.getBottom() - (list.getHeight() - list.getListPaddingBottom());
+        int room = row.getTop() - list.getListPaddingTop();
+        if (over > 0 && room > 0) list.scrollListBy(Math.min(over, room));
+    }
+
     private void showRow() {
         View row = this;
         for (ViewParent parent = getParent(); parent instanceof View; parent = row.getParent()) {
             if (parent instanceof AdapterView) {
                 if (row.isSelected() && ((View) parent).hasFocus() && row.getHeight() > 0) {
-                    row.requestRectangleOnScreen(new android.graphics.Rect(0, 0, row.getWidth(), row.getHeight()));
+                    if (parent instanceof AbsListView) reveal((AbsListView) parent, row);
+                    else row.requestRectangleOnScreen(new android.graphics.Rect(0, 0, row.getWidth(), row.getHeight()));
                 }
                 return;
             }

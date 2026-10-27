@@ -250,6 +250,8 @@ pub fn stop() {
     ENGINE
         .microphone_state
         .store(MIC_STATE_OFF, Ordering::SeqCst);
+    // Detaches what is attached here; the host detaches its side as the stream ends.
+    crate::usb::end();
     if let Some(session) = session {
         session.stop();
         platform::info("Stream stopped");

@@ -46,6 +46,7 @@ pub struct Methods {
     pub steam_haptic: JStaticMethodID,
     pub steam_settings: JStaticMethodID,
     pub text_input: JStaticMethodID,
+    pub usb_changed: JStaticMethodID,
 }
 
 pub struct Bridge {
@@ -99,6 +100,7 @@ pub fn init(env: &mut JNIEnv) -> jni::errors::Result<()> {
         steam_haptic: id("bridgeClSteamHaptic", "(S[B)V")?,
         steam_settings: id("bridgeClSteamSettings", "(SB[B)V")?,
         text_input: id("bridgeClTextInput", "(III)V")?,
+        usb_changed: id("bridgeClUsbChanged", "()V")?,
     };
     let bridge = Bridge {
         vm: env.get_java_vm()?,

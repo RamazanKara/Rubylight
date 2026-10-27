@@ -318,4 +318,35 @@ mod tests {
                 .contains("no D3D12 conversion")
         );
     }
+    #[test]
+    fn a_map_that_failed_on_a_frame_keeps_focus_off_after_a_recreate() {
+        let (mut focus, requested, state, warnings) =
+            start("encoder_focus=static", Support::Verified { delta: 10.0 });
+        let mut calls = Vec::new();
+        let mut frame = |focus: &mut Focus| {
+            let wanted = focus.settings(|| None);
+            focus
+                .apply(wanted, |settings| {
+                    calls.push(settings.is_some());
+                    Ok(())
+                })
+                .unwrap();
+        };
+        frame(&mut focus);
+        focus.failed(
+            &anyhow::anyhow!("AMF surface property HevcROIData"),
+            &state,
+            &warnings,
+        );
+        frame(&mut focus);
+        focus.encoder_recreated();
+        requested.store(Requested::Centre.wire(), Ordering::Relaxed);
+        focus.update(&requested, &state, &warnings);
+        frame(&mut focus);
+        assert!(!focus.on());
+        assert!(focus.settings(|| None).is_none());
+        assert_eq!(calls, [true, false, false]);
+        assert_eq!(state.lock().unwrap().effective, None);
+        assert!(warnings.snapshot()[0].message.contains("HevcROIData"));
+    }
 }

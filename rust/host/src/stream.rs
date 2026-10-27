@@ -2940,6 +2940,11 @@ impl Media {
                             // A repeat with a new panel is a new picture.
                             active.set_repeat(!fresh && !menu.dirty);
                             menu.dirty = false;
+                            // A map that failed on a frame turned focus off in
+                            // the encoder; keep it off for the stream, loudly.
+                            if let Some(error) = active.take_focus_failure() {
+                                focus.failed(&error, &s.encoder_focus_state, &s.launch.warnings);
+                            }
                             focus.update(&s.encoder_focus, &s.encoder_focus_state, &s.launch.warnings);
                             let wanted = focus.settings(|| butterpollo_windows::encoder::focus_cursor(&image, (stream.width, stream.height)));
                             if let Err(error) = focus.apply(wanted, |settings| {

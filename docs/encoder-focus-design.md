@@ -95,7 +95,8 @@ Buffers and both pipelines are created with the converter whenever the encoder c
 
 | Situation | Rule |
 |---|---|
-| IDR, LTR recovery picture, first frame after encoder recreate | No map attached, on that frame and the 30 after it while the rate control settles (section 2). Recovery pictures stay exactly as today (size cap, pacing). Ages keep counting. These frames count as `skipped_recovery`. |
+| IDR, LTR recovery picture, first frame after encoder recreate | No map attached, on that frame and the 30 after it while the rate control settles (section 2). A keyframe the encoder makes on its own (a pre-analysis scene change, the GOP) starts the same 30 frames when its output arrives. Recovery pictures stay exactly as today (size cap, pacing). Ages keep counting. These frames count as `skipped_recovery`. |
+| A map that fails on a frame | The frame goes without one and encodes as usual; the encoder turns focus off, and the stream turns it off for the rest of the session with the `encoder_focus` warning, as for a refused map. |
 | Repeat frames (`!fresh`) | Converted as today; every block counts as still, which gives a uniform map, so no map. |
 | Link-rate adaptation and runtime bitrate | The map is relative, so it needs no change. M2 measures 5 and 10 Mbps at 1080p60 (0.04 and 0.08 bits per pixel). A bits-per-pixel floor below which core forces a neutral map is added only if the 5 Mbps arm shows a loss. |
 | Recovery frame cap / max AU size | Unchanged, but it does not bind a frame with a map: a scene cut on such a frame is about twice its size without focus (section 2). M3's `slice_delivery_overflows` and frame sizes show what that costs in a stream. |

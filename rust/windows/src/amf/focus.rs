@@ -200,13 +200,6 @@ fn pick(
         Some(_) => Pick::Attach,
     }
 }
-/// Counts one frame in `settled`, from 0 on a keyframe, recovery picture or
-/// first frame (`reset`); true while the frame is one of those or of the
-/// [`SETTLE_FRAMES`] after them.
-fn settle(settled: &mut u32, reset: bool) -> bool {
-    *settled = if reset { 0 } else { settled.saturating_add(1) };
-    *settled <= SETTLE_FRAMES
-}
 fn count(stats: &mut Stats, pick: Pick) {
     match pick {
         Pick::Skip => stats.skipped_recovery += 1,
@@ -246,6 +239,48 @@ pub(crate) struct State {
     /// The probe's answers in frame order: the QP map, `None` when AMF sent
     /// none, or why it could not be read.
     answers: Vec<std::result::Result<Option<Grid>, String>>,
+    /// Why a map failed on a frame, until the stream takes it.
+    failure: Option<anyhow::Error>,
+}
+impl State {
+    /// One frame at submission. Counts it towards the settle window, with
+    /// focus off too so that turning it on just after a keyframe still
+    /// waits. With focus on (`map` is `Some`, holding the newest finished map
+    /// as `(value, uniform)` if there is one), picks what the frame does with
+    /// that map, counts it and marks the map used.
+    fn frame(
+        &mut self,
+        idr: bool,
+        recover: bool,
+        first: bool,
+        map: Option<Option<(u64, bool)>>,
+    ) -> Option<Pick> {
+        self.settled = if idr || recover || first {
+            0
+        } else {
+            self.settled.saturating_add(1)
+        };
+        let map = map?;
+        let settling = self.settled <= SETTLE_FRAMES;
+        let picked = pick(idr, recover, first, settling, map, self.last);
+        count(&mut self.stats, picked);
+        if let (Pick::Attach | Pick::Uniform, Some((value, _))) = (picked, map) {
+            self.last = value;
+        }
+        Some(picked)
+    }
+    /// A keyframe the encoder made without being asked, such as a
+    /// pre-analysis scene change: the frames after it wait as after a
+    /// requested one.
+    pub(super) fn keyframe_out(&mut self) {
+        self.settled = 0;
+    }
+    /// A map failed on a frame: focus is off in this encoder, the frame goes
+    /// without one, and the stream takes `error` to turn it off and say so.
+    fn fail(&mut self, error: anyhow::Error) {
+        self.settings = None;
+        self.failure = Some(error);
+    }
 }
 
 /// SetProperty on an input surface.
@@ -538,10 +573,17 @@ impl Encoder {
             .then(|| (self.focus.qp_sum / f64::from(self.focus.qp_count)) as f32);
         stats
     }
+    /// Why a map failed on a frame since the last call. Focus is then off in
+    /// this encoder; the stream turns it off for the session and says why.
+    pub fn take_focus_failure(&mut self) -> Option<anyhow::Error> {
+        self.focus.failure.take()
+    }
     /// After `prepare_surface`, before SubmitInput: the newest finished map
     /// from a conversion up to this frame's (`conversion`), unless the frame
     /// is a keyframe, a recovery picture or the encoder's first, or one of the
-    /// [`SETTLE_FRAMES`] after them.
+    /// [`SETTLE_FRAMES`] after them. A map that fails turns focus off and
+    /// leaves the error for [`Self::take_focus_failure`]; the frame goes on
+    /// without it.
     ///
     /// # Safety
     /// `surface` is this frame's live input surface.
@@ -553,74 +595,32 @@ impl Encoder {
         conversion: Option<u64>,
     ) -> Result<()> {
         let first = self.index == 0;
-        // Counted with focus off too: turning it on just after a keyframe still waits.
-        let settling = settle(&mut self.focus.settled, idr || recover || first);
-        let (context, codec) = (self.context, self.codec);
-        if let Some(fixed) = &self.focus.fixed {
-            if pick(idr, recover, first, false, Some((u64::MAX, false)), 0) == Pick::Attach {
-                // SAFETY: Per this function's contract.
-                unsafe {
-                    attach(
-                        context,
-                        surface,
-                        codec,
-                        &fixed.values,
-                        fixed.width,
-                        fixed.height,
-                    )?
-                };
-            }
-        } else if self.focus.settings.is_some() {
-            let input = self
-                .compute
-                .as_ref()
-                .context("encoder focus is on without the D3D12 conversion")?;
-            let view = conversion.and_then(|conversion| {
-                input
-                    .converter
-                    .latest_map(self.focus.last)
-                    .filter(|view| view.value <= conversion)
-            });
-            let picked = pick(
-                idr,
-                recover,
-                first,
-                settling,
-                view.as_ref().map(|view| (view.value, view.uniform)),
-                self.focus.last,
-            );
-            count(&mut self.focus.stats, picked);
-            let Some(view) = view.filter(|_| matches!(picked, Pick::Attach | Pick::Uniform)) else {
-                return Ok(());
-            };
-            self.focus.last = view.value;
-            if picked == Pick::Uniform {
-                return Ok(());
-            }
-            check_grid(codec, self.config.coded_size(), (view.width, view.height))?;
+        if self.focus.fixed.is_none() && self.focus.settings.is_some() {
             // SAFETY: Per this function's contract.
-            unsafe { attach(context, surface, codec, view.rows, view.width, view.height)? };
-            let Some(every) = self.focus.verify else {
-                return Ok(());
-            };
-            self.focus.since_verify += 1;
-            if self.focus.since_verify < every {
-                return Ok(());
+            let attached =
+                unsafe { self.attach_converted(surface, idr, recover, first, conversion) };
+            if let Err(error) = attached {
+                tracing::warn!(error = %format!("{error:#}"), "encoder focus failed on a frame, so it is off");
+                self.focus.fail(error);
             }
-            self.focus.since_verify = 0;
-            let importance = Grid {
-                width: view.width,
-                height: view.height,
-                values: view.rows.to_vec(),
-            };
-            // SAFETY: Per this function's contract.
-            unsafe { set(surface, qp_feedback(codec), gpu::boolean(true))? };
-            self.focus.asked.push_back(Ask {
-                pts: self.index,
-                importance: Some(importance),
-                keep: false,
-            });
             return Ok(());
+        }
+        self.focus.frame(idr, recover, first, None);
+        let (context, codec) = (self.context, self.codec);
+        if let Some(fixed) = &self.focus.fixed
+            && pick(idr, recover, first, false, Some((u64::MAX, false)), 0) == Pick::Attach
+        {
+            // SAFETY: Per this function's contract.
+            unsafe {
+                attach(
+                    context,
+                    surface,
+                    codec,
+                    &fixed.values,
+                    fixed.width,
+                    fixed.height,
+                )?
+            };
         }
         if self.focus.keep {
             // SAFETY: Per this function's contract.
@@ -631,6 +631,63 @@ impl Encoder {
                 keep: true,
             });
         }
+        Ok(())
+    }
+    /// [`Self::attach_focus`] with focus on.
+    ///
+    /// # Safety
+    /// `surface` is this frame's live input surface.
+    unsafe fn attach_converted(
+        &mut self,
+        surface: *mut AMFSurface,
+        idr: bool,
+        recover: bool,
+        first: bool,
+        conversion: Option<u64>,
+    ) -> Result<()> {
+        let (context, codec) = (self.context, self.codec);
+        let input = self
+            .compute
+            .as_ref()
+            .context("encoder focus is on without the D3D12 conversion")?;
+        let view = conversion.and_then(|conversion| {
+            input
+                .converter
+                .latest_map(self.focus.last)
+                .filter(|view| view.value <= conversion)
+        });
+        let picked = self.focus.frame(
+            idr,
+            recover,
+            first,
+            Some(view.as_ref().map(|view| (view.value, view.uniform))),
+        );
+        let Some(view) = view.filter(|_| picked == Some(Pick::Attach)) else {
+            return Ok(());
+        };
+        check_grid(codec, self.config.coded_size(), (view.width, view.height))?;
+        // SAFETY: Per this function's contract.
+        unsafe { attach(context, surface, codec, view.rows, view.width, view.height)? };
+        let Some(every) = self.focus.verify else {
+            return Ok(());
+        };
+        self.focus.since_verify += 1;
+        if self.focus.since_verify < every {
+            return Ok(());
+        }
+        self.focus.since_verify = 0;
+        let importance = Grid {
+            width: view.width,
+            height: view.height,
+            values: view.rows.to_vec(),
+        };
+        // SAFETY: Per this function's contract.
+        unsafe { set(surface, qp_feedback(codec), gpu::boolean(true))? };
+        self.focus.asked.push_back(Ask {
+            pts: self.index,
+            importance: Some(importance),
+            keep: false,
+        });
         Ok(())
     }
     /// Collect the QP map a frame asked for. With slice output it may come on
@@ -955,25 +1012,67 @@ mod tests {
     #[test]
     fn no_map_while_the_rate_control_settles() {
         // Frame 0 is the first, frame 100 a keyframe, frame 200 a recovery
-        // picture: each and the SETTLE_FRAMES after it skip a fresh map.
-        let mut settled = 0;
-        let picks: Vec<Pick> = (0..300u32)
-            .map(|frame| {
-                let (idr, recover, first) = (frame == 100, frame == 200, frame == 0);
-                let settling = settle(&mut settled, idr || recover || first);
-                pick(idr, recover, first, settling, Some((u64::MAX, false)), 0)
-            })
-            .collect();
-        for start in [0, 100, 200] {
-            let window = start..=start + SETTLE_FRAMES as usize;
-            assert!(picks[window].iter().all(|&picked| picked == Pick::Skip));
-            let rest = start + SETTLE_FRAMES as usize + 1..start + 100;
-            assert!(picks[rest].iter().all(|&picked| picked == Pick::Attach));
+        // picture, and the encoder makes a keyframe of its own before frame
+        // 250. Focus is off until frame 10, then every frame has a fresh map.
+        let mut state = State::default();
+        let mut picks = Vec::new();
+        for frame in 0..300u64 {
+            if frame == 250 {
+                state.keyframe_out();
+            }
+            let (idr, recover, first) = (frame == 100, frame == 200, frame == 0);
+            let map = (frame >= 10).then_some(Some((frame + 1, false)));
+            picks.push(state.frame(idr, recover, first, map));
         }
+        assert!(picks[..10].iter().all(Option::is_none));
+        let settle = SETTLE_FRAMES as usize;
+        let skipped = [
+            10..=settle,
+            100..=100 + settle,
+            200..=200 + settle,
+            250..=249 + settle,
+        ];
+        for (frame, picked) in picks.iter().enumerate().skip(10) {
+            let wanted = if skipped.iter().any(|window| window.contains(&frame)) {
+                Pick::Skip
+            } else {
+                Pick::Attach
+            };
+            assert_eq!(*picked, Some(wanted), "frame {frame}");
+        }
+        assert_eq!((state.stats.skipped_recovery, state.stats.maps), (113, 177));
+        // The last map was used, so it is not used again.
+        assert_eq!(
+            state.frame(false, false, false, Some(Some((300, false)))),
+            Some(Pick::Stale)
+        );
         // A settled stream stays settled.
-        let mut settled = u32::MAX;
-        assert!(!settle(&mut settled, false));
-        assert_eq!(settled, u32::MAX);
+        state.settled = u32::MAX;
+        assert_eq!(
+            state.frame(false, false, false, Some(Some((301, false)))),
+            Some(Pick::Attach)
+        );
+        assert_eq!(state.settled, u32::MAX);
+    }
+
+    #[test]
+    fn a_failed_map_turns_focus_off_once() {
+        let mut state = State {
+            settings: Some(crate::compute::FocusSettings {
+                mode: encoder_focus::Mode::Static,
+                levels: Default::default(),
+                cursor: None,
+            }),
+            ..Default::default()
+        };
+        state.fail(anyhow::anyhow!("AMF surface property HevcROIData"));
+        assert!(state.settings.is_none());
+        let failure = state
+            .failure
+            .take()
+            .expect("the failure waits for the stream");
+        assert!(format!("{failure:#}").contains("HevcROIData"));
+        assert!(state.failure.is_none());
     }
 
     #[test]

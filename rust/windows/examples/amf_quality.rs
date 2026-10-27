@@ -193,6 +193,9 @@ fn main() -> anyhow::Result<()> {
             None => read(index)?,
         };
         let mut output = encoder.encode_gpu(&picture, index == 0, config.bitrate_kbps)?;
+        if let Some(error) = encoder.take_focus_failure() {
+            return Err(error.context(format!("encoder focus failed on frame {index}")));
+        }
         let deadline = Instant::now() + Duration::from_secs(2);
         while encoder.pending() {
             output.extend(encoder.poll()?);

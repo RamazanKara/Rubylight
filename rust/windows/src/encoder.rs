@@ -404,6 +404,14 @@ impl Encoder {
             Self::Pyrowave(_) => Err(encoder_focus::Reason::Pyrowave),
         }
     }
+    /// Why a map failed on a frame since the last call. The encoder has
+    /// turned focus off; the stream keeps it off and says so.
+    pub fn take_focus_failure(&mut self) -> Option<anyhow::Error> {
+        match self {
+            Self::Amf(e) => e.take_focus_failure(),
+            Self::Pyrowave(_) => None,
+        }
+    }
     /// The startup check (design section 7). An error is the encoder's.
     pub fn probe_focus(&mut self) -> Result<encoder_focus::Support> {
         match self {

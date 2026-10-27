@@ -1705,6 +1705,11 @@ impl Encoder {
                 None
             };
             let idr = output_is_idr(picture_type, requested_idr);
+            if idr && !requested_idr {
+                // A keyframe the encoder chose (a pre-analysis scene change
+                // or the GOP) settles the rate control as a requested one.
+                self.focus.keyframe_out();
+            }
             let bytes = std::slice::from_raw_parts(raw, size as usize);
             if self.slice_blocks > 0 {
                 let streamable = !self.slices_joined

@@ -126,9 +126,9 @@ test('the editor shows each folder with its errors beside the field', () => {
 
 test('a device’s grants are read as the host reads them and sent sorted, or null for none', () => {
   const draft = toDraft(client({ shared_folders: { music: 'write', games: 'read', junk: 'all', bad: true } }));
-  assert.deepEqual(draft.shared_folders, { music: 'write', games: 'read' });
-  assert.deepEqual(toDraft(client({})).shared_folders, {});
-  assert.deepEqual(toDraft(client({ shared_folders: ['games'] })).shared_folders, {});
+  assert.deepEqual({ ...draft.shared_folders }, { music: 'write', games: 'read' });
+  assert.deepEqual({ ...toDraft(client({})).shared_folders }, {});
+  assert.deepEqual({ ...toDraft(client({ shared_folders: ['games'] })).shared_folders }, {});
   const none = toDraft(client({}));
   assert.deepEqual(changes(none, { ...none, shared_folders: { music: 'read', games: 'write' } }), {
     shared_folders: { games: 'write', music: 'read' },
@@ -158,6 +158,35 @@ test('the Devices editor lists every shared folder, then grants for folders no l
     { id: 'music', name: 'Music', path: 'D:\\Music', access: 'write', gone: false },
     { id: 'old', name: 'old', path: '', access: 'read', gone: true },
   ]);
-  assert.deepEqual(folders.withGrant({ games: 'read' }, 'games', ''), {});
-  assert.deepEqual(folders.withGrant({ games: 'read' }, 'music', 'write'), { games: 'read', music: 'write' });
+  assert.deepEqual({ ...folders.withGrant({ games: 'read' }, 'games', '') }, {});
+  assert.deepEqual({ ...folders.withGrant({ games: 'read' }, 'music', 'write') }, { games: 'read', music: 'write' });
+});
+
+test('ids that name an object’s prototype are refused and never read as grants', () => {
+  for (const id of ['__proto__', 'constructor', 'prototype']) assert.ok(!validFolderId(id), id);
+  // Inherited properties of a plain object are no grants.
+  const none = folders.readGrants({});
+  assert.equal(Object.getPrototypeOf(none), null);
+  assert.deepEqual(
+    grantRows([{ id: 'toString', name: 'Tools', path: 'D:\\Tools' }, { id: 'hasOwnProperty', name: 'H', path: 'D:\\H' }], none).map((row) => row.access),
+    ['', ''],
+  );
+  // A hand-edited grant for one is dropped, so saving the device doesn't send what the host refuses.
+  const read = folders.readGrants(JSON.parse('{"__proto__": "write", "constructor": "read", "games": "read"}'));
+  assert.deepEqual(Object.keys(read), ['games']);
+  assert.equal(Object.getPrototypeOf(read), null);
+  const set = folders.withGrant(read, '__proto__', 'write');
+  assert.deepEqual(Object.keys(set), ['games']);
+  assert.equal(Object.getPrototypeOf(set), null);
+  assert.equal(folders.withGrant(read, 'constructor', 'read').constructor, undefined);
+  // A folder with a reserved id shows the host's refusal and offers no grant.
+  assert.match(folderErrors([{ id: 'constructor', name: 'C', path: 'D:\\C' }])[0].id, /The host refuses the saved id/);
+  assert.deepEqual(grantRows([{ id: 'constructor', name: 'C', path: 'D:\\C' }], read), [
+    { id: 'games', name: 'games', path: '', access: 'read', gone: true },
+  ]);
+  // A name whose id would be reserved gets the next number.
+  assert.deepEqual(storedFolders([{ id: '', name: 'Constructor', path: 'D:\\C', fresh: '' }]).map((folder) => folder.id), ['constructor-2']);
+  // Taking away a grant whose id a plain object inherits still ends the stream.
+  const draft = toDraft(client({ shared_folders: { toString: 'read' } }));
+  assert.ok(savingEndsStream(true, draft, { ...draft, shared_folders: {} }));
 });

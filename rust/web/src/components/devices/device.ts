@@ -269,7 +269,7 @@ function serialise(draft: Draft): Changes {
 
 /** Whether `after` takes a folder away or leaves only reading where `before` could write. */
 export function losesFolderAccess(before: FolderGrants, after: FolderGrants): boolean {
-  return Object.entries(before).some(([id, access]) => after[id] === undefined || (access === 'write' && after[id] === 'read'));
+  return Object.entries(before).some(([id, access]) => !Object.hasOwn(after, id) || (access === 'write' && after[id] === 'read'));
 }
 
 /**

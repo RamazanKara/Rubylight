@@ -1225,9 +1225,12 @@ pub fn parse_integer(value: &str) -> Option<i64> {
 }
 /// A shared folder's id, as `shared_folders` defines it and a device grant
 /// names it: 1 to 64 ASCII letters, digits, `-` or `_`, so that it never
-/// reads as a path.
+/// reads as a path, and none of `__proto__`, `constructor` and `prototype`.
 pub fn valid_folder_id(id: &str) -> bool {
-    (1..=64).contains(&id.len())
+    // Grants are a JSON object the console keeps as a JavaScript one, where
+    // those names reach the prototype rather than a grant.
+    !matches!(id, "__proto__" | "constructor" | "prototype")
+        && (1..=64).contains(&id.len())
         && id
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
@@ -1406,7 +1409,17 @@ mod tests {
         for id in ["games", "saves-2", "a_b", &"x".repeat(64)] {
             assert!(super::valid_folder_id(id), "{id}");
         }
-        for id in ["", "../games", "a/b", "a b", "ü", &"x".repeat(65)] {
+        for id in [
+            "",
+            "../games",
+            "a/b",
+            "a b",
+            "ü",
+            &"x".repeat(65),
+            "__proto__",
+            "constructor",
+            "prototype",
+        ] {
             assert!(!super::valid_folder_id(id), "{id}");
         }
     }

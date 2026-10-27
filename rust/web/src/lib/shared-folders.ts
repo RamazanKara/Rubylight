@@ -48,9 +48,17 @@ export function readFolders(value: unknown): FolderList {
   return { folders, problem: '' };
 }
 
-/** config.rs, valid_folder_id: 1 to 64 ASCII letters, digits, - or _. */
+/** Names that reach an object's prototype rather than a grant; the host refuses them as ids too. */
+const reservedIds: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype']);
+
+/** config.rs, valid_folder_id: 1 to 64 ASCII letters, digits, - or _, and none of the reserved names. */
 export function validFolderId(id: string): boolean {
-  return /^[A-Za-z0-9_-]{1,64}$/.test(id);
+  return /^[A-Za-z0-9_-]{1,64}$/.test(id) && !reservedIds.has(id);
+}
+
+/** Grants with no prototype, so no id reads as an inherited property. */
+function noGrants(): FolderGrants {
+  return Object.create(null) as FolderGrants;
 }
 
 /**
@@ -129,7 +137,7 @@ export function folderId(name: string, fresh: string, taken: ReadonlySet<string>
   const tag = fresh.replace(/[^a-z0-9]/g, '').slice(0, 16);
   const base = tag ? `${slug}-${tag}` : slug;
   let id = base;
-  for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
+  for (let n = 2; taken.has(id) || reservedIds.has(id); n++) id = `${base}-${n}`;
   return id;
 }
 
@@ -153,12 +161,16 @@ export function storedFolders(folders: readonly SharedFolder[]): SharedFolder[] 
   });
 }
 
-/** A device's grants as the host keeps them; anything but read or write grants nothing there and is left out. */
+/**
+ * A device's grants as the host keeps them. Anything but read or write, and
+ * an id the host refuses, grants nothing there and is left out: the host
+ * would refuse saving it back.
+ */
 export function readGrants(value: unknown): FolderGrants {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  const grants: FolderGrants = {};
+  const grants = noGrants();
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return grants;
   for (const [id, access] of Object.entries(value as Record<string, unknown>)) {
-    if (access === 'read' || access === 'write') grants[id] = access;
+    if ((access === 'read' || access === 'write') && validFolderId(id)) grants[id] = access;
   }
   return grants;
 }
@@ -169,10 +181,15 @@ export function grantsValue(grants: FolderGrants): FolderGrants | null {
   return entries.length ? Object.fromEntries(entries) : null;
 }
 
-/** The grants with `id` set to `access`, or removed for none. */
+/** The grant of folder `id`, or none. */
+export function grantOf(grants: FolderGrants, id: string): FolderAccess | '' {
+  return (Object.hasOwn(grants, id) && grants[id]) || '';
+}
+
+/** The grants with `id` set to `access`, or removed for none. An id the host refuses is never set. */
 export function withGrant(grants: FolderGrants, id: string, access: FolderAccess | ''): FolderGrants {
-  const next = { ...grants };
-  if (access) next[id] = access;
+  const next = Object.assign(noGrants(), grants);
+  if (access && validFolderId(id)) next[id] = access;
   else delete next[id];
   return next;
 }
@@ -190,7 +207,7 @@ export interface GrantRow {
 export function grantRows(folders: readonly SharedFolder[], grants: FolderGrants): GrantRow[] {
   const rows: GrantRow[] = folders
     .filter((folder) => validFolderId(folder.id))
-    .map((folder) => ({ id: folder.id, name: folder.name, path: folder.path, access: grants[folder.id] ?? '', gone: false }));
+    .map((folder) => ({ id: folder.id, name: folder.name, path: folder.path, access: grantOf(grants, folder.id), gone: false }));
   for (const [id, access] of Object.entries(grants)) {
     if (!rows.some((row) => row.id === id)) rows.push({ id, name: id, path: '', access, gone: true });
   }

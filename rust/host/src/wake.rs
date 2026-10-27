@@ -410,12 +410,17 @@ pub fn status(h: &Host) -> Status {
     }
 }
 
-/// Whether a stream holds the PC, from the host's own maps; `suspended`
-/// also counts a launched app and a display kept for a paused stream.
+/// Whether a stream holds the PC, from the host's own maps: what Sleep PC
+/// counts as busy (`power_action::idle`) too, a teardown, a WebRTC transport
+/// and a controller session included. `suspended` also counts a launched app
+/// and a display kept for a paused stream.
 fn holding(h: &Host) -> (bool, bool) {
     let sessions = locked(&h.sessions);
-    let streaming = !sessions.active.is_empty() || !sessions.pending.is_empty();
+    let streaming = !sessions.active.is_empty()
+        || !sessions.pending.is_empty()
+        || !sessions.teardown.is_empty();
     drop(sessions);
+    let streaming = streaming || h.webrtc_links.len() != 0 || h.controller_sessions.in_use();
     let suspended = locked(&h.current_app).is_some() || !locked(&h.monitors).is_empty();
     (streaming, suspended)
 }
@@ -439,6 +444,9 @@ fn snapshot(h: &Host, power: &dyn PowerSystem, now: Instant, state: Session) -> 
     let (mut streaming, mut suspended) = holding(h);
     streaming |= !matches!(state, Session::Idle | Session::Suspended);
     suspended |= state == Session::Suspended;
+    // Its own statement: a guard in the literal below would be held while the
+    // helpers run, and every console request would wait for them.
+    let console = locked(&h.wake.console).map(|at| now.saturating_duration_since(at));
     // Off asks Windows nothing and starts no helper.
     Snapshot {
         now,
@@ -453,7 +461,7 @@ fn snapshot(h: &Host, power: &dyn PowerSystem, now: Instant, state: Session) -> 
         streaming,
         suspended,
         updating: updating(h),
-        console: locked(&h.wake.console).map(|at| now.saturating_duration_since(at)),
+        console,
         execution: if on {
             power
                 .execution_state()
@@ -1191,6 +1199,61 @@ mod tests {
     }
 
     #[test]
+    fn what_sleep_pc_counts_as_busy_blocks_it_too() {
+        // A stream still tearing down.
+        let (f, fake, start) = armed();
+        f.host
+            .sessions
+            .lock()
+            .unwrap()
+            .teardown
+            .insert("x".into(), Instant::now());
+        tick_at(&f.host, start + 11 * MINUTE);
+        assert_eq!(fake.sleeps(), 0, "a teardown");
+        // A WebRTC transport nobody took yet.
+        let (f, fake, start) = armed();
+        let (handle, _) = crate::webrtc::media::tests::real_handle(Default::default());
+        f.host.webrtc_links.put("x".into(), handle);
+        tick_at(&f.host, start + 11 * MINUTE);
+        assert_eq!(fake.sleeps(), 0, "a WebRTC transport");
+        f.host.webrtc_links.discard("x");
+        // A controller session a stream still holds.
+        let (f, fake, start) = armed();
+        let controller = f
+            .host
+            .controller_sessions
+            .acquire(&f.launch(f.client(0), Role::Stream), &Default::default())
+            .unwrap();
+        tick_at(&f.host, start + 11 * MINUTE);
+        assert_eq!(fake.sleeps(), 0, "a controller session");
+        drop(controller);
+        // The quiet interval counts from when it let go.
+        tick_at(&f.host, start + 12 * MINUTE);
+        tick_at(&f.host, start + 20 * MINUTE);
+        assert_eq!(fake.sleeps(), 0);
+        tick_at(&f.host, start + 23 * MINUTE);
+        assert_eq!(fake.sleeps(), 1);
+    }
+
+    #[test]
+    fn sleep_pc_and_sleep_after_idle_never_suspend_together() {
+        let (f, fake, start) = armed();
+        // Sleep PC holds the lifecycle gate from its idle check through its
+        // suspend, which returns once the PC woke.
+        let gate = f.host.launch_transition.lock().unwrap();
+        tick_at(&f.host, start + 11 * MINUTE);
+        assert_eq!(fake.sleeps(), 0);
+        *locked(&fake.slept) = Ok(60 * MINUTE);
+        drop(gate);
+        // Back from Sleep PC's sleep: a full interval from the resume.
+        tick_at(&f.host, start + 12 * MINUTE);
+        tick_at(&f.host, start + 21 * MINUTE);
+        assert_eq!(fake.sleeps(), 0);
+        tick_at(&f.host, start + 23 * MINUTE);
+        assert_eq!(fake.sleeps(), 1);
+    }
+
+    #[test]
     fn after_a_resume_it_waits_a_full_interval_again() {
         let (f, fake, start) = armed();
         *locked(&fake.nap) = 29 * MINUTE;
@@ -1245,7 +1308,7 @@ mod tests {
         *locked(&fake.execution) = 0;
         tick_at(&f.host, start + 11 * MINUTE + idle::TICK);
         assert_eq!(fake.sleeps(), 1);
-        // A console request comes after it.
+        // A console request comes after the first snapshot read the console.
         let (f, fake, start) = armed();
         let host = Arc::downgrade(&f.host);
         let reads = Arc::new(AtomicUsize::new(0));
@@ -1253,7 +1316,7 @@ mod tests {
             let reads = reads.clone();
             move |_, method| {
                 if method == "execution_state"
-                    && reads.fetch_add(1, Ordering::SeqCst) == 1
+                    && reads.fetch_add(1, Ordering::SeqCst) == 0
                     && let Some(h) = host.upgrade()
                 {
                     *locked(&h.wake.console) = Some(start + 11 * MINUTE);
@@ -1262,6 +1325,8 @@ mod tests {
         });
         tick_at(&f.host, start + 11 * MINUTE);
         assert_eq!(fake.sleeps(), 0);
+        // Seen by the recheck, not the first snapshot.
+        assert_eq!(reads.load(Ordering::SeqCst), 2);
         assert_eq!(
             status(&f.host).reason.as_deref(),
             Some("waiting for console activity")

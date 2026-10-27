@@ -37,6 +37,40 @@ pub struct Loopback {
     process: Option<crate::process::AudioProcess>,
     /// The endpoint's own channel count and speaker mask.
     source: (usize, u32),
+    /// Keeps an endpoint capture delivering through silence; None for game-only capture.
+    keepalive: Option<KeepAlive>,
+}
+/// A started render stream of silence on the captured endpoint. Loopback capture delivers
+/// nothing while no stream renders to its endpoint, so when the sound stopped the host went
+/// quiet until it noticed (50 ms) and the client heard an underrun; with this the endpoint keeps
+/// delivering silent audio at its own pace, and sound turning to silence leaves no gap. It
+/// renders one buffer of silence and is left to starve, which keeps the stream active (OBS does
+/// the same); the client gets the silent Opus packets it got after the 50 ms anyway.
+struct KeepAlive(IAudioClient);
+impl KeepAlive {
+    /// # Safety
+    /// COM is initialized on this thread and `format` is the endpoint's mix format.
+    unsafe fn new(device: &IMMDevice, format: *const WAVEFORMATEX) -> Result<Self> {
+        // SAFETY: as the caller promises; the buffer is released before Start.
+        unsafe {
+            let client: IAudioClient = device.Activate(CLSCTX_ALL, None)?;
+            client.Initialize(AUDCLNT_SHAREMODE_SHARED, 0, 100_000, 0, format, None)?;
+            let frames = client.GetBufferSize()?;
+            let render: IAudioRenderClient = client.GetService()?;
+            render.GetBuffer(frames)?;
+            render.ReleaseBuffer(frames, AUDCLNT_BUFFERFLAGS_SILENT.0 as u32)?;
+            client.Start()?;
+            Ok(Self(client))
+        }
+    }
+}
+impl Drop for KeepAlive {
+    fn drop(&mut self) {
+        // SAFETY: the client is live and started.
+        unsafe {
+            let _ = self.0.Stop();
+        }
+    }
 }
 impl Loopback {
     pub fn new(output_channels: usize) -> Result<Self> {
@@ -131,6 +165,14 @@ impl Loopback {
                 });
             let capture = client.GetService()?;
             client.Start()?;
+            // Without it the capture still works and goes quiet through silence, as before.
+            let keepalive = KeepAlive::new(&device, format.0)
+                .inspect_err(|error| {
+                    tracing::warn!(
+                        "audio keep-alive render stream failed, silence will start late: {error:#}"
+                    )
+                })
+                .ok();
             Ok(Self {
                 client,
                 capture,
@@ -152,6 +194,7 @@ impl Loopback {
                 delivered: None,
                 process: None,
                 source: (f.nChannels as usize, mask),
+                keepalive,
             })
         }
     }
@@ -232,6 +275,7 @@ impl Loopback {
                 delivered: None,
                 process: Some(process),
                 source: (2, 3),
+                keepalive: None,
             })
         }
     }
@@ -643,6 +687,42 @@ impl Drop for OpusDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "needs the default playback device; proves the fix only while nothing plays"]
+    fn an_endpoint_capture_keeps_delivering_through_silence() {
+        // SAFETY: no pointers; the thread keeps COM for the test.
+        unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).ok().unwrap() };
+        // The host's 1 ms timer resolution, so 5 ms waits are not 15.6 ms ones.
+        // SAFETY: no pointers.
+        unsafe { windows::Win32::Media::timeBeginPeriod(1) };
+        let mut capture = Loopback::new(2).unwrap();
+        let start = std::time::Instant::now();
+        let (mut first, mut last, mut worst, mut packets) =
+            (None, start, std::time::Duration::ZERO, 0);
+        while start.elapsed() < std::time::Duration::from_secs(2) {
+            capture.wait(std::time::Duration::from_millis(5));
+            while capture.read(240).unwrap().is_some() {
+                let now = std::time::Instant::now();
+                // The endpoint takes a moment to start delivering.
+                if first.is_some_and(|at| now - at > std::time::Duration::from_millis(200)) {
+                    worst = worst.max(now - last);
+                }
+                first.get_or_insert(now);
+                last = now;
+                packets += 1;
+            }
+        }
+        // An idle endpoint without the keep-alive delivers nothing at all. With it, the audio
+        // keeps time, and no wait comes near the 50 ms after which the host sends its own
+        // silence (deliveries bunch up to about 40 ms on a busy PC, as they do with sound).
+        eprintln!("{packets} packets, worst gap {worst:?}");
+        assert!(packets >= 360, "{packets} packets of 5 ms in 2 s");
+        assert!(
+            worst < std::time::Duration::from_millis(50),
+            "a {worst:?} gap between deliveries"
+        );
+    }
 
     fn capture_samples(rate: u32) -> CaptureSamples {
         CaptureSamples {

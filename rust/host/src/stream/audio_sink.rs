@@ -84,7 +84,9 @@ impl AudioClock {
     }
 }
 
-/// How long an endpoint must be quiet before silence stands in for it.
+/// How long an endpoint must be quiet before silence stands in for it. An endpoint capture keeps
+/// delivering through silence (its keep-alive render stream); this covers game-only capture and a
+/// capture that is gone.
 const IDLE: Duration = Duration::from_millis(50);
 
 /// What the audio thread decides each pass, apart from the sound card and the socket: when the

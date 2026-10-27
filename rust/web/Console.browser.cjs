@@ -72,6 +72,13 @@ async function fixture(t, options = {}) {
       releases: [], checked_at: 0, auto_update: true, update_check_interval: 0,
       install_supported: true, update_available: true, phase: 'idle', ...options.updates,
     });
+    if (url.pathname === '/api/power') return reply({
+      status: true,
+      wake: { revision: 1, primary: null, targets: [],
+        system: { sleep: 's3', modern_standby: false, hibernate: false, fast_startup: 'off', shutdown_wake: 'unknown' } },
+      idle_sleep: { state: 'off', minutes: 0, reason: null, remaining_seconds: null }, last_sleep: null,
+      fix: { running: false, changes: [], skipped: [], error: null, fast_startup_off_offered: false, last: null },
+    });
     if (url.pathname === '/api/auth/sessions') return reply({ sessions: [] });
     if (url.pathname === '/api/tokens') return reply({ tokens: [] });
     if (url.pathname === '/api/token/routes') return reply({ routes: [] });

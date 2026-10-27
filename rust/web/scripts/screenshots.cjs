@@ -44,6 +44,19 @@ const replies = {
   '/api/token/routes': { routes: [] },
   '/api/display/golden_status': { status: true, exists: true, comparison_available: true, current_mismatch_reason: '' },
   '/api/frame-limiter/status': { enabled: false, configured_provider: 'none', active_provider: 'none', resolved_path: '' },
+  '/api/power': {
+    status: true,
+    wake: { revision: 1, primary: '9c:6b:00:12:34:56', targets: [
+      { mac: '9c:6b:00:12:34:56', kind: 'ethernet', connected: true, route: true, broadcasts: ['192.168.4.255'], state: 'needs_setup',
+        checks: [{ id: 'wake_enabled', state: 'error' }, { id: 'magic_packet', state: 'ok' }, { id: 'magic_packet_only', state: 'warning' }] },
+      { mac: '9c:6b:00:ab:cd:ef', kind: 'wifi', connected: false, route: false, broadcasts: [], state: 'experimental', checks: [] },
+    ], system: { sleep: 's3', modern_standby: false, hibernate: true, fast_startup: 'active', shutdown_wake: 'firmware_unknown' } },
+    idle_sleep: { state: 'armed', minutes: 30, reason: 'waiting for console activity', remaining_seconds: 1260 },
+    last_sleep: null,
+    fix: { running: false, changes: ['Realtek PCIe 2.5GbE: allow this device to wake the computer',
+      'Realtek PCIe 2.5GbE: only allow a magic packet to wake the computer'], skipped: [], error: null,
+    fast_startup_off_offered: true, last: null },
+  },
 };
 
 (async () => {

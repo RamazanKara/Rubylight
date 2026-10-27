@@ -7,6 +7,7 @@
   import HostPanel from '../components/maintenance/HostPanel.svelte';
   import LimiterPanel from '../components/maintenance/LimiterPanel.svelte';
   import PasswordPanel from '../components/maintenance/PasswordPanel.svelte';
+  import PowerPanel from '../components/maintenance/PowerPanel.svelte';
   import Section from '../components/maintenance/Section.svelte';
   import SessionsPanel from '../components/maintenance/SessionsPanel.svelte';
   import UpdatesPanel from '../components/maintenance/UpdatesPanel.svelte';
@@ -40,6 +41,9 @@
   <Section title="Host">
     <HostPanel />
     <UpdatesPanel />
+  </Section>
+  <Section title="Power">
+    <PowerPanel />
   </Section>
   <Section title="Displays and Windows session">
     <DisplaysPanel />

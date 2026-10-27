@@ -23,6 +23,20 @@ function deferred() {
   return { promise, resolve };
 }
 
+// `GET /api/power` as host/src/wake.rs console_status sends it.
+function powerStatus(changes = {}) {
+  return {
+    status: true,
+    wake: { revision: 1, primary: 'aa:bb:cc:dd:ee:01', targets: [{
+      mac: 'aa:bb:cc:dd:ee:01', kind: 'ethernet', connected: true, route: true, broadcasts: ['192.168.4.255'], state: 'ready',
+      checks: [{ id: 'wake_enabled', state: 'ok' }, { id: 'magic_packet', state: 'ok' }, { id: 'magic_packet_only', state: 'ok' }],
+    }], system: { sleep: 's3', modern_standby: false, hibernate: false, fast_startup: 'off', shutdown_wake: 'unknown' }, ...changes.wake },
+    idle_sleep: { state: 'off', minutes: 0, reason: null, remaining_seconds: null, ...changes.idle_sleep },
+    last_sleep: null,
+    fix: { running: false, changes: [], skipped: [], error: null, fast_startup_off_offered: false, last: null, ...changes.fix },
+  };
+}
+
 async function fixture(t, intercept = async () => false) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   page.setDefaultTimeout(10000);
@@ -57,6 +71,7 @@ async function fixture(t, intercept = async () => false) {
       '/api/auth/sessions': { sessions: [] },
       '/api/display/golden_status': { status: true, exists: true, comparison_available: false, current_mismatch_reason: '' },
       '/api/frame-limiter/status': { enabled: false, configured_provider: 'none', active_provider: 'none', resolved_path: '' },
+      '/api/power': powerStatus(),
     };
     return reply(replies[url.pathname] ?? { status: true, available: false, enabled: false });
   });
@@ -65,7 +80,7 @@ async function fixture(t, intercept = async () => false) {
 
 test('maintenance panels recover failed loads without reloading the console', async t => {
   const failures = new Set(['/api/display/golden_status', '/api/health/crashdump', '/api/health/vulkan-hdr-layer',
-    '/api/frame-limiter/status', '/api/auth/sessions', '/api/updates']);
+    '/api/frame-limiter/status', '/api/auth/sessions', '/api/updates', '/api/power']);
   const { page } = await fixture(t, async (route, url) => {
     if (!failures.delete(url.pathname)) return false;
     await route.fulfill({ status: 503, body: 'Temporarily unavailable' });
@@ -73,7 +88,7 @@ test('maintenance panels recover failed loads without reloading the console', as
   });
   await page.goto(base + '/maintenance');
   for (const what of ['the display layout', 'crash reports', 'the Vulkan layer status',
-    'the frame limiter status', 'signed-in browsers', 'the update status']) {
+    'the frame limiter status', 'signed-in browsers', 'the update status', 'the wake status']) {
     const retry = page.getByRole('button', { name: `Retry ${what}`, exact: true });
     await retry.click();
     await retry.waitFor({ state: 'detached' });
@@ -423,7 +438,7 @@ test('maintenance is grouped into sections and every destructive action looks an
   await page.goto(base + '/maintenance');
   await page.getByRole('button', { name: 'Restore saved layout', exact: true }).waitFor();
   assert.deepEqual(await page.locator('main').getByRole('heading', { level: 2 }).allInnerTexts(),
-    ['Host', 'Displays and Windows session', 'Troubleshooting', 'Integrations', 'Security']);
+    ['Host', 'Power', 'Displays and Windows session', 'Troubleshooting', 'Integrations', 'Security']);
   for (const [name, title, confirmName] of [
     ['Quit', 'Quit Rubylight?', 'Quit'],
     ['Delete saved layout', 'Delete the saved layout?', 'Delete'],
@@ -440,6 +455,61 @@ test('maintenance is grouped into sections and every destructive action looks an
     await dialog.waitFor({ state: 'hidden' });
   }
   assert.deepEqual(writes, []);
+});
+
+test('Wake-on-LAN changes apply only after confirmation, exactly as listed, and a stale list is checked again', async t => {
+  const first = ['Realtek PCIe GbE: allow this device to wake the computer'];
+  const now = [...first, 'Realtek PCIe GbE: turn on Wake on magic packet'];
+  const needs = { wake: { targets: [{ mac: 'aa:bb:cc:dd:ee:01', kind: 'ethernet', connected: true, route: true, broadcasts: [],
+    state: 'needs_setup', checks: [{ id: 'wake_enabled', state: 'error' }, { id: 'magic_packet', state: 'ok' }] }],
+    system: { sleep: 's3', modern_standby: false, hibernate: true, fast_startup: 'active', shutdown_wake: 'firmware_unknown' } },
+    idle_sleep: { state: 'armed', minutes: 30, remaining_seconds: 720, reason: 'waiting for console activity' } };
+  let offered = first, posts = 0, polls = 0, applied = false;
+  const { page, writes } = await fixture(t, async (route, url, request) => {
+    if (url.pathname === '/api/power' && request.method() === 'GET') {
+      // The fix runs for one poll after the 202, then its result is there.
+      const running = applied && polls++ === 0;
+      const last = applied && !running ? { at: Math.floor(Date.now() / 1000), changes: now, restarted: ['Realtek PCIe GbE'], after_reboot: [], errors: [] } : null;
+      await route.fulfill({ json: powerStatus({ ...needs, fix: { changes: offered, fast_startup_off_offered: true, running, last } }) });
+      return true;
+    }
+    if (url.pathname !== '/api/power/wake/fix') return false;
+    // The adapters changed after the first check: the host refuses and lists the changes now.
+    if (++posts === 1) {
+      offered = now;
+      await route.fulfill({ status: 409, json: { status: false, error: "not applied: the adapters' settings changed since you checked; check again", changes: now, skipped: [] } });
+    } else {
+      applied = true;
+      await route.fulfill({ status: 202, json: { status: true, changes: [...now, 'Turn off Fast Startup'], skipped: [] } });
+    }
+    return true;
+  });
+  await page.goto(base + '/maintenance');
+  const panel = page.locator('section.panel', { has: page.getByRole('heading', { name: 'Wake-on-LAN and sleep', exact: true }) });
+  await panel.getByText(/A wake setting of the wired adapter aa:bb:cc:dd:ee:01 is off/).waitFor();
+  await panel.getByText('Sleeps in 12 min if nothing changes (counted from the last use of this console).', { exact: true }).waitFor();
+  await panel.getByText(/Fast Startup is on: Shut down hibernates the PC/).waitFor();
+  const apply = panel.getByRole('button', { name: 'Apply changes', exact: true });
+  await apply.click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+  assert.deepEqual(writes, []);
+  await apply.click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Apply changes', exact: true }).click();
+  await page.getByText(/Wake-on-LAN changes not applied: not applied: the adapters' settings changed since you checked/).waitFor();
+  await panel.getByText(now[1], { exact: true }).waitFor();
+  await panel.getByText('Also turn off Fast Startup', { exact: true }).click();
+  await apply.click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Apply changes', exact: true }).click();
+  await page.getByText('Wake-on-LAN changes applied.', { exact: true }).waitFor();
+  await panel.getByText(/Applied 2 changes just now\.\s+Restarted: Realtek PCIe GbE\./).waitFor();
+  // What the administrator saw, the first time and after checking again.
+  assert.deepEqual(writes.map(write => write.body), [
+    { changes: first, fast_startup_off: false },
+    { changes: now, fast_startup_off: true },
+  ]);
+  if (process.env.BUTTERPOLLO_TEST_ARTIFACTS) await panel.screenshot({ path: path.join(process.env.BUTTERPOLLO_TEST_ARTIFACTS, 'power-panel.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
 });
 
 test('refreshing the Windows session status spins only its own button', async t => {

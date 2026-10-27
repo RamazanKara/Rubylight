@@ -600,6 +600,73 @@ export interface LogChunk {
   reset: boolean;
   text: string;
 }
+/** One wake setting of an adapter; ids and states from a newer host are shown by their state. */
+export interface WakeCheck {
+  id: string;
+  state: 'ok' | 'warning' | 'error' | 'unknown';
+}
+/** A physical adapter a magic packet can wake the PC through. */
+export interface WakeTarget {
+  mac: string;
+  kind: 'ethernet' | 'wifi' | 'unknown';
+  connected: boolean;
+  /** This console's request came in through this adapter. */
+  route: boolean;
+  broadcasts: string[];
+  state: 'ready' | 'needs_setup' | 'experimental' | 'unknown';
+  checks: WakeCheck[];
+}
+export type IdleSleepState = 'off' | 'armed' | 'blocked' | 'unsupported' | 'unknown';
+export interface PowerStatus {
+  status: true;
+  wake: {
+    revision: number;
+    /** The MAC `/serverinfo` reports; null when no physical adapter is connected. */
+    primary: string | null;
+    targets: WakeTarget[];
+    system: {
+      sleep: 's3' | 'none' | 'unknown';
+      modern_standby: boolean;
+      hibernate: boolean;
+      fast_startup: 'active' | 'inactive' | 'off' | 'unknown';
+      shutdown_wake: 'firmware_unknown' | 'unknown';
+    };
+  };
+  idle_sleep: {
+    state: IdleSleepState;
+    /** 0 when off. */
+    minutes: number;
+    /** Why it is blocked or unsupported, or, while armed, what it waits for. */
+    reason: string | null;
+    /** While armed: seconds until the PC sleeps if nothing changes. */
+    remaining_seconds: number | null;
+  };
+  /** Unix seconds; `error` when Windows refused to sleep. */
+  last_sleep: { at: number; error: string | null } | null;
+  fix: {
+    running: boolean;
+    /** The changes a fix would make; null when the adapters could not be read (`error`). */
+    changes: string[] | null;
+    /** Adapters that need a change the host can't make, and why. */
+    skipped: string[] | null;
+    error: string | null;
+    /** Fast Startup is active: turning it off is its own choice. */
+    fast_startup_off_offered: boolean;
+    last: {
+      at: number;
+      changes?: string[];
+      restarted?: string[];
+      after_reboot?: string[];
+      errors: string[];
+    } | null;
+  };
+}
+export interface PowerFixResult {
+  status: true;
+  /** Empty when there was nothing to change (200); applied about a second later otherwise (202). */
+  changes: string[];
+  skipped: string[];
+}
 
 // ---------- endpoints ----------
 
@@ -726,6 +793,13 @@ export const api = {
     install: () => post<Ok>('/api/updates/install'),
     installNow: () => post<Ok>('/api/updates/install_now'),
     cancel: () => post<Ok>('/api/updates/cancel'),
+  },
+  power: {
+    /** `refresh` reads the adapters again instead of the host's last reading. */
+    status: (refresh = false) => get<PowerStatus>(`/api/power${refresh ? '?refresh=1' : ''}`, ACTION_TIMEOUT_MS),
+    /** Applies exactly `changes`, as `status` listed them; 409 when they changed since. */
+    fixWake: (changes: string[], fastStartupOff: boolean) =>
+      post<PowerFixResult>('/api/power/wake/fix', { changes, fast_startup_off: fastStartupOff }, ACTION_TIMEOUT_MS),
   },
   tokens: {
     list: () => get<{ status: true; tokens: ApiToken[] }>('/api/tokens'),

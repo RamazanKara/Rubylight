@@ -10,7 +10,7 @@ use super::native::error_of;
 use super::native_api::PREFIX;
 use super::transport::{self, encode_query, Request, Timeouts, Upload};
 use super::{Error, HostClient, LONG_CONNECT_TIMEOUT, READ_TIMEOUT};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::io::{ErrorKind, Read, Write};
 use std::time::Duration;
 
@@ -47,7 +47,7 @@ impl TransferCancel {
 }
 
 /// One file in the host's transfer folder.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct RemoteFile {
     pub name: String,
     pub size: u64,
@@ -55,7 +55,7 @@ pub struct RemoteFile {
 }
 
 /// The host's transfer folder.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct FileList {
     /// Where the files land on the host, for display.
     pub folder: String,
@@ -67,7 +67,7 @@ pub struct FileList {
 
 /// A finished upload: the name the host stored it under, which gains " (n)" when the name was
 /// taken, and its size.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Uploaded {
     pub name: String,
     pub size: u64,

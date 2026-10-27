@@ -25,6 +25,7 @@ mod probe;
 mod remote_check;
 mod serverinfo;
 mod transport;
+pub mod transfers;
 mod usb;
 mod xml;
 

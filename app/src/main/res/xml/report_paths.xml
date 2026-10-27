@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <cache-path name="reports" path="reports/" />
+    <!-- The newest image copied from the host's clipboard (ClipboardImages). -->
+    <cache-path name="clipboard" path="clipboard/" />
 </paths>

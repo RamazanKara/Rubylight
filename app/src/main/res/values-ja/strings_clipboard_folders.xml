@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_clipboard_image_send">クリップボードの画像をホストに送信</string>
+    <string name="stream_clipboard_image_receive">ホストのクリップボードの画像をコピー</string>
+    <string name="stream_clipboard_image_empty">クリップボードに画像がありません</string>
+    <string name="stream_clipboard_image_sent">クリップボードの画像をホストに送信しました</string>
+    <string name="stream_clipboard_image_none">ホストのクリップボードに画像がありません</string>
+    <string name="stream_clipboard_image_received">ホストの画像をクリップボードにコピーしました</string>
+    <string name="clipboard_image_too_large">画像がホストのクリップボードには大きすぎます</string>
+    <string name="clipboard_image_not_png">画像を読み取れませんでした</string>
+    <string name="clipboard_image_unsupported">このホストはクリップボードの画像を共有できません</string>
+    <string name="clipboard_image_forbidden">ホストはこのデバイスにクリップボードの使用を許可していません</string>
+    <string name="folders_title">共有フォルダー</string>
+    <string name="folders_on_pc">%1$s がこのデバイスと共有しているフォルダー</string>
+    <string name="folders_loading">読み込み中…</string>
+    <string name="folders_pair_first">先にこの PC とペアリングしてください。</string>
+    <string name="folders_disabled">この PC はフォルダーを共有していません。PC の Web UI でフォルダーを共有し、このデバイスにアクセスを許可してください。</string>
+    <string name="folders_no_grant">この PC はこのデバイスとフォルダーを共有していません。PC の Web UI でアクセスを許可してください。</string>
+    <string name="folders_read_only">読み取り専用</string>
+    <string name="folders_read_write">読み取りと書き込み</string>
+    <string name="folders_all">すべてのフォルダー</string>
+    <string name="folders_up">1 つ上へ</string>
+    <string name="folders_upload">ここにファイルをアップロード</string>
+    <string name="folders_empty">このフォルダーは空です。</string>
+    <string name="folders_unsupported_entry">Nightjar では非対応</string>
+    <string name="folders_retry">再試行</string>
+    <string name="folders_no_picker">このデバイスには対応するファイル選択画面がありません。</string>
+    <string name="folders_downloading">%1$s をダウンロード中: %3$s 中 %2$s</string>
+    <string name="folders_uploading">%1$s をアップロード中: %3$s 中 %2$s</string>
+    <string name="folders_downloaded">%1$s をダウンロードに保存しました</string>
+    <string name="folders_saved">%1$s を保存しました</string>
+    <string name="folders_uploaded">%1$s としてアップロードしました</string>
+    <string name="folders_cancelled">転送をキャンセルしました。</string>
+    <string name="folders_failed">リクエストに失敗しました: %1$s</string>
+    <string name="folders_local_failed">このデバイスでファイルを読み書きできませんでした: %1$s</string>
+    <string name="folders_forbidden">このデバイスはこのフォルダーにアクセスできません。</string>
+    <string name="folders_upload_forbidden">このデバイスはこのフォルダーからダウンロードのみできます。</string>
+    <string name="folders_not_found">PC 上にもうありません。</string>
+    <string name="folders_invalid_name">PC はこのファイル名を受け付けません。</string>
+    <string name="folders_incomplete">ファイルが完全に届きませんでした。もう一度お試しください。</string>
+    <string name="folders_too_large">ファイルが PC には大きすぎます。</string>
+    <string name="folders_storage_full">PC のディスクがいっぱいです。</string>
+    <string name="folders_no_console_user">PC に誰もサインインしていません。</string>
+    <string name="folders_busy">このデバイスから別の転送が実行中です。終了してからもう一度お試しください。</string>
+    <string name="folders_size_unknown">ファイルのサイズが不明なため、アップロードできません。</string>
+</resources>

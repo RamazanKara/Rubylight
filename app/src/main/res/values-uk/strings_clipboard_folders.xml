@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_clipboard_image_send">Надіслати зображення з буфера обміну на хост</string>
+    <string name="stream_clipboard_image_receive">Копіювати зображення з буфера обміну хоста</string>
+    <string name="stream_clipboard_image_empty">У буфері обміну немає зображення</string>
+    <string name="stream_clipboard_image_sent">Зображення з буфера обміну надіслано на хост</string>
+    <string name="stream_clipboard_image_none">У буфері обміну хоста немає зображення</string>
+    <string name="stream_clipboard_image_received">Зображення з хоста скопійовано в буфер обміну</string>
+    <string name="clipboard_image_too_large">Зображення завелике для буфера обміну хоста</string>
+    <string name="clipboard_image_not_png">Не вдалося прочитати зображення</string>
+    <string name="clipboard_image_unsupported">Цей хост не може передавати зображення через буфер обміну</string>
+    <string name="clipboard_image_forbidden">Хост не дозволяє цьому пристрою користуватися його буфером обміну</string>
+    <string name="folders_title">Спільні папки</string>
+    <string name="folders_on_pc">Папки, які %1$s відкриває цьому пристрою</string>
+    <string name="folders_loading">Завантаження…</string>
+    <string name="folders_pair_first">Спочатку створіть пару з цим ПК.</string>
+    <string name="folders_disabled">Цей ПК не відкриває спільних папок. Відкрийте папку у веб-інтерфейсі ПК і надайте доступ цьому пристрою.</string>
+    <string name="folders_no_grant">Цей ПК не відкриває папок цьому пристрою. Надайте йому доступ у веб-інтерфейсі ПК.</string>
+    <string name="folders_read_only">Лише читання</string>
+    <string name="folders_read_write">Читання й запис</string>
+    <string name="folders_all">Усі папки</string>
+    <string name="folders_up">На рівень вище</string>
+    <string name="folders_upload">Вивантажити файл сюди</string>
+    <string name="folders_empty">Ця папка порожня.</string>
+    <string name="folders_unsupported_entry">Не підтримується Nightjar</string>
+    <string name="folders_retry">Повторити</string>
+    <string name="folders_no_picker">На цьому пристрої немає відповідного засобу вибору файлів.</string>
+    <string name="folders_downloading">Завантаження %1$s: %2$s з %3$s</string>
+    <string name="folders_uploading">Вивантаження %1$s: %2$s з %3$s</string>
+    <string name="folders_downloaded">%1$s збережено в «Завантаження»</string>
+    <string name="folders_saved">%1$s збережено</string>
+    <string name="folders_uploaded">Вивантажено як %1$s</string>
+    <string name="folders_cancelled">Передавання скасовано.</string>
+    <string name="folders_failed">Запит не виконано: %1$s</string>
+    <string name="folders_local_failed">Цьому пристрою не вдалося прочитати або записати файл: %1$s</string>
+    <string name="folders_forbidden">Цей пристрій не має доступу до цієї папки.</string>
+    <string name="folders_upload_forbidden">Цей пристрій може лише завантажувати з цієї папки.</string>
+    <string name="folders_not_found">Цього вже немає на ПК.</string>
+    <string name="folders_invalid_name">ПК не приймає таку назву файлу.</string>
+    <string name="folders_incomplete">Файл надійшов не повністю. Спробуйте ще раз.</string>
+    <string name="folders_too_large">Файл завеликий для ПК.</string>
+    <string name="folders_storage_full">Диск ПК заповнений.</string>
+    <string name="folders_no_console_user">На ПК ніхто не ввійшов у систему.</string>
+    <string name="folders_busy">Триває інше передавання з цього пристрою. Спробуйте ще раз, коли воно завершиться.</string>
+    <string name="folders_size_unknown">Розмір файлу невідомий, тому його не можна вивантажити.</string>
+</resources>

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_clipboard_image_send">Send clipboard image to host</string>
+    <string name="stream_clipboard_image_receive">Copy host clipboard image</string>
+    <string name="stream_clipboard_image_empty">The clipboard has no image</string>
+    <string name="stream_clipboard_image_sent">Clipboard image sent to host</string>
+    <string name="stream_clipboard_image_none">The host clipboard has no image</string>
+    <string name="stream_clipboard_image_received">Host image copied to clipboard</string>
+    <string name="clipboard_image_too_large">The image is too large for the host clipboard</string>
+    <string name="clipboard_image_not_png">The image could not be read</string>
+    <string name="clipboard_image_unsupported">This host cannot share clipboard images</string>
+    <string name="clipboard_image_forbidden">The host does not let this device use its clipboard</string>
+    <string name="folders_title">Shared folders</string>
+    <string name="folders_on_pc">Folders %1$s shares with this device</string>
+    <string name="folders_loading">Loading…</string>
+    <string name="folders_pair_first">Pair with this PC first.</string>
+    <string name="folders_disabled">This PC shares no folders. Share one in the PC\'s web UI and give this device access to it.</string>
+    <string name="folders_no_grant">This PC shares no folders with this device. Give it access in the PC\'s web UI.</string>
+    <string name="folders_read_only">Read only</string>
+    <string name="folders_read_write">Read and write</string>
+    <string name="folders_all">All folders</string>
+    <string name="folders_up">Up one level</string>
+    <string name="folders_upload">Upload a file here</string>
+    <string name="folders_empty">This folder is empty.</string>
+    <string name="folders_unsupported_entry">Not supported by Nightjar</string>
+    <string name="folders_retry">Retry</string>
+    <string name="folders_no_picker">This device has no file picker for this.</string>
+    <string name="folders_downloading">Downloading %1$s: %2$s of %3$s</string>
+    <string name="folders_uploading">Uploading %1$s: %2$s of %3$s</string>
+    <string name="folders_downloaded">%1$s saved to Downloads</string>
+    <string name="folders_saved">%1$s saved</string>
+    <string name="folders_uploaded">Uploaded as %1$s</string>
+    <string name="folders_cancelled">Transfer cancelled.</string>
+    <string name="folders_failed">Request failed: %1$s</string>
+    <string name="folders_local_failed">This device could not read or write the file: %1$s</string>
+    <string name="folders_forbidden">This device has no access to this folder.</string>
+    <string name="folders_upload_forbidden">This device may only download from this folder.</string>
+    <string name="folders_not_found">It is no longer on the PC.</string>
+    <string name="folders_invalid_name">The PC does not take this file name.</string>
+    <string name="folders_incomplete">The file did not arrive whole. Try again.</string>
+    <string name="folders_too_large">The file is too large for the PC.</string>
+    <string name="folders_storage_full">The PC\'s disk is full.</string>
+    <string name="folders_no_console_user">Nobody is signed in on the PC.</string>
+    <string name="folders_busy">Another transfer from this device is running. Try again when it ends.</string>
+    <string name="folders_size_unknown">The file\'s size is unknown, so it cannot be uploaded.</string>
+</resources>

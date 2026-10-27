@@ -84,6 +84,8 @@ import okio.Okio;
 
 
 public class NvHTTP {
+    /** How long an upload or download waits on the host in either direction (see hostCall). */
+    static final long TRANSFER_TIMEOUT_MS = 35_000;
     private final Set<Call> pendingCalls = Collections.newSetFromMap(new ConcurrentHashMap<>());
     private volatile boolean cancelled;
     // From the last serverinfo reply this instance read; app lists interpret control tiles by it.
@@ -1535,5 +1537,106 @@ public class NvHTTP {
             throw new IOException("Clipboard text exceeds 1 MiB");
         }
         return RequestBody.create(bytes, MediaType.get("text/plain; charset=utf-8"));
+    }
+
+    /**
+     * The PNG on the PC's clipboard ({@code type=png}), or null while it holds no image. Each refusal the route
+     * documents is a {@link ClipboardImageException}; a body that is not a PNG within the host's limits never
+     * comes back.
+     */
+    public byte[] getClipboardImage() throws IOException {
+        try (HostCall call = hostCall("GET", "actions/clipboard", "type=png", null)) {
+            if (call.response.code() == 404) {
+                return null;
+            }
+            ClipboardImageException.check(call.response.code(), call.response.message());
+            return ClipboardImageException.readPng(call.response.body());
+        }
+    }
+
+    /** Puts {@code png} on the PC's clipboard, checked against the host's limits first. */
+    public void sendClipboardImage(byte[] png) throws IOException {
+        ClipboardImageException.pngSize(png);
+        RequestBody body = RequestBody.create(png, MediaType.get("image/png"));
+        try (HostCall call = hostCall("POST", "actions/clipboard", "type=png", body)) {
+            ClipboardImageException.check(call.response.code(), call.response.message());
+            if (call.response.body().source().request(1)) {
+                throw new IOException("Host did not accept the clipboard image");
+            }
+        }
+    }
+
+    /**
+     * A request over HTTPS whose answer comes back whatever its status, with its body still to read, for the
+     * routes whose error bodies or statuses carry the refusal. {@code encodedQuery} is already percent-encoded. A
+     * request with a body asks to continue first, so a host refusing it by its length answers before any byte of
+     * it is sent.
+     */
+    HostCall hostCall(String method, String path, String encodedQuery, RequestBody body) throws IOException {
+        return hostCall(method, path, encodedQuery, body, null);
+    }
+
+    /**
+     * As above, for an upload or download when {@code cancel} is set, which then cancels it alone. The host gives up
+     * on a transfer idle for 30 s; the transfer waits a little longer in either direction, so the host's answer
+     * comes first.
+     */
+    HostCall hostCall(String method, String path, String encodedQuery, RequestBody body, TransferCancel cancel)
+            throws IOException {
+        OkHttpClient client = cancel == null ? httpClientLongConnectTimeout : httpClientLongConnectTimeout.newBuilder()
+                .readTimeout(TRANSFER_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                .writeTimeout(TRANSFER_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                .build();
+        return hostCall(client, method, path, encodedQuery, body, cancel);
+    }
+
+    private HostCall hostCall(OkHttpClient client, String method, String path, String encodedQuery, RequestBody body,
+                              TransferCancel cancel) throws IOException {
+        HttpUrl url = getHttpsUrl(true).newBuilder().addPathSegments(path).encodedQuery(encodedQuery)
+                .addQueryParameter("uniqueid", uniqueId).addQueryParameter("uuid", UUID.randomUUID().toString())
+                .build();
+        Request.Builder builder = new Request.Builder().url(url).method(method, body);
+        if (body != null) {
+            builder.header("Expect", "100-continue");
+        }
+        Call call = performAndroidTlsHack(client).newCall(builder.build());
+        pendingCalls.add(call);
+        if (cancel != null) {
+            cancel.attach(call);
+        }
+        if (cancelled) {
+            call.cancel();
+        }
+        try {
+            return new HostCall(call, call.execute());
+        } catch (IOException | RuntimeException e) {
+            pendingCalls.remove(call);
+            throw e;
+        }
+    }
+
+    /** A call's answer; closing it ends the call. */
+    final class HostCall implements java.io.Closeable {
+        private final Call call;
+        final Response response;
+
+        HostCall(Call call, Response response) {
+            this.call = call;
+            this.response = response;
+        }
+
+        /** Aborts the call while its body is still being read or written. */
+        void cancel() {
+            call.cancel();
+        }
+
+        @Override
+        public void close() {
+            try {
+                response.close();
+            } finally {
+                pendingCalls.remove(call);
+            }
+        }
     }
 }

@@ -20,6 +20,10 @@ public final class NativeCapabilities {
     public static final String WAKE = "wake";
     /** USB devices this device forwards to the host during a stream (control message 0x553A). */
     public static final String USB = "usb";
+    /** /actions/clipboard?type=png carries PNG images; the clipboard permissions still decide each request. */
+    public static final String CLIPBOARD_IMAGE = "clipboard.image";
+    /** GET /folders lists the folders the PC shares while it shares one; this device's grants decide which. */
+    public static final String FOLDERS = "folders";
 
     public final int apiVersion;
     public final String hostName;

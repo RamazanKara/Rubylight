@@ -31,7 +31,8 @@ public final class StreamMenu {
         TOUCH_MODE, MOUSE_CURSOR, ONSCREEN_CONTROLS, CONTROLS_LAYOUT, GAME_CONTROLS, KEYBOARD_KEYS,
         VIDEO_SCALING, ZOOM, ZOOM_RESET, OVERLAY_PAGE, PICTURE_IN_PICTURE, VIDEO_OUTPUT,
         BITRATE, AUTOMATIC_QUALITY, AUTOMATIC_BITRATE,
-        HOST_MENU, SERVER_COMMANDS, CLIPBOARD_SEND, CLIPBOARD_RECEIVE, USB_DEVICES, HOST_WEB_UI, HOST_STATUS,
+        HOST_MENU, SERVER_COMMANDS, CLIPBOARD_SEND, CLIPBOARD_RECEIVE, IMAGE_CLIPBOARD_SEND, IMAGE_CLIPBOARD_RECEIVE,
+        USB_DEVICES, HOST_WEB_UI, HOST_STATUS,
         RECONNECT, DISCONNECT, QUIT_GAME, END_SESSION, END_HOST_SESSION, CLOSE_GAME,
         NATIVE_PAGE, NATIVE_RESUME,
         OVERLAY_OFF, OVERLAY_COMPACT, OVERLAY_STATISTICS, OVERLAY_DEBUG,
@@ -82,6 +83,8 @@ public final class StreamMenu {
         public boolean hostMenu;
         /** The host offers USB forwarding and it is on here (Rust engine only). */
         public boolean usbForwarding;
+        /** The host's native API carries clipboard images ({@code clipboard.image}). */
+        public boolean imageClipboard;
         /** Host, codec, size, bitrate and link for the native page; null leaves the connection facts out. */
         public ConnectionInfo connection;
 
@@ -219,6 +222,13 @@ public final class StreamMenu {
         }
         if (host.canReadClipboard()) {
             entries.add(action(Section.HOST, Item.CLIPBOARD_RECEIVE, R.string.stream_clipboard_receive, R.drawable.ic_clipboard_receive));
+        }
+        // Images ride the same permissions as text, on a host that offers them.
+        if (o.imageClipboard && o.role != NvApp.Role.REMOTE_MONITOR && host.canWriteClipboard()) {
+            entries.add(action(Section.HOST, Item.IMAGE_CLIPBOARD_SEND, R.string.stream_clipboard_image_send, R.drawable.ic_image_send));
+        }
+        if (o.imageClipboard && host.canReadClipboard()) {
+            entries.add(action(Section.HOST, Item.IMAGE_CLIPBOARD_RECEIVE, R.string.stream_clipboard_image_receive, R.drawable.ic_image_receive));
         }
         if (o.role != NvApp.Role.REMOTE_MONITOR && o.usbForwarding) {
             entries.add(action(Section.HOST, Item.USB_DEVICES, R.string.stream_usb_devices, R.drawable.ic_usb));

@@ -123,8 +123,29 @@ public class StreamMenuTest {
     }
 
     @Test
+    public void imageClipboardRowsNeedTheHostFeatureAndTheTextClipboardPermissions() {
+        StreamMenu.Options options = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+        options.imageClipboard = true;
+        assertEquals(Arrays.asList(SERVER_COMMANDS, CLIPBOARD_SEND, CLIPBOARD_RECEIVE, IMAGE_CLIPBOARD_SEND,
+                IMAGE_CLIPBOARD_RECEIVE, HOST_WEB_UI, HOST_STATUS), sections(StreamMenu.mainPage(options)).get(StreamMenu.Section.HOST));
+        // Remote Monitor never writes to the PC; it reads images where it reads text.
+        StreamMenu.Options monitor = options("rubylight-serverinfo.xml", NvApp.Role.REMOTE_MONITOR);
+        monitor.imageClipboard = true;
+        List<StreamMenu.Item> monitorItems = items(StreamMenu.mainPage(monitor));
+        assertFalse(monitorItems.contains(IMAGE_CLIPBOARD_SEND));
+        assertEquals(monitorItems.contains(CLIPBOARD_RECEIVE), monitorItems.contains(IMAGE_CLIPBOARD_RECEIVE));
+        // Without the clipboard permissions the feature alone shows nothing.
+        StreamMenu.Options sunshine = options("sunshine-serverinfo.xml", NvApp.Role.STREAM);
+        sunshine.imageClipboard = true;
+        List<StreamMenu.Item> sunshineItems = items(StreamMenu.mainPage(sunshine));
+        assertFalse(sunshineItems.contains(IMAGE_CLIPBOARD_SEND));
+        assertFalse(sunshineItems.contains(IMAGE_CLIPBOARD_RECEIVE));
+    }
+
+    @Test
     public void everyRowHasItsOwnIcon() {
         StreamMenu.Options options = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+        options.imageClipboard = true;
         options.microphoneOffered = true;
         options.mouseConnected = true;
         options.onscreenControls = true;
@@ -141,7 +162,7 @@ public class StreamMenuTest {
         }
         assertTrue(items(entries).containsAll(Arrays.asList(TOUCH_MODE, MOUSE_CURSOR, ONSCREEN_CONTROLS, CONTROLS_LAYOUT,
                 GAME_CONTROLS, KEYBOARD_KEYS, VIDEO_SCALING, ZOOM, ZOOM_RESET, PICTURE_IN_PICTURE, VIDEO_OUTPUT,
-                OVERLAY_COPY, STREAM_HEALTH, LATENCY_TEST, USB_DEVICES)));
+                OVERLAY_COPY, STREAM_HEALTH, LATENCY_TEST, USB_DEVICES, IMAGE_CLIPBOARD_SEND, IMAGE_CLIPBOARD_RECEIVE)));
         Map<Integer, StreamMenu.Item> seen = new LinkedHashMap<>();
         for (StreamMenu.Entry entry : entries) {
             StreamMenu.Item before = seen.put(entry.icon, entry.item);
@@ -315,6 +336,7 @@ public class StreamMenuTest {
             withControl.nativeHostControl = true;
             withControl.hostMenu = true;
             withControl.usbForwarding = true;
+            withControl.imageClipboard = true;
             reachable.addAll(items(StreamMenu.mainPage(withControl)));
             reachable.addAll(items(StreamMenu.nativePage(withControl)));
             StreamMenu.Options options = options("rubylight-serverinfo.xml", role);

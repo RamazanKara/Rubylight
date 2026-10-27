@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_clipboard_image_send">Bild an PC senden</string>
+    <string name="stream_clipboard_image_receive">Bild vom PC kopieren</string>
+    <string name="stream_clipboard_image_empty">Die Zwischenablage enthält kein Bild</string>
+    <string name="stream_clipboard_image_sent">Bild an PC gesendet</string>
+    <string name="stream_clipboard_image_none">Die Zwischenablage des PCs enthält kein Bild</string>
+    <string name="stream_clipboard_image_received">Bild vom PC in die Zwischenablage kopiert</string>
+    <string name="clipboard_image_too_large">Das Bild ist zu groß für die Zwischenablage des PCs</string>
+    <string name="clipboard_image_not_png">Das Bild konnte nicht gelesen werden</string>
+    <string name="clipboard_image_unsupported">Dieser PC kann keine Bilder über die Zwischenablage teilen</string>
+    <string name="clipboard_image_forbidden">Der PC erlaubt diesem Gerät seine Zwischenablage nicht</string>
+    <string name="folders_title">Freigegebene Ordner</string>
+    <string name="folders_on_pc">Ordner, die %1$s mit diesem Gerät teilt</string>
+    <string name="folders_loading">Wird geladen…</string>
+    <string name="folders_pair_first">Kopple zuerst diesen PC.</string>
+    <string name="folders_disabled">Dieser PC gibt keine Ordner frei. Gib einen in der Web-Oberfläche des PCs frei und erlaube diesem Gerät den Zugriff.</string>
+    <string name="folders_no_grant">Dieser PC teilt keine Ordner mit diesem Gerät. Erlaube den Zugriff in der Web-Oberfläche des PCs.</string>
+    <string name="folders_read_only">Nur lesen</string>
+    <string name="folders_read_write">Lesen und schreiben</string>
+    <string name="folders_all">Alle Ordner</string>
+    <string name="folders_up">Eine Ebene höher</string>
+    <string name="folders_upload">Datei hierher hochladen</string>
+    <string name="folders_empty">Dieser Ordner ist leer.</string>
+    <string name="folders_unsupported_entry">Von Nightjar nicht unterstützt</string>
+    <string name="folders_retry">Erneut versuchen</string>
+    <string name="folders_no_picker">Dieses Gerät hat dafür keine Dateiauswahl.</string>
+    <string name="folders_downloading">%1$s wird heruntergeladen: %2$s von %3$s</string>
+    <string name="folders_uploading">%1$s wird hochgeladen: %2$s von %3$s</string>
+    <string name="folders_downloaded">%1$s in Downloads gespeichert</string>
+    <string name="folders_saved">%1$s gespeichert</string>
+    <string name="folders_uploaded">Hochgeladen als %1$s</string>
+    <string name="folders_cancelled">Übertragung abgebrochen.</string>
+    <string name="folders_failed">Anfrage fehlgeschlagen: %1$s</string>
+    <string name="folders_local_failed">Dieses Gerät konnte die Datei nicht lesen oder schreiben: %1$s</string>
+    <string name="folders_forbidden">Dieses Gerät hat keinen Zugriff auf diesen Ordner.</string>
+    <string name="folders_upload_forbidden">Dieses Gerät darf aus diesem Ordner nur herunterladen.</string>
+    <string name="folders_not_found">Es ist nicht mehr auf dem PC.</string>
+    <string name="folders_invalid_name">Der PC nimmt diesen Dateinamen nicht an.</string>
+    <string name="folders_incomplete">Die Datei kam nicht vollständig an. Versuche es erneut.</string>
+    <string name="folders_too_large">Die Datei ist zu groß für den PC.</string>
+    <string name="folders_storage_full">Der Datenträger des PCs ist voll.</string>
+    <string name="folders_no_console_user">Am PC ist niemand angemeldet.</string>
+    <string name="folders_busy">Eine andere Übertragung von diesem Gerät läuft. Versuche es danach erneut.</string>
+    <string name="folders_size_unknown">Die Größe der Datei ist unbekannt, daher kann sie nicht hochgeladen werden.</string>
+</resources>

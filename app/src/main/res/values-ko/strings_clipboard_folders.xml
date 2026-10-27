@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_clipboard_image_send">클립보드 이미지를 호스트로 보내기</string>
+    <string name="stream_clipboard_image_receive">호스트 클립보드 이미지 복사</string>
+    <string name="stream_clipboard_image_empty">클립보드에 이미지가 없습니다</string>
+    <string name="stream_clipboard_image_sent">클립보드 이미지를 호스트로 보냈습니다</string>
+    <string name="stream_clipboard_image_none">호스트 클립보드에 이미지가 없습니다</string>
+    <string name="stream_clipboard_image_received">호스트 이미지를 클립보드에 복사했습니다</string>
+    <string name="clipboard_image_too_large">이미지가 호스트 클립보드에 비해 너무 큽니다</string>
+    <string name="clipboard_image_not_png">이미지를 읽을 수 없습니다</string>
+    <string name="clipboard_image_unsupported">이 호스트는 클립보드 이미지를 공유할 수 없습니다</string>
+    <string name="clipboard_image_forbidden">호스트가 이 기기의 클립보드 사용을 허용하지 않습니다</string>
+    <string name="folders_title">공유 폴더</string>
+    <string name="folders_on_pc">%1$s에서 이 기기와 공유하는 폴더</string>
+    <string name="folders_loading">불러오는 중…</string>
+    <string name="folders_pair_first">먼저 이 PC와 페어링하세요.</string>
+    <string name="folders_disabled">이 PC는 공유하는 폴더가 없습니다. PC 웹 UI에서 폴더를 공유하고 이 기기에 접근 권한을 주세요.</string>
+    <string name="folders_no_grant">이 PC는 이 기기와 공유하는 폴더가 없습니다. PC 웹 UI에서 접근 권한을 주세요.</string>
+    <string name="folders_read_only">읽기 전용</string>
+    <string name="folders_read_write">읽기 및 쓰기</string>
+    <string name="folders_all">모든 폴더</string>
+    <string name="folders_up">상위 폴더로</string>
+    <string name="folders_upload">여기에 파일 업로드</string>
+    <string name="folders_empty">이 폴더는 비어 있습니다.</string>
+    <string name="folders_unsupported_entry">Nightjar에서 지원하지 않음</string>
+    <string name="folders_retry">다시 시도</string>
+    <string name="folders_no_picker">이 기기에는 이를 위한 파일 선택기가 없습니다.</string>
+    <string name="folders_downloading">%1$s 다운로드 중: %3$s 중 %2$s</string>
+    <string name="folders_uploading">%1$s 업로드 중: %3$s 중 %2$s</string>
+    <string name="folders_downloaded">%1$s을(를) 다운로드에 저장했습니다</string>
+    <string name="folders_saved">%1$s 저장됨</string>
+    <string name="folders_uploaded">%1$s(으)로 업로드됨</string>
+    <string name="folders_cancelled">전송이 취소되었습니다.</string>
+    <string name="folders_failed">요청 실패: %1$s</string>
+    <string name="folders_local_failed">이 기기에서 파일을 읽거나 쓰지 못했습니다: %1$s</string>
+    <string name="folders_forbidden">이 기기는 이 폴더에 접근할 수 없습니다.</string>
+    <string name="folders_upload_forbidden">이 기기는 이 폴더에서 다운로드만 할 수 있습니다.</string>
+    <string name="folders_not_found">더 이상 PC에 없습니다.</string>
+    <string name="folders_invalid_name">PC가 이 파일 이름을 받지 않습니다.</string>
+    <string name="folders_incomplete">파일이 완전히 도착하지 않았습니다. 다시 시도하세요.</string>
+    <string name="folders_too_large">파일이 PC에 비해 너무 큽니다.</string>
+    <string name="folders_storage_full">PC 디스크가 가득 찼습니다.</string>
+    <string name="folders_no_console_user">PC에 로그인한 사용자가 없습니다.</string>
+    <string name="folders_busy">이 기기의 다른 전송이 진행 중입니다. 끝난 후 다시 시도하세요.</string>
+    <string name="folders_size_unknown">파일 크기를 알 수 없어 업로드할 수 없습니다.</string>
+</resources>

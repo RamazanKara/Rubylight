@@ -53,6 +53,7 @@ import com.limelight.nvstream.PyroWaveBitrateController;
 import com.limelight.nvstream.PyroWaveBitrateFloor;
 import com.limelight.nvstream.NvConnectionListener;
 import com.limelight.nvstream.StreamConfiguration;
+import com.limelight.nvstream.http.ClipboardImageException;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.HardwareMetrics;
@@ -80,6 +81,7 @@ import com.limelight.ui.DesktopControlsPanel;
 import com.limelight.ui.StreamOrientation;
 import com.limelight.ui.StreamView;
 import com.limelight.ui.VideoScaling;
+import com.limelight.utils.ClipboardImages;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.NetworkGrace;
 import com.limelight.utils.LaunchSource;
@@ -2955,6 +2957,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         options.nativeHostControl = conn.hasNativeHostControl();
         options.hostMenu = conn.hasNativeCouchMenu();
         options.usbForwarding = prefConfig.usbForwarding && MoonBridge.isRustStream() && conn.offersUsbForwarding();
+        options.imageClipboard = conn.hasImageClipboard();
         options.microphoneOffered = conn.getMicrophoneStatus().canMute();
         options.microphoneMuted = conn.isMicrophoneMuted();
         options.overlayShown = prefConfig.enablePerfOverlay;
@@ -3020,6 +3023,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             case CLIPBOARD_SEND: action = () -> transferClipboard(true); break;
             case CLIPBOARD_RECEIVE: action = () -> transferClipboard(false); break;
             case USB_DEVICES: action = this::showUsbDevices; break;
+            case IMAGE_CLIPBOARD_SEND: action = () -> transferClipboardImage(true); break;
+            case IMAGE_CLIPBOARD_RECEIVE: action = () -> transferClipboardImage(false); break;
             case HOST_WEB_UI: action = this::showHostWebUi; break;
             case HOST_STATUS: action = this::refreshHostStatus; break;
             case HOST_MENU: action = this::openHostMenu; break;
@@ -4237,6 +4242,83 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 runOnUiThread(() -> hostActionInProgress = false);
             }
         }, "Clipboard transfer").start();
+    }
+
+    /**
+     * Sends the image on this device's clipboard to the host as a PNG, or puts the host's PNG on this device's
+     * clipboard as a content URI. Android 13 and later confirm a copy themselves, so only older ones get a toast.
+     */
+    private void transferClipboardImage(boolean send) {
+        if (hostActionInProgress || !foreground || !connected) {
+            return;
+        }
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        android.net.Uri image = null;
+        if (send) {
+            try {
+                image = ClipboardImages.imageUri(clipboard.getPrimaryClip(), getContentResolver());
+            } catch (RuntimeException e) {
+                showHostActionError(e, foregroundGeneration);
+                return;
+            }
+            if (image == null) {
+                messages.alert(R.string.stream_clipboard_image_empty, Toast.LENGTH_SHORT);
+                return;
+            }
+        }
+        final android.net.Uri outgoing = image;
+        final int generation = foregroundGeneration;
+        hostActionInProgress = true;
+        new Thread(() -> {
+            try {
+                if (send) {
+                    conn.sendClipboardImage(ClipboardImages.readPng(getContentResolver(), outgoing));
+                    showClipboardImageResult(R.string.stream_clipboard_image_sent, generation);
+                    return;
+                }
+                byte[] png = conn.getClipboardImage();
+                if (png == null) {
+                    showClipboardImageResult(R.string.stream_clipboard_image_none, generation);
+                    return;
+                }
+                android.net.Uri incoming = ClipboardImages.store(this, png);
+                runOnUiThread(() -> {
+                    if (!foreground || generation != foregroundGeneration || !connected || isFinishing() || !hasWindowFocus()) {
+                        return;
+                    }
+                    ClipData clip = ClipData.newUri(getContentResolver(), BuildConfig.BRAND_NAME, incoming);
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                        PersistableBundle extras = new PersistableBundle();
+                        extras.putBoolean("android.content.extra.IS_SENSITIVE", true);
+                        clip.getDescription().setExtras(extras);
+                    }
+                    try {
+                        clipboard.setPrimaryClip(clip);
+                    } catch (RuntimeException e) {
+                        showHostActionError(e, generation);
+                        return;
+                    }
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                        messages.alert(R.string.stream_clipboard_image_received, Toast.LENGTH_SHORT);
+                    }
+                });
+            } catch (ClipboardImageException e) {
+                LimeLog.warning("Clipboard image refused: " + e.getMessage());
+                showClipboardImageResult(ClipboardImages.message(e.reason), generation);
+            } catch (IOException | XmlPullParserException | RuntimeException e) {
+                showHostActionError(e, generation);
+            } finally {
+                runOnUiThread(() -> hostActionInProgress = false);
+            }
+        }, "Clipboard image transfer").start();
+    }
+
+    private void showClipboardImageResult(int message, int generation) {
+        runOnUiThread(() -> {
+            if (foreground && generation == foregroundGeneration && connected && !isFinishing()) {
+                messages.alert(message, Toast.LENGTH_LONG);
+            }
+        });
     }
 
     private void showServerCommands(ComputerDetails details) {

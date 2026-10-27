@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_clipboard_image_send">Invia immagine degli appunti all’host</string>
+    <string name="stream_clipboard_image_receive">Copia immagine degli appunti dell’host</string>
+    <string name="stream_clipboard_image_empty">Gli appunti non contengono immagini</string>
+    <string name="stream_clipboard_image_sent">Immagine degli appunti inviata all’host</string>
+    <string name="stream_clipboard_image_none">Gli appunti dell’host non contengono immagini</string>
+    <string name="stream_clipboard_image_received">Immagine dell’host copiata negli appunti</string>
+    <string name="clipboard_image_too_large">L’immagine è troppo grande per gli appunti dell’host</string>
+    <string name="clipboard_image_not_png">Impossibile leggere l’immagine</string>
+    <string name="clipboard_image_unsupported">Questo host non può condividere immagini degli appunti</string>
+    <string name="clipboard_image_forbidden">L’host non consente a questo dispositivo di usare i suoi appunti</string>
+    <string name="folders_title">Cartelle condivise</string>
+    <string name="folders_on_pc">Cartelle che %1$s condivide con questo dispositivo</string>
+    <string name="folders_loading">Caricamento…</string>
+    <string name="folders_pair_first">Associa prima questo PC.</string>
+    <string name="folders_disabled">Questo PC non condivide cartelle. Condividine una nell’interfaccia web del PC e dai accesso a questo dispositivo.</string>
+    <string name="folders_no_grant">Questo PC non condivide cartelle con questo dispositivo. Dagli accesso nell’interfaccia web del PC.</string>
+    <string name="folders_read_only">Sola lettura</string>
+    <string name="folders_read_write">Lettura e scrittura</string>
+    <string name="folders_all">Tutte le cartelle</string>
+    <string name="folders_up">Su di un livello</string>
+    <string name="folders_upload">Carica un file qui</string>
+    <string name="folders_empty">Questa cartella è vuota.</string>
+    <string name="folders_unsupported_entry">Non supportato da Nightjar</string>
+    <string name="folders_retry">Riprova</string>
+    <string name="folders_no_picker">Questo dispositivo non ha un selettore di file per questo.</string>
+    <string name="folders_downloading">Download di %1$s: %2$s di %3$s</string>
+    <string name="folders_uploading">Caricamento di %1$s: %2$s di %3$s</string>
+    <string name="folders_downloaded">%1$s salvato in Download</string>
+    <string name="folders_saved">%1$s salvato</string>
+    <string name="folders_uploaded">Caricato come %1$s</string>
+    <string name="folders_cancelled">Trasferimento annullato.</string>
+    <string name="folders_failed">Richiesta non riuscita: %1$s</string>
+    <string name="folders_local_failed">Questo dispositivo non è riuscito a leggere o scrivere il file: %1$s</string>
+    <string name="folders_forbidden">Questo dispositivo non ha accesso a questa cartella.</string>
+    <string name="folders_upload_forbidden">Questo dispositivo può solo scaricare da questa cartella.</string>
+    <string name="folders_not_found">Non è più sul PC.</string>
+    <string name="folders_invalid_name">Il PC non accetta questo nome di file.</string>
+    <string name="folders_incomplete">Il file non è arrivato completo. Riprova.</string>
+    <string name="folders_too_large">Il file è troppo grande per il PC.</string>
+    <string name="folders_storage_full">Il disco del PC è pieno.</string>
+    <string name="folders_no_console_user">Nessuno ha effettuato l’accesso sul PC.</string>
+    <string name="folders_busy">È in corso un altro trasferimento da questo dispositivo. Riprova quando termina.</string>
+    <string name="folders_size_unknown">La dimensione del file è sconosciuta, quindi non può essere caricato.</string>
+</resources>

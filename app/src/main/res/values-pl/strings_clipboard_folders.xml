@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_clipboard_image_send">Wyślij obraz ze schowka do hosta</string>
+    <string name="stream_clipboard_image_receive">Kopiuj obraz ze schowka hosta</string>
+    <string name="stream_clipboard_image_empty">Schowek nie zawiera obrazu</string>
+    <string name="stream_clipboard_image_sent">Obraz ze schowka wysłany do hosta</string>
+    <string name="stream_clipboard_image_none">Schowek hosta nie zawiera obrazu</string>
+    <string name="stream_clipboard_image_received">Obraz z hosta skopiowany do schowka</string>
+    <string name="clipboard_image_too_large">Obraz jest za duży dla schowka hosta</string>
+    <string name="clipboard_image_not_png">Nie udało się odczytać obrazu</string>
+    <string name="clipboard_image_unsupported">Ten host nie może udostępniać obrazów ze schowka</string>
+    <string name="clipboard_image_forbidden">Host nie pozwala temu urządzeniu używać swojego schowka</string>
+    <string name="folders_title">Udostępnione foldery</string>
+    <string name="folders_on_pc">Foldery, które %1$s udostępnia temu urządzeniu</string>
+    <string name="folders_loading">Wczytywanie…</string>
+    <string name="folders_pair_first">Najpierw sparuj ten komputer.</string>
+    <string name="folders_disabled">Ten komputer nie udostępnia folderów. Udostępnij folder w interfejsie WWW komputera i daj temu urządzeniu dostęp.</string>
+    <string name="folders_no_grant">Ten komputer nie udostępnia folderów temu urządzeniu. Daj mu dostęp w interfejsie WWW komputera.</string>
+    <string name="folders_read_only">Tylko odczyt</string>
+    <string name="folders_read_write">Odczyt i zapis</string>
+    <string name="folders_all">Wszystkie foldery</string>
+    <string name="folders_up">Poziom wyżej</string>
+    <string name="folders_upload">Wyślij tu plik</string>
+    <string name="folders_empty">Ten folder jest pusty.</string>
+    <string name="folders_unsupported_entry">Nieobsługiwane przez Nightjar</string>
+    <string name="folders_retry">Spróbuj ponownie</string>
+    <string name="folders_no_picker">To urządzenie nie ma do tego selektora plików.</string>
+    <string name="folders_downloading">Pobieranie %1$s: %2$s z %3$s</string>
+    <string name="folders_uploading">Wysyłanie %1$s: %2$s z %3$s</string>
+    <string name="folders_downloaded">Zapisano %1$s w Pobranych</string>
+    <string name="folders_saved">Zapisano %1$s</string>
+    <string name="folders_uploaded">Wysłano jako %1$s</string>
+    <string name="folders_cancelled">Przesyłanie anulowane.</string>
+    <string name="folders_failed">Żądanie nie powiodło się: %1$s</string>
+    <string name="folders_local_failed">To urządzenie nie mogło odczytać ani zapisać pliku: %1$s</string>
+    <string name="folders_forbidden">To urządzenie nie ma dostępu do tego folderu.</string>
+    <string name="folders_upload_forbidden">To urządzenie może z tego folderu tylko pobierać.</string>
+    <string name="folders_not_found">Nie ma tego już na komputerze.</string>
+    <string name="folders_invalid_name">Komputer nie przyjmuje tej nazwy pliku.</string>
+    <string name="folders_incomplete">Plik nie dotarł w całości. Spróbuj ponownie.</string>
+    <string name="folders_too_large">Plik jest za duży dla komputera.</string>
+    <string name="folders_storage_full">Dysk komputera jest pełny.</string>
+    <string name="folders_no_console_user">Nikt nie jest zalogowany na komputerze.</string>
+    <string name="folders_busy">Trwa inne przesyłanie z tego urządzenia. Spróbuj ponownie, gdy się skończy.</string>
+    <string name="folders_size_unknown">Rozmiar pliku jest nieznany, więc nie można go wysłać.</string>
+</resources>

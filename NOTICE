@@ -133,9 +133,8 @@ Moonlight V+
 
 Several Nightjar decoder and input behaviours follow Moonlight V+
 (https://github.com/qiin2333/moonlight-vplus) by qiin2333 and contributors, GPL-3.0:
-the declared-only Snapdragon decoder keys and the shorter MediaTek queues on the
-second configure try (VendorLowLatencyKeys.java), leaving out the HEVC low-latency
-flags on Amlogic decoders (MediaCodecHelper.java), growing the decoder input buffer
+the declared-only Snapdragon decoder keys (VendorLowLatencyKeys.java), leaving out
+the HEVC low-latency flags on Amlogic decoders (MediaCodecHelper.java), growing the decoder input buffer
 instead of ending the stream (MediaCodecDecoderRenderer.java), and the controller
 gyroscope liveness check (GyroLivenessTracker.java, ControllerHandler.java), all
 under client/app/src/main/java/com/limelight.

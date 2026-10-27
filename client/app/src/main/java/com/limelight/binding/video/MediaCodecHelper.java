@@ -762,14 +762,16 @@ public class MediaCodecHelper {
         }
 
         // MediaTek decoders take the whole preset by name (Artemis and the derflacco fork do the
-        // same), declared or not. The second try asks for shorter queues (Moonlight V+). The preset
-        // leaves after the second try, so the plain vendor switches below get a try of their own.
+        // same), declared or not. The ladder for them, most to least risky: try 0 the preset with
+        // KEY_LOW_LATENCY, try 1 the same preset without it, try 2 and later only the plain vendor
+        // switches below. Each try sends a subset of the one before, with the same values; Moonlight
+        // V+'s stricter queues on the fallback tries would break that (VendorLowLatencyKeys.MEDIATEK).
         // Android 8 and newer, like Tegra: older builds (Fire OS 5 OMX.MTK on 5.1) have no vendor
         // key support.
         // Experimental: we have no MediaTek device to run the preset on.
         if (useVendorOptions && tryNumber < 2 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
                 isDecoderInList(mediaTekDecoderPrefixes, decoderInfo.getName())) {
-            for (Map.Entry<String, Integer> key : VendorLowLatencyKeys.mediaTekKeys(tryNumber).entrySet()) {
+            for (Map.Entry<String, Integer> key : VendorLowLatencyKeys.MEDIATEK.entrySet()) {
                 videoFormat.setInteger(key.getKey(), key.getValue());
             }
             setNewOption = true;

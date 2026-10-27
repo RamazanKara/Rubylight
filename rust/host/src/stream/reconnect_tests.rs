@@ -2038,6 +2038,39 @@ async fn keyboard_layout_reports_keep_the_newest() -> Result<()> {
     h.finish().await
 }
 
+/// A device without the keyboard permission does not pick the layout keys go with.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn keyboard_layout_reports_need_the_keyboard_permission() -> Result<()> {
+    use butterpollo_core::keyboard_layout::{
+        KEYBOARD_LAYOUT_MESSAGE_TYPE, KeyboardLayout, LayoutSource,
+    };
+    use butterpollo_core::text_input::{TEXT_INPUT_MESSAGE_TYPE, TextInputRequest};
+    let h = Harness::new(10_000, 1).await?;
+    h.h.paired.write().unwrap().clients[0].perm = !butterpollo_core::input::KEYBOARD_PERMISSION;
+    let launch = h.launch(0, false).await?;
+    let (session, client) = h.play(&launch).await?;
+    let german = KeyboardLayout {
+        source: LayoutSource::Klid,
+        klid: 0x0407,
+        tag: "de-DE".into(),
+    };
+    client.send_control(KEYBOARD_LAYOUT_MESSAGE_TYPE, &german.encode().unwrap());
+    // Control messages are handled in order: once the request after it is, so is the report.
+    let request = TextInputRequest {
+        notices: true,
+        surrounding_text: false,
+        max_text: 0,
+    };
+    client.send_control(TEXT_INPUT_MESSAGE_TYPE, &request.encode());
+    until("the request after the report is handled", WAIT, || {
+        !h.fixture.text_watches.lock().unwrap().is_empty()
+    })
+    .await;
+    assert_eq!(*session.keyboard_layout.lock().unwrap(), None);
+    h.end(&session, client).await?;
+    h.finish().await
+}
+
 /// Reliable control messages the host sent during a 10 s outage reach the client right after
 /// it: ENet resends them once the client is heard again, not when the timeouts that doubled
 /// in the outage run out (rust/vendor/rusty_enet).

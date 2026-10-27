@@ -3963,6 +3963,11 @@ impl Media {
                                     tracing::debug!("keyboard layout report not offered");
                                     continue;
                                 }
+                                // Only a device that may type picks the layout keys go with.
+                                if !s.launch.client.allows(input::KEYBOARD_PERMISSION) {
+                                    tracing::debug!("keyboard layout report without the keyboard permission");
+                                    continue;
+                                }
                                 match butterpollo_core::keyboard_layout::KeyboardLayout::decode(
                                     &payload,
                                 ) {

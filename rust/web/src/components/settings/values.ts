@@ -6,6 +6,7 @@
 // they are shown or compared.
 import type { Config, ConfigValue, PrepCommand } from '../../lib/api';
 import type { Aliases, Setting } from '../../lib/settings-types';
+import { readFolders, storedFolders } from '../../lib/shared-folders';
 
 /** Keys GET /api/config adds that are not settings. They are never sent back. */
 export const NOT_SETTINGS: ReadonlySet<string> = new Set(['status', 'platform', 'version']);
@@ -207,6 +208,11 @@ export function normalise(setting: Setting, value: ConfigValue | undefined): Con
       return toCommands(value);
     case 'server-commands':
       return toServerCommands(value);
+    case 'folders': {
+      // An unreadable value stays as it is, so the editor can say why.
+      const read = readFolders(value);
+      return read.problem ? toText(value) : read.folders;
+    }
     case 'json':
       return value === undefined ? null : value;
     default:
@@ -277,6 +283,10 @@ export function describeDefault(setting: Setting): DefaultText {
       return word(count(toCommands(value).length));
     case 'server-commands':
       return word(count(toServerCommands(value).length));
+    case 'folders': {
+      const n = readFolders(value).folders.length;
+      return word(n === 0 ? 'None' : n === 1 ? '1 folder' : `${n} folders`);
+    }
     case 'json':
       if (value === null || value === '') return word('Not set');
       if (Array.isArray(value)) return word(value.length ? `${value.length} entries` : 'None');
@@ -336,6 +346,8 @@ export function patchValue(setting: Setting | undefined, value: ConfigValue | un
           .filter((command) => command.name || command.cmd),
         setting.default,
       );
+    case 'folders':
+      return listValue(storedFolders(readFolders(value).folders), setting.default);
     case 'json':
       return value === '' ? null : value;
     default:

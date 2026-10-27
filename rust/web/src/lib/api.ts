@@ -326,7 +326,7 @@ export interface Client {
   allow_sleep?: boolean | string | null;
   /** USB forwarding from this device. Sent as true or null; only a JSON true grants it. */
   allow_usb?: boolean | null;
-  /** Folder grants by folder id (3.0, not yet served). Null clears them. */
+  /** Shared folder grants by folder id. Null clears them. */
   shared_folders?: Record<string, 'read' | 'write'> | null;
   do?: unknown;
   undo?: unknown;

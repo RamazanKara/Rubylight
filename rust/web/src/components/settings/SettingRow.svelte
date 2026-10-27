@@ -48,7 +48,7 @@
   const id = `${uid}-control`;
   const kind = $derived(setting.control.kind);
   /** Controls with several fields get a group named by the label instead of a label element. */
-  const grouped = $derived(kind === 'list' || kind === 'commands' || kind === 'server-commands');
+  const grouped = $derived(kind === 'list' || kind === 'commands' || kind === 'server-commands' || kind === 'folders');
   /** Wide controls (and paths with their folder browser) go under the text instead of in the control column. */
   const full = $derived(grouped || kind === 'json' || (setting.control.kind === 'text' && !!setting.control.browse));
   /** An unsaved value or invalid draft. Either can be undone. */

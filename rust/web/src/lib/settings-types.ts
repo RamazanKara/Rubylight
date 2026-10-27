@@ -40,6 +40,8 @@ export type Control =
   | { kind: 'commands' }
   /** Commands clients may run: [{name, cmd, elevated}]. */
   | { kind: 'server-commands' }
+  /** Shared folders: [{id, name, path}], an id given to each new folder from its name. */
+  | { kind: 'folders' }
   /** A display, chosen from the host's displays (empty = automatic). */
   | { kind: 'display' }
   /** An audio endpoint, chosen from the host's endpoints (empty = default). */

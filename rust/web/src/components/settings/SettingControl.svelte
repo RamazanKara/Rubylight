@@ -7,6 +7,7 @@
   import type { ConfigValue, PrepCommand } from '../../lib/api';
   import type { Option, Setting } from '../../lib/settings-types';
   import { session } from '../../lib/session.svelte';
+  import { folderErrors, hasFolderErrors, newFolder, readFolders, type SharedFolder } from '../../lib/shared-folders';
   import {
     jsonText,
     numberError,
@@ -198,6 +199,22 @@
   }
   function setServerCommand(index: number, change: Partial<ServerCommand>) {
     onchange(serverCommands.map((row, at) => (at === index ? { ...row, ...change } : row)));
+  }
+
+  // ---------- folders ----------
+
+  const folderList = $derived(control.kind === 'folders' ? readFolders(value) : { folders: [], problem: '' });
+  const folders = $derived(folderList.folders);
+  const folderProblems = $derived(folderErrors(folders));
+
+  // The rows are kept while they have errors, so each one shows where it is
+  // wrong; the draft also marks the setting invalid, which holds the save.
+  function setFolders(next: SharedFolder[]) {
+    onchange(next);
+    oninvalid?.(hasFolderErrors(next) ? JSON.stringify(next) : null);
+  }
+  function setFolder(index: number, change: Partial<SharedFolder>) {
+    setFolders(folders.map((folder, at) => (at === index ? { ...folder, ...change } : folder)));
   }
 
   // ---------- json ----------
@@ -428,6 +445,70 @@
       </Button>
     </div>
   </div>
+{:else if control.kind === 'folders'}
+  <div class="rows" {id} bind:this={rowsElement}>
+    {#if folderList.problem}
+      <p class="error" id="{id}-unreadable">
+        The saved list can’t be read, so no folder is shared: {folderList.problem}. Adding a folder here replaces it.
+      </p>
+    {/if}
+    {#each folders as folder, index}
+      {@const problem = folderProblems[index] ?? { name: '', path: '', id: '' }}
+      <div class="command" data-row>
+        <div class="cell">
+          <label class="cell-label" for="{id}-{index}-name">Name<span class="visually-hidden">, folder {index + 1}</span></label>
+          <input
+            id="{id}-{index}-name"
+            class="input"
+            autocomplete="off"
+            aria-invalid={problem.name ? 'true' : undefined}
+            aria-describedby={problem.name ? `${id}-${index}-name-error` : undefined}
+            value={folder.name}
+            oninput={(event) => setFolder(index, { name: event.currentTarget.value })}
+          />
+          {#if problem.name}<p class="error cell-error" id="{id}-{index}-name-error">{problem.name}</p>{/if}
+        </div>
+        <div class="cell">
+          <label class="cell-label" for="{id}-{index}-path">Path<span class="visually-hidden">, folder {index + 1}</span></label>
+          <PathPicker kind="directory" value={folder.path} onpick={(path) => setFolder(index, { path })}>
+            <input
+              id="{id}-{index}-path"
+              class="input mono"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="D:\Games"
+              aria-invalid={problem.path ? 'true' : undefined}
+              aria-describedby={problem.path ? `${id}-${index}-path-error` : undefined}
+              value={folder.path}
+              oninput={(event) => setFolder(index, { path: event.currentTarget.value })}
+            />
+          </PathPicker>
+          {#if problem.path}<p class="error cell-error" id="{id}-{index}-path-error">{problem.path}</p>{/if}
+        </div>
+        <div class="command-foot">
+          {#if problem.id}
+            <p class="error">{problem.id}</p>
+          {:else}
+            <span class="note">{folder.id ? `Id: ${folder.id}` : 'Gets an id from its name when saved'}</span>
+          {/if}
+          <button
+            type="button"
+            class="remove"
+            aria-label="Remove folder {index + 1}"
+            title="Remove"
+            onclick={() => setFolders(without(folders, index))}
+          >
+            <Icon name="x" size={15} />
+          </button>
+        </div>
+      </div>
+    {:else}
+      <p class="none">No folders are shared.</p>
+    {/each}
+    <div>
+      <Button size="sm" icon="plus" onclick={() => addRow([...folders, newFolder()])}>Add folder</Button>
+    </div>
+  </div>
 {:else if control.kind === 'json'}
   <textarea
     {id}
@@ -514,6 +595,9 @@
     align-items: center;
     gap: var(--space-2);
   }
+  .cell-error {
+    grid-column: 2;
+  }
   .cell-label {
     font-size: var(--text-xs);
     font-weight: var(--weight-medium);
@@ -555,6 +639,9 @@
     .cell {
       grid-template-columns: minmax(0, 1fr);
       gap: var(--space-1);
+    }
+    .cell-error {
+      grid-column: 1;
     }
   }
 </style>

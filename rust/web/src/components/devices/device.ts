@@ -1,5 +1,6 @@
 // Paired-device permissions and the editable form of a device's settings.
 import { FULL_CONTROL, PERM, PERM_ALL, type Client } from '../../lib/api';
+import { grantsValue, readGrants, type FolderGrants } from '../../lib/shared-folders';
 import { SETTING as STREAM_PRESET, presets } from '../../lib/stream-presets';
 
 export const VIEW_ONLY = PERM.LIST_APPS | PERM.VIEW_STREAMS;
@@ -120,6 +121,8 @@ export interface Draft {
   allow_sleep: boolean;
   /** Lets the device attach its USB devices to the host; off unless granted here. */
   allow_usb: boolean;
+  /** Read or write by shared folder id; a folder not named here is not shared with the device. */
+  shared_folders: FolderGrants;
   do: CommandRow[];
   undo: CommandRow[];
 }
@@ -203,6 +206,7 @@ export function toDraft(client: Client): Draft {
     allow_sleep: client.allow_sleep === true,
     // As the host reads it (Client::allows_usb): only a JSON true.
     allow_usb: client.allow_usb === true,
+    shared_folders: readGrants(client.shared_folders),
     do: commandRows(client.do),
     undo: commandRows(client.undo),
   };
@@ -255,22 +259,32 @@ function serialise(draft: Draft): Changes {
     host_control: draft.host_control ? true : null,
     allow_sleep: draft.allow_sleep ? true : null,
     allow_usb: draft.allow_usb ? true : null,
+    // null removes every grant.
+    shared_folders: grantsValue(draft.shared_folders),
     // The host rejects a null command list, so an empty list is sent instead.
     do: commands(draft.do),
     undo: commands(draft.undo),
   };
 }
 
+/** Whether `after` takes a folder away or leaves only reading where `before` could write. */
+export function losesFolderAccess(before: FolderGrants, after: FolderGrants): boolean {
+  return Object.entries(before).some(([id, access]) => after[id] === undefined || (access === 'write' && after[id] === 'read'));
+}
+
 /**
  * Whether saving ends the device's running stream. The host does that only when
- * the device is turned off, loses a permission bit or loses USB devices (its
- * attached ones go with the stream); other edits, including Host control,
+ * the device is turned off, loses a permission bit, loses USB devices (its attached ones go
+ * with the stream) or loses access to a shared folder; other edits, including Host control,
  * apply from the next request or stream.
  */
 export function savingEndsStream(connected: boolean, before: Draft, after: Draft): boolean {
   return (
     connected &&
-    ((before.enabled && !after.enabled) || (before.perm & ~after.perm) !== 0 || (before.allow_usb && !after.allow_usb))
+    ((before.enabled && !after.enabled) ||
+      (before.perm & ~after.perm) !== 0 ||
+      (before.allow_usb && !after.allow_usb) ||
+      losesFolderAccess(before.shared_folders, after.shared_folders))
   );
 }
 

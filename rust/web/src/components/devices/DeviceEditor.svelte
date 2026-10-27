@@ -19,6 +19,8 @@
     validDisplayMode,
     type Draft,
   } from './device';
+  import { link } from '../../lib/router.svelte';
+  import { grantRows, readFolders, withGrant, type FolderAccess, type SharedFolder } from '../../lib/shared-folders';
   import { presets } from '../../lib/stream-presets';
 
   let {
@@ -76,6 +78,10 @@
   let displaysError = $state('');
   let profiles = $state<string[] | null>(null);
   let profilesError = $state('');
+  let sharedFolders = $state<SharedFolder[] | null>(null);
+  let foldersError = $state('');
+  // Open while the device holds a grant; choosing No access must not snap it shut.
+  let foldersOpen = $state(untrack(() => Object.keys(draft.shared_folders).length > 0));
 
   const reason = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -94,7 +100,24 @@
         profiles = [];
         profilesError = `Could not list color profiles: ${reason(error)}`;
       });
+    api.config
+      .get()
+      .then((config) => {
+        const read = readFolders(config.shared_folders);
+        sharedFolders = read.folders;
+        if (read.problem) foldersError = `The Shared folders setting can’t be read, so the PC shares no folder: ${read.problem}.`;
+      })
+      .catch((error: unknown) => {
+        sharedFolders = [];
+        foldersError = `Could not read the shared folders: ${reason(error)}`;
+      });
   });
+
+  const folderRows = $derived(grantRows(sharedFolders ?? [], draft.shared_folders));
+
+  function setFolderAccess(id: string, access: string) {
+    draft.shared_folders = withGrant(draft.shared_folders, id, access === 'read' || access === 'write' ? (access as FolderAccess) : '');
+  }
 
   const displayOptions = $derived.by(() => {
     const current = draft.output_name_override;
@@ -233,6 +256,46 @@
     </div>
     </details>
   </section>
+
+  <details class="override" bind:open={foldersOpen}><summary>Shared folders (Experimental)</summary>
+  <section>
+    {#if sharedFolders === null}
+      <p class="note">Loading folders…</p>
+    {:else}
+      {#if foldersError}<p class="error">{foldersError}</p>{/if}
+      {#if folderRows.length === 0}
+        <p class="note">
+          This PC shares no folders. Add them under Shared folders in <a href="/settings/network" use:link>Settings, Network</a>.
+        </p>
+      {:else}
+        <div class="form-grid">
+          {#each folderRows as row (row.id)}
+            <Field
+              label={row.gone ? `${row.id} (no longer shared)` : row.name}
+              id="{uid}-folder-{row.id}"
+              hint={row.gone ? 'The PC shares no folder with this id now. Choose No access to remove the grant.' : row.path}
+            >
+              <select
+                id="{uid}-folder-{row.id}"
+                class="select"
+                value={row.access}
+                onchange={(event) => setFolderAccess(row.id, event.currentTarget.value)}
+              >
+                <option value="">No access</option>
+                <option value="read">Read: browse and download</option>
+                <option value="write">Read and write: also upload</option>
+              </select>
+            </Field>
+          {/each}
+        </div>
+      {/if}
+      <p class="note">
+        Folders are shared only here: Full control and the file transfer permissions don’t include them. Taking a folder
+        away, or write access to it, disconnects the device.
+      </p>
+    {/if}
+  </section>
+  </details>
 
   <details class="override" open={modeInvalid}><summary>Display overrides</summary>
   <section>
@@ -446,6 +509,11 @@
   .note {
     font-size: var(--text-xs);
     color: var(--muted);
+    line-height: 1.45;
+  }
+  .error {
+    font-size: var(--text-xs);
+    color: var(--danger);
     line-height: 1.45;
   }
   .note code {

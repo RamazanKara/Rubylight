@@ -809,12 +809,18 @@ impl SendDrop {
         z % 1_000_000 < self.millionths
     }
 }
-/// `prefer_sdr_10bit` streams an HDR request as ten-bit SDR.
+/// `prefer_sdr_10bit` streams an HDR request as ten-bit SDR, without the HDR
+/// format the client picked.
 pub fn apply_color(stream: &mut Negotiated, config: &Config) {
     if stream.hdr && config.boolean("prefer_sdr_10bit", false) {
-        stream.sdr_10bit = true;
-        stream.hdr = false;
+        stream_sdr_10bit(stream);
     }
+}
+/// An HDR request streamed as ten-bit SDR: its HDR format pick goes with it.
+fn stream_sdr_10bit(stream: &mut Negotiated) {
+    stream.sdr_10bit = true;
+    stream.hdr = false;
+    stream.hdr_format = 0;
 }
 /// The protocol has no flag for ten-bit SDR: a client that wants it
 /// negotiates a ten-bit format in RTSP (`dynamicRangeMode=1`) while its launch
@@ -824,8 +830,7 @@ pub fn apply_color(stream: &mut Negotiated, config: &Config) {
 pub fn infer_sdr_10bit(stream: &mut Negotiated, sdr_requested: bool) -> bool {
     let inferred = stream.hdr && sdr_requested;
     if inferred {
-        stream.sdr_10bit = true;
-        stream.hdr = false;
+        stream_sdr_10bit(stream);
     }
     inferred
 }

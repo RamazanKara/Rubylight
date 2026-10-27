@@ -254,6 +254,8 @@ async fn connection(
                         negotiated.audio_quality = !host.contains("0.0.0.0");
                     }
                     let config = crate::stream::effective_config(&h, &launch)?;
+                    // The client's own picks, before host policy turns HDR off.
+                    crate::extensions::offered(&h, &config).check_announce(&negotiated)?;
                     let required_encryption =
                         crate::network::encryption_mode(&config, peer.ip()) == 2;
                     // The FEC and audio share of the client's bitrate is expected;
@@ -296,7 +298,6 @@ async fn connection(
                         butterpollo_core::stream_policy::apply_color(&mut negotiated, &config);
                     }
                     negotiated.validate()?;
-                    crate::extensions::offered(&h, &config).check_announce(&negotiated)?;
                     if negotiated.chroma_packing != 0 {
                         anyhow::ensure!(
                             config.boolean("experimental_packed_444", false),

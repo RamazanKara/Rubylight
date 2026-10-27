@@ -2313,6 +2313,32 @@ fn prefer_sdr_10bit_still_turns_an_hdr_launch_into_ten_bit_sdr() {
     assert!(stream.sdr_10bit && !stream.hdr);
 }
 #[test]
+fn a_stream_turned_into_ten_bit_sdr_drops_its_hdr_format_pick() {
+    // An HDR10+ pick the host offered, from a client the host streams as
+    // ten-bit SDR: by `prefer_sdr_10bit`, or by `hdrMode=0` at launch.
+    let request = Negotiated::from_sdp(
+        b"a=x-nv-video[0].dynamicRangeMode:1\na=x-nv-vqos[0].bitStreamFormat:1\na=x-rl-video[0].hdrFormat:2\n",
+    )
+    .unwrap();
+    let offered = crate::extensions::Offered {
+        hdr_formats: rubylight_protocol::hdr::ALL,
+        ..crate::extensions::Offered::NONE
+    };
+    offered.check_announce(&request).unwrap();
+    let prefer = Config::parse("prefer_sdr_10bit=true\n").unwrap();
+    for (sdr_requested, config) in [(true, Config::default()), (false, prefer)] {
+        let stream = negotiate_color(request.clone(), sdr_requested, &config);
+        assert!(stream.sdr_10bit && !stream.hdr);
+        assert_eq!(stream.hdr_format, 0);
+        // What is streamed is still something the host offered.
+        offered.check_announce(&stream).unwrap();
+        stream.validate().unwrap();
+    }
+    // An HDR stream keeps its pick.
+    let stream = negotiate_color(request.clone(), false, &Config::default());
+    assert!(stream.hdr && stream.hdr_format == 2);
+}
+#[test]
 fn an_eight_bit_request_is_neither_hdr_nor_ten_bit() {
     let config = Config::parse("prefer_sdr_10bit=true\n").unwrap();
     for sdr_requested in [false, true] {

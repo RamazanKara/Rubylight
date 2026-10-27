@@ -26,13 +26,12 @@ export const settings: Setting[] = [
   },
   {
     key: 'pen_barrel_roll',
-    label: 'Pen barrel roll',
-    description: 'Passes on how far a stylus is turned around its own axis, for pens that report it.',
+    label: 'Pen barrel roll (Experimental)',
+    description: 'Passes on how far a stylus is turned around its own axis, for pens and devices that report it.',
     category: 'input',
     group: 'Mouse, pen and touch',
     control: switches,
     default: true,
-    pending: true,
   },
   {
     key: 'touch_keyboard_digitizer',
@@ -81,12 +80,11 @@ export const settings: Setting[] = [
   },
   {
     key: 'client_cursor',
-    label: 'Device-drawn cursor',
-    description: 'Lets a device draw the mouse cursor itself, so the cursor moves without waiting for the video.',
+    label: 'Device-drawn cursor (Experimental)',
+    description: 'Lets a device draw the mouse cursor itself, so the cursor moves without waiting for the video. Needs Desktop Duplication capture; with other capture the cursor stays in the video.',
     category: 'input',
     control: switches,
     default: true,
-    pending: true,
   },
   {
     key: 'webhooks',

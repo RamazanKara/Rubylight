@@ -511,7 +511,14 @@ test('shared folders are a live, Experimental list beside file transfer, empty b
 });
 
 // The 3.0 settings whose features have shipped (settings30.rs keeps the same list).
-const live = ['audio_surround_714', 'dd_rotation_option', 'dd_manual_rotation'];
+const live = [
+  'audio_surround_714',
+  'dd_rotation_option',
+  'dd_manual_rotation',
+  // Input: pen barrel roll and the device-drawn cursor.
+  'pen_barrel_roll',
+  'client_cursor',
+];
 
 test('settings still pending stay out of the console, and shipped ones are in it', () => {
   assert.equal(pending.length, 15);

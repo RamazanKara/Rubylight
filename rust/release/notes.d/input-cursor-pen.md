@@ -1,0 +1,3 @@
+# Device-drawn cursor and pen barrel roll
+- **Device-drawn cursor (Experimental).** With `capture = ddx`, a client that asks for it gets the pointer's shape over the control stream and draws the pointer itself, and the host leaves it out of the video. Shapes go only when they change, at most about 60 a second, and a shape the client still has is sent again by number only. With any other capture the pointer stays in the video. Turn it off with `client_cursor = false`.
+- **Pen barrel roll (Experimental).** A pen that reports how far it is turned in the hand passes that turn to Windows as the pen's twist; other pens keep the tilt direction there, as before. Turn it off with `pen_barrel_roll = false`.

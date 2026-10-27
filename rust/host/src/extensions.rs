@@ -57,8 +57,8 @@ fn offer(h: &Shared, config: &Config, dolby: u8) -> Offered {
         surround_714: surround_714(h, config),
         text_input: text_input(h, config),
         keyboard_layout: keyboard_layout(h, config),
-        pen_barrel_roll: pen_barrel_roll(h, config),
-        cursor_shape: cursor_shape(h, config),
+        pen_barrel_roll: pen_barrel_roll(config),
+        cursor_shape: cursor_shape(config),
         pipeline_rates: pipeline_rates(h, config),
     }
 }
@@ -128,14 +128,27 @@ fn keyboard_layout(_h: &Shared, config: &Config) -> bool {
         && config.keyboard_layout() == butterpollo_core::config::KeyboardLayoutSetting::Client
 }
 
-/// Input (F): pen barrel roll.
-fn pen_barrel_roll(_h: &Shared, _config: &Config) -> bool {
-    false
+/// Input (F): pen barrel roll (0x5500000B), while `pen_barrel_roll` and native pen
+/// input are on.
+fn pen_barrel_roll(config: &Config) -> bool {
+    config.pen_barrel_roll()
+        && config.boolean("mouse", true)
+        && config.boolean("native_pen_touch", true)
 }
 
-/// Input (F): cursor shapes for a client-drawn cursor.
-fn cursor_shape(_h: &Shared, _config: &Config) -> bool {
-    false
+/// Input (F): cursor shapes for a client-drawn cursor (0x5540), while `client_cursor` is
+/// on and the stream captures with Desktop Duplication: the one capture that supplies the
+/// pointer apart from the desktop, so the stream can leave it out of the video.
+fn cursor_shape(config: &Config) -> bool {
+    config.client_cursor()
+        && matches!(
+            config
+                .get("capture", "auto")
+                .trim()
+                .to_ascii_lowercase()
+                .as_str(),
+            "ddx" | "dxgi"
+        )
 }
 
 /// Diagnostics (B): pipeline frame rates. Every stream counts them, off the
@@ -184,5 +197,42 @@ fn folders_features(_h: &Shared, config: &Config) -> Vec<&'static str> {
         Vec::new()
     } else {
         vec![feature::FOLDERS]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Pen barrel roll is offered while the setting and native pen input are on.
+    #[test]
+    fn pen_barrel_roll_follows_its_setting_and_native_pen_input() {
+        for (text, offered) in [
+            ("", true),
+            ("pen_barrel_roll = false\n", false),
+            ("native_pen_touch = false\n", false),
+            ("mouse = false\n", false),
+        ] {
+            let config = Config::parse(text).unwrap();
+            assert_eq!(pen_barrel_roll(&config), offered, "{text}");
+        }
+    }
+
+    /// The client-drawn cursor is offered only with Desktop Duplication capture, which
+    /// supplies the pointer apart, and while `client_cursor` is on.
+    #[test]
+    fn cursor_shapes_need_desktop_duplication() {
+        for (text, offered) in [
+            ("", false),
+            ("capture = auto\n", false),
+            ("capture = wgc\n", false),
+            ("capture = idd-push\n", false),
+            ("capture = ddx\n", true),
+            ("capture = DXGI\n", true),
+            ("capture = ddx\nclient_cursor = false\n", false),
+        ] {
+            let config = Config::parse(text).unwrap();
+            assert_eq!(cursor_shape(&config), offered, "{text}");
+        }
     }
 }

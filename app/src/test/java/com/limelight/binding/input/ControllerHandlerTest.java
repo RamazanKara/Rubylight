@@ -180,4 +180,67 @@ public class ControllerHandlerTest {
             handler.destroy();
         }
     }
+
+    // Through the listener the controller's sensor manager gets: only a gyroscope that never moved
+    // since it was registered hands player 1 to the device; one that moved and then reads zeros
+    // (a controller at rest) keeps its own.
+    @Test
+    public void onlyAGyroscopeThatNeverMovedFallsBackThroughItsListener() {
+        // The test runs the main looper; the SHIELD accessory service is not on this device.
+        org.robolectric.Shadows.shadowOf(org.robolectric.RuntimeEnvironment.getApplication()).declareComponentUnbindable(
+                new android.content.ComponentName("com.nvidia.blakepairing", "com.nvidia.blakepairing.AccessoryService"));
+        for (boolean movesFirst : new boolean[] {false, true}) {
+            ControllerInputReleaseTest.MenuGame activity = Robolectric.buildActivity(ControllerInputReleaseTest.MenuGame.class).get();
+            SensorManager device = (SensorManager) activity.getSystemService(Context.SENSOR_SERVICE);
+            // A context of its own has its own sensor manager, standing in for the controller's.
+            SensorManager controller = (SensorManager) activity.createConfigurationContext(
+                    activity.getResources().getConfiguration()).getSystemService(Context.SENSOR_SERVICE);
+            assertNotSame(device, controller);
+            ShadowSensorManager shadowDevice = Shadow.extract(device);
+            ShadowSensorManager shadowController = Shadow.extract(controller);
+            shadowDevice.addSensor(ShadowSensor.newInstance(Sensor.TYPE_GYROSCOPE));
+            shadowController.addSensor(ShadowSensor.newInstance(Sensor.TYPE_GYROSCOPE));
+            PreferenceConfiguration prefs = new PreferenceConfiguration();
+            prefs.gamepadMotionSensorsFallbackToDevice = true;
+            ControllerHandler handler = new ControllerHandler(activity, new RecordingConnection(), null, prefs);
+            ControllerHandler.InputDeviceContext context = ReflectionHelpers.getField(handler, "defaultContext");
+            try {
+                context.assignedControllerNumber = true;
+                context.controllerNumber = 0;
+                context.sensorManager = controller;
+                Map<Integer, ControllerHandler.InputDeviceContext> contexts =
+                        ReflectionHelpers.getField(handler, "inputDeviceContexts");
+                contexts.put(7, context);
+                handler.handleSetMotionEventState((short) 0, com.limelight.nvstream.jni.MoonBridge.LI_MOTION_TYPE_GYRO, (short) 100);
+                android.hardware.SensorEventListener listener = context.gyroListener;
+                assertNotNull(listener);
+                assertTrue(shadowController.hasListener(listener));
+
+                long t = 1_000_000_000L;
+                if (movesFirst) {
+                    listener.onSensorChanged(gyroEvent(t, 0.01f));
+                }
+                // Two seconds of exact zeros at 100 Hz.
+                for (int i = 1; i <= 200; i++) {
+                    listener.onSensorChanged(gyroEvent(t + i * 10_000_000L, 0f));
+                }
+                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+                assertSame("moves first " + movesFirst, movesFirst ? controller : device, context.sensorManager);
+                // The controller's listener stays registered, or makes way for one on the device.
+                assertEquals(movesFirst, shadowController.hasListener(listener));
+                assertEquals(movesFirst, listener == context.gyroListener);
+                if (!movesFirst) assertTrue(shadowDevice.hasListener(context.gyroListener));
+            } finally {
+                handler.destroy();
+            }
+        }
+    }
+
+    private static android.hardware.SensorEvent gyroEvent(long timestampNs, float x) {
+        android.hardware.SensorEvent event = ReflectionHelpers.callConstructor(android.hardware.SensorEvent.class,
+                ReflectionHelpers.ClassParameter.from(int.class, 3));
+        event.values[0] = x;
+        event.timestamp = timestampNs;
+        return event;
+    }
 }

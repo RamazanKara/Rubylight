@@ -303,6 +303,10 @@ export interface Client {
   /** Set for a device paired over WebRTC; the secret never leaves the host. */
   webrtc?: { clientId: string };
   network_loss_routes?: { address: string; expires_in_seconds: number; sessions_until_probe: number }[];
+  /** The User-Agent of the device's latest /serverinfo since the host started. Read-only. */
+  client_agent?: string | null;
+  /** A known problem with this client build. The host never refuses the device for it. */
+  client_warning?: { problem: string; link: string } | null;
   output_name_override?: string | null;
   display_mode?: string | null;
   always_use_virtual_display?: boolean | string | null;
@@ -595,6 +599,30 @@ export interface BrowseListing {
 }
 /** Which files a listing includes; folders are always listed. */
 export type BrowseType = 'executable' | 'file' | 'directory';
+export interface LogFinding {
+  id: string;
+  category: 'encoder' | 'capture' | 'network' | 'driver';
+  level: 'warn' | 'error';
+  title: string;
+  explanation: string;
+  fix: string;
+  /** The troubleshooting guide's section for it. */
+  link: string;
+  count: number;
+  first_seen: string;
+  last_seen: string;
+  /** The latest matching line, without its time and level. */
+  sample: string;
+}
+export interface LogAnalysis {
+  status: true;
+  /** Newest first. */
+  findings: LogFinding[];
+  /** The first and last time in the part of the log that was read. */
+  since: string | null;
+  until: string | null;
+  read_bytes: number;
+}
 export interface LogChunk {
   status: true;
   /** Byte offset to ask for next. */
@@ -788,6 +816,8 @@ export const api = {
   logs: {
     /** Bytes after `offset`, at most `max`; offset -1 means the last `max` bytes. */
     read: (offset: number, max = 256 * 1024) => get<LogChunk>(`/api/logs/tail?offset=${offset}&max=${max}`),
+    /** Known failures in the log's last 8 MiB, explained by the host's local rules. */
+    analysis: () => get<LogAnalysis>('/api/logs/analysis'),
     downloadUrl: '/api/logs/export',
     supportBundleUrl: '/api/logs/export_crash',
   },

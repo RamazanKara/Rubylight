@@ -3,6 +3,7 @@
   import { onMount } from 'svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import CrashPanel from '../components/maintenance/CrashPanel.svelte';
+  import LogAnalysisPanel from '../components/maintenance/LogAnalysisPanel.svelte';
   import DisplaysPanel from '../components/maintenance/DisplaysPanel.svelte';
   import HostPanel from '../components/maintenance/HostPanel.svelte';
   import LimiterPanel from '../components/maintenance/LimiterPanel.svelte';
@@ -50,6 +51,7 @@
     <WindowsSessionPanel />
   </Section>
   <Section title="Troubleshooting">
+    <LogAnalysisPanel />
     <CrashPanel />
   </Section>
   <Section title="Integrations" columns={2}>

@@ -7,6 +7,7 @@
   import EmptyState from '../components/EmptyState.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import Panel from '../components/Panel.svelte';
+  import ClientAgent from '../components/devices/ClientAgent.svelte';
   import DeviceEditor from '../components/devices/DeviceEditor.svelte';
   import PairPanel from '../components/devices/PairPanel.svelte';
   import { grantedLabels, permissionSummary } from '../components/devices/device';
@@ -217,6 +218,7 @@
                   Expires within 24 hours; the normal rate is tested every second stream.
                 </p>
               {/if}
+              <ClientAgent {client} />
             </div>
             <div class="actions">
               <Button size="sm" disabled={acting} icon={open ? 'x' : permissionSummary(client.perm) === 'View only' ? 'key' : 'settings'} onclick={() => toggleEditor(client.uuid)}>

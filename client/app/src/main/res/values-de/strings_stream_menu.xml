@@ -43,7 +43,7 @@ Nicht gespeicherter Fortschritt geht verloren.</string>
     <string name="stream_menu_hint_list">%1$s, %2$s</string>
     <string name="stream_menu_hint_close">Zum Schließen tippen</string>
 
-    <string name="stream_h264_decoder_missing">Dieses Gerät kann H.264-Video nicht per Hardware dekodieren, was das Streaming braucht.</string>
+    <string name="stream_h264_decoder_missing">Dieses Gerät kann H.264-Video nicht per Hardware dekodieren, das ist für das Streaming aber nötig.</string>
     <string name="perf_overlay_vrr">Panel: %1$.2f Hz · Ausgabe: %2$.2f Hz · VRR: %3$s</string>
     <string name="perf_overlay_vrr_max_hz">max. Hz</string>
     <string name="sheet_back">Zurück</string>

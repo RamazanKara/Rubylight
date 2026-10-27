@@ -42,13 +42,13 @@
     <string name="error_manager_not_running">Warte kurz oder starte die App neu.</string>
     <string name="error_unknown_host">Host nicht gefunden</string>
     <string name="error_404">Host nicht gefunden (404).\nStarte oder aktualisiere die Host-App.</string>
-    <string name="title_decoding_error">Videodecoder abgestürzt</string>
-    <string name="message_decoding_error">Videofehler.\nÄndere den Codec oder senke die Auflösung.</string>
-    <string name="title_decoding_reset">Videowerte zurückgesetzt</string>
-    <string name="message_decoding_reset">Wiederholte Videofehler.\nDie Stream-Einstellungen wurden zurückgesetzt.</string>
+    <string name="title_decoding_error">Video-Decoder abgestürzt</string>
+    <string name="message_decoding_error">Das Dekodieren des Videos ist fehlgeschlagen.\nProbiere einen anderen Codec oder eine niedrigere Auflösung.</string>
+    <string name="title_decoding_reset">Videoeinstellungen zurückgesetzt</string>
+    <string name="message_decoding_reset">Das Dekodieren des Videos ist wiederholt fehlgeschlagen.\nDie Stream-Einstellungen wurden zurückgesetzt.</string>
     <string name="error_usb_prohibited">Deine Geräteverwaltung hat den USB-Zugriff gesperrt.</string>
     <string name="unable_to_pin_shortcut">Dein Launcher unterstützt keine Verknüpfungen.</string>
-    <string name="video_decoder_init_failed">Video konnte nicht starten.\nSenke die Auflösung oder Bildrate.</string>
+    <string name="video_decoder_init_failed">Das Video konnte nicht starten.\nProbiere eine niedrigere Auflösung oder Bildrate.</string>
     <string name="no_video_received_error">Kein Video vom PC empfangen.</string>
     <string name="no_frame_received_error">Senke die Bitrate oder nutze ein schnelleres Netzwerk.</string>
     <string name="early_termination_error">Stream konnte nicht starten.\nSchließe geschützte Videos oder starte den PC neu.</string>
@@ -56,7 +56,7 @@
     <string name="check_ports_msg">Prüfe Firewall und Weiterleitung für Ports:</string>
     <string name="conn_establishing_title">Verbindung wird aufgebaut</string>
     <string name="conn_establishing_msg">Verbindung wird gestartet</string>
-    <string name="conn_metered">Dieses Netz kann Daten berechnen, und Streaming verbraucht viele.</string>
+    <string name="conn_metered">In diesem Netzwerk können Kosten für Daten anfallen, und Streaming verbraucht viele Daten.</string>
     <string name="conn_client_latency">Mittlere Dekodierzeit:</string>
     <string name="conn_client_latency_hw">Hardware-Dekodierzeit:</string>
     <string name="conn_hardware_latency">Mittlere Hardware-Dekodierzeit:</string>
@@ -206,7 +206,7 @@
     <string name="pyrowave_checking">GPU-Unterstützung wird geprüft…</string>
     <string name="pyrowave_needs_android">Benötigt Android 10</string>
     <string name="pyrowave_needs_64_bit">Benötigt eine 64-Bit-App</string>
-    <string name="pyrowave_decoder_unavailable">Decoder nicht verfügbar</string>
+    <string name="pyrowave_decoder_unavailable">Nicht unterstützt: kein Decoder verfügbar</string>
     <string name="pyrowave_needs_vulkan">Benötigt Vulkan 1.3</string>
     <string name="pyrowave_needs_subgroups">GPU unterstützt PyroWave nicht</string>
     <string name="pyrowave_missing_features">GPU unterstützt PyroWave nicht</string>
@@ -222,7 +222,7 @@
     <string name="summary_enable_hdr">Braucht ein HDR-Display auf diesem Gerät und eingeschaltetes HDR am Display des PCs.</string>
     <string name="title_full_range">Vollen Farbbereich erzwingen</string>
     <string name="summary_full_range">Nur nutzen, wenn PC und Display beide den vollen Farbbereich verwenden. Sonst gehen in dunklen und hellen Bereichen Details verloren.</string>
-    <string name="title_enable_post_stream_toast">Dekodierzeit nach dem Stream</string>
+    <string name="title_enable_post_stream_toast">Dekodierzeit nach dem Stream anzeigen</string>
     <string name="summary_enable_post_stream_toast">Zeigt die mittlere Dekodierzeit, wenn ein Stream endet.</string>
     <string name="title_rust_engine">Neue Streaming-Engine</string>
     <string name="summary_rust_engine">Standardmäßig eingeschaltet. Schalte sie aus, um die klassische Engine zu verwenden, zum Beispiel wenn ein Stream Probleme macht. Hosts, die älter als GFE 3.22 sind, nutzen automatisch die klassische Engine.</string>
@@ -288,8 +288,8 @@
     <string name="summary_codec_low_latency">Senke die Videolatenz ab Android 11.</string>
     <string name="title_vendor_low_latency">Chipsatz-Latenzmodus</string>
     <string name="summary_vendor_low_latency">Senke die Videolatenz mit Chipsatz-Unterstützung.</string>
-    <string name="title_codec_performance">Decoder-Leistung</string>
-    <string name="summary_codec_performance">Dekodiere schneller auf Kosten eines höheren Verbrauchs.</string>
+    <string name="title_codec_performance">Decoder-Leistungshinweise</string>
+    <string name="summary_codec_performance">Beschleunigt das Dekodieren auf Kosten eines höheren Energieverbrauchs.</string>
     <string name="title_phone_performance_hints">Android-Leistungssteuerung</string>
     <string name="summary_phone_performance_hints">Lass Android die Leistung beim Streamen anpassen.</string>
     <string name="title_gpu_max_clocks">GPU-Leistung für PyroWave steigern</string>
@@ -397,7 +397,7 @@
     <string name="upscaling_pyrowave">PyroWave-Streams nutzen für FSR und SGSR immer SGSR auf der GPU.</string>
     <string name="upscaling_native">Der Stream füllt die Ausgabe bereits aus; keine Hochskalierung nötig.</string>
     <string name="upscaling_unsupported">GLES-3.0-Videotexturen oder EGL-Präsentationszeitmessung sind nicht verfügbar.</string>
-    <string name="upscaling_gpu_error">GPU-Verarbeitung oder Decoder-Ausgabe fehlgeschlagen. Direkte Ausgabe bis zur nächsten Verbindung.</string>
+    <string name="upscaling_gpu_error">Die GPU-Verarbeitung oder die Ausgabefläche des Decoders ist fehlgeschlagen. Die direkte Ausgabe bleibt bis zur nächsten Verbindung aktiv.</string>
     <string name="upscaling_slow">Zusätzliche Verarbeitung dauerte wiederholt länger als ein Frame. Direkte Ausgabe bis zur nächsten Verbindung.</string>
     <string name="upscaling_dropped">GPU-Verarbeitung hat wiederholt Frames verworfen. Direkte Ausgabe bis zur nächsten Verbindung.</string>
     <string name="upscaling_size_changed">Video- oder Ausgabegröße hat sich geändert. Direkte Ausgabe bis zur nächsten Verbindung.</string>

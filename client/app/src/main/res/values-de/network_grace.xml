@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_network_grace">Netzwerkaussetzer überbrücken</string>
-    <string name="summary_network_grace">Wie lange ein Stream wartet, wenn das Netzwerk verstummt, etwa wenn das WLAN zwischen Zugangspunkten wechselt oder ein VPN zwischen WLAN und mobilen Daten umschaltet. Aus beendet den Stream nach 10 Sekunden ohne Kontakt. Das Bild bleibt stehen, bis das Netzwerk zurück ist. Mehr als 10 Sekunden helfen nur, wenn auch der Host so lange wartet: Erhöhe dort das Client-Zeitlimit.</string>
+    <string name="summary_network_grace">Wie lange ein Stream wartet, wenn über das Netzwerk nichts mehr ankommt, etwa wenn das WLAN zwischen Zugangspunkten wechselt oder ein VPN zwischen WLAN und mobilen Daten umschaltet. Aus beendet den Stream nach 10 Sekunden ohne Kontakt. Das Bild bleibt stehen, bis das Netzwerk zurück ist. Mehr als 10 Sekunden helfen nur, wenn auch der Host so lange wartet: Erhöhe dort das Client-Zeitlimit.</string>
     <string name="network_grace_off">Aus (10 Sekunden)</string>
     <string name="network_grace_20">20 Sekunden</string>
     <string name="network_grace_30">30 Sekunden</string>
     <string name="network_grace_60">60 Sekunden</string>
-    <string name="network_grace_gave_up">Die Verbindung war länger still als die Aussetzer-Toleranz von %1$d Sekunden, oder der Host hat die Sitzung beendet. Hat der Host zuerst aufgegeben, erhöhe auch dort das Client-Zeitlimit.</string>
+    <string name="network_grace_gave_up">Über die Verbindung kam länger als die erlaubten %1$d Sekunden nichts an, oder der Host hat die Sitzung beendet. Hat der Host zuerst aufgegeben, erhöhe auch dort das Client-Zeitlimit.</string>
 </resources>

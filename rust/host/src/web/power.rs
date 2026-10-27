@@ -55,6 +55,20 @@ async fn fix(h: &Shared, data: &Value) -> Response {
             );
         }
     };
+    // The changes the administrator saw in `GET /api/power`; when given, only
+    // exactly those are applied.
+    let approved: Option<Vec<String>> = match data.get("changes") {
+        None | Some(Value::Null) => None,
+        Some(changes) => match serde_json::from_value(changes.clone()) {
+            Ok(changes) => Some(changes),
+            Err(_) => {
+                return error(
+                    StatusCode::BAD_REQUEST,
+                    "changes must be a list of the offered changes",
+                );
+            }
+        },
+    };
     if let Some(refusal) = crate::wake::fix_refusal(h) {
         return error(StatusCode::CONFLICT, &refusal.to_string());
     }
@@ -68,6 +82,18 @@ async fn fix(h: &Shared, data: &Value) -> Response {
         Ok(Err(e)) => return error(StatusCode::INTERNAL_SERVER_ERROR, &format!("{e:#}")),
         Err(e) => return error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     };
+    if approved.is_some_and(|approved| approved != plan.changes()) {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({
+                "status": false,
+                "error": "not applied: the adapters' settings changed since you checked; check again",
+                "changes": plan.changes(),
+                "skipped": plan.skipped,
+            })),
+        )
+            .into_response();
+    }
     if plan.is_empty() {
         return Json(json!({"status":true,"changes":[],"skipped":plan.skipped})).into_response();
     }
@@ -200,6 +226,52 @@ mod tests {
             StatusCode::BAD_REQUEST,
         )
         .await;
+    }
+
+    #[tokio::test]
+    async fn only_the_changes_the_administrator_saw_are_applied() {
+        let f = Fixture::new();
+        let fake = Fake::new().on(&f.host);
+        let set = |only| {
+            let mut nics = fake.nics.lock().unwrap();
+            let adapter = &mut nics.as_mut().unwrap().adapters[0];
+            std::mem::replace(&mut adapter.magic_packet_only, only)
+        };
+        let before = set(Some(true));
+        let status = value(
+            request(&f, "GET", "/api/power?refresh=1", Value::Null).await,
+            StatusCode::OK,
+        )
+        .await;
+        let seen = status["fix"]["changes"].clone();
+        assert_eq!(seen, json!([]), "{status}");
+        // The adapter changes after the check: there is now something to change.
+        set(before);
+        let refused = value(
+            post_fix(&f, json!({"changes": seen})).await,
+            StatusCode::CONFLICT,
+        )
+        .await;
+        assert!(
+            refused["error"].as_str().unwrap().contains("changed since"),
+            "{refused}"
+        );
+        assert_ne!(refused["changes"], seen);
+        assert!(fake.fixes.lock().unwrap().is_empty());
+        value(
+            post_fix(&f, json!({"changes": "all"})).await,
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+        // What it lists now is applied.
+        let accepted = value(
+            post_fix(&f, json!({"changes": refused["changes"]})).await,
+            StatusCode::ACCEPTED,
+        )
+        .await;
+        assert_eq!(accepted["changes"], refused["changes"]);
+        last_fix(&f).await;
+        assert_eq!(fake.fixes.lock().unwrap().len(), 1);
     }
 
     #[tokio::test]

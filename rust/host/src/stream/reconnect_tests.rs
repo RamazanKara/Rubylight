@@ -66,6 +66,13 @@ pub(crate) struct Fixture {
     audio_release_ms: Arc<AtomicU64>,
     /// The control worker does not run between these two times, as on a loaded machine.
     control_held: Mutex<Option<(Instant, Instant)>>,
+    /// The next launch's app start waits for `resume_app_preparation`, as a
+    /// slow prep command does; `app_preparation_waiting` says it is waiting.
+    hold_app_preparation: AtomicBool,
+    app_preparation_waiting: AtomicBool,
+    resume_app_preparation: AtomicBool,
+    /// The RTSP handshake deadline in ms, in place of the host's 10 s (0 keeps it).
+    rtsp_deadline_ms: AtomicU64,
 }
 
 pub(crate) struct Slot(Arc<AtomicUsize>);
@@ -143,6 +150,17 @@ impl Fixture {
             !self.fail_app_preparation.load(Ordering::Acquire),
             "fixture application failed to start"
         );
+        if self.hold_app_preparation.swap(false, Ordering::AcqRel) {
+            // Launches prepare on a blocking thread, so waiting here holds
+            // only this launch, still pending and preparing.
+            self.app_preparation_waiting.store(true, Ordering::Release);
+            let deadline = Instant::now() + WAIT;
+            while !self.resume_app_preparation.load(Ordering::Acquire) {
+                assert!(Instant::now() < deadline, "app preparation was not resumed");
+                thread::sleep(Duration::from_millis(1));
+            }
+            self.app_preparation_waiting.store(false, Ordering::Release);
+        }
         *launch.audio_preparation.lock().unwrap() = Some(Box::new(Audio {
             _slot: Slot::new(&self.audios),
             release_ms: self.audio_release_ms.clone(),
@@ -156,6 +174,10 @@ impl Fixture {
             )?));
         }
         Ok(None)
+    }
+    pub(crate) fn rtsp_deadline(&self) -> Option<Duration> {
+        let ms = self.rtsp_deadline_ms.load(Ordering::Acquire);
+        (ms != 0).then(|| Duration::from_millis(ms))
     }
     pub(crate) fn retain_resources(&self) {
         self.resources_retained.fetch_add(1, Ordering::AcqRel);
@@ -720,44 +742,27 @@ impl Harness {
         target: &str,
         body: &str,
     ) -> Result<String> {
-        let request = format!(
-            "{method} {target} RTSP/1.0\r\nCSeq: {sequence}\r\nContent-Length: {}\r\n\r\n{body}",
-            body.len()
-        );
-        let mut iv = [0; 12];
-        iv[..4].copy_from_slice(&sequence.to_le_bytes());
-        iv[10..].copy_from_slice(b"CR");
-        let (tag, ciphertext) = crypto::gcm_seal(&launch.key, &iv, request.as_bytes())?;
-        let mut wire = ((ciphertext.len() as u32) | 0x80000000)
-            .to_be_bytes()
-            .to_vec();
-        wire.extend_from_slice(&sequence.to_be_bytes());
-        wire.extend_from_slice(&tag);
-        wire.extend_from_slice(&ciphertext);
+        let wire = sealed_rtsp(launch, sequence, method, target, body)?;
         let response = tokio::time::timeout(WAIT, async {
             let mut socket = tokio::net::TcpStream::connect(address(self.ports.rtsp)).await?;
             socket.write_all(&wire).await?;
             let mut response = vec![];
-            socket.read_to_end(&mut response).await?;
+            // A host that closes without answering may reset the connection: Windows reports
+            // that as aborted rather than as the end of the stream.
+            match socket.read_to_end(&mut response).await {
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::ConnectionAborted | std::io::ErrorKind::ConnectionReset
+                    ) => {}
+                result => {
+                    result?;
+                }
+            }
             Ok::<_, anyhow::Error>(response)
         })
         .await??;
-        assert!(
-            response.len() >= 24,
-            "RTSP {method} closed without a response"
-        );
-        let length = u32::from_be_bytes(response[..4].try_into()?) & 0x7fffffff;
-        assert_eq!(length as usize, response.len() - 24);
-        iv[..4].copy_from_slice(&u32::from_be_bytes(response[4..8].try_into()?).to_le_bytes());
-        iv[10..].copy_from_slice(b"HR");
-        let response = String::from_utf8(crypto::gcm_open(
-            &launch.key,
-            &iv,
-            &response[8..24],
-            &response[24..],
-        )?)?;
-        anyhow::ensure!(response.starts_with("RTSP/1.0 200"), "{response}");
-        Ok(response)
+        opened_rtsp(launch, method, &response)
     }
     async fn play(&self, launch: &Launch) -> Result<(Arc<Session>, Client)> {
         self.play_encrypted(launch, 0).await
@@ -934,6 +939,51 @@ impl Drop for Harness {
         }
         let _ = std::fs::remove_dir_all(&self.directory);
     }
+}
+/// An encrypted RTSP request from `launch`'s client, as Moonlight sends it.
+fn sealed_rtsp(
+    launch: &Launch,
+    sequence: u32,
+    method: &str,
+    target: &str,
+    body: &str,
+) -> Result<Vec<u8>> {
+    let request = format!(
+        "{method} {target} RTSP/1.0\r\nCSeq: {sequence}\r\nContent-Length: {}\r\n\r\n{body}",
+        body.len()
+    );
+    let mut iv = [0; 12];
+    iv[..4].copy_from_slice(&sequence.to_le_bytes());
+    iv[10..].copy_from_slice(b"CR");
+    let (tag, ciphertext) = crypto::gcm_seal(&launch.key, &iv, request.as_bytes())?;
+    let mut wire = ((ciphertext.len() as u32) | 0x80000000)
+        .to_be_bytes()
+        .to_vec();
+    wire.extend_from_slice(&sequence.to_be_bytes());
+    wire.extend_from_slice(&tag);
+    wire.extend_from_slice(&ciphertext);
+    Ok(wire)
+}
+/// The host's decrypted answer to `method`; an error unless it is a 200, or
+/// when the host closed the connection without one.
+fn opened_rtsp(launch: &Launch, method: &str, response: &[u8]) -> Result<String> {
+    anyhow::ensure!(
+        response.len() >= 24,
+        "RTSP {method} closed without a response"
+    );
+    let length = u32::from_be_bytes(response[..4].try_into()?) & 0x7fffffff;
+    assert_eq!(length as usize, response.len() - 24);
+    let mut iv = [0; 12];
+    iv[..4].copy_from_slice(&u32::from_be_bytes(response[4..8].try_into()?).to_le_bytes());
+    iv[10..].copy_from_slice(b"HR");
+    let response = String::from_utf8(crypto::gcm_open(
+        &launch.key,
+        &iv,
+        &response[8..24],
+        &response[24..],
+    )?)?;
+    anyhow::ensure!(response.starts_with("RTSP/1.0 200"), "{response}");
+    Ok(response)
 }
 fn xml<'a>(text: &'a str, tag: &str) -> &'a str {
     text.split_once(&format!("<{tag}>"))
@@ -2394,5 +2444,205 @@ async fn a_ten_bit_format_streams_sdr_only_with_hdr_mode_zero() -> Result<()> {
         );
         h.end(&session, client).await?;
     }
+    h.finish().await
+}
+
+const VIEWPORT: &str =
+    "a=x-nv-video[0].clientViewportWd:640\r\na=x-nv-video[0].clientViewportHt:480\r\n";
+
+/// Moves `launch`'s reply `age` into the past, as a client that took that long would see it.
+fn age_launch(h: &Harness, launch: &Launch, age: Duration) {
+    h.h.sessions
+        .lock()
+        .unwrap()
+        .pending
+        .get_mut(&launch.id)
+        .expect("launch pending")
+        .created = Instant::now() - age;
+}
+
+/// A client may not use its launch before the host has prepared it and
+/// replied: an RTSP request then gets no answer, and the launch, once
+/// prepared, streams as usual.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_launch_still_being_prepared_takes_no_rtsp_request() -> Result<()> {
+    let h = Harness::new(10_000, 1).await?;
+    h.fixture
+        .hold_app_preparation
+        .store(true, Ordering::Release);
+    let early = async {
+        until("launch preparing its app", WAIT, || {
+            h.fixture.app_preparation_waiting.load(Ordering::Acquire)
+        })
+        .await;
+        let early =
+            h.h.sessions
+                .lock()
+                .unwrap()
+                .pending
+                .values()
+                .next()
+                .cloned();
+        let early = early.expect("a launch is pending while it prepares");
+        let options = h.rtsp(&early, 1, "OPTIONS", "").await;
+        let announce = h.rtsp(&early, 2, "ANNOUNCE", VIEWPORT).await;
+        h.fixture
+            .resume_app_preparation
+            .store(true, Ordering::Release);
+        (early, options, announce)
+    };
+    let (launch, (early, options, announce)) = tokio::join!(h.launch(0, false), early);
+    let launch = launch?;
+    assert_eq!(launch.id, early.id);
+    for refused in [options, announce] {
+        let refused = refused.unwrap_err().to_string();
+        assert!(refused.contains("closed without a response"), "{refused}");
+    }
+    let (session, client) = h.play(&launch).await?;
+    h.end(&session, client).await?;
+    h.finish().await
+}
+
+/// A handshake under way when the launch's 30 s pass keeps it for its lease;
+/// a launch nobody claimed in its 30 s is refused and pruned.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_claimed_launch_outlives_its_30_s_and_an_unclaimed_one_expires() -> Result<()> {
+    let h = Harness::new(10_000, 1).await?;
+    let launch = h.launch(0, false).await?;
+    h.rtsp(&launch, 1, "ANNOUNCE", VIEWPORT).await?;
+    age_launch(&h, &launch, Duration::from_secs(31));
+    h.rtsp(&launch, 2, "PLAY", "").await?;
+    let session = h.h.sessions.lock().unwrap().active[&launch.id].clone();
+    let client = Client::new(h.ports, launch.clone())?;
+    assert!(
+        established(&session, &client).await,
+        "claimed launch did not stream"
+    );
+    h.end(&session, client).await?;
+
+    let stale = h.launch(0, false).await?;
+    age_launch(&h, &stale, Duration::from_secs(31));
+    let refused = h
+        .rtsp(&stale, 1, "OPTIONS", "")
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("closed without a response"), "{refused}");
+    h.counts(0, 0).await?;
+    // The pruned launch holds its display until the last copy goes.
+    drop(stale);
+    h.finish().await
+}
+
+/// The device launches again while an RTSP connection still holds its older
+/// launch: that connection's request is refused, and only the new launch streams.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_reconnect_racing_a_new_launch_streams_only_the_new_one() -> Result<()> {
+    let h = Harness::new(10_000, 1).await?;
+    let first = h.launch(0, false).await?;
+    h.rtsp(&first, 1, "OPTIONS", "").await?;
+    // An RTSP connection authorized for the first launch, before it reads.
+    h.fixture.hold_rtsp_cleanup.store(true, Ordering::Release);
+    let mut held = tokio::net::TcpStream::connect(address(h.ports.rtsp)).await?;
+    until(
+        "RTSP connection authorized for the first launch",
+        WAIT,
+        || h.fixture.rtsp_cleanup_waiting.load(Ordering::Acquire),
+    )
+    .await;
+    let second = h.launch(0, false).await?;
+    assert_ne!(first.id, second.id);
+    h.fixture.resume_rtsp_cleanup.store(true, Ordering::Release);
+    held.write_all(&sealed_rtsp(
+        &first,
+        2,
+        "ANNOUNCE",
+        "rtsp://127.0.0.1/stream",
+        VIEWPORT,
+    )?)
+    .await?;
+    let mut response = Vec::new();
+    tokio::time::timeout(WAIT, held.read_to_end(&mut response)).await??;
+    let refused = opened_rtsp(&first, "ANNOUNCE", &response)
+        .unwrap_err()
+        .to_string();
+    assert!(refused.starts_with("RTSP/1.0 400"), "{refused}");
+    assert!(refused.contains("replaced"), "{refused}");
+    let refused = h.rtsp(&first, 3, "PLAY", "").await.unwrap_err().to_string();
+    assert!(refused.contains("closed without a response"), "{refused}");
+    // The replaced launch holds its display until the last copy goes.
+    drop(first);
+    h.counts(0, 1).await?;
+    let (session, client) = h.play(&second).await?;
+    assert_eq!(
+        h.h.sessions
+            .lock()
+            .unwrap()
+            .active
+            .keys()
+            .collect::<Vec<_>>(),
+        [&second.id]
+    );
+    h.end(&session, client).await?;
+    h.finish().await
+}
+
+/// Two devices launch at once. Two PLAYs of one launch start one session,
+/// and the other device's launch stays its own.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn two_clients_launching_at_once_each_keep_their_launch_and_play_once() -> Result<()> {
+    let h = Harness::new(10_000, 2).await?;
+    let (other, launch) = tokio::join!(h.launch(0, false), h.launch(1, false));
+    let (other, launch) = (other?, launch?);
+    h.counts(0, 2).await?;
+    h.rtsp(&launch, 1, "ANNOUNCE", VIEWPORT).await?;
+    let (a, b) = tokio::join!(
+        h.rtsp(&launch, 2, "PLAY", ""),
+        // Not 3: that is the TEARDOWN's.
+        h.rtsp(&launch, 4, "PLAY", "")
+    );
+    assert_eq!(
+        [a.is_ok(), b.is_ok()].iter().filter(|ok| **ok).count(),
+        1,
+        "{a:?} {b:?}"
+    );
+    let session = {
+        let sessions = h.h.sessions.lock().unwrap();
+        assert_eq!(sessions.active.len(), 1);
+        assert!(sessions.pending.contains_key(&other.id));
+        sessions.active[&launch.id].clone()
+    };
+    h.counts(1, 1).await?;
+    let client = Client::new(h.ports, launch.clone())?;
+    assert!(
+        established(&session, &client).await,
+        "the one session did not stream"
+    );
+    let canceled = h.h.sessions.lock().unwrap().request_stop(Some(&other.id));
+    drop((canceled, other));
+    h.end(&session, client).await?;
+    h.finish().await
+}
+
+/// A client that connects and stalls is cut off at the handshake deadline,
+/// without costing its launch.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stalled_rtsp_connection_is_closed_at_its_deadline() -> Result<()> {
+    let h = Harness::new(10_000, 1).await?;
+    h.fixture.rtsp_deadline_ms.store(300, Ordering::Release);
+    let launch = h.launch(0, false).await?;
+    let started = Instant::now();
+    let mut stalled = tokio::net::TcpStream::connect(address(h.ports.rtsp)).await?;
+    // Half of an encrypted request's header, then nothing.
+    stalled
+        .write_all(&sealed_rtsp(&launch, 1, "OPTIONS", "rtsp://127.0.0.1/stream", "")?[..12])
+        .await?;
+    let mut response = Vec::new();
+    tokio::time::timeout(WAIT, stalled.read_to_end(&mut response)).await??;
+    assert!(response.is_empty());
+    assert!(started.elapsed() >= Duration::from_millis(300));
+    h.counts(0, 1).await?;
+    let (session, client) = h.play(&launch).await?;
+    h.end(&session, client).await?;
     h.finish().await
 }

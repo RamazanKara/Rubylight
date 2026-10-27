@@ -15,6 +15,10 @@ use tokio::{
     net::TcpStream,
 };
 
+/// Each RTSP connection carries one request: the client has this long from
+/// connecting to send it, and as long again to take the response.
+const HANDSHAKE_DEADLINE: Duration = Duration::from_secs(10);
+
 pub async fn serve(address: SocketAddr, h: Shared, media: Arc<crate::stream::Media>) -> Result<()> {
     let listener = crate::network::tcp(address)?;
     let configurations = Arc::new(Mutex::new(HashMap::new()));
@@ -22,12 +26,13 @@ pub async fn serve(address: SocketAddr, h: Shared, media: Arc<crate::stream::Med
     tracing::debug!(%address,"RTSP listener ready");
     loop {
         let (socket, peer) = crate::network::accept(&listener).await;
+        let accepted = tokio::time::Instant::now();
         let h = h.clone();
         let media = media.clone();
         let configs = configurations.clone();
         let mics = microphones.clone();
         tokio::spawn(async move {
-            if let Err(e) = connection(socket, peer, h, media, configs, mics).await {
+            if let Err(e) = connection(socket, peer, accepted, h, media, configs, mics).await {
                 // A client closing a connection early is routine; anything else
                 // prevents a stream from starting and must be visible.
                 let closed = e.downcast_ref::<std::io::Error>().is_some_and(|e| {
@@ -95,6 +100,7 @@ async fn read_message(socket: &mut TcpStream, launches: &[Launch]) -> Result<(La
 async fn connection(
     mut socket: TcpStream,
     peer: SocketAddr,
+    accepted: tokio::time::Instant,
     h: Shared,
     media: Arc<crate::stream::Media>,
     configs: Arc<Mutex<HashMap<String, Negotiated>>>,
@@ -128,11 +134,16 @@ async fn connection(
     }
 
     {
-        let (launch, raw) = tokio::time::timeout(
-            Duration::from_secs(10),
-            read_message(&mut socket, &launches),
-        )
-        .await??;
+        let deadline = handshake_deadline(&h);
+        let (launch, raw) =
+            tokio::time::timeout_at(accepted + deadline, read_message(&mut socket, &launches))
+                .await
+                .map_err(|_| {
+                    anyhow::anyhow!(
+                        "the RTSP client sent no complete request within {} ms of connecting",
+                        deadline.as_millis()
+                    )
+                })??;
         let req = rtsp::Request::parse(&raw)?;
         h.request_codec_probe();
         let mut headers = vec![];
@@ -140,6 +151,9 @@ async fn connection(
         let mut code = 200;
         let mut reason = "OK";
         let result = (|| -> Result<()> {
+            // The launch may have been replaced, started or expired since
+            // the snapshot above; a live one is claimed by this request.
+            h.sessions.lock().unwrap().claim(&launch.id)?;
             let ports = h.config.read().unwrap().ports()?;
             match req.method.as_str() {
                 "OPTIONS" => headers.push((
@@ -462,12 +476,31 @@ async fn connection(
             response.extend_from_slice(&tag);
             response.extend_from_slice(&b);
         }
-        socket.write_all(&response).await?;
-        socket.flush().await?;
+        tokio::time::timeout(deadline, async {
+            socket.write_all(&response).await?;
+            socket.flush().await
+        })
+        .await
+        .map_err(|_| {
+            anyhow::anyhow!(
+                "the RTSP client took no {} response within {} ms",
+                req.method,
+                deadline.as_millis()
+            )
+        })??;
         // Moonlight reads each response to EOF and opens a fresh TCP connection
         // for the next request. Close after the complete authenticated response.
         Ok(())
     }
+}
+/// [`HANDSHAKE_DEADLINE`], or the reconnect matrix's shorter one.
+fn handshake_deadline(h: &Shared) -> Duration {
+    #[cfg(test)]
+    if let Some(deadline) = h.reconnect_fixture.as_ref().and_then(|f| f.rtsp_deadline()) {
+        return deadline;
+    }
+    let _ = h;
+    HANDSHAKE_DEADLINE
 }
 /// Whether the host takes client microphones on this stream.
 fn takes_mic(config: &butterpollo_core::config::Config, media: &crate::stream::Media) -> bool {

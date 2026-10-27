@@ -174,13 +174,14 @@ Errors appear in red on a status line at the bottom.
 
 ### 4.3 Extension registry (`rust/host/src/couch_menu/items.rs`)
 
+`ITEMS` is the one registration point for rows beyond the built-in ones.
+
 ```rust
 pub(crate) trait Item: Sync {
-    fn key(&self) -> &'static str;              // "audio_night_mode"
-    fn label(&self) -> &'static str;            // catalogue path "couch_menu/items/audio_night_mode"
+    fn key(&self) -> &'static str;              // one of model::items, label at "couch_menu/items/<key>"
     fn available(&self, h: &Host, s: &Session) -> Availability; // Hidden | Locked(reason) | Ready
-    fn value(&self, h: &Host, s: &Session) -> ItemValue;        // Bool | Choice(index, &[catalogue paths])
-    fn set(&self, h: &Host, s: &Session, client: &Client, v: ItemValue) -> Result<(), Failure>;
+    fn value(&self, h: &Host, s: &Session) -> Control;          // Toggle | Choice | Integer | Text
+    fn set(&self, h: &Host, s: &Session, client: &Client, v: radeon::Value) -> Result<(), Failure>;
     fn needs_host_control(&self) -> bool;
     fn applies(&self) -> Applies;               // Live | NextStream (row shows the note)
 }
@@ -193,7 +194,7 @@ Expected entries:
 - `encoder_focus`: Bool or Choice; Live if its design rebuilds nothing, otherwise NextStream.
 - `sleep_after_idle_minutes`: Choice of Off, 15, 30, 60 or 120; needs host control; Live.
 
-Each item's `set` calls that feature's own setter, so the menu holds no feature logic. The tests use a fake item.
+None of the four has a runtime setter on main yet, so `ITEMS` is empty and the menu shows none of them; a row that is not registered does not exist. Their labels are in the catalogue already (en and de), and the worker refuses to start if a registered row's label is missing or outside Latin-1. Each item's `set` calls that feature's own setter, so the menu holds no feature logic; the worker checks Host control first when `needs_host_control` says so. The tests use a fake item.
 
 ## 5. Host architecture
 

@@ -147,6 +147,14 @@ pub const GLOBAL: &[Setting] = settings! {
         "back_grip_r5", "Back grip R5 (lower right) presses", Choice(GRIPS);
         "enable_input_only_mode", "Allow input-only connections", Bool;
     ]
+    "Couch menu (Experimental)" => [
+        "couch_menu", "Host menu drawn into the stream", Bool;
+        "couch_menu_open_with", "Ways to open it (comma-separated: controller, keyboard, touch; empty turns all off)", Text;
+        "couch_menu_controller_chord", "Controller chord (buttons joined with +, default l3+r3)", Text;
+        "couch_menu_hold_ms", "Controller chord hold (300–3000 milliseconds; default 1000)", Number;
+        "couch_menu_corner_hold_ms", "Touch corner hold (500–3000 milliseconds; default 1500)", Number;
+        "couch_menu_keyboard_chord", "Keyboard chord", Choice(&["ctrl+alt+backspace","ctrl+alt+home","ctrl+alt+end","ctrl+alt+insert"]);
+    ]
     "Hardware metrics" => [
         "hardware_metrics", "Send hardware metrics to client", Bool;
         "hardware_metrics_interval", "Hardware metrics interval (500–10000 milliseconds; default 1000)", Number;
@@ -239,6 +247,13 @@ pub const CLIENT: &[Setting] = settings! {
         "allow_client_commands", "Run this device's connection commands", Bool;
         "do", "Connection commands", Json;
         "undo", "Disconnect commands", Json;
+    ]
+    "Couch menu (Experimental)" => [
+        "couch_menu_open_with", "Ways to open it (comma-separated: controller, keyboard, touch; empty turns all off)", Text;
+        "couch_menu_controller_chord", "Controller chord (buttons joined with +, default l3+r3)", Text;
+        "couch_menu_hold_ms", "Controller chord hold (300–3000 milliseconds; default 1000)", Number;
+        "couch_menu_corner_hold_ms", "Touch corner hold (500–3000 milliseconds; default 1500)", Number;
+        "couch_menu_keyboard_chord", "Keyboard chord", Choice(&["ctrl+alt+backspace","ctrl+alt+home","ctrl+alt+end","ctrl+alt+insert"]);
     ]
 };
 pub fn render(prefix: &str, schema: &[Setting], values: &Value) -> String {

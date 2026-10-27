@@ -410,6 +410,7 @@ The couch menu is a host menu drawn into the stream, so any Moonlight client can
 
 | Setting | Default | Values |
 | --- | --- | --- |
+| `couch_menu` | `true` | Off means no menu: no chord is watched and native clients are not offered it. |
 | `couch_menu_open_with` | `controller,keyboard,touch` | Which ways open it; leave one out to turn that way off. |
 | `couch_menu_controller_chord` | `l3+r3` | The buttons one pad holds, joined by `+`: `select`, `l3`, `r3`, `l1`, `r1`, `guide`, `x`, `y`, `paddle1` to `paddle4`, `touchpad`, `misc`. One button alone works, such as `select`. |
 | `couch_menu_hold_ms` | `1000` | How long the pad holds the chord, 300 to 3000 ms. |
@@ -433,6 +434,10 @@ It also refuses A, B and the D-pad directions, because the open menu reads them:
 The keyboard chords leave out Ctrl+Alt+Shift, which Moonlight keeps for its shortcuts, and letters, which AltGr types on many layouts. The modifiers can be written in any order, so `alt+ctrl+home` is `ctrl+alt+home`. Holding the keys down does not toggle the menu again; let go of the key and press it again.
 
 `couch_menu_open_with` and the four chord and hold settings can be set per device or app in their overrides, so a phone can open the menu by touch and a TV only by controller. A value the host refuses to save is refused with a message; one edited into the file by hand is reported in the host log and its default is used.
+
+The menu offers Back to game, Disconnect (the game keeps running), End session and Close game. Each runs with the device's permissions as the console has them then, the same checks as the native API's session actions; End session and Close game ask for a second press within 5 s. While the menu is open the game gets no input, and everything the pad, keyboard, mouse and touch held is released when it opens. B or Esc on the top page, the chord again, a tap outside the panel or Back to game close it. Nightjar and other native clients open and close it with `POST /api/native/v1/session/couch-menu` when the host lists `session.couch_menu`.
+
+Input-only sessions and the read-back encode path (`wgc_direct_encoder_input = false`) have no picture the host draws on, so the menu stays closed there and the host log says why; so does a stream too small for the panel.
 
 ## Stream presets
 

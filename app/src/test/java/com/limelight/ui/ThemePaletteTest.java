@@ -202,6 +202,32 @@ public class ThemePaletteTest {
         assertTokenPairs(app);
     }
 
+    @Test
+    public void everyTextRoleKeepsZeroLetterSpacing() {
+        Context app = themed(R.style.AppTheme);
+        int[] roles = {R.style.TextAppearance_Nightjar_ScreenTitle, R.style.TextAppearance_Nightjar_Title,
+                R.style.TextAppearance_Nightjar_Body, R.style.TextAppearance_Nightjar_Supporting,
+                R.style.TextAppearance_Nightjar_Label, R.style.TextAppearance_Nightjar_Caption,
+                R.style.TextAppearance_Nightjar_Mono};
+        for (int role : roles) {
+            android.content.res.TypedArray a = app.obtainStyledAttributes(role, new int[] {android.R.attr.letterSpacing});
+            assertEquals(app.getResources().getResourceEntryName(role), 0f, a.getFloat(0, -1f), 0f);
+            a.recycle();
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "notnight")
+    public void streamNoticesStayReadableOnTheirScrimOverAWhiteFrame() {
+        Context stream = themed(R.style.StreamTheme);
+        android.graphics.drawable.Drawable scrim = androidx.appcompat.content.res.AppCompatResources
+                .getDrawable(stream, R.drawable.bg_stream_overlay);
+        int fill = ((android.graphics.drawable.GradientDrawable) scrim).getColor().getDefaultColor();
+        int onWhite = ColorUtils.compositeColors(fill, 0xffffffff);
+        assertContrast("notice text", 0xffffffff, onWhite, TEXT);
+        assertContrast("notice warn icon", res(stream, R.color.night_status_warn), onWhite, NON_TEXT);
+    }
+
     private static Map<String, String> items(String theme) throws Exception {
         DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
         Document styles = factory.newDocumentBuilder().parse(new File("src/main/res/values/styles.xml"));

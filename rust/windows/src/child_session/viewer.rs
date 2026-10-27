@@ -147,7 +147,6 @@ impl Value {
         }
     }
 }
-/// The password VARIANT: its BSTR is zeroed before [`Value`] frees it.
 /// Configure the client, check the server, connect: in that order, so the check is the last
 /// step before the password leaves, and a refused check never connects. The notices
 /// `configure` returned.
@@ -167,6 +166,7 @@ fn wide_secret(text: &str) -> Zeroizing<Vec<u16>> {
     wide.extend(text.encode_utf16());
     wide
 }
+/// The password VARIANT: its BSTR is zeroed before [`Value`] frees it.
 struct Secret2(Value);
 impl Drop for Secret2 {
     fn drop(&mut self) {

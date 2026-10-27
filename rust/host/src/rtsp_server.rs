@@ -190,7 +190,7 @@ async fn connection(
             })
             .await
             .context("FFmpeg's passthrough audio probe did not finish")
-            .flatten();
+            .and_then(|probed| probed);
             match probe {
                 Ok(probed) => (dolby, audio_check) = probed,
                 Err(error) => {

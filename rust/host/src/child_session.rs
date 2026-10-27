@@ -39,22 +39,30 @@ const CHILD_PROFILE: &str = "child-session";
 #[derive(Clone)]
 struct Record {
     path: PathBuf,
-    /// Make SYSTEM and Administrators alone the folder's (or file's) owner
-    /// and writers. Users may read it: it holds nothing secret, and a host
-    /// without administrator rights reads it to say why child sessions are
+    /// Create the new folder, and the new file open for writing alone, with
+    /// SYSTEM and Administrators their only owner and writers from the start;
+    /// AlreadyExists when anything has the name, which is left as it is.
+    /// Users may read both: they hold nothing secret, and a host without
+    /// administrator rights reads the record to say why child sessions are
     /// unavailable in it ([`unverified`]).
-    restrict: fn(&Path) -> Result<()>,
+    create_folder: fn(&Path) -> std::io::Result<()>,
+    create_file: fn(&Path) -> std::io::Result<File>,
     /// Err unless SYSTEM or Administrators own the open file or folder, which
-    /// `path` names.
+    /// `path` names, and alone may write it.
     trusted: fn(&File, &Path) -> Result<()>,
+    /// Whether this process has administrator rights, which setup and
+    /// restore need.
+    elevated: fn() -> Result<bool>,
 }
 impl Record {
     /// This PC's record.
     fn new() -> Self {
         Self {
             path: logic::setup_record(),
-            restrict: butterpollo_windows::process::restrict_to_administrators_readable,
+            create_folder: butterpollo_windows::process::create_folder_administrators_readable,
+            create_file: butterpollo_windows::process::create_file_administrators_readable,
             trusted: administrators_own,
+            elevated: butterpollo_windows::process::elevated,
         }
     }
     fn folder(&self) -> &Path {
@@ -100,24 +108,53 @@ impl Record {
             Err(error) => Err(error).with_context(|| format!("opening {}", folder.display())),
         }
     }
-    /// Save it in a folder only SYSTEM and Administrators can write.
+    /// Save it in a folder only SYSTEM and Administrators can write. The
+    /// folder and file are made with those permissions, never given them
+    /// after: in between, another program could open them for writing.
     fn save(&self, state: &SetupState) -> Result<()> {
+        let text = serde_json::to_vec_pretty(state)?;
         let folder = self.folder();
-        if !folder.exists() {
-            std::fs::create_dir_all(folder)
-                .with_context(|| format!("creating {}", folder.display()))?;
-            (self.restrict)(folder)?;
+        if let Some(root) = folder.parent() {
+            std::fs::create_dir_all(root)
+                .with_context(|| format!("creating {}", root.display()))?;
+        }
+        match (self.create_folder)(folder) {
+            // One that was there is checked as it is opened.
+            Err(error) if error.kind() != ErrorKind::AlreadyExists => {
+                return Err(error).with_context(|| format!("creating {}", folder.display()));
+            }
+            _ => {}
         }
         // Held while the record is written into it.
         let _folder = self
             .open_folder()?
             .with_context(|| format!("{} is gone", folder.display()))?;
         let temporary = self.path.with_extension("tmp");
-        std::fs::write(&temporary, serde_json::to_vec_pretty(state)?)
-            .with_context(|| format!("writing {}", temporary.display()))?;
-        (self.restrict)(&temporary)?;
-        std::fs::rename(&temporary, &self.path)
-            .with_context(|| format!("saving {}", self.path.display()))
+        let mut file = match (self.create_file)(&temporary) {
+            Ok(file) => file,
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => bail!(
+                "{} is already there: another setup may be writing it, or one was cut short. Rubylight does not use it; delete it, then set up child sessions again",
+                temporary.display()
+            ),
+            Err(error) => {
+                return Err(error).with_context(|| format!("creating {}", temporary.display()));
+            }
+        };
+        let written = file
+            .write_all(&text)
+            .and_then(|()| file.sync_all())
+            .with_context(|| format!("writing {}", temporary.display()));
+        // Closed first: it is shared with nothing, not even the rename.
+        drop(file);
+        let saved = written.and_then(|()| {
+            std::fs::rename(&temporary, &self.path)
+                .with_context(|| format!("saving {}", self.path.display()))
+        });
+        if saved.is_err() {
+            // Ours, and it would hold off the next setup.
+            let _ = std::fs::remove_file(&temporary);
+        }
+        saved
     }
     /// Forget it, once everything is restored.
     fn remove(&self) -> Result<()> {
@@ -130,7 +167,8 @@ impl Record {
     }
 }
 /// [`Record`]'s check on this PC, on the open `file` (`path` names it):
-/// owned by SYSTEM or Administrators, and not a link elsewhere.
+/// owned by SYSTEM or Administrators, which alone may write it, and not a
+/// link elsewhere.
 fn administrators_own(file: &File, path: &Path) -> Result<()> {
     use std::os::windows::fs::MetadataExt;
     let metadata = file
@@ -147,6 +185,17 @@ fn administrators_own(file: &File, path: &Path) -> Result<()> {
     if !matches!(owner.as_str(), "S-1-5-18" | "S-1-5-32-544") {
         bail!(
             "{} is owned by {owner}, not by SYSTEM or Administrators, so another program may have written it; Rubylight does not use it. Delete it, turn Remote Desktop off, then set up child sessions again",
+            path.display()
+        );
+    }
+    let writers = butterpollo_windows::process::open_file_writers(file)
+        .with_context(|| format!("reading the permissions of {}", path.display()))?;
+    if let Some(other) = writers
+        .iter()
+        .find(|sid| !matches!(sid.as_str(), "S-1-5-18" | "S-1-5-32-544"))
+    {
+        bail!(
+            "{} can be written by {other}, not only by SYSTEM and Administrators, so another program may have written it; Rubylight does not use it. Delete it, turn Remote Desktop off, then set up child sessions again",
             path.display()
         );
     }
@@ -462,10 +511,26 @@ fn restore_exit_code_with(
     }
 }
 
-/// `restore` ([`restore_saved`]) under the settings locks.
+/// `restore` ([`restore_saved`]) under the settings locks; refused without
+/// administrator rights.
 fn restore_locked(record: &Record, restore: impl FnOnce(&Record) -> Result<bool>) -> Result<bool> {
+    require_elevated(record, "restoring the Windows settings")?;
     let _settings = settings_lock()?;
     restore(record)
+}
+/// Err unless this process has administrator rights, as `what` (setup,
+/// restore) needs: without them it would make the record's folder with the
+/// permissions it inherits. Not knowing is a refusal too.
+fn require_elevated(record: &Record, what: &str) -> Result<()> {
+    match (record.elevated)() {
+        Ok(true) => Ok(()),
+        Ok(false) => bail!(
+            "{what} needs administrator rights, and this host runs without them; nothing was changed. Use the console of the Rubylight service, or of a host run as administrator"
+        ),
+        Err(error) => Err(error.context(format!(
+            "{what} needs administrator rights, and whether this host has them could not be told; nothing was changed"
+        ))),
+    }
 }
 /// Put back what setup changed, through the settings `open` makes, then
 /// forget it; false when setup never ran. The record stays when anything was
@@ -531,12 +596,13 @@ pub(crate) fn setup(h: &Shared) -> Result<SetupState> {
     Ok(state)
 }
 /// [`logic::setup`] for `user` through the settings `open` makes, under the
-/// settings locks.
+/// settings locks; refused without administrator rights.
 fn setup_in<S: SystemSettings>(
     record: &Record,
     user: &str,
     open: impl FnOnce() -> Result<S>,
 ) -> Result<SetupState> {
+    require_elevated(record, "setting up child sessions")?;
     let _settings = settings_lock()?;
     let saved = record.load()?;
     logic::setup(
@@ -1033,8 +1099,15 @@ mod tests {
     fn record_in(directory: &Path) -> Record {
         Record {
             path: directory.join(logic::SETUP_FOLDER).join(logic::SETUP_FILE),
-            restrict: |_| Ok(()),
+            create_folder: |path| std::fs::create_dir(path),
+            create_file: |path| {
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(path)
+            },
             trusted: |_, _| Ok(()),
+            elevated: || Ok(true),
         }
     }
     fn write_record(record: &Record, text: &str) {
@@ -1313,27 +1386,115 @@ mod tests {
     }
 
     thread_local! {
-        static RESTRICTED: std::cell::RefCell<Vec<PathBuf>> = const { std::cell::RefCell::new(Vec::new()) };
+        static CREATED: std::cell::RefCell<Vec<PathBuf>> = const { std::cell::RefCell::new(Vec::new()) };
     }
     #[test]
-    fn the_record_is_saved_for_administrators_only() {
+    fn the_record_is_made_for_administrators_only() {
         let directory = scratch();
         let record = Record {
-            restrict: |path| {
-                RESTRICTED.with_borrow_mut(|done| done.push(path.into()));
-                Ok(())
+            create_folder: |path| {
+                CREATED.with_borrow_mut(|done| done.push(path.into()));
+                (record_in(path).create_folder)(path)
+            },
+            create_file: |path| {
+                CREATED.with_borrow_mut(|done| done.push(path.into()));
+                (record_in(path).create_file)(path)
             },
             ..record_in(&directory)
         };
         record.save(&recorded()).unwrap();
         record.save(&recorded()).unwrap();
-        // The folder once, when it is made; every file before it takes the record's name.
+        // Made with their permissions: the folder each time (there the second), every file
+        // before it takes the record's name.
         let temporary = record.path.with_extension("tmp");
+        let folder = record.folder().to_path_buf();
         assert_eq!(
-            RESTRICTED.take(),
-            [record.folder().to_path_buf(), temporary.clone(), temporary]
+            CREATED.take(),
+            [folder.clone(), temporary.clone(), folder, temporary.clone()]
         );
         assert_eq!(record.load().unwrap(), Some(recorded()));
+        assert!(!temporary.exists());
+        // A folder that could not be made is not saved into.
+        let unmade = Record {
+            create_folder: |_| Err(ErrorKind::PermissionDenied.into()),
+            ..record_in(&directory.join("unmade"))
+        };
+        assert!(unmade.save(&recorded()).is_err());
+        assert!(!unmade.folder().exists());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn a_temporary_record_already_there_is_refused() {
+        // Someone else's file, opened by its name, could be read or changed while the record
+        // is written into it.
+        let directory = scratch();
+        let record = record_in(&directory);
+        let temporary = record.path.with_extension("tmp");
+        std::fs::create_dir_all(record.folder()).unwrap();
+        std::fs::write(&temporary, "planted").unwrap();
+        let error = format!("{:#}", record.save(&recorded()).unwrap_err());
+        assert!(error.contains("already there"), "{error}");
+        assert_eq!(std::fs::read_to_string(&temporary).unwrap(), "planted");
+        assert!(!record.path.exists());
+        // One this save made and could not write goes, so it holds off no later setup.
+        std::fs::remove_file(&temporary).unwrap();
+        let unwritable = Record {
+            create_file: |path| {
+                std::fs::write(path, "")?;
+                File::open(path)
+            },
+            ..record.clone()
+        };
+        assert!(unwritable.save(&recorded()).is_err());
+        assert!(!temporary.exists() && !record.path.exists());
+        record.save(&recorded()).unwrap();
+        assert_eq!(record.load().unwrap(), Some(recorded()));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn setup_and_restore_need_administrator_rights() {
+        let directory = scratch();
+        let pc = Pc::new();
+        let elevated = record_in(&directory);
+        let before = pc.now();
+        for unelevated in [
+            Record {
+                elevated: || Ok(false),
+                ..elevated.clone()
+            },
+            Record {
+                elevated: || anyhow::bail!("no token"),
+                ..elevated.clone()
+            },
+        ] {
+            let error = format!(
+                "{:#}",
+                setup_in(&unelevated, USER, || -> Result<Pc> {
+                    panic!("Windows' settings were opened")
+                })
+                .unwrap_err()
+            );
+            assert!(error.contains("administrator rights"), "{error}");
+            assert!(!unelevated.folder().exists());
+            assert_eq!(pc.now(), before);
+        }
+        setup_in(&elevated, USER, pc.open()).unwrap();
+        let set_up = pc.now();
+        let unelevated = Record {
+            elevated: || Ok(false),
+            ..elevated.clone()
+        };
+        let error = format!(
+            "{:#}",
+            restore_locked(&unelevated, |_| -> Result<bool> { panic!("restored") }).unwrap_err()
+        );
+        assert!(error.contains("administrator rights"), "{error}");
+        assert_eq!(pc.now(), set_up);
+        assert!(elevated.path.is_file());
+        assert!(restore_locked(&elevated, |record| restore_saved(record, pc.open())).unwrap());
+        assert_eq!(pc.now(), before);
         std::fs::remove_dir_all(directory).unwrap();
     }
 

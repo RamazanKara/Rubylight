@@ -337,6 +337,159 @@ fn restrict(folder: &Path, sddl: &str) -> Result<()> {
         result
     }
 }
+/// Create the folder `path` with [`USERS_READ`]'s owner and permissions from
+/// the start: it never has the inherited ones, not even for a moment.
+/// AlreadyExists when anything has its name, which is left as it is. Making
+/// Administrators the owner takes administrator rights.
+pub fn create_folder_administrators_readable(path: &Path) -> std::io::Result<()> {
+    use windows::Win32::Storage::FileSystem::CreateDirectoryW;
+    let name = wide(path.as_os_str()).map_err(std::io::Error::other)?;
+    with_attributes(USERS_READ, |attributes| {
+        // SAFETY: `name` is NUL-terminated and `attributes` points at a live descriptor, both
+        // outliving the call.
+        unsafe { CreateDirectoryW(PCWSTR(name.as_ptr()), Some(attributes)) }.map_err(io_error)
+    })
+}
+/// Create the new file `path` as [`create_folder_administrators_readable`]
+/// does, open for writing alone: nothing else can open it while it is open.
+/// AlreadyExists when anything has its name, a link too, which is never
+/// followed.
+pub fn create_file_administrators_readable(path: &Path) -> std::io::Result<std::fs::File> {
+    use windows::Win32::Storage::FileSystem::{
+        CREATE_NEW, CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_SHARE_MODE,
+    };
+    let name = wide(path.as_os_str()).map_err(std::io::Error::other)?;
+    with_attributes(USERS_READ, |attributes| {
+        // SAFETY: as above; the handle is new, and the File alone owns it.
+        unsafe {
+            let handle = CreateFileW(
+                PCWSTR(name.as_ptr()),
+                GENERIC_WRITE.0,
+                FILE_SHARE_MODE(0),
+                Some(attributes),
+                CREATE_NEW,
+                FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+                None,
+            )
+            .map_err(io_error)?;
+            Ok(std::fs::File::from_raw_handle(handle.0))
+        }
+    })
+}
+/// `create` with the security attributes `sddl` describes.
+fn with_attributes<T>(
+    sddl: &str,
+    create: impl FnOnce(*const SECURITY_ATTRIBUTES) -> std::io::Result<T>,
+) -> std::io::Result<T> {
+    use windows::Win32::Security::Authorization::ConvertStringSecurityDescriptorToSecurityDescriptorW;
+    let sddl = wide(std::ffi::OsStr::new(sddl)).map_err(std::io::Error::other)?;
+    let mut descriptor = crate::ipc::Descriptor(PSECURITY_DESCRIPTOR::default());
+    // SAFETY: `sddl` is NUL-terminated and outlives the call; the descriptor is freed once, when
+    // `descriptor` drops after `create`.
+    unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            PCWSTR(sddl.as_ptr()),
+            1,
+            &mut descriptor.0,
+            None,
+        )
+    }
+    .map_err(io_error)?;
+    let attributes = SECURITY_ATTRIBUTES {
+        nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
+        lpSecurityDescriptor: descriptor.0.0,
+        bInheritHandle: BOOL(0),
+    };
+    create(&attributes)
+}
+/// `error` as the Windows error it carries, so its kind (NotFound,
+/// AlreadyExists) is std's.
+fn io_error(error: windows::core::Error) -> std::io::Error {
+    let code = error.code().0 as u32;
+    if code >> 16 == 0x8007 {
+        std::io::Error::from_raw_os_error((code & 0xFFFF) as i32)
+    } else {
+        std::io::Error::other(error)
+    }
+}
+/// Who may write the file or folder `file` has open, change its permissions
+/// or owner, or delete it: the SIDs its permissions allow any of that,
+/// Everyone (`S-1-1-0`) when it has none. An entry only for what is created
+/// inside it is skipped; an allowing entry of another kind is named by its
+/// type ("ACE type 9"), never skipped.
+pub fn open_file_writers(file: &std::fs::File) -> Result<Vec<String>> {
+    use windows::Win32::Security::Authorization::{GetSecurityInfo, SE_FILE_OBJECT};
+    let mut dacl: *mut ACL = std::ptr::null_mut();
+    let mut descriptor = crate::ipc::Descriptor(PSECURITY_DESCRIPTOR::default());
+    // SAFETY: `dacl` points into `descriptor`, which is freed once, after its last use here.
+    unsafe {
+        GetSecurityInfo(
+            HANDLE(file.as_raw_handle()),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            None,
+            None,
+            Some(&mut dacl),
+            None,
+            Some(&mut descriptor.0),
+        )
+        .ok()
+        .context("reading the permissions")?;
+        dacl_writers(dacl)
+    }
+}
+/// [`open_file_writers`] of `dacl`.
+///
+/// # Safety
+/// `dacl` is null or points at a valid ACL.
+unsafe fn dacl_writers(dacl: *const ACL) -> Result<Vec<String>> {
+    // Write data or add a file, append or add a folder, write extended attributes, delete
+    // children, write attributes, delete, write permissions, take ownership, all, write.
+    const WRITE: u32 = 0x2
+        | 0x4
+        | 0x10
+        | 0x40
+        | 0x100
+        | 0x1_0000
+        | 0x4_0000
+        | 0x8_0000
+        | 0x1000_0000
+        | 0x4000_0000;
+    const INHERIT_ONLY: u8 = 0x8;
+    if dacl.is_null() {
+        return Ok(vec!["S-1-1-0".into()]);
+    }
+    let mut writers = Vec::new();
+    // SAFETY: the caller's ACL is valid, so are the entries GetAce finds in it, and an allowing
+    // entry's SID starts at its SidStart.
+    unsafe {
+        for index in 0..u32::from((*dacl).AceCount) {
+            let mut ace = std::ptr::null_mut();
+            GetAce(dacl, index, &mut ace).context("reading the permissions")?;
+            let header = &*ace.cast::<ACE_HEADER>();
+            if header.AceFlags & INHERIT_ONLY != 0 {
+                continue;
+            }
+            match header.AceType {
+                // ACCESS_ALLOWED_ACE_TYPE.
+                0 => {
+                    let allowed = &*ace.cast::<ACCESS_ALLOWED_ACE>();
+                    if allowed.Mask & WRITE != 0 {
+                        writers.push(sid_text(PSID(
+                            (&raw const allowed.SidStart).cast_mut().cast(),
+                        ))?);
+                    }
+                }
+                // Compound, object, callback and callback object allowing entries.
+                kind @ (4 | 5 | 9 | 11) => writers.push(format!("ACE type {kind}")),
+                // Denying entries allow nothing.
+                _ => {}
+            }
+        }
+    }
+    Ok(writers)
+}
 pub enum Target {
     User { elevated: bool },
     SystemSession(u32),
@@ -2112,6 +2265,113 @@ mod tests {
             open_unfollowed(&folder, true).unwrap_err().kind(),
             std::io::ErrorKind::NotFound
         );
+    }
+    #[test]
+    fn child_session_record_writers_are_read_from_its_permissions() {
+        use super::*;
+        use windows::Win32::Security::Authorization::ConvertStringSecurityDescriptorToSecurityDescriptorW;
+        let writers = |sddl: &str| {
+            let text = wide(std::ffi::OsStr::new(sddl)).unwrap();
+            let mut descriptor = crate::ipc::Descriptor(PSECURITY_DESCRIPTOR::default());
+            // SAFETY: `text` is NUL-terminated and outlives the call, and `dacl` points into
+            // `descriptor`, which is freed once it drops, after its last use.
+            unsafe {
+                ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                    PCWSTR(text.as_ptr()),
+                    1,
+                    &mut descriptor.0,
+                    None,
+                )
+                .unwrap();
+                let (mut present, mut defaulted) = (BOOL(0), BOOL(0));
+                let mut dacl: *mut ACL = std::ptr::null_mut();
+                GetSecurityDescriptorDacl(descriptor.0, &mut present, &mut dacl, &mut defaulted)
+                    .unwrap();
+                assert!(present.as_bool(), "{sddl}");
+                dacl_writers(dacl).unwrap()
+            }
+        };
+        assert_eq!(writers(USERS_READ), ["S-1-5-18", "S-1-5-32-544"]);
+        assert_eq!(writers(ADMINISTRATORS_ONLY), ["S-1-5-18", "S-1-5-32-544"]);
+        assert_eq!(
+            writers("D:P(A;;FA;;;SY)(A;;FW;;;BU)"),
+            ["S-1-5-18", "S-1-5-32-545"]
+        );
+        // Permissions, ownership and deletion are write access too.
+        for rights in ["WD", "WO", "SD", "GA", "GW", "0x40"] {
+            assert_eq!(
+                writers(&format!("D:P(A;;{rights};;;AU)")),
+                ["S-1-5-11"],
+                "{rights}"
+            );
+        }
+        // Reading, denials and what applies only inside it allow no writes.
+        assert!(writers("D:P(A;;FRFX;;;WD)(D;;FA;;;BU)(A;OICIIO;FA;;;CO)").is_empty());
+        // No permissions at all, or an allowing entry of another kind, fail closed.
+        assert_eq!(writers("D:NO_ACCESS_CONTROL"), ["S-1-1-0"]);
+        assert_eq!(
+            writers("D:P(OA;;CC;bf967aba-0de6-11d0-a285-00aa003049e2;;WD)"),
+            ["ACE type 5"]
+        );
+    }
+    #[test]
+    fn child_session_record_files_are_made_with_their_permissions() {
+        use super::*;
+        use std::io::{ErrorKind, Write};
+        let temporary = tempfile::tempdir().unwrap();
+        let folder = temporary.path().join("windows-settings");
+        let path = folder.join("record.tmp");
+        let elevated = elevated().unwrap();
+        let protected = |open: &std::fs::File| {
+            assert_eq!(open_file_owner(open).unwrap(), "S-1-5-32-544");
+            assert_eq!(
+                open_file_writers(open).unwrap(),
+                ["S-1-5-18", "S-1-5-32-544"]
+            );
+        };
+        match create_folder_administrators_readable(&folder) {
+            Ok(()) => {
+                assert!(elevated);
+                protected(&open_unfollowed(&folder, true).unwrap());
+            }
+            // Only an elevated process can make Administrators the owner; nothing is made.
+            Err(error) => {
+                assert!(!elevated, "{error}");
+                assert!(!folder.exists());
+                std::fs::create_dir(&folder).unwrap();
+            }
+        }
+        // Anything with the name is left as it is.
+        assert_eq!(
+            create_folder_administrators_readable(&folder)
+                .unwrap_err()
+                .kind(),
+            ErrorKind::AlreadyExists
+        );
+        std::fs::write(&path, "planted").unwrap();
+        assert_eq!(
+            create_file_administrators_readable(&path)
+                .unwrap_err()
+                .kind(),
+            ErrorKind::AlreadyExists
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "planted");
+        std::fs::remove_file(&path).unwrap();
+        match create_file_administrators_readable(&path) {
+            Ok(mut file) => {
+                assert!(elevated);
+                // Nothing else opens it while it is written.
+                assert!(std::fs::File::open(&path).is_err());
+                file.write_all(b"record").unwrap();
+                drop(file);
+                protected(&open_unfollowed(&path, false).unwrap());
+                assert_eq!(std::fs::read_to_string(&path).unwrap(), "record");
+            }
+            Err(error) => {
+                assert!(!elevated, "{error}");
+                assert!(!path.exists());
+            }
+        }
     }
     #[test]
     fn a_piped_child_reads_stdin_and_answers_on_stdout_and_stderr_inside_the_job() {

@@ -2972,7 +2972,9 @@ impl Media {
                                 confirm_keyframe = None;
                             }
                             let recovering = idr || invalidation.is_some();
-                            let bitrate = s.bitrate.load(Ordering::Acquire);
+                            // A client-chosen FEC share moves the encoder's part of the
+                            // budget only at a fence: an IDR or a new encoder.
+                            let bitrate = s.encoder_bitrate(idr || rebuilt);
                             if s.config.codec != 3 {
                                 let now = Instant::now();
                                 if encode_route.is_none_or(|(address, _)| address != peer.ip()) || now >= encode_route_due {

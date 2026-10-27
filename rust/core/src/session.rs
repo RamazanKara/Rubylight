@@ -1357,6 +1357,66 @@ mod tests {
         assert_eq!(reconnect.bitrate.load(Ordering::Acquire), 40_000);
     }
     #[test]
+    fn a_client_fec_share_splits_the_encoder_budget_only_at_a_fence() {
+        use crate::extensions::FecChoice;
+        use crate::statistical_fec::FecReport;
+        let report = |seq, missing| {
+            FecReport {
+                seq,
+                data_shards: 900,
+                parity_shards: 180,
+                missing_shards: missing,
+                unrecovered_blocks: 0,
+                interval_ms: 1000,
+            }
+            .encode()
+        };
+        // The host's own FEC: the encoder gets the whole bitrate, as before.
+        let host = Session::new(launch("host", Role::Stream), Negotiated::default());
+        host.configure_fec_choice(FecChoice::Host, true, 20, 50);
+        host.bitrate.store(12_000, Ordering::Release);
+        assert_eq!(host.encoder_bitrate(true), 12_000);
+
+        // 12 Mbps at 60 fps: about 25 data shards a frame.
+        let stream = Negotiated {
+            packet_size: 1024,
+            fps: 60,
+            ..Default::default()
+        };
+        let auto = Session::new(launch("auto", Role::Stream), stream);
+        assert_eq!(auto.configure_fec_choice(FecChoice::Auto, true, 20, 40), 20);
+        auto.bitrate.store(12_000, Ordering::Release);
+        assert_eq!(auto.encoder_bitrate(false), 10_000, "12 Mbps at 20 % FEC");
+        auto.record_fec_report(&report(0, 0)).unwrap();
+        assert_eq!(auto.fec_percent(), 0);
+        assert_eq!(auto.encoder_bitrate(false), 10_000, "no fence, no step");
+        assert_eq!(
+            auto.encoder_bitrate(true),
+            12_000,
+            "a clean link: all video"
+        );
+        auto.record_fec_report(&report(1, 540)).unwrap();
+        assert_eq!(auto.fec_percent(), 40);
+        assert_eq!(auto.encoder_bitrate(false), 12_000);
+        assert_eq!(auto.encoder_bitrate(true), 8_571, "12 Mbps × 100 / 140");
+        // A new budget (a client /bitrate) applies at once, at the latched share.
+        auto.bitrate.store(7_000, Ordering::Release);
+        assert_eq!(auto.encoder_bitrate(false), 5_000);
+
+        let fixed = Session::new(launch("fixed", Role::Stream), Negotiated::default());
+        assert_eq!(
+            fixed.configure_fec_choice(FecChoice::Fixed(90), true, 20, 50),
+            50
+        );
+        fixed.bitrate.store(12_000, Ordering::Release);
+        assert_eq!(fixed.encoder_bitrate(true), 8_000);
+        // Back to the host's FEC on a new configuration: no split.
+        fixed.configure_fec_choice(FecChoice::Host, true, 20, 50);
+        assert_eq!(fixed.encoder_bitrate(true), 12_000);
+        assert_eq!(fec_split_kbps(0, 50), 0);
+        assert_eq!(fec_split_kbps(1, 255), 1);
+    }
+    #[test]
     fn adaptive_fec_follows_reports_and_stays_fixed_without_them_or_when_off() {
         let start = Instant::now();
         // A client that never reports: the configured percentage, for minutes.
@@ -2577,6 +2637,14 @@ pub struct Stats {
     /// The console's pipeline frame rates, over `pipeline_rates::CONSOLE_WINDOW`.
     pub pipeline_console: std::sync::Mutex<crate::pipeline_rates::Sampler>,
 }
+/// The encoder's share of a video `budget` that also carries `fec` percent
+/// parity: budget × 100 / (100 + fec), at least 1 Kbps of a non-zero budget.
+fn fec_split_kbps(budget: u32, fec: u32) -> u32 {
+    if budget == 0 {
+        return 0;
+    }
+    (u64::from(budget) * 100 / (100 + u64::from(fec))).max(1) as u32
+}
 pub struct Session<P = (), A = ()> {
     pub encoder: std::sync::RwLock<String>,
     pub capture_warnings: std::sync::RwLock<Arc<Warnings>>,
@@ -2620,6 +2688,10 @@ pub struct Session<P = (), A = ()> {
     pub client_fec: std::sync::Mutex<Option<crate::statistical_fec::StatisticalFec>>,
     /// Whether `client_fec` is set: frames skip its lock otherwise.
     client_fec_on: AtomicBool,
+    /// Whether the encoder's bitrate leaves room for the client-chosen FEC
+    /// share in `fec_split`, latched at the last fence; see [`Self::encoder_bitrate`].
+    fec_split_on: AtomicBool,
+    fec_split: AtomicU32,
     /// Capture timing locked to the client's display, from its 0x5530 reports.
     pub phase_sync: std::sync::Mutex<crate::phase_sync::PhaseSync>,
     /// The stream's current mode and the client's 0x5532 requests to change it.
@@ -2732,6 +2804,8 @@ impl<P, A> Session<P, A> {
             adaptive_fec: Default::default(),
             client_fec: Default::default(),
             client_fec_on: AtomicBool::new(false),
+            fec_split_on: AtomicBool::new(false),
+            fec_split: AtomicU32::new(0),
             phase_sync: Default::default(),
             reconfigure: std::sync::Mutex::new(crate::reconfigure::Reconfiguration::new(mode)),
             stats: Stats::default(),
@@ -3001,6 +3075,7 @@ impl<P, A> Session<P, A> {
         let mut client = self.client_fec.lock().unwrap();
         *client = None;
         self.client_fec_on.store(false, Ordering::Release);
+        self.fec_split_on.store(false, Ordering::Release);
         if self.config.codec == 3 || choice == FecChoice::Host {
             drop(client);
             return self.configure_fec(adaptive, configured);
@@ -3022,7 +3097,30 @@ impl<P, A> Session<P, A> {
         *self.adaptive_fec.lock().unwrap() = crate::adaptive_fec::AdaptiveFec::fixed(percent);
         self.fec_percent
             .store(u32::from(percent), Ordering::Release);
+        self.fec_split.store(u32::from(percent), Ordering::Release);
+        self.fec_split_on.store(true, Ordering::Release);
         usize::from(percent)
+    }
+    /// The encoder's bitrate for the next frame. With a client-chosen FEC
+    /// share F, `bitrate` is the video budget and the encoder gets
+    /// budget × 100 / (100 + F), so video and parity together fit it. F moves
+    /// only at a `fence`, an IDR or a new encoder, so FEC alone never steps
+    /// the rate inside a GOP. Host bitrate adaptation already budgets FEC:
+    /// while it runs, the encoder gets `bitrate` as it is.
+    pub fn encoder_bitrate(&self, fence: bool) -> u32 {
+        let budget = self.bitrate.load(Ordering::Acquire);
+        if !self.fec_split_on.load(Ordering::Acquire) {
+            return budget;
+        }
+        if fence {
+            let share = if self.adaptive_bitrate.lock().unwrap().active() {
+                0
+            } else {
+                self.fec_percent() as u32
+            };
+            self.fec_split.store(share, Ordering::Release);
+        }
+        fec_split_kbps(budget, self.fec_split.load(Ordering::Acquire))
     }
     /// Takes a 0x5539 FEC report: the report and whether statistical FEC
     /// used it (only under `rlFecPercentage=auto`), or why it was refused.

@@ -194,4 +194,16 @@ public class NativeLibraryFieldsTest {
         assertTrue(caps.has("later"));
         assertEquals(4, caps.features.size());
     }
+
+    @Test
+    public void usbForwardingNeedsTheFeatureAndThePermission() throws Exception {
+        assertTrue(NativeCapabilities.parse(new JSONObject("{\"api_version\":1,\"permissions\":{\"usb\":true},"
+                + "\"features\":[\"usb\"]}")).offersUsbForwarding());
+        assertFalse("without the permission", NativeCapabilities.parse(new JSONObject("{\"api_version\":1,"
+                + "\"permissions\":{\"usb\":false},\"features\":[\"usb\"]}")).offersUsbForwarding());
+        assertFalse("a string is not a grant", NativeCapabilities.parse(new JSONObject("{\"api_version\":1,"
+                + "\"permissions\":{\"usb\":\"true\"},\"features\":[\"usb\"]}")).offersUsbForwarding());
+        assertFalse("without the feature", NativeCapabilities.parse(new JSONObject("{\"api_version\":1,"
+                + "\"permissions\":{\"usb\":true}}")).offersUsbForwarding());
+    }
 }

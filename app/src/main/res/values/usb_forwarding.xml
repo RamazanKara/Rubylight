@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_usb_forwarding">Forward USB devices (Experimental)</string>
+    <string name="summary_usb_forwarding">Adds USB devices to the stream menu: a device plugged into this one, such as a drawing tablet or a security key, then works on the PC. Needs a PC that offers USB forwarding.</string>
+    <string name="stream_usb_devices">USB devices</string>
+    <string name="usb_forwarding_pick_title">Forward a USB device</string>
+    <string name="usb_forwarding_none">No USB device to forward. Hubs and the controllers this app drives itself are not listed.</string>
+    <string name="usb_forwarding_detach">Detach %1$s</string>
+    <string name="usb_forwarding_asking">Asking the PC to attach %1$s…</string>
+    <string name="usb_forwarding_attached">%1$s is attached to the PC</string>
+    <string name="usb_forwarding_detached">%1$s is detached from the PC</string>
+    <string name="usb_forwarding_unplugged">%1$s was unplugged and is detached from the PC</string>
+    <string name="usb_forwarding_refused">The PC refused %1$s: %2$s</string>
+    <string name="usb_forwarding_failed">Forwarding %1$s failed: %2$s</string>
+    <string name="usb_forwarding_permission_denied">No permission to use %1$s</string>
+    <string name="usb_forwarding_list_failed">The USB device status could not be read</string>
+    <string name="usb_forwarding_reason_permission">the PC does not let this device forward USB</string>
+    <string name="usb_forwarding_reason_disabled">USB forwarding is off on the PC</string>
+    <string name="usb_forwarding_reason_limit">the PC has as many USB devices attached as it allows</string>
+    <string name="usb_forwarding_reason_driver">the PC\'s USB driver is missing or failed</string>
+    <string name="usb_forwarding_reason_timeout">the connection for the device timed out</string>
+    <string name="usb_forwarding_reason_device">the device stopped answering</string>
+    <string name="usb_forwarding_reason_session">the stream ended</string>
+    <string name="usb_forwarding_reason_unknown">unknown reason</string>
+    <string name="usb_forwarding_code_no_stream">the stream is not running</string>
+    <string name="usb_forwarding_code_busy">it is attached already</string>
+    <string name="usb_forwarding_code_unsupported">the PC does not support USB forwarding</string>
+    <string name="usb_forwarding_code_device">this device could not open it</string>
+    <string name="usb_forwarding_code_invalid">its name or address cannot be sent</string>
+    <string name="usb_forwarding_code_host">the PC could not be reached</string>
+</resources>

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_usb_forwarding">Перенаправлять USB-устройства (экспериментально)</string>
+    <string name="summary_usb_forwarding">Добавляет USB-устройства в меню стрима: устройство, подключённое к этому, например графический планшет или ключ безопасности, начинает работать на ПК. Нужен ПК, который предлагает перенаправление USB.</string>
+    <string name="stream_usb_devices">USB-устройства</string>
+    <string name="usb_forwarding_pick_title">Перенаправить USB-устройство</string>
+    <string name="usb_forwarding_none">Нет USB-устройств для перенаправления. Хабы и контроллеры, которыми это приложение управляет само, не показываются.</string>
+    <string name="usb_forwarding_detach">Отключить %1$s</string>
+    <string name="usb_forwarding_asking">Запрос к ПК на подключение %1$s…</string>
+    <string name="usb_forwarding_attached">%1$s подключено к ПК</string>
+    <string name="usb_forwarding_detached">%1$s отключено от ПК</string>
+    <string name="usb_forwarding_unplugged">%1$s извлечено и отключено от ПК</string>
+    <string name="usb_forwarding_refused">ПК отклонил %1$s: %2$s</string>
+    <string name="usb_forwarding_failed">Не удалось перенаправить %1$s: %2$s</string>
+    <string name="usb_forwarding_permission_denied">Нет разрешения на использование %1$s</string>
+    <string name="usb_forwarding_list_failed">Не удалось прочитать состояние USB-устройств</string>
+    <string name="usb_forwarding_reason_permission">ПК не разрешает этому устройству перенаправлять USB</string>
+    <string name="usb_forwarding_reason_disabled">перенаправление USB выключено на ПК</string>
+    <string name="usb_forwarding_reason_limit">к ПК подключено максимально допустимое число USB-устройств</string>
+    <string name="usb_forwarding_reason_driver">USB-драйвер ПК отсутствует или дал сбой</string>
+    <string name="usb_forwarding_reason_timeout">время ожидания соединения для устройства истекло</string>
+    <string name="usb_forwarding_reason_device">устройство перестало отвечать</string>
+    <string name="usb_forwarding_reason_session">стрим завершён</string>
+    <string name="usb_forwarding_reason_unknown">неизвестная причина</string>
+    <string name="usb_forwarding_code_no_stream">стрим не запущен</string>
+    <string name="usb_forwarding_code_busy">оно уже подключено</string>
+    <string name="usb_forwarding_code_unsupported">ПК не поддерживает перенаправление USB</string>
+    <string name="usb_forwarding_code_device">это устройство не смогло его открыть</string>
+    <string name="usb_forwarding_code_invalid">его имя или адрес нельзя отправить</string>
+    <string name="usb_forwarding_code_host">ПК недоступен</string>
+</resources>

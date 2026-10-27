@@ -1196,8 +1196,8 @@ public class StreamSettings extends NightjarActivity {
          * Frame pacing is greyed while adaptive refresh or host frame times replace it. A setting that does
          * nothing for the current choices is hidden, not greyed: the frame-drop choice shows only with Balanced
          * pacing, the sharpness only with an upscaler that sharpens, the two minimums only while automatic
-         * quality is on, client roaming only with the new streaming engine and its mobile-data choice only
-         * while roaming is on. Hidden settings stay out of search, and come back in their place.
+         * quality is on, client roaming and USB forwarding only with the new streaming engine and roaming's
+         * mobile-data choice only while roaming is on. Hidden settings stay out of search, and come back in their place.
          */
         private void applySettingRules(SharedPreferences prefs) {
             Preference pacing = allPreferences.get(SettingRules.FRAME_PACING);
@@ -1213,6 +1213,7 @@ public class StreamSettings extends NightjarActivity {
             setShown(PreferenceConfiguration.ROAMING_METERED_PREF_STRING, SettingRules.roamingMeteredApplies(prefs));
             setShown(PreferenceConfiguration.AUDIO_PASSTHROUGH_PREF_STRING,
                     SettingRules.audioPassthroughApplies(prefs, Build.VERSION.SDK_INT));
+            setShown(PreferenceConfiguration.USB_FORWARDING_PREF_STRING, SettingRules.usbForwardingApplies(prefs));
             boolean open = customizeOpen();
             for (String key : LOW_LATENCY_CUSTOMIZED) {
                 if (open) folded.remove(key);

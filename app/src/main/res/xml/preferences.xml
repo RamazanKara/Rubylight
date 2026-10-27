@@ -321,6 +321,12 @@
             android:title="@string/title_usb_switch_pro"
             android:dialogMessage="@string/summary_usb_switch_pro"
             android:defaultValue="false" />
+        <!-- Rust engine only (SettingRules.usbForwardingApplies); the stream menu offers it when the PC does. -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_usb_forwarding"
+            android:title="@string/title_usb_forwarding"
+            android:dialogMessage="@string/summary_usb_forwarding"
+            android:defaultValue="false" />
     </PreferenceCategory>
     <PreferenceCategory android:key="category_input_settings" android:title="@string/category_input_settings">
         <Preference android:key="checkbox_touchscreen_trackpad"

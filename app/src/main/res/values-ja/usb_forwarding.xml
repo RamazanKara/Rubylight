@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_usb_forwarding">USB デバイスを転送（試験運用）</string>
+    <string name="summary_usb_forwarding">ストリームメニューに USB デバイスを追加します。このデバイスに接続したペンタブレットやセキュリティキーなどを PC で使えるようになります。USB 転送に対応した PC が必要です。</string>
+    <string name="stream_usb_devices">USB デバイス</string>
+    <string name="usb_forwarding_pick_title">USB デバイスを転送</string>
+    <string name="usb_forwarding_none">転送できる USB デバイスがありません。ハブと、このアプリが自分で制御するコントローラーは表示されません。</string>
+    <string name="usb_forwarding_detach">%1$s を切断</string>
+    <string name="usb_forwarding_asking">%1$s の接続を PC に要求しています…</string>
+    <string name="usb_forwarding_attached">%1$s は PC に接続されています</string>
+    <string name="usb_forwarding_detached">%1$s は PC から切断されました</string>
+    <string name="usb_forwarding_unplugged">%1$s が取り外されたため、PC から切断されました</string>
+    <string name="usb_forwarding_refused">PC が %1$s を拒否しました: %2$s</string>
+    <string name="usb_forwarding_failed">%1$s を転送できませんでした: %2$s</string>
+    <string name="usb_forwarding_permission_denied">%1$s を使用する権限がありません</string>
+    <string name="usb_forwarding_list_failed">USB デバイスの状態を読み取れませんでした</string>
+    <string name="usb_forwarding_reason_permission">PC がこのデバイスの USB 転送を許可していません</string>
+    <string name="usb_forwarding_reason_disabled">PC で USB 転送がオフになっています</string>
+    <string name="usb_forwarding_reason_limit">PC に接続できる USB デバイスの上限に達しています</string>
+    <string name="usb_forwarding_reason_driver">PC の USB ドライバーがないか、失敗しました</string>
+    <string name="usb_forwarding_reason_timeout">デバイスの接続がタイムアウトしました</string>
+    <string name="usb_forwarding_reason_device">デバイスが応答しなくなりました</string>
+    <string name="usb_forwarding_reason_session">ストリームが終了しました</string>
+    <string name="usb_forwarding_reason_unknown">不明な理由</string>
+    <string name="usb_forwarding_code_no_stream">ストリームが実行されていません</string>
+    <string name="usb_forwarding_code_busy">すでに接続されています</string>
+    <string name="usb_forwarding_code_unsupported">PC が USB 転送に対応していません</string>
+    <string name="usb_forwarding_code_device">このデバイスで開けませんでした</string>
+    <string name="usb_forwarding_code_invalid">名前またはアドレスを送信できません</string>
+    <string name="usb_forwarding_code_host">PC に接続できませんでした</string>
+</resources>

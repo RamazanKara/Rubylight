@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_usb_forwarding">转发 USB 设备（实验性）</string>
+    <string name="summary_usb_forwarding">在串流菜单中加入 USB 设备：插在本设备上的数位板或安全密钥等设备随后可在电脑上使用。需要电脑提供 USB 转发。</string>
+    <string name="stream_usb_devices">USB 设备</string>
+    <string name="usb_forwarding_pick_title">转发 USB 设备</string>
+    <string name="usb_forwarding_none">没有可转发的 USB 设备。集线器和本应用自行驱动的手柄不会列出。</string>
+    <string name="usb_forwarding_detach">断开 %1$s</string>
+    <string name="usb_forwarding_asking">正在请求电脑连接 %1$s…</string>
+    <string name="usb_forwarding_attached">%1$s 已连接到电脑</string>
+    <string name="usb_forwarding_detached">%1$s 已与电脑断开</string>
+    <string name="usb_forwarding_unplugged">%1$s 已拔出，并已与电脑断开</string>
+    <string name="usb_forwarding_refused">电脑拒绝了 %1$s：%2$s</string>
+    <string name="usb_forwarding_failed">转发 %1$s 失败：%2$s</string>
+    <string name="usb_forwarding_permission_denied">没有使用 %1$s 的权限</string>
+    <string name="usb_forwarding_list_failed">无法读取 USB 设备状态</string>
+    <string name="usb_forwarding_reason_permission">电脑不允许此设备转发 USB</string>
+    <string name="usb_forwarding_reason_disabled">电脑上的 USB 转发已关闭</string>
+    <string name="usb_forwarding_reason_limit">电脑连接的 USB 设备已达上限</string>
+    <string name="usb_forwarding_reason_driver">电脑的 USB 驱动缺失或出错</string>
+    <string name="usb_forwarding_reason_timeout">设备连接超时</string>
+    <string name="usb_forwarding_reason_device">设备已停止响应</string>
+    <string name="usb_forwarding_reason_session">串流已结束</string>
+    <string name="usb_forwarding_reason_unknown">未知原因</string>
+    <string name="usb_forwarding_code_no_stream">串流未在运行</string>
+    <string name="usb_forwarding_code_busy">它已连接</string>
+    <string name="usb_forwarding_code_unsupported">电脑不支持 USB 转发</string>
+    <string name="usb_forwarding_code_device">本设备无法打开它</string>
+    <string name="usb_forwarding_code_invalid">无法发送它的名称或地址</string>
+    <string name="usb_forwarding_code_host">无法连接到电脑</string>
+</resources>

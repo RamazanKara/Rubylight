@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_usb_forwarding">USB aygıtlarını yönlendir (Deneysel)</string>
+    <string name="summary_usb_forwarding">Yayın menüsüne USB aygıtlarını ekler: bu cihaza takılı bir çizim tableti veya güvenlik anahtarı gibi bir aygıt bilgisayarda çalışır. USB yönlendirme sunan bir bilgisayar gerekir.</string>
+    <string name="stream_usb_devices">USB aygıtları</string>
+    <string name="usb_forwarding_pick_title">Bir USB aygıtını yönlendir</string>
+    <string name="usb_forwarding_none">Yönlendirilecek USB aygıtı yok. Hub’lar ve bu uygulamanın kendisinin sürdüğü kumandalar listelenmez.</string>
+    <string name="usb_forwarding_detach">%1$s bağlantısını kes</string>
+    <string name="usb_forwarding_asking">Bilgisayardan %1$s aygıtını bağlaması isteniyor…</string>
+    <string name="usb_forwarding_attached">%1$s bilgisayara bağlandı</string>
+    <string name="usb_forwarding_detached">%1$s bilgisayardan ayrıldı</string>
+    <string name="usb_forwarding_unplugged">%1$s çıkarıldı ve bilgisayardan ayrıldı</string>
+    <string name="usb_forwarding_refused">Bilgisayar %1$s aygıtını reddetti: %2$s</string>
+    <string name="usb_forwarding_failed">%1$s yönlendirilemedi: %2$s</string>
+    <string name="usb_forwarding_permission_denied">%1$s için izin yok</string>
+    <string name="usb_forwarding_list_failed">USB aygıtlarının durumu okunamadı</string>
+    <string name="usb_forwarding_reason_permission">bilgisayar bu cihazın USB yönlendirmesine izin vermiyor</string>
+    <string name="usb_forwarding_reason_disabled">bilgisayarda USB yönlendirme kapalı</string>
+    <string name="usb_forwarding_reason_limit">bilgisayara izin verdiği kadar USB aygıtı bağlı</string>
+    <string name="usb_forwarding_reason_driver">bilgisayarın USB sürücüsü yok veya başarısız oldu</string>
+    <string name="usb_forwarding_reason_timeout">aygıtın bağlantısı zaman aşımına uğradı</string>
+    <string name="usb_forwarding_reason_device">aygıt yanıt vermeyi bıraktı</string>
+    <string name="usb_forwarding_reason_session">yayın sona erdi</string>
+    <string name="usb_forwarding_reason_unknown">bilinmeyen neden</string>
+    <string name="usb_forwarding_code_no_stream">yayın çalışmıyor</string>
+    <string name="usb_forwarding_code_busy">zaten bağlı</string>
+    <string name="usb_forwarding_code_unsupported">bilgisayar USB yönlendirmeyi desteklemiyor</string>
+    <string name="usb_forwarding_code_device">bu cihaz aygıtı açamadı</string>
+    <string name="usb_forwarding_code_invalid">adı veya adresi gönderilemiyor</string>
+    <string name="usb_forwarding_code_host">bilgisayara ulaşılamadı</string>
+</resources>

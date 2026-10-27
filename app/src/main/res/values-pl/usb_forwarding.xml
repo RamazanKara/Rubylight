@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_usb_forwarding">Przekazuj urządzenia USB (eksperymentalne)</string>
+    <string name="summary_usb_forwarding">Dodaje urządzenia USB do menu streamu: urządzenie podłączone do tego, np. tablet graficzny lub klucz bezpieczeństwa, działa wtedy na PC. Wymaga PC, który oferuje przekazywanie USB.</string>
+    <string name="stream_usb_devices">Urządzenia USB</string>
+    <string name="usb_forwarding_pick_title">Przekaż urządzenie USB</string>
+    <string name="usb_forwarding_none">Brak urządzeń USB do przekazania. Huby i kontrolery obsługiwane przez tę aplikację nie są wyświetlane.</string>
+    <string name="usb_forwarding_detach">Odłącz %1$s</string>
+    <string name="usb_forwarding_asking">Proszenie PC o podłączenie %1$s…</string>
+    <string name="usb_forwarding_attached">%1$s jest podłączone do PC</string>
+    <string name="usb_forwarding_detached">%1$s jest odłączone od PC</string>
+    <string name="usb_forwarding_unplugged">%1$s wyjęto i jest odłączone od PC</string>
+    <string name="usb_forwarding_refused">PC odrzucił %1$s: %2$s</string>
+    <string name="usb_forwarding_failed">Nie udało się przekazać %1$s: %2$s</string>
+    <string name="usb_forwarding_permission_denied">Brak uprawnień do użycia %1$s</string>
+    <string name="usb_forwarding_list_failed">Nie udało się odczytać stanu urządzeń USB</string>
+    <string name="usb_forwarding_reason_permission">PC nie pozwala temu urządzeniu przekazywać USB</string>
+    <string name="usb_forwarding_reason_disabled">przekazywanie USB jest wyłączone na PC</string>
+    <string name="usb_forwarding_reason_limit">PC ma podłączonych tyle urządzeń USB, ile pozwala</string>
+    <string name="usb_forwarding_reason_driver">brak sterownika USB na PC lub wystąpił w nim błąd</string>
+    <string name="usb_forwarding_reason_timeout">upłynął limit czasu połączenia urządzenia</string>
+    <string name="usb_forwarding_reason_device">urządzenie przestało odpowiadać</string>
+    <string name="usb_forwarding_reason_session">stream się zakończył</string>
+    <string name="usb_forwarding_reason_unknown">nieznany powód</string>
+    <string name="usb_forwarding_code_no_stream">stream nie działa</string>
+    <string name="usb_forwarding_code_busy">jest już podłączone</string>
+    <string name="usb_forwarding_code_unsupported">PC nie obsługuje przekazywania USB</string>
+    <string name="usb_forwarding_code_device">to urządzenie nie mogło go otworzyć</string>
+    <string name="usb_forwarding_code_invalid">nie można wysłać jego nazwy lub adresu</string>
+    <string name="usb_forwarding_code_host">nie można połączyć się z PC</string>
+</resources>

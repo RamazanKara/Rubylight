@@ -31,7 +31,7 @@ public final class StreamMenu {
         TOUCH_MODE, MOUSE_CURSOR, ONSCREEN_CONTROLS, CONTROLS_LAYOUT, GAME_CONTROLS, KEYBOARD_KEYS,
         VIDEO_SCALING, ZOOM, ZOOM_RESET, OVERLAY_PAGE, PICTURE_IN_PICTURE, VIDEO_OUTPUT,
         BITRATE, AUTOMATIC_QUALITY, AUTOMATIC_BITRATE,
-        HOST_MENU, SERVER_COMMANDS, CLIPBOARD_SEND, CLIPBOARD_RECEIVE, HOST_WEB_UI, HOST_STATUS,
+        HOST_MENU, SERVER_COMMANDS, CLIPBOARD_SEND, CLIPBOARD_RECEIVE, USB_DEVICES, HOST_WEB_UI, HOST_STATUS,
         RECONNECT, DISCONNECT, QUIT_GAME, END_SESSION, END_HOST_SESSION, CLOSE_GAME,
         NATIVE_PAGE, NATIVE_RESUME,
         OVERLAY_OFF, OVERLAY_COMPACT, OVERLAY_STATISTICS, OVERLAY_DEBUG,
@@ -80,6 +80,8 @@ public final class StreamMenu {
         public boolean nativeHostControl;
         /** The host's native API offers its own menu in the stream ({@code session.couch_menu}). */
         public boolean hostMenu;
+        /** The host offers USB forwarding and it is on here (Rust engine only). */
+        public boolean usbForwarding;
         /** Host, codec, size, bitrate and link for the native page; null leaves the connection facts out. */
         public ConnectionInfo connection;
 
@@ -217,6 +219,9 @@ public final class StreamMenu {
         }
         if (host.canReadClipboard()) {
             entries.add(action(Section.HOST, Item.CLIPBOARD_RECEIVE, R.string.stream_clipboard_receive, R.drawable.ic_clipboard_receive));
+        }
+        if (o.role != NvApp.Role.REMOTE_MONITOR && o.usbForwarding) {
+            entries.add(action(Section.HOST, Item.USB_DEVICES, R.string.stream_usb_devices, R.drawable.ic_usb));
         }
         if (o.webUiAddress && caps.mayHave(HostCapabilities.Feature.WEB_UI)) {
             entries.add(action(Section.HOST, Item.HOST_WEB_UI, R.string.host_administration_menu, R.drawable.ic_web));

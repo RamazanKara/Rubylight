@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_usb_forwarding">Rediriger les périphériques USB (expérimental)</string>
+    <string name="summary_usb_forwarding">Ajoute les périphériques USB au menu du stream : un périphérique branché sur cet appareil, comme une tablette graphique ou une clé de sécurité, fonctionne alors sur le PC. Nécessite un PC qui propose la redirection USB.</string>
+    <string name="stream_usb_devices">Périphériques USB</string>
+    <string name="usb_forwarding_pick_title">Rediriger un périphérique USB</string>
+    <string name="usb_forwarding_none">Aucun périphérique USB à rediriger. Les hubs et les manettes que cette app gère elle-même ne sont pas listés.</string>
+    <string name="usb_forwarding_detach">Déconnecter %1$s</string>
+    <string name="usb_forwarding_asking">Demande au PC de connecter %1$s…</string>
+    <string name="usb_forwarding_attached">%1$s est connecté au PC</string>
+    <string name="usb_forwarding_detached">%1$s est déconnecté du PC</string>
+    <string name="usb_forwarding_unplugged">%1$s a été débranché et est déconnecté du PC</string>
+    <string name="usb_forwarding_refused">Le PC a refusé %1$s : %2$s</string>
+    <string name="usb_forwarding_failed">Échec de la redirection de %1$s : %2$s</string>
+    <string name="usb_forwarding_permission_denied">Aucune autorisation pour utiliser %1$s</string>
+    <string name="usb_forwarding_list_failed">Impossible de lire l’état des périphériques USB</string>
+    <string name="usb_forwarding_reason_permission">le PC n’autorise pas cet appareil à rediriger l’USB</string>
+    <string name="usb_forwarding_reason_disabled">la redirection USB est désactivée sur le PC</string>
+    <string name="usb_forwarding_reason_limit">le PC a déjà autant de périphériques USB connectés qu’il en autorise</string>
+    <string name="usb_forwarding_reason_driver">le pilote USB du PC est absent ou a échoué</string>
+    <string name="usb_forwarding_reason_timeout">la connexion du périphérique a expiré</string>
+    <string name="usb_forwarding_reason_device">le périphérique ne répond plus</string>
+    <string name="usb_forwarding_reason_session">le stream est terminé</string>
+    <string name="usb_forwarding_reason_unknown">raison inconnue</string>
+    <string name="usb_forwarding_code_no_stream">le stream n’est pas en cours</string>
+    <string name="usb_forwarding_code_busy">il est déjà connecté</string>
+    <string name="usb_forwarding_code_unsupported">le PC ne prend pas en charge la redirection USB</string>
+    <string name="usb_forwarding_code_device">cet appareil n’a pas pu l’ouvrir</string>
+    <string name="usb_forwarding_code_invalid">son nom ou son adresse ne peut pas être envoyé</string>
+    <string name="usb_forwarding_code_host">le PC est injoignable</string>
+</resources>

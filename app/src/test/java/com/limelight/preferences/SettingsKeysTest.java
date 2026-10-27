@@ -281,6 +281,7 @@ public class SettingsKeysTest {
         reads.put("checkbox_usb_dualsense", new Read(false, true, c -> c.usbDualSense));
         reads.put("checkbox_usb_dualsense_haptics", new Read(false, true, c -> c.usbDualSenseHaptics));
         reads.put("checkbox_usb_switch_pro", new Read(false, true, c -> c.usbSwitchPro));
+        reads.put("checkbox_usb_forwarding", new Read(false, true, c -> c.usbForwarding));
         reads.put("checkbox_touchscreen_trackpad", new Read(true, false, c -> c.touchscreenTrackpad));
         reads.put("seekbar_trackpad_speed", new Read(100, 200, c -> c.trackpadSpeed));
         reads.put("seekbar_local_cursor_speed", new Read(100, 200, c -> c.localCursorSpeed));

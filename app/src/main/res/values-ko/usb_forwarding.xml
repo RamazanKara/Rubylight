@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_usb_forwarding">USB 장치 전달(실험적)</string>
+    <string name="summary_usb_forwarding">스트림 메뉴에 USB 장치를 추가합니다. 이 기기에 연결한 드로잉 태블릿이나 보안 키 같은 장치를 PC에서 사용할 수 있습니다. USB 전달을 제공하는 PC가 필요합니다.</string>
+    <string name="stream_usb_devices">USB 장치</string>
+    <string name="usb_forwarding_pick_title">USB 장치 전달</string>
+    <string name="usb_forwarding_none">전달할 USB 장치가 없습니다. 허브와 이 앱이 직접 제어하는 컨트롤러는 표시되지 않습니다.</string>
+    <string name="usb_forwarding_detach">%1$s 분리</string>
+    <string name="usb_forwarding_asking">PC에 %1$s 연결을 요청하는 중…</string>
+    <string name="usb_forwarding_attached">%1$s이(가) PC에 연결됨</string>
+    <string name="usb_forwarding_detached">%1$s이(가) PC에서 분리됨</string>
+    <string name="usb_forwarding_unplugged">%1$s이(가) 뽑혀서 PC에서 분리됨</string>
+    <string name="usb_forwarding_refused">PC가 %1$s을(를) 거부했습니다: %2$s</string>
+    <string name="usb_forwarding_failed">%1$s 전달 실패: %2$s</string>
+    <string name="usb_forwarding_permission_denied">%1$s을(를) 사용할 권한이 없습니다</string>
+    <string name="usb_forwarding_list_failed">USB 장치 상태를 읽을 수 없습니다</string>
+    <string name="usb_forwarding_reason_permission">PC가 이 기기의 USB 전달을 허용하지 않습니다</string>
+    <string name="usb_forwarding_reason_disabled">PC에서 USB 전달이 꺼져 있습니다</string>
+    <string name="usb_forwarding_reason_limit">PC에 허용된 최대 개수의 USB 장치가 연결되어 있습니다</string>
+    <string name="usb_forwarding_reason_driver">PC의 USB 드라이버가 없거나 실패했습니다</string>
+    <string name="usb_forwarding_reason_timeout">장치 연결 시간이 초과되었습니다</string>
+    <string name="usb_forwarding_reason_device">장치가 응답하지 않습니다</string>
+    <string name="usb_forwarding_reason_session">스트림이 종료되었습니다</string>
+    <string name="usb_forwarding_reason_unknown">알 수 없는 이유</string>
+    <string name="usb_forwarding_code_no_stream">스트림이 실행 중이 아닙니다</string>
+    <string name="usb_forwarding_code_busy">이미 연결되어 있습니다</string>
+    <string name="usb_forwarding_code_unsupported">PC가 USB 전달을 지원하지 않습니다</string>
+    <string name="usb_forwarding_code_device">이 기기에서 열 수 없습니다</string>
+    <string name="usb_forwarding_code_invalid">이름이나 주소를 보낼 수 없습니다</string>
+    <string name="usb_forwarding_code_host">PC에 연결할 수 없습니다</string>
+</resources>

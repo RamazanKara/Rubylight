@@ -161,6 +161,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private static final int CR_FLAG_ALL = CR_FLAG_INPUT_THREAD | CR_FLAG_RENDER_THREAD | CR_FLAG_CHOREOGRAPHER;
     private int codecRecoveryThreadQuiescedFlags = 0;
     private int codecRecoveryAttempts = 0;
+    // The input buffer size a frame that did not fit asked for; every later configure keeps it.
+    private int requiredInputBufferSize = 0;
 
     private MediaFormat inputFormat;
     private volatile MediaFormat outputFormat;
@@ -1849,6 +1851,42 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return (int) Math.min(bytes, 32 * 1024 * 1024);
     }
 
+    // The input buffer size to ask for when a frame of requiredBytes does not fit: twice the buffer,
+    // or the frame if larger. 0 when growing cannot help: the frame fits, or the decoder already
+    // ignored a request this large. From Moonlight V+ (qiin2333/moonlight-vplus, GPL-3.0).
+    static int grownInputSize(long requiredBytes, int capacity, int previousRequest) {
+        if (requiredBytes <= capacity || requiredBytes <= previousRequest || requiredBytes > Integer.MAX_VALUE) {
+            return 0;
+        }
+        return (int) Math.min(Math.max(requiredBytes, capacity * 2L), Integer.MAX_VALUE);
+    }
+
+    // Asks for a restart with a larger input buffer, the way Moonlight V+ does, instead of ending
+    // the stream on the first frame that does not fit. False when growing cannot help or the
+    // recovery attempts are used up; the caller then fails the stream.
+    boolean requestInputBufferGrowth(long requiredBytes, int capacity) {
+        int grown = codecRecoveryAttempts < CR_MAX_TRIES ?
+                grownInputSize(requiredBytes, capacity, requiredInputBufferSize) : 0;
+        if (grown == 0) {
+            return false;
+        }
+        LimeLog.warning("Growing decoder input buffer: " + capacity + " -> " + grown + " bytes (frame needs " +
+                requiredBytes + ")");
+        requiredInputBufferSize = grown;
+        requestRestart("input buffer growth to " + grown + " bytes");
+        return true;
+    }
+
+    // Keeps a grown input buffer through restarts and the configure fallbacks.
+    static void applyRequiredInputSize(MediaFormat format, int requiredInputBufferSize) {
+        if (requiredInputBufferSize <= 0) {
+            return;
+        }
+        int requested = format.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE) ?
+                format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE) : 0;
+        format.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, Math.max(requested, requiredInputBufferSize));
+    }
+
     private MediaFormat createBaseMediaFormat(String mimeType) {
         MediaFormat videoFormat = MediaFormat.createVideoFormat(mimeType, initialWidth, initialHeight);
         if (this.videoFormat == MoonBridge.VIDEO_FORMAT_H264_HIGH8_444) {
@@ -1945,6 +1983,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     private void configureAndStartDecoder(MediaFormat format) {
+        applyRequiredInputSize(format, requiredInputBufferSize);
         // Set HDR metadata if present
         if (packing != null) {
             Packed444.sampleDataFormat(format);
@@ -1972,8 +2011,19 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                         (detail == null || detail.isEmpty() ? "" : " (" + detail + ")"));
             }
         }
-        videoDecoder.configure(format, vulkanRenderer != null ? vulkanRenderer.getDecoderSurface() :
-                upscaler == null ? renderTarget : upscaler.getInputSurface(), null, 0);
+        Surface surface = vulkanRenderer != null ? vulkanRenderer.getDecoderSurface() :
+                upscaler == null ? renderTarget : upscaler.getInputSurface();
+        try {
+            videoDecoder.configure(format, surface, null, 0);
+        } catch (IllegalArgumentException e) {
+            // Recovery reads IllegalArgumentException as an invalid surface and quietly stops the
+            // stream. A decoder refusing the grown input buffer must go through reset and
+            // recreation instead, and fail loudly if nothing takes it (as in Moonlight V+).
+            if (requiredInputBufferSize > 0 && !stopping && surface != null && surface.isValid()) {
+                throw new IllegalStateException("Decoder rejected input buffer size " + requiredInputBufferSize, e);
+            }
+            throw e;
+        }
         videoDecoder.setVideoScalingMode(MediaCodec.VIDEO_SCALING_MODE_SCALE_TO_FIT);
         videoDecoder.start();
 
@@ -2294,6 +2344,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             lastConfigureError = null;
             this.initialWidth = width;
             this.initialHeight = height;
+            requiredInputBufferSize = 0;
             this.maxDecodeWidth = this.expectedWidth = this.streamWidth = width;
             this.maxDecodeHeight = this.expectedHeight = this.streamHeight = height;
             this.videoFormat = format;
@@ -4006,8 +4057,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         numFramesIn++;
 
         if (decodeUnitLength > nextInputBuffer.limit() - nextInputBuffer.position()) {
+            // The recovery drops this buffer and frame; the IDR asked for then fits.
+            if (requestInputBufferGrowth((long) nextInputBuffer.position() + decodeUnitLength, nextInputBuffer.limit())) {
+                doCodecRecoveryIfRequired(CR_FLAG_INPUT_THREAD);
+                return MoonBridge.DR_NEED_IDR;
+            }
             IllegalArgumentException exception = new IllegalArgumentException(
-                    "Decode unit length "+decodeUnitLength+" too large for input buffer "+nextInputBuffer.limit());
+                    "Decode unit length "+decodeUnitLength+" too large for input buffer "+nextInputBuffer.limit()+
+                    " (requested "+requiredInputBufferSize+")");
             if (!reportedCrash) {
                 reportedCrash = true;
                 crashListener.notifyCrash(exception);

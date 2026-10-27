@@ -238,6 +238,12 @@ pub struct SdpParams<'a> {
     pub mic_port: u16,
     pub high_quality_surround_supported: bool,
     pub pyrowave_records_enabled: bool,
+    /// The HDR format asked for (`x-rl-video[0].hdrFormat`, one `rubylight_protocol::hdr` bit
+    /// from the host's `DescribeInfo::hdr_formats`); 0 sends nothing and streams stock HDR.
+    pub hdr_format: u8,
+    /// The audio codec asked for (`x-rl-audio.codec`, one `audio_ext::CODEC_*` bit from the
+    /// host's `DescribeInfo::audio_codecs`); 0 sends nothing and streams Opus.
+    pub audio_codec: u8,
 }
 
 /// The description and the stream settings it fixes.
@@ -470,6 +476,16 @@ pub fn generate(p: &SdpParams<'_>) -> Sdp {
         // Only ever 1: a wired or unknown route sends nothing, never a 0.
         if c.client_wireless {
             a.add("x-rl-video[0].clientWireless", 1);
+        }
+        // The 3.0 extensions, only when asked for: a host without them never sees the keys.
+        if p.hdr_format != 0 {
+            a.add(rubylight_protocol::hdr::ANNOUNCE_ATTRIBUTE, p.hdr_format);
+        }
+        if p.audio_codec != 0 {
+            a.add(
+                rubylight_protocol::audio_ext::CODEC_ANNOUNCE_ATTRIBUTE,
+                p.audio_codec,
+            );
         }
         if quad[0] >= 7 {
             a.add(

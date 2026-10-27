@@ -675,6 +675,9 @@ impl Handshake {
             mic_port: self.out.mic_port,
             high_quality_surround_supported: self.out.opus.high_quality.is_some(),
             pyrowave_records_enabled: self.out.pyrowave_records_enabled,
+            // Nothing asks for a 3.0 HDR format or audio codec yet.
+            hdr_format: 0,
+            audio_codec: 0,
         });
         self.out.encryption_enabled = sdp.encryption_enabled;
         self.out.audio_encryption_enabled = sdp.audio_encryption_enabled;

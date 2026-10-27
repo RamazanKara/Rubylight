@@ -861,6 +861,14 @@ public class MoonBridge {
     // Host cursor shapes, client to host (docs/protocol/cursor-shape.md).
     public static final int CONTROL_MESSAGE_CURSOR_SHAPE_REQUEST = 0x5540;
 
+    // The 3.0 extensions (protocol/core/src/ids.rs). Defined so hostSupportsControlMessage can ask
+    // for them; nothing sends them yet.
+    public static final int CONTROL_MESSAGE_FEC_REPORT = 0x5539;
+    public static final int CONTROL_MESSAGE_USB = 0x553A;
+    public static final int CONTROL_MESSAGE_TEXT_INPUT = 0x553B;
+    public static final int CONTROL_MESSAGE_PIPELINE_RATES = 0x553D;
+    public static final int CONTROL_MESSAGE_KEYBOARD_LAYOUT = 0x553E;
+
     // Asks the host to send its cursor image and leave it out of the video (true), or to stop
     // (false). Only call when hostSupportsControlMessage(CONTROL_MESSAGE_CURSOR_SHAPE_REQUEST).
     // Returns false when the request could not be sent.

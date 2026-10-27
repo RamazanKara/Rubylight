@@ -7,6 +7,7 @@ use super::transport::encode_query;
 use super::xml;
 use super::{der, Error};
 use crate::sdp::AudioConfiguration;
+use rubylight_protocol::fec_report::{FecChoice, LAUNCH_PARAMETER};
 
 /// What the PC's displays do during the stream (Rubylight's `hostDisplay`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -86,6 +87,9 @@ pub struct LaunchRequest {
     pub prepared_controllers: String,
     pub gamepad_mask: u32,
     pub persist_gamepads: bool,
+    /// The video FEC to ask for (`rlFecPercentage`); `None`, and any host without
+    /// `Feature::ClientFec`, keep the host's own.
+    pub fec: Option<FecChoice>,
 }
 
 impl Default for LaunchRequest {
@@ -113,6 +117,7 @@ impl Default for LaunchRequest {
             prepared_controllers: String::new(),
             gamepad_mask: 0,
             persist_gamepads: false,
+            fec: None,
         }
     }
 }
@@ -246,6 +251,9 @@ impl LaunchRequest {
         ));
         let persist = self.role != AppRole::RemoteMonitor && self.persist_gamepads;
         q.push_str(&format!("&gcpersist={}", u8::from(persist)));
+        if let Some(fec) = self.fec.filter(|_| caps.has(Feature::ClientFec)) {
+            q.push_str(&format!("&{LAUNCH_PARAMETER}={}", fec.as_param()));
+        }
         q.push_str(CORE_LAUNCH_PARAMETERS);
         q
     }
@@ -341,6 +349,35 @@ mod tests {
         );
         assert_eq!(request.stream_frame_rate_millihz(&rubylight(), 60), 59_940);
         assert_eq!(request.stream_frame_rate_millihz(&rubylight(), 30), 30_000);
+    }
+
+    #[test]
+    fn the_fec_choice_goes_only_to_a_host_that_takes_it() {
+        let xml = RUBYLIGHT.replace("</root>", "<FecControlVersion>1</FecControlVersion></root>");
+        assert_ne!(xml, RUBYLIGHT);
+        let fec_host = ServerInfo::parse(&xml, 47989).unwrap().capabilities;
+        assert!(fec_host.has(Feature::ClientFec));
+        let plain = request().query(&fec_host, false);
+        assert!(!plain.contains("rlFecPercentage"), "no choice, no parameter");
+        for (choice, value) in [
+            (FecChoice::Host, "host"),
+            (FecChoice::Auto, "auto"),
+            (FecChoice::Fixed(0), "0"),
+            (FecChoice::Fixed(255), "255"),
+        ] {
+            let asked = LaunchRequest {
+                fec: Some(choice),
+                ..request()
+            };
+            assert_eq!(
+                asked.query(&fec_host, false),
+                plain.replace("&corever=1", &format!("&rlFecPercentage={value}&corever=1"))
+            );
+            // Hosts without the extension get exactly today's query.
+            for caps in [HostCapabilities::UNKNOWN, rubylight()] {
+                assert_eq!(asked.query(&caps, false), request().query(&caps, false));
+            }
+        }
     }
 
     #[test]

@@ -2225,12 +2225,21 @@ impl Launcher {
                         .backdrop_color(Color32::from_black_alpha(150))
                         .show(ctx, |ui| {
                             ui.set_width(340.0);
+                            dialog_takes_the_window(ui);
                             ui.label(RichText::new(host.display_name()).font(semibold(text::SECTION)));
                             ui.add_space(6.0);
-                            // The longest list scrolls in a small window (1280x720 at 150 %): room
-                            // for the name, the frame and the Wake note.
-                            let room = ui.ctx().content_rect().height() - 160.0;
-                            egui::ScrollArea::vertical().id_salt("host-options").max_height(room).content_margin(Margin::same(6)).show(ui, |ui| {
+                            // The list gets what the name and the Wake note leave; it scrolls only
+                            // in a window too short for it (1280x720 at 150 %).
+                            let note = (host.reach == Reach::Offline && host.record.mac.is_none()).then(|| {
+                                let text = RichText::new(tr("Pair once while the PC is on to enable Wake.")).font(regular(text::CAPTION)).color(OUTLINE);
+                                egui::WidgetText::from(text).into_galley(ui, Some(egui::TextWrapMode::Wrap), ui.available_width(), egui::TextStyle::Body)
+                            });
+                            let below = note.as_ref().map_or(0.0, |n| 6.0 + n.size().y + ui.spacing().item_spacing.y);
+                            let room = (ui.available_height() - below).max(CONTROL_HEIGHT);
+                            // A thin bar that always shows when the list scrolls: its handle in the text
+                            // colour, since the widget fill is the dialog's own.
+                            ui.spacing_mut().scroll = egui::style::ScrollStyle { foreground_color: true, ..egui::style::ScrollStyle::thin() };
+                            let list = egui::ScrollArea::vertical().id_salt("host-options").max_height(room).content_margin(Margin::same(6)).show(ui, |ui| {
                                 let follow = Id::unique("host-options-focus");
                                 let mut last = ui.ctx().data(|d| d.get_temp::<Option<Id>>(follow)).flatten();
                                 crate::gui::follow_focus(ui, &mut last);
@@ -2265,13 +2274,10 @@ impl Launcher {
                                     }
                                 }
                             });
-                            if host.reach == Reach::Offline && host.record.mac.is_none() {
+                            scroll_fades(ui, &list, *SURFACE_HIGH);
+                            if let Some(note) = note {
                                 ui.add_space(6.0);
-                                ui.label(
-                                    RichText::new(tr("Pair once while the PC is on to enable Wake."))
-                                        .font(regular(text::CAPTION))
-                                        .color(OUTLINE),
-                                );
+                                ui.label(note);
                             }
                         });
                     if let Some(option) = chosen {
@@ -3051,6 +3057,41 @@ fn scroll(ui: &mut Ui, id: &str, add: impl FnOnce(&mut Ui)) {
             .content_margin(Margin::same(6))
             .show(ui, add);
     });
+}
+
+/// Lets a dialog grow to the window's height less a margin and its frame, and no further. egui
+/// lays a new area out in at most 600x400 points and from then on in the size it took, so a list
+/// in a dialog never got more than that and its last row was cut in any window.
+fn dialog_takes_the_window(ui: &mut Ui) {
+    const FRAME: f32 = 28.0;
+    ui.set_max_height(ui.ctx().content_rect().height() - 2.0 * (space::L + FRAME));
+}
+
+/// Shades the edge of a scroll area that has more beyond it into `fill` (what it sits on), so a
+/// row cut there reads as "more" and not as broken. Over the rows only, not the scroll bar.
+fn scroll_fades<R>(ui: &Ui, list: &egui::scroll_area::ScrollAreaOutput<R>, fill: Color32) {
+    let scroll = ui.spacing().scroll;
+    let view = list.inner_rect;
+    let view = Rect::from_min_max(view.min, Pos2::new(view.right() - scroll.bar_width - scroll.bar_outer_margin, view.bottom()));
+    let offset = list.state.clamped_offset().y;
+    let hidden = list.content_size.y - list.inner_rect.height();
+    let shade = |rect: Rect, down: bool| {
+        let (top, bottom) = if down { (Color32::TRANSPARENT, fill) } else { (fill, Color32::TRANSPARENT) };
+        let mut mesh = egui::Mesh::default();
+        mesh.colored_vertex(rect.left_top(), top);
+        mesh.colored_vertex(rect.right_top(), top);
+        mesh.colored_vertex(rect.left_bottom(), bottom);
+        mesh.colored_vertex(rect.right_bottom(), bottom);
+        mesh.add_triangle(0, 1, 2);
+        mesh.add_triangle(1, 3, 2);
+        ui.painter().add(mesh);
+    };
+    if offset > 0.5 {
+        shade(Rect::from_min_size(view.min, vec2(view.width(), space::XL)), false);
+    }
+    if offset < hidden - 0.5 {
+        shade(Rect::from_min_max(Pos2::new(view.left(), view.bottom() - space::XL), view.max), true);
+    }
 }
 
 /// A line of a details page: what it is, and its value.
@@ -3999,6 +4040,73 @@ mod tests {
         }
         f.press(Key::Enter);
         assert!(matches!(f.l.dialog, Dialog::ConfirmRemove { .. }), "the last option is Remove");
+    }
+
+    /// The faded edges of a scroll area as drawn: a mesh shading from clear into the dialog's fill.
+    fn fades(f: &Frames) -> Vec<Rect> {
+        let mut found = Vec::new();
+        for clipped in &f.shapes {
+            if let egui::Shape::Mesh(mesh) = &clipped.shape {
+                let colours: Vec<Color32> = mesh.vertices.iter().map(|v| v.color).collect();
+                if colours.contains(&*SURFACE_HIGH) && colours.contains(&Color32::TRANSPARENT) {
+                    found.push(Rect::from_points(&mesh.vertices.iter().map(|v| v.pos).collect::<Vec<_>>()));
+                }
+            }
+        }
+        found
+    }
+
+    #[test]
+    fn the_options_dialog_shows_every_option_whole_or_fades_the_edge_it_scrolls_past() {
+        // The 1920x1200 screenshot (at 150 %), the smallest window SDL allows, and 1280x720 at 150 %.
+        for window in ["1280x800", "720x480", "1280x720 at 150 %"] {
+            let mut f = every_state().into_iter().find(|s| s.name == "sleep not allowed").unwrap().frames();
+            match window {
+                "1280x800" => f.size = vec2(1280.0, 800.0),
+                "720x480" => f.size = vec2(720.0, 480.0),
+                _ => fit_150(&mut f),
+            }
+            f.settle();
+            f.press(Key::F2);
+            assert!(f.options_open());
+            let labels: Vec<&str> = host_options(&f.hosts.list[0]).iter().map(|o| tr(o.label())).collect();
+            for end in [false, true] {
+                if end {
+                    f.scroll_to_end();
+                }
+                let what = format!("{window}{}", if end { ", scrolled to the end" } else { "" });
+                let rows: Vec<(Rect, Rect)> =
+                    f.placed.iter().filter(|(t, ..)| labels.contains(&t.as_str())).map(|(_, rect, clip)| (*rect, *clip)).collect();
+                // egui does not paint a row wholly out of view.
+                let whole = |(rect, clip): &(Rect, Rect)| rect.top() >= clip.top() - 1.0 && rect.bottom() <= clip.bottom() + 1.0;
+                let fades = fades(&f);
+                if end {
+                    let remove = f.placed.iter().find(|(t, ..)| t == tr(HostOption::Remove.label())).map(|(_, rect, clip)| (*rect, *clip));
+                    assert!(remove.as_ref().is_some_and(whole), "{what}: the list ends on Remove, whole: {remove:?}");
+                }
+                if rows.len() == labels.len() && rows.iter().all(whole) {
+                    assert!(fades.is_empty(), "{what}: the whole list shows, so no edge fades: {fades:?}");
+                    continue;
+                }
+                assert_ne!(window, "1280x800", "a tall window shows every option whole: {rows:?} of {labels:?}");
+                assert_eq!(rows.last().map(|r| r.0.top() > rows[0].0.top()), Some(true), "{what}: the list is drawn");
+                assert!(!fades.is_empty(), "{what}: a list cut short fades its edge");
+                for row in rows.iter().filter(|r| !whole(r)) {
+                    let seen = row.0.intersect(row.1);
+                    if seen.height() > 0.0 {
+                        assert!(fades.iter().any(|fade| fade.intersects(seen)), "{what}: the cut row {row:?} sits under a fade {fades:?}");
+                    }
+                }
+            }
+            // Remove asks first, and that dialog fits the same window.
+            let id = f.hosts.list[0].id;
+            f.l.dialog = Dialog::ConfirmRemove { host: id, name: "A long name for a gaming PC".into() };
+            f.settle();
+            assert_fits(&f, &format!("confirm remove at {window}"), true);
+            for (text, rect, clip) in &f.placed {
+                assert!(rect.top() >= clip.top() - 1.0 && rect.bottom() <= clip.bottom() + 1.0, "confirm remove at {window}: {text:?} is cut: {rect:?} in {clip:?}");
+            }
+        }
     }
 
     #[test]
@@ -4998,6 +5106,12 @@ mod tests {
             }
             f.press(Key::Enter);
             shoot(&mut f, "confirm-remove");
+            // The smallest window SDL allows: the list scrolls and fades its edge.
+            let mut f = fresh();
+            f.size = vec2(720.0, 480.0);
+            f.settle();
+            f.press(Key::F2);
+            shoot(&mut f, "host-options-short-window");
         }
     }
 }

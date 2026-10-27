@@ -56,6 +56,10 @@ pub enum UserFolderError {
     /// Nobody is signed in to the host's Windows session, so there is no
     /// user to write as.
     NoConsoleUser,
+    /// The host runs elevated and the Windows desktop shell isn't running,
+    /// so there is no token of the user without administrator rights. The
+    /// folder is refused rather than written with administrator rights.
+    NoUserShell,
     InvalidName(NameError),
     /// The name is a folder or a link (a symbolic link or a junction).
     NotPlainFile,
@@ -65,6 +69,9 @@ impl std::fmt::Display for UserFolderError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NoConsoleUser => f.write_str("nobody is signed in to Windows"),
+            Self::NoUserShell => f.write_str(
+                "file transfer cannot act as the Windows user: the host runs with administrator rights and the Windows desktop shell is not running. Start Rubylight without administrator rights, or use the installed Windows service",
+            ),
             Self::InvalidName(error) => error.fmt(f),
             Self::NotPlainFile => f.write_str("not a plain file"),
             Self::Io(error) => error.fmt(f),
@@ -132,12 +139,7 @@ impl Drop for Impersonation {
 /// already is that user.
 fn user_token() -> Result<Option<OwnedHandle>, UserFolderError> {
     if !crate::process::is_system() {
-        return crate::process::standard_user_token().map_err(|error| {
-            io::Error::other(format!(
-                "file transfer cannot act as the Windows user without administrator rights: {error:#}"
-            ))
-            .into()
-        });
+        return standard_user(crate::process::standard_user_token());
     }
     let session = crate::process::current_session()
         .map_err(|error| io::Error::other(format!("{error:#}")))?;
@@ -150,6 +152,22 @@ fn user_token() -> Result<Option<OwnedHandle>, UserFolderError> {
         Err(error) if no_signed_in_user(error.code()) => Err(UserFolderError::NoConsoleUser),
         Err(error) => Err(os_error(error).into()),
     }
+}
+
+/// The elevated host's token of its user without administrator rights, with
+/// a missing desktop shell as [`UserFolderError::NoUserShell`].
+fn standard_user(
+    token: anyhow::Result<Option<OwnedHandle>>,
+) -> Result<Option<OwnedHandle>, UserFolderError> {
+    token.map_err(|error| {
+        if error.downcast_ref::<crate::process::NoShell>().is_some() {
+            return UserFolderError::NoUserShell;
+        }
+        io::Error::other(format!(
+            "file transfer cannot act as the Windows user without administrator rights: {error:#}"
+        ))
+        .into()
+    })
 }
 
 /// How `WTSQueryUserToken` says the session has no user: ERROR_NO_TOKEN
@@ -325,19 +343,28 @@ impl UserFolder {
     /// settings name one, otherwise the user's `Downloads\Rubylight`. Open
     /// it for each transfer, since the signed-in user can change.
     pub fn open(custom: Option<&Path>) -> Result<Self, UserFolderError> {
-        let token = user_token()?.map(Arc::new);
+        Self::open_as(custom, user_token)
+    }
+
+    /// [`UserFolder::open`] with the user's token from `token`. The folder
+    /// setting is checked first, so a bad one is named whoever runs the host.
+    fn open_as(
+        custom: Option<&Path>,
+        token: impl FnOnce() -> Result<Option<OwnedHandle>, UserFolderError>,
+    ) -> Result<Self, UserFolderError> {
+        if let Some(path) = custom.filter(|path| !path.is_absolute()) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "the file transfer folder {} is not absolute",
+                    path.display()
+                ),
+            )
+            .into());
+        }
+        let token = token()?.map(Arc::new);
         let path = match custom {
-            Some(path) if path.is_absolute() => path.to_path_buf(),
-            Some(path) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!(
-                        "the file transfer folder {} is not absolute",
-                        path.display()
-                    ),
-                )
-                .into());
-            }
+            Some(path) => path.to_path_buf(),
             None => downloads(token.as_deref())?.join(DEFAULT_SUBFOLDER),
         };
         Self::at(path, token)
@@ -1020,8 +1047,54 @@ mod tests {
             Ok(None) => assert!(UserFolder::open(Some(dir.path())).unwrap().token.is_none()),
             // Elevated without the user's desktop shell: refused, not done
             // with administrator rights.
+            Err(error) if error.downcast_ref::<crate::process::NoShell>().is_some() => {
+                assert!(matches!(
+                    UserFolder::open(Some(dir.path())),
+                    Err(UserFolderError::NoUserShell)
+                ))
+            }
             Err(_) => assert!(UserFolder::open(Some(dir.path())).is_err()),
         }
+    }
+
+    #[test]
+    fn an_elevated_host_without_a_shell_opens_no_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let wanted = dir.path().join("transfers");
+        let refused = UserFolder::open_as(Some(&wanted), || {
+            standard_user(Err(crate::process::NoShell.into()))
+        });
+        assert!(matches!(refused, Err(UserFolderError::NoUserShell)));
+        // Not created with the host's administrator rights instead.
+        assert!(!wanted.exists());
+        let message = UserFolderError::NoUserShell.to_string();
+        assert!(message.contains("desktop shell is not running"), "{message}");
+        assert!(message.contains("without administrator rights"), "{message}");
+    }
+
+    #[test]
+    fn other_token_failures_stay_io_errors_with_their_cause() {
+        let failed = standard_user(Err(anyhow::anyhow!(
+            "the Windows desktop shell belongs to another user"
+        )));
+        match failed {
+            Err(UserFolderError::Io(error)) => {
+                assert!(error.to_string().contains("belongs to another user"), "{error}")
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(matches!(standard_user(Ok(None)), Ok(None)));
+    }
+
+    #[test]
+    fn a_relative_custom_folder_is_refused_before_the_user_is_looked_up() {
+        let refused = UserFolder::open_as(Some(Path::new("Downloads")), || {
+            panic!("the user's token was looked up for a refused folder")
+        });
+        assert!(matches!(
+            refused,
+            Err(UserFolderError::Io(error)) if error.kind() == io::ErrorKind::InvalidInput
+        ));
     }
 
     #[test]

@@ -229,6 +229,17 @@ pub(crate) fn token_elevated(token: &OwnedHandle) -> Result<bool> {
     }
     Ok(info.TokenIsElevated != 0)
 }
+/// The Windows desktop shell is not running, so an elevated administrator
+/// host has no standard-rights token of its user. Callers match it with
+/// `downcast_ref` to say what the user can do.
+#[derive(Debug)]
+pub struct NoShell;
+impl std::fmt::Display for NoShell {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Cannot start a non-elevated program from this administrator host: the Windows desktop shell is not running. Start Rubylight without administrator rights, or use the installed Windows service")
+    }
+}
+impl std::error::Error for NoShell {}
 /// The desktop shell's primary token, for starting a non-elevated program
 /// from an elevated administrator process that is not SYSTEM. It must belong
 /// to the same user. None when the shell is elevated itself (User Account
@@ -236,16 +247,19 @@ pub(crate) fn token_elevated(token: &OwnedHandle) -> Result<bool> {
 /// with the rights the user's own desktop gives it.
 fn shell_token(own: &OwnedHandle) -> Result<Option<OwnedHandle>> {
     use windows::Win32::UI::WindowsAndMessaging::{GetShellWindow, GetWindowThreadProcessId};
-    const NO_SHELL: &str = "Cannot start a non-elevated program from this administrator host: the Windows desktop shell is not running. Start Rubylight without administrator rights, or use the installed Windows service";
     // SAFETY: the shell window is only used to read its process ID. The
     // process and token handles are owned once and closed on drop, and the
     // out-pointers are live locals.
     let primary = unsafe {
         let shell = GetShellWindow();
-        anyhow::ensure!(!shell.is_invalid(), NO_SHELL);
+        if shell.is_invalid() {
+            return Err(NoShell.into());
+        }
         let mut pid = 0;
         GetWindowThreadProcessId(shell, Some(&mut pid));
-        anyhow::ensure!(pid != 0, NO_SHELL);
+        if pid == 0 {
+            return Err(NoShell.into());
+        }
         let process = owned(
             OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
                 .context("Cannot open the Windows desktop shell")?,

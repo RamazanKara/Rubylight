@@ -468,6 +468,13 @@ fn failure(what: &str, error: UserFolderError) -> Failure {
             ErrorCode::NoConsoleUser,
             "Nobody is signed in to Windows on this PC. Sign in and try again.",
         ),
+        UserFolderError::NoUserShell => {
+            tracing::error!(error = %UserFolderError::NoUserShell, "native API: {what}");
+            Failure::new(
+                ErrorCode::Internal,
+                "Rubylight runs as administrator without the Windows desktop, so it can't reach your files. Start it without administrator rights, or use the Windows service.",
+            )
+        }
         UserFolderError::InvalidName(error) => Failure::new(
             ErrorCode::InvalidName,
             format!("The host refuses this name: {error}."),
@@ -1025,6 +1032,14 @@ mod tests {
             Ok(true)
         });
         (result, sent)
+    }
+
+    #[test]
+    fn an_elevated_host_without_a_shell_says_how_to_reach_the_files() {
+        let refused = failure("start the upload", UserFolderError::NoUserShell);
+        assert_eq!(refused.code(), ErrorCode::Internal);
+        assert!(refused.message().contains("administrator"), "{}", refused.message());
+        assert!(refused.message().contains("Windows service"), "{}", refused.message());
     }
 
     #[test]

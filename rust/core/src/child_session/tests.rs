@@ -1001,6 +1001,22 @@ fn the_password_roundtrips_through_dpapi_and_can_be_forgotten() {
     assert!(store.save(&Secret::new(String::new())).is_err());
 }
 
+#[test]
+fn a_damaged_saved_password_is_refused_without_quoting_it() {
+    let folder = tempfile::tempdir().unwrap();
+    let path = folder.path().join("password.bin");
+    // Valid DPAPI framing around bytes that are not UTF-8.
+    let mut blob = FakeDpapi(SID).protect(b"hunter2").unwrap();
+    blob.push(0xff ^ 0x5a);
+    std::fs::write(&path, blob).unwrap();
+    let error = format!(
+        "{:#}",
+        PasswordStore::new(path, FakeDpapi(SID)).load().unwrap_err()
+    );
+    assert!(error.contains("damaged"), "{error}");
+    assert!(!error.contains("hunter2") && !error.contains("104"), "{error}");
+}
+
 /// Collects everything a tracing subscriber writes.
 #[derive(Clone, Default)]
 struct Captured(Arc<Mutex<Vec<u8>>>);

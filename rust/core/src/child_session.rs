@@ -1055,10 +1055,11 @@ impl<D: Dpapi> PasswordStore<D> {
             .dpapi
             .unprotect(&blob)
             .context("the saved password can't be decrypted for this Windows user; forget it and enter it again")?;
-        let text = String::from_utf8(plain.to_vec()).map_err(|_| {
+        // Checked in place: String::from_utf8's error would keep an unwiped copy of the bytes.
+        let text = std::str::from_utf8(&plain).map_err(|_| {
             anyhow::anyhow!("the saved password is damaged; forget it and enter it again")
         })?;
-        Ok(Some(Secret::new(text)))
+        Ok(Some(Secret::new(text.to_owned())))
     }
     /// Forget the saved password; false when none was saved.
     pub fn forget(&self) -> Result<bool> {

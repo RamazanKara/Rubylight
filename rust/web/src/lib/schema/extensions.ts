@@ -89,16 +89,6 @@ export const settings: Setting[] = [
     pending: true,
   },
   {
-    key: 'shared_folders',
-    label: 'Shared folders',
-    description: 'Folders of this PC that you can let devices browse, as a JSON list of id, name and path.',
-    category: 'general',
-    group: 'Shared folders',
-    control: { kind: 'text', placeholder: '[{"id": "games", "name": "Games", "path": "D:\\\\Games"}]', mono: true },
-    default: '[]',
-    pending: true,
-  },
-  {
     key: 'webhooks',
     label: 'Webhooks',
     description: 'Addresses this PC notifies when devices pair, apps start and stop, and streams begin and end.',

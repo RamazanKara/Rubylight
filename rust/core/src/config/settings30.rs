@@ -14,7 +14,6 @@ pub const SETTINGS_30: &[(&str, &str)] = &[
     ("touch_sensitivity", "100"),
     ("touch_gestures", "true"),
     ("client_cursor", "true"),
-    ("shared_folders", "[]"),
     ("webhooks", "[]"),
     ("qr_pairing", "false"),
     ("dd_rotation_option", "disabled"),
@@ -256,9 +255,9 @@ mod tests {
     }
 
     #[test]
-    fn there_are_18_unique_settings() {
+    fn there_are_17_unique_settings() {
         let keys: std::collections::BTreeSet<_> = SETTINGS_30.iter().map(|(k, _)| k).collect();
-        assert_eq!((SETTINGS_30.len(), keys.len()), (18, 18));
+        assert_eq!((SETTINGS_30.len(), keys.len()), (17, 17));
     }
 
     #[test]

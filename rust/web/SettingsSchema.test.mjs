@@ -502,11 +502,19 @@ test('image clipboard is on by default, Experimental, and its limit follows it a
   for (const bad of ['0', '65', '1.5']) assert.notEqual(numberError(limit, bad), '', bad);
 });
 
+test('shared folders are a live, Experimental list beside file transfer, empty by default', () => {
+  const folders = settings.get('shared_folders');
+  assert.deepEqual([folders.category, folders.group, folders.default], ['network', 'Shared folders', '[]']);
+  assert.match(folders.label, /Experimental/);
+  // Shared folders don't need File transfer on.
+  assert.equal(folders.visibleWhen, undefined);
+});
+
 // The 3.0 settings whose features have shipped (settings30.rs keeps the same list).
 const live = ['audio_surround_714'];
 
 test('settings still pending stay out of the console, and shipped ones are in it', () => {
-  assert.equal(pending.length, 18);
+  assert.equal(pending.length, 17);
   for (const setting of pending) {
     const shipped = live.includes(setting.key);
     assert.equal(setting.pending === true, !shipped, setting.key);

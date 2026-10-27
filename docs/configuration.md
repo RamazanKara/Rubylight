@@ -611,6 +611,12 @@ Off by default. With **File transfer (Experimental)** (`file_transfer`) on, pair
 | `file_transfer_max_mb` | `4096` | The largest upload in MiB, refused before it starts. |
 | `file_transfer_stream_mbps` | `50` | While a stream runs or starts, all uploads and downloads together move at this many Mbit/s. `0` lets them run at full speed. Applies to running transfers within a second. |
 
+## Shared folders (Experimental)
+
+None by default. **Shared folders (Experimental)** (`shared_folders`) lists folders of this PC that paired devices may browse, download from and upload to over the streaming HTTPS port ([Native API, Shared folders](native-api.md#shared-folders)). It is a JSON list such as `[{"id": "games", "name": "Games", "path": "D:\\Games"}]`: `id` is 1 to 64 letters, digits, `-` or `_`, and `path` is an existing folder on a drive of this PC, not a network share. A list that isn't valid is reported in the log and shares nothing.
+
+A device sees a folder only once you share it with that device on **Devices**, to read or to read and write; **Full control** and the file transfer permissions don't. Taking a folder away from a device disconnects it, and ends its running transfers. File transfer doesn't need to be on, but its size limit and speed while streaming apply. Files are read and written as the Windows user who is signed in, only inside each folder: links and junctions inside it are neither listed nor followed.
+
 ## Multiple instances
 
 Give each instance its own profile folder and base port. An explicit `--config-dir` takes precedence over the portable defaults. From the extracted package, run these commands in separate PowerShell windows, one in each intended Windows session:

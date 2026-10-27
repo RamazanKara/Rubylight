@@ -192,6 +192,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "file_transfer_dir", "File transfer folder (leave empty for Downloads\\Rubylight)", Text;
         "file_transfer_max_mb", "Largest file to receive (MiB; default 4096)", Number;
         "file_transfer_stream_mbps", "Transfer speed while streaming (Mbit/s; 0 for full speed; default 50)", Number;
+        "shared_folders", "Shared folders (Experimental; JSON list of id, name and path)", Text;
         "clipboard_image", "Copy images with clipboard permission (Experimental)", Bool;
         "clipboard_image_max_mb", "Largest clipboard image (MiB, 1 to 64; default 16)", Number;
         "lan_encryption_mode", "Local network encryption (0 never, 1 optional, 2 required)", Number;

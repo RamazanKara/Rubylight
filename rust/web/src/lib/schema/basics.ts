@@ -426,6 +426,16 @@ const network: Setting[] = [
     visibleWhen: (values) => on(values, 'file_transfer', false),
   },
   {
+    key: 'shared_folders',
+    label: 'Shared folders (Experimental)',
+    description: 'Folders of this PC that devices may browse, as a JSON list of id, name and path. Each device sees only the folders you share with it in its settings.',
+    details: 'Files are read and written as the Windows user who is signed in, only inside each folder. Transfers keep to the file transfer size limit and speed while streaming.',
+    category: 'network',
+    group: 'Shared folders',
+    control: { kind: 'text', placeholder: '[{"id": "games", "name": "Games", "path": "D:\\\\Games"}]', mono: true },
+    default: '[]',
+  },
+  {
     key: 'clipboard_image',
     label: 'Copy images (Experimental)',
     description: 'Let devices with clipboard permission copy images to and from this PC, besides text.',

@@ -10,6 +10,8 @@
     <string name="summary_checkbox_back_as_meta">Клавиша «Назад» на физической клавиатуре отправляет клавишу Windows (Command на Mac). Меню трансляции открывается сочетанием Ctrl+Alt+Shift+M, жестом или кнопкой «Назад» Android либо комбинацией кнопок контроллера.</string>
     <string name="title_checkbox_right_alt_as_meta">Правый Alt как Command</string>
     <string name="summary_checkbox_right_alt_as_meta">Правый Alt отправляет клавишу Windows, которую Mac использует как Command, поэтому правый Alt+C копирует. Левый Alt не меняется. Не включайте, если вводите символы с помощью AltGr.</string>
+    <string name="title_checkbox_keyboard_follows_text_fields">Клавиатура следует за текстовыми полями</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">Экранная клавиатура открывается, когда текстовое поле в трансляции получает фокус, и подстраивается под него: цифры для числового поля, без подсказок для пароля. Когда поле теряет фокус, она закрывается. С подключённой физической клавиатурой ввод идёт с неё, как раньше.</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">Проверка контроллера</string>

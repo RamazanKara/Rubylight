@@ -786,6 +786,32 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_sendCursorShap
     }))
 }
 
+/// Text field notices (0x553B) on or off; false without a host that announced them.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_sendTextInputRequest(
+    _: JNIEnv,
+    _: JClass,
+    enabled: jboolean,
+) -> jboolean {
+    jbool(engine::send(extras::text_input_request(
+        enabled == JNI_TRUE,
+    )))
+}
+
+/// The device's keyboard layout as a BCP-47 tag (0x553E); false for a tag the wire cannot
+/// carry or without a host that announced it.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_sendKeyboardLayout(
+    mut env: JNIEnv,
+    _: JClass,
+    tag: JString,
+) -> jboolean {
+    let message = string(&mut env, &tag)
+        .as_deref()
+        .and_then(extras::keyboard_layout_message);
+    jbool(message.is_some_and(engine::send))
+}
+
 /// DualSense microphone PCM (0x5534) or USB audio endpoint status (0x5535).
 #[no_mangle]
 pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_sendControllerAudio(

@@ -9,8 +9,10 @@ use nightjar_core::input::queue::InputError;
 use nightjar_core::sdp::AudioConfiguration;
 use nightjar_core::session::{Location, RoamingConfig};
 use rubylight_protocol::control::DisplayCaps;
+use rubylight_protocol::keyboard_layout::{KeyboardLayout, LayoutSource};
 use rubylight_protocol::phase_lock::{self, SlackWindow};
 use rubylight_protocol::present_clock::{Grid, GridSchedule};
+use rubylight_protocol::text_input::TextInputRequest;
 
 /// `LI_ERR_UNSUPPORTED`: the Java side falls back (touch to mouse, for example).
 pub const LI_ERR_UNSUPPORTED: i32 = -5501;
@@ -170,6 +172,30 @@ pub fn controller_audio_message(kind: i32, payload: &[u8]) -> Option<ClientMessa
         }
         _ => return None,
     };
+    message.is_valid().then_some(message)
+}
+
+/// `sendTextInputRequest`: raise and lower notices (0x553B) on or off, never the surrounding
+/// text, which Nightjar does not show.
+pub fn text_input_request(enabled: bool) -> ClientMessage {
+    ClientMessage::TextInputRequest(TextInputRequest {
+        notices: enabled,
+        surrounding_text: false,
+        max_text: 0,
+    })
+}
+
+/// `sendKeyboardLayout`: the device's BCP-47 layout tag (0x553E), or `None` for an empty tag
+/// or one the wire cannot carry.
+pub fn keyboard_layout_message(tag: &str) -> Option<ClientMessage> {
+    if tag.is_empty() {
+        return None;
+    }
+    let message = ClientMessage::KeyboardLayout(KeyboardLayout {
+        source: LayoutSource::Bcp47,
+        klid: 0,
+        tag: tag.to_owned(),
+    });
     message.is_valid().then_some(message)
 }
 
@@ -343,6 +369,38 @@ mod tests {
                 }
             );
         }
+    }
+
+    #[test]
+    fn text_input_and_layout_messages_reach_the_wire() {
+        let on = text_input_request(true).payload();
+        assert_eq!(
+            TextInputRequest::decode(&on),
+            Some(TextInputRequest {
+                notices: true,
+                surrounding_text: false,
+                max_text: 0,
+            })
+        );
+        assert!(
+            !TextInputRequest::decode(&text_input_request(false).payload())
+                .unwrap()
+                .notices
+        );
+
+        let german = keyboard_layout_message("de-DE").unwrap();
+        assert_eq!(
+            KeyboardLayout::decode(&german.payload()),
+            Some(KeyboardLayout {
+                source: LayoutSource::Bcp47,
+                klid: 0,
+                tag: "de-DE".into(),
+            })
+        );
+        // Nothing to report, or a tag the wire refuses, sends nothing.
+        assert_eq!(keyboard_layout_message(""), None);
+        assert_eq!(keyboard_layout_message(&"a".repeat(65)), None);
+        assert_eq!(keyboard_layout_message("de DE"), None);
     }
 
     #[test]

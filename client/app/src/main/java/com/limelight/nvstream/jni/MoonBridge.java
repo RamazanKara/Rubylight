@@ -423,6 +423,9 @@ public class MoonBridge {
     public static void bridgeClLinkNotice(int state, int ceilingKbps, int currentKbps) {
         if (connectionListener != null) connectionListener.linkNotice(state, ceilingKbps, currentKbps);
     }
+    public static void bridgeClTextInput(int kind, int inputType, int flags) {
+        if (connectionListener != null) connectionListener.textInput(kind, inputType, flags);
+    }
     public static void bridgeClHostTiming(byte[] payload) {
         VideoDecoderRenderer renderer = videoRenderer;
         HostTimingReport report = HostTimingReport.parse(payload);
@@ -891,8 +894,8 @@ public class MoonBridge {
     public static final int CONTROL_MESSAGE_CURSOR_SHAPE_REQUEST = 0x5540;
 
     // The 3.0 extensions (protocol/core/src/ids.rs). Defined so hostSupportsControlMessage can ask
-    // for them; nothing sends them yet. MoonBridgeControlMessagesTest holds these and the cursor
-    // shape request to test resources protocol/control-messages.txt, which nightjar-core checks too.
+    // for them. MoonBridgeControlMessagesTest holds these and the cursor shape request to test
+    // resources protocol/control-messages.txt, which nightjar-core checks too.
     public static final int CONTROL_MESSAGE_FEC_REPORT = 0x5539;
     public static final int CONTROL_MESSAGE_USB = 0x553A;
     public static final int CONTROL_MESSAGE_TEXT_INPUT = 0x553B;
@@ -906,4 +909,19 @@ public class MoonBridge {
         return rustStream ? RustBridge.sendCursorShapeRequest(enabled) : cSendCursorShapeRequest(enabled);
     }
     private static native boolean cSendCursorShapeRequest(boolean enabled);
+
+    // Asks the host for text field notices (0x553B; textInput on the listener), or to stop. Only
+    // call when hostSupportsControlMessage(CONTROL_MESSAGE_TEXT_INPUT). The C engine does not
+    // support it and this returns false.
+    public static boolean sendTextInputRequest(boolean enabled) {
+        return rustStream && RustBridge.sendTextInputRequest(enabled);
+    }
+
+    // Reports the client's keyboard layout as a BCP 47 tag (0x553E), so the host types keys the
+    // client did not normalize in that layout. Only call when
+    // hostSupportsControlMessage(CONTROL_MESSAGE_KEYBOARD_LAYOUT); false when it could not be
+    // sent or the tag is not a valid one (empty, over 64 characters, not printable ASCII).
+    public static boolean sendKeyboardLayout(String bcp47Tag) {
+        return rustStream && RustBridge.sendKeyboardLayout(bcp47Tag);
+    }
 }

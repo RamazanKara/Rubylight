@@ -8,6 +8,7 @@ use nightjar_core::roaming::RoamEvent;
 use nightjar_core::session::{Listener, Stage};
 use rubylight_protocol::control::{HostTiming, HostTimingExtra, LinkNotice, LinkState};
 use rubylight_protocol::steam_controller::SteamSettings;
+use rubylight_protocol::text_input::{InputType, NoticeKind, TextInputNotice};
 
 use crate::bridge::{self, Bridge};
 use crate::extras::{cursor_shape_message, hdr_metadata_bytes};
@@ -61,6 +62,39 @@ fn link_notice_args(notice: &LinkNotice) -> (i32, i32, i32) {
     };
     let kbps = |value: u32| i32::try_from(value).unwrap_or(i32::MAX);
     (state, kbps(notice.ceiling_kbps), kbps(notice.current_kbps))
+}
+
+/// The arguments of `bridgeClTextInput(kind, inputType, flags)`, as the wire has them: kind 0
+/// lower, 1 raise, 2 update; the input type in `InputType` order (0 text to 8 multiline); flags
+/// 1 sensitive, 2 no autocorrect, 4 no autocapitalize, 8 enter submits.
+fn text_input_args(notice: &TextInputNotice) -> (i32, i32, i32) {
+    let kind = match notice.kind {
+        NoticeKind::Lower => 0,
+        NoticeKind::Raise => 1,
+        NoticeKind::Update => 2,
+    };
+    let input_type = match notice.input_type {
+        InputType::Text => 0,
+        InputType::Number => 1,
+        InputType::Decimal => 2,
+        InputType::Phone => 3,
+        InputType::Email => 4,
+        InputType::Url => 5,
+        InputType::Password => 6,
+        InputType::Search => 7,
+        InputType::Multiline => 8,
+    };
+    let flags = [
+        notice.sensitive,
+        notice.no_autocorrect,
+        notice.no_autocapitalize,
+        notice.enter_action,
+    ]
+    .iter()
+    .enumerate()
+    .filter(|(_, set)| **set)
+    .fold(0, |flags, (bit, _)| flags | 1 << bit);
+    (kind, input_type, flags)
 }
 
 /// An extension no record can fit (`capture_us + convert_us` above any `queue_us`), which Java
@@ -312,9 +346,17 @@ impl Listener for Events {
                 platform::warn(&event.to_string());
             }
             ControlEvent::Roam(event) => platform::info(&event.to_string()),
-            // The host sends text input notices (0x553B) only after a request,
-            // and Nightjar does not send one yet.
-            ControlEvent::TextInput(_) => {}
+            ControlEvent::TextInput(notice) => {
+                let (kind, input_type, flags) = text_input_args(&notice);
+                b.post(
+                    m.text_input,
+                    &[
+                        bridge::int(kind),
+                        bridge::int(input_type),
+                        bridge::int(flags),
+                    ],
+                );
+            }
             // The session reports terminations through connection_terminated.
             ControlEvent::Terminated { .. } => {}
         }
@@ -387,6 +429,54 @@ mod tests {
             ..notice(LinkState::Limited, LinkReason::Network)
         };
         assert_eq!(link_notice_args(&huge).1, i32::MAX);
+    }
+
+    #[test]
+    fn a_text_input_notice_reaches_java_as_its_wire_values() {
+        let raise = TextInputNotice {
+            kind: NoticeKind::Raise,
+            input_type: InputType::Password,
+            sensitive: true,
+            no_autocorrect: false,
+            no_autocapitalize: true,
+            enter_action: true,
+            serial: 7,
+            selection_start: 0,
+            selection_end: 0,
+            text: String::new(),
+        };
+        assert_eq!(text_input_args(&raise), (1, 6, 1 | 4 | 8));
+        let kinds = [NoticeKind::Lower, NoticeKind::Raise, NoticeKind::Update];
+        let types = [
+            InputType::Text,
+            InputType::Number,
+            InputType::Decimal,
+            InputType::Phone,
+            InputType::Email,
+            InputType::Url,
+            InputType::Password,
+            InputType::Search,
+            InputType::Multiline,
+        ];
+        for kind in kinds {
+            for input_type in types {
+                for flags in 0..16 {
+                    let notice = TextInputNotice {
+                        kind,
+                        input_type,
+                        sensitive: flags & 1 != 0,
+                        no_autocorrect: flags & 2 != 0,
+                        no_autocapitalize: flags & 4 != 0,
+                        enter_action: flags & 8 != 0,
+                        ..raise.clone()
+                    };
+                    // Java reads what the host wrote: kind, type and flags bytes.
+                    let wire = notice.encode().unwrap();
+                    let expected = (i32::from(wire[1]), i32::from(wire[2]), i32::from(wire[3]));
+                    assert_eq!(text_input_args(&notice), expected, "{notice:?}");
+                }
+            }
+        }
     }
 
     #[test]

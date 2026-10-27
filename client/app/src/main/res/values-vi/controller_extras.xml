@@ -10,6 +10,8 @@
     <string name="summary_checkbox_back_as_meta">Phím Quay lại trên bàn phím vật lý sẽ gửi phím Windows (Command trên Mac). Mở menu stream bằng Ctrl+Alt+Shift+M, cử chỉ hoặc nút Quay lại của Android, hoặc tổ hợp nút trên tay cầm.</string>
     <string name="title_checkbox_right_alt_as_meta">Alt phải làm Command</string>
     <string name="summary_checkbox_right_alt_as_meta">Alt phải gửi phím Windows, phím mà Mac dùng làm Command, nên Alt phải+C sẽ sao chép. Alt trái không đổi. Hãy để tắt nếu bạn gõ ký tự bằng AltGr.</string>
+    <string name="title_checkbox_keyboard_follows_text_fields">Bàn phím theo trường văn bản</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">Bàn phím ảo mở ra khi một trường văn bản trong luồng được chọn, phù hợp với trường đó: số cho trường số, không gợi ý cho mật khẩu. Bàn phím đóng lại khi trường không còn được chọn. Khi có bàn phím vật lý kết nối, bạn tiếp tục gõ bằng bàn phím đó.</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">Kiểm tra tay cầm</string>

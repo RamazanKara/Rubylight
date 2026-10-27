@@ -10,6 +10,8 @@
     <string name="summary_checkbox_back_as_meta">Fiziksel klavyedeki Geri tuşu Windows tuşunu (Mac’te Command) gönderir. Yayın menüsünü Ctrl+Alt+Shift+M, Android’in Geri hareketi veya düğmesi ya da kumanda tuş kombinasyonuyla açın.</string>
     <string name="title_checkbox_right_alt_as_meta">Sağ Alt Command olarak</string>
     <string name="summary_checkbox_right_alt_as_meta">Sağ Alt, Mac’in Command olarak kullandığı Windows tuşunu gönderir; böylece Sağ Alt+C kopyalar. Sol Alt değişmez. AltGr ile karakter yazıyorsanız kapalı bırakın.</string>
+    <string name="title_checkbox_keyboard_follows_text_fields">Klavye metin alanlarını takip eder</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">Akıştaki bir metin alanı odaklandığında ekran klavyesi o alana uygun olarak açılır: sayı alanı için rakamlar, parola için öneri yok. Alan odağı kaybettiğinde yeniden kapanır. Bağlı bir fiziksel klavye varsa onunla yazmaya devam edilir.</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">Kumanda testi</string>

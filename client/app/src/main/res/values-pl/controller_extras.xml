@@ -10,6 +10,8 @@
     <string name="summary_checkbox_back_as_meta">Klawisz Wstecz na fizycznej klawiaturze wysyła klawisz Windows (Command na Macu). Menu strumienia otworzysz skrótem Ctrl+Alt+Shift+M, gestem lub przyciskiem Wstecz Androida albo kombinacją przycisków kontrolera.</string>
     <string name="title_checkbox_right_alt_as_meta">Prawy Alt jako Command</string>
     <string name="summary_checkbox_right_alt_as_meta">Prawy Alt wysyła klawisz Windows, którego Mac używa jako Command, więc prawy Alt+C kopiuje. Lewy Alt działa bez zmian. Zostaw wyłączone, jeśli wpisujesz znaki za pomocą AltGr.</string>
+    <string name="title_checkbox_keyboard_follows_text_fields">Klawiatura podąża za polami tekstowymi</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">Klawiatura ekranowa otwiera się, gdy pole tekstowe w streamie otrzyma fokus, dopasowana do pola: cyfry dla pola liczbowego, bez podpowiedzi dla hasła. Zamyka się, gdy pole traci fokus. Z podłączoną klawiaturą fizyczną nadal piszesz na niej.</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">Test kontrolera</string>

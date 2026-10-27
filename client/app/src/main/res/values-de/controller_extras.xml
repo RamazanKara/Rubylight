@@ -9,6 +9,8 @@
     <string name="summary_checkbox_back_as_meta">Die Zurück-Taste einer echten Tastatur sendet die Windows-Taste (Befehlstaste auf einem Mac). Das Stream-Menü öffnest du dann mit Strg+Alt+Umschalt+M, der Zurück-Geste oder -Taste von Android oder der Controller-Tastenkombination.</string>
     <string name="title_checkbox_right_alt_as_meta">Rechte Alt-Taste als Befehlstaste</string>
     <string name="summary_checkbox_right_alt_as_meta">Die rechte Alt-Taste sendet die Windows-Taste, die ein Mac als Befehlstaste nutzt, sodass Alt rechts+C kopiert. Die linke Alt-Taste bleibt unverändert. Lass die Option aus, wenn du Zeichen mit AltGr tippst.</string>
+    <string name="title_checkbox_keyboard_follows_text_fields">Tastatur folgt Textfeldern</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">Die Bildschirmtastatur öffnet sich, wenn ein Textfeld im Stream den Fokus bekommt, passend zum Feld: Ziffern für ein Zahlenfeld, keine Vorschläge für ein Passwort. Sie schließt sich wieder, wenn das Feld den Fokus verliert. Mit einer angeschlossenen Hardware-Tastatur tippst du weiter wie bisher.</string>
 
     <string name="controller_test_title">Controller-Test</string>
     <string name="controller_test_summary">Tasten, Sticks, Trigger, Vibration, Leuchten und Bewegung prüfen</string>

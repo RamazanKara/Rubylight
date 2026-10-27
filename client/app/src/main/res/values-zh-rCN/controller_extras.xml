@@ -10,6 +10,8 @@
     <string name="summary_checkbox_back_as_meta">实体键盘上的返回键会发送 Windows 键（在 Mac 上为 Command）。可使用 Ctrl+Alt+Shift+M、Android 的返回手势或按钮，或手柄组合键打开串流菜单。</string>
     <string name="title_checkbox_right_alt_as_meta">右 Alt 用作 Command</string>
     <string name="summary_checkbox_right_alt_as_meta">右 Alt 会发送 Windows 键，Mac 将其用作 Command，因此右 Alt+C 即可复制。左 Alt 不变。如果你用 AltGr 输入字符，请保持关闭。</string>
+    <string name="title_checkbox_keyboard_follows_text_fields">键盘跟随文本框</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">串流中的文本框获得焦点时，屏幕键盘会按该文本框打开：数字框显示数字键盘，密码框不显示候选词。文本框失去焦点时键盘会关闭。连接了实体键盘时，仍用实体键盘输入。</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">手柄测试</string>

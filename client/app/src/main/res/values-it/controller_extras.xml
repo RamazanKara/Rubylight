@@ -10,6 +10,8 @@
     <string name="summary_checkbox_back_as_meta">Il tasto Indietro di una tastiera fisica invia il tasto Windows (Command su Mac). Apri il menu dello stream con Ctrl+Alt+Shift+M, il gesto o il pulsante Indietro di Android, oppure la combinazione di tasti del controller.</string>
     <string name="title_checkbox_right_alt_as_meta">Alt destro come Command</string>
     <string name="summary_checkbox_right_alt_as_meta">Alt destro invia il tasto Windows, che un Mac usa come Command, quindi Alt destro+C copia. Alt sinistro non cambia. Lascia disattivato se digiti caratteri con AltGr.</string>
+    <string name="title_checkbox_keyboard_follows_text_fields">La tastiera segue i campi di testo</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">La tastiera su schermo si apre quando un campo di testo nello stream riceve il focus, adattata al campo: numeri per un campo numerico, nessun suggerimento per una password. Si richiude quando il campo perde il focus. Con una tastiera fisica collegata si continua a digitare con quella.</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">Test del controller</string>

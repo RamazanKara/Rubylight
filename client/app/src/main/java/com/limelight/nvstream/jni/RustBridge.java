@@ -128,4 +128,6 @@ final class RustBridge {
     static native int presentClockContentRate();
     static native boolean sendCursorShapeRequest(boolean enabled);
     static native boolean sendControllerAudio(int kind, byte[] payload);
+    static native boolean sendTextInputRequest(boolean enabled);
+    static native boolean sendKeyboardLayout(String bcp47Tag);
 }

@@ -270,6 +270,7 @@ public class SettingsKeysTest {
         reads.put("checkbox_back_as_meta", new Read(false, true, c -> c.backAsMeta));
         reads.put("checkbox_back_opens_menu", new Read(false, true, c -> c.backOpensMenu));
         reads.put("checkbox_right_alt_as_meta", new Read(false, true, c -> c.rightAltAsMeta));
+        reads.put("checkbox_keyboard_follows_text_fields", new Read(true, false, c -> c.keyboardFollowsTextFields));
         reads.put("checkbox_gamepad_touchpad_as_mouse", new Read(false, true, c -> c.gamepadTouchpadAsMouse));
         reads.put("checkbox_gamepad_motion_sensors", new Read(true, false, c -> c.gamepadMotionSensors));
         reads.put("checkbox_gamepad_motion_fallback", new Read(false, true, c -> c.gamepadMotionSensorsFallbackToDevice));

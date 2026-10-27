@@ -455,6 +455,11 @@
             android:title="@string/title_checkbox_right_alt_as_meta"
             android:dialogMessage="@string/summary_checkbox_right_alt_as_meta"
             android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_keyboard_follows_text_fields"
+            android:title="@string/title_checkbox_keyboard_follows_text_fields"
+            android:dialogMessage="@string/summary_checkbox_keyboard_follows_text_fields"
+            android:defaultValue="true" />
         <com.limelight.preferences.MaterialListPreference
             android:key="list_pc_keyboard_layout"
             android:title="@string/pc_keyboard_layout_title"

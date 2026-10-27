@@ -7,6 +7,7 @@ import com.limelight.binding.audio.SilentAudioRenderer;
 import com.limelight.binding.audio.MicrophoneStatus;
 import com.limelight.binding.input.ControllerButtonMap;
 import com.limelight.binding.input.ControllerHandler;
+import com.limelight.binding.input.KeyboardLayoutTag;
 import com.limelight.binding.input.KeyboardTranslator;
 import com.limelight.binding.input.MouseDeltaAccumulator;
 import com.limelight.binding.input.capture.InputCaptureManager;
@@ -69,6 +70,7 @@ import com.limelight.preferences.HostDisplayChoice;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.GameGestures;
 import com.limelight.ui.HostCursorShapes;
+import com.limelight.ui.HostTextField;
 import com.limelight.ui.KeyboardOverlay;
 import com.limelight.ui.PcKeyboardOverlay;
 import com.limelight.binding.input.keyboard.PcKeyboardController;
@@ -147,6 +149,7 @@ import android.view.WindowManager;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.view.inputmethod.InputMethodManager;
+import android.view.inputmethod.InputMethodSubtype;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -217,8 +220,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // The pad whose stick or hat is steering the on-screen keyboard, or -1.
     private int pcKeyboardAxisDevice = -1;
     private final InputManager.InputDeviceListener pcKeyboardDeviceListener = new InputManager.InputDeviceListener() {
-        @Override public void onInputDeviceAdded(int deviceId) { }
-        @Override public void onInputDeviceChanged(int deviceId) { }
+        // A keyboard plugged in or switched to another layout changes what the host should type.
+        @Override public void onInputDeviceAdded(int deviceId) { reportKeyboardLayout(); }
+        @Override public void onInputDeviceChanged(int deviceId) { reportKeyboardLayout(); }
         @Override public void onInputDeviceRemoved(int deviceId) { runOnUiThread(Game.this::releasePcKeyboardPads); }
     };
     private boolean desktopWindowFocused = true;
@@ -468,6 +472,104 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         MoonBridge.sendLinkNoticeRequest(true);
     }
 
+    // Asks a host that announces text field notices (0x553B) to say when a text field gains or loses
+    // focus, so the soft keyboard follows it (setting "Keyboard follows text fields"), and reports
+    // the keyboard layout to a host that takes it (0x553E). The C engine supports neither.
+    private void requestTextInput() {
+        reportedKeyboardLayout = null;
+        hostRaisedKeyboard = false;
+        streamView.setHostTextField(null);
+        reportKeyboardLayout();
+        if (conn == null || !conn.canSendInput() || !prefConfig.keyboardFollowsTextFields ||
+                !MoonBridge.hostSupportsControlMessage(MoonBridge.CONTROL_MESSAGE_TEXT_INPUT)) {
+            return;
+        }
+        if (!MoonBridge.sendTextInputRequest(true)) {
+            LimeLog.warning("Could not ask the host for text field notices");
+        }
+    }
+
+    private void reportKeyboardLayout() {
+        if (!connected || conn == null ||
+                !MoonBridge.hostSupportsControlMessage(MoonBridge.CONTROL_MESSAGE_KEYBOARD_LAYOUT)) {
+            return;
+        }
+        String tag = currentKeyboardLayout();
+        if (tag == null || tag.equals(reportedKeyboardLayout)) return;
+        if (MoonBridge.sendKeyboardLayout(tag)) {
+            reportedKeyboardLayout = tag;
+            LimeLog.info("Reported keyboard layout " + tag);
+        } else {
+            LimeLog.warning("Could not report keyboard layout " + tag);
+        }
+    }
+
+    // Apps cannot read a hardware keyboard's layout; the IME's subtype says which layout it uses
+    // for physical keyboards (Android 14+), else which language it types.
+    private String currentKeyboardLayout() {
+        InputMethodManager inputManager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+        InputMethodSubtype subtype = inputManager != null ? inputManager.getCurrentInputMethodSubtype() : null;
+        if (subtype == null) return null;
+        String hint = null;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            android.icu.util.ULocale locale = subtype.getPhysicalKeyboardHintLanguageTag();
+            if (locale != null) hint = locale.toLanguageTag();
+        }
+        String language = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N ? subtype.getLanguageTag() : null;
+        return KeyboardLayoutTag.pick(hint, language, subtype.getLocale());
+    }
+
+    // An attached hardware keyboard types itself; the soft keyboard must not take its place.
+    private boolean hasHardwareKeyboard() {
+        Configuration config = getResources().getConfiguration();
+        return config.keyboard == Configuration.KEYBOARD_QWERTY &&
+                config.hardKeyboardHidden == Configuration.HARDKEYBOARDHIDDEN_NO;
+    }
+
+    private boolean isSystemKeyboardVisible() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            WindowInsets insets = streamView.getRootWindowInsets();
+            return insets != null && insets.isVisible(WindowInsets.Type.ime());
+        }
+        WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(streamView);
+        return insets != null && insets.isVisible(WindowInsetsCompat.Type.ime());
+    }
+
+    // The host's text field notice, on the UI thread: a raise shows the soft keyboard with the
+    // field's input type, an update retypes the keyboard it showed, a lower hides only a keyboard
+    // the host raised. The keyboard the user opened stays open.
+    private void onHostTextField(int kind, int inputType, int flags) {
+        if (isFinishing() || streamView == null) return;
+        if (kind == HostTextField.KIND_LOWER) {
+            LimeLog.info("Host text field lost focus");
+            streamView.setHostTextField(null);
+            if (hostRaisedKeyboard) hideSystemKeyboard();
+            hostRaisedKeyboard = false;
+            return;
+        }
+        if (kind != HostTextField.KIND_RAISE && kind != HostTextField.KIND_UPDATE) return;
+        LimeLog.info("Host text field focused: type " + inputType + ", flags " + flags);
+        reportKeyboardLayout();
+        if (!HostTextField.mayShowKeyboard(foreground, connected, streamMenu != null,
+                conn != null && conn.canSendInput(), isPcKeyboardVisible(), hasHardwareKeyboard())) {
+            return;
+        }
+        boolean visible = isSystemKeyboardVisible();
+        if (kind == HostTextField.KIND_UPDATE && !visible) return;
+        streamView.setHostTextField(new HostTextField(inputType, flags));
+        if (visible) return;
+        hideKeyboardOverlay();
+        setInputGrabState(true);
+        streamView.requestFocus();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            getWindow().getInsetsController().show(WindowInsets.Type.ime());
+        } else {
+            InputMethodManager inputManager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+            inputManager.showSoftInput(streamView, 0);
+        }
+        hostRaisedKeyboard = true;
+    }
+
     // Reports the output's HDR capabilities to Rubylight 2.2.0+ hosts. Keep luminance fixed on
     // that output: brightness changes must not reconfigure HDR on older hosts.
     private void reportDisplayCaps() {
@@ -577,6 +679,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private CharSequence compactPerformanceText = "";
     // What the host last said about holding the bitrate down for the network; null when it has not.
     private LinkNoticeStatus linkNotice;
+    // The soft keyboard is up because the host's text field asked for it, so lowering hides it.
+    private boolean hostRaisedKeyboard;
+    // The layout last reported to the host this connection, or null.
+    private String reportedKeyboardLayout;
     // PerformanceOverlay.MODE_COMPACT, MODE_STATISTICS or MODE_DEBUG
     private String overlayMode = PerformanceOverlay.MODE_COMPACT;
     // The corner the overlay prefers; OverlayPlacement moves it when controls cover that corner.
@@ -1540,6 +1646,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
         // Set requested orientation for possible new screen size
         setPreferredOrientationForCurrentDisplay();
+        // Attaching a hardware keyboard or switching the IME's language changes the layout.
+        reportKeyboardLayout();
 
         // A fold, rotation or window change may change the native size
         boolean turned = newConfig.orientation != lastWindowOrientation;
@@ -6438,6 +6546,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 startReconfigureTracking();
                 requestHostTiming();
                 requestLinkNotice();
+                requestTextInput();
                 updateHostCursorShapes();
                 if (!conn.canSendInput()) {
                     if (gameTouchControls != null) gameTouchControls.hideForPip(true);
@@ -6641,6 +6750,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             linkNotice = status;
             if (performanceOverlayView != null) updatePerformanceOverlay();
         });
+    }
+
+    @Override
+    public void textInput(int kind, int inputType, int flags) {
+        runOnUiThread(() -> onHostTextField(kind, inputType, flags));
     }
 
     @Override

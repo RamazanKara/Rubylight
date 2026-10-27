@@ -10,6 +10,8 @@
     <string name="summary_checkbox_back_as_meta">A tecla Voltar de um teclado físico envia a tecla Windows (Command no Mac). Abra o menu da transmissão com Ctrl+Alt+Shift+M, o gesto ou botão Voltar do Android ou a combinação de botões do controle.</string>
     <string name="title_checkbox_right_alt_as_meta">Alt direito como Command</string>
     <string name="summary_checkbox_right_alt_as_meta">O Alt direito envia a tecla Windows, que o Mac usa como Command, então Alt direito+C copia. O Alt esquerdo não muda. Deixe desativado se você digita caracteres com AltGr.</string>
+    <string name="title_checkbox_keyboard_follows_text_fields">Teclado acompanha campos de texto</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">O teclado na tela abre quando um campo de texto do stream recebe o foco, ajustado a ele: números para um campo numérico, sem sugestões para uma senha. Ele fecha de novo quando o campo perde o foco. Com um teclado físico conectado, você continua digitando nele.</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">Teste do controle</string>

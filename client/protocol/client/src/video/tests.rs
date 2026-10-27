@@ -323,6 +323,7 @@ fn fec_status_wire_format() {
     assert_eq!(bytes[20], 3);
 }
 
+mod dolby_vision;
 pub(crate) mod early_chunks;
 mod sei;
 mod slice_delivery;

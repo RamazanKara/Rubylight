@@ -1,0 +1,2 @@
+# HDR calibration on virtual displays
+- Experimental: **Windows HDR Calibration on virtual displays** (`virtual_display_hdr_calibration`, off by default). An HDR stream on a new virtual display gets the Windows HDR Calibration profile of the PC's physical HDR display (the primary one first, the user's own before the system's) unless the device has its own `hdr_profile`. The virtual display gets back what it had when the stream ends. When no physical HDR display has a calibration, the log says so and the stream runs uncalibrated.

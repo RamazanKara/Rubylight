@@ -29,6 +29,10 @@ impl Monitor {
         .iter()
         .any(|value| value.eq_ignore_ascii_case(hint))
     }
+    /// Whether this is a Rubylight virtual display rather than a physical one.
+    pub fn is_rubylight(&self) -> bool {
+        is_rubylight_monitor(&self.monitor_device_path)
+    }
 }
 
 fn monitor_edid(path: &str) -> Vec<u8> {

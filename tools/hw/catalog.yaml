@@ -116,6 +116,16 @@ cases:
     status: pending
     note: isolated host (butterpollo.exe --config-dir C:\tests\i56 --port 48123 --bind 127.0.0.1, virtual_display_layout = exclusive, virtual display as SYSTEM through rust/release/elevated.ps1); then ask the 9070 XT reporter to confirm on #56
 
+  - id: virtual-hdr-calibration
+    device: desktop
+    title: Windows HDR Calibration carried to the virtual display of an HDR stream (virtual_display_hdr_calibration)
+    command: 'Write-Error "not scripted yet: see note"; exit 1'
+    preconditions: [idle, isolated-ports, system, gpu-lock]
+    pass: with a calibration on the physical HDR display, the host log names the profile and display and the virtual display carries that profile during the stream and its previous one after it; with no calibration, the log warns once and the stream runs
+    output: '{{out}}'
+    status: pending
+    note: this PC has no calibration yet (run the Windows HDR Calibration app on the HDR display first, as the user). Isolated host as SYSTEM through rust/release/elevated.ps1 (--config-dir C:\tests\hdrcal --port 48123 --bind 127.0.0.1, virtual_display_hdr_calibration = true, virtual_display_layout = extended), one short HDR stream; read the association before, during and after with ColorProfileGetDisplayList. It checks that the SYSTEM host reads the user's calibration while impersonating them
+
   - id: sleep-evidence
     device: nuc
     title: Sleep PC from a client, then wake this PC from the NUC (Wake-on-LAN)

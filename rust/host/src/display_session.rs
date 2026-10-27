@@ -696,6 +696,54 @@ fn scale_display(
     set(output, configured, width, height)
 }
 
+/// The ICC profile an HDR stream's display gets: the device's own choice,
+/// else, when the host carries it over to a new virtual display, the
+/// physical display's Windows HDR Calibration.
+fn stream_profile(
+    hdr: bool,
+    chosen: Option<&str>,
+    carry_calibration: bool,
+    calibration: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    if !hdr {
+        return None;
+    }
+    match chosen.filter(|name| !name.is_empty()) {
+        Some(name) => Some(name.to_owned()),
+        None if carry_calibration => calibration(),
+        None => None,
+    }
+}
+
+/// The Windows HDR Calibration of a physical HDR display, for the virtual
+/// display that stands in for it. A stream without one says so.
+fn physical_calibration() -> Option<String> {
+    match hdr_profile::calibration() {
+        Ok(Some(calibration)) => {
+            tracing::info!(
+                display = %calibration.display,
+                profile = %calibration.profile,
+                peak_nits = calibration.peak,
+                "the virtual display gets the physical display's Windows HDR Calibration"
+            );
+            Some(calibration.profile)
+        }
+        Ok(None) => {
+            tracing::warn!(
+                "virtual_display_hdr_calibration is on, but no physical HDR display has a Windows HDR Calibration profile, so the virtual display streams uncalibrated. Run the Windows HDR Calibration app on the HDR display, or choose a profile for the device"
+            );
+            None
+        }
+        Err(error) => {
+            tracing::warn!(
+                error = %format!("{error:#}"),
+                "the physical display's Windows HDR Calibration could not be read, so the virtual display streams uncalibrated"
+            );
+            None
+        }
+    }
+}
+
 /// The scale a device kept from Windows, in percent, when it keeps one (`remember`).
 fn kept_scale(
     remember: bool,
@@ -1121,6 +1169,20 @@ impl Prepared {
         } else {
             None
         };
+        // Read while the physical displays are still on: the virtual display
+        // can turn them off, and Windows keeps a profile only on an active one.
+        let recovery_profile = stream_profile(
+            stream.hdr,
+            launch
+                .client
+                .extra
+                .get("hdr_profile")
+                .and_then(serde_json::Value::as_str),
+            virtual_mode
+                && retained.is_none()
+                && config.boolean("virtual_display_hdr_calibration", false),
+            physical_calibration,
+        );
         let display = if retained.is_none() {
             Some(Guard::new_virtual_options(
                 output,
@@ -1293,17 +1355,6 @@ impl Prepared {
         };
         let mode_report = ModeReport::new(launch.warnings.clone(), requested, stream.fps_millihz());
         mode_report.publish(applied_mode(&output));
-        let recovery_profile = if stream.hdr {
-            launch
-                .client
-                .extra
-                .get("hdr_profile")
-                .and_then(serde_json::Value::as_str)
-                .filter(|s| !s.is_empty())
-                .map(str::to_owned)
-        } else {
-            None
-        };
         let profile = recovery_profile
             .as_ref()
             .map(|p| hdr_profile::Lease::acquire(&output, p))
@@ -1833,6 +1884,38 @@ pub(crate) mod tests {
         // and a virtual display take the configured one.
         assert_eq!(virtual_display_scale(false, 125), 0);
         assert_eq!(virtual_display_scale(true, 125), 125);
+    }
+
+    #[test]
+    fn a_virtual_hdr_display_gets_the_physical_calibration_only_when_nothing_else_is_chosen() {
+        let looked = Cell::new(0);
+        let calibration = || {
+            looked.set(looked.get() + 1);
+            Some("calibrated.icm".to_string())
+        };
+        assert_eq!(
+            stream_profile(true, None, true, calibration),
+            Some("calibrated.icm".into())
+        );
+        assert_eq!(
+            stream_profile(true, Some(""), true, calibration),
+            Some("calibrated.icm".into())
+        );
+        assert_eq!(looked.get(), 2);
+        // The device's own profile wins; SDR, a physical display and the
+        // setting off never read the physical display's.
+        assert_eq!(
+            stream_profile(true, Some("device.icm"), true, calibration),
+            Some("device.icm".into())
+        );
+        assert_eq!(stream_profile(false, None, true, calibration), None);
+        assert_eq!(
+            stream_profile(false, Some("device.icm"), true, calibration),
+            None
+        );
+        assert_eq!(stream_profile(true, None, false, calibration), None);
+        assert_eq!(looked.get(), 2);
+        assert_eq!(stream_profile(true, None, true, || None), None);
     }
 
     /// A game display kept between streams, with no other holder, for tests

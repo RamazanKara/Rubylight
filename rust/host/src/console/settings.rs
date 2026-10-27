@@ -70,6 +70,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "dd_snapshot_exclude_devices", "Devices excluded from saved layout restore", Json;
         "dd_mode_remapping", "Resolution and refresh remapping", Json;
         "vulkan_hdr_layer", "Vulkan virtual HDR support", Bool;
+        "virtual_display_hdr_calibration", "Windows HDR Calibration on virtual displays (Experimental)", Bool;
         "fallback_mode", "Default launch mode (WIDTHxHEIGHTxFPS)", Text;
     ]
     "Frame generation and limiting" => [

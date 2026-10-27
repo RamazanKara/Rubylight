@@ -533,6 +533,19 @@ export const settings: Setting[] = [
     advanced: true,
   },
   {
+    key: 'virtual_display_hdr_calibration',
+    label: 'Windows HDR Calibration on virtual displays (Experimental)',
+    description:
+      'Gives an HDR virtual display the profile Windows HDR Calibration made for your HDR monitor, and gives the display back its own profile after the stream.',
+    details:
+      'Off by default: the profile describes your monitor, not the device you stream to. A profile chosen for the device comes first.',
+    category: 'hdr',
+    group: 'Display',
+    control: { kind: 'toggle' },
+    default: false,
+    advanced: true,
+  },
+  {
     key: 'hdr_peak_brightness',
     label: 'Peak brightness',
     description: 'The brightest the device’s screen can show, which a virtual display reports as its peak.',

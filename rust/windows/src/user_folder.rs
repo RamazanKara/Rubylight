@@ -125,7 +125,7 @@ impl Drop for Impersonation {
     fn drop(&mut self) {
         // SAFETY: ends the impersonation `begin` started on this thread.
         if let Err(error) = unsafe { RevertToSelf() } {
-            tracing::error!("File transfer could not stop acting as the Windows user: {error}");
+            tracing::error!("The host could not stop acting as the Windows user: {error}");
             // This thread would go on with the user's rights in place of the
             // host's, or with the host's where the user's were checked.
             std::process::abort();
@@ -168,6 +168,24 @@ fn standard_user(
         ))
         .into()
     })
+}
+
+/// Runs `work` on this thread as the user signed in to the host's session
+/// when the host runs as SYSTEM, for what Windows keeps per user. Otherwise,
+/// or with nobody signed in, it runs as the host.
+pub(crate) fn as_session_user<T>(work: impl FnOnce() -> T) -> io::Result<T> {
+    let token = if crate::process::is_system() {
+        match user_token() {
+            Ok(token) => token,
+            Err(UserFolderError::NoConsoleUser) => None,
+            Err(UserFolderError::Io(error)) => return Err(error),
+            Err(error) => return Err(io::Error::other(error.to_string())),
+        }
+    } else {
+        None
+    };
+    let _user = Impersonation::begin(token.as_ref())?;
+    Ok(work())
 }
 
 /// How `WTSQueryUserToken` says the session has no user: ERROR_NO_TOKEN

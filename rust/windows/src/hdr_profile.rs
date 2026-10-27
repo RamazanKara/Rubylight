@@ -38,6 +38,14 @@ impl Api {
             })
         }
     }
+}
+/// A display's advanced-colour profile associations: mscms, or a fake in tests.
+trait Associations {
+    fn get(&self, monitor: &Monitor, system: bool) -> Result<Option<String>>;
+    fn add(&self, monitor: &Monitor, system: bool, name: &str) -> Result<()>;
+    fn remove(&self, monitor: &Monitor, system: bool, name: &str) -> Result<()>;
+}
+impl Associations for Api {
     fn get(&self, monitor: &Monitor, system: bool) -> Result<Option<String>> {
         // SAFETY: `pointer` receives a NUL-terminated name from LocalAlloc, read only up to its
         // terminator and freed once with LocalFree.
@@ -208,6 +216,64 @@ fn mhc2_peak(bytes: &[u8]) -> Option<u32> {
     }
     None
 }
+/// A Windows HDR Calibration profile: a display's advanced-colour profile
+/// with the MHC2 tag the calibration app writes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Calibration {
+    /// The physical display it calibrates.
+    pub display: String,
+    pub profile: String,
+    pub peak: u32,
+}
+/// The calibration of the physical HDR display a virtual display stands in
+/// for, the primary display first. Read before the virtual display exists,
+/// while the physical displays are on. A SYSTEM host reads the signed-in
+/// user's associations as that user.
+pub fn calibration() -> Result<Option<Calibration>> {
+    let api = Api::load()?;
+    let displays: Vec<_> = crate::display::monitors()?
+        .into_iter()
+        .filter(|monitor| monitor.hdr_enabled && !monitor.is_rubylight())
+        .collect();
+    crate::user_folder::as_session_user(|| {
+        find_calibration(&api, &displays, |name| {
+            peak_luminance(name)
+                .inspect_err(|error| tracing::warn!(%error, profile = name, "HDR calibration profile unreadable"))
+                .ok()
+                .flatten()
+        })
+    })
+    .context("the signed-in user's display profiles are unreadable")?
+}
+/// The first display with a calibration, primary first: the user's
+/// association before the system's, as Windows shows a user's own choice.
+fn find_calibration(
+    api: &impl Associations,
+    displays: &[Monitor],
+    peak: impl Fn(&str) -> Option<u32>,
+) -> Result<Option<Calibration>> {
+    let mut ordered: Vec<_> = displays.iter().collect();
+    ordered.sort_by_key(|monitor| !monitor.primary);
+    for monitor in ordered {
+        for system in [false, true] {
+            let Some(profile) = api.get(monitor, system)? else {
+                continue;
+            };
+            if let Some(peak) = peak(&profile) {
+                return Ok(Some(Calibration {
+                    display: if monitor.friendly_name.is_empty() {
+                        monitor.display_name.clone()
+                    } else {
+                        monitor.friendly_name.clone()
+                    },
+                    profile,
+                    peak,
+                }));
+            }
+        }
+    }
+    Ok(None)
+}
 struct State {
     users: usize,
     previous: Option<String>,
@@ -290,7 +356,20 @@ pub fn restore(
     if previous.is_some_and(|name| name.eq_ignore_ascii_case(applied)) {
         return Ok(());
     }
-    let api = Api::load()?;
+    restore_with(&Api::load()?, monitor, previous, applied, system)
+}
+/// Puts `previous` back, or removes `applied`, unless the display has since
+/// been given another profile.
+fn restore_with(
+    api: &impl Associations,
+    monitor: &Monitor,
+    previous: Option<&str>,
+    applied: &str,
+    system: bool,
+) -> Result<()> {
+    if previous.is_some_and(|name| name.eq_ignore_ascii_case(applied)) {
+        return Ok(());
+    }
     if api
         .get(monitor, system)?
         .as_deref()
@@ -341,6 +420,110 @@ impl Drop for Lease {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
+    /// Associations by display and scope (system or the user's).
+    #[derive(Default)]
+    struct Fake(RefCell<BTreeMap<(String, bool), String>>);
+    impl Fake {
+        fn with(self, monitor: &Monitor, system: bool, name: &str) -> Self {
+            self.add(monitor, system, name).unwrap();
+            self
+        }
+    }
+    impl Associations for Fake {
+        fn get(&self, monitor: &Monitor, system: bool) -> Result<Option<String>> {
+            Ok(self
+                .0
+                .borrow()
+                .get(&(monitor.device_id.clone(), system))
+                .cloned())
+        }
+        fn add(&self, monitor: &Monitor, system: bool, name: &str) -> Result<()> {
+            self.0
+                .borrow_mut()
+                .insert((monitor.device_id.clone(), system), name.into());
+            Ok(())
+        }
+        fn remove(&self, monitor: &Monitor, system: bool, name: &str) -> Result<()> {
+            let mut associations = self.0.borrow_mut();
+            let key = (monitor.device_id.clone(), system);
+            anyhow::ensure!(
+                associations
+                    .get(&key)
+                    .is_some_and(|current| current.eq_ignore_ascii_case(name)),
+                "{name} is not associated"
+            );
+            associations.remove(&key);
+            Ok(())
+        }
+    }
+    fn monitor(id: &str, primary: bool) -> Monitor {
+        Monitor {
+            device_id: id.into(),
+            monitor_device_path: String::new(),
+            display_name: format!(r"\\.\{id}"),
+            friendly_name: format!("{id} panel"),
+            hdr_supported: true,
+            hdr_enabled: true,
+            primary,
+            adapter: LUID::default(),
+            target: 0,
+            source: 0,
+        }
+    }
+    /// Profiles named `*-cal.icm` carry an MHC2 calibration.
+    fn peak(name: &str) -> Option<u32> {
+        name.ends_with("-cal.icm").then_some(800)
+    }
+    #[test]
+    fn the_physical_calibration_is_the_primary_displays_and_the_users_own_first() -> Result<()> {
+        let (side, main) = (monitor("side", false), monitor("main", true));
+        let displays = [side.clone(), main.clone()];
+        // A profile without MHC2 is no calibration.
+        let fake = Fake::default()
+            .with(&side, false, "side-cal.icm")
+            .with(&main, true, "srgb.icm");
+        let found = find_calibration(&fake, &displays, peak)?.expect("side calibration");
+        assert_eq!(
+            (found.display.as_str(), found.profile.as_str(), found.peak),
+            ("side panel", "side-cal.icm", 800)
+        );
+        let fake = fake
+            .with(&main, true, "system-cal.icm")
+            .with(&main, false, "user-cal.icm");
+        assert_eq!(
+            find_calibration(&fake, &displays, peak)?.map(|found| found.profile),
+            Some("user-cal.icm".into())
+        );
+        let fake = Fake::default().with(&main, false, "srgb.icm");
+        assert_eq!(find_calibration(&fake, &displays, peak)?, None);
+        assert_eq!(find_calibration(&fake, &[], peak)?, None);
+        Ok(())
+    }
+    #[test]
+    fn the_virtual_display_gets_back_what_it_had_unless_someone_chose_another() -> Result<()> {
+        let display = monitor("virtual", false);
+        // None before: the calibration is removed again.
+        let fake = Fake::default().with(&display, true, "main-cal.icm");
+        restore_with(&fake, &display, None, "main-cal.icm", true)?;
+        assert_eq!(fake.get(&display, true)?, None);
+        // A profile before comes back.
+        let fake = Fake::default().with(&display, true, "main-cal.icm");
+        restore_with(&fake, &display, Some("old.icm"), "main-cal.icm", true)?;
+        assert_eq!(fake.get(&display, true)?, Some("old.icm".into()));
+        // One chosen while streaming stays, in either scope.
+        let fake =
+            Fake::default()
+                .with(&display, true, "mine.icm")
+                .with(&display, false, "main-cal.icm");
+        restore_with(&fake, &display, None, "main-cal.icm", true)?;
+        assert_eq!(fake.get(&display, true)?, Some("mine.icm".into()));
+        assert_eq!(fake.get(&display, false)?, Some("main-cal.icm".into()));
+        // Nothing changed: nothing to put back.
+        restore_with(&fake, &display, Some("MINE.icm"), "mine.icm", true)?;
+        assert_eq!(fake.get(&display, true)?, Some("mine.icm".into()));
+        Ok(())
+    }
     #[test]
     fn mhc2_peak_reads_calibration_and_rejects_truncated_or_negative_tags() {
         let mut bytes = vec![0; 164];

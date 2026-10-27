@@ -1,5 +1,6 @@
 package com.limelight.binding.video;
 
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -28,6 +29,12 @@ final class VendorLowLatencyKeys {
             "vendor.mtk.vdec.low-latency.strict.enable", "vendor.mtk.vdec.early.output.enable",
             "vendor.mtk.vdec.no.reorder.enable", "vendor.mtk.vdec.disable.reorder",
             "vendor.mtk.vdec.no.clock.adjust"};
+    // Snapdragon keys from Moonlight V+ that are sent only when the decoder declares them
+    // (Android 12 and newer), never by name: no Snapdragon here has confirmed them, and a
+    // Snapdragon key the decoder accepted has hung the Retroid before (picture-order = 0).
+    static final Collection<String> QUALCOMM_DECLARED_ONLY = Collections.unmodifiableList(Arrays.asList(
+            "vendor.qti-ext-dec-info-misr.disable", "vendor.qti-ext-dec-instant-decode.enable",
+            "vendor.qti-ext-dec-error-correction.conceal"));
 
     static {
         Map<String, Integer> known = new LinkedHashMap<>();
@@ -38,6 +45,13 @@ final class VendorLowLatencyKeys {
         known.put("vendor.qti-ext-output-sw-fence-enable.value", 1);
         known.put("vendor.qti-ext-output-fence.enable", 1);
         known.put("vendor.qti-ext-output-fence.fence_type", 1);
+        // Moonlight V+ (qiin2333/moonlight-vplus, GPL-3.0) also asks Snapdragon decoders to skip
+        // the per-frame MISR checksum, to decode without output batching and to conceal a lost
+        // slice instead of waiting for an IDR. Unlike V+ they go only to decoders that declare
+        // them (QUALCOMM_DECLARED_ONLY), so they are never sent by name.
+        known.put("vendor.qti-ext-dec-info-misr.disable", 1);
+        known.put("vendor.qti-ext-dec-instant-decode.enable", 1);
+        known.put("vendor.qti-ext-dec-error-correction.conceal", 1);
         // Samsung Exynos and Google Tensor.
         known.put("vendor.rtc-ext-dec-low-latency.enable", 1);
         // HiSilicon Kirin.
@@ -122,11 +136,14 @@ final class VendorLowLatencyKeys {
         return keys;
     }
 
-    /** Every known Snapdragon key, set on Qualcomm decoders whether or not they declare it. */
+    /**
+     * Every known Snapdragon key except QUALCOMM_DECLARED_ONLY, set on Qualcomm decoders whether
+     * or not they declare it.
+     */
     static Map<String, Integer> qualcommKeys() {
         Map<String, Integer> keys = new LinkedHashMap<>();
         for (Map.Entry<String, Integer> known : KNOWN.entrySet()) {
-            if (known.getKey().startsWith("vendor.qti-ext-")) {
+            if (known.getKey().startsWith("vendor.qti-ext-") && !QUALCOMM_DECLARED_ONLY.contains(known.getKey())) {
                 keys.put(known.getKey(), known.getValue());
             }
         }

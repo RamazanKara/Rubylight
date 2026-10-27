@@ -120,7 +120,14 @@ pub fn open(local: &Local) -> Result<Arc<dyn UsbDevice>, String> {
     }
     let configuration = handle.active_configuration().map_err(open_error)?;
     let config = device.active_config_descriptor().map_err(open_error)?;
-    let state = State { configuration, claimed: Vec::new(), endpoints: endpoints(&config), closed: false };
+    let mut configs = HashMap::new();
+    for index in 0..descriptor.num_configurations() {
+        match device.config_descriptor(index) {
+            Ok(c) => { configs.insert(c.number(), Config { interfaces: c.interfaces().map(|i| i.number()).collect(), endpoints: endpoints(&c) }); }
+            Err(e) => eprintln!("nightjar: USB {}: configuration descriptor {index} could not be read, so the host can't set it: {e}", local.busid),
+        }
+    }
+    let state = State { configuration, active: configuration, claimed: Vec::new(), endpoints: endpoints(&config), configs, closed: false };
     let class = match descriptor.class_code() {
         0 => config.interfaces().next().and_then(|i| i.descriptors().next()).map_or(0, |s| s.class_code()),
         class => class,
@@ -143,9 +150,9 @@ pub fn open(local: &Local) -> Result<Arc<dyn UsbDevice>, String> {
         configurations: descriptor.num_configurations(),
         interfaces: config.num_interfaces(),
     };
-    let opened = Libusb { device, handle, described, class, state: Mutex::new(state), warned_iso: AtomicBool::new(false) };
+    let opened = Libusb { handle, described, class, state: Mutex::new(state), warned_iso: AtomicBool::new(false) };
     let interfaces: Vec<u8> = config.interfaces().map(|i| i.number()).collect();
-    opened.claim(&interfaces).map_err(open_error)?;
+    claim(&opened.handle, &mut opened.state(), &interfaces).map_err(open_error)?;
     Ok(Arc::new(Blocking::new(opened)))
 }
 
@@ -192,6 +199,9 @@ enum Standard {
     SetConfiguration(u8),
     SetInterface { interface: u8, setting: u8 },
     ClearHalt(u8),
+    /// SET_FEATURE(PORT_RESET) to the device's port, which the host's driver sends to recover
+    /// it, as Linux's USB/IP host takes it: the device is reset here.
+    PortReset,
 }
 
 fn standard(setup: &[u8; 8]) -> Option<Standard> {
@@ -201,6 +211,7 @@ fn standard(setup: &[u8; 8]) -> Option<Standard> {
         (0x00, 9) => Some(Standard::SetConfiguration(value as u8)),
         (0x01, 11) => Some(Standard::SetInterface { interface: index as u8, setting: value as u8 }),
         (0x02, 1) if value == 0 => Some(Standard::ClearHalt(index as u8)),
+        (0x23, 3) if value == 4 => Some(Standard::PortReset),
         _ => None,
     }
 }
@@ -265,15 +276,145 @@ fn write_sliced(data: &[u8], zero_packet: bool, cancelled: &AtomicBool, mut call
     Reply::sent(at as u32)
 }
 
+/// One of the device's configurations: its interfaces and endpoints.
+#[derive(Clone)]
+struct Config {
+    interfaces: Vec<u8>,
+    endpoints: HashMap<u8, (TransferType, u16)>,
+}
+
 struct State {
+    /// The configuration the host sees; 0 after it unconfigured the device.
     configuration: u8,
+    /// The configuration the device is in: unconfiguring only hides it (see [`set_configuration`]).
+    active: u8,
     claimed: Vec<u8>,
     endpoints: HashMap<u8, (TransferType, u16)>,
+    configs: HashMap<u8, Config>,
     closed: bool,
 }
 
+/// What changing the configuration and resetting the device need of a libusb handle.
+trait Configure {
+    fn claim_interface(&self, interface: u8) -> rusb::Result<()>;
+    fn release_interface(&self, interface: u8) -> rusb::Result<()>;
+    fn set_auto_detach_kernel_driver(&self, on: bool) -> rusb::Result<()>;
+    fn set_active_configuration(&self, value: u8) -> rusb::Result<()>;
+    fn reset(&self) -> rusb::Result<()>;
+}
+
+impl Configure for rusb::DeviceHandle<rusb::Context> {
+    fn claim_interface(&self, interface: u8) -> rusb::Result<()> {
+        rusb::DeviceHandle::claim_interface(self, interface)
+    }
+    fn release_interface(&self, interface: u8) -> rusb::Result<()> {
+        rusb::DeviceHandle::release_interface(self, interface)
+    }
+    fn set_auto_detach_kernel_driver(&self, on: bool) -> rusb::Result<()> {
+        rusb::DeviceHandle::set_auto_detach_kernel_driver(self, on)
+    }
+    fn set_active_configuration(&self, value: u8) -> rusb::Result<()> {
+        rusb::DeviceHandle::set_active_configuration(self, value)
+    }
+    fn reset(&self) -> rusb::Result<()> {
+        rusb::DeviceHandle::reset(self)
+    }
+}
+
+/// Claims each of `interfaces` not claimed yet; on a failure lets go of every one.
+fn claim(handle: &impl Configure, state: &mut State, interfaces: &[u8]) -> rusb::Result<()> {
+    for &interface in interfaces {
+        if state.claimed.contains(&interface) { continue; }
+        if let Err(e) = handle.claim_interface(interface) {
+            for &claimed in &state.claimed { let _ = handle.release_interface(claimed); }
+            state.claimed.clear();
+            return Err(e);
+        }
+        state.claimed.push(interface);
+    }
+    Ok(())
+}
+
+fn release(handle: &impl Configure, state: &mut State, busid: &str) {
+    for interface in std::mem::take(&mut state.claimed) {
+        if let Err(e) = handle.release_interface(interface) {
+            eprintln!("nightjar: USB {busid}: releasing interface {interface} failed: {e}");
+        }
+    }
+}
+
+/// libusb puts the kernel's drivers back on interfaces it lets go of (Linux); `on` false keeps
+/// them off.
+fn auto_detach(handle: &impl Configure, on: bool, busid: &str) {
+    match handle.set_auto_detach_kernel_driver(on) {
+        Ok(()) | Err(rusb::Error::NotSupported) => {}
+        Err(e) => eprintln!("nightjar: USB {busid}: turning the kernel driver's detach {} failed: {e}", if on { "on" } else { "off" }),
+    }
+}
+
+/// SET_CONFIGURATION from the host. Unconfiguring (0) only hides the configuration until the
+/// host sets one again: WinUSB can't unconfigure, and Linux won't while interfaces are
+/// claimed. A real change lets go of the old interfaces without giving them back to the
+/// kernel's drivers (Linux refuses the change while a driver is bound), and when the device
+/// refuses it claims them again, so the old configuration still works.
+fn set_configuration(handle: &impl Configure, state: &mut State, value: u8, busid: &str) -> Reply {
+    if value == state.configuration { return Reply::sent(0); }
+    if value == 0 {
+        state.configuration = 0;
+        state.endpoints.clear();
+        return Reply::sent(0);
+    }
+    let Some(config) = state.configs.get(&value).cloned() else { return Reply::failed(wire::EINVAL) };
+    if value != state.active {
+        auto_detach(handle, false, busid);
+        let old = state.claimed.clone();
+        release(handle, state, busid);
+        let set = handle.set_active_configuration(value);
+        auto_detach(handle, true, busid);
+        if let Err(e) = set {
+            eprintln!("nightjar: USB {busid}: configuration {value} failed: {e}; staying in {}", state.active);
+            if let Err(again) = claim(handle, state, &old) {
+                eprintln!("nightjar: USB {busid}: configuration {}'s interfaces could not be claimed again: {again}", state.active);
+            }
+            return Reply::failed(rusb_errno(e));
+        }
+        state.active = value;
+    }
+    state.configuration = value;
+    state.endpoints = config.endpoints;
+    match claim(handle, state, &config.interfaces) {
+        Ok(()) => Reply::sent(0),
+        Err(e) => Reply::failed(rusb_errno(e)),
+    }
+}
+
+/// A port reset from the host. libusb claims the interfaces again after a reset; claiming
+/// them here too (a no-op for one claimed already) checks that it did.
+fn reset_port(handle: &impl Configure, state: &mut State, busid: &str) -> Reply {
+    match handle.reset() {
+        Ok(()) => {}
+        // The device came back as another one, which this handle no longer reaches.
+        Err(rusb::Error::NotFound | rusb::Error::NoDevice) => {
+            eprintln!("nightjar: USB {busid}: the device went away when it was reset");
+            return Reply::failed(wire::ENODEV);
+        }
+        Err(e) => {
+            eprintln!("nightjar: USB {busid}: resetting the device failed: {e}");
+            return Reply::failed(rusb_errno(e));
+        }
+    }
+    let interfaces = state.configs.get(&state.active).map(|c| c.interfaces.clone()).unwrap_or_default();
+    state.claimed.clear();
+    match claim(handle, state, &interfaces) {
+        Ok(()) => Reply::sent(0),
+        Err(e) => {
+            eprintln!("nightjar: USB {busid}: the interfaces could not be claimed again after a reset: {e}");
+            Reply::failed(rusb_errno(e))
+        }
+    }
+}
+
 struct Libusb {
-    device: rusb::Device<rusb::Context>,
     handle: rusb::DeviceHandle<rusb::Context>,
     described: wire::Device,
     class: u8,
@@ -286,54 +427,13 @@ impl Libusb {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn claim(&self, interfaces: &[u8]) -> rusb::Result<()> {
-        let mut state = self.state();
-        for &interface in interfaces {
-            if state.claimed.contains(&interface) { continue; }
-            if let Err(e) = self.handle.claim_interface(interface) {
-                for &claimed in &state.claimed { let _ = self.handle.release_interface(claimed); }
-                state.claimed.clear();
-                return Err(e);
-            }
-            state.claimed.push(interface);
-        }
-        Ok(())
-    }
-
-    fn release(&self) {
-        let claimed = std::mem::take(&mut self.state().claimed);
-        for interface in claimed {
-            if let Err(e) = self.handle.release_interface(interface) {
-                eprintln!("nightjar: USB {}: releasing interface {interface} failed: {e}", self.described.busid);
-            }
-        }
-    }
-
-    fn set_configuration(&self, value: u8) -> Reply {
-        if value == self.state().configuration { return Reply::sent(0); }
-        self.release();
-        let set = if value == 0 { self.handle.unconfigure() } else { self.handle.set_active_configuration(value) };
-        if let Err(e) = set { return Reply::failed(rusb_errno(e)); }
-        let config = (0..self.device.device_descriptor().map_or(0, |d| d.num_configurations()))
-            .filter_map(|index| self.device.config_descriptor(index).ok())
-            .find(|c| c.number() == value);
-        let interfaces: Vec<u8> = config.as_ref().map(|c| c.interfaces().map(|i| i.number()).collect()).unwrap_or_default();
-        {
-            let mut state = self.state();
-            state.configuration = value;
-            state.endpoints = config.as_ref().map(endpoints).unwrap_or_default();
-        }
-        match self.claim(&interfaces) {
-            Ok(()) => Reply::sent(0),
-            Err(e) => Reply::failed(rusb_errno(e)),
-        }
-    }
-
     fn control(&self, transfer: &Transfer) -> Reply {
         let setup = &transfer.setup;
         let done = |result: rusb::Result<()>| result.map_or_else(|e| Reply::failed(rusb_errno(e)), |()| Reply::sent(0));
+        let busid = &self.described.busid;
         match standard(setup) {
-            Some(Standard::SetConfiguration(value)) => return self.set_configuration(value),
+            Some(Standard::SetConfiguration(value)) => return set_configuration(&self.handle, &mut self.state(), value, busid),
+            Some(Standard::PortReset) => return reset_port(&self.handle, &mut self.state(), busid),
             Some(Standard::SetInterface { interface, setting }) => return done(self.handle.set_alternate_setting(interface, setting)),
             Some(Standard::ClearHalt(endpoint)) => return done(self.handle.clear_halt(endpoint)),
             None => {}
@@ -402,8 +502,9 @@ impl BlockingDevice for Libusb {
     }
 
     fn close(&self) {
-        self.state().closed = true;
-        self.release();
+        let mut state = self.state();
+        state.closed = true;
+        release(&self.handle, &mut state, &self.described.busid);
     }
 }
 
@@ -572,10 +673,93 @@ mod tests {
         assert_eq!(standard(&[0x00, 9, 1, 0, 0, 0, 0, 0]), Some(Standard::SetConfiguration(1)));
         assert_eq!(standard(&[0x01, 11, 1, 0, 2, 0, 0, 0]), Some(Standard::SetInterface { interface: 2, setting: 1 }));
         assert_eq!(standard(&[0x02, 1, 0, 0, 0x81, 0, 0, 0]), Some(Standard::ClearHalt(0x81)));
-        // GET_DESCRIPTOR, a class request and CLEAR_FEATURE of another feature pass through.
+        assert_eq!(standard(&[0x23, 3, 4, 0, 1, 0, 0, 0]), Some(Standard::PortReset));
+        // GET_DESCRIPTOR, a class request, CLEAR_FEATURE and SET_FEATURE of other features pass through.
         assert_eq!(standard(&[0x80, 6, 0, 1, 0, 0, 18, 0]), None);
         assert_eq!(standard(&[0x21, 9, 0, 2, 0, 0, 8, 0]), None);
         assert_eq!(standard(&[0x02, 1, 1, 0, 0x81, 0, 0, 0]), None);
+        assert_eq!(standard(&[0x23, 3, 8, 0, 1, 0, 0, 0]), None);
+    }
+
+    /// A handle that logs what it is asked, and fails what the test says.
+    #[derive(Default)]
+    struct Fake {
+        log: std::cell::RefCell<Vec<String>>,
+        set: Option<rusb::Error>,
+        reset: Option<rusb::Error>,
+    }
+
+    impl Fake {
+        fn note(&self, call: String, result: Option<rusb::Error>) -> rusb::Result<()> {
+            self.log.borrow_mut().push(call);
+            result.map_or(Ok(()), Err)
+        }
+        fn calls(&self) -> Vec<String> {
+            std::mem::take(&mut self.log.borrow_mut())
+        }
+    }
+
+    impl Configure for Fake {
+        fn claim_interface(&self, interface: u8) -> rusb::Result<()> { self.note(format!("claim {interface}"), None) }
+        fn release_interface(&self, interface: u8) -> rusb::Result<()> { self.note(format!("release {interface}"), None) }
+        fn set_auto_detach_kernel_driver(&self, on: bool) -> rusb::Result<()> { self.note(format!("detach {on}"), None) }
+        fn set_active_configuration(&self, value: u8) -> rusb::Result<()> { self.note(format!("set {value}"), self.set) }
+        fn reset(&self) -> rusb::Result<()> { self.note("reset".into(), self.reset) }
+    }
+
+    /// In configuration 1 (interfaces 0 and 1, endpoint 0x81) with both claimed; 2 has interface 0
+    /// and endpoint 0x82.
+    fn configured() -> State {
+        let config = |interfaces: &[u8], endpoint| Config { interfaces: interfaces.to_vec(), endpoints: HashMap::from([(endpoint, (TransferType::Interrupt, 8))]) };
+        let configs = HashMap::from([(1, config(&[0, 1], 0x81)), (2, config(&[0], 0x82))]);
+        State { configuration: 1, active: 1, claimed: vec![0, 1], endpoints: configs[&1].endpoints.clone(), configs, closed: false }
+    }
+
+    #[test]
+    fn a_configuration_the_device_refuses_leaves_the_old_one_claimed() {
+        let (fake, mut state) = (Fake { set: Some(rusb::Error::Pipe), ..Fake::default() }, configured());
+        assert_eq!(set_configuration(&fake, &mut state, 2, "1-1").status, wire::EPIPE);
+        // The kernel's drivers stay off the interfaces in between.
+        assert_eq!(fake.calls(), ["detach false", "release 0", "release 1", "set 2", "detach true", "claim 0", "claim 1"]);
+        assert_eq!((state.configuration, state.active, &state.claimed[..]), (1, 1, &[0, 1][..]));
+        assert!(state.endpoints.contains_key(&0x81));
+    }
+
+    #[test]
+    fn a_new_configuration_claims_its_own_interfaces() {
+        let (fake, mut state) = (Fake::default(), configured());
+        assert_eq!(set_configuration(&fake, &mut state, 2, "1-1").status, 0);
+        assert_eq!(fake.calls(), ["detach false", "release 0", "release 1", "set 2", "detach true", "claim 0"]);
+        assert_eq!((state.configuration, state.active, &state.claimed[..]), (2, 2, &[0][..]));
+        assert!(state.endpoints.contains_key(&0x82) && !state.endpoints.contains_key(&0x81));
+        // One the device doesn't have is refused before anything changes.
+        assert_eq!(set_configuration(&fake, &mut state, 3, "1-1").status, wire::EINVAL);
+        assert!(fake.calls().is_empty());
+    }
+
+    #[test]
+    fn unconfiguring_hides_the_configuration_until_the_host_sets_it_again() {
+        let (fake, mut state) = (Fake::default(), configured());
+        assert_eq!(set_configuration(&fake, &mut state, 0, "1-1").status, 0);
+        assert_eq!((state.configuration, state.active, &state.claimed[..]), (0, 1, &[0, 1][..]));
+        assert!(state.endpoints.is_empty());
+        assert_eq!(set_configuration(&fake, &mut state, 1, "1-1").status, 0);
+        assert_eq!(state.configuration, 1);
+        assert!(state.endpoints.contains_key(&0x81));
+        // The device never left configuration 1, and its interfaces stayed claimed.
+        assert!(fake.calls().is_empty());
+    }
+
+    #[test]
+    fn a_port_reset_resets_the_device_and_claims_its_interfaces_again() {
+        let (fake, mut state) = (Fake::default(), configured());
+        assert_eq!(reset_port(&fake, &mut state, "1-1").status, 0);
+        assert_eq!(fake.calls(), ["reset", "claim 0", "claim 1"]);
+        assert_eq!(&state.claimed[..], [0, 1]);
+        // A device that came back as another one is gone.
+        let fake = Fake { reset: Some(rusb::Error::NotFound), ..Fake::default() };
+        assert_eq!(reset_port(&fake, &mut state, "1-1").status, wire::ENODEV);
+        assert_eq!(fake.calls(), ["reset"]);
     }
 
     #[test]

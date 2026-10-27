@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_usb_forwarding">轉送 USB 裝置（實驗性）</string>
+    <string name="summary_usb_forwarding">在串流選單中加入 USB 裝置：插在本裝置上的繪圖板或安全金鑰等裝置隨後可在電腦上使用。需要電腦提供 USB 轉送。</string>
+    <string name="stream_usb_devices">USB 裝置</string>
+    <string name="usb_forwarding_pick_title">轉送 USB 裝置</string>
+    <string name="usb_forwarding_none">沒有可轉送的 USB 裝置。集線器和本應用程式自行驅動的控制器不會列出。</string>
+    <string name="usb_forwarding_detach">中斷 %1$s</string>
+    <string name="usb_forwarding_asking">正在要求電腦連線 %1$s…</string>
+    <string name="usb_forwarding_attached">%1$s 已連線到電腦</string>
+    <string name="usb_forwarding_detached">%1$s 已與電腦中斷連線</string>
+    <string name="usb_forwarding_unplugged">%1$s 已拔除，並已與電腦中斷連線</string>
+    <string name="usb_forwarding_refused">電腦拒絕了 %1$s：%2$s</string>
+    <string name="usb_forwarding_failed">轉送 %1$s 失敗：%2$s</string>
+    <string name="usb_forwarding_permission_denied">沒有使用 %1$s 的權限</string>
+    <string name="usb_forwarding_list_failed">無法讀取 USB 裝置狀態</string>
+    <string name="usb_forwarding_reason_permission">電腦不允許此裝置轉送 USB</string>
+    <string name="usb_forwarding_reason_disabled">電腦上的 USB 轉送已關閉</string>
+    <string name="usb_forwarding_reason_limit">電腦連接的 USB 裝置已達上限</string>
+    <string name="usb_forwarding_reason_driver">電腦的 USB 驅動程式遺失或發生錯誤</string>
+    <string name="usb_forwarding_reason_timeout">裝置連線逾時</string>
+    <string name="usb_forwarding_reason_device">裝置已停止回應</string>
+    <string name="usb_forwarding_reason_session">串流已結束</string>
+    <string name="usb_forwarding_reason_unknown">未知原因</string>
+    <string name="usb_forwarding_code_no_stream">串流未在執行</string>
+    <string name="usb_forwarding_code_busy">它已連線</string>
+    <string name="usb_forwarding_code_unsupported">電腦不支援 USB 轉送</string>
+    <string name="usb_forwarding_code_device">本裝置無法開啟它</string>
+    <string name="usb_forwarding_code_invalid">無法傳送它的名稱或位址</string>
+    <string name="usb_forwarding_code_host">無法連線到電腦</string>
+</resources>

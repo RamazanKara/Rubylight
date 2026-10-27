@@ -18,6 +18,8 @@ public final class NativeCapabilities {
     public static final String COUCH_MENU = "session.couch_menu";
     /** GET /wake lists the PC's wake targets: every adapter's MAC and subnet broadcasts. */
     public static final String WAKE = "wake";
+    /** USB devices this device forwards to the host during a stream (control message 0x553A). */
+    public static final String USB = "usb";
 
     public final int apiVersion;
     public final String hostName;
@@ -28,9 +30,11 @@ public final class NativeCapabilities {
     public final boolean launch;
     /** The per-device host control permission. It is off by default and Close game needs it. */
     public final boolean hostControl;
+    /** The per-device USB permission: only {@code true} allows it. */
+    public final boolean usb;
 
     NativeCapabilities(int apiVersion, String hostName, String hostVersion, List<String> features,
-                       boolean list, boolean view, boolean launch, boolean hostControl) {
+                       boolean list, boolean view, boolean launch, boolean hostControl, boolean usb) {
         this.apiVersion = apiVersion;
         this.hostName = hostName;
         this.hostVersion = hostVersion;
@@ -39,6 +43,12 @@ public final class NativeCapabilities {
         this.view = view;
         this.launch = launch;
         this.hostControl = hostControl;
+        this.usb = usb;
+    }
+
+    /** Whether the host forwards USB devices and lets this device do it. */
+    public boolean offersUsbForwarding() {
+        return usb && has(USB);
     }
 
     /** Whether the host advertises {@code feature} (one of the constants here, or any other name). */
@@ -59,6 +69,6 @@ public final class NativeCapabilities {
         return new NativeCapabilities(json.optInt("api_version"), host == null ? null : host.optString("name", null),
                 host == null ? null : host.optString("version", null), features,
                 permissions.optBoolean("list"), permissions.optBoolean("view"), permissions.optBoolean("launch"),
-                permissions.optBoolean("host_control"));
+                permissions.optBoolean("host_control"), Boolean.TRUE.equals(permissions.opt("usb")));
     }
 }

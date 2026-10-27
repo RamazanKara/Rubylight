@@ -144,7 +144,8 @@ public class SettingsStructureTest {
             assertEquals(Arrays.asList("category_gamepad_settings", "category_usb_controllers", "category_input_settings",
                     "category_onscreen_controls", "category_keyboard_shortcuts"), keys(controls));
             assertEquals(Arrays.asList("checkbox_usb_driver", "checkbox_usb_bind_all", "checkbox_usb_dualsense",
-                    "checkbox_usb_dualsense_haptics", "checkbox_usb_switch_pro"), keys((PreferenceGroup) controls.getPreference(1)));
+                    "checkbox_usb_dualsense_haptics", "checkbox_usb_switch_pro", "checkbox_usb_forwarding"),
+                    keys((PreferenceGroup) controls.getPreference(1)));
             PreferenceGroup image = (PreferenceGroup) open(screen, "display").getPreferenceScreen().findPreference("category_upscaling");
             assertTrue(keys(image).contains("checkbox_yuv444"));
             PreferenceScreen advanced = open(screen, "advanced").getPreferenceScreen();
@@ -213,6 +214,24 @@ public class SettingsStructureTest {
             PreferenceScreen streaming = open(controller.get(), "streaming").getPreferenceScreen();
             assertNull(streaming.findPreference("checkbox_client_roaming"));
             assertNull(streaming.findPreference("checkbox_roaming_metered"));
+        }
+    }
+
+    @Test
+    public void usbForwardingIsOffAndShowsOnlyWithTheRustEngine() {
+        shadowOf(RuntimeEnvironment.getApplication().getPackageManager())
+                .setSystemFeature(PackageManager.FEATURE_USB_HOST, true);
+        touchscreen();
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            PreferenceScreen controls = open(controller.get(), "input").getPreferenceScreen();
+            SwitchPreference forwarding = (SwitchPreference) controls.findPreference("checkbox_usb_forwarding");
+            assertFalse(forwarding.isChecked());
+            assertTrue(String.valueOf(forwarding.getTitle()).contains("(Experimental)"));
+        }
+        // The C engine forwards nothing: the row is hidden.
+        prefs().edit().putBoolean("checkbox_rust_engine", false).commit();
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            assertNull(open(controller.get(), "input").getPreferenceScreen().findPreference("checkbox_usb_forwarding"));
         }
     }
 

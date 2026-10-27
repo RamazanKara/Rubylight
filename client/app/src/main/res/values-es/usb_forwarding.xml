@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_usb_forwarding">Redirigir dispositivos USB (experimental)</string>
+    <string name="summary_usb_forwarding">Añade los dispositivos USB al menú del stream: un dispositivo conectado a este, como una tableta de dibujo o una llave de seguridad, funciona entonces en el PC. Requiere un PC que ofrezca redirección USB.</string>
+    <string name="stream_usb_devices">Dispositivos USB</string>
+    <string name="usb_forwarding_pick_title">Redirigir un dispositivo USB</string>
+    <string name="usb_forwarding_none">No hay ningún dispositivo USB para redirigir. No se muestran los hubs ni los mandos que esta app controla por sí misma.</string>
+    <string name="usb_forwarding_detach">Desconectar %1$s</string>
+    <string name="usb_forwarding_asking">Pidiendo al PC que conecte %1$s…</string>
+    <string name="usb_forwarding_attached">%1$s está conectado al PC</string>
+    <string name="usb_forwarding_detached">%1$s está desconectado del PC</string>
+    <string name="usb_forwarding_unplugged">%1$s se ha desenchufado y está desconectado del PC</string>
+    <string name="usb_forwarding_refused">El PC ha rechazado %1$s: %2$s</string>
+    <string name="usb_forwarding_failed">No se pudo redirigir %1$s: %2$s</string>
+    <string name="usb_forwarding_permission_denied">Sin permiso para usar %1$s</string>
+    <string name="usb_forwarding_list_failed">No se pudo leer el estado de los dispositivos USB</string>
+    <string name="usb_forwarding_reason_permission">el PC no permite que este dispositivo redirija USB</string>
+    <string name="usb_forwarding_reason_disabled">la redirección USB está desactivada en el PC</string>
+    <string name="usb_forwarding_reason_limit">el PC ya tiene conectados todos los dispositivos USB que permite</string>
+    <string name="usb_forwarding_reason_driver">falta el controlador USB del PC o ha fallado</string>
+    <string name="usb_forwarding_reason_timeout">se agotó el tiempo de la conexión del dispositivo</string>
+    <string name="usb_forwarding_reason_device">el dispositivo dejó de responder</string>
+    <string name="usb_forwarding_reason_session">el stream ha terminado</string>
+    <string name="usb_forwarding_reason_unknown">motivo desconocido</string>
+    <string name="usb_forwarding_code_no_stream">el stream no está en curso</string>
+    <string name="usb_forwarding_code_busy">ya está conectado</string>
+    <string name="usb_forwarding_code_unsupported">el PC no admite la redirección USB</string>
+    <string name="usb_forwarding_code_device">este dispositivo no pudo abrirlo</string>
+    <string name="usb_forwarding_code_invalid">su nombre o dirección no se pueden enviar</string>
+    <string name="usb_forwarding_code_host">no se pudo contactar con el PC</string>
+</resources>

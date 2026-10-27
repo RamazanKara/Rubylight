@@ -82,6 +82,7 @@ public class NvConnection {
     private NativeApiTransport nativeApiTransport = new JniNativeApiTransport();
     private volatile boolean nativeHostControl;
     private volatile boolean nativeCouchMenu;
+    private volatile boolean nativeUsbForwarding;
     private static Semaphore connectionAllowed = new Semaphore(1);
     private final boolean isMonkey;
     private final Context appContext;
@@ -1498,6 +1499,11 @@ public class NvConnection {
         return nativeCouchMenu;
     }
 
+    /** Whether the host forwards USB devices and lets this device do it ({@code usb}), as it last said; false until known. */
+    public boolean offersUsbForwarding() {
+        return nativeUsbForwarding;
+    }
+
     /**
      * Opens the menu the host draws into this stream. Blocks on HTTPS; the native API's error, with its code, comes
      * back as the cause of the IOException. The host checks the permission and that this device owns the stream.
@@ -1519,8 +1525,8 @@ public class NvConnection {
     }
 
     /**
-     * Asks a native API host whether this device has host control and whether the host draws its own menu, in the
-     * background; the stream menu reads the answers. The host's wake targets are refreshed on the way.
+     * Asks a native API host whether this device has host control, whether the host draws its own menu and whether
+     * it forwards this device's USB devices, in the background; the stream menu reads the answers. The host's wake targets are refreshed on the way.
      */
     public void refreshNativeHostControl() {
         if (isMonkey || !hasNativeSessionActions()) {
@@ -1535,6 +1541,7 @@ public class NvConnection {
                 NativeCapabilities capabilities = client.capabilities();
                 nativeHostControl = capabilities.hostControl;
                 nativeCouchMenu = capabilities.has(NativeCapabilities.COUCH_MENU);
+                nativeUsbForwarding = capabilities.offersUsbForwarding();
                 if (appContext != null) {
                     new WakeTargets(appContext).refresh(hostDetails.uuid, capabilities, client);
                 }
@@ -1556,9 +1563,14 @@ public class NvConnection {
     }
 
     private NativeApiClient nativeClient() {
-        HostEndpoint endpoint = HostEndpoint.of(hostDetails.uuid, context.serverAddress, context.httpsPort,
-                context.serverCert, uniqueId, cryptoProvider);
+        HostEndpoint endpoint = hostEndpoint();
         return endpoint == null ? null : new NativeApiClient(nativeApiTransport, endpoint);
+    }
+
+    /** Where the Rust client reaches this stream's host, or null without its address or pinned certificate. */
+    public HostEndpoint hostEndpoint() {
+        return HostEndpoint.of(hostDetails.uuid, context.serverAddress, context.httpsPort,
+                context.serverCert, uniqueId, cryptoProvider);
     }
 
     /**

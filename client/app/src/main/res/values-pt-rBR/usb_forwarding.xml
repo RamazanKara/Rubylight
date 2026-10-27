@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_usb_forwarding">Encaminhar dispositivos USB (experimental)</string>
+    <string name="summary_usb_forwarding">Adiciona dispositivos USB ao menu do stream: um dispositivo conectado a este, como uma mesa digitalizadora ou uma chave de segurança, passa a funcionar no PC. Requer um PC que ofereça encaminhamento USB.</string>
+    <string name="stream_usb_devices">Dispositivos USB</string>
+    <string name="usb_forwarding_pick_title">Encaminhar um dispositivo USB</string>
+    <string name="usb_forwarding_none">Nenhum dispositivo USB para encaminhar. Hubs e os controles que este app gerencia por conta própria não aparecem.</string>
+    <string name="usb_forwarding_detach">Desconectar %1$s</string>
+    <string name="usb_forwarding_asking">Pedindo ao PC para conectar %1$s…</string>
+    <string name="usb_forwarding_attached">%1$s está conectado ao PC</string>
+    <string name="usb_forwarding_detached">%1$s está desconectado do PC</string>
+    <string name="usb_forwarding_unplugged">%1$s foi removido e está desconectado do PC</string>
+    <string name="usb_forwarding_refused">O PC recusou %1$s: %2$s</string>
+    <string name="usb_forwarding_failed">Falha ao encaminhar %1$s: %2$s</string>
+    <string name="usb_forwarding_permission_denied">Sem permissão para usar %1$s</string>
+    <string name="usb_forwarding_list_failed">Não foi possível ler o estado dos dispositivos USB</string>
+    <string name="usb_forwarding_reason_permission">o PC não permite que este dispositivo encaminhe USB</string>
+    <string name="usb_forwarding_reason_disabled">o encaminhamento USB está desativado no PC</string>
+    <string name="usb_forwarding_reason_limit">o PC já tem conectados todos os dispositivos USB que permite</string>
+    <string name="usb_forwarding_reason_driver">o driver USB do PC está ausente ou falhou</string>
+    <string name="usb_forwarding_reason_timeout">a conexão do dispositivo expirou</string>
+    <string name="usb_forwarding_reason_device">o dispositivo parou de responder</string>
+    <string name="usb_forwarding_reason_session">o stream terminou</string>
+    <string name="usb_forwarding_reason_unknown">motivo desconhecido</string>
+    <string name="usb_forwarding_code_no_stream">o stream não está em execução</string>
+    <string name="usb_forwarding_code_busy">ele já está conectado</string>
+    <string name="usb_forwarding_code_unsupported">o PC não suporta encaminhamento USB</string>
+    <string name="usb_forwarding_code_device">este dispositivo não conseguiu abri-lo</string>
+    <string name="usb_forwarding_code_invalid">o nome ou endereço dele não pode ser enviado</string>
+    <string name="usb_forwarding_code_host">não foi possível alcançar o PC</string>
+</resources>

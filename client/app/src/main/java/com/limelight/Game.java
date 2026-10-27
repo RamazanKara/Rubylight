@@ -690,6 +690,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private TextView streamMenuHint;
     // Every message of the stream goes through here: one at a time, lasting facts once per PC.
     private final com.limelight.ui.StreamMessages messages = new com.limelight.ui.StreamMessages(this);
+    // From the first time the user opens USB devices until the stream stops.
+    private com.limelight.binding.usb.UsbForwarding usbForwarding;
     private final Runnable showStreamMenuHint = this::showStreamMenuHint;
     private final Runnable expireStreamMenuHint = () -> dismissStreamMenuHint(true);
     private HardwareMetrics hardwareMetrics;
@@ -2882,6 +2884,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         options.canSendInput = conn.canSendInput();
         options.nativeHostControl = conn.hasNativeHostControl();
         options.hostMenu = conn.hasNativeCouchMenu();
+        options.usbForwarding = prefConfig.usbForwarding && MoonBridge.isRustStream() && conn.offersUsbForwarding();
         options.microphoneOffered = conn.getMicrophoneStatus().canMute();
         options.microphoneMuted = conn.isMicrophoneMuted();
         options.overlayShown = prefConfig.enablePerfOverlay;
@@ -2946,6 +2949,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             case SERVER_COMMANDS: action = () -> showServerCommands(details); break;
             case CLIPBOARD_SEND: action = () -> transferClipboard(true); break;
             case CLIPBOARD_RECEIVE: action = () -> transferClipboard(false); break;
+            case USB_DEVICES: action = this::showUsbDevices; break;
             case HOST_WEB_UI: action = this::showHostWebUi; break;
             case HOST_STATUS: action = this::refreshHostStatus; break;
             case HOST_MENU: action = this::openHostMenu; break;
@@ -4084,6 +4088,28 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .setCancelable(false)
                 .setNegativeButton(R.string.stream_disconnect, (dialog, which) -> finish())
                 .setPositiveButton(R.string.stream_reconnect, (dialog, which) -> reconnectStream()).create());
+    }
+
+    // The devices plugged into this one that may go to the PC; picking a forwarded one detaches it.
+    private void showUsbDevices() {
+        if (!connected) return;
+        if (usbForwarding == null) {
+            usbForwarding = new com.limelight.binding.usb.UsbForwarding(this, prefConfig, conn,
+                    text -> messages.alert(text, Toast.LENGTH_LONG));
+        }
+        com.limelight.binding.usb.UsbForwarding forwarding = usbForwarding;
+        java.util.List<android.hardware.usb.UsbDevice> devices = forwarding.candidates();
+        com.google.android.material.dialog.MaterialAlertDialogBuilder builder = new NavigationDialogBuilder(this)
+                .setTitle(R.string.usb_forwarding_pick_title);
+        if (devices.isEmpty()) {
+            builder.setMessage(R.string.usb_forwarding_none).setPositiveButton(android.R.string.ok, null);
+        } else {
+            CharSequence[] labels = new CharSequence[devices.size()];
+            for (int i = 0; i < labels.length; i++) labels[i] = forwarding.label(devices.get(i));
+            builder.setItems(labels, (dialog, which) -> forwarding.choose(devices.get(which)))
+                    .setNegativeButton(android.R.string.cancel, null);
+        }
+        showStreamDialog(builder.create());
     }
 
     private void transferClipboard(boolean send) {
@@ -6179,6 +6205,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         pyroWaveBitrate = null;
         displayCapsReporter = null;
         stopHostCursorShapes();
+        // Before the connection stops: detaching tells the host.
+        if (usbForwarding != null) {
+            usbForwarding.stop();
+            usbForwarding = null;
+        }
         if (usbDriverBinder != null) {
             usbDriverBinder.setListener(null);
             usbDriverBinder.setStateListener(null);

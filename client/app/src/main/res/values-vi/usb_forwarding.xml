@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_usb_forwarding">Chuyển tiếp thiết bị USB (Thử nghiệm)</string>
+    <string name="summary_usb_forwarding">Thêm thiết bị USB vào menu luồng: một thiết bị cắm vào máy này, như bảng vẽ hoặc khóa bảo mật, sẽ hoạt động trên PC. Cần PC hỗ trợ chuyển tiếp USB.</string>
+    <string name="stream_usb_devices">Thiết bị USB</string>
+    <string name="usb_forwarding_pick_title">Chuyển tiếp thiết bị USB</string>
+    <string name="usb_forwarding_none">Không có thiết bị USB để chuyển tiếp. Hub và các tay cầm mà ứng dụng này tự điều khiển không được liệt kê.</string>
+    <string name="usb_forwarding_detach">Ngắt %1$s</string>
+    <string name="usb_forwarding_asking">Đang yêu cầu PC kết nối %1$s…</string>
+    <string name="usb_forwarding_attached">%1$s đã kết nối với PC</string>
+    <string name="usb_forwarding_detached">%1$s đã ngắt khỏi PC</string>
+    <string name="usb_forwarding_unplugged">%1$s đã bị rút ra và ngắt khỏi PC</string>
+    <string name="usb_forwarding_refused">PC đã từ chối %1$s: %2$s</string>
+    <string name="usb_forwarding_failed">Không chuyển tiếp được %1$s: %2$s</string>
+    <string name="usb_forwarding_permission_denied">Không có quyền dùng %1$s</string>
+    <string name="usb_forwarding_list_failed">Không đọc được trạng thái thiết bị USB</string>
+    <string name="usb_forwarding_reason_permission">PC không cho thiết bị này chuyển tiếp USB</string>
+    <string name="usb_forwarding_reason_disabled">chuyển tiếp USB đang tắt trên PC</string>
+    <string name="usb_forwarding_reason_limit">PC đã kết nối số thiết bị USB tối đa cho phép</string>
+    <string name="usb_forwarding_reason_driver">trình điều khiển USB của PC bị thiếu hoặc bị lỗi</string>
+    <string name="usb_forwarding_reason_timeout">kết nối cho thiết bị đã hết thời gian chờ</string>
+    <string name="usb_forwarding_reason_device">thiết bị đã ngừng phản hồi</string>
+    <string name="usb_forwarding_reason_session">luồng đã kết thúc</string>
+    <string name="usb_forwarding_reason_unknown">lý do không xác định</string>
+    <string name="usb_forwarding_code_no_stream">luồng không chạy</string>
+    <string name="usb_forwarding_code_busy">thiết bị đã được kết nối</string>
+    <string name="usb_forwarding_code_unsupported">PC không hỗ trợ chuyển tiếp USB</string>
+    <string name="usb_forwarding_code_device">máy này không mở được thiết bị</string>
+    <string name="usb_forwarding_code_invalid">không gửi được tên hoặc địa chỉ của thiết bị</string>
+    <string name="usb_forwarding_code_host">không kết nối được với PC</string>
+</resources>

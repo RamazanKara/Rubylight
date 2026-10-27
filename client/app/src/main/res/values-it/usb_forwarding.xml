@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_usb_forwarding">Inoltra dispositivi USB (sperimentale)</string>
+    <string name="summary_usb_forwarding">Aggiunge i dispositivi USB al menu dello stream: un dispositivo collegato a questo, come una tavoletta grafica o una chiave di sicurezza, funziona poi sul PC. Richiede un PC che offra l’inoltro USB.</string>
+    <string name="stream_usb_devices">Dispositivi USB</string>
+    <string name="usb_forwarding_pick_title">Inoltra un dispositivo USB</string>
+    <string name="usb_forwarding_none">Nessun dispositivo USB da inoltrare. Gli hub e i controller che questa app gestisce da sé non sono elencati.</string>
+    <string name="usb_forwarding_detach">Scollega %1$s</string>
+    <string name="usb_forwarding_asking">Richiesta al PC di collegare %1$s…</string>
+    <string name="usb_forwarding_attached">%1$s è collegato al PC</string>
+    <string name="usb_forwarding_detached">%1$s è scollegato dal PC</string>
+    <string name="usb_forwarding_unplugged">%1$s è stato staccato ed è scollegato dal PC</string>
+    <string name="usb_forwarding_refused">Il PC ha rifiutato %1$s: %2$s</string>
+    <string name="usb_forwarding_failed">Inoltro di %1$s non riuscito: %2$s</string>
+    <string name="usb_forwarding_permission_denied">Nessuna autorizzazione per usare %1$s</string>
+    <string name="usb_forwarding_list_failed">Impossibile leggere lo stato dei dispositivi USB</string>
+    <string name="usb_forwarding_reason_permission">il PC non consente a questo dispositivo l’inoltro USB</string>
+    <string name="usb_forwarding_reason_disabled">l’inoltro USB è disattivato sul PC</string>
+    <string name="usb_forwarding_reason_limit">il PC ha già collegati tutti i dispositivi USB che consente</string>
+    <string name="usb_forwarding_reason_driver">il driver USB del PC manca o non funziona</string>
+    <string name="usb_forwarding_reason_timeout">la connessione per il dispositivo è scaduta</string>
+    <string name="usb_forwarding_reason_device">il dispositivo non risponde più</string>
+    <string name="usb_forwarding_reason_session">lo stream è terminato</string>
+    <string name="usb_forwarding_reason_unknown">motivo sconosciuto</string>
+    <string name="usb_forwarding_code_no_stream">lo stream non è in corso</string>
+    <string name="usb_forwarding_code_busy">è già collegato</string>
+    <string name="usb_forwarding_code_unsupported">il PC non supporta l’inoltro USB</string>
+    <string name="usb_forwarding_code_device">questo dispositivo non è riuscito ad aprirlo</string>
+    <string name="usb_forwarding_code_invalid">il suo nome o indirizzo non può essere inviato</string>
+    <string name="usb_forwarding_code_host">il PC non è raggiungibile</string>
+</resources>

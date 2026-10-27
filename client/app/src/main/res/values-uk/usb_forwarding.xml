@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_usb_forwarding">Переспрямовувати USB-пристрої (експериментально)</string>
+    <string name="summary_usb_forwarding">Додає USB-пристрої до меню стриму: пристрій, підключений до цього, наприклад графічний планшет або ключ безпеки, працює тоді на ПК. Потрібен ПК, який пропонує переспрямування USB.</string>
+    <string name="stream_usb_devices">USB-пристрої</string>
+    <string name="usb_forwarding_pick_title">Переспрямувати USB-пристрій</string>
+    <string name="usb_forwarding_none">Немає USB-пристроїв для переспрямування. Хаби й контролери, якими цей застосунок керує сам, не показуються.</string>
+    <string name="usb_forwarding_detach">Від’єднати %1$s</string>
+    <string name="usb_forwarding_asking">Запит до ПК на під’єднання %1$s…</string>
+    <string name="usb_forwarding_attached">%1$s під’єднано до ПК</string>
+    <string name="usb_forwarding_detached">%1$s від’єднано від ПК</string>
+    <string name="usb_forwarding_unplugged">%1$s вийнято й від’єднано від ПК</string>
+    <string name="usb_forwarding_refused">ПК відхилив %1$s: %2$s</string>
+    <string name="usb_forwarding_failed">Не вдалося переспрямувати %1$s: %2$s</string>
+    <string name="usb_forwarding_permission_denied">Немає дозволу на використання %1$s</string>
+    <string name="usb_forwarding_list_failed">Не вдалося прочитати стан USB-пристроїв</string>
+    <string name="usb_forwarding_reason_permission">ПК не дозволяє цьому пристрою переспрямовувати USB</string>
+    <string name="usb_forwarding_reason_disabled">переспрямування USB вимкнено на ПК</string>
+    <string name="usb_forwarding_reason_limit">до ПК під’єднано максимально дозволену кількість USB-пристроїв</string>
+    <string name="usb_forwarding_reason_driver">USB-драйвер ПК відсутній або дав збій</string>
+    <string name="usb_forwarding_reason_timeout">час очікування з’єднання для пристрою минув</string>
+    <string name="usb_forwarding_reason_device">пристрій перестав відповідати</string>
+    <string name="usb_forwarding_reason_session">стрим завершено</string>
+    <string name="usb_forwarding_reason_unknown">невідома причина</string>
+    <string name="usb_forwarding_code_no_stream">стрим не запущено</string>
+    <string name="usb_forwarding_code_busy">його вже під’єднано</string>
+    <string name="usb_forwarding_code_unsupported">ПК не підтримує переспрямування USB</string>
+    <string name="usb_forwarding_code_device">цей пристрій не зміг його відкрити</string>
+    <string name="usb_forwarding_code_invalid">його назву або адресу не можна надіслати</string>
+    <string name="usb_forwarding_code_host">ПК недоступний</string>
+</resources>

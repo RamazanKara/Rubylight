@@ -111,6 +111,18 @@ public class StreamMenuTest {
     }
 
     @Test
+    public void usbDevicesShowOnlyWhenForwardingIsOfferedAndOn() {
+        StreamMenu.Options options = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+        assertFalse(items(StreamMenu.mainPage(options)).contains(USB_DEVICES));
+        options.usbForwarding = true;
+        assertTrue(sections(StreamMenu.mainPage(options)).get(StreamMenu.Section.HOST).contains(USB_DEVICES));
+        // Watching only: nothing of this device goes to the PC.
+        StreamMenu.Options monitor = options("rubylight-serverinfo.xml", NvApp.Role.REMOTE_MONITOR);
+        monitor.usbForwarding = true;
+        assertFalse(items(StreamMenu.mainPage(monitor)).contains(USB_DEVICES));
+    }
+
+    @Test
     public void everyRowHasItsOwnIcon() {
         StreamMenu.Options options = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
         options.microphoneOffered = true;
@@ -121,6 +133,7 @@ public class StreamMenuTest {
         options.zoomEnabled = true;
         options.pictureInPicture = true;
         options.externalDisplays = true;
+        options.usbForwarding = true;
         List<StreamMenu.Entry> entries = new ArrayList<>(StreamMenu.mainPage(options));
         // The overlay modes are one choice that marks the chosen mode with a check.
         for (StreamMenu.Entry entry : StreamMenu.overlayPage(options)) {
@@ -128,7 +141,7 @@ public class StreamMenuTest {
         }
         assertTrue(items(entries).containsAll(Arrays.asList(TOUCH_MODE, MOUSE_CURSOR, ONSCREEN_CONTROLS, CONTROLS_LAYOUT,
                 GAME_CONTROLS, KEYBOARD_KEYS, VIDEO_SCALING, ZOOM, ZOOM_RESET, PICTURE_IN_PICTURE, VIDEO_OUTPUT,
-                OVERLAY_COPY, STREAM_HEALTH, LATENCY_TEST)));
+                OVERLAY_COPY, STREAM_HEALTH, LATENCY_TEST, USB_DEVICES)));
         Map<Integer, StreamMenu.Item> seen = new LinkedHashMap<>();
         for (StreamMenu.Entry entry : entries) {
             StreamMenu.Item before = seen.put(entry.icon, entry.item);
@@ -301,6 +314,7 @@ public class StreamMenuTest {
             StreamMenu.Options withControl = options(nativeApiHost(), role);
             withControl.nativeHostControl = true;
             withControl.hostMenu = true;
+            withControl.usbForwarding = true;
             reachable.addAll(items(StreamMenu.mainPage(withControl)));
             reachable.addAll(items(StreamMenu.nativePage(withControl)));
             StreamMenu.Options options = options("rubylight-serverinfo.xml", role);

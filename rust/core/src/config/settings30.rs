@@ -587,9 +587,9 @@ mod tests {
         assert_eq!(PER_DEVICE.len(), 17);
     }
 
-    #[test]
-    fn the_console_schema_lists_exactly_these_settings_with_these_defaults() {
-        let schema = include_str!("../../../web/src/lib/schema/extensions.ts");
+    /// Each setting's key and default in extensions.ts, with LF or CRLF line
+    /// ends (CI checks the repository out with CRLF).
+    fn schema_settings(schema: &str) -> Vec<(&str, &str)> {
         let mut listed = Vec::new();
         for entry in schema.split("key: '").skip(1) {
             let key = &entry[..entry.find('\'').unwrap()];
@@ -597,16 +597,29 @@ mod tests {
                 .split("\n    default: ")
                 .nth(1)
                 .unwrap_or_else(|| panic!("{key} has no default"));
-            let default = default[..default.find(",\n").unwrap()].trim_matches('\'');
+            let default = default
+                .lines()
+                .next()
+                .and_then(|line| line.strip_suffix(','))
+                .unwrap_or_else(|| panic!("{key}'s default does not end its line with a comma"))
+                .trim_matches('\'');
             assert!(
                 entry.contains("\n    pending: true,"),
                 "{key} is not pending"
             );
             listed.push((key, default));
         }
+        listed.sort();
+        listed
+    }
+
+    #[test]
+    fn the_console_schema_lists_exactly_these_settings_with_these_defaults() {
+        let schema = include_str!("../../../web/src/lib/schema/extensions.ts");
         let mut documented = SETTINGS_30.to_vec();
         documented.sort();
-        listed.sort();
-        assert_eq!(listed, documented);
+        assert_eq!(schema_settings(schema), documented);
+        let crlf = schema.replace("\r\n", "\n").replace('\n', "\r\n");
+        assert_eq!(schema_settings(&crlf), documented);
     }
 }

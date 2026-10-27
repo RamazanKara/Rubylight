@@ -8,7 +8,7 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
 tracing.workspace = true
 log = "0.4"
 butterpollo-core = { path = "../core" }
@@ -29,6 +29,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 tracing-appender = "0.2"
 base64 = "0.22"
 hex = "0.4"
+zeroize = "1.8"
 rand = "0.8"
 sha2 = "0.10"
 uuid = { version = "1.18", features = ["v4"] }

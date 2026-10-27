@@ -622,9 +622,11 @@ fn read_commands(hwnd: isize, sender: mpsc::Sender<Result<ViewerCommand, String>
             unsafe { PostMessageW(Some(HWND(hwnd as *mut c_void)), WAKE, WPARAM(0), LPARAM(0)) };
     };
     let stdin = std::io::stdin();
-    let mut line = zeroize::Zeroizing::new(String::new());
+    // Room for any command up front: a growing line would leave unwiped copies
+    // of the password behind. Each line is wiped before the next one is read.
+    let mut line = zeroize::Zeroizing::new(String::with_capacity(16 * 1024));
     loop {
-        line.clear();
+        zeroize::Zeroize::zeroize(&mut *line);
         match stdin.lock().read_line(&mut line) {
             Ok(0) | Err(_) => break,
             Ok(_) if line.trim().is_empty() => continue,

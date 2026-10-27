@@ -698,6 +698,82 @@ impl Secret {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+    /// The password in a JSON string literal (quotes included), such as the
+    /// raw `password` value of a console request. It is unescaped straight
+    /// into one buffer that is wiped on drop: serde_json's own string
+    /// decoding copies escaped text through a scratch buffer it never wipes.
+    pub fn from_json_string(literal: &str) -> Result<Self> {
+        let Some(inner) = literal
+            .strip_prefix('"')
+            .and_then(|rest| rest.strip_suffix('"'))
+            .filter(|_| literal.len() >= 2)
+        else {
+            bail!("the password is not a JSON string");
+        };
+        // Unescaped text is never longer than the literal: the buffer never grows.
+        let mut text = Zeroizing::new(Vec::with_capacity(inner.len()));
+        let mut bytes = inner.bytes();
+        while let Some(byte) = bytes.next() {
+            match byte {
+                b'"' => bail!("the password is not one JSON string"),
+                0..0x20 => bail!("the password has an unescaped control character"),
+                b'\\' => {
+                    let decoded = match bytes.next() {
+                        Some(b'"') => '"',
+                        Some(b'\\') => '\\',
+                        Some(b'/') => '/',
+                        Some(b'b') => '\u{8}',
+                        Some(b'f') => '\u{c}',
+                        Some(b'n') => '\n',
+                        Some(b'r') => '\r',
+                        Some(b't') => '\t',
+                        Some(b'u') => {
+                            let high = json_hex4(&mut bytes)?;
+                            let code = match high {
+                                0xD800..0xDC00 => {
+                                    if bytes.next() != Some(b'\\') || bytes.next() != Some(b'u') {
+                                        bail!("the password has a lone surrogate escape");
+                                    }
+                                    let low = json_hex4(&mut bytes)?;
+                                    if !(0xDC00..0xE000).contains(&low) {
+                                        bail!("the password has a lone surrogate escape");
+                                    }
+                                    0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00)
+                                }
+                                0xDC00..0xE000 => bail!("the password has a lone surrogate escape"),
+                                _ => high,
+                            };
+                            char::from_u32(code).context("the password has a bad escape")?
+                        }
+                        _ => bail!("the password has a bad escape"),
+                    };
+                    let mut encoded = [0u8; 4];
+                    text.extend_from_slice(decoded.encode_utf8(&mut encoded).as_bytes());
+                    zeroize::Zeroize::zeroize(&mut encoded);
+                }
+                _ => text.push(byte),
+            }
+        }
+        // Valid: `inner` is UTF-8 and every escape adds a whole character.
+        match String::from_utf8(std::mem::take(&mut *text)) {
+            Ok(text) => Ok(Self::new(text)),
+            Err(error) => {
+                drop(Zeroizing::new(error.into_bytes()));
+                bail!("the password is not UTF-8")
+            }
+        }
+    }
+}
+fn json_hex4(bytes: &mut impl Iterator<Item = u8>) -> Result<u32> {
+    let mut code = 0;
+    for _ in 0..4 {
+        let digit = bytes
+            .next()
+            .and_then(|byte| char::from(byte).to_digit(16))
+            .context("the password has a bad \\u escape")?;
+        code = code * 16 + digit;
+    }
+    Ok(code)
 }
 impl fmt::Debug for Secret {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -740,27 +816,81 @@ impl ViewerCommand {
     /// The line written to the viewer's pipe; it holds the password, so it is
     /// wiped after the write and never logged.
     pub fn line(&self) -> Result<Zeroizing<String>> {
-        let mut line = Zeroizing::new(serde_json::to_string(self)?);
-        line.push('\n');
-        Ok(line)
+        // Sized up front: a growing buffer would leave unwiped copies behind.
+        let password = match self {
+            Self::Start {
+                password: Some(password),
+                ..
+            } => password.expose().len(),
+            _ => 0,
+        };
+        let mut line = Zeroizing::new(Vec::with_capacity(1024 + 2 * password));
+        serde_json::to_writer(&mut *line, self)?;
+        line.push(b'\n');
+        let line = String::from_utf8(std::mem::take(&mut *line)).map_err(|error| {
+            drop(Zeroizing::new(error.into_bytes()));
+            anyhow::anyhow!("a viewer command is not UTF-8")
+        })?;
+        Ok(Zeroizing::new(line))
     }
 }
+/// The password travels as hex: serde never escapes it, so the viewer reads
+/// it straight from its wiped line instead of through serde's scratch and
+/// buffered copies, which are not wiped.
 mod wire_secret {
     use super::Secret;
-    use serde::{Deserialize, Deserializer, Serializer};
+    use serde::{Deserializer, Serializer, de};
+    use std::fmt;
+    use zeroize::Zeroizing;
     pub fn serialize<S: Serializer>(
         value: &Option<Secret>,
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
         match value {
-            Some(secret) => serializer.serialize_some(secret.expose()),
+            Some(secret) => {
+                let bytes = secret.expose().as_bytes();
+                let mut text = Zeroizing::new(vec![0u8; 2 * bytes.len()]);
+                hex::encode_to_slice(bytes, &mut text).map_err(serde::ser::Error::custom)?;
+                serializer
+                    .serialize_some(std::str::from_utf8(&text).map_err(serde::ser::Error::custom)?)
+            }
             None => serializer.serialize_none(),
         }
     }
     pub fn deserialize<'de, D: Deserializer<'de>>(
         deserializer: D,
     ) -> Result<Option<Secret>, D::Error> {
-        Option::<Secret>::deserialize(deserializer)
+        deserializer.deserialize_option(Wire)
+    }
+    struct Wire;
+    impl<'de> de::Visitor<'de> for Wire {
+        type Value = Option<Secret>;
+        fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("a hex-encoded password or null")
+        }
+        fn visit_none<E: de::Error>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+        fn visit_unit<E: de::Error>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+        fn visit_some<D: Deserializer<'de>>(
+            self,
+            deserializer: D,
+        ) -> Result<Self::Value, D::Error> {
+            deserializer.deserialize_str(self)
+        }
+        fn visit_str<E: de::Error>(self, text: &str) -> Result<Self::Value, E> {
+            let mut bytes = Zeroizing::new(vec![0u8; text.len() / 2]);
+            // No detail: an error message must not quote any of the password.
+            hex::decode_to_slice(text, &mut bytes)
+                .map_err(|_| E::custom("the password is not hex"))?;
+            let text = String::from_utf8(std::mem::take(&mut *bytes)).map_err(|error| {
+                drop(Zeroizing::new(error.into_bytes()));
+                E::custom("the password is not UTF-8")
+            })?;
+            Ok(Some(Secret::new(text)))
+        }
     }
 }
 

@@ -914,6 +914,49 @@ fn the_password_never_reaches_a_log() {
 }
 
 #[test]
+fn a_console_request_password_unescapes_like_serde_json() {
+    for password in [
+        PASSWORD,
+        "quo\"te back\\slash / slash",
+        "\u{8}\u{c}\n\r\t\u{1}",
+        "caf\u{e9} \u{1f600} \u{10ffff}",
+    ] {
+        // serde_json's own escaping, and every escape spelled out as \u.
+        let literal = serde_json::to_string(password).unwrap();
+        assert_eq!(
+            Secret::from_json_string(&literal).unwrap().expose(),
+            password
+        );
+        let mut spelled = String::from('"');
+        for unit in password.encode_utf16() {
+            spelled.push_str(&format!("\\u{unit:04X}"));
+        }
+        spelled.push('"');
+        assert_eq!(
+            Secret::from_json_string(&spelled).unwrap().expose(),
+            password
+        );
+    }
+    assert_eq!(Secret::from_json_string(r#""\/""#).unwrap().expose(), "/");
+    for bad in [
+        "",
+        "\"",
+        "5",
+        "null",
+        r#""a"b""#,
+        r#""a\""#,
+        r#""\x""#,
+        r#""\u12""#,
+        r#""\ud83d""#,
+        r#""\ude00""#,
+        r#""\ud83dA""#,
+        "\"tab\tin\"",
+    ] {
+        assert!(Secret::from_json_string(bad).is_err(), "{bad}");
+    }
+}
+
+#[test]
 fn viewer_commands_carry_the_password_only_on_the_wire() {
     let command = ViewerCommand::Start {
         display: DisplaySettings::parse("2560x1440", "125").unwrap(),
@@ -921,13 +964,35 @@ fn viewer_commands_carry_the_password_only_on_the_wire() {
     };
     let line = command.line().unwrap();
     assert!(line.ends_with('\n'));
-    assert!(line.contains(PASSWORD));
+    assert!(!line.contains(PASSWORD), "the password travels as hex");
+    assert!(line.contains(&hex::encode(PASSWORD)));
     match serde_json::from_str(line.trim_end()).unwrap() {
         ViewerCommand::Start { display, password } => {
             assert_eq!(display.scale, 125);
             assert_eq!(password.unwrap().expose(), PASSWORD);
         }
         other => panic!("{other:?}"),
+    }
+    // Text JSON would escape: as hex, the line needs no escapes at all, so
+    // serde reads it without a scratch copy.
+    let awkward = "quo\"te back\\slash \u{e9}\u{1f600}\ttab";
+    let line = ViewerCommand::Start {
+        display: DisplaySettings::default(),
+        password: Some(Secret::new(awkward.into())),
+    }
+    .line()
+    .unwrap();
+    assert!(!line.trim_end().contains('\\'), "{}", line.as_str());
+    match serde_json::from_str(line.trim_end()).unwrap() {
+        ViewerCommand::Start { password, .. } => assert_eq!(password.unwrap().expose(), awkward),
+        other => panic!("{other:?}"),
+    }
+    for bad in [r#""zz""#, r#""abc""#, "5"] {
+        let error = serde_json::from_str::<ViewerCommand>(&format!(
+            r#"{{"command":"start","display":{{"width":1920,"height":1080,"scale":100}},"password":{bad}}}"#
+        ))
+        .unwrap_err();
+        assert!(!error.to_string().contains("zz"), "{error}");
     }
     let saved: ViewerCommand = serde_json::from_str(
         r#"{"command":"start","display":{"width":1920,"height":1080,"scale":100}}"#,

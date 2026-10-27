@@ -392,6 +392,7 @@ dependencies = [
  "uuid",
  "xml-rs",
  "xmltree",
+ "zeroize",
  "zip",
 ]
 

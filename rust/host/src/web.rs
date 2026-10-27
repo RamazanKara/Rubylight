@@ -764,6 +764,11 @@ pub(crate) async fn api(
     body: Bytes,
 ) -> Response {
     let path = uri.path();
+    // Before the body becomes a Value: a child-session start carries the
+    // Windows password, which must not be copied into one.
+    if path == "/api/child-session" || path.starts_with("/api/child-session/") {
+        return child_session::handle(&h, &method, path, body).await;
+    }
     let data: Value = if body.is_empty() {
         json!({})
     } else {
@@ -775,9 +780,6 @@ pub(crate) async fn api(
     let text = |k: &str| data.get(k).and_then(Value::as_str).unwrap_or("");
     if method == Method::POST && path == "/api/covers/upload" {
         return apps::upload_cover(&h, &data).await;
-    }
-    if path == "/api/child-session" || path.starts_with("/api/child-session/") {
-        return child_session::handle(&h, &method, path, &data).await;
     }
     if path == "/api/power" || path.starts_with("/api/power/") {
         return power::handle(&h, &method, &uri, connection.local.ip(), &data).await;

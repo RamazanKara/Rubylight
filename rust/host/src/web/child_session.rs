@@ -3,20 +3,45 @@
 //! `GET /api/child-session` reads; the `POST /api/child-session/...` actions
 //! set the PC up, restore it, and start, stop or end the child session. They
 //! are console-only: API tokens cannot reach them. A password sent to `start`
-//! goes straight to the viewer's pipe and is never logged or stored here.
+//! goes straight to the viewer's pipe and is never logged or stored here:
+//! it is read from the raw body into a buffer wiped on drop, never through a
+//! `serde_json::Value`, and the body is wiped once read.
 
 use super::error;
 use crate::state::Shared;
 use axum::{
     Json,
+    body::Bytes,
     http::{Method, StatusCode},
     response::{IntoResponse, Response},
 };
 use butterpollo_core::child_session::{Secret, ViewerCommand};
-use serde_json::{Value, json};
+use serde::Deserialize;
+use serde_json::{Value, json, value::RawValue};
 
-pub(super) async fn handle(h: &Shared, method: &Method, path: &str, data: &Value) -> Response {
+pub(super) async fn handle(h: &Shared, method: &Method, path: &str, body: Bytes) -> Response {
     let h = h.clone();
+    if (method.as_str(), path) == ("POST", "/api/child-session/start") {
+        let password = start_password(&body);
+        wipe(body);
+        let password = match password {
+            Ok(password) => password,
+            Err(problem) => return error(StatusCode::BAD_REQUEST, problem),
+        };
+        return blocking(move || {
+            crate::child_session::start(&h, password)?;
+            Ok(json!({"status": true}))
+        })
+        .await;
+    }
+    let data: Value = if body.is_empty() {
+        json!({})
+    } else {
+        match serde_json::from_slice(&body) {
+            Ok(v) => v,
+            Err(_) => return error(StatusCode::BAD_REQUEST, "invalid JSON"),
+        }
+    };
     let command = match (method.as_str(), path) {
         ("GET", "/api/child-session") => {
             return blocking(move || Ok(crate::child_session::status(&h))).await;
@@ -32,25 +57,6 @@ pub(super) async fn handle(h: &Shared, method: &Method, path: &str, data: &Value
             return blocking(move || {
                 let restored = crate::child_session::restore(&h)?;
                 Ok(json!({"status": true, "restored": restored}))
-            })
-            .await;
-        }
-        ("POST", "/api/child-session/start") => {
-            let password = match data.get("password") {
-                None | Some(Value::Null) => None,
-                Some(Value::String(password)) if !password.is_empty() => {
-                    Some(Secret::new(password.clone()))
-                }
-                Some(_) => {
-                    return error(
-                        StatusCode::BAD_REQUEST,
-                        "password must be the Windows password, or left out to use the saved one",
-                    );
-                }
-            };
-            return blocking(move || {
-                crate::child_session::start(&h, password)?;
-                Ok(json!({"status": true}))
             })
             .await;
         }
@@ -82,6 +88,36 @@ pub(super) async fn handle(h: &Shared, method: &Method, path: &str, data: &Value
         Ok(json!({"status": true}))
     })
     .await
+}
+
+/// The password a `start` request carries: None to use the saved one.
+fn start_password(body: &[u8]) -> Result<Option<Secret>, &'static str> {
+    #[derive(Deserialize)]
+    struct Start<'a> {
+        #[serde(borrow, default)]
+        password: Option<&'a RawValue>,
+    }
+    if body.is_empty() {
+        return Ok(None);
+    }
+    // The raw value borrows the body, so only Secret::from_json_string copies
+    // the password. No serde message: it can quote the body.
+    let start: Start = serde_json::from_slice(body).map_err(|_| "invalid JSON")?;
+    match start.password.map(RawValue::get) {
+        None | Some("null") => Ok(None),
+        Some(literal) => match Secret::from_json_string(literal) {
+            Ok(password) if !password.is_empty() => Ok(Some(password)),
+            _ => Err("password must be the Windows password, or left out to use the saved one"),
+        },
+    }
+}
+/// Zero the request body once it is read, when this is its only reference
+/// (a shared buffer belongs to whoever holds the rest). The wiped buffer is
+/// returned for the tests.
+fn wipe(body: Bytes) -> Option<impl std::ops::Deref<Target = [u8]>> {
+    let mut body = body.try_into_mut().ok()?;
+    zeroize::Zeroize::zeroize(&mut body[..]);
+    Some(body)
 }
 
 /// Windows calls (the registry, the firewall's PowerShell, process starts)
@@ -154,6 +190,37 @@ mod tests {
                 .contains("viewer is not running"),
             "{body}"
         );
+    }
+
+    #[test]
+    fn the_start_password_comes_from_the_raw_body_and_the_body_is_wiped() {
+        let password = |body: &str| super::start_password(body.as_bytes());
+        assert!(password("").unwrap().is_none());
+        assert!(password("{}").unwrap().is_none());
+        assert!(password(r#"{"password":null}"#).unwrap().is_none());
+        assert_eq!(
+            password(r#"{"password":"a\"b\\cé"}"#)
+                .unwrap()
+                .unwrap()
+                .expose(),
+            "a\"b\\c\u{e9}"
+        );
+        for bad in [r#"{"password":5}"#, r#"{"password":""}"#] {
+            assert!(password(bad).unwrap_err().contains("password must be"));
+        }
+        // A parse error never quotes the body, which may hold the password.
+        assert_eq!(
+            password(r#"{"password":"hunter2"#).unwrap_err(),
+            "invalid JSON"
+        );
+
+        let body = axum::body::Bytes::from(br#"{"password":"hunter2"}"#.to_vec());
+        let wiped = super::wipe(body).expect("an only reference is wiped");
+        assert!(wiped.iter().all(|&byte| byte == 0));
+        let shared = axum::body::Bytes::from(b"shared".to_vec());
+        let other = shared.clone();
+        assert!(super::wipe(shared).is_none());
+        assert_eq!(&other[..], b"shared");
     }
 
     #[test]

@@ -425,7 +425,7 @@
     <string name="keyboard_shortcuts_exported">已匯出快速鍵。</string>
     <string name="keyboard_shortcuts_file_error">無法讀取或寫入快速鍵檔案。請檢查檔案存取權，並使用最多包含 32 個快速鍵的有效匯出檔。</string>
     <string name="title_disable_hevc_low_latency">HEVC 低延遲旗標</string>
-    <string name="summary_disable_hevc_low_latency">自動：除 Amlogic 外的所有 HEVC 解碼器都使用這些旗標（Amlogic 使用後畫面會停滯）；開啟：Amlogic 也使用。如果 HEVC 影片卡頓或凍結，請關閉。關閉後，HEVC 會略過選用的 Android 與晶片組低延遲旗標，以及參考影格失效。在較舊的 Fire TV 解碼器上會保留必要的相容性旗標。其他編解碼器與解碼器效能提示維持各自的設定。下次串流時生效。</string>
+    <string name="summary_disable_hevc_low_latency">自動：除 Fire TV 以外的較新 Amlogic（Codec2）解碼器外，所有 HEVC 解碼器都使用這些旗標（它們使用後畫面會停滯）；開啟：它們也使用。如果 HEVC 影片卡頓或凍結，請關閉。關閉後，HEVC 會略過選用的 Android 與晶片組低延遲旗標，以及參考影格失效。在較舊的 Fire TV 解碼器上會保留必要的相容性旗標。其他編解碼器與解碼器效能提示維持各自的設定。下次串流時生效。</string>
     <string name="hevc_low_latency_auto">自動</string>
     <string name="hevc_low_latency_on">開啟</string>
     <string name="hevc_low_latency_off">關閉</string>

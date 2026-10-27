@@ -425,7 +425,7 @@
     <string name="keyboard_shortcuts_exported">단축키를 내보냈습니다.</string>
     <string name="keyboard_shortcuts_file_error">단축키 파일을 읽거나 쓸 수 없습니다. 파일 접근 권한을 확인하고, 단축키가 32개 이하인 올바른 내보내기 파일을 사용하세요.</string>
     <string name="title_disable_hevc_low_latency">HEVC 저지연 플래그</string>
-    <string name="summary_disable_hevc_low_latency">자동은 Amlogic을 제외한 모든 HEVC 디코더에서 플래그를 사용합니다(Amlogic에서는 화면이 멈춤). 켜기는 Amlogic에서도 사용합니다. HEVC 영상이 끊기거나 멈추면 끄세요. 끄면 HEVC에서 Android와 칩셋의 선택적 저지연 플래그와 참조 프레임 무효화를 건너뜁니다. 오래된 Fire TV 디코더에는 필수 호환성 플래그가 유지됩니다. 다른 코덱과 디코더 성능 힌트는 각자의 설정을 따릅니다. 다음 스트림부터 적용됩니다.</string>
+    <string name="summary_disable_hevc_low_latency">자동은 Fire TV가 아닌 최신 Amlogic(Codec2)을 제외한 모든 HEVC 디코더에서 플래그를 사용합니다(그 디코더에서는 화면이 멈춤). 켜기는 거기서도 사용합니다. HEVC 영상이 끊기거나 멈추면 끄세요. 끄면 HEVC에서 Android와 칩셋의 선택적 저지연 플래그와 참조 프레임 무효화를 건너뜁니다. 오래된 Fire TV 디코더에는 필수 호환성 플래그가 유지됩니다. 다른 코덱과 디코더 성능 힌트는 각자의 설정을 따릅니다. 다음 스트림부터 적용됩니다.</string>
     <string name="hevc_low_latency_auto">자동</string>
     <string name="hevc_low_latency_on">켜기</string>
     <string name="hevc_low_latency_off">끄기</string>

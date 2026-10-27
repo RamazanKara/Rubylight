@@ -17,16 +17,6 @@ const adjust = [
 
 export const settings: Setting[] = [
   {
-    key: 'hdr_dynamic_metadata',
-    label: 'HDR10+ and HDR Vivid metadata',
-    description: 'Adds per-scene HDR10+ and HDR Vivid brightness metadata to HDR streams. Displays without support ignore it.',
-    category: 'hdr',
-    group: 'Dynamic metadata',
-    control: switches,
-    default: true,
-    pending: true,
-  },
-  {
     key: 'hdr_dolby_vision',
     label: 'Dolby Vision',
     description: 'Offers Dolby Vision, profiles 8.1 and 8.4, to devices that ask for it on HEVC streams.',

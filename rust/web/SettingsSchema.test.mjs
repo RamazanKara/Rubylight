@@ -433,7 +433,7 @@ test('sleep after idle takes 0 or 5 to 1440 minutes, as the host does, and its s
 });
 
 test('settings still pending stay out of the console', () => {
-  assert.equal(pending.length, 31);
+  assert.equal(pending.length, 30);
   for (const setting of pending) {
     assert.equal(setting.pending, true, setting.key);
     assert.equal(settings.has(setting.key), false, setting.key);
@@ -448,7 +448,7 @@ test('pending keys are unique, and Foundation ports are neither credited in the 
     assert.doesNotMatch(`${setting.label} ${setting.description} ${setting.details ?? ''}`, /Foundation|Annex/, setting.key);
   }
   for (const key of ['hdr_dynamic_metadata', 'fec_max_percentage']) {
-    const setting = pending.find(candidate => candidate.key === key);
+    const setting = settings.get(key) ?? pending.find(candidate => candidate.key === key);
     assert.doesNotMatch(`${setting.label} ${setting.description} ${setting.details ?? ''}`, /Experimental/, key);
   }
 });

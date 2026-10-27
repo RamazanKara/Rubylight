@@ -9,7 +9,6 @@ use std::path::PathBuf;
 
 /// Every 3.0 setting with its default, as `sunshine.conf` would spell it.
 pub const SETTINGS_30: &[(&str, &str)] = &[
-    ("hdr_dynamic_metadata", "true"),
     ("hdr_dolby_vision", "true"),
     ("hdr_hlg", "true"),
     ("fec_max_percentage", "50"),
@@ -119,10 +118,6 @@ impl Config {
         }
     }
 
-    /// HDR10+ and HDR Vivid dynamic metadata on HDR streams (on by default).
-    pub fn hdr_dynamic_metadata(&self) -> bool {
-        self.boolean("hdr_dynamic_metadata", true)
-    }
     /// Dolby Vision profiles 8.1 and 8.4 on HEVC streams (on by default).
     pub fn hdr_dolby_vision(&self) -> bool {
         self.boolean("hdr_dolby_vision", true)
@@ -345,7 +340,6 @@ mod tests {
 
     /// The keys a device or an app may override.
     const PER_DEVICE: &[&str] = &[
-        "hdr_dynamic_metadata",
         "hdr_dolby_vision",
         "hdr_hlg",
         "fec_max_percentage",
@@ -417,7 +411,7 @@ mod tests {
     #[test]
     fn there_are_31_unique_settings() {
         let keys: std::collections::BTreeSet<_> = SETTINGS_30.iter().map(|(k, _)| k).collect();
-        assert_eq!((SETTINGS_30.len(), keys.len()), (31, 31));
+        assert_eq!((SETTINGS_30.len(), keys.len()), (30, 30));
     }
 
     #[test]
@@ -584,7 +578,7 @@ mod tests {
                 "{key}"
             );
         }
-        assert_eq!(PER_DEVICE.len(), 17);
+        assert_eq!(PER_DEVICE.len(), 16);
     }
 
     /// Each setting's key and default in extensions.ts, with LF or CRLF line

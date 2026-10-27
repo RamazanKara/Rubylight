@@ -114,6 +114,24 @@ fn finish(mut command: Command, program: &str, timeout: Duration) -> Result<(i32
     line(format!("  exit code {code}"));
     Ok((code, text))
 }
+/// A program run as SYSTEM that had not finished at its deadline. Deleting
+/// the task does not stop it: it goes on in the background, as the USB/IP
+/// step did 40 s after setup gave up on it, so it has not failed (yet).
+#[derive(Debug)]
+pub struct StillRunning {
+    pub program: String,
+    pub seconds: u64,
+}
+impl std::fmt::Display for StillRunning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} was still running after {} s",
+            self.program, self.seconds
+        )
+    }
+}
+impl std::error::Error for StillRunning {}
 /// Run a program as LocalSystem through a one-time scheduled task and return
 /// its exit code and output. Vibepollo's driver scripts run as SYSTEM under
 /// Windows Installer: as an administrator, the display driver's health
@@ -177,7 +195,11 @@ fn run_as_system_in(
                 return Ok((code, output));
             }
             if Instant::now() >= deadline {
-                bail!("{program} did not finish within {} s", timeout.as_secs());
+                return Err(StillRunning {
+                    program: program.to_owned(),
+                    seconds: timeout.as_secs(),
+                }
+                .into());
             }
             std::thread::sleep(Duration::from_millis(500));
         }
@@ -206,12 +228,15 @@ fn task_definition(script: &Path) -> Vec<u8> {
     let command = escape(&system32("cmd.exe"));
     let arguments = escape(&format!("/D /S /C \"\"{}\"\"", script.display()));
     // With no timer, a task left by interrupted setup cannot install drivers later.
+    // Priority 4 is normal. A task otherwise runs at 7, below normal with low
+    // I/O priority: on a busy PC the USB/IP step's checks took 11 minutes as
+    // SYSTEM, against 3.6 s as an administrator.
     let text = format!(
         r#"<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <Triggers />
   <Principals><Principal id="System"><UserId>S-1-5-18</UserId><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
-  <Settings><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit></Settings>
+  <Settings><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>4</Priority></Settings>
   <Actions Context="System"><Exec><Command>{command}</Command><Arguments>{arguments}</Arguments></Exec></Actions>
 </Task>"#
     );
@@ -1348,7 +1373,7 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn setup_tasks_have_no_timer_and_xml_paths_round_trip() -> Result<()> {
+    fn setup_tasks_have_no_timer_run_at_normal_priority_and_xml_paths_round_trip() -> Result<()> {
         let root = tempfile::tempdir()?;
         let script = root.path().join("Çağrı & Müller/task.cmd");
         let definition = root.path().join("task.xml");
@@ -1361,6 +1386,7 @@ $task = [xml]::new()
 $task.Load($Definition)
 if ($task.Task.Triggers.HasChildNodes) { exit 1 }
 if ($task.Task.Principals.Principal.UserId -ne 'S-1-5-18') { exit 2 }
+if ($task.Task.Settings.Priority -ne '4') { exit 3 }
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 Write-Output $task.Task.Actions.Exec.Arguments
 "#,
@@ -1402,6 +1428,20 @@ Write-Output $task.Task.Actions.Exec.Arguments
         assert_eq!(code, 0, "{output}");
         assert!(output.contains("S-1-5-18"), "{output}");
         assert_eq!(std::fs::read_dir(&work)?.count(), 0);
+        // Below normal, a busy PC starved the driver scripts past setup's limit.
+        let (code, output) = run_as_system_in(
+            &work,
+            &system32("WindowsPowerShell\\v1.0\\powershell.exe"),
+            &[
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "(Get-Process -Id $PID).PriorityClass",
+            ],
+            Duration::from_secs(60),
+        )?;
+        assert_eq!(code, 0, "{output}");
+        assert_eq!(output.trim(), "Normal");
         Ok(())
     }
 

@@ -1108,14 +1108,24 @@ fn run_driver_script(script: &Path, args: &[&str], notes: &mut Vec<String>, name
         Ok(result) => result,
         Err(error) => {
             line(format!("warning: {error:#}"));
-            notes.push(format!(
-                "The {name} driver could not be {}: {error:#}",
-                action(name)
-            ));
+            notes.push(driver_error_note(&error, name));
             return false;
         }
     };
     driver_result(code, &output, notes, name)
+}
+/// The note for a driver script that gave no result. One still running at
+/// the deadline goes on in the background and may yet succeed, so it is not
+/// reported as failed.
+fn driver_error_note(error: &anyhow::Error, name: &str) -> String {
+    match error.downcast_ref::<system::StillRunning>() {
+        Some(running) => format!(
+            "The {name} driver was still being {} after {} s and goes on in the background. If it does not work once that finishes, run setup again; the setup log has the details.",
+            action(name),
+            running.seconds
+        ),
+        None => format!("The {name} driver could not be {}: {error:#}", action(name)),
+    }
 }
 fn driver_result(code: i32, output: &str, notes: &mut Vec<String>, name: &str) -> bool {
     // This PC refuses the driver as packaged (Smart App Control, S mode, an
@@ -1615,6 +1625,28 @@ mod tests {
         ));
         assert!(notes[3].contains("Run setup again with USB audio and haptics selected"));
         assert!(!notes[3].contains("when its service starts"));
+    }
+    #[test]
+    fn a_driver_script_past_the_deadline_is_not_reported_as_failed() {
+        let late = anyhow::Error::from(system::StillRunning {
+            program: "powershell.exe".into(),
+            seconds: 600,
+        });
+        let note = driver_error_note(&late, "USB audio and haptics");
+        assert!(
+            note.starts_with(
+                "The USB audio and haptics driver was still being set up after 600 s and goes on in the background."
+            ),
+            "{note}"
+        );
+        assert!(!note.contains("could not"), "{note}");
+        let late = late.context("waiting for the task");
+        assert!(driver_error_note(&late, LIBVIRTUALDISPLAY).contains("still being removed"));
+        let failed = anyhow::anyhow!("creating the setup task failed (1)");
+        assert_eq!(
+            driver_error_note(&failed, "virtual gamepad"),
+            "The virtual gamepad driver could not be set up: creating the setup task failed (1)"
+        );
     }
     #[test]
     fn nsis_uninstallers_run_in_place_so_setup_waits_for_them() -> Result<()> {

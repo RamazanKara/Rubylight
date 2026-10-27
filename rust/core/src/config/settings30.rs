@@ -1,6 +1,6 @@
 //! The settings of the 3.0 extensions, defined ahead of their features: the
 //! console lists them in `web/src/lib/schema/extensions.ts`, hidden until
-//! each workstream ships its feature. Nothing reads them yet. A value the
+//! each workstream ships its feature. A value the
 //! host can't use is reported through [`invalid`] and the default applies,
 //! so a launch never fails because of one of these settings.
 use super::{Config, PORTS, first_report, invalid, refused, unquote, valid_folder_id};

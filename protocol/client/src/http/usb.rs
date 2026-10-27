@@ -19,8 +19,8 @@ pub const TOKEN_HEADER: &str = "X-Rubylight-Usb-Token";
 
 impl HostClient {
     /// Opens the USB tunnel for the token of a `TunnelReady`. A refusal is an
-    /// [`Error::Api`]: `usb_disabled`, `usb_limit` (a used token) or `not_found` (an unknown
-    /// or expired one).
+    /// [`Error::Api`]: `usb_disabled`, or `not_found` for an unknown, expired or already used
+    /// token.
     pub fn open_usb_tunnel(&self, token: &[u8; TOKEN_BYTES]) -> Result<UsbTunnel, Error> {
         let path = format!("{}{TUNNEL_PATH}", PREFIX.trim_start_matches('/'));
         let target = self.url_target(&path, None);

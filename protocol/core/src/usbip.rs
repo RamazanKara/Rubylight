@@ -334,6 +334,35 @@ impl IsoPacket {
     }
 }
 
+/// The packet descriptors that end a payload carrying `packets` of them; none for the "not
+/// isochronous" marker. None when the payload is too short to hold them.
+pub fn iso_descriptors(payload: &[u8], packets: u32) -> Option<impl Iterator<Item = IsoPacket> + '_> {
+    let start = payload.len().checked_sub(iso_packets(packets) as usize * ISO_PACKET_BYTES)?;
+    Some(payload[start..].chunks_exact(ISO_PACKET_BYTES).map(|chunk| {
+        let mut raw = [0; ISO_PACKET_BYTES];
+        raw.copy_from_slice(chunk);
+        IsoPacket::decode(&raw)
+    }))
+}
+
+/// Whether a `RET_SUBMIT`'s packets fit the submit's: as many, the same offsets and lengths, no
+/// packet longer than its slot, and actual lengths that add up to the reply's `length` (IN data
+/// comes packed; Linux checks the sum both ways).
+pub fn iso_reply_fits(asked: &[IsoPacket], replied: impl Iterator<Item = IsoPacket>, length: u32) -> bool {
+    let (mut count, mut total) = (0, 0u64);
+    for replied in replied {
+        let Some(asked) = asked.get(count) else {
+            return false;
+        };
+        if replied.offset != asked.offset || replied.length != asked.length || replied.actual_length > asked.length {
+            return false;
+        }
+        total += u64::from(replied.actual_length);
+        count += 1;
+    }
+    count == asked.len() && total == u64::from(length)
+}
+
 /// A USB/IP busid either side accepts: 1-31 bytes of letters, digits, `-`, `.`, `:` and `_`,
 /// not starting with `-` (it reaches the driver's command line).
 pub fn valid_busid(busid: &str) -> bool {
@@ -452,6 +481,38 @@ mod tests {
     fn iso_packets_round_trip() {
         let packet = IsoPacket { offset: 64, length: 64, actual_length: 60, status: EOVERFLOW };
         assert_eq!(IsoPacket::decode(&packet.encode()), packet);
+    }
+
+    #[test]
+    fn iso_descriptors_come_from_the_payload_tail() {
+        let packets = [
+            IsoPacket { offset: 0, length: 64, actual_length: 60, status: 0 },
+            IsoPacket { offset: 64, length: 64, actual_length: 64, status: 0 },
+        ];
+        let mut payload = alloc::vec![0xaa; 124];
+        payload.extend(packets.iter().flat_map(|packet| packet.encode()));
+        assert!(iso_descriptors(&payload, 2).unwrap().eq(packets));
+        assert_eq!(iso_descriptors(&payload, NOT_ISO).unwrap().count(), 0);
+        assert!(iso_descriptors(&payload[..20], 2).is_none());
+    }
+
+    #[test]
+    fn iso_replies_keep_the_submitted_layout_and_add_up() {
+        let asked = [
+            IsoPacket { offset: 0, length: 64, actual_length: 0, status: 0 },
+            IsoPacket { offset: 64, length: 64, actual_length: 0, status: 0 },
+        ];
+        let reply = |first: IsoPacket, second: IsoPacket| [first, second].into_iter();
+        let good = IsoPacket { actual_length: 60, ..asked[0] };
+        let full = IsoPacket { actual_length: 64, ..asked[1] };
+        assert!(iso_reply_fits(&asked, reply(good, full), 124));
+        assert!(!iso_reply_fits(&asked, reply(good, full), 128), "the sum differs from the length");
+        assert!(!iso_reply_fits(&asked, reply(IsoPacket { offset: 4, ..good }, full), 124), "moved");
+        assert!(!iso_reply_fits(&asked, reply(IsoPacket { length: 128, ..good }, full), 124), "resized");
+        let long = IsoPacket { actual_length: 65, ..full };
+        assert!(!iso_reply_fits(&asked, reply(IsoPacket { actual_length: 59, ..good }, long), 124), "longer than its slot");
+        assert!(!iso_reply_fits(&asked, [good].into_iter(), 60), "fewer packets");
+        assert!(!iso_reply_fits(&asked[..1], reply(good, full), 124), "more packets");
     }
 
     #[test]

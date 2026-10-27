@@ -17,5 +17,8 @@
     <string name="controller_button_select">Back</string>
     <string name="controller_button_guide">Guide</string>
     <string name="controller_button_number">按键 %1$d</string>
+    <string name="controller_button_touchpad">触摸板按下</string>
+    <string name="controller_button_misc">分享 / 截图</string>
+    <string name="controller_button_paddle">背键 %1$d</string>
     <string name="pc_tap_to_pair">%1$s\n点按即可配对</string>
 </resources>

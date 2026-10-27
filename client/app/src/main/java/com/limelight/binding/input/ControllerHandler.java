@@ -1345,6 +1345,14 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         return context == null ? ControllerButtonMap.UNMAPPED : context.buttonMap.map(event.getKeyCode());
     }
 
+    /**
+     * The type a pad arrives as. Only PlayStation pads have a touchpad click, so a mapping to it
+     * asks the host for one: hosts choose a DualShock 4 or DualSense for this type.
+     */
+    static byte arrivalType(byte type, ControllerButtonMap map) {
+        return (map.targetButtonFlags() & ControllerPacket.TOUCHPAD_FLAG) != 0 ? MoonBridge.LI_CTYPE_PS : type;
+    }
+
     static boolean updateMappedButton(Map<Integer, Integer> pressedButtons, int physicalKey, int target, boolean down) {
         if (target == KeyEvent.KEYCODE_MENU) target = KeyEvent.KEYCODE_BUTTON_START;
         else if (target == KeyEvent.KEYCODE_BACK) target = KeyEvent.KEYCODE_BUTTON_SELECT;
@@ -2525,7 +2533,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 short caps = context.device.getCapabilities();
                 if (!prefConfig.gamepadMotionSensors) caps &= ~(MoonBridge.LI_CCAP_ACCEL | MoonBridge.LI_CCAP_GYRO);
                 controllers[context.controllerNumber] = launchController(context.controllerNumber,
-                        context.device.getType(), caps, context.device.getSupportedButtonFlags());
+                        arrivalType(context.device.getType(), context.buttonMap), caps,
+                        context.device.getSupportedButtonFlags() | context.buttonMap.targetButtonFlags());
             }
             StringBuilder result = new StringBuilder();
             for (String controller : controllers) {
@@ -3079,6 +3088,15 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 return false;
             }
             break;
+        case ControllerButtonMap.TARGET_TOUCHPAD:
+        case ControllerButtonMap.TARGET_MISC:
+        case ControllerButtonMap.TARGET_PADDLE1:
+        case ControllerButtonMap.TARGET_PADDLE2:
+        case ControllerButtonMap.TARGET_PADDLE3:
+        case ControllerButtonMap.TARGET_PADDLE4:
+            // A user mapping to an extended button, which has no Android key code
+            context.inputMap &= ~ControllerButtonMap.buttonFlag(keyCode);
+            break;
         default:
             return false;
         }
@@ -3305,6 +3323,15 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             else {
                 return false;
             }
+            break;
+        case ControllerButtonMap.TARGET_TOUCHPAD:
+        case ControllerButtonMap.TARGET_MISC:
+        case ControllerButtonMap.TARGET_PADDLE1:
+        case ControllerButtonMap.TARGET_PADDLE2:
+        case ControllerButtonMap.TARGET_PADDLE3:
+        case ControllerButtonMap.TARGET_PADDLE4:
+            // A user mapping to an extended button, which has no Android key code
+            context.inputMap |= ControllerButtonMap.buttonFlag(keyCode);
             break;
         default:
             return false;
@@ -3934,6 +3961,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             if (hasShare) {
                 supportedButtonFlags |= ControllerPacket.MISC_FLAG;
             }
+            // Extended buttons the user's button map sends
+            supportedButtonFlags |= buttonMap.targetButtonFlags();
 
             if (getMotionRangeForJoystickAxis(inputDevice, MotionEvent.AXIS_HAT_X) != null) {
                 supportedButtonFlags |= ControllerPacket.LEFT_FLAG | ControllerPacket.RIGHT_FLAG;
@@ -3993,6 +4022,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 // Report the true type to the host PC if we're not emulating motion sensors
                 reportedType = type;
             }
+            reportedType = arrivalType(reportedType, buttonMap);
 
             // We can perform basic rumble with any vibrator
             if (vibrator != null) {
@@ -4171,8 +4201,9 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             if (!prefConfig.gamepadMotionSensors) {
                 capabilities &= ~(MoonBridge.LI_CCAP_ACCEL | MoonBridge.LI_CCAP_GYRO);
             }
+            byte type = arrivalType(device.getType(), buttonMap);
             int result = conn.sendControllerArrivalEvent((byte)controllerNumber, getActiveControllerMask(),
-                    device.getType(), device.getSupportedButtonFlags(), capabilities);
+                    type, device.getSupportedButtonFlags() | buttonMap.targetButtonFlags(), capabilities);
             if (result != 0) {
                 if (!arrivalPending) {
                     LimeLog.warning("USB controller announcement deferred: slot=" + controllerNumber + ", rc=" + result);
@@ -4183,7 +4214,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             }
             arrivalPending = false;
             LimeLog.info("USB controller announcement queued: slot=" + controllerNumber +
-                    ", type=" + device.getType() + ", capabilities=0x" + Integer.toHexString(capabilities & 0xffff));
+                    ", type=" + type + ", capabilities=0x" + Integer.toHexString(capabilities & 0xffff));
             device.setPlayerNumber(controllerNumber);
             device.bindAudio(conn, controllerNumber);
         }

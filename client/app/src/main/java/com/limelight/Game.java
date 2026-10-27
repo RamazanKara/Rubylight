@@ -70,6 +70,7 @@ import com.limelight.preferences.HostDisplayChoice;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.GameGestures;
 import com.limelight.ui.HostCursorShapes;
+import com.limelight.ui.HostKeyboard;
 import com.limelight.ui.HostTextField;
 import com.limelight.ui.KeyboardOverlay;
 import com.limelight.ui.PcKeyboardOverlay;
@@ -477,7 +478,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // the keyboard layout to a host that takes it (0x553E). The C engine supports neither.
     private void requestTextInput() {
         reportedKeyboardLayout = null;
-        hostRaisedKeyboard = false;
+        hostKeyboard.reset();
+        updateKeyboardPan();
         streamView.setHostTextField(null);
         reportKeyboardLayout();
         if (conn == null || !conn.canSendInput() || !prefConfig.keyboardFollowsTextFields ||
@@ -535,29 +537,36 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         return insets != null && insets.isVisible(WindowInsetsCompat.Type.ime());
     }
 
-    // The host's text field notice, on the UI thread: a raise shows the soft keyboard with the
-    // field's input type, an update retypes the keyboard it showed, a lower hides only a keyboard
-    // the host raised. The keyboard the user opened stays open.
+    // The host's text field notice, on the UI thread: a raise or an update (the focus moved to
+    // another field) types the keyboard for the field, and opens it right after the user's own
+    // tap, click or key on the stream unless they closed it for this field; a lower hides only a
+    // keyboard the host opened. The keyboard the user opened stays open.
     private void onHostTextField(int kind, int inputType, int flags) {
         if (isFinishing() || streamView == null) return;
         if (kind == HostTextField.KIND_LOWER) {
             LimeLog.info("Host text field lost focus");
             streamView.setHostTextField(null);
-            if (hostRaisedKeyboard) hideSystemKeyboard();
-            hostRaisedKeyboard = false;
+            if (hostKeyboard.onLower()) hideSystemKeyboard();
             return;
         }
         if (kind != HostTextField.KIND_RAISE && kind != HostTextField.KIND_UPDATE) return;
         LimeLog.info("Host text field focused: type " + inputType + ", flags " + flags);
+        hostKeyboard.onFocus();
         reportKeyboardLayout();
         if (!HostTextField.mayShowKeyboard(foreground, connected, streamMenu != null,
                 conn != null && conn.canSendInput(), isPcKeyboardVisible(), hasHardwareKeyboard())) {
             return;
         }
         boolean visible = isSystemKeyboardVisible();
-        if (kind == HostTextField.KIND_UPDATE && !visible) return;
         streamView.setHostTextField(new HostTextField(inputType, flags));
         if (visible) return;
+        long now = SystemClock.uptimeMillis();
+        if (!hostKeyboard.mayOpen(now)) {
+            LimeLog.info(hostKeyboard.dismissedHere() ? "Keyboard stays closed: closed for this field" :
+                    "Keyboard stays closed: no tap, click or key on the stream in the last " +
+                            HostKeyboard.INPUT_WINDOW_MS + " ms");
+            return;
+        }
         hideKeyboardOverlay();
         setInputGrabState(true);
         streamView.requestFocus();
@@ -567,7 +576,56 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             InputMethodManager inputManager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
             inputManager.showSoftInput(streamView, 0);
         }
-        hostRaisedKeyboard = true;
+        hostKeyboard.onOpened();
+    }
+
+    // The user's own tap or click on the stream (key presses note themselves in handleKeyDown): a
+    // host text field raised right after it may open the keyboard, and the point it pressed stays
+    // above the keyboard. A trackpad finger or a captured mouse moves the PC's pointer instead.
+    private void noteStreamPress(View view, MotionEvent event) {
+        streamView.onStreamPress(event);
+        int action = event.getActionMasked();
+        if (action != MotionEvent.ACTION_DOWN && action != MotionEvent.ACTION_POINTER_DOWN &&
+                action != MotionEvent.ACTION_BUTTON_PRESS) {
+            return;
+        }
+        boolean finger = event.isFromSource(InputDevice.SOURCE_TOUCHSCREEN) ||
+                event.isFromSource(InputDevice.SOURCE_STYLUS);
+        boolean points = finger ? !TouchMode.isRelative(touchMode()) :
+                event.isFromSource(InputDevice.SOURCE_MOUSE) && !event.isFromSource(InputDevice.SOURCE_MOUSE_RELATIVE);
+        float y = Float.NaN;
+        if (points && streamView.getHeight() > 0) {
+            y = (event.getY(event.getActionIndex()) + getStreamViewOffsetY(view)) / streamView.getHeight();
+        }
+        hostKeyboard.onPress(y, SystemClock.uptimeMillis());
+    }
+
+    // Every inset dispatch on the stream window. The window takes no room from the keyboard
+    // (adjustNothing): the video surface keeps its size, and the stream moves up instead. Android
+    // reports the keyboard's insets to such a window from 11 on.
+    private void onWindowInsets(WindowInsetsCompat insets) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || streamView == null) return;
+        keyboardInsetBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom;
+        if (hostKeyboard.onVisibility(insets.isVisible(WindowInsetsCompat.Type.ime()), SystemClock.uptimeMillis())) {
+            LimeLog.info(hostKeyboard.visible() ? "Soft keyboard shown" : "Soft keyboard hidden");
+        }
+        // Insets come before layout: measure the stream once it is laid out, once for a burst.
+        keyboardPanHandler.removeCallbacks(keyboardPan);
+        keyboardPanHandler.post(keyboardPan);
+    }
+
+    // The insets are the content view's, and the content view is the stream's parent.
+    private void updateKeyboardPan() {
+        if (streamView == null) return;
+        float pan = 0;
+        View parent = (View) streamView.getParent();
+        if (parent != null) {
+            pan = hostKeyboard.pan(parent.getHeight(), keyboardInsetBottom, streamView.getTop(), streamView.getHeight(),
+                    HostKeyboard.MARGIN_DP * getResources().getDisplayMetrics().density);
+        }
+        if (pan == streamView.getTranslationY()) return;
+        LimeLog.info(pan == 0 ? "Stream moves back down" : "Stream moves " + Math.round(-pan) + " px up for the soft keyboard");
+        streamView.setTranslationY(pan);
     }
 
     // Reports the output's HDR capabilities to Rubylight 2.2.0+ hosts. Keep luminance fixed on
@@ -679,8 +737,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private CharSequence compactPerformanceText = "";
     // What the host last said about holding the bitrate down for the network; null when it has not.
     private LinkNoticeStatus linkNotice;
-    // The soft keyboard is up because the host's text field asked for it, so lowering hides it.
-    private boolean hostRaisedKeyboard;
+    // Whether a host text field may open the soft keyboard, whose it is, and how far the stream
+    // moves up for it.
+    private final HostKeyboard hostKeyboard = new HostKeyboard();
+    // How much of the window's bottom the soft keyboard covers, from the last inset dispatch.
+    private int keyboardInsetBottom;
+    private final Handler keyboardPanHandler = new Handler(Looper.getMainLooper());
+    private final Runnable keyboardPan = this::updateKeyboardPan;
     // The layout last reported to the host this connection, or null.
     private String reportedKeyboardLayout;
     // PerformanceOverlay.MODE_COMPACT, MODE_STATISTICS or MODE_DEBUG
@@ -1017,6 +1080,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         streamView.setOnKeyListener(this);
         streamView.setInputCallbacks(this);
         adaptiveLayout = com.limelight.ui.AdaptiveLayout.attach(this, findViewById(android.R.id.content));
+        adaptiveLayout.setInsetsObserver(this::onWindowInsets);
         streamView.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
             if (connected) updatePipAutoEnter();
         });
@@ -2574,6 +2638,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             pipDisconnectIntent.cancel();
         }
         bitrateHandler.removeCallbacksAndMessages(null);
+        keyboardPanHandler.removeCallbacks(keyboardPan);
 
         if (controllerHandler != null) {
             controllerHandler.destroy();
@@ -4864,6 +4929,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             if (!grabbedInput) {
                 return false;
             }
+            hostKeyboard.onInput(SystemClock.uptimeMillis());
 
             // We'll send it as a raw key event if we have a key mapping, otherwise we'll send it
             // as UTF-8 text (if it's a printable character).
@@ -5678,7 +5744,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // Returns true if the event was consumed
     // NB: View is only present if called from a view callback
     private boolean handleMotionEvent(View view, MotionEvent event) {
-        streamView.onStreamPress(event);
+        noteStreamPress(view, event);
         if (gameTouchControls != null && gameTouchControls.isEditing() &&
                 (event.getSource() & InputDevice.SOURCE_CLASS_POINTER) != 0) return true;
         if (desktopGestures != null && desktopGestures.enabled() &&
@@ -6133,7 +6199,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @SuppressLint("ClickableViewAccessibility")
     @Override
     public boolean onTouch(View view, MotionEvent event) {
-        streamView.onStreamPress(event);
+        noteStreamPress(view, event);
         if (desktopGestures != null && desktopGestures.enabled() && foreground && connected && streamMenu == null) {
             MotionEvent relative = MotionEvent.obtain(event);
             relative.offsetLocation(getStreamViewOffsetX(view), getStreamViewOffsetY(view));

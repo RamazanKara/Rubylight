@@ -1,4 +1,5 @@
 mod apps;
+mod child_session;
 mod clients;
 #[cfg(test)]
 pub(crate) use clients::handle as update_clients;
@@ -774,6 +775,9 @@ pub(crate) async fn api(
     let text = |k: &str| data.get(k).and_then(Value::as_str).unwrap_or("");
     if method == Method::POST && path == "/api/covers/upload" {
         return apps::upload_cover(&h, &data).await;
+    }
+    if path == "/api/child-session" || path.starts_with("/api/child-session/") {
+        return child_session::handle(&h, &method, path, &data).await;
     }
     if path == "/api/power" || path.starts_with("/api/power/") {
         return power::handle(&h, &method, &uri, connection.local.ip(), &data).await;

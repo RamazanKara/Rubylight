@@ -165,6 +165,11 @@ pub const GLOBAL: &[Setting] = settings! {
         "couch_menu_corner_hold_ms", "Touch corner hold (500–3000 milliseconds; default 1500)", Number;
         "couch_menu_keyboard_chord", "Keyboard chord", Choice(&["ctrl+alt+backspace","ctrl+alt+home","ctrl+alt+end","ctrl+alt+insert"]);
     ]
+    "Background streaming (Experimental)" => [
+        "background_mode", "Background mode (virtual_display by default; auto and child_session use a Windows child session on Pro and higher)", Choice(&["virtual_display","auto","child_session"]);
+        "child_session_resolution", "Child session resolution (WIDTHxHEIGHT; default 1920x1080)", Text;
+        "child_session_scale", "Child session scale (100–500 %; default 100)", Number;
+    ]
     "Hardware metrics" => [
         "hardware_metrics", "Send hardware metrics to client", Bool;
         "hardware_metrics_interval", "Hardware metrics interval (500–10000 milliseconds; default 1000)", Number;

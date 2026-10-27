@@ -1,3 +1,4 @@
+mod child_session;
 mod console;
 mod controller_sessions;
 mod couch_menu;
@@ -130,6 +131,15 @@ struct Args {
     /// With --apply-wake-settings: also turn off Fast Startup.
     #[arg(long, hide = true, requires = "apply_wake_settings")]
     fast_startup_off: bool,
+    /// The child-session viewer (Experimental): the host starts it as the
+    /// signed-in user; stdin carries commands, stdout the status.
+    #[arg(long, hide = true)]
+    child_session_viewer: bool,
+    /// Put back the Windows settings child-session setup changed (the
+    /// uninstaller runs it). Without --config-dir this uses the installed
+    /// host's profile. Needs administrator rights.
+    #[arg(long, hide = true)]
+    child_session_restore: bool,
 }
 fn main() -> Result<()> {
     butterpollo_windows::capture::enable_dpi_awareness();
@@ -145,6 +155,12 @@ fn main() -> Result<()> {
     }
     if args.apply_wake_settings {
         std::process::exit(wake::apply_settings_exit_code(args.fast_startup_off));
+    }
+    if args.child_session_viewer {
+        return butterpollo_windows::child_session::viewer::run();
+    }
+    if args.child_session_restore {
+        std::process::exit(child_session::restore_exit_code(args.config_dir.clone()));
     }
     if let Some(paths) = &args.playnite_install {
         std::process::exit(playnite::helper_exit_code(&playnite::install_worker(
@@ -453,6 +469,7 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
         web_port = ports.web,
         "Butterpollo Rust host started"
     );
+    child_session::log_mode(&h.config.read().unwrap());
     h.power.log_availability();
     // A block rule, left when Windows' "allow access" prompt was dismissed,
     // overrides the installer's allow rule: say so rather than leave users to
@@ -484,6 +501,8 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
         _=runtime::maintain(h.clone(), stop_signal, actions, ports.web)=>Ok(())
     };
     h.stop.store(true, Ordering::Release);
+    // The child session keeps running; its viewer and host stop with this one.
+    child_session::quit();
     let canceled = h.sessions.lock().unwrap().request_stop(None);
     drop(canceled);
     let deadline = Instant::now() + Duration::from_secs(10);

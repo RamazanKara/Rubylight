@@ -98,6 +98,21 @@ pub fn shows_error_box(launch: Option<&Launch>) -> bool {
     launch.is_none()
 }
 
+/// Whether this build has a console for the usage text: a Windows release build has none.
+pub const HAS_CONSOLE: bool = !cfg!(all(windows, not(debug_assertions)));
+
+/// Whether the usage text (`--help`, or a wrong command line) is shown in a box too: only by a
+/// build without a console, where printing it shows nothing, and never for a command line that
+/// names a PC: that is a frontend's start, where a box could open behind it and keep Nightjar
+/// open (see [`shows_error_box`]).
+pub fn shows_usage_box<S: AsRef<std::ffi::OsStr>>(has_console: bool, args: &[S]) -> bool {
+    let names_a_host = args.iter().any(|arg| {
+        let arg = arg.as_ref().to_string_lossy();
+        arg == "--host" || arg.starts_with("--host=")
+    });
+    !has_console && !names_a_host
+}
+
 /// A saved PC as `find_host` sees it.
 pub struct HostEntry<'a> {
     pub id: u64,
@@ -763,6 +778,20 @@ mod tests {
             quit_on_exit: true,
         };
         assert!(!shows_error_box(Some(&launch)));
+    }
+
+    #[test]
+    fn the_usage_is_boxed_only_without_a_console_and_never_for_a_frontend_start() {
+        // A console prints it; a box on top would only be in the way.
+        assert!(!shows_usage_box(true, &["--help"]));
+        assert!(!shows_usage_box(true, &["--bogus"]));
+        // Without one the box is the only place it shows.
+        assert!(shows_usage_box(false, &["--help"]));
+        assert!(shows_usage_box(false, &["--app", "Desktop"]));
+        // A frontend's wrong command line ends at once, in stderr.
+        assert!(!shows_usage_box(false, &["--host", "pc", "--bogus"]));
+        assert!(!shows_usage_box(false, &["--bogus", "--host=pc"]));
+        assert!(shows_usage_box(false, &["--hostname"]));
     }
 
     #[test]

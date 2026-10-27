@@ -262,7 +262,9 @@ Done, on Windows and Linux unless noted:
   Nightjar when the stream ends. An unknown, ambiguous or unreachable PC or app, or a stream
   that cannot start, ends with exit code 1 and the reason on stderr and in the log (no
   message box, which could hide behind the frontend); cancelling the start with 0; a wrong
-  command line with 64.
+  command line with 64. `--help` and a wrong command line print the usage; only a Windows
+  release build, which has no console, also shows it in a box, and never for a command line
+  with `--host`.
 - Shortcuts (from moonlight-qt): Ctrl+Alt+Shift+Q leaves, +Z releases/captures input,
   +S overlay, +M mouse mode, +X fullscreen, +D minimize; Start+Select+LB+RB on a controller
   leaves. Saved key chords are sent from the stream menu and import and export in the

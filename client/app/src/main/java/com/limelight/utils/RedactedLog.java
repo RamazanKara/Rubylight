@@ -27,6 +27,8 @@ public final class RedactedLog {
     private final ArrayDeque<String> entries = new ArrayDeque<>();
     // Names and addresses known to belong to the user's PCs; replaced wherever they appear.
     private static final Set<String> SECRETS = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    // Stands for [PC] while they are replaced: a private use character, which PC names do not hold.
+    private static final String PC_PLACEHOLDER = "";
     static final int MAX_MESSAGE_CHARS = 300;
     private static final java.util.regex.Pattern[] SENSITIVE = {
             // URLs, e-mail addresses, IPv4/IPv6 and MAC addresses, UUIDs, keys and paths.
@@ -95,9 +97,11 @@ public final class RedactedLog {
         String text = message.replace('\n', ' ').replace('\r', ' ');
         ArrayList<String> secrets = new ArrayList<>(SECRETS);
         secrets.sort(Comparator.comparingInt(String::length).reversed());
+        // A placeholder no PC name holds, so a PC named "PC" does not mark the marks again.
         for (String secret : secrets) {
-            text = text.replace(secret, "[PC]");
+            text = text.replace(secret, PC_PLACEHOLDER);
         }
+        text = text.replace(PC_PLACEHOLDER, "[PC]");
         String[] marks = {"[url]", "[email]", "[address]", "[address]", "[id]", "[hex]", "[data]", "[path]"};
         for (int i = 0; i < SENSITIVE.length; i++) {
             text = SENSITIVE[i].matcher(text).replaceAll(java.util.regex.Matcher.quoteReplacement(marks[i]));

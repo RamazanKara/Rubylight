@@ -526,6 +526,7 @@ impl ControlSession {
             ptype::HOST_TIMING if extensions => events::host_timing(p),
             ptype::CLOCK_SYNC if extensions => events::clock_sync(p, now),
             ptype::LINK_NOTICE if extensions => events::link_notice(p),
+            ptype::TEXT_INPUT if extensions => events::text_input(p),
             ptype::PIPELINE_RATES if extensions => events::pipeline_rates(p),
             ptype::CURSOR_SHAPE if extensions && self.cursor_shapes => {
                 Some(events::cursor_shape(p))
@@ -904,6 +905,107 @@ mod tests {
         );
         assert_eq!(
             bare.send(ClientMessage::PipelineRatesRequest(request)),
+            Err(SendError::Unsupported)
+        );
+    }
+
+    #[test]
+    fn text_input_is_requested_and_heard_and_the_layout_reported() {
+        use rubylight_protocol::keyboard_layout::{KeyboardLayout, LayoutSource};
+        use rubylight_protocol::text_input::{
+            InputType, NoticeKind, TextInputNotice, TextInputRequest,
+        };
+        let mut s = ControlSession::new(
+            HostCapabilities {
+                control_messages: vec![0x5530, 0x553b, 0x553e],
+                ..rubylight()
+            },
+            &KEY,
+            SessionOptions::default(),
+        );
+        let t0 = Instant::now();
+        s.start(t0);
+        host_reads(&mut s);
+        let request = TextInputRequest {
+            notices: true,
+            surrounding_text: false,
+            max_text: 0,
+        };
+        let layout = KeyboardLayout {
+            source: LayoutSource::Bcp47,
+            klid: 0,
+            tag: "de-DE".into(),
+        };
+        s.send(ClientMessage::TextInputRequest(request)).unwrap();
+        s.send(ClientMessage::KeyboardLayout(layout.clone()))
+            .unwrap();
+        let sent = host_reads(&mut s);
+        assert_eq!(sent.len(), 2);
+        assert_eq!((sent[0].1, sent[0].2), (Delivery::Reliable, 0x553b));
+        assert_eq!(TextInputRequest::decode(&sent[0].3), Some(request));
+        assert_eq!((sent[1].1, sent[1].2), (Delivery::Reliable, 0x553e));
+        assert_eq!(KeyboardLayout::decode(&sent[1].3), Some(layout));
+        // A tag that cannot be sent is refused before it goes out.
+        assert_eq!(
+            s.send(ClientMessage::KeyboardLayout(KeyboardLayout {
+                source: LayoutSource::Bcp47,
+                klid: 0,
+                tag: "x".repeat(65),
+            })),
+            Err(SendError::Invalid)
+        );
+
+        let raise = TextInputNotice {
+            kind: NoticeKind::Raise,
+            input_type: InputType::Email,
+            sensitive: false,
+            no_autocorrect: true,
+            no_autocapitalize: true,
+            enter_action: false,
+            serial: 1,
+            selection_start: 0,
+            selection_end: 0,
+            text: String::new(),
+        };
+        let lower = TextInputNotice {
+            kind: NoticeKind::Lower,
+            input_type: InputType::Text,
+            serial: 2,
+            ..raise.clone()
+        };
+        let mut seq = 0;
+        let mut feed = |s: &mut ControlSession, payload: &[u8]| {
+            seq += 1;
+            s.handle_datagram(t0, &from_host(seq, 0x553b, payload))
+                .unwrap();
+        };
+        feed(&mut s, &raise.encode().unwrap());
+        // Runts and broken notices are dropped.
+        feed(&mut s, &raise.encode().unwrap()[..15]);
+        let mut broken = raise.encode().unwrap();
+        broken[1] = 9;
+        feed(&mut s, &broken);
+        feed(&mut s, &lower.encode().unwrap());
+        assert_eq!(
+            s.take_events(),
+            [
+                ControlEvent::TextInput(raise),
+                ControlEvent::TextInput(lower)
+            ]
+        );
+
+        // A host that did not announce them is not asked, and hears no layout.
+        let mut bare = session(SessionOptions::default());
+        assert_eq!(
+            bare.send(ClientMessage::TextInputRequest(request)),
+            Err(SendError::Unsupported)
+        );
+        assert_eq!(
+            bare.send(ClientMessage::KeyboardLayout(KeyboardLayout {
+                source: LayoutSource::Klid,
+                klid: 0x0407,
+                tag: String::new(),
+            })),
             Err(SendError::Unsupported)
         );
     }

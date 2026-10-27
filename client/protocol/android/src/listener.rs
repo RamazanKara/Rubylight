@@ -312,6 +312,9 @@ impl Listener for Events {
                 platform::warn(&event.to_string());
             }
             ControlEvent::Roam(event) => platform::info(&event.to_string()),
+            // The host sends text input notices (0x553B) only after a request,
+            // and Nightjar does not send one yet.
+            ControlEvent::TextInput(_) => {}
             // The session reports terminations through connection_terminated.
             ControlEvent::Terminated { .. } => {}
         }

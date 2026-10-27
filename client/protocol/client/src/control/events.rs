@@ -231,6 +231,9 @@ pub enum ControlEvent {
     /// The host lowered, raised or restored the video bitrate for the network (0x5538), sent
     /// only after a [`ClientMessage::LinkNoticeRequest`](super::messages::ClientMessage).
     LinkNotice(LinkNotice),
+    /// A host text field took or lost focus (0x553B), sent only after a
+    /// [`ClientMessage::TextInputRequest`](super::messages::ClientMessage).
+    TextInput(rubylight_protocol::text_input::TextInputNotice),
     /// The host's pipeline frame rates (0x553D), sent only after a
     /// [`ClientMessage::PipelineRatesRequest`](super::messages::ClientMessage).
     PipelineRates(PipelineRatesReport),
@@ -421,6 +424,12 @@ pub(crate) fn link_notice(p: &[u8]) -> Option<ControlEvent> {
         return None;
     }
     LinkNotice::decode(p).map(ControlEvent::LinkNotice)
+}
+
+/// A text input notice: its header and up to 4096 bytes of text; one that breaks the
+/// format's rules is dropped.
+pub(crate) fn text_input(p: &[u8]) -> Option<ControlEvent> {
+    rubylight_protocol::text_input::TextInputNotice::decode(p).map(ControlEvent::TextInput)
 }
 
 /// Pipeline frame rates: 28 bytes, and a newer host may append fields. Anything over 256

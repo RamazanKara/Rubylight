@@ -3126,7 +3126,11 @@ impl<P, A> Session<P, A> {
             .pipeline_console
             .lock()
             .unwrap()
-            .sample(Instant::now(), counts, crate::pipeline_rates::CONSOLE_WINDOW)
+            .sample(
+                Instant::now(),
+                counts,
+                crate::pipeline_rates::CONSOLE_WINDOW,
+            )
             .as_ref()
             .map(crate::pipeline_rates::PipelineRates::from)
     }

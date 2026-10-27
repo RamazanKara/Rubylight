@@ -3831,7 +3831,11 @@ impl Media {
                             }
                             butterpollo_core::pipeline_rates::PIPELINE_RATES_MESSAGE_TYPE => {
                                 let counts = s.pipeline_counts();
-                                match s.pipeline_rates.lock().unwrap().on_request(Instant::now(), &payload, counts) {
+                                match s.pipeline_rates.lock().unwrap().on_request(
+                                    Instant::now(),
+                                    &payload,
+                                    counts,
+                                ) {
                                     Some(enabled) => tracing::info!(
                                         client = %s.launch.client.name,
                                         enabled,
@@ -4044,7 +4048,11 @@ impl Media {
                     }
                     // Pipeline frame rates for a client that asked (0x553D); unreliable
                     // like the timing reports, as the next one replaces a lost one.
-                    let rates = s.pipeline_rates.lock().unwrap().take(Instant::now(), || s.pipeline_counts());
+                    let rates = s
+                        .pipeline_rates
+                        .lock()
+                        .unwrap()
+                        .take(Instant::now(), || s.pipeline_counts());
                     if let Some(report) = rates
                         && let Ok(message) = p.encrypt(
                             &s,
@@ -4054,7 +4062,10 @@ impl Media {
                     {
                         let _ = host.peer_mut(*peer_id).send(
                             0,
-                            &Packet::new(message, PacketKind::AlwaysUnreliable { sequenced: false }),
+                            &Packet::new(
+                                message,
+                                PacketKind::AlwaysUnreliable { sequenced: false },
+                            ),
                         );
                     }
                     if poll_feedback && let Some((old, new)) = s.tick_fec(Instant::now()) {

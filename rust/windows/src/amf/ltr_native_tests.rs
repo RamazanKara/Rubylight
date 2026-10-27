@@ -30,7 +30,14 @@ fn decode(
     let hashes = stream.with_extension(format!("{label}.md5"));
     let errors = stream.with_extension(format!("{label}.err"));
     let mut command = Command::new(ffmpeg);
-    command.args(["-hide_banner", "-nostdin", "-v", "error", "-flags", "low_delay"]);
+    command.args([
+        "-hide_banner",
+        "-nostdin",
+        "-v",
+        "error",
+        "-flags",
+        "low_delay",
+    ]);
     match decoder {
         "sw" => {}
         "amf" => {
@@ -183,7 +190,11 @@ fn native_ltr_recovery_after_lost_frames() -> Result<()> {
             anyhow::ensure!(
                 supported == asked,
                 "{name}: long-term references {} ({read:?})",
-                if asked { "missing" } else { "without the opt-in" }
+                if asked {
+                    "missing"
+                } else {
+                    "without the opt-in"
+                }
             );
             let recovery = LOST + gap;
             let full_path = report.with_extension(format!("{name}.{format}"));
@@ -204,8 +215,7 @@ fn native_ltr_recovery_after_lost_frames() -> Result<()> {
                     // The client names the frames it couldn't show; wire
                     // frame numbers start at one.
                     accepted = Some(
-                        asked
-                            && encoder.invalidate_ref_frames(LOST as u64 + 1, recovery as u64),
+                        asked && encoder.invalidate_ref_frames(LOST as u64 + 1, recovery as u64),
                     );
                     idr = accepted == Some(false);
                 }

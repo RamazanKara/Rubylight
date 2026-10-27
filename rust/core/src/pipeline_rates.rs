@@ -380,8 +380,15 @@ mod tests {
             None
         );
         // A malformed request changes nothing.
-        assert_eq!(reporter.on_request(start, &[1, 1, 0, 0], Counts::default()), None);
-        assert!(reporter.take(start + half * 2, || counts(60, 60, 60, 220, 0)).is_some());
+        assert_eq!(
+            reporter.on_request(start, &[1, 1, 0, 0], Counts::default()),
+            None
+        );
+        assert!(
+            reporter
+                .take(start + half * 2, || counts(60, 60, 60, 220, 0))
+                .is_some()
+        );
         let off = PipelineRatesRequest {
             enabled: false,
             interval_ms: 500,

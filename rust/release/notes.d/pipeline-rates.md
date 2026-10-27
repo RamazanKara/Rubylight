@@ -1,0 +1,2 @@
+# Pipeline frame rates
+- **Where frames go missing.** The console's stream details show how many frames per second the display produced, the host captured, encoded and sent over the last second, and how many repeated an unchanged picture. The 5 s stream timings log line carries the same rates, and a client that asks (0x553D, Nightjar desktop) gets them in its overlay. The host counts them with a few counters at the frame stamps it already takes.

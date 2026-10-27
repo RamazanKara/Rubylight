@@ -200,6 +200,15 @@ pub struct Negotiated {
     /// encrypts it.
     #[serde(default)]
     pub mic: bool,
+    /// The HDR format the client picked from the host's offer
+    /// (`x-rl-video[0].hdrFormat`, one `rubylight_protocol::hdr` bit); 0 is
+    /// stock HDR. `extensions::Offered::check_announce` refuses one not offered.
+    #[serde(default)]
+    pub hdr_format: u8,
+    /// The audio codec the client picked (`x-rl-audio.codec`, one
+    /// `rubylight_protocol::audio_ext::CODEC_*` bit); 0 or 1 is Opus.
+    #[serde(default)]
+    pub audio_codec: u8,
 }
 impl Default for Negotiated {
     fn default() -> Self {
@@ -236,6 +245,8 @@ impl Default for Negotiated {
             video_qos: true,
             audio_qos: true,
             mic: false,
+            hdr_format: 0,
+            audio_codec: 0,
         }
     }
 }
@@ -402,6 +413,13 @@ impl Negotiated {
         // Tagged unless the client says not to, as in Vibepollo.
         n.video_qos = get("x-nv-vqos[0].qosTrafficType", 5)? != 0;
         n.audio_qos = get("x-nv-aqos.qosTrafficType", 4)? != 0;
+
+        // 3.0 extensions, sent only for what the host offered.
+        n.hdr_format = u8::try_from(get(rubylight_protocol::hdr::ANNOUNCE_ATTRIBUTE, 0)?)?;
+        n.audio_codec = u8::try_from(get(
+            rubylight_protocol::audio_ext::CODEC_ANNOUNCE_ATTRIBUTE,
+            0,
+        )?)?;
         n.validate()?;
         Ok(n)
     }
@@ -441,7 +459,9 @@ impl Negotiated {
         if !(256..=1400).contains(&self.packet_size) || self.min_fec > 255 {
             bail!("invalid packet size or FEC count");
         }
-        if !matches!(self.audio_channels, 2 | 6 | 8) || !matches!(self.audio_packet_ms, 5 | 10 | 20)
+        // 12 is 7.1.4, which `extensions::Offered::check_announce` refuses unless offered.
+        if !matches!(self.audio_channels, 2 | 6 | 8 | 12)
+            || !matches!(self.audio_packet_ms, 5 | 10 | 20)
         {
             bail!("unsupported audio layout");
         }
@@ -766,6 +786,51 @@ mod tests {
         )
         .unwrap();
         assert!((both.pyrowave_client_link_mbps, both.client_wireless) == (0, true));
+    }
+    #[test]
+    fn the_3_0_choices_parse_as_numbers_and_default_to_stock() {
+        let stock = Negotiated::from_sdp(b"a=x-nv-video[0].dynamicRangeMode:1\n").unwrap();
+        assert_eq!((stock.hdr_format, stock.audio_codec), (0, 0));
+        let picked = Negotiated::from_sdp(
+            b"a=x-nv-video[0].dynamicRangeMode:1\na=x-rl-video[0].hdrFormat:2\na=x-rl-audio.codec:8\n",
+        )
+        .unwrap();
+        assert_eq!((picked.hdr_format, picked.audio_codec), (2, 8));
+        for bad in [
+            &b"a=x-rl-video[0].hdrFormat:pq\n"[..],
+            b"a=x-rl-video[0].hdrFormat:256\n",
+            b"a=x-rl-video[0].hdrFormat:-1\n",
+            b"a=x-rl-audio.codec:pcm\n",
+            b"a=x-rl-audio.codec:300\n",
+        ] {
+            assert!(
+                Negotiated::from_sdp(bad).is_err(),
+                "{}",
+                String::from_utf8_lossy(bad)
+            );
+        }
+        // An ANNOUNCE from before these fields still loads.
+        let mut old = serde_json::to_value(Negotiated::default()).unwrap();
+        old.as_object_mut().unwrap().remove("hdr_format");
+        old.as_object_mut().unwrap().remove("audio_codec");
+        let old: Negotiated = serde_json::from_value(old).unwrap();
+        assert_eq!((old.hdr_format, old.audio_codec), (0, 0));
+    }
+    #[test]
+    fn validate_admits_twelve_channels_and_no_other_new_count() {
+        let channels = |audio_channels| {
+            Negotiated {
+                audio_channels,
+                ..Default::default()
+            }
+            .validate()
+        };
+        for ok in [2, 6, 8, 12] {
+            assert!(channels(ok).is_ok(), "{ok}");
+        }
+        for bad in [0, 1, 4, 7, 10, 11, 13, 16] {
+            assert!(channels(bad).is_err(), "{bad}");
+        }
     }
     #[test]
     fn the_row_order_hint_is_on_only_for_a_one_with_record_framing() {

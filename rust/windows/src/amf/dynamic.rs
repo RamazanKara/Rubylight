@@ -6,6 +6,7 @@
 //! before its own has finished carries the previous one, and frames before the
 //! first sample carry none.
 use crate::compute::HdrStatsReadout;
+use crate::encoder::Unit;
 use butterpollo_core::hdr_dynamic::{self, Codec, Writer};
 use butterpollo_core::session::Warnings;
 use std::time::{Duration, Instant};
@@ -115,6 +116,32 @@ pub(super) fn sample(
     dynamic.submitted(started);
     let started = Instant::now();
     dynamic.take(stats.latest(dynamic.sampled()), started);
+}
+
+/// An output `unit` as the sender gets it, from the `bytes` AMF wrote and
+/// its frame `cap`: the current units go before a frame's first slice or
+/// tile, or into a whole frame, and every unit of that frame gets a cap
+/// that counts what the frame gained. The bytes are `None` to send them as
+/// they are: without dynamic metadata, a later unit, or nothing spliced.
+pub(super) fn output(
+    dynamic: Option<&mut Dynamic>,
+    unit: Unit,
+    bytes: &[u8],
+    cap: Option<u64>,
+) -> (Option<Vec<u8>>, Option<u64>) {
+    let Some(dynamic) = dynamic else {
+        return (None, cap);
+    };
+    let first = matches!(
+        unit,
+        Unit::Whole | Unit::Slice { index: 0 } | Unit::Last { index: 0 }
+    );
+    let spliced = if first {
+        dynamic.first_unit(bytes)
+    } else {
+        None
+    };
+    (spliced, dynamic.cap(cap))
 }
 
 /// One encoder's dynamic metadata.
@@ -537,6 +564,184 @@ mod tests {
         assert!(dynamic.is_some());
         assert_eq!(stats.enables, 1);
         assert!(warnings.snapshot().is_empty());
+    }
+
+    /// What the sender gets for one frame AMF returned as `units`
+    /// (`OutputBufferType`, bytes), as `Encoder::poll_once` hands them on.
+    fn deliver(
+        sequencer: &mut super::super::units::Sequencer,
+        mut dynamic: Option<&mut Dynamic>,
+        pts: i64,
+        meta: super::super::units::Meta,
+        units: &[(i64, Vec<u8>)],
+    ) -> Vec<(Unit, Vec<u8>, Option<u64>)> {
+        use super::super::units::Step;
+        let mut sent = vec![];
+        for (kind, bytes) in units {
+            let (unit, bytes) = match sequencer.push(pts, Some(*kind), bytes, || meta).step {
+                Step::Hold => continue,
+                Step::Unit(unit, bytes) => (unit, bytes),
+                Step::Whole(bytes) => (Unit::Whole, bytes),
+            };
+            let (spliced, cap) = output(dynamic.as_deref_mut(), unit, &bytes, Some(5000));
+            sent.push((unit, spliced.unwrap_or(bytes), cap));
+        }
+        sent
+    }
+    const STREAMED: super::super::units::Meta = super::super::units::Meta {
+        streamed: true,
+        idr: false,
+    };
+    const KEYFRAME: super::super::units::Meta = super::super::units::Meta {
+        streamed: false,
+        idr: true,
+    };
+    fn aud() -> Vec<u8> {
+        nal(35, &[0x50])
+    }
+    /// A frame's metadata and its `(pts, bytes)` slices.
+    type Frame = (super::super::units::Meta, Vec<(i64, Vec<u8>)>);
+    /// A streamed frame in three slices, the first behind an AUD; a
+    /// one-slice frame; and a keyframe in three slices, joined.
+    fn frames() -> [Frame; 3] {
+        [
+            (
+                STREAMED,
+                vec![
+                    (1, [aud(), nal(1, &[0xA1])].concat()),
+                    (1, nal(1, &[0xA2])),
+                    (2, nal(1, &[0xA3])),
+                ],
+            ),
+            (STREAMED, vec![(2, [aud(), nal(1, &[0xB1])].concat())]),
+            (
+                KEYFRAME,
+                vec![
+                    (
+                        1,
+                        [
+                            aud(),
+                            nal(32, &[0x0C]),
+                            nal(33, &[0x01]),
+                            nal(34, &[0xC1]),
+                            nal(19, &[0xC2]),
+                        ]
+                        .concat(),
+                    ),
+                    (1, nal(19, &[0xC3])),
+                    (2, nal(19, &[0xC4])),
+                ],
+            ),
+        ]
+    }
+
+    #[test]
+    fn slice_output_carries_dynamic_metadata_on_each_frames_first_unit() {
+        let mut dynamic = Dynamic::new(Codec::Hevc);
+        let sample = readout(2, 150, 650);
+        let units = frame_units(Codec::Hevc, &sample.frame_stats().unwrap(), 1000).unwrap();
+        dynamic.take(Ok(Some(sample)), Instant::now());
+        let grown = Some(5000 + units.len() as u64);
+        let mut sequencer = super::super::units::Sequencer::default();
+        let [streamed, single, keyframe] = frames();
+        // Slice 0 alone gets the units, after its AUD; the frame's every
+        // unit gets the cap it gained.
+        assert_eq!(
+            deliver(
+                &mut sequencer,
+                Some(&mut dynamic),
+                1,
+                streamed.0,
+                &streamed.1
+            ),
+            [
+                (
+                    Unit::Slice { index: 0 },
+                    [aud(), units.clone(), nal(1, &[0xA1])].concat(),
+                    grown
+                ),
+                (Unit::Slice { index: 1 }, nal(1, &[0xA2]), grown),
+                (Unit::Last { index: 2 }, nal(1, &[0xA3]), grown),
+            ]
+        );
+        assert_eq!(
+            deliver(&mut sequencer, Some(&mut dynamic), 2, single.0, &single.1),
+            [(
+                Unit::Last { index: 0 },
+                [aud(), units.clone(), nal(1, &[0xB1])].concat(),
+                grown
+            )]
+        );
+        // A keyframe is joined: the units go after its AUD and parameter
+        // sets, before its first IDR slice.
+        assert_eq!(
+            deliver(
+                &mut sequencer,
+                Some(&mut dynamic),
+                3,
+                keyframe.0,
+                &keyframe.1
+            ),
+            [(
+                Unit::Whole,
+                [
+                    aud(),
+                    nal(32, &[0x0C]),
+                    nal(33, &[0x01]),
+                    nal(34, &[0xC1]),
+                    units.clone(),
+                    nal(19, &[0xC2]),
+                    nal(19, &[0xC3]),
+                    nal(19, &[0xC4]),
+                ]
+                .concat(),
+                grown
+            )]
+        );
+        // A first slice with no place for the units: none of its frame's
+        // units count any.
+        let bare = [(1, aud()), (2, nal(1, &[0xD1]))];
+        assert_eq!(
+            deliver(&mut sequencer, Some(&mut dynamic), 4, STREAMED, &bare),
+            [
+                (Unit::Slice { index: 0 }, aud(), Some(5000)),
+                (Unit::Last { index: 1 }, nal(1, &[0xD1]), Some(5000)),
+            ]
+        );
+    }
+
+    #[test]
+    fn without_dynamic_metadata_every_output_byte_is_amfs() {
+        let off =
+            butterpollo_core::config::Config::parse("hdr_dynamic_metadata = false\n").unwrap();
+        let config = butterpollo_core::rtsp::Negotiated {
+            codec: 1,
+            hdr: true,
+            ..Default::default()
+        };
+        assert_eq!(wanted(&config, &off), None, "the setting is off");
+        // Off, and on before the first sample: what AMF wrote, unspliced.
+        let mut unsampled = Dynamic::new(Codec::Hevc);
+        for mut dynamic in [None, Some(&mut unsampled)] {
+            let mut sequencer = super::super::units::Sequencer::default();
+            for (pts, (meta, units)) in frames().into_iter().enumerate() {
+                let sent = deliver(
+                    &mut sequencer,
+                    dynamic.as_deref_mut(),
+                    pts as i64,
+                    meta,
+                    &units,
+                );
+                let input: Vec<u8> = units.iter().flat_map(|(_, bytes)| bytes.clone()).collect();
+                let bytes: Vec<u8> = sent
+                    .iter()
+                    .flat_map(|(_, bytes, _)| bytes.clone())
+                    .collect();
+                assert_eq!(bytes, input);
+                assert!(sent.iter().all(|&(_, _, cap)| cap == Some(5000)));
+            }
+        }
+        assert_eq!(output(None, Unit::Whole, &keyframe(), None), (None, None));
     }
 
     #[test]

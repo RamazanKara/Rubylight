@@ -1782,18 +1782,9 @@ impl Encoder {
                     units::Step::Whole(bytes) => (Unit::Whole, bytes),
                 };
                 // Dynamic metadata goes before the first slice or tile.
-                let bytes = match self.dynamic.as_deref_mut() {
-                    Some(dynamic)
-                        if matches!(
-                            unit,
-                            Unit::Whole | Unit::Slice { index: 0 } | Unit::Last { index: 0 }
-                        ) =>
-                    {
-                        dynamic.first_unit(&bytes).unwrap_or(bytes)
-                    }
-                    _ => bytes,
-                };
-                let frame_cap_bytes = self.dynamic_cap(frame_cap_bytes);
+                let (spliced, frame_cap_bytes) =
+                    dynamic::output(self.dynamic.as_deref_mut(), unit, &bytes, frame_cap_bytes);
+                let bytes = spliced.unwrap_or(bytes);
                 let whole = unit == Unit::Whole;
                 // A joined or frame-mode keyframe is recovered as a whole.
                 let bytes =
@@ -1818,19 +1809,22 @@ impl Encoder {
             }
             // The sender outlives this AMF buffer reference. Own the compressed
             // bytes before Release makes its native storage available for reuse.
-            let bytes = if self.codec == 0 && idr && self.references.enabled() {
-                butterpollo_core::bitstream::h264_reference_recovery(bytes)
-            } else if let Some(spliced) = self
-                .dynamic
-                .as_deref_mut()
-                .and_then(|dynamic| dynamic.first_unit(bytes))
-            {
-                spliced
+            // H.264 carries no dynamic metadata (`dynamic::wanted`).
+            let (bytes, frame_cap_bytes) = if self.codec == 0 && idr && self.references.enabled() {
+                (
+                    butterpollo_core::bitstream::h264_reference_recovery(bytes),
+                    frame_cap_bytes,
+                )
             } else {
-                bytes.to_vec()
+                let (spliced, cap) = dynamic::output(
+                    self.dynamic.as_deref_mut(),
+                    Unit::Whole,
+                    bytes,
+                    frame_cap_bytes,
+                );
+                (spliced.unwrap_or_else(|| bytes.to_vec()), cap)
             };
             (v.Release.unwrap())(buffer);
-            let frame_cap_bytes = self.dynamic_cap(frame_cap_bytes);
             self.frame_completed(timing, !bytes.is_empty());
             output.push(Encoded {
                 bytes,
@@ -1876,12 +1870,6 @@ impl Encoder {
                 && value.type_ == AMF_VARIANT_TYPE_AMF_VARIANT_INT64)
                 .then_some(value.__bindgen_anon_1.int64Value)
         }
-    }
-    /// A frame cap that counts the dynamic metadata its frame gained.
-    fn dynamic_cap(&self, cap: Option<u64>) -> Option<u64> {
-        self.dynamic
-            .as_deref()
-            .map_or(cap, |dynamic| dynamic.cap(cap))
     }
     /// The backlog learns from every frame AMF finishes.
     fn frame_completed(&mut self, timing: Option<(Instant, Duration)>, produced: bool) {

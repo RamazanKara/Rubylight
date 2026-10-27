@@ -121,7 +121,8 @@ try {
         & (Join-Path $repo 'rust\drivers\usbip\test_usbip.ps1')
         & cargo $toolchain test --workspace --locked
         Assert-NativeExit 'Rust tests'
-        & cargo $toolchain test -p butterpollo-windows --locked -- --ignored ffmpeg::
+        # The encode-cost benchmark also needs libopus and is run by hand.
+        & cargo $toolchain test -p butterpollo-windows --locked -- --ignored ffmpeg:: --skip passthrough_encode_cost
         Assert-NativeExit 'FFmpeg AC3 tests'
         & cargo $toolchain test -p butterpollo --locked -- --ignored audio_encoder::tests::ffmpeg_
         Assert-NativeExit 'FFmpeg ANNOUNCE tests'

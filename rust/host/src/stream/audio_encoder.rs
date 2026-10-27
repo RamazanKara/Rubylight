@@ -9,7 +9,7 @@ use butterpollo_core::{
 };
 use butterpollo_windows::{audio::Opus, ffmpeg::Ac3Encoder};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     path::{Path, PathBuf},
     sync::{LazyLock, Mutex},
     time::{Duration, Instant},
@@ -74,6 +74,59 @@ impl Probes {
             },
         );
         result
+    }
+
+    /// The kept result for `codec` and `channels` without probing: `None` while none is kept
+    /// or a failure's retry is due.
+    fn peek(&self, directory: &Path, codec: Codec, channels: u8, now: Instant) -> Option<bool> {
+        let key = (directory.to_owned(), codec.name(), channels);
+        match self.entries.lock().unwrap().get(&key) {
+            Some(Probe::Ready) => Some(true),
+            Some(Probe::Failed { retry_at, .. }) if now < *retry_at => Some(false),
+            _ => None,
+        }
+    }
+}
+
+/// The `audio_ext` AC3 and E-AC3 bits that can carry `channels` and whose FFmpeg encoder opens
+/// for them ([`dolby_ready`]; blocking): what DESCRIBE offers and ANNOUNCE accepts for a
+/// launch, so a 7.1 launch isn't offered the E-AC3 FFmpeg can't encode.
+pub(crate) fn dolby_codecs(directory: &Path, channels: u8) -> u8 {
+    dolby_bits(channels, |codec| {
+        Some(dolby_ready(directory, codec, channels).is_ok())
+    })
+    .unwrap_or_default()
+}
+
+/// [`dolby_codecs`] from the kept probes, without loading FFmpeg: `None` while a probe is due.
+pub(crate) fn dolby_codecs_probed(directory: &Path, channels: u8) -> Option<u8> {
+    dolby_bits(channels, |codec| {
+        PROBES.peek(directory, codec, channels, Instant::now())
+    })
+}
+
+/// The AC3 and E-AC3 bits that fit `channels` and `opens`, or `None` when `opens` doesn't know.
+fn dolby_bits(channels: u8, mut opens: impl FnMut(Codec) -> Option<bool>) -> Option<u8> {
+    use butterpollo_core::audio_ext::{CODEC_AC3, CODEC_EAC3, channels_fit};
+    let mut bits = 0;
+    for (bit, codec) in [(CODEC_AC3, Codec::Ac3), (CODEC_EAC3, Codec::Eac3)] {
+        if channels_fit(bit, channels) && opens(codec)? {
+            bits |= bit;
+        }
+    }
+    Some(bits)
+}
+
+/// The channel count a launch's `surroundAudioInfo` asks for, read as `/launch` reads it: 2, 6,
+/// 8 or 12 (7.1.4), and stereo for anything else.
+pub(crate) fn launch_channels(options: &BTreeMap<String, String>) -> u8 {
+    let channels = options
+        .get("surroundAudioInfo")
+        .and_then(|info| info.parse::<u32>().ok())
+        .map_or(2, |info| info & 0xffff);
+    match channels {
+        2 | 6 | 8 | 12 => channels as u8,
+        _ => 2,
     }
 }
 
@@ -314,6 +367,79 @@ mod tests {
     }
 
     #[test]
+    fn a_launch_is_offered_only_the_dolby_codecs_that_open_for_its_channels() {
+        use super::{PROBE_RETRY, Probes, dolby_bits, launch_channels};
+        use std::{collections::BTreeMap, time::Duration};
+        let bit = |codec| match codec {
+            Codec::Ac3 => CODEC_AC3,
+            Codec::Eac3 => CODEC_EAC3,
+            other => panic!("{other:?} is not probed"),
+        };
+        // Each codec is probed only for channels it can carry: AC3 up to 5.1, E-AC3 up to 7.1.
+        let both = CODEC_AC3 | CODEC_EAC3;
+        for (channels, fit) in [(2, both), (6, both), (8, CODEC_EAC3), (12, 0)] {
+            let mut probed = 0;
+            let bits = dolby_bits(channels, |codec| {
+                probed |= bit(codec);
+                Some(true)
+            });
+            assert_eq!((bits, probed), (Some(fit), fit), "{channels} channels");
+        }
+        // FFmpeg has no E-AC3 7.1: a 7.1 launch is offered neither, a 5.1 one AC3.
+        let ac3_only = |codec| Some(codec == Codec::Ac3);
+        assert_eq!(dolby_bits(8, ac3_only), Some(0));
+        assert_eq!(dolby_bits(6, ac3_only), Some(CODEC_AC3));
+        // A probe that is due leaves the kept result unknown.
+        assert_eq!(
+            dolby_bits(2, |codec| (codec == Codec::Ac3).then_some(true)),
+            None
+        );
+
+        // What serverinfo reads without loading FFmpeg: a success for good, a failure until
+        // its retry is due.
+        let probes = Probes::default();
+        let directory = Path::new("C:\\ffmpeg");
+        let start = Instant::now();
+        assert_eq!(probes.peek(directory, Codec::Ac3, 2, start), None);
+        probes
+            .get(directory, Codec::Ac3, 2, start, |_| Ok(()))
+            .unwrap();
+        let failed = probes.get(directory, Codec::Eac3, 2, start, |_| {
+            anyhow::bail!("no FFmpeg")
+        });
+        assert!(failed.is_err());
+        let hour = Duration::from_secs(3600);
+        assert_eq!(
+            probes.peek(directory, Codec::Ac3, 2, start + hour),
+            Some(true)
+        );
+        assert_eq!(probes.peek(directory, Codec::Ac3, 6, start), None);
+        assert_eq!(probes.peek(directory, Codec::Eac3, 2, start), Some(false));
+        assert_eq!(
+            probes.peek(directory, Codec::Eac3, 2, start + PROBE_RETRY),
+            None
+        );
+
+        // The launch's channels, as `/launch` reads `surroundAudioInfo` (mask << 16 | count).
+        let launch = |info: Option<String>| {
+            launch_channels(&BTreeMap::from_iter(
+                info.map(|info| ("surroundAudioInfo".to_owned(), info)),
+            ))
+        };
+        for (info, channels) in [
+            (None, 2),
+            (Some((3 << 16 | 2).to_string()), 2),
+            (Some((63 << 16 | 6).to_string()), 6),
+            (Some((1599 << 16 | 8).to_string()), 8),
+            (Some("12".to_owned()), 12),
+            (Some("4".to_owned()), 2),
+            (Some("stereo".to_owned()), 2),
+        ] {
+            assert_eq!(launch(info.clone()), channels, "{info:?}");
+        }
+    }
+
+    #[test]
     #[ignore = "needs BUTTERPOLLO_TEST_FFMPEG_ROOT"]
     fn ffmpeg_dolby_plus_7_1_is_refused_and_the_rest_opens() {
         let root = ffmpeg();
@@ -332,6 +458,11 @@ mod tests {
             ),
             "{error}"
         );
+        // So a 7.1 launch is offered neither, and stereo and 5.1 ones both.
+        let both = CODEC_AC3 | CODEC_EAC3;
+        for (channels, offered) in [(2, both), (6, both), (8, 0), (12, 0)] {
+            assert_eq!(super::dolby_codecs(&root, channels), offered, "{channels}");
+        }
     }
 
     #[test]

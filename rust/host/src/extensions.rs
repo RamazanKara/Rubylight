@@ -9,16 +9,51 @@ use butterpollo_core::extensions::Offered;
 
 use crate::state::Shared;
 
-/// The offer for one client: `config` is the host's configuration for
-/// serverinfo and the stream's effective configuration for DESCRIBE and
-/// ANNOUNCE.
+/// The serverinfo offer for one client, `config` being the host's
+/// configuration. Its AC3 and E-AC3 bits are FFmpeg's stereo probes as last
+/// run: [`probe_serverinfo_audio`] runs them first.
 pub fn offered(h: &Shared, config: &Config) -> Offered {
+    let dolby = config
+        .audio_passthrough()
+        .then(|| {
+            let exe = std::env::current_exe().ok()?;
+            crate::stream::audio_encoder::dolby_codecs_probed(exe.parent()?, 2)
+        })
+        .flatten();
+    offer(h, config, dolby.unwrap_or_default())
+}
+
+/// Runs the FFmpeg probes serverinfo's [`offered`] reads, off the async task,
+/// when none is kept or a failure's retry is due.
+pub async fn probe_serverinfo_audio(config: &Config) -> anyhow::Result<()> {
+    if !config.audio_passthrough() {
+        return Ok(());
+    }
+    let exe = std::env::current_exe()?;
+    let directory = exe.parent().unwrap().to_owned();
+    if crate::stream::audio_encoder::dolby_codecs_probed(&directory, 2).is_none() {
+        tokio::task::spawn_blocking(move || {
+            crate::stream::audio_encoder::dolby_codecs(&directory, 2)
+        })
+        .await?;
+    }
+    Ok(())
+}
+
+/// The offer for a stream's DESCRIBE and ANNOUNCE, `config` being its
+/// effective configuration and `dolby` the AC3 and E-AC3 bits FFmpeg opens
+/// for the launch's channels (`audio_encoder::dolby_codecs`).
+pub fn stream_offered(h: &Shared, config: &Config, dolby: u8) -> Offered {
+    offer(h, config, dolby)
+}
+
+fn offer(h: &Shared, config: &Config, dolby: u8) -> Offered {
     Offered {
         hdr_formats: hdr_formats(h, config),
         client_fec: client_fec(h, config),
         bandwidth_probe: bandwidth_probe(h, config),
         usb: usb(h, config),
-        audio_codecs: audio_codecs(h, config),
+        audio_codecs: audio_codecs(h, config, dolby),
         surround_714: surround_714(h, config),
         text_input: text_input(h, config),
         keyboard_layout: keyboard_layout(h, config),
@@ -53,36 +88,13 @@ fn usb(h: &Shared, config: &Config) -> bool {
 }
 
 /// Audio (E): `audio_ext::CODEC_*` bits besides Opus, while `audio_passthrough` is on: PCM,
-/// and AC3 and E-AC3 when FFmpeg's libraries beside the host load.
-fn audio_codecs(_h: &Shared, config: &Config) -> u8 {
+/// and the AC3 and E-AC3 bits `dolby` whose FFmpeg encoder opens.
+fn audio_codecs(_h: &Shared, config: &Config, dolby: u8) -> u8 {
     use butterpollo_core::audio_ext::{CODEC_AC3, CODEC_EAC3, CODEC_PCM};
     if !config.audio_passthrough() {
         return 0;
     }
-    CODEC_PCM
-        | if ffmpeg_ready() {
-            CODEC_AC3 | CODEC_EAC3
-        } else {
-            0
-        }
-}
-
-/// Whether FFmpeg's AC3 encoder loads from the host's directory, checked once and logged when
-/// it doesn't.
-fn ffmpeg_ready() -> bool {
-    static READY: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *READY.get_or_init(|| {
-        let probe = std::env::current_exe()
-            .map_err(anyhow::Error::from)
-            .and_then(|exe| butterpollo_windows::ffmpeg::probe(exe.parent().unwrap()));
-        match probe {
-            Ok(()) => true,
-            Err(error) => {
-                tracing::warn!(error = %format!("{error:#}"), "Dolby Digital audio is not offered: FFmpeg's AC3 encoder did not load");
-                false
-            }
-        }
-    })
+    CODEC_PCM | dolby & (CODEC_AC3 | CODEC_EAC3)
 }
 
 /// Audio (E): 7.1.4 Opus, while `audio_surround_714` is on. The capture

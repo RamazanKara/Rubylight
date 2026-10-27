@@ -356,6 +356,9 @@ async fn serverinfo(
         }
     };
     let windows_11 = butterpollo_windows::display::virtual_display_os();
+    if let Err(error) = crate::extensions::probe_serverinfo_audio(&config).await {
+        tracing::warn!(error = %format!("{error:#}"), "Dolby Digital audio is not offered: FFmpeg was not probed");
+    }
     serverinfo_response(
         &h,
         &connection,

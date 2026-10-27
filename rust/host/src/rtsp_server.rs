@@ -150,21 +150,32 @@ async fn connection(
         let mut body = Vec::new();
         let mut code = 200;
         let mut reason = "OK";
-        // An ANNOUNCE's AC3 or E-AC3 pick opens FFmpeg's encoder (once per codec and channel
-        // count), off the async task. An SDP that doesn't parse is refused below.
+        // DESCRIBE offers, and ANNOUNCE accepts, AC3 and E-AC3 only where FFmpeg's encoder
+        // opens for the launch's channel count, and an ANNOUNCE's pick is opened for its own:
+        // each probe loads FFmpeg (once per codec and channel count), off the async task. An
+        // SDP that doesn't parse is refused below.
+        let mut dolby = 0;
         let mut audio_check = None;
-        if req.method == "ANNOUNCE"
-            && let Ok(n) = Negotiated::from_sdp(&req.body)
-        {
-            audio_check = Some(
-                tokio::task::spawn_blocking(move || {
-                    crate::stream::audio_encoder::check_announce(
-                        std::env::current_exe()?.parent().unwrap(),
-                        &n,
-                    )
-                })
-                .await?,
-            );
+        if matches!(req.method.as_str(), "DESCRIBE" | "ANNOUNCE") {
+            use crate::stream::audio_encoder::{check_announce, dolby_codecs, launch_channels};
+            let directory = std::env::current_exe()?.parent().unwrap().to_owned();
+            let channels = launch_channels(&launch.options);
+            let passthrough = crate::stream::effective_config(&h, &launch)
+                .is_ok_and(|config| config.audio_passthrough());
+            let announced = (req.method == "ANNOUNCE")
+                .then(|| Negotiated::from_sdp(&req.body).ok())
+                .flatten();
+            (dolby, audio_check) = tokio::task::spawn_blocking(move || {
+                (
+                    if passthrough {
+                        dolby_codecs(&directory, channels)
+                    } else {
+                        0
+                    },
+                    announced.map(|n| check_announce(&directory, &n)),
+                )
+            })
+            .await?;
         }
         let result = (|| -> Result<()> {
             // The launch may have been replaced, started or expired since
@@ -244,7 +255,7 @@ async fn connection(
                         }
                     }
                     body.extend_from_slice(
-                        crate::extensions::offered(&h, &config)
+                        crate::extensions::stream_offered(&h, &config, dolby)
                             .describe_lines()
                             .as_bytes(),
                     );
@@ -286,7 +297,8 @@ async fn connection(
                     }
                     let config = crate::stream::effective_config(&h, &launch)?;
                     // The client's own picks, before host policy turns HDR off.
-                    crate::extensions::offered(&h, &config).check_announce(&negotiated)?;
+                    crate::extensions::stream_offered(&h, &config, dolby)
+                        .check_announce(&negotiated)?;
                     audio_check
                         .take()
                         .context("the ANNOUNCE's audio codec was not checked")??;

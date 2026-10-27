@@ -238,20 +238,54 @@ const GOG_VALUES: [&str; 7] = [
     "workingDir",
     "dependsOn",
 ];
+/// Whether a file is a GOG game's `goggame-<id>.info`.
+fn gog_info(path: &Path) -> bool {
+    path.file_name().is_some_and(|name| {
+        let name = name.to_string_lossy();
+        name.starts_with("goggame-") && name.ends_with(".info")
+    })
+}
+/// The GOG games only the registry knows. A record whose folder has a
+/// `goggame-*.info` is left to that file, which is the game or makes the record a
+/// DLC or edition of one.
+fn gog_registered(
+    registered: &[BTreeMap<String, String>],
+    games: &mut Vec<Game>,
+    errors: &mut Vec<String>,
+) {
+    for values in registered {
+        let id = values.get("gameID").map(|id| id.trim());
+        // The .info scan already reported a folder it could not read.
+        let has_info = values.get("path").is_some_and(|folder| {
+            files(Path::new(folder.trim()), &mut vec![])
+                .iter()
+                .any(|path| gog_info(path))
+        });
+        if has_info
+            || games
+                .iter()
+                .any(|game| game.source == Source::Gog && Some(game.id.as_str()) == id)
+        {
+            continue;
+        }
+        add(library::gog_registry(values), games, errors);
+    }
+}
+
 /// How many files and folders the scan looks at in one game folder.
 const GAME_FOLDER_ENTRIES: usize = 2000;
-/// The programs in a game folder and up to two folders below it, leaving out the folders
-/// that never hold the game's own program, and not following links.
-fn programs(folder: &Path, errors: &mut Vec<String>) -> Vec<library::Program> {
+/// The programs in a game folder and up to two folders below it, the top first, leaving
+/// out the folders that never hold the game's own program, and not following links.
+/// Whether the scan stopped at [`GAME_FOLDER_ENTRIES`] before it read them all.
+fn programs(folder: &Path, errors: &mut Vec<String>) -> (Vec<library::Program>, bool) {
     let mut found = vec![];
-    let mut pending = vec![(PathBuf::new(), 0)];
+    let mut pending = std::collections::VecDeque::from([(PathBuf::new(), 0)]);
     let mut seen = 0;
-    while let Some((relative, depth)) = pending.pop() {
+    while let Some((relative, depth)) = pending.pop_front() {
         for path in files(&folder.join(&relative), errors) {
             seen += 1;
             if seen > GAME_FOLDER_ENTRIES {
-                tracing::debug!(folder = %folder.display(), "the game folder scan stopped at its entry limit");
-                return found;
+                return (found, true);
             }
             let (Some(name), Ok(metadata)) = (path.file_name(), std::fs::symlink_metadata(&path))
             else {
@@ -261,7 +295,7 @@ fn programs(folder: &Path, errors: &mut Vec<String>) -> Vec<library::Program> {
             let relative = relative.join(name);
             if metadata.is_dir() {
                 if depth < 2 && !library::LOCAL_SKIPPED_FOLDERS.contains(&lower.as_str()) {
-                    pending.push((relative, depth + 1));
+                    pending.push_back((relative, depth + 1));
                 }
             } else if metadata.is_file() && lower.ends_with(".exe") {
                 found.push(library::Program {
@@ -271,26 +305,69 @@ fn programs(folder: &Path, errors: &mut Vec<String>) -> Vec<library::Program> {
             }
         }
     }
-    found
+    (found, false)
+}
+
+/// Why a configured game folder cannot be read, if it cannot. The host runs as a
+/// service, which does not see the drive letters a user mapped.
+fn unreadable_root(root: &Path) -> Option<String> {
+    let shown = root.display();
+    if !root.is_absolute() {
+        return Some(format!("The game folder {shown} is not a full path."));
+    }
+    if root.is_dir() {
+        return None;
+    }
+    if root.exists() {
+        return Some(format!("The game folder {shown} is a file, not a folder."));
+    }
+    let drive = root.ancestors().last().unwrap_or(root);
+    Some(if drive.exists() {
+        format!("The game folder {shown} does not exist.")
+    } else {
+        format!(
+            "The game folder {shown} is on a drive the host cannot see. A mapped network drive belongs to one user: enter its network path (\\\\server\\share) instead."
+        )
+    })
+}
+/// Folders a drive or a folder of games holds that are not games: hidden and system
+/// folders, such as `$RECYCLE.BIN` and `System Volume Information`.
+fn hidden_folder(folder: &Path) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    const HIDDEN_OR_SYSTEM: u32 = 0x2 | 0x4;
+    folder
+        .file_name()
+        .is_some_and(|name| name.to_string_lossy().starts_with('$'))
+        || std::fs::metadata(folder)
+            .is_ok_and(|metadata| metadata.file_attributes() & HIDDEN_OR_SYSTEM != 0)
 }
 
 /// One game per subfolder of the configured game folders. A folder that is missing is an
 /// error of its own; the other folders are still read.
 fn local(settings: &library::Settings, games: &mut Vec<Game>, errors: &mut Vec<String>) {
     for root in &settings.local_folders {
-        if !root.is_absolute() || !root.is_dir() {
-            errors.push(format!(
-                "The game folder {} is not a folder on this PC.",
-                root.display()
-            ));
+        if let Some(error) = unreadable_root(root) {
+            errors.push(error);
             continue;
         }
         for folder in files(root, errors) {
-            if !folder.is_dir() || settings.excluded(&folder) {
+            if !folder.is_dir() || hidden_folder(&folder) || settings.excluded(&folder) {
                 continue;
             }
-            let found = programs(&folder, errors);
-            add(Ok(library::local(&folder, &found)), games, errors);
+            let (found, cut_short) = programs(&folder, errors);
+            let game = library::local(&folder, &found);
+            if cut_short {
+                if game.is_none() {
+                    errors.push(format!(
+                        "No game program is among the first {GAME_FOLDER_ENTRIES} files in {}.",
+                        folder.display()
+                    ));
+                } else {
+                    // The top folders came first, so the program found is the top one.
+                    tracing::debug!(folder = %folder.display(), "the game folder scan read only its first {GAME_FOLDER_ENTRIES} files");
+                }
+            }
+            add(Ok(game), games, errors);
         }
     }
 }
@@ -556,7 +633,8 @@ pub fn discover(settings: &library::Settings) -> Discovery {
                 let mut folders: BTreeSet<PathBuf> = registered
                     .iter()
                     .filter_map(|values| values.get("path"))
-                    .filter(|path| !path.trim().is_empty())
+                    .map(|path| path.trim())
+                    .filter(|path| !path.is_empty())
                     .map(PathBuf::from)
                     .collect();
                 folders.extend(
@@ -571,12 +649,10 @@ pub fn discover(settings: &library::Settings) -> Discovery {
                 );
                 let available = galaxy.is_some() || !folders.is_empty();
                 for folder in folders {
-                    for path in files(&folder, &mut errors).into_iter().filter(|path| {
-                        path.file_name().is_some_and(|name| {
-                            let name = name.to_string_lossy();
-                            name.starts_with("goggame-") && name.ends_with(".info")
-                        })
-                    }) {
+                    for path in files(&folder, &mut errors)
+                        .into_iter()
+                        .filter(|path| gog_info(path))
+                    {
                         let result = bytes(&path)
                             .and_then(|data| library::gog(&data, &folder, galaxy.as_deref()));
                         add(
@@ -592,20 +668,7 @@ pub fn discover(settings: &library::Settings) -> Discovery {
                         );
                     }
                 }
-                for values in &registered {
-                    let id = values.get("gameID").map(|id| id.trim());
-                    if games
-                        .iter()
-                        .any(|game| game.source == Source::Gog && Some(game.id.as_str()) == id)
-                    {
-                        continue;
-                    }
-                    add(
-                        library::gog_registry(values, galaxy.as_deref()),
-                        &mut games,
-                        &mut errors,
-                    );
-                }
+                gog_registered(&registered, &mut games, &mut errors);
                 available
             }
             Source::Local => {
@@ -764,7 +827,9 @@ mod tests {
         write("Deep/a/b/c/deep.exe", 4096);
         write("Leave Out/game.exe", 4096);
         write("loose.exe", 4096);
-        let mut programs_found = programs(&root.join("Witcher"), &mut vec![]);
+        write("$RECYCLE.BIN/S-1-5-21/$RABC123.exe", 4096);
+        let (mut programs_found, cut_short) = programs(&root.join("Witcher"), &mut vec![]);
+        assert!(!cut_short);
         programs_found.sort_by(|a, b| a.path.cmp(&b.path));
         assert_eq!(
             programs_found
@@ -782,7 +847,7 @@ mod tests {
         let (mut games, mut errors) = (vec![], vec![]);
         local(&settings, &mut games, &mut errors);
         assert_eq!(errors.len(), 1, "{errors:?}");
-        assert!(errors[0].contains("missing"));
+        assert!(errors[0].contains("missing") && errors[0].contains("does not exist"));
         let found: Vec<_> = library::finish(games)
             .into_iter()
             .map(|game| (game.name, game.launch.unwrap().command(), game.cover))
@@ -803,7 +868,95 @@ mod tests {
                     ),
                     None
                 ),
-            ]
+            ],
+            "the recycle bin is not a game"
+        );
+    }
+
+    #[test]
+    fn a_game_folder_too_big_to_read_whole_is_read_from_the_top_and_says_so() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        for game in ["Big", "Huge"] {
+            let data = root.join(game).join("zdata");
+            std::fs::create_dir_all(&data).unwrap();
+            for file in 0..=GAME_FOLDER_ENTRIES {
+                std::fs::File::create(data.join(format!("{file}.pak"))).unwrap();
+            }
+        }
+        std::fs::create_dir_all(root.join(r"Big\a")).unwrap();
+        std::fs::File::create(root.join(r"Big\a\Big.exe")).unwrap();
+        let settings = library::Settings {
+            local_folders: vec![root.to_owned()],
+            ..Default::default()
+        };
+        let (mut games, mut errors) = (vec![], vec![]);
+        local(&settings, &mut games, &mut errors);
+        assert_eq!(
+            games
+                .iter()
+                .map(|game| game.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Big"],
+            "a program near the top is found before the limit"
+        );
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert!(errors[0].contains("Huge"), "{errors:?}");
+        // A drive the host cannot see is told apart from a missing folder.
+        let free = (b'D'..=b'Z')
+            .rev()
+            .map(|letter| PathBuf::from(format!(r"{}:\Games", letter as char)))
+            .find(|path| !path.ancestors().last().unwrap().exists())
+            .unwrap();
+        let unseen = unreadable_root(&free).unwrap();
+        assert!(unseen.contains("network path"), "{unseen}");
+        assert!(
+            unreadable_root(Path::new("Games"))
+                .unwrap()
+                .contains("full path")
+        );
+    }
+
+    #[test]
+    fn a_gog_registry_record_is_a_game_only_when_its_folder_has_no_info_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let record = |id: &str, folder: &str| {
+            let path = temp.path().join(folder);
+            std::fs::create_dir_all(&path).unwrap();
+            std::fs::File::create(path.join("game.exe")).unwrap();
+            BTreeMap::from(
+                [
+                    ("gameID", id.to_owned()),
+                    ("gameName", format!("Game {id}")),
+                    ("path", path.display().to_string()),
+                    ("exe", path.join("game.exe").display().to_string()),
+                ]
+                .map(|(key, value)| (key.to_owned(), value)),
+            )
+        };
+        let registered = [
+            record("1", "Edition"),
+            record("2", "Offline"),
+            record("3", "Listed"),
+        ];
+        // The edition's folder has the base game's info file, under another id.
+        std::fs::File::create(temp.path().join(r"Edition\goggame-9.info")).unwrap();
+        let mut games = vec![Game::new(
+            Source::Gog,
+            "3".into(),
+            "Listed".into(),
+            &temp.path().join("Listed"),
+            None,
+        )];
+        let mut errors = vec![];
+        gog_registered(&registered, &mut games, &mut errors);
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(
+            games
+                .iter()
+                .map(|game| (game.id.as_str(), game.name.as_str()))
+                .collect::<Vec<_>>(),
+            [("3", "Listed"), ("2", "Game 2")]
         );
     }
 

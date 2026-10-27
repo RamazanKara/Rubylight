@@ -48,6 +48,10 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             h.config_version
                 .fetch_add(1, std::sync::atomic::Ordering::Release);
             h.metadata.lock().unwrap().take();
+            // The launchers to read changed: the last scan answers for the old ones.
+            if object.keys().any(|key| key.starts_with("library_")) {
+                crate::library::invalidate(h);
+            }
             json!({"status":true,"restart_required":true,"warning":warning})
         }
         ("GET", "/api/configLocale") => {
@@ -245,6 +249,37 @@ mod tests {
         assert_eq!(saved.get("sunshine_name", ""), "Concurrent host");
         assert_eq!(saved.get("locale", ""), "de");
         assert_eq!(fixture.host.config.read().unwrap().values, saved.values);
+    }
+
+    #[test]
+    fn saving_a_library_setting_scans_the_launchers_again() {
+        use butterpollo_core::native::Scan;
+        let fixture = Fixture::new();
+        let host = &fixture.host;
+        let seeded = Scan::new(["epic:kept".to_owned()]);
+        crate::library::seed(host, seeded.clone());
+        handle(host, "PATCH", "/api/config", &json!({"locale": "de"})).unwrap();
+        assert_eq!(
+            crate::library::installed(host),
+            Some(seeded.clone()),
+            "other settings keep the scan"
+        );
+        handle(
+            host,
+            "PATCH",
+            "/api/config",
+            &json!({"library_epic_enabled": false}),
+        )
+        .unwrap();
+        // Tests scan nothing, so the new scan replaces the seeded one with an empty one.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while crate::library::installed(host) == Some(seeded.clone()) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the library setting did not start a new scan"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
     }
 
     #[test]

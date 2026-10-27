@@ -46,7 +46,9 @@ fn settings(h: &Shared) -> library::Settings {
 #[cfg(not(test))]
 fn scan_installed(settings: library::Settings) -> Scan {
     let discovery = butterpollo_windows::library::discover(&settings);
-    Scan::from_games(&discovery.games).skipping(discovery.skipped())
+    Scan::from_games(&discovery.games)
+        .skipping(discovery.skipped())
+        .reading(settings)
 }
 /// Tests never read the registry and the launchers' folders.
 #[cfg(test)]

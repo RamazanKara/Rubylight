@@ -53,17 +53,18 @@ impl Source {
             Self::Local => "Game folders",
         }
     }
-    /// What Playnite calls the library plugin for this launcher, in [`name_key`] form.
-    fn playnite_plugin(self) -> Option<&'static str> {
+    /// What Playnite calls the library plugin for this launcher, now and before the
+    /// launcher was renamed, in [`name_key`] form.
+    fn playnite_plugins(self) -> &'static [&'static str] {
         match self {
-            Self::Steam => Some("steam"),
-            Self::Epic => Some("epic"),
-            Self::Battlenet => Some("battlenet"),
-            Self::Ea => Some("ea"),
-            Self::Ubisoft => Some("ubisoft"),
-            Self::Gog => Some("gog"),
-            Self::Microsoft => Some("xbox"),
-            Self::Local => None,
+            Self::Steam => &["steam"],
+            Self::Epic => &["epic"],
+            Self::Battlenet => &["battlenet"],
+            Self::Ea => &["ea", "origin"],
+            Self::Ubisoft => &["ubisoft", "uplay"],
+            Self::Gog => &["gog"],
+            Self::Microsoft => &["xbox"],
+            Self::Local => &[],
         }
     }
 }
@@ -116,10 +117,19 @@ impl Settings {
         let name = folder.file_name().map(|name| name.to_string_lossy());
         self.local_exclude.iter().any(|entry| {
             same_folder(entry, &folder.to_string_lossy())
-                || name
-                    .as_deref()
-                    .is_some_and(|name| name.eq_ignore_ascii_case(entry))
+                || name.as_deref().is_some_and(|name| same_folder(entry, name))
         })
+    }
+    /// Whether the folder scan reads the game folder a game-folder id names: a
+    /// subfolder of a configured folder that is not left out. The scan says
+    /// nothing about one it does not read.
+    pub fn reads_local(&self, id: &str) -> bool {
+        let folder = folder_key(id);
+        folder.rsplit_once('\\').is_some_and(|(parent, _)| {
+            self.local_folders
+                .iter()
+                .any(|root| same_folder(&root.to_string_lossy(), parent))
+        }) && !self.excluded(Path::new(&folder))
     }
 }
 
@@ -140,14 +150,28 @@ fn folder_key(path: &str) -> String {
 fn same_folder(a: &str, b: &str) -> bool {
     !a.trim().is_empty() && folder_key(a) == folder_key(b)
 }
-/// Whether `path` is `folder` or inside it.
+/// Whether `path` is `folder` or inside it. A path that climbs out with `..` is in no folder.
 fn within(path: &str, folder: &str) -> bool {
     let (path, folder) = (folder_key(path), folder_key(folder));
     !folder.is_empty()
+        && ![&path, &folder]
+            .iter()
+            .any(|key| key.split('\\').any(|part| part == ".."))
         && (path == folder
             || path
                 .strip_prefix(&folder)
                 .is_some_and(|rest| rest.starts_with('\\')))
+}
+/// The program a command line starts: its quoted first part, or everything up to `.exe`.
+fn command_program(command: &str) -> &str {
+    let command = command.trim();
+    if let Some(rest) = command.strip_prefix('"') {
+        return rest.split('"').next().unwrap_or_default();
+    }
+    command
+        .to_ascii_lowercase()
+        .find(".exe")
+        .map_or(command, |end| &command[..end + 4])
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -234,16 +258,19 @@ impl Game {
         let same_name = !name.is_empty() && name_key(text("name")) == name;
         if same_name && !text("playnite-id").is_empty() {
             let plugin = name_key(text("playnite-plugin-name"));
-            return self
-                .source
-                .playnite_plugin()
-                .is_none_or(|launcher| plugin.starts_with(launcher));
+            let launchers = self.source.playnite_plugins();
+            return launchers.is_empty()
+                || launchers
+                    .iter()
+                    .any(|launcher| plugin.starts_with(launcher));
         }
         self.source == Source::Local
             && ((same_name && !text("steam-id").is_empty())
                 || ["working-dir", "launcher-install-dir", "steam-install-dir"]
                     .into_iter()
-                    .any(|key| same_folder(text(key), &self.install_dir)))
+                    .map(text)
+                    .chain([command_program(text("cmd"))])
+                    .any(|path| within(path, &self.install_dir)))
     }
     fn app(&self) -> Result<Value> {
         if let Some(reason) = &self.unavailable_reason {
@@ -746,7 +773,13 @@ pub fn gog(bytes: &[u8], folder: &Path, galaxy: Option<&Path>) -> Result<Option<
         .context("The GOG game has no primary play action.")?;
     let executable = relative_file(folder, action["path"].as_str().unwrap_or(""))?;
     let launch = if let Some(galaxy) = galaxy {
-        galaxy_launch(galaxy, id, folder)
+        Launch::Program {
+            program: galaxy.to_string_lossy().into_owned(),
+            arguments: format!(
+                "/launchViaAutostart /gameId={id} /command=runGame /path=\"{}\"",
+                folder.display()
+            ),
+        }
     } else {
         Launch::Program {
             program: executable.to_string_lossy().into_owned(),
@@ -763,24 +796,12 @@ pub fn gog(bytes: &[u8], folder: &Path, galaxy: Option<&Path>) -> Result<Option<
     }
     Ok(Some(game))
 }
-fn galaxy_launch(galaxy: &Path, id: &str, folder: &Path) -> Launch {
-    Launch::Program {
-        program: galaxy.to_string_lossy().into_owned(),
-        arguments: format!(
-            "/launchViaAutostart /gameId={id} /command=runGame /path=\"{}\"",
-            folder.display()
-        ),
-    }
-}
 
 /// A GOG game from the values of its `SOFTWARE\GOG.com\Games\<id>` registry key, for an
 /// install with no `goggame-<id>.info` (older offline installers write only the registry).
-/// Galaxy starts it when it is installed, otherwise its own program does. DLC (`dependsOn`)
-/// is not a game of its own.
-pub fn gog_registry(
-    values: &BTreeMap<String, String>,
-    galaxy: Option<&Path>,
-) -> Result<Option<Game>> {
+/// Its own program starts it: Galaxy runs a game from the play tasks in that file, which
+/// such an install lacks. DLC (`dependsOn`) is not a game of its own.
+pub fn gog_registry(values: &BTreeMap<String, String>) -> Result<Option<Game>> {
     let get = |key: &str| {
         values
             .iter()
@@ -807,17 +828,19 @@ pub fn gog_registry(
         within(program, folder) && !same_folder(program, folder),
         "The GOG game {name} has no program in its installation folder."
     );
-    let folder = Path::new(folder);
-    let launch = match galaxy {
-        Some(galaxy) => galaxy_launch(galaxy, id, folder),
-        None => Launch::Program {
-            program: program.into(),
-            arguments: get("launchParam").into(),
-        },
+    let launch = Launch::Program {
+        program: program.into(),
+        arguments: get("launchParam").into(),
     };
-    let mut game = Game::new(Source::Gog, id.into(), name.into(), folder, Some(launch));
+    let mut game = Game::new(
+        Source::Gog,
+        id.into(),
+        name.into(),
+        Path::new(folder),
+        Some(launch),
+    );
     let working = get("workingDir");
-    if galaxy.is_none() && within(working, &game.install_dir) {
+    if within(working, &game.install_dir) {
         game.working_dir = working.into();
     }
     Ok(Some(game))
@@ -859,7 +882,10 @@ fn helper_program(file: &str) -> bool {
         "redist",
         "directx",
         "dotnet",
-        "crash",
+        "crashhandler",
+        "crashpad",
+        "crashsender",
+        "crashdump",
         "bugreport",
         "errorreport",
         "reporter",
@@ -935,8 +961,9 @@ pub fn local(folder: &Path, programs: &[Program]) -> Option<Game> {
 }
 
 /// The scan's games once every source is read, sorted by name: one per launcher and id,
-/// and no game-folder entry for a folder a launcher already lists, one inside it, or one
-/// that holds a launcher's games (a library, not a game).
+/// and no game-folder entry for a folder a launcher already lists or one that holds a
+/// launcher's games (a library, not a game). A launcher's folder that holds game folders
+/// (a record pointing at `D:\Games`) hides none of them.
 pub fn finish(mut games: Vec<Game>) -> Vec<Game> {
     let mut seen = std::collections::BTreeSet::new();
     games.retain(|game| seen.insert((game.source, game.id.clone())));
@@ -947,9 +974,9 @@ pub fn finish(mut games: Vec<Game>) -> Vec<Game> {
         .collect();
     games.retain(|game| {
         game.source != Source::Local
-            || !launcher_folders.iter().any(|folder| {
-                within(&game.install_dir, folder) || within(folder, &game.install_dir)
-            })
+            || !launcher_folders
+                .iter()
+                .any(|folder| within(folder, &game.install_dir))
     });
     games.sort_by_cached_key(|game| (game.name.to_lowercase(), game.source, game.id.clone()));
     games

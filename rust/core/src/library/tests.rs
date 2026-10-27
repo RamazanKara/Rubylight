@@ -512,28 +512,20 @@ fn gog_registry_values() -> BTreeMap<String, String> {
 fn a_gog_registry_record_without_an_info_file_is_a_game() {
     let values = gog_registry_values();
     let folder = Path::new(r"D:\GOG Games\Unreal Tournament 2004");
-    let game = gog_registry(&values, None).unwrap().unwrap();
+    let game = gog_registry(&values).unwrap().unwrap();
     assert_eq!(
         (game.source, game.id.as_str(), game.name.as_str()),
         (Source::Gog, "1207658924", "Unreal Tournament 2004")
     );
     assert_eq!(game.install_dir, folder.to_string_lossy());
     assert_eq!(game.working_dir, folder.join("System"));
+    // Its own program: Galaxy needs the play tasks of a goggame-<id>.info.
     assert_eq!(
-        game.launch.unwrap(),
+        game.launch.clone().unwrap(),
         Launch::Program {
             program: r"D:\GOG Games\Unreal Tournament 2004\System\UT2004.exe".into(),
             arguments: "-nohomedir".into()
         }
-    );
-    let galaxy = Path::new(r"C:\Program Files (x86)\GOG Galaxy\GalaxyClient.exe");
-    let game = gog_registry(&values, Some(galaxy)).unwrap().unwrap();
-    assert!(
-        game.launch
-            .as_ref()
-            .unwrap()
-            .command()
-            .contains("/gameId=1207658924 /command=runGame")
     );
     // The same id as its goggame-<id>.info would give, so the scan lists it once.
     assert!(crate::native::Scan::from_games(&[game]).contains("gog:1207658924"));
@@ -543,16 +535,21 @@ fn a_gog_registry_record_without_an_info_file_is_a_game() {
 fn gog_registry_dlc_and_records_pointing_outside_their_folder_are_not_games() {
     let mut values = gog_registry_values();
     values.insert("dependsOn".into(), "1207658924".into());
-    assert!(gog_registry(&values, None).unwrap().is_none());
-    let mut values = gog_registry_values();
-    values.insert("exe".into(), r"C:\Windows\System32\cmd.exe".into());
-    assert!(gog_registry(&values, None).is_err());
+    assert!(gog_registry(&values).unwrap().is_none());
+    for outside in [
+        r"C:\Windows\System32\cmd.exe",
+        r"D:\GOG Games\Unreal Tournament 2004\..\..\Windows\System32\cmd.exe",
+    ] {
+        let mut values = gog_registry_values();
+        values.insert("exe".into(), outside.into());
+        assert!(gog_registry(&values).is_err(), "{outside}");
+    }
     let mut values = gog_registry_values();
     values.insert("gameID".into(), "12 & calc".into());
-    assert!(gog_registry(&values, None).is_err());
+    assert!(gog_registry(&values).is_err());
     let mut values = gog_registry_values();
     values.remove("gameName");
-    assert!(gog_registry(&values, None).is_err());
+    assert!(gog_registry(&values).is_err());
 }
 
 /// The game folders in `fixtures/local_folders.json`, as the folder scan lists them.
@@ -615,6 +612,17 @@ fn library_settings_turn_launchers_on_by_default_and_read_the_game_folders() {
     assert!(settings.excluded(Path::new(r"D:\Games\Portal Clone")));
     assert!(settings.excluded(Path::new("f:/old/thing/")));
     assert!(!settings.excluded(Path::new(r"D:\Games\Hades")));
+    let by_name = Settings {
+        local_exclude: vec![r"PORTAL CLONE\".into()],
+        ..Settings::default()
+    };
+    assert!(by_name.excluded(Path::new(r"D:\Games\Portal Clone")));
+    // The scan reads a configured folder's subfolders that are not left out.
+    assert!(settings.reads_local(r"d:\games\hades"));
+    assert!(settings.reads_local(r"e:\more games\celeste"));
+    assert!(!settings.reads_local(r"d:\games\portal clone"));
+    assert!(!settings.reads_local(r"d:\games\hades\bin"));
+    assert!(!settings.reads_local(r"c:\games\hades"));
 }
 
 #[test]
@@ -656,6 +664,25 @@ fn a_game_folder_starts_its_game_not_its_installers_redistributables_or_crash_re
         (again.id.as_str(), again.uuid()),
         (witcher.id.as_str(), witcher.uuid())
     );
+    // "Crash" in the game's own name does not make it a crash reporter.
+    let crashlands = local(
+        Path::new(r"D:\Games\Crashlands"),
+        &[
+            Program {
+                path: "Crashlands.exe".into(),
+                size: 1_000_000,
+            },
+            Program {
+                path: "CrashSender1403.exe".into(),
+                size: 9_000_000,
+            },
+        ],
+    )
+    .unwrap();
+    assert_eq!(
+        crashlands.launch.unwrap().command(),
+        r#""D:\Games\Crashlands\Crashlands.exe""#
+    );
 }
 
 #[test]
@@ -677,7 +704,15 @@ fn a_game_folder_a_launcher_already_lists_is_listed_once_under_the_launcher() {
             size: 4_000_000,
         }],
     ));
-    games.extend([epic, steam]);
+    // A launcher record pointing at the folder of game folders hides none of them.
+    let library = Game::new(
+        Source::Ea,
+        "1".into(),
+        "Broken record".into(),
+        Path::new(r"D:\Games\"),
+        None,
+    );
+    games.extend([epic, steam, library]);
     games.extend(local_games());
     let names: Vec<_> = finish(games)
         .into_iter()
@@ -686,6 +721,7 @@ fn a_game_folder_a_launcher_already_lists_is_listed_once_under_the_launcher() {
     assert_eq!(
         names,
         [
+            ("Broken record".to_owned(), Source::Ea),
             ("Celeste".to_owned(), Source::Local),
             ("Dota 2".to_owned(), Source::Steam),
             ("The Witcher 3".to_owned(), Source::Local),
@@ -705,6 +741,17 @@ fn games_steam_or_playnite_already_keep_are_already_added() {
     // Playnite's GOG copy of the same title is another copy, as with two launchers.
     assert!(!epic.matches(&playnite("Étoile", "GOG")));
     assert!(!epic.matches(&playnite("Another game", "Epic")));
+    // Playnite's EA library from before the rename is still EA's.
+    let ea = Game::new(
+        Source::Ea,
+        "1".into(),
+        "Mass Effect".into(),
+        Path::new(r"D:\EA\Mass Effect"),
+        None,
+    );
+    assert!(ea.matches(&playnite("Mass Effect", "Origin")));
+    assert!(ea.matches(&playnite("Mass Effect", "EA app")));
+    assert!(!ea.matches(&playnite("Mass Effect", "Steam")));
     // A game folder is the game any Steam or Playnite app of that name is,
     // and any app started from that folder.
     assert!(witcher.matches(&playnite("The Witcher 3", "GOG")));
@@ -712,7 +759,20 @@ fn games_steam_or_playnite_already_keep_are_already_added() {
     assert!(witcher.matches(
         &json!({"name": "Mine", "working-dir": "d:/games/the witcher 3/", "cmd": "w3.exe"})
     ));
-    assert!(!witcher.matches(&json!({"name": "The Witcher 3", "cmd": "other.exe"})));
+    for started in [
+        json!({"name": "Mine", "working-dir": r"D:\Games\The Witcher 3\bin\x64"}),
+        json!({"name": "Mine", "cmd": r#""D:\Games\The Witcher 3\bin\x64\witcher3.exe" -dx12"#}),
+        json!({"name": "Mine", "cmd": r"d:\games\the witcher 3\bin\x64\witcher3.exe -dx12"}),
+    ] {
+        assert!(witcher.matches(&started), "{started}");
+    }
+    for elsewhere in [
+        json!({"name": "The Witcher 3", "cmd": "other.exe"}),
+        json!({"name": "Mine", "cmd": r#""D:\Games\The Witcher 3 Mods\tool.exe""#}),
+        json!({"name": "Mine", "working-dir": r"D:\Games\The Witcher 3\..\Hades"}),
+    ] {
+        assert!(!witcher.matches(&elsewhere), "{elsewhere}");
+    }
     let mut apps = vec![json!({"name": "The Witcher 3", "steam-id": "292030"})];
     let results = import(
         &mut apps,

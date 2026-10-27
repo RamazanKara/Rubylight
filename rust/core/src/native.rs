@@ -31,12 +31,16 @@ pub struct Scan {
     installed: BTreeSet<String>,
     /// Source keys the scan did not read (turned off): their games' state is unknown.
     skipped: BTreeSet<String>,
+    /// The game folders the scan read, when it read any: a game folder outside them
+    /// (a folder since removed or left out) has an unknown state.
+    folders: Option<crate::library::Settings>,
 }
 impl Scan {
     pub fn new(game_ids: impl IntoIterator<Item = String>) -> Self {
         Self {
             installed: game_ids.into_iter().collect(),
             skipped: BTreeSet::new(),
+            folders: None,
         }
     }
     /// The scan did not read these sources, so it says nothing about their games.
@@ -45,12 +49,22 @@ impl Scan {
             .extend(sources.into_iter().map(|source| source.key().to_owned()));
         self
     }
-    /// Whether the game is installed, `None` when the scan did not read its source.
+    /// The scan read the game folders of these settings and no others.
+    pub fn reading(mut self, settings: crate::library::Settings) -> Self {
+        self.folders = Some(settings);
+        self
+    }
+    /// Whether the game is installed, `None` when the scan did not read its source
+    /// or, for a game folder, the folder.
     pub fn installed(&self, game_id: &str) -> Option<bool> {
-        let source = game_id
-            .split_once(':')
-            .map_or(game_id, |(source, _)| source);
-        (!self.skipped.contains(source)).then(|| self.contains(game_id))
+        let (source, id) = game_id.split_once(':').unwrap_or((game_id, ""));
+        let unread = self.skipped.contains(source)
+            || (source == Source::Local.key()
+                && self
+                    .folders
+                    .as_ref()
+                    .is_some_and(|settings| !settings.reads_local(id)));
+        (!unread).then(|| self.contains(game_id))
     }
     pub fn from_games(games: &[crate::library::Game]) -> Self {
         Self::new(
@@ -452,6 +466,28 @@ mod tests {
         let library = library(&[dota(), epic], Some(&scan), None);
         assert_eq!(library.games[0].installed, Some(true));
         assert_eq!(library.games[1].installed, None);
+    }
+
+    #[test]
+    fn a_game_folder_the_scan_no_longer_reads_has_an_unknown_installed_state() {
+        let folder = |name: &str, id: &str| {
+            app(json!({"name": name, "uuid": name, "launcher-source": "local", "launcher-id": id}))
+        };
+        let settings = crate::library::Settings {
+            local_folders: vec!["D:/Games/".into()],
+            local_exclude: vec!["Left Out".into()],
+            ..Default::default()
+        };
+        let scan = Scan::new([r"local:d:\games\hades".into()]).reading(settings);
+        let apps = [
+            folder("Hades", r"d:\games\hades"),
+            folder("Removed", r"d:\games\removed"),
+            folder("Left out", r"d:\games\left out"),
+            folder("Elsewhere", r"e:\old games\celeste"),
+        ];
+        let library = library(&apps, Some(&scan), None);
+        let installed: Vec<_> = library.games.iter().map(|game| game.installed).collect();
+        assert_eq!(installed, [Some(true), Some(false), None, None]);
     }
 
     #[test]

@@ -46,6 +46,7 @@ pub use pairing::{PairFailure, PairResult, PairStep};
 pub use power::{PowerError, PowerReply, Refusal};
 pub use remote_check::{ConnectionTestStats, RemoteCheck, RemoteOutcome, REMOTE_CHECK_PROBES};
 pub use serverinfo::ServerInfo;
+pub use transport::set_app_version;
 
 /// The Rubylight native API v1 wire types, for callers of the `HostClient` native methods.
 pub use rubylight_native_api as native_api;

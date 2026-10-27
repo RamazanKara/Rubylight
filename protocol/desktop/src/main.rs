@@ -139,6 +139,8 @@ fn display_of(window: *mut SDL_Window) -> Display {
 }
 
 fn main() {
+    // Every request to a host says which Nightjar asks: `User-Agent: Nightjar/<version>`.
+    nightjar_core::http::set_app_version(env!("CARGO_PKG_VERSION"));
     // Package checks run without a window: `nightjar --check-pyrowave <report file>`.
     let mut args = std::env::args_os().skip(1);
     if args.next().is_some_and(|flag| flag == "--check-pyrowave") {

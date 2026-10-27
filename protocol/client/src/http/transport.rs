@@ -8,8 +8,30 @@ use rustls::{ClientConfig, ClientConnection, DigitallySignedStruct, SignatureSch
 use std::io::{ErrorKind, Read, Write};
 use std::net::{IpAddr, Ipv6Addr, Shutdown, SocketAddr, SocketAddrV6, TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
+
+static USER_AGENT: OnceLock<String> = OnceLock::new();
+
+/// Names the app's version in every request's `User-Agent`, `Nightjar/<version>`; until it is
+/// set (tools and tests) the header is plain `Nightjar`. The first call wins.
+pub fn set_app_version(version: &str) {
+    let _ = USER_AGENT.set(user_agent_for(version));
+}
+
+/// `Nightjar/<version>` with only printable ASCII kept, so a version can never end the header.
+fn user_agent_for(version: &str) -> String {
+    let version: String = version.chars().filter(|c| c.is_ascii_graphic()).collect();
+    if version.is_empty() {
+        "Nightjar".into()
+    } else {
+        format!("Nightjar/{version}")
+    }
+}
+
+fn user_agent() -> &'static str {
+    USER_AGENT.get().map_or("Nightjar", String::as_str)
+}
 
 /// A host address: an IP literal (IPv6 may carry a numeric `%scope`) or a host name.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -502,11 +524,12 @@ fn request_head(request: &Request<'_>, body: Option<Body<'_>>) -> String {
 /// A GET, or a POST of `(media type, length)`.
 fn head(request: &Request<'_>, body: Option<(&str, u64)>) -> String {
     let mut head = format!(
-        "{} /{} HTTP/1.1\r\nHost: {}:{}\r\nConnection: close\r\nUser-Agent: Nightjar\r\n",
+        "{} /{} HTTP/1.1\r\nHost: {}:{}\r\nConnection: close\r\nUser-Agent: {}\r\n",
         if body.is_some() { "POST" } else { "GET" },
         request.target,
         request.host.url_host(),
-        request.port
+        request.port,
+        user_agent()
     );
     if let Some((content_type, length)) = body {
         if !content_type.is_empty() {
@@ -986,6 +1009,16 @@ mod tests {
             (uuid.len(), &uuid[14..15], uuid.matches('-').count()),
             (36, "4", 4)
         );
+    }
+
+    #[test]
+    fn the_user_agent_names_the_app_version() {
+        assert_eq!(user_agent_for("3.2.3"), "Nightjar/3.2.3");
+        assert_eq!(user_agent_for("3.0.0-rc.3"), "Nightjar/3.0.0-rc.3");
+        // A version that would end the header or split the product token is cut down to it.
+        assert_eq!(user_agent_for("3.2\r\nX-Injected: 1"), "Nightjar/3.2X-Injected:1");
+        assert_eq!(user_agent_for(" "), "Nightjar");
+        assert_eq!(user_agent_for(""), "Nightjar");
     }
 
     #[test]

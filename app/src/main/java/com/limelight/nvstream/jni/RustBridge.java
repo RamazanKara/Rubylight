@@ -1,5 +1,6 @@
 package com.limelight.nvstream.jni;
 
+import com.limelight.BuildConfig;
 import com.limelight.LimeLog;
 
 /**
@@ -19,7 +20,7 @@ final class RustBridge {
             boolean loaded;
             try {
                 System.loadLibrary("nightjar_core");
-                loaded = init();
+                loaded = init(BuildConfig.VERSION_NAME);
             } catch (UnsatisfiedLinkError e) {
                 LimeLog.warning("Rust engine unavailable: " + e.getMessage());
                 loaded = false;
@@ -66,7 +67,8 @@ final class RustBridge {
         return true;
     }
 
-    private static native boolean init();
+    /** Loads the engine; {@code appVersion} names this app in the User-Agent of requests to the host. */
+    private static native boolean init(String appVersion);
 
     static native int startConnection(String address, String appVersion, String rtspSessionUrl,
                                       int serverCodecModeSupport, int width, int height, int fps,

@@ -240,7 +240,7 @@ pub(crate) fn probe(request: &Request<'_>, cancel: &Cancel, timeout: Duration, h
 fn send_inner(request: &Request<'_>, cancel: &Cancel, body: Option<Body<'_>>, timeout: Option<Duration>, headers: &mut HeaderHook<'_>) -> Result<Response, Error> {
     let deadline = timeout.map_or(Deadline::None, |timeout| Deadline::At(std::time::Instant::now() + timeout));
     let head = request_head(request, body);
-    connection(request, &[cancel], deadline, Some(write_timeout(request)), &head, |stream, peer| {
+    connection(request, &[cancel], deadline, Some(write_timeout(request)), &head, None, |stream, peer| {
         if let Some(body) = body { stream.write_all(body.bytes).map_err(io_tls_error)?; }
         stream.flush().map_err(io_tls_error)?;
         read_response_with_headers(stream, request.body_limit, &mut |status, fields: &[(String, String)]| headers(status, fields, peer))
@@ -307,26 +307,69 @@ const UPLOAD_CHUNK: usize = 64 * 1024;
 /// also bounds every write, and the time without progress over all of them, so a host that
 /// stops reading fails the upload once. A reader that ends before `length` fails loudly.
 ///
-/// The body waits for the host's `100 Continue`, within the read timeout: a host that refuses
-/// the upload by its head (413, 403) answers and closes without reading it, and on Windows the
-/// reset of a body sent anyway discards that answer before it is read.
+/// The body waits for the host's `100 Continue`: a host that refuses the upload by its head
+/// (413, 403) answers and closes without reading it, and on Windows the reset of a body sent
+/// anyway discards that answer before it is read. A host (or proxy) that says nothing for
+/// [`CONTINUE_WAIT`] gets the body anyway, as curl sends it.
 pub(crate) fn upload(request: &Request<'_>, cancel: &Cancel, upload: Upload<'_>, progress: &mut Progress<'_>, transfer: &Cancel) -> Result<Response, Error> {
     let mut head = head_with(upload.method, request, Some((upload.content_type, upload.length)));
     head.insert_str(head.len() - 2, "Expect: 100-continue\r\n");
-    connection(request, &[cancel, transfer], Deadline::idle(request), request.timeouts.read, &head, |stream, _| {
-        match await_continue(stream, request.body_limit)? {
+    let continue_by = ContinueBy::default();
+    connection(request, &[cancel, transfer], Deadline::idle(request), request.timeouts.read, &head, Some(&continue_by), |stream, _| {
+        let answer = await_continue(stream, request.body_limit, &continue_by);
+        continue_by.set(None);
+        match answer? {
             Some(refusal) => Ok(refusal),
             None => send_upload(stream, upload, request.body_limit, progress, transfer),
         }
     })
 }
 
+/// How long an upload waits for `100 Continue` before it sends the body anyway.
+const CONTINUE_WAIT: Duration = Duration::from_secs(1);
+
+/// When an upload stops waiting for `100 Continue`: armed once its head is out, it cuts the
+/// socket's reads short until `upload` disarms it.
+type ContinueBy = std::rc::Rc<std::cell::Cell<Option<std::time::Instant>>>;
+
+/// What a read waiting for `100 Continue` fails with once [`CONTINUE_WAIT`] is over.
+#[derive(Debug)]
+struct ContinueElapsed;
+
+impl std::fmt::Display for ContinueElapsed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("no 100 Continue")
+    }
+}
+
+impl std::error::Error for ContinueElapsed {}
+
+fn continue_elapsed() -> std::io::Error {
+    std::io::Error::new(ErrorKind::TimedOut, ContinueElapsed)
+}
+
+fn is_continue_elapsed(error: &Error) -> bool {
+    matches!(error, Error::Io(e) if e.get_ref().is_some_and(|inner| inner.is::<ContinueElapsed>()))
+}
+
 /// Reads the host's answer to an `Expect: 100-continue` head: `None` once it says `100 Continue`,
-/// else its refusal, read whole. It cannot have accepted a body it did not get.
-fn await_continue(stream: &mut dyn Stream, body_limit: usize) -> Result<Option<Response>, Error> {
+/// or says nothing at all by `continue_by`, else its refusal, read whole. It cannot have
+/// accepted a body it did not get.
+fn await_continue(stream: &mut dyn Stream, body_limit: usize, continue_by: &ContinueBy) -> Result<Option<Response>, Error> {
     let mut reader = Reader { stream, buffer: Vec::new(), eof: false };
     loop {
-        let head = read_head(&mut reader)?;
+        let head = match read_head(&mut reader) {
+            Ok(head) => head,
+            Err(error) if is_continue_elapsed(&error) => {
+                continue_by.set(None);
+                if reader.buffer.is_empty() {
+                    return Ok(None);
+                }
+                // Part of an answer arrived: the rest has the read timeout.
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
         match head.status {
             100 => break,
             102..=199 => continue,
@@ -397,7 +440,7 @@ fn write_upload<W: Write + ?Sized>(stream: &mut W, upload: Upload<'_>, progress:
 /// timeout bounds the time without progress.
 pub(crate) fn download(request: &Request<'_>, cancel: &Cancel, sink: &mut dyn Write, progress: &mut Progress<'_>, transfer: &Cancel) -> Result<Response, Error> {
     let head = request_head(request, None);
-    connection(request, &[cancel, transfer], Deadline::idle(request), Some(write_timeout(request)), &head, |stream, _| {
+    connection(request, &[cancel, transfer], Deadline::idle(request), Some(write_timeout(request)), &head, None, |stream, _| {
         receive(stream, request.body_limit, sink, progress, transfer)
     })
 }
@@ -464,7 +507,7 @@ impl Deadline {
 /// the answer; any of `cancels` can abort it from another thread. Whatever fails once one is
 /// set (a reset, or a body cut short by the shutdown) is `Error::Cancelled`.
 fn connection<T>(request: &Request<'_>, cancels: &[&Cancel], deadline: Deadline, write_timeout: Option<Duration>,
-    head: &str, exchange: impl FnOnce(&mut dyn Stream, SocketAddr) -> Result<T, Error>) -> Result<T, Error> {
+    head: &str, continue_by: Option<&ContinueBy>, exchange: impl FnOnce(&mut dyn Stream, SocketAddr) -> Result<T, Error>) -> Result<T, Error> {
     let cancelled = || cancels.iter().any(|cancel| cancel.is_cancelled());
     if cancelled() {
         return Err(Error::Cancelled);
@@ -475,7 +518,7 @@ fn connection<T>(request: &Request<'_>, cancels: &[&Cancel], deadline: Deadline,
         let result = cancels
             .iter()
             .try_for_each(|cancel| cancel.register(&tcp).map(|id| ids.push(id)))
-            .and_then(|()| open(request, tcp, deadline, write_timeout, head))
+            .and_then(|()| open(request, tcp, deadline, write_timeout, head, continue_by))
             .and_then(|(mut stream, peer)| exchange(&mut *stream, peer));
         for (cancel, id) in cancels.iter().zip(ids) {
             cancel.unregister(id);
@@ -515,9 +558,9 @@ fn connect_each<S>(addresses: &[SocketAddr], timeout: Duration, deadline: Option
     ))
 }
 
-/// Sets the timeouts, completes any TLS handshake and writes `head`.
+/// Sets the timeouts, completes any TLS handshake, writes `head` and arms `continue_by`.
 fn open(request: &Request<'_>, tcp: TcpStream, deadline: Deadline, write_timeout: Option<Duration>,
-    head: &str) -> Result<(Box<dyn Stream>, SocketAddr), Error> {
+    head: &str, continue_by: Option<&ContinueBy>) -> Result<(Box<dyn Stream>, SocketAddr), Error> {
     let peer = tcp.peer_addr()?;
     tcp.set_read_timeout(request.timeouts.read)?;
     tcp.set_write_timeout(write_timeout)?;
@@ -527,7 +570,8 @@ fn open(request: &Request<'_>, tcp: TcpStream, deadline: Deadline, write_timeout
         Deadline::At(at) => (Some(at), None),
         Deadline::Idle(idle) => (Some(std::time::Instant::now() + idle), Some(idle)),
     };
-    let tcp = DeadlineSocket { socket: tcp, deadline, idle, read_timeout: request.timeouts.read, write_timeout };
+    let tcp = DeadlineSocket { socket: tcp, deadline, idle, read_timeout: request.timeouts.read, write_timeout,
+        continue_by: continue_by.cloned(), capped: false };
     let mut stream: Box<dyn Stream> = match &request.tls {
         None => Box::new(tcp),
         Some(config) => {
@@ -546,6 +590,9 @@ fn open(request: &Request<'_>, tcp: TcpStream, deadline: Deadline, write_timeout
         }
     };
     stream.write_all(head.as_bytes()).map_err(io_tls_error)?;
+    if let Some(continue_by) = continue_by {
+        continue_by.set(Some(std::time::Instant::now() + CONTINUE_WAIT));
+    }
     Ok((stream, peer))
 }
 
@@ -583,6 +630,10 @@ struct DeadlineSocket {
     idle: Option<Duration>,
     read_timeout: Option<Duration>,
     write_timeout: Option<Duration>,
+    /// While armed, reads end by then with [`ContinueElapsed`].
+    continue_by: Option<ContinueBy>,
+    /// Whether the last read had its timeout cut short by `continue_by`.
+    capped: bool,
 }
 
 impl DeadlineSocket {
@@ -608,10 +659,22 @@ impl DeadlineSocket {
 
 impl Read for DeadlineSocket {
     fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
-        if let Some(left) = self.remaining()? {
-            self.socket.set_read_timeout(Some(self.read_timeout.map_or(left, |timeout| timeout.min(left))))?;
+        let left = self.remaining()?;
+        let wait = self.continue_by.as_ref().and_then(|by| by.get())
+            .map(|by| by.saturating_duration_since(std::time::Instant::now()));
+        if wait.is_some_and(|wait| wait.is_zero()) {
+            return Err(continue_elapsed());
+        }
+        let limit = [self.read_timeout, left].into_iter().flatten().min();
+        let capped = wait.filter(|wait| limit.map_or(true, |limit| *wait < limit));
+        if left.is_some() || capped.is_some() || self.capped {
+            self.socket.set_read_timeout(capped.or(limit))?;
+            self.capped = capped.is_some();
         }
         let read = self.socket.read(bytes);
+        if capped.is_some() && matches!(&read, Err(e) if matches!(e.kind(), ErrorKind::TimedOut | ErrorKind::WouldBlock)) {
+            return Err(continue_elapsed());
+        }
         self.moved(read, 1)
     }
 }
@@ -1418,6 +1481,64 @@ mod tests {
     }
 
     #[test]
+    fn a_host_that_never_says_continue_gets_the_body_after_the_wait() {
+        let host_name = Host::parse("127.0.0.1").unwrap();
+        let sent = file(300 * 1024);
+        let length = sent.len() as u64;
+        for tls in [false, true] {
+            fn serve(socket: &mut (impl Read + Write), length: usize) -> Vec<u8> {
+                let head = read_head_only(socket);
+                assert!(head.contains("\r\nExpect: 100-continue\r\n"), "{head}");
+                let mut body = vec![0; length];
+                socket.read_exact(&mut body).unwrap();
+                socket.write_all(b"HTTP/1.1 201 Created\r\nContent-Length: 2\r\n\r\n{}").unwrap();
+                socket.flush().unwrap();
+                body
+            }
+            let (port, config, server) = if tls {
+                let (port, config, server) = tls_host(move |mut tls| serve(&mut tls, length as usize));
+                (port, Some(config), server)
+            } else {
+                let (port, server) = host(move |mut socket| serve(&mut socket, length as usize));
+                (port, None, server)
+            };
+            let request = Request { tls: config, ..transfer(&host_name, port, "files") };
+            let started = std::time::Instant::now();
+            let response = upload(&request, &Cancel::default(),
+                Upload { reader: &mut &sent[..], length, content_type: "application/octet-stream", method: "PUT" },
+                &mut |_, _| {}, &Cancel::default()).unwrap();
+            let took = started.elapsed();
+            assert_eq!((response.status, response.body.as_slice()), (201, &b"{}"[..]), "tls {tls}");
+            assert!(server.join().unwrap() == sent, "tls {tls}");
+            // After the wait, and well inside the 10 s read timeout.
+            assert!(took >= CONTINUE_WAIT - Duration::from_millis(100) && took < Duration::from_secs(5), "tls {tls}: {took:?}");
+        }
+    }
+
+    #[test]
+    fn a_continue_wait_cuts_only_reads_while_armed() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let socket = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (mut peer, _) = listener.accept().unwrap();
+        let continue_by = ContinueBy::default();
+        let mut tcp = DeadlineSocket { socket, deadline: None, idle: None, read_timeout: Some(Duration::from_secs(10)),
+            write_timeout: None, continue_by: Some(continue_by.clone()), capped: false };
+        continue_by.set(Some(std::time::Instant::now() + Duration::from_millis(200)));
+        let started = std::time::Instant::now();
+        let error = tcp.read(&mut [0; 4]).unwrap_err();
+        assert!(is_continue_elapsed(&Error::Io(error)), "a wait that ran out is not a timeout");
+        assert!(started.elapsed() < Duration::from_secs(5));
+        // Disarmed, the read timeout is the socket's again.
+        continue_by.set(None);
+        peer.write_all(b"late").unwrap();
+        let mut bytes = [0; 4];
+        tcp.read_exact(&mut bytes).unwrap();
+        assert_eq!(&bytes, b"late");
+        assert!(!tcp.capped);
+        assert_eq!(tcp.socket.read_timeout().unwrap(), Some(Duration::from_secs(10)));
+    }
+
+    #[test]
     fn a_short_or_stopped_upload_is_an_error_not_a_short_body() {
         let host_name = Host::parse("127.0.0.1").unwrap();
         // The file ends early.
@@ -1610,7 +1731,8 @@ mod tests {
         let socket = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         let idle = Duration::from_secs(60);
         let start = std::time::Instant::now() + Duration::from_millis(10);
-        let mut tcp = DeadlineSocket { socket, deadline: Some(start), idle: Some(idle), read_timeout: None, write_timeout: None };
+        let mut tcp = DeadlineSocket { socket, deadline: Some(start), idle: Some(idle), read_timeout: None, write_timeout: None,
+            continue_by: None, capped: false };
         // What Linux returns for a write whose timeout ran out with part of it sent.
         tcp.moved(Ok(7876), 16406).unwrap();
         assert_eq!(tcp.deadline, Some(start));

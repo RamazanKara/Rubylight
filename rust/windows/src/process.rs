@@ -124,6 +124,77 @@ pub fn standard_user_token() -> Result<Option<OwnedHandle>> {
 pub fn own_sid() -> Result<String> {
     token_user_sid(&token()?)
 }
+/// Whether an object owned by `owner` (a SID) is one this process can trust
+/// with machine-wide settings: SYSTEM's, the Administrators group's (what an
+/// elevated administrator makes), or this process's own account's (what an
+/// unelevated process makes; a program of that account can do what this
+/// process does anyway). Never another user's.
+pub fn trusted_owner(owner: &str) -> Result<bool> {
+    Ok(matches!(owner, "S-1-5-18" | "S-1-5-32-544") || owner == own_sid()?)
+}
+/// The owner (a SID) of the kernel object `handle` opens with `READ_CONTROL`.
+pub fn handle_owner(handle: HANDLE) -> Result<String> {
+    use windows::Win32::Security::Authorization::{GetSecurityInfo, SE_KERNEL_OBJECT};
+    let mut owner = PSID::default();
+    let mut descriptor = PSECURITY_DESCRIPTOR::default();
+    // SAFETY: `owner` points into `descriptor`, read before it is freed once with LocalFree.
+    unsafe {
+        GetSecurityInfo(
+            handle,
+            SE_KERNEL_OBJECT,
+            OWNER_SECURITY_INFORMATION,
+            Some(&mut owner),
+            None,
+            None,
+            None,
+            Some(&mut descriptor),
+        )
+        .ok()
+        .context("reading the owner")?;
+        let sid = sid_text(owner);
+        let _ = LocalFree(Some(HLOCAL(descriptor.0)));
+        sid
+    }
+}
+/// The owner (a SID) of a file or folder.
+pub fn file_owner(path: &Path) -> Result<String> {
+    use windows::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
+    let name = wide(path.as_os_str())?;
+    let mut owner = PSID::default();
+    let mut descriptor = PSECURITY_DESCRIPTOR::default();
+    // SAFETY: `name` is NUL-terminated and outlives the call; `owner` points into `descriptor`,
+    // read before it is freed once with LocalFree.
+    unsafe {
+        GetNamedSecurityInfoW(
+            PCWSTR(name.as_ptr()),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION,
+            Some(&mut owner),
+            None,
+            None,
+            None,
+            &mut descriptor,
+        )
+        .ok()
+        .with_context(|| format!("reading the owner of {}", path.display()))?;
+        let sid = sid_text(owner);
+        let _ = LocalFree(Some(HLOCAL(descriptor.0)));
+        sid
+    }
+}
+/// # Safety
+/// `sid` points at a valid SID.
+unsafe fn sid_text(sid: PSID) -> Result<String> {
+    use windows::Win32::Security::Authorization::ConvertSidToStringSidW;
+    let mut text = PWSTR::null();
+    // SAFETY: the caller's SID is valid; the string is read before it is freed once.
+    unsafe {
+        ConvertSidToStringSidW(sid, &mut text)?;
+        let sid = text.to_string();
+        let _ = LocalFree(Some(HLOCAL(text.0.cast())));
+        sid.context("Windows returned an invalid SID")
+    }
+}
 fn token_user_sid(token: &OwnedHandle) -> Result<String> {
     use windows::Win32::Security::Authorization::ConvertSidToStringSidW;
     // SAFETY: `buffer` holds a TOKEN_USER once the call succeeds, and the string from

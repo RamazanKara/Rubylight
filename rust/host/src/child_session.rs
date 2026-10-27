@@ -261,16 +261,27 @@ fn enforce_with<S: SystemSettings>(
 
 /// `butterpollo.exe --child-session-restore`, which the uninstaller runs: put
 /// back the Windows settings child-session setup changed. 0 when they are back
-/// or setup never ran here, 1 with the reason on stderr.
+/// or setup never ran here, 1 with the reason on stderr. It fails closed, as
+/// [`secure_rdp`] does: a restore that failed, or could not get the settings
+/// lock, turns RDP off, without the lock.
 pub(crate) fn restore_exit_code(config_dir: Option<PathBuf>) -> i32 {
-    restore_exit_code_with(config_dir, restore_saved)
+    restore_exit_code_with(config_dir, restore_saved, || {
+        logic::turn_rdp_off(&mut native::NativeRegistry)
+    })
 }
 fn restore_exit_code_with(
     config_dir: Option<PathBuf>,
     restore: impl FnOnce(&Path) -> Result<bool>,
+    rdp_off: impl FnOnce() -> String,
 ) -> i32 {
     let directory = config_dir.unwrap_or_else(butterpollo_core::paths::installed_profile);
-    match restore_locked(&directory, restore) {
+    let restored = if matches!(setup_path(&directory).try_exists(), Ok(false)) {
+        // Setup never ran here: nothing to restore, and no lock to take.
+        Ok(false)
+    } else {
+        restore_locked(&directory, restore)
+    };
+    match restored {
         Ok(true) => {
             println!("Restored the Windows settings child-session setup changed.");
             0
@@ -280,8 +291,10 @@ fn restore_exit_code_with(
             0
         }
         Err(error) => {
+            let off = rdp_off();
             eprintln!(
-                "The Windows settings child-session setup changed were not restored: {error:#}"
+                "The Windows settings child-session setup changed were not restored: {error:#}. {off}. Rubylight keeps its record, so restoring again (Restore Windows settings in the console, or butterpollo.exe {}) puts back the rest.",
+                logic::RESTORE_FLAG
             );
             1
         }
@@ -1007,7 +1020,11 @@ mod tests {
 
     fn set_up_record() -> PathBuf {
         let directory = scratch();
-        let state = SetupState {
+        save_state(&directory, &recorded()).unwrap();
+        directory
+    }
+    fn recorded() -> SetupState {
+        SetupState {
             version: 1,
             user_sid: "S-1-5-21-1".into(),
             deny_ts_connections: Some(1),
@@ -1016,9 +1033,7 @@ mod tests {
             child_sessions: false,
             remote_desktop_rule_ids: Vec::new(),
             rdp_port: 3390,
-        };
-        save_state(&directory, &state).unwrap();
-        directory
+        }
     }
 
     #[test]
@@ -1134,11 +1149,16 @@ mod tests {
         for hold in HOLDERS {
             // The uninstaller's restore.
             let config = directory.clone();
+            save_state(&directory, &recorded()).unwrap();
             let code = waits_for_the_settings_lock(hold, move |reached| {
-                restore_exit_code_with(Some(config), |_| {
-                    reached.send(()).unwrap();
-                    Ok(true)
-                })
+                restore_exit_code_with(
+                    Some(config),
+                    |_| {
+                        reached.send(()).unwrap();
+                        Ok(true)
+                    },
+                    || panic!("restored"),
+                )
             });
             assert_eq!(code, 0);
             // The console's restore.
@@ -1199,6 +1219,52 @@ mod tests {
             assert_eq!(problem, None);
             assert_eq!(checks.try_recv().unwrap(), Some(3390));
         }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn the_uninstallers_restore_fails_closed() {
+        use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
+        let off = AtomicU32::new(0);
+        let rdp_off = || {
+            off.fetch_add(1, SeqCst);
+            "Remote Desktop was turned off (fDenyTSConnections = 1), so it is not open to the network".to_string()
+        };
+        // Setup never ran: nothing to restore, RDP left as the user has it.
+        let empty = scratch();
+        let never = |_: &Path| -> Result<bool> { panic!("nothing to restore") };
+        assert_eq!(
+            restore_exit_code_with(Some(empty.clone()), never, rdp_off),
+            0
+        );
+        assert_eq!(off.load(SeqCst), 0);
+        std::fs::remove_dir_all(empty).unwrap();
+        // A restore that fails turns RDP off.
+        let directory = set_up_record();
+        let failed = |_: &Path| -> Result<bool> { bail!("access denied") };
+        assert_eq!(
+            restore_exit_code_with(Some(directory.clone()), failed, rdp_off),
+            1
+        );
+        assert_eq!(off.load(SeqCst), 1);
+        // So does a settings lock another process keeps.
+        let lock = native::lock::setup_lock(settings_wait()).unwrap();
+        let code = std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    SETTINGS_WAIT.set(Some(std::time::Duration::from_millis(200)));
+                    restore_exit_code_with(
+                        Some(directory.clone()),
+                        |_| panic!("restored without the lock"),
+                        rdp_off,
+                    )
+                })
+                .join()
+                .unwrap()
+        });
+        drop(lock);
+        assert_eq!(code, 1);
+        assert_eq!(off.load(SeqCst), 2);
         std::fs::remove_dir_all(directory).unwrap();
     }
 

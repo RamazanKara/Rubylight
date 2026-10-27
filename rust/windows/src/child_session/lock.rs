@@ -3,7 +3,8 @@
 //! uninstaller's `butterpollo.exe --child-session-restore` change the same
 //! Windows settings, one at a time. A `Global\` named mutex, so it holds
 //! across sessions too, that SYSTEM, elevated administrators and its creator
-//! open.
+//! open. A mutex of that name another program made first (any user can make
+//! `Global\` ones) is refused by its owner, never waited for.
 
 use crate::text::to_wide;
 use anyhow::{Context, Result, bail};
@@ -28,6 +29,8 @@ pub const SETUP_LOCK: &str = r"Global\Rubylight.ChildSessionSetup";
 /// How long the host waits for [`setup_lock`]: longer than setup or restore
 /// take, which run the firewall rule script (60 s at most) once each.
 pub const SETUP_LOCK_TIMEOUT: Duration = Duration::from_secs(120);
+/// The right to read the mutex's owner.
+const READ_CONTROL: u32 = 0x0002_0000;
 
 /// A named mutex this thread holds until the lock is dropped. Windows ties a
 /// mutex to the thread that took it, so the lock never leaves that thread.
@@ -40,7 +43,8 @@ impl NamedLock {
     /// Take the mutex `name`, waiting up to `timeout`; None when another
     /// holder keeps it longer. A mutex its last holder never released (the process
     /// ended holding it) is taken, and said in the log: what that holder was
-    /// changing may be half done.
+    /// changing may be half done. One whose owner is not
+    /// [`crate::process::trusted_owner`] is refused at once.
     pub fn acquire(name: &str, timeout: Duration) -> Result<Option<Self>> {
         let wide = to_wide(name);
         let mut descriptor = crate::ipc::Descriptor(PSECURITY_DESCRIPTOR::default());
@@ -66,11 +70,29 @@ impl NamedLock {
                 Some(&security),
                 PCWSTR(wide.as_ptr()),
                 0,
-                (SYNCHRONIZATION_SYNCHRONIZE | MUTEX_MODIFY_STATE).0,
+                (SYNCHRONIZATION_SYNCHRONIZE | MUTEX_MODIFY_STATE).0 | READ_CONTROL,
             )
             .with_context(|| {
-                format!("opening the lock {name}; Rubylight needs administrator rights here")
+                format!(
+                    "opening the lock {name} (it takes administrator rights, and another program's lock by that name can refuse it)"
+                )
             })?;
+            // Made first by another user's program, it would hold off every setup and restore.
+            let owner = crate::process::handle_owner(handle)
+                .and_then(|owner| Ok((crate::process::trusted_owner(&owner)?, owner)));
+            match owner {
+                Ok((true, _)) => {}
+                Ok((false, owner)) => {
+                    let _ = CloseHandle(handle);
+                    bail!(
+                        "the lock {name} was made by another program (owner {owner}), not by Rubylight; end that program or restart the PC"
+                    );
+                }
+                Err(error) => {
+                    let _ = CloseHandle(handle);
+                    return Err(error.context(format!("checking the lock {name}")));
+                }
+            }
             let millis = u32::try_from(timeout.as_millis())
                 .unwrap_or(INFINITE - 1)
                 .min(INFINITE - 1);
@@ -198,6 +220,24 @@ mod tests {
         // Released, it is an ordinary lock again.
         let lock = NamedLock::acquire(&name, Duration::ZERO).unwrap().unwrap();
         assert!(!lock.abandoned());
+    }
+
+    #[test]
+    fn only_a_lock_of_rubylight_s_own_accounts_is_taken() {
+        let own = crate::process::own_sid().unwrap();
+        for trusted in ["S-1-5-18", "S-1-5-32-544", own.as_str()] {
+            assert!(crate::process::trusted_owner(trusted).unwrap(), "{trusted}");
+        }
+        // Users, Everyone, another account.
+        for other in ["S-1-5-32-545", "S-1-1-0", "S-1-5-21-1-2-3-999999"] {
+            assert!(!crate::process::trusted_owner(other).unwrap(), "{other}");
+        }
+        // A lock this process makes is its own, or the Administrators group's when elevated.
+        let lock = NamedLock::acquire(&name(), Duration::ZERO)
+            .unwrap()
+            .unwrap();
+        let owner = crate::process::handle_owner(lock.handle).unwrap();
+        assert!(owner == own || owner == "S-1-5-32-544", "{owner}");
     }
 
     #[test]

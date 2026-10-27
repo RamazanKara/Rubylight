@@ -1511,8 +1511,8 @@ mod tests {
         assert!(hosts.rename(id, "Secret alias given here"));
         hosts.apply_discovery("Secret name from mDNS".into(), vec!["192.0.2.99".parse().unwrap()], 0);
         let line = nightjar_core::report::redact::scrub("Secret name from serverinfo, secret-uid-from-serverinfo, Secret alias given here, Secret name from mDNS");
-        // Other tests save a PC named "PC", which the Android rules replace inside a mark too.
-        assert_eq!(line.replace("[[PC]]", "[PC]"), "[PC], [PC], [PC], [PC]");
+        // Other tests save a PC named "PC": it does not mark the marks again.
+        assert_eq!(line, "[PC], [PC], [PC], [PC]");
     }
 
     #[test]

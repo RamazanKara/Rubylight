@@ -74,9 +74,25 @@ static PIN: LazyLock<Regex> = LazyLock::new(|| {
     .expect("PIN pattern")
 });
 
+/// Text that ends in a secret's keyword and its separators, its value still to come: what
+/// [`can_cut`] keeps together. Over bytes, so separators may be up to 3 characters of 4 bytes.
+static KEYWORD_END: LazyLock<regex::bytes::Regex> = LazyLock::new(|| {
+    regex::bytes::Regex::new(
+        r"(?-u:\b)(?i-u:pin|password|passphrase|passcode|secret|token|key)(?-u:\b)(?-u:[^A-Za-z0-9_]){0,12}\z",
+    )
+    .expect("keyword pattern")
+});
+
+/// How far back from a cut [`can_cut`] looks for a keyword: the longest keyword and separators.
+const KEYWORD_END_WINDOW: usize = 24;
+
 /// Pairing messages may carry the PIN as a bare number.
 static SHORT_NUMBER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?-u:\b)[0-9]{4,8}(?-u:\b)").expect("number pattern"));
+
+/// Stands for `[PC]` while the PC names are replaced (`RedactedLog.PC_PLACEHOLDER`): a private
+/// use character, which PC names do not hold. One that did would only take more text out.
+const PC_PLACEHOLDER: &str = "\u{E000}";
 
 /// Names and addresses known to belong to the user's PCs, replaced by `[PC]` wherever they
 /// appear (`RedactedLog.SECRETS`).
@@ -122,10 +138,16 @@ impl Secrets {
     /// the length stay as they are.
     pub fn scrub(&self, text: &str) -> String {
         let mut text = text.to_owned();
+        // A placeholder no PC name holds, so a PC named "PC" does not mark the marks again.
+        let mut marked = false;
         for secret in &self.list {
             if text.contains(secret.as_str()) {
-                text = text.replace(secret.as_str(), "[PC]");
+                text = text.replace(secret.as_str(), PC_PLACEHOLDER);
+                marked = true;
             }
+        }
+        if marked {
+            text = text.replace(PC_PLACEHOLDER, "[PC]");
         }
         for (pattern, mark) in SENSITIVE.iter() {
             if let std::borrow::Cow::Owned(replaced) = pattern.replace_all(&text, *mark) {
@@ -142,6 +164,23 @@ impl Secrets {
             }
         }
         text
+    }
+
+    /// Whether a line too long to hold can be cut before its byte `at` with each part scrubbed
+    /// alone and nothing let through: no PC name runs across the cut, and the text before it
+    /// does not end in a keyword whose secret would start the next part, where nothing names it.
+    pub fn can_cut(&self, text: &[u8], at: usize) -> bool {
+        if at == 0 || at >= text.len() {
+            return true;
+        }
+        if KEYWORD_END.is_match(&text[at.saturating_sub(KEYWORD_END_WINDOW)..at]) {
+            return false;
+        }
+        self.list.iter().all(|secret| {
+            let secret = secret.as_bytes();
+            let window = &text[(at + 1).saturating_sub(secret.len())..(at + secret.len() - 1).min(text.len())];
+            !window.windows(secret.len()).any(|w| w == secret)
+        })
     }
 }
 
@@ -171,6 +210,14 @@ pub fn scrub(text: &str) -> String {
         .scrub(text)
 }
 
+/// [`Secrets::can_cut`] with the process-wide secrets.
+pub fn can_cut(text: &[u8], at: usize) -> bool {
+    SECRETS
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .can_cut(text, at)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -192,6 +239,38 @@ mod tests {
         let long = format!("{}\r\n", "word ".repeat(100));
         assert_eq!(secrets.scrub(&long), long);
         assert_eq!(secrets.redact(&long).chars().count(), MAX_MESSAGE_CHARS + 1);
+    }
+
+    #[test]
+    fn a_pc_named_pc_does_not_mark_the_marks() {
+        let mut secrets = Secrets::new();
+        secrets.add("Gaming PC");
+        secrets.add("PC");
+        assert_eq!(secrets.scrub("Gaming PC wakes PC"), "[PC] wakes [PC]");
+        assert_eq!(secrets.scrub("[PC] in the text"), "[[PC]] in the text");
+    }
+
+    #[test]
+    fn a_cut_keeps_a_keyword_with_its_secret_and_a_pc_name_whole() {
+        let mut secrets = Secrets::new();
+        secrets.add("Gaming PC");
+        let text = b"pairing done, PIN : 4711 with Gaming PC now";
+        let at = |word: &str| {
+            let word = word.as_bytes();
+            text.windows(word.len()).position(|w| w == word).unwrap()
+        };
+        // Between the keyword and its value, and inside the PC's name, are no places to cut.
+        assert!(!secrets.can_cut(text, at(": 4711")));
+        assert!(!secrets.can_cut(text, at("4711")));
+        assert!(!secrets.can_cut(text, at("PC now")));
+        assert!(!secrets.can_cut(text, at("ming")));
+        // Before the keyword, after the value and around the name are.
+        for word in ["PIN", "with", "Gaming", "now", "done"] {
+            assert!(secrets.can_cut(text, at(word)), "{word}");
+        }
+        assert!(secrets.can_cut(b"Token", 5));
+        assert!(!secrets.can_cut(b"a key=", 6 - 1));
+        assert!(secrets.can_cut(b"monkey value", 7), "a keyword inside a word is none");
     }
 
     #[test]

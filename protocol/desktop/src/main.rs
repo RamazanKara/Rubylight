@@ -149,18 +149,24 @@ fn main() {
         std::process::exit(stream::pyrowave_mode::package_check(std::path::Path::new(&report)));
     }
     // Frontends start a stream directly (see `cli`); a release build has no console to print to.
-    let launch = match cli::parse(std::env::args_os().skip(1)) {
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    let usage_box = cli::shows_usage_box(cli::HAS_CONSOLE, &args);
+    let launch = match cli::parse(args) {
         Ok(cli::Parsed::Gui) => None,
         Ok(cli::Parsed::Launch(launch)) => Some(launch),
         Ok(cli::Parsed::Help) => {
             println!("{}", cli::USAGE);
-            message_box(SDL_MESSAGEBOX_INFORMATION, cli::USAGE);
+            if usage_box {
+                message_box(SDL_MESSAGEBOX_INFORMATION, cli::USAGE);
+            }
             return;
         }
         Err(e) => {
             let text = format!("{e}\n{}", cli::USAGE);
             eprintln!("nightjar: {text}");
-            message_box(SDL_MESSAGEBOX_ERROR, &text);
+            if usage_box {
+                message_box(SDL_MESSAGEBOX_ERROR, &text);
+            }
             std::process::exit(64);
         }
     };

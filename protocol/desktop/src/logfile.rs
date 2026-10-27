@@ -220,17 +220,34 @@ impl Redactor {
 
 /// Where a line longer than `OPEN_LINE_LIMIT` is cut: after its last whitespace before the limit,
 /// so a word is redacted whole, else at the last character start, so no character is split.
+/// Either way not inside a PC's name or between a secret's keyword and its value
+/// (`redact::can_cut`), which the parts redacted alone would let through.
 fn cut(open: &[u8]) -> usize {
-    match open[..OPEN_LINE_LIMIT].iter().rposition(u8::is_ascii_whitespace) {
-        Some(space) if space > 0 => space + 1,
-        _ => {
-            let mut cut = OPEN_LINE_LIMIT;
-            while cut > 1 && open[cut] & 0xC0 == 0x80 {
-                cut -= 1;
-            }
-            cut
+    use nightjar_core::report::redact::can_cut;
+    let mut end = OPEN_LINE_LIMIT;
+    while let Some(space) = open[..end].iter().rposition(u8::is_ascii_whitespace) {
+        if space == 0 {
+            break;
         }
+        if can_cut(open, space + 1) {
+            return space + 1;
+        }
+        end = space;
     }
+    let starts_character = |at: usize| open[at] & 0xC0 != 0x80;
+    let mut cut = OPEN_LINE_LIMIT;
+    while cut > 1 && !(starts_character(cut) && can_cut(open, cut)) {
+        cut -= 1;
+    }
+    if cut > 1 {
+        return cut;
+    }
+    // Nowhere safe: a line of 64 KiB that is one keyword and value. Never split a character.
+    cut = OPEN_LINE_LIMIT;
+    while cut > 1 && !starts_character(cut) {
+        cut -= 1;
+    }
+    cut
 }
 
 /// Keeps a PC's names and addresses out of the log file from now on.
@@ -939,9 +956,9 @@ mod tests {
         log.write_chunk(b"to fd01::5 ends", UNIX_EPOCH).unwrap();
         log.finish(UNIX_EPOCH).unwrap();
         log.flush().unwrap();
-        // Other tests save a PC named "PC", which the Android rules replace inside a mark too.
+        // Other tests save a PC named "PC": it does not mark the marks again.
         assert_eq!(
-            std::fs::read_to_string(dir.join(CURRENT)).unwrap().replace("[[PC]]", "[PC]"),
+            std::fs::read_to_string(dir.join(CURRENT)).unwrap(),
             "1970-01-01T00:00:00.000Z nightjar: pairing with [PC] at [address], PIN [omitted]\n\
              1970-01-01T00:00:00.000Z nightjar: stream to [address] ends"
         );
@@ -970,6 +987,29 @@ mod tests {
         assert!(!out.is_empty() && redactor.holds_text());
         redactor.push(b"\n", &mut out);
         assert_eq!(String::from_utf8(out).unwrap(), format!("{text}\n"));
+    }
+
+    #[test]
+    fn a_cut_never_parts_a_keyword_from_its_secret_or_splits_a_pc_name() {
+        nightjar_core::report::redact::add_secret("Logfile cut PC");
+        let mut redactor = Redactor::default();
+        // The last space before the limit is right after "PIN": the cut goes before the keyword.
+        let mut out = Vec::new();
+        let mut line = vec![b'z'; OPEN_LINE_LIMIT - 6];
+        line.extend_from_slice(b" PIN 4");
+        redactor.push(&line, &mut out);
+        redactor.push(b"711 ok", &mut out);
+        assert_eq!(out, b"[data] ");
+        redactor.push(b"\n", &mut out);
+        assert_eq!(out, b"[data] PIN [omitted] ok\n");
+
+        // The last space before the limit is inside a PC's name: the cut goes before the name.
+        let mut out = Vec::new();
+        let mut line = vec![b'z'; OPEN_LINE_LIMIT - 12];
+        line.extend_from_slice(b" Logfile cu");
+        redactor.push(&line, &mut out);
+        redactor.push(b"t PC here\n", &mut out);
+        assert_eq!(out, b"[data] [PC] here\n");
     }
 
     #[test]

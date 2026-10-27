@@ -154,10 +154,23 @@ OVERFLOW = 'a streamed video frame passed the byte cap its blocks were planned f
 FOCUS_COUNTERS = ('maps', 'uniform', 'stale', 'skipped_recovery')
 
 
+def focus_totals(lines):
+    """The stream's focus counters from the `encoder focus` lines. Each encoder counts from its start, so a drop in
+    the frames counted means a recreated encoder, and the counters before it add to the ones after."""
+    totals, base, last = None, dict.fromkeys(FOCUS_COUNTERS, 0), None
+    for line in lines:
+        counters = {k: int(line.get(k, 0)) for k in FOCUS_COUNTERS}
+        if last and sum(counters.values()) < sum(last.values()):
+            base = {k: base[k] + last[k] for k in FOCUS_COUNTERS}
+        last = counters
+        totals = {k: base[k] + counters[k] for k in FOCUS_COUNTERS}
+    return totals
+
+
 def host_stats(text):
     """A stream's host log: the mean of the 5 s windows' present_to_sent and capture_age_at_submit p99 (the first
-    window is warm-up), slice delivery overflows, and the last `encoder focus` line's counters, which count from the
-    start of the stream, with the effective mode of the focus state line."""
+    window is warm-up), slice delivery overflows, and the focus counters over the whole stream (`focus_totals`),
+    with the effective mode of the focus state line."""
     lines = ANSI.sub('', text).splitlines()
     windows = [dict(FIELD.findall(line)) for line in lines if 'stream timings' in line][1:]
     p99 = lambda key: [float(w[key].split('/')[2]) for w in windows if key in w]
@@ -170,7 +183,7 @@ def host_stats(text):
     return dict(windows=len(windows), present_to_sent_p99_ms=mean(present) if present else None,
                 capture_age_at_submit_p99_ms=mean(capture) if capture else None,
                 overflows=sum(OVERFLOW in line for line in lines),
-                focus={k: int(focus[-1].get(k, 0)) for k in FOCUS_COUNTERS} if focus else None,
+                focus=focus_totals(focus),
                 focus_qp_delta=focus[-1].get('qp_delta') if focus else None,
                 focus_effective=effective[-1] if effective else None)
 

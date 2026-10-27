@@ -262,6 +262,12 @@ class HostLog(unittest.TestCase):
         stats = result.host_stats('encoder focus requested="static" effective="off" reason="not_probed" codec=1\n')
         self.assertEqual((stats['focus_effective'], stats['focus']), ('off', None))
 
+    def test_counters_add_up_across_a_recreated_encoder(self):
+        lines = [f'INFO butterpollo::stream: encoder focus maps={m} uniform=0 stale={s} skipped_recovery={r}'
+                 for m, s, r in ((100, 2, 31), (250, 3, 31), (40, 1, 31), (90, 1, 31))]
+        stats = result.host_stats('\n'.join(lines))
+        self.assertEqual(stats['focus'], dict(maps=340, uniform=0, stale=4, skipped_recovery=62))
+
     def test_a_stream_without_focus_has_no_counters(self):
         stats = result.host_stats('stream timings present_to_sent_ms=1/2/3\nstream timings present_to_sent_ms=1/2/4\n')
         self.assertEqual((stats['focus'], stats['focus_effective'], stats['present_to_sent_p99_ms']), (None, None, 4.))

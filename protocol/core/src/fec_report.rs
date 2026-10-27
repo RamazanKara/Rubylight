@@ -149,8 +149,9 @@ impl FecTally {
     }
 
     /// The report once its interval is [`NOMINAL_INTERVAL_MS`] old, which starts the next
-    /// interval. An interval without video gives nothing, and one past [`MAX_INTERVAL_MS`] (a
-    /// stalled sender) is dropped: its counts can't be timed.
+    /// interval. An interval without video, once video has begun, gives a report without
+    /// shards, which keeps the host's reports fresh and their sequence continuous; one past
+    /// [`MAX_INTERVAL_MS`] (a stalled sender) is dropped: its counts can't be timed.
     pub fn take(&mut self, now_ms: u64) -> Option<FecReport> {
         let elapsed = now_ms.saturating_sub(self.since_ms?);
         if elapsed < u64::from(NOMINAL_INTERVAL_MS) {
@@ -158,7 +159,7 @@ impl FecTally {
         }
         let mut report = core::mem::take(&mut self.report);
         self.since_ms = Some(now_ms);
-        if report.data_shards == 0 || elapsed > u64::from(MAX_INTERVAL_MS) {
+        if elapsed > u64::from(MAX_INTERVAL_MS) {
             return None;
         }
         report.seq = self.next_seq;
@@ -269,19 +270,29 @@ mod tests {
             }
         );
         assert_eq!(FecReport::decode(&first.encode()), Some(first));
-        // A second without video sends nothing but still starts the next interval.
-        assert_eq!(tally.take(3_100), None);
+        // A second without video sends a report without shards, which the host takes: its
+        // reports stay fresh while the picture stands still.
+        let idle = tally.take(3_100).unwrap();
+        assert_eq!(
+            idle,
+            FecReport {
+                seq: 1,
+                interval_ms: 1_050,
+                ..FecReport::default()
+            }
+        );
+        assert_eq!(FecReport::decode(&idle.encode()), Some(idle));
         tally.block(5, 1, 0, false, 3_200);
         let second = tally.take(4_100).unwrap();
         assert_eq!(
             (second.seq, second.data_shards, second.interval_ms),
-            (1, 5, 1_000)
+            (2, 5, 1_000)
         );
         // A stalled sender: counts older than five seconds are dropped, the sequence goes on.
         tally.block(5, 1, 0, false, 4_200);
         assert_eq!(tally.take(9_101), None);
         tally.block(5, 1, 0, false, 9_200);
-        assert_eq!(tally.take(10_101).unwrap().seq, 2);
+        assert_eq!(tally.take(10_101).unwrap().seq, 3);
         // Counts saturate instead of wrapping.
         let mut full = FecTally::default();
         for _ in 0..3 {

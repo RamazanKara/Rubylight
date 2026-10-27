@@ -184,7 +184,8 @@ pub unsafe extern "C" fn rp_fec_tally_block(
 }
 
 /// Writes the 24-byte report to `out` once its interval is a second old and returns true; an
-/// interval without video, or one past 5 s, writes nothing.
+/// interval without video gives a report without shards, and one past 5 s or before the first
+/// block writes nothing.
 ///
 /// # Safety
 /// `tally` is live and `out` points to `RP_FEC_REPORT_BYTES` writable bytes.

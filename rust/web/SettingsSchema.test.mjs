@@ -430,12 +430,14 @@ test('settings still pending stay out of the console', () => {
   }
 });
 
-test('pending keys are unique and Foundation ports are credited, not Experimental', () => {
+test('pending keys are unique, and Foundation ports are neither credited in the console nor Experimental', () => {
   const keys = pending.map(setting => setting.key);
   assert.equal(new Set(keys).size, keys.length);
-  const ported = pending.filter(setting => /Foundation Sunshine/.test(setting.details ?? ''));
-  assert.deepEqual(ported.map(setting => setting.key), ['hdr_dynamic_metadata', 'fec_max_percentage']);
-  for (const setting of ported) {
-    assert.doesNotMatch(`${setting.label} ${setting.description} ${setting.details}`, /Experimental/, setting.key);
+  for (const setting of pending) {
+    assert.doesNotMatch(`${setting.label} ${setting.description} ${setting.details ?? ''}`, /Foundation|Annex/, setting.key);
+  }
+  for (const key of ['hdr_dynamic_metadata', 'fec_max_percentage']) {
+    const setting = pending.find(candidate => candidate.key === key);
+    assert.doesNotMatch(`${setting.label} ${setting.description} ${setting.details ?? ''}`, /Experimental/, key);
   }
 });

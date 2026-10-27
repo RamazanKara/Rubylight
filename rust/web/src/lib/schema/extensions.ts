@@ -3,8 +3,9 @@
 // the host reads them in core/src/config/settings30.rs, with these defaults.
 // When a setting goes live, its label follows the release rule: features
 // ported from Foundation Sunshine, where they are established, ship as normal
-// features credited to Foundation, and new work that our devices can't prove
-// is labelled Experimental.
+// features (credited in the code, NOTICE and AGENTS.md, never in the console
+// or release notes), and new work that our devices can't prove is labelled
+// Experimental.
 import type { Setting } from '../settings-types';
 
 const switches = { kind: 'toggle' } as const;
@@ -19,7 +20,6 @@ export const settings: Setting[] = [
     key: 'hdr_dynamic_metadata',
     label: 'HDR10+ and HDR Vivid metadata',
     description: 'Adds per-scene HDR10+ and HDR Vivid brightness metadata to HDR streams. Displays without support ignore it.',
-    details: 'Ported from Foundation Sunshine.',
     category: 'hdr',
     group: 'Dynamic metadata',
     control: switches,
@@ -48,7 +48,6 @@ export const settings: Setting[] = [
     key: 'fec_max_percentage',
     label: 'Most error correction a device may ask for',
     description: 'The largest share of recovery packets a device may choose, as a percentage of the video packets.',
-    details: 'Statistical error correction is ported from Foundation Sunshine.',
     category: 'network',
     group: 'Error correction',
     control: { kind: 'number', min: 0, max: 255, step: 1, unit: '%' },

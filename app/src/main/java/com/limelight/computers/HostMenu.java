@@ -17,8 +17,9 @@ import java.util.function.IntConsumer;
 
 /**
  * A PC's options, one list for the PCs screen and for Home. In this order: Open library, Resume and Quit,
- * Shared folders, Pair, one-time PIN, Wake or Sleep, PC settings, Rename, Unpair or Pairing help, then Remove PC last. The
- * screen that shows it decides what each action does; this class only knows what is offered for which state.
+ * Shared folders, Pair, one-time PIN, Wake or Sleep, Files, PC settings, Rename, Unpair or Pairing help, then Remove PC
+ * last. The screen that shows it decides what each action does; this class only knows what is offered for which
+ * state.
  */
 public final class HostMenu {
     /** How the Sleep entry appears. */
@@ -40,6 +41,7 @@ public final class HostMenu {
     public static final int RENAME = 15;
     public static final int SLEEP = 16;
     public static final int SHARED_FOLDERS = 17;
+    public static final int FILES = 18;
 
     private HostMenu() {
     }
@@ -99,6 +101,9 @@ public final class HostMenu {
                 onAction.accept(SLEEP);
             });
         }
+        if (offersFiles(details, state)) {
+            add(sheet, onAction, FILES, R.drawable.ic_files, activity.getString(R.string.files_menu));
+        }
         add(sheet, onAction, PC_SETTINGS, R.drawable.ic_settings, activity.getString(R.string.pc_menu_settings));
         add(sheet, onAction, RENAME, R.drawable.ic_edit, activity.getString(R.string.host_menu_rename));
         if (ready) {
@@ -138,6 +143,15 @@ public final class HostMenu {
     static boolean hasSharedFolders(ComputerDetails details, PcGridAdapter.RowState state) {
         return (state == PcGridAdapter.RowState.RUNNING || state == PcGridAdapter.RowState.READY)
                 && details.caps.has(HostCapabilities.Feature.NATIVE_API);
+    }
+
+    /**
+     * Files on a paired PC whose host speaks the native API. Whether this device may send or download is known
+     * only once the screen asked the PC, so the screen says what is missing; stock hosts never show the entry.
+     */
+    static boolean offersFiles(ComputerDetails details, PcGridAdapter.RowState state) {
+        boolean ready = state == PcGridAdapter.RowState.RUNNING || state == PcGridAdapter.RowState.READY;
+        return ready && details.caps.has(HostCapabilities.Feature.NATIVE_API);
     }
 
     private static void add(ActionSheet sheet, IntConsumer onAction, int action, int icon, String label) {

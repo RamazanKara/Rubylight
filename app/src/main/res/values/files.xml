@@ -5,6 +5,8 @@
     <string name="files_title">Files on PC</string>
     <string name="files_menu">Files (Experimental)</string>
     <string name="files_share_label">Send to PC</string>
+    <string name="files_open">Open</string>
+    <string name="files_stream_leaves">Files opens its own screen and leaves the stream; the game keeps running on the PC.</string>
     <string name="files_send">Send files</string>
     <string name="files_refresh">Check again</string>
     <string name="files_clear_finished">Clear finished</string>

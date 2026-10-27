@@ -20,6 +20,7 @@ import com.limelight.R;
 import com.limelight.computers.ComputerManagerService;
 import com.limelight.computers.HostActions;
 import com.limelight.computers.HostMenu;
+import com.limelight.files.FileTransferActivity;
 import com.limelight.grid.PcGridAdapter;
 import com.limelight.nativeapi.ConsoleRepository;
 import com.limelight.nativeapi.ConsoleSnapshot;
@@ -755,6 +756,9 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
                 break;
             case HostMenu.SLEEP:
                 hostActions.sleep(details);
+                break;
+            case HostMenu.FILES:
+                startActivity(FileTransferActivity.forPc(this, details.uuid));
                 break;
             case HostMenu.PC_SETTINGS:
                 HostStreamSettings.show(this, details.uuid, details.displayName());

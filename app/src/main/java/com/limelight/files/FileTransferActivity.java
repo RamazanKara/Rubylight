@@ -143,6 +143,11 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
         UiHelper.notifyNewRootView(this);
     }
 
+    /** Opens the screen for one PC, from the PC menu or the stream menu. */
+    public static Intent forPc(Context context, String pcUuid) {
+        return new Intent(context, FileTransferActivity.class).putExtra(EXTRA_PC_UUID, pcUuid);
+    }
+
     /** The files of an ACTION_SEND or ACTION_SEND_MULTIPLE, in the order shared. */
     static List<Uri> sharedUris(Intent intent) {
         List<Uri> uris = new ArrayList<>();

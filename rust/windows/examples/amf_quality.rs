@@ -9,7 +9,7 @@ fn main() {
 #[cfg(windows)]
 fn main() -> anyhow::Result<()> {
     use anyhow::{Context, bail};
-    use butterpollo_core::encoder_focus::{Levels, Mode};
+    use butterpollo_core::encoder_focus::{Levels, Mode, Requested};
     use butterpollo_core::rtsp::Negotiated;
     use butterpollo_windows::{
         capture::{ComGuard, Device, GpuImage, Image, Pixel, Priority},
@@ -39,8 +39,9 @@ fn main() -> anyhow::Result<()> {
 --packing 0|1|2: chroma packing (0 is 4:2:0, 1 and 2 are the packed 4:4:4 layouts)\n\
 --ten-bit 1: 10-bit SDR encode (the input stays BGRA)\n\
 --csc-mode N: SDR matrix and range as encoderCscMode (0 is Rec.601 limited, 2 is Rec.709 limited)\n\
---focus off|static|centre: encoder focus ROI map (levels from encoder_focus_levels in --config)\n\
---focus-verify 1: block QP feedback once a second, for focus_qp_delta\n\
+--focus off|static|centre: encoder focus ROI map, over encoder_focus in --config\n\
+  (levels from encoder_focus_levels in --config)\n\
+--focus-verify 1: block QP feedback once a second, for focus_qp_delta (or encoder_focus_verify)\n\
 --config FILE: host settings; --out FILE: bitstream"
             );
             return Ok(());
@@ -86,11 +87,22 @@ fn main() -> anyhow::Result<()> {
         Some(path) => butterpollo_core::config::Config::load(std::path::Path::new(&path))?,
         None => Default::default(),
     };
-    let focus = match option("--focus").as_deref().unwrap_or("off") {
-        "off" => None,
-        "static" => Some(Mode::Static),
-        "centre" | "center" => Some(Mode::Centre),
-        other => bail!("--focus {other} is not one of off, static, centre"),
+    // The stream's keys in --config, as focus_ab.py writes them; --focus wins.
+    let focus = match option("--focus")
+        .as_deref()
+        .map_or_else(
+            || Requested::parse(tuning.get("encoder_focus", "off")),
+            Requested::parse,
+        )
+        .map_err(anyhow::Error::msg)?
+    {
+        Requested::Off => None,
+        Requested::Static => Some(Mode::Static),
+        Requested::Centre => Some(Mode::Centre),
+    };
+    let focus_verify = match option("--focus-verify") {
+        Some(value) => value == "1",
+        None => tuning.boolean("encoder_focus_verify", false),
     };
     let levels = match tuning.values.get("encoder_focus_levels") {
         Some(value) => Levels::parse(value).map_err(anyhow::Error::msg)?,
@@ -162,12 +174,14 @@ fn main() -> anyhow::Result<()> {
             levels,
             cursor: None,
         }))?;
-        if option("--focus-verify").is_some_and(|v| v == "1") {
+        if focus_verify {
             amf.set_focus_verify(Some(config.fps.max(1)));
         }
     }
     let mut bitstream = std::io::BufWriter::new(std::fs::File::create(&out)?);
     let (mut latencies, mut sizes, mut idr_bytes) = (Vec::new(), Vec::new(), Vec::new());
+    // The first frames' sizes in order, to compare a map's first frames with off.
+    let mut head = Vec::new();
     let mut image = Some(first);
     // The first frame that carries a map, which the rate control did not plan.
     let mut first_map: Option<(u32, usize)> = None;
@@ -186,8 +200,12 @@ fn main() -> anyhow::Result<()> {
                 bail!("frame {index} was not encoded within two seconds");
             }
         }
+        let bytes = output.iter().map(|frame| frame.bytes.len()).sum::<usize>();
         if first_map.is_none() && maps_before == 0 && maps(&encoder) > 0 {
-            first_map = Some((index, output.iter().map(|frame| frame.bytes.len()).sum()));
+            first_map = Some((index, bytes));
+        }
+        if head.len() < 32 {
+            head.push(bytes);
         }
         for frame in output {
             bitstream.write_all(&frame.bytes)?;
@@ -248,6 +266,7 @@ fn main() -> anyhow::Result<()> {
             "focus_first_map_frame": first_map.map(|(index, _)| index),
             "focus_first_map_bytes": first_map.map(|(_, bytes)| bytes),
             "frame_cap_bytes": encoder.frame_cap(),
+            "frame_bytes_head": head,
         })
     );
     Ok(())

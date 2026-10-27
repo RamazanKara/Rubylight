@@ -163,8 +163,10 @@ def host_stats(text):
     p99 = lambda key: [float(w[key].split('/')[2]) for w in windows if key in w]
     present, capture = p99('present_to_sent_ms'), p99('capture_age_at_submit_ms')
     focus = [dict(FIELD.findall(line)) for line in lines if 'encoder focus' in line and ' maps=' in line]
-    # The state line at start says effective=; the 5 s lines say mode= (design section 7).
-    effective = [m for line in lines if 'encoder focus' in line for m in re.findall(r'\b(?:effective|mode)=(\w+)', line)]
+    # The state line at start says effective=; the 5 s lines say mode= (design section 7). The host's
+    # log quotes string fields: effective="static".
+    effective = [m for line in lines if 'encoder focus' in line
+                 for m in re.findall(r'\b(?:effective|mode)="?(\w+)', line)]
     return dict(windows=len(windows), present_to_sent_p99_ms=mean(present) if present else None,
                 capture_age_at_submit_p99_ms=mean(capture) if capture else None,
                 overflows=sum(OVERFLOW in line for line in lines),

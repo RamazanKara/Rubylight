@@ -235,7 +235,8 @@ class Scores(unittest.TestCase):
 
 
 LOG = '\n'.join((
-    '2026-10-26T10:00:00Z  INFO butterpollo::stream: encoder focus: requested=static effective=static levels="moving=2,still=6"',
+    '2026-10-26T10:00:00Z  INFO butterpollo::stream_focus: encoder focus requested="static" effective="static" codec=1 '
+    'preanalysis=false levels=moving=2,still=6',
     *(f'2026-10-26T10:00:{5 * i:02}Z  INFO butterpollo::stream: stream timings frames=300 present_to_sent_ms=1.0/2.0/{p}'
       f' capture_age_at_submit_ms=0.5/0.8/{p / 2}' for i, p in enumerate((9., 3., 5.))),
     '2026-10-26T10:00:12Z  WARN butterpollo::stream: a streamed video frame passed the byte cap its blocks were planned for; '
@@ -256,8 +257,10 @@ class HostLog(unittest.TestCase):
         self.assertAlmostEqual(result.focus_fraction(stats['focus']), 4 / 608)
 
     def test_the_5_s_line_mode_stands_in_for_a_missing_state_line(self):
-        stats = result.host_stats('INFO butterpollo::stream: encoder focus mode=static maps=300 uniform=0 stale=1 skipped_recovery=0\n')
+        stats = result.host_stats('INFO butterpollo::stream: encoder focus mode="static" maps=300 uniform=0 stale=1 skipped_recovery=0\n')
         self.assertEqual((stats['focus_effective'], stats['focus']['maps']), ('static', 300))
+        stats = result.host_stats('encoder focus requested="static" effective="off" reason="not_probed" codec=1\n')
+        self.assertEqual((stats['focus_effective'], stats['focus']), ('off', None))
 
     def test_a_stream_without_focus_has_no_counters(self):
         stats = result.host_stats('stream timings present_to_sent_ms=1/2/3\nstream timings present_to_sent_ms=1/2/4\n')

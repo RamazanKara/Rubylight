@@ -225,17 +225,7 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             if passphrase.chars().count() < 4 {
                 anyhow::bail!("passphrase must have at least four characters");
             }
-            let pin = format!(
-                "{:04}",
-                rand::Rng::gen_range(&mut rand::thread_rng(), 0..10_000u16)
-            );
-            *h.otp.lock().unwrap() = Some(crate::state::OneTimePin {
-                pin: pin.clone(),
-                passphrase: passphrase.to_owned(),
-                device_name: text("deviceName").to_owned(),
-                created: Instant::now(),
-                attempts: 0,
-            });
+            let pin = one_time_pin(h, passphrase, text("deviceName"));
             let config = h.config.read().unwrap().clone();
             json!({
                 "status": true,
@@ -278,8 +268,95 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 .map_err(|_| anyhow::anyhow!("pairing request expired"))?;
             json!({"status":true})
         }
+        ("POST", "/api/pairing/qr") => pairing_qr(
+            h,
+            text("address"),
+            butterpollo_windows::net::lan_addresses()?,
+        )?,
         _ => return Err(anyhow::anyhow!("unknown API endpoint")),
     })
+}
+
+/// Replaces the one-time PIN (valid 180 s, used once) and returns it.
+fn one_time_pin(h: &Shared, passphrase: &str, device_name: &str) -> String {
+    let pin = format!(
+        "{:04}",
+        rand::Rng::gen_range(&mut rand::thread_rng(), 0..10_000u16)
+    );
+    *h.otp.lock().unwrap() = Some(crate::state::OneTimePin {
+        pin: pin.clone(),
+        passphrase: passphrase.to_owned(),
+        device_name: device_name.to_owned(),
+        created: Instant::now(),
+        attempts: 0,
+    });
+    pin
+}
+
+/// A pairing QR code per LAN address (`rubylight://pair?...`, see
+/// `butterpollo_core::pairing_uri`), all for one new one-time PIN with a
+/// passphrase the host picks. Refused while `qr_pairing` is off; `address`
+/// puts that address first.
+fn pairing_qr(h: &Shared, address: &str, mut addresses: Vec<String>) -> anyhow::Result<Value> {
+    use sha2::Digest;
+    let config = h.config.read().unwrap().clone();
+    if !config.qr_pairing() {
+        anyhow::bail!("pairing with a QR code is off: turn on Pair with a QR code in Settings");
+    }
+    if !address.is_empty() {
+        let at = addresses
+            .iter()
+            .position(|known| known == address)
+            .ok_or_else(|| anyhow::anyhow!("{address} is not an address of this PC"))?;
+        let chosen = addresses.remove(at);
+        addresses.insert(0, chosen);
+    }
+    if addresses.is_empty() {
+        anyhow::bail!("this PC has no network address a device could reach");
+    }
+    let passphrase = hex::encode(butterpollo_core::crypto::random::<8>());
+    let pin = one_time_pin(h, &passphrase, "");
+    let mut invitation = butterpollo_core::pairing_uri::PairingUri {
+        host: String::new(),
+        port: config.port()?,
+        otp: pin,
+        passphrase,
+        unique_id: h.paired.read().unwrap().unique_id.clone(),
+        cert_sha256: sha2::Sha256::digest(&h.identity.der).into(),
+        name: crate::network::host_name(&config),
+    };
+    let mut codes = Vec::new();
+    for address in addresses {
+        invitation.host = address.clone();
+        let uri = invitation.to_uri();
+        codes.push(json!({"address": address, "svg": qr_svg(&uri)?, "uri": uri}));
+    }
+    Ok(json!({
+        "status": true,
+        "codes": codes,
+        "name": invitation.name,
+        "expires_in_seconds": 180,
+    }))
+}
+
+/// `text` as a QR code in SVG, black on white with the standard 4-module border.
+pub(super) fn qr_svg(text: &str) -> anyhow::Result<String> {
+    use qrcodegen::{QrCode, QrCodeEcc};
+    let code = QrCode::encode_text(text, QrCodeEcc::Medium)
+        .map_err(|_| anyhow::anyhow!("the pairing link is too long for a QR code"))?;
+    let border = 4;
+    let size = code.size() + 2 * border;
+    let mut path = String::new();
+    for y in 0..code.size() {
+        for x in 0..code.size() {
+            if code.get_module(x, y) {
+                path.push_str(&format!("M{},{}h1v1h-1z", x + border, y + border));
+            }
+        }
+    }
+    Ok(format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {size} {size}\" shape-rendering=\"crispEdges\"><rect width=\"100%\" height=\"100%\" fill=\"#fff\"/><path d=\"{path}\" fill=\"#000\"/></svg>"
+    ))
 }
 
 /// The folders this device holds a grant for, as `Client::folder_access` reads them.
@@ -597,5 +674,87 @@ mod tests {
         handle(&f.host, "POST", "/api/clients/unpair-all", &json!({})).unwrap();
         assert!(!f.host.radeon.holds(&client.uuid));
         assert!(!f.host.radeon.holds("another-device"));
+    }
+
+    #[test]
+    fn the_pairing_qr_code_is_off_until_turned_on() {
+        let f = Fixture::new();
+        let error = super::pairing_qr(&f.host, "", vec!["192.168.1.5".into()]).unwrap_err();
+        assert!(error.to_string().contains("off"), "{error}");
+        assert!(f.host.otp.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn the_pairing_qr_code_holds_a_one_time_pin_and_the_host_certificate() {
+        use sha2::Digest;
+        let f = Fixture::new();
+        f.host
+            .config
+            .write()
+            .unwrap()
+            .values
+            .insert("qr_pairing".into(), "true".into());
+        let addresses = vec!["192.168.1.5".to_owned(), "10.0.0.2".to_owned()];
+        let answer = super::pairing_qr(&f.host, "10.0.0.2", addresses.clone()).unwrap();
+        let codes = answer["codes"].as_array().unwrap();
+        // The chosen address comes first.
+        assert_eq!(codes[0]["address"], "10.0.0.2");
+        assert_eq!(codes[1]["address"], "192.168.1.5");
+        assert_eq!(answer["expires_in_seconds"], 180);
+        let (pin, passphrase, device_name) = {
+            let otp = f.host.otp.lock().unwrap();
+            let otp = otp.as_ref().unwrap();
+            (
+                otp.pin.clone(),
+                otp.passphrase.clone(),
+                otp.device_name.clone(),
+            )
+        };
+        for code in codes {
+            let uri = code["uri"].as_str().unwrap();
+            let parsed = butterpollo_core::pairing_uri::PairingUri::parse(uri).unwrap();
+            assert_eq!(parsed.host, code["address"].as_str().unwrap());
+            assert_eq!(parsed.port, f.host.config.read().unwrap().port().unwrap());
+            assert_eq!((&parsed.otp, &parsed.passphrase), (&pin, &passphrase));
+            assert_eq!(parsed.otp.len(), 4);
+            assert_eq!(parsed.passphrase.len(), 16);
+            assert_eq!(
+                parsed.cert_sha256,
+                <[u8; 32]>::from(sha2::Sha256::digest(&f.host.identity.der))
+            );
+            assert_eq!(parsed.unique_id, f.host.paired.read().unwrap().unique_id);
+            assert!(code["svg"].as_str().unwrap().starts_with("<svg"));
+        }
+        // The client names itself, and a new code replaces the PIN.
+        assert_eq!(device_name, "");
+        super::pairing_qr(&f.host, "", addresses).unwrap();
+        let next = f
+            .host
+            .otp
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .passphrase
+            .clone();
+        assert_ne!(next, passphrase);
+
+        let error = super::pairing_qr(&f.host, "172.16.0.1", vec!["10.0.0.2".into()]).unwrap_err();
+        assert!(
+            error.to_string().contains("not an address of this PC"),
+            "{error}"
+        );
+        assert!(super::pairing_qr(&f.host, "", Vec::new()).is_err());
+    }
+
+    #[test]
+    fn a_qr_code_renders_as_dark_squares_on_white() {
+        let svg = super::qr_svg("rubylight://pair?v=1").unwrap();
+        assert!(svg.starts_with("<svg"), "{svg}");
+        assert!(
+            svg.contains("fill=\"#fff\"") || svg.contains("fill=\"white\""),
+            "{svg}"
+        );
+        assert!(svg.matches('M').count() > 50);
     }
 }

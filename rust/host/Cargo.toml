@@ -39,6 +39,8 @@ socket2 = { version = "0.6", features = ["all"] }
 rusty_enet = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
 zip = { version = "4.6", default-features = false }
+# The console's pairing QR code (Project Nayuki, MIT, no dependencies).
+qrcodegen = "1.8"
 tokio-util = { version = "0.7", features = ["io"] }
 time = { version = "0.3", features = ["formatting"] }
 mdns-sd = "=0.21.5"

@@ -5,6 +5,7 @@
   import Panel from '../Panel.svelte';
   import OtpPairing from './OtpPairing.svelte';
   import PendingRequest from './PendingRequest.svelte';
+  import QrPairing from './QrPairing.svelte';
   import { link } from '../../lib/router.svelte';
   import { refreshMetadata, refreshPending, session } from '../../lib/session.svelte';
   const others = $derived((session.metadata?.pc_addresses ?? []).filter(address => address !== session.metadata?.pc_address));
@@ -30,6 +31,7 @@
         {:else}<p class="waiting muted" role="status">No device is waiting to pair. Start pairing on your device; it appears here within a few seconds.</p>{/if}
       </div></li>
     </ol>
+    {#if session.metadata?.qr_pairing}<details class="alternatives"><summary>Pair with a QR code (Experimental)</summary><QrPairing /></details>{/if}
     <details class="alternatives"><summary>Other pairing methods</summary><p class="muted">Artemis only: create a one-time PIN here and enter it on the device.</p><OtpPairing /></details>
   {/if}
 </Panel>

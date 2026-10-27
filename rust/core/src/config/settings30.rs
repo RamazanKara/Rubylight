@@ -385,6 +385,7 @@ mod tests {
         "touch_mode",
         "touch_sensitivity",
         "touch_gestures",
+        "qr_pairing",
     ];
 
     /// Each setting's key and default in extensions.ts, with LF or CRLF line

@@ -229,6 +229,8 @@ export interface Metadata {
   pc_addresses: string[];
   paired_devices: number;
   enable_pairing: boolean;
+  /** The console shows a pairing QR code (Settings, Pair with a QR code). */
+  qr_pairing?: boolean;
   warnings: { code: string; message: string }[];
   encoder_status: { state: 'checking' | 'failed' | 'ready'; h264: boolean; hevc: boolean; av1: boolean; pyrowave: boolean };
   capture_status: {
@@ -765,6 +767,44 @@ export interface PowerFixResult {
   skipped: string[];
 }
 
+/** A pairing QR code for one of this PC's addresses (`rubylight://pair?...`). */
+export interface PairingCode {
+  address: string;
+  /** The code as an SVG document, rendered by the host. */
+  svg: string;
+  uri: string;
+}
+export interface WebhookStatus {
+  event: string;
+  delivery: string;
+  time_unix_ms: number;
+  ok: boolean;
+  http_status: number | null;
+  error: string | null;
+  attempts: number;
+}
+export interface WebhookEntry {
+  url: string;
+  events: string[];
+  /** The last delivery since the host started, or null. */
+  last: WebhookStatus | null;
+}
+export interface WebhookList {
+  status: true;
+  events: string[];
+  max: number;
+  hooks: WebhookEntry[];
+  /** Why the saved list could not be read, when it could not. */
+  error: string | null;
+}
+export interface WebhookSave {
+  url: string;
+  events: string[];
+  /** The URL of the hook being edited; absent to add one. */
+  previous?: string;
+  rotate_secret?: boolean;
+}
+
 // ---------- endpoints ----------
 
 export const api = {
@@ -851,6 +891,15 @@ export const api = {
     otp: (passphrase: string, deviceName: string) =>
       post<{ status: true; otp: string; ip: string; name: string }>('/api/otp', { passphrase, deviceName }),
     hdrProfiles: () => get<{ status: true; profiles: { filename: string }[] }>('/api/clients/hdr-profiles'),
+    pairingQr: (address = '') =>
+      post<{ status: true; codes: PairingCode[]; name: string; expires_in_seconds: number }>('/api/pairing/qr', { address }),
+  },
+  webhooks: {
+    list: () => get<WebhookList>('/api/webhooks'),
+    /** The secret comes back only when the hook is new or its secret was replaced. */
+    save: (hook: WebhookSave) => post<{ status: true; secret: string | null }>('/api/webhooks', hook, ACTION_TIMEOUT_MS),
+    remove: (url: string) => post<Ok>('/api/webhooks/delete', { url }, ACTION_TIMEOUT_MS),
+    test: (url: string) => post<{ status: true; result: WebhookStatus }>('/api/webhooks/test', { url }, ACTION_TIMEOUT_MS),
   },
   sessions: {
     status: () => get<SessionStatus>('/api/session/status'),

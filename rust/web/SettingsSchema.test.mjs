@@ -521,6 +521,7 @@ const live = [
   'touch_mode',
   'touch_sensitivity',
   'touch_gestures',
+  'qr_pairing',
 ];
 
 test('settings still pending stay out of the console, and shipped ones are in it', () => {
@@ -545,6 +546,14 @@ test('touch profiles are Experimental and their options show only as a mouse or 
     assert.equal(setting.visibleWhen({ touch_mode: 'mouse' }), true, key);
     assert.equal(setting.visibleWhen({ touch_mode: 'trackpad' }), true, key);
   }
+});
+
+test('QR pairing is Experimental, off by default and on the Pairing group', () => {
+  const setting = settings.get('qr_pairing');
+  assert.match(setting.label, /\(Experimental\)$/);
+  assert.match(setting.description, / Experimental\.$/);
+  assert.equal(setting.default, false);
+  assert.equal(setting.group, 'Pairing');
 });
 
 test('7.1.4 surround is Experimental and says the heights need a 7.1.4 device', () => {

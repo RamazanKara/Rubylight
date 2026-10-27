@@ -93,17 +93,18 @@ export const settings: Setting[] = [
     group: 'Webhooks',
     control: { kind: 'text', placeholder: '[{"url": "https://…", "events": ["app.started"], "secret": "…"}]', mono: true },
     default: '[]',
+    // The Webhooks page manages this list and keeps its secrets: never a setting field.
     pending: true,
   },
   {
     key: 'qr_pairing',
-    label: 'Pair with a QR code',
-    description: 'Shows a QR code that a device scans to pair, instead of typing a PIN.',
+    label: 'Pair with a QR code (Experimental)',
+    description: 'Shows a QR code on the Devices page that Nightjar scans to pair, instead of typing a PIN. Experimental.',
+    details: 'The code holds a one-time PIN and passphrase that work once and expire after 3 minutes, and the fingerprint of the host certificate, which Nightjar checks before pairing.',
     category: 'general',
     group: 'Pairing',
     control: switches,
     default: false,
-    pending: true,
   },
   {
     key: 'dd_rotation_option',

@@ -120,5 +120,7 @@ pub use rubylight_protocol::{usb as usb_forward, usbip as usbip_wire};
 pub mod version;
 pub mod virtual_output;
 pub mod wake;
+/// The QR pairing link (`rubylight://pair?...`) the console shows.
+pub use rubylight_protocol::pairing_uri;
 pub mod webhook;
 pub mod webrtc;

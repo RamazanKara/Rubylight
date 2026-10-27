@@ -20,6 +20,8 @@ final class VendorLowLatencyKeys {
     static final Map<String, Integer> TEGRA;
     // The whole MediaTek preset, set on MediaTek decoders by name. Experimental: no MediaTek device here.
     static final Map<String, Integer> MEDIATEK;
+    // The MediaTek preset for the first configure try: the same keys with shorter queues and waits, no preload.
+    static final Map<String, Integer> MEDIATEK_SHORT;
     // The Samsung Exynos preset, set on Exynos decoders by name. Experimental: no Exynos device here.
     static final Map<String, Integer> EXYNOS;
     // Google Codec2 frame rate key, read by Android 16 (API 36) and newer, the level Moonlight X gates it on. Experimental: no Tensor device here.
@@ -106,12 +108,19 @@ final class VendorLowLatencyKeys {
         mtk.put("vendor.mtk.vdec.drop.nonref.frame", 0);
         mtk.put("vendor.mtk.vdec.frame-drop.policy", 0);
         MEDIATEK = Collections.unmodifiableMap(mtk);
-        // Moonlight V+ (qiin2333/moonlight-vplus, GPL-3.0) tiers this preset by configure try:
-        // after a failed try 0 it asks for queue depth 2, 2 ms waits and no preload, then depth 1.
-        // That makes each fallback stricter than the try before it, against the ladder here, which
-        // goes from the most to the least risky format, and V+'s try 0 uses this preset's depth 3,
-        // 4 ms and preload 1, so the stricter values cannot go first either. They are not ported:
-        // tries 0 and 1 send this preset unchanged.
+
+        // Moonlight V+ (qiin2333/moonlight-vplus, GPL-3.0) tiers this preset by configure try, not
+        // by SoC: queue depth 2, 2 ms fetch and guard waits and no preload once a try has failed,
+        // depth 1 after that. Each of its fallbacks is stricter than the try before; here the ladder
+        // goes from the most to the least risky format, so the shorter queues go first, on try 0,
+        // and try 1 relaxes to the full preset with the same keys.
+        Map<String, Integer> mtkShort = new LinkedHashMap<>(mtk);
+        mtkShort.put("vendor.mtk.vdec.preload.frame.count", 0);
+        mtkShort.put("vendor.mtk.vdec.buffer.fetch.timeout.ms", 2);
+        mtkShort.put("vendor.mtk.vdec.bq.guard.interval.time", 2);
+        mtkShort.put("vendor.mtk.vdec.input.max.queue.depth", 2);
+        mtkShort.put("vendor.mtk.vdec.output.max.queue.depth", 2);
+        MEDIATEK_SHORT = Collections.unmodifiableMap(mtkShort);
 
         // Moonlight X (MoreOrLessSoftware's mlsoft-x branch, GPL-3.0) sends all three to every
         // Exynos decoder, H.264, HEVC and AV1: the low-latency switch, the shortest output queue
@@ -168,6 +177,14 @@ final class VendorLowLatencyKeys {
             }
         }
         return declared;
+    }
+
+    /**
+     * The whole MediaTek preset for a configure try, set by name whether or not the decoder lists
+     * it: the shorter queues on try 0, the full preset after that.
+     */
+    static Map<String, Integer> mediaTekKeys(int tryNumber) {
+        return tryNumber == 0 ? MEDIATEK_SHORT : MEDIATEK;
     }
 
     static boolean isMediaTekDetectOnly(Collection<String> integerParams) {

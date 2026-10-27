@@ -276,11 +276,6 @@ const USERS_READ: &str = "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a
 pub fn restrict_to_administrators(folder: &Path) -> Result<()> {
     restrict(folder, ADMINISTRATORS_ONLY)
 }
-/// As [`restrict_to_administrators`], but Users may read `folder` and its
-/// files, for what holds nothing secret and an unelevated host must read.
-pub fn restrict_to_administrators_readable(folder: &Path) -> Result<()> {
-    restrict(folder, USERS_READ)
-}
 /// The permissions `sddl` describes on `folder` and the files in it.
 fn restrict(folder: &Path, sddl: &str) -> Result<()> {
     use windows::Win32::Security::Authorization::{

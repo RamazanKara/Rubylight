@@ -10,7 +10,8 @@
 //! it (`src/LauncherApplication.cs`, `src/LauncherPolicy.cs`, MIT, see the
 //! module above): loopback, the user's own account, CredSSP, the child-session
 //! flag and `KeyboardHookMode = 2`, so Windows-key shortcuts stay on the
-//! user's own desktop.
+//! user's own desktop. On top of Annex, the RDP port setup recorded and
+//! `AuthenticationLevel = 2`.
 
 use crate::text::to_wide;
 use anyhow::{Context, Result, bail};
@@ -283,9 +284,18 @@ impl Rdp {
         account: &str,
         password: &Secret,
         display: DisplaySettings,
+        rdp_port: u16,
     ) -> Result<Vec<String>> {
         let control = &self.control;
         put(control, "Server", &Value::text("localhost"))?;
+        // The port setup recorded and keeps closed to the network: the client's default would
+        // reach whatever listens on 3389 instead.
+        put_in(
+            control,
+            "AdvancedSettings2",
+            "RDPPort",
+            &Value::int(i32::from(rdp_port)),
+        )?;
         put(control, "UserName", &Value::text(account))?;
         put_in(
             control,
@@ -301,6 +311,14 @@ impl Rdp {
             "AdvancedSettings7",
             "EnableCredSspSupport",
             &Value::yes(),
+        )?;
+        // 2: the client warns instead of connecting to a server it cannot authenticate (0 would
+        // connect without a word).
+        put_in(
+            control,
+            "AdvancedSettings5",
+            "AuthenticationLevel",
+            &Value::int(2),
         )?;
         self.extended("ConnectToChildSession", &Value::yes())?;
         let mut notices = Vec::new();
@@ -440,6 +458,7 @@ struct App {
     /// The password in use: entered by the console or loaded from the store.
     password: Option<Secret>,
     display: DisplaySettings,
+    rdp_port: u16,
     clock: Instant,
     current: u32,
     console: u32,
@@ -473,8 +492,13 @@ impl App {
     fn command(&mut self, command: ViewerCommand) {
         let (now, state) = (self.now(), self.state());
         let actions = match command {
-            ViewerCommand::Start { display, password } => {
+            ViewerCommand::Start {
+                display,
+                rdp_port,
+                password,
+            } => {
                 self.display = display;
+                self.rdp_port = rdp_port;
                 self.notice = None;
                 let kind = match password.filter(|p| !p.is_empty()) {
                     Some(password) => {
@@ -576,7 +600,9 @@ impl App {
                 .password
                 .as_ref()
                 .context("no Windows password to sign in with")?;
-            let notices = self.rdp.configure(&account()?, password, self.display)?;
+            let notices = self
+                .rdp
+                .configure(&account()?, password, self.display, self.rdp_port)?;
             if !notices.is_empty() {
                 self.notice = Some(notices.join("; "));
             }
@@ -692,6 +718,7 @@ pub fn run() -> Result<()> {
         store: PasswordStore::new(password, super::UserDpapi),
         password: None,
         display: DisplaySettings::default(),
+        rdp_port: 3389,
         clock: Instant::now(),
         current,
         console,
@@ -756,9 +783,21 @@ mod tests {
                 r"PC\nobody",
                 &Secret::new("placeholder".into()),
                 DisplaySettings::default(),
+                3390,
             )
             .unwrap();
         assert!(notices.is_empty(), "{notices:?}");
+        let read = |group: &str, name: &str| {
+            get(
+                &get(&rdp.control, group).unwrap().into_dispatch().unwrap(),
+                name,
+            )
+            .unwrap()
+            .as_i32()
+            .unwrap()
+        };
+        assert_eq!(read("AdvancedSettings2", "RDPPort"), 3390);
+        assert_eq!(read("AdvancedSettings5", "AuthenticationLevel"), 2);
         assert_eq!(rdp.state().unwrap(), RdpState::Disconnected);
         // SAFETY: the window belongs to this thread.
         unsafe { DestroyWindow(hwnd) }.unwrap();

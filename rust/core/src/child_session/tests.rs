@@ -1019,6 +1019,7 @@ fn the_password_never_reaches_a_log() {
     let secret = Secret::new(PASSWORD.into());
     let command = ViewerCommand::Start {
         display: DisplaySettings::default(),
+        rdp_port: 3389,
         password: Some(secret.clone()),
     };
     assert_eq!(format!("{secret}"), "[redacted]");
@@ -1095,6 +1096,7 @@ fn a_console_request_password_unescapes_like_serde_json() {
 fn viewer_commands_carry_the_password_only_on_the_wire() {
     let command = ViewerCommand::Start {
         display: DisplaySettings::parse("2560x1440", "125").unwrap(),
+        rdp_port: 3390,
         password: Some(Secret::new(PASSWORD.into())),
     };
     let line = command.line().unwrap();
@@ -1102,8 +1104,13 @@ fn viewer_commands_carry_the_password_only_on_the_wire() {
     assert!(!line.contains(PASSWORD), "the password travels as hex");
     assert!(line.contains(&hex::encode(PASSWORD)));
     match serde_json::from_str(line.trim_end()).unwrap() {
-        ViewerCommand::Start { display, password } => {
+        ViewerCommand::Start {
+            display,
+            rdp_port,
+            password,
+        } => {
             assert_eq!(display.scale, 125);
+            assert_eq!(rdp_port, 3390);
             assert_eq!(password.unwrap().expose(), PASSWORD);
         }
         other => panic!("{other:?}"),
@@ -1113,6 +1120,7 @@ fn viewer_commands_carry_the_password_only_on_the_wire() {
     let awkward = "quo\"te back\\slash \u{e9}\u{1f600}\ttab";
     let line = ViewerCommand::Start {
         display: DisplaySettings::default(),
+        rdp_port: 3389,
         password: Some(Secret::new(awkward.into())),
     }
     .line()
@@ -1133,7 +1141,14 @@ fn viewer_commands_carry_the_password_only_on_the_wire() {
         r#"{"command":"start","display":{"width":1920,"height":1080,"scale":100}}"#,
     )
     .unwrap();
-    assert!(matches!(saved, ViewerCommand::Start { password: None, .. }));
+    assert!(matches!(
+        saved,
+        ViewerCommand::Start {
+            password: None,
+            rdp_port: 3389,
+            ..
+        }
+    ));
     let end: ViewerCommand =
         serde_json::from_str(r#"{"command":"end_session","child":7,"generation":3}"#).unwrap();
     assert!(matches!(

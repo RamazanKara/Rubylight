@@ -222,6 +222,7 @@ pub(crate) fn start(h: &Shared, password: Option<logic::Secret>) -> Result<()> {
     if !missing.is_empty() {
         bail!("set up child sessions first: {}", missing.join("; "));
     }
+    let command = start_command(&h.directory, display, password)?;
     let mut running = running();
     let alive = running
         .as_ref()
@@ -237,7 +238,22 @@ pub(crate) fn start(h: &Shared, password: Option<logic::Secret>) -> Result<()> {
         .as_mut()
         .context("the child-session viewer is not running")?;
     running.refused = None;
-    send_to(running, &ViewerCommand::Start { display, password })
+    send_to(running, &command)
+}
+/// The viewer connects to the RDP port setup recorded, so a PC whose RDP
+/// listens elsewhere is not left to the client's default.
+fn start_command(
+    directory: &Path,
+    display: DisplaySettings,
+    password: Option<logic::Secret>,
+) -> Result<ViewerCommand> {
+    let state = load_saved(directory)?
+        .context("set up child sessions first: Rubylight has no record of the setup here")?;
+    Ok(ViewerCommand::Start {
+        display,
+        rdp_port: state.rdp_port,
+        password,
+    })
 }
 
 /// Send a command to the running viewer.
@@ -611,6 +627,38 @@ mod tests {
             problem.contains("could not be checked: COM failed"),
             "{problem}"
         );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn the_viewer_connects_to_the_rdp_port_setup_recorded() {
+        let directory = scratch();
+        let port = |directory: &Path| match start_command(directory, Default::default(), None) {
+            Ok(ViewerCommand::Start { rdp_port, .. }) => Ok(rdp_port),
+            Ok(other) => panic!("{other:?}"),
+            Err(error) => Err(format!("{error:#}")),
+        };
+        let error = port(&directory).unwrap_err();
+        assert!(error.contains("set up child sessions first"), "{error}");
+        let mut state = SetupState {
+            version: 1,
+            user_sid: "S-1-5-21-1".into(),
+            deny_ts_connections: Some(1),
+            dwm_frame_interval: None,
+            suppress_when_minimized: None,
+            child_sessions: false,
+            remote_desktop_rule_ids: Vec::new(),
+            rdp_port: 3390,
+        };
+        save_state(&directory, &state).unwrap();
+        assert_eq!(port(&directory), Ok(3390));
+        // A record saved without a port: Windows' default.
+        let mut record = serde_json::to_value(&state).unwrap();
+        record.as_object_mut().unwrap().remove("rdp_port");
+        std::fs::write(setup_path(&directory), record.to_string()).unwrap();
+        assert_eq!(port(&directory), Ok(3389));
+        state.rdp_port = 3389;
+        assert_eq!(load_saved(&directory).unwrap(), Some(state));
         std::fs::remove_dir_all(directory).unwrap();
     }
 

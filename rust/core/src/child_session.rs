@@ -792,9 +792,11 @@ impl fmt::Display for Secret {
 #[serde(tag = "command", rename_all = "snake_case")]
 pub enum ViewerCommand {
     /// Attach the child session's desktop; `password` is a newly entered one,
-    /// None to use the saved one.
+    /// None to use the saved one. `rdp_port` is the one setup recorded.
     Start {
         display: DisplaySettings,
+        #[serde(default = "default_rdp_port")]
+        rdp_port: u16,
         #[serde(default, with = "wire_secret")]
         password: Option<Secret>,
     },
@@ -1052,7 +1054,12 @@ pub struct SetupState {
     /// The IDs (see [`SystemSettings::enabled_rules`]) of the Remote Desktop
     /// rules that were on; restore turns on exactly these.
     pub remote_desktop_rule_ids: Vec<String>,
+    /// Windows' default when a record has none.
+    #[serde(default = "default_rdp_port")]
     pub rdp_port: u16,
+}
+fn default_rdp_port() -> u16 {
+    DEFAULT_RDP_PORT as u16
 }
 
 struct Change {

@@ -2623,8 +2623,9 @@ pub struct Session<P = (), A = ()> {
     /// doesn't apply. Written through `audio_dsp::{state, apply}`.
     pub audio: crate::audio_dsp::Controls,
     /// The sent audio's copy for haptics from game audio, filled only while a
-    /// controller wants it (`audio_haptics`).
-    pub audio_haptics: crate::audio_haptics::Tap,
+    /// controller wants it (`audio_haptics`). Shared so a control peer that
+    /// wanted it can stop the copy when it goes.
+    pub audio_haptics: Arc<crate::audio_haptics::Tap>,
     /// The host-drawn couch menu: open flag, revision and panel, shared by the
     /// control loop, the menu worker, the video loop and the native API.
     pub couch_menu: Arc<crate::couch_menu::Shared>,

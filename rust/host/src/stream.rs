@@ -3871,12 +3871,10 @@ impl Media {
                                         }
                                     }
                                     Ok(mut event) => {
-                                        if let input::Input::Arrival { capabilities, .. } =
-                                            &mut event
-                                            && !haptics_negotiated(&s.config, peer.channel_count())
-                                        {
-                                            *capabilities &= !haptics::CAPABILITY;
-                                        }
+                                        p.audio_haptics.input(
+                                            &mut event,
+                                            haptics_negotiated(&s.config, peer.channel_count()),
+                                        );
                                         if let input::Input::Arrival { capabilities, .. } = &event
                                             && let Some(hint) =
                                                 butterpollo_core::input_policy::steam_input_hint(
@@ -3886,7 +3884,6 @@ impl Media {
                                         {
                                             s.launch.warnings.set("input_steam_input", hint);
                                         }
-                                        p.audio_haptics.arbiter.input(&event);
                                         if p.inputs.last_mut().is_some_and(|last| {
                                             last.merge(&event) == input::Batch::Merged
                                         }) {
@@ -4165,100 +4162,23 @@ impl Media {
                     }
                     // The gamepad thread polls feedback every 8 ms; pass on
                     // what it found, and the sensors an arrived pad has.
-                    let mut messages = Vec::new();
-                    let mut waveforms = Vec::new();
-                    if let Some(i) = &p.injector {
-                        for report in i.gamepad_reports() {
-                            match report {
-                                PadReport::Speaker(frame) => {
-                                    if p.controller_audio[frame.id as usize]
-                                        & controller_audio::PLAYBACK
-                                        != 0
-                                        && frame.created.elapsed() <= haptics::MAX_AGE
-                                        && let Some(payload) = frame.payload()
-                                    {
-                                        p.controller_pcm.observe(
-                                            frame.id,
-                                            controller_audio::SPEAKER,
-                                            Instant::now(),
-                                        );
-                                        waveforms.push((controller_audio::SPEAKER, payload));
-                                    }
-                                }
-                                PadReport::Haptics(mut frame) => {
-                                    if i.feedback_allowed(haptics::PACKET_TYPE)
-                                        && haptics_negotiated(
-                                            &s.config,
-                                            host.peer(*peer_id).channel_count(),
-                                        )
-                                        && frame.created.elapsed() <= haptics::MAX_AGE
-                                        && p.audio_haptics
-                                            .arbiter
-                                            .game_frame(&mut frame, Instant::now())
-                                        && let Some(payload) = frame.payload()
-                                    {
-                                        p.controller_pcm.observe(
-                                            frame.id,
-                                            haptics::PACKET_TYPE,
-                                            Instant::now(),
-                                        );
-                                        waveforms.push((haptics::PACKET_TYPE, payload));
-                                    }
-                                }
-                                PadReport::Feedback { id, kind, data } => {
-                                    let packets = feedback_packets(id, kind, &data);
-                                    for (kind, payload) in &packets {
-                                        p.audio_haptics.arbiter.game_feedback(
-                                            *kind,
-                                            payload,
-                                            Instant::now(),
-                                        );
-                                    }
-                                    messages.extend(packets.into_iter().filter(
-                                        |(kind, payload)| {
-                                            p.rumble.forward(
-                                                i.feedback_allowed(*kind),
-                                                *kind,
-                                                payload,
-                                            )
-                                        },
-                                    ))
-                                }
-                                PadReport::Motion { id, capabilities } => {
-                                    messages.extend(motion_requests(id, capabilities))
-                                }
-                            }
-                        }
-                        // Haptics from game audio, for the waveform controllers
-                        // the game leaves without haptics or rumble.
-                        let allowed = i.feedback_allowed(haptics::PACKET_TYPE)
-                            && haptics_negotiated(&s.config, host.peer(*peer_id).channel_count());
-                        let now = Instant::now();
-                        for frame in
-                            p.audio_haptics
-                                .arbiter
-                                .generate(allowed, &s.audio_haptics, now)
-                        {
-                            if let Some(payload) = frame.payload() {
-                                p.controller_pcm
-                                    .observe(frame.id, haptics::PACKET_TYPE, now);
-                                waveforms.push((haptics::PACKET_TYPE, payload));
-                            }
-                        }
-                    }
+                    let sends = match &p.injector {
+                        Some(i) => pad_reports(
+                            i.gamepad_reports(),
+                            |kind| i.feedback_allowed(kind),
+                            haptics_negotiated(&s.config, host.peer(*peer_id).channel_count()),
+                            &p.controller_audio,
+                            &mut p.controller_pcm,
+                            &mut p.audio_haptics.arbiter,
+                            &mut p.rumble,
+                        ),
+                        None => PadSends::default(),
+                    };
                     s.reserve_controller_pcm(p.controller_pcm.streams(Instant::now()));
-                    for (kind, payload) in waveforms {
-                        if let Ok(message) = p.encrypt(&s, kind, &payload) {
-                            let _ = host.peer_mut(*peer_id).send(
-                                haptics::CHANNEL,
-                                &Packet::new(
-                                    message,
-                                    PacketKind::AlwaysUnreliable { sequenced: false },
-                                ),
-                            );
-                        }
+                    for (kind, payload) in sends.waveforms {
+                        p.send_waveform(&mut host, *peer_id, &s, kind, &payload);
                     }
-                    for (kind, payload) in messages {
+                    for (kind, payload) in sends.messages {
                         if let Ok(message) = p.encrypt(&s, kind, &payload) {
                             let _ = host.peer_mut(*peer_id).send(
                                 FEEDBACK_CHANNEL,
@@ -4277,6 +4197,25 @@ impl Media {
             peers_went |= !remove.is_empty();
             for peer in remove {
                 peers.remove(&peer);
+            }
+            // Haptics from game audio, for the waveform controllers the game
+            // leaves without haptics or rumble: after the input was applied
+            // and the acks went out, so the analysis delays neither.
+            for (peer_id, p) in &mut peers {
+                let (Some(s), Some(i)) = (p.session.clone(), &p.injector) else {
+                    continue;
+                };
+                let allowed = i.feedback_allowed(haptics::PACKET_TYPE)
+                    && haptics_negotiated(&s.config, host.peer(*peer_id).channel_count());
+                let payloads = p.audio_haptics.generate(
+                    allowed,
+                    &s.audio_haptics,
+                    &mut p.controller_pcm,
+                    Instant::now(),
+                );
+                for payload in payloads {
+                    p.send_waveform(&mut host, *peer_id, &s, haptics::PACKET_TYPE, &payload);
+                }
             }
             if peers_went && host.socket().roaming.has_peers() {
                 let live: Vec<SocketAddr> = host
@@ -4440,12 +4379,26 @@ impl Drop for ControlPeer {
         if let Some(injector) = &mut self.injector {
             injector.detach_gamepads();
         }
-        if let Some(s) = &self.session {
-            self.audio_haptics.arbiter.release(&s.audio_haptics);
-        }
     }
 }
 impl ControlPeer {
+    /// Speaker and haptics waveforms go unreliable on their own channel: a
+    /// late one is useless.
+    fn send_waveform(
+        &mut self,
+        host: &mut Host<ControlSocket>,
+        peer: PeerID,
+        s: &Session,
+        kind: u16,
+        payload: &[u8],
+    ) {
+        if let Ok(message) = self.encrypt(s, kind, payload) {
+            let _ = host.peer_mut(peer).send(
+                haptics::CHANNEL,
+                &Packet::new(message, PacketKind::AlwaysUnreliable { sequenced: false }),
+            );
+        }
+    }
     fn encrypt(&mut self, s: &Session, kind: u16, payload: &[u8]) -> Result<Vec<u8>> {
         let seq = self.sequence;
         self.sequence = seq.checked_add(1).context("control nonce exhausted")?;
@@ -4477,6 +4430,67 @@ fn first_steam_attributes_refusal(
     (!std::mem::replace(warned, true)).then_some(refusal)
 }
 
+/// What a pass sends for the gamepad thread's reports: feedback messages
+/// (reliable) and speaker and haptics waveforms (the haptics channel).
+#[derive(Default)]
+struct PadSends {
+    messages: Vec<(u16, Vec<u8>)>,
+    waveforms: Vec<(u16, Vec<u8>)>,
+}
+
+/// The game's own haptics and rumble reach `arbiter` here, before the same
+/// pass generates haptics from game audio, so it already leaves those
+/// controllers alone.
+fn pad_reports(
+    reports: impl IntoIterator<Item = PadReport>,
+    feedback_allowed: impl Fn(u16) -> bool,
+    negotiated: bool,
+    controller_audio: &[u8; 16],
+    pcm: &mut controller_audio::PcmTraffic,
+    arbiter: &mut butterpollo_core::audio_haptics::Arbiter,
+    rumble: &mut RumbleForwarded,
+) -> PadSends {
+    let mut sends = PadSends::default();
+    for report in reports {
+        match report {
+            PadReport::Speaker(frame) => {
+                if controller_audio
+                    .get(usize::from(frame.id))
+                    .is_some_and(|flags| flags & controller_audio::PLAYBACK != 0)
+                    && frame.created.elapsed() <= haptics::MAX_AGE
+                    && let Some(payload) = frame.payload()
+                {
+                    pcm.observe(frame.id, controller_audio::SPEAKER, Instant::now());
+                    sends.waveforms.push((controller_audio::SPEAKER, payload));
+                }
+            }
+            PadReport::Haptics(mut frame) => {
+                if feedback_allowed(haptics::PACKET_TYPE)
+                    && negotiated
+                    && frame.created.elapsed() <= haptics::MAX_AGE
+                    && arbiter.game_frame(&mut frame, Instant::now())
+                    && let Some(payload) = frame.payload()
+                {
+                    pcm.observe(frame.id, haptics::PACKET_TYPE, Instant::now());
+                    sends.waveforms.push((haptics::PACKET_TYPE, payload));
+                }
+            }
+            PadReport::Feedback { id, kind, data } => {
+                let packets = feedback_packets(id, kind, &data);
+                for (kind, payload) in &packets {
+                    arbiter.game_feedback(*kind, payload, Instant::now());
+                }
+                sends.messages.extend(packets.into_iter().filter(|(kind, payload)| {
+                    rumble.forward(feedback_allowed(*kind), *kind, payload)
+                }))
+            }
+            PadReport::Motion { id, capabilities } => {
+                sends.messages.extend(motion_requests(id, capabilities))
+            }
+        }
+    }
+    sends
+}
 /// Ask the client for an arrived pad's accelerometer (kind 1) and gyroscope
 /// (kind 2) at 200 Hz, when it has them.
 fn motion_requests(id: u8, capabilities: u16) -> Vec<(u16, Vec<u8>)> {

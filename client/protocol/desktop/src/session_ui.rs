@@ -62,7 +62,7 @@ pub fn show(ui: &mut egui::Ui, page: &mut Page, title: &str, lines: &[(&'static 
         return Outcome::Leave;
     }
 
-    ui.label(RichText::new(title).font(theme::semibold(15.0)).color(theme::MOON));
+    ui.label(RichText::new(title).font(theme::semibold(theme::text::BODY)).color(theme::MOON));
     ui.label(RichText::new(session_text(&state)).color(theme::ON_SURFACE_VARIANT));
     if let Some(error) = &state.setup_error {
         ui.colored_label(theme::ERROR, error);
@@ -123,7 +123,7 @@ pub fn show(ui: &mut egui::Ui, page: &mut Page, title: &str, lines: &[(&'static 
     }
 
     ui.separator();
-    ui.label(RichText::new(tr("Connection")).font(theme::semibold(15.0)));
+    ui.label(RichText::new(tr("Connection")).font(theme::semibold(theme::text::BODY)));
     egui::Grid::new("session-facts").num_columns(2).spacing([14.0, 3.0]).show(ui, |ui| {
         for (key, value) in lines {
             ui.label(RichText::new(tr(key)).color(theme::OUTLINE));
@@ -145,7 +145,7 @@ pub fn show(ui: &mut egui::Ui, page: &mut Page, title: &str, lines: &[(&'static 
 }
 
 fn radeon_panel(ui: &mut egui::Ui, page: &Page, state: &State) {
-    ui.label(RichText::new(tr("Radeon graphics")).font(theme::semibold(15.0)));
+    ui.label(RichText::new(tr("Radeon graphics")).font(theme::semibold(theme::text::BODY)));
     let Some(panel) = &state.radeon.panel else {
         let text = match &state.radeon.load_failure {
             Some(failure) => failure.text(),

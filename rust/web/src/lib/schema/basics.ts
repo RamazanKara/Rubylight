@@ -735,7 +735,9 @@ const input: Setting[] = [
     key: 'always_send_scancodes',
     label: 'Send scan codes',
     description:
-      'Send keys as scan codes, which some games need to see keyboard input at all. Turn it off if a device with a non-US layout types the wrong characters.',
+      'Send keys as scan codes, which some games need to see keyboard input at all. They follow Keyboard layout.',
+    details:
+      'By default that is the layout the device reports. Turn this off only if a device that reports no layout types the wrong characters.',
     category: 'input',
     group: 'Keyboard',
     control: { kind: 'toggle' },

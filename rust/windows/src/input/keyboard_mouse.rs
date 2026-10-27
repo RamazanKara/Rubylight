@@ -100,9 +100,21 @@ impl Injector {
         }
     }
     pub(super) fn key_scan(&self, key: u32, down: bool, flags: u8) -> INPUT {
-        Self::keyboard_input(key, down, flags, self.policy.always_send_scancodes)
+        Self::keyboard_input(
+            key,
+            down,
+            flags,
+            self.policy.always_send_scancodes,
+            self.layout.as_ref(),
+        )
     }
-    fn keyboard_input(key: u32, down: bool, flags: u8, always_send_scancodes: bool) -> INPUT {
+    fn keyboard_input(
+        key: u32,
+        down: bool,
+        flags: u8,
+        always_send_scancodes: bool,
+        layout: Option<&crate::keylayout::Layout>,
+    ) -> INPUT {
         let extended = key & EXPLICIT_EXTENDED_KEY != 0;
         let key = key as u16;
         let mut input = Self::key(key, down, false);
@@ -111,7 +123,8 @@ impl Injector {
             unsafe { input.Anonymous.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY };
         }
         // Normalized Moonlight VKs always use the fixed US table. Non-normalized
-        // keys follow the host's layout only when the administrator asks for it.
+        // keys get scan codes only when the administrator asks for it: from the
+        // device's layout when it is known, else from the host's.
         let scan = if key == 0x2c && (flags & 1 == 0 || always_send_scancodes) {
             // Print Screen is E0 37. The retained table's SysRq scan 54
             // stops working when a newer client marks it extended.
@@ -119,8 +132,11 @@ impl Injector {
         } else if flags & 1 == 0 {
             crate::keylayout::SCANCODES[(key & 255) as usize] as u16
         } else if always_send_scancodes && !matches!(key, 0x5b | 0x5c | 0x13) {
-            // SAFETY: MapVirtualKeyW takes a virtual-key value and a valid mapping constant, with no borrowed pointers.
-            unsafe { MapVirtualKeyW(u32::from(key), MAPVK_VK_TO_VSC) as u16 }
+            match layout.and_then(|layout| layout.scancode(key)) {
+                Some(scan) => u16::from(scan),
+                // SAFETY: MapVirtualKeyW takes a virtual-key value and a valid mapping constant, with no borrowed pointers.
+                None => unsafe { MapVirtualKeyW(u32::from(key), MAPVK_VK_TO_VSC) as u16 },
+            }
         } else {
             0
         };
@@ -198,6 +214,7 @@ impl Injector {
                 &self.keys,
                 &HELD.lock().unwrap(),
                 self.policy.always_send_scancodes,
+                self.layout.as_ref(),
             );
             if let Err(error) = self.send(&inputs) {
                 first.get_or_insert(error);
@@ -224,13 +241,25 @@ impl Injector {
         let mut inputs = Vec::with_capacity(7);
         for (mask, vk) in generic {
             if modifiers & mask != 0 {
-                inputs.push(Self::keyboard_input(vk, true, 0, always_send_scancodes));
+                inputs.push(Self::keyboard_input(
+                    vk,
+                    true,
+                    0,
+                    always_send_scancodes,
+                    None,
+                ));
             }
         }
         inputs.push(key);
         for (mask, vk) in generic.iter().rev() {
             if modifiers & mask != 0 {
-                inputs.push(Self::keyboard_input(*vk, false, 0, always_send_scancodes));
+                inputs.push(Self::keyboard_input(
+                    *vk,
+                    false,
+                    0,
+                    always_send_scancodes,
+                    None,
+                ));
             }
         }
         inputs
@@ -245,9 +274,10 @@ impl Injector {
         keys: &BTreeSet<u32>,
         held: &BTreeMap<(bool, u32), usize>,
         always_send_scancodes: bool,
+        layout: Option<&crate::keylayout::Layout>,
     ) -> Vec<INPUT> {
         Self::with_modifiers(
-            Self::keyboard_input(key, true, flags, always_send_scancodes),
+            Self::keyboard_input(key, true, flags, always_send_scancodes, layout),
             unheld_modifiers(key, modifiers, keys, held),
             always_send_scancodes,
         )
@@ -411,7 +441,7 @@ mod tests {
         // from the static US table; non-normalized keys retain their VK.
         // SAFETY: keyboard_input constructs a keyboard INPUT with its ki union field initialized.
         unsafe {
-            Injector::keyboard_input(key, down, flags, false)
+            Injector::keyboard_input(key, down, flags, false, None)
                 .Anonymous
                 .ki
         }
@@ -460,6 +490,7 @@ mod tests {
                             down,
                             flags,
                             true,
+                            None,
                         )
                         .Anonymous
                         .ki
@@ -535,7 +566,7 @@ mod tests {
                 (true, key),
                 down,
                 owned,
-                Injector::keyboard_input(key, down, 0, false),
+                Injector::keyboard_input(key, down, 0, false, None),
                 |inputs| {
                     sent.extend(
                         inputs
@@ -568,7 +599,7 @@ mod tests {
             key,
             false,
             true,
-            Injector::keyboard_input(key.1, false, 0, false),
+            Injector::keyboard_input(key.1, false, 0, false, None),
             |_| anyhow::bail!("the secure desktop refused input"),
         );
         assert!(refused.is_err());
@@ -675,7 +706,7 @@ mod tests {
         );
         assert_eq!(
             sent(Injector::repeat_inputs(
-                a, 0, modifiers, &keys, &held, false
+                a, 0, modifiers, &keys, &held, false, None
             )),
             [
                 (shift, KEYEVENTF_SCANCODE),
@@ -687,7 +718,7 @@ mod tests {
         // would let go of the user's Shift while it is still down.
         keys.insert(0xa0);
         let repeat = sent(Injector::repeat_inputs(
-            a, 0, modifiers, &keys, &held, false,
+            a, 0, modifiers, &keys, &held, false, None,
         ));
         assert_eq!(repeat, [(key, KEYEVENTF_SCANCODE)]);
         assert!(
@@ -704,7 +735,8 @@ mod tests {
                 modifiers,
                 &BTreeSet::from([a]),
                 &shared,
-                false
+                false,
+                None
             )),
             [(key, KEYEVENTF_SCANCODE)]
         );
@@ -716,7 +748,8 @@ mod tests {
                 0,
                 &BTreeSet::from([a]),
                 &held,
-                false
+                false,
+                None
             )),
             [(key, KEYEVENTF_SCANCODE)]
         );

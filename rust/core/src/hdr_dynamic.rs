@@ -1,5 +1,5 @@
 //! Dynamic HDR metadata for HEVC and AV1: SMPTE ST 2094-40 (HDR10+) and CUVA 005.1
-//! (HDR Vivid, Experimental) payloads in registered ITU-T T.35 form, their carriage as an
+//! (HDR Vivid) payloads in registered ITU-T T.35 form, their carriage as an
 //! HEVC prefix SEI or an AV1 metadata OBU, and the splice that puts them in a frame.
 //!
 //! Field semantics follow FFmpeg's parsers (`libavutil/hdr_dynamic_metadata.c`,
@@ -188,7 +188,7 @@ impl Hdr10Plus {
 }
 
 /// Statistics-only HDR Vivid metadata (one window, no tone-mapping curve), as 12-bit PQ
-/// codes over 4095. Experimental: no device here decodes it.
+/// codes over 4095.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Vivid {
     pub minimum_maxrgb: u16,

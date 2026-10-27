@@ -237,7 +237,7 @@ const video: Setting[] = [
     description:
       'Adds HDR10+ brightness statistics to HDR video so compatible displays can tone-map scene by scene. Devices without HDR10+ ignore them.',
     details:
-      'HDR10+ goes into HEVC and AV1 streams. HEVC streams also carry HDR Vivid (CUVA 005.1) statistics, which are Experimental. Turn this off if a display handles brightness worse with it.',
+      'HDR10+ goes into HEVC and AV1 streams. HEVC streams also carry HDR Vivid (CUVA 005.1) statistics, ported in part from Foundation Sunshine. Turn this off if a display handles brightness worse with it.',
     category: 'video',
     group: 'Codecs',
     control: { kind: 'toggle' },

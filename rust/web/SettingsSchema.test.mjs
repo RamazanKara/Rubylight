@@ -29,12 +29,13 @@ test('disconnect restoration defaults on and the exclusive-layout delay stays av
   assert.equal(retention.visibleWhen({ dd_config_revert_on_disconnect: false }), true);
 });
 
-test('HDR dynamic metadata defaults on and labels HDR Vivid Experimental', () => {
+test('HDR dynamic metadata defaults on and ships HDR Vivid as a normal feature', () => {
   const setting = settings.get('hdr_dynamic_metadata');
   assert.equal(setting.default, true);
   assert.equal(setting.control.kind, 'toggle');
   assert.equal(setting.category, 'video');
-  assert.match(setting.details, /HDR Vivid \(CUVA 005\.1\) statistics, which are Experimental/);
+  assert.match(setting.details, /HDR Vivid \(CUVA 005\.1\) statistics, ported in part from Foundation Sunshine\./);
+  assert.doesNotMatch(`${setting.label} ${setting.description} ${setting.details}`, /experimental/i);
   assert.equal(differsFromDefault(setting, {}, {}), false);
   assert.equal(differsFromDefault(setting, {}, { hdr_dynamic_metadata: false }), true);
 });

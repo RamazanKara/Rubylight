@@ -190,6 +190,30 @@ fn current_rect(name: &str) -> Option<RECT> {
 /// A width and height, and a rectangle (left, top, width, height) in it.
 type Size = (u32, u32);
 type Picture = (u32, u32, u32, u32);
+/// A desktop point as fractions of the stream, when it is on the display at
+/// `rect` whose picture sits at `picture` in the stream (None: it fills it).
+fn cursor_in_stream(
+    point: POINT,
+    rect: RECT,
+    picture: Option<(Size, Picture)>,
+) -> Option<(f32, f32)> {
+    let on = |value: i32, start: i32, end: i32| {
+        (start < end && (start..end).contains(&value))
+            .then(|| f64::from(value - start) / f64::from(end - start))
+    };
+    let (x, y) = (
+        on(point.x, rect.left, rect.right)?,
+        on(point.y, rect.top, rect.bottom)?,
+    );
+    let (x, y) = match picture {
+        Some((stream, (left, top, width, height))) => (
+            (f64::from(left) + x * f64::from(width)) / f64::from(stream.0),
+            (f64::from(top) + y * f64::from(height)) / f64::from(stream.1),
+        ),
+        None => (x, y),
+    };
+    Some((x as f32, y as f32))
+}
 impl Injector {
     pub fn new(output: &str, profile: &str) -> Result<Self> {
         Self::new_options(
@@ -273,6 +297,21 @@ impl Injector {
             }
             None => (x, y),
         }
+    }
+    /// The host cursor as fractions of the whole stream, bars included, or
+    /// None off the stream's display or before it is known. The couch menu
+    /// reads it only when a relative mouse's hold or click needs a position
+    /// (docs/couch-menu-design.md 3.2).
+    pub fn pointer_in_stream(&mut self) -> Option<(f32, f32)> {
+        self.settle_lookup(false);
+        let rect = self.rect?;
+        let mut point = POINT::default();
+        // SAFETY: `point` is a live POINT for the call to write.
+        if let Err(error) = unsafe { GetCursorPos(&mut point) } {
+            tracing::warn!(%error, "couch menu: the cursor position is unavailable");
+            return None;
+        }
+        cursor_in_stream(point, rect, self.picture())
     }
     /// Map absolute input onto `output` from now on: the stream's display can
     /// be created, recreated or renamed after input began.
@@ -1473,5 +1512,54 @@ mod tests {
             calls(),
             [1, 2, 3].map(|x| described(&[Injector::mouse(x, 0, 0, MOUSEEVENTF_MOVE)]))
         );
+    }
+
+    #[test]
+    fn the_cursor_maps_onto_the_stream_bars_included() {
+        // A 1920x1080 display right of the primary one.
+        let rect = RECT {
+            left: 2560,
+            top: 0,
+            right: 4480,
+            bottom: 1080,
+        };
+        let at = |x, y, picture| cursor_in_stream(POINT { x, y }, rect, picture);
+        assert_eq!(at(2560, 0, None), Some((0., 0.)));
+        assert_eq!(at(2560 + 960, 540, None), Some((0.5, 0.5)));
+        // Off the display, its right and bottom edges included.
+        for (x, y) in [(2559, 10), (4480, 10), (3000, -1), (3000, 1080), (100, 100)] {
+            assert_eq!(at(x, y, None), None, "{x},{y}");
+        }
+        // The display letterboxed into a 4:3 stream: its 16:9 picture in
+        // 1600x1200 sits at (0, 150).
+        let stream = (1600, 1200);
+        let picture = butterpollo_core::display_policy::picture((1920, 1080), stream).unwrap();
+        assert_eq!(picture, (0, 150, 1600, 900));
+        assert_eq!(
+            at(2560, 0, Some((stream, picture))),
+            Some((0., 150. / 1200.))
+        );
+        assert_eq!(
+            at(2560 + 960, 540, Some((stream, picture))),
+            Some((0.5, 0.5))
+        );
+        // The stream point maps back onto the same display point, as absolute
+        // input does.
+        let (x, y) = at(2560 + 480, 270, Some((stream, picture))).unwrap();
+        let back = butterpollo_core::display_policy::stream_to_picture(
+            (f64::from(x), f64::from(y)),
+            stream,
+            picture,
+        );
+        assert!(
+            (back.0 - 0.25).abs() < 1e-6 && (back.1 - 0.25).abs() < 1e-6,
+            "{back:?}"
+        );
+        // A degenerate rectangle is no display.
+        let empty = RECT {
+            right: 2560,
+            ..rect
+        };
+        assert_eq!(cursor_in_stream(POINT { x: 2560, y: 0 }, empty, None), None);
     }
 }

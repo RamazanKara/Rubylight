@@ -533,9 +533,11 @@ async fn a_connect_from_an_address_a_client_roamed_on_from_connects_at_once() ->
     h.rtsp(&other, 2, "PLAY", "").await?;
     let other_session = h.h.sessions.lock().unwrap().active[&other.id].clone();
     let other_client = Client::sending_from(h.ports, other.clone(), rebind(left).await?)?;
-    until("the address the client roamed on from connects", WAIT, || {
-        keyframes(&other_session) > 0 && other_client.frames.load(Ordering::Acquire) > 2
-    })
+    until(
+        "the address the client roamed on from connects",
+        WAIT,
+        || keyframes(&other_session) > 0 && other_client.frames.load(Ordering::Acquire) > 2,
+    )
     .await;
     let frames = client.frames.load(Ordering::Acquire);
     until("the roamed stream goes on", WAIT, || {
@@ -545,9 +547,11 @@ async fn a_connect_from_an_address_a_client_roamed_on_from_connects_at_once() ->
     assert!(!session.stopping());
     assert_eq!(session.client_ip(), IpAddr::from(MOVED));
     h.rtsp(&other, 3, "TEARDOWN", "").await?;
-    until("the new connection's termination delivered", WAIT * 3, || {
-        other_client.reason.load(Ordering::Acquire) != 0
-    })
+    until(
+        "the new connection's termination delivered",
+        WAIT * 3,
+        || other_client.reason.load(Ordering::Acquire) != 0,
+    )
     .await;
     assert_eq!(other_client.reason.load(Ordering::Acquire), CLOSED);
     drop(other_client);

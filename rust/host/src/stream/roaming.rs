@@ -139,9 +139,11 @@ impl Roaming {
     }
 
     /// Whether `data` from `from`, an address a client left that [`Self::peer_of`] drops,
-    /// is a fresh ENet connect that goes to ENet after all. Only where ENet knows no peer
-    /// by `from`, as when the client roamed on from it to a third address: the connect
-    /// is then another connection, and `from` is no longer retired. Where ENet still
+    /// is a fresh ENet connect that goes to ENet after all. Only where the roamed peer
+    /// is no longer known by `from`, as when the client roamed on from it to a third
+    /// address: the connect is then another connection, and `from` is no longer
+    /// retired, so later stale datagrams from the old path reach ENet, which drops them
+    /// unlogged, since they name a peer it knows at another address. Where ENet still
     /// knows the roamed peer by `from` (its launch address), what ENet sends there goes
     /// to the roamed client, so the connect waits for that session to end.
     pub(super) fn reopens(&mut self, from: SocketAddr, data: &[u8]) -> bool {
@@ -244,7 +246,8 @@ fn is_enet_connect(data: &[u8]) -> bool {
         return false;
     }
     let command = if header & SENT_TIME != 0 { 4 } else { 2 };
-    data.get(command).is_some_and(|command| command & 0x0F == CONNECT)
+    data.get(command)
+        .is_some_and(|command| command & 0x0F == CONNECT)
 }
 
 pub(super) fn send(socket: &ReplySocket, datagram: &[u8], to: SocketAddr) {
@@ -375,7 +378,10 @@ mod tests {
     #[test]
     fn only_an_enet_connect_is_a_connect() {
         assert!(is_enet_connect(&CONNECT));
-        assert!(is_enet_connect(&[0x0F, 0xFF, 0x82, 0xFF, 0, 1]), "no sent time");
+        assert!(
+            is_enet_connect(&[0x0F, 0xFF, 0x82, 0xFF, 0, 1]),
+            "no sent time"
+        );
         assert!(!is_enet_connect(&SEND));
         assert!(!is_enet_connect(&[0x8F, 0xFF, 0, 0, 0x85]), "a ping");
         assert!(!is_enet_connect(&[0xCF, 0xFF, 0, 0, 0x82]), "compressed");
@@ -420,14 +426,24 @@ mod tests {
         let now = Instant::now();
         roam(&mut roaming, now, b);
         assert_eq!(roaming.peer_of(peer), None);
-        assert!(!roaming.reopens(peer, &CONNECT), "ENet's own address of the peer");
+        assert!(
+            !roaming.reopens(peer, &CONNECT),
+            "ENet's own address of the peer"
+        );
         roam(&mut roaming, now + Duration::from_secs(2), c);
         assert_eq!(roaming.peer_of(b), None);
-        assert!(!roaming.reopens(b, &SEND), "the old path's datagrams stay dropped");
+        assert!(
+            !roaming.reopens(b, &SEND),
+            "the old path's datagrams stay dropped"
+        );
         assert_eq!(roaming.peer_of(fresh), Some(fresh));
         assert!(!roaming.reopens(fresh, &CONNECT), "nobody left it");
         assert!(roaming.reopens(b, &CONNECT));
-        assert_eq!(roaming.peer_of(b), Some(b), "the new connection's datagrams follow");
+        assert_eq!(
+            roaming.peer_of(b),
+            Some(b),
+            "the new connection's datagrams follow"
+        );
         assert!(!roaming.reopens(b, &CONNECT), "reopened once");
         // The roamed client is where it was.
         assert_eq!(roaming.peer_of(c), Some(peer));

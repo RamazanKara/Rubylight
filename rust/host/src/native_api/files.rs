@@ -1038,8 +1038,16 @@ mod tests {
     fn an_elevated_host_without_a_shell_says_how_to_reach_the_files() {
         let refused = failure("start the upload", UserFolderError::NoUserShell);
         assert_eq!(refused.code(), ErrorCode::Internal);
-        assert!(refused.message().contains("administrator"), "{}", refused.message());
-        assert!(refused.message().contains("Windows service"), "{}", refused.message());
+        assert!(
+            refused.message().contains("administrator"),
+            "{}",
+            refused.message()
+        );
+        assert!(
+            refused.message().contains("Windows service"),
+            "{}",
+            refused.message()
+        );
     }
 
     #[test]

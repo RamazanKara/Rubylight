@@ -1068,8 +1068,14 @@ mod tests {
         // Not created with the host's administrator rights instead.
         assert!(!wanted.exists());
         let message = UserFolderError::NoUserShell.to_string();
-        assert!(message.contains("desktop shell is not running"), "{message}");
-        assert!(message.contains("without administrator rights"), "{message}");
+        assert!(
+            message.contains("desktop shell is not running"),
+            "{message}"
+        );
+        assert!(
+            message.contains("without administrator rights"),
+            "{message}"
+        );
     }
 
     #[test]
@@ -1079,7 +1085,10 @@ mod tests {
         )));
         match failed {
             Err(UserFolderError::Io(error)) => {
-                assert!(error.to_string().contains("belongs to another user"), "{error}")
+                assert!(
+                    error.to_string().contains("belongs to another user"),
+                    "{error}"
+                )
             }
             other => panic!("{other:?}"),
         }

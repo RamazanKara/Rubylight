@@ -244,6 +244,17 @@ const video: Setting[] = [
     default: true,
   },
   {
+    key: 'hdr_dolby_vision',
+    label: 'Dolby Vision (Experimental)',
+    description: 'Offers Dolby Vision profile 8.1 to devices that ask for it on HEVC HDR streams. Experimental.',
+    details:
+      'Each frame carries its brightness statistics for the device’s Dolby Vision engine, and devices without Dolby Vision see HDR10. Packed 4:4:4 streams carry HDR10 and HDR10+ instead: the device unpacks the packed picture itself, so a Dolby Vision decoder would tone-map the packed layout instead of the picture.',
+    category: 'video',
+    group: 'Codecs',
+    control: { kind: 'toggle' },
+    default: true,
+  },
+  {
     key: 'frame_pacing',
     label: 'Frame pacing',
     description:

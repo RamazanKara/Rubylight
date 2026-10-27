@@ -541,6 +541,11 @@ impl Config {
             },
         }
     }
+    /// The Dolby Vision 8.1 offer on HEVC HDR streams, for devices that pick it
+    /// (`hdr_dolby_vision`, on by default; `extensions::hdr_offer`). 8.4 needs HLG.
+    pub fn hdr_dolby_vision(&self) -> bool {
+        self.boolean("hdr_dolby_vision", true)
+    }
     /// The WebRTC server for TV and browser clients (off by default).
     pub fn webrtc_server(&self) -> bool {
         self.boolean("webrtc_server", false)

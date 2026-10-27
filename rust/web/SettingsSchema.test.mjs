@@ -42,6 +42,19 @@ test('HDR dynamic metadata defaults on and ships HDR Vivid as a normal feature',
   assert.equal(differsFromDefault(setting, {}, { hdr_dynamic_metadata: false }), true);
 });
 
+test('Dolby Vision is a live Experimental setting that says why packed 4:4:4 streams go without it', () => {
+  const setting = settings.get('hdr_dolby_vision');
+  assert.equal(setting.default, true);
+  assert.equal(setting.control.kind, 'toggle');
+  assert.equal(setting.category, 'video');
+  assert.match(setting.label, /\(Experimental\)$/);
+  assert.match(setting.description, /Experimental\.$/);
+  assert.match(setting.details, /Packed 4:4:4 streams carry HDR10 and HDR10\+ instead: the device unpacks the packed picture itself/);
+  assert.doesNotMatch(`${setting.label} ${setting.description} ${setting.details}`, /Foundation|dovi_tool|quietvoid/);
+  assert.equal(pending.some(candidate => candidate.key === 'hdr_dolby_vision'), false);
+  assert.equal(differsFromDefault(setting, {}, { hdr_dolby_vision: false }), true);
+});
+
 test('descriptions stay to two short sentences and keep the finer points behind More', () => {
   for (const setting of schema.settings) {
     assert(setting.description.length <= 180, `${setting.key}: ${setting.description.length} characters`);
@@ -468,7 +481,7 @@ test('the keyboard follows text fields without their text, typing with the devic
 const live = ['audio_surround_714'];
 
 test('settings still pending stay out of the console, and shipped ones are in it', () => {
-  assert.equal(pending.length, 22);
+  assert.equal(pending.length, 21);
   for (const setting of pending) {
     const shipped = live.includes(setting.key);
     assert.equal(setting.pending === true, !shipped, setting.key);

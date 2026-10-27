@@ -46,6 +46,32 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+## Dolby Vision RPUs from dovi_tool
+
+The Dolby Vision profile 8.1 RPU writer in `rust/core/src/dovi.rs` follows the syntax, default values and L1 limits of the `dolby_vision` crate of [dovi_tool 3.4.0](https://github.com/quietvoid/dovi_tool) (`rpu/rpu_data_header.rs`, `rpu/rpu_data_mapping.rs`, `rpu/vdr_dm_data.rs`, `rpu/profiles/profile81.rs`, `rpu/extension_metadata/blocks`), used here under the MIT License. No dovi_tool code or crate is compiled in.
+
+MIT License
+
+Copyright (c) quietvoid
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
 ## PyroWave patches from Punktfunk
 
 The PyroWave SDK patches `0002-payload-data-444-sizing` and `0003-decoder-reject-short-block` in `rust/codec-patches/pyrowave` are adapted from patches 0001 and 0008 of [Punktfunk](https://git.unom.io/unom/punktfunk) (MIT OR Apache-2.0), used here under the MIT License. They are compiled into the shipped `libpyrowave-shared-1.dll`.

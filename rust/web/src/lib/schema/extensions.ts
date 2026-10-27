@@ -17,15 +17,6 @@ const adjust = [
 
 export const settings: Setting[] = [
   {
-    key: 'hdr_dolby_vision',
-    label: 'Dolby Vision',
-    description: 'Offers Dolby Vision, profiles 8.1 and 8.4, to devices that ask for it on HEVC streams.',
-    category: 'hdr',
-    control: switches,
-    default: true,
-    pending: true,
-  },
-  {
     key: 'hdr_hlg',
     label: 'HLG',
     description: 'Offers HLG HDR to devices that ask for it.',

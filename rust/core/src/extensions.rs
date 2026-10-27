@@ -22,6 +22,23 @@ const VERSION: u8 = 1;
 /// `GET` and `POST /actions/clipboard?type=` value for an image clipboard (PNG).
 pub const CLIPBOARD_TYPE_PNG: &str = "png";
 
+/// The `ServerCodecModeSupport` bit of HEVC Main10, which Dolby Vision
+/// profile 8 needs.
+const HEVC_MAIN10: u32 = 0x200;
+
+/// The `hdr` formats a host with these `ServerCodecModeSupport` bits offers:
+/// Dolby Vision 8.1 on HEVC Main10 while `dolby_vision` (`hdr_dolby_vision`)
+/// is on, beside stock PQ. PQ alone is stock HDR and is not listed, so a host
+/// with nothing beyond it shows stock clients nothing new. HLG and Dolby
+/// Vision 8.4 need an HLG encode, which the encoder does not have.
+pub fn hdr_offer(codecs: u32, dolby_vision: bool) -> u8 {
+    if dolby_vision && codecs & HEVC_MAIN10 != 0 {
+        hdr::PQ | hdr::DV_81
+    } else {
+        0
+    }
+}
+
 /// What the host offers this client, for serverinfo, DESCRIBE and the checks
 /// on what the client then asks for.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -392,6 +409,51 @@ mod tests {
         pq_only
             .check_announce(&announce(&format!("{hdr}a=x-rl-video[0].hdrFormat:1\n")))
             .unwrap();
+    }
+
+    #[test]
+    fn dolby_vision_is_offered_on_hevc_main10_while_its_setting_is_on() {
+        let hevc_main10 = 0x1 | 0x100 | 0x200;
+        assert_eq!(hdr_offer(hevc_main10, true), hdr::PQ | hdr::DV_81);
+        // The setting off, or no HEVC Main10 (AV1 Main10 alone): nothing
+        // beyond stock HDR, so serverinfo and DESCRIBE stay stock.
+        for (codecs, dolby_vision) in [
+            (hevc_main10, false),
+            (0x1 | 0x100 | 0x2_0000, true),
+            (0, true),
+        ] {
+            assert_eq!(hdr_offer(codecs, dolby_vision), 0, "{codecs:#x}");
+            let offered = Offered {
+                hdr_formats: hdr_offer(codecs, dolby_vision),
+                ..Offered::NONE
+            };
+            assert!(offered.serverinfo_fields().is_empty());
+            assert!(offered.describe_lines().is_empty());
+        }
+        let offered = Offered {
+            hdr_formats: hdr_offer(hevc_main10, true),
+            ..Offered::NONE
+        };
+        assert_eq!(
+            offered.serverinfo_fields(),
+            [("HdrFormats", "5".to_owned())]
+        );
+        assert_eq!(offered.describe_lines(), "a=x-rl-video.hdrFormats:5\r\n");
+        let hdr = "a=x-nv-video[0].dynamicRangeMode:1\na=x-nv-vqos[0].bitStreamFormat:1\n";
+        for format in [1, 4] {
+            offered
+                .check_announce(&announce(&format!(
+                    "{hdr}a=x-rl-video[0].hdrFormat:{format}\n"
+                )))
+                .unwrap();
+        }
+        for format in [2, 8] {
+            offered
+                .check_announce(&announce(&format!(
+                    "{hdr}a=x-rl-video[0].hdrFormat:{format}\n"
+                )))
+                .unwrap_err();
+        }
     }
 
     #[test]

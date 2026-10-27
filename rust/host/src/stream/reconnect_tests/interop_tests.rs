@@ -563,6 +563,7 @@ const SERVERINFO_FIELDS: &[(&str, Reading)] = &[
     ("PyroWaveWireBudgetVersion", Reading::Read),
     ("PyroWaveCriticalFecPercentage", Reading::Read),
     ("PyroWaveMinParityShards", Reading::Read),
+    ("HdrFormats", Reading::Read),
     ("FecControlVersion", Reading::Read),
     ("BandwidthProbeVersion", Reading::Read),
     ("AudioCodecs", Reading::Read),
@@ -681,7 +682,9 @@ fn expected(feature: Feature) -> Availability {
         | Feature::Sleep
         // 7.1.4 and PCM audio are on by default.
         | Feature::Surround714
-        | Feature::AudioPassthrough => Supported,
+        | Feature::AudioPassthrough
+        // Dolby Vision 8.1 on the fixture's HEVC Main10 encoder (hdr_dolby_vision is on).
+        | Feature::DolbyVision => Supported,
         // Keyboard follows focus and the device's layout are on by default.
         Feature::TextInput | Feature::ClientKeyboardLayout => Supported,
         Feature::ServerCommands => Unsupported(Some(Reason::NoCommands)),
@@ -702,8 +705,7 @@ fn expected(feature: Feature) -> Availability {
         // File transfer is off; listed by the native API only when on.
         Feature::FileUpload | Feature::FileDownload => Unsupported(None),
         // The 3.0 extensions are defined but offered by nothing yet.
-        Feature::DolbyVision
-        | Feature::Hlg
+        Feature::Hlg
         | Feature::UsbForwarding
         | Feature::PenBarrelRoll
         | Feature::ImageClipboard

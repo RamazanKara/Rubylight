@@ -63,6 +63,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "dd_hdr_request_override", "Device HDR request", Choice(&["auto","force_on","force_off"]);
         "hdr_peak_brightness", "Peak brightness a virtual display reports (nits)", Number;
         "hdr_dynamic_metadata", "HDR10+ and HDR Vivid dynamic metadata", Bool;
+        "hdr_dolby_vision", "Dolby Vision 8.1 for devices that ask (Experimental)", Bool;
         "dd_config_revert_on_disconnect", "Restore displays when the stream disconnects", Bool;
         "dd_config_revert_delay", "Display restore delay (milliseconds)", Number;
         "dd_paused_virtual_display_timeout_secs", "Paused display timeout (seconds; 0 keeps it)", Number;

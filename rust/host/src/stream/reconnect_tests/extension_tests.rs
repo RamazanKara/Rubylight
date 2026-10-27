@@ -28,6 +28,7 @@ async fn describe_for_a_default_config_is_byte_identical() -> Result<()> {
              a=fmtp:97 surround-params=21101\r\n\
              a=fmtp:97 surround-params=660014523\r\n\
              a=fmtp:97 surround-params=88001456723\r\n\
+             a=x-rl-video.hdrFormats:5\r\n\
              a=x-rl-audio.codecs:3\r\n\
              a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
              a=x-rl-audio.layout714Hq:12,12,0,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
@@ -78,6 +79,7 @@ async fn describe_with_packed_444_and_the_microphone_is_byte_identical() -> Resu
              a=x-rl-video.packed444Version:1\r\n\
              a=x-rl-video.packed444Modes:15\r\n\
              a=x-rl-video.packed444LayeredModes:10\r\n\
+             a=x-rl-video.hdrFormats:5\r\n\
              a=x-rl-audio.codecs:3\r\n\
              a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
              a=x-rl-audio.layout714Hq:12,12,0,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
@@ -113,9 +115,9 @@ a=x-nv-video[0].clientViewportHt:480
             20,
             "a=x-nv-video[0].dynamicRangeMode:1
 a=x-nv-vqos[0].bitStreamFormat:1
-a=x-rl-video[0].hdrFormat:1
+a=x-rl-video[0].hdrFormat:2
 ",
-            "x-rl-video[0].hdrFormat 1 was not offered",
+            "x-rl-video[0].hdrFormat 2 was not offered",
         ),
         (
             21,

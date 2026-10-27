@@ -9,7 +9,6 @@ use std::path::PathBuf;
 
 /// Every 3.0 setting with its default, as `sunshine.conf` would spell it.
 pub const SETTINGS_30: &[(&str, &str)] = &[
-    ("hdr_dolby_vision", "true"),
     ("hdr_hlg", "true"),
     ("audio_surround_714", "true"),
     ("pen_barrel_roll", "true"),
@@ -99,10 +98,6 @@ impl Config {
         }
     }
 
-    /// Dolby Vision profiles 8.1 and 8.4 on HEVC streams (on by default).
-    pub fn hdr_dolby_vision(&self) -> bool {
-        self.boolean("hdr_dolby_vision", true)
-    }
     /// HLG HDR for devices that ask for it (on by default).
     pub fn hdr_hlg(&self) -> bool {
         self.boolean("hdr_hlg", true)
@@ -326,9 +321,9 @@ mod tests {
     }
 
     #[test]
-    fn there_are_22_unique_settings() {
+    fn there_are_21_unique_settings() {
         let keys: std::collections::BTreeSet<_> = SETTINGS_30.iter().map(|(k, _)| k).collect();
-        assert_eq!((SETTINGS_30.len(), keys.len()), (22, 22));
+        assert_eq!((SETTINGS_30.len(), keys.len()), (21, 21));
     }
 
     #[test]

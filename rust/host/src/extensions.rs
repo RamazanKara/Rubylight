@@ -63,9 +63,14 @@ fn offer(h: &Shared, config: &Config, dolby: u8) -> Offered {
     }
 }
 
-/// HDR (A): the `rubylight_protocol::hdr` formats this host can encode now.
-fn hdr_formats(_h: &Shared, _config: &Config) -> u8 {
-    0
+/// HDR (A): the `rubylight_protocol::hdr` formats this host can encode now:
+/// Dolby Vision 8.1 beside PQ on HEVC Main10 while `hdr_dolby_vision` is on
+/// (`extensions::hdr_offer`).
+fn hdr_formats(h: &Shared, config: &Config) -> u8 {
+    butterpollo_core::extensions::hdr_offer(
+        h.codecs.load(std::sync::atomic::Ordering::Acquire),
+        config.hdr_dolby_vision(),
+    )
 }
 
 /// Network (B): client-chosen and statistical FEC (`rlFecPercentage` and

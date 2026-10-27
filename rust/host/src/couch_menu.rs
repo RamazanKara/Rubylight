@@ -493,6 +493,10 @@ fn snapshot(h: &Shared, s: &Session, registry: &[&dyn items::Item], locale: &str
 #[derive(Default)]
 pub(crate) struct VideoOverlay {
     state: u64,
+    /// The encode size `overlay` was checked against.
+    target: [u32; 2],
+    /// The published panel while the menu is open.
+    frame: Option<Arc<Frame>>,
     overlay: Option<Overlay>,
     /// The overlay changed: give it to the encoder and encode a new frame,
     /// not a repeat.
@@ -500,29 +504,38 @@ pub(crate) struct VideoOverlay {
 }
 
 impl VideoOverlay {
-    /// One atomic load while nothing changed. A panel that does not fit the
-    /// `target` encode size closes the menu.
+    /// One atomic load while nothing changed. The worker draws at the
+    /// session's mode, which can differ from the `target` encode size (a mode
+    /// the client just asked for, or one the encoder refused): a panel laid
+    /// out for another size waits for a redraw. One laid out for this size
+    /// that does not fit closes the menu.
     pub(crate) fn poll(&mut self, shared: &menu::Shared, target: [u32; 2]) {
         let state = shared.load();
-        if state == self.state {
+        if state == self.state && target == self.target {
             return;
         }
-        self.state = state;
-        let overlay = menu::Shared::is_open(state)
-            .then(|| shared.frame())
-            .flatten()
-            .map(|frame| Overlay::new(menu::Shared::revision(state), &frame));
-        let overlay = match overlay {
-            Some(overlay) => match overlay.validate(target) {
+        if state != self.state {
+            self.state = state;
+            self.frame = menu::Shared::is_open(state)
+                .then(|| shared.frame())
+                .flatten();
+        }
+        self.target = target;
+        let overlay = self.frame.as_deref().and_then(|frame| {
+            let overlay = Overlay::new(menu::Shared::revision(state), frame);
+            match overlay.validate(target) {
                 Ok(()) => Some(overlay),
+                Err(error) if frame.target != target => {
+                    tracing::debug!(error = %format!("{error:#}"), drawn = ?frame.target, "couch menu: the panel waits for a redraw at the stream's size");
+                    None
+                }
                 Err(error) => {
                     tracing::error!(error = %format!("{error:#}"), "couch menu: the panel does not fit the stream; closing the menu");
                     shared.close();
                     None
                 }
-            },
-            None => None,
-        };
+            }
+        });
         if overlay != self.overlay {
             self.overlay = overlay;
             self.dirty = true;
@@ -530,13 +543,15 @@ impl VideoOverlay {
     }
     /// The overlay for an encoder of `target` size. After a rebuild to a new
     /// size the old panel may not fit; it is dropped until the worker draws
-    /// one for the new size.
+    /// one for the new size, or the stream goes back to the old one.
     pub(crate) fn for_encoder(&mut self, target: [u32; 2]) -> Option<Overlay> {
         if let Some(overlay) = &self.overlay
             && let Err(error) = overlay.validate(target)
         {
             tracing::warn!(error = %format!("{error:#}"), "couch menu: the panel waits for a redraw at the new size");
             self.overlay = None;
+            // The next poll checks the panel again, whatever size it sees.
+            self.target = [0, 0];
         }
         self.overlay.clone()
     }
@@ -705,10 +720,12 @@ mod tests {
         assert!(input_only.filter.is_none());
     }
 
+    /// A panel laid out for a 1920x1080 stream.
     fn frame(origin: [u32; 2], size: [u32; 2]) -> Frame {
         Frame {
             origin,
             size,
+            target: [1920, 1080],
             scale: 1,
             rgba: vec![255; (size[0] * size[1] * 4) as usize].into(),
         }
@@ -751,6 +768,41 @@ mod tests {
         video.poll(&shared, [1920, 1080]);
         assert!(!video.has_overlay());
         assert!(!menu::Shared::is_open(shared.load()));
+    }
+
+    #[test]
+    fn couch_menu_panel_for_another_mode_waits_instead_of_closing() {
+        let shared = menu::Shared::new();
+        let mut video = VideoOverlay::default();
+        shared.open().unwrap();
+        // The client asked for 4K and the worker drew for it, but the
+        // encoder refused the mode and the stream stayed at 1080p.
+        let uhd = Frame {
+            target: [3840, 2160],
+            ..frame([1792, 1024], [256, 128])
+        };
+        assert!(shared.publish(uhd));
+        video.poll(&shared, [1920, 1080]);
+        assert!(!video.dirty && !video.has_overlay());
+        assert!(menu::Shared::is_open(shared.load()), "the menu stays open");
+        // A mode the stream does take shows the same panel.
+        video.poll(&shared, [3840, 2160]);
+        assert!(video.dirty && video.has_overlay());
+        video.dirty = false;
+        // The worker redraws at the mode the stream kept.
+        video.poll(&shared, [1920, 1080]);
+        assert!(video.dirty && !video.has_overlay());
+        video.dirty = false;
+        assert!(shared.publish(frame([832, 464], [256, 128])));
+        video.poll(&shared, [1920, 1080]);
+        assert!(video.dirty && video.has_overlay());
+        video.dirty = false;
+        // A rebuild to a mode the encoder then refuses drops the panel; the
+        // stream back at the old mode shows it again.
+        assert!(video.for_encoder([960, 540]).is_none());
+        video.poll(&shared, [1920, 1080]);
+        assert!(video.dirty && video.has_overlay());
+        assert!(menu::Shared::is_open(shared.load()));
     }
 
     #[test]

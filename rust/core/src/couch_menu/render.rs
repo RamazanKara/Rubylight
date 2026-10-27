@@ -82,6 +82,7 @@ pub fn render(menu: &Menu, snap: &Snapshot, layout: &Layout) -> Frame {
     Frame {
         origin: rect.origin,
         size: rect.size,
+        target: layout.target,
         scale: layout.scale,
         rgba: canvas.rgba.into(),
     }

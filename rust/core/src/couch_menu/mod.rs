@@ -52,6 +52,8 @@ pub struct Frame {
     pub origin: [u32; 2],
     pub size: [u32; 2],
     pub scale: u32,
+    /// The stream size it was laid out for.
+    pub target: [u32; 2],
     pub rgba: Arc<[u8]>,
 }
 
@@ -253,6 +255,7 @@ mod tests {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let (weak, log) = (Arc::downgrade(&shared), seen.clone());
         shared.set_wake(move || {
+            target: [1920, 1080],
             let shared = weak.upgrade().unwrap();
             let open = Shared::is_open(shared.load());
             log.lock().unwrap().push((open, shared.opens()));

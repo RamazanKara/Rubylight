@@ -104,7 +104,9 @@ pub trait UsbDevice: Send + Sync {
     /// Starts `transfer`. `done` completes it from any thread, once; dropping it fails the
     /// transfer with [`wire::ESHUTDOWN`].
     fn submit(&self, transfer: Transfer, done: Completion);
-    /// The driver gave up on `seqnum`: stop it if it still runs. Its completion is ignored.
+    /// The driver gave up on `seqnum`: stop it if it still runs, so that it takes nothing more
+    /// from the device once this returns; the server answers the unlink after. Its completion
+    /// is ignored.
     fn unlink(&self, seqnum: u32);
     /// The attachment ended: stop every transfer and let go of the device.
     fn close(&self);
@@ -407,9 +409,15 @@ fn run(shared: &Arc<Shared>, device: &dyn UsbDevice) -> Result<(), ServeError> {
                 );
             }
             Some(Header::Unlink { base, unlink }) => {
-                let mut state = shared.state();
                 // Out of `pending` first, so its completion, however close, is dropped.
-                let cancelled = state.pending.remove(&unlink);
+                let cancelled = shared.state().pending.remove(&unlink);
+                // Stopped before it is answered, as Linux's own USB/IP host does: once the
+                // driver hears, the endpoint's next transfer gets what the device sends next,
+                // not the transfer it gave up on. Out of the lock, because stopping it may
+                // complete it at once.
+                if cancelled {
+                    device.unlink(unlink);
+                }
                 let status = if cancelled { wire::ECONNRESET } else { 0 };
                 let answer = Header::RetUnlink {
                     base: Base {
@@ -418,11 +426,10 @@ fn run(shared: &Arc<Shared>, device: &dyn UsbDevice) -> Result<(), ServeError> {
                     },
                     status,
                 };
+                // Under the lock, like every completion, so the two never interleave.
+                let state = shared.state();
                 tunnel.write_all(&answer.encode())?;
                 drop(state);
-                if cancelled {
-                    device.unlink(unlink);
-                }
             }
             other => return Err(ServeError::Protocol(format!("the driver sent {other:?}"))),
         }

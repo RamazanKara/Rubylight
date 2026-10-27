@@ -1,6 +1,7 @@
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rubylight_protocol::usbip::{self as wire, Base, Header, IsoPacket};
@@ -376,6 +377,55 @@ fn a_dropped_completion_fails_its_transfer() {
     driver.import("1-1").unwrap();
     let lost = driver.submit(1, wire::DIR_IN, 8, [0; 8], &[], &[]);
     assert_eq!(status_of(&driver.reply(true).0), (lost, wire::ESHUTDOWN));
+    drop(driver);
+    served.join().unwrap().unwrap();
+}
+
+#[test]
+fn an_unlink_is_answered_only_once_the_device_stopped_the_transfer() {
+    /// Keeps every transfer; stopping one takes a while.
+    struct Slow {
+        kept: Mutex<Vec<Completion>>,
+        stopped: AtomicBool,
+    }
+    impl UsbDevice for Slow {
+        fn describe(&self) -> wire::Device {
+            wire::Device {
+                busid: "1-1".into(),
+                ..wire::Device::default()
+            }
+        }
+        fn submit(&self, _: Transfer, done: Completion) {
+            self.kept.lock().unwrap().push(done);
+        }
+        fn unlink(&self, _: u32) {
+            std::thread::sleep(Duration::from_millis(200));
+            self.stopped.store(true, Ordering::SeqCst);
+        }
+        fn close(&self) {
+            self.kept.lock().unwrap().clear();
+        }
+    }
+    let device = Arc::new(Slow {
+        kept: Mutex::new(Vec::new()),
+        stopped: AtomicBool::new(false),
+    });
+    let (tunnel, mut driver) = pipe();
+    let served = {
+        let device = device.clone();
+        std::thread::spawn(move || serve(tunnel, device))
+    };
+    driver.import("1-1").unwrap();
+    let waiting = driver.submit(1, wire::DIR_IN, 8, [0; 8], &[], &[]);
+    let unlink = driver.unlink(waiting);
+    assert_eq!(
+        status_of(&driver.reply(false).0),
+        (unlink, wire::ECONNRESET)
+    );
+    assert!(
+        device.stopped.load(Ordering::SeqCst),
+        "the driver hears only once the device let go of it"
+    );
     drop(driver);
     served.join().unwrap().unwrap();
 }

@@ -417,6 +417,42 @@ The answer is `application/octet-stream` with the file's exact `Content-Length`.
 - It is required for every `POST /radeon/*` and for `close_game`. Reads never need it.
 - Revoking it takes effect on the next request and doesn't stop the stream (unlike removing `perm` bits). Pending Radeon changes are still restored at session end.
 
+## Defined, not yet served
+
+These are defined for 3.0 in `rubylight-native-api` and not yet served: no host lists their features, and the routes answer `not_found` until it does.
+
+| Feature | Listed while | Permission |
+| --- | --- | --- |
+| `usb` | the host's USB forwarding setting is on and its USB/IP driver is ready | `usb` |
+| `clipboard.image` | the host's image clipboard setting is on | the clipboard's own bits |
+| `folders` | the host shares at least one folder | `shared_folders` |
+| `folders.mount` | as `folders`, for WebDAV | `shared_folders` |
+
+Both permissions are booleans in `permissions`, missing from older hosts and then `false`. Like host control, neither is a `perm` bit, and only the admin console sets them:
+
+- `usb` is `"allow_usb": true` in the device's `extra` map: only a JSON `true`, never a string, a number, a `perm` bit or Full control. `/api/clients/update` accepts `true`, `false` or `null` for it.
+- `shared_folders` is `true` when the device holds at least one folder grant. The grants are `"shared_folders": {"<folder id>": "read" | "write"}` in `extra`; `/api/clients/update` refuses anything else, and `null` clears them.
+
+| Method | Path | Needs | Result |
+|---|---|---|---|
+| GET | `/usb/tunnel` | `usb`, a token | 101, then USB/IP |
+| GET | `/folders` | `shared_folders` | FolderList: the device's grants only |
+| GET | `/folders/{id}/entries?path=` | a grant for `id` | FolderEntries |
+| GET | `/folders/{id}/content?path=` | a grant for `id` | The file's bytes |
+| PUT | `/folders/{id}/content?path=` | a `write` grant for `id` | as an upload to `/files` |
+| any | `/folders/{id}/dav/` | a grant for `id` | WebDAV class 1 |
+
+- The USB tunnel is a request with `Connection: Upgrade`, `Upgrade: rubylight-usbip/1` and `X-Rubylight-Usb-Token` (32 hex digits). The token comes from control message `0x553A` ([control messages](control-messages.md#defined-not-yet-offered)): it is good once, for 30 s, and only for the device that asked for it. After `101 Switching Protocols` the connection carries standard USB/IP, with the client as the USB/IP server. The host relays it to its driver over 127.0.0.1, so no USB/IP port is reachable from the network. An unknown or expired token is `not_found`; a reused one is `usb_limit`.
+- A folder answers `{"folders": [{"id": "games", "name": "Games", "access": "read"}]}` and its entries `{"path": "saves", "entries": [{"name": "slot1.sav", "kind": "file", "size": 4096, "modified_unix_ms": 1792000000000}]}`. `kind` is `file` or `dir`. An unknown `access` or `kind` decodes as `Unknown`. A PUT reuses `length_required`, `too_large` and `insufficient_storage`.
+- The image clipboard is `type=png` on the existing `/actions/clipboard`: `GET` answers `image/png`, or 404 while the clipboard holds no image, and `POST` takes `Content-Type: image/png` up to the host's limit (413 above it).
+
+| HTTP | `code` | When |
+|---|---|---|
+| 403 | `usb_disabled` | The host's USB forwarding setting is off, or the device has no `usb` permission |
+| 409 | `usb_limit` | The host already forwards as many devices as it allows, or the token was used |
+| 403 | `folders_disabled` | The host's shared folders are off |
+| 403 | `forbidden` | The device has no grant for the folder, or only `read` for a PUT |
+
 ## Errors
 
 Every non-2xx answer has the same body:

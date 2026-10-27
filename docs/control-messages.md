@@ -179,3 +179,124 @@ starting its own controller; no lease renewal is needed. New sessions reset
 ownership. PyroWave is excluded from this host controller.
 
 By default (`link_rate_adaptation`, [configuration](configuration.md#lower-bitrate-when-the-link-cannot-carry-it)) the host also lowers the bitrate when the network cannot carry the stream. It reads the same validated `0x5502` reports (frames the client could not rebuild, and the share of packets reported missing), and the same `0x0200` pings for freshness. The keyframe request `0x0302` and reference invalidation count as network evidence only from a client that sends no `0x5502` at all, and only when the host or the client's decode queue did not cause them. A `/bitrate` request from the client turns it off for that session, as it does for the controller above.
+
+## Defined, not yet offered
+
+These are defined for 3.0, in the same crate, and no host offers them yet. A host that takes some of them adds a second line to its `DESCRIBE` answer, after the first:
+
+```
+a=x-rl-control:0x5539,0x553a,0x553d
+```
+
+Read every `a=x-rl-control:` line and merge them. The second line appears only when the host offers something, so today's answer has one line, byte for byte as before. Each feature is also announced in serverinfo; send its messages only when both say so.
+
+| Id | Name | Crate type | Direction | Serverinfo element |
+| --- | --- | --- | --- | --- |
+| `0x5539` | FEC report | `fec_report::FecReport` | client to host | `FecControlVersion` |
+| `0x553A` | USB forwarding | `usb::UsbMessage` | both | none (native API feature `usb`) |
+| `0x553B` | Text input | `text_input::TextInputRequest`, `text_input::TextInputNotice` | both | `TextInputVersion` |
+| `0x553D` | Pipeline rates | `pipeline_rates::PipelineRatesRequest`, `pipeline_rates::PipelineRatesReport` | both | `PipelineRatesVersion` |
+| `0x553E` | Keyboard layout | `keyboard_layout::KeyboardLayout` | client to host | `KeyboardLayoutVersion` |
+| `0x5540` | Cursor shape request | `cursor_shape::CursorShapeRequest` | client to host | `CursorShapeVersion` |
+| `0x5541` | Cursor shape | `cursor_shape::CursorShape` | host to client | `CursorShapeVersion` |
+
+`0x553C` and `0x5542` are reserved. Rubylight defines nothing in `0x5506`-`0x5510`, which other clients use.
+
+The layouts below are little-endian; byte 0 is the version, `1`.
+
+### 0x5539 FEC report (24 bytes)
+
+| Offset | Type | Field | Rule |
+| --- | --- | --- | --- |
+| 0 | u8 | version | 1 |
+| 1 | u8 | flags | 0 (reserved) |
+| 2 | u16 | reserved | 0 |
+| 4 | u32 | seq | 0 for the stream's first report, then +1 |
+| 8 | u32 | data_shards | data shards of the video FEC blocks finished in this interval, received or missing |
+| 12 | u32 | parity_shards | parity shards of those blocks |
+| 16 | u32 | missing_shards | shards of those blocks that never arrived, at most data + parity |
+| 20 | u16 | unrecovered_blocks | blocks that lost more shards than they had parity |
+| 22 | u16 | interval_ms | the measured interval, 250-5000 (nominally 1000) |
+
+The client sends one every second while `0x5539` is offered. The host acts on it only when the launch asked for `rlFecPercentage=auto`, and logs it otherwise.
+
+### 0x553A USB forwarding
+
+Every message starts with an 8-byte header: `0 version u8`, `1 kind u8`, `2 reserved u16`, `4 request_id u32`. The client picks a non-zero `request_id`, unique per attachment in the stream, and every later message about that device carries it.
+
+| Kind | Direction | Body after the header | Size |
+| --- | --- | --- | --- |
+| 0 ATTACH_REQUEST | client to host | `8 vid u16`, `10 pid u16`, `12 class u8` (bDeviceClass, or the first interface's class when that is 0), `13 speed u8` (USB/IP: 1 low, 2 full, 3 high, 4 wireless, 5 super, 6 super+), `14 busid_len u8` (1-31), `15 name_len u8` (0-64), then the USB/IP busid in ASCII and the name in UTF-8 | 16 + busid + name |
+| 1 TUNNEL_READY | host to client | `8 token [u8; 16]`: open the [USB tunnel](native-api.md#defined-not-yet-served) within 30 s | 24 |
+| 2 DETACH | both | none. From the client: the user detached or unplugged the device. From the host: it detached the device (console, limit, end of session), so the client stops exporting it. | 8 |
+| 3 STATUS | host to client | `8 state u8` (0 attached, 1 detached, 2 refused, 3 failed), `9 reason u8` (0 none, 1 permission, 2 disabled, 3 limit, 4 driver, 5 tunnel timeout, 6 device error, 7 session end), `10 reserved u16` | 12 |
+
+Nothing attaches by itself, and every attachment ends with the session or the connection.
+
+### 0x553B text input
+
+The request (client to host, 4 bytes): `0 version`; `1 flags`, where bit 0 asks for raise and lower notices (0 stops them) and bit 1 for the text around the cursor; `2 max_text u16`, 0-4096 bytes, at which the host cuts the text on a UTF-8 boundary.
+
+The notice (host to client, 16 bytes and the text):
+
+| Offset | Type | Field | Rule |
+| --- | --- | --- | --- |
+| 0 | u8 | version | 1 |
+| 1 | u8 | kind | 0 lower, 1 raise, 2 update (the field changed while raised) |
+| 2 | u8 | input_type | 0 text, 1 number, 2 decimal, 3 phone, 4 email, 5 URL, 6 password, 7 search, 8 multiline |
+| 3 | u8 | flags | bit 0 sensitive (never any text), bit 1 no autocorrect, bit 2 no capitalisation, bit 3 Enter is an action |
+| 4 | u32 | serial | +1 per notice; apply only a newer serial than the last |
+| 8 | u16 | selection_start | UTF-16 code units into `text`, `0xFFFF` when unknown |
+| 10 | u16 | selection_end | the same |
+| 12 | u16 | text_len | bytes; 0 unless the client asked, `text_input_surrounding_text` is on and the field is not sensitive |
+| 14 | u16 | reserved | 0 |
+| 16 | bytes | text | the text around the cursor, UTF-8 |
+
+Committed text still travels as Moonlight's UTF-8 text input.
+
+### 0x553D pipeline rates
+
+The request (client to host, 4 bytes): `0 version`, `1 enabled u8` (0 or 1), `2 interval_ms u16` (500-10000).
+
+The report (host to client, 28 bytes): `0 version`; `1 flags`, where bit 0 means the window was shorter than the interval; `2 reserved u16`; `4 window_ms u32`; then `8 source_mhz`, `12 capture_mhz`, `16 submit_mhz`, `20 output_mhz` and `24 repeat_mhz`, each a u32 in millihertz and `0xFFFFFFFF` when the host can't count it. In order they are the frames the game or desktop presented, the frames captured, the frames submitted to the encoder, the encoded frames sent and the frames sent again without new content.
+
+### 0x553E keyboard layout (8 bytes and the tag)
+
+| Offset | Type | Field | Rule |
+| --- | --- | --- | --- |
+| 0 | u8 | version | 1 |
+| 1 | u8 | source | 0 unknown, 1 Windows KLID, 2 BCP 47, 3 XKB |
+| 2 | u8 | tag_len | 0-64 |
+| 3 | u8 | reserved | 0 |
+| 4 | u32 | klid | for example `0x00000407` (de-DE), 0 when unknown |
+| 8 | bytes | tag | ASCII, for example `de-DE` or `de(nodeadkeys)` |
+
+The client sends it when the stream starts and whenever the layout changes; the host keeps the latest.
+
+### 0x5540 and 0x5541 cursor shape
+
+As Nightjar's [cursor shape protocol](../client/docs/protocol/cursor-shape.md), version 1: a 4-byte request, and shapes with an 8-byte header, then for an image 12 more bytes and width × height × 4 bytes of RGBA, at most 96 pixels a side, with 32 cached ids on each side. There is no position message: the client keeps sending absolute mouse positions.
+
+### Pen barrel roll (input packet `0x5500000B`, 40 bytes)
+
+Bytes 0-35 are Moonlight's pen packet (`0x55000003`) with this magic at offset 4, and its declared big-endian length is 36. Bytes 36-37 are `barrel_roll u16`, in degrees clockwise from 0 to 359 or `0xFFFF` when unknown, and bytes 38-39 are reserved (0). The client sends it instead of the pen packet only when serverinfo has `PenBarrelRollVersion` and the `DESCRIBE` answer has `a=x-ss-general.penBarrelRoll:1`.
+
+### Stream negotiation
+
+Each is absent until the host offers it.
+
+| Where | Name | Meaning |
+| --- | --- | --- |
+| serverinfo | `HdrFormats` | HDR formats as bits: 1 PQ, 2 HLG, 4 Dolby Vision 8.1, 8 Dolby Vision 8.4 |
+| `DESCRIBE` | `a=x-rl-video.hdrFormats:{bits}` | the formats this stream can carry |
+| `ANNOUNCE` | `x-rl-video[0].hdrFormat:{bit}` | one format; 0 or absent is Moonlight's HDR (PQ). It needs HDR on, and Dolby Vision needs HEVC. |
+| serverinfo | `AudioCodecs` | audio codecs as bits: 1 Opus (always set), 2 PCM, 4 AC-3, 8 E-AC-3 |
+| `DESCRIBE` | `a=x-rl-audio.codecs:{bits}` | the codecs of this stream |
+| `ANNOUNCE` | `x-rl-audio.codec:{bit}` | one codec; 0, 1 or absent is Opus |
+| serverinfo | `AudioLayouts` | 15 (stereo, 5.1, 7.1 and 7.1.4), sent only with 7.1.4 |
+| `DESCRIBE` | `a=x-rl-audio.layout714:…`, `a=x-rl-audio.layout714Hq:…` | the 7.1.4 Opus layouts: channels, streams, coupled streams and 12 mapping entries, comma-separated |
+| `ANNOUNCE` | `x-nv-audio.surround.numChannels:12`, `x-nv-audio.surround.channelMask:185919` | 7.1.4 (FL FR FC LFE BL BR SL SR TFL TFR TBL TBR); the launch says `surroundAudioInfo=12` |
+| serverinfo | `BandwidthProbeVersion` | the host serves `GET /bandwidth-probe?bytes=N` on the paired port |
+| `/launch`, `/resume` | `rlFecPercentage` | `host` or absent keeps the host's settings, `auto` follows the `0x5539` reports, 0-255 fixes the share; anything else is refused |
+
+A host refuses an `ANNOUNCE` that picks something it did not offer, with 400 and the attribute's name.

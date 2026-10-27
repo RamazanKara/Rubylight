@@ -79,6 +79,7 @@ pub mod native;
 pub use rubylight_native_api as native_api;
 pub mod network_pacing;
 pub mod network_path;
+pub mod nucleus;
 pub mod os_gate;
 pub mod packet;
 pub use rubylight_protocol::packed444;

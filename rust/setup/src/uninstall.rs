@@ -39,6 +39,19 @@ pub fn install_location() -> Option<PathBuf> {
                 .filter(|folder| is_package(folder))
         })
 }
+/// The record child-session setup leaves in the profile
+/// (`butterpollo_core::child_session::SETUP_FILE`).
+const CHILD_SESSION_SETUP_FILE: &str = "child_session_setup.json";
+/// The host's flag that puts back what that setup changed
+/// (`butterpollo_core::child_session::RESTORE_FLAG`).
+const CHILD_SESSION_RESTORE_FLAG: &str = "--child-session-restore";
+/// The installed host when child-session setup left a record in `profile`
+/// for it to restore; None when there is nothing to put back or no host to
+/// do it.
+fn child_session_restore_pending(profile: &Path, install: &Path) -> Option<PathBuf> {
+    let program = install.join("butterpollo.exe");
+    (profile.join(CHILD_SESSION_SETUP_FILE).is_file() && program.is_file()).then_some(program)
+}
 /// Whether `folder` holds an installed Rubylight package.
 fn is_package(folder: &Path) -> bool {
     payload::manifest(folder).is_ok_and(|entries| {
@@ -63,6 +76,34 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<()> {
     crate::install::untrust_console();
     remove_layers(&install);
     remove_earlier_folder(&install);
+    // Child-session setup (Experimental) turned on Remote Desktop, child
+    // sessions and firewall rules; the host that recorded them puts them back
+    // while it is still installed. On failure its record stays for a retry.
+    if let Some(program) = child_session_restore_pending(&crate::install::profile(), &install) {
+        progress.set("Restoring the Windows settings child sessions changed…");
+        let profile = crate::install::profile().display().to_string();
+        match system::run(
+            &program.display().to_string(),
+            &[CHILD_SESSION_RESTORE_FLAG, "--config-dir", &profile],
+            Duration::from_secs(180),
+        ) {
+            Ok((0, _)) => {}
+            Ok((code, output)) => line(format!(
+                "warning: restoring the child-session settings failed ({code}): {output}"
+            )),
+            Err(error) => line(format!(
+                "warning: restoring the child-session settings: {error:#}"
+            )),
+        }
+    } else if crate::install::profile()
+        .join(CHILD_SESSION_SETUP_FILE)
+        .is_file()
+    {
+        line(format!(
+            "warning: child-session settings were not restored: {} is missing",
+            install.join("butterpollo.exe").display()
+        ));
+    }
 
     let powershell = format!(
         "{}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
@@ -329,6 +370,37 @@ mod tests {
     fn write(path: &Path, text: &str) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, text).unwrap();
+    }
+    #[test]
+    fn child_session_settings_are_restored_only_when_setup_recorded_them() {
+        let profile = tempfile::tempdir().unwrap();
+        let install = tempfile::tempdir().unwrap();
+        write(&install.path().join("butterpollo.exe"), "");
+        assert_eq!(
+            child_session_restore_pending(profile.path(), install.path()),
+            None
+        );
+        write(&profile.path().join(CHILD_SESSION_SETUP_FILE), "{}");
+        assert_eq!(
+            child_session_restore_pending(profile.path(), install.path()),
+            Some(install.path().join("butterpollo.exe"))
+        );
+        std::fs::remove_file(install.path().join("butterpollo.exe")).unwrap();
+        assert_eq!(
+            child_session_restore_pending(profile.path(), install.path()),
+            None
+        );
+    }
+    #[test]
+    fn child_session_restore_uses_the_hosts_record_and_flag() {
+        assert_eq!(
+            CHILD_SESSION_SETUP_FILE,
+            butterpollo_core::child_session::SETUP_FILE
+        );
+        assert_eq!(
+            CHILD_SESSION_RESTORE_FLAG,
+            butterpollo_core::child_session::RESTORE_FLAG
+        );
     }
     fn package(root: &Path) {
         write(

@@ -1,6 +1,7 @@
 //! Paired-client management and pairing API handlers.
 
 use crate::state::Shared;
+use butterpollo_core::native_api::folders::FolderAccess;
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
@@ -107,6 +108,8 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 butterpollo_core::stream_preset::check_overrides(overrides)?;
             }
             let previous_perm = c.perm;
+            let previous_usb = c.allows_usb();
+            let previous_folders = folder_grants(c);
             let previous_layout = c.extra.get("virtual_display_layout").cloned();
             if let Some(n) = data.get("name").and_then(Value::as_str) {
                 butterpollo_core::pairing::validate_device_name(n)?;
@@ -164,7 +167,17 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 || data
                     .get("perm")
                     .and_then(Value::as_u64)
-                    .is_some_and(|p| previous_perm & !(p as u32) != 0);
+                    .is_some_and(|p| previous_perm & !(p as u32) != 0)
+                // USB forwarding and folder grants are permissions too: losing
+                // one, or write going back to read, ends what the device is doing.
+                || (previous_usb && !c.allows_usb())
+                || previous_folders
+                    .iter()
+                    .any(|(id, access)| match (access, c.folder_access(id)) {
+                        (_, None) => true,
+                        (FolderAccess::Write, Some(now)) => now != FolderAccess::Write,
+                        _ => false,
+                    });
             next.save(&h.paired_path)?;
             *state = next;
             drop(state);
@@ -262,6 +275,17 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
     })
 }
 
+/// The folders this device holds a grant for, as `Client::folder_access` reads them.
+fn folder_grants(c: &butterpollo_core::state::Client) -> Vec<(String, FolderAccess)> {
+    c.extra
+        .get("shared_folders")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|grants| grants.keys())
+        .filter_map(|id| Some((id.clone(), c.folder_access(id)?)))
+        .collect()
+}
+
 /// `shared_folders` as the update takes it: null, which clears the grants, or
 /// an object from folder id to `"read"` or `"write"` (`Client::folder_access`).
 fn check_folder_grants(grants: &Value) -> anyhow::Result<()> {
@@ -311,6 +335,47 @@ mod tests {
         )
         .unwrap();
         assert!(!f.host.radeon.holds(&client.uuid));
+    }
+
+    #[test]
+    fn taking_away_usb_or_a_folder_grant_disconnects_the_device() {
+        let f = Fixture::new();
+        let client = f.client(PERM);
+        let disconnects = |change: serde_json::Value| {
+            let mut data = change;
+            data["uuid"] = json!(client.uuid);
+            let answer = handle(&f.host, "POST", "/api/clients/update", &data).unwrap();
+            answer["disconnected"] == json!(true)
+        };
+        // Granting is not a revocation.
+        assert!(!disconnects(json!({"allow_usb": true})));
+        assert!(!disconnects(json!({"name": "Renamed"})));
+        assert!(disconnects(json!({"allow_usb": false})));
+        assert!(!disconnects(json!({"allow_usb": false})));
+        assert!(!disconnects(json!({"allow_usb": true})));
+        assert!(disconnects(json!({"allow_usb": null})));
+        assert!(!disconnects(
+            json!({"shared_folders": {"games": "write", "mods": "read"}})
+        ));
+        // Another grant, or the same ones again, take nothing away.
+        assert!(!disconnects(
+            json!({"shared_folders": {"games": "write", "mods": "read", "saves": "read"}})
+        ));
+        assert!(!disconnects(
+            json!({"shared_folders": {"games": "write", "mods": "read", "saves": "read"}})
+        ));
+        assert!(!disconnects(
+            json!({"shared_folders": {"games": "write", "mods": "write", "saves": "read"}})
+        ));
+        // Write back to read, a folder dropped, and all of them cleared.
+        assert!(disconnects(
+            json!({"shared_folders": {"games": "read", "mods": "write", "saves": "read"}})
+        ));
+        assert!(disconnects(
+            json!({"shared_folders": {"games": "read", "mods": "write"}})
+        ));
+        assert!(disconnects(json!({"shared_folders": null})));
+        assert!(!disconnects(json!({"shared_folders": null})));
     }
 
     #[test]

@@ -1657,8 +1657,13 @@ fn a_streamed_frame_goes_out_in_order_and_is_timed_once() {
     // The first block reaches the client before the encoder produced the rest.
     let mut packets = Vec::new();
     let mut buffer = [0; 2048];
+    // The packetizer thread sends it: on a busy PC that took over 500 ms.
+    receiver.set_read_timeout(Some(WAIT)).unwrap();
     let early = receiver.recv(&mut buffer).unwrap();
     packets.push(buffer[..early].to_vec());
+    receiver
+        .set_read_timeout(Some(Duration::from_millis(500)))
+        .unwrap();
     while let Ok(len) = receiver.recv(&mut buffer) {
         packets.push(buffer[..len].to_vec());
     }
@@ -1735,9 +1740,8 @@ fn a_frame_cut_off_after_its_first_block_leaves_no_stats_or_timing_behind() {
     let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
     let socket = Arc::new(ReplySocket::bind("127.0.0.1:0").unwrap());
     let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
-    receiver
-        .set_read_timeout(Some(Duration::from_millis(500)))
-        .unwrap();
+    // Block 0 comes from the packetizer thread: on a busy PC after 500 ms.
+    receiver.set_read_timeout(Some(WAIT)).unwrap();
     let now = Instant::now();
     let mut handoff = handoff(packetizer(None));
     handoff.slice_blocks = 2;

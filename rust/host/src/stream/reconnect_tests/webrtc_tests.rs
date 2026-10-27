@@ -385,11 +385,20 @@ impl Drop for Peer {
     }
 }
 
+const MEDIA_PORTS: u16 = 50000 - 44000;
+
+// Each test process starts at its own port, as `free_ports` does: two runs of this
+// binary at once both starting at 44000 took each other's freed media port.
 fn media_port() -> u16 {
-    static NEXT: AtomicU16 = AtomicU16::new(44000);
+    static NEXT: AtomicU16 = AtomicU16::new(0);
+    let start = (std::process::id() % u32::from(MEDIA_PORTS)) as u16;
     loop {
-        let port = NEXT.fetch_add(1, Ordering::Relaxed);
-        assert!(port < 50000, "fixture WebRTC media port range exhausted");
+        let index = NEXT.fetch_add(1, Ordering::Relaxed);
+        assert!(
+            index < MEDIA_PORTS,
+            "fixture WebRTC media port range exhausted"
+        );
+        let port = 44000 + (start + index) % MEDIA_PORTS;
         if UdpSocket::bind(address(port)).is_ok() {
             return port;
         }
@@ -647,9 +656,19 @@ async fn stream_and_stop(case: Case) -> Result<()> {
     // A PLI is a keyframe request, as Moonlight's 0x0302.
     let requests = session.stats.idr_requests.load(Ordering::Acquire);
     let keyframes = peer.keyframes(codec);
-    peer.pli.store(1, Ordering::Release);
+    // RTCP is unreliable: a busy host's receive queue can drop the datagram
+    // with the PLI, so the peer asks again until one arrives, as a browser
+    // that still has no keyframe does.
+    let mut asked = None::<Instant>;
     until("the PLI reached the session", WAIT, || {
-        session.stats.idr_requests.load(Ordering::Acquire) > requests
+        if session.stats.idr_requests.load(Ordering::Acquire) > requests {
+            return true;
+        }
+        if asked.is_none_or(|at| at.elapsed() >= Duration::from_millis(250)) {
+            peer.pli.store(1, Ordering::Release);
+            asked = Some(Instant::now());
+        }
+        false
     })
     .await;
     until("a keyframe followed the PLI", WAIT, || {

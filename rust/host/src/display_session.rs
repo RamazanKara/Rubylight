@@ -3018,11 +3018,14 @@ pub(crate) mod tests {
             resume.recv().unwrap();
             publisher.publish(("new-output".into(), 1));
         });
-        waiting.recv_timeout(Duration::from_secs(1)).unwrap();
+        waiting.recv_timeout(Duration::from_secs(10)).unwrap();
         let reader = target.clone();
         let (read, result) = mpsc::channel();
         let read_thread = std::thread::spawn(move || read.send(reader.current()).unwrap());
-        let current = result.recv_timeout(Duration::from_millis(100));
+        // The refresh is held until the read returns, so a read that waited
+        // for it would time out however long this is. 100 ms also failed
+        // when a busy PC was slow to start the reader thread.
+        let current = result.recv_timeout(Duration::from_secs(10));
         release.send(()).unwrap();
         refresh.join().unwrap();
         read_thread.join().unwrap();

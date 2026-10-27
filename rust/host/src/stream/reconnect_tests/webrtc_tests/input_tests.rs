@@ -156,21 +156,36 @@ async fn gamepad_mouse_mode_moves_the_pointer_and_lets_go_of_its_buttons() -> Re
     let web = Web::new().await?;
     let rec = recorder(&web);
     let (_ws, peer) = live(&web, u32::MAX).await;
-    peer.gamepad(&connected(1));
+    // The gamepad channel is unordered without retransmits, and a busy host
+    // drops what it cannot take. So the pad is sent as a browser sends it:
+    // again on every poll, each state with the next sequence number.
+    let mut seq = 0;
+    let mut send = |buttons: u32, stick_x: f64| {
+        seq += 1;
+        peer.gamepad(&connected(1));
+        peer.gamepad(&state(1, seq, buttons, stick_x));
+    };
     // Holding Start for 750 ms is real time on the host: wait it out, then let go.
-    peer.gamepad(&state(1, 1, START, 0.));
+    // The hold starts when the host handles the press, which reaches the pad
+    // in the same step; on a busy PC that was well after it was sent.
+    until("Start pressed on the host", WAIT, || {
+        send(START, 0.);
+        rec.events()
+            .iter()
+            .any(|e| matches!(e, Input::Controller { buttons, .. } if *buttons != 0))
+    })
+    .await;
     tokio::time::sleep(Duration::from_millis(850)).await;
-    peer.gamepad(&state(1, 2, START, 0.));
-    peer.gamepad(&state(1, 3, 0, 0.));
     until("mouse mode on", WAIT, || {
+        send(0, 0.);
         peer.heard("mouse-mode")
             .iter()
             .any(|m| m["active"] == true && m["controllerId"] == 1)
     })
     .await;
     // The stick moves the pointer on the 50 ms tick, A presses the left button.
-    peer.gamepad(&state(1, 4, A, 1.));
     until("the pointer moved", WAIT, || {
+        send(A, 1.);
         rec.events()
             .iter()
             .any(|e| matches!(e, Input::Relative { x, .. } if *x > 0))
@@ -178,14 +193,14 @@ async fn gamepad_mouse_mode_moves_the_pointer_and_lets_go_of_its_buttons() -> Re
     .await;
     injected(&rec, button_event(1, true)).await;
     // The pad leaving with the button down lets go of it and leaves the mode.
-    peer.gamepad(r#"{"v":2,"type":"gamepad-disconnected","controllerId":1}"#);
-    injected(&rec, button_event(1, false)).await;
     until("mouse mode off", WAIT, || {
+        peer.gamepad(r#"{"v":2,"type":"gamepad-disconnected","controllerId":1}"#);
         peer.heard("mouse-mode")
             .iter()
             .any(|m| m["active"] == false && m["controllerId"] == 1)
     })
     .await;
+    injected(&rec, button_event(1, false)).await;
     // The pointer stops with the mode.
     tokio::time::sleep(Duration::from_millis(120)).await;
     let before = rec.events().len();

@@ -39,6 +39,20 @@ const TEARDOWN_WAIT: Duration = if cfg!(test) {
 } else {
     Duration::from_secs(5)
 };
+#[cfg(test)]
+thread_local! {
+    /// A longer wait for a test that must see the stream end it, not the
+    /// deadline: a busy PC can take 300 ms to run the stand-in worker.
+    static TEARDOWN_WAIT_OVERRIDE: std::cell::Cell<Option<Duration>> =
+        const { std::cell::Cell::new(None) };
+}
+fn teardown_wait() -> Duration {
+    #[cfg(test)]
+    if let Some(wait) = TEARDOWN_WAIT_OVERRIDE.get() {
+        return wait;
+    }
+    TEARDOWN_WAIT
+}
 
 /// A lock that a panic elsewhere poisoned still guards the same data, and the
 /// teardown and launch guards run while a panic may unwind: they must not
@@ -452,7 +466,7 @@ impl Host {
                 .chain(sessions.teardown.keys().cloned())
                 .collect()
         };
-        if !crate::nvhttp::wait_for_teardown(&self.sessions, &ids, TEARDOWN_WAIT) {
+        if !crate::nvhttp::wait_for_teardown(&self.sessions, &ids, teardown_wait()) {
             tracing::warn!("streams are still stopping; the session is reported idle anyway");
         }
     }

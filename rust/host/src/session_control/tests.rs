@@ -199,13 +199,15 @@ fn end_session_waits_for_the_stream_worker_to_release_its_resources() {
         std::thread::sleep(Duration::from_millis(60));
         host.sessions.lock().unwrap().active.remove(&id);
     });
+    // The deadline only reports the session idle; it removes nothing. So an
+    // empty map well before it means End session waited for the worker.
+    let wait = Duration::from_secs(30);
+    TEARDOWN_WAIT_OVERRIDE.set(Some(wait));
     let started = Instant::now();
     assert_eq!(setup.host().end_session(None), Ok(Outcome::Done));
+    TEARDOWN_WAIT_OVERRIDE.set(None);
     assert!(setup.host().sessions.lock().unwrap().active.is_empty());
-    assert!(
-        started.elapsed() < TEARDOWN_WAIT,
-        "it did not wait for nothing"
-    );
+    assert!(started.elapsed() < wait, "it did not wait for nothing");
     worker.join().unwrap();
 }
 

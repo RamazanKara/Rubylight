@@ -16,7 +16,7 @@ use butterpollo_core::hdr_dynamic::FrameStats;
 /// Equal PQ bins over 0..=1, as [`FrameStats::from_histogram`] takes them.
 pub const HDR_STATS_BINS: usize = 1024;
 /// The samples' minimum and maximum PQ(maxRGB) as `f32` bits, then the bins.
-const WORDS: usize = 2 + HDR_STATS_BINS;
+pub(crate) const WORDS: usize = 2 + HDR_STATS_BINS;
 const BYTES: u64 = 4 * WORDS as u64;
 /// The most sample cells across and down: 16x16 pixel cells on a 4K source.
 const GRID: (u32, u32) = (240, 135);
@@ -26,7 +26,7 @@ pub(super) const QUEUED: u64 = u64::MAX - 1;
 
 /// Sample cells across and down a `width` x `height` source, one per pixel
 /// on a smaller one.
-fn grid(width: u32, height: u32) -> (u32, u32) {
+pub(crate) fn grid(width: u32, height: u32) -> (u32, u32) {
     (width.clamp(1, GRID.0), height.clamp(1, GRID.1))
 }
 
@@ -53,7 +53,7 @@ pub struct HdrStatsReadout {
 impl HdrStatsReadout {
     /// The pass's `words` for `samples` cells. A readout that disagrees with
     /// itself is an error rather than a frame without statistics.
-    fn parse(conversion: u64, samples: u64, words: &[u32]) -> Result<Self> {
+    pub(crate) fn parse(conversion: u64, samples: u64, words: &[u32]) -> Result<Self> {
         anyhow::ensure!(
             words.len() == WORDS,
             "HDR statistics readout has {} words, not {WORDS}",

@@ -263,8 +263,11 @@ pub struct Encoder {
     hdr_metadata: metadata::State,
     /// Conversion on a D3D12 compute queue, with AMF on D3D12.
     compute: Option<Box<ComputeInput>>,
-    /// HDR10+ and HDR Vivid from the compute conversion's statistics.
+    /// HDR10+ and HDR Vivid from the conversion's statistics.
     dynamic: Option<Box<dynamic::Dynamic>>,
+    /// The statistics pass behind the D3D11 conversion, for a stream that
+    /// wants dynamic metadata and converts there.
+    graphics_stats: Option<Box<crate::gpu_color::HdrStats>>,
     last_query: Option<AMF_RESULT>,
     last_submit: Option<AMF_RESULT>,
     /// When AMF last accepted an input, for the stream's stage timings.
@@ -592,6 +595,7 @@ impl Encoder {
                 hdr_metadata: metadata::State::default(),
                 compute,
                 dynamic: None,
+                graphics_stats: None,
                 last_query: None,
                 last_submit: None,
                 last_accepted: None,
@@ -1300,20 +1304,25 @@ impl Encoder {
         self.property_raw(&name, value)
     }
     /// HDR10+ and HDR Vivid for an HDR stream with `hdr_dynamic_metadata` on,
-    /// from the statistics pass behind the compute conversion, and Dolby
-    /// Vision 8.1 RPUs for a stream that picked it ([`dynamic::start`]). A
-    /// stream that gets less than it wanted says why.
+    /// from the statistics pass behind its conversion, and Dolby Vision 8.1
+    /// RPUs for a stream that picked it ([`dynamic::start`]). A stream that
+    /// gets less than it wanted says why.
     fn enable_dynamic(
         &mut self,
         config: &butterpollo_core::rtsp::Negotiated,
         options: &butterpollo_core::config::Config,
     ) -> Option<Box<dynamic::Dynamic>> {
+        let wanted = dynamic::wanted(config, options)?;
+        if self.compute.is_none() {
+            self.graphics_stats = Some(Box::new(crate::gpu_color::HdrStats::new(&self._device)));
+        }
         dynamic::start(
-            dynamic::wanted(config, options)?,
+            wanted,
             config.chroma_packing != 0,
-            self.compute
-                .as_deref_mut()
-                .map(|input| &mut input.converter),
+            stats(
+                self.compute.as_deref_mut(),
+                self.graphics_stats.as_deref_mut(),
+            ),
             &self.warnings,
         )
     }
@@ -1865,9 +1874,10 @@ impl Encoder {
     fn sample_dynamic(&mut self) {
         dynamic::sample(
             &mut self.dynamic,
-            self.compute
-                .as_deref_mut()
-                .map(|input| &mut input.converter),
+            stats(
+                self.compute.as_deref_mut(),
+                self.graphics_stats.as_deref_mut(),
+            ),
             &self.warnings,
         );
     }
@@ -1971,6 +1981,17 @@ impl Encoder {
         );
         let image = GpuImage::upload(&self._device, image).context("AMF image upload")?;
         self.encode_gpu(&image, idr, bitrate)
+    }
+}
+/// The statistics pass behind the conversion a frame takes: the compute
+/// queue's, or the D3D11 conversion's.
+fn stats<'a>(
+    compute: Option<&'a mut ComputeInput>,
+    graphics: Option<&'a mut crate::gpu_color::HdrStats>,
+) -> Option<&'a mut dyn dynamic::Stats> {
+    match compute {
+        Some(input) => Some(&mut input.converter),
+        None => graphics.map(|stats| stats as &mut dyn dynamic::Stats),
     }
 }
 fn scale_rate_control(value: i64, applied_kbps: u32, requested_kbps: u32) -> i64 {
@@ -2180,6 +2201,10 @@ impl Encoder {
                     .unwrap()
                     .convert(self.context, image, &mut self.ownership)
             })?;
+            // Submitted with `sample_dynamic`, once the frame went to the encoder.
+            if let Some(stats) = self.graphics_stats.as_deref_mut() {
+                stats.queue(image, &self.gpu_convert.as_ref().unwrap().color);
+            }
             (surface, Some(texture), None)
         };
         self.set_bitrate(bitrate)?;
@@ -2255,6 +2280,7 @@ impl Drop for Encoder {
     fn drop(&mut self) {
         // Destroy the converter before its context and dynamically loaded runtime.
         self.gpu_convert.take();
+        self.graphics_stats.take();
         // SAFETY: Self owns each non-null interface reference. Terminating the component
         // releases its inputs before compute/context cleanup; the device, runtime and
         // boxed surface observer remain alive through termination and each final Release.

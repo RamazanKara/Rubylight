@@ -1,7 +1,8 @@
 //! Dynamic HDR metadata in AMF's output: HDR10+ and HDR Vivid
 //! (`butterpollo_core::hdr_dynamic`) before each frame's first slice, and a
 //! Dolby Vision profile 8.1 RPU (`butterpollo_core::dovi`) after its last. The
-//! compute conversion's statistics pass (`compute_hdr_stats.rs`) measures each
+//! conversion's statistics pass (`compute_hdr_stats.rs` behind the compute
+//! conversion, `gpu_color/hdr_stats.rs` behind the D3D11 one) measures each
 //! frame once it went to the encoder; the newest finished sample is smoothed
 //! into what every output frame carries from then on. Nothing waits for a
 //! sample: a frame that comes out before its own has finished carries the
@@ -54,7 +55,8 @@ pub(super) fn wanted(
 }
 
 /// The statistics pass behind the compute conversion
-/// ([`crate::compute::Converter`]), or a fake in tests.
+/// ([`crate::compute::Converter`]) or the D3D11 one
+/// ([`crate::gpu_color::HdrStats`]), or a fake in tests.
 pub(super) trait Stats {
     fn enable(&mut self) -> anyhow::Result<()>;
     fn submit(&mut self) -> anyhow::Result<()>;
@@ -74,6 +76,22 @@ impl Stats for crate::compute::Converter {
     }
     fn stop(&mut self) {
         self.stop_hdr_stats();
+    }
+}
+impl Stats for crate::gpu_color::HdrStats {
+    fn enable(&mut self) -> anyhow::Result<()> {
+        crate::gpu_color::HdrStats::enable(self)
+    }
+    fn submit(&mut self) -> anyhow::Result<()> {
+        super::timed("HDR statistics submit", || {
+            crate::gpu_color::HdrStats::submit(self)
+        })
+    }
+    fn latest(&self, newer_than: u64) -> anyhow::Result<Option<HdrStatsReadout>> {
+        crate::gpu_color::HdrStats::latest(self, newer_than)
+    }
+    fn stop(&mut self) {
+        crate::gpu_color::HdrStats::stop(self);
     }
 }
 
@@ -108,15 +126,15 @@ fn unmeasured(wanted: Wanted, stream: &str, why: &str, warnings: &Warnings) {
 }
 
 /// Dynamic metadata for an HDR stream that wants it ([`wanted`]), measured
-/// by the statistics pass behind the compute conversion: `stats` is `None`
-/// on the D3D11 conversion. Without the pass, HDR10+ is off and Dolby Vision
+/// by the statistics pass behind its conversion (`stats`; `None` for an
+/// input that has none). Without the pass, HDR10+ is off and Dolby Vision
 /// goes on with the static metadata; the log and the session's warnings say
 /// why. `packed` 4:4:4 never carries Dolby Vision
 /// (`stream_policy::packed_drops_dolby_vision`).
 pub(super) fn start(
     mut wanted: Wanted,
     packed: bool,
-    stats: Option<&mut impl Stats>,
+    stats: Option<&mut (impl Stats + ?Sized)>,
     warnings: &Warnings,
 ) -> Option<Box<Dynamic>> {
     if packed && wanted.dolby_vision {
@@ -144,7 +162,9 @@ pub(super) fn start(
         Some(Err(error)) => format!(
             "the GPU statistics pass did not start ({error:#}). Update the AMD driver, or turn off hdr_dynamic_metadata"
         ),
-        None => "the statistics are measured behind the compute conversion, and this stream uses the D3D11 conversion (gpu_compute_conversion)".to_owned(),
+        None => {
+            "its encoder input has no GPU statistics pass. Report this with the host log".to_owned()
+        }
     };
     unmeasured(wanted, "this stream", &why, warnings);
     if !wanted.dolby_vision {
@@ -167,7 +187,7 @@ pub(super) fn start(
 /// Vision goes back to the static light levels.
 pub(super) fn sample(
     slot: &mut Option<Box<Dynamic>>,
-    stats: Option<&mut impl Stats>,
+    stats: Option<&mut (impl Stats + ?Sized)>,
     warnings: &Warnings,
 ) {
     let (Some(dynamic), Some(stats)) = (slot.as_deref_mut(), stats) else {
@@ -745,7 +765,7 @@ mod tests {
             shown[0].message.clone()
         };
         for packed in [false, true] {
-            assert!(shown(packed, None::<&mut FakeStats>).contains("the D3D11 conversion"));
+            assert!(shown(packed, None::<&mut FakeStats>).contains("no GPU statistics pass"));
             let mut failing = FakeStats {
                 enable_fails: true,
                 ..Default::default()
@@ -918,7 +938,8 @@ mod tests {
 
     #[test]
     fn dolby_vision_without_statistics_goes_on_from_the_static_metadata_and_says_so() {
-        // The D3D11 conversion: HDR10+ off, RPUs from the static values.
+        // An input without the statistics pass: HDR10+ off, RPUs from the
+        // static values.
         let warnings = Warnings::default();
         let mut slot = start(dolby_vision(true), false, None::<&mut FakeStats>, &warnings);
         let dynamic = slot.as_deref_mut().expect("Dolby Vision went off");

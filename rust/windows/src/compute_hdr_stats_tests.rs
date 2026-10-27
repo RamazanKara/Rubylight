@@ -252,6 +252,10 @@ fn check(rig: &Rig, image: &Image, what: &str) -> Result<FrameStats> {
         .latest_hdr_stats(0)?
         .with_context(|| format!("{what}: no statistics"))?;
     assert_eq!(readout.conversion, converted.conversion, "{what}");
+    compare(&readout, image, what)
+}
+/// `readout` against the CPU's samples of `image` ([`sampled`]).
+fn compare(readout: &HdrStatsReadout, image: &Image, what: &str) -> Result<FrameStats> {
     let (histogram, min, max) = sampled(image);
     let (columns, rows) = grid(image.width, image.height);
     let mass: u64 = readout
@@ -276,14 +280,9 @@ fn check(rig: &Rig, image: &Image, what: &str) -> Result<FrameStats> {
     Ok(gpu)
 }
 
-#[test]
-#[ignore = "requires D3D12 compute"]
-fn hdr_stats_measure_flat_and_split_frames() -> Result<()> {
-    let rig = Rig::new()?;
-    let (width, height) = (1920, 1080);
-    let half = width / 2;
-    let peak = nits_to_pq(4000.);
-    let frames = [
+/// Flat frames, each with the nits it holds.
+fn flat_frames(width: u32, height: u32) -> [(&'static str, Image, f32); 3] {
+    [
         ("scRGB 100 nits", scrgb(width, height, |_, _| 100.), 100.),
         ("scRGB 1000 nits", scrgb(width, height, |_, _| 1000.), 1000.),
         (
@@ -293,19 +292,23 @@ fn hdr_stats_measure_flat_and_split_frames() -> Result<()> {
             }),
             1000.,
         ),
-    ];
-    for (what, image, nits) in &frames {
-        let stats = check(&rig, image, what)?;
-        let pq = pixel_pq(image, 0, 0);
-        close(pq, nits_to_pq(*nits), 1e-3, what);
-        close(stats.min_pq, pq, 2e-3, what);
-        close(stats.max_pq, pq, 2e-3, what);
-        close(stats.percentiles_pq[4], pq, 2e-3, what);
-        close(stats.percentiles_pq[8], pq, 2e-3, what);
-    }
-    // Black on the left half, a ramp to 4000 nits on the right, linear in
-    // light (scRGB) or in PQ. P99 is 98% up the ramp.
-    let split = [
+    ]
+}
+/// The statistics of a flat frame holding `nits`.
+fn check_flat(stats: &FrameStats, image: &Image, nits: f32, what: &str) {
+    let pq = pixel_pq(image, 0, 0);
+    close(pq, nits_to_pq(nits), 1e-3, what);
+    close(stats.min_pq, pq, 2e-3, what);
+    close(stats.max_pq, pq, 2e-3, what);
+    close(stats.percentiles_pq[4], pq, 2e-3, what);
+    close(stats.percentiles_pq[8], pq, 2e-3, what);
+}
+/// Black on the left half, a ramp to 4000 nits on the right, linear in
+/// light (scRGB) or in PQ, each with its P99, 98% up the ramp.
+fn split_frames(width: u32, height: u32) -> [(&'static str, Image, f32); 2] {
+    let half = width / 2;
+    let peak = nits_to_pq(4000.);
+    [
         (
             "scRGB split",
             scrgb(width, height, |x, _| {
@@ -328,15 +331,28 @@ fn hdr_stats_measure_flat_and_split_frames() -> Result<()> {
             }),
             0.98 * peak,
         ),
-    ];
-    for (what, image, p99) in &split {
-        let stats = check(&rig, image, what)?;
-        close(stats.min_pq, 0., 1e-6, what);
-        // The last cell centre is a few pixels short of the ramp's end.
-        close(stats.max_pq, peak, 4e-3, what);
-        // Half the samples are black: P50 is the first bin's upper edge.
-        close(stats.percentiles_pq[4], 1. / 1024., 1e-6, what);
-        close(stats.percentiles_pq[8], *p99, 4e-3, what);
+    ]
+}
+/// The statistics of a split frame with its `p99`.
+fn check_split(stats: &FrameStats, p99: f32, what: &str) {
+    close(stats.min_pq, 0., 1e-6, what);
+    // The last cell centre is a few pixels short of the ramp's end.
+    close(stats.max_pq, nits_to_pq(4000.), 4e-3, what);
+    // Half the samples are black: P50 is the first bin's upper edge.
+    close(stats.percentiles_pq[4], 1. / 1024., 1e-6, what);
+    close(stats.percentiles_pq[8], p99, 4e-3, what);
+}
+
+#[test]
+#[ignore = "requires D3D12 compute"]
+fn hdr_stats_measure_flat_and_split_frames() -> Result<()> {
+    let rig = Rig::new()?;
+    let (width, height) = (1920, 1080);
+    for (what, image, nits) in &flat_frames(width, height) {
+        check_flat(&check(&rig, image, what)?, image, *nits, what);
+    }
+    for (what, image, p99) in &split_frames(width, height) {
+        check_split(&check(&rig, image, what)?, *p99, what);
     }
     Ok(())
 }
@@ -593,5 +609,96 @@ fn hdr_stats_gpu_time() -> Result<()> {
             );
         }
     }
+    Ok(())
+}
+
+/// The D3D11 conversion of `image` on `gpu` and its statistics pass, as the
+/// encoder runs them, with the newest readout once the copy has finished.
+fn graphics(
+    gpu: &Device,
+    image: &Image,
+    stats: &mut crate::gpu_color::HdrStats,
+    newer_than: u64,
+) -> Result<Option<HdrStatsReadout>> {
+    let hdr = image.pixel != Pixel::Bgra8;
+    let config = butterpollo_core::rtsp::Negotiated {
+        width: image.width,
+        height: image.height,
+        codec: 1,
+        hdr,
+        ..Default::default()
+    };
+    let mut converter =
+        crate::gpu_color::Converter::new(gpu, &config, (image.width, image.height, image.pixel))?;
+    let source = GpuImage::upload(gpu, image)?;
+    converter.convert(&source)?;
+    stats.queue(&source, &converter);
+    stats.submit()?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while std::time::Instant::now() < deadline {
+        if let Some(readout) = stats.latest(newer_than)? {
+            return Ok(Some(readout));
+        }
+        std::thread::yield_now();
+    }
+    Ok(None)
+}
+
+#[test]
+#[ignore = "requires a D3D11 GPU with native P010 render views"]
+fn graphics_hdr_stats_measure_flat_and_split_frames() -> Result<()> {
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let mut stats = crate::gpu_color::HdrStats::new(&gpu);
+    stats.enable()?;
+    let (width, height) = (1920, 1080);
+    let mut newest = 0;
+    let mut readout = |image: &Image, what: &str| -> Result<HdrStatsReadout> {
+        let readout = graphics(&gpu, image, &mut stats, newest)?
+            .with_context(|| format!("{what}: no statistics"))?;
+        assert_eq!(readout.conversion, newest + 1, "{what}");
+        newest = readout.conversion;
+        Ok(readout)
+    };
+    for (what, image, nits) in &flat_frames(width, height) {
+        let stats = compare(&readout(image, what)?, image, what)?;
+        check_flat(&stats, image, *nits, what);
+    }
+    for (what, image, p99) in &split_frames(width, height) {
+        check_split(&compare(&readout(image, what)?, image, what)?, *p99, what);
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a D3D11 GPU with native P010 render views"]
+fn graphics_hdr_stats_follow_hdr_conversions_until_stopped() -> Result<()> {
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let hdr = scrgb(64, 32, |x, _| 10. * x as f32);
+    let mut stats = crate::gpu_color::HdrStats::new(&gpu);
+    // Off until enabled, and an SDR stream queues nothing.
+    assert!(graphics(&gpu, &hdr, &mut stats, 0)?.is_none());
+    stats.enable()?;
+    let sdr = Image {
+        width: 64,
+        height: 32,
+        stride: 64 * 4,
+        bytes: vec![200; 64 * 32 * 4],
+        captured: std::time::Instant::now(),
+        pixel: Pixel::Bgra8,
+    };
+    assert!(graphics(&gpu, &sdr, &mut stats, 0)?.is_none());
+    // Every staging copy goes round, and each pass is read once.
+    for conversion in 1..=6 {
+        let readout = graphics(&gpu, &hdr, &mut stats, conversion - 1)?
+            .context("statistics for the conversion")?;
+        assert_eq!(readout.conversion, conversion);
+        compare(&readout, &hdr, "ramp")?;
+        assert!(stats.latest(conversion)?.is_none());
+    }
+    stats.stop();
+    assert!(graphics(&gpu, &hdr, &mut stats, 6)?.is_none());
+    assert!(stats.enable().is_err(), "a stopped pass started again");
     Ok(())
 }

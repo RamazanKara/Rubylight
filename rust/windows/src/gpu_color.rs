@@ -740,6 +740,8 @@ impl PlanarConverter {
         Ok(())
     }
 }
+mod hdr_stats;
 mod menu;
+pub(crate) use hdr_stats::HdrStats;
 #[cfg(test)]
 mod tests;

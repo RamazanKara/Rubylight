@@ -2425,7 +2425,7 @@ impl Converter {
 #[path = "compute_focus_tests.rs"]
 mod focus_tests;
 #[path = "compute_hdr_stats.rs"]
-mod hdr_stats;
+pub(crate) mod hdr_stats;
 #[path = "compute_menu.rs"]
 mod menu;
 pub use hdr_stats::{HDR_STATS_BINS, HdrStatsReadout};

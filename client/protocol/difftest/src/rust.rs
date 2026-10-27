@@ -70,6 +70,8 @@ impl VideoSink for LogSink {
                 log.push(b'W');
                 log.extend_from_slice(&frame.to_le_bytes());
             }
+            // Nightjar's own FEC report; the C core has no counterpart.
+            VideoSignal::FecBlock(_) => {}
         }
     }
 }

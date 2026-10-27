@@ -5,12 +5,14 @@ use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use rubylight_protocol::control::ClockSyncRequest;
+use rubylight_protocol::fec_report::{FecReport, MAX_INTERVAL_MS, NOMINAL_INTERVAL_MS};
 
 use super::events::{self, ConnectionStatus, ControlEvent, HdrMetadata};
 use super::messages::{ClientMessage, FrameFecStatus};
 use super::negotiation::HostCapabilities;
 use super::wire::{channel, ptype, Delivery, OpenError, Opener, Sealer};
 use crate::crypto::Key;
+use crate::video::FecBlock;
 
 /// How often the periodic ping goes out.
 pub const PERIODIC_PING_INTERVAL: Duration = Duration::from_millis(100);
@@ -65,6 +67,15 @@ enum ReferenceFrameControl {
     Acknowledge(u32),
 }
 
+/// Video FEC outcomes since the last 0x5539 report.
+#[derive(Default)]
+struct FecTally {
+    report: FecReport,
+    /// When the interval began: the first block counted, then each report.
+    since: Option<Instant>,
+    next_seq: u32,
+}
+
 /// The encrypted control stream of one connection.
 pub struct ControlSession {
     caps: HostCapabilities,
@@ -80,6 +91,7 @@ pub struct ControlSession {
     idr_requested: bool,
     reference_frames: VecDeque<ReferenceFrameControl>,
     fec_statuses: VecDeque<FrameFecStatus>,
+    fec_tally: FecTally,
     next_ping: Option<Instant>,
 
     last_good_frame: u32,
@@ -115,6 +127,7 @@ impl ControlSession {
             idr_requested: false,
             reference_frames: VecDeque::new(),
             fec_statuses: VecDeque::new(),
+            fec_tally: FecTally::default(),
             next_ping: None,
             last_good_frame: 0,
             last_seen_frame: 0,
@@ -342,6 +355,49 @@ impl ControlSession {
         }
     }
 
+    /// Counts a finished video FEC block toward the next 0x5539 report, for a host that
+    /// announced it.
+    pub fn fec_block(&mut self, block: FecBlock, now: Instant) {
+        if !self.started
+            || !self.caps.sunshine_extensions()
+            || !self.caps.supports_control_message(ptype::FEC_REPORT)
+        {
+            return;
+        }
+        let tally = &mut self.fec_tally;
+        tally.since.get_or_insert(now);
+        let report = &mut tally.report;
+        report.data_shards = report.data_shards.saturating_add(block.data_shards);
+        report.parity_shards = report.parity_shards.saturating_add(block.parity_shards);
+        report.missing_shards = report.missing_shards.saturating_add(block.missing_shards);
+        report.unrecovered_blocks = report
+            .unrecovered_blocks
+            .saturating_add(u16::from(block.unrecovered));
+    }
+
+    /// Queues the FEC report once its interval is a second old. An interval without video
+    /// sends nothing, and one past the longest a report may cover (a stalled control thread)
+    /// is dropped: its counts can't be timed.
+    fn flush_fec_report(&mut self, now: Instant) {
+        let tally = &mut self.fec_tally;
+        let Some(since) = tally.since else {
+            return;
+        };
+        let elapsed = now.saturating_duration_since(since);
+        if elapsed < Duration::from_millis(NOMINAL_INTERVAL_MS.into()) {
+            return;
+        }
+        let mut report = std::mem::take(&mut tally.report);
+        tally.since = Some(now);
+        if report.data_shards == 0 || elapsed > Duration::from_millis(MAX_INTERVAL_MS.into()) {
+            return;
+        }
+        report.seq = tally.next_seq;
+        report.interval_ms = elapsed.as_millis() as u16;
+        tally.next_seq = tally.next_seq.wrapping_add(1);
+        self.queue(&ClientMessage::FecReport(report));
+    }
+
     pub fn connection_status(&self) -> ConnectionStatus {
         self.connection_status
     }
@@ -398,6 +454,7 @@ impl ControlSession {
             while let Some(status) = self.fec_statuses.pop_front() {
                 self.queue(&ClientMessage::FrameFecStatus(status));
             }
+            self.flush_fec_report(now);
             self.queue(&ClientMessage::PeriodicPing);
         }
         self.next_ping
@@ -633,6 +690,82 @@ mod tests {
         assert_eq!(sent.last().unwrap().2, 0x0200);
     }
 
+    fn block(missing_shards: u32, unrecovered: bool) -> FecBlock {
+        FecBlock {
+            data_shards: 10,
+            parity_shards: 2,
+            missing_shards,
+            unrecovered,
+        }
+    }
+
+    #[test]
+    fn the_fec_report_goes_once_a_second_to_a_host_that_announced_it() {
+        let mut s = ControlSession::new(
+            HostCapabilities {
+                control_messages: vec![0x5539],
+                ..rubylight()
+            },
+            &KEY,
+            SessionOptions::default(),
+        );
+        let t0 = Instant::now();
+        s.fec_block(block(1, false), t0);
+        s.start(t0);
+        host_reads(&mut s);
+        s.fec_block(block(1, false), t0);
+        s.fec_block(block(4, true), t0 + Duration::from_millis(10));
+        let reports = |s: &mut ControlSession| -> Vec<(Delivery, FecReport)> {
+            host_reads(s)
+                .into_iter()
+                .filter(|m| m.2 == 0x5539)
+                .map(|m| (m.1, FecReport::decode(&m.3).unwrap()))
+                .collect()
+        };
+        s.poll(t0 + Duration::from_millis(900));
+        assert!(reports(&mut s).is_empty(), "not before a second");
+        let first = t0 + Duration::from_millis(1000);
+        s.poll(first);
+        let expected = FecReport {
+            seq: 0,
+            data_shards: 20,
+            parity_shards: 4,
+            missing_shards: 5,
+            unrecovered_blocks: 1,
+            interval_ms: 1000,
+        };
+        assert_eq!(
+            reports(&mut s),
+            [(Delivery::Unreliable, expected)],
+            "blocks before start are not counted"
+        );
+
+        // A second without video sends nothing; the next report still follows with seq 1.
+        s.poll(first + Duration::from_millis(1000));
+        assert!(reports(&mut s).is_empty());
+        let second = first + Duration::from_millis(2100);
+        s.fec_block(block(0, false), second - Duration::from_millis(500));
+        s.poll(second);
+        let sent = reports(&mut s);
+        assert_eq!(sent.len(), 1);
+        assert_eq!((sent[0].1.seq, sent[0].1.interval_ms), (1, 1100));
+
+        // A stall past 5 s can't be timed: dropped, and counting starts again.
+        s.fec_block(block(0, false), second);
+        s.poll(second + Duration::from_millis(6000));
+        assert!(reports(&mut s).is_empty());
+    }
+
+    #[test]
+    fn no_fec_report_goes_to_a_host_that_did_not_announce_it() {
+        let mut s = session(SessionOptions::default());
+        let t0 = Instant::now();
+        s.start(t0);
+        s.fec_block(block(3, true), t0);
+        s.poll(t0 + Duration::from_secs(1));
+        assert!(host_reads(&mut s).iter().all(|m| m.2 != 0x5539));
+    }
+
     #[test]
     fn link_notices_are_requested_and_heard() {
         let mut s = session(SessionOptions::default());
@@ -651,7 +784,10 @@ mod tests {
         .unwrap();
         let sent = host_reads(&mut s);
         assert_eq!(sent.len(), 1);
-        assert_eq!((sent[0].0, sent[0].1, sent[0].2), (0, Delivery::Reliable, 0x5538));
+        assert_eq!(
+            (sent[0].0, sent[0].1, sent[0].2),
+            (0, Delivery::Reliable, 0x5538)
+        );
         assert_eq!(
             LinkNoticeRequest::decode(&sent[0].3),
             Some(LinkNoticeRequest { enabled: true })

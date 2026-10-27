@@ -4,6 +4,7 @@
 use rubylight_protocol::control::{
     ClockSyncRequest, DisplayCaps, HostTimingRequest, LinkNoticeRequest, Reconfigure,
 };
+use rubylight_protocol::fec_report::FecReport;
 use rubylight_protocol::phase_lock;
 use rubylight_protocol::pipeline_rates::PipelineRatesRequest;
 
@@ -85,6 +86,8 @@ pub enum ClientMessage {
     ClockSync(ClockSyncRequest),
     /// Asks the host to say when it lowers the video bitrate for the network (0x5538).
     LinkNoticeRequest(LinkNoticeRequest),
+    /// The once-a-second video FEC loss report (0x5539).
+    FecReport(FecReport),
     /// Asks the host for its pipeline frame rates (0x553D) every interval, or to stop.
     PipelineRatesRequest(PipelineRatesRequest),
     /// Asks the host to send its cursor image (0x5541) and leave it out of the video, or to
@@ -117,6 +120,7 @@ impl ClientMessage {
             Self::HostTimingRequest(_) => ptype::HOST_TIMING,
             Self::ClockSync(_) => ptype::CLOCK_SYNC,
             Self::LinkNoticeRequest(_) => ptype::LINK_NOTICE,
+            Self::FecReport(_) => ptype::FEC_REPORT,
             Self::PipelineRatesRequest(_) => ptype::PIPELINE_RATES,
             Self::CursorShapeRequest { .. } => ptype::CURSOR_SHAPE_REQUEST,
             Self::ControllerMicrophone(_) => ptype::CONTROLLER_MICROPHONE,
@@ -149,6 +153,7 @@ impl ClientMessage {
             Self::HostTimingRequest(request) => request.encode().to_vec(),
             Self::ClockSync(request) => request.encode().to_vec(),
             Self::LinkNoticeRequest(request) => request.encode().to_vec(),
+            Self::FecReport(report) => report.encode().to_vec(),
             Self::PipelineRatesRequest(request) => request.encode().to_vec(),
             Self::CursorShapeRequest { enabled } => {
                 let edge = CURSOR_SHAPE_MAX_EDGE.to_le_bytes();
@@ -178,8 +183,8 @@ impl ClientMessage {
             Self::FrameFecStatus(_) | Self::ClockSync(_) | Self::ControllerMicrophone(_) => {
                 Delivery::Unsequenced
             }
-            // A lost report is replaced half a second later.
-            Self::PhaseLockReport(_) => Delivery::Unreliable,
+            // A lost report is replaced half a second later, a lost FEC report a second later.
+            Self::PhaseLockReport(_) | Self::FecReport(_) => Delivery::Unreliable,
             _ => Delivery::Reliable,
         }
     }
@@ -193,6 +198,7 @@ impl ClientMessage {
             | Self::HostTimingRequest(_)
             | Self::ClockSync(_)
             | Self::LinkNoticeRequest(_)
+            | Self::FecReport(_)
             | Self::PipelineRatesRequest(_)
             | Self::CursorShapeRequest { .. }
             | Self::ControllerMicrophone(_)

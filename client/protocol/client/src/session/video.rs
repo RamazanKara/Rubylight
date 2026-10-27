@@ -306,6 +306,7 @@ pub fn route(control: &ControlHandle, signals: &mut Vec<VideoSignal>) {
                 VideoSignal::RequestIdr => session.request_idr_frame(),
                 VideoSignal::InvalidateFrames { first, last } => session.frame_loss(first, last),
                 VideoSignal::FecStatus(status) => session.frame_fec_status(fec_status(status)),
+                VideoSignal::FecBlock(block) => session.fec_block(block, now),
                 VideoSignal::FrameReceived { frame, ltr } => session.frame_complete(frame, ltr),
                 VideoSignal::FrameSeen { frame } => session.frame_seen(frame, now),
             }

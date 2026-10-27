@@ -202,6 +202,18 @@ impl FecStatus {
     }
 }
 
+/// The FEC outcome of every finished frame block, for the once-a-second loss report (0x5539).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FecBlock {
+    pub data_shards: u32,
+    pub parity_shards: u32,
+    /// Shards that never arrived. A block that completed counts only the holes before its last
+    /// arrival: parity still in flight when the data was whole is not missing.
+    pub missing_shards: u32,
+    /// The block lost more shards than its parity could recover.
+    pub unrecovered: bool,
+}
+
 /// What the receiver tells the control stream, in the order the C core would act on it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum VideoSignal {
@@ -212,6 +224,8 @@ pub enum VideoSignal {
     InvalidateFrames { first: u32, last: u32 },
     /// `connectionSendFrameFecStatus`: queue a 0x5502 report (best effort, Sunshine hosts only).
     FecStatus(FecStatus),
+    /// A frame block finished, recovered or not (Nightjar's FEC report, no C counterpart).
+    FecBlock(FecBlock),
     /// `connectionReceivedCompleteFrame`: a frame completed; acknowledge it if it is an LTR
     /// frame and the host is Sunshine-derived with RFI enabled.
     FrameReceived { frame: u32, ltr: bool },

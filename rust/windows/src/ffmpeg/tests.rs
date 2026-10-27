@@ -134,7 +134,27 @@ fn ffmpeg_loads_from_a_folder_named_without_its_drive() {
         .filter(|c| !matches!(c, std::path::Component::Prefix(_)))
         .collect();
     assert!(!relative.is_absolute());
-    probe(&relative).unwrap();
+    // Windows resolves it on the current directory's drive. CI keeps the SDK
+    // on C: and works on D:, where the DLLs aren't: then the error names the
+    // path made absolute on that drive.
+    fn prefix(path: &Path) -> Option<std::path::Component<'_>> {
+        path.components()
+            .next()
+            .filter(|c| matches!(c, std::path::Component::Prefix(_)))
+    }
+    let cwd = std::env::current_dir().unwrap();
+    if prefix(&root) == prefix(&cwd) {
+        probe(&relative).unwrap();
+    } else {
+        let expected = beside(&relative, AVUTIL).unwrap();
+        assert!(
+            expected.starts_with(prefix(&cwd).unwrap()),
+            "{}",
+            expected.display()
+        );
+        let error = format!("{:#}", probe(&relative).unwrap_err());
+        assert!(error.contains(&expected.display().to_string()), "{error}");
+    }
 }
 
 #[test]

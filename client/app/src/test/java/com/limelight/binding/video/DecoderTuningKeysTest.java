@@ -219,6 +219,51 @@ public class DecoderTuningKeysTest {
         assertEquals(expected, format.getKeys());
     }
 
+    private static final String[] QTI_EXTRAS = {"vendor.qti-ext-dec-info-misr.disable",
+            "vendor.qti-ext-dec-instant-decode.enable", "vendor.qti-ext-dec-error-correction.conceal"};
+
+    @Test
+    @Config(sdk = 33)
+    public void snapdragonExtrasFollowTheDeclaredKeysAndTheLadder() {
+        String[] declared = Arrays.copyOf(QTI_KEYS, QTI_KEYS.length + QTI_EXTRAS.length);
+        System.arraycopy(QTI_EXTRAS, 0, declared, QTI_KEYS.length, QTI_EXTRAS.length);
+        MediaCodecInfo decoder = decoder("c2.qti.hevc.decoder", declared);
+        for (int attempt = 0; attempt <= 5; attempt++) {
+            MediaFormat format = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
+            MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder, attempt, true, true, false, false);
+            for (String key : QTI_EXTRAS) {
+                assertEquals("try " + attempt + " " + key, attempt < 4, format.containsKey(key));
+            }
+            // Never the picture-order value that hung the Retroid.
+            if (format.containsKey("vendor.qti-ext-dec-picture-order.enable")) {
+                assertEquals(1, format.getInteger("vendor.qti-ext-dec-picture-order.enable"));
+            }
+        }
+        MediaFormat off = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
+        MediaCodecHelper.setDecoderLowLatencyOptions(off, decoder, 0, true, false, false, false);
+        assertAbsent("vendor switch off", off, QTI_EXTRAS);
+    }
+
+    @Test
+    public void snapdragonExtrasAreNeverSentByName() {
+        // Android 9: the decoder cannot list its parameters, so only the name-matched set goes.
+        for (String name : new String[] {"c2.qti.hevc.decoder", "OMX.qcom.video.decoder.hevc"}) {
+            MediaFormat format = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
+            MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder(name, QTI_EXTRAS), 0, true, true, true, false);
+            assertKeys(name, format, "vendor.qti-ext-dec-low-latency.enable");
+            assertAbsent(name, format, QTI_EXTRAS);
+        }
+    }
+
+    @Test
+    @Config(sdk = 33)
+    public void snapdragonExtrasStayOffDecodersThatDoNotDeclareThem() {
+        MediaFormat format = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
+        MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder("c2.qti.hevc.decoder.low_latency", QTI_KEYS),
+                0, true, true, true, false);
+        assertAbsent("undeclared", format, QTI_EXTRAS);
+    }
+
     @Test
     public void otherChipsKeepTheirOwnKeysAndNothingFromTheNewSets() {
         String[][] cases = {

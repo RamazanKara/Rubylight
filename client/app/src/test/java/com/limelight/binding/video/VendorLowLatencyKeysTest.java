@@ -58,4 +58,18 @@ public class VendorLowLatencyKeysTest {
         assertEquals(Integer.valueOf(1), keys.get("vendor.qti-ext-output-fence.fence_type"));
         assertEquals(5, keys.size());
     }
+
+    @Test public void snapdragonExtrasGoOnlyToDecodersThatDeclareThem() {
+        String[] extras = {"vendor.qti-ext-dec-info-misr.disable", "vendor.qti-ext-dec-instant-decode.enable",
+                "vendor.qti-ext-dec-error-correction.conceal"};
+        Map<String, Integer> declared = VendorLowLatencyKeys.forSupported(Arrays.asList(extras));
+        Map<String, Integer> byName = VendorLowLatencyKeys.qualcommKeys();
+        for (String key : extras) {
+            assertEquals(key, Integer.valueOf(1), declared.get(key));
+            assertFalse(key, byName.containsKey(key));
+            assertFalse(key, VendorLowLatencyKeys.isCoreSwitch(key));
+        }
+        assertFalse(VendorLowLatencyKeys.forSupported(Arrays.asList("vendor.qti-ext-dec-low-latency.enable"))
+                .containsKey("vendor.qti-ext-dec-instant-decode.enable"));
+    }
 }

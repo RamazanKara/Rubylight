@@ -332,7 +332,7 @@ export interface PendingPairing {
   webrtc?: boolean;
 }
 
-export type LibrarySource = 'steam' | 'epic' | 'battlenet' | 'ea' | 'ubisoft' | 'gog' | 'microsoft';
+export type LibrarySource = 'steam' | 'epic' | 'battlenet' | 'ea' | 'ubisoft' | 'gog' | 'microsoft' | 'local';
 export interface DiscoveredGame {
   source: LibrarySource;
   id: string;
@@ -345,7 +345,7 @@ export interface DiscoveredGame {
 }
 export interface LibraryDiscovery {
   status: true;
-  sources: { source: LibrarySource; name: string; state: 'available' | 'unavailable' | 'error'; errors: string[] }[];
+  sources: { source: LibrarySource; name: string; state: 'available' | 'unavailable' | 'error' | 'disabled'; errors: string[] }[];
   games: DiscoveredGame[];
 }
 export interface LibraryImportResult {

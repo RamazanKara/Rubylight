@@ -345,6 +345,25 @@ test('library counts and time limits reject fractions instead of saving values t
   }
 });
 
+test('Epic and GOG scans default on, game folders default empty and their exclusions follow them', () => {
+  // The host's defaults, in library::Settings::from_config (core/src/library.rs).
+  assert.equal(settings.get('library_epic_enabled').default, true);
+  assert.equal(settings.get('library_gog_enabled').default, true);
+  const folders = settings.get('library_local_folders');
+  assert.equal(folders.control.kind, 'list');
+  assert.deepEqual(folders.default, []);
+  const exclude = settings.get('library_local_exclude');
+  assert.equal(exclude.control.kind, 'list');
+  assert.equal(exclude.visibleWhen({}), false);
+  assert.equal(exclude.visibleWhen({ library_local_folders: [] }), false);
+  assert.equal(exclude.visibleWhen({ library_local_folders: ['D:\\Games'] }), true);
+  assert.equal(exclude.visibleWhen({ library_local_folders: '["D:\\\\Games"]' }), true);
+  assert.ok(exclude.inactiveHint);
+  for (const key of ['library_epic_enabled', 'library_gog_enabled', 'library_local_folders', 'library_local_exclude']) {
+    assert.equal(settings.get(key).category, 'library', key);
+  }
+});
+
 test('integer tuning steps reject fractions without forcing multiples of the arrow increment', () => {
   // Both are Config::integer inputs, in host/src/stream.rs and host/src/state.rs.
   for (const key of ['capture_poll_interval_us', 'dd_config_revert_delay']) {

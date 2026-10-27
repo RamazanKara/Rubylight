@@ -1,0 +1,6 @@
+# Game library scanning
+- **Game folders in Add games.** Choose folders that hold one game per subfolder (Settings › Library › Game folders, such as `D:\Games`), and Add games lists each subfolder with the program that starts it. Installers, uninstallers, redistributables, crash reporters, updaters and anti-cheat services are skipped, programs more than two folders down are not read, and you can leave folders out by name or path. A folder a launcher already lists shows up once, under that launcher.
+- **Epic Games and GOG scans can be turned off** in Settings › Library › Other launchers. Both stay on by default. A launcher you turn off is skipped by the scan, and games already added from it aren't reported as uninstalled to Nightjar.
+- **No duplicates from Playnite or Steam.** A scanned game Playnite already added from the same launcher, or a game folder Steam, Playnite or another app already starts, shows as already added. The same title from two launchers still counts as two games.
+- **Scan problems are logged.** A launcher whose scan fails, or a game folder that's missing, is marked incomplete in Add games and now also written to the host log. The other launchers' games are still listed.
+- Experimental: GOG games installed with only a registry record (older offline installers, no `goggame-<id>.info`) are listed too.

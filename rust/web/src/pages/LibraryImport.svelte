@@ -24,6 +24,14 @@
   const added = $derived(results.filter(result => result.result === 'added').length);
   const existing = $derived(results.filter(result => result.result === 'already_present').length);
   const failures = $derived(results.filter(result => result.result === 'failed'));
+  const scanned = $derived((catalog?.sources ?? []).filter(launcher => launcher.state !== 'disabled'));
+  function sourceState(launcher: LibraryDiscovery['sources'][number]): string {
+    const count = catalog?.games.filter(game => game.source === launcher.source).length ?? 0;
+    if (launcher.state === 'disabled') return launcher.source === 'local' ? 'No game folders chosen' : 'Turned off in Library settings';
+    if (launcher.state === 'error') return 'Scan incomplete';
+    if (launcher.state === 'unavailable') return 'Launcher not found';
+    return count ? count + ' installed' : 'No installed games';
+  }
 
   async function scan() {
     if (scanning || importing) return;
@@ -72,13 +80,13 @@
 <PageHeader title="Add games" subtitle="Choose games installed on this PC. Their launchers will open when you play.">
   {#snippet actions()}<Button href="/library/new">Add manually</Button>{/snippet}
 </PageHeader>
-<Panel title="Installed games" description="Steam, Epic Games, Battle.net, EA app, Ubisoft Connect, GOG, and Microsoft Store and Xbox PC games.">
+<Panel title="Installed games" description="Steam, Epic Games, Battle.net, EA app, Ubisoft Connect, GOG, Microsoft Store and Xbox PC games, and the game folders you choose.">
   {#snippet actions()}<Button onclick={scan} disabled={scanning || importing} busy={scanning}>Scan again</Button>{/snippet}
   <div class="filters">
     <label>Search games<input class="input" type="search" placeholder="Find an installed game…" bind:value={search} /></label>
     <label>Launcher<select class="select" aria-label="Launcher" bind:value={source}>
       <option value="all">All launchers</option>
-      {#each catalog?.sources ?? [] as launcher (launcher.source)}<option value={launcher.source}>{launcher.name}</option>{/each}
+      {#each scanned as launcher (launcher.source)}<option value={launcher.source}>{launcher.name}</option>{/each}
     </select></label>
   </div>
   {#if scanning}<p role="status">Looking for games installed on this PC…</p>{/if}
@@ -111,14 +119,14 @@
     <details class="sources" open={catalog.sources.some(launcher => launcher.state === 'error')}>
       <summary>Scan results by launcher</summary>
       {#each catalog.sources as launcher (launcher.source)}
-        <div class="source"><strong>{launcher.name}</strong><span>{launcher.state === 'error' ? 'Scan incomplete' : launcher.state === 'unavailable' ? 'Launcher not found' : catalog.games.some(game => game.source === launcher.source) ? catalog.games.filter(game => game.source === launcher.source).length + ' installed' : 'No installed games'}</span></div>
+        <div class="source"><strong>{launcher.name}</strong><span>{sourceState(launcher)}</span></div>
         {#each launcher.errors as message}<p class="error">{message}</p>{/each}
       {/each}
     </details>
   {/if}
 </Panel>
 <div class="import-bar" class:has-selection={selected.length > 0}><p>{selected.length ? selected.length + ' selected' : 'Choose the games you want to add.'}<span class="muted">You can change names and covers later.</span></p><Button variant="primary" disabled={scanning || !selected.length || !catalog} busy={importing} onclick={importGames}>{importing ? 'Adding games…' : 'Add selected games'}</Button></div>
-<p class="muted source-help">Automatic Steam and Playnite synchronization is available in <a href="/library" use:link>Manage sources</a>.</p>
+<p class="muted source-help">Automatic Steam and Playnite synchronization is available in <a href="/library" use:link>Manage sources</a>. Choose launchers and game folders in <a href="/settings/library" use:link>Library settings</a>.</p>
 
 <style>
   .back { width: fit-content; min-height: var(--control-height); display: inline-flex; align-items: center; color: var(--muted); text-decoration: none; }

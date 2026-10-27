@@ -1,6 +1,7 @@
 // Settings for game library integrations.
 import type { ConfigValue } from '../api';
 import type { Setting } from '../settings-types';
+import { toList } from '../../components/settings/values';
 
 type Values = Record<string, ConfigValue>;
 
@@ -327,6 +328,46 @@ export const settings: Setting[] = [
     visibleWhen: steam,
   },
   ...playniteSettings,
+  {
+    key: 'library_epic_enabled',
+    label: 'Epic Games',
+    description: 'Lists games installed with the Epic Games Launcher in Library › Add games. They start through the launcher.',
+    category: 'library',
+    group: 'Other launchers',
+    control: { kind: 'toggle' },
+    default: true,
+  },
+  {
+    key: 'library_gog_enabled',
+    label: 'GOG',
+    description: 'Lists GOG games in Library › Add games, including installs without GOG Galaxy. They start through Galaxy when it is installed.',
+    category: 'library',
+    group: 'Other launchers',
+    control: { kind: 'toggle' },
+    default: true,
+  },
+  {
+    key: 'library_local_folders',
+    label: 'Game folders',
+    description: 'Folders that hold one game per subfolder, such as D:\\Games. Add games then lists each subfolder with the program that starts it.',
+    details:
+      'Installers, uninstallers, redistributables, crash reporters and updaters are skipped, and programs more than two folders down are not read. A game a launcher already lists is shown under that launcher.',
+    category: 'library',
+    group: 'Game folders',
+    control: { kind: 'list', placeholder: 'D:\\Games' },
+    default: [],
+  },
+  {
+    key: 'library_local_exclude',
+    label: 'Folders to leave out',
+    description: 'Game folders Add games never lists, by name (Tools) or full path (D:\\Games\\Tools).',
+    category: 'library',
+    group: 'Game folders',
+    control: { kind: 'list', placeholder: 'Tools' },
+    default: [],
+    inactiveHint: 'Add a game folder to use this setting.',
+    visibleWhen: (values) => toList(values.library_local_folders).some((folder) => folder.trim() !== ''),
+  },
   {
     key: 'lossless_scaling_path',
     label: 'Lossless Scaling program',

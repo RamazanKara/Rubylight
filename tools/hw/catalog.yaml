@@ -416,4 +416,34 @@ cases:
     pass: both pastes show the image with its colors and transparency; an image over clipboard_image_max_mb is refused with a message, not pasted half
     output: the host log's Clipboard lines (read after the user's run)
     status: pending
-    note: Nightjar's image clipboard is not built yet (rl-clip)
+    note: needs Nightjar Android's image clipboard (rl-clip) on main
+
+  - id: clipboard-image-nightjar-desktop
+    device: user
+    title: Copy an image both ways between Nightjar desktop and this PC
+    command: 'on the laptop, stream Desktop from Nightjar desktop (rl-clip-desk build); copy a screenshot on the PC (Win+Shift+S), stream menu > Copy PC image here, paste it in Paint on the laptop; copy an image with transparency on the laptop (a PNG from a browser) and a Print Screen, stream menu > Send image to PC, paste each in Paint and in a browser on the PC'
+    preconditions: [idle]
+    pass: every paste shows the image with its colors (a Print Screen opaque, the PNG with its transparency in the browser); the toasts say Image sent to the PC / PC image copied to this device; an empty clipboard says it holds no image; with clipboard_image = false the buttons are gone
+    output: the host log's Clipboard lines (read after the user's run)
+    status: pending
+    note: needs rl-clip-desk on main; Linux (Wayland and X11) pastes are unproven too and can run on the NUC's desktop build
+
+  - id: shared-folders-nightjar-desktop
+    device: user
+    title: Browse, download from and upload to a shared folder from Nightjar desktop, as the signed-in user
+    command: 'set shared_folders to [{"id": "test", "name": "Test", "path": "C:\\tests\\shared"}] with a file and a subfolder in it, share it with the laptop on Devices to read and write; on the laptop, PC details > Shared folders > Browse, open Test and the subfolder, download a file into a chosen folder, upload a file of some 100 MB and cancel one upload halfway, then upload it fully; set the grant to read only and try an upload; sign out of Windows on the PC and browse again'
+    preconditions: [idle]
+    pass: the listing matches Explorer (no links or junctions); the downloaded file is byte-identical; the uploaded file is in C:\tests\shared owned by the signed-in user (not SYSTEM), a second upload of the same name is numbered, the cancelled one leaves no file under its name; read only has no upload button (or a forced one says no grant); signed out says nobody is signed in
+    output: the host log's folder lines and the laptop's Nightjar log (read after the user's run)
+    status: pending
+    note: needs rl-clip-desk on main
+
+  - id: shared-folders-phone
+    device: user
+    title: Browse, download from and upload to a shared folder from a phone
+    command: 'with the shared_folders setup of shared-folders-nightjar-desktop shared with the phone, browse, download and upload from Nightjar Android'
+    preconditions: [idle]
+    pass: as in shared-folders-nightjar-desktop
+    output: the host log's folder lines (read after the user's run)
+    status: pending
+    note: needs Nightjar Android's folder browser (rl-clip) on main

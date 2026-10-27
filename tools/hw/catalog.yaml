@@ -226,9 +226,31 @@ cases:
     command: 'Nightjar Android on the TV, Settings > Audio: Audio passthrough on, New streaming engine; stream Desktop at 5.1 with a 5.1 test clip on the PC, then again with the soundbar or receiver on HDMI ARC and on the TV speakers'
     preconditions: [idle]
     pass: the receiver or soundbar shows Dolby Digital or Dolby Digital Plus (or the TV its Dolby badge), every channel plays from its speaker, no drop-outs over 5 minutes; the TV speakers alone get PCM or Opus with the message saying why
-    output: Nightjar's "Audio output: ... passthrough" log line and the host log around the stream (read after the user's run)
+    output: 'Nightjar''s "Audio output: ... passthrough" log line and the host log around the stream (read after the user''s run)'
     status: pending
     note: Experimental until this passes; see user-tests.md audio-passthrough-tv. Lip sync against Opus is the format's 32 ms frames plus the sink's own decode buffer
+
+  - id: audio-passthrough-desktop-pcm
+    device: desktop
+    title: Nightjar desktop with Audio passthrough on streams PCM from an isolated host (45 s)
+    command: 'Write-Error "not scripted yet: see note"; exit 1'
+    preconditions: [idle, isolated-ports, gpu-lock]
+    verdict: review
+    pass: 'host log "audio passthrough codec=\"PCM\" channels=2 packet_ms=5", client log "nightjar: audio: PCM passthrough, 2 channels, 5 ms packets" and "Received first audio packet", the overlay''s Audio line shows a buffer and no underruns or dropped packets, no ERROR lines, no AMF call over 2 s'
+    output: '{{out}}'
+    status: pending
+    note: 'Passed 2026-10-27 on rl-pass 81cd50383 (release host and nightjar.exe from that tree, host on 127.0.0.1:48123 with the Steam Streaming Speakers sink and a tone, NIGHTJAR_AUTOSTREAM, settings.json audio_passthrough and overlay on): PCM stereo 5 ms packets on both ends, overlay "stereo, 25 ms buffered", 5120x1440 HEVC at 77-218 fps, encode mean 5.5-6.1 ms, no errors. Scripts in C:\src\butterpollo-release\unified\scratch\pass3 (run_desktop.ps1, profile.py, pin.py); script it here once rl-pass is on main. 5.1 and 7.1 PCM not run'
+
+  - id: audio-passthrough-retroid
+    device: retroid
+    title: Nightjar Android with Audio passthrough on, on a device whose output plays no passthrough format
+    command: 'Write-Error "not scripted yet: see note"; exit 1'
+    preconditions: [idle, gpu-lock]
+    verdict: review
+    pass: 'Nightjar logs "Audio passthrough: the audio output plays no passthrough format with 2 channels; this stream plays Opus" and shows that message, the host log has no "audio passthrough" line (Opus), audio plays; or, if the output plays one unmixed, "Audio output: <codec> passthrough" and the host''s "audio passthrough codec=..." agree and audio plays'
+    output: '{{out}}'
+    status: pending
+    note: 'Not run: on 2026-10-27 the Retroid answered ping at 192.168.4.107 but had no adb (no USB, no open TCP port). Needs the host bound to the PC''s LAN address on a test port and a firewall allow for the staged exe; steps in C:\src\butterpollo-release\unified\hw-queue.md (E3 passthrough)'
 
   - id: smoke-laptop
     device: laptop

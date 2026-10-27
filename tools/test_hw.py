@@ -27,7 +27,8 @@ class Catalog(unittest.TestCase):
         ids = {c.id for c in cases}
         for expected in ('e2e-hevc', 'release-check', 'smoke-laptop', 'soak-short', 'soak-30min', 'browser-e2e',
                          'browser-e2e-off', 'issue56-exclusive-layout', 'sleep-evidence', 'couch-audio-71',
-                         'audio-bench', 'encoder-focus-amf-quality', 'encoder-focus-ab', 'couch-menu-stream'):
+                         'audio-bench', 'encoder-focus-amf-quality', 'encoder-focus-ab', 'couch-menu-stream',
+                         'audio-passthrough-tv', 'audio-passthrough-desktop-pcm', 'audio-passthrough-retroid'):
             self.assertIn(expected, ids)
         self.assertIn(r'3.0.0-rc.3\release', run.expand('{{package}}', values, 'test'))
         for case in cases:

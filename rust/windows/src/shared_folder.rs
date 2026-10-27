@@ -11,7 +11,7 @@
 //! blocking thread, not an async worker.
 use crate::user_folder::{
     Impersonation, PartFile, UserFolder, UserFolderError, final_path, plain, reopen_for_data,
-    user_token,
+    same_name, user_token,
 };
 use butterpollo_core::file_transfer;
 use std::{
@@ -119,13 +119,7 @@ impl SharedFolder {
     /// Fails unless Windows opened `file` at exactly `path`, in any case.
     fn confined(&self, file: &File, path: &Path) -> Result<(), UserFolderError> {
         let actual = final_path(file)?;
-        let same = actual
-            .to_str()
-            .zip(path.to_str())
-            .is_some_and(|(actual, path)| {
-                actual == path || actual.to_lowercase() == path.to_lowercase()
-            });
-        if same {
+        if same_name(&actual, path.as_os_str()) {
             Ok(())
         } else {
             tracing::warn!(
@@ -457,6 +451,23 @@ mod tests {
             ));
         }
         assert_eq!(fs::read(rig.outside.join("secret.txt")).unwrap(), b"secret");
+    }
+
+    #[test]
+    fn a_junction_to_a_name_that_only_lowercases_alike_is_refused() {
+        let rig = rig();
+        // A folder named with the Kelvin sign, which NTFS keeps apart from
+        // "k", and a junction "kelvin" to it.
+        let kelvin = rig.root.join("\u{212a}elvin");
+        fs::create_dir(&kelvin).unwrap();
+        fs::write(kelvin.join("secret.txt"), b"k").unwrap();
+        junction(&kelvin, &rig.root.join("kelvin"));
+        outside(rig.folder.open_file(&["kelvin", "secret.txt"]));
+        outside(rig.folder.entries(&["kelvin"]));
+        assert_eq!(
+            read(&rig.folder, &["\u{212a}elvin", "secret.txt"]).unwrap(),
+            b"k"
+        );
     }
 
     #[test]

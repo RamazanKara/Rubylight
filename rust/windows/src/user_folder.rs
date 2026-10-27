@@ -25,6 +25,7 @@ use std::{
 use windows::{
     Win32::{
         Foundation::{ERROR_FILE_NOT_FOUND, ERROR_NO_TOKEN, ERROR_SHARING_VIOLATION, HANDLE},
+        Globalization::{CSTR_EQUAL, CompareStringOrdinal},
         Security::{ImpersonateLoggedOnUser, RevertToSelf},
         Storage::FileSystem::{
             DELETE, FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_NORMAL, FILE_BASIC_INFO,
@@ -372,6 +373,16 @@ pub(crate) fn final_path(file: &File) -> io::Result<OsString> {
     Ok(OsString::from_wide(&path))
 }
 
+/// Whether `a` and `b` are one name or path to NTFS: equal but for case as
+/// Windows maps it, code unit by code unit. Unlike Unicode lowercasing, the
+/// Kelvin sign is not a `k` there, nor the Ohm sign an omega.
+pub(crate) fn same_name(a: &OsStr, b: &OsStr) -> bool {
+    let a: Vec<u16> = a.encode_wide().collect();
+    let b: Vec<u16> = b.encode_wide().collect();
+    // SAFETY: both are live slices, passed with their lengths.
+    a == b || unsafe { CompareStringOrdinal(&a, &b, true) } == CSTR_EQUAL
+}
+
 /// Writes the Mark of the Web next to the data of the file at `path`.
 fn mark_of_the_web(path: &Path) -> io::Result<()> {
     let mut stream = path.as_os_str().to_owned();
@@ -569,10 +580,7 @@ impl UserFolder {
             return Err(UserFolderError::NotPlainFile);
         }
         let actual = final_name(&file)?;
-        if !actual
-            .to_str()
-            .is_some_and(|actual| actual == name || actual.to_lowercase() == name.to_lowercase())
-        {
+        if !same_name(&actual, OsStr::new(name)) {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
                 format!("{name} is another name of {}", actual.display()),
@@ -977,6 +985,34 @@ mod tests {
         assert_eq!(names(dir.path()), ["browser.zip.part", "live.txt.part"]);
         assert_eq!(live.finish().unwrap(), "live.txt");
         assert_eq!(fs::read(dir.path().join("live.txt")).unwrap(), b"live");
+    }
+
+    #[test]
+    fn names_are_the_same_exactly_when_ntfs_finds_one_by_the_other() {
+        let dir = tempfile::tempdir().unwrap();
+        // The Kelvin, long s, Angstrom and Ohm signs lowercase to letters
+        // NTFS keeps apart from them.
+        for (stored, asked) in [
+            ("K", "k"),
+            ("\u{e4}", "\u{c4}"),
+            ("\u{212a}", "k"),
+            ("\u{17f}", "s"),
+            ("\u{212b}", "\u{e5}"),
+            ("\u{2126}", "\u{3c9}"),
+        ] {
+            let stored = format!("{stored}.txt");
+            let asked = format!("{asked}.txt");
+            fs::write(dir.path().join(&stored), "x").unwrap();
+            let found = fs::metadata(dir.path().join(&asked)).is_ok();
+            assert_eq!(
+                same_name(OsStr::new(&stored), OsStr::new(&asked)),
+                found,
+                "{stored} {asked}"
+            );
+            fs::remove_file(dir.path().join(&stored)).unwrap();
+        }
+        assert!(!same_name(OsStr::new("\u{212a}"), OsStr::new("k")));
+        assert!(same_name(OsStr::new("Photo.JPG"), OsStr::new("photo.jpg")));
     }
 
     #[test]

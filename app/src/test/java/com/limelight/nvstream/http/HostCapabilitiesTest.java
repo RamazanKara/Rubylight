@@ -133,8 +133,12 @@ public class HostCapabilitiesTest {
         HostCapabilities caps = TestHosts.rubylight();
         assertEquals(Family.RUBYLIGHT, caps.family());
         assertEquals("2.2.21", caps.hostVersion());
-        assertEquals(EnumSet.complementOf(EnumSet.of(CURSOR_SHAPE, NATIVE_API, SLEEP, FILE_UPLOAD, FILE_DOWNLOAD)),
-                caps.supported());
+        // Everything up to file transfer; the 3.0 extensions came later.
+        Set<Feature> expected = EnumSet.range(PERMISSIONS, FILE_DOWNLOAD);
+        expected.removeAll(EnumSet.of(CURSOR_SHAPE, NATIVE_API, SLEEP, FILE_UPLOAD, FILE_DOWNLOAD));
+        assertEquals(expected, caps.supported());
+        assertNever(caps, DOLBY_VISION, HLG, CLIENT_FEC, BANDWIDTH_PROBE, AUDIO_PASSTHROUGH, SURROUND_714, TEXT_INPUT,
+                CLIENT_KEYBOARD_LAYOUT, PEN_BARREL_ROLL, PIPELINE_RATES);
         assertNever(caps, CURSOR_SHAPE);
         assertReason(caps, NATIVE_API, Reason.UPDATE_HOST);
         assertReason(caps, SLEEP, Reason.UPDATE_HOST);
@@ -346,6 +350,76 @@ public class HostCapabilitiesTest {
         HostCapabilities older = HostCapabilities.fromJson(olderJson);
         assertTrue(older.isKnown());
         assertFalse(older.has(CURSOR_SHAPE));
+    }
+
+    /** Matches the Rust test of the same name: each 3.0 extension follows its own serverinfo field. */
+    @Test
+    public void the30ExtensionsFollowTheirServerinfoBits() {
+        String host = "<RustHostVersion>3.1.0</RustHostVersion><PairStatus>1</PairStatus>"
+                + "<NativeApiVersion>1</NativeApiVersion>";
+        Object[][] cases = {
+                {"HdrFormats", DOLBY_VISION, new String[] {"4", "8"}, new String[] {"3", "x", ""}},
+                {"HdrFormats", HLG, new String[] {"2"}, new String[] {"13", "256"}},
+                {"AudioCodecs", AUDIO_PASSTHROUGH, new String[] {"2", "4", "8"}, new String[] {"1"}},
+                {"AudioLayouts", SURROUND_714, new String[] {"8"}, new String[] {"7"}},
+                {"FecControlVersion", CLIENT_FEC, new String[] {"1", "2"}, new String[] {"0", "-1"}},
+                {"BandwidthProbeVersion", BANDWIDTH_PROBE, new String[] {"1"}, new String[] {"0"}},
+                {"TextInputVersion", TEXT_INPUT, new String[] {"1"}, new String[] {"0"}},
+                {"KeyboardLayoutVersion", CLIENT_KEYBOARD_LAYOUT, new String[] {"1"}, new String[] {"0"}},
+                {"PenBarrelRollVersion", PEN_BARREL_ROLL, new String[] {"1"}, new String[] {"65536"}},
+                {"PipelineRatesVersion", PIPELINE_RATES, new String[] {"1"}, new String[] {""}},
+        };
+        for (Object[] row : cases) {
+            String field = (String) row[0];
+            Feature feature = (Feature) row[1];
+            for (String value : (String[]) row[2]) {
+                HostCapabilities caps = caps(host + "<" + field + ">" + value + "</" + field + ">");
+                assertTrue(field + " " + value, caps.has(feature));
+                assertEquals(field + " " + value, caps, HostCapabilities.fromJson(caps.toJson()));
+            }
+            for (String value : (String[]) row[3]) {
+                assertNever(caps(host + "<" + field + ">" + value + "</" + field + ">"), feature);
+            }
+            // Missing: never from Rubylight and Sunshine, unknown from an unrecognized host.
+            assertNever(caps(host), feature);
+            assertNever(caps("<appversion>7.1.431.-1</appversion>"), feature);
+            assertUnknown(caps("<appversion>7.1.431.0</appversion>"), feature);
+        }
+        // Before the native API answered, its features are unknown, never supported.
+        HostCapabilities caps = caps(host + "<HdrFormats>15</HdrFormats>");
+        assertUnknown(caps, USB_FORWARDING, IMAGE_CLIPBOARD, SHARED_FOLDERS);
+        assertReason(TestHosts.rubylight(), USB_FORWARDING, Reason.UPDATE_HOST);
+    }
+
+    @Test
+    public void nativeCapabilitiesDecideUsbImageClipboardAndFolders() throws JSONException {
+        String offered = "{\"api_version\":1,\"host\":{\"name\":\"RL\",\"version\":\"3.1.0\",\"unique_id\":\"rl\"},"
+                + "\"features\":[\"library\",\"usb\",\"clipboard.image\",\"folders\"],\"permissions\":{\"list\":true,"
+                + "\"view\":true,\"launch\":true,\"host_control\":false,\"usb\":true,\"shared_folders\":true}}";
+        String refused = offered.replace("\"usb\":true,\"shared_folders\":true", "\"usb\":false");
+        String withdrawn = offered.replace(",\"usb\",\"clipboard.image\",\"folders\"", "");
+        String host = "<RustHostVersion>3.1.0</RustHostVersion><PairStatus>1</PairStatus>"
+                + "<NativeApiVersion>1</NativeApiVersion>";
+        HostCapabilities caps = caps(host + "<Permission>" + 0xFFFFFFFFL + "</Permission>")
+                .withNativeCapabilities(offered);
+        assertTrue(caps.has(USB_FORWARDING));
+        assertTrue(caps.has(IMAGE_CLIPBOARD));
+        assertTrue(caps.has(SHARED_FOLDERS));
+        assertEquals(caps, HostCapabilities.fromJson(caps.toJson()));
+        // A missing permission is refused, like a false one.
+        caps = caps.withNativeCapabilities(refused);
+        assertReason(caps, USB_FORWARDING, Reason.USB_PERMISSION);
+        assertReason(caps, SHARED_FOLDERS, Reason.FOLDER_PERMISSION);
+        // The image clipboard follows the clipboard permission.
+        assertReason(caps(host + "<Permission>0</Permission>").withNativeCapabilities(offered), IMAGE_CLIPBOARD,
+                Reason.CLIPBOARD_PERMISSION);
+        assertNever(caps.withNativeCapabilities(withdrawn), USB_FORWARDING, IMAGE_CLIPBOARD, SHARED_FOLDERS);
+        try {
+            caps.withNativeCapabilities(offered.replace("\"usb\":true", "\"usb\":\"true\""));
+            fail("usb as a string");
+        } catch (JSONException expected) {
+            // Thrown, as it should be.
+        }
     }
 
     @Test

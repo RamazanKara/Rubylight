@@ -54,10 +54,37 @@ pub enum Feature {
     /// List and download the host's files. Known only after [`HostCapabilities::with_native`];
     /// gate it like `FileUpload`.
     FileDownload,
+    /// Dolby Vision profile 8.1 or 8.4 (`HdrFormats`, `rubylight_protocol::hdr`).
+    DolbyVision,
+    /// HLG HDR (`HdrFormats`).
+    Hlg,
+    /// The client picks the video FEC (`rlFecPercentage`) and sends FEC reports (0x5539).
+    ClientFec,
+    /// `GET /bandwidth-probe` (`BandwidthProbeVersion`).
+    BandwidthProbe,
+    /// USB device forwarding (native `usb`). Known only after [`HostCapabilities::with_native`].
+    UsbForwarding,
+    /// PCM, AC3 or E-AC3 audio instead of Opus (`AudioCodecs`).
+    AudioPassthrough,
+    /// 12-channel 7.1.4 audio (`AudioLayouts`).
+    Surround714,
+    /// The host raises and lowers the keyboard with an IME context (0x553B).
+    TextInput,
+    /// The host takes this device's keyboard layout (0x553E).
+    ClientKeyboardLayout,
+    /// Pen barrel roll (input 0x5500000B).
+    PenBarrelRoll,
+    /// Pipeline frame rates for the overlay (0x553D).
+    PipelineRates,
+    /// PNG clipboard (native `clipboard.image`). Known only after
+    /// [`HostCapabilities::with_native`].
+    ImageClipboard,
+    /// Shared folders (native `folders`). Known only after [`HostCapabilities::with_native`].
+    SharedFolders,
 }
 
 impl Feature {
-    pub const ALL: [Feature; 28] = [
+    pub const ALL: [Feature; 41] = [
         Feature::Permissions,
         Feature::OtpPairing,
         Feature::Clipboard,
@@ -86,6 +113,19 @@ impl Feature {
         Feature::Sleep,
         Feature::FileUpload,
         Feature::FileDownload,
+        Feature::DolbyVision,
+        Feature::Hlg,
+        Feature::ClientFec,
+        Feature::BandwidthProbe,
+        Feature::UsbForwarding,
+        Feature::AudioPassthrough,
+        Feature::Surround714,
+        Feature::TextInput,
+        Feature::ClientKeyboardLayout,
+        Feature::PenBarrelRoll,
+        Feature::PipelineRates,
+        Feature::ImageClipboard,
+        Feature::SharedFolders,
     ];
 }
 
@@ -109,6 +149,10 @@ pub enum Reason {
     SleepPermission,
     /// The host offers file transfer but has not allowed it for this device.
     FilePermission,
+    /// The host forwards USB devices but has not allowed it for this device.
+    UsbPermission,
+    /// The host shares folders but has granted this device none.
+    FolderPermission,
 }
 
 /// Whether a host offers a feature; an unsupported one may carry what would change that.
@@ -188,6 +232,24 @@ pub struct Evidence {
     /// The device's `file_upload` and `file_download` permissions.
     pub file_upload_permission: bool,
     pub file_download_permission: bool,
+    /// The 3.0 serverinfo fields, -1 when absent: `HdrFormats`, `AudioCodecs` and
+    /// `AudioLayouts` are bit masks, the rest versions.
+    pub hdr_formats: i32,
+    pub fec_control_version: i32,
+    pub bandwidth_probe_version: i32,
+    pub audio_codecs: i32,
+    pub audio_layouts: i32,
+    pub text_input_version: i32,
+    pub keyboard_layout_version: i32,
+    pub pen_barrel_roll_version: i32,
+    pub pipeline_rates_version: i32,
+    /// `usb`, `clipboard.image` and `folders` in the native features, and the device's `usb`
+    /// and `shared_folders` permissions.
+    pub usb_offered: bool,
+    pub usb_permission: bool,
+    pub image_clipboard_offered: bool,
+    pub folders_offered: bool,
+    pub folder_permission: bool,
 }
 
 /// A host's capabilities. [`HostCapabilities::UNKNOWN`] is a host never reached.
@@ -268,6 +330,15 @@ impl Evidence {
             cursor_shape_version: -1,
             native_api_version: -1,
             power_action_version: -1,
+            hdr_formats: -1,
+            fec_control_version: -1,
+            bandwidth_probe_version: -1,
+            audio_codecs: -1,
+            audio_layouts: -1,
+            text_input_version: -1,
+            keyboard_layout_version: -1,
+            pen_barrel_roll_version: -1,
+            pipeline_rates_version: -1,
             ..Default::default()
         };
         let (mut encoder, mut initial_encoder) = (false, false);
@@ -302,6 +373,21 @@ impl Evidence {
                 "NetworkPathVersion" => e.network_path_version = i32::from(text.trim() == "1"),
                 "ControllerPreparation" => e.controller_preparation = text.trim() == "1",
                 "CursorShapeVersion" => e.cursor_shape_version = unsigned(&text, 0xFFFF) as i32,
+                "HdrFormats" => e.hdr_formats = unsigned(&text, 0xFF) as i32,
+                "FecControlVersion" => e.fec_control_version = unsigned(&text, 0xFFFF) as i32,
+                "BandwidthProbeVersion" => {
+                    e.bandwidth_probe_version = unsigned(&text, 0xFFFF) as i32
+                }
+                "AudioCodecs" => e.audio_codecs = unsigned(&text, 0xFF) as i32,
+                "AudioLayouts" => e.audio_layouts = unsigned(&text, 0xFF) as i32,
+                "TextInputVersion" => e.text_input_version = unsigned(&text, 0xFFFF) as i32,
+                "KeyboardLayoutVersion" => {
+                    e.keyboard_layout_version = unsigned(&text, 0xFFFF) as i32
+                }
+                "PenBarrelRollVersion" => {
+                    e.pen_barrel_roll_version = unsigned(&text, 0xFFFF) as i32
+                }
+                "PipelineRatesVersion" => e.pipeline_rates_version = unsigned(&text, 0xFFFF) as i32,
                 "NativeApiVersion" => e.native_api_version = unsigned(&text, 0xFFFF) as i32,
                 "PowerActionVersion" => e.power_action_version = unsigned(&text, 0xFFFF) as i32,
                 "SleepSupported" => e.sleep_supported = flag(&text) == Some(true),
@@ -677,6 +763,77 @@ impl Evidence {
                     Supported
                 }
             }
+            // A 3.0 host leaves a field out when a setting or its hardware rules the feature
+            // out, so a missing field says "not offered", never "update the host".
+            Feature::DolbyVision => {
+                self.serverinfo_bits(self.hdr_formats, rubylight_protocol::hdr::DOLBY_VISION)
+            }
+            Feature::Hlg => self.serverinfo_bits(self.hdr_formats, rubylight_protocol::hdr::HLG),
+            Feature::ClientFec => self.serverinfo_version(self.fec_control_version),
+            Feature::BandwidthProbe => self.serverinfo_version(self.bandwidth_probe_version),
+            Feature::AudioPassthrough => {
+                use rubylight_protocol::audio_ext::{CODEC_AC3, CODEC_EAC3, CODEC_PCM};
+                self.serverinfo_bits(self.audio_codecs, CODEC_PCM | CODEC_AC3 | CODEC_EAC3)
+            }
+            Feature::Surround714 => self.serverinfo_bits(
+                self.audio_layouts,
+                rubylight_protocol::audio_ext::LAYOUT_MASK_714,
+            ),
+            Feature::TextInput => self.serverinfo_version(self.text_input_version),
+            Feature::ClientKeyboardLayout => self.serverinfo_version(self.keyboard_layout_version),
+            Feature::PenBarrelRoll => self.serverinfo_version(self.pen_barrel_roll_version),
+            Feature::PipelineRates => self.serverinfo_version(self.pipeline_rates_version),
+            Feature::UsbForwarding => {
+                let refused = (!self.usb_permission).then_some(Reason::UsbPermission);
+                self.native_feature(self.usb_offered, refused)
+            }
+            Feature::ImageClipboard => {
+                let native = self.native_feature(self.image_clipboard_offered, None);
+                if native.is_supported() {
+                    self.availability(Feature::Clipboard)
+                } else {
+                    native
+                }
+            }
+            Feature::SharedFolders => {
+                let refused = (!self.folder_permission).then_some(Reason::FolderPermission);
+                self.native_feature(self.folders_offered, refused)
+            }
+        }
+    }
+
+    /// A serverinfo mask with any of `bits` set; a missing field is `absent(false)`.
+    fn serverinfo_bits(&self, mask: i32, bits: u8) -> Availability {
+        if mask >= 0 && mask & i32::from(bits) != 0 {
+            Availability::Supported
+        } else {
+            self.absent(false)
+        }
+    }
+
+    /// A serverinfo version of 1 or later; a missing field is `absent(false)`.
+    fn serverinfo_version(&self, version: i32) -> Availability {
+        if version >= 1 {
+            Availability::Supported
+        } else {
+            self.absent(false)
+        }
+    }
+
+    /// A native feature: the native API, then its capabilities, the feature, and `refused`
+    /// when the device lacks its permission.
+    fn native_feature(&self, offered: bool, refused: Option<Reason>) -> Availability {
+        let native = self.availability(Feature::NativeApi);
+        if !native.is_supported() {
+            native
+        } else if !self.native_capabilities {
+            Availability::Unknown
+        } else if !offered {
+            Availability::NEVER
+        } else if refused.is_some() {
+            Availability::Unsupported(refused)
+        } else {
+            Availability::Supported
         }
     }
 }
@@ -696,8 +853,9 @@ impl HostCapabilities {
     }
 
     /// These capabilities with what the native API's `GET /capabilities` adds: the file
-    /// transfer features and permissions. Read it again after every serverinfo refresh; until
-    /// then the file features are unknown. A host never reached stays unknown.
+    /// transfer, USB, image clipboard and shared folder features and permissions. Read it
+    /// again after every serverinfo refresh; until then those features are unknown. A host
+    /// never reached stays unknown.
     pub fn with_native(&self, native: &NativeCapabilities) -> Self {
         let Some(mut evidence) = self.evidence.clone() else {
             return Self::UNKNOWN;
@@ -709,6 +867,11 @@ impl HostCapabilities {
         evidence.files_download = listed("files.download");
         evidence.file_upload_permission = native.files.file_upload;
         evidence.file_download_permission = native.files.file_download;
+        evidence.usb_offered = listed("usb");
+        evidence.usb_permission = native.files.usb;
+        evidence.image_clipboard_offered = listed("clipboard.image");
+        evidence.folders_offered = listed("folders");
+        evidence.folder_permission = native.files.shared_folders;
         Self::from_evidence(evidence)
     }
 
@@ -837,6 +1000,47 @@ mod tests {
         // Without serverinfo there is nothing to add to.
         let native = serde_json::from_str(cases.lines().find(|l| l.starts_with("supported|supported|")).unwrap().split('|').nth(2).unwrap()).unwrap();
         assert_eq!(HostCapabilities::UNKNOWN.with_native(&native), HostCapabilities::UNKNOWN);
+    }
+
+    #[test]
+    fn the_30_extensions_follow_their_serverinfo_bits() {
+        let xml =
+            include_str!("../../../../app/src/test/resources/protocol/rubylight-30-serverinfo.xml");
+        let caps = |field: &str, value: &str| {
+            let re = format!("<{field}>{value}</{field}>");
+            let start = xml.find(&format!("<{field}>")).unwrap();
+            let end = xml[start..].find(&format!("</{field}>")).unwrap() + start + field.len() + 3;
+            let xml = format!("{}{re}{}", &xml[..start], &xml[end..]);
+            super::super::serverinfo::ServerInfo::parse(&xml, 47989).unwrap().capabilities
+        };
+        let never = Availability::Unsupported(None);
+        for (field, feature, cases) in [
+            (
+                "HdrFormats",
+                Feature::DolbyVision,
+                &[("4", true), ("8", true), ("3", false), ("x", false)][..],
+            ),
+            ("HdrFormats", Feature::Hlg, &[("2", true), ("13", false), ("256", false)]),
+            (
+                "AudioCodecs",
+                Feature::AudioPassthrough,
+                &[("2", true), ("4", true), ("8", true), ("1", false)],
+            ),
+            ("AudioLayouts", Feature::Surround714, &[("8", true), ("7", false)]),
+            ("FecControlVersion", Feature::ClientFec, &[("2", true), ("0", false), ("-1", false)]),
+            ("PipelineRatesVersion", Feature::PipelineRates, &[("1", true), ("", false)]),
+        ] {
+            for &(value, supported) in cases {
+                let expected = if supported { Availability::Supported } else { never };
+                assert_eq!(caps(field, value).availability(feature), expected, "{field} {value}");
+            }
+        }
+        // Before the native API answered, its features are unknown, never supported.
+        let caps = caps("HdrFormats", "15");
+        for feature in [Feature::UsbForwarding, Feature::ImageClipboard, Feature::SharedFolders] {
+            assert_eq!(caps.availability(feature), Availability::Unknown, "{feature:?}");
+        }
+        assert!(caps.supported().contains(&Feature::TextInput));
     }
 
     #[test]

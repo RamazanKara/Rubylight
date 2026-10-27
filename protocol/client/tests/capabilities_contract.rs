@@ -38,7 +38,7 @@ macro_rules! contract {
     };
 }
 
-const CONTRACTS: [(&str, &str, &str); 13] = [
+const CONTRACTS: [(&str, &str, &str); 15] = [
     contract!("apollo"),
     contract!("apollo-http"),
     contract!("apollo-input-only"),
@@ -48,6 +48,8 @@ const CONTRACTS: [(&str, &str, &str); 13] = [
     contract!("rubylight"),
     contract!("rubylight-files"),
     contract!("rubylight-files-refused"),
+    contract!("rubylight-30"),
+    contract!("rubylight-30-refused"),
     contract!("rubylight-native"),
     contract!("sunshine"),
     contract!("vibepollo"),
@@ -86,6 +88,19 @@ fn feature_name(feature: Feature) -> &'static str {
         Feature::Sleep => "sleep",
         Feature::FileUpload => "file_upload",
         Feature::FileDownload => "file_download",
+        Feature::DolbyVision => "dolby_vision",
+        Feature::Hlg => "hlg",
+        Feature::ClientFec => "client_fec",
+        Feature::BandwidthProbe => "bandwidth_probe",
+        Feature::UsbForwarding => "usb_forwarding",
+        Feature::AudioPassthrough => "audio_passthrough",
+        Feature::Surround714 => "surround_714",
+        Feature::TextInput => "text_input",
+        Feature::ClientKeyboardLayout => "client_keyboard_layout",
+        Feature::PenBarrelRoll => "pen_barrel_roll",
+        Feature::PipelineRates => "pipeline_rates",
+        Feature::ImageClipboard => "image_clipboard",
+        Feature::SharedFolders => "shared_folders",
     }
 }
 
@@ -102,6 +117,8 @@ fn reason_name(reason: Reason) -> &'static str {
         Reason::HardwareMetricsOff => "hardware_metrics_off",
         Reason::SleepPermission => "sleep_permission",
         Reason::FilePermission => "file_permission",
+        Reason::UsbPermission => "usb_permission",
+        Reason::FolderPermission => "folder_permission",
     }
 }
 

@@ -72,7 +72,33 @@ public final class HostCapabilities {
          * List and download the host's files. Known only after {@link #withNativeCapabilities}; gate it like
          * FILE_UPLOAD.
          */
-        FILE_DOWNLOAD(0);
+        FILE_DOWNLOAD(0),
+        /** Dolby Vision profile 8.1 or 8.4 (HdrFormats). */
+        DOLBY_VISION(0),
+        /** HLG HDR (HdrFormats). */
+        HLG(0),
+        /** The client picks the video FEC (rlFecPercentage) and sends FEC reports (0x5539). */
+        CLIENT_FEC(0),
+        /** GET /bandwidth-probe (BandwidthProbeVersion). */
+        BANDWIDTH_PROBE(0),
+        /** USB device forwarding (native "usb"). Known only after {@link #withNativeCapabilities}. */
+        USB_FORWARDING(0),
+        /** PCM, AC3 or E-AC3 audio instead of Opus (AudioCodecs). */
+        AUDIO_PASSTHROUGH(0),
+        /** 12-channel 7.1.4 audio (AudioLayouts). */
+        SURROUND_714(0),
+        /** The host raises and lowers the keyboard with an IME context (0x553B). */
+        TEXT_INPUT(0),
+        /** The host takes this device's keyboard layout (0x553E). */
+        CLIENT_KEYBOARD_LAYOUT(0),
+        /** Pen barrel roll (input 0x5500000B). */
+        PEN_BARREL_ROLL(0),
+        /** Pipeline frame rates for the overlay (0x553D). */
+        PIPELINE_RATES(0),
+        /** PNG clipboard (native "clipboard.image"). Known only after {@link #withNativeCapabilities}. */
+        IMAGE_CLIPBOARD(0),
+        /** Shared folders (native "folders"). Known only after {@link #withNativeCapabilities}. */
+        SHARED_FOLDERS(0);
 
         @StringRes public final int label;
 
@@ -93,7 +119,9 @@ public final class HostCapabilities {
         VIRTUAL_DISPLAY_DRIVER(R.string.host_feature_reason_virtual_display_driver),
         HARDWARE_METRICS_OFF(R.string.host_feature_reason_hardware_metrics_off),
         SLEEP_PERMISSION(R.string.host_feature_reason_sleep_permission),
-        FILE_PERMISSION(R.string.host_feature_reason_file_permission);
+        FILE_PERMISSION(R.string.host_feature_reason_file_permission),
+        USB_PERMISSION(R.string.host_feature_reason_usb_permission),
+        FOLDER_PERMISSION(R.string.host_feature_reason_folder_permission);
 
         @StringRes public final int text;
 
@@ -166,6 +194,13 @@ public final class HostCapabilities {
     public static final int PYROWAVE_CODEC_BITS = 0x00800000 | 0x01000000 | 0x02000000 | 0x04000000;
     /** Bit of {@link #nativeFeatures()}; keep in step with HOST_FEATURE_PYROWAVE_RECORDS in pyrowave_protocol.h. */
     public static final int NATIVE_PYROWAVE_RECORDS = 1;
+    /** HdrFormats, AudioCodecs and AudioLayouts bits; keep in step with rubylight_protocol::hdr and audio_ext. */
+    static final int HDR_HLG = 2;
+    static final int HDR_DOLBY_VISION = 4 | 8;
+    static final int AUDIO_CODEC_PCM = 2;
+    static final int AUDIO_CODEC_AC3 = 4;
+    static final int AUDIO_CODEC_EAC3 = 8;
+    static final int AUDIO_LAYOUT_714 = 8;
 
     private static final int JSON_VERSION = 1;
     // hostDisplay arrived in Rubylight 2.2.1.
@@ -278,10 +313,10 @@ public final class HostCapabilities {
     }
 
     /**
-     * These capabilities with what the native API's GET /capabilities adds: the file transfer features and this
-     * device's file permissions. Read it again after every serverinfo refresh; until then the file features are
-     * unknown. A host never reached stays unknown. Throws for a body that is not a capabilities object, field by
-     * field as the Rust client reads it, even for a host never reached.
+     * These capabilities with what the native API's GET /capabilities adds: the file transfer, USB, image clipboard
+     * and shared folder features and this device's permissions for them. Read it again after every serverinfo
+     * refresh; until then those features are unknown. A host never reached stays unknown. Throws for a body that is
+     * not a capabilities object, field by field as the Rust client reads it, even for a host never reached.
      */
     public HostCapabilities withNativeCapabilities(String json) throws JSONException {
         JSONObject capabilities = new JSONObject(json);
@@ -301,6 +336,9 @@ public final class HostCapabilities {
         }
         boolean upload = false;
         boolean download = false;
+        boolean usb = false;
+        boolean imageClipboard = false;
+        boolean folders = false;
         for (int i = 0; i < features.length(); i++) {
             Object feature = features.get(i);
             if (!(feature instanceof String)) {
@@ -308,9 +346,14 @@ public final class HostCapabilities {
             }
             upload |= "files.upload".equals(feature);
             download |= "files.download".equals(feature);
+            usb |= "usb".equals(feature);
+            imageClipboard |= "clipboard.image".equals(feature);
+            folders |= "folders".equals(feature);
         }
         boolean uploadPermission = permission(permissions, "file_upload");
         boolean downloadPermission = permission(permissions, "file_download");
+        boolean usbPermission = permission(permissions, "usb");
+        boolean folderPermission = permission(permissions, "shared_folders");
         if (evidence == null) {
             return UNKNOWN;
         }
@@ -321,6 +364,11 @@ public final class HostCapabilities {
         native_.filesDownload = download;
         native_.fileUploadPermission = uploadPermission;
         native_.fileDownloadPermission = downloadPermission;
+        native_.usbOffered = usb;
+        native_.usbPermission = usbPermission;
+        native_.imageClipboardOffered = imageClipboard;
+        native_.foldersOffered = folders;
+        native_.folderPermission = folderPermission;
         return new HostCapabilities(native_);
     }
 
@@ -485,6 +533,25 @@ public final class HostCapabilities {
         /** This device's file_upload and file_download permissions. */
         boolean fileUploadPermission;
         boolean fileDownloadPermission;
+        /**
+         * The 3.0 serverinfo fields, -1 when absent: HdrFormats, AudioCodecs and AudioLayouts are bit masks, the
+         * rest versions.
+         */
+        int hdrFormats = -1;
+        int fecControlVersion = -1;
+        int bandwidthProbeVersion = -1;
+        int audioCodecs = -1;
+        int audioLayouts = -1;
+        int textInputVersion = -1;
+        int keyboardLayoutVersion = -1;
+        int penBarrelRollVersion = -1;
+        int pipelineRatesVersion = -1;
+        /** usb, clipboard.image and folders in the native features, and this device's usb and shared_folders. */
+        boolean usbOffered;
+        boolean usbPermission;
+        boolean imageClipboardOffered;
+        boolean foldersOffered;
+        boolean folderPermission;
 
         static Evidence parse(String serverInfo) throws XmlPullParserException, IOException {
             Evidence evidence = new Evidence();
@@ -557,6 +624,33 @@ public final class HostCapabilities {
                         break;
                     case "CursorShapeVersion":
                         evidence.cursorShapeVersion = (int) unsigned(parser.nextText(), 0xFFFF);
+                        break;
+                    case "HdrFormats":
+                        evidence.hdrFormats = (int) unsigned(parser.nextText(), 0xFF);
+                        break;
+                    case "FecControlVersion":
+                        evidence.fecControlVersion = (int) unsigned(parser.nextText(), 0xFFFF);
+                        break;
+                    case "BandwidthProbeVersion":
+                        evidence.bandwidthProbeVersion = (int) unsigned(parser.nextText(), 0xFFFF);
+                        break;
+                    case "AudioCodecs":
+                        evidence.audioCodecs = (int) unsigned(parser.nextText(), 0xFF);
+                        break;
+                    case "AudioLayouts":
+                        evidence.audioLayouts = (int) unsigned(parser.nextText(), 0xFF);
+                        break;
+                    case "TextInputVersion":
+                        evidence.textInputVersion = (int) unsigned(parser.nextText(), 0xFFFF);
+                        break;
+                    case "KeyboardLayoutVersion":
+                        evidence.keyboardLayoutVersion = (int) unsigned(parser.nextText(), 0xFFFF);
+                        break;
+                    case "PenBarrelRollVersion":
+                        evidence.penBarrelRollVersion = (int) unsigned(parser.nextText(), 0xFFFF);
+                        break;
+                    case "PipelineRatesVersion":
+                        evidence.pipelineRatesVersion = (int) unsigned(parser.nextText(), 0xFFFF);
                         break;
                     case "NativeApiVersion":
                         evidence.nativeApiVersion = (int) unsigned(parser.nextText(), 0xFFFF);
@@ -768,9 +862,58 @@ public final class HostCapabilities {
                     return (upload ? fileUploadPermission : fileDownloadPermission) ? Availability.SUPPORTED :
                             Availability.unsupported(Reason.FILE_PERMISSION);
                 }
+                // The 3.0 extensions: a serverinfo field each, absent on every older host.
+                case DOLBY_VISION:
+                    return serverInfoBits(hdrFormats, HDR_DOLBY_VISION);
+                case HLG:
+                    return serverInfoBits(hdrFormats, HDR_HLG);
+                case CLIENT_FEC:
+                    return serverInfoVersion(fecControlVersion);
+                case BANDWIDTH_PROBE:
+                    return serverInfoVersion(bandwidthProbeVersion);
+                case AUDIO_PASSTHROUGH:
+                    return serverInfoBits(audioCodecs, AUDIO_CODEC_PCM | AUDIO_CODEC_AC3 | AUDIO_CODEC_EAC3);
+                case SURROUND_714:
+                    return serverInfoBits(audioLayouts, AUDIO_LAYOUT_714);
+                case TEXT_INPUT:
+                    return serverInfoVersion(textInputVersion);
+                case CLIENT_KEYBOARD_LAYOUT:
+                    return serverInfoVersion(keyboardLayoutVersion);
+                case PEN_BARREL_ROLL:
+                    return serverInfoVersion(penBarrelRollVersion);
+                case PIPELINE_RATES:
+                    return serverInfoVersion(pipelineRatesVersion);
+                case USB_FORWARDING:
+                    return nativeFeature(usbOffered, usbPermission ? null : Reason.USB_PERMISSION);
+                case IMAGE_CLIPBOARD: {
+                    // The host offers PNG clipboard data only to a device that may use the clipboard.
+                    Availability image = nativeFeature(imageClipboardOffered, null);
+                    return image.isSupported() ? availability(Feature.CLIPBOARD) : image;
+                }
+                case SHARED_FOLDERS:
+                    return nativeFeature(foldersOffered, folderPermission ? null : Reason.FOLDER_PERMISSION);
                 default:
                     throw new IllegalArgumentException(feature.name());
             }
+        }
+
+        /** Any of {@code bits} in a serverinfo mask; a missing field is absent(false). */
+        private Availability serverInfoBits(int mask, int bits) {
+            return mask >= 0 && (mask & bits) != 0 ? Availability.SUPPORTED : absent(false);
+        }
+
+        /** A serverinfo version of 1 or later; a missing field is absent(false). */
+        private Availability serverInfoVersion(int version) {
+            return version >= 1 ? Availability.SUPPORTED : absent(false);
+        }
+
+        /** A native feature: the native API, then its capabilities, the feature, and refused without its permission. */
+        private Availability nativeFeature(boolean offered, Reason refused) {
+            Availability nativeApi = availability(Feature.NATIVE_API);
+            if (!nativeApi.isSupported()) return nativeApi;
+            if (!nativeCapabilities) return Availability.UNKNOWN;
+            if (!offered) return Availability.NEVER;
+            return refused == null ? Availability.SUPPORTED : Availability.unsupported(refused);
         }
 
         private Availability virtualDisplay() {
@@ -796,7 +939,15 @@ public final class HostCapabilities {
                     .put("sleepAllowed", sleepAllowed).put("nativeCapabilities", nativeCapabilities)
                     .put("filesUpload", filesUpload).put("filesDownload", filesDownload)
                     .put("fileUploadPermission", fileUploadPermission)
-                    .put("fileDownloadPermission", fileDownloadPermission);
+                    .put("fileDownloadPermission", fileDownloadPermission)
+                    .put("hdrFormats", hdrFormats).put("fecControlVersion", fecControlVersion)
+                    .put("bandwidthProbeVersion", bandwidthProbeVersion).put("audioCodecs", audioCodecs)
+                    .put("audioLayouts", audioLayouts).put("textInputVersion", textInputVersion)
+                    .put("keyboardLayoutVersion", keyboardLayoutVersion)
+                    .put("penBarrelRollVersion", penBarrelRollVersion)
+                    .put("pipelineRatesVersion", pipelineRatesVersion).put("usbOffered", usbOffered)
+                    .put("usbPermission", usbPermission).put("imageClipboardOffered", imageClipboardOffered)
+                    .put("foldersOffered", foldersOffered).put("folderPermission", folderPermission);
             if (rustHostVersion != null) object.put("rustHostVersion", rustHostVersion);
             if (frameLimiter != null) object.put("frameLimiter", frameLimiter);
             if (virtualDisplayCapable != null) object.put("virtualDisplayCapable", virtualDisplayCapable);
@@ -836,6 +987,21 @@ public final class HostCapabilities {
             evidence.filesDownload = object.optBoolean("filesDownload", false);
             evidence.fileUploadPermission = object.optBoolean("fileUploadPermission", false);
             evidence.fileDownloadPermission = object.optBoolean("fileDownloadPermission", false);
+            // Absent from capabilities stored before the 3.0 extensions.
+            evidence.hdrFormats = object.optInt("hdrFormats", -1);
+            evidence.fecControlVersion = object.optInt("fecControlVersion", -1);
+            evidence.bandwidthProbeVersion = object.optInt("bandwidthProbeVersion", -1);
+            evidence.audioCodecs = object.optInt("audioCodecs", -1);
+            evidence.audioLayouts = object.optInt("audioLayouts", -1);
+            evidence.textInputVersion = object.optInt("textInputVersion", -1);
+            evidence.keyboardLayoutVersion = object.optInt("keyboardLayoutVersion", -1);
+            evidence.penBarrelRollVersion = object.optInt("penBarrelRollVersion", -1);
+            evidence.pipelineRatesVersion = object.optInt("pipelineRatesVersion", -1);
+            evidence.usbOffered = object.optBoolean("usbOffered", false);
+            evidence.usbPermission = object.optBoolean("usbPermission", false);
+            evidence.imageClipboardOffered = object.optBoolean("imageClipboardOffered", false);
+            evidence.foldersOffered = object.optBoolean("foldersOffered", false);
+            evidence.folderPermission = object.optBoolean("folderPermission", false);
             if (evidence.permission < -1 || evidence.permission > 0xFFFFFFFFL || evidence.serverCommands < 0 ||
                     (evidence.rustHostVersion != null && evidence.rustHostVersion.isEmpty())) {
                 throw new JSONException("Invalid stored capabilities");
@@ -871,7 +1037,15 @@ public final class HostCapabilities {
                     sleepAllowed == that.sleepAllowed && nativeCapabilities == that.nativeCapabilities &&
                     filesUpload == that.filesUpload && filesDownload == that.filesDownload &&
                     fileUploadPermission == that.fileUploadPermission &&
-                    fileDownloadPermission == that.fileDownloadPermission;
+                    fileDownloadPermission == that.fileDownloadPermission && hdrFormats == that.hdrFormats &&
+                    fecControlVersion == that.fecControlVersion &&
+                    bandwidthProbeVersion == that.bandwidthProbeVersion &&
+                    audioCodecs == that.audioCodecs && audioLayouts == that.audioLayouts &&
+                    textInputVersion == that.textInputVersion && keyboardLayoutVersion == that.keyboardLayoutVersion &&
+                    penBarrelRollVersion == that.penBarrelRollVersion &&
+                    pipelineRatesVersion == that.pipelineRatesVersion && usbOffered == that.usbOffered &&
+                    usbPermission == that.usbPermission && imageClipboardOffered == that.imageClipboardOffered &&
+                    foldersOffered == that.foldersOffered && folderPermission == that.folderPermission;
         }
 
         @Override
@@ -881,7 +1055,10 @@ public final class HostCapabilities {
                     pyroWaveFields, pyroWaveProbeBytes, pyroWaveCodecs, encoderBitrate, hardwareMetricsVersion,
                     networkPathVersion, controllerPreparation, currentGameUuid, cursorShapeVersion,
                     nativeApiVersion, powerActionVersion, sleepSupported, sleepAllowed, nativeCapabilities, filesUpload,
-                    filesDownload, fileUploadPermission, fileDownloadPermission);
+                    filesDownload, fileUploadPermission, fileDownloadPermission, hdrFormats, fecControlVersion,
+                    bandwidthProbeVersion, audioCodecs, audioLayouts, textInputVersion, keyboardLayoutVersion,
+                    penBarrelRollVersion, pipelineRatesVersion, usbOffered, usbPermission, imageClipboardOffered,
+                    foldersOffered, folderPermission);
         }
     }
 }

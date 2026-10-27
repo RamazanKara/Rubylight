@@ -30,6 +30,19 @@
     "native_api": "unsupported",
     "sleep": "unsupported",
     "file_upload": "unsupported",
-    "file_download": "unsupported"
+    "file_download": "unsupported",
+    "dolby_vision": "unsupported",
+    "hlg": "unsupported",
+    "client_fec": "unsupported",
+    "bandwidth_probe": "unsupported",
+    "usb_forwarding": "unsupported",
+    "audio_passthrough": "unsupported",
+    "surround_714": "unsupported",
+    "text_input": "unsupported",
+    "client_keyboard_layout": "unsupported",
+    "pen_barrel_roll": "unsupported",
+    "pipeline_rates": "unsupported",
+    "image_clipboard": "unsupported",
+    "shared_folders": "unsupported"
   }
 }

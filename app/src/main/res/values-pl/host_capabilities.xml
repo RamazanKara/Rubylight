@@ -29,6 +29,8 @@
     <string name="host_feature_reason_hardware_metrics_off">Włącz metryki sprzętowe w ustawieniach hosta</string>
     <string name="host_feature_reason_sleep_permission">To urządzenie nie ma uprawnień do usypiania komputera</string>
     <string name="host_feature_reason_file_permission">Brak dostępu do plików: zezwól temu urządzeniu na hoście</string>
+    <string name="host_feature_reason_usb_permission">Brak urządzeń USB: zezwól na nie w interfejsie WWW hosta</string>
+    <string name="host_feature_reason_folder_permission">Brak udostępnionych folderów: zezwól na nie na hoście</string>
     <string name="host_feature_unknown">Działa, jeśli host to obsługuje</string>
     <string name="host_details_software_apollo">Host zgodny z Apollo</string>
     <string name="host_details_software_vibepollo">Host zgodny z Vibepollo</string>

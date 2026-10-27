@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The rubylight-30 host offering less to a paired client it has allowed less: PQ only, Opus
+     only, up to 7.1, no clipboard permission, and as in rubylight-files-refused no sleep or file
+     transfer; the native GET /capabilities in the contract lists USB, image clipboard and shared
+     folders with usb and shared_folders false. -->
+<root status_code="200">
+  <hostname>Rubylight 3.0 refused fixture</hostname><appversion>7.1.431.-1</appversion><GfeVersion>3.23.0.74</GfeVersion>
+  <uniqueid>3c0f8a52-6b7d-4c1e-9a0b-2f6e1d8c4a71</uniqueid><HttpsPort>47984</HttpsPort><ExternalPort>47989</ExternalPort>
+  <PairStatus>1</PairStatus><currentgame>0</currentgame><currentgameuuid></currentgameuuid><state>SUNSHINE_SERVER_FREE</state>
+  <LocalIP>192.0.2.16</LocalIP><mac>00:00:00:00:00:00</mac><MaxLumaPixelsHEVC>1869449984</MaxLumaPixelsHEVC>
+  <ServerCodecModeSupport>126026497</ServerCodecModeSupport>
+  <RustHostVersion>3.1.0</RustHostVersion><RustHostEncoderBitrateKbps>0</RustHostEncoderBitrateKbps>
+  <RustHostInitialEncoderBitrateKbps>0</RustHostInitialEncoderBitrateKbps><RustHostSessionCount></RustHostSessionCount>
+  <RustHostPendingSessionCount></RustHostPendingSessionCount><RustHostApplicationActive></RustHostApplicationActive>
+  <RustHostProfile></RustHostProfile><PyroWaveHostLinkMbps>1000</PyroWaveHostLinkMbps>
+  <PyroWaveBandwidthProbeBytes>1048576</PyroWaveBandwidthProbeBytes><Permission>117440512</Permission>
+  <HardwareMetricsVersion>0</HardwareMetricsVersion><NetworkPathVersion>0</NetworkPathVersion>
+  <VirtualDisplayCapable>true</VirtualDisplayCapable><VirtualDisplayDriverReady>false</VirtualDisplayDriverReady>
+  <VirtualDisplayHDRCapable>true</VirtualDisplayHDRCapable><ControllerPreparation>1</ControllerPreparation>
+  <CursorShapeVersion>2</CursorShapeVersion><NativeApiVersion>1</NativeApiVersion>
+  <PowerActionVersion>1</PowerActionVersion><SleepSupported>1</SleepSupported><SleepAllowed>0</SleepAllowed>
+  <HdrFormats>1</HdrFormats><FecControlVersion>1</FecControlVersion><BandwidthProbeVersion>1</BandwidthProbeVersion>
+  <AudioCodecs>1</AudioCodecs><AudioLayouts>7</AudioLayouts><TextInputVersion>1</TextInputVersion>
+  <KeyboardLayoutVersion>1</KeyboardLayoutVersion><PenBarrelRollVersion>1</PenBarrelRollVersion>
+  <PipelineRatesVersion>1</PipelineRatesVersion>
+</root>

@@ -73,14 +73,19 @@ pub(super) fn error_of(response: transport::Response, path: &str) -> Error {
     }
 }
 
-/// The file permissions, which the pinned `Permissions` does not carry yet. A host without
-/// file transfer leaves them out: false.
+/// The file, USB and shared folder permissions, which the pinned `Permissions` does not carry
+/// yet. A host without the feature leaves them out: false.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Deserialize)]
 pub struct FilePermissions {
     #[serde(default)]
     pub file_upload: bool,
     #[serde(default)]
     pub file_download: bool,
+    #[serde(default)]
+    pub usb: bool,
+    /// The device has at least one folder grant.
+    #[serde(default)]
+    pub shared_folders: bool,
 }
 
 /// `GET /capabilities` with the fields of newer hosts, read from the same body.
@@ -298,9 +303,18 @@ mod tests {
             read.files,
             FilePermissions {
                 file_upload: true,
-                file_download: false
+                file_download: false,
+                usb: false,
+                shared_folders: false,
             }
         );
+        let read = decode::<NativeCapabilities>(
+            response(200, &body(r#","usb":true,"shared_folders":true"#)),
+            path,
+        )
+        .unwrap();
+        assert!(read.files.usb && read.files.shared_folders);
+        assert!(!read.files.file_upload && !read.files.file_download);
         assert_eq!(read.capabilities.features, ["library", "files.upload"]);
         assert_eq!(
             read.capabilities,
@@ -310,7 +324,11 @@ mod tests {
         let read = decode::<NativeCapabilities>(response(200, &body("")), path).unwrap();
         assert_eq!(read.files, FilePermissions::default());
         // A permission that is not a bool, or no Capabilities at all, is malformed.
-        for broken in [body(r#","file_upload":1"#), r#"{"permissions":{}}"#.into()] {
+        for broken in [
+            body(r#","file_upload":1"#),
+            body(r#","usb":"true""#),
+            r#"{"permissions":{}}"#.into(),
+        ] {
             assert!(matches!(
                 decode::<NativeCapabilities>(response(200, &broken), path),
                 Err(Error::Malformed(_))

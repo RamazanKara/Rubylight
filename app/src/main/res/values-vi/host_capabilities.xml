@@ -29,6 +29,8 @@
     <string name="host_feature_reason_hardware_metrics_off">Hãy bật chỉ số phần cứng trong cài đặt của máy chủ</string>
     <string name="host_feature_reason_sleep_permission">Thiết bị này không được phép cho PC vào chế độ ngủ</string>
     <string name="host_feature_reason_file_permission">Chưa có quyền tệp: hãy cấp trong giao diện web của máy chủ</string>
+    <string name="host_feature_reason_usb_permission">Chưa có quyền USB: hãy cấp trong giao diện web của máy chủ</string>
+    <string name="host_feature_reason_folder_permission">Chưa có quyền thư mục chia sẻ: hãy cấp trong giao diện web</string>
     <string name="host_feature_unknown">Áp dụng nếu máy chủ hỗ trợ</string>
     <string name="host_details_software_apollo">Máy chủ tương thích Apollo</string>
     <string name="host_details_software_vibepollo">Máy chủ tương thích Vibepollo</string>

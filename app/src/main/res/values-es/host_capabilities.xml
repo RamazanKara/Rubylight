@@ -29,6 +29,8 @@
     <string name="host_feature_reason_hardware_metrics_off">Activa las métricas de hardware en los ajustes del servidor</string>
     <string name="host_feature_reason_sleep_permission">Este dispositivo no tiene permiso para suspender el PC</string>
     <string name="host_feature_reason_file_permission">Sin acceso a archivos: actívalo en la web del servidor</string>
+    <string name="host_feature_reason_usb_permission">Sin dispositivos USB: actívalos en la web del servidor</string>
+    <string name="host_feature_reason_folder_permission">Sin carpetas compartidas: actívalas en la web del servidor</string>
     <string name="host_feature_unknown">Se aplica si el servidor lo admite</string>
     <string name="host_details_software_apollo">Servidor compatible con Apollo</string>
     <string name="host_details_software_vibepollo">Servidor compatible con Vibepollo</string>

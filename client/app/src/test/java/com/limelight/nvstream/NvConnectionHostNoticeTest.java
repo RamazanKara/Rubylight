@@ -87,8 +87,7 @@ public class NvConnectionHostNoticeTest {
             @Override public int submitDecodeUnit(byte[] data, int length, int type, int frame, int frameType,
                     char latency, long received, long queued, long receivedNs, long presentationUs) { return 0; }
         }, listener);
-        Thread worker = ReflectionHelpers.getField(connection, "connectionThread");
-        worker.join(5000);
+        Thread worker = ConnectionStartup.await(connection);
         assertFalse("Connection startup did not finish", worker.isAlive());
         return messages;
     }

@@ -15,8 +15,6 @@ import org.robolectric.annotation.Config;
 import org.robolectric.shadow.api.Shadow;
 import org.robolectric.util.ReflectionHelpers;
 
-import java.util.concurrent.TimeUnit;
-
 import static org.junit.Assert.*;
 
 @RunWith(RobolectricTestRunner.class)
@@ -43,13 +41,13 @@ public class DualSenseControllerStopTest {
         // The USB service's worker would run this.
         assertTrue(controller.start());
         UsbPads.await(() -> listener.has("added") && listener.has("state"));
-        UsbPads.awaitSlowRead(400);
+        UsbPads.holdReads();
 
-        long stop = System.nanoTime();
-        controller.stop();
-        long stopMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - stop);
         // The main thread calls stop() on detach and at the end of a stream.
-        assertTrue("stop() held its caller for " + stopMs + " ms", stopMs < 100);
+        controller.stop();
+        boolean readStillHeld = UsbPads.Connection.readHeld.get();
+        UsbPads.releaseReads();
+        assertTrue("stop() waited for the pad's USB read", readStillHeld);
         UsbPads.await(() -> UsbPads.Connection.closes.get() == 1 && listener.has("removed"));
         assertFalse("The connection was closed under a USB read", UsbPads.Connection.closedDuringRead);
         assertEquals(1, UsbPads.Connection.releases.get());

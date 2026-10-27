@@ -227,9 +227,8 @@ public class NvConnectionRecoveryTest {
             @Override public int submitDecodeUnit(byte[] data, int length, int type, int frame, int frameType,
                     char latency, long received, long queued, long receivedNs, long presentationUs) { return 0; }
         }, listener);
-        Thread worker = ReflectionHelpers.getField(connection, "connectionThread");
+        Thread worker = ConnectionStartup.await(connection);
         try {
-            worker.join(5000);
             assertFalse("Connection startup did not finish", worker.isAlive());
         } finally {
             if (worker.isAlive()) {

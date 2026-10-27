@@ -20,7 +20,6 @@ import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 import org.robolectric.annotation.Implementation;
 import org.robolectric.annotation.Implements;
-import org.robolectric.util.ReflectionHelpers;
 
 import java.lang.reflect.Proxy;
 
@@ -229,8 +228,7 @@ public class NvConnectionHapticsFlagTest {
                 NvConnectionListener.class.getClassLoader(), new Class<?>[] {NvConnectionListener.class},
                 (proxy, method, args) -> null);
         connection.start(null, renderer, listener);
-        Thread worker = ReflectionHelpers.getField(connection, "connectionThread");
-        worker.join(5000);
+        Thread worker = ConnectionStartup.await(connection);
         assertFalse("Connection startup did not finish", worker.isAlive());
     }
 

@@ -1427,10 +1427,13 @@ impl Media {
         Ok(latest)
     }
     pub fn start(self: &Arc<Self>, h: Shared, s: Arc<Session>) {
+        // Raised first, so a session that ends at once can't end before it started.
+        h.session_webhook("session.started", &s);
         let result = self.spawn_session(&h, &s);
         if let Err(e) = result {
             h.sessions.lock().unwrap().fail_start(&s);
             tracing::error!(error=%e,"could not start session worker");
+            h.session_webhook("session.ended", &s);
         }
     }
     fn open_session_capture<'a>(
@@ -3215,6 +3218,7 @@ impl Media {
                 // A failed stream must not count as a healthy fast-rate probe.
                 drop(keyframe_loss_memory);
                 h.sessions.lock().unwrap().begin_teardown(&s);
+                h.session_webhook("session.ended", &s);
                 m.peers.lock().unwrap().retain(|(id, audio), peer| {
                     let ended = id == &s.launch.id;
                     if ended {

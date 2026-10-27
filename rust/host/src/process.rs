@@ -268,6 +268,13 @@ fn directory(s: &str) -> Option<&Path> {
     }
 }
 impl RunningApp {
+    /// Id, name and owner for `app.started`, or none for a placeholder that
+    /// waits for a sign-in to start.
+    pub fn started_event(&self) -> Option<(u32, String, String)> {
+        self.deferred
+            .is_none()
+            .then(|| (self.id, self.name.clone(), self.owner.clone()))
+    }
     /// Only established launch ownership can choose a game-audio target. In
     /// particular, never capture Steam/Playnite itself or an arbitrary foreground
     /// window when its game process has not been identified.

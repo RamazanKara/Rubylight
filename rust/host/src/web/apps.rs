@@ -107,7 +107,10 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 drop(running);
                 anyhow::bail!("application already running");
             }
+            let started = running.started_event();
             *current = Some(running);
+            drop(current);
+            h.app_started_webhook(started);
             json!({"status":true})
         }
         ("DELETE", p) if p.starts_with("/api/apps/") => {

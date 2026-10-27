@@ -1197,18 +1197,24 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
                 p.finish(secret)?;
                 let mut state = h.paired.write().unwrap();
                 let perm = state.new_device_permission();
+                let uuid = uuid::Uuid::new_v4().to_string();
                 state.add(
                     &h.paired_path,
                     Client {
                         name: p.name.clone(),
                         cert: p.certificate.clone(),
-                        uuid: uuid::Uuid::new_v4().to_string(),
+                        uuid: uuid.clone(),
                         perm,
                         enabled: true,
                         extra: BTreeMap::new(),
                     },
                 )?;
+                drop(state);
                 tracing::info!(client=%p.name,"Client paired and saved");
+                h.webhook(
+                    "pairing.paired",
+                    serde_json::json!({"device": crate::webhooks::device(&uuid, &p.name), "transport": "moonlight"}),
+                );
                 butterpollo_windows::tray::notify(
                     "Device paired",
                     &format!("{} can now stream from this PC.", p.name),
@@ -2214,7 +2220,10 @@ fn retain_launch_app(
     if let Some(running) = prepared_app {
         let mut current = h.current_app.lock().unwrap();
         if current.is_none() {
+            let started = running.started_event();
             *current = Some(running);
+            drop(current);
+            h.app_started_webhook(started);
         } else {
             drop(current);
             tracing::warn!("another application started meanwhile; this launch's app is stopped");

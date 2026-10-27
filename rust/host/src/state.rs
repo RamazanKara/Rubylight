@@ -223,6 +223,8 @@ pub struct Host {
     pub notes: crate::session_notes::SessionNotes,
     /// Wake-on-LAN readiness, the console's fix and sleep after idle.
     pub wake: crate::wake::Wake,
+    /// The `webhooks` setting's deliveries and each hook's last status.
+    pub webhooks: crate::webhooks::Webhooks,
     pub assets: PathBuf,
 }
 /// Why the running app is stopped, and the client that asked: each stop logs it.
@@ -282,6 +284,7 @@ impl Host {
         // Stopping the app waits for it to exit, up to its exit timeout and
         // undo commands: never under the lock every serverinfo request takes.
         let app = self.current_app.lock().unwrap().take();
+        let mut stopped = None;
         if let Some(app) = &app {
             tracing::info!(
                 reason = why.reason(),
@@ -291,8 +294,21 @@ impl Host {
                 owner = %app.owner,
                 "stopping the application"
             );
+            // A placeholder that never started raised no app.started.
+            stopped = app.started_event();
         }
         drop(app);
+        if let Some((id, name, owner)) = stopped {
+            self.webhook(
+                "app.stopped",
+                json!({
+                    "app": {"id": id, "name": name},
+                    "device": self.webhook_device(&owner),
+                    "reason": why.reason(),
+                    "by": self.webhook_device(why.client().unwrap_or("")),
+                }),
+            );
+        }
         let audio = self.app_audio.lock().unwrap().take();
         let displays = std::mem::take(&mut *self.app_display.lock().unwrap());
         drop((audio, displays));
@@ -531,6 +547,7 @@ impl Host {
             radeon: crate::radeon_session::Radeon::default(),
             notes: crate::session_notes::SessionNotes::default(),
             wake: Default::default(),
+            webhooks: crate::webhooks::Webhooks::new(crate::webhooks::Policy::DEFAULT)?,
         }))
     }
     pub fn assign_apps(&self, apps: &mut [App]) -> Result<()> {

@@ -320,6 +320,13 @@ impl Host {
             Some(id) => vec![id.to_owned()],
             None => state.clients.iter().map(|c| c.uuid.clone()).collect(),
         };
+        // The devices that go, for the webhooks once nothing is locked.
+        let removed: Vec<_> = state
+            .clients
+            .iter()
+            .filter(|c| ids.contains(&c.uuid))
+            .map(|c| crate::webhooks::device(&c.uuid, &c.name))
+            .collect();
         let mut routes = read(&state, now());
         routes.retain(|r| client_id.is_some_and(|id| r.client_id != id));
         let mut next = state.clone();
@@ -336,6 +343,10 @@ impl Host {
             agents.remove(&id);
             let epoch = epochs.entry(id).or_default();
             *epoch = epoch.wrapping_add(1);
+        }
+        drop((agents, state, epochs));
+        for device in removed {
+            self.webhook("pairing.unpaired", serde_json::json!({"device": device}));
         }
         Ok(())
     }

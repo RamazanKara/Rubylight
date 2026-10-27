@@ -414,6 +414,7 @@ impl Registry {
             &credentials.client_id,
             &credentials.secret,
         );
+        let uuid = client.uuid.clone();
         let surplus = h
             .paired
             .write()
@@ -430,6 +431,16 @@ impl Registry {
             );
         }
         tracing::info!(client = name, "WebRTC device paired and saved");
+        for id in &surplus {
+            h.webhook(
+                "pairing.unpaired",
+                json!({"device": crate::webhooks::device(id, ""), "reason": "limit"}),
+            );
+        }
+        h.webhook(
+            "pairing.paired",
+            json!({"device": crate::webhooks::device(&uuid, name), "transport": "webrtc"}),
+        );
         self.clients_changed();
         Ok(credentials)
     }

@@ -415,9 +415,11 @@ fn bundle_with_dump(h: &Shared, dump: impl FnOnce() -> Option<Dump>) -> Result<P
         .map(|(k, v)| {
             (
                 k.clone(),
-                if ["password", "token", "key", "secret", "command", "cmd"]
-                    .iter()
-                    .any(|s| k.contains(s))
+                if [
+                    "password", "token", "key", "secret", "command", "cmd", "webhook",
+                ]
+                .iter()
+                .any(|s| k.contains(s))
                 {
                     json!("[redacted]")
                 } else {

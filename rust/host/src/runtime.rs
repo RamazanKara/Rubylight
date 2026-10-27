@@ -68,7 +68,10 @@ fn start_deferred(h: &Shared) {
                 {
                     started.generation = generation;
                     started.owner = owner;
+                    let event = started.started_event();
                     *current = Some(started);
+                    drop(current);
+                    h.app_started_webhook(event);
                 }
             }
             Err(error) => {

@@ -42,6 +42,7 @@ mod video_send;
 mod wake;
 mod web;
 mod web_sessions;
+mod webhooks;
 mod webrtc;
 
 use anyhow::{Context, Result};

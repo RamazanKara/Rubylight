@@ -11,6 +11,7 @@ mod maintenance;
 mod parity_tests;
 mod power;
 mod session;
+mod webhooks;
 #[cfg(test)]
 mod webrtc_tests;
 
@@ -249,6 +250,10 @@ fn token_catalog() -> Vec<auth::Scope> {
         ("/api/logs/export_crash/manifest", &["GET"][..]),
         ("/api/pin", &["POST"][..]),
         ("/api/otp", &["POST"][..]),
+        ("/api/pairing/qr", &["POST"][..]),
+        ("/api/webhooks", &["GET", "POST"][..]),
+        ("/api/webhooks/delete", &["POST"][..]),
+        ("/api/webhooks/test", &["POST"][..]),
         ("/api/clients/pending", &["GET"][..]),
         ("/api/logs/tail", &["GET"][..]),
         ("/api/logs/analysis", &["GET"][..]),
@@ -1121,9 +1126,12 @@ pub(crate) async fn api(
             ("GET", "/api/display-devices") | ("GET", "/api/framegen/edid-refresh") => {
                 displays::handle(&h, method.as_str(), &uri, &data)?
             }
-            ("POST", "/api/otp") | ("POST", "/api/pin") => {
+            ("POST", "/api/otp") | ("POST", "/api/pin") | ("POST", "/api/pairing/qr") => {
                 clients::handle(&h, method.as_str(), path, &data)?
             }
+            ("GET" | "POST", "/api/webhooks")
+            | ("POST", "/api/webhooks/delete")
+            | ("POST", "/api/webhooks/test") => webhooks::handle(&h, method.as_str(), path, &data)?,
             ("POST", "/api/password") => {
                 if let Some(c) = h.credentials.read().unwrap().as_ref()
                     && !c.verifies(text("currentUsername"), text("currentPassword"))

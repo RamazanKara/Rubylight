@@ -14,6 +14,10 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 h.config.read().unwrap().clone()
             };
             let mut v = c.json();
+            // The Webhooks page manages them, and their secrets never come back.
+            if let Some(values) = v.as_object_mut() {
+                values.remove("webhooks");
+            }
             v["status"] = json!(true);
             v["platform"] = json!("windows");
             v["version"] = json!(env!("CARGO_PKG_VERSION"));
@@ -26,6 +30,11 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 .clone();
             for key in ["status", "platform", "version"] {
                 object.remove(key);
+            }
+            if object.contains_key("webhooks") {
+                anyhow::bail!(
+                    "webhooks are saved on the Webhooks page (/api/webhooks), which keeps their secrets"
+                );
             }
             let _save = h.config_save.lock().unwrap();
             let mut next = if h.port_override.is_some() {
@@ -64,6 +73,33 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
         )?,
         _ => return Err(anyhow::anyhow!("unknown API endpoint")),
     })
+}
+
+/// Saves one setting that a page manages itself: `next` gets the stored text
+/// (None when unset) and returns the text to save, or an error that saves
+/// nothing. Serialized with the console's other saves.
+pub(super) fn save_setting(
+    h: &Shared,
+    key: &str,
+    next: impl FnOnce(Option<&str>) -> anyhow::Result<String>,
+) -> anyhow::Result<()> {
+    let _save = h.config_save.lock().unwrap();
+    let mut config = if h.port_override.is_some() {
+        butterpollo_core::config::Config::load(&h.config_path)?
+    } else {
+        h.config.read().unwrap().clone()
+    };
+    let value = next(config.values.get(key).map(String::as_str))?;
+    config.values.insert(key.to_owned(), value);
+    config.check_saved([&key.to_owned()])?;
+    state::atomic_write(&h.config_path, config.text().as_bytes())?;
+    if let Some(port) = h.port_override {
+        config.values.insert("port".into(), port.to_string());
+    }
+    *h.config.write().unwrap() = config;
+    h.config_version
+        .fetch_add(1, std::sync::atomic::Ordering::Release);
+    Ok(())
 }
 
 fn metadata(
@@ -105,7 +141,7 @@ fn metadata(
         .first()
         .cloned()
         .unwrap_or_else(|| address(std::env::var("COMPUTERNAME").unwrap_or_default()));
-    let value = json!({"status":true,"platform":"windows","version":env!("CARGO_PKG_VERSION"),"branch":"codex/butterpollo-rust","host_name":crate::network::host_name(&config),"pc_address":pc_address,"pc_addresses":addresses,"paired_devices":shared.paired.read().unwrap().clients.len(),"enable_pairing":config.boolean("enable_pairing",true),"warnings":shared.warnings.snapshot(),"encoder_status":{"state":if probing {"checking"} else if codecs == 0 {"failed"} else {"ready"},"h264":codecs&1!=0,"hevc":codecs&0x100!=0,"av1":codecs&0x10000!=0,"pyrowave":codecs&0x800000!=0},"capture_status":{"configured_backend":config.get("capture","auto"),"virtual_display_configured":config.virtual_display_mode(butterpollo_windows::display::virtual_display_os())!="disabled","displays":displays.as_ref().ok(),"error":displays.as_ref().err().map(|e|e.to_string())},"virtual_display":virtual_display,"gpus":gpus.as_ref().ok(),"gpu_error":gpus.as_ref().err().map(|e|e.to_string()),"audio_sinks":audio.as_ref().ok(),"audio_error":audio.as_ref().err().map(|e|e.to_string()),"audio_enabled":config.boolean("stream_audio",true),"features":{"rust_host":true,"hdr":true,"pyrowave":codecs&0x800000!=0,"virtual_display":capable},"credentials_exists":shared.credentials.read().unwrap().is_some(),"webrtc":shared.webrtc.status_json(&config)});
+    let value = json!({"status":true,"platform":"windows","version":env!("CARGO_PKG_VERSION"),"branch":"codex/butterpollo-rust","host_name":crate::network::host_name(&config),"pc_address":pc_address,"pc_addresses":addresses,"paired_devices":shared.paired.read().unwrap().clients.len(),"enable_pairing":config.boolean("enable_pairing",true),"qr_pairing":config.qr_pairing(),"warnings":shared.warnings.snapshot(),"encoder_status":{"state":if probing {"checking"} else if codecs == 0 {"failed"} else {"ready"},"h264":codecs&1!=0,"hevc":codecs&0x100!=0,"av1":codecs&0x10000!=0,"pyrowave":codecs&0x800000!=0},"capture_status":{"configured_backend":config.get("capture","auto"),"virtual_display_configured":config.virtual_display_mode(butterpollo_windows::display::virtual_display_os())!="disabled","displays":displays.as_ref().ok(),"error":displays.as_ref().err().map(|e|e.to_string())},"virtual_display":virtual_display,"gpus":gpus.as_ref().ok(),"gpu_error":gpus.as_ref().err().map(|e|e.to_string()),"audio_sinks":audio.as_ref().ok(),"audio_error":audio.as_ref().err().map(|e|e.to_string()),"audio_enabled":config.boolean("stream_audio",true),"features":{"rust_host":true,"hdr":true,"pyrowave":codecs&0x800000!=0,"virtual_display":capable},"credentials_exists":shared.credentials.read().unwrap().is_some(),"webrtc":shared.webrtc.status_json(&config)});
     *cached = Some((Instant::now(), value.clone()));
     Ok(value)
 }

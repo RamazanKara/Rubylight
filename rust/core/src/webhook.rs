@@ -1,10 +1,13 @@
 //! Webhooks: the host POSTs JSON to the URLs of the `webhooks` setting when
-//! something happens. Defined for 3.0; nothing sends them yet.
+//! something happens (the host's `webhooks` module sends them; `docs/webhooks.md`
+//! is the receiver's guide).
 //!
 //! Each delivery is [`Delivery`] as JSON with the headers [`HEADER_EVENT`],
-//! [`HEADER_DELIVERY`] and [`HEADER_SIGNATURE`], whose value is
-//! [`SIGNATURE_PREFIX`] and [`sign`] of the body with the hook's secret, so a
-//! receiver can check the host sent it.
+//! [`HEADER_DELIVERY`], [`HEADER_TIMESTAMP`] and [`HEADER_SIGNATURE`], whose
+//! value is [`SIGNATURE_PREFIX`] and [`sign`] of the body with the hook's
+//! secret, so a receiver can check the host sent it. The signed body carries
+//! the delivery id and time, so a receiver refuses replays by both:
+//! [`REPLAY_WINDOW_MS`].
 use anyhow::{Context, Result, bail};
 use ring::hmac;
 use serde::{Deserialize, Serialize};
@@ -22,11 +25,20 @@ pub const HEADER_EVENT: &str = "X-Rubylight-Event";
 /// A UUID per delivery, the same as [`Delivery::delivery`].
 pub const HEADER_DELIVERY: &str = "X-Rubylight-Delivery";
 pub const HEADER_SIGNATURE: &str = "X-Rubylight-Signature";
+/// [`Delivery::time_unix_ms`] again, in decimal. The signature covers the
+/// body's copy, which is the one to check.
+pub const HEADER_TIMESTAMP: &str = "X-Rubylight-Timestamp";
+/// The event of the console's "Send test", sent to one hook whatever it
+/// subscribes to. Not one of [`EVENTS`].
+pub const TEST_EVENT: &str = "webhook.test";
+/// How far a delivery's time may be from the receiver's clock before it
+/// refuses it as a replay; retries resend the same body well within it.
+pub const REPLAY_WINDOW_MS: u64 = 5 * 60 * 1000;
 /// Before the hex digest in [`HEADER_SIGNATURE`].
 pub const SIGNATURE_PREFIX: &str = "sha256=";
 
 /// One entry of the `webhooks` setting.
-#[derive(Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Webhook {
     /// An `http://` or `https://` URL.

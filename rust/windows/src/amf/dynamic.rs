@@ -830,11 +830,7 @@ mod tests {
         let mut slot = start(Wanted::t35(Codec::Hevc), true, Some(&mut stats), &warnings);
         sample(&mut slot, Some(&mut stats), &warnings);
         let dynamic = slot.as_deref_mut().unwrap();
-        let units = frame_units(
-            Codec::Hevc,
-            &readout(4, 120, 640).frame_stats().unwrap(),
-        )
-        .unwrap();
+        let units = frame_units(Codec::Hevc, &readout(4, 120, 640).frame_stats().unwrap()).unwrap();
         let frame = keyframe();
         let at = insert_offset(Codec::Hevc, &frame).unwrap();
         assert_eq!(

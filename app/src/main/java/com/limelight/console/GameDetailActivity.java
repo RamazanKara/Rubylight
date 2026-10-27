@@ -30,6 +30,7 @@ import com.limelight.ui.BackdropView;
 import com.limelight.ui.NightjarActivity;
 import com.limelight.ui.ShellBar;
 import com.limelight.ui.TopAppBar;
+import com.limelight.utils.LaunchSource;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.UiHelper;
 
@@ -103,7 +104,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
 
     /** Starts the stream; the debug demo overrides this so no stream is opened. */
     protected void play(NvApp app, ComputerDetails computer) {
-        ServerHelper.doStart(this, app, computer, feed.binder());
+        ServerHelper.doStart(this, app, computer, feed.binder(), LaunchSource.CONSOLE_PLAY);
     }
 
     /** Sends the wake packets to an offline host (off the UI thread); the debug demo and tests override this. */

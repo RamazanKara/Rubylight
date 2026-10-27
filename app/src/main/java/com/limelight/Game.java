@@ -79,6 +79,7 @@ import com.limelight.ui.StreamView;
 import com.limelight.ui.VideoScaling;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.NetworkGrace;
+import com.limelight.utils.LaunchSource;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.ShortcutHelper;
 import com.limelight.utils.SpinnerDialog;
@@ -873,6 +874,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
         com.limelight.utils.RedactedLog.addSecret(getIntent().getStringExtra(EXTRA_PC_NAME));
         com.limelight.utils.RedactedLog.addSecret(getIntent().getStringExtra(EXTRA_HOST));
+        LimeLog.info(LaunchSource.describe(getIntent()));
         LimeLog.info("Stream request: " + prefConfig.width + "x" + prefConfig.height + " at " + prefConfig.fps +
                 " fps (resolution " + prefConfig.resolutionSource() +
                 (prefConfig.vrr ? ", VRR at the panel's " + panelMaxRefreshRate + " Hz" : "") + ")");
@@ -3710,13 +3712,14 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         conn.setMicrophoneMuted(getIntent().getBooleanExtra(EXTRA_MICROPHONE_MUTED, false));
     }
 
-    private Intent createStreamHandoffIntent() {
+    /** The stream started again, {@code why} (a {@link LaunchSource}); the log keeps the start that opened it. */
+    private Intent createStreamHandoffIntent(String why) {
         rememberMicrophoneMute();
-        return new Intent(getIntent());
+        return LaunchSource.put(new Intent(getIntent()), LaunchSource.again(why, getIntent()));
     }
 
     private Intent createReconnectIntent() {
-        Intent retry = createStreamHandoffIntent();
+        Intent retry = createStreamHandoffIntent(LaunchSource.RECONNECT);
         retry.removeExtra(EXTRA_RECOVERY_ATTEMPTS);
         retry.removeExtra(EXTRA_RECOVERY_STARTED);
         retry.removeExtra(EXTRA_RECOVERY_MEDIA_FAILURE);
@@ -3803,7 +3806,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         // Count only time actually connected, never time spent locked or in another app.
         recoveryPolicy.resetAfterStableConnection(SystemClock.elapsedRealtime(), connectedAt);
         connectedAt = -1;
-        stoppedStreamResumeIntent = createStreamHandoffIntent()
+        stoppedStreamResumeIntent = createStreamHandoffIntent(LaunchSource.RETURN)
                 .putExtra(EXTRA_APP_ID, recoveryAppId).putExtra(EXTRA_APP_UUID, recoveryAppUuid);
     }
 
@@ -3901,7 +3904,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             }
         }
         if (resumeId == 0) return false;
-        Intent retry = createStreamHandoffIntent()
+        Intent retry = createStreamHandoffIntent(LaunchSource.RECOVERY)
                 .putExtra(EXTRA_APP_ID, resumeId).putExtra(EXTRA_APP_UUID, resumeUuid);
         if (packedOff) retry.putExtra(EXTRA_PACKED_OFF, true);
         return queueAutomaticRecovery(retry, packedOff);

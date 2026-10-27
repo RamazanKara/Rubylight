@@ -20,6 +20,7 @@ import com.limelight.ShortcutTrampoline;
 import com.limelight.computers.ComputerManagerService;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
+import com.limelight.utils.LaunchSource;
 import com.limelight.utils.ServerHelper;
 
 import org.junit.After;
@@ -106,7 +107,7 @@ public class PinEntryPointsTest {
     }
 
     private void startStream(Activity from) {
-        ServerHelper.doStart(from, new NvApp("Desktop", 1, false), onlinePc(), binder(), false);
+        ServerHelper.doStart(from, new NvApp("Desktop", 1, false), onlinePc(), binder(), false, LaunchSource.LIBRARY_TAP);
     }
 
     private static void type(Activity pinScreen, String digits) {
@@ -124,7 +125,9 @@ public class PinEntryPointsTest {
         store.setMode(PinStore.Mode.OFF);
         Activity from = Robolectric.buildActivity(HelpTopicsActivity.class).create().get();
         startStream(from);
-        assertEquals(Game.class.getName(), nextStarted(from).getComponent().getClassName());
+        Intent game = nextStarted(from);
+        assertEquals(Game.class.getName(), game.getComponent().getClassName());
+        assertEquals("the stream logs what started it", LaunchSource.LIBRARY_TAP, LaunchSource.of(game));
     }
 
     @Test
@@ -161,6 +164,7 @@ public class PinEntryPointsTest {
         Intent started = nextStarted(screen.get());
         assertNotNull(started);
         assertEquals(Game.class.getName(), started.getComponent().getClassName());
+        assertEquals("the source survives the PIN screen", LaunchSource.LIBRARY_TAP, LaunchSource.of(started));
         assertTrue(screen.get().isFinishing());
     }
 

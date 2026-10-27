@@ -75,7 +75,7 @@ impl Roamer {
             seq: 0,
         }
     }
-    /// Sends `payload` from `socket` every 100 ms until the host answers, and returns the
+    /// Sends `payload` from `socket` every 100 ms until the host answers it, and returns the
     /// answer; `None` when none came within `timeout`.
     async fn exchange(
         &mut self,
@@ -102,7 +102,11 @@ impl Roamer {
                         if let Ok(datagram) = Datagram::decode(&buffer[..n]) {
                             let answer = open(&self.keys.key, &datagram);
                             assert!(answer.is_some(), "the host seals with the session's key");
-                            return Ok(answer);
+                            // A busy host answers a re-sent request twice: the late second
+                            // CHALLENGE, read once the CONFIRM is out, is not the CONFIRM's.
+                            if answer.is_some_and(|answer| answers(payload, answer)) {
+                                return Ok(answer);
+                            }
                         }
                     }
                     Err(error)
@@ -117,6 +121,32 @@ impl Roamer {
         }
         Ok(None)
     }
+}
+
+/// Whether `answer` is the host's answer to `request`: a CHALLENGE to a PROBE, MIGRATED to a
+/// CONFIRM.
+fn answers(request: Payload, answer: Payload) -> bool {
+    matches!(
+        (request, answer),
+        (Payload::Probe { .. }, Payload::Challenge { .. })
+            | (Payload::Confirm { .. }, Payload::Migrated { .. })
+    )
+}
+
+#[test]
+fn a_late_challenge_does_not_answer_a_confirm() {
+    let probe = Payload::Probe {
+        nonce_c: 7,
+        flags: 0,
+    };
+    let challenge = Payload::Challenge {
+        nonce_c: 7,
+        challenge: 1,
+    };
+    let confirm = Payload::Confirm { challenge: 1 };
+    assert!(answers(probe, challenge));
+    assert!(answers(confirm, Payload::Migrated { challenge: 1 }));
+    assert!(!answers(confirm, challenge));
 }
 
 fn video_peer(h: &Harness, launch: &Launch) -> Option<SocketAddr> {

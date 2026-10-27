@@ -290,6 +290,16 @@ fn shell_token(own: &OwnedHandle) -> Result<Option<OwnedHandle>> {
     );
     Ok((!token_elevated(&primary)?).then_some(primary))
 }
+/// The user a `Target::User` program runs as: the one signed in to this
+/// host's own session, never the console's. A host inside a child session
+/// starts its capture worker (and games) on the child session's desktop, not
+/// on the main desktop the user is working on.
+fn own_session_user<T>(
+    current: impl FnOnce() -> Result<u32>,
+    user: impl FnOnce(u32) -> Result<T>,
+) -> Result<T> {
+    user(current()?)
+}
 fn target_token(target: &Target) -> Result<Option<OwnedHandle>> {
     if !is_system() {
         if matches!(target, Target::SystemSession(_)) {
@@ -314,12 +324,12 @@ fn target_token(target: &Target) -> Result<Option<OwnedHandle>> {
         let source = match target {
             Target::SystemSession(_) => token()?,
             Target::User { .. } => {
-                let mut session = 0;
-                ProcessIdToSessionId(GetCurrentProcessId(), &mut session)?;
-                let mut user = HANDLE::default();
-                WTSQueryUserToken(session, &mut user)
-                    .context("no signed-in user in the host session")?;
-                let mut user = owned(user);
+                let mut user = own_session_user(current_session, |session| {
+                    let mut user = HANDLE::default();
+                    WTSQueryUserToken(session, &mut user)
+                        .context("no signed-in user in the host session")?;
+                    Ok(owned(user))
+                })?;
                 if matches!(target, Target::User { elevated: true }) {
                     let mut linked = TOKEN_LINKED_TOKEN::default();
                     let mut bytes = 0;
@@ -2199,6 +2209,19 @@ mod tests {
                 .is_err()
             );
         }
+    }
+    #[test]
+    fn user_programs_start_in_the_hosts_own_child_session_not_the_consoles() {
+        // A host inside child session 3 while the console (session 1) is the
+        // user's main desktop: its capture worker gets session 3's user.
+        let asked = super::own_session_user(|| Ok(3), Ok).unwrap();
+        assert_eq!(asked, 3);
+        let error = super::own_session_user::<u32>(
+            || Err(anyhow::anyhow!("no session")),
+            |_| panic!("no session, no user token"),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("no session"));
     }
     fn warnings(check: impl FnOnce()) -> String {
         let directory = tempfile::tempdir().unwrap();

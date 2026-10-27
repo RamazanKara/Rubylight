@@ -17,6 +17,7 @@ use sdl3_sys::everything::*;
 
 use crate::hosts::Waker;
 use crate::media::{self, Codec, Hardware, Picture, Received};
+use super::playout::{Fed, Playout};
 use super::pyrowave::Failure;
 
 pub fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -102,6 +103,8 @@ pub struct Counters {
     pub audio_queued_us: AtomicU64,
     /// Times the device ran dry and silence was added.
     pub audio_underruns: AtomicU64,
+    /// Packets' time filled with Opus concealment: lost, or late for the device.
+    pub audio_concealed: AtomicU64,
     /// Output channels, 0 without an audio device.
     pub audio_channels: AtomicU64,
 }
@@ -557,48 +560,85 @@ impl VideoDecoder for Decoder {
     }
 }
 
-/// Opus to an SDL audio stream, with the queue kept short.
+/// Opus to an SDL audio stream, with the queue kept short. What runs dry between packets is
+/// concealed from SDL's request callback (see [`Playout`]).
 pub struct Audio {
     pub shared: Arc<Shared>,
-    decoder: Option<media::OpusDecoder>,
+    playout: Option<Arc<Mutex<Playout>>>,
     stream: *mut SDL_AudioStream,
-    pcm: Vec<f32>,
-    /// Most audio queued in SDL before packets are dropped, in bytes.
-    max_queued: i32,
-    started: bool,
+    /// The callback's reference to `playout`, released after the stream is destroyed.
+    callback: *const Mutex<Playout>,
 }
 
-// SAFETY: SDL audio streams are thread-safe; the pointer is used by the audio thread only.
+// SAFETY: SDL audio streams are thread-safe; the pointers are used by the audio thread and
+// SDL's callback only, under the stream's lock.
 unsafe impl Send for Audio {}
 
 impl Audio {
     pub fn new(shared: Arc<Shared>) -> Self {
         Self {
             shared,
-            decoder: None,
+            playout: None,
             stream: std::ptr::null_mut(),
-            pcm: vec![0.0; 5760 * 8],
-            max_queued: 0,
-            started: false,
+            callback: std::ptr::null(),
         }
+    }
+}
+
+/// Holds an audio stream's lock (none for a null stream) until dropped.
+struct StreamLock(*mut SDL_AudioStream);
+
+impl StreamLock {
+    fn new(stream: *mut SDL_AudioStream) -> Self {
+        // SAFETY: a non-null stream is open until cleanup, which runs on the same thread.
+        if !stream.is_null() && !unsafe { SDL_LockAudioStream(stream) } {
+            return Self(std::ptr::null_mut());
+        }
+        Self(stream)
+    }
+}
+
+impl Drop for StreamLock {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            // SAFETY: locked in new.
+            unsafe { SDL_UnlockAudioStream(self.0) };
+        }
+    }
+}
+
+/// SDL wants more than is queued: conceal it. SDL holds the stream's lock, so this never runs
+/// while `play` feeds the stream.
+unsafe extern "C" fn conceal(userdata: *mut c_void, stream: *mut SDL_AudioStream, additional: i32, _total: i32) {
+    if additional <= 0 {
+        return;
+    }
+    // SAFETY: userdata is the `Arc` reference `init` leaked; it outlives the stream.
+    let mut playout = lock(unsafe { &*(userdata as *const Mutex<Playout>) });
+    let frame_bytes = 4 * playout.channels();
+    let pcm = playout.starve(additional as usize / frame_bytes);
+    if !pcm.is_empty() {
+        // SAFETY: the stream is the one this callback was set on; pcm is valid for the call.
+        unsafe { SDL_PutAudioStreamData(stream, pcm.as_ptr().cast::<c_void>(), (pcm.len() * 4) as i32) };
     }
 }
 
 impl AudioRenderer for Audio {
     fn init(&mut self, setup: &AudioSetup) -> Result<(), i32> {
         let opus = &setup.opus;
-        self.decoder = Some(media::OpusDecoder::new(
+        let decoder = media::OpusDecoder::new(
             opus.channel_count,
             opus.streams,
             opus.coupled_streams,
             &opus.mapping,
-        )?);
+        )?;
         let spec = SDL_AudioSpec {
             format: SDL_AUDIO_F32,
             channels: i32::from(opus.channel_count),
             freq: 48000,
         };
-        // SAFETY: SDL's audio subsystem is initialised; the spec outlives the call.
+        // SAFETY: SDL's audio subsystem is initialised; the spec outlives the call. The
+        // callback's reference is released in cleanup, after the stream is destroyed.
         unsafe {
             self.stream = SDL_OpenAudioDeviceStream(
                 SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
@@ -609,7 +649,25 @@ impl AudioRenderer for Audio {
             if self.stream.is_null() {
                 // No audio device: keep streaming without sound.
                 eprintln!("nightjar: no audio output ({})", crate::sdl::error());
+                self.playout = Some(Arc::new(Mutex::new(Playout::new(decoder, setup.packet_duration_ms, 0))));
                 return Ok(());
+            }
+            // How much the device takes at once: the cushion led with must cover it.
+            let mut device = std::mem::zeroed::<SDL_AudioSpec>();
+            let mut device_frames = 0;
+            if !SDL_GetAudioDeviceFormat(SDL_GetAudioStreamDevice(self.stream), &mut device, &mut device_frames) {
+                device_frames = 0;
+            }
+            let playout = Arc::new(Mutex::new(Playout::new(
+                decoder,
+                setup.packet_duration_ms,
+                device_frames.max(0) as usize * 48000 / device.freq.max(1) as usize,
+            )));
+            self.playout = Some(playout.clone());
+            self.callback = Arc::into_raw(playout);
+            if !SDL_SetAudioStreamGetCallback(self.stream, Some(conceal), self.callback as *mut c_void) {
+                eprintln!("nightjar: late audio plays silence, not concealment ({})", crate::sdl::error());
+                lock(&*self.callback).without_requests();
             }
             SDL_ResumeAudioStreamDevice(self.stream);
         }
@@ -617,69 +675,67 @@ impl AudioRenderer for Audio {
             .counters
             .audio_channels
             .store(u64::from(opus.channel_count), Ordering::Relaxed);
-        // 40 ms: enough to ride out scheduling jitter, short enough to stay in sync.
-        let bytes_per_ms = 48 * 4 * i32::from(opus.channel_count);
-        self.max_queued = bytes_per_ms * (40 + setup.packet_duration_ms as i32);
         Ok(())
     }
 
     fn play(&mut self, packet: Option<&[u8]>) {
-        let Some(decoder) = self.decoder.as_mut() else {
+        let Some(playout) = self.playout.as_ref() else {
             return;
         };
-        let samples = decoder.decode(packet, &mut self.pcm);
-        if samples <= 0 {
-            return;
-        }
-        let mut routed = false;
-        for playback in lock(&self.shared.controller_audio).iter().filter_map(std::sync::Weak::upgrade) {
-            routed |= lock(&playback).headphones(&self.pcm[..samples as usize * decoder.channels], decoder.channels);
-        }
-        if routed {
-            if !self.stream.is_null() { unsafe { SDL_ClearAudioStream(self.stream) }; }
-            self.started = false;
-            self.shared.counters.audio_queued_us.store(0, Ordering::Relaxed);
-            return;
-        }
-        if self.stream.is_null() { return; }
-        let bytes = samples as usize * decoder.channels * 4;
-        // SAFETY: the stream is open; pcm holds `bytes` bytes.
-        unsafe {
-            let queued = SDL_GetAudioStreamQueued(self.stream);
-            let bytes_per_us = 48.0 * 4.0 * decoder.channels as f64 / 1000.0;
-            self.shared
-                .counters
-                .audio_queued_us
-                .store((f64::from(queued.max(0)) / bytes_per_us) as u64, Ordering::Relaxed);
-            if queued > self.max_queued {
-                self.shared.counters.audio_dropped.fetch_add(1, Ordering::Relaxed);
+        let stream = self.stream;
+        // The stream's lock first, as SDL takes it before calling `conceal`.
+        let _locked = StreamLock::new(stream);
+        let mut playout = lock(playout);
+        let channels = playout.channels();
+        let bytes_per_sample = 4 * channels as i32;
+        // SAFETY: as above.
+        let queued = if stream.is_null() { 0 } else { unsafe { SDL_GetAudioStreamQueued(stream) }.max(0) };
+        let fed = playout.packet(packet, (queued / bytes_per_sample) as usize);
+        let counters = &self.shared.counters;
+        let bytes_per_us = 48.0 * f64::from(bytes_per_sample) / 1000.0;
+        counters.audio_queued_us.store((f64::from(queued) / bytes_per_us) as u64, Ordering::Relaxed);
+        counters.audio_concealed.fetch_add(playout.take_concealed(), Ordering::Relaxed);
+        let lead = match fed {
+            Fed::Play { lead, underrun } => {
+                if underrun {
+                    counters.audio_underruns.fetch_add(1, Ordering::Relaxed);
+                }
+                lead
+            }
+            Fed::Dropped => {
+                counters.audio_dropped.fetch_add(1, Ordering::Relaxed);
                 return;
             }
-            if queued == 0 {
-                // Empty at the start or after an underrun: lead with 10 ms of silence so
-                // the next packet's jitter does not starve the device again.
-                if self.started {
-                    self.shared.counters.audio_underruns.fetch_add(1, Ordering::Relaxed);
-                }
-                self.started = true;
-                let silence = vec![0f32; 480 * decoder.channels];
-                SDL_PutAudioStreamData(
-                    self.stream,
-                    silence.as_ptr().cast::<c_void>(),
-                    (silence.len() * 4) as i32,
-                );
-            }
-            SDL_PutAudioStreamData(self.stream, self.pcm.as_ptr().cast::<c_void>(), bytes as i32);
+            Fed::Failed => return,
+        };
+        let pcm = playout.pcm();
+        let mut routed = false;
+        for headphones in lock(&self.shared.controller_audio).iter().filter_map(std::sync::Weak::upgrade) {
+            routed |= lock(&headphones).headphones(&pcm[lead * channels..], channels);
         }
+        if routed {
+            playout.stop();
+            if !stream.is_null() { unsafe { SDL_ClearAudioStream(stream) }; }
+            counters.audio_queued_us.store(0, Ordering::Relaxed);
+            return;
+        }
+        if stream.is_null() { return; }
+        // SAFETY: the stream is open and locked; pcm is valid for the call.
+        unsafe { SDL_PutAudioStreamData(stream, pcm.as_ptr().cast::<c_void>(), (pcm.len() * 4) as i32) };
     }
 
     fn cleanup(&mut self) {
         if !self.stream.is_null() {
-            // SAFETY: opened in init, destroyed once.
+            // SAFETY: opened in init, destroyed once; the callback cannot run after this.
             unsafe { SDL_DestroyAudioStream(self.stream) };
             self.stream = std::ptr::null_mut();
         }
-        self.decoder = None;
+        if !self.callback.is_null() {
+            // SAFETY: leaked by init with Arc::into_raw, released once.
+            drop(unsafe { Arc::from_raw(self.callback) });
+            self.callback = std::ptr::null();
+        }
+        self.playout = None;
     }
 }
 

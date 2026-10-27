@@ -204,7 +204,7 @@ mod tests {
     // ---- The table against the sources. ----
 
     /// The UI sources, up to their test modules.
-    const SOURCES: [(&str, &str); 11] = [
+    const SOURCES: [(&str, &str); 12] = [
         ("ui.rs", include_str!("ui.rs")),
         ("host_page.rs", include_str!("host_page.rs")),
         ("session_ui.rs", include_str!("session_ui.rs")),
@@ -216,6 +216,7 @@ mod tests {
         ("shortcuts.rs", include_str!("shortcuts.rs")),
         ("radeon.rs", include_str!("radeon.rs")),
         ("gamepad.rs", include_str!("gamepad.rs")),
+        ("usb.rs", include_str!("usb.rs")),
     ];
 
     /// Read for its marked texts and its toasts only: the stream code keeps its own overlay lines.

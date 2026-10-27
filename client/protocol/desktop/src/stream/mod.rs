@@ -1155,6 +1155,8 @@ pub struct Streaming {
     settings: Settings,
     plan: LaunchPlan,
     microphone: Option<microphone::Microphone>,
+    /// USB forwarding, while the setting is on.
+    pub usb: Option<crate::usb::Panel>,
     cursor: cursor::Cursor,
     cursor_warning: bool,
     text_field: text_field::TextField,
@@ -1265,7 +1267,11 @@ impl Streaming {
         let quality_policy = (quality_mode != QualityMode::Off).then(|| quality::Quality::new(
             quality_mode, mode, settings.quality_min_short_edge, settings.quality_min_fps, 0));
         let backlog = connecting.shared.pacer_backlog.clone();
+        // The stream controls read the attachments each time they are drawn.
+        let usb = if settings.usb_forwarding { lock(&connecting.shared.host_client).clone() } else { None }
+            .map(|host| crate::usb::Panel::new(session.usb_forwarder(host, || {})));
         let mut streaming = Self {
+            usb,
             session,
             shared: connecting.shared,
             facts,
@@ -1770,6 +1776,10 @@ impl Streaming {
             }
             ControlEvent::Roam(event) => eprintln!("nightjar: {event}"),
             ControlEvent::TextInput(notice) => self.text_field.notice(&notice),
+            ControlEvent::Usb(message) => match &self.usb {
+                Some(usb) => usb.on_message(message),
+                None => eprintln!("nightjar: USB: ignored {message:?}: USB forwarding is off here"),
+            },
             _ => {}
         }
     }

@@ -213,6 +213,9 @@ pub struct Settings {
     pub client_roaming: bool,
     /// Let client roaming move the stream onto a metered network. Off by default.
     pub roaming_metered: bool,
+    /// USB forwarding (Experimental): attach USB devices plugged in here to the PC from the
+    /// stream controls (src/usb.rs). Off by default.
+    pub usb_forwarding: bool,
     /// Tell a Rubylight PC when the route to it is Wi-Fi or cellular, so it paces for a wireless
     /// link from the first frame (`x-rl-video[0].clientWireless`). On by default.
     pub tell_host_wireless: bool,
@@ -389,6 +392,7 @@ impl Default for Settings {
             network_grace_ms: 3000,
             client_roaming: true,
             roaming_metered: false,
+            usb_forwarding: false,
             tell_host_wireless: true,
             tell_host_link_speed: true,
             unbatched_input: true,
@@ -1341,6 +1345,13 @@ mod tests {
         assert!(old.client_roaming && !old.roaming_metered);
         let set: Settings = serde_json::from_str(r#"{"client_roaming":false,"roaming_metered":true}"#).unwrap();
         assert!(!set.client_roaming && set.roaming_metered);
+    }
+
+    #[test]
+    fn usb_forwarding_is_off_by_default_and_in_old_files() {
+        assert!(!Settings::default().usb_forwarding);
+        assert!(!serde_json::from_str::<Settings>("{}").unwrap().usb_forwarding);
+        assert!(serde_json::from_str::<Settings>(r#"{"usb_forwarding":true}"#).unwrap().usb_forwarding);
     }
 
     #[test]

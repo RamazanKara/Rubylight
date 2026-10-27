@@ -126,7 +126,11 @@ public final class UsbPads {
     static void await(java.util.function.BooleanSupplier condition) throws InterruptedException {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
         while (!condition.getAsBoolean()) {
-            if (System.nanoTime() > deadline) throw new AssertionError("Timed out waiting");
+            if (System.nanoTime() > deadline) {
+                throw new AssertionError("Timed out waiting: closes " + Connection.closes.get()
+                        + ", claims " + Connection.claims.get() + ", releases " + Connection.releases.get()
+                        + ", reads " + Connection.readsStarted.get() + ", read held " + Connection.readHeld.get());
+            }
             org.robolectric.shadows.ShadowLooper.idleMainLooper();
             Thread.sleep(5);
         }
@@ -141,14 +145,38 @@ public final class UsbPads {
         await(() -> Connection.readsStarted.get() > started && Connection.readInProgress.get());
     }
 
+    // Holds input reads until releaseReads() and waits until one is held. The read in flight when
+    // the gate closes is held too, so this waits for the hold itself, not for a later read. While
+    // a read is held, the pad cannot finish it, so a stop() that returns proves it did not wait for
+    // the read, however slowly the test machine runs.
+    static void holdReads() throws InterruptedException {
+        Connection.readGate = new CountDownLatch(1);
+        await(Connection.readHeld::get);
+    }
+
+    static void releaseReads() {
+        CountDownLatch gate = Connection.readGate;
+        Connection.readGate = null;
+        if (gate != null) gate.countDown();
+    }
+
     // Transfers like a real pad's: they block the calling thread, ignore interrupts and end at their
     // own time. Settings apply to every connection opened while a test runs; reset() between tests.
+    // A connection opened before the last reset() is stale: a pad an earlier test left releasing on
+    // its USB worker fails its transfers and touches none of the counters of the test now running.
     @Implements(UsbDeviceConnection.class)
     public static class Connection {
+        private static final AtomicInteger generation = new AtomicInteger();
+        private final int openedIn = generation.get();
+        private volatile boolean closed;
         // Control transfers (feature reads) wait for this gate, up to their timeout, then fail.
         static volatile CountDownLatch controlGate;
         static volatile boolean claimSucceeds;
         static volatile long inputReadMs;
+        // Input reads wait for this gate too, ignoring interrupts, up to HELD_READ_MS.
+        static volatile CountDownLatch readGate;
+        static final long HELD_READ_MS = 10_000;
+        static final AtomicBoolean readHeld = new AtomicBoolean();
         // Output transfers take this long; each is recorded with the thread that sent it.
         static volatile long outputWriteMs;
         static final java.util.List<byte[]> outputs = new java.util.concurrent.CopyOnWriteArrayList<>();
@@ -161,7 +189,11 @@ public final class UsbPads {
         static final Set<String> controlThreads = ConcurrentHashMap.newKeySet();
 
         public static void reset() {
+            generation.incrementAndGet();
             controlGate = null;
+            CountDownLatch held = readGate;
+            readGate = null;
+            if (held != null) held.countDown();
             claimSucceeds = true;
             inputReadMs = 4;
             outputWriteMs = 0;
@@ -172,6 +204,7 @@ public final class UsbPads {
             releases.set(0);
             closes.set(0);
             readInProgress.set(false);
+            readHeld.set(false);
             readsStarted.set(0);
             closedDuringRead = false;
             controlThreads.clear();
@@ -181,8 +214,13 @@ public final class UsbPads {
             claimSucceeds = false;
         }
 
+        private boolean stale() {
+            return openedIn != generation.get();
+        }
+
         @Implementation
         protected boolean claimInterface(UsbInterface usbInterface, boolean force) {
+            if (stale()) return false;
             controlThreads.add(Thread.currentThread().getName());
             claims.incrementAndGet();
             return claimSucceeds;
@@ -190,12 +228,14 @@ public final class UsbPads {
 
         @Implementation
         protected boolean releaseInterface(UsbInterface usbInterface) {
+            if (stale()) return true;
             releases.incrementAndGet();
             return true;
         }
 
         @Implementation
         protected int controlTransfer(int requestType, int request, int value, int index, byte[] buffer, int length, int timeout) {
+            if (stale()) return -1;
             controlThreads.add(Thread.currentThread().getName());
             CountDownLatch gate = controlGate;
             if (gate != null) {
@@ -211,7 +251,7 @@ public final class UsbPads {
 
         @Implementation
         protected int bulkTransfer(UsbEndpoint endpoint, byte[] buffer, int offset, int length, int timeout) {
-            if (closes.get() > 0) return -1;
+            if (closed || stale()) return -1;
             boolean out = endpoint.getDirection() == UsbConstants.USB_DIR_OUT;
             if (out) {
                 outputs.add(java.util.Arrays.copyOfRange(buffer, offset, offset + length));
@@ -232,8 +272,21 @@ public final class UsbPads {
                         interrupted = true;
                     }
                 }
+                CountDownLatch gate = out ? null : readGate;
+                long heldUntil = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(HELD_READ_MS);
+                while (gate != null && gate.getCount() > 0 && System.nanoTime() < heldUntil) {
+                    readHeld.set(true);
+                    try {
+                        gate.await(heldUntil - System.nanoTime(), TimeUnit.NANOSECONDS);
+                    } catch (InterruptedException e) {
+                        interrupted = true;
+                    }
+                }
             } finally {
-                if (!out) readInProgress.set(false);
+                if (!out && !stale()) {
+                    readHeld.set(false);
+                    readInProgress.set(false);
+                }
                 if (interrupted) Thread.currentThread().interrupt();
             }
             if (out) return length;
@@ -251,6 +304,8 @@ public final class UsbPads {
 
         @Implementation
         protected void close() {
+            closed = true;
+            if (stale()) return;
             if (readInProgress.get()) closedDuringRead = true;
             closes.incrementAndGet();
         }

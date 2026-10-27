@@ -150,12 +150,12 @@ public class UsbControllerLifecycleTest {
         // The USB service's worker would run this.
         assertTrue(controller.start());
         UsbPads.await(() -> listener.has("added"));
-        UsbPads.awaitSlowRead(400);
+        UsbPads.holdReads();
 
-        long stop = System.nanoTime();
         controller.stop();
-        long stopMs = msSince(stop);
-        assertTrue("stop() held its caller for " + stopMs + " ms", stopMs < 100);
+        boolean readStillHeld = UsbPads.Connection.readHeld.get();
+        UsbPads.releaseReads();
+        assertTrue("stop() waited for the pad's USB read", readStillHeld);
         UsbPads.await(() -> UsbPads.Connection.closes.get() == 1 && listener.has("removed"));
         assertFalse("The connection was closed under a USB read", UsbPads.Connection.closedDuringRead);
         assertEquals(UsbPads.Connection.claims.get(), UsbPads.Connection.releases.get());

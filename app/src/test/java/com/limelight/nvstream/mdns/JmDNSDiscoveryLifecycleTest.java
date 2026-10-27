@@ -31,6 +31,12 @@ import static org.junit.Assert.*;
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 28, application = Application.class)
 public class JmDNSDiscoveryLifecycleTest {
+    // Every wait below is for something the test itself causes, so it only runs out when the
+    // agent hangs. The bound turns a hang into a failure; it is not a speed check, which a
+    // loaded machine starving these threads for a few seconds used to fail.
+    private static final long HANG_GUARD_S = 60;
+    private static final long HANG_GUARD_MS = TimeUnit.SECONDS.toMillis(HANG_GUARD_S);
+
     private static final class Resolution {
         final CountDownLatch entered = new CountDownLatch(1);
         final CountDownLatch release = new CountDownLatch(1);
@@ -41,7 +47,7 @@ public class JmDNSDiscoveryLifecycleTest {
             try {
                 while (true) {
                     try {
-                        assertTrue(release.await(5, TimeUnit.SECONDS));
+                        assertTrue(release.await(HANG_GUARD_S, TimeUnit.SECONDS));
                         return;
                     } catch (InterruptedException e) {
                         // A resolver result may arrive just after discovery is stopped.
@@ -79,7 +85,7 @@ public class JmDNSDiscoveryLifecycleTest {
                         }
                     }
                     if (method.getName().equals("getServiceInfos")) {
-                        Resolution request = requests.poll(2, TimeUnit.SECONDS);
+                        Resolution request = requests.poll();
                         assertNotNull("Unexpected resolver request", request);
                         request.awaitRelease();
                         return new ServiceInfo[] {info};
@@ -105,26 +111,26 @@ public class JmDNSDiscoveryLifecycleTest {
         try {
             agent.startDiscovery(10000);
             previousThread = ReflectionHelpers.getField(agent, "discoveryThread");
-            assertTrue(previous.entered.await(2, TimeUnit.SECONDS));
+            assertTrue(previous.entered.await(HANG_GUARD_S, TimeUnit.SECONDS));
             agent.stopDiscovery();
             agent.startDiscovery(10000);
             currentThread = ReflectionHelpers.getField(agent, "discoveryThread");
-            assertTrue(current.entered.await(2, TimeUnit.SECONDS));
+            assertTrue(current.entered.await(HANG_GUARD_S, TimeUnit.SECONDS));
             previous.release.countDown();
-            previousThread.join(2000);
+            previousThread.join(HANG_GUARD_MS);
             assertFalse(previousThread.isAlive());
             assertEquals("The stopped resolver cannot populate the new session", 0, hostProbes.get());
             assertTrue(agent.getComputerSet().isEmpty());
 
             current.release.countDown();
-            assertTrue(notified.await(2, TimeUnit.SECONDS));
+            assertTrue(notified.await(HANG_GUARD_S, TimeUnit.SECONDS));
             assertEquals(1, hostProbes.get());
         } finally {
             previous.release.countDown();
             current.release.countDown();
             agent.stopDiscovery();
-            if (previousThread != null) previousThread.join(2000);
-            if (currentThread != null) currentThread.join(2000);
+            if (previousThread != null) previousThread.join(HANG_GUARD_MS);
+            if (currentThread != null) currentThread.join(HANG_GUARD_MS);
             JmmDNS.Factory.close();
             JmmDNS.Factory.setClassDelegate(originalFactory);
         }
@@ -156,15 +162,15 @@ public class JmDNSDiscoveryLifecycleTest {
         try {
             agent.startDiscovery(10000);
             previousThread = ReflectionHelpers.getField(agent, "discoveryThread");
-            assertSame(previousThread, startedWorkers.poll(2, TimeUnit.SECONDS));
+            assertSame(previousThread, startedWorkers.poll(HANG_GUARD_S, TimeUnit.SECONDS));
             // The static dispatcher can retain this listener in a snapshot across stop/start.
             ServiceListener previousListener = ReflectionHelpers.getField(agent, "discoverySession");
             agent.stopDiscovery();
-            previousThread.join(2000);
+            previousThread.join(HANG_GUARD_MS);
             assertFalse(previousThread.isAlive());
             agent.startDiscovery(10000);
             currentThread = ReflectionHelpers.getField(agent, "discoveryThread");
-            assertSame(currentThread, startedWorkers.poll(2, TimeUnit.SECONDS));
+            assertSame(currentThread, startedWorkers.poll(HANG_GUARD_S, TimeUnit.SECONDS));
             ServiceListener currentListener = ReflectionHelpers.getField(agent, "discoverySession");
             assertNotSame(previousListener, currentListener);
             HashSet<String> currentPending = ReflectionHelpers.getField(currentListener, "pendingResolution");
@@ -203,8 +209,8 @@ public class JmDNSDiscoveryLifecycleTest {
             assertEquals(1, resolverEntries.get());
         } finally {
             agent.stopDiscovery();
-            if (previousThread != null) previousThread.join(2000);
-            if (currentThread != null) currentThread.join(2000);
+            if (previousThread != null) previousThread.join(HANG_GUARD_MS);
+            if (currentThread != null) currentThread.join(HANG_GUARD_MS);
             JmmDNS.Factory.close();
             JmmDNS.Factory.setClassDelegate(originalFactory);
         }

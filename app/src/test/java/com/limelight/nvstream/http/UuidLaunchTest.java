@@ -3,6 +3,7 @@ package com.limelight.nvstream.http;
 import android.app.Application;
 
 import com.limelight.nvstream.ConnectionContext;
+import com.limelight.nvstream.ConnectionStartup;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.NvConnectionListener;
 import com.limelight.nvstream.StreamConfiguration;
@@ -17,7 +18,6 @@ import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 import org.robolectric.annotation.Implementation;
 import org.robolectric.annotation.Implements;
-import org.robolectric.util.ReflectionHelpers;
 
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
@@ -86,8 +86,7 @@ public class UuidLaunchTest {
             @Override public int submitDecodeUnit(byte[] data, int length, int type, int frame, int frameType,
                     char latency, long received, long queued, long receivedNs, long presentationUs) { return 0; }
         }, listener);
-        Thread worker = ReflectionHelpers.getField(connection, "connectionThread");
-        worker.join(5000);
+        Thread worker = ConnectionStartup.await(connection);
         if (worker.isAlive()) {
             connection.stop();
             worker.join(5000);

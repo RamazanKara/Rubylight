@@ -1252,6 +1252,8 @@ pub struct AudioPacketizer {
     pub encrypted: bool,
     pub packet_ms: u32,
     pending: Vec<Vec<u8>>,
+    /// The RTP timestamp of the FEC block's first packet.
+    block_timestamp: u32,
 }
 impl AudioPacketizer {
     pub fn new(key: [u8; 16], key_id: u32, encrypted: bool, packet_ms: u32) -> Self {
@@ -1263,9 +1265,19 @@ impl AudioPacketizer {
             encrypted,
             packet_ms,
             pending: vec![],
+            block_timestamp: 0,
         }
     }
+    /// One Opus or PCM packet, `packet_ms` after the last.
     pub fn encode(&mut self, opus: &[u8]) -> Result<Vec<Vec<u8>>> {
+        self.encode_part(opus, true)
+    }
+    /// One piece of a frame. Every piece of a frame carries its timestamp, which moves on by
+    /// `packet_ms` after the `last` piece (AC3 and E-AC3 frames take several packets).
+    pub fn encode_part(&mut self, opus: &[u8], last: bool) -> Result<Vec<Vec<u8>>> {
+        if self.pending.is_empty() {
+            self.block_timestamp = self.timestamp;
+        }
         let seq = self.sequence;
         let mut iv = [0; 16];
         iv[..4].copy_from_slice(&self.key_id.wrapping_add(u32::from(seq)).to_be_bytes());
@@ -1283,7 +1295,9 @@ impl AudioPacketizer {
         let mut output = vec![p];
         self.pending.push(data);
         self.sequence = self.sequence.wrapping_add(1);
-        self.timestamp = self.timestamp.wrapping_add(self.packet_ms);
+        if last {
+            self.timestamp = self.timestamp.wrapping_add(self.packet_ms);
+        }
         if self.pending.len() == 4 {
             let len = self.pending.iter().map(Vec::len).max().unwrap();
             let matrix = [[0x77, 0x40, 0x38, 0x0e], [0xc7, 0xa7, 0x0d, 0x6c]];
@@ -1296,12 +1310,7 @@ impl AudioPacketizer {
                 p[12] = index as u8;
                 p[13] = 97;
                 p[14..16].copy_from_slice(&seq.wrapping_sub(3).to_be_bytes());
-                p[16..20].copy_from_slice(
-                    &self
-                        .timestamp
-                        .wrapping_sub(4 * self.packet_ms)
-                        .to_be_bytes(),
-                );
+                p[16..20].copy_from_slice(&self.block_timestamp.to_be_bytes());
                 for (j, b) in self.pending.iter().enumerate() {
                     axpy(&mut p[24..24 + b.len()], b, row[j]);
                 }

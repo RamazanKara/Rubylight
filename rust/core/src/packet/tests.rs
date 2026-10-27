@@ -895,3 +895,41 @@ fn block_layout_matches_the_packets_each_frame_is_sent_as() {
         }
     }
 }
+
+#[test]
+fn audio_frame_pieces_share_a_timestamp_and_fec_names_the_block_start() {
+    let timestamp = |packet: &[u8]| u32::from_be_bytes(packet[4..8].try_into().unwrap());
+    let mut opus = AudioPacketizer::new([0; 16], 0, false, 5);
+    let mut stamps = Vec::new();
+    for _ in 0..4 {
+        stamps.push(opus.encode(&[1; 40]).unwrap());
+    }
+    assert_eq!(
+        stamps
+            .iter()
+            .map(|out| timestamp(&out[0]))
+            .collect::<Vec<_>>(),
+        [0, 5, 10, 15]
+    );
+    // The FEC packets carry the next timestamp and, at 16..20, the block's first.
+    let fec = &stamps[3][1..];
+    assert_eq!(fec.len(), 2);
+    assert!(fec.iter().all(|p| p[1] == 127 && timestamp(p) == 20));
+    assert!(fec.iter().all(|p| p[16..20] == 0u32.to_be_bytes()));
+    // AC3: three pieces of frame 0 at 0, then frame 1 at 32 opening a block of its own pieces.
+    let mut ac3 = AudioPacketizer::new([0; 16], 0, false, 32);
+    let mut sent = Vec::new();
+    for (index, last) in [false, false, true, false, true].into_iter().enumerate() {
+        sent.extend(ac3.encode_part(&[index as u8; 1028], last).unwrap());
+    }
+    let data: Vec<_> = sent.iter().filter(|p| p[1] == 97).collect();
+    assert_eq!(
+        data.iter().map(|p| timestamp(p)).collect::<Vec<_>>(),
+        [0, 0, 0, 32, 32]
+    );
+    let fec: Vec<_> = sent.iter().filter(|p| p[1] == 127).collect();
+    assert_eq!(fec.len(), 2);
+    assert!(fec.iter().all(|p| p[16..20] == 0u32.to_be_bytes()));
+    assert!(fec.iter().all(|p| p.len() == 24 + 1028));
+    assert_eq!(ac3.timestamp, 64);
+}

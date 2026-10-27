@@ -561,6 +561,20 @@ fn expected(feature: Feature) -> Availability {
         Feature::CursorShape => Unsupported(None),
         // File transfer is off; listed by the native API only when on.
         Feature::FileUpload | Feature::FileDownload => Unsupported(None),
+        // The 3.0 extensions are defined but offered by nothing yet.
+        Feature::DolbyVision
+        | Feature::Hlg
+        | Feature::ClientFec
+        | Feature::BandwidthProbe
+        | Feature::UsbForwarding
+        | Feature::AudioPassthrough
+        | Feature::Surround714
+        | Feature::TextInput
+        | Feature::ClientKeyboardLayout
+        | Feature::PenBarrelRoll
+        | Feature::PipelineRates
+        | Feature::ImageClipboard
+        | Feature::SharedFolders => Unsupported(None),
     }
 }
 

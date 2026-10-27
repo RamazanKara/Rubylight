@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_audio_passthrough">オーディオパススルー（試験運用）</string>
+    <string name="summary_checkbox_audio_passthrough">オーディオ出力がそのまま再生できる形式で、Rubylight PC に音声を要求します。非圧縮 PCM、またはデコードできる AV レシーバー、サウンドバー、テレビ向けの Dolby Digital（AC3）や Dolby Digital Plus（E-AC3）です。Android 10 以降と新しいストリーミングエンジンが必要です。Dolby 音声は 32 ms 単位で届くため、Opus より遅れて届きます。ほかの PC や出力では Opus のままです。</string>
+</resources>

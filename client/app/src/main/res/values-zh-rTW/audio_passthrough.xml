@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_audio_passthrough">音訊直通（實驗性）</string>
+    <string name="summary_checkbox_audio_passthrough">向 Rubylight 電腦要求你的音訊輸出可直接播放的聲音格式：未壓縮的 PCM，或供可解碼的擴大機、聲霸或電視使用的 Dolby Digital（AC3）或 Dolby Digital Plus（E-AC3）。需要 Android 10 或以上版本以及新串流引擎。Dolby 音訊以 32 毫秒為一塊傳送，因此比 Opus 晚到。其他電腦和輸出仍使用 Opus。</string>
+</resources>

@@ -25,6 +25,18 @@ The host acknowledges controller microphone support only after its USB audio end
 
 With [Game-only audio](configuration.md#game-only-audio), dedicated USB speaker PCM is suppressed because the virtual endpoint cannot identify which application wrote it. Normal process-captured game sound still reaches a connected controller headset. Actuator haptics and microphone permissions remain independent. Disabled stream audio and muted Remote Monitor sessions also suppress this separate speaker path.
 
+## Haptics from game audio (Experimental)
+
+Most games send a DualSense rumble at best and often nothing. With **Settings → Input → Controllers → Haptics from game audio** (`audio_haptics`, off by default) the host makes waveform haptics from the stream's own sound for each client DualSense that has waveform haptics but gets none from the game:
+
+- The bass below 150 Hz drives the left and right actuators from the left and right channels; in 5.1 and 7.1 the LFE drives both, and the rear and side channels add to their side.
+- Sharp transients such as shots and impacts add a short 100 Hz thump on their side, as strong as the transient, even when they carry no bass.
+- **Audio haptics strength** (`audio_haptics_strength`, 0 to 200 %, default 100) scales the result. **Audio haptics response** (`audio_haptics_curve`) is **Linear** (the default), **Soft** (lifts quiet bass) or **Punchy** (keeps only big hits). **Audio haptics noise gate** (`audio_haptics_gate`, -80 to -10 dBFS, default -50) keeps quieter bass off the actuators. All four apply mid-stream when saved, and override per device and app.
+- It stops the moment the game sends that controller its own waveform haptics, rumble or trigger rumble, and resumes a minute after the game's last. Their 0x5601 sequence numbers continue from each other, so the client never discards the game's frames.
+- The analysis runs on the control thread from a copy of the audio already sent; the audio path only copies a packet into a lock-free ring while a controller wants it. Audio gains no latency, and silent stretches send no haptics packets.
+- It needs what waveform forwarding needs from the client (connection feature 0x04, capability 0x8000, encrypted control with channel 8), with **Vibration** on and the client's haptics toggle on. USB/IP is not needed: the frames do not pass through the virtual controller, so any controller profile works.
+- A value outside these ranges in a hand-edited configuration turns the feature off for the stream with a warning on the stream card.
+
 ## Installer and portable packages
 
 Quiet setup accepts `--usbip-driver` to select the component or `--no-usbip-driver` to skip it. Without either flag, setup and in-app updates keep the previously saved choice; a new installation leaves it off. Skipping the component does not remove an installed driver. If the shared USB/IP installation is incomplete, setup reports that it needs a restart or separate repair and leaves it unchanged.

@@ -74,6 +74,7 @@ Columns: **RX 7900 XT** is Windows 11 26200 with the driver named in the evidenc
 | Keyboard and mouse | Tested | Experimental | Experimental | [Input on the control thread](../rust/PERFORMANCE.md#october-7-input-on-the-control-thread), Windows 11 26200 | rc era, 2026-10-07 |
 | Virtual DualShock 4 and DualSense pads | Tested | Experimental | Experimental | [Native controller checks](../rust/PERFORMANCE.md#native-controller-and-moonlight-62-command-checks), signed driver 0.1.0.39. No network client or live pad | rc era, 2026-10-06 |
 | Xbox and Switch Pro profiles, Steam Deck pads, DualSense USB haptics, back grips | Experimental | Experimental | Experimental | None recorded | - |
+| Haptics from game audio (`audio_haptics`, off by default) | Experimental | Experimental | Experimental | Unit tests only: sine, kick and impact fixtures, switch-over to game haptics, live settings. No client DualSense run | - |
 | **WebRTC transport** | | | | | |
 | WebRTC server (`webrtc_server`, off by default): pairing, H.264, HEVC and AV1, HDR, stereo and surround, gamepad and keyboard and mouse | Experimental, ran | Experimental, not run | Experimental, not run | Our own browser harness (`rust/tests/webrtc_e2e.cjs`) on this PC against an isolated test host. Measurements are not recorded yet. The Samsung TV app has not been run. [WebRTC server](webrtc.md) | 3.0 main, 2026-10-25 |
 | **Rendering paths** | | | | | |

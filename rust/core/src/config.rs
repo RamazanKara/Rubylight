@@ -489,6 +489,11 @@ impl Config {
     pub fn client_roaming(&self) -> bool {
         self.boolean("client_roaming", true)
     }
+    /// HDR10+ and HDR Vivid dynamic metadata in HDR streams (`hdr_dynamic_metadata`, on
+    /// by default): per-frame brightness statistics for displays that tone-map with them.
+    pub fn hdr_dynamic_metadata(&self) -> bool {
+        self.boolean("hdr_dynamic_metadata", true)
+    }
     /// The WebRTC server for TV and browser clients (off by default).
     pub fn webrtc_server(&self) -> bool {
         self.boolean("webrtc_server", false)
@@ -1278,6 +1283,22 @@ mod tests {
         ] {
             assert_eq!(
                 super::Config::parse(text).unwrap().client_roaming(),
+                on,
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn hdr_dynamic_metadata_is_on_unless_turned_off() {
+        assert!(super::Config::default().hdr_dynamic_metadata());
+        for (text, on) in [
+            ("hdr_dynamic_metadata = true\n", true),
+            ("hdr_dynamic_metadata = disabled\n", false),
+            ("hdr_dynamic_metadata = 0\n", false),
+        ] {
+            assert_eq!(
+                super::Config::parse(text).unwrap().hdr_dynamic_metadata(),
                 on,
                 "{text}"
             );

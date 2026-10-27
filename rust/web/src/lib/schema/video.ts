@@ -232,6 +232,18 @@ const video: Setting[] = [
     default: false,
   },
   {
+    key: 'hdr_dynamic_metadata',
+    label: 'HDR dynamic metadata',
+    description:
+      'Adds HDR10+ brightness statistics to HDR video so compatible displays can tone-map scene by scene. Devices without HDR10+ ignore them.',
+    details:
+      'HDR10+ goes into HEVC and AV1 streams. HEVC streams also carry HDR Vivid (CUVA 005.1) statistics, which are Experimental. Turn this off if a display handles brightness worse with it.',
+    category: 'video',
+    group: 'Codecs',
+    control: { kind: 'toggle' },
+    default: true,
+  },
+  {
     key: 'frame_pacing',
     label: 'Frame pacing',
     description:

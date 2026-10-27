@@ -467,11 +467,38 @@ impl HostClient {
         self.pair_with(server_info, pin, Some(passphrase))
     }
 
+    /// Pairs with a host's QR pairing link (Experimental): one-time PIN pairing, refused with
+    /// [`Error::CertificateMismatch`] before anything is sent back when the host's certificate
+    /// does not hash to the link's fingerprint. The client must already point at the link's
+    /// host and port.
+    pub fn pair_with_link(
+        &self,
+        server_info: &ServerInfo,
+        link: &rubylight_protocol::pairing_uri::PairingUri,
+    ) -> Result<PairResult, Error> {
+        self.pair_checked(
+            server_info,
+            &link.otp,
+            Some(&link.passphrase),
+            Some(link.cert_sha256),
+        )
+    }
+
     fn pair_with(
         &self,
         server_info: &ServerInfo,
         pin: &str,
         passphrase: Option<&str>,
+    ) -> Result<PairResult, Error> {
+        self.pair_checked(server_info, pin, passphrase, None)
+    }
+
+    fn pair_checked(
+        &self,
+        server_info: &ServerInfo,
+        pin: &str,
+        passphrase: Option<&str>,
+        fingerprint: Option<[u8; 32]>,
     ) -> Result<PairResult, Error> {
         let major = server_info.major_version()?;
         let previous = {
@@ -482,7 +509,10 @@ impl HostClient {
             state.server_certificate.clone()
         };
         // A failed attempt keeps the previous pin (the Java client left the new one set).
-        let mut transport = PairingClient { client: self };
+        let mut transport = PairingClient {
+            client: self,
+            fingerprint,
+        };
         let result = pairing::pair(&mut transport, &self.identity, major, pin, passphrase);
         if !matches!(result, Ok(PairResult::Paired { .. })) {
             self.pin(previous);
@@ -657,6 +687,8 @@ impl HostClient {
 
 struct PairingClient<'a> {
     client: &'a HostClient,
+    /// The SHA-256 the host certificate must have (a QR pairing link's `fp`).
+    fingerprint: Option<[u8; 32]>,
 }
 
 impl pairing::PairingTransport for PairingClient<'_> {
@@ -681,6 +713,11 @@ impl pairing::PairingTransport for PairingClient<'_> {
     }
 
     fn pin_server_certificate(&mut self, der: &[u8]) -> Result<(), Error> {
+        if let Some(expected) = self.fingerprint {
+            if crypto::sha256(der) != expected {
+                return Err(Error::CertificateMismatch);
+            }
+        }
         self.client.pin(Some(der.to_vec()));
         Ok(())
     }

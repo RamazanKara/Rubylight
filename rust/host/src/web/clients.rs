@@ -297,7 +297,11 @@ fn one_time_pin(h: &Shared, passphrase: &str, device_name: &str) -> String {
 /// `butterpollo_core::pairing_uri`), all for one new one-time PIN with a
 /// passphrase the host picks. Refused while `qr_pairing` is off; `address`
 /// puts that address first.
-fn pairing_qr(h: &Shared, address: &str, mut addresses: Vec<String>) -> anyhow::Result<Value> {
+pub(crate) fn pairing_qr(
+    h: &Shared,
+    address: &str,
+    mut addresses: Vec<String>,
+) -> anyhow::Result<Value> {
     use sha2::Digest;
     let config = h.config.read().unwrap().clone();
     if !config.qr_pairing() {

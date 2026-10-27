@@ -3,6 +3,8 @@ mod child_session;
 mod clients;
 #[cfg(test)]
 pub(crate) use clients::handle as update_clients;
+#[cfg(test)]
+pub(crate) use clients::pairing_qr;
 mod config;
 mod displays;
 mod logs;

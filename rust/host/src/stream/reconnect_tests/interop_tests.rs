@@ -609,6 +609,84 @@ async fn nightjar_pairs_with_the_pin_entered_on_the_host() -> Result<()> {
     Ok(())
 }
 
+/// Nightjar pairs from the console's QR pairing link: one-time PIN pairing checked against the
+/// link's certificate fingerprint. A link with another fingerprint is refused before Nightjar
+/// trusts the host, a used link pairs no one, and the pairing raises `pairing.paired`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn nightjar_pairs_from_the_qr_link_and_checks_the_host_certificate() -> Result<()> {
+    use butterpollo_core::pairing_uri::PairingUri;
+    let h = Harness::new(10_000, 1).await?;
+    let (url, mut received) = crate::webhooks::tests::receiver(vec![200]).await;
+    {
+        let mut config = h.h.config.write().unwrap();
+        config.values.insert("qr_pairing".into(), "true".into());
+        config.values.insert(
+            "webhooks".into(),
+            serde_json::json!([{"url": url, "events": ["pairing.paired"], "secret": "s"}])
+                .to_string(),
+        );
+    }
+    let link = |h: &Harness| {
+        let answer = crate::web::pairing_qr(&h.h, "", vec!["127.0.0.1".into()]).unwrap();
+        let mut link = PairingUri::parse(answer["codes"][0]["uri"].as_str().unwrap()).unwrap();
+        assert_eq!(link.host, "127.0.0.1");
+        // The harness listens on its own port.
+        link.port = h.ports.http;
+        link
+    };
+    let identity = Arc::new(ClientIdentity::generate()?);
+    let client = |link: &PairingUri| -> Result<Arc<HostClient>> {
+        Ok(Arc::new(
+            HostClient::new(&link.host, link.port, identity.clone())?
+                .with_device_name("Nightjar QR"),
+        ))
+    };
+    let pair = async |client: Arc<HostClient>, link: PairingUri| {
+        tokio::task::spawn_blocking(move || {
+            let info = client.server_info(true)?;
+            client.pair_with_link(&info, &link)
+        })
+        .await
+        .unwrap()
+    };
+
+    // Another host's fingerprint: refused, and nothing pinned.
+    let mut forged = link(&h);
+    forged.cert_sha256[0] ^= 1;
+    let refused = client(&forged)?;
+    let result = pair(refused.clone(), forged).await;
+    assert!(
+        matches!(result, Err(nightjar_core::http::Error::CertificateMismatch)),
+        "{result:?}"
+    );
+    assert!(refused.server_certificate_pem().is_none());
+
+    let good = link(&h);
+    let paired = client(&good)?;
+    let result = pair(paired.clone(), good.clone()).await?;
+    let PairResult::Paired {
+        server_certificate_pem,
+    } = result
+    else {
+        panic!("{result:?}");
+    };
+    assert_eq!(server_certificate_pem, h.h.identity.certificate);
+    assert!(paired.server_info(true)?.paired);
+    let event: serde_json::Value = serde_json::from_slice(&received.recv().await.unwrap().body)?;
+    assert_eq!(event["event"], "pairing.paired");
+    assert_eq!(event["data"]["device"]["name"], "Nightjar QR");
+    assert_eq!(event["data"]["transport"], "moonlight");
+
+    // The PIN worked once.
+    let again = client(&good)?;
+    let result = pair(again, good).await;
+    assert!(
+        !matches!(result, Ok(PairResult::Paired { .. })),
+        "{result:?}"
+    );
+    h.finish().await
+}
+
 /// How Nightjar reads each field of the host's serverinfo. Every field the host sends is
 /// listed: a new one needs a decision here, and Nightjar's reading of it.
 enum Reading {

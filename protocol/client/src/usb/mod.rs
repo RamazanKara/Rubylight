@@ -13,7 +13,7 @@ mod forwarder;
 mod server;
 
 pub use blocking::{Blocking, BlockingDevice};
-pub use forwarder::{Attachment, AttachError, Forwarder, Phase};
+pub use forwarder::{AttachError, Attachment, Forwarder, Phase};
 pub use rubylight_protocol::usb::{UsbMessage, UsbReason, UsbState};
 pub use rubylight_protocol::usbip::{self as wire, IsoPacket};
 pub use server::{serve, Completion, Direction, Reply, ServeError, Transfer, UsbDevice};

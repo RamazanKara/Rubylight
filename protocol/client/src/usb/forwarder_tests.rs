@@ -145,12 +145,20 @@ fn an_attach_asks_once_per_device_and_follows_the_host() {
         Err(AttachError::Busy)
     );
     // Served: a transfer goes through.
-    let seqnum = driver.submit(0, wire::DIR_IN, 18, crate::usb::server::tests::setup(0x80, 6, 0x0100, 18), &[], &[]);
+    let seqnum = driver.submit(
+        0,
+        wire::DIR_IN,
+        18,
+        crate::usb::server::tests::setup(0x80, 6, 0x0100, 18),
+        &[],
+        &[],
+    );
     let (_, data, _) = driver.reply(true);
     assert_eq!((seqnum, data.as_slice()), (1, &fake::DEVICE_DESCRIPTOR[..]));
 
     // The host detaches it at the end of its session: the tunnel closes and the device too.
-    rig.forwarder.on_message(UsbMessage::Detach { request_id: id });
+    rig.forwarder
+        .on_message(UsbMessage::Detach { request_id: id });
     rig.forwarder.on_message(UsbMessage::Status {
         request_id: id,
         state: UsbState::Detached,
@@ -225,7 +233,10 @@ fn a_tunnel_that_does_not_open_fails_and_tells_the_host() {
     };
     assert!(error.contains("usb_disabled"), "{error}");
     wait_closed(&device);
-    assert_eq!(rig.sent().last(), Some(&UsbMessage::Detach { request_id: id }));
+    assert_eq!(
+        rig.sent().last(),
+        Some(&UsbMessage::Detach { request_id: id })
+    );
 }
 
 #[test]
@@ -255,7 +266,10 @@ fn refusals_end_the_attachment_with_the_hosts_reason() {
         request_id: id,
         token: TOKEN,
     });
-    assert!(rig.drivers.recv_timeout(Duration::from_millis(200)).is_err());
+    assert!(rig
+        .drivers
+        .recv_timeout(Duration::from_millis(200))
+        .is_err());
 }
 
 #[test]
@@ -296,7 +310,10 @@ fn the_session_ending_detaches_everything_and_attaches_nothing_more() {
     for device in [&first, &second, &asking] {
         wait_closed(device);
     }
-    assert!(rig.sent().is_empty(), "the stream is gone; the host detaches its side");
+    assert!(
+        rig.sent().is_empty(),
+        "the stream is gone; the host detaches its side"
+    );
     assert_eq!(
         rig.forwarder
             .attach(Arc::new(Blocking::new(FakeDevice::new("1-5"))), "Late"),

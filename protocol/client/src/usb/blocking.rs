@@ -97,7 +97,10 @@ fn run_lane<D: BlockingDevice>(inner: Arc<Inner<D>>, lane: (u8, Direction)) {
                         .insert(job.transfer.seqnum, job.cancelled.clone());
                     break job;
                 }
-                lanes = inner.wake.wait(lanes).unwrap_or_else(PoisonError::into_inner);
+                lanes = inner
+                    .wake
+                    .wait(lanes)
+                    .unwrap_or_else(PoisonError::into_inner);
             }
         };
         let reply = inner.device.transfer(&job.transfer, &job.cancelled);
@@ -164,7 +167,11 @@ impl<D: BlockingDevice> UsbDevice for Blocking<D> {
             for cancelled in lanes.running.values() {
                 cancelled.store(true, Ordering::SeqCst);
             }
-            let queued: Vec<Job> = lanes.queues.values_mut().flat_map(|q| q.drain(..)).collect();
+            let queued: Vec<Job> = lanes
+                .queues
+                .values_mut()
+                .flat_map(|q| q.drain(..))
+                .collect();
             (std::mem::take(&mut lanes.threads), queued)
         };
         self.inner.wake.notify_all();

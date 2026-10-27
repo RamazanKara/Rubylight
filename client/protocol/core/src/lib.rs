@@ -24,6 +24,7 @@ pub mod phase_lock;
 pub mod pipeline_rates;
 pub mod present_clock;
 pub mod pyrowave;
+pub mod rate_change;
 pub mod roaming;
 pub mod steam_controller;
 pub mod text_input;

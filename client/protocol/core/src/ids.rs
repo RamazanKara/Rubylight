@@ -8,7 +8,7 @@
 
 use crate::{
     control, cursor_shape, fec_report, keyboard_layout, pen, phase_lock, pipeline_rates,
-    steam_controller, text_input, usb,
+    rate_change, steam_controller, text_input, usb,
 };
 use core::ops::RangeInclusive;
 
@@ -55,6 +55,7 @@ pub const CONTROL_IDS: &[(u16, &str)] = &[
     (fec_report::FEC_REPORT_MESSAGE_TYPE, "FEC report"),
     (usb::USB_MESSAGE_TYPE, "USB forwarding"),
     (text_input::TEXT_INPUT_MESSAGE_TYPE, "text input"),
+    (rate_change::RATE_CHANGE_MESSAGE_TYPE, "rate change"),
     (
         pipeline_rates::PIPELINE_RATES_MESSAGE_TYPE,
         "pipeline rates",
@@ -72,10 +73,7 @@ pub const CONTROL_IDS: &[(u16, &str)] = &[
 ];
 
 /// Control message types held back for a message that may be needed later.
-pub const RESERVED_CONTROL_IDS: &[(u16, &str)] = &[
-    (0x553C, "control-stream rate change"),
-    (0x5542, "cursor position"),
-];
+pub const RESERVED_CONTROL_IDS: &[(u16, &str)] = &[(0x5542, "cursor position")];
 
 /// Control message types other clients use; Rubylight defines nothing here.
 pub const OTHER_CLIENTS_CONTROL_IDS: RangeInclusive<u16> = 0x5506..=0x5510;
@@ -160,7 +158,7 @@ mod tests {
                 .iter()
                 .map(|(id, _)| *id)
                 .collect::<Vec<_>>(),
-            [0x553C, 0x5542]
+            [0x5542]
         );
         let new: Vec<u16> = CONTROL_IDS
             .iter()
@@ -169,7 +167,7 @@ mod tests {
             .collect();
         assert_eq!(
             new,
-            [0x5539, 0x553A, 0x553B, 0x553D, 0x553E, 0x5540, 0x5541]
+            [0x5539, 0x553A, 0x553B, 0x553C, 0x553D, 0x553E, 0x5540, 0x5541]
         );
     }
 

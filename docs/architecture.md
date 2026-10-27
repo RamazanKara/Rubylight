@@ -77,7 +77,7 @@ WGC requests an explicit zero minimum update interval where Windows supports it.
 
 ## Native HDR and full-resolution colour
 
-The native HDR path captures FP16 scRGB, resizes in linear light and converts to ten-bit BT.2020/PQ. Shader math preserves absolute ST.2084 luminance. Windows HDR detection distinguishes an active HDR output from wide-gamut SDR colour management. [Independent decoding and reference-pixel checks](performance.md#hdr-and-pyrowave-validation) verify the tested pixel path.
+The native HDR path captures FP16 scRGB, resizes in linear light and converts to ten-bit BT.2020/PQ, or BT.2020/HLG graded for 1000 nits for a device that asks for HLG. Shader math preserves absolute ST.2084 luminance. Windows HDR detection distinguishes an active HDR output from wide-gamut SDR colour management. [Independent decoding and reference-pixel checks](performance.md#hdr-and-pyrowave-validation) verify the tested pixel path.
 
 Capture and HDR metadata share a cached description of the selected display. The cache checks the DXGI factory at most once per second and resolves the same output from a fresh factory when Windows invalidates it. Matching uses the display's owning adapter and monitor identity, independently of the encoder's GPU. An SDR/HDR colour-space change uses capture recovery to reopen the frame pool; a luminance-only change updates metadata without a capture restart. A missing output is never replaced by another monitor's description. This refresh is available in [2.2.17](../rust/RELEASE_NOTES.md#new-in-2217); live transition measurements remain pending.
 

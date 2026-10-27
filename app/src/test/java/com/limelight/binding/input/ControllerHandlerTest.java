@@ -1,6 +1,9 @@
 package com.limelight.binding.input;
 
 import android.app.Application;
+import android.content.Context;
+import android.hardware.Sensor;
+import android.hardware.SensorManager;
 import android.view.KeyEvent;
 
 import com.limelight.nvstream.NvConnection;
@@ -14,6 +17,9 @@ import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
+import org.robolectric.shadow.api.Shadow;
+import org.robolectric.shadows.ShadowSensor;
+import org.robolectric.shadows.ShadowSensorManager;
 import org.robolectric.util.ReflectionHelpers;
 
 import java.lang.reflect.Method;
@@ -130,5 +136,48 @@ public class ControllerHandlerTest {
         assertEquals((short) -32768, maximum.invoke(null, (short) 32767, (short) -32768));
         assertEquals((short) -12345, maximum.invoke(null, (short) -12345, (short) 12000));
         assertEquals((short) 12000, maximum.invoke(null, (short) -1000, (short) 12000));
+    }
+
+    // A controller gyroscope that reports only zeros hands player 1's motion to the device sensors.
+    @Test
+    public void aSilentControllerGyroscopeMovesPlayerOneToTheDeviceSensors() {
+        ControllerInputReleaseTest.MenuGame activity = Robolectric.buildActivity(ControllerInputReleaseTest.MenuGame.class).get();
+        SensorManager device = (SensorManager) activity.getSystemService(Context.SENSOR_SERVICE);
+        ShadowSensorManager shadowDevice = Shadow.extract(device);
+        shadowDevice.addSensor(ShadowSensor.newInstance(Sensor.TYPE_GYROSCOPE));
+        shadowDevice.addSensor(ShadowSensor.newInstance(Sensor.TYPE_ACCELEROMETER));
+        PreferenceConfiguration prefs = new PreferenceConfiguration();
+        prefs.gamepadMotionSensorsFallbackToDevice = true;
+        ControllerHandler handler = new ControllerHandler(activity, new RecordingConnection(), null, prefs);
+        ControllerHandler.InputDeviceContext context = ReflectionHelpers.getField(handler, "defaultContext");
+        try {
+            // Only player 1 on a controller's own sensors, and only with the fallback allowed.
+            assertTrue(handler.checksGyroLiveness((short) 0, null));
+            assertFalse(handler.checksGyroLiveness((short) 1, null));
+            assertFalse(handler.checksGyroLiveness((short) 0, device));
+            prefs.gamepadMotionSensorsFallbackToDevice = false;
+            assertFalse(handler.checksGyroLiveness((short) 0, null));
+            prefs.gamepadMotionSensorsFallbackToDevice = true;
+
+            context.assignedControllerNumber = true;
+            context.controllerNumber = 0;
+            context.gyroReportRateHz = 100;
+            context.accelReportRateHz = 100;
+            Map<Integer, ControllerHandler.InputDeviceContext> contexts =
+                    ReflectionHelpers.getField(handler, "inputDeviceContexts");
+            contexts.put(7, context);
+            handler.fallBackToDeviceSensors(context);
+            assertSame(device, context.sensorManager);
+            assertNotNull(context.gyroListener);
+            assertNotNull(context.accelListener);
+            assertTrue(shadowDevice.hasListener(context.gyroListener));
+            assertTrue(shadowDevice.hasListener(context.accelListener));
+            // Once on the device sensors, it stays there.
+            Object gyro = context.gyroListener;
+            handler.fallBackToDeviceSensors(context);
+            assertSame(gyro, context.gyroListener);
+        } finally {
+            handler.destroy();
+        }
     }
 }

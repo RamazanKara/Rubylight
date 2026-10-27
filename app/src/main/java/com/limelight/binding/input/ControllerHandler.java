@@ -2666,14 +2666,42 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         }
     }
 
-    private SensorEventListener createSensorListener(final short controllerNumber, final byte motionType, final boolean needsDeviceOrientationCorrection) {
+    // Player 1's controller gyroscope gets a liveness check when its demand may move to the device
+    // gyroscope, the way Moonlight V+ does it.
+    boolean checksGyroLiveness(short controllerNumber, SensorManager controllerSensors) {
+        return controllerNumber == 0 && controllerSensors != deviceSensorManager &&
+                prefConfig.gamepadMotionSensorsFallbackToDevice && deviceSensorManager != null &&
+                deviceSensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE) != null;
+    }
+
+    // A controller gyroscope that reports only zeros hands both motion sensors to the device's own.
+    // The new context keeps the device sensors through a reconfiguration, like the plain fallback.
+    void fallBackToDeviceSensors(InputDeviceContext context) {
+        if (stopped || context.destroyed || context.sensorManager == deviceSensorManager) {
+            return;
+        }
+        LimeLog.warning("Gyroscope of " + context.name + " reports only zeros; using the device's motion sensors");
+        context.disableSensors();
+        context.sensorManager = deviceSensorManager;
+        context.enableSensorRunnable.run();
+    }
+
+    private SensorEventListener createSensorListener(final short controllerNumber, final byte motionType,
+                                                     final boolean needsDeviceOrientationCorrection,
+                                                     final InputDeviceContext livenessContext) {
         return new SensorEventListener() {
             private float[] lastValues = new float[3];
+            private final GyroLivenessTracker liveness = livenessContext != null ? new GyroLivenessTracker() : null;
 
             @Override
             public void onSensorChanged(SensorEvent sensorEvent) {
                 if (stopped || !sensorsEnabled || !inputEnabled) {
                     return;
+                }
+                // Before the duplicate check, which drops the repeated zeros this looks for.
+                if (liveness != null && liveness.onSample(sensorEvent.values[0], sensorEvent.values[1],
+                        sensorEvent.values[2], sensorEvent.timestamp)) {
+                    mainThreadHandler.post(() -> fallBackToDeviceSensors(livenessContext));
                 }
                 // Android will invoke our callback any time we get a new reading,
                 // even if the values are the same as last time. Don't report a
@@ -2805,7 +2833,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                         // Enable the accelerometer if requested
                         Sensor accelSensor = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
                         if (sensorsEnabled && reportRateHz != 0 && accelSensor != null) {
-                            deviceContext.accelListener = createSensorListener(controllerNumber, motionType, sm == deviceSensorManager);
+                            deviceContext.accelListener = createSensorListener(controllerNumber, motionType, sm == deviceSensorManager, null);
                             sm.registerListener(deviceContext.accelListener, accelSensor, 1000000 / reportRateHz);
                         }
                         break;
@@ -2818,7 +2846,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                         // Enable the gyroscope if requested
                         Sensor gyroSensor = sm.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
                         if (sensorsEnabled && reportRateHz != 0 && gyroSensor != null) {
-                            deviceContext.gyroListener = createSensorListener(controllerNumber, motionType, sm == deviceSensorManager);
+                            deviceContext.gyroListener = createSensorListener(controllerNumber, motionType, sm == deviceSensorManager,
+                                    checksGyroLiveness(controllerNumber, sm) ? deviceContext : null);
                             sm.registerListener(deviceContext.gyroListener, gyroSensor, 1000000 / reportRateHz);
                         }
                         break;

@@ -419,7 +419,7 @@ The answer is `application/octet-stream` with the file's exact `Content-Length`.
 
 ## Defined, not yet served
 
-These are defined for 3.0 in `rubylight-native-api` and not yet served: no host lists their features, and the routes answer `not_found` until it does.
+These are defined for 3.0 in `rubylight-native-api` and not yet served: no host lists their features. Until one does, the routes below answer 404 `not_found` like any unknown path under `/api/native/v1`, and `/actions/clipboard?type=png` answers 403 with no body, as for any type but `text`.
 
 | Feature | Listed while | Permission |
 | --- | --- | --- |
@@ -444,7 +444,7 @@ Both permissions are booleans in `permissions`, missing from older hosts and the
 
 - The USB tunnel is a request with `Connection: Upgrade`, `Upgrade: rubylight-usbip/1` and `X-Rubylight-Usb-Token` (32 hex digits). The token comes from control message `0x553A` ([control messages](control-messages.md#defined-not-yet-offered)): it is good once, for 30 s, and only for the device that asked for it. After `101 Switching Protocols` the connection carries standard USB/IP, with the client as the USB/IP server. The host relays it to its driver over 127.0.0.1, so no USB/IP port is reachable from the network. An unknown or expired token is `not_found`; a reused one is `usb_limit`.
 - A folder answers `{"folders": [{"id": "games", "name": "Games", "access": "read"}]}` and its entries `{"path": "saves", "entries": [{"name": "slot1.sav", "kind": "file", "size": 4096, "modified_unix_ms": 1792000000000}]}`. `kind` is `file` or `dir`. An unknown `access` or `kind` decodes as `Unknown`. A PUT reuses `length_required`, `too_large` and `insufficient_storage`.
-- The image clipboard is `type=png` on the existing `/actions/clipboard`: `GET` answers `image/png`, or 404 while the clipboard holds no image, and `POST` takes `Content-Type: image/png` up to the host's limit (413 above it).
+- The image clipboard is `type=png` on the existing `/actions/clipboard`: `GET` answers `image/png`, or 404 while the clipboard holds no image, and `POST` takes `Content-Type: image/png` up to the host's limit (413 above it). That route is Vibepollo's, outside `/api/native/v1`: like its text form it answers with the status alone, so the 404 and 413 carry no error body and no `code`.
 
 | HTTP | `code` | When |
 |---|---|---|

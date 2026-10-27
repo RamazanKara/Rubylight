@@ -1435,6 +1435,17 @@ async fn clipboard_requires_direction_view_text_and_an_active_session_for_this_d
     }
     f.host.paired.write().unwrap().clients[0].perm = (1 << 17) | (1 << 26);
     assert!(clipboard_client(&f.host, &c, 1 << 17, &args).is_ok());
+    // The image clipboard (`type=png`, defined for 3.0) is not served yet: a
+    // device allowed both directions gets 403, as for any type but text.
+    f.host.paired.write().unwrap().clients[0].perm = (1 << 16) | (1 << 17) | (1 << 26);
+    for method in ["GET", "POST"] {
+        assert_eq!(
+            request(&f, true, method, "/actions/clipboard?type=png")
+                .await
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+    }
     let canceled = f
         .host
         .sessions

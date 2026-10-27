@@ -318,6 +318,13 @@ async fn unknown_paths_and_methods_answer_404_not_found_in_the_error_shape() {
         ("GET", "/session/end"),
         ("GET", "/session/close-game"),
         ("GET", "/session/couch-menu"),
+        // Defined for 3.0, not yet served.
+        ("GET", "/usb/tunnel"),
+        ("GET", "/folders"),
+        ("GET", "/folders/games/entries?path="),
+        ("GET", "/folders/games/content?path=a"),
+        ("PUT", "/folders/games/content?path=a"),
+        ("PROPFIND", "/folders/games/dav/"),
     ] {
         api(&s.f, &s.connection, method, path)
             .await

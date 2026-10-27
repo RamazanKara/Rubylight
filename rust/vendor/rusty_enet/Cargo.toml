@@ -1,0 +1,36 @@
+# rusty_enet 0.4.0 (MIT, https://github.com/jabuwu/rusty_enet), changed in these ways only. Used
+# by the host through [patch.crates-io] in the root Cargo.toml.
+# - Cargo.toml: the published Cargo.toml.orig, without its `[workspace]` table (the ci member is
+#   not published). rust-toolchain, RELEASE.md and the registry metadata files are not copied.
+# - src/lib.rs: `#![allow(warnings)]` added, the upstream lint output is not ours to fix.
+[package]
+name = "rusty_enet"
+version = "0.4.0"
+edition = "2021"
+description = "ENet for Rust (and wasm!) transpiled from C."
+homepage = "https://github.com/jabuwu/rusty_enet"
+repository = "https://github.com/jabuwu/rusty_enet"
+readme = "README.md"
+license = "MIT"
+rust-version = "1.77"
+exclude = [
+    "/.github",
+    "/ci",
+    "/examples",
+]
+
+[features]
+default = ["std"]
+std = []
+connected = []
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3.69"
+
+[dev-dependencies]
+rand = "0.9"
+rand_chacha = "0.9"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

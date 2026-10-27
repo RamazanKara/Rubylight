@@ -58,6 +58,14 @@ Microsoft Corporation, MIT OR Apache-2.0). License texts are in
 rust/drivers/rubylight-vdisplay/LICENSE-MIT and LICENSE-APACHE and in
 rust/THIRD_PARTY.md.
 
+rusty_enet and ENet
+
+The host's control connection uses rusty_enet 0.4.0 (https://github.com/jabuwu/rusty_enet),
+ENet 1.3.18 by Lee Salzman (https://github.com/lsalzman/enet) transpiled to Rust,
+Copyright (c) 2002-2020 Lee Salzman, MIT. A copy changed by Rubylight is vendored in
+rust/vendor/rusty_enet; its Cargo.toml lists the changes and its LICENSE holds the full
+notice.
+
 Spleen font
 
 The couch menu embeds bitmaps converted from Spleen 2.2.0 (8x16 and 16x32) by

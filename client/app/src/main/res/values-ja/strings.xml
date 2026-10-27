@@ -425,6 +425,9 @@
     <string name="keyboard_shortcuts_exported">ショートカットをエクスポートしました。</string>
     <string name="keyboard_shortcuts_file_error">ショートカットのファイルを読み書きできませんでした。ファイルへのアクセスを確認し、ショートカットが 32 個以下の有効なエクスポート ファイルを使用してください。</string>
     <string name="title_disable_hevc_low_latency">HEVC の低遅延フラグ</string>
-    <string name="summary_disable_hevc_low_latency">HEVC 映像がカクついたり止まったりする場合はオフにします。オフにすると、HEVC では Android とチップセットの任意の低遅延フラグと参照フレームの無効化を使いません。古い Fire TV のデコーダーでは、必須の互換性フラグは維持されます。ほかのコーデックとデコーダーのパフォーマンスヒントは、それぞれの設定に従います。次のストリームから適用されます。</string>
+    <string name="summary_disable_hevc_low_latency">自動では Amlogic 以外のすべての HEVC デコーダーでフラグを使います（Amlogic では表示が止まるため）。オンでは Amlogic でも使います。HEVC 映像がカクついたり止まったりする場合はオフにします。オフにすると、HEVC では Android とチップセットの任意の低遅延フラグと参照フレームの無効化を使いません。古い Fire TV のデコーダーでは、必須の互換性フラグは維持されます。ほかのコーデックとデコーダーのパフォーマンスヒントは、それぞれの設定に従います。次のストリームから適用されます。</string>
+    <string name="hevc_low_latency_auto">自動</string>
+    <string name="hevc_low_latency_on">オン</string>
+    <string name="hevc_low_latency_off">オフ</string>
     <string name="title_oled_black">OLEDブラック</string>
 </resources>

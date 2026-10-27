@@ -2259,7 +2259,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
             // This will try low latency options until we find one that works (or we give up).
             boolean newFormat = MediaCodecHelper.setDecoderLowLatencyOptions(mediaFormat, selectedDecoderInfo, tryNumber,
-                    prefs.codecLowLatency, prefs.vendorLowLatency, prefs.codecPerformance, prefs.disableHevcLowLatency);
+                    prefs.codecLowLatency, prefs.vendorLowLatency, prefs.codecPerformance, prefs.hevcLowLatency(), false);
 
             // Each rejected configure drops keys on the next try; keep a record of which ones went.
             List<String> vendorParams = MediaCodecHelper.getIntegerVendorParameters(selectedDecoderInfo.getName());

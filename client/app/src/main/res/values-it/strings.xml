@@ -425,6 +425,9 @@
     <string name="keyboard_shortcuts_exported">Scorciatoie esportate.</string>
     <string name="keyboard_shortcuts_file_error">Impossibile leggere o scrivere il file delle scorciatoie. Controlla l’accesso ai file e usa un’esportazione valida con al massimo 32 scorciatoie.</string>
     <string name="title_disable_hevc_low_latency">Opzioni HEVC a bassa latenza</string>
-    <string name="summary_disable_hevc_low_latency">Disattivalo se il video HEVC scatta o si blocca. Disattivato salta le opzioni facoltative di bassa latenza di Android e del chipset e l’invalidazione dei frame di riferimento per HEVC. Le opzioni di compatibilità necessarie restano attive sui vecchi decoder Fire TV. Gli altri codec e i suggerimenti sulle prestazioni del decoder mantengono le proprie impostazioni. Si applica allo stream successivo.</string>
+    <string name="summary_disable_hevc_low_latency">Automatico usa le opzioni su tutti i decoder HEVC tranne quelli Amlogic, il cui display si blocca con esse; Attivato le usa anche lì. Disattivalo se il video HEVC scatta o si blocca. Disattivato salta le opzioni facoltative di bassa latenza di Android e del chipset e l’invalidazione dei frame di riferimento per HEVC. Le opzioni di compatibilità necessarie restano attive sui vecchi decoder Fire TV. Gli altri codec e i suggerimenti sulle prestazioni del decoder mantengono le proprie impostazioni. Si applica allo stream successivo.</string>
+    <string name="hevc_low_latency_auto">Automatico</string>
+    <string name="hevc_low_latency_on">Attivato</string>
+    <string name="hevc_low_latency_off">Disattivato</string>
     <string name="title_oled_black">Nero OLED</string>
 </resources>

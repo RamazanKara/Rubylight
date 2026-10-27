@@ -617,22 +617,48 @@ public class MediaCodecHelper {
     public static boolean setDecoderLowLatencyOptions(MediaFormat videoFormat, MediaCodecInfo decoderInfo, int tryNumber,
                                                       boolean lowLatency, boolean vendorLowLatency, boolean performanceHints,
                                                       boolean disableHevcLowLatency, boolean chipsetTuning) {
+        return setDecoderLowLatencyOptions(videoFormat, decoderInfo, tryNumber, lowLatency, vendorLowLatency,
+                performanceHints, disableHevcLowLatency ? PreferenceConfiguration.HEVC_LOW_LATENCY_OFF :
+                        PreferenceConfiguration.HEVC_LOW_LATENCY_AUTO, chipsetTuning);
+    }
+
+    /**
+     * Whether a decoder goes without the Android and vendor low-latency flags under the HEVC
+     * low-latency mode, Moonlight V+'s HevcLowLatencyPolicy (qiin2333/moonlight-vplus, GPL-3.0):
+     * only HEVC is affected; Off leaves them out on every decoder, On on none, and Auto on Amlogic
+     * decoders, which configure fine with them and then show about one frame a second (erratum 22,
+     * V+ issue 499, moonlight-android 1584), which no configure fallback can catch.
+     */
+    static boolean omitsHevcLowLatencyFlags(String mimeType, String decoderName, int hevcLowLatencyMode) {
+        if (!"video/hevc".equals(mimeType)) return false;
+        switch (hevcLowLatencyMode) {
+            case PreferenceConfiguration.HEVC_LOW_LATENCY_OFF: return true;
+            case PreferenceConfiguration.HEVC_LOW_LATENCY_ON: return false;
+            default: return isDecoderInList(amlogicDecoderPrefixes, decoderName);
+        }
+    }
+
+    public static boolean setDecoderLowLatencyOptions(MediaFormat videoFormat, MediaCodecInfo decoderInfo, int tryNumber,
+                                                      boolean lowLatency, boolean vendorLowLatency, boolean performanceHints,
+                                                      int hevcLowLatencyMode, boolean chipsetTuning) {
         // Options here should be tried in the order of most to least risky. The decoder will use
         // the first MediaFormat that doesn't fail in configure().
 
         boolean setNewOption = false;
 
         // Some TV firmware accepts these flags but displays HEVC as a slideshow (erratum 22). The
-        // switch turns them off for HEVC on any device, independent of decoder performance hints.
-        // Amlogic HEVC decoders never get them, as Moonlight V+ (qiin2333/moonlight-vplus,
-        // GPL-3.0) does by default: they configure fine and then show about one frame a second
-        // (V+ issue 499, moonlight-android 1584), which no configure fallback can catch.
-        boolean hevc = "video/hevc".equals(videoFormat.getString(MediaFormat.KEY_MIME));
-        boolean amlogicHevc = hevc && isDecoderInList(amlogicDecoderPrefixes, decoderInfo.getName());
-        boolean disableLowLatency = hevc && (disableHevcLowLatency || amlogicHevc);
-        if (amlogicHevc && !disableHevcLowLatency && tryNumber == 0 && (lowLatency || vendorLowLatency)) {
-            LimeLog.warning("HEVC low-latency flags omitted on Amlogic decoder " + decoderInfo.getName() +
-                    ": they stall its display (erratum 22)");
+        // HEVC low-latency mode decides, independent of decoder performance hints.
+        String mime = videoFormat.getString(MediaFormat.KEY_MIME);
+        boolean disableLowLatency = omitsHevcLowLatencyFlags(mime, decoderInfo.getName(), hevcLowLatencyMode);
+        boolean amlogic = "video/hevc".equals(mime) && isDecoderInList(amlogicDecoderPrefixes, decoderInfo.getName());
+        if (amlogic && tryNumber == 0 && (lowLatency || vendorLowLatency)) {
+            if (hevcLowLatencyMode == PreferenceConfiguration.HEVC_LOW_LATENCY_AUTO) {
+                LimeLog.warning("HEVC low-latency flags omitted on Amlogic decoder " + decoderInfo.getName() +
+                        ": they stall its display (erratum 22)");
+            } else if (hevcLowLatencyMode == PreferenceConfiguration.HEVC_LOW_LATENCY_ON) {
+                LimeLog.warning("HEVC low-latency flags forced on Amlogic decoder " + decoderInfo.getName() +
+                        ": if video updates about once a second, set HEVC low-latency flags to Auto (erratum 22)");
+            }
         }
         boolean useVendorOptions = vendorLowLatency && !disableLowLatency;
         if (lowLatency && !disableLowLatency && tryNumber < 1) {

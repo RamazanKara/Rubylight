@@ -94,6 +94,68 @@ public class MediaCodecHevcLowLatencyTest {
     }
 
     @Test
+    public void autoOmitsTheFlagsOnAmlogicOnlyOnRestoresThemAndOffOmitsThemEverywhere() {
+        int auto = PreferenceConfiguration.HEVC_LOW_LATENCY_AUTO;
+        int on = PreferenceConfiguration.HEVC_LOW_LATENCY_ON;
+        int off = PreferenceConfiguration.HEVC_LOW_LATENCY_OFF;
+        for (String name : new String[] {AML_HEVC, "OMX.amlogic.hevc.decoder.awesome2", "omx.amlogic.hevc.decoder"}) {
+            assertTrue(name, MediaCodecHelper.omitsHevcLowLatencyFlags(HEVC, name, auto));
+            assertFalse(name, MediaCodecHelper.omitsHevcLowLatencyFlags(HEVC, name, on));
+            assertTrue(name, MediaCodecHelper.omitsHevcLowLatencyFlags(HEVC, name, off));
+        }
+        for (String name : new String[] {OTHER_HEVC, "c2.qti.hevc.decoder", "c2.exynos.hevc.decoder"}) {
+            assertFalse(name, MediaCodecHelper.omitsHevcLowLatencyFlags(HEVC, name, auto));
+            assertFalse(name, MediaCodecHelper.omitsHevcLowLatencyFlags(HEVC, name, on));
+            assertTrue(name, MediaCodecHelper.omitsHevcLowLatencyFlags(HEVC, name, off));
+        }
+        // Other codecs keep the flags in every mode, Amlogic's included.
+        for (int mode : new int[] {auto, on, off}) {
+            assertFalse(MediaCodecHelper.omitsHevcLowLatencyFlags("video/avc", "c2.amlogic.avc.decoder", mode));
+            assertFalse(MediaCodecHelper.omitsHevcLowLatencyFlags("video/av01", "c2.amlogic.av1.decoder", mode));
+            assertFalse(MediaCodecHelper.omitsHevcLowLatencyFlags("video/avc", "c2.qti.avc.decoder", mode));
+        }
+    }
+
+    @Test
+    public void onRestoresEveryLowLatencyFlagOnAmlogicHevcDecoders() {
+        for (String name : new String[] {AML_HEVC, "OMX.amlogic.hevc.decoder.awesome2"}) {
+            MediaFormat format = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
+            assertTrue(MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder(name, HEVC), 0,
+                    true, true, true, PreferenceConfiguration.HEVC_LOW_LATENCY_ON, false));
+            assertEquals(name, 1, format.getInteger(AML_LOW_LATENCY));
+            assertEquals(name, 1, format.getInteger(MediaFormat.KEY_LOW_LATENCY));
+            // Auto, the same decoder: none of them.
+            format = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
+            MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder(name, HEVC), 0,
+                    true, true, true, PreferenceConfiguration.HEVC_LOW_LATENCY_AUTO, false);
+            assertFalse(name, format.containsKey(AML_LOW_LATENCY));
+            assertFalse(name, format.containsKey(MediaFormat.KEY_LOW_LATENCY));
+        }
+        // On still leaves the flags to the Android and vendor switches.
+        MediaFormat format = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
+        MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder(AML_HEVC, HEVC), 0,
+                false, false, true, PreferenceConfiguration.HEVC_LOW_LATENCY_ON, false);
+        assertFalse(format.containsKey(AML_LOW_LATENCY));
+        assertFalse(format.containsKey(MediaFormat.KEY_LOW_LATENCY));
+    }
+
+    @Test
+    public void theStoredModeKeepsOffFromTheOlderSwitch() {
+        android.content.SharedPreferences prefs = org.robolectric.RuntimeEnvironment.getApplication()
+                .getSharedPreferences("hevc-mode-test", 0);
+        assertEquals(PreferenceConfiguration.HEVC_LOW_LATENCY_AUTO, PreferenceConfiguration.readHevcLowLatencyMode(prefs));
+        prefs.edit().putString(PreferenceConfiguration.HEVC_LOW_LATENCY_MODE_PREF_STRING, "on").commit();
+        assertEquals(PreferenceConfiguration.HEVC_LOW_LATENCY_ON, PreferenceConfiguration.readHevcLowLatencyMode(prefs));
+        // Off saved by the older switch (or a profile or reset that writes it) wins over the list's key.
+        prefs.edit().putBoolean(PreferenceConfiguration.DISABLE_HEVC_LOW_LATENCY_PREF_STRING, true).commit();
+        assertEquals(PreferenceConfiguration.HEVC_LOW_LATENCY_OFF, PreferenceConfiguration.readHevcLowLatencyMode(prefs));
+        // And turning that "disable" back off without the list leaves Auto, not a stale Off.
+        prefs.edit().clear().putString(PreferenceConfiguration.HEVC_LOW_LATENCY_MODE_PREF_STRING, "off")
+                .putBoolean(PreferenceConfiguration.DISABLE_HEVC_LOW_LATENCY_PREF_STRING, false).commit();
+        assertEquals(PreferenceConfiguration.HEVC_LOW_LATENCY_AUTO, PreferenceConfiguration.readHevcLowLatencyMode(prefs));
+    }
+
+    @Test
     public void otherHevcDecodersKeepTheFlagsWithoutTheOptIn() {
         for (String name : new String[] {OTHER_HEVC, "c2.qti.hevc.decoder", "c2.exynos.hevc.decoder"}) {
             MediaFormat format = tunedFormat(name, HEVC, false);
@@ -205,23 +267,27 @@ public class MediaCodecHevcLowLatencyTest {
     @Test
     @Config(shadows = RecordingCodec.class)
     public void streamStartupAndRestartApplyTheOptInWithoutReassertingDisabledFlags() {
-        // The opt-in on another decoder, no opt-in there, and an Amlogic decoder without the opt-in.
-        String[] names = {OTHER_HEVC, OTHER_HEVC, AML_HEVC};
-        boolean[] optIn = {true, false, false};
+        // Off on another decoder, Auto there, Auto on an Amlogic decoder, and On there.
+        String[] names = {OTHER_HEVC, OTHER_HEVC, AML_HEVC, AML_HEVC};
+        int[] modes = {PreferenceConfiguration.HEVC_LOW_LATENCY_OFF, PreferenceConfiguration.HEVC_LOW_LATENCY_AUTO,
+                PreferenceConfiguration.HEVC_LOW_LATENCY_AUTO, PreferenceConfiguration.HEVC_LOW_LATENCY_ON};
         for (int run = 0; run < names.length; run++) {
             RecordingCodec.name = names[run];
-            boolean disable = optIn[run] || names[run].equals(AML_HEVC);
+            boolean optIn = modes[run] == PreferenceConfiguration.HEVC_LOW_LATENCY_OFF;
+            boolean disable = optIn ||
+                    (names[run].equals(AML_HEVC) && modes[run] == PreferenceConfiguration.HEVC_LOW_LATENCY_AUTO);
             try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
                 PreferenceConfiguration prefs = new PreferenceConfiguration();
                 prefs.videoFormat = PreferenceConfiguration.FormatOption.AUTO;
                 prefs.codecLowLatency = prefs.vendorLowLatency = prefs.codecPerformance = true;
-                prefs.disableHevcLowLatency = optIn[run];
+                prefs.disableHevcLowLatency = optIn;
+                prefs.hevcLowLatencyMode = modes[run];
                 MediaCodecDecoderRenderer renderer = new MediaCodecDecoderRenderer(activity.get(), prefs,
                         null, 0, false, false, "", null);
                 ReflectionHelpers.setField(renderer, "videoFormat", MoonBridge.VIDEO_FORMAT_H265);
                 ReflectionHelpers.setField(renderer, "hevcDecoder", decoder(names[run], HEVC));
                 // The Amlogic skip leaves RFI to its own policy; only the opt-in turns it off.
-                ReflectionHelpers.setField(renderer, "refFrameInvalidationHevc", !optIn[run]);
+                ReflectionHelpers.setField(renderer, "refFrameInvalidationHevc", !optIn);
                 ReflectionHelpers.setField(renderer, "initialWidth", 1920);
                 ReflectionHelpers.setField(renderer, "initialHeight", 1080);
                 ReflectionHelpers.setField(renderer, "refreshRate", 60);
@@ -229,7 +295,7 @@ public class MediaCodecHevcLowLatencyTest {
                 try {
                     assertEquals(0, renderer.initializeDecoder(true));
                     assertEquals(disable ? 1 : 2, (int) ReflectionHelpers.getField(renderer, "outputBufferQueueLimit"));
-                    assertEquals(!optIn[run], (boolean) ReflectionHelpers.getField(renderer, "refFrameInvalidationActive"));
+                    assertEquals(!optIn, (boolean) ReflectionHelpers.getField(renderer, "refFrameInvalidationActive"));
                     MediaFormat format = ReflectionHelpers.getField(renderer, "configuredFormat");
                     assertEquals(!disable, format.containsKey(MediaFormat.KEY_LOW_LATENCY));
                     assertEquals(!disable, format.containsKey(AML_LOW_LATENCY));

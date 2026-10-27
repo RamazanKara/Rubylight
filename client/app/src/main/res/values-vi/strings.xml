@@ -425,6 +425,9 @@
     <string name="keyboard_shortcuts_exported">Đã xuất phím tắt.</string>
     <string name="keyboard_shortcuts_file_error">Không thể đọc hoặc ghi tệp phím tắt. Hãy kiểm tra quyền truy cập tệp và dùng tệp phím tắt đã xuất hợp lệ có tối đa 32 phím tắt.</string>
     <string name="title_disable_hevc_low_latency">Cờ độ trễ thấp HEVC</string>
-    <string name="summary_disable_hevc_low_latency">Hãy tắt nếu video HEVC bị giật hoặc đứng hình. Khi tắt, HEVC bỏ qua các cờ độ trễ thấp tùy chọn của Android và chipset cùng việc vô hiệu hóa khung hình tham chiếu. Các cờ tương thích bắt buộc vẫn được giữ trên bộ giải mã Fire TV cũ. Các codec khác và gợi ý hiệu năng của bộ giải mã giữ cài đặt riêng. Áp dụng cho stream tiếp theo.</string>
+    <string name="summary_disable_hevc_low_latency">Tự động dùng các cờ trên mọi bộ giải mã HEVC trừ của Amlogic, vốn bị đứng hình khi dùng chúng; Bật dùng cả trên Amlogic. Hãy tắt nếu video HEVC bị giật hoặc đứng hình. Khi tắt, HEVC bỏ qua các cờ độ trễ thấp tùy chọn của Android và chipset cùng việc vô hiệu hóa khung hình tham chiếu. Các cờ tương thích bắt buộc vẫn được giữ trên bộ giải mã Fire TV cũ. Các codec khác và gợi ý hiệu năng của bộ giải mã giữ cài đặt riêng. Áp dụng cho stream tiếp theo.</string>
+    <string name="hevc_low_latency_auto">Tự động</string>
+    <string name="hevc_low_latency_on">Bật</string>
+    <string name="hevc_low_latency_off">Tắt</string>
     <string name="title_oled_black">Đen OLED</string>
 </resources>

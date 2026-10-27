@@ -425,6 +425,9 @@
     <string name="keyboard_shortcuts_exported">Kısayollar dışa aktarıldı.</string>
     <string name="keyboard_shortcuts_file_error">Kısayol dosyası okunamadı veya yazılamadı. Dosya erişimini kontrol edin ve en fazla 32 kısayol içeren geçerli bir kısayol dışa aktarımı kullanın.</string>
     <string name="title_disable_hevc_low_latency">HEVC düşük gecikme bayrakları</string>
-    <string name="summary_disable_hevc_low_latency">HEVC videosu takılıyor veya donuyorsa kapatın. Kapalıyken HEVC için isteğe bağlı Android ve yonga seti düşük gecikme bayrakları ile referans kare geçersiz kılma atlanır. Gerekli uyumluluk bayrakları eski Fire TV kod çözücülerinde korunur. Diğer kodekler ve kod çözücü performans ipuçları kendi ayarlarını korur. Sonraki yayında geçerli olur.</string>
+    <string name="summary_disable_hevc_low_latency">Otomatik, bayrakları Amlogic dışındaki tüm HEVC kod çözücülerde kullanır, çünkü Amlogic’te görüntü takılır; Açık bunları orada da kullanır. HEVC videosu takılıyor veya donuyorsa kapatın. Kapalıyken HEVC için isteğe bağlı Android ve yonga seti düşük gecikme bayrakları ile referans kare geçersiz kılma atlanır. Gerekli uyumluluk bayrakları eski Fire TV kod çözücülerinde korunur. Diğer kodekler ve kod çözücü performans ipuçları kendi ayarlarını korur. Sonraki yayında geçerli olur.</string>
+    <string name="hevc_low_latency_auto">Otomatik</string>
+    <string name="hevc_low_latency_on">Açık</string>
+    <string name="hevc_low_latency_off">Kapalı</string>
     <string name="title_oled_black">OLED siyahı</string>
 </resources>

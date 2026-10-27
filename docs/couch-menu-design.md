@@ -113,6 +113,7 @@ Opening, whether by chord or by the native API:
 
 Open:
 - Every event is consumed except `Arrival` and `Battery`. Those always pass, so pads that join are still created.
+- A `Controller` event whose `active` mask differs from the last one the game saw passes with its buttons, triggers and sticks at rest, so a pad unplugged while the menu is open leaves the host too.
 - Events turn into `Nav` actions:
   - **Pad:** D-pad and the left stick (above 50% deflection, back below 30%) give Up, Down, Left and Right. Holding repeats after 400 ms, then every 120 ms. A accepts, B goes back, and the chord closes.
   - **Keyboard:** the arrow keys, Enter or Space to accept, Esc or Backspace to go back. The keyboard chord closes.

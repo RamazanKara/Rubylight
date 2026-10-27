@@ -386,24 +386,34 @@ fn couch_menu_filter_releases_once_per_open_and_consumes_while_open() {
         Input::Haptics(true),
         attributes.clone(),
     ]);
+    // open_by_pad's pad 0 is the only one the game knows.
+    let mut pads = 1;
     let expected: Vec<Input> = events
         .iter()
-        .filter(|e| {
-            matches!(
-                e,
-                Input::Arrival { .. }
-                    | Input::Battery { .. }
-                    | Input::Haptics(_)
-                    | Input::SteamAttributes(_)
-            )
+        .filter_map(|e| match *e {
+            Input::Controller { id, active, .. } => (active != pads).then(|| {
+                pads = active;
+                Input::Controller {
+                    id,
+                    active,
+                    buttons: 0,
+                    left_trigger: 0,
+                    right_trigger: 0,
+                    sticks: [0; 4],
+                }
+            }),
+            Input::Arrival { .. }
+            | Input::Battery { .. }
+            | Input::Haptics(_)
+            | Input::SteamAttributes(_) => Some(e.clone()),
+            _ => None,
         })
-        .cloned()
         .collect();
     assert_eq!(expected.last(), Some(&attributes));
     let out = filter.apply(opened, &mut events, || Some((0.5, 0.5)));
     assert_eq!(
         events, expected,
-        "only Arrival, Battery, Haptics and SteamAttributes pass"
+        "only Arrival, Battery, Haptics, SteamAttributes and changes of the pads at rest pass"
     );
     assert!(!out.release_game, "release once per open");
     assert!(filter.is_open());
@@ -426,6 +436,48 @@ fn couch_menu_filter_releases_once_per_open_and_consumes_while_open() {
     shared.open().unwrap();
     let (_, out) = run(&mut filter, opened + 70 * MS, &[]);
     assert!(out.release_game && out.nav == [Nav::Closed, Nav::Opened]);
+}
+
+#[test]
+fn couch_menu_filter_pads_that_join_or_leave_while_open_reach_the_game_at_rest() {
+    let t0 = Instant::now();
+    let (shared, mut filter) = setup();
+    let opened = open_by_pad(&mut filter, t0);
+    let state = |id, active, buttons, x| Input::Controller {
+        id,
+        active,
+        buttons,
+        left_trigger: 200,
+        right_trigger: 0,
+        sticks: [x, 0, 0, 0],
+    };
+    let rest = |id, active| Input::Controller {
+        id,
+        active,
+        buttons: 0,
+        left_trigger: 0,
+        right_trigger: 0,
+        sticks: [0; 4],
+    };
+    // Pad 1 joins pressing A: the game gets the pad at rest, the menu the A.
+    let (passed, out) = run(&mut filter, opened, &[state(1, 0b11, BUTTON_A, 9000)]);
+    assert_eq!(passed, [rest(1, 0b11)]);
+    assert_eq!(out.nav, [Nav::Accept]);
+    let (passed, _) = run(&mut filter, opened + MS, &[state(1, 0b11, 0, 9000)]);
+    assert!(passed.is_empty(), "the same pads: consumed");
+    // Pad 0 is unplugged: without its removal the host kept a ghost pad.
+    let (passed, _) = run(&mut filter, opened + 2 * MS, &[rest(0, 0b10)]);
+    assert_eq!(passed, [rest(0, 0b10)]);
+    let (passed, _) = run(&mut filter, opened + 3 * MS, &[state(1, 0b10, BUTTON_B, 0)]);
+    assert!(passed.is_empty());
+    // The last pad leaves while open: no later event would remove it.
+    let (passed, _) = run(&mut filter, opened + 4 * MS, &[state(1, 0, BUTTON_B, 0)]);
+    assert_eq!(passed, [rest(1, 0)]);
+    shared.close();
+    let (_, out) = run(&mut filter, opened + 5 * MS, &[]);
+    assert_eq!(out.nav, [Nav::Closed]);
+    let back = state(2, 0b100, 0, 100);
+    assert_eq!(run(&mut filter, opened + 6 * MS, &[back.clone()]).0, [back]);
 }
 
 #[test]

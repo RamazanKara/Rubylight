@@ -3,7 +3,8 @@
 //!
 //! Closed, it only reads the events, watching for a chord, and passes them on
 //! unchanged and in order. Open, it consumes every event but `Arrival`,
-//! `Battery`, `Haptics` and `SteamAttributes` and turns them into [`Nav`].
+//! `Battery`, `Haptics` and `SteamAttributes` and turns them into [`Nav`]; a
+//! controller event that changes the set of pads goes on at rest.
 //! After a close, whatever is still held stays masked until it is let go, so
 //! the game never sees half a press.
 use std::sync::Arc;
@@ -166,6 +167,9 @@ pub struct Filter {
     nav_pads: [NavPad; 16],
     repeat: Option<(u16, Nav, Instant)>,
     refused_reported: bool,
+    /// The pads the game knows: the `active` mask of the last controller
+    /// event passed on.
+    active: u16,
 }
 
 impl Filter {
@@ -185,6 +189,7 @@ impl Filter {
             nav_pads: [NavPad::default(); 16],
             repeat: None,
             refused_reported: false,
+            active: 0,
         }
     }
     pub fn is_open(&self) -> bool {
@@ -342,16 +347,36 @@ impl Filter {
             .observe(event, now, !self.open && self.open_with.touch);
         if self.open {
             self.navigate(now, event, key_chord, pointer, out);
-            return matches!(
-                event,
-                Input::Arrival { .. }
-                    | Input::Battery { .. }
-                    | Input::Haptics(_)
-                    | Input::SteamAttributes(_)
-            );
+            return match event {
+                // A pad joined or left: the game sees the new set at once, at
+                // rest. Consumed, a pad unplugged while the menu is open
+                // stayed plugged on the host.
+                Input::Controller {
+                    active,
+                    buttons,
+                    left_trigger,
+                    right_trigger,
+                    sticks,
+                    ..
+                } if *active != self.active => {
+                    self.active = *active;
+                    (*buttons, *left_trigger, *right_trigger, *sticks) = (0, 0, 0, [0; 4]);
+                    true
+                }
+                _ => matches!(
+                    event,
+                    Input::Arrival { .. }
+                        | Input::Battery { .. }
+                        | Input::Haptics(_)
+                        | Input::SteamAttributes(_)
+                ),
+            };
         }
         if self.open_with.keyboard && key_chord && self.request_open(out) {
             return false;
+        }
+        if let Input::Controller { active, .. } = *event {
+            self.active = active;
         }
         !self.masking || self.unmask(event)
     }

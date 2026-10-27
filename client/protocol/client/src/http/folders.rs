@@ -157,13 +157,62 @@ fn check_path(path: &str) -> Result<(), Error> {
     Ok(())
 }
 
+/// Device names Windows opens in any directory, with any extension (`NUL.txt`), as the host
+/// refuses them.
+const RESERVED_NAMES: &[&str] = &[
+    "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "COM0", "COM1", "COM2", "COM3", "COM4",
+    "COM5", "COM6", "COM7", "COM8", "COM9", "COM¹", "COM²", "COM³", "LPT0", "LPT1", "LPT2", "LPT3",
+    "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9", "LPT¹", "LPT²", "LPT³",
+];
+
+/// A name the host sent that can be saved as one file directly in a local directory: a single
+/// plain name (no separator, drive, `.` or `..`) and, for `windows`, none of `:` (a drive-relative
+/// path or an alternate data stream), `<>"|?*`, control characters, a trailing dot or space
+/// (Windows drops them) or a device name, which would write somewhere other than the directory.
+fn check_local_name(name: &str, windows: bool) -> Result<(), Error> {
+    let refuse = |why: &str| Err(Error::InvalidArgument(format!("not a file name here ({why}): {name:?}")));
+    let mut components = Path::new(name).components();
+    let single = matches!(
+        (components.next(), components.next()),
+        (Some(std::path::Component::Normal(only)), None) if only == std::ffi::OsStr::new(name)
+    );
+    if name.is_empty() || name.contains(['\\', '/']) || !single {
+        return refuse("not a single name");
+    }
+    if !windows {
+        return Ok(());
+    }
+    if name.contains(':') {
+        return refuse("a colon");
+    }
+    if name.contains(['<', '>', '"', '|', '?', '*']) || name.chars().any(char::is_control) {
+        return refuse("a character Windows refuses");
+    }
+    if name.ends_with(['.', ' ']) {
+        return refuse("a trailing dot or space");
+    }
+    // Windows reads `CON.txt` and `CON .txt` as the device too.
+    let stem = name.split('.').next().unwrap_or(name).trim_end_matches(' ');
+    if RESERVED_NAMES.iter().any(|device| stem.eq_ignore_ascii_case(device)) {
+        return refuse("a device name");
+    }
+    Ok(())
+}
+
 /// Picks `<dir>/<name>`, or the first numbered copy, such that neither it nor its `.part` file
 /// exists, and creates the `.part` file. Returns the final path and the open `.part` file.
+/// `name` must have passed [`check_local_name`]; a path that would leave `dir` is refused.
 fn create_part(dir: &Path, name: &str) -> std::io::Result<(PathBuf, PathBuf, std::fs::File)> {
     for n in 0..10_000 {
         let candidate = collision_name(name, n);
         let target = dir.join(&candidate);
         let part = dir.join(format!("{candidate}{PART_SUFFIX}"));
+        if target.parent() != Some(dir) || part.parent() != Some(dir) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("{candidate:?} is not a name in {}", dir.display()),
+            ));
+        }
         if target.exists() {
             continue;
         }
@@ -181,6 +230,19 @@ fn create_part(dir: &Path, name: &str) -> std::io::Result<(PathBuf, PathBuf, std
         std::io::ErrorKind::AlreadyExists,
         format!("no free name for {name} in {}", dir.display()),
     ))
+}
+
+/// Deletes the `.part` file of a failed download and returns `error`, or, when the file stays,
+/// an error that names it beside `error`.
+fn discard_part(part: &Path, error: FileError) -> FileError {
+    match std::fs::remove_file(part) {
+        Ok(()) => error,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => error,
+        Err(e) => FileError::Local(std::io::Error::new(
+            e.kind(),
+            format!("{error}; the partial file {} is left, it could not be deleted: {e}", part.display()),
+        )),
+    }
 }
 
 impl HostClient {
@@ -252,7 +314,9 @@ impl HostClient {
 
     /// Downloads the file `path` of the folder `id` into the directory `dir`: into
     /// `<name>.part`, renamed to `name`, or `name (n)` when that is taken, once every byte
-    /// arrived. On any failure the `.part` file is deleted. Returns where the file is now.
+    /// arrived. On any failure the `.part` file is deleted; one that can't be is named in the
+    /// error. A name that isn't a plain file name here (`C:x`, `a:b`, `CON` on Windows) is
+    /// refused before anything is written. Returns where the file is now.
     pub fn save_folder_file(
         &self,
         id: &str,
@@ -262,9 +326,7 @@ impl HostClient {
         stop: &TransferCancel,
     ) -> Result<PathBuf, FileError> {
         let name = file_name(path);
-        if name.is_empty() || name.contains(['\\', '/']) || name == "." || name == ".." {
-            return Err(Error::InvalidArgument(format!("not a file name: {name:?}")).into());
-        }
+        check_local_name(name, cfg!(windows))?;
         let (target, part, file) = create_part(dir, name).map_err(FileError::Local)?;
         let mut sink = std::io::BufWriter::new(file);
         let result = self
@@ -285,11 +347,8 @@ impl HostClient {
             });
         match result {
             Ok(()) => Ok(target),
-            Err(error) => {
-                // The download failed; a `.part` file left behind would only confuse.
-                let _ = std::fs::remove_file(&part);
-                Err(error)
-            }
+            // The download failed; a `.part` file left behind would only confuse.
+            Err(error) => Err(discard_part(&part, error)),
         }
     }
 
@@ -475,6 +534,74 @@ mod tests {
         assert_eq!(part, dir.join("a (2).txt.part"));
         assert!(part.exists() && !target.exists());
         assert_eq!(std::fs::read(dir.join("a.txt")).unwrap(), b"kept");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_download_saves_only_under_a_plain_local_name() {
+        for name in ["a.txt", "日本.sav", ".config", "x (1).zip", "CONSOLE.txt", "COM10", "LPT"] {
+            assert!(check_local_name(name, true).is_ok(), "{name}");
+            assert!(check_local_name(name, false).is_ok(), "{name}");
+        }
+        // A drive-relative path, a stream, devices, names Windows rewrites or refuses.
+        for name in [
+            "C:x", "C:version.dll", "a:b", "a.txt:evil", "CON", "con.txt", "CON .txt", "NUL",
+            "COM1", "lpt9.log", "COM¹", "CONIN$", "CONOUT$", "x.", "x ", "a<b", "a>b", "a\"b",
+            "a|b", "a?b", "a*b", "a\u{1}b", "a\tb",
+        ] {
+            assert!(
+                matches!(check_local_name(name, true), Err(Error::InvalidArgument(_))),
+                "{name:?}"
+            );
+        }
+        // Anywhere: nothing but one name.
+        for name in ["", ".", "..", "a/b", "a\\b", "/etc", "\\\\server\\share"] {
+            for windows in [false, true] {
+                assert!(
+                    matches!(check_local_name(name, windows), Err(Error::InvalidArgument(_))),
+                    "{name:?} windows {windows}"
+                );
+            }
+        }
+        // What this platform's paths would read as more than one name.
+        assert_eq!(check_local_name("C:x", false).is_ok(), !cfg!(windows));
+    }
+
+    #[test]
+    fn a_name_that_would_leave_the_directory_is_never_created() {
+        let dir = std::env::temp_dir().join(format!("nightjar-folders-out-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let outside = if cfg!(windows) { "C:x.txt" } else { "/x.txt" };
+        let error = create_part(&dir, outside).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput, "{error}");
+        assert!(create_part(&dir, "../x.txt").is_err());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_part_file_that_stays_is_named_in_the_error() {
+        let dir = std::env::temp_dir().join(format!("nightjar-folders-part-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let failed = || FileError::Host(Error::Cancelled);
+        // Deleted, or already gone: the download's own error.
+        let part = dir.join("a.txt.part");
+        std::fs::write(&part, b"half").unwrap();
+        assert!(matches!(discard_part(&part, failed()), FileError::Host(Error::Cancelled)));
+        assert!(!part.exists());
+        assert!(matches!(discard_part(&part, failed()), FileError::Host(Error::Cancelled)));
+        // A `.part` that can't be deleted (here a directory) is reported, with the cause.
+        std::fs::create_dir(&part).unwrap();
+        match discard_part(&part, failed()) {
+            FileError::Local(e) => {
+                let text = e.to_string();
+                assert!(text.contains("a.txt.part") && text.contains("could not be deleted"), "{text}");
+                assert!(text.contains(&Error::Cancelled.to_string()), "{text}");
+            }
+            other => panic!("{other:?}"),
+        }
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

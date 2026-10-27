@@ -26,8 +26,8 @@ time = "0.3"
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring", "pem"] }
 uuid = { version = "1.18", features = ["v4", "v5", "serde"] }
 crc32fast = "1.5"
-# Wire formats shared with the Android client; pinned to the commit the client ships.
-rubylight-protocol = { git = "https://github.com/RamazanKara/rubylight-android", rev = "a06fe8f4023414db7b8d09dc5d69455ad71f5deb", package = "rubylight-protocol" }
+# Wire formats shared with the Nightjar client, which lives in client/ of this repo.
+rubylight-protocol = { path = "../../client/protocol/core" }
 regex = "1.12"
 quick-xml = { version = "0.42", features = ["serialize"] }
 prost = "0.14"

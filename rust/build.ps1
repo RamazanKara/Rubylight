@@ -85,7 +85,9 @@ foreach ($identity in @(
 $env:BUTTERPOLLO_PYROWAVE_ROOT = $PyrowaveRoot
 Push-Location -LiteralPath $repo
 try {
-    & cargo $toolchain fmt --all -- --check
+    # Workspace members only: --all would also check client/ (the protocol path
+    # dependency's whole workspace), which keeps its own formatting.
+    & cargo $toolchain fmt -- --check
     Assert-NativeExit 'Rust formatting'
     if (!$SkipTests) {
         & (Join-Path $repo 'rust\drivers\usbip\test_usbip.ps1')

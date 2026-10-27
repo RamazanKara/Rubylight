@@ -78,12 +78,12 @@ Cargo alone cannot build the Windows crates: their build scripts generate bindin
 After the build script has configured the SDK paths in the same PowerShell session, the ordinary Rust checks are:
 
 ```powershell
-cargo +1.98.1-x86_64-pc-windows-gnu fmt --all -- --check
+cargo +1.98.1-x86_64-pc-windows-gnu fmt -- --check
 cargo +1.98.1-x86_64-pc-windows-gnu test --workspace --locked
 cargo +1.98.1-x86_64-pc-windows-gnu clippy --workspace --all-targets --locked -- -D warnings
 ```
 
-The display driver (`rust/drivers/rubylight-vdisplay`) is outside the main workspace; the build script builds it separately with the Windows Driver Kit.
+The display driver (`rust/drivers/rubylight-vdisplay`) is outside the main workspace; the build script builds it separately with the Windows Driver Kit. Nightjar (`client/`) keeps its own workspace in `client/protocol`; the host takes only its `rubylight-protocol` crate, by path.
 
 Hardware and environment-dependent tests are selected separately. Their fixtures can exercise capture, controllers or displays; choose a fixture for the intended machine and preserve its restoration checks. [PERFORMANCE.md](../rust/PERFORMANCE.md) records measured workloads.
 

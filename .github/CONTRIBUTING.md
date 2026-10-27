@@ -31,7 +31,7 @@ Search the existing issues first, then use the bug or crash form. Attach the sup
 Before sending a change, run the checks CI runs, in the same shell:
 
 ```powershell
-cargo +1.98.1-x86_64-pc-windows-gnu fmt --all -- --check
+cargo +1.98.1-x86_64-pc-windows-gnu fmt -- --check
 cargo +1.98.1-x86_64-pc-windows-gnu clippy --workspace --all-targets --locked -- -D warnings
 cargo +1.98.1-x86_64-pc-windows-gnu test --workspace --locked
 ```

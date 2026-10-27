@@ -2,7 +2,7 @@
 
 [Documentation](README.md) · [Configuration](configuration.md) · [Microphone](microphone.md)
 
-Besides Moonlight's own control messages, Rubylight takes a few of its own from the client. Their wire formats are defined once, in the `rubylight-protocol` crate of [Nightjar](https://github.com/RamazanKara/nightjar) (`protocol/core`), which the host and Nightjar both build. This page is for client authors.
+Besides Moonlight's own control messages, Rubylight takes a few of its own from the client. Their wire formats are defined once, in the `rubylight-protocol` crate of [Nightjar](https://github.com/RamazanKara/nightjar) (`protocol/core`, `client/protocol/core` in this repo), which the host and Nightjar both build. This page is for client authors.
 
 ## Negotiation
 

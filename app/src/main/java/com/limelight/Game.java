@@ -5652,6 +5652,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // Returns true if the event was consumed
     // NB: View is only present if called from a view callback
     private boolean handleMotionEvent(View view, MotionEvent event) {
+        streamView.onStreamPress(event);
         if (gameTouchControls != null && gameTouchControls.isEditing() &&
                 (event.getSource() & InputDevice.SOURCE_CLASS_POINTER) != 0) return true;
         if (desktopGestures != null && desktopGestures.enabled() &&
@@ -6106,6 +6107,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @SuppressLint("ClickableViewAccessibility")
     @Override
     public boolean onTouch(View view, MotionEvent event) {
+        streamView.onStreamPress(event);
         if (desktopGestures != null && desktopGestures.enabled() && foreground && connected && streamMenu == null) {
             MotionEvent relative = MotionEvent.obtain(event);
             relative.offsetLocation(getStreamViewOffsetX(view), getStreamViewOffsetY(view));

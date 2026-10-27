@@ -168,6 +168,23 @@ public class HostTextFieldTest {
     }
 
     @Test
+    public void aFreshFieldDoesNotFinishTheWordComposedBefore() {
+        // Composing "Joh" in the first name, then the host's focus moves to the last name.
+        HostTextField first = new HostTextField(TYPE_TEXT, FLAG_ENTER_ACTION);
+        first.compose("Joh", sink);
+        HostTextField last = first.fresh();
+        assertEquals("what the first field composed is final", -1, first.composingStart());
+        assertEquals("Joh", first.textBeforeCursor(10));
+        assertEquals(TYPE_TEXT, last.type);
+        assertEquals(FLAG_ENTER_ACTION, last.flags);
+        assertEquals("", last.textBeforeCursor(10));
+        assertTrue(last.compose("S", sink));
+        assertTrue(last.compose("Sm", sink));
+        assertEquals("nothing of the first field is deleted or retyped", List.of("Joh", "S", "m"), sent);
+        assertEquals(2, last.cursor());
+    }
+
+    @Test
     public void aRaiseNeverShowsOverAHardwareKeyboardOrTheMenus() {
         assertTrue(mayShowKeyboard(true, true, false, true, false, false));
         assertFalse("hardware keyboard", mayShowKeyboard(true, true, false, true, false, true));

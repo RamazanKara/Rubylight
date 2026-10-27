@@ -26,6 +26,7 @@ public class StreamView extends FrameLayout {
     private float paddedScaleX = 1, paddedScaleY = 1;
     private InputCallbacks inputCallbacks;
     private HostTextField hostTextField;
+    private boolean pressPosted;
     private SurfaceView surfaceView;
     private TextureView textureView;
 
@@ -119,9 +120,31 @@ public class StreamView extends FrameLayout {
      */
     public void setHostTextField(HostTextField field) {
         if (field == hostTextField) return;
+        // What the old field composed is already on the host: the IME starts over with the new one.
+        if (hostTextField != null) hostTextField.finishComposing();
         hostTextField = field;
         InputMethodManager inputManager = (InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
         if (inputManager != null) inputManager.restartInput(this);
+    }
+
+    /**
+     * A tap or click on the stream may move the host's caret or focus before the host's notice
+     * comes: the IME starts over on a fresh copy of the field instead of finishing a word against
+     * the text it typed before. Posted, so the press itself reaches the host first.
+     */
+    public void onStreamPress(android.view.MotionEvent event) {
+        int action = event.getActionMasked();
+        if (hostTextField == null || pressPosted || (action != android.view.MotionEvent.ACTION_DOWN &&
+                action != android.view.MotionEvent.ACTION_BUTTON_PRESS)) {
+            return;
+        }
+        // A mouse click is both a touch down and a button press: one restart.
+        pressPosted = true;
+        post(() -> {
+            pressPosted = false;
+            HostTextField field = hostTextField;
+            if (field != null) setHostTextField(field.fresh());
+        });
     }
 
     public HostTextField getHostTextField() {

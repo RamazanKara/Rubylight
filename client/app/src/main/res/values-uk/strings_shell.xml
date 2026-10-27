@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shell_destinations">Основні розділи</string>
+    <string name="shell_current_page">Поточна сторінка</string>
+    <string name="host_menu_rename">Перейменувати</string>
+    <string name="host_options_hint">X або ⋮ для параметрів</string>
+    <string name="host_rename_field">Назва</string>
+    <string name="host_rename_help">Показується лише на цьому пристрої. Залиште порожнім, щоб використовувати власну назву ПК.</string>
+    <string name="host_rename_save">Зберегти</string>
+    <string name="host_rename_title">Перейменувати ПК</string>
+    <string name="host_unpair_title">Скасувати сполучення з %1$s?</string>
+    <string name="host_unpair_message">ПК забуде цей пристрій, а збережену бібліотеку тут буде очищено. Для трансляції потрібно буде сполучити знову. ПК залишиться в списку.</string>
+    <string name="host_wake_needs_pairing">Сполучіть ПК один раз, поки він увімкнений, щоб його можна було пробудити</string>
+    <string name="host_menu_sleep">Приспати ПК</string>
+    <string name="host_menu_sleep_note">Експериментально</string>
+    <string name="host_sleep_title">Перевести %1$s у режим сну?</string>
+    <string name="host_sleep_message">Спершу закрийте ігри та трансляції на ПК. Wake-on-LAN може знову його розбудити.</string>
+    <string name="host_sleep_asking">Запит до ПК…</string>
+    <string name="host_sleep_accepted">ПК переходить у режим сну</string>
+    <string name="host_sleep_unsupported">Цей ПК не підтримує режим сну.</string>
+    <string name="host_sleep_permission_help">Щоб дозволити, увімкніть режим сну ПК для цього пристрою у вебконсолі хоста, у налаштуваннях пристрою.</string>
+    <string name="host_sleep_busy">Зараз ПК не може перейти в режим сну. Закрийте на ньому ігри та трансляції й повторіть спробу.</string>
+    <string name="host_sleep_refused">ПК відмовився перейти в режим сну (HTTP %1$d).</string>
+    <string name="host_sleep_failed">Не вдалося зв’язатися з ПК.</string>
+    <string name="host_sleep_error">Не вдалося запитати ПК: %1$s</string>
+    <string name="settings_category_accessibility">Спеціальні можливості</string>
+    <string name="title_ui_scale">Розмір інтерфейсу</string>
+    <string name="summary_ui_scale">Масштабує меню, списки й діалоги застосунку. Трансляція не масштабується. Розмір шрифту системи застосовується додатково. Діє одразу.</string>
+    <string name="title_high_contrast">Висока контрастність</string>
+    <string name="summary_high_contrast">Чорне тло, чіткіші текст і контури та товща рамка фокуса на всіх екранах застосунку. Трансляція не змінюється.</string>
+    <string name="title_reduce_motion">Зменшити анімацію</string>
+    <string name="summary_reduce_motion">«Як у системі» вимикає анімацію, коли масштаб анімації Android дорівнює 0. «Зменшити» замінює збільшення фокуса й висувні панелі простою рамкою. «Повна» анімує завжди.</string>
+    <string name="reduce_motion_system">Як у системі</string>
+    <string name="reduce_motion_reduce">Зменшити</string>
+    <string name="reduce_motion_full">Повна</string>
+    <!-- tv-mode-toggle -->
+    <string name="title_ui_mode">Вигляд інтерфейсу</string>
+    <string name="summary_ui_mode">«Автоматично» слідує за пристроєм. «ТБ» оформлює застосунок для телевізора, з фокусом і пультом або геймпадом, на портативній консолі чи телефоні, підключеному до нього. «Портативний» використовує сенсорні макети й на телевізорі. Трансляція не змінюється. Застосовується одразу.</string>
+    <string name="ui_mode_auto">Автоматично</string>
+    <string name="ui_mode_tv">ТБ</string>
+    <string name="ui_mode_handheld">Портативний</string>
+</resources>

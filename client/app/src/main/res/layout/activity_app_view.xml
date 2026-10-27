@@ -1,0 +1,32 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical">
+    <include android:id="@+id/library_toolbar" layout="@layout/view_top_app_bar" />
+    <androidx.appcompat.widget.SearchView android:id="@+id/library_search"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/screen_gutter" android:layout_marginEnd="@dimen/screen_gutter"
+        android:layout_marginBottom="@dimen/space_s" android:minHeight="@dimen/touch_target"
+        android:background="@drawable/settings_search_background"
+        app:queryBackground="@android:color/transparent" app:submitBackground="@android:color/transparent"
+        android:visibility="gone" app:queryHint="@string/library_search" app:iconifiedByDefault="false"
+        android:inputType="text" android:imeOptions="actionSearch" />
+    <TextView android:id="@+id/library_summary" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter" android:paddingBottom="@dimen/space_s"
+        android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant"
+        android:visibility="gone" />
+    <ProgressBar android:id="@+id/library_loading" style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent" android:layout_height="4dp" android:indeterminate="true" />
+    <LinearLayout android:id="@+id/library_status_panel" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter"
+        android:paddingTop="@dimen/space_m" android:paddingBottom="@dimen/space_s" android:visibility="gone">
+        <TextView android:id="@+id/app_list_status"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:textAppearance="@style/TextAppearance.Nightjar.Body"
+            android:accessibilityLiveRegion="polite" android:visibility="gone" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/library_retry"
+            style="@style/Widget.Nightjar.Button.Text" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:minHeight="@dimen/touch_target" android:text="@string/library_retry" android:visibility="gone" />
+    </LinearLayout>
+    <FrameLayout android:id="@+id/appFragmentContainer"
+        android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
+</LinearLayout>

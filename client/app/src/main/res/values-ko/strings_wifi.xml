@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="wifi_heading">연결</string>
+    <string name="wifi_not_available">사용할 수 없음</string>
+    <string name="wifi_unavailable">Wi-Fi 세부정보: 이 기기에서 사용할 수 없음</string>
+    <string name="wifi_link_none">연결: Android에서 활성 네트워크가 없다고 보고함</string>
+    <string name="wifi_link_ethernet">연결: 이더넷이므로 Wi-Fi 세부정보가 해당되지 않음</string>
+    <string name="wifi_link_cellular">연결: 모바일 데이터이므로 Wi-Fi 세부정보가 해당되지 않음</string>
+    <string name="wifi_link_other">연결: VPN 또는 다른 네트워크 유형, Wi-Fi 세부정보를 사용할 수 없음</string>
+    <string name="wifi_band_24">2.4 GHz</string>
+    <string name="wifi_band_5">5 GHz</string>
+    <string name="wifi_band_6">6 GHz</string>
+    <string name="wifi_mhz">%1$d MHz</string>
+    <string name="wifi_dbm">%1$d dBm</string>
+    <string name="wifi_mbps">%1$d Mbps</string>
+    <string name="wifi_line_band">Wi-Fi 대역: %1$s · 채널 %2$s · 폭 %3$s</string>
+    <string name="wifi_line_signal">Wi-Fi 신호: %1$s(%2$s)</string>
+    <string name="wifi_line_signal_unknown">Wi-Fi 신호: 사용할 수 없음</string>
+    <string name="wifi_signal_excellent">매우 좋음</string>
+    <string name="wifi_signal_good">좋음</string>
+    <string name="wifi_signal_fair">보통</string>
+    <string name="wifi_signal_weak">약함</string>
+    <string name="wifi_line_speed">Wi-Fi 링크 속도: 송신 %1$s · 수신 %2$s</string>
+    <string name="wifi_line_speed_single">Wi-Fi 링크 속도: %1$s</string>
+    <string name="wifi_line_standard">Wi-Fi 표준: %1$s</string>
+    <string name="wifi_standard">Wi-Fi %1$d</string>
+    <string name="wifi_standard_6e">Wi-Fi 6E</string>
+    <string name="wifi_standard_legacy">802.11a/b/g</string>
+    <string name="wifi_line_lock">저지연 Wi-Fi 잠금: %1$s</string>
+    <string name="wifi_lock_held">유지 중</string>
+    <string name="wifi_lock_not_held">유지 안 함</string>
+    <string name="wifi_lock_unsupported">Android 10 필요</string>
+    <string name="wifi_warn_24">경고: 2.4 GHz는 5 GHz나 6 GHz보다 느리고 혼잡해 끊김이 자주 발생합니다. 공유기에 5 GHz 또는 6 GHz 네트워크가 있다면 그 네트워크에 연결하세요.</string>
+    <string name="wifi_warn_weak">신호 약함: 공유기에 더 가까이 가거나 사이의 장애물을 치우세요.</string>
+    <string name="wifi_line_rhythm">끊김 주기: 약 %1$s마다</string>
+    <string name="wifi_period_seconds">%1$d초</string>
+    <string name="wifi_period_minutes">%1$s분</string>
+</resources>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="gpu_driver_title">Driver de GPU Snapdragon</string>
+    <string name="gpu_driver_system">Driver de GPU do sistema</string>
+    <string name="gpu_driver_explanation">O PyroWave pode usar um ZIP de driver Adreno com meta.json e bibliotecas arm64. Escolha um pacote confiável compatível com sua GPU e versão do Android. As alterações valem para a próxima transmissão e afetam apenas este app. Se o carregamento falhar, o app usa o driver do sistema. Após uma falha com um driver personalizado, a próxima inicialização volta ao driver do sistema. Compatibilidade e desempenho ainda dependem do seu celular e do driver.</string>
+    <string name="gpu_driver_unsupported">Drivers personalizados exigem Android 10 ou mais recente, um app arm64 de 64 bits e uma GPU Adreno. Este dispositivo usa o driver de GPU do sistema.</string>
+    <string name="gpu_driver_system_fallback">Usando o driver de GPU do sistema após uma falha do driver personalizado.</string>
+    <string name="gpu_driver_import">Importar ZIP de driver</string>
+    <string name="gpu_driver_no_picker">Instale um seletor de arquivos para importar um ZIP de driver.</string>
+    <string name="gpu_driver_remove">Remover um driver</string>
+    <string name="gpu_driver_removed">Driver removido.</string>
+    <string name="gpu_driver_imported">Importado e selecionado: %1$s</string>
+    <string name="gpu_driver_working">Verificando o driver…</string>
+    <string name="gpu_driver_error">Falha na operação do driver: %1$s</string>
+</resources>

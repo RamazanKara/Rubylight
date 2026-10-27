@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_tell_host_wireless">Повідомляти ПК про Wi-Fi</string>
+    <string name="summary_tell_host_wireless">ПК із Rubylight тоді з самого початку налаштовує темп потоку під Wi-Fi. Інші ПК нічого не отримують.</string>
+</resources>

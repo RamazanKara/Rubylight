@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="health_title">Pourquoi mon stream a-t-il saccadé ?</string>
+    <string name="health_intro">Échantillons actifs : %1$d. Les données couvrent les 30 dernières secondes. Plusieurs étapes peuvent être lentes en même temps ; ces observations suggèrent des causes, pas un diagnostic certain. Aucune vidéo ni donnée personnelle n’est enregistrée.</string>
+    <string name="health_insufficient">Pas assez de vidéo récente pour évaluer. Jouez quelques secondes menu fermé, puis revenez juste après une saccade.</string>
+    <string name="health_no_issue">Aucun goulot d’étranglement récurrent n’a été observé dans les mesures disponibles. De brefs pics et des étapes non mesurées peuvent tout de même causer une saccade.</string>
+    <string name="health_network">Réseau : pertes d’images ou variations du temps d’aller-retour répétées. Essayez un débit plus faible, un hôte filaire ou une connexion Wi-Fi moins encombrée.</string>
+    <string name="health_decoder">Décodage : la sortie a pris à plusieurs reprises au moins un intervalle d’image. Essayez une résolution ou une fréquence d’images plus basse ; baisser seulement le débit peut ne pas suffire.</string>
+    <string name="health_host">Hôte : les échantillons de traitement les plus lents ont dépassé l’intervalle d’image. Comparez la charge du jeu/GPU et une limite d’images plus basse dans le jeu. Cette mesure inclut plus que l’encodage.</string>
+    <string name="health_presentation">Présentation : les images ont été libérées plus vite qu’elles n’étaient affichées, avec de longues attentes d’affichage. Comparez les modes de frame pacing et la fréquence de rafraîchissement de l’écran.</string>
+    <string name="health_heat">Température : Android a signalé une forte contrainte thermique. Baissez la fréquence d’images/résolution ou désactivez les traitements coûteux côté client ; laissez l’appareil refroidir.</string>
+    <string name="health_evidence">Valeurs maximales observées :\nPerte d’images : %1$s %%\nDécodage : %2$s ms\nTraitement de l’hôte p95 : %3$s ms\nAttente d’affichage p95 : %4$s ms\nCes étapes ne s’additionnent pas pour donner la latence de la saisie à l’écran.</string>
+    <string name="health_evidence_send">Valeurs maximales observées :\nPerte d’images : %1$s %%\nDécodage : %2$s ms\nHôte vers le réseau p95 : %3$s ms\nAttente d’affichage p95 : %4$s ms\nCes étapes ne s’additionnent pas pour donner la latence de la saisie à l’écran.</string>
+    <string name="health_trial_help">Un essai de débit ne modifie que cette session. Comparez 30 autres secondes de jeu similaire, puis revenez ici pour l’annuler. Les modifications de débit manuelles ou automatiques remplacent l’essai.</string>
+    <string name="health_try">Essayer un débit plus faible</string>
+    <string name="health_undo">Annuler l’essai de débit</string>
+    <string name="health_bitrate_unavailable">L’hôte n’a pas indiqué le débit actuel de son encodeur. L’essai n’a pas été appliqué.</string>
+    <string name="health_trial_replaced">Le débit de l’hôte a changé depuis l’essai. L’annulation a été abandonnée pour conserver ce changement.</string>
+    <string name="health_bitrate_minimum">L’encodeur est déjà au débit d’essai minimal. Aucune modification n’a été faite.</string>
+    <string name="health_periodic">Saccades répétées : %2$d coupures réseau au cours des 20 dernières minutes, environ toutes les %1$s. Un rythme aussi régulier vient généralement de recherches Wi-Fi en arrière-plan sur cet appareil ou sur le PC. Pour les réduire :\n• Android : Paramètres → Position → Services de localisation, désactivez Recherche Wi-Fi et Recherche Bluetooth.\n• Android : laissez activé Options pour les développeurs → Limitation de la recherche Wi-Fi.\n• Pendant le stream, fermez les applis qui cherchent des réseaux ou des appareils à proximité.\n• PC : connectez-le par câble ou arrêtez les outils qui recherchent des réseaux Wi-Fi.\nNightjar active déjà le verrou Wi-Fi faible latence d’Android pendant le stream, ce qui demande au système de retarder les recherches ; certains appareils les font quand même.</string>
+</resources>

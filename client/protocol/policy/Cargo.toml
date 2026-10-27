@@ -1,0 +1,12 @@
+[package]
+name = "nightjar-policy"
+description = "Nightjar's stream policies (recovery, bitrate, quality, health), shared by its clients"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+# Trace replay only (src/trace.rs); the policies themselves take plain values.
+serde_json = "1"

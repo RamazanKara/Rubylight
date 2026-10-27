@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_tell_host_link_speed">Tell the PC the link speed</string>
+    <string name="summary_tell_host_link_speed">Lets the PC limit its sending rate to this device\'s wired port speed.</string>
+</resources>

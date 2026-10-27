@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_display_menu">Chế độ hiển thị của PC</string>
+    <string name="host_display_location">Để dùng chế độ Độc quyền hoặc Mở rộng, hãy mở menu của PC → Cài đặt stream → Chế độ hiển thị của PC. Chế độ hiển thị được lưu riêng cho từng PC và cần máy chủ hỗ trợ.</string>
+    <string name="host_display_controls_virtual">Do chế độ hiển thị của PC điều khiển: %1$s</string>
+    <string name="host_display_title">Hiển thị trên %1$s</string>
+    <string name="host_display_default">Cài đặt riêng của PC</string>
+    <string name="host_display_exclusive">Độc quyền — chỉ màn hình ảo (tắt màn hình PC)</string>
+    <string name="host_display_extended_primary">Mở rộng — đặt màn hình ảo làm màn hình chính</string>
+    <string name="host_display_extended">Mở rộng — giữ màn hình PC làm màn hình chính</string>
+    <string name="host_display_extended_isolated">Mở rộng và tách biệt — PC vẫn là màn hình chính</string>
+    <string name="host_display_extended_primary_isolated">Mở rộng và tách biệt — màn hình ảo là màn hình chính</string>
+    <string name="host_display_physical">Màn hình vật lý (không có màn hình ảo)</string>
+    <string name="host_display_saved">Đã lưu lựa chọn hiển thị. Lựa chọn áp dụng từ stream tiếp theo.</string>
+    <string name="host_display_save">Lưu chế độ hiển thị</string>
+    <string name="host_display_explanation">Chọn một chế độ rồi nhấn Lưu chế độ hiển thị. Hủy sẽ giữ lựa chọn hiện tại. Chế độ mới áp dụng từ stream tiếp theo.\n\nGiữ màn hình PC làm màn hình chính sẽ để màn hình của bạn là màn hình chính của Windows. Đặt màn hình ảo làm màn hình chính sẽ chuyển vai trò đó sang màn hình được stream, nơi trò chơi và cửa sổ mới thường mở ra. Cả hai tùy chọn Mở rộng đều giữ màn hình của PC bật.\n\nCài đặt riêng của PC sẽ theo Màn hình ảo trên máy chủ và cài đặt hiển thị của PC. Độc quyền tắt màn hình của PC trong khi stream. Các chế độ tách biệt đặt màn hình được stream ở xa các màn hình khác trong bố cục desktop, trong cùng một phiên Windows. Màn hình vật lý stream màn hình của PC mà không dùng màn hình ảo. PC sẽ khôi phục các màn hình khi stream kết thúc.\n\nChỉ những PC có máy chủ hỗ trợ chế độ hiển thị mới có lựa chọn này; trên các PC khác, Màn hình ảo trên máy chủ sẽ quyết định.</string>
+    <string name="host_administration_menu">Mở giao diện web của máy chủ</string>
+    <string name="host_administration_help">Quản lý ứng dụng, thiết bị đã ghép đôi và cài đặt của máy chủ trong giao diện web. Đăng nhập bằng tài khoản riêng của giao diện web; ghép đôi không đăng nhập cho bạn. Truy cập từ xa cần cổng giao diện web có thể truy cập được.\n\n%1$s</string>
+    <string name="host_administration_open">Mở trong trình duyệt</string>
+    <string name="host_administration_no_browser">Không có trình duyệt nào mở được giao diện web của máy chủ. Hãy sao chép địa chỉ và mở trên thiết bị khác.</string>
+</resources>

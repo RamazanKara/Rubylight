@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_tell_host_link_speed">Indiquer la vitesse de la liaison au PC</string>
+    <string name="summary_tell_host_link_speed">Permet au PC de limiter son débit d\'envoi à la vitesse du port filaire de cet appareil.</string>
+</resources>

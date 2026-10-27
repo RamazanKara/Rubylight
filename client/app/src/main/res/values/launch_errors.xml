@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="startup_host_message">The host could not start this stream: %1$s (error %2$d)</string>
+    <string name="startup_launch_cancelled">Launch cancelled.</string>
+    <string name="startup_confirmation_timed_out">Confirmation timed out. Start the tile again to retry.</string>
+    <string name="startup_confirmation_rejected">The host session changed or confirmation expired. Start the tile again.</string>
+    <string name="decoder_setup_rejected">This device’s video decoder (%1$s) could not start %2$s at %3$dx%4$d, %5$d FPS: %6$s. The host is not the cause. In Settings, try H.264, a lower resolution or a lower frame rate. If it keeps happening, use Report a problem.</string>
+    <string name="decoder_setup_none">This device has no video decoder for %1$s. Choose another video codec in Settings.</string>
+</resources>

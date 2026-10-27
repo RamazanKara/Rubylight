@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Landscape and TV: the prompt on the left, the pad on the right. Same ids as the portrait layout. -->
+<com.limelight.ui.ContentFrame xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="match_parent">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent"
+        android:orientation="horizontal" android:baselineAligned="false"
+        android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter">
+        <ScrollView android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
+            android:fillViewport="true" android:clipToPadding="false">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent"
+                android:orientation="vertical" android:gravity="center_horizontal|center_vertical"
+                android:padding="@dimen/space_l">
+                <ImageView android:id="@+id/pin_icon"
+                    android:layout_width="@dimen/pin_icon_size" android:layout_height="@dimen/pin_icon_size"
+                    android:src="@drawable/ic_lock" app:tint="?attr/colorPrimary"
+                    android:importantForAccessibility="no" />
+                <TextView android:id="@+id/pin_title"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_m" android:gravity="center"
+                    android:textAppearance="@style/TextAppearance.Nightjar.ScreenTitle"
+                    android:textColor="?attr/colorOnSurface" android:accessibilityHeading="true" />
+                <TextView android:id="@+id/pin_subtitle"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_xs" android:gravity="center"
+                    android:textAppearance="@style/TextAppearance.Nightjar.Supporting"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
+                <LinearLayout android:id="@+id/pin_dots"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_xl" android:orientation="horizontal" />
+                <TextView android:id="@+id/pin_status"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_m" android:minHeight="40dp" android:gravity="center"
+                    android:textAppearance="@style/TextAppearance.Nightjar.Supporting"
+                    android:textColor="?attr/colorOnSurfaceVariant" android:accessibilityLiveRegion="polite" />
+                <TextView android:id="@+id/pin_hint" android:visibility="gone"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_s" android:gravity="center"
+                    android:text="@string/pin_hint"
+                    android:textAppearance="@style/TextAppearance.Nightjar.Caption"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
+                <com.google.android.material.button.MaterialButton android:id="@+id/pin_cancel"
+                    style="?attr/nightjarButtonTextStyle" android:focusable="false"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_s" />
+            </LinearLayout>
+        </ScrollView>
+        <ScrollView android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
+            android:fillViewport="true" android:clipToPadding="false">
+            <FrameLayout android:layout_width="match_parent" android:layout_height="match_parent"
+                android:padding="@dimen/space_l">
+                <include layout="@layout/view_pin_pad" android:layout_width="@dimen/pin_pad_width"
+                    android:layout_height="wrap_content" android:layout_gravity="center" />
+            </FrameLayout>
+        </ScrollView>
+    </LinearLayout>
+</com.limelight.ui.ContentFrame>

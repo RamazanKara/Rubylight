@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="overlay_compact">Компактный</string>
+    <string name="overlay_compact_fps">%1$s FPS</string>
+    <string name="overlay_compact_rtt">RTT %1$s мс</string>
+    <string name="overlay_compact_loss">Потери %1$s%%</string>
+    <string name="overlay_compact_waiting">Ожидание видео</string>
+    <string name="link_notice_lowered">Хост снизил битрейт до %1$s Мбит/с: сеть</string>
+    <string name="overlay_health_good">Трансляция стабильна</string>
+    <string name="overlay_health_fair">Трансляция с перебоями</string>
+    <string name="overlay_health_poor">Трансляция плохая</string>
+    <string name="overlay_health_unknown">Трансляция запускается</string>
+    <string name="stream_section_input">Ввод</string>
+    <string name="stream_section_display">Экран</string>
+    <string name="stream_section_quality">Качество</string>
+    <string name="stream_section_host">Хост</string>
+    <string name="stream_microphone">Микрофон</string>
+    <string name="stream_cursor_show">Показать курсор мыши</string>
+    <string name="stream_cursor_hide">Скрыть курсор мыши</string>
+    <string name="stream_keyboard_keys_hide">Скрыть доп. клавиши клавиатуры</string>
+    <string name="stream_overlay_page">Оверлей и диагностика</string>
+    <string name="stream_picture_in_picture">Картинка в картинке</string>
+    <string name="stream_quit_game">Закрыть игру</string>
+    <string name="stream_quit_game_confirm">Закрыть игру на ПК?\nНесохранённый прогресс будет потерян.</string>
+    <string name="stream_end_session">Завершить сеанс</string>
+    <string name="stream_end_session_confirm">Завершить сеанс трансляции на ПК?
+Игра продолжит работать.</string>
+    <string name="stream_close_game">Закрыть игру</string>
+    <string name="stream_close_game_confirm">Закрыть игру на ПК?
+Несохранённый прогресс будет потерян.</string>
+    <string name="stream_choice_selected">Выбрано</string>
+    <string name="stream_choice_not_selected">Не выбрано</string>
+    <string name="stream_web_ui_leaves">При открытии браузера трансляция будет закрыта; игра продолжит работать на ПК.</string>
+    <string name="stream_menu_hint">Чтобы открыть меню трансляции, %1$s.</string>
+    <string name="stream_menu_hint_swipe">проведите от края экрана</string>
+    <string name="stream_menu_hint_buttons">проведите вверх от нижнего края и нажмите «Назад»</string>
+    <string name="stream_menu_hint_back">нажмите «Назад»</string>
+    <string name="stream_menu_hint_controller">нажмите Start + Back + LB + RB на контроллере</string>
+    <string name="stream_menu_hint_keyboard">нажмите Ctrl + Alt + Shift + M</string>
+    <string name="stream_menu_hint_or">%1$s или %2$s</string>
+    <string name="stream_menu_hint_list">%1$s, %2$s</string>
+    <string name="stream_menu_hint_close">Нажмите, чтобы закрыть</string>
+    <string name="stream_h264_decoder_missing">Это устройство не поддерживает аппаратное декодирование H.264, необходимое для трансляции.</string>
+    <string name="perf_overlay_vrr">Панель: %1$.2f Гц · рендеринг: %2$.2f Гц · VRR: %3$s</string>
+    <string name="perf_overlay_vrr_max_hz">макс. Гц</string>
+    <string name="sheet_back">Назад</string>
+</resources>

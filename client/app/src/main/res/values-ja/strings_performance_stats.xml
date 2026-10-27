@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stats_decode_submission">CPU 送信: %1$s ms · 表示待ち: %2$s ms</string>
+    <string name="perf_overlay_pyrowave_submit">CPU 送信時間: %1$s ms</string>
+    <string name="latency_pyrowave_completed_decode">デコード完了まで</string>
+    <string name="stats_waiting">ストリームの統計情報を待機しています…</string>
+    <string name="stats_frame_rates">描画: %1$s FPS · 受信: %2$s FPS</string>
+    <string name="stats_throughput">映像データ: %1$s Mbps · 損失: %2$s%%</string>
+    <string name="stats_network">ネットワーク RTT: %1$s ms（±%2$s ms）</string>
+    <string name="stats_host">ホストの処理: %1$s ms</string>
+    <string name="stats_host_network">ホストからネットワーク: %1$s ms</string>
+    <string name="stats_client">デコード: %1$s ms · 表示待ち: %2$s ms</string>
+    <string name="hardware_title">ホストのハードウェア（全 GPU）</string>
+    <string name="hardware_cpu">ホストの CPU: %1$s%%</string>
+    <string name="hardware_gpu_summary">ホストの GPU %1$d: %2$s%% · %3$s °C · %4$s W</string>
+    <string name="hardware_sample">ホストのサンプル: Unix エポックから %1$d ms · 間隔: %2$d ms</string>
+    <string name="hardware_gpu_name">GPU %1$d · %2$s</string>
+    <string name="hardware_gpu_unnamed">名前のない GPU</string>
+    <string name="hardware_gpu_clocks">使用率: %1$s%% · GPU クロック: %2$s MHz · メモリクロック: %3$s MHz</string>
+    <string name="hardware_gpu_temperatures">GPU: %1$s °C · ホットスポット: %2$s °C · メモリ: %3$s °C</string>
+    <string name="hardware_gpu_fan_voltage">電圧: %1$s mV · ファン: %2$s RPM（%3$s%%）</string>
+    <string name="hardware_gpu_power">GPU 電力: %1$s W · ボード電力: %2$s W</string>
+    <string name="hardware_gpu_memory">VRAM: %1$s MB（%2$s%%）</string>
+</resources>

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="health_title">Dlaczego strumień się przycinał?</string>
+    <string name="health_intro">Aktywne próbki: %1$d. Dane obejmują ostatnie 30 sekund. Kilka etapów może być wolnych jednocześnie; te obserwacje sugerują przyczyny, a nie dają pewnej diagnozy. Nie są zapisywane żadne obrazy ani dane osobowe.</string>
+    <string name="health_insufficient">Za mało ostatniego wideo do oceny. Graj przez kilka sekund z zamkniętym menu, a potem wróć tu zaraz po przycięciu.</string>
+    <string name="health_no_issue">W dostępnych pomiarach nie zaobserwowano powtarzającego się wąskiego gardła. Krótkie skoki i niezmierzone etapy nadal mogą powodować przycięcia.</string>
+    <string name="health_network">Sieć: powtarzająca się utrata klatek lub wahania czasu odpowiedzi. Spróbuj niższej szybkości transmisji, hosta podłączonego kablem lub mniej obciążonej sieci Wi-Fi.</string>
+    <string name="health_decoder">Dekodowanie: wyjście wielokrotnie zajmowało co najmniej jeden interwał klatki. Spróbuj niższej rozdzielczości lub liczby klatek; samo obniżenie szybkości transmisji może nie pomóc.</string>
+    <string name="health_host">Host: wolniejsze próbki przetwarzania przekraczały interwał klatki. Porównaj obciążenie gry/GPU i niższy limit klatek w grze. Ten pomiar obejmuje więcej niż samo kodowanie.</string>
+    <string name="health_presentation">Prezentacja: klatki były wydawane szybciej, niż były wyświetlane, z długim oczekiwaniem na wyświetlenie. Porównaj tryby tempa klatek i częstotliwość odświeżania ekranu.</string>
+    <string name="health_heat">Temperatura: Android zgłosił wysokie obciążenie termiczne. Obniż liczbę klatek/rozdzielczość lub wyłącz kosztowne przetwarzanie na urządzeniu; pozwól urządzeniu ostygnąć.</string>
+    <string name="health_evidence">Największe zaobserwowane wartości:\nUtrata klatek: %1$s %%\nDekodowanie: %2$s ms\nPrzetwarzanie na hoście p95: %3$s ms\nOczekiwanie na wyświetlenie p95: %4$s ms\nTe etapy nie sumują się do opóźnienia od sterowania do ekranu.</string>
+    <string name="health_evidence_send">Największe zaobserwowane wartości:\nUtrata klatek: %1$s %%\nDekodowanie: %2$s ms\nHost do sieci p95: %3$s ms\nOczekiwanie na wyświetlenie p95: %4$s ms\nTe etapy nie sumują się do opóźnienia od sterowania do ekranu.</string>
+    <string name="health_trial_help">Próba szybkości transmisji zmienia tylko tę sesję. Porównaj kolejne 30 sekund podobnej rozgrywki, a potem wróć tu, aby ją cofnąć. Ręczne lub automatyczne zmiany szybkości transmisji zastępują próbę.</string>
+    <string name="health_try">Wypróbuj niższą szybkość transmisji</string>
+    <string name="health_undo">Cofnij próbę szybkości transmisji</string>
+    <string name="health_bitrate_unavailable">Host nie zgłosił bieżącej szybkości transmisji kodera. Próba nie została zastosowana.</string>
+    <string name="health_trial_replaced">Szybkość transmisji hosta zmieniła się od czasu próby. Cofnięcie zostało anulowane, aby zachować tę zmianę.</string>
+    <string name="health_bitrate_minimum">Koder ma już minimalną szybkość transmisji dla próby. Nic nie zmieniono.</string>
+    <string name="health_periodic">Powtarzające się przycięcia: w ciągu ostatnich 20 minut sieć zacinała się mniej więcej co %1$s (łącznie: %2$d). Tak regularny rytm zwykle wynika ze skanowania Wi-Fi w tle na tym urządzeniu lub na komputerze. Aby je ograniczyć:\n• Android: Ustawienia → Lokalizacja → Usługi lokalizacyjne, wyłącz Skanowanie Wi-Fi i Skanowanie Bluetooth.\n• Android: pozostaw włączone Opcje programisty → Ograniczanie skanowania Wi-Fi.\n• Podczas strumienia zamknij aplikacje, które szukają sieci lub urządzeń w pobliżu.\n• Komputer: podłącz go kablem lub zatrzymaj narzędzia skanujące sieci Wi-Fi.\nNightjar podczas strumienia już utrzymuje blokadę Wi-Fi o niskim opóźnieniu Androida, która prosi system o opóźnianie skanowania; niektóre urządzenia i tak skanują.</string>
+</resources>

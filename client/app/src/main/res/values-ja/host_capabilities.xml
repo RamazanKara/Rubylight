@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_feature_permissions">デバイスの権限</string>
+    <string name="host_feature_otp_pairing">ワンタイム PIN ペアリング</string>
+    <string name="host_feature_clipboard">クリップボード</string>
+    <string name="host_feature_server_commands">サーバーコマンド</string>
+    <string name="host_feature_virtual_display">仮想ディスプレイ</string>
+    <string name="host_feature_virtual_display_hdr">HDR 仮想ディスプレイ</string>
+    <string name="host_feature_display_modes">PC の表示モード</string>
+    <string name="host_feature_fractional_refresh">小数のリフレッシュレート</string>
+    <string name="host_feature_vrr">ホスト側 VRR</string>
+    <string name="host_feature_runtime_bitrate">ストリーム中のビットレート変更</string>
+    <string name="host_feature_pyrowave">PyroWave</string>
+    <string name="host_feature_speed_test">接続速度テスト</string>
+    <string name="host_feature_hardware_metrics">ホストの CPU と GPU の測定値</string>
+    <string name="host_feature_network_path">ネットワーク経路のチェック</string>
+    <string name="host_feature_frame_limiter">フレームリミッターの状態</string>
+    <string name="host_feature_controller_preparation">コントローラの再接続</string>
+    <string name="host_feature_remote_sessions">リモートモニターと入力専用</string>
+    <string name="host_feature_web_ui">ウェブ UI</string>
+    <string name="host_feature_reason_update">使用するにはホストソフトウェアを更新してください</string>
+    <string name="host_feature_reason_pair">先にこの PC とペアリングしてください</string>
+    <string name="host_feature_reason_view_permission">ホストでこのデバイスにストリームの表示を許可してください</string>
+    <string name="host_feature_reason_clipboard_permission">ホストでこのデバイスにクリップボードを許可してください</string>
+    <string name="host_feature_reason_command_permission">ホストでこのデバイスにサーバーコマンドを許可してください</string>
+    <string name="host_feature_reason_no_commands">ホストのウェブ UI でコマンドを追加してください</string>
+    <string name="host_feature_reason_virtual_display_off">ホストの設定で仮想ディスプレイをオンにしてください</string>
+    <string name="host_feature_reason_virtual_display_driver">ホストの仮想ディスプレイ ドライバの準備ができていません</string>
+    <string name="host_feature_reason_hardware_metrics_off">ホストの設定でハードウェア測定値をオンにしてください</string>
+    <string name="host_feature_reason_sleep_permission">このデバイスには PC をスリープする権限がありません</string>
+    <string name="host_feature_reason_file_permission">このデバイスにはファイルの権限がありません。ホストのウェブ UI で許可してください</string>
+    <string name="host_feature_unknown">ホストが対応している場合に適用されます</string>
+    <string name="host_details_software_apollo">Apollo 互換ホスト</string>
+    <string name="host_details_software_vibepollo">Vibepollo 互換ホスト</string>
+    <string name="host_details_software_unknown">Moonlight 互換ホスト</string>
+    <string name="host_details_features">機能</string>
+    <string name="host_details_features_unknown">対応機能を確認するには、この PC に一度接続してください。</string>
+    <string name="host_details_features_none">追加機能は報告されていません</string>
+    <string name="host_pyrowave_unavailable">この PC は PyroWave でストリーミングできないため、%1$s を使用します。</string>
+    <string name="connection_test_intro_delay">PC までの遅延をテストします。</string>
+    <string name="host_feature_cursor_shape">カーソルの形状</string>
+</resources>

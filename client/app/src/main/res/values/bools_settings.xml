@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Settings shows the sections and the chosen section side by side (layout-w840dp/activity_stream_settings.xml). -->
+    <bool name="settings_two_pane">false</bool>
+</resources>

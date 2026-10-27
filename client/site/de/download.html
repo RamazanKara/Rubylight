@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f8f9fd" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#14161f" media="(prefers-color-scheme: dark)">
+  <title>Download für Android · Nightjar</title>
+  <meta name="description" content="Lade Nightjar für Android herunter. Prüfe die SHA-256-Prüfsumme und starte deinen ersten Stream.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Nightjar">
+  <meta property="og:title" content="Download für Android · Nightjar">
+  <meta property="og:description" content="Lade Nightjar für Android herunter. Prüfe die SHA-256-Prüfsumme und starte deinen ersten Stream.">
+  <meta property="og:image" content="../assets/og.png">
+  <meta property="og:image:alt" content="Nightjar — Stream your PC to Android.">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:locale" content="de_DE">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="alternate" hreflang="en" href="../download.html">
+  <link rel="alternate" hreflang="de" href="../de/download.html">
+  <link rel="alternate" hreflang="x-default" href="../download.html">
+  <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon.png">
+  <link rel="stylesheet" href="../assets/site.css">
+  <script src="../assets/site.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Zum Inhalt springen</a>
+  <header class="site-header wrap">
+    <a class="brand" href="index.html" aria-label="Nightjar Startseite"><img src="../assets/launcher.png" alt="" width="32" height="32">NIGHTJAR</a>
+    <nav class="main-nav" aria-label="Hauptnavigation">
+      <a href="index.html#features">Funktionen</a>
+      <a href="index.html#setup">Einrichtung</a>
+      <a href="../docs.html">Docs</a>
+      <a href="download.html" aria-current="page">Download</a>
+    </nav>
+    <nav class="language-nav" aria-label="Sprache">
+      <a href="../download.html" lang="en" hreflang="en" aria-label="English">EN</a>
+      <a href="../de/download.html" lang="de" hreflang="de" aria-label="Deutsch" aria-current="true">DE</a>
+    </nav>
+  </header>
+  <main id="main" tabindex="-1">
+    <section class="page-heading wrap download-heading">
+      <img class="download-mark" src="../assets/launcher.png" alt="" width="80" height="80">
+      <h1>Dein nächster Stream<br><span>beginnt hier.</span></h1>
+      <p class="lead">Nightjar für Android. Dein PC in deiner Hand.</p>
+      <a class="button" href="https://github.com/RamazanKara/nightjar/releases/latest"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></svg>Aktuellen Release öffnen</a>
+      <p class="fine-print">Android 5.0+ · APK · Frei und quelloffen</p>
+    </section>
+    <div class="wrap reading-layout">
+      <aside class="page-aside"><p class="small-heading">Loslegen</p><nav aria-label="Auf dieser Seite"><a href="#install">Installieren</a><a href="#verify">Prüfsumme prüfen</a><a href="index.html#setup">Mit dem PC verbinden</a></nav></aside>
+      <div class="reading-content">
+        <section id="install" aria-labelledby="install-title">
+          <h2 id="install-title">Herunterladen. Installieren. Streamen.</h2>
+          <ol>
+            <li>Öffne den aktuellen Release und lade die APK herunter.</li>
+            <li>Prüfe die Datei mit den Befehlen unten. Öffne die APK auf deinem Android-Gerät.</li>
+            <li>Erlaube deinem Browser oder Dateimanager die Installation, wenn Android danach fragt. Installiere Nightjar.</li>
+            <li>Starte den Streaming-Host auf deinem PC, zum Beispiel <a href="https://github.com/ClassicOldSong/Apollo">Apollo</a>, <a href="https://github.com/RamazanKara/Rubylight">Rubylight</a>, <a href="https://github.com/LizardByte/Sunshine">Sunshine</a> oder <a href="https://github.com/Nonary/Vibepollo">Vibepollo</a>. Folge dann der <a href="index.html#setup">Einrichtung in vier Schritten</a>.</li>
+          </ol>
+        </section>
+        <section id="verify" aria-labelledby="verify-title">
+          <h2 id="verify-title">Prüfe deinen Download.</h2>
+          <p>Öffne ein Terminal im Ordner mit der APK. Berechne den SHA-256-Hash mit dem Befehl für dein System.</p>
+          <div class="command"><h3>Windows · PowerShell</h3><pre tabindex="0" aria-label="PowerShell-Prüfbefehl"><code>Get-FileHash .\*.apk -Algorithm SHA256</code></pre></div>
+          <div class="command"><h3>Linux</h3><pre tabindex="0" aria-label="Linux-Prüfbefehl"><code>sha256sum ./*.apk</code></pre></div>
+          <div class="command"><h3>macOS</h3><pre tabindex="0" aria-label="macOS-Prüfbefehl"><code>shasum -a 256 ./*.apk</code></pre></div>
+          <p>Öffne die <a href="https://api.github.com/repos/RamazanKara/nightjar/releases/latest">Prüfsummen des Releases</a>. Suche unter <code>assets</code> nach dem Namen deiner APK und dem Wert <code>digest</code>. Vergleiche die 64 Zeichen nach <code>sha256:</code> mit deinem Ergebnis. Jeder Wert muss übereinstimmen. Groß- und Kleinschreibung spielen dabei keine Rolle.</p>
+          <p>Installiere die Datei erst, wenn die Prüfsumme übereinstimmt. Lade sie bei einer Abweichung erneut aus dem Release herunter.</p>
+        </section>
+        <section class="inline-help"><h2>Bereit für den ersten Stream?</h2><p>Kopple dein Gerät, wähle dein Spiel und übernimm die Kontrolle.</p><a class="text-link" href="index.html#setup">Zur Einrichtung<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></section>
+      </div>
+    </div>
+  </main>
+  <footer class="site-footer wrap">
+    <div><a class="brand" href="index.html">NIGHTJAR</a><p>Dein PC. Dein Stream.</p></div>
+    <nav aria-label="Weitere Links"><a href="../docs.html">Dokumentation (EN)</a><a href="../devices.html">Geräteergebnisse (EN)</a><a href="../privacy.html">Datenschutz (EN)</a><a href="https://github.com/RamazanKara/nightjar">Quellcode</a></nav>
+    <p class="footer-note">Für Android. Frei und quelloffen.</p>
+  </footer>
+</body>
+</html>

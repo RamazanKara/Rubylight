@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_overlay_position">Position der Leistungsanzeige</string>
+    <string name="overlay_position_section">Position</string>
+    <string name="overlay_position_top_left">Oben links</string>
+    <string name="overlay_position_top_right">Oben rechts</string>
+    <string name="overlay_position_bottom_left">Unten links</string>
+    <string name="overlay_position_bottom_right">Unten rechts</string>
+</resources>

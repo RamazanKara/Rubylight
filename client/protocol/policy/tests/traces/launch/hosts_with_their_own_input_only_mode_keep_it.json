@@ -1,0 +1,10 @@
+{
+  "source": "InputOnlyPolicyTest.hostsWithTheirOwnInputOnlyModeKeepIt",
+  "rust": "launch::InputOnlyPolicy",
+  "java": "com.limelight.LaunchTrace",
+  "new": null,
+  "calls": [
+    {"call": "mode", "args": [true, true, false], "expect": "native"},
+    {"call": "mode", "args": [false, true, false], "expect": "native"}
+  ]
+}

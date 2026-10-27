@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_network_grace">Перечікувати обриви мережі</string>
+    <string name="summary_network_grace">Скільки трансляція чекає, якщо мережа перестала відповідати, наприклад коли Wi-Fi перемикається між точками доступу або VPN переходить з Wi-Fi на мобільний інтернет. «Вимк.» завершує трансляцію через 10 секунд без зв’язку. Зображення завмирає, доки мережа не повернеться. Очікування понад 10 секунд допомагає, лише якщо хост чекає так само довго: збільште його тайм-аут клієнта.</string>
+    <string name="network_grace_off">Вимк. (10 секунд)</string>
+    <string name="network_grace_20">20 секунд</string>
+    <string name="network_grace_30">30 секунд</string>
+    <string name="network_grace_60">60 секунд</string>
+    <string name="network_grace_gave_up">Зв’язку не було довше за допустимі %1$d с, або хост завершив сеанс. Якщо хост здався першим, збільште і його тайм-аут клієнта.</string>
+</resources>

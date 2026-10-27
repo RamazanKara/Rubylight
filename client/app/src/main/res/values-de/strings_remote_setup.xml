@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="remote_pair_revoked">Der PC hat geantwortet, aber dieses Gerät ist nicht mehr gekoppelt. Kopple es zu Hause erneut, bevor du den Fernzugriff testest.</string>
+    <string name="remote_permission_denied">Der gekoppelte PC hat geantwortet, aber dieses Gerät darf keine Streams ansehen. Erlaube diesem Gerät das Ansehen oder Starten von Anwendungen in den Einstellungen oder der Web-UI deines Hosts.</string>
+    <string name="remote_setup_title">Unterwegs spielen</string>
+    <string name="remote_step">Schritt %1$d von 3</string>
+    <string name="remote_prepare">Zu Hause vorbereiten\n\nKopple dieses Gerät im Heimnetz mit dem PC und prüfe einen normalen Stream. Der PC muss wach sein und der Host laufen.\n\nWake-on-LAN von unterwegs benötigt einen geeigneten Router oder ein dauerhaft eingeschaltetes Gerät zu Hause. Das Telefon allein kann einen unerreichbaren PC nicht wecken.</string>
+    <string name="remote_vpn">Geräte verbinden\n\nEin privates VPN wie Tailscale verbindet Telefon und PC, ohne die Web-UI des Hosts im Internet freizugeben. Installiere es auf beiden Geräten, melde dich mit deinem eigenen Konto an und aktiviere die Verbindung. Vorhandene VPNs sind ebenfalls nutzbar.\n\nDer Link öffnet die offizielle Download-Anleitung. Diese App installiert nichts, erstellt keine Konten und ändert weder Router noch Portfreigaben.</string>
+    <string name="remote_verify">In einem anderen Netzwerk prüfen\n\nFüge die VPN-Adresse des PCs über Adresse hinzufügen hinzu, bei Bedarf mit dem angepassten Streaming-HTTP-Port. Bei gleicher Identität wird der gespeicherte PC aktualisiert. Kehre danach zurück.\n\nTrenne das Heim-WLAN und nutze Mobilfunk oder ein anderes Netzwerk. Der Test prüft die Identität des gekoppelten PCs mit fünf kleinen HTTPS-Anfragen. Er startet keinen Stream und lädt keine Testdatei herunter. Ein Test im Heimnetz allein beweist keine Erreichbarkeit aus dem Internet.</string>
+    <string name="remote_get_vpn">Tailscale-Einrichtung öffnen</string>
+    <string name="remote_add_address">VPN- oder Remote-Adresse hinzufügen</string>
+    <string name="remote_test">Diesen PC testen</string>
+    <string name="remote_previous">Zurück</string>
+    <string name="remote_next">Weiter</string>
+    <string name="remote_pair_first">Kopple den PC zuerst im Heimnetz. Sein gespeichertes Zertifikat und der HTTPS-Port werden benötigt, um den PC unter der Remote-Adresse zu verifizieren.</string>
+    <string name="remote_running">Gekoppelten PC prüfen…</string>
+    <string name="remote_cancelled">Test abgebrochen. Host- und Netzwerkeinstellungen wurden nicht geändert.</string>
+    <string name="remote_failed">Der gekoppelte PC konnte nicht verifiziert werden. Prüfe, ob er wach ist, Host und VPN laufen und Adresse sowie Streaming-Ports stimmen. Bei geänderter Kopplung zu Hause neu koppeln. Der Test kann einen schlafenden PC nicht von einer blockierten Verbindung unterscheiden.</string>
+    <string name="remote_verified">Der gekoppelte PC hat in diesem Netzwerk geantwortet. Versuche als Nächstes einen normalen Stream mit moderater Bitrate. HTTPS-Erreichbarkeit prüft weder Video-/Audio-UDP-Ports noch dauerhafte Streaming-Leistung.</string>
+    <string name="remote_direct">Tailscale meldet eine direkte Verbindung. Direkte Verbindungen bieten meist den besten Durchsatz und die niedrigste Latenz.</string>
+    <string name="remote_relay">Tailscale meldet ein DERP-Relay. Es ermöglicht die Verbindung, kann aber das Streaming begrenzen. Prüfe die Tailscale-Verbindungshinweise oder richte ein geeignetes Peer-Relay ein.</string>
+    <string name="remote_peer_relay">Tailscale meldet ein Peer-Relay. Die Leistung hängt vom Relay und beiden Netzwerkstrecken ab. Vergleiche einen echten Stream.</string>
+    <string name="remote_unknown">Direkte oder weitergeleitete Verbindung: nicht verfügbar. Host, VPN oder Verbindung liefert keine aktuelle Einordnung. Prüfe den VPN-Status; niedriger Ping allein beweist keine direkte Verbindung.</string>
+    <string name="remote_measurements">HTTPS-Anfragen im Mittel: %1$.1f ms\nFehlgeschlagene Anfragen: %2$.0f %%\nDies sind Anwendungsmessungen, kein Video-Paketverlust und keine Eingabelatenz.</string>
+</resources>

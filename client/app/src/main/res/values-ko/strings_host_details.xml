@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_details_close">닫기</string>
+    <string name="host_details_copy">디버그 정보 복사</string>
+    <string name="host_details_copied">디버그 정보를 복사했습니다</string>
+    <string name="host_details_status">상태</string>
+    <string name="host_details_state">연결</string>
+    <string name="host_details_pairing">페어링</string>
+    <string name="host_details_paired">페어링됨</string>
+    <string name="host_details_not_paired">PC를 탭하여 페어링하세요.</string>
+    <string name="host_details_running">실행 중인 앱</string>
+    <string name="host_details_running_none">없음</string>
+    <string name="host_details_running_app">앱 %1$d</string>
+    <string name="host_details_host">호스트</string>
+    <string name="host_details_software">호스트 소프트웨어</string>
+    <string name="host_details_software_butterpollo">Rubylight %1$s</string>
+    <string name="host_details_software_gamestream">NVIDIA GameStream</string>
+    <string name="host_details_software_other">Sunshine 호환 호스트</string>
+    <string name="host_details_id">호스트 ID</string>
+    <string name="host_details_network">네트워크</string>
+    <string name="host_details_active_address">연결 경로</string>
+    <string name="host_details_local_address">로컬 주소</string>
+    <string name="host_details_remote_address">인터넷 주소</string>
+    <string name="host_details_ipv6_address">IPv6 주소</string>
+    <string name="host_details_manual_address">직접 입력한 주소</string>
+    <string name="host_details_https_port">HTTPS 포트</string>
+    <string name="host_details_mac">MAC 주소(Wake-on-LAN)</string>
+    <string name="host_details_permissions">기기 권한</string>
+</resources>

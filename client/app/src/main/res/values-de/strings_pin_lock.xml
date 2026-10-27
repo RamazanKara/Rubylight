@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pin_lock_title">PIN-Sperre</string>
+    <string name="pin_lock_summary">Fragt nach einer PIN, um Nightjar zu öffnen oder einen Stream zu starten. Eine vergessene PIN lässt sich nur zurücksetzen, indem du die App-Daten von Nightjar in den Android-Einstellungen löschst. Dabei werden auch deine gekoppelten PCs entfernt.</string>
+    <string name="pin_set">PIN festlegen</string>
+    <string name="pin_change">PIN ändern</string>
+    <string name="pin_remove">PIN entfernen</string>
+    <string name="pin_set_summary">Wähle 4 bis 8 Ziffern.</string>
+    <string name="pin_is_set_summary">Eine PIN ist festgelegt. Zum Ändern oder Entfernen wird die aktuelle PIN abgefragt.</string>
+    <string name="pin_mode_title">Sperre</string>
+    <string name="pin_mode_off">Aus</string>
+    <string name="pin_mode_app">Beim Öffnen von Nightjar</string>
+    <string name="pin_mode_streams">Beim Start jedes Streams</string>
+    <string name="pin_mode_selected">Beim Start eines Streams auf ausgewählten PCs</string>
+    <string name="pin_pcs_title">Ausgewählte PCs</string>
+    <string name="pin_pcs_none">Keine ausgewählt</string>
+    <plurals name="pin_pcs_selected">
+        <item quantity="one">%d PC</item>
+        <item quantity="other">%d PCs</item>
+    </plurals>
+    <string name="pin_pcs_empty">Es wurden noch keine PCs hinzugefügt.</string>
+    <string name="pin_grace_title">Erneut fragen nach</string>
+    <string name="pin_grace_always">Bei jedem Verlassen von Nightjar</string>
+    <string name="pin_grace_minutes">%d Minuten</string>
+    <string name="pin_grace_hour">1 Stunde</string>
+    <string name="pin_remove_title">PIN entfernen?</string>
+    <string name="pin_remove_message">Nightjar fragt dann nicht mehr nach einer PIN.</string>
+    <string name="pin_footer">Wenn du die PIN vergisst, kannst du sie nur zurücksetzen, indem du die App-Daten von Nightjar in den Android-Einstellungen löschst. Dadurch werden auch deine gekoppelten PCs entfernt und du musst sie erneut koppeln.</string>
+    <string name="pin_saved">PIN gespeichert</string>
+    <string name="pin_removed">PIN entfernt</string>
+    <string name="pin_title_app">Nightjar ist gesperrt</string>
+    <string name="pin_title_enter">PIN eingeben</string>
+    <string name="pin_title_choose">PIN wählen</string>
+    <string name="pin_title_confirm">PIN bestätigen</string>
+    <string name="pin_subtitle_app">Gib deine PIN ein, um fortzufahren</string>
+    <string name="pin_subtitle_stream">Erforderlich, um einen Stream zu starten</string>
+    <string name="pin_subtitle_stream_pc">Erforderlich, um einen Stream auf %1$s zu starten</string>
+    <string name="pin_subtitle_verify">Erforderlich, um die PIN-Sperre zu ändern</string>
+    <string name="pin_subtitle_choose">Verwende 4 bis 8 Ziffern</string>
+    <string name="pin_subtitle_confirm">Gib dieselbe PIN noch einmal ein</string>
+    <string name="pin_wrong">Falsche PIN. Versuche es erneut.</string>
+    <string name="pin_locked_out">Zu viele Fehlversuche. Versuche es in %1$s erneut.</string>
+    <string name="pin_too_short">Verwende mindestens 4 Ziffern.</string>
+    <string name="pin_mismatch">Die PINs stimmen nicht überein. Wähle die PIN erneut.</string>
+    <string name="pin_checking">Wird geprüft…</string>
+    <string name="pin_saving">Wird gespeichert…</string>
+    <string name="pin_cancel">Abbrechen</string>
+    <string name="pin_close_app">Nightjar schließen</string>
+    <string name="pin_key_delete">Löschen</string>
+    <string name="pin_key_confirm">Bestätigen</string>
+    <string name="pin_dots_description">%1$d von %2$d Ziffern eingegeben</string>
+    <string name="pin_hint">Hoch und Runter wählen eine Reihe. Links, OK und Rechts drücken deren Tasten.</string>
+    <string name="pin_row_1">Reihe 1: 1, 2, 3</string>
+    <string name="pin_row_2">Reihe 2: 4, 5, 6</string>
+    <string name="pin_row_3">Reihe 3: 7, 8, 9</string>
+    <string name="pin_row_4">Reihe 4: Löschen, 0, Bestätigen</string>
+</resources>

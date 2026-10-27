@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_global_context">Стандартні значення для всіх ПК. Кожен ПК може мати власні налаштування трансляції.</string>
+    <string name="settings_changes_saved">Зміни зберігаються автоматично</string>
+    <string name="settings_search_results">Результати пошуку</string>
+    <string name="settings_back_to_search">Назад до результатів пошуку</string>
+    <string name="settings_back_to_overview">Назад до налаштувань</string>
+    <string name="settings_search_empty_help">Спробуйте коротший запит, наприклад «роздільна здатність», «звук» або «контролер».</string>
+    <string name="settings_search_breadcrumb">%1$s · %2$s</string>
+    <plurals name="settings_search_count">
+        <item quantity="one">Знайдено %d налаштування</item>
+        <item quantity="few">Знайдено %d налаштування</item>
+        <item quantity="many">Знайдено %d налаштувань</item>
+        <item quantity="other">Знайдено %d налаштування</item>
+    </plurals>
+    <string name="settings_profile_saved_context">Зміни застосуються до цього ПК після збереження.</string>
+    <string name="settings_profile_unsaved_context">Незбережені зміни для цього ПК</string>
+    <string name="settings_profile_reset_message">Використовувати стандартні значення для всіх ПК. Збережіть, щоб застосувати цю зміну до цього ПК.</string>
+    <string name="settings_profile_display_immediate">Режим дисплея зберігається окремо в його діалоговому вікні.</string>
+</resources>

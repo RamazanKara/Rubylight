@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_layout_title">這款遊戲的控制按鈕</string>
+    <string name="touch_layout_show">顯示遊戲按鈕</string>
+    <string name="touch_layout_hide">隱藏遊戲按鈕</string>
+    <string name="touch_layout_add">新增控制項</string>
+    <string name="touch_layout_move">移動遊戲按鈕</string>
+    <string name="touch_layout_save">儲存版面配置並開始玩</string>
+    <string name="touch_layout_move_help">拖曳按鈕即可放置。移動期間會暫停觸控輸入。完成後請返回這裡並選擇「儲存版面配置並開始玩」。</string>
+    <string name="touch_layout_import">匯入版面配置</string>
+    <string name="touch_layout_export">匯出或分享版面配置</string>
+    <string name="touch_layout_import_help">貼上分享的 Nightjar 版面配置，或 Artemis 鍵盤版面配置或自訂按鍵檔案。「取代」只會變更這部電腦上的這款遊戲。無效的版面配置不會變更你的控制項。</string>
+    <string name="touch_layout_paste">貼上版面配置 JSON</string>
+    <string name="touch_layout_copy">複製 JSON</string>
+    <string name="touch_layout_share">分享 JSON 檔案</string>
+    <string name="touch_layout_share_error">無法分享版面配置。請改為複製其 JSON。</string>
+    <string name="touch_layout_limit">一個版面配置最多可包含 32 個控制項。</string>
+    <string name="touch_layout_name">按鈕名稱</string>
+    <string name="touch_layout_binding">按鍵或滑鼠按鈕</string>
+    <string name="touch_layout_binding_help">範例：W、CTRL + C、SPACE。MOUSE_1 為左鍵、MOUSE_2 為中鍵、MOUSE_3 為右鍵、MOUSE_4 為上一頁、MOUSE_5 為下一頁。</string>
+    <string name="touch_layout_width">寬度 (控制區域的 %，4–80)</string>
+    <string name="touch_layout_height">高度 (控制區域的 %，4–80)</string>
+    <string name="touch_layout_toggle">輕觸以按住；再輕觸一次以放開</string>
+    <string name="touch_layout_hold">按下時按住</string>
+    <string name="touch_layout_pressed">按住</string>
+    <string name="touch_layout_released">放開</string>
+    <string name="touch_layout_invalid">請檢查名稱、按鍵或按鈕，以及數字是否在範圍內。</string>
+    <string name="desktop_zoom_enable">啟用雙指縮放和平移</string>
+    <string name="desktop_zoom_disable">停用雙指縮放和平移</string>
+    <string name="desktop_zoom_reset">重設縮放</string>
+    <string name="desktop_zoom_help">以兩指捏合即可縮放，最高 4×；以兩指拖曳即可平移。單指仍使用所選的觸控模式。啟用縮放控制時，會取代兩指捲動。</string>
+    <string name="desktop_zoom_surface_help">在 Android 5 和 6 上，請在串流設定中啟用 TextureView 並重新連線，才能使用縮放。</string>
+    <string name="desktop_output">視訊輸出 (會重新連線串流)</string>
+    <string name="desktop_output_device">這部裝置</string>
+    <string name="desktop_touchpad_help">影像會顯示在你的外接顯示器上。請將這個螢幕當作觸控板使用。鍵盤、遊戲按鈕和串流選單仍可在這裡使用。</string>
+    <string name="desktop_pacing_fallback">外接顯示器：影格一抵達就會立即顯示。</string>
+    <string name="desktop_display_unavailable">沒有外接顯示器可以顯示串流，因此會保留在這部裝置上。</string>
+    <string name="controller_axes_title">搖桿、扳機鍵和方向鍵</string>
+    <string name="controller_axes_configured">自訂軸或方向鍵對應；會在下次串流時套用</string>
+    <string name="controller_axes_source">%1$s 的輸入</string>
+    <string name="controller_axes_inverted">%1$s (反轉)</string>
+    <string-array name="controller_axes">
+        <item>左搖桿水平</item>
+        <item>左搖桿垂直</item>
+        <item>右搖桿水平</item>
+        <item>右搖桿垂直</item>
+        <item>左扳機鍵</item>
+        <item>右扳機鍵</item>
+        <item>方向鍵上</item>
+        <item>方向鍵下</item>
+        <item>方向鍵左</item>
+        <item>方向鍵右</item>
+    </string-array>
+    <string-array name="controller_dpad_targets">
+        <item>無</item>
+        <item>方向鍵上</item>
+        <item>方向鍵下</item>
+        <item>方向鍵左</item>
+        <item>方向鍵右</item>
+        <item>A</item>
+        <item>B</item>
+        <item>X</item>
+        <item>Y</item>
+        <item>LB</item>
+        <item>RB</item>
+        <item>按下左搖桿</item>
+        <item>按下右搖桿</item>
+        <item>Start</item>
+        <item>Select</item>
+        <item>Guide</item>
+    </string-array>
+</resources>

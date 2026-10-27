@@ -1,0 +1,16 @@
+<resources>
+    <string name="refresh_diag_no_mode">Yayın %1$s Hz istiyor, ancak bu ekran yalnızca %2$s Hz sunuyor ve %3$s Hz ile çalışıyor.</string>
+    <string name="refresh_diag_not_seamless">Ekran istenen %1$s Hz yerine %2$s Hz’de kalıyor: geçiş görüntüyü bir an karartır (modlar: %3$s Hz).</string>
+    <string name="refresh_diag_needs_match_setting">Ekran istenen %1$s Hz yerine %2$s Hz’de kalıyor: geçiş görüntüyü bir an karartır ve Android bunu yalnızca ekran ayarlarında içeriğin kare hızıyla eşleştirmeye izin verilmişse yapar (modlar: %3$s Hz).</string>
+    <string name="refresh_diag_user_limit">Ekran istenen %1$s Hz yerine %2$s Hz’de kalıyor: Android yenileme hızı ayarı en fazla %3$s Hz’e izin veriyor.</string>
+    <string name="refresh_diag_battery_saver">Ekran istenen %1$s Hz yerine %2$s Hz’de kalıyor: pil tasarrufu sınırlıyor.</string>
+    <string name="refresh_diag_thermal">Ekran istenen %1$s Hz yerine %2$s Hz’de kalıyor: cihaz sıcak ve hızı 60 Hz ile sınırlıyor.</string>
+    <string name="refresh_diag_unexplained">Ekran istenen %1$s Hz yerine %2$s Hz’de kalıyor. Android bir neden belirtmiyor (modlar: %3$s Hz).</string>
+    <string name="stream_vrr_old_android">Değişken yenileme hızı Android 16 gerektirir, bu yüzden ekran en yüksek hızda çalışır.</string>
+    <string name="stream_vrr_no_arr">Bu ekranda uyarlanabilir yenileme hızı yok, bu yüzden en yüksek hızda çalışır.</string>
+    <string name="stream_hdr_mode_unsupported">Bu ekran modu HDR gösteremez, bu yüzden yayın SDR.</string>
+    <string name="stream_hdr_not_negotiated">HDR istendi ancak PC HDR video göndermedi, bu yüzden yayın SDR.</string>
+    <string name="stream_hdr_host_sdr">HDR istendi ancak PC SDR bildiriyor. Windows’ta yayınlanan ekran için HDR’yi açın.</string>
+    <string name="stream_hdr_no_metadata">HDR açık ancak PC mastering verisi göndermedi, bu yüzden parlaklık yanlış görünebilir.</string>
+    <string name="stream_hdr_output_not_pq">HDR açık ancak bu cihazın kod çözücüsü HDR olmayan bir çıkış bildiriyor, bu yüzden renkler soluk görünebilir.</string>
+</resources>

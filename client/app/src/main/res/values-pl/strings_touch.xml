@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_touch_off_help">Dotyk jest wyłączony. Przesuń wstecz lub naciśnij Wstecz, aby otworzyć menu strumienia.</string>
+    <string name="title_local_cursor_speed">Szybkość kursora lokalnego</string>
+    <string name="title_trackpad_acceleration">Przyspieszenie wskaźnika</string>
+    <string name="summary_trackpad_acceleration">Szybkie przesunięcia przenoszą wskaźnik dalej niż wolne, więc małe ruchy pozostają precyzyjne. Dla trybów Touchpad i Kursor lokalny.</string>
+    <string name="title_trackpad_acceleration_curve">Siła przyspieszenia</string>
+    <string-array name="trackpad_acceleration_curve_names">
+        <item>Łagodna</item>
+        <item>Średnia</item>
+        <item>Mocna</item>
+    </string-array>
+    <string name="title_trackpad_momentum">Ślizg po szybkim ruchu</string>
+    <string name="summary_trackpad_momentum">Po szybkim przesunięciu wskaźnik porusza się dalej i zwalnia. Dotknij ekranu, aby go zatrzymać. Dla trybów Touchpad i Kursor lokalny.</string>
+    <string name="title_trackpad_momentum_glide">Długość ślizgu</string>
+    <string-array name="trackpad_momentum_glide_names">
+        <item>Krótki</item>
+        <item>Średni</item>
+        <item>Długi</item>
+    </string-array>
+    <string name="title_trackpad_area">Obszar touchpada</string>
+    <string name="summary_trackpad_area">Gesty w trybach Touchpad i Kursor lokalny zaczynają się tylko w tej części ekranu. Dotknięcia rozpoczęte gdzie indziej są ignorowane.</string>
+    <string-array name="trackpad_area_names">
+        <item>Cały ekran</item>
+        <item>Prawa połowa</item>
+        <item>Lewa połowa</item>
+        <item>Dolna połowa</item>
+        <item>Górna połowa</item>
+    </string-array>
+    <string name="title_three_finger_tap">Stuknięcie trzema palcami</string>
+    <string name="summary_three_finger_tap">Co robi szybkie stuknięcie trzema palcami w trybach Touchpad, Mysz bezpośrednia i Kursor lokalny.</string>
+    <string-array name="three_finger_tap_names">
+        <item>@string/desktop_controls_system_keyboard</item>
+        <item>Kliknięcie środkowe</item>
+        <item>@string/desktop_controls_open</item>
+        <item>@string/stream_disabled</item>
+        <item>@string/pc_keyboard_title</item>
+    </string-array>
+    <string name="stream_cursor_shape_rejected">Nightjar nie może narysować kształtu kursora z komputera, więc pokazuje domyślną strzałkę.</string>
+    <string name="title_four_finger_tap">Stuknięcie czterema palcami</string>
+    <string name="summary_four_finger_tap">Działanie szybkiego stuknięcia czterema palcami w trybach Gładzik, Mysz bezpośrednia i Kursor lokalny.</string>
+</resources>

@@ -1,0 +1,1 @@
+Fix PyroWave picture edges on phones and tablets that decode with the fragment path, including Snapdragon devices, by updating the bundled PyroWave decoder.

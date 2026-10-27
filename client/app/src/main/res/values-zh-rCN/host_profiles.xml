@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_profile_title">%1$s 串流设置</string>
+    <string name="host_profile_status_global">所有值均沿用适用于所有电脑的设置。</string>
+    <string name="host_profile_status_custom">将所有值恢复为适用于所有电脑的设置。</string>
+    <string name="host_profile_explanation">在此设置的值仅适用于此电脑。所有标记为“与所有电脑相同”的项都沿用主串流设置，包括之后的更改。</string>
+    <string name="host_profile_resolution">分辨率（宽 × 高）</string>
+    <string name="host_profile_width">宽度</string>
+    <string name="host_profile_height">高度</string>
+    <string name="host_profile_match_screen">使用此屏幕</string>
+    <string name="host_profile_native">屏幕尺寸（跟随此屏幕）</string>
+    <string name="host_profile_refresh">帧率（FPS）</string>
+    <string name="host_profile_bitrate">码率（Mbps）</string>
+    <string name="host_profile_scale">电脑渲染分辨率 (%)</string>
+    <string name="host_profile_codec">视频编解码器</string>
+    <string name="host_profile_virtual_display">主机虚拟显示器</string>
+    <string name="host_profile_hdr">HDR</string>
+    <string name="host_profile_full_range">全范围视频</string>
+    <string name="host_profile_yuv444">优先使用 YUV 4:4:4</string>
+    <string name="host_profile_save">保存</string>
+    <string name="host_profile_reset">全部与所有电脑相同</string>
+    <string name="host_profile_saved">已保存电脑串流设置</string>
+    <string name="host_profile_reset_done">此电脑现在使用适用于所有电脑的设置</string>
+    <string name="host_profile_invalid_number">请输入 %1$d 到 %2$d 之间的整数</string>
+    <string name="host_profile_invalid_refresh">请输入 1–1000 FPS，最多两位小数</string>
+    <string name="host_profile_invalid_bitrate">请输入 0.5–2000 Mbps</string>
+    <string-array name="host_profile_codecs">
+        <item>自动</item>
+        <item>@string/videoformat_av1always</item>
+        <item>@string/videoformat_hevcalways</item>
+        <item>@string/videoformat_h264always</item>
+        <item>@string/videoformat_pyrowave</item>
+    </string-array>
+    <string name="host_profile_follows">与所有电脑相同 · %1$s</string>
+    <string name="host_profile_same_as_all_value">与所有电脑相同（%1$s）</string>
+    <string name="host_profile_on">开启</string>
+    <string name="host_profile_off">关闭</string>
+</resources>

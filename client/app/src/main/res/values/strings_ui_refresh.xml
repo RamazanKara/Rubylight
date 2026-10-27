@@ -1,0 +1,6 @@
+<resources>
+    <string name="add_pc_address_error">Enter an IP address or PC name, optionally followed by a port (for example, 192.168.1.10:47989).</string>
+    <string name="add_pc_connecting">Connecting…</string>
+    <string name="add_pc_service_unavailable">PC discovery could not start. Close this screen and try again.</string>
+    <string name="sheet_close">Close menu</string>
+</resources>

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="controller_mapping_title">手柄按键</string>
+    <string name="controller_mapping_summary">为每种手柄型号重新映射按键</string>
+    <string name="controller_mapping_intro">点按“映射按键”，然后按下要重新映射的手柄按键。\n更改将在下次串流时生效。</string>
+    <string name="controller_mapping_waiting">请连接手柄，然后点按“映射按键”。</string>
+    <string name="controller_mapping_unnamed">手柄</string>
+    <string name="controller_mapping_none">所有按键均使用默认映射。</string>
+    <string name="controller_mapping_row">发送 %1$s</string>
+    <string name="controller_mapping_choose">%1$s 发送…</string>
+    <string name="controller_mapping_default">%1$s（默认）</string>
+    <string name="controller_mapping_disabled">无</string>
+    <string name="controller_mapping_reset">重置此手柄</string>
+    <string name="controller_button_left_stick">左摇杆按下</string>
+    <string name="controller_button_right_stick">右摇杆按下</string>
+    <string name="controller_button_start">Start</string>
+    <string name="controller_button_select">Back</string>
+    <string name="controller_button_guide">Guide</string>
+    <string name="controller_button_number">按键 %1$d</string>
+    <string name="pc_tap_to_pair">%1$s\n点按即可配对</string>
+</resources>

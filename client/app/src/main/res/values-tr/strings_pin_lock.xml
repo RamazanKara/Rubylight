@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pin_lock_title">PIN kilidi</string>
+    <string name="pin_lock_summary">Nightjar\'ı açarken veya bir yayın başlatırken PIN ister. Unutulan bir PIN yalnızca Android ayarlarından Nightjar uygulama verilerini silerek sıfırlanabilir; bu işlem eşleştirilmiş bilgisayarları da kaldırır.</string>
+    <string name="pin_set">PIN belirle</string>
+    <string name="pin_change">PIN\'i değiştir</string>
+    <string name="pin_remove">PIN\'i kaldır</string>
+    <string name="pin_set_summary">4 ile 8 arasında rakam seçin.</string>
+    <string name="pin_is_set_summary">Bir PIN belirlendi. Değiştirmek veya kaldırmak için mevcut PIN gerekir.</string>
+    <string name="pin_mode_title">Kilit</string>
+    <string name="pin_mode_off">Kapalı</string>
+    <string name="pin_mode_app">Nightjar açılırken</string>
+    <string name="pin_mode_streams">Herhangi bir yayın başlatılırken</string>
+    <string name="pin_mode_selected">Seçili bilgisayarlarda yayın başlatılırken</string>
+    <string name="pin_pcs_title">Seçili bilgisayarlar</string>
+    <string name="pin_pcs_none">Hiçbiri seçilmedi</string>
+    <plurals name="pin_pcs_selected">
+        <item quantity="one">%d bilgisayar</item>
+        <item quantity="other">%d bilgisayar</item>
+    </plurals>
+    <string name="pin_pcs_empty">Henüz bilgisayar eklenmedi.</string>
+    <string name="pin_grace_title">Şu süreden sonra tekrar sor</string>
+    <string name="pin_grace_always">Nightjar\'dan her çıkışta</string>
+    <string name="pin_grace_minutes">%d dakika</string>
+    <string name="pin_grace_hour">1 saat</string>
+    <string name="pin_remove_title">PIN kaldırılsın mı?</string>
+    <string name="pin_remove_message">Nightjar artık PIN istemeyecek.</string>
+    <string name="pin_footer">PIN\'i unutursanız sıfırlamanın tek yolu Android ayarlarından Nightjar uygulama verilerini silmektir. Bu işlem eşleştirilmiş bilgisayarlarınızı da kaldırır, bu yüzden onları yeniden eşleştirmeniz gerekir.</string>
+    <string name="pin_saved">PIN kaydedildi</string>
+    <string name="pin_removed">PIN kaldırıldı</string>
+    <string name="pin_title_app">Nightjar kilitli</string>
+    <string name="pin_title_enter">PIN\'inizi girin</string>
+    <string name="pin_title_choose">Bir PIN seçin</string>
+    <string name="pin_title_confirm">PIN\'inizi doğrulayın</string>
+    <string name="pin_subtitle_app">Devam etmek için PIN\'inizi girin</string>
+    <string name="pin_subtitle_stream">Yayın başlatmak için gerekli</string>
+    <string name="pin_subtitle_stream_pc">%1$s üzerinde yayın başlatmak için gerekli</string>
+    <string name="pin_subtitle_verify">PIN kilidini değiştirmek için gerekli</string>
+    <string name="pin_subtitle_choose">4 ile 8 arasında rakam kullanın</string>
+    <string name="pin_subtitle_confirm">Aynı PIN\'i tekrar girin</string>
+    <string name="pin_wrong">Yanlış PIN. Tekrar deneyin.</string>
+    <string name="pin_locked_out">Çok fazla hatalı deneme. %1$s sonra tekrar deneyin.</string>
+    <string name="pin_too_short">En az 4 rakam kullanın.</string>
+    <string name="pin_mismatch">PIN\'ler eşleşmedi. PIN\'i yeniden seçin.</string>
+    <string name="pin_checking">Denetleniyor…</string>
+    <string name="pin_saving">Kaydediliyor…</string>
+    <string name="pin_cancel">İptal</string>
+    <string name="pin_close_app">Nightjar\'ı kapat</string>
+    <string name="pin_key_delete">Sil</string>
+    <string name="pin_key_confirm">Onayla</string>
+    <string name="pin_dots_description">%2$d rakamdan %1$d tanesi girildi</string>
+    <string name="pin_hint">Yukarı ve Aşağı bir sıra seçer. Sol, Tamam ve Sağ o sıranın tuşlarına basar.</string>
+    <string name="pin_row_1">1. sıra: 1, 2, 3</string>
+    <string name="pin_row_2">2. sıra: 4, 5, 6</string>
+    <string name="pin_row_3">3. sıra: 7, 8, 9</string>
+    <string name="pin_row_4">4. sıra: Sil, 0, Onayla</string>
+</resources>

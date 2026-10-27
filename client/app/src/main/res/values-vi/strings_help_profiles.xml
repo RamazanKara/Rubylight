@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="help_profiles_title">Hồ sơ và cài đặt theo trò chơi</string>
+    <string name="help_profiles_body">Hồ sơ là các bộ giá trị phát trực tuyến có tên, như “Nhà 4K120” hoặc “Khách sạn”. Tạo chúng trong Cài đặt, Video, Hồ sơ rồi chọn hồ sơ đang dùng, hoặc để mạng tự chọn khi bắt đầu phát: dữ liệu di động, Wi-Fi gia đình hoặc Wi-Fi khác. Giá trị riêng của trò chơi (Cài đặt stream cho trò chơi này, trong menu của trò chơi ở thư viện) được ưu tiên hơn giá trị của PC, giá trị của PC hơn hồ sơ, và hồ sơ hơn cài đặt chính. Tốc độ bit trên dữ liệu di động giới hạn tốc độ bit trên dữ liệu di động.</string>
+    <string name="help_profiles_link">Hướng dẫn hồ sơ</string>
+</resources>

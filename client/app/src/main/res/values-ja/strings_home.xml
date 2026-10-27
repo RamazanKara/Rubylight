@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pc_status_ready">準備完了</string>
+    <string name="pc_status_playing">%1$s をプレイ中</string>
+    <string name="pc_status_playing_unknown">ゲームをプレイ中</string>
+    <string name="pc_status_waking">起動しています…</string>
+    <string name="discovery_connect_help">接続方法</string>
+    <string name="pc_menu_settings">PC の設定…</string>
+    <string name="pc_menu_resume_game">%1$s を再開</string>
+    <string name="pc_menu_quit_game">%1$s を終了</string>
+</resources>

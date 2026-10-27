@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Round icon buttons (top app bar actions, card and preset icons): a press ripple, and an amber
+     ring while focused by D-pad or keyboard or while a pointer hovers, so the focus is visible on a TV. -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android" android:color="?attr/colorControlHighlight">
+    <item android:id="@android:id/mask">
+        <shape android:shape="oval">
+            <solid android:color="@android:color/white" />
+        </shape>
+    </item>
+    <item>
+        <selector>
+            <item android:state_focused="true">
+                <shape android:shape="oval">
+                    <stroke android:width="?attr/nightjarFocusRingWidth" android:color="?attr/colorPrimary" />
+                </shape>
+            </item>
+            <item android:state_hovered="true">
+                <shape android:shape="oval">
+                    <stroke android:width="?attr/nightjarFocusRingWidth" android:color="?attr/colorPrimary" />
+                </shape>
+            </item>
+            <item>
+                <color android:color="@android:color/transparent" />
+            </item>
+        </selector>
+    </item>
+</ripple>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pc_status_ready">Sẵn sàng</string>
+    <string name="pc_status_playing">Đang chơi %1$s</string>
+    <string name="pc_status_playing_unknown">Đang chơi một trò chơi</string>
+    <string name="pc_status_waking">Đang đánh thức…</string>
+    <string name="discovery_connect_help">Cách kết nối</string>
+    <string name="pc_menu_settings">Cài đặt PC…</string>
+    <string name="pc_menu_resume_game">Tiếp tục %1$s</string>
+    <string name="pc_menu_quit_game">Thoát %1$s</string>
+</resources>

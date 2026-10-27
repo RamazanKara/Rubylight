@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="console_title">ホーム</string>
+    <string name="console_section_favourites">お気に入り</string>
+    <string name="console_section_continue">続きをプレイ</string>
+    <string name="console_section_library">ライブラリ</string>
+    <string name="console_section_hosts">PC</string>
+    <string name="console_hint_options">オプション</string>
+    <string name="console_hint_open">開く</string>
+    <string name="console_hint_key_ok">OK</string>
+    <string name="console_hint_key_menu">メニュー</string>
+    <string name="console_hint_line">%1$s %2$s    %3$s %4$s</string>
+    <string name="console_favourite_add">お気に入りに追加</string>
+    <string name="console_favourite_remove">お気に入りから削除</string>
+    <string name="console_favourite_description">お気に入り</string>
+    <string name="console_badge_running">実行中</string>
+    <string name="console_badge_suspended">一時停止中</string>
+    <string name="console_card_on_host">%1$s 上</string>
+    <string name="console_card_on_hosts">%1$d 台のホスト</string>
+    <string name="console_host_games">ゲーム: %1$d</string>
+    <string name="console_host_saved_games">オフライン。保存済みのゲーム: %1$d</string>
+    <string name="console_host_offline">オフライン</string>
+    <string name="console_host_no_library">ゲームはまだ読み込まれていません</string>
+    <string name="console_empty_title">PC がありません</string>
+    <string name="console_empty_body">Nightjar を PC とペアリングすると、ここにゲームが表示されます。</string>
+    <string name="console_empty_open_hosts">PC を開く</string>
+    <string name="console_detail_host">ホスト</string>
+    <string name="console_detail_profile">ストリーム設定</string>
+    <string name="console_detail_status_running">%1$s で実行中</string>
+    <string name="console_detail_status_suspended">%1$s で一時停止中</string>
+    <string name="console_detail_replaces">%1$s が実行中です。このゲームを開始すると終了します。</string>
+    <string name="console_profile_values">%1$d × %2$d, %3$d FPS, %4$s Mbps</string>
+    <string name="console_profile_main">メイン設定</string>
+    <string name="console_home_setting_title">ホームで開く</string>
+    <string name="console_home_setting_summary">続きをプレイするゲームとライブラリから始めます。オフにすると PC の一覧から始まります。</string>
+    <!-- tv-redesign-4 -->
+    <string name="console_row_recent">最近プレイしたゲーム</string>
+    <string name="console_row_other">その他のアプリ</string>
+    <string name="console_row_unadded">PC にあり、未追加</string>
+    <string name="console_chip_not_installed">未インストール</string>
+    <string name="console_chip_not_added">未追加</string>
+    <string name="console_add_on_pc">PC で追加してください</string>
+    <string name="console_adding">%1$s を追加しています…</string>
+    <string name="console_add_failed">%1$s を追加できませんでした</string>
+    <string name="console_detail_not_installed">%1$s にインストールされていません</string>
+    <string name="console_detail_not_launchable">%1$s ではこのゲームを起動できません</string>
+    <string name="console_filter_all">すべて</string>
+    <string name="console_filter_installed">インストール済み</string>
+    <string name="console_all_games_title">すべてのゲーム</string>
+    <string name="console_all_games_empty">このフィルタに該当するゲームはありません。</string>
+    <plurals name="console_all_tile_title">
+        <item quantity="other">全 %1$d 本</item>
+    </plurals>
+    <plurals name="console_all_tile_description">
+        <item quantity="other">%1$s: 全 %2$d 本</item>
+    </plurals>
+    <plurals name="console_filter_description">
+        <item quantity="other">%1$s、%2$d 本</item>
+    </plurals>
+    <!-- tv-redesign-5 -->
+    <string name="console_detail_installed">インストール済み</string>
+    <string name="console_card_asleep">%1$s、PC はスリープ中</string>
+    <string name="console_wake_and_play">PC を起動してプレイ</string>
+    <string name="console_wake_waiting">%1$s の起動を待っています…</string>
+    <string name="console_wake_timeout">%1$s が時間内に起動しませんでした。Wake-on-LAN が設定されているか確認して、もう一度お試しください。</string>
+    <string name="console_choose_pc">どの PC でプレイしますか？</string>
+    <string name="console_badge_asleep">PC はスリープ中</string>
+</resources>

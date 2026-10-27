@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_overlay_position">Posição da sobreposição</string>
+    <string name="overlay_position_section">Posição</string>
+    <string name="overlay_position_top_left">Superior esquerdo</string>
+    <string name="overlay_position_top_right">Superior direito</string>
+    <string name="overlay_position_bottom_left">Inferior esquerdo</string>
+    <string name="overlay_position_bottom_right">Inferior direito</string>
+</resources>

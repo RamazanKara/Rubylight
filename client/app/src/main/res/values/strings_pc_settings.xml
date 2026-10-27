@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- One PC's settings screen; its title is the PC's name. -->
+    <string name="pc_settings_title">PC settings</string>
+    <string name="pc_settings_display">Display on the PC</string>
+    <string name="pc_settings_connection">Connection</string>
+    <string name="pc_settings_host">Host</string>
+    <string name="pc_settings_needs_online">Available while the PC is online</string>
+    <string name="pc_settings_test_speed">Ping, jitter, loss and download speed</string>
+    <string name="pc_settings_test_delay">Ping, jitter and loss</string>
+    <string name="pc_settings_remote_summary">Set up streaming over the internet</string>
+    <string name="pc_settings_wake">Wake-on-LAN</string>
+    <string name="pc_settings_wake_ready">This device can wake the PC from its menu</string>
+    <string name="pc_settings_wake_unknown">Pair while the PC is on, then turn on Wake-on-LAN on the PC</string>
+    <string name="pc_settings_details_summary">Host software, features and addresses</string>
+    <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
+    <string name="pc_settings_shortcut">Add to home screen</string>
+    <string name="pc_settings_shortcut_summary">Opens this PC’s library</string>
+
+    <!-- Connection test result: "Ping 63 ms · Jitter 41 ms · Loss 0.0%", then the speed or why it was not measured. -->
+    <string name="connection_test_ms">%1$s ms</string>
+    <string name="connection_test_percent">%1$s%%</string>
+    <string name="connection_test_speed">Speed %1$.1f Mbps</string>
+    <string name="connection_test_speed_needs_pairing">Speed not measured: pair this PC first</string>
+    <string name="connection_test_speed_no_answer">Speed not measured: the PC didn’t answer</string>
+    <string name="connection_test_speed_unsupported">Speed not measured: this host has no speed test</string>
+</resources>

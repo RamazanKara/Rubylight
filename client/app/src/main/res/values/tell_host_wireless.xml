@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_tell_host_wireless">Tell the PC when on Wi-Fi</string>
+    <string name="summary_tell_host_wireless">A Rubylight PC then paces the stream for Wi-Fi from the start. Other PCs are not told.</string>
+</resources>

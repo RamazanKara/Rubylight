@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A section row of the settings list: the section shown in the other pane is activated, and focus adds the amber outline. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_activated="true">
+        <layer-list>
+            <item android:left="4dp" android:right="4dp" android:top="2dp" android:bottom="2dp">
+                <shape android:shape="rectangle">
+                    <solid android:color="?attr/colorSecondaryContainer" />
+                    <corners android:radius="12dp" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+    <item android:state_pressed="true">
+        <color android:color="?attr/colorControlHighlight" />
+    </item>
+    <item>
+        <color android:color="@android:color/transparent" />
+    </item>
+</selector>

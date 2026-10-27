@@ -1,0 +1,13 @@
+{
+  "source": "StreamHealthTest.staleDataExpiresAndDuplicateTicksDoNotIncreaseEvidence",
+  "rust": "health::StreamHealth",
+  "java": "com.limelight.policy.StreamHealthTrace",
+  "new": [],
+  "calls": [
+    {"call": "add_series", "args": [1000, 100, 0, true, 60, 4, 1, 30, 40, 60, 60, 60, 20, 2, false], "expect": null},
+    {"call": "report_samples", "args": [1000], "expect": 1},
+    {"call": "report_findings", "args": [1000], "expect": ""},
+    {"call": "report_samples", "args": [32000], "expect": 0},
+    {"call": "report_recent", "args": [32000], "expect": false}
+  ]
+}

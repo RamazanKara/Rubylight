@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="latency_benchmark_title">遅延ベンチマーク</string>
+    <string name="latency_benchmark_description">ホストを使わずに 10 秒間のローカル計時テストを実行します。画面をタッチする、マウスを動かす、またはコントローラを操作して入力サンプルを収集してください。</string>
+    <string name="latency_benchmark_start">10 秒テストを開始</string>
+    <string name="latency_benchmark_stop">テストを停止</string>
+    <string name="latency_benchmark_display">報告されたパネルのリフレッシュレート: %1$.2f Hz</string>
+    <string name="latency_benchmark_audio">報告された音声: %1$s Hz · バッファあたり %2$s フレーム</string>
+    <string name="latency_benchmark_frame">フレーム コールバック間隔</string>
+    <string name="latency_benchmark_callback">フレーム コールバックの遅延</string>
+    <string name="latency_benchmark_input">入力ディスパッチの経過時間</string>
+    <string name="latency_benchmark_timer">タイマー起床の遅延</string>
+    <string name="latency_benchmark_limits">結果には指標ごとに直近最大 2048 個のサンプルを使用します。入力の経過時間は Android のイベント タイムスタンプ（分解能 1 ms）から計測し、コントローラのポーリングやホストの入力遅延は含みません。フレーム コールバックはスキャンアウトを測定しません。音声のプロパティは報告された性能であり、実測の出力遅延ではありません。ネットワーク、デコード、エンドツーエンドの遅延の測定には、ストリームまたは外部での測定が必要です。この画面を離れるとテストは停止します。</string>
+    <string name="latency_test">入力遅延を測定</string>
+    <string name="latency_test_running">測定しています… マウスポインタのある静止したデスクトップを表示し、数秒間何も操作しないでください。</string>
+    <string name="latency_test_result">入力から画面表示まで: 標準 %1$.1f ms、最速 %2$.1f ms、遅い方の 10%% は %3$.1f ms（サンプル数 %4$d）。\n\nこのアプリがマウスを少し動かす信号を送ってから、それに応じたホストのフレームを Android が表示するまでの時間です。ネットワーク、ホストのキャプチャとエンコード、デコード、表示が含まれます。指の動きやパネル自体の遅延は含まれません。</string>
+    <string name="latency_test_failed">測定できませんでした。ホストがフレームを送り続けたか、マウスの動きに応答しませんでした。マウスポインタが見える静止したデスクトップを表示し、ゲームや動画を閉じてからもう一度お試しください。</string>
+    <string name="latency_benchmark_share">結果を共有</string>
+    <string name="latency_benchmark_share_title">デバイスの結果</string>
+    <string name="latency_benchmark_share_message">Nightjar がこれを自動で送信することはありません。テキストにはこのデバイス（モデル、SoC、GPU、Android バージョン）、デコーダーのベンチマーク、この画面での最新のテスト結果が含まれ、PC 名、アドレス、シリアル番号、アカウント情報は含まれません。「フォームを開く」はテキストをコピーして公開の GitHub フォームを開きます。そこに貼り付けた内容はすべて公開され、Nightjar ウェブサイトのデバイス表に追加されます。</string>
+    <string name="latency_benchmark_copied">結果をコピーしました</string>
+    <string name="latency_benchmark_report_form">フォームを開く</string>
+    <string name="latency_benchmark_paste_hint">結果をコピーしました。フォームに貼り付けてください。</string>
+</resources>

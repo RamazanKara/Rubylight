@@ -1,0 +1,9 @@
+<resources>
+    <item name="preference_help" type="id" />
+    <item name="host_profile_field_primary" type="id" />
+    <item name="host_profile_field_secondary" type="id" />
+    <item name="host_profile_follow_all" type="id" />
+    <item name="host_profile_follow_screen" type="id" />
+    <item name="host_profile_sharpness" type="id" />
+    <item name="focus_ring" type="id" />
+</resources>

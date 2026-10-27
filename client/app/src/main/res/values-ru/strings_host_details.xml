@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_details_close">Закрыть</string>
+    <string name="host_details_copy">Копировать отладочные данные</string>
+    <string name="host_details_copied">Отладочные данные скопированы</string>
+    <string name="host_details_status">Статус</string>
+    <string name="host_details_state">Подключение</string>
+    <string name="host_details_pairing">Сопряжение</string>
+    <string name="host_details_paired">Сопряжён</string>
+    <string name="host_details_not_paired">Нажмите на ПК для сопряжения.</string>
+    <string name="host_details_running">Запущенное приложение</string>
+    <string name="host_details_running_none">Нет</string>
+    <string name="host_details_running_app">Приложение %1$d</string>
+    <string name="host_details_host">Хост</string>
+    <string name="host_details_software">ПО хоста</string>
+    <string name="host_details_software_butterpollo">Rubylight %1$s</string>
+    <string name="host_details_software_gamestream">NVIDIA GameStream</string>
+    <string name="host_details_software_other">Хост, совместимый с Sunshine</string>
+    <string name="host_details_id">ID хоста</string>
+    <string name="host_details_network">Сеть</string>
+    <string name="host_details_active_address">Подключено через</string>
+    <string name="host_details_local_address">Локальный адрес</string>
+    <string name="host_details_remote_address">Интернет-адрес</string>
+    <string name="host_details_ipv6_address">Адрес IPv6</string>
+    <string name="host_details_manual_address">Введённый адрес</string>
+    <string name="host_details_https_port">Порт HTTPS</string>
+    <string name="host_details_mac">MAC-адрес (Wake-on-LAN)</string>
+    <string name="host_details_permissions">Разрешения устройства</string>
+</resources>

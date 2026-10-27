@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shell_destinations">Hauptbereiche</string>
+    <string name="shell_current_page">Aktuelle Seite</string>
+    <string name="host_menu_rename">Umbenennen</string>
+    <string name="host_options_hint">X oder ⋮ für Optionen</string>
+    <string name="host_rename_field">Name</string>
+    <string name="host_rename_help">Wird nur auf diesem Gerät angezeigt. Leer lassen, um den eigenen Namen des PCs zu verwenden.</string>
+    <string name="host_rename_save">Speichern</string>
+    <string name="host_rename_title">PC umbenennen</string>
+    <string name="host_unpair_title">Kopplung mit %1$s aufheben?</string>
+    <string name="host_unpair_message">Der PC vergisst dieses Gerät, und die gespeicherte Bibliothek wird hier gelöscht. Zum Streamen musst du erneut koppeln. Der PC bleibt in der Liste.</string>
+    <string name="host_wake_needs_pairing">Koppele den PC einmal, solange er eingeschaltet ist, um ihn aufwecken zu können</string>
+    <string name="host_menu_sleep">PC in Energiesparmodus</string>
+    <string name="host_menu_sleep_note">Experimentell</string>
+    <string name="host_sleep_title">%1$s in den Energiesparmodus versetzen?</string>
+    <string name="host_sleep_message">Spiele und Streams auf dem PC müssen zuerst beendet sein. Mit Wake-on-LAN lässt er sich wieder aufwecken.</string>
+    <string name="host_sleep_asking">PC wird gefragt…</string>
+    <string name="host_sleep_accepted">PC wechselt in den Energiesparmodus</string>
+    <string name="host_sleep_unsupported">Dieser PC unterstützt keinen Energiesparmodus.</string>
+    <string name="host_sleep_permission_help">Um es zu erlauben, schalte in der Webkonsole des Hosts in den Einstellungen dieses Geräts „PC in Energiesparmodus“ ein.</string>
+    <string name="host_sleep_busy">Der PC kann gerade nicht in den Energiesparmodus. Beende Spiele und Streams auf ihm und versuche es erneut.</string>
+    <string name="host_sleep_refused">Der PC hat den Energiesparmodus abgelehnt (HTTP %1$d).</string>
+    <string name="host_sleep_failed">Der PC war nicht erreichbar.</string>
+    <string name="host_sleep_error">Der PC konnte nicht gefragt werden: %1$s</string>
+    <string name="settings_category_accessibility">Bedienungshilfen</string>
+    <string name="title_ui_scale">Anzeigegröße</string>
+    <string name="summary_ui_scale">Skaliert Menüs, Listen und Dialoge der App. Der Stream wird nicht skaliert. Die Schriftgröße des Systems gilt zusätzlich. Wirkt sofort.</string>
+    <string name="title_high_contrast">Hoher Kontrast</string>
+    <string name="summary_high_contrast">Schwarzer Hintergrund, kräftigere Texte und Umrandungen und ein dickerer Fokusrahmen auf jedem Bildschirm der App. Der Stream bleibt unverändert.</string>
+    <string name="title_reduce_motion">Bewegung reduzieren</string>
+    <string name="summary_reduce_motion">„Systemeinstellung“ schaltet Animationen aus, wenn die Animationsskala von Android 0 ist. „Reduziert“ ersetzt den Fokus-Zoom und gleitende Menüs durch einen schlichten Rahmen. „Voll“ animiert immer.</string>
+    <string name="reduce_motion_system">Systemeinstellung</string>
+    <string name="reduce_motion_reduce">Reduziert</string>
+    <string name="reduce_motion_full">Voll</string>
+    <!-- tv-mode-toggle -->
+    <string name="title_ui_mode">Oberfläche</string>
+    <string name="summary_ui_mode">„Automatisch“ richtet sich nach dem Gerät. „TV“ legt die App für einen Fernseher aus (Fokus, Fernbedienung oder Controller), etwa auf einem Handheld oder Handy, das an einen angeschlossen ist. „Handheld“ zeigt die Touch-Layouts auch auf einem Fernseher. Der Stream bleibt unverändert. Wirkt sofort.</string>
+    <string name="ui_mode_auto">Automatisch</string>
+    <string name="ui_mode_tv">TV</string>
+    <string name="ui_mode_handheld">Handheld</string>
+</resources>

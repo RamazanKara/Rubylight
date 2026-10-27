@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="remote_setup_title">在外也能玩</string>
+    <string name="remote_step">第 %1$d 步，共 3 步</string>
+    <string name="remote_prepare">在家中準備\n\n在家用網路中將這部裝置與你的電腦配對，並確認可以正常串流。讓電腦保持喚醒狀態，並讓主機軟體持續執行。\n\n遠端 Wake-on-LAN 需要相容的路由器或家中一部持續開機的裝置；手機本身無法喚醒無法連線的電腦。</string>
+    <string name="remote_vpn">連接你的裝置\n\n私人 VPN (例如 Tailscale) 可以連接你的手機和電腦，而不會將主機的網頁 UI 暴露在網際網路上。請在兩部裝置上安裝 VPN，登入你自己的帳戶，並啟用兩者之間的連線。你也可以使用現有的 VPN 設定。\n\n連結會開啟官方下載指南。這個應用程式不會安裝軟體、建立帳戶、變更路由器設定或啟用通訊埠轉送。</string>
+    <string name="remote_verify">從其他網路驗證\n\n使用「新增位址」新增電腦的 VPN 位址；如果自訂了串流 HTTP 通訊埠，請一併輸入。當身分相符時，這會更新已儲存的電腦。完成後請返回這裡。\n\n中斷家用 Wi-Fi 連線，改用行動數據或其他網路。測試會檢查已配對電腦的身分，並傳送五個小型 HTTPS 要求；不會開始串流，也不會下載速度測試檔案。僅在家中測試無法證明可透過網際網路連線。</string>
+    <string name="remote_get_vpn">開啟 Tailscale 設定</string>
+    <string name="remote_add_address">新增 VPN 或遠端位址</string>
+    <string name="remote_test">測試這部電腦</string>
+    <string name="remote_previous">上一步</string>
+    <string name="remote_next">下一步</string>
+    <string name="remote_pair_first">請先在本機網路中配對這部電腦。必須使用其已儲存的憑證和 HTTPS 通訊埠，才能驗證遠端位址確實連到你的電腦。</string>
+    <string name="remote_pair_revoked">電腦已回應，但這部裝置已不再配對。請在家中重新配對後再測試遠端遊玩。</string>
+    <string name="remote_permission_denied">已配對的電腦已回應，但這部裝置無法檢視串流。請在主機的設定或網頁 UI 中，為這部裝置啟用檢視或啟動應用程式的權限。</string>
+    <string name="remote_running">正在檢查已配對的電腦…</string>
+    <string name="remote_cancelled">已取消測試。未變更任何主機或網路設定。</string>
+    <string name="remote_failed">無法驗證已配對的電腦。請確認電腦處於喚醒狀態、主機軟體和 VPN 正在執行，且已儲存的位址和串流通訊埠正確。如果配對已變更，請在家中重新配對。這項測試無法區分電腦是處於睡眠狀態還是路徑遭到封鎖。</string>
+    <string name="remote_verified">已配對的電腦已在這個網路上回應。接下來，請以適中的位元速率嘗試正常串流；HTTPS 可連線並不代表視訊/音訊 UDP 通訊埠可用，也無法驗證持續串流的效能。</string>
+    <string name="remote_direct">Tailscale 回報這個連線使用直接路徑。直接路徑通常能提供最佳的傳輸量和延遲。</string>
+    <string name="remote_relay">Tailscale 回報使用 DERP 中繼。這能提供連線，但串流速度可能受限。請查看 Tailscale 的連線指南，或設定合適的對等中繼。</string>
+    <string name="remote_peer_relay">Tailscale 回報使用對等中繼。效能取決於該中繼和兩端的網路路徑；請以實際串流比較。</string>
+    <string name="remote_unknown">直接或中繼路徑：無法取得。這個主機、VPN 或連線未提供目前的路徑分類。請查看 VPN 的狀態；僅憑低 Ping 值無法證明使用直接路徑。</string>
+    <string name="remote_measurements">HTTPS 要求平均：%1$.1f ms\n失敗的要求：%2$.0f %%\n這些是應用程式要求的測量結果，並非視訊封包遺失或輸入延遲。</string>
+</resources>

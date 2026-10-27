@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="help_profiles_title">Perfiles y ajustes por juego</string>
+    <string name="help_profiles_body">Los perfiles son conjuntos de valores de transmisión con nombre, como «Casa 4K120» u «Hotel». Créalos en Ajustes, Vídeo, Perfiles y elige el perfil en uso, o deja que la red elija uno al empezar una transmisión: datos móviles, Wi-Fi de casa u otra Wi-Fi. Los valores propios de un juego (Ajustes de transmisión de este juego, en su menú de la biblioteca) tienen prioridad sobre los del PC, los del PC sobre el perfil y el perfil sobre los ajustes principales. Tasa de bits con datos móviles limita la tasa de bits con datos móviles.</string>
+    <string name="help_profiles_link">Guía de perfiles</string>
+</resources>

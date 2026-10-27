@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pair_otp_title">Сопряжение по одноразовому PIN-коду</string>
+    <string name="pair_otp_help">Введите PIN-код и кодовую фразу хоста.\nPIN-код действует три минуты.</string>
+    <string name="pair_otp_pin">Одноразовый PIN-код</string>
+    <string name="pair_otp_passphrase">Кодовая фраза</string>
+    <string name="pair_otp_invalid_pin">Введите четырёхзначный PIN-код с хоста.</string>
+    <string name="pair_otp_invalid_passphrase">Введите кодовую фразу хоста (не менее четырёх символов).</string>
+    <string name="guide_title">Подключение к ПК</string>
+    <string name="guide_text">1. Запустите на ПК хост, совместимый с Moonlight, например Apollo, Rubylight, Sunshine или Vibepollo.\n2. На Android выберите ПК в той же сети.\n3. Введите PIN-код, показанный на Android, в настройках или веб-интерфейсе хоста.</string>
+    <string name="guide_done">ОК</string>
+    <string name="guide_troubleshooting">Справка</string>
+</resources>

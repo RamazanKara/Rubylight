@@ -1,0 +1,448 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!--
+        Application theme. Colour roles come from colors.xml, which follows the system's night mode
+        (night is the default). Keep the non-colour items in step with Theme.Nightjar.Stream below;
+        ThemePaletteTest checks that they match.
+    -->
+    <style name="Base.Theme.Nightjar" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorOnPrimary">@color/on_primary</item>
+        <item name="colorPrimaryContainer">@color/primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/on_primary_container</item>
+        <item name="colorPrimaryInverse">@color/inverse_primary</item>
+        <item name="colorSecondary">@color/secondary</item>
+        <item name="colorOnSecondary">@color/on_secondary</item>
+        <item name="colorSecondaryContainer">@color/secondary_container</item>
+        <item name="colorOnSecondaryContainer">@color/on_secondary_container</item>
+        <item name="colorTertiary">@color/tertiary</item>
+        <item name="colorOnTertiary">@color/on_tertiary</item>
+        <item name="colorTertiaryContainer">@color/tertiary_container</item>
+        <item name="colorOnTertiaryContainer">@color/on_tertiary_container</item>
+        <item name="colorError">@color/error</item>
+        <item name="colorOnError">@color/on_error</item>
+        <item name="colorErrorContainer">@color/error_container</item>
+        <item name="colorOnErrorContainer">@color/on_error_container</item>
+        <item name="android:colorBackground">@color/surface</item>
+        <item name="colorOnBackground">@color/on_surface</item>
+        <item name="colorSurface">@color/surface</item>
+        <item name="colorSurfaceDim">@color/surface_dim</item>
+        <item name="colorSurfaceBright">@color/surface_bright</item>
+        <item name="colorSurfaceContainerLowest">@color/surface_container_lowest</item>
+        <item name="colorSurfaceContainerLow">@color/surface_container_low</item>
+        <item name="colorSurfaceContainer">@color/surface_container</item>
+        <item name="colorSurfaceContainerHigh">@color/surface_container_high</item>
+        <item name="colorSurfaceContainerHighest">@color/surface_container_highest</item>
+        <item name="colorSurfaceVariant">@color/surface_container_highest</item>
+        <item name="colorOnSurface">@color/on_surface</item>
+        <item name="colorOnSurfaceVariant">@color/on_surface_variant</item>
+        <item name="colorSurfaceInverse">@color/inverse_surface</item>
+        <item name="colorOnSurfaceInverse">@color/inverse_on_surface</item>
+        <item name="colorOutline">@color/outline</item>
+        <item name="colorOutlineVariant">@color/outline_variant</item>
+        <item name="android:windowBackground">@color/surface</item>
+        <item name="android:windowAnimationStyle">@style/NightjarWindowAnimation</item>
+        <item name="android:textColorPrimary">@color/on_surface</item>
+        <item name="android:textColorSecondary">@color/on_surface_variant</item>
+        <item name="android:textColorHint">@color/on_surface_variant</item>
+        <item name="android:textColorAlertDialogListItem">@color/on_surface</item>
+        <item name="colorControlNormal">@color/on_surface_variant</item>
+        <item name="colorControlActivated">@color/primary</item>
+        <item name="android:colorAccent">@color/primary</item>
+        <item name="android:colorControlNormal">@color/on_surface_variant</item>
+        <item name="android:colorControlActivated">@color/primary</item>
+        <item name="colorPrimaryFixed">@color/primary_fixed</item>
+        <item name="colorPrimaryFixedDim">@color/primary_fixed_dim</item>
+        <item name="colorOnPrimaryFixed">@color/on_primary_fixed</item>
+        <item name="colorOnPrimaryFixedVariant">@color/on_primary_fixed_variant</item>
+        <item name="colorSecondaryFixed">@color/secondary_fixed</item>
+        <item name="colorSecondaryFixedDim">@color/secondary_fixed_dim</item>
+        <item name="colorOnSecondaryFixed">@color/on_secondary_fixed</item>
+        <item name="colorOnSecondaryFixedVariant">@color/on_secondary_fixed_variant</item>
+        <item name="colorTertiaryFixed">@color/tertiary_fixed</item>
+        <item name="colorTertiaryFixedDim">@color/tertiary_fixed_dim</item>
+        <item name="colorOnTertiaryFixed">@color/on_tertiary_fixed</item>
+        <item name="colorOnTertiaryFixedVariant">@color/on_tertiary_fixed_variant</item>
+
+        <item name="textAppearanceHeadlineSmall">@style/TextAppearance.Nightjar.ScreenTitle</item>
+        <item name="textAppearanceTitleLarge">@style/TextAppearance.Nightjar.ScreenTitle</item>
+        <item name="textAppearanceTitleMedium">@style/TextAppearance.Nightjar.Title</item>
+        <item name="textAppearanceTitleSmall">@style/TextAppearance.Nightjar.Label</item>
+        <item name="textAppearanceBodyLarge">@style/TextAppearance.Nightjar.Body</item>
+        <item name="textAppearanceBodyMedium">@style/TextAppearance.Nightjar.Supporting</item>
+        <item name="textAppearanceBodySmall">@style/TextAppearance.Nightjar.Caption</item>
+        <item name="textAppearanceLabelLarge">@style/TextAppearance.Nightjar.Label</item>
+        <item name="android:textAllCaps">false</item>
+
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <!-- No amber tint on raised surfaces: elevation reads through the surface container tones. -->
+        <item name="elevationOverlayEnabled">false</item>
+        <item name="materialAlertDialogTheme">@style/ThemeOverlay.Nightjar.Dialog</item>
+        <item name="toolbarStyle">@style/Widget.Nightjar.Toolbar</item>
+        <item name="extendedFloatingActionButtonStyle">@style/Widget.Nightjar.ExtendedFab</item>
+        <item name="chipStyle">@style/Widget.Nightjar.Chip</item>
+        <item name="materialButtonStyle">@style/Widget.Nightjar.Button</item>
+        <!-- Toolbar actions resolve the platform attribute; set both so focus shows an amber ring. -->
+        <item name="actionBarItemBackground">@drawable/bg_icon_button</item>
+        <item name="android:actionBarItemBackground">@drawable/bg_icon_button</item>
+        <item name="toolbarNavigationButtonStyle">@style/Widget.Nightjar.Toolbar.Navigation</item>
+        <item name="nightjarButtonTonalStyle">@style/Widget.Nightjar.Button.Tonal</item>
+        <item name="nightjarButtonTextStyle">@style/Widget.Nightjar.Button.Text</item>
+        <item name="nightjarButtonDestructiveStyle">@style/Widget.Nightjar.Button.Destructive</item>
+        <item name="nightjarFocusRingWidth">2dp</item>
+        <item name="nightjarCardFocusRingWidth">3dp</item>
+        <item name="nightjarCardStrokeWidth">1dp</item>
+        <item name="nightjarButtonRestStroke">@android:color/transparent</item>
+        <item name="nightjarCardFocusAnimator">@animator/tv_card_focus</item>
+        <item name="nightjarControlFocusAnimator">@animator/tv_control_focus</item>
+        <item name="nightjarPosterFocusAnimator">@animator/tv_poster_focus</item>
+        <item name="nightjarPosterFocusAnimatorSmall">@animator/tv_poster_focus_small</item>
+        <item name="nightjarPosterRing">@drawable/tv_poster_ring</item>
+        <item name="nightjarPosterGlow">@drawable/tv_focus_glow_fade</item>
+        <item name="nightjarTileFocusAnimator">@animator/tv_tile_focus</item>
+        <item name="nightjarTileRing">@drawable/tv_tile_ring</item>
+        <item name="shapeAppearanceSmallComponent">@style/ShapeAppearance.Nightjar</item>
+        <item name="shapeAppearanceMediumComponent">@style/ShapeAppearance.Nightjar</item>
+    </style>
+
+    <style name="AppTheme" parent="Base.Theme.Nightjar" />
+
+    <!--
+        Everything shown over a stream: the stream activity, its sheets and dialogs. Always the night
+        palette, whatever the system theme, so nothing light flashes over a game.
+    -->
+    <style name="Theme.Nightjar.Stream" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+
+        <item name="colorPrimary">@color/night_primary</item>
+        <item name="colorOnPrimary">@color/night_on_primary</item>
+        <item name="colorPrimaryContainer">@color/night_primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/night_on_primary_container</item>
+        <item name="colorPrimaryInverse">@color/night_inverse_primary</item>
+        <item name="colorSecondary">@color/night_secondary</item>
+        <item name="colorOnSecondary">@color/night_on_secondary</item>
+        <item name="colorSecondaryContainer">@color/night_secondary_container</item>
+        <item name="colorOnSecondaryContainer">@color/night_on_secondary_container</item>
+        <item name="colorTertiary">@color/night_tertiary</item>
+        <item name="colorOnTertiary">@color/night_on_tertiary</item>
+        <item name="colorTertiaryContainer">@color/night_tertiary_container</item>
+        <item name="colorOnTertiaryContainer">@color/night_on_tertiary_container</item>
+        <item name="colorError">@color/night_error</item>
+        <item name="colorOnError">@color/night_on_error</item>
+        <item name="colorErrorContainer">@color/night_error_container</item>
+        <item name="colorOnErrorContainer">@color/night_on_error_container</item>
+        <item name="android:colorBackground">@color/night_surface</item>
+        <item name="colorOnBackground">@color/night_on_surface</item>
+        <item name="colorSurface">@color/night_surface</item>
+        <item name="colorSurfaceDim">@color/night_surface_dim</item>
+        <item name="colorSurfaceBright">@color/night_surface_bright</item>
+        <item name="colorSurfaceContainerLowest">@color/night_surface_container_lowest</item>
+        <item name="colorSurfaceContainerLow">@color/night_surface_container_low</item>
+        <item name="colorSurfaceContainer">@color/night_surface_container</item>
+        <item name="colorSurfaceContainerHigh">@color/night_surface_container_high</item>
+        <item name="colorSurfaceContainerHighest">@color/night_surface_container_highest</item>
+        <item name="colorSurfaceVariant">@color/night_surface_container_highest</item>
+        <item name="colorOnSurface">@color/night_on_surface</item>
+        <item name="colorOnSurfaceVariant">@color/night_on_surface_variant</item>
+        <item name="colorSurfaceInverse">@color/night_inverse_surface</item>
+        <item name="colorOnSurfaceInverse">@color/night_inverse_on_surface</item>
+        <item name="colorOutline">@color/night_outline</item>
+        <item name="colorOutlineVariant">@color/night_outline_variant</item>
+        <!-- Transparent streaming background to avoid extra overdraw; values-v24 uses black. -->
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:textColorPrimary">@color/night_on_surface</item>
+        <item name="android:textColorSecondary">@color/night_on_surface_variant</item>
+        <item name="android:textColorHint">@color/night_on_surface_variant</item>
+        <item name="android:textColorAlertDialogListItem">@color/night_on_surface</item>
+        <item name="colorControlNormal">@color/night_on_surface_variant</item>
+        <item name="colorControlActivated">@color/night_primary</item>
+        <item name="android:colorAccent">@color/night_primary</item>
+        <item name="android:colorControlNormal">@color/night_on_surface_variant</item>
+        <item name="android:colorControlActivated">@color/night_primary</item>
+        <item name="colorPrimaryFixed">@color/primary_fixed</item>
+        <item name="colorPrimaryFixedDim">@color/primary_fixed_dim</item>
+        <item name="colorOnPrimaryFixed">@color/on_primary_fixed</item>
+        <item name="colorOnPrimaryFixedVariant">@color/on_primary_fixed_variant</item>
+        <item name="colorSecondaryFixed">@color/secondary_fixed</item>
+        <item name="colorSecondaryFixedDim">@color/secondary_fixed_dim</item>
+        <item name="colorOnSecondaryFixed">@color/on_secondary_fixed</item>
+        <item name="colorOnSecondaryFixedVariant">@color/on_secondary_fixed_variant</item>
+        <item name="colorTertiaryFixed">@color/tertiary_fixed</item>
+        <item name="colorTertiaryFixedDim">@color/tertiary_fixed_dim</item>
+        <item name="colorOnTertiaryFixed">@color/on_tertiary_fixed</item>
+        <item name="colorOnTertiaryFixedVariant">@color/on_tertiary_fixed_variant</item>
+
+        <item name="textAppearanceHeadlineSmall">@style/TextAppearance.Nightjar.ScreenTitle</item>
+        <item name="textAppearanceTitleLarge">@style/TextAppearance.Nightjar.ScreenTitle</item>
+        <item name="textAppearanceTitleMedium">@style/TextAppearance.Nightjar.Title</item>
+        <item name="textAppearanceTitleSmall">@style/TextAppearance.Nightjar.Label</item>
+        <item name="textAppearanceBodyLarge">@style/TextAppearance.Nightjar.Body</item>
+        <item name="textAppearanceBodyMedium">@style/TextAppearance.Nightjar.Supporting</item>
+        <item name="textAppearanceBodySmall">@style/TextAppearance.Nightjar.Caption</item>
+        <item name="textAppearanceLabelLarge">@style/TextAppearance.Nightjar.Label</item>
+        <item name="android:textAllCaps">false</item>
+
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="elevationOverlayEnabled">false</item>
+        <item name="materialAlertDialogTheme">@style/ThemeOverlay.Nightjar.Dialog</item>
+        <item name="toolbarStyle">@style/Widget.Nightjar.Toolbar</item>
+        <item name="extendedFloatingActionButtonStyle">@style/Widget.Nightjar.ExtendedFab</item>
+        <item name="chipStyle">@style/Widget.Nightjar.Chip</item>
+        <item name="materialButtonStyle">@style/Widget.Nightjar.Button</item>
+        <!-- Toolbar actions resolve the platform attribute; set both so focus shows an amber ring. -->
+        <item name="actionBarItemBackground">@drawable/bg_icon_button</item>
+        <item name="android:actionBarItemBackground">@drawable/bg_icon_button</item>
+        <item name="toolbarNavigationButtonStyle">@style/Widget.Nightjar.Toolbar.Navigation</item>
+        <item name="nightjarButtonTonalStyle">@style/Widget.Nightjar.Button.Tonal</item>
+        <item name="nightjarButtonTextStyle">@style/Widget.Nightjar.Button.Text</item>
+        <item name="nightjarButtonDestructiveStyle">@style/Widget.Nightjar.Button.Destructive</item>
+        <item name="nightjarFocusRingWidth">2dp</item>
+        <item name="nightjarCardFocusRingWidth">3dp</item>
+        <item name="nightjarCardStrokeWidth">1dp</item>
+        <item name="nightjarButtonRestStroke">@android:color/transparent</item>
+        <item name="nightjarCardFocusAnimator">@animator/tv_card_focus</item>
+        <item name="nightjarControlFocusAnimator">@animator/tv_control_focus</item>
+        <item name="nightjarPosterFocusAnimator">@animator/tv_poster_focus</item>
+        <item name="nightjarPosterFocusAnimatorSmall">@animator/tv_poster_focus_small</item>
+        <item name="nightjarPosterRing">@drawable/tv_poster_ring</item>
+        <item name="nightjarPosterGlow">@drawable/tv_focus_glow_fade</item>
+        <item name="nightjarTileFocusAnimator">@animator/tv_tile_focus</item>
+        <item name="nightjarTileRing">@drawable/tv_tile_ring</item>
+        <item name="shapeAppearanceSmallComponent">@style/ShapeAppearance.Nightjar</item>
+        <item name="shapeAppearanceMediumComponent">@style/ShapeAppearance.Nightjar</item>
+    </style>
+
+    <!-- Stream activity theme (Game and the debug stream fixtures). -->
+    <style name="StreamTheme" parent="Theme.Nightjar.Stream" />
+
+    <!-- The night palette's dark grey surfaces even when the system is light, as on most TVs. -->
+    <style name="DarkTheme" parent="Theme.Nightjar.Stream">
+        <item name="android:windowBackground">@color/night_surface</item>
+        <item name="android:windowAnimationStyle">@style/NightjarWindowAnimation</item>
+    </style>
+
+    <!-- Full black surfaces, with the readable night palette even when the system is light. -->
+    <style name="OledBlackTheme" parent="Theme.Nightjar.Stream">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:colorBackground">@android:color/black</item>
+        <item name="colorSurface">@android:color/black</item>
+        <item name="colorSurfaceDim">@android:color/black</item>
+        <item name="colorSurfaceBright">@android:color/black</item>
+        <item name="colorSurfaceContainerLowest">@android:color/black</item>
+        <item name="colorSurfaceContainerLow">@android:color/black</item>
+        <item name="colorSurfaceContainer">@android:color/black</item>
+        <item name="colorSurfaceContainerHigh">@android:color/black</item>
+        <item name="colorSurfaceContainerHighest">@android:color/black</item>
+        <item name="colorSurfaceVariant">@android:color/black</item>
+        <item name="colorSurfaceInverse">@android:color/black</item>
+        <item name="colorOnSurfaceInverse">@color/night_on_surface</item>
+        <item name="colorPrimaryInverse">@color/night_primary</item>
+    </style>
+
+    <!--
+        High contrast: the text and outline roles that were dimmer than the body text become the body text, strokes
+        and focus rings get thicker. AppTheme.apply layers this over OledBlackTheme, so surfaces are black.
+        ContrastTest holds body text to 7:1 and focus rings to 3:1.
+    -->
+    <style name="ThemeOverlay.Nightjar.HighContrast" parent="">
+        <item name="colorOnSurfaceVariant">?attr/colorOnSurface</item>
+        <item name="colorOutline">?attr/colorOnSurface</item>
+        <item name="colorOutlineVariant">?attr/colorOnSurface</item>
+        <item name="android:colorControlNormal">?attr/colorOnSurface</item>
+        <item name="nightjarFocusRingWidth">4dp</item>
+        <item name="nightjarCardFocusRingWidth">4dp</item>
+        <item name="nightjarCardStrokeWidth">2dp</item>
+        <item name="nightjarButtonRestStroke">?attr/colorOnSurface</item>
+        <item name="nightjarCardFocusAnimator">@animator/tv_card_focus_hc</item>
+        <item name="nightjarControlFocusAnimator">@animator/tv_control_focus_hc</item>
+        <item name="nightjarPosterRing">@drawable/tv_poster_ring_hc</item>
+        <item name="nightjarTileRing">@drawable/tv_tile_ring_hc</item>
+        <item name="nightjarPosterGlow">@drawable/tv_focus_glow_none</item>
+    </style>
+
+    <!-- The window animation of the app's own screens, for OledBlackTheme, which the stream shares and must not move. -->
+    <style name="ThemeOverlay.Nightjar.WindowAnimation" parent="">
+        <item name="android:windowAnimationStyle">@style/NightjarWindowAnimation</item>
+    </style>
+
+    <!-- Reduced motion: focus changes only the ring, with no zoom. See Motion. -->
+    <style name="ThemeOverlay.Nightjar.ReducedMotion" parent="">
+        <item name="nightjarCardFocusAnimator">@animator/tv_card_focus_static</item>
+        <item name="nightjarControlFocusAnimator">@animator/tv_control_focus_static</item>
+        <item name="nightjarPosterFocusAnimator">@animator/tv_poster_focus_static</item>
+        <item name="nightjarPosterFocusAnimatorSmall">@animator/tv_poster_focus_static</item>
+        <item name="nightjarPosterRing">@drawable/tv_poster_ring_static</item>
+        <item name="nightjarTileFocusAnimator">@animator/tv_poster_focus_static</item>
+        <item name="nightjarTileRing">@drawable/tv_tile_ring_static</item>
+        <item name="nightjarPosterGlow">@drawable/tv_focus_glow_static</item>
+        <item name="android:windowAnimationStyle">@style/NightjarWindowAnimationStill</item>
+    </style>
+
+    <style name="ThemeOverlay.Nightjar.HighContrast.ReducedMotion" parent="ThemeOverlay.Nightjar.HighContrast">
+        <item name="nightjarCardFocusAnimator">@animator/tv_card_focus_hc_static</item>
+        <item name="nightjarControlFocusAnimator">@animator/tv_control_focus_hc_static</item>
+        <item name="nightjarPosterFocusAnimator">@animator/tv_poster_focus_static</item>
+        <item name="nightjarPosterFocusAnimatorSmall">@animator/tv_poster_focus_static</item>
+        <item name="nightjarPosterRing">@drawable/tv_poster_ring_hc_static</item>
+        <item name="nightjarTileFocusAnimator">@animator/tv_poster_focus_static</item>
+        <item name="nightjarTileRing">@drawable/tv_tile_ring_hc_static</item>
+        <item name="android:windowAnimationStyle">@style/NightjarWindowAnimationStill</item>
+        <item name="nightjarPosterGlow">@drawable/tv_focus_glow_none</item>
+    </style>
+
+    <style name="ThemeOverlay.Nightjar.Dialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+        <!-- Dialog messages are read at arm's length or across a room: Body rather than Supporting. -->
+        <item name="textAppearanceBodyMedium">@style/TextAppearance.Nightjar.Body</item>
+        <item name="buttonBarPositiveButtonStyle">@style/NightjarDialogButton</item>
+        <item name="buttonBarNegativeButtonStyle">@style/NightjarDialogButton</item>
+        <item name="buttonBarNeutralButtonStyle">@style/NightjarDialogButton</item>
+    </style>
+
+    <!-- Toolbar icons are white vectors; Widget.Material3.Toolbar does not tint the navigation icon, which left it
+         invisible on the light surface. Menu item icons are tinted by app:iconTint in res/menu. -->
+    <style name="Widget.Nightjar.Toolbar" parent="Widget.Material3.Toolbar">
+        <item name="navigationIconTint">?attr/colorOnSurface</item>
+        <item name="titleTextAppearance">@style/TextAppearance.Nightjar.ScreenTitle</item>
+        <item name="titleTextColor">?attr/colorOnSurface</item>
+        <item name="subtitleTextColor">?attr/colorOnSurfaceVariant</item>
+        <item name="subtitleTextAppearance">@style/TextAppearance.Nightjar.Supporting</item>
+        <item name="android:minHeight">@dimen/top_app_bar_height</item>
+        <!-- The 48dp navigation and action buttons centre their 24dp icons on the screen gutter;
+             the title starts on the gutter, or 56dp in (phones) after a navigation icon. -->
+        <item name="android:paddingStart">@dimen/top_app_bar_padding</item>
+        <item name="android:paddingEnd">@dimen/top_app_bar_padding</item>
+        <item name="contentInsetStart">@dimen/screen_gutter</item>
+        <item name="contentInsetStartWithNavigation">56dp</item>
+        <item name="contentInsetEnd">0dp</item>
+        <item name="titleMarginStart">0dp</item>
+        <item name="titleMarginEnd">@dimen/space_s</item>
+        <!-- AppCompat's toolbar blocks focus on touchscreen devices, which kept D-pad and Tab focus
+             out of Settings and Help and, once inside, trapped it in the bar. -->
+        <item name="android:touchscreenBlocksFocus">false</item>
+    </style>
+
+    <style name="Widget.Nightjar.Toolbar.Navigation" parent="Widget.AppCompat.Toolbar.Button.Navigation">
+        <item name="android:minWidth">@dimen/touch_target</item>
+        <item name="android:minHeight">@dimen/touch_target</item>
+        <item name="android:background">@drawable/bg_icon_button</item>
+    </style>
+
+    <!--
+        Button hierarchy: one filled button (the theme default) per screen for its main action,
+        Tonal for secondary actions, Text for tertiary ones and Destructive for removing things.
+    -->
+    <style name="Widget.Nightjar.Button" parent="Widget.Material3.Button">
+        <item name="strokeWidth">?attr/nightjarFocusRingWidth</item>
+        <item name="strokeColor">@color/button_focus_ring_filled</item>
+    </style>
+
+    <style name="Widget.Nightjar.Button.Tonal" parent="Widget.Material3.Button.TonalButton">
+        <item name="android:minHeight">@dimen/touch_target</item>
+        <item name="strokeWidth">?attr/nightjarFocusRingWidth</item>
+        <item name="strokeColor">@color/button_tonal_stroke</item>
+    </style>
+
+    <style name="Widget.Nightjar.Button.Text" parent="Widget.Material3.Button.TextButton">
+        <item name="android:minHeight">@dimen/touch_target</item>
+        <item name="strokeWidth">?attr/nightjarFocusRingWidth</item>
+        <item name="strokeColor">@color/button_focus_ring</item>
+    </style>
+
+    <style name="Widget.Nightjar.Button.Destructive" parent="Widget.Material3.Button.TextButton">
+        <item name="android:minHeight">@dimen/touch_target</item>
+        <item name="android:textColor">?attr/colorError</item>
+        <item name="iconTint">?attr/colorError</item>
+        <item name="rippleColor">@color/error_ripple</item>
+        <item name="strokeWidth">?attr/nightjarFocusRingWidth</item>
+        <item name="strokeColor">@color/button_focus_ring</item>
+    </style>
+
+    <!-- The Add PC button is the home screen's main action, so it matches the filled button. -->
+    <style name="Widget.Nightjar.ExtendedFab" parent="Widget.Material3.ExtendedFloatingActionButton.Icon.Primary">
+        <item name="backgroundTint">?attr/colorPrimary</item>
+        <item name="android:textColor">?attr/colorOnPrimary</item>
+        <item name="iconTint">?attr/colorOnPrimary</item>
+        <item name="rippleColor">?attr/colorOnPrimary</item>
+    </style>
+
+    <!-- Preset chips: the selected one uses the amber container, unselected ones stay outlined. -->
+    <style name="Widget.Nightjar.Chip" parent="Widget.Material3.Chip.Filter">
+        <item name="chipBackgroundColor">@color/chip_background</item>
+        <item name="android:textColor">@color/chip_text</item>
+        <item name="chipStrokeColor">@color/chip_stroke</item>
+        <item name="checkedIconTint">?attr/colorOnPrimaryContainer</item>
+    </style>
+
+    <style name="NightjarDialogButton" parent="Widget.Material3.Button.TextButton.Dialog">
+        <item name="android:textAllCaps">false</item>
+        <item name="android:minHeight">@dimen/touch_target</item>
+        <item name="strokeWidth">?attr/nightjarFocusRingWidth</item>
+        <item name="strokeColor">@color/button_focus_ring</item>
+    </style>
+
+    <style name="ShapeAppearance.Nightjar" parent="ShapeAppearance.Material3.MediumComponent">
+        <item name="cornerSize">16dp</item>
+    </style>
+
+    <style name="LibraryCard" parent="Widget.Material3.CardView.Filled">
+        <item name="cardBackgroundColor">@color/card_surface</item>
+        <item name="cardCornerRadius">16dp</item>
+        <item name="cardElevation">0dp</item>
+        <item name="strokeColor">@color/card_stroke</item>
+        <item name="strokeWidth">?attr/nightjarCardStrokeWidth</item>
+        <item name="android:focusable">false</item>
+        <item name="android:clickable">false</item>
+    </style>
+
+    <!-- A TV library poster's card: no stroke, 12dp corners. Its ring and glow are drawables (see layout-television/app_grid_item.xml). -->
+    <style name="LibraryPoster" parent="Widget.Material3.CardView.Filled">
+        <item name="cardBackgroundColor">@color/card_surface</item>
+        <item name="cardCornerRadius">12dp</item>
+        <item name="cardElevation">0dp</item>
+        <item name="strokeWidth">0dp</item>
+        <item name="android:focusable">false</item>
+        <item name="android:clickable">false</item>
+    </style>
+
+    <!-- In-app help (layout/help_topics.xml): a heading, a paragraph and a link out per topic. -->
+    <style name="HelpTopic.Heading" parent="">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">@dimen/space_xl</item>
+        <item name="android:textAppearance">@style/TextAppearance.Nightjar.Title</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
+    <style name="HelpTopic.Body" parent="">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">@dimen/space_s</item>
+        <item name="android:textAppearance">@style/TextAppearance.Nightjar.Body</item>
+        <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
+    </style>
+
+    <style name="HelpTopic.Link" parent="Widget.Nightjar.Button.Text">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">@dimen/space_xs</item>
+        <item name="icon">@drawable/ic_open_in_new</item>
+        <item name="iconGravity">end</item>
+    </style>
+
+    <style name="ToolbarIcon">
+        <item name="android:layout_width">48dp</item>
+        <item name="android:layout_height">48dp</item>
+        <item name="android:padding">12dp</item>
+        <item name="android:scaleType">fitCenter</item>
+        <item name="android:background">@drawable/bg_icon_button</item>
+        <item name="android:tint">?attr/colorOnSurfaceVariant</item>
+    </style>
+
+</resources>

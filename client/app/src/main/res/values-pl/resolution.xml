@@ -1,0 +1,4 @@
+<resources>
+    <string name="resolution_custom">Niestandardowa…</string>
+    <string name="resolution_custom_size">Niestandardowa (%1$s)</string>
+</resources>

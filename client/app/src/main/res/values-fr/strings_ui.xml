@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_computers">PC</string>
+    <string name="pc_needs_pairing">Non associé</string>
+    <string name="pc_offline">Hors ligne</string>
+    <string name="pc_checking">Vérification de la connexion…</string>
+    <string name="app_running">En cours</string>
+    <string name="app_hidden">Masqué</string>
+    <string name="app_running_hidden">En cours · Masqué</string>
+    <string name="library_item_description">%1$s, %2$s</string>
+    <string name="add_pc_hint">Saisissez une adresse IP ou un nom de PC, avec un port facultatif.</string>
+</resources>

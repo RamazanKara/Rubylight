@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_touch_mode">터치 모드</string>
+    <string name="stream_keyboard">키보드</string>
+    <string name="stream_controls_show">화면 컨트롤 표시</string>
+    <string name="stream_controls_hide">화면 컨트롤 숨기기</string>
+    <string name="stream_controls_layout">컨트롤러 레이아웃 편집</string>
+    <string name="stream_controls_move_help">컨트롤을 드래그해 이동하고, 크기 조정이나 저장은 메뉴를 사용하세요.</string>
+    <string name="stream_controls_resize_help">드래그해 컨트롤 크기를 조정하고, 저장은 메뉴를 사용하세요.</string>
+    <string name="stream_controls_saved">컨트롤러 레이아웃 저장됨</string>
+    <string name="stream_reconnect">스트림 다시 연결</string>
+    <string name="stream_reconnecting">실행 중인 앱에 다시 연결하는 중…</string>
+    <string name="stream_native_touch_help">터치로 PC를 직접 조작합니다.\n키보드는 스트림 메뉴에서 여세요.</string>
+    <string name="stream_native_touch_fallback">PC가 멀티 터치를 지원하지 않아 터치로 마우스를 움직입니다.</string>
+    <string-array name="stream_touch_modes">
+        <item>트랙패드</item>
+        <item>다이렉트 마우스</item>
+        <item>멀티 터치</item>
+        <item>로컬 커서</item>
+        <item>터치 끄기</item>
+    </string-array>
+    <string-array name="stream_control_layout_actions">
+        <item>컨트롤 이동</item>
+        <item>컨트롤 크기 조정</item>
+        <item>레이아웃 저장 후 플레이</item>
+    </string-array>
+</resources>

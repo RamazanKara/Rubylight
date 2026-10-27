@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Named profiles (Settings → Video → Profiles) -->
+    <string name="profiles_title">配置</string>
+    <string name="profiles_subtitle">配置</string>
+    <string name="profiles_summary_none">无：串流使用主设置</string>
+    <string name="profiles_summary_in_use">正在使用：%1$s</string>
+    <string name="profiles_summary_auto">串流开始时按网络选择</string>
+    <string name="profiles_section_list">你的配置</string>
+    <string name="profiles_section_choice">串流使用哪个配置</string>
+    <string name="profiles_new">新建配置</string>
+    <string name="profiles_new_summary">初始为空：只设置需要更改的值。</string>
+    <string name="profiles_name">配置名称</string>
+    <string name="profiles_name_empty">请输入名称</string>
+    <string name="profiles_name_too_long">最多 %1$d 个字符</string>
+    <string name="profiles_name_taken">已有同名配置</string>
+    <string name="profiles_too_many">最多可保存 %1$d 个配置。</string>
+    <string name="profiles_values_none">尚未设置任何值</string>
+    <plurals name="profiles_values_count">
+        <item quantity="other">已设置 %d 个值</item>
+    </plurals>
+    <string name="profiles_marker_in_use">正在使用</string>
+    <string name="profiles_marker_rules">用于：%1$s</string>
+    <string name="profiles_edit">编辑值</string>
+    <string name="profiles_rename">重命名</string>
+    <string name="profiles_duplicate">复制</string>
+    <string name="profiles_delete">删除</string>
+    <string name="profiles_copy_name">%1$s 副本</string>
+    <string name="profiles_delete_title">要删除 %1$s 吗？</string>
+    <string name="profiles_delete_message">使用此配置的串流将改用主设置。此操作无法撤消。</string>
+    <string name="profiles_deleted">已删除配置</string>
+    <string name="profiles_in_use">正在使用的配置</string>
+    <string name="profiles_none">无（主设置）</string>
+    <string name="profiles_main_settings">主设置</string>
+    <string name="profiles_auto">按网络选择</string>
+    <string name="profiles_auto_summary_on">开启：串流开始时，由网络决定使用下方哪个配置。以太网及未指定配置的网络使用正在使用的配置。</string>
+    <string name="profiles_auto_summary_off">关闭：所有串流都使用正在使用的配置。</string>
+    <string name="profiles_rule_default">正在使用的配置</string>
+    <string name="profiles_network_mobile">移动数据</string>
+    <string name="profiles_network_home_wifi">家庭 Wi-Fi</string>
+    <string name="profiles_network_wifi">其他 Wi-Fi</string>
+    <string name="profiles_network_other">以太网或其他</string>
+    <string name="profiles_rule_mobile_summary">也包括被 Android 标记为按流量计费的 Wi-Fi，例如手机热点。</string>
+    <string name="profiles_rule_wifi_summary">任何非家庭 Wi-Fi 的 Wi-Fi；如果未设置家庭 Wi-Fi，则为所有 Wi-Fi。</string>
+    <string name="profiles_now">此网络上的下一次串流</string>
+    <string name="profiles_now_value">%1$s：%2$s</string>
+    <string name="profiles_home_networks">家庭 Wi-Fi</string>
+    <string name="profiles_home_none">未设置：所有 Wi-Fi 都视为其他 Wi-Fi。</string>
+    <string name="profiles_home_saved">保存在此设备上。选择即可移除。</string>
+    <string name="profiles_home_remove">移除</string>
+    <string name="profiles_home_remove_title">要从家庭 Wi-Fi 中移除 %1$s 吗？</string>
+    <string name="profiles_home_no_access">位置信息权限已关闭：无法识别家庭 Wi-Fi，因此将其视为其他 Wi-Fi。</string>
+    <string name="profiles_home_add_current">添加此 Wi-Fi</string>
+    <string name="profiles_home_add_current_summary">保存此设备当前连接的 Wi-Fi 名称。Android 需要位置信息权限才能读取该名称。</string>
+    <string name="profiles_home_type">输入 Wi-Fi 名称</string>
+    <string name="profiles_home_type_summary">在串流开始时识别它仍需要位置信息权限。</string>
+    <string name="profiles_home_name">Wi-Fi 名称</string>
+    <string name="profiles_location_title">要允许访问位置信息吗？</string>
+    <string name="profiles_location_message">Android 只向拥有位置信息权限的应用提供 Wi-Fi 名称。此权限只用于一件事：在串流开始时区分家庭 Wi-Fi 和其他 Wi-Fi。不会读取任何位置，Wi-Fi 名称只保留在此设备上，绝不会被发送或记录。如果不授予权限，所有 Wi-Fi 都视为其他 Wi-Fi。</string>
+    <string name="profiles_location_continue">继续</string>
+    <string name="profiles_location_denied">没有位置信息权限：所有 Wi-Fi 都视为其他 Wi-Fi。你可以稍后在 Android 的应用设置中允许。</string>
+    <string name="profiles_wifi_unreadable">无法读取 Wi-Fi 名称。请检查此设备是否已连接 Wi-Fi 且位置信息已开启，或手动输入名称。</string>
+    <string name="profiles_order">串流开始时，每个值取自以下顺序中第一个设置了它的来源：此游戏、此电脑、配置，然后是主设置。使用移动数据时，“移动数据码率”随后会限制码率。更改不会应用于正在进行的串流。</string>
+    <string name="profiles_privacy">家庭 Wi-Fi 名称只保留在此设备上，绝不会被发送或记录。</string>
+
+    <!-- Bitrate on mobile data (Settings → Video) -->
+    <string name="title_mobile_bitrate">移动数据码率</string>
+    <string name="summary_mobile_bitrate">在移动数据或被 Android 标记为按流量计费的 Wi-Fi（例如手机热点）上开始串流时限制码率。配置、电脑和游戏的值也同样受此限制。关闭时使用与其他网络相同的码率。</string>
+    <string name="mobile_bitrate_off">关闭</string>
+
+    <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->
+    <string name="profile_settings_explanation">只设置此配置需要更改的值。未设置的值取自主设置。电脑或游戏自己的值仍优先于配置。</string>
+    <string name="game_settings_title">游戏串流设置</string>
+    <string name="game_settings_subtitle">在 %1$s 上</string>
+    <string name="game_settings_explanation">在此设置的值仅适用于此电脑上的此游戏。未设置的值依次取自此电脑的设置、配置和主设置。</string>
+    <string name="game_settings_action">此游戏的串流设置</string>
+    <string name="game_settings_note_none">使用此电脑的设置</string>
+    <plurals name="game_settings_note_own">
+        <item quantity="other">已为此游戏设置 %d 个值</item>
+    </plurals>
+    <string name="layers_saved">已保存串流设置</string>
+    <string name="layers_saved_context">保存后，更改将应用于下一次串流。</string>
+    <string name="layers_unsaved_context">未保存的更改</string>
+    <string name="layers_unsaved_message">你对这些串流设置的更改尚未保存。</string>
+    <string name="layers_reset">清除所有值</string>
+    <string name="layers_reset_message">所有值都将恢复为“未设置”。保存后生效。</string>
+    <string name="layers_status_empty">此处未设置任何值：所有值都取自下层设置。</string>
+    <string name="layers_status_custom">将所有值恢复为“未设置”。</string>
+    <string name="layers_footer">离开前请保存。更改将应用于下一次串流，不会应用于正在进行的串流。</string>
+    <string name="layers_not_set_value">未设置（%1$s）</string>
+    <string name="layers_value_from">%1$s · %2$s</string>
+    <string name="layers_from_main">来自主设置</string>
+    <string name="layers_from_profile">来自配置 %1$s</string>
+    <string name="layers_from_pc">为此电脑设置</string>
+    <string name="layers_from_game">为此游戏设置</string>
+    <string name="layers_from_mobile_limit">移动数据限制</string>
+    <string name="layers_pacing_vrr">自适应刷新已开启，因此串流使用“最低延迟”。</string>
+
+    <!-- In the stream -->
+    <string name="layers_applied">设置：%1$s</string>
+    <string name="layers_part_profile">配置 %1$s</string>
+    <string name="layers_part_profile_network">配置 %1$s（为 %2$s 选择）</string>
+    <string name="layers_part_pc">此电脑</string>
+    <string name="layers_part_game">此游戏</string>
+    <string name="layers_part_mobile_limit">移动数据限制</string>
+    <string name="layers_problem_profile_missing">正在使用的配置已不存在，因此应用主设置。</string>
+    <string name="layers_problem_profile_missing_network">为 %1$s 选择的配置已不存在，因此应用主设置。</string>
+    <string name="layers_problem_profile_invalid">配置 %1$s 中有此版本无法读取的值，因此应用主设置。请在“配置”中打开它进行修复。</string>
+    <string name="layers_problem_pc_invalid">无法读取此电脑自己的串流设置，因此已跳过。请打开该电脑的设置进行修复。</string>
+    <string name="layers_problem_game_invalid">无法读取此游戏的串流设置，因此已跳过。请从游戏菜单中打开进行修复。</string>
+    <string name="layers_problem_home_wifi_unknown">没有位置信息权限就无法识别家庭 Wi-Fi，因此此 Wi-Fi 被视为其他 Wi-Fi。</string>
+    <!-- Presets for one game's stream settings -->
+    <string name="game_preset_title">预设</string>
+    <string name="game_preset_competitive">竞技</string>
+    <string name="game_preset_competitive_summary">将帧调度设为最低延迟，其他设置不变。</string>
+    <string name="game_preset_smoothness">流畅</string>
+    <string name="game_preset_smoothness_summary">将帧调度设为最流畅（会暂存帧并增加延迟），并为这个游戏关闭自适应刷新率。码率不变。</string>
+    <string name="game_preset_quality">画质</string>
+    <string name="game_preset_quality_summary" formatted="false">将码率设为电脑码率的 150%（电脑未设置时取主设置的码率），上限为主机限制。帧调度和自适应刷新率不变；连接较弱时，更大的帧可能增加延迟。</string>
+    <string name="game_preset_custom">自定义</string>
+    <string name="game_preset_custom_summary">你在下方设置的自定义值。</string>
+</resources>

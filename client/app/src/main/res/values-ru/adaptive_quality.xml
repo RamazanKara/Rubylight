@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_adaptive_quality">Автоматическое качество трансляции</string>
+    <string name="summary_adaptive_quality">Снижать разрешение или FPS при длительной перегрузке сети, медленном декодировании или нагреве, затем постепенно восстанавливать. Использует автоматический битрейт, если он поддерживается. Требует поддержки перенастройки на хосте и адаптивного декодера; недоступно с PyroWave.</string>
+    <string name="title_adaptive_quality_min_resolution">Минимальное автоматическое разрешение</string>
+    <string name="summary_adaptive_quality_min_resolution">Наименьшая короткая сторона с сохранением соотношения сторон. Выбранное разрешение трансляции остаётся максимальным. Более низкое начальное разрешение этот предел не повышает.</string>
+    <string name="title_adaptive_quality_min_fps">Минимальная автоматическая частота кадров</string>
+    <string name="summary_adaptive_quality_min_fps">Наименьший допустимый FPS. Выбранная частота кадров трансляции остаётся максимальной. Действует для автоматического качества, включая режим экономии заряда.</string>
+    <string name="quality_off">Выкл.</string>
+    <string name="quality_motion">Сохранять плавность</string>
+    <string name="quality_detail">Сохранять детализацию</string>
+    <string name="quality_battery">Экономить заряд</string>
+    <string name="quality_use_settings">Как в настройках приложения</string>
+    <string name="quality_about">Как это работает</string>
+    <string name="quality_stream_help">Сохраняется для этого ПК. «Плавность» сначала снижает разрешение, «Детализация» — сначала FPS. «Экономия заряда» постепенно ограничивает нагрузку до 60 FPS и короткой стороны 1080 пикселей с учётом ваших минимальных пределов. Кодек, HDR и выбор дисплея остаются согласованными.</string>
+    <string name="quality_unavailable">Автоматическое качество выключено: этот ПК или устройство не может менять разрешение и частоту кадров во время трансляции.</string>
+    <string name="quality_request_failed">Автоматическое качество остановлено: ПК не применил новый размер. Трансляция продолжается; выберите другой режим в меню трансляции.</string>
+    <string name="quality_status">Автоматическое качество: %1$s · %2$d × %3$d · цель %4$d FPS</string>
+</resources>

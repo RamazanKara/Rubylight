@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="help_profiles_title">設定檔與遊戲設定</string>
+    <string name="help_profiles_body">設定檔是一組有名稱的串流設定值，例如「家裡 4K120」或「飯店」。在「設定 › 視訊 › 設定檔」中建立，然後選擇使用中的設定檔，或讓串流開始時依網路自動選擇：行動數據、家用 Wi-Fi 或其他 Wi-Fi。遊戲本身的值（遊戲庫選單中的「這個遊戲的串流設定」）優先於電腦的值，電腦的值優先於設定檔，設定檔優先於主要設定。「行動數據位元速率」會限制使用行動數據時的位元速率。</string>
+    <string name="help_profiles_link">設定檔指南</string>
+</resources>

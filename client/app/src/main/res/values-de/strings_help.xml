@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- In-app help (HelpTopicsActivity) -->
+    <string name="help_connect_title">PC verbinden</string>
+    <string name="help_connect_body">Nightjar streamt von jedem Moonlight-kompatiblen Host auf deinem PC. Starte den Host und halte beide Geräte im selben Netzwerk, dann erscheint der PC in deiner Liste. Falls nicht, tippe auf PC hinzufügen und gib die IP-Adresse des PCs ein. Klappt die Verbindung weiterhin nicht, erlaube den Host in der Firewall des PCs.</string>
+    <string name="help_connect_link">Einrichtungsanleitung</string>
+    <string name="help_pairing_title">Koppeln</string>
+    <string name="help_pairing_body">Tippe auf den PC und lass die PIN geöffnet. Gib diese PIN in den Einstellungen oder auf der Webseite des Hosts am PC ein. Hat der Host Berechtigungen pro Gerät, erlaube diesem Gerät, Apps aufzulisten und zu starten.</string>
+    <string name="help_pairing_link">Anleitung zum Koppeln</string>
+    <string name="help_controls_title">Steuerung und Stream-Menü</string>
+    <string name="help_controls_body">Drücke im Stream Zurück, um das Stream-Menü zu öffnen: Tastatur, Eingabemodus, Leistungsanzeige, Bitrate und Trennen. Am Controller drückst du dafür Start, Back, LB und RB gleichzeitig. Trennen lässt das Spiel auf dem PC weiterlaufen, sodass du später weiterspielen kannst, außer du hast im Bibliotheksmenü des Spiels „Spiel beim Verlassen des Streams beenden“ eingeschaltet. Tasten, Sticks und Vibration eines Controllers prüfst du unter Einstellungen, Steuerung, Controller-Test. Unter Einstellungen, Steuerung, Touch-Modus zeichnet Lokaler Mauszeiger den Zeiger auf diesem Gerät, und Touch aus ignoriert den Bildschirm, während du mit einem Controller spielst. Im Stream-Menü legt Eingabe, Steuerung für dieses Spiel Tastatur-, Maus- und Gamepad-Tasten, Sticks, Trigger und ein Steuerkreuz für dieses Spiel an. Um ein Layout aus Artemis zu übernehmen, drücke in der Bibliothek lange auf das Spiel und wähle Spielsteuerung importieren. Um dieses Gerät an einem Host ohne eigenen Nur-Steuern-Modus nur als Controller zu nutzen, schalte Einstellungen, Streaming, Steuern an jedem PC ein; der PC sendet dann trotzdem einen kleinen Videostream, der nicht gezeigt wird.</string>
+    <string name="help_controls_link">Anleitung zur Steuerung</string>
+    <string name="help_problems_title">Häufige Probleme lösen</string>
+    <string name="help_problems_body"><b>Kein Bild:</b> Probiere H.264 mit 720p, ohne HDR und Hochskalierung.\n\n<b>Ruckeln:</b> Senke die Bitrate, verbinde den PC per Kabel oder geh näher an den Router. Nutze WLAN mit 5 oder 6 GHz statt 2,4 GHz. Ruckelt es alle paar Minuten, öffne im Stream-Menü „Warum hat der Stream geruckelt?“: Die Ansicht erkennt den Rhythmus von WLAN-Suchläufen im Hintergrund.\n\n<b>Verzögerte Eingabe:</b> Schalte die Leistungsanzeige ein, um zu sehen, woher die Verzögerung kommt, und lass Latenzarmes Dekodieren an.\n\n<b>Kein Ton:</b> Wähle Stereo, prüfe die Audioausgabe des PCs und verbinde dich neu.</string>
+    <string name="help_problems_link">Anleitung zur Fehlerbehebung</string>
+    <string name="help_report_body">Teile ein Protokoll ohne persönliche Angaben. Es wird erst gesendet, wenn du eine App zum Teilen auswählst.</string>
+    <string name="help_report_link">Was hineingehört</string>
+</resources>

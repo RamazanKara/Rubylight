@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_details_close">Zamknij</string>
+    <string name="host_details_copy">Kopiuj informacje diagnostyczne</string>
+    <string name="host_details_copied">Skopiowano informacje diagnostyczne</string>
+    <string name="host_details_status">Stan</string>
+    <string name="host_details_state">Połączenie</string>
+    <string name="host_details_pairing">Parowanie</string>
+    <string name="host_details_paired">Sparowany</string>
+    <string name="host_details_not_paired">Kliknij komputer, aby sparować.</string>
+    <string name="host_details_running">Uruchomiona aplikacja</string>
+    <string name="host_details_running_none">Brak</string>
+    <string name="host_details_running_app">Aplikacja %1$d</string>
+    <string name="host_details_host">Host</string>
+    <string name="host_details_software">Oprogramowanie hosta</string>
+    <string name="host_details_software_butterpollo">Rubylight %1$s</string>
+    <string name="host_details_software_gamestream">NVIDIA GameStream</string>
+    <string name="host_details_software_other">Host zgodny z Sunshine</string>
+    <string name="host_details_id">ID hosta</string>
+    <string name="host_details_network">Sieć</string>
+    <string name="host_details_active_address">Połączono przez</string>
+    <string name="host_details_local_address">Adres lokalny</string>
+    <string name="host_details_remote_address">Adres internetowy</string>
+    <string name="host_details_ipv6_address">Adres IPv6</string>
+    <string name="host_details_manual_address">Wpisany adres</string>
+    <string name="host_details_https_port">Port HTTPS</string>
+    <string name="host_details_mac">Adres MAC (Wake-on-LAN)</string>
+    <string name="host_details_permissions">Uprawnienia urządzenia</string>
+</resources>

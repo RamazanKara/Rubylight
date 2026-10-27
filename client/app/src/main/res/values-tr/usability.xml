@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="startup_connection_failed">Bilgisayara bağlanılamadı. Yayın sunucusunun çalıştığını, iki cihazın birbirine erişebildiğini ve bilgisayarın güvenlik duvarının yayına izin verdiğini kontrol edin. Ardından tekrar deneyin.</string>
+    <string name="startup_permission_denied">Ana bilgisayar bu isteği reddetti. Ana bilgisayarınızın ayarlarında veya web arayüzünde bu cihazı etkinleştirin ve uygulama görüntüleme veya başlatmaya izin verin.</string>
+    <string name="startup_host_error">Ana bilgisayar bu yayını başlatamadı (hata %1$d). Web arayüzünden ana bilgisayarın durumunu kontrol edin, uygulama listesini yenileyin ve tekrar deneyin.</string>
+    <string name="startup_invalid_host">Bilgisayar geçersiz bir sunucu sürümü döndürdü. Ana bilgisayar yazılımını güncelleyin veya yeniden başlatın ve tekrar deneyin.</string>
+    <string name="startup_virtual_display_unavailable">Bu bilgisayarda sanal ekran yok, bu nedenle kendi ekranını yayınlıyor.</string>
+    <string name="startup_not_paired">Bu cihaz artık eşleştirilmiş değil. Bilgisayar listesine dönüp yeniden eşleştirin.</string>
+    <string name="startup_app_missing">Bu uygulama artık bilgisayarın kitaplığında değil. Uygulama listesini yenileyip başka bir uygulama seçin.</string>
+    <string name="startup_resume_missing">Bu oturum artık kullanılamıyor. Uygulama listesini yenileyip bir oturum seçin.</string>
+    <string name="startup_host_resolution_unsupported">Bilgisayar 4K üzerindeki çözünürlükleri desteklemiyor. Yayın ayarlarında 4K veya daha düşük bir çözünürlük seçin.</string>
+    <string name="startup_device_resolution_unsupported">4K üzerindeki çözünürlükler için bu cihazda HEVC veya AV1 desteği gerekir. Daha düşük bir çözünürlük veya başka bir codec seçin.</string>
+    <string name="startup_host_update_4k">4K yayın için bilgisayardaki GeForce Experience’ı güncelleyin. Bu yayın 1080p.</string>
+    <string name="startup_hdr_unavailable">Bilgisayar ve bu cihazın ortak bir HDR codec’i olmadığı için yayın SDR olarak sürüyor.</string>
+    <string name="startup_pyrowave_hdr_unavailable">PyroWave HDR bu cihazda kullanılamıyor (%1$s), bu yüzden HDR başka bir codec kullanıyor.</string>
+    <string name="startup_resume_failed">Oturum sürdürülemedi. Bilgisayardaki uygulamayı kontrol edip tekrar deneyin.</string>
+    <string name="startup_session_owner">Bu oturum başka bir cihaza ait. Oturumu o cihazda veya bilgisayarda sonlandırıp tekrar deneyin.</string>
+    <string name="startup_app_minimized">Uygulama simge durumunda. Bilgisayarda geri yükleyin veya oturumdan çıkıp yeniden başlatın.</string>
+    <string name="startup_quit_failed">Önceki oturumdan çıkılamadı. Oturumu bilgisayarda sonlandırıp tekrar deneyin.</string>
+    <string name="startup_launch_failed">Uygulama başlatılamadı. Bilgisayarda açıldığını kontrol edip tekrar deneyin.</string>
+    <string name="applist_permission_required">Bu cihaz uygulamaları listeleyemiyor. Ana bilgisayarınızın ayarlarında veya web arayüzünde bu cihaz için uygulama listelemeye izin verin. Kitaplık otomatik olarak yenilenir.</string>
+    <string name="applist_load_failed">Bilgisayarın uygulamaları yüklenemedi. Ana bilgisayarı ve ayarlarında veya web arayüzünde bu cihazın uygulama listeleme iznini kontrol edin. Otomatik olarak yeniden deneniyor.</string>
+    <string name="applist_empty">Kullanılabilir uygulama yok. Ana bilgisayar kitaplığına uygulama ekleyin ve ana bilgisayarınızın ayarlarında veya web arayüzünde bu cihazın uygulama listeleme iznini kontrol edin.</string>
+    <string name="host_profile_unsaved_title">Yayın ayarları kaydedilsin mi?</string>
+    <string name="host_profile_unsaved_message">Bu bilgisayarın yayın ayarlarında yaptığınız değişiklikler kaydedilmedi. Kendi iletişim kutusunda onaylanan ekran modu ayrıca kaydedilir.</string>
+    <string name="host_profile_discard">Değişiklikleri sil</string>
+    <string name="preset_replace_settings">Bu işlem çözünürlük, kare hızı, bit hızı, kare zamanlama, ölçeklendirme, VRR ve performans ayarlarını bu hazır ayarın değerleriyle değiştirir. Codec ve HDR seçimleri olduğu gibi kalır.</string>
+    <string name="pair_otp_incorrect_pin">PIN reddedildi. Ana bilgisayarınızın web arayüzünde yeni bir tek kullanımlık PIN oluşturun ve parolayı kontrol edin.</string>
+    <string name="pc_accessibility_actions">Bilgisayar işlemleri</string>
+    <string name="app_details">Ad: %1$s\nHDR desteği: %2$s\nUygulama kimliği: %3$d</string>
+    <string name="app_hdr_unknown">Bilinmiyor</string>
+</resources>

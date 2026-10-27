@@ -1,0 +1,17 @@
+{
+  "source": "AdaptiveBitrateControllerTest.hotPhoneStepsDownSlowlyAndNotBelowHalf",
+  "rust": "bitrate::AdaptiveBitrateController",
+  "java": "com.limelight.nvstream.AdaptiveBitrateController",
+  "new": [20000, 20000, 60, 0],
+  "calls": [
+    {"call": "has_room_before_quality_reduction", "args": [], "expect": true},
+    {"call": "set_thermal_level", "args": [2], "expect": null},
+    {"call": "sample", "args": [5000, true, false, 0, 2], "expect": 0},
+    {"call": "sample", "args": [6000, true, false, 0, 2], "expect": 0},
+    {"call": "sample", "args": [15000, true, false, 0, 2], "expect": 16000},
+    {"call": "applied", "args": [10000, 10000, 15000], "expect": null},
+    {"call": "has_room_before_quality_reduction", "args": [], "expect": false},
+    {"call": "sample", "args": [31000, true, false, 0, 2], "expect": 0},
+    {"call": "sample", "args": [32000, true, false, 0, 2], "expect": 0}
+  ]
+}

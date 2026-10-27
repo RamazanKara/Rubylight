@@ -1,0 +1,141 @@
+name: Bug report
+description: Something in Nightjar does not work as described.
+title: "[Issue]: "
+labels: bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Nightjar ships fixes almost daily. Before reporting, update to the
+        [latest release](https://github.com/RamazanKara/nightjar/releases/latest) and check the
+        [troubleshooting guide](https://github.com/RamazanKara/nightjar/blob/main/docs/TROUBLESHOOTING.md).
+        Reports without exact versions or a problem report usually can't be acted on.
+
+        Never attach pairing PINs, private keys, keystores or unredacted credentials.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you report
+      options:
+        - label: I reproduced this on the latest Nightjar release, or I say below why I can't update.
+          required: true
+        - label: I searched the existing issues, including closed ones.
+          required: true
+  - type: input
+    id: client-version
+    attributes:
+      label: Nightjar version
+      description: The exact number from **Settings → About**, not "latest".
+      placeholder: "0.7.11 (339)"
+    validations:
+      required: true
+  - type: dropdown
+    id: build
+    attributes:
+      label: Build
+      options:
+        - Release APK
+        - Root APK
+        - Debug or self-built
+    validations:
+      required: true
+  - type: dropdown
+    id: affected-stage
+    attributes:
+      label: Where does the failure happen?
+      options:
+        - Discovery or adding a PC
+        - Pairing
+        - Opening the library or launching an app
+        - Video or audio streaming
+        - Controls, gamepads or clipboard
+        - Settings or launcher export
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: describe-bug
+    attributes:
+      label: What happens
+      description: What went wrong, including any error message Nightjar showed.
+    validations:
+      required: true
+  - type: textarea
+    id: steps-reproduce
+    attributes:
+      label: Steps to reproduce
+      description: What you do to make it happen, and whether it happens every time.
+      placeholder: |
+        1. Open Nightjar and ...
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and Android version
+      placeholder: Samsung Galaxy S23, Android 15
+    validations:
+      required: true
+  - type: input
+    id: server-geforce
+    attributes:
+      label: Host software and version
+      description: The host name and its exact version, not "latest".
+      placeholder: Rubylight 2.5.5
+    validations:
+      required: true
+  - type: input
+    id: server-driver
+    attributes:
+      label: Host GPU, driver and Windows version
+      placeholder: RX 7900 XT, Adrenalin 26.9.1, Windows 11 24H2
+    validations:
+      required: true
+  - type: input
+    id: stream
+    attributes:
+      label: Stream settings
+      description: Codec, resolution, frame rate, HDR, and whether the device is on Wi-Fi or wired. "Not applicable" if no stream starts.
+      placeholder: HEVC, 1920x1080, 120 fps, no HDR, 5 GHz Wi-Fi
+    validations:
+      required: true
+  - type: dropdown
+    id: other-clients
+    attributes:
+      label: Does another client work against the same host?
+      options:
+        - "Not tested"
+        - "Yes, Moonlight or Artemis on Android works"
+        - "Yes, a PC or iOS client works"
+        - "No, other clients fail too"
+    validations:
+      required: true
+  - type: dropdown
+    id: settings-default
+    attributes:
+      label: Does it still happen with default settings?
+      options:
+        - "Not tested"
+        - "Yes"
+        - "No, only with changed settings (list them below)"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Problem report
+      description: |
+        Reproduce the problem, then open **Settings → App → Report a problem → Share** and drag
+        `nightjar-problem.txt` into this box. For stream problems also paste **Copy stats** from the
+        stream menu; for pairing problems, long-press the PC and use **View details → Copy debug info**.
+        The report is redacted; see the troubleshooting guide for what it contains.
+    validations:
+      required: true
+  - type: textarea
+    id: additional
+    attributes:
+      label: Anything else
+      description: Screenshots, changed settings, gamepad details, antivirus or firewall on the host.
+    validations:
+      required: false

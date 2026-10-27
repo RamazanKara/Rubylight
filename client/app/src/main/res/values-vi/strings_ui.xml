@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_computers">PC</string>
+    <string name="pc_needs_pairing">Chưa ghép đôi</string>
+    <string name="pc_offline">Ngoại tuyến</string>
+    <string name="pc_checking">Đang kiểm tra kết nối…</string>
+    <string name="app_running">Đang chạy</string>
+    <string name="app_hidden">Đã ẩn</string>
+    <string name="app_running_hidden">Đang chạy · Đã ẩn</string>
+    <string name="library_item_description">%1$s, %2$s</string>
+    <string name="add_pc_hint">Nhập địa chỉ IP hoặc tên PC, có thể kèm cổng.</string>
+</resources>

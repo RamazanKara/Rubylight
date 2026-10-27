@@ -1,0 +1,12 @@
+{
+  "source": "AdaptiveQualityControllerTest.slowDecoderReducesWorkEvenBeforeBitrateHitsItsFloor",
+  "rust": "quality::AdaptiveQualityController",
+  "java": "com.limelight.policy.AdaptiveQualityTrace",
+  "new": ["motion", 1920, 1080, 120, 720, 30, 2, 2, 0],
+  "calls": [
+    {"call": "sample", "args": [20000, true, false, 0, 20, 0, 0, 0, true], "expect": null},
+    {"call": "sample", "args": [21000, true, false, 0, 20, 0, 0, 0, true], "expect": null},
+    {"call": "sample", "args": [22000, true, false, 0, 20, 0, 0, 0, true], "expect": null},
+    {"call": "sample", "args": [23000, true, false, 0, 20, 0, 0, 0, true], "expect": "1536x864@120"}
+  ]
+}

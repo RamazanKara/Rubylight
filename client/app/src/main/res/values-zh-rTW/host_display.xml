@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_display_menu">電腦顯示模式</string>
+    <string name="host_display_location">如要使用獨佔或延伸模式，請開啟電腦的選單 → 串流設定 → 電腦顯示模式。顯示模式會為每部電腦分別儲存，且需要主機支援。</string>
+    <string name="host_display_controls_virtual">由電腦顯示模式控制：%1$s</string>
+    <string name="host_display_title">%1$s 上的顯示</string>
+    <string name="host_display_default">電腦本身的設定</string>
+    <string name="host_display_exclusive">獨佔 — 僅虛擬顯示器 (關閉電腦螢幕)</string>
+    <string name="host_display_extended_primary">延伸 — 將虛擬顯示器設為主要顯示器</string>
+    <string name="host_display_extended">延伸 — 保留電腦顯示器為主要顯示器</string>
+    <string name="host_display_extended_isolated">延伸並分隔 — 電腦維持為主要顯示器</string>
+    <string name="host_display_extended_primary_isolated">延伸並分隔 — 虛擬顯示器為主要顯示器</string>
+    <string name="host_display_physical">實體顯示器 (無虛擬顯示器)</string>
+    <string name="host_display_saved">已儲存顯示選擇，將從下次串流開始套用。</string>
+    <string name="host_display_save">儲存顯示模式</string>
+    <string name="host_display_explanation">選擇模式，然後輕觸「儲存顯示模式」。按「取消」會保留目前的選擇。新模式會從下次串流開始套用。\n\n「保留電腦顯示器為主要顯示器」會讓你的螢幕維持為 Windows 主要顯示器。「將虛擬顯示器設為主要顯示器」會將這個角色移至串流的顯示器，遊戲和新視窗通常會在那裡開啟。兩種延伸選項都會讓電腦的螢幕保持開啟。\n\n「電腦本身的設定」會沿用「主機虛擬顯示器」和電腦的顯示設定。「獨佔」會在串流期間關閉電腦的螢幕。分隔模式會在桌面配置中將串流的顯示器放在遠離其他螢幕的位置，且仍在同一個 Windows 工作階段中。「實體顯示器」會在不使用虛擬顯示器的情況下串流電腦的螢幕。串流結束時，電腦會還原其顯示器。\n\n只有主機支援顯示模式的電腦才會提供這個選項；在其他電腦上，則由「主機虛擬顯示器」決定。</string>
+    <string name="host_administration_menu">開啟主機網頁 UI</string>
+    <string name="host_administration_help">在主機的網頁 UI 中管理其應用程式、已配對的裝置和設定。請使用網頁 UI 本身的帳戶登入；配對並不會讓你登入。遠端存取需要可連線的網頁 UI 通訊埠。\n\n%1$s</string>
+    <string name="host_administration_open">在瀏覽器中開啟</string>
+    <string name="host_administration_no_browser">沒有瀏覽器可以開啟主機的網頁 UI。請複製其位址並在其他裝置上開啟。</string>
+</resources>

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="frontend_export_menu">ランチャーにゲームを追加</string>
+    <string name="frontend_export_roms_title">ROM フォルダを選択</string>
+    <string name="frontend_export_roms_message">ES-DE などのフロントエンド用に、このフォルダへゲームのショートカットを追加します。</string>
+    <string name="frontend_export_esde_title">ES-DE フォルダを選択</string>
+    <string name="frontend_export_esde_message">%1$s とゲームのカバー画像を ES-DE に追加しますか？\n他のフロントエンドの場合はスキップしてください。</string>
+    <string name="frontend_export_pick">フォルダを選択</string>
+    <string name="frontend_export_skip">スキップ</string>
+    <string name="frontend_export_no_apps">この PC のゲーム一覧を一度開いてから、もう一度お試しください。</string>
+    <string name="frontend_export_no_picker">このデバイスにはフォルダ選択ツールがありません。</string>
+    <string name="frontend_export_working">ゲームを追加しています…</string>
+    <plurals name="frontend_export_done">
+        <item quantity="other">%1$d件のゲームをエクスポートしました。</item>
+    </plurals>
+    <string name="frontend_export_failed">ゲームを追加できませんでした。\n内部ストレージまたは SD カードのフォルダを選択してください。</string>
+    <string name="scut_invalid_entry">ゲームファイルを利用できません。\n%1$s でゲームをもう一度追加してください。</string>
+    <string name="frontend_export_update">ゲームを更新</string>
+    <string name="frontend_setup_title">設定手順</string>
+    <string name="frontend_setup_copy">起動コマンドをコピー</string>
+    <string name="frontend_setup_beacon">BeaconでCustomプラットフォームを追加します。Player appに%1$s、ROMs folderにエクスポートしたbutterpolloフォルダーを選択し、拡張子に.artを含めます。Advancedでファイル処理をDefaultにし、Use custom launchを有効にして下のコマンドを貼り付けます。保存してスキャンしてください。</string>
+    <string name="frontend_setup_esde">ES-DEを再起動してNightjarシステムを読み込みます。設定フォルダーをスキップした場合は、次のエクスポートで選択してシステムとキャッシュ済みカバーを追加してください。</string>
+    <string name="frontend_setup_daijisho">エクスポートしたbutterpolloフォルダーの.artファイル用プラットフォームを作成します。下のインテント引数でAndroidプレーヤーを追加し、フォルダーをスキャンしてください。</string>
+    <string name="frontend_setup_pegasus">エクスポートしたbutterpolloフォルダーと.artファイルを使用します。コレクションのメタデータに下の起動コマンドを設定してください。</string>
+</resources>

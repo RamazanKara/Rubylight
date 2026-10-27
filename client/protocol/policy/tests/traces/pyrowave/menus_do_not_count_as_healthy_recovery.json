@@ -1,0 +1,12 @@
+{
+  "source": "PyroWaveBitrateControllerTest.timeSpentInMenusDoesNotCountAsHealthyRecovery",
+  "rust": "pyrowave::BitrateController",
+  "java": "com.limelight.nvstream.PyroWaveBitrateController",
+  "new": [200000, 100000, 60, 0],
+  "calls": [
+    {"call": "sample", "args": [1000, true, false, 0, 0, 2], "expect": 0},
+    {"call": "suspend", "args": [], "expect": null},
+    {"call": "sample", "args": [30000, true, false, 0, 0, 2], "expect": 0},
+    {"call": "sample", "args": [50000, true, false, 0, 0, 2], "expect": 102000}
+  ]
+}

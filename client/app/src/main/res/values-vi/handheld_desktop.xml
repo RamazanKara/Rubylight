@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_layout_title">Điều khiển cho trò chơi này</string>
+    <string name="touch_layout_show">Hiện nút trò chơi</string>
+    <string name="touch_layout_hide">Ẩn nút trò chơi</string>
+    <string name="touch_layout_add">Thêm điều khiển</string>
+    <string name="touch_layout_move">Di chuyển nút trò chơi</string>
+    <string name="touch_layout_save">Lưu bố cục và chơi</string>
+    <string name="touch_layout_move_help">Kéo các nút để đặt vị trí. Đầu vào cảm ứng tạm dừng trong khi di chuyển. Khi xong, hãy quay lại đây và chọn Lưu bố cục và chơi.</string>
+    <string name="touch_layout_import">Nhập bố cục</string>
+    <string name="touch_layout_export">Xuất hoặc chia sẻ bố cục</string>
+    <string name="touch_layout_import_help">Dán bố cục Nightjar được chia sẻ, hoặc bố cục bàn phím hay tệp Phím tùy chỉnh của Artemis. Thay thế chỉ thay đổi trò chơi này trên PC này. Bố cục không hợp lệ sẽ không làm thay đổi các điều khiển của bạn.</string>
+    <string name="touch_layout_paste">Dán JSON bố cục</string>
+    <string name="touch_layout_copy">Sao chép JSON</string>
+    <string name="touch_layout_share">Chia sẻ tệp JSON</string>
+    <string name="touch_layout_share_error">Không thể chia sẻ bố cục. Hãy sao chép JSON thay thế.</string>
+    <string name="touch_layout_limit">Một bố cục có thể chứa tối đa 32 điều khiển.</string>
+    <string name="touch_layout_name">Tên nút</string>
+    <string name="touch_layout_binding">Phím hoặc nút chuột</string>
+    <string name="touch_layout_binding_help">Ví dụ: W, CTRL + C, SPACE. MOUSE_1 là chuột trái, MOUSE_2 là chuột giữa, MOUSE_3 là chuột phải, MOUSE_4 là lùi và MOUSE_5 là tiến.</string>
+    <string name="touch_layout_width">Chiều rộng (% vùng điều khiển, 4–80)</string>
+    <string name="touch_layout_height">Chiều cao (% vùng điều khiển, 4–80)</string>
+    <string name="touch_layout_toggle">Nhấn để giữ; nhấn lần nữa để nhả</string>
+    <string name="touch_layout_hold">Giữ khi nhấn</string>
+    <string name="touch_layout_pressed">Đang giữ</string>
+    <string name="touch_layout_released">Đã nhả</string>
+    <string name="touch_layout_invalid">Hãy kiểm tra tên, phím hoặc nút và các số có nằm trong phạm vi không.</string>
+    <string name="desktop_zoom_enable">Bật thu phóng và kéo bằng hai ngón tay</string>
+    <string name="desktop_zoom_disable">Tắt thu phóng và kéo bằng hai ngón tay</string>
+    <string name="desktop_zoom_reset">Đặt lại thu phóng</string>
+    <string name="desktop_zoom_help">Chụm hai ngón tay để phóng to tối đa 4×; kéo hai ngón tay để di chuyển khung nhìn. Một ngón tay vẫn dùng chế độ cảm ứng đã chọn. Cuộn bằng hai ngón tay bị thay thế khi bật điều khiển thu phóng.</string>
+    <string name="desktop_zoom_surface_help">Trên Android 5 và 6, hãy bật TextureView trong cài đặt stream và kết nối lại để dùng thu phóng.</string>
+    <string name="desktop_output">Đầu ra video (kết nối lại stream)</string>
+    <string name="desktop_output_device">Thiết bị này</string>
+    <string name="desktop_touchpad_help">Video đang hiển thị trên màn hình ngoài. Hãy dùng màn hình này làm bàn di chuột. Bàn phím, nút trò chơi và menu stream vẫn có ở đây.</string>
+    <string name="desktop_pacing_fallback">Màn hình ngoài: khung hình được hiển thị ngay khi nhận được.</string>
+    <string name="desktop_display_unavailable">Không có màn hình ngoài nào hiển thị được stream nên stream vẫn ở trên thiết bị này.</string>
+    <string name="controller_axes_title">Cần analog, cò và D-pad</string>
+    <string name="controller_axes_configured">Đã gán trục hoặc D-pad tùy chỉnh; áp dụng cho stream tiếp theo</string>
+    <string name="controller_axes_source">Đầu vào cho %1$s</string>
+    <string name="controller_axes_inverted">%1$s (đảo ngược)</string>
+    <string-array name="controller_axes">
+        <item>Cần trái ngang</item>
+        <item>Cần trái dọc</item>
+        <item>Cần phải ngang</item>
+        <item>Cần phải dọc</item>
+        <item>Cò trái</item>
+        <item>Cò phải</item>
+        <item>D-pad lên</item>
+        <item>D-pad xuống</item>
+        <item>D-pad trái</item>
+        <item>D-pad phải</item>
+    </string-array>
+    <string-array name="controller_dpad_targets">
+        <item>Không có</item>
+        <item>D-pad lên</item>
+        <item>D-pad xuống</item>
+        <item>D-pad trái</item>
+        <item>D-pad phải</item>
+        <item>A</item>
+        <item>B</item>
+        <item>X</item>
+        <item>Y</item>
+        <item>LB</item>
+        <item>RB</item>
+        <item>Nhấn cần analog trái</item>
+        <item>Nhấn cần analog phải</item>
+        <item>Start</item>
+        <item>Select</item>
+        <item>Guide</item>
+    </string-array>
+</resources>

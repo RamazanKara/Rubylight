@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="latency_benchmark_title">延遲基準測試</string>
+    <string name="latency_benchmark_description">不需主機即可執行 10 秒的本機計時測試。觸控螢幕、移動滑鼠或使用控制器，即可收集輸入樣本。</string>
+    <string name="latency_benchmark_start">開始 10 秒測試</string>
+    <string name="latency_benchmark_stop">停止測試</string>
+    <string name="latency_benchmark_display">回報的面板更新率：%1$.2f Hz</string>
+    <string name="latency_benchmark_audio">回報的音訊：%1$s Hz · 每個緩衝區 %2$s 個影格</string>
+    <string name="latency_benchmark_frame">影格回呼間隔</string>
+    <string name="latency_benchmark_callback">影格回呼延遲</string>
+    <string name="latency_benchmark_input">輸入分派時間</string>
+    <string name="latency_benchmark_timer">計時器喚醒延遲</string>
+    <string name="latency_benchmark_limits">每項指標的結果最多使用最近的 2048 個樣本。輸入時間從 Android 事件時間戳記開始計算 (解析度 1 ms)；不會測量控制器輪詢或主機輸入延遲。影格回呼不會測量掃描輸出。音訊屬性是回報的功能，而非實際測量的輸出延遲。網路、解碼和端對端延遲需要進行串流或外部測量。離開這個畫面會停止測試。</string>
+    <string name="latency_test">測量輸入延遲</string>
+    <string name="latency_test_running">正在測量… 請顯示靜止的桌面和滑鼠游標，並在幾秒內不要碰觸任何東西。</string>
+    <string name="latency_test_result">輸入到畫面：一般 %1$.1f ms，最佳 %2$.1f ms，最慢 10%% 為 %3$.1f ms (%4$d 個樣本)。\n\n計時從這個應用程式傳送滑鼠微移開始，直到 Android 顯示主機回應的影格為止。涵蓋網路、主機擷取和編碼、解碼及顯示。不包含你的手指和面板本身的延遲。</string>
+    <string name="latency_test_failed">無法測量。主機持續傳送影格，或未回應滑鼠微移。請顯示靜止的桌面並讓滑鼠游標可見，關閉遊戲和影片後再試一次。</string>
+    <string name="latency_benchmark_share">分享結果</string>
+    <string name="latency_benchmark_share_title">裝置結果</string>
+    <string name="latency_benchmark_share_message">Nightjar 絕不會自行傳送這些內容。文字包含此裝置（型號、SoC、GPU 和 Android 版本）、其解碼器基準測試和此畫面上最近一次測試的結果，不含電腦名稱、位址、序號或帳戶資料。「開啟表單」會複製文字並開啟一個公開的 GitHub 表單。你貼到那裡的所有內容都會公開，並加入 Nightjar 網站上的裝置表。</string>
+    <string name="latency_benchmark_copied">已複製結果</string>
+    <string name="latency_benchmark_report_form">開啟表單</string>
+    <string name="latency_benchmark_paste_hint">已複製結果。請貼到表單中。</string>
+</resources>

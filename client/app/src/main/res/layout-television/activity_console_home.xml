@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Home on TV: the backdrop of the focused game behind the shell bar, a hero that names it, and the shelves. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:clipChildren="false" android:clipToPadding="false">
+    <com.limelight.ui.BackdropView android:id="@+id/home_backdrop"
+        android:layout_width="match_parent" android:layout_height="match_parent"
+        android:importantForAccessibility="no" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical"
+        android:clipChildren="false" android:clipToPadding="false"
+        android:paddingStart="@dimen/shell_overscan_horizontal" android:paddingEnd="@dimen/shell_overscan_horizontal"
+        android:paddingTop="@dimen/shell_overscan_vertical" android:paddingBottom="@dimen/space_s">
+        <!-- The screen's title is the shell bar's selected tab; the toolbar stays for the code that configures it. -->
+        <include android:id="@+id/console_toolbar" layout="@layout/view_top_app_bar" android:visibility="gone" />
+        <include layout="@layout/view_shell_bar" />
+        <ProgressBar android:id="@+id/console_loading" style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent" android:layout_height="4dp" android:indeterminate="true" />
+        <!-- Read by the focus, never focused: a screen reader reads the card, which says the same. -->
+        <LinearLayout android:id="@+id/home_hero" android:layout_width="match_parent" android:layout_height="@dimen/hero_height"
+            android:orientation="vertical" android:gravity="bottom"
+            android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s" android:paddingBottom="@dimen/space_s"
+            android:importantForAccessibility="noHideDescendants">
+            <TextView android:id="@+id/home_hero_meta" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:maxLines="1" android:ellipsize="end"
+                android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant" />
+            <TextView android:id="@+id/home_hero_title" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:maxLines="1" android:ellipsize="end"
+                android:textAppearance="@style/TextAppearance.Nightjar.Display" android:textColor="?attr/colorOnSurface" />
+            <TextView android:id="@+id/home_hero_hints" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_xs" android:maxLines="1" android:ellipsize="end"
+                android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurfaceVariant" />
+        </LinearLayout>
+        <!-- The list reaches 24 dp past the content on both sides, so a focused poster's ring and glow are not cut off there;
+             it clips at its top, where the shelves slide under the hero, and near the screen's edge, which is low enough for
+             the next shelf's heading to show whole. The bottom padding lets the last (short) shelf scroll up to the hero
+             instead of leaving the shelf above it showing. -->
+        <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+            android:layout_marginStart="-24dp" android:layout_marginEnd="-24dp" android:clipChildren="true">
+            <androidx.recyclerview.widget.RecyclerView android:id="@+id/console_list"
+                android:layout_width="match_parent" android:layout_height="match_parent"
+                android:clipToPadding="false" android:clipChildren="false" android:overScrollMode="never"
+                android:paddingStart="24dp" android:paddingEnd="24dp"
+                android:paddingTop="@dimen/space_xs" android:paddingBottom="160dp" android:focusable="false"
+                android:descendantFocusability="afterDescendants" />
+            <LinearLayout android:id="@+id/console_empty" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_gravity="center" android:orientation="vertical" android:gravity="center_horizontal"
+                android:padding="@dimen/space_xl" android:visibility="gone">
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:gravity="center" android:text="@string/console_empty_title"
+                    android:textAppearance="@style/TextAppearance.Nightjar.ScreenTitle" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_m" android:gravity="center" android:text="@string/console_empty_body"
+                    android:textAppearance="@style/TextAppearance.Nightjar.Body" android:textColor="?attr/colorOnSurfaceVariant" />
+                <com.google.android.material.button.MaterialButton android:id="@+id/console_empty_hosts"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_xl" android:minHeight="@dimen/touch_target"
+                    android:text="@string/console_empty_open_hosts" app:icon="@drawable/ic_computer" />
+            </LinearLayout>
+        </FrameLayout>
+    </LinearLayout>
+</FrameLayout>

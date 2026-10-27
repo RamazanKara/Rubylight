@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_network_grace">Ride out network drops</string>
+    <string name="summary_network_grace">How long a stream waits when the network goes silent, for example while Wi-Fi roams between access points or a VPN moves between Wi-Fi and mobile data. Off ends the stream after 10 seconds without contact. The picture freezes until the network returns. Waits longer than 10 seconds only help if the host waits that long too: raise its own client timeout.</string>
+    <string name="network_grace_off">Off (10 seconds)</string>
+    <string name="network_grace_20">20 seconds</string>
+    <string name="network_grace_30">30 seconds</string>
+    <string name="network_grace_60">60 seconds</string>
+    <string name="network_grace_gave_up">The connection stayed silent for longer than the %1$d-second drop tolerance, or the host ended the session. If the host gave up first, raise its own client timeout as well.</string>
+    <string-array name="network_grace_names"><item>@string/network_grace_off</item><item>@string/network_grace_20</item><item>@string/network_grace_30</item><item>@string/network_grace_60</item></string-array>
+    <string-array name="network_grace_values" translatable="false"><item>0</item><item>20</item><item>30</item><item>60</item></string-array>
+</resources>

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_section_advanced">高级</string>
+    <string name="settings_advanced_summary">解码、输入和诊断</string>
+    <string name="settings_custom">自定义</string>
+    <string name="setting_help">关于%1$s</string>
+    <string name="stream_presets_help_title">关于预设</string>
+    <string name="settings_version">版本 %1$s</string>
+    <string name="settings_source">源代码和许可</string>
+    <string name="settings_csv_summary">保存最近的延迟测量结果</string>
+    <string name="host_profile_footer">离开前请保存串流设置。显示模式需在其对话框中通过“保存显示模式”单独保存。更改将在下次串流时生效。</string>
+    <string name="stream_overlay_menu">叠加层</string>
+    <string name="stream_bitrate_manual">设置码率</string>
+    <string-array name="stream_preset_names">
+        <item>原生（推荐）</item>
+        <item>省电</item>
+    </string-array>
+    <string name="applist_menu_show_app">显示游戏</string>
+</resources>

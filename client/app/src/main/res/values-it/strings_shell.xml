@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shell_destinations">Sezioni principali</string>
+    <string name="shell_current_page">Pagina corrente</string>
+    <string name="host_menu_rename">Rinomina</string>
+    <string name="host_options_hint">X o ⋮ per le opzioni</string>
+    <string name="host_rename_field">Nome</string>
+    <string name="host_rename_help">Visibile solo su questo dispositivo. Lascia vuoto per usare il nome originale del PC.</string>
+    <string name="host_rename_save">Salva</string>
+    <string name="host_rename_title">Rinomina PC</string>
+    <string name="host_unpair_title">Disaccoppiare %1$s?</string>
+    <string name="host_unpair_message">Il PC dimentica questo dispositivo e la libreria salvata viene cancellata qui. Dovrai accoppiarlo di nuovo per lo streaming. Il PC resta nell’elenco.</string>
+    <string name="host_wake_needs_pairing">Accoppia il PC una volta mentre è acceso per poterlo riattivare</string>
+    <string name="host_menu_sleep">Sospendi PC</string>
+    <string name="host_menu_sleep_note">Sperimentale</string>
+    <string name="host_sleep_title">Sospendere %1$s?</string>
+    <string name="host_sleep_message">Prima chiudi giochi e stream sul PC. Wake-on-LAN può riattivarlo.</string>
+    <string name="host_sleep_asking">Richiesta al PC in corso…</string>
+    <string name="host_sleep_accepted">Il PC sta entrando in sospensione</string>
+    <string name="host_sleep_unsupported">Questo PC non può essere sospeso.</string>
+    <string name="host_sleep_permission_help">Per consentirlo, attiva Sospendi PC per questo dispositivo nella console web dell’host, nelle impostazioni del dispositivo.</string>
+    <string name="host_sleep_busy">Il PC non può essere sospeso ora. Chiudi giochi e stream su di esso, poi riprova.</string>
+    <string name="host_sleep_refused">Il PC ha rifiutato la sospensione (HTTP %1$d).</string>
+    <string name="host_sleep_failed">Impossibile raggiungere il PC.</string>
+    <string name="host_sleep_error">Impossibile interrogare il PC: %1$s</string>
+    <string name="settings_category_accessibility">Accessibilità</string>
+    <string name="title_ui_scale">Dimensione dell’interfaccia</string>
+    <string name="summary_ui_scale">Ridimensiona i menu, gli elenchi e le finestre di dialogo dell’app. Lo stream non viene ridimensionato. La dimensione del carattere del sistema si applica in aggiunta. Ha effetto subito.</string>
+    <string name="title_high_contrast">Contrasto elevato</string>
+    <string name="summary_high_contrast">Sfondo nero, testo e contorni più marcati e un anello di focus più spesso su ogni schermata dell’app. Lo stream non cambia.</string>
+    <string name="title_reduce_motion">Riduci animazioni</string>
+    <string name="summary_reduce_motion">Segui il sistema disattiva le animazioni quando la scala delle animazioni di Android è 0. Riduci sostituisce lo zoom del focus e i pannelli scorrevoli con un semplice anello. Completo anima sempre.</string>
+    <string name="reduce_motion_system">Segui il sistema</string>
+    <string name="reduce_motion_reduce">Riduci</string>
+    <string name="reduce_motion_full">Completo</string>
+    <!-- tv-mode-toggle -->
+    <string name="title_ui_mode">Layout dell’interfaccia</string>
+    <string name="summary_ui_mode">«Automatico» segue il dispositivo. «TV» imposta l’app per un televisore, con focus e telecomando o gamepad, su una console portatile o un telefono collegato a uno. «Portatile» usa i layout touch anche su un televisore. Lo stream non cambia. Ha effetto subito.</string>
+    <string name="ui_mode_auto">Automatico</string>
+    <string name="ui_mode_tv">TV</string>
+    <string name="ui_mode_handheld">Portatile</string>
+</resources>

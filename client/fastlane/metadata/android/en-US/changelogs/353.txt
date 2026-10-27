@@ -1,0 +1,1 @@
+Nightjar 3.1. Simpler settings: one Automatic bitrate switch under the bitrate slider, clearer names, a Customize section for low-latency decoding, and theme and overlay pickers. Exynos and Pixel decoders get the low-latency keys Moonlight X uses (Experimental). Reset all settings now resets the theme and overlay too.

@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="overlay_compact">コンパクト</string>
+    <string name="overlay_compact_fps">%1$s FPS</string>
+    <string name="overlay_compact_rtt">RTT %1$s ms</string>
+    <string name="overlay_compact_loss">損失 %1$s%%</string>
+    <string name="overlay_compact_waiting">映像を待機中</string>
+    <string name="link_notice_lowered">ホストがビットレートを %1$s Mbps に下げました: ネットワーク</string>
+    <string name="overlay_health_good">ストリーム良好</string>
+    <string name="overlay_health_fair">ストリーム不安定</string>
+    <string name="overlay_health_poor">ストリーム不良</string>
+    <string name="overlay_health_unknown">ストリーム開始中</string>
+    <string name="stream_section_input">入力</string>
+    <string name="stream_section_display">表示</string>
+    <string name="stream_section_quality">画質</string>
+    <string name="stream_section_host">ホスト</string>
+    <string name="stream_microphone">マイク</string>
+    <string name="stream_cursor_show">マウスカーソルを表示</string>
+    <string name="stream_cursor_hide">マウスカーソルを非表示</string>
+    <string name="stream_keyboard_keys_hide">追加のキーボードキーを非表示</string>
+    <string name="stream_overlay_page">オーバーレイと診断</string>
+    <string name="stream_picture_in_picture">ピクチャー イン ピクチャー</string>
+    <string name="stream_quit_game">ゲームを終了</string>
+    <string name="stream_quit_game_confirm">PC 上のゲームを終了しますか？\n保存していない進行状況は失われます。</string>
+    <string name="stream_end_session">セッションを終了</string>
+    <string name="stream_end_session_confirm">PCのストリーミングセッションを終了しますか？
+ゲームは実行されたままです。</string>
+    <string name="stream_close_game">ゲームを閉じる</string>
+    <string name="stream_close_game_confirm">PC上のゲームを閉じますか？
+保存されていない進行状況は失われます。</string>
+    <string name="stream_choice_selected">選択済み</string>
+    <string name="stream_choice_not_selected">未選択</string>
+    <string name="stream_web_ui_leaves">ブラウザを開くとストリームから離れますが、ゲームは PC 上で実行され続けます。</string>
+    <string name="stream_menu_hint">ストリームメニューを開くには: %1$s。</string>
+    <string name="stream_menu_hint_swipe">画面の端から内側にスワイプして戻る</string>
+    <string name="stream_menu_hint_buttons">下から上にスワイプして [戻る] をタップ</string>
+    <string name="stream_menu_hint_back">[戻る] を押す</string>
+    <string name="stream_menu_hint_controller">コントローラで Start + Back + LB + RB を押す</string>
+    <string name="stream_menu_hint_keyboard">Ctrl + Alt + Shift + M を押す</string>
+    <string name="stream_menu_hint_or">%1$s、または %2$s</string>
+    <string name="stream_menu_hint_list">%1$s、%2$s</string>
+    <string name="stream_menu_hint_close">タップして閉じる</string>
+    <string name="stream_h264_decoder_missing">このデバイスは、ストリーミングに必要な H.264 映像のハードウェア デコードに対応していません。</string>
+    <string name="perf_overlay_vrr">パネル: %1$.2f Hz · レンダリング: %2$.2f Hz · VRR: %3$s</string>
+    <string name="perf_overlay_vrr_max_hz">最大 Hz</string>
+    <string name="sheet_back">戻る</string>
+</resources>

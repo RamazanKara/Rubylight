@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="fps_show_supported">Yalnızca desteklenen kare hızlarını göster</string>
+    <string name="title_adaptive_quality_setting">Gerektiğinde çözünürlüğü veya kare hızını düşür</string>
+    <string name="summary_adaptive_quality_setting">Ağ, yavaş kod çözme veya ısınma yayının düzgün çalışmasını engellediğinde çözünürlüğü veya kare hızını düşürür, durum düzelince yeniden yükseltir. PyroWave için geçerli değildir.</string>
+    <string name="title_low_latency_customize">Özelleştir</string>
+    <string name="low_latency_customize_closed">Düşük gecikmenin hangi parçalarının açık olacağını seçin</string>
+    <string name="low_latency_customize_open">Tek tek anahtarları gizle</string>
+    <string name="settings_category_compatibility">Uyumluluk</string>
+    <string name="summary_sops_short">Bilgisayarın oyun ayarlarını düzenlemesine izin verir</string>
+    <string name="theme_high_contrast_note">Yüksek kontrast uygulamayı siyah tutar</string>
+    <string name="title_performance_overlay">Performans katmanı</string>
+    <string name="overlay_off">Kapalı</string>
+    <string name="title_theme">Tema</string>
+    <string name="theme_system">Sistem</string>
+    <string name="theme_dark">Koyu</string>
+</resources>

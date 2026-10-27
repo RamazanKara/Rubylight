@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="wifi_heading">Połączenie</string>
+    <string name="wifi_not_available">niedostępne</string>
+    <string name="wifi_unavailable">Szczegóły Wi-Fi: niedostępne na tym urządzeniu</string>
+    <string name="wifi_link_none">Połączenie: Android nie zgłasza aktywnej sieci</string>
+    <string name="wifi_link_ethernet">Połączenie: Ethernet, szczegóły Wi-Fi nie dotyczą</string>
+    <string name="wifi_link_cellular">Połączenie: dane komórkowe, szczegóły Wi-Fi nie dotyczą</string>
+    <string name="wifi_link_other">Połączenie: VPN lub inny typ sieci; szczegóły Wi-Fi niedostępne</string>
+    <string name="wifi_band_24">2,4 GHz</string>
+    <string name="wifi_band_5">5 GHz</string>
+    <string name="wifi_band_6">6 GHz</string>
+    <string name="wifi_mhz">%1$d MHz</string>
+    <string name="wifi_dbm">%1$d dBm</string>
+    <string name="wifi_mbps">%1$d Mb/s</string>
+    <string name="wifi_line_band">Pasmo Wi-Fi: %1$s · kanał %2$s · szerokość %3$s</string>
+    <string name="wifi_line_signal">Sygnał Wi-Fi: %1$s (%2$s)</string>
+    <string name="wifi_line_signal_unknown">Sygnał Wi-Fi: niedostępny</string>
+    <string name="wifi_signal_excellent">doskonały</string>
+    <string name="wifi_signal_good">dobry</string>
+    <string name="wifi_signal_fair">przeciętny</string>
+    <string name="wifi_signal_weak">słaby</string>
+    <string name="wifi_line_speed">Szybkość łącza Wi-Fi: wysyłanie %1$s · odbieranie %2$s</string>
+    <string name="wifi_line_speed_single">Szybkość łącza Wi-Fi: %1$s</string>
+    <string name="wifi_line_standard">Standard Wi-Fi: %1$s</string>
+    <string name="wifi_standard">Wi-Fi %1$d</string>
+    <string name="wifi_standard_6e">Wi-Fi 6E</string>
+    <string name="wifi_standard_legacy">802.11a/b/g</string>
+    <string name="wifi_line_lock">Blokada Wi-Fi o niskim opóźnieniu: %1$s</string>
+    <string name="wifi_lock_held">aktywna</string>
+    <string name="wifi_lock_not_held">nieaktywna</string>
+    <string name="wifi_lock_unsupported">wymaga Androida 10</string>
+    <string name="wifi_warn_24">Uwaga: pasmo 2,4 GHz jest wolniejsze i bardziej zatłoczone niż 5 lub 6 GHz i często powoduje przycięcia. Połącz się z siecią 5 lub 6 GHz routera, jeśli ją ma.</string>
+    <string name="wifi_warn_weak">Słaby sygnał: podejdź bliżej routera lub usuń przeszkody między wami.</string>
+    <string name="wifi_line_rhythm">Rytm przycięć: mniej więcej co %1$s</string>
+    <string name="wifi_period_seconds">%1$d s</string>
+    <string name="wifi_period_minutes">%1$s min</string>
+</resources>

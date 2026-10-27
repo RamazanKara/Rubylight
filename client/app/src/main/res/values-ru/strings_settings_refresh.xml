@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_global_context">Значения по умолчанию для всех ПК. У каждого ПК могут быть свои настройки трансляции.</string>
+    <string name="settings_changes_saved">Изменения сохраняются автоматически</string>
+    <string name="settings_search_results">Результаты поиска</string>
+    <string name="settings_back_to_search">Назад к результатам поиска</string>
+    <string name="settings_back_to_overview">Назад к настройкам</string>
+    <string name="settings_search_empty_help">Попробуйте более короткий запрос, например «разрешение», «звук» или «контроллер».</string>
+    <string name="settings_search_breadcrumb">%1$s · %2$s</string>
+    <plurals name="settings_search_count">
+        <item quantity="one">Найден %d параметр</item>
+        <item quantity="few">Найдено %d параметра</item>
+        <item quantity="many">Найдено %d параметров</item>
+        <item quantity="other">Найдено %d параметра</item>
+    </plurals>
+    <string name="settings_profile_saved_context">Изменения применятся к этому ПК после сохранения.</string>
+    <string name="settings_profile_unsaved_context">Несохранённые изменения для этого ПК</string>
+    <string name="settings_profile_reset_message">Использовать значения по умолчанию для всех ПК. Сохраните, чтобы применить это к данному ПК.</string>
+    <string name="settings_profile_display_immediate">Режим дисплея сохраняется отдельно в своём диалоге.</string>
+</resources>

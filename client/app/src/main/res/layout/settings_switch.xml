@@ -1,0 +1,12 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content" android:layout_height="wrap_content" android:gravity="center_vertical">
+    <!-- Opens the switch's explanation; shown only when it has one. D-pad and keyboard users open it
+         with Right or F1 on the row, accessibility services through the row's own action. -->
+    <ImageButton android:id="@+id/preference_info" style="@style/ToolbarIcon"
+        android:layout_marginEnd="@dimen/space_xs"
+        android:src="@drawable/ic_info" android:visibility="gone"
+        android:focusable="false" android:importantForAccessibility="no" />
+    <com.google.android.material.materialswitch.MaterialSwitch
+        android:id="@+id/preference_switch" android:layout_width="wrap_content" android:layout_height="48dp"
+        android:clickable="false" android:focusable="false" android:importantForAccessibility="no" />
+</LinearLayout>

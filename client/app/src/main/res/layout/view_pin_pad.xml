@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The PIN pad shared by the portrait and landscape layouts. Labels are set in code; a row is highlighted
+     (activated) while a remote or game pad is typing from it. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/pin_pad"
+    android:layout_width="@dimen/pin_pad_width" android:layout_height="wrap_content"
+    android:orientation="vertical">
+    <LinearLayout android:id="@+id/pin_row_0"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:padding="2dp"
+        android:background="@drawable/pin_row_ring" android:importantForAccessibility="no">
+        <com.google.android.material.button.MaterialButton android:id="@+id/pin_key_1"
+            style="?attr/nightjarButtonTonalStyle"
+            android:layout_width="0dp" android:layout_height="@dimen/pin_key_height" android:layout_weight="1"
+            android:layout_margin="@dimen/space_xs" android:insetTop="0dp" android:insetBottom="0dp"
+            android:padding="0dp" android:focusable="false" android:textAppearance="@style/TextAppearance.Nightjar.PinKey" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/pin_key_2"
+            style="?attr/nightjarButtonTonalStyle"
+            android:layout_width="0dp" android:layout_height="@dimen/pin_key_height" android:layout_weight="1"
+            android:layout_margin="@dimen/space_xs" android:insetTop="0dp" android:insetBottom="0dp"
+            android:padding="0dp" android:focusable="false" android:textAppearance="@style/TextAppearance.Nightjar.PinKey" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/pin_key_3"
+            style="?attr/nightjarButtonTonalStyle"
+            android:layout_width="0dp" android:layout_height="@dimen/pin_key_height" android:layout_weight="1"
+            android:layout_margin="@dimen/space_xs" android:insetTop="0dp" android:insetBottom="0dp"
+            android:padding="0dp" android:focusable="false" android:textAppearance="@style/TextAppearance.Nightjar.PinKey" />
+    </LinearLayout>
+    <LinearLayout android:id="@+id/pin_row_1"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:padding="2dp"
+        android:background="@drawable/pin_row_ring" android:importantForAccessibility="no">
+        <com.google.android.material.button.MaterialButton android:id="@+id/pin_key_4"
+            style="?attr/nightjarButtonTonalStyle"
+            android:layout_width="0dp" android:layout_height="@dimen/pin_key_height" android:layout_weight="1"
+            android:layout_margin="@dimen/space_xs" android:insetTop="0dp" android:insetBottom="0dp"
+            android:padding="0dp" android:focusable="false" android:textAppearance="@style/TextAppearance.Nightjar.PinKey" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/pin_key_5"
+            style="?attr/nightjarButtonTonalStyle"
+            android:layout_width="0dp" android:layout_height="@dimen/pin_key_height" android:layout_weight="1"
+            android:layout_margin="@dimen/space_xs" android:insetTop="0dp" android:insetBottom="0dp"
+            android:padding="0dp" android:focusable="false" android:textAppearance="@style/TextAppearance.Nightjar.PinKey" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/pin_key_6"
+            style="?attr/nightjarButtonTonalStyle"
+            android:layout_width="0dp" android:layout_height="@dimen/pin_key_height" android:layout_weight="1"
+            android:layout_margin="@dimen/space_xs" android:insetTop="0dp" android:insetBottom="0dp"
+            android:padding="0dp" android:focusable="false" android:textAppearance="@style/TextAppearance.Nightjar.PinKey" />
+    </LinearLayout>
+    <LinearLayout android:id="@+id/pin_row_2"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:padding="2dp"
+        android:background="@drawable/pin_row_ring" android:importantForAccessibility="no">
+        <com.google.android.material.button.MaterialButton android:id="@+id/pin_key_7"
+            style="?attr/nightjarButtonTonalStyle"
+            android:layout_width="0dp" android:layout_height="@dimen/pin_key_height" android:layout_weight="1"
+            android:layout_margin="@dimen/space_xs" android:insetTop="0dp" android:insetBottom="0dp"
+            android:padding="0dp" android:focusable="false" android:textAppearance="@style/TextAppearance.Nightjar.PinKey" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/pin_key_8"
+            style="?attr/nightjarButtonTonalStyle"
+            android:layout_width="0dp" android:layout_height="@dimen/pin_key_height" android:layout_weight="1"
+            android:layout_margin="@dimen/space_xs" android:insetTop="0dp" android:insetBottom="0dp"
+            android:padding="0dp" android:focusable="false" android:textAppearance="@style/TextAppearance.Nightjar.PinKey" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/pin_key_9"
+            style="?attr/nightjarButtonTonalStyle"
+            android:layout_width="0dp" android:layout_height="@dimen/pin_key_height" android:layout_weight="1"
+            android:layout_margin="@dimen/space_xs" android:insetTop="0dp" android:insetBottom="0dp"
+            android:padding="0dp" android:focusable="false" android:textAppearance="@style/TextAppearance.Nightjar.PinKey" />
+    </LinearLayout>
+    <LinearLayout android:id="@+id/pin_row_3"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:padding="2dp"
+        android:background="@drawable/pin_row_ring" android:importantForAccessibility="no">
+        <com.google.android.material.button.MaterialButton android:id="@+id/pin_key_del"
+            style="?attr/nightjarButtonTonalStyle"
+            android:layout_width="0dp" android:layout_height="@dimen/pin_key_height" android:layout_weight="1"
+            android:layout_margin="@dimen/space_xs" android:insetTop="0dp" android:insetBottom="0dp"
+            android:padding="0dp" android:focusable="false"
+            android:contentDescription="@string/pin_key_delete" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/pin_key_0"
+            style="?attr/nightjarButtonTonalStyle"
+            android:layout_width="0dp" android:layout_height="@dimen/pin_key_height" android:layout_weight="1"
+            android:layout_margin="@dimen/space_xs" android:insetTop="0dp" android:insetBottom="0dp"
+            android:padding="0dp" android:focusable="false" android:textAppearance="@style/TextAppearance.Nightjar.PinKey" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/pin_key_ok"
+            style="?attr/nightjarButtonTonalStyle"
+            android:layout_width="0dp" android:layout_height="@dimen/pin_key_height" android:layout_weight="1"
+            android:layout_margin="@dimen/space_xs" android:insetTop="0dp" android:insetBottom="0dp"
+            android:padding="0dp" android:focusable="false"
+            android:contentDescription="@string/pin_key_confirm" />
+    </LinearLayout>
+</LinearLayout>

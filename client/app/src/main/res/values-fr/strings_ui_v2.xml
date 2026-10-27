@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_section_advanced">Avancé</string>
+    <string name="settings_advanced_summary">Décodage, saisie et diagnostics</string>
+    <string name="settings_custom">Personnalisé</string>
+    <string name="setting_help">À propos de %1$s</string>
+    <string name="stream_presets_help_title">À propos des préréglages</string>
+    <string name="settings_version">Version %1$s</string>
+    <string name="settings_source">Code source et licences</string>
+    <string name="settings_csv_summary">Enregistrer les dernières mesures de latence</string>
+    <string name="host_profile_footer">Enregistrez les paramètres de stream avant de quitter. Le mode d’affichage s’enregistre à part, avec Enregistrer le mode d’affichage dans sa boîte de dialogue. Les modifications s’appliquent au prochain stream.</string>
+    <string name="stream_overlay_menu">Superposition</string>
+    <string name="stream_bitrate_manual">Régler le débit</string>
+    <string-array name="stream_preset_names">
+        <item>Native (recommandé)</item>
+        <item>Économie de batterie</item>
+    </string-array>
+    <string name="applist_menu_show_app">Afficher le jeu</string>
+</resources>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_hdr_display_unsupported">この画面は HDR を表示できないため、SDR でストリーミングします。</string>
+    <string name="stream_hdr_android_unsupported">HDR には Android 7 以降が必要なため、SDR でストリーミングします。</string>
+    <string name="stream_hdr_decoder_unsupported">このデバイスは HDR 動画を再生できないため、SDR でストリーミングします。</string>
+    <string name="stream_hevc_decoder_missing">このデバイスは HEVC を再生できないため、別のコーデックを使用します。</string>
+    <string name="stream_av1_decoder_missing">このデバイスは AV1 を再生できないため、別のコーデックを使用します。</string>
+    <string name="stream_mouse_mode_on">コントローラのマウスモードを有効にしました</string>
+    <string name="stream_mouse_mode_off">コントローラのマウスモードを無効にしました</string>
+</resources>

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_layout_kind_button">Klavye veya fare düğmesi</string>
+    <string name="touch_layout_kind_gamepad">Oyun kumandası düğmesi</string>
+    <string name="touch_layout_kind_stick">Analog çubuk</string>
+    <string name="touch_layout_kind_trigger">Analog tetik</string>
+    <string name="touch_layout_kind_dpad">D-pad</string>
+    <string name="touch_layout_kind_wasd">WASD çubuğu (tuş gönderir)</string>
+    <string name="touch_layout_side">Taraf</string>
+    <string name="touch_layout_side_left">Sol</string>
+    <string name="touch_layout_side_right">Sağ</string>
+    <string name="touch_layout_floating">Kayan: başparmağın değdiği yeri merkez alır</string>
+    <string name="touch_layout_deadzone">Ölü bölge (çubuk hareketinin %’si, 0–50)</string>
+    <string name="touch_layout_wasd_keys">Yukarı, sol, aşağı ve sağ tuşları</string>
+    <string name="touch_layout_wasd_help">Bu sırayla dört farklı tuş, örneğin W + A + S + D veya UP + LEFT + DOWN + RIGHT.</string>
+    <string name="touch_layout_diagonal">Çaprazlar (derece, 0–90): 0 hiçbir zaman iki tuşa basmaz, 45 sekiz eşit yön verir</string>
+    <string name="touch_layout_snap">Izgaraya hizala: %1$s</string>
+    <string name="touch_layout_snap_title">Izgaraya hizala</string>
+    <string name="touch_layout_error_json">Bu bir Nightjar düzeni, Artemis klavye düzeni veya Artemis Özel Tuşlar dosyası değil.</string>
+    <string name="touch_layout_error_version">Bu düzen %1$s sürümünde. Bu Nightjar sürümü 1 ve 2 sürümlerindeki düzenleri okur; içe aktarmak için Nightjar’ı güncelleyin.</string>
+    <string name="touch_layout_error_size">Düzenler 32 kontrol ve 64 KiB ile sınırlıdır.</string>
+    <string name="touch_layout_error_duplicate">İki kontrol aynı %1$s kimliğini kullanıyor. Her kontrolün kendi kimliği olmalı.</string>
+    <string name="touch_layout_error_control">%1$d. kontrolün (%2$s) türü, tuşu, düğmesi veya boyutu desteklenmiyor.</string>
+    <string name="touch_layout_import_done">Düzen içe aktarıldı</string>
+    <plurals name="touch_layout_imported">
+        <item quantity="one">%d kontrol içe aktarıldı.</item>
+        <item quantity="other">%d kontrol içe aktarıldı.</item>
+    </plurals>
+    <string name="touch_layout_import_pixels">Artemis piksel konumlarını ekran boyutu olmadan kaydeder; bu yüzden bu ekrana göre okundu. Yerleşimi kontrol edin.</string>
+    <string name="touch_layout_import_scaled">Artemis düzeni bu ekranın dışına taşıyordu ve sığması için küçültüldü. Yerleşimi kontrol edin.</string>
+    <plurals name="touch_layout_import_hidden">
+        <item quantity="one">Artemis’te kapalı veya gizli olan %d öğe dahil edilmedi.</item>
+        <item quantity="other">Artemis’te kapalı veya gizli olan %d öğe dahil edilmedi.</item>
+    </plurals>
+    <string name="touch_layout_import_skipped">İçe aktarılmayanlar:</string>
+    <string name="touch_layout_skip_no_equivalent">%1$s: Nightjar’da karşılığı olan bir kontrol yok (örneğin bir Artemis dokunmatik yüzey alanı)</string>
+    <string name="touch_layout_skip_key">%1$s: Nightjar’ın gönderemediği bir tuş ya da fare düğmeleriyle karışık tuşlar</string>
+    <string name="touch_layout_skip_custom">%1$s: özel tuş; Özel Tuşlar dosyasını düzen dosyasıyla birlikte seçin</string>
+    <string name="touch_layout_skip_center">%1$s: çubuğun ortasına çift dokunma tuşu (çubuğun kendisi WASD çubuğu olarak içe aktarıldı)</string>
+    <string name="touch_layout_skip_too_many">%1$s: 32 kontrol sınırının üzerinde</string>
+    <string name="touch_layout_skip_size">%1$s: geçersiz boyut</string>
+    <string name="library_import_controls">Oyun kontrollerini içe aktar</string>
+    <string name="library_import_controls_note">Nightjar düzeni ya da Artemis klavye düzeni ve Özel Tuşlar dosyası</string>
+    <string name="library_import_controls_title">%1$s kontrolleri</string>
+    <string name="library_import_controls_replace">Bu bilgisayarda bu oyunun ekran kontrolleri değiştirilsin mi?</string>
+    <string name="library_import_controls_saved">Kontroller kaydedildi. Bu oyunun bir sonraki yayınında görünür.</string>
+    <string name="library_import_controls_error">Dosya okunamadı.</string>
+</resources>

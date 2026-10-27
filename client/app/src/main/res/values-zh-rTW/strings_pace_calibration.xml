@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pace_calibration_title">校準影格節奏</string>
+    <string name="pace_calibration_summary">PyroWave：找出主機向此裝置完整傳送影格的最高速度</string>
+    <string name="pace_calibration_saved">PyroWave 影格節奏：%1$d Mbps。輕觸即可重新校準。</string>
+    <string name="pace_calibration_intro">主機會以不同速度傳送測試影格，Nightjar 會儲存影格能完整抵達的最快速度。之後的 PyroWave 串流會使用它。請先停止這台電腦上的串流。需要一到三分鐘。</string>
+    <string name="pace_calibration_preparing">正在準備測試…</string>
+    <string name="pace_calibration_running">正在測試以 %1$d Mbps 傳送的影格…</string>
+    <string name="pace_calibration_result">影格節奏：在此 %2$d Mbps 連線上為 %1$d Mbps。已為這台電腦儲存。</string>
+    <string name="pace_calibration_result_unqualified">沒有測試速度符合所有遺失限制。最佳值（在此 %2$d Mbps 連線上為 %1$d Mbps）已為這台電腦儲存。畫面可能仍有損壞。</string>
+    <string name="pace_calibration_no_link">影格節奏需要此裝置或電腦的有線連結速度，但兩者皆未知。</string>
+    <string name="pace_calibration_too_fast">串流已需要 %1$d Mbps，太接近此 %2$d Mbps 連線。請先降低位元率。</string>
+    <string name="pace_calibration_streaming">電腦正在串流或已在測試。請停止串流後再試一次。</string>
+    <string name="pace_calibration_unsupported">這台電腦無法測試影格節奏。需要支援 PyroWave 節奏測試的主機。</string>
+    <string name="pace_calibration_failed">無法完成校準。請檢查連線後再試一次。</string>
+    <string name="pace_calibration_none">沒有完成任何測試。請再試一次。</string>
+    <string name="pace_calibration_clear">清除</string>
+</resources>

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="wifi_heading">接続</string>
+    <string name="wifi_not_available">利用できません</string>
+    <string name="wifi_unavailable">Wi-Fi の詳細: このデバイスでは利用できません</string>
+    <string name="wifi_link_none">接続: アクティブなネットワークがないと Android が報告しています</string>
+    <string name="wifi_link_ethernet">接続: イーサネットのため、Wi-Fi の詳細は該当しません</string>
+    <string name="wifi_link_cellular">接続: モバイルデータのため、Wi-Fi の詳細は該当しません</string>
+    <string name="wifi_link_other">接続: VPN または他の種類のネットワーク。Wi-Fi の詳細は利用できません</string>
+    <string name="wifi_band_24">2.4 GHz</string>
+    <string name="wifi_band_5">5 GHz</string>
+    <string name="wifi_band_6">6 GHz</string>
+    <string name="wifi_mhz">%1$d MHz</string>
+    <string name="wifi_dbm">%1$d dBm</string>
+    <string name="wifi_mbps">%1$d Mbps</string>
+    <string name="wifi_line_band">Wi-Fi 帯域: %1$s · チャネル %2$s · 幅 %3$s</string>
+    <string name="wifi_line_signal">Wi-Fi 信号: %1$s (%2$s)</string>
+    <string name="wifi_line_signal_unknown">Wi-Fi 信号: 利用できません</string>
+    <string name="wifi_signal_excellent">非常に良好</string>
+    <string name="wifi_signal_good">良好</string>
+    <string name="wifi_signal_fair">普通</string>
+    <string name="wifi_signal_weak">弱い</string>
+    <string name="wifi_line_speed">Wi-Fi リンク速度: 送信 %1$s · 受信 %2$s</string>
+    <string name="wifi_line_speed_single">Wi-Fi リンク速度: %1$s</string>
+    <string name="wifi_line_standard">Wi-Fi 規格: %1$s</string>
+    <string name="wifi_standard">Wi-Fi %1$d</string>
+    <string name="wifi_standard_6e">Wi-Fi 6E</string>
+    <string name="wifi_standard_legacy">802.11a/b/g</string>
+    <string name="wifi_line_lock">低遅延 Wi-Fi ロック: %1$s</string>
+    <string name="wifi_lock_held">保持中</string>
+    <string name="wifi_lock_not_held">未保持</string>
+    <string name="wifi_lock_unsupported">Android 10 が必要</string>
+    <string name="wifi_warn_24">警告: 2.4 GHz は 5 GHz や 6 GHz より遅く混雑しやすいため、カクつきの原因になりがちです。ルーターに 5 GHz または 6 GHz のネットワークがあれば、そちらに接続してください。</string>
+    <string name="wifi_warn_weak">信号が弱い: ルーターに近づくか、間にある障害物を取り除いてください。</string>
+    <string name="wifi_line_rhythm">カクつきの周期: 約 %1$s ごと</string>
+    <string name="wifi_period_seconds">%1$d 秒</string>
+    <string name="wifi_period_minutes">%1$s 分</string>
+</resources>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root status_code="200">
+  <hostname>Butterpollo fixture</hostname><appversion>7.1.431.-1</appversion><GfeVersion>3.23.0.74</GfeVersion>
+  <uniqueid>ef95b248-f698-48d2-95e4-16e02a1fa911</uniqueid><PairStatus>1</PairStatus>
+  <HttpsPort>47984</HttpsPort><ExternalPort>47989</ExternalPort><LocalIP>192.0.2.1</LocalIP><mac>00:00:00:00:00:00</mac>
+  <currentgame>0</currentgame><currentgameuuid></currentgameuuid><state>SUNSHINE_SERVER_FREE</state>
+  <ServerCodecModeSupport>126026497</ServerCodecModeSupport><MaxLumaPixelsHEVC>1869449984</MaxLumaPixelsHEVC>
+  <RustHostVersion>2.0.0-rc.19</RustHostVersion><RustHostSessionCount></RustHostSessionCount><RustHostPendingSessionCount></RustHostPendingSessionCount>
+  <RustHostApplicationActive></RustHostApplicationActive><RustHostProfile></RustHostProfile>
+  <VirtualDisplayCapable>true</VirtualDisplayCapable><VirtualDisplayDriverReady>true</VirtualDisplayDriverReady><VirtualDisplayHDRCapable>true</VirtualDisplayHDRCapable>
+  <Permission>4294967295</Permission><FrameLimiterSupported>1</FrameLimiterSupported><FrameLimiterEnabled>1</FrameLimiterEnabled>
+  <VirtualDisplayFrameLimiterEnabled>1</VirtualDisplayFrameLimiterEnabled><FrameLimiterFpsLimitMilliHz>59940</FrameLimiterFpsLimitMilliHz>
+  <PyroWaveHostLinkMbps>1000</PyroWaveHostLinkMbps><PyroWaveBandwidthProbeBytes>33554432</PyroWaveBandwidthProbeBytes><ServerCommand>Fixture command</ServerCommand>
+</root>

@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Named profiles (Settings → Video → Profiles) -->
+    <string name="profiles_title">プロファイル</string>
+    <string name="profiles_subtitle">プロファイル</string>
+    <string name="profiles_summary_none">なし：ストリームはメイン設定を使用します</string>
+    <string name="profiles_summary_in_use">使用中：%1$s</string>
+    <string name="profiles_summary_auto">ストリーム開始時にネットワークで選択</string>
+    <string name="profiles_section_list">マイプロファイル</string>
+    <string name="profiles_section_choice">ストリームで使うプロファイル</string>
+    <string name="profiles_new">新しいプロファイル</string>
+    <string name="profiles_new_summary">空の状態で作成されます。変更したい値だけを設定してください。</string>
+    <string name="profiles_name">プロファイル名</string>
+    <string name="profiles_name_empty">名前を入力してください</string>
+    <string name="profiles_name_too_long">%1$d 文字以内で入力してください</string>
+    <string name="profiles_name_taken">この名前のプロファイルはすでにあります</string>
+    <string name="profiles_too_many">プロファイルは最大 %1$d 個まで保存できます。</string>
+    <string name="profiles_values_none">まだ何も設定されていません</string>
+    <plurals name="profiles_values_count">
+        <item quantity="other">%d 個の値を設定済み</item>
+    </plurals>
+    <string name="profiles_marker_in_use">使用中</string>
+    <string name="profiles_marker_rules">選択対象：%1$s</string>
+    <string name="profiles_edit">値を編集</string>
+    <string name="profiles_rename">名前を変更</string>
+    <string name="profiles_duplicate">複製</string>
+    <string name="profiles_delete">削除</string>
+    <string name="profiles_copy_name">%1$s のコピー</string>
+    <string name="profiles_delete_title">%1$s を削除しますか？</string>
+    <string name="profiles_delete_message">このプロファイルを使っていたストリームは、代わりにメイン設定を使用します。この操作は元に戻せません。</string>
+    <string name="profiles_deleted">プロファイルを削除しました</string>
+    <string name="profiles_in_use">使用中のプロファイル</string>
+    <string name="profiles_none">なし（メイン設定）</string>
+    <string name="profiles_main_settings">メイン設定</string>
+    <string name="profiles_auto">ネットワークで選択</string>
+    <string name="profiles_auto_summary_on">オン：ストリーム開始時に、ネットワークに応じて下のプロファイルが選ばれます。イーサネットや選択のないネットワークでは、使用中のプロファイルを使います。</string>
+    <string name="profiles_auto_summary_off">オフ：すべてのストリームで使用中のプロファイルを使います。</string>
+    <string name="profiles_rule_default">使用中のプロファイル</string>
+    <string name="profiles_network_mobile">モバイルデータ</string>
+    <string name="profiles_network_home_wifi">自宅の Wi-Fi</string>
+    <string name="profiles_network_wifi">その他の Wi-Fi</string>
+    <string name="profiles_network_other">イーサネットなど</string>
+    <string name="profiles_rule_mobile_summary">Android で従量制として扱われる Wi-Fi（スマートフォンのテザリングなど）も含みます。</string>
+    <string name="profiles_rule_wifi_summary">自宅の Wi-Fi 以外のすべての Wi-Fi。自宅の Wi-Fi が未設定の場合は、すべての Wi-Fi が対象です。</string>
+    <string name="profiles_now">このネットワークでの次回のストリーム</string>
+    <string name="profiles_now_value">%1$s：%2$s</string>
+    <string name="profiles_home_networks">自宅の Wi-Fi</string>
+    <string name="profiles_home_none">未設定：すべての Wi-Fi がその他の Wi-Fi として扱われます。</string>
+    <string name="profiles_home_saved">このデバイスに保存されています。選択すると削除できます。</string>
+    <string name="profiles_home_remove">削除</string>
+    <string name="profiles_home_remove_title">%1$s を自宅の Wi-Fi から削除しますか？</string>
+    <string name="profiles_home_no_access">位置情報へのアクセスがオフのため、自宅の Wi-Fi を認識できません。その他の Wi-Fi として扱われます。</string>
+    <string name="profiles_home_add_current">この Wi-Fi を追加</string>
+    <string name="profiles_home_add_current_summary">このデバイスが接続している Wi-Fi の名前を保存します。名前の読み取りには、Android の仕様により位置情報へのアクセスが必要です。</string>
+    <string name="profiles_home_type">Wi-Fi 名を入力</string>
+    <string name="profiles_home_type_summary">ストリーム開始時に認識するには、位置情報へのアクセスが必要です。</string>
+    <string name="profiles_home_name">Wi-Fi 名</string>
+    <string name="profiles_location_title">位置情報へのアクセスを許可しますか？</string>
+    <string name="profiles_location_message">Android では、Wi-Fi の名前は位置情報へのアクセス権を持つアプリにしか表示されません。この権限は、ストリーム開始時に自宅の Wi-Fi とその他の Wi-Fi を区別するためだけに使用します。位置情報は読み取らず、Wi-Fi の名前はこのデバイス内にとどまり、送信や記録されることはありません。許可しない場合、すべての Wi-Fi がその他の Wi-Fi として扱われます。</string>
+    <string name="profiles_location_continue">続行</string>
+    <string name="profiles_location_denied">位置情報へのアクセスがないため、すべての Wi-Fi がその他の Wi-Fi として扱われます。後から Android のアプリ設定で許可できます。</string>
+    <string name="profiles_wifi_unreadable">Wi-Fi の名前を読み取れません。このデバイスが Wi-Fi に接続され、位置情報がオンになっていることを確認するか、名前を入力してください。</string>
+    <string name="profiles_order">ストリーム開始時、各値は次の順で最初に設定されているものが使われます：このゲーム、この PC、プロファイル、メイン設定。モバイルデータでは、さらに「モバイルデータのビットレート」でビットレートが制限されます。変更は実行中のストリームには適用されません。</string>
+    <string name="profiles_privacy">自宅の Wi-Fi の名前はこのデバイス内にとどまり、送信や記録されることはありません。</string>
+
+    <!-- Bitrate on mobile data (Settings → Video) -->
+    <string name="title_mobile_bitrate">モバイルデータのビットレート</string>
+    <string name="summary_mobile_bitrate">モバイルデータ、または Android で従量制として扱われる Wi-Fi（スマートフォンのテザリングなど）でストリームを開始したときのビットレートを制限します。プロファイル、PC、ゲームの値もこの上限を超えません。オフにすると、他のネットワークと同じビットレートを使用します。</string>
+    <string name="mobile_bitrate_off">オフ</string>
+
+    <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->
+    <string name="profile_settings_explanation">このプロファイルで変更する値だけを設定してください。設定しなかった値はメイン設定に従います。PC やゲームに個別に設定した値は、プロファイルより優先されます。</string>
+    <string name="game_settings_title">ゲームのストリーミング設定</string>
+    <string name="game_settings_subtitle">%1$s 上</string>
+    <string name="game_settings_explanation">ここで設定した値は、この PC 上のこのゲームにのみ適用されます。設定しなかった値は、この PC の設定、プロファイル、メイン設定の順に従います。</string>
+    <string name="game_settings_action">このゲームのストリーミング設定</string>
+    <string name="game_settings_note_none">この PC の設定を使用</string>
+    <plurals name="game_settings_note_own">
+        <item quantity="other">このゲーム用に %d 個の値を設定済み</item>
+    </plurals>
+    <string name="layers_saved">ストリーミング設定を保存しました</string>
+    <string name="layers_saved_context">変更は保存後の次回のストリームから適用されます。</string>
+    <string name="layers_unsaved_context">未保存の変更</string>
+    <string name="layers_unsaved_message">ストリーミング設定の変更は保存されていません。</string>
+    <string name="layers_reset">すべての値をクリア</string>
+    <string name="layers_reset_message">すべての値が「未設定」に戻ります。保存すると適用されます。</string>
+    <string name="layers_status_empty">ここでは何も設定されていません。すべての値は下位の設定に従います。</string>
+    <string name="layers_status_custom">すべての値を「未設定」に戻します。</string>
+    <string name="layers_footer">移動する前に保存してください。変更は次回のストリームから適用され、実行中のストリームには適用されません。</string>
+    <string name="layers_not_set_value">未設定（%1$s）</string>
+    <string name="layers_value_from">%1$s · %2$s</string>
+    <string name="layers_from_main">メイン設定から</string>
+    <string name="layers_from_profile">プロファイル %1$s から</string>
+    <string name="layers_from_pc">この PC で設定</string>
+    <string name="layers_from_game">このゲームで設定</string>
+    <string name="layers_from_mobile_limit">モバイルデータの上限</string>
+    <string name="layers_pacing_vrr">可変リフレッシュレートがオンのため、ストリームは「最小遅延」を使用します。</string>
+
+    <!-- In the stream -->
+    <string name="layers_applied">設定：%1$s</string>
+    <string name="layers_part_profile">プロファイル %1$s</string>
+    <string name="layers_part_profile_network">プロファイル %1$s（%2$s 用に選択）</string>
+    <string name="layers_part_pc">この PC</string>
+    <string name="layers_part_game">このゲーム</string>
+    <string name="layers_part_mobile_limit">モバイルデータの上限</string>
+    <string name="layers_problem_profile_missing">使用中のプロファイルが存在しないため、メイン設定を適用します。</string>
+    <string name="layers_problem_profile_missing_network">%1$s 用に選択したプロファイルが存在しないため、メイン設定を適用します。</string>
+    <string name="layers_problem_profile_invalid">プロファイル %1$s に、このバージョンでは読み取れない値があるため、メイン設定を適用します。「プロファイル」で開いて修正してください。</string>
+    <string name="layers_problem_pc_invalid">この PC 独自のストリーミング設定を読み取れないため、スキップします。PC の設定を開いて修正してください。</string>
+    <string name="layers_problem_game_invalid">このゲームのストリーミング設定を読み取れないため、スキップします。ゲームのメニューから開いて修正してください。</string>
+    <string name="layers_problem_home_wifi_unknown">位置情報へのアクセスがないと自宅の Wi-Fi を認識できないため、この Wi-Fi はその他の Wi-Fi として扱われます。</string>
+    <!-- Presets for one game's stream settings -->
+    <string name="game_preset_title">プリセット</string>
+    <string name="game_preset_competitive">対戦向け</string>
+    <string name="game_preset_competitive_summary">フレームペーシングを最低遅延に設定します。ほかは変わりません。</string>
+    <string name="game_preset_smoothness">滑らかさ重視</string>
+    <string name="game_preset_smoothness_summary">最もなめらかなフレームペーシング（フレームを保持するため遅延が増えます）に設定し、このゲームの可変リフレッシュをオフにします。ビットレートは変わりません。</string>
+    <string name="game_preset_quality">画質重視</string>
+    <string name="game_preset_quality_summary" formatted="false">ビットレートを PC の値（PC に値がなければメイン設定の値）の 150% に設定します。上限はホストの上限です。フレームペーシングと可変リフレッシュは変わりません。回線が弱いと、大きくなったフレームで遅延が増えることがあります。</string>
+    <string name="game_preset_custom">カスタム</string>
+    <string name="game_preset_custom_summary">下で設定した独自の値です。</string>
+</resources>

@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A game's page on TV: Home's backdrop of the game carries over behind it (BackdropView.adopt), the 2:3 poster on the
+     left, and on the right its chips, title and host, Play (focused on entry), Favourite and Close game in a row, and the
+     stream settings it will use on a panel. The ids are the phone layout's, so GameDetailActivity fills both. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:clipChildren="false" android:clipToPadding="false">
+    <com.limelight.ui.BackdropView android:id="@+id/detail_backdrop"
+        android:layout_width="match_parent" android:layout_height="match_parent"
+        android:importantForAccessibility="no" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical"
+        android:clipChildren="false" android:clipToPadding="false"
+        android:paddingStart="@dimen/shell_overscan_horizontal" android:paddingEnd="@dimen/shell_overscan_horizontal"
+        android:paddingTop="@dimen/shell_overscan_vertical" android:paddingBottom="@dimen/shell_overscan_vertical">
+        <!-- The game's title is on the page; the toolbar stays for the code that configures it. -->
+        <include android:id="@+id/detail_toolbar" layout="@layout/view_top_app_bar" android:visibility="gone" />
+        <include layout="@layout/view_shell_bar" />
+        <ProgressBar android:id="@+id/detail_loading" style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent" android:layout_height="4dp" android:indeterminate="true" />
+        <ScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+            android:clipToPadding="false" android:clipChildren="false" android:fillViewport="true"
+            android:scrollbars="none">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:clipChildren="false" android:clipToPadding="false"
+                android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s"
+                android:paddingTop="@dimen/space_xl" android:paddingBottom="@dimen/space_l">
+                <com.google.android.material.card.MaterialCardView android:id="@+id/detail_poster" style="@style/LibraryPoster"
+                    android:layout_width="@dimen/detail_cover_width" android:layout_height="@dimen/detail_cover_height"
+                    app:cardPreventCornerOverlap="false" app:cardBackgroundColor="@android:color/transparent"
+                    android:clipToOutline="true">
+                    <FrameLayout android:layout_width="match_parent" android:layout_height="match_parent"
+                        android:background="?attr/colorSurfaceContainerHigh">
+                        <com.limelight.ui.PosterImageView android:id="@+id/detail_cover" android:layout_width="match_parent"
+                            android:layout_height="match_parent" android:scaleType="centerCrop"
+                            android:importantForAccessibility="no" />
+                        <TextView android:id="@+id/detail_cover_text" android:layout_width="match_parent"
+                            android:layout_height="match_parent" android:gravity="center" android:padding="@dimen/space_l"
+                            android:textAppearance="@style/TextAppearance.Nightjar.Title" android:textColor="?attr/colorOnSurface"
+                            android:maxLines="6" android:ellipsize="end" android:importantForAccessibility="no" />
+                    </FrameLayout>
+                </com.google.android.material.card.MaterialCardView>
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                    android:layout_marginStart="40dp" android:orientation="vertical"
+                    android:clipChildren="false" android:clipToPadding="false">
+                    <!-- Running or suspended (with its dot), the store (its glyph and name), installed or not, HDR. A screen reader hears the line as one stop,
+                         from the content description GameDetailActivity joins from the shown chips. -->
+                    <LinearLayout android:id="@+id/detail_chips" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:orientation="horizontal" android:visibility="gone" android:importantForAccessibility="yes">
+                        <TextView android:id="@+id/detail_status" style="@style/Widget.Nightjar.TvChip"
+                            android:layout_marginEnd="@dimen/space_s" android:visibility="gone" />
+                        <TextView android:id="@+id/detail_store" style="@style/Widget.Nightjar.TvChip"
+                            android:layout_marginEnd="@dimen/space_s" android:visibility="gone" />
+                        <TextView android:id="@+id/detail_installed" style="@style/Widget.Nightjar.TvChip"
+                            android:layout_marginEnd="@dimen/space_s" android:visibility="gone" />
+                        <TextView android:id="@+id/detail_hdr" style="@style/Widget.Nightjar.TvChip"
+                            android:text="@string/host_profile_hdr" android:visibility="gone" />
+                    </LinearLayout>
+                    <TextView android:id="@+id/detail_title" android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_m"
+                        android:textAppearance="@style/TextAppearance.Nightjar.Display" android:textColor="?attr/colorOnSurface"
+                        android:maxLines="2" android:ellipsize="end" android:accessibilityHeading="true" />
+                    <TextView android:id="@+id/detail_host" android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_xs"
+                        android:drawableStart="@drawable/tv_ic_host_line" android:drawablePadding="@dimen/space_s"
+                        app:drawableTint="?attr/colorOnSurfaceVariant" android:gravity="center_vertical"
+                        android:textAppearance="@style/TextAppearance.Nightjar.Body" android:textColor="?attr/colorOnSurfaceVariant"
+                        android:maxLines="1" android:ellipsize="end" />
+                    <TextView android:id="@+id/detail_note" android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_m"
+                        android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant"
+                        android:accessibilityLiveRegion="polite" android:visibility="gone" />
+                    <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_xl" android:orientation="horizontal"
+                        android:clipChildren="false" android:clipToPadding="false">
+                        <com.google.android.material.button.MaterialButton android:id="@+id/detail_play"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:minWidth="160dp" android:minHeight="56dp"
+                            android:paddingStart="@dimen/space_xl" android:paddingEnd="@dimen/space_xl"
+                            android:text="@string/library_play" app:icon="@drawable/ic_play"
+                            android:nextFocusRight="@+id/detail_favourite" />
+                        <com.google.android.material.button.MaterialButton android:id="@+id/detail_favourite"
+                            style="@style/Widget.Nightjar.Button.Tonal" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:layout_marginStart="@dimen/space_m" android:minHeight="56dp"
+                            android:paddingStart="@dimen/space_l" android:paddingEnd="@dimen/space_xl"
+                            android:text="@string/console_favourite_add" app:icon="@drawable/ic_star"
+                            android:nextFocusLeft="@id/detail_play" android:nextFocusRight="@+id/detail_end" />
+                        <com.google.android.material.button.MaterialButton android:id="@+id/detail_end"
+                            style="@style/Widget.Nightjar.Button.Tonal" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:layout_marginStart="@dimen/space_m" android:minHeight="56dp"
+                            android:paddingStart="@dimen/space_l" android:paddingEnd="@dimen/space_xl"
+                            android:text="@string/stream_close_game" app:icon="@drawable/ic_stop" android:visibility="gone"
+                            android:nextFocusLeft="@id/detail_favourite" />
+                    </LinearLayout>
+                    <LinearLayout android:id="@+id/detail_profile" android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_xl" android:background="@drawable/tv_panel"
+                        android:orientation="vertical" android:padding="20dp">
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:text="@string/console_detail_profile"
+                            android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurfaceVariant" />
+                        <TextView android:id="@+id/detail_profile_values" android:layout_width="match_parent"
+                            android:layout_height="wrap_content" android:layout_marginTop="@dimen/space_xs"
+                            android:textAppearance="@style/TextAppearance.Nightjar.Title" android:textColor="?attr/colorOnSurface" />
+                        <TextView android:id="@+id/detail_profile_layers" android:layout_width="match_parent"
+                            android:layout_height="wrap_content" android:layout_marginTop="@dimen/space_xs"
+                            android:maxLines="2" android:ellipsize="end"
+                            android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant" />
+                    </LinearLayout>
+                </LinearLayout>
+            </LinearLayout>
+        </ScrollView>
+    </LinearLayout>
+</FrameLayout>

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="startup_connection_failed">Impossibile connettersi al PC. Controlla che l’host di streaming sia in esecuzione, che i due dispositivi possano raggiungersi e che il firewall del PC consenta lo streaming. Poi riprova.</string>
+    <string name="startup_permission_denied">L’host ha rifiutato la richiesta. Nelle impostazioni o nell’interfaccia web dell’host, abilita questo dispositivo e consenti la visualizzazione o l’avvio delle app.</string>
+    <string name="startup_host_error">L’host non è riuscito ad avviare lo stream (errore %1$d). Controlla lo stato dell’host nella sua interfaccia web, aggiorna l’elenco delle app e riprova.</string>
+    <string name="startup_invalid_host">Il PC ha restituito una versione del server non valida. Aggiorna o riavvia l’host e riprova.</string>
+    <string name="startup_virtual_display_unavailable">Questo PC non ha un display virtuale, quindi trasmette il proprio schermo.</string>
+    <string name="startup_not_paired">Questo dispositivo non è più accoppiato. Torna all’elenco dei PC e accoppialo di nuovo.</string>
+    <string name="startup_app_missing">Questa app non è più nella libreria del PC. Aggiorna l’elenco delle app e scegline un’altra.</string>
+    <string name="startup_resume_missing">Questa sessione non è più disponibile. Aggiorna l’elenco delle app e scegli una sessione.</string>
+    <string name="startup_host_resolution_unsupported">Il PC non supporta risoluzioni superiori a 4K. Scegli 4K o meno nelle impostazioni dello stream.</string>
+    <string name="startup_device_resolution_unsupported">Le risoluzioni superiori a 4K richiedono il supporto HEVC o AV1 su questo dispositivo. Scegli una risoluzione più bassa o un altro codec.</string>
+    <string name="startup_host_update_4k">Aggiorna GeForce Experience sul PC per trasmettere in 4K. Questo stream è in 1080p.</string>
+    <string name="startup_hdr_unavailable">Il PC e questo dispositivo non hanno un codec HDR in comune, quindi lo stream è in SDR.</string>
+    <string name="startup_pyrowave_hdr_unavailable">PyroWave HDR non è disponibile su questo dispositivo (%1$s), quindi l’HDR usa un altro codec.</string>
+    <string name="startup_resume_failed">Impossibile riprendere la sessione. Controlla l’app sul PC e riprova.</string>
+    <string name="startup_session_owner">Questa sessione appartiene a un altro dispositivo. Terminala su quel dispositivo o sul PC, poi riprova.</string>
+    <string name="startup_app_minimized">L’app è ridotta a icona. Ripristinala sul PC oppure chiudi la sessione e avviala di nuovo.</string>
+    <string name="startup_quit_failed">Impossibile chiudere la sessione precedente. Terminala sul PC e riprova.</string>
+    <string name="startup_launch_failed">Impossibile avviare l’app. Controlla che si apra sul PC, poi riprova.</string>
+    <string name="applist_permission_required">Questo dispositivo non può elencare le app. Consenti l’elenco delle applicazioni per questo dispositivo nelle impostazioni o nell’interfaccia web dell’host. La libreria si aggiorna automaticamente.</string>
+    <string name="applist_load_failed">Impossibile caricare le app del PC. Controlla l’host e l’autorizzazione all’elenco delle applicazioni di questo dispositivo nelle sue impostazioni o nell’interfaccia web. Nuovo tentativo automatico.</string>
+    <string name="applist_empty">Nessuna app disponibile. Aggiungi app alla libreria dell’host e controlla l’autorizzazione all’elenco delle applicazioni di questo dispositivo nelle impostazioni o nell’interfaccia web dell’host.</string>
+    <string name="host_profile_unsaved_title">Salvare le impostazioni dello stream?</string>
+    <string name="host_profile_unsaved_message">Le modifiche alle impostazioni dello stream di questo PC non sono state salvate. Una modalità display confermata nella relativa finestra viene salvata a parte.</string>
+    <string name="host_profile_discard">Ignora modifiche</string>
+    <string name="preset_replace_settings">Sostituisce risoluzione, frame rate, bitrate, frame pacing, upscaling, VRR e impostazioni delle prestazioni con i valori di questo preset. Le scelte di codec e HDR restano invariate.</string>
+    <string name="pair_otp_incorrect_pin">PIN rifiutato. Genera un nuovo PIN monouso nell’interfaccia web dell’host e controlla la passphrase.</string>
+    <string name="pc_accessibility_actions">Azioni del PC</string>
+    <string name="app_details">Nome: %1$s\nHDR supportato: %2$s\nID app: %3$d</string>
+    <string name="app_hdr_unknown">Sconosciuto</string>
+</resources>

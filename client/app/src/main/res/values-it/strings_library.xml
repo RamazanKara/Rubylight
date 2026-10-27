@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_host_asks_named">Il PC chiede conferma prima di chiudere %1$s</string>
+    <string name="library_host_asks">Il PC chiede conferma prima di chiudere il gioco in esecuzione</string>
+    <string name="library_quit_named_and_play">Chiudi %1$s e gioca</string>
+    <string name="library_quit_and_play">Chiudi il gioco in esecuzione e gioca</string>
+    <string name="library_replace_message_named">Chiudere %1$s e avviare %2$s?\nI progressi non salvati andranno persi.</string>
+    <string name="library_replace_message">Chiudere il gioco in esecuzione e avviare %1$s?\nI progressi non salvati andranno persi.</string>
+    <string name="library_replace_confirm">Chiudi e gioca</string>
+    <string name="library_replace_resume">Riprendi %1$s</string>
+    <string name="library_replace_close_start">Chiudi %1$s e avvia %2$s</string>
+    <string name="library_replace_message_running">%1$s è in esecuzione su questo PC. Avviare %2$s lo chiude e i progressi non salvati vanno persi.</string>
+    <string name="library_replace_changed">Il gioco in esecuzione è cambiato. Controlla lo schermo e riprova.</string>
+</resources>

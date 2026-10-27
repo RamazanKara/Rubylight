@@ -1,0 +1,11 @@
+{
+  "source": "PyroWaveBitrateFloorTest.sizesOutsideTheRegressionUseTheNearestEnd",
+  "rust": "pyrowave::BitrateFloor",
+  "java": "com.limelight.nvstream.PyroWaveBitrateFloor",
+  "new": null,
+  "calls": [
+    {"call": "minimum_kbps", "args": [854, 480, 60, false, false], "expect": 89000},
+    {"call": "minimum_kbps", "args": [7680, 4320, 60, false, false], "expect": 167000},
+    {"call": "minimum_kbps", "args": [1280, 720, 0, false, false], "expect": 2000}
+  ]
+}

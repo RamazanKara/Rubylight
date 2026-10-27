@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_layout_title">Controls for this game</string>
+    <string name="touch_layout_show">Show game buttons</string>
+    <string name="touch_layout_hide">Hide game buttons</string>
+    <string name="touch_layout_add">Add control</string>
+    <string name="touch_layout_move">Move game buttons</string>
+    <string name="touch_layout_save">Save layout and play</string>
+    <string name="touch_layout_move_help">Drag buttons to place them. Touch input is paused while moving. Return here and choose Save layout and play when finished.</string>
+    <string name="touch_layout_import">Import layout</string>
+    <string name="touch_layout_export">Export or share layout</string>
+    <string name="touch_layout_import_help">Paste a shared Nightjar layout, or an Artemis keyboard layout or Custom Keys file. Replace changes only this game on this PC. Invalid layouts leave your controls unchanged.</string>
+    <string name="touch_layout_paste">Paste layout JSON</string>
+    <string name="touch_layout_copy">Copy JSON</string>
+    <string name="touch_layout_share">Share JSON file</string>
+    <string name="touch_layout_share_error">The layout could not be shared. Copy its JSON instead.</string>
+    <string name="touch_layout_limit">A layout can contain up to 32 controls.</string>
+    <string name="touch_layout_name">Button name</string>
+    <string name="touch_layout_binding">Keys or mouse button</string>
+    <string name="touch_layout_binding_help">Examples: W, CTRL + C, SPACE. MOUSE_1 is left, MOUSE_2 middle, MOUSE_3 right, MOUSE_4 back and MOUSE_5 forward.</string>
+    <string name="touch_layout_width">Width (% of control surface, 4–80)</string>
+    <string name="touch_layout_height">Height (% of control surface, 4–80)</string>
+    <string name="touch_layout_toggle">Tap to hold; tap again to release</string>
+    <string name="touch_layout_hold">Hold while pressed</string>
+    <string name="touch_layout_pressed">Held</string>
+    <string name="touch_layout_released">Released</string>
+    <string name="touch_layout_invalid">Check the name, the keys or button, and the numbers in their ranges.</string>
+    <string name="desktop_zoom_enable">Enable pinch zoom and pan</string>
+    <string name="desktop_zoom_disable">Disable pinch zoom and pan</string>
+    <string name="desktop_zoom_reset">Reset zoom</string>
+    <string name="desktop_zoom_help">Pinch with two fingers to zoom up to 4×; drag two fingers to pan. One finger keeps the selected touch mode. Two-finger scrolling is replaced while zoom controls are enabled.</string>
+    <string name="desktop_zoom_surface_help">On Android 5 and 6, enable TextureView in streaming settings and reconnect to use zoom.</string>
+    <string name="desktop_output">Video output (reconnects stream)</string>
+    <string name="desktop_output_device">This device</string>
+    <string name="desktop_touchpad_help">Video is on your external display. Use this screen as a touchpad. Keyboard, game buttons and the stream menu remain available here.</string>
+    <string name="desktop_pacing_fallback">External display: frames are shown as soon as they arrive.</string>
+    <string name="desktop_display_unavailable">No external display can show the stream, so it stays on this device.</string>
+    <string name="controller_axes_title">Sticks, triggers and D-pad</string>
+    <string name="controller_axes_configured">Custom axis or D-pad mapping; applies to the next stream</string>
+    <string name="controller_axes_source">Input for %1$s</string>
+    <string name="controller_axes_inverted">%1$s (inverted)</string>
+    <string-array name="controller_axes">
+        <item>Left stick horizontal</item><item>Left stick vertical</item>
+        <item>Right stick horizontal</item><item>Right stick vertical</item>
+        <item>Left trigger</item><item>Right trigger</item>
+        <item>D-pad up</item><item>D-pad down</item><item>D-pad left</item><item>D-pad right</item>
+    </string-array>
+    <string-array name="controller_dpad_targets">
+        <item>Nothing</item><item>D-pad up</item><item>D-pad down</item><item>D-pad left</item><item>D-pad right</item>
+        <item>A</item><item>B</item><item>X</item><item>Y</item><item>LB</item><item>RB</item>
+        <item>Left stick click</item><item>Right stick click</item><item>Start</item><item>Select</item><item>Guide</item>
+    </string-array>
+</resources>

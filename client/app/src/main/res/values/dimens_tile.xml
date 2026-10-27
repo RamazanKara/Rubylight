@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- A TV PC tile. Three 280dp cells (the 248dp tile and its 16dp glow on each side) fit the 864dp a 1080p TV leaves
+         inside its overscan; PCs (AdaptiveLayout) and pc_grid_view use the cell. -->
+    <dimen name="tile_width">248dp</dimen>
+    <dimen name="tile_height">152dp</dimen>
+    <dimen name="tile_cell">280dp</dimen>
+    <!-- The scrim under the text, and the text stack (name, status and update lines) at font scale 1: a larger font
+         scale grows the tile and its scrim by the stack's growth, so the text never climbs into the glyph. -->
+    <dimen name="tile_scrim">120dp</dimen>
+    <dimen name="tile_text_stack">80dp</dimen>
+    <!-- The PCs screen's column cap and how far its grid reaches past the screen margin; TV overrides both. -->
+    <dimen name="pcs_max_width">@dimen/content_max_width</dimen>
+    <dimen name="pcs_grid_bleed">0dp</dimen>
+    <bool name="pcs_clip">true</bool>
+</resources>

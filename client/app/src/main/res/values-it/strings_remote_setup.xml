@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="remote_setup_title">Gioca fuori casa</string>
+    <string name="remote_step">Passaggio %1$d di 3</string>
+    <string name="remote_prepare">Prepara a casa\n\nAccoppia questo dispositivo con il PC sulla rete di casa e verifica che uno stream normale funzioni. Tieni il PC acceso e l’host in esecuzione.\n\nWake-on-LAN da remoto richiede un router compatibile o un dispositivo sempre acceso a casa; il telefono da solo non può riattivare un PC irraggiungibile.</string>
+    <string name="remote_vpn">Connetti i dispositivi\n\nUna VPN privata come Tailscale può collegare telefono e PC senza esporre a Internet l’interfaccia web dell’host. Installala su entrambi i dispositivi, accedi con il tuo account e abilita la loro connessione. Puoi usare anche configurazioni VPN già esistenti.\n\nIl link apre la guida ufficiale al download. Questa app non installa software, non crea account, non modifica le impostazioni del router e non abilita il port forwarding.</string>
+    <string name="remote_verify">Verifica da un’altra rete\n\nAggiungi l’indirizzo VPN del PC con Aggiungi indirizzo, insieme alla porta HTTP di streaming se personalizzata. Il PC salvato viene aggiornato se la sua identità corrisponde. Poi torna qui.\n\nDisconnettiti dal Wi-Fi di casa e usa i dati mobili o un’altra rete. Il test verifica l’identità del PC accoppiato e cinque piccole richieste HTTPS; non avvia uno stream né scarica un file per il test di velocità. Un test eseguito solo a casa non dimostra la raggiungibilità via Internet.</string>
+    <string name="remote_get_vpn">Apri configurazione Tailscale</string>
+    <string name="remote_add_address">Aggiungi indirizzo VPN o remoto</string>
+    <string name="remote_test">Testa questo PC</string>
+    <string name="remote_previous">Indietro</string>
+    <string name="remote_next">Avanti</string>
+    <string name="remote_pair_first">Accoppia prima questo PC in locale. Il certificato salvato e la porta HTTPS servono a verificare che l’indirizzo remoto raggiunga il tuo PC.</string>
+    <string name="remote_pair_revoked">Il PC ha risposto, ma questo dispositivo non è più accoppiato. Accoppialo di nuovo a casa prima di testare il gioco da remoto.</string>
+    <string name="remote_permission_denied">Il PC accoppiato ha risposto, ma questo dispositivo non può visualizzare gli stream. Abilita la visualizzazione o l’avvio delle applicazioni per questo dispositivo nelle impostazioni o nell’interfaccia web dell’host.</string>
+    <string name="remote_running">Verifica del PC accoppiato…</string>
+    <string name="remote_cancelled">Test annullato. Nessuna impostazione dell’host o di rete è stata modificata.</string>
+    <string name="remote_failed">Impossibile verificare il PC accoppiato. Controlla che sia acceso, che host e VPN siano in esecuzione e che l’indirizzo salvato e le porte di streaming siano corretti. Se l’accoppiamento è cambiato, accoppia di nuovo a casa. Questo test non distingue un PC in sospensione da un percorso bloccato.</string>
+    <string name="remote_verified">Il PC accoppiato ha risposto su questa rete. Ora prova uno stream normale con un bitrate moderato; la raggiungibilità HTTPS non verifica le porte UDP video/audio né le prestazioni di streaming prolungate.</string>
+    <string name="remote_direct">Tailscale segnala un percorso diretto per questa connessione. I percorsi diretti offrono di solito il miglior throughput e la latenza più bassa.</string>
+    <string name="remote_relay">Tailscale segnala un relay DERP. Garantisce la connettività, ma la velocità di streaming potrebbe essere limitata. Consulta le indicazioni di Tailscale sulla connettività o configura un peer relay adatto.</string>
+    <string name="remote_peer_relay">Tailscale segnala un peer relay. Le prestazioni dipendono da quel relay e da entrambi i percorsi di rete; confronta con uno stream reale.</string>
+    <string name="remote_unknown">Percorso diretto o tramite relay: non disponibile. Questo host, la VPN o la connessione non espone una classificazione del percorso attuale. Controlla lo stato della VPN; un ping basso da solo non dimostra un percorso diretto.</string>
+    <string name="remote_measurements">Media delle richieste HTTPS: %1$.1f ms\nRichieste non riuscite: %2$.0f %%\nSono misurazioni di richieste dell’applicazione, non perdita di pacchetti video o latenza dell’input.</string>
+</resources>

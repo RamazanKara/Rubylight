@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="wifi_heading">Підключення</string>
+    <string name="wifi_not_available">недоступно</string>
+    <string name="wifi_unavailable">Відомості про Wi-Fi: недоступні на цьому пристрої</string>
+    <string name="wifi_link_none">Підключення: Android не повідомляє про активну мережу</string>
+    <string name="wifi_link_ethernet">Підключення: Ethernet, тому відомості про Wi-Fi не застосовуються</string>
+    <string name="wifi_link_cellular">Підключення: мобільний інтернет, тому відомості про Wi-Fi не застосовуються</string>
+    <string name="wifi_link_other">Підключення: VPN або інший тип мережі; відомості про Wi-Fi недоступні</string>
+    <string name="wifi_band_24">2,4 ГГц</string>
+    <string name="wifi_band_5">5 ГГц</string>
+    <string name="wifi_band_6">6 ГГц</string>
+    <string name="wifi_mhz">%1$d МГц</string>
+    <string name="wifi_dbm">%1$d дБм</string>
+    <string name="wifi_mbps">%1$d Мбіт/с</string>
+    <string name="wifi_line_band">Діапазон Wi-Fi: %1$s · канал %2$s · ширина %3$s</string>
+    <string name="wifi_line_signal">Сигнал Wi-Fi: %1$s (%2$s)</string>
+    <string name="wifi_line_signal_unknown">Сигнал Wi-Fi: недоступно</string>
+    <string name="wifi_signal_excellent">відмінний</string>
+    <string name="wifi_signal_good">добрий</string>
+    <string name="wifi_signal_fair">середній</string>
+    <string name="wifi_signal_weak">слабкий</string>
+    <string name="wifi_line_speed">Швидкість з’єднання Wi-Fi: надсилання %1$s · отримання %2$s</string>
+    <string name="wifi_line_speed_single">Швидкість з’єднання Wi-Fi: %1$s</string>
+    <string name="wifi_line_standard">Стандарт Wi-Fi: %1$s</string>
+    <string name="wifi_standard">Wi-Fi %1$d</string>
+    <string name="wifi_standard_6e">Wi-Fi 6E</string>
+    <string name="wifi_standard_legacy">802.11a/b/g</string>
+    <string name="wifi_line_lock">Блокування Wi-Fi з низькою затримкою: %1$s</string>
+    <string name="wifi_lock_held">утримується</string>
+    <string name="wifi_lock_not_held">не утримується</string>
+    <string name="wifi_lock_unsupported">потрібен Android 10</string>
+    <string name="wifi_warn_24">Увага: 2,4 ГГц повільніший і завантаженіший, ніж 5 або 6 ГГц, і часто спричиняє ривки. Підключіться до мережі роутера на 5 або 6 ГГц, якщо вона є.</string>
+    <string name="wifi_warn_weak">Слабкий сигнал: підійдіть ближче до роутера або приберіть перешкоди між вами.</string>
+    <string name="wifi_line_rhythm">Ритм ривків: приблизно кожні %1$s</string>
+    <string name="wifi_period_seconds">%1$d с</string>
+    <string name="wifi_period_minutes">%1$s хв</string>
+</resources>

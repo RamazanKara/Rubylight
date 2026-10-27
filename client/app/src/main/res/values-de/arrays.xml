@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="host_permission_names">
+        <item>Controller-Eingabe</item>
+        <item>Touch-Eingabe</item>
+        <item>Stift-Eingabe</item>
+        <item>Mauseingabe</item>
+        <item>Tastatureingabe</item>
+        <item>Zwischenablage senden</item>
+        <item>Zwischenablage lesen</item>
+        <item>Host-Befehle</item>
+        <item>Apps auflisten</item>
+        <item>Streams ansehen</item>
+        <item>Apps starten und beenden</item>
+    </string-array>
+    <string-array name="resolution_names">
+        <item>@string/resolution_360p</item>
+        <item>@string/resolution_480p</item>
+        <item>@string/resolution_720p</item>
+        <item>@string/resolution_1080p</item>
+        <item>@string/resolution_1440p</item>
+        <item>@string/resolution_4k</item>
+    </string-array>
+    <string-array name="fps_names">
+        <item>@string/fps_30</item>
+        <item>@string/fps_60</item>
+        <item>@string/fps_90</item>
+        <item>@string/fps_120</item>
+    </string-array>
+    <string-array name="audio_config_names">
+        <item>@string/audioconf_stereo</item>
+        <item>@string/audioconf_51surround</item>
+        <item>@string/audioconf_71surround</item>
+    </string-array>
+    <string-array name="language_names">
+        <item>Systemsprache</item>
+        <item>English</item>
+        <item>Deutsch</item>
+        <item>Español</item>
+        <item>Français</item>
+        <item>Italiano</item>
+        <item>Polski</item>
+        <item>Português (Brasil)</item>
+        <item>Tiếng Việt</item>
+        <item>Türkçe</item>
+        <item>Русский</item>
+        <item>Українська</item>
+        <item>日本語</item>
+        <item>한국어</item>
+        <item>简体中文</item>
+        <item>繁體中文</item>
+    </string-array>
+    <string-array name="video_format_names">
+        <item>@string/videoformat_auto</item>
+        <item>@string/videoformat_av1always</item>
+        <item>@string/videoformat_hevcalways</item>
+        <item>@string/videoformat_h264always</item>
+        <item>@string/videoformat_pyrowave</item>
+    </string-array>
+    <string-array name="video_frame_pacing_names">
+        <item>@string/pacing_latency</item>
+        <item>@string/pacing_balanced</item>
+        <item>@string/pacing_balanced_alt</item>
+        <item>@string/pacing_smoothness</item>
+    </string-array>
+    <string-array name="analog_scrolling_names">
+        <item>@string/analogscroll_none</item>
+        <item>@string/analogscroll_right</item>
+        <item>@string/analogscroll_left</item>
+    </string-array>
+    <string-array name="upscaling_names">
+        <item>@string/upscaling_off</item>
+        <item>@string/upscaling_bilinear</item>
+        <item>@string/upscaling_fsr1</item>
+        <item>@string/upscaling_sgsr1</item>
+    </string-array>
+</resources>

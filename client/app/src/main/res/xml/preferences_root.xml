@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The settings overview. Each row opens the section of the same key in StreamSettings.SECTIONS. -->
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+    <com.limelight.preferences.PresetPreference android:key="stream_presets" android:title="@string/stream_presets" />
+    <Preference android:key="video" android:title="@string/settings_section_video" />
+    <Preference android:key="display" android:title="@string/settings_section_display" />
+    <Preference android:key="input" android:title="@string/settings_section_input"
+        android:summary="@string/settings_section_input_summary" />
+    <Preference android:key="audio" android:title="@string/settings_section_audio" />
+    <Preference android:key="streaming" android:title="@string/settings_section_streaming"
+        android:summary="@string/settings_section_streaming_summary" />
+    <Preference android:key="app" android:title="@string/settings_section_app" />
+    <Preference android:key="advanced" android:title="@string/settings_section_advanced"
+        android:summary="@string/settings_advanced_summary" />
+</PreferenceScreen>

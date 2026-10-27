@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_display_menu">Modo de pantalla del PC</string>
+    <string name="host_display_location">Para el modo Exclusivo o Ampliado, abre el menú de tu PC → Ajustes de transmisión → Modo de pantalla del PC. El modo de pantalla se guarda por separado para cada PC y requiere que el servidor lo admita.</string>
+    <string name="host_display_controls_virtual">Controlado por el modo de pantalla del PC: %1$s</string>
+    <string name="host_display_title">Pantalla en %1$s</string>
+    <string name="host_display_default">El ajuste propio del PC</string>
+    <string name="host_display_exclusive">Exclusivo — solo pantalla virtual (monitores del PC apagados)</string>
+    <string name="host_display_extended_primary">Ampliar — pantalla virtual como principal</string>
+    <string name="host_display_extended">Ampliar — mantener la pantalla del PC como principal</string>
+    <string name="host_display_extended_isolated">Ampliado y separado — el PC sigue como principal</string>
+    <string name="host_display_extended_primary_isolated">Ampliado y separado — pantalla virtual principal</string>
+    <string name="host_display_physical">Pantalla física (sin pantalla virtual)</string>
+    <string name="host_display_saved">Pantalla elegida guardada. Se aplica a partir de la próxima transmisión.</string>
+    <string name="host_display_save">Guardar modo de pantalla</string>
+    <string name="host_display_explanation">Elige un modo y toca Guardar modo de pantalla. Cancelar mantiene la opción actual. El nuevo modo se aplica a partir de la próxima transmisión.\n\nMantener la pantalla del PC como principal deja tu monitor como pantalla principal de Windows. Pantalla virtual como principal pasa esa función a la pantalla transmitida, donde suelen abrirse los juegos y las ventanas nuevas. Las dos opciones de Ampliar mantienen encendidos los monitores del PC.\n\nEl ajuste propio del PC sigue a Pantalla virtual del servidor y a los ajustes de pantalla del PC. Exclusivo apaga los monitores del PC durante la transmisión. Los modos separados colocan la pantalla transmitida lejos de los demás monitores en la disposición del escritorio, en la misma sesión de Windows. Pantalla física transmite el monitor del PC sin pantalla virtual. El PC restaura sus pantallas cuando termina la transmisión.\n\nSolo ofrecen esta opción los PCs cuyo servidor admite modos de pantalla; en los demás PCs decide Pantalla virtual del servidor.</string>
+    <string name="host_administration_menu">Abrir interfaz web del servidor</string>
+    <string name="host_administration_help">Gestiona las aplicaciones, los dispositivos vinculados y los ajustes del servidor en su interfaz web. Inicia sesión con la cuenta propia de la interfaz web; la vinculación no inicia sesión por ti. El acceso remoto requiere que el puerto de la interfaz web sea accesible.\n\n%1$s</string>
+    <string name="host_administration_open">Abrir en el navegador</string>
+    <string name="host_administration_no_browser">Ningún navegador ha podido abrir la interfaz web del servidor. Copia su dirección y ábrela en otro dispositivo.</string>
+</resources>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_stream_orientation">Hướng màn hình</string>
+    <string name="summary_stream_orientation">Tự động giữ điện thoại ở chiều ngang và cho máy tính bảng xoay tự do. Ngang và Dọc khóa màn hình. Xoay theo thiết bị đi theo thiết bị, trừ khi khóa xoay của hệ thống đang bật.\nMáy chủ truyền từ màn hình ảo của nó sẽ bắt đầu luồng theo hình dạng màn hình và xoay theo thiết bị nếu có thể đổi kích thước trong khi truyền. Các máy chủ khác giữ nguyên kích thước luồng, và hình ảnh được thu vừa theo lựa chọn trong Tỷ lệ video.</string>
+    <string-array name="stream_orientation_names">
+        <item>Tự động</item>
+        <item>Ngang</item>
+        <item>Dọc</item>
+        <item>Xoay theo thiết bị</item>
+    </string-array>
+    <string name="stream_orientation_scaled">Máy chủ này giữ nguyên hình dạng luồng khi đang truyền, nên hình ảnh được thu vừa với màn hình đã xoay.</string>
+    <string name="stream_orientation_decoder_limit">Bộ giải mã của thiết bị này không hỗ trợ kích thước sau khi xoay, nên luồng giữ nguyên hình dạng và được thu vừa màn hình.</string>
+</resources>

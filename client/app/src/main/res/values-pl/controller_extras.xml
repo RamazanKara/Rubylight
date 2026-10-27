@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Controller and keyboard options -->
+    <string name="title_checkbox_disable_rumble">Wyłącz wibracje</string>
+    <string name="summary_checkbox_disable_rumble">Zatrzymuje wszystkie wibracje, o które prosi gra: wibracje kontrolera i spustów, haptykę DualSense przez USB oraz wibracje tego urządzenia zamiast kontrolera.</string>
+    <string name="title_checkbox_mouse_emulation_fixed_step">Ruch myszy o stały krok</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">W trybie myszy kontrolera przytrzymaj X podczas ruchu gałką, aby przesuwać wskaźnik o stałą liczbę pikseli naraz. Naciśnij Y, aby podwoić krok, od 1 do 128 pikseli, a potem znów od 1.</string>
+    <string name="stream_mouse_step">Krok myszy: %1$d px</string>
+    <string name="title_checkbox_back_as_meta">Wstecz na klawiaturze jako klawisz Windows</string>
+    <string name="summary_checkbox_back_as_meta">Klawisz Wstecz na fizycznej klawiaturze wysyła klawisz Windows (Command na Macu). Menu strumienia otworzysz skrótem Ctrl+Alt+Shift+M, gestem lub przyciskiem Wstecz Androida albo kombinacją przycisków kontrolera.</string>
+    <string name="title_checkbox_right_alt_as_meta">Prawy Alt jako Command</string>
+    <string name="summary_checkbox_right_alt_as_meta">Prawy Alt wysyła klawisz Windows, którego Mac używa jako Command, więc prawy Alt+C kopiuje. Lewy Alt działa bez zmian. Zostaw wyłączone, jeśli wpisujesz znaki za pomocą AltGr.</string>
+
+    <!-- Controller test page -->
+    <string name="controller_test_title">Test kontrolera</string>
+    <string name="controller_test_summary">Sprawdź przyciski, gałki, spusty, wibracje, podświetlenie i ruch</string>
+    <string name="controller_test_open">Testuj kontroler</string>
+    <string name="controller_test_hint">Naciskaj przyciski i poruszaj gałkami. Krzyżak i A także służą do poruszania się po tej stronie; aby wyjść, przytrzymaj B lub Back przez sekundę.</string>
+    <string name="controller_test_waiting">Podłącz kontroler i naciśnij dowolny przycisk.</string>
+    <string name="controller_test_waiting_short">Brak kontrolera.</string>
+    <string name="controller_test_usb_device">Kontroler USB %1$s (sterownik USB Nightjar)</string>
+    <string name="controller_test_buttons">Przyciski</string>
+    <string name="controller_test_pressed">Naciśnięte: %1$s</string>
+    <string name="controller_test_pressed_none">Nic nie naciśnięto</string>
+    <string name="controller_test_sticks">Gałki i spusty</string>
+    <string name="controller_test_stick_values">Lewa gałka  %1$+.2f %2$+.2f\nPrawa gałka  %3$+.2f %4$+.2f\nLT %5$d%%  RT %6$d%%</string>
+    <string name="controller_test_rumble">Wibracje</string>
+    <string name="controller_test_rumble_strong">Silny silnik</string>
+    <string name="controller_test_rumble_weak">Słaby silnik</string>
+    <string name="controller_test_rumble_all">Oba silniki</string>
+    <string name="controller_test_rumble_any">Wibruj</string>
+    <string name="controller_test_rumble_left_trigger">Lewy spust</string>
+    <string name="controller_test_rumble_right_trigger">Prawy spust</string>
+    <string name="controller_test_rumble_stop">Zatrzymaj</string>
+    <string name="controller_test_rumble_disabled_note">Opcja Wyłącz wibracje jest włączona, więc strumienie nie będą wibrować. Te testy nadal wibrują.</string>
+    <string name="controller_test_lights">Podświetlenie</string>
+    <string name="controller_test_light_red">Czerwony</string>
+    <string name="controller_test_light_green">Zielony</string>
+    <string name="controller_test_light_blue">Niebieski</string>
+    <string name="controller_test_light_off">Wył.</string>
+    <string name="controller_test_light_reset">Resetuj</string>
+    <string name="controller_test_motion">Czujniki ruchu</string>
+    <string name="controller_test_motion_values">Żyroskop\n%1$s\nAkcelerometr\n%2$s</string>
+    <string name="controller_test_waiting_motion">Porusz kontrolerem</string>
+    <string name="controller_test_touchpad">Touchpad</string>
+    <string name="controller_test_touch_none">Dotknij touchpada, aby zobaczyć miejsce dotyku.</string>
+    <string name="controller_test_touch_at">Palec: %1$d%% w poziomie, %2$d%% w pionie</string>
+    <string name="controller_test_misc">Share</string>
+    <string name="controller_test_not_available">Niedostępne w tym kontrolerze.</string>
+    <string name="controller_test_needs_android_12">Wymaga Androida 12 lub nowszego.</string>
+
+    <!-- USB Switch Pro driver -->
+    <string name="title_usb_switch_pro">Sterownik Switch Pro USB</string>
+    <string name="summary_usb_switch_pro">Eksperymentalne. Odczytuje bezpośrednio przewodowy Nintendo Switch Pro Controller z czujnikami ruchu, wibracjami oraz przyciskami Home i Capture.</string>
+    <string name="usb_switch_pro_denied">Brak dostępu do USB; Switch Pro Controller nadal używa wejścia Androida.\nPodłącz kabel ponownie, aby spróbować jeszcze raz.</string>
+</resources>

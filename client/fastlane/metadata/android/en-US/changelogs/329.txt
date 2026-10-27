@@ -1,0 +1,4 @@
+Fix stuck on-screen controls during multi-touch and unwanted right-clicks after releasing mouse capture.
+Keep hidden games and shortcuts correct when the host changes game IDs. Ignore late library responses after leaving the screen.
+Retry previously unreachable PCs when restarting discovery.
+Prevent a crash when importing a GPU driver on devices without a file picker.

@@ -1,0 +1,13 @@
+{
+  "source": "AdaptiveBitrateControllerTest.timeSpentInMenusDoesNotCountAsHealthyRecovery",
+  "rust": "bitrate::AdaptiveBitrateController",
+  "java": "com.limelight.nvstream.AdaptiveBitrateController",
+  "new": [10000, 8000, 60, 0],
+  "calls": [
+    {"call": "has_room_before_quality_reduction", "args": [], "expect": true},
+    {"call": "sample", "args": [1000, true, false, 0, 2], "expect": 0},
+    {"call": "suspend", "args": [], "expect": null},
+    {"call": "sample", "args": [30000, true, false, 0, 2], "expect": 0},
+    {"call": "sample", "args": [45000, true, false, 0, 2], "expect": 8400}
+  ]
+}

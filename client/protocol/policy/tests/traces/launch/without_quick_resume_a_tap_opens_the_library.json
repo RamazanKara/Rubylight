@@ -1,0 +1,10 @@
+{
+  "source": "LaunchPolicyTest.withoutQuickResumeATapStillOpensTheLibrary",
+  "rust": "launch::LaunchPolicy",
+  "java": "com.limelight.LaunchTrace",
+  "new": null,
+  "calls": [
+    {"call": "resumes_on_pc_tap", "args": [false, true], "expect": false},
+    {"call": "resumes_on_pc_tap", "args": [false, false], "expect": false}
+  ]
+}

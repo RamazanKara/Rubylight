@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pair_otp_title">Ghép đôi bằng mã PIN dùng một lần</string>
+    <string name="pair_otp_help">Nhập mã PIN và cụm mật khẩu của máy chủ.\nMã PIN hết hạn sau ba phút.</string>
+    <string name="pair_otp_pin">Mã PIN dùng một lần</string>
+    <string name="pair_otp_passphrase">Cụm mật khẩu</string>
+    <string name="pair_otp_invalid_pin">Nhập mã PIN bốn chữ số từ máy chủ.</string>
+    <string name="pair_otp_invalid_passphrase">Nhập cụm mật khẩu của máy chủ (ít nhất bốn ký tự).</string>
+    <string name="guide_title">Kết nối với PC của bạn</string>
+    <string name="guide_text">1. Khởi động một máy chủ tương thích Moonlight trên PC, chẳng hạn Apollo, Rubylight, Sunshine hoặc Vibepollo.\n2. Trên Android, chọn PC trong cùng mạng.\n3. Nhập mã PIN hiển thị trên Android vào phần cài đặt hoặc giao diện web của máy chủ.</string>
+    <string name="guide_done">Đã hiểu</string>
+    <string name="guide_troubleshooting">Trợ giúp</string>
+</resources>

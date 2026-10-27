@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_auto_bitrate_enable">Attiva bitrate automatico</string>
+    <string name="stream_auto_bitrate_disable">Disattiva bitrate automatico</string>
+    <string name="stream_auto_bitrate_help">Adatta il bitrate alla connessione.\nSalvato per questo PC; le modifiche manuali lo disattivano.</string>
+    <string name="stream_pyrowave_bitrate_help">Regola PyroWave automaticamente per questo PC.\nIl bitrate manuale lo disattiva.</string>
+    <string name="stream_auto_bitrate_failed">Errore temporaneo nell’aggiornamento del bitrate. Nuovo tentativo automatico.</string>
+    <string name="stream_auto_bitrate_unavailable">Questo PC non comunica il bitrate dello stream. Il bitrate automatico è disattivato per questo stream.</string>
+    <string name="stream_auto_bitrate_status">Bitrate automatico: %1$.1f Mbps</string>
+    <string name="stream_bitrate_busy">Host occupato. Riprova tra poco.</string>
+    <string name="title_auto_bitrate">Bitrate automatico</string>
+    <string name="dialog_auto_bitrate">Abbassa il bitrate quando la connessione o il dispositivo non reggono e lo rialza quando la situazione migliora. Non supera mai il bitrate dello streaming. È il valore predefinito per tutti i PC; il menu dello streaming può cambiarlo per un solo PC.</string>
+</resources>

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_touch_mode">Tryb dotyku</string>
+    <string name="stream_keyboard">Klawiatura</string>
+    <string name="stream_controls_show">Pokaż sterowanie ekranowe</string>
+    <string name="stream_controls_hide">Ukryj sterowanie ekranowe</string>
+    <string name="stream_controls_layout">Edytuj układ kontrolera</string>
+    <string name="stream_controls_move_help">Przeciągnij, aby przesunąć elementy; w menu zmienisz rozmiar lub zapiszesz.</string>
+    <string name="stream_controls_resize_help">Przeciągnij, aby zmienić rozmiar elementów; w menu zapiszesz układ.</string>
+    <string name="stream_controls_saved">Układ kontrolera zapisany</string>
+    <string name="stream_reconnect">Połącz ponownie strumień</string>
+    <string name="stream_reconnecting">Ponowne łączenie z uruchomioną aplikacją…</string>
+    <string name="stream_native_touch_help">Dotyk steruje komputerem bezpośrednio.\nKlawiaturę otworzysz w menu strumienia.</string>
+    <string name="stream_native_touch_fallback">Komputer nie obsługuje wielodotyku, więc dotyk porusza myszą.</string>
+    <string-array name="stream_touch_modes">
+        <item>Touchpad</item>
+        <item>Mysz bezpośrednia</item>
+        <item>Wielodotyk</item>
+        <item>Kursor lokalny</item>
+        <item>Dotyk wyłączony</item>
+    </string-array>
+    <string-array name="stream_control_layout_actions">
+        <item>Przesuń elementy</item>
+        <item>Zmień rozmiar elementów</item>
+        <item>Zapisz układ i graj</item>
+    </string-array>
+</resources>

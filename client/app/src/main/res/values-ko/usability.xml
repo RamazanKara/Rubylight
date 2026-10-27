@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="startup_connection_failed">PC에 연결할 수 없습니다. 스트리밍 호스트가 실행 중인지, 두 기기가 서로 연결될 수 있는지, PC 방화벽이 스트리밍을 허용하는지 확인한 후 다시 시도하세요.</string>
+    <string name="startup_permission_denied">호스트가 이 요청을 거부했습니다. 호스트의 설정 또는 웹 UI에서 이 기기를 활성화하고 앱 보기 또는 실행을 허용하세요.</string>
+    <string name="startup_host_error">호스트가 이 스트림을 시작하지 못했습니다(오류 %1$d). 호스트의 웹 UI에서 상태를 확인하고, 앱 목록을 새로고침한 후 다시 시도하세요.</string>
+    <string name="startup_invalid_host">PC가 잘못된 서버 버전을 반환했습니다. 호스트를 업데이트하거나 다시 시작한 후 다시 시도하세요.</string>
+    <string name="startup_virtual_display_unavailable">이 PC에는 가상 디스플레이가 없어 PC 자체 화면을 스트리밍합니다.</string>
+    <string name="startup_not_paired">이 기기는 더 이상 페어링되어 있지 않습니다. PC 목록으로 돌아가 다시 페어링하세요.</string>
+    <string name="startup_app_missing">이 앱은 더 이상 PC의 라이브러리에 없습니다. 앱 목록을 새로고침하고 다른 앱을 선택하세요.</string>
+    <string name="startup_resume_missing">이 세션을 더 이상 사용할 수 없습니다. 앱 목록을 새로고침하고 세션을 선택하세요.</string>
+    <string name="startup_host_resolution_unsupported">PC가 4K를 초과하는 해상도를 지원하지 않습니다. 스트림 설정에서 4K 이하를 선택하세요.</string>
+    <string name="startup_device_resolution_unsupported">4K를 초과하는 해상도에는 이 기기의 HEVC 또는 AV1 지원이 필요합니다. 더 낮은 해상도나 다른 코덱을 선택하세요.</string>
+    <string name="startup_host_update_4k">4K로 스트리밍하려면 PC에서 GeForce Experience를 업데이트하세요. 이 스트림은 1080p입니다.</string>
+    <string name="startup_hdr_unavailable">PC와 이 기기가 공통으로 지원하는 HDR 코덱이 없어 SDR로 스트리밍합니다.</string>
+    <string name="startup_pyrowave_hdr_unavailable">이 기기에서는 PyroWave HDR을 사용할 수 없어(%1$s) HDR에 다른 코덱을 사용합니다.</string>
+    <string name="startup_resume_failed">세션을 다시 시작할 수 없습니다. PC에서 앱을 확인한 후 다시 시도하세요.</string>
+    <string name="startup_session_owner">다른 기기가 이 세션을 사용 중입니다. 해당 기기나 PC에서 세션을 종료한 후 다시 시도하세요.</string>
+    <string name="startup_app_minimized">앱이 최소화되어 있습니다. PC에서 앱을 복원하거나, 세션을 종료하고 다시 시작하세요.</string>
+    <string name="startup_quit_failed">이전 세션을 종료할 수 없습니다. PC에서 세션을 종료한 후 다시 시도하세요.</string>
+    <string name="startup_launch_failed">앱을 시작할 수 없습니다. PC에서 앱이 열리는지 확인한 후 다시 시도하세요.</string>
+    <string name="applist_permission_required">이 기기는 앱 목록을 볼 수 없습니다. 호스트의 설정 또는 웹 UI에서 이 기기의 애플리케이션 목록 보기를 허용하세요. 라이브러리는 자동으로 새로고침됩니다.</string>
+    <string name="applist_load_failed">PC의 앱을 불러올 수 없습니다. 호스트와, 호스트 설정 또는 웹 UI에서 이 기기의 애플리케이션 목록 권한을 확인하세요. 자동으로 다시 시도합니다.</string>
+    <string name="applist_empty">사용 가능한 앱이 없습니다. 호스트 라이브러리에 앱을 추가하고, 호스트의 설정 또는 웹 UI에서 이 기기의 애플리케이션 목록 권한을 확인하세요.</string>
+    <string name="host_profile_unsaved_title">스트림 설정을 저장할까요?</string>
+    <string name="host_profile_unsaved_message">이 PC의 스트림 설정 변경 사항이 저장되지 않았습니다. 해당 대화상자에서 확인한 디스플레이 모드는 따로 저장됩니다.</string>
+    <string name="host_profile_discard">변경 사항 삭제</string>
+    <string name="preset_replace_settings">해상도, 프레임 속도, 비트레이트, 프레임 페이싱, 업스케일링, VRR 및 성능 설정이 이 사전 설정의 값으로 바뀝니다. 코덱과 HDR 선택은 그대로 유지됩니다.</string>
+    <string name="pair_otp_incorrect_pin">PIN이 거부되었습니다. 호스트의 웹 UI에서 새 일회용 PIN을 생성하고 암호를 확인하세요.</string>
+    <string name="pc_accessibility_actions">PC 작업</string>
+    <string name="app_details">이름: %1$s\nHDR 지원: %2$s\n앱 ID: %3$d</string>
+    <string name="app_hdr_unknown">알 수 없음</string>
+</resources>

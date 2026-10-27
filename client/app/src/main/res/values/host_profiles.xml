@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_profile_title">%1$s streaming settings</string>
+    <string name="host_profile_status_global">Every value follows the settings for all PCs.</string>
+    <string name="host_profile_status_custom">Puts every value back to the settings for all PCs.</string>
+    <string name="host_profile_explanation">Values you set here apply to this PC only. Everything marked “Same as all PCs” follows the main Stream settings, including later changes.</string>
+    <string name="host_profile_resolution">Resolution (width × height)</string>
+    <string name="host_profile_width">Width</string>
+    <string name="host_profile_height">Height</string>
+    <string name="host_profile_match_screen">Use this screen</string>
+    <string name="host_profile_native">Screen size (follows this screen)</string>
+    <string name="host_profile_refresh">Frame rate (FPS)</string>
+    <string name="host_profile_bitrate">Bitrate (Mbps)</string>
+    <string name="host_profile_scale">PC render resolution (%)</string>
+    <string name="host_profile_codec">Video codec</string>
+    <string name="host_profile_virtual_display">Host virtual display</string>
+    <string name="host_profile_hdr">HDR</string>
+    <string name="host_profile_full_range">Full-range video</string>
+    <string name="host_profile_yuv444">Prefer YUV 4:4:4</string>
+    <string name="host_profile_save">Save</string>
+    <string name="host_profile_reset">Same as all PCs for everything</string>
+    <string name="host_profile_saved">PC streaming settings saved</string>
+    <string name="host_profile_reset_done">This PC now uses the settings for all PCs</string>
+    <string name="host_profile_invalid_number">Enter a whole number from %1$d to %2$d</string>
+    <string name="host_profile_invalid_refresh">Enter 1–1000 FPS with at most two decimal places</string>
+    <string name="host_profile_invalid_bitrate">Enter 0.5–2000 Mbps</string>
+    <string-array name="host_profile_codecs">
+        <item>Automatic</item>
+        <item>@string/videoformat_av1always</item>
+        <item>@string/videoformat_hevcalways</item>
+        <item>@string/videoformat_h264always</item>
+        <item>@string/videoformat_pyrowave</item>
+    </string-array>
+    <string name="host_profile_follows">Same as all PCs · %1$s</string>
+    <string name="host_profile_same_as_all_value">Same as all PCs (%1$s)</string>
+    <string name="host_profile_on">On</string>
+    <string name="host_profile_off">Off</string>
+</resources>

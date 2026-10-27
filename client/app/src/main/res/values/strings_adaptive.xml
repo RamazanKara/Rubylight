@@ -1,0 +1,4 @@
+<resources>
+    <string name="controller_mapping_capture">Map a button</string>
+    <string name="controller_mapping_press">Press the controller button to map. Back cancels.</string>
+</resources>

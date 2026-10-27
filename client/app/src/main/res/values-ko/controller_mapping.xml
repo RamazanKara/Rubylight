@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="controller_mapping_title">컨트롤러 버튼</string>
+    <string name="controller_mapping_summary">컨트롤러 모델별로 버튼 다시 매핑</string>
+    <string name="controller_mapping_intro">“버튼 매핑”을 탭한 후 다시 매핑할 컨트롤러 버튼을 누르세요.\n변경 사항은 다음 스트림부터 적용됩니다.</string>
+    <string name="controller_mapping_waiting">컨트롤러를 연결한 후 “버튼 매핑”을 탭하세요.</string>
+    <string name="controller_mapping_unnamed">컨트롤러</string>
+    <string name="controller_mapping_none">모든 버튼이 기본 매핑을 사용합니다.</string>
+    <string name="controller_mapping_row">%1$s 전송</string>
+    <string name="controller_mapping_choose">%1$s 버튼이 보낼 입력…</string>
+    <string name="controller_mapping_default">%1$s(기본값)</string>
+    <string name="controller_mapping_disabled">없음</string>
+    <string name="controller_mapping_reset">이 컨트롤러 초기화</string>
+    <string name="controller_button_left_stick">왼쪽 스틱 누르기</string>
+    <string name="controller_button_right_stick">오른쪽 스틱 누르기</string>
+    <string name="controller_button_start">Start</string>
+    <string name="controller_button_select">Back</string>
+    <string name="controller_button_guide">Guide</string>
+    <string name="controller_button_number">버튼 %1$d</string>
+    <string name="pc_tap_to_pair">%1$s\n탭하여 페어링</string>
+</resources>

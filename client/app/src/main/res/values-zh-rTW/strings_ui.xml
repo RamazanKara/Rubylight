@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_computers">電腦</string>
+    <string name="pc_needs_pairing">未配對</string>
+    <string name="pc_offline">離線</string>
+    <string name="pc_checking">正在檢查連線…</string>
+    <string name="app_running">執行中</string>
+    <string name="app_hidden">已隱藏</string>
+    <string name="app_running_hidden">執行中 · 已隱藏</string>
+    <string name="library_item_description">%1$s，%2$s</string>
+    <string name="add_pc_hint">請輸入 IP 位址或電腦名稱，可選擇加上通訊埠。</string>
+</resources>

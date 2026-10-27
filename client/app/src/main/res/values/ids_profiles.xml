@@ -1,0 +1,4 @@
+<resources>
+    <item name="profiles_name_field" type="id" />
+    <item name="profiles_wifi_field" type="id" />
+</resources>

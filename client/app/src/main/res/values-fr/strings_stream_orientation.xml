@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_stream_orientation">Orientation</string>
+    <string name="summary_stream_orientation">Automatique garde les téléphones en paysage et laisse les tablettes pivoter librement. Paysage et Portrait verrouillent l’écran. Pivoter avec l’appareil suit l’appareil, sauf si le verrouillage de la rotation du système est activé.\nUn hôte qui diffuse depuis son écran virtuel démarre le flux au format de l’écran et le fait pivoter avec l’appareil s’il peut changer la taille du flux en cours de diffusion. Les autres hôtes gardent la taille du flux, et l’image est ajustée selon le choix fait dans Mise à l’échelle de la vidéo.</string>
+    <string-array name="stream_orientation_names">
+        <item>Automatique</item>
+        <item>Paysage</item>
+        <item>Portrait</item>
+        <item>Pivoter avec l’appareil</item>
+    </string-array>
+    <string name="stream_orientation_scaled">Cet hôte garde le format du flux pendant la diffusion ; l’image est ajustée à l’écran pivoté.</string>
+    <string name="stream_orientation_decoder_limit">Le décodeur de cet appareil ne prend pas en charge la taille pivotée ; le flux garde son format et l’image est ajustée.</string>
+</resources>

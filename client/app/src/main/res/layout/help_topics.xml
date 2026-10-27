@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Bundled help (HelpTopicsActivity): short, host-neutral sections that work offline.
+     Each section ends with a link to the matching page of the web documentation. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <TextView style="@style/HelpTopic.Heading" android:layout_marginTop="@dimen/space_s"
+        android:text="@string/help_connect_title" android:accessibilityHeading="true" tools:targetApi="p" />
+    <TextView style="@style/HelpTopic.Body" android:text="@string/help_connect_body" />
+    <Button android:id="@+id/help_connect_link" style="@style/HelpTopic.Link" android:text="@string/help_connect_link" />
+
+    <TextView style="@style/HelpTopic.Heading" android:text="@string/help_pairing_title" android:accessibilityHeading="true" tools:targetApi="p" />
+    <TextView style="@style/HelpTopic.Body" android:text="@string/help_pairing_body" />
+    <Button android:id="@+id/help_pairing_link" style="@style/HelpTopic.Link" android:text="@string/help_pairing_link" />
+
+    <TextView style="@style/HelpTopic.Heading" android:text="@string/help_controls_title" android:accessibilityHeading="true" tools:targetApi="p" />
+    <TextView style="@style/HelpTopic.Body" android:text="@string/help_controls_body" />
+    <Button android:id="@+id/help_controls_link" style="@style/HelpTopic.Link" android:text="@string/help_controls_link" />
+
+    <TextView style="@style/HelpTopic.Heading" android:text="@string/help_profiles_title" android:accessibilityHeading="true" tools:targetApi="p" />
+    <TextView style="@style/HelpTopic.Body" android:text="@string/help_profiles_body" />
+    <Button android:id="@+id/help_profiles_link" style="@style/HelpTopic.Link" android:text="@string/help_profiles_link" />
+
+    <TextView style="@style/HelpTopic.Heading" android:text="@string/help_problems_title" android:accessibilityHeading="true" tools:targetApi="p" />
+    <TextView style="@style/HelpTopic.Body" android:text="@string/help_problems_body" />
+    <Button android:id="@+id/help_problems_link" style="@style/HelpTopic.Link" android:text="@string/help_problems_link" />
+
+    <TextView style="@style/HelpTopic.Heading" android:text="@string/report_problem" android:accessibilityHeading="true" tools:targetApi="p" />
+    <TextView style="@style/HelpTopic.Body" android:text="@string/help_report_body" />
+    <com.google.android.material.button.MaterialButton android:id="@+id/help_report"
+        style="@style/Widget.Nightjar.Button.Tonal"
+        android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_m"
+        android:text="@string/report_problem_share" />
+    <Button android:id="@+id/help_report_link" style="@style/HelpTopic.Link" android:text="@string/help_report_link" />
+</LinearLayout>

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_profile_title">%1$s 스트리밍 설정</string>
+    <string name="host_profile_status_global">모든 값이 전체 PC 설정을 따릅니다.</string>
+    <string name="host_profile_status_custom">모든 값을 전체 PC 설정으로 되돌립니다.</string>
+    <string name="host_profile_explanation">여기서 설정한 값은 이 PC에만 적용됩니다. “모든 PC와 동일”로 표시된 항목은 이후 변경 사항을 포함해 기본 스트림 설정을 따릅니다.</string>
+    <string name="host_profile_resolution">해상도(너비 × 높이)</string>
+    <string name="host_profile_width">너비</string>
+    <string name="host_profile_height">높이</string>
+    <string name="host_profile_match_screen">이 화면 사용</string>
+    <string name="host_profile_native">화면 크기(이 화면에 맞춤)</string>
+    <string name="host_profile_refresh">프레임 속도(FPS)</string>
+    <string name="host_profile_bitrate">비트레이트(Mbps)</string>
+    <string name="host_profile_scale">PC 렌더링 해상도(%)</string>
+    <string name="host_profile_codec">동영상 코덱</string>
+    <string name="host_profile_virtual_display">호스트 가상 디스플레이</string>
+    <string name="host_profile_hdr">HDR</string>
+    <string name="host_profile_full_range">풀 레인지 동영상</string>
+    <string name="host_profile_yuv444">YUV 4:4:4 우선</string>
+    <string name="host_profile_save">저장</string>
+    <string name="host_profile_reset">모든 항목을 모든 PC와 동일하게</string>
+    <string name="host_profile_saved">PC 스트리밍 설정을 저장했습니다</string>
+    <string name="host_profile_reset_done">이제 이 PC는 전체 PC 설정을 사용합니다</string>
+    <string name="host_profile_invalid_number">%1$d~%2$d 사이의 정수를 입력하세요</string>
+    <string name="host_profile_invalid_refresh">1~1000 FPS를 소수점 이하 두 자리까지 입력하세요</string>
+    <string name="host_profile_invalid_bitrate">0.5~2000 Mbps를 입력하세요</string>
+    <string-array name="host_profile_codecs">
+        <item>자동</item>
+        <item>@string/videoformat_av1always</item>
+        <item>@string/videoformat_hevcalways</item>
+        <item>@string/videoformat_h264always</item>
+        <item>@string/videoformat_pyrowave</item>
+    </string-array>
+    <string name="host_profile_follows">모든 PC와 동일 · %1$s</string>
+    <string name="host_profile_same_as_all_value">모든 PC와 동일(%1$s)</string>
+    <string name="host_profile_on">사용</string>
+    <string name="host_profile_off">사용 안함</string>
+</resources>

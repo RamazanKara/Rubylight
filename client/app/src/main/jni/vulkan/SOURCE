@@ -1,0 +1,16 @@
+Adapted from MoreOrLessSoftware/moonlight-android (app/src/main/jni/vulkan and
+VulkanRendererBridge.java) at 3e6665e7d192ac5e7f639f8f8172cda04701924e.
+
+Differences from the fork, so a later sync is a diff against it rather than a copy:
+- Left out: pyrowave_decoder, pyrowave_bitstream, gpu_keep_busy, the planar and keep-busy
+  shaders, the fork's host-side tests, and everything in the renderer, bridge and pacer trace
+  that only they used. Nightjar decodes PyroWave in pyrowave-renderer.
+- Android.mk and li_compat.{h,cpp} are Nightjar's: the fork builds against its own
+  moonlight-common-c branch, upstream lacks LiGetHostTimeOnLocalClock, so li_compat stubs it.
+- frame_pacer, present_scheduler and the pacing parts of vulkan_renderer are the fork's own
+  and are meant to be replaced by Nightjar's present scheduler later.
+
+Regenerating shaders_spv.h: it is compiled from shaders/ and checked in. After editing
+video.vert, video.frag or video_common.glsl, run shaders/compile_shaders.sh (set GLSLC to the
+NDK's shader-tools/<host>/glslc, or have glslc on PATH) and commit the new shaders_spv.h with
+the shader change.

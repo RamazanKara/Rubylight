@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="keyboard_keys_show">Phím bàn phím bổ sung</string>
+    <string name="keyboard_keys_hide">Ẩn phím</string>
+    <string name="keyboard_task_manager">Trình quản lý tác vụ</string>
+    <string name="keyboard_switch_window">Chuyển cửa sổ</string>
+    <string name="keyboard_close_window">Đóng cửa sổ</string>
+    <string name="keyboard_arrow_left">Mũi tên trái</string>
+    <string name="keyboard_arrow_up">Mũi tên lên</string>
+    <string name="keyboard_arrow_down">Mũi tên xuống</string>
+    <string name="keyboard_arrow_right">Mũi tên phải</string>
+</resources>

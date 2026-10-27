@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pace_calibration_title">Calibra il ritmo dei fotogrammi</string>
+    <string name="pace_calibration_summary">PyroWave: trova la velocità più alta con cui l’host invia fotogrammi interi a questo dispositivo</string>
+    <string name="pace_calibration_saved">Ritmo fotogrammi PyroWave: %1$d Mbps. Tocca per ricalibrare.</string>
+    <string name="pace_calibration_intro">L’host invia fotogrammi di prova a velocità diverse e Nightjar tiene la più alta a cui arrivano interi. Gli stream PyroWave la useranno. Prima interrompi ogni stream su questo PC. Richiede da uno a tre minuti.</string>
+    <string name="pace_calibration_preparing">Preparazione del test…</string>
+    <string name="pace_calibration_running">Test dei fotogrammi inviati a %1$d Mbps…</string>
+    <string name="pace_calibration_result">Ritmo fotogrammi: %1$d Mbps su questa connessione da %2$d Mbps. Salvato per questo PC.</string>
+    <string name="pace_calibration_result_unqualified">Nessuna velocità testata ha rispettato tutti i limiti di perdita. La migliore, %1$d Mbps su questa connessione da %2$d Mbps, è salvata per questo PC. Possono restare difetti nell’immagine.</string>
+    <string name="pace_calibration_no_link">Il ritmo dei fotogrammi richiede la velocità del collegamento cablato di questo dispositivo o del PC, ma nessuna è nota.</string>
+    <string name="pace_calibration_too_fast">Lo stream richiede già %1$d Mbps, troppo vicino a questa connessione da %2$d Mbps. Prima abbassa il bitrate.</string>
+    <string name="pace_calibration_streaming">Il PC sta trasmettendo o esegue già un test. Interrompi lo stream e riprova.</string>
+    <string name="pace_calibration_unsupported">Questo PC non può testare il ritmo dei fotogrammi. Serve un host con i test di ritmo PyroWave.</string>
+    <string name="pace_calibration_failed">Impossibile completare la calibrazione. Controlla la connessione e riprova.</string>
+    <string name="pace_calibration_none">Nessun test completato. Riprova.</string>
+    <string name="pace_calibration_clear">Cancella</string>
+</resources>

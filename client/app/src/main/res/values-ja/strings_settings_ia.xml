@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_section_display">ディスプレイと画質</string>
+    <string name="settings_display_adaptive">可変リフレッシュレート</string>
+    <string name="settings_display_no_upscaling">アップスケーリングなし</string>
+    <string name="settings_section_audio">音声</string>
+    <string name="settings_section_streaming">ストリーミング</string>
+    <string name="settings_section_streaming_summary">オーバーレイ、ピクチャー イン ピクチャー、復旧</string>
+    <string name="settings_category_refresh">リフレッシュレート</string>
+    <string name="settings_category_image">画質</string>
+    <string name="settings_category_pc_display">PC の表示</string>
+    <string name="settings_category_usb">USB コントローラ</string>
+    <string name="settings_category_keyboard">キーボード</string>
+    <string name="settings_category_decoder">デコーダー</string>
+    <string name="settings_category_input_network">入力とネットワーク</string>
+    <string name="settings_category_diagnostics">診断</string>
+    <string name="settings_needs_host_support">ホストの対応が必要</string>
+    <string name="settings_pc_display_mode_value">各 PC のメニューで設定します</string>
+    <string name="settings_help_summary">セットアップ、ペアリング、よくある問題の解決</string>
+    <string name="settings_latency_benchmark_summary">PC なしでこのデバイスのタイミングをテストします</string>
+    <string name="settings_low_latency_partial">一部オフ</string>
+    <string name="upscaling_hdr_short">HDR では使用しません</string>
+    <string name="upscaling_pyrowave_short">PyroWave は SGSR を使用</string>
+    <string name="title_low_latency_decoding">低遅延デコード</string>
+    <string name="summary_low_latency_decoding">Android とチップセットのデコーダーの低遅延モードを使用し、ストリーミング中は Android がパフォーマンスを調整できるようにします。デコードの問題をテストする場合以外はオフにしないでください。</string>
+    <string name="settings_touch_mode_help">トラックパッド: ドラッグでカーソルを動かし、タップでクリックします。\nダイレクトマウス: タップした位置にカーソルが移動します。\nマルチタッチ: タッチがタッチ入力として PC に届きます。ホストが対応していない場合はダイレクトマウスと同じ動作になります。\nローカルカーソル: この端末上に描かれたポインタが指にすぐ追従します。タップすると指している位置をクリックします。\nタッチオフ: コントローラで遊んでいる間、画面へのタッチを無視します。戻るジェスチャーまたは戻るボタンでストリームメニューを開きます。</string>
+    <string name="resolution_screen">画面サイズ（%1$s）</string>
+    <string name="resolution_screen_cutout">画面サイズ、カメラの切り欠きを避ける（%1$s）</string>
+    <string name="resolution_screen_portrait">画面サイズ、縦向き（%1$s）</string>
+    <string name="resolution_screen_cutout_portrait">画面サイズ、縦向き、カメラの切り欠きを避ける（%1$s）</string>
+    <string name="fps_screen">画面のリフレッシュレート（%1$d FPS）</string>
+</resources>

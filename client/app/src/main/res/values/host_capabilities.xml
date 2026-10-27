@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Host features, listed in the PC's details -->
+    <string name="host_feature_permissions">Device permissions</string>
+    <string name="host_feature_otp_pairing">One-time PIN pairing</string>
+    <string name="host_feature_clipboard">Clipboard</string>
+    <string name="host_feature_server_commands">Server commands</string>
+    <string name="host_feature_virtual_display">Virtual display</string>
+    <string name="host_feature_virtual_display_hdr">HDR virtual display</string>
+    <string name="host_feature_display_modes">PC display modes</string>
+    <string name="host_feature_fractional_refresh">Fractional refresh rates</string>
+    <string name="host_feature_vrr">Host-side VRR</string>
+    <string name="host_feature_runtime_bitrate">Bitrate changes during a stream</string>
+    <string name="host_feature_pyrowave">PyroWave</string>
+    <string name="host_feature_speed_test">Connection speed test</string>
+    <string name="host_feature_hardware_metrics">Host CPU and GPU readings</string>
+    <string name="host_feature_network_path">Network route check</string>
+    <string name="host_feature_frame_limiter">Frame limiter status</string>
+    <string name="host_feature_controller_preparation">Controller reconnects</string>
+    <string name="host_feature_remote_sessions">Remote Monitor and Input-only</string>
+    <string name="host_feature_web_ui">Web UI</string>
+
+    <!-- Why a PC can't use a feature yet; at most 60 characters each -->
+    <string name="host_feature_reason_update">Update the host software to use this</string>
+    <string name="host_feature_reason_pair">Pair with this PC first</string>
+    <string name="host_feature_reason_view_permission">Allow viewing streams for this device on the host</string>
+    <string name="host_feature_reason_clipboard_permission">Allow the clipboard for this device on the host</string>
+    <string name="host_feature_reason_command_permission">Allow server commands for this device on the host</string>
+    <string name="host_feature_reason_no_commands">Add commands in the host’s web UI</string>
+    <string name="host_feature_reason_virtual_display_off">Turn on the virtual display in the host’s settings</string>
+    <string name="host_feature_reason_virtual_display_driver">The host’s virtual display driver isn’t ready</string>
+    <string name="host_feature_reason_hardware_metrics_off">Turn on hardware metrics in the host’s settings</string>
+    <string name="host_feature_reason_sleep_permission">This device isn’t allowed to put the PC to sleep</string>
+    <string name="host_feature_reason_file_permission">This device lacks file access; allow it in the host’s web UI</string>
+    <string name="host_feature_unknown">Applies if the host supports it</string>
+
+    <string name="host_details_software_apollo">Apollo-compatible host</string>
+    <string name="host_details_software_vibepollo">Vibepollo-compatible host</string>
+    <string name="host_details_software_unknown">Moonlight-compatible host</string>
+    <string name="host_details_features">Features</string>
+    <string name="host_details_features_unknown">Connect to this PC once to see what it supports.</string>
+    <string name="host_details_features_none">No extra features reported</string>
+
+    <string name="host_pyrowave_unavailable">This PC can’t stream PyroWave, so it uses %1$s.</string>
+    <string name="connection_test_intro_delay">Test the delay to your PC.</string>
+    <string name="host_feature_cursor_shape">Cursor shapes</string>
+</resources>

@@ -1,0 +1,8 @@
+<resources>
+    <string name="demo_controls_launcher" translatable="false">Nightjar Controls Preview</string>
+    <string name="demo_offline" translatable="false">Demo fixture · no network requests</string>
+    <string name="demo_sample" translatable="false">DEMO · local sample · scripted stats</string>
+    <string name="demo_playback_error" translatable="false">Sample playback failed. Check the debug assets and device decoder.</string>
+    <string name="demo_needs_host" translatable="false">This needs a real host; the demo only shows it.</string>
+    <string name="demo_no_driver_import" translatable="false">The demo imports no drivers.</string>
+</resources>

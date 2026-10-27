@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stats_decode_submission">Отправка CPU: %1$s ms · Ожидание вывода: %2$s ms</string>
+    <string name="perf_overlay_pyrowave_submit">Время отправки CPU: %1$s ms</string>
+    <string name="latency_pyrowave_completed_decode">Полное декодирование</string>
+    <string name="stats_waiting">Ожидание статистики трансляции…</string>
+    <string name="stats_frame_rates">Отрисовано: %1$s FPS · Получено: %2$s FPS</string>
+    <string name="stats_throughput">Видеоданные: %1$s Мбит/с · Потери: %2$s%%</string>
+    <string name="stats_network">RTT сети: %1$s мс (±%2$s мс)</string>
+    <string name="stats_host">Обработка на хосте: %1$s мс</string>
+    <string name="stats_host_network">Хост до сети: %1$s мс</string>
+    <string name="stats_client">Декодирование: %1$s мс · Ожидание вывода: %2$s мс</string>
+    <string name="hardware_title">Оборудование хоста (все GPU)</string>
+    <string name="hardware_cpu">CPU хоста: %1$s%%</string>
+    <string name="hardware_gpu_summary">GPU хоста %1$d: %2$s%% · %3$s °C · %4$s Вт</string>
+    <string name="hardware_sample">Замер хоста: %1$d мс с начала эпохи Unix · Интервал: %2$d мс</string>
+    <string name="hardware_gpu_name">GPU %1$d · %2$s</string>
+    <string name="hardware_gpu_unnamed">GPU без названия</string>
+    <string name="hardware_gpu_clocks">Загрузка: %1$s%% · Частота GPU: %2$s МГц · Частота памяти: %3$s МГц</string>
+    <string name="hardware_gpu_temperatures">GPU: %1$s °C · Горячая точка: %2$s °C · Память: %3$s °C</string>
+    <string name="hardware_gpu_fan_voltage">Напряжение: %1$s мВ · Вентилятор: %2$s об/мин (%3$s%%)</string>
+    <string name="hardware_gpu_power">Мощность GPU: %1$s Вт · Мощность платы: %2$s Вт</string>
+    <string name="hardware_gpu_memory">Видеопамять: %1$s МБ (%2$s%%)</string>
+</resources>

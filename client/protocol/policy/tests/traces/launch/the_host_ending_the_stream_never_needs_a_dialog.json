@@ -1,0 +1,10 @@
+{
+  "source": "StreamExitPolicyTest.theHostEndingTheStreamNeverNeedsADialog",
+  "rust": "launch::StreamExitPolicy",
+  "java": "com.limelight.LaunchTrace",
+  "new": null,
+  "calls": [
+    {"call": "termination_needs_action", "args": [0, false, false, false], "expect": false},
+    {"call": "termination_needs_action", "args": [0, true, false, false], "expect": false}
+  ]
+}

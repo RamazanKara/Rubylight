@@ -1,0 +1,474 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_packed_444">Experimental full chroma</string>
+    <string name="summary_packed_444">Requires Rubylight’s experimental full chroma option, the New streaming engine, and a compatible hardware HEVC/AV1 decoder. Unsupported modes stop the connection. HDR also requires a compatible 10-bit HDR display surface.</string>
+    <!-- Shortcut strings -->
+    <string name="scut_deleted_pc">PC deleted</string>
+    <string name="scut_not_paired">PC not paired</string>
+    <string name="scut_pc_not_found">PC not found</string>
+    <string name="scut_invalid_uuid">Invalid PC</string>
+    <string name="scut_invalid_app_id">Invalid app</string>
+
+    <!-- Help strings -->
+    <string name="help_loading_title">Help</string>
+    <string name="help_loading_msg">Loading help page…</string>
+
+    <!-- PC view menu entries -->
+    <string name="pcview_menu_header_online">Online</string>
+    <string name="pcview_menu_header_offline">Offline</string>
+    <string name="pcview_menu_header_unknown">Refreshing</string>
+    <string name="pcview_menu_pair_pc">Pair</string>
+    <string name="pcview_menu_unpair_pc">Unpair</string>
+    <string name="pcview_menu_send_wol">Wake PC</string>
+    <string name="pcview_menu_delete_pc">Remove PC</string>
+    <string name="pcview_menu_details">View details</string>
+    <string name="pcview_menu_eol">GameStream discontinued</string>
+
+    <!-- Network test strings -->
+    <string name="nettest_text_blocked">Internet streaming may be blocked.\nFor local streaming, check the PC firewall.</string>
+
+    <!-- Pair messages -->
+    <string name="pairing">Pairing…</string>
+    <string name="pair_pc_offline">Wake the PC and start the host app.\nUse the same network, then retry.</string>
+    <string name="pair_pc_ingame">Stop the host’s stream, then pair again.</string>
+    <string name="pair_pairing_title">Pair with PC</string>
+    <string name="pair_pairing_help">Enter this PIN in your host’s settings or web UI, usually on its PIN or pairing page.</string>
+    <string name="pair_incorrect_pin">PIN rejected. Try pairing again and enter the new PIN shown on this device in your host’s settings or web UI.</string>
+    <string name="pair_fail">Cancel the old request in your host’s settings or web UI, then retry.</string>
+    <string name="pair_already_in_progress">Finish or cancel the pending request on the host.</string>
+
+    <!-- WOL messages -->
+    <string name="wol_pc_online">Computer is online</string>
+    <string name="wol_no_mac">Connect while the PC is awake first.\nSee Wake-on-LAN setup in the PC menu.</string>
+    <string name="wol_waking_pc">Waking PC…</string>
+    <string name="wol_waking_msg">Wait a few seconds.\nIf the PC stays asleep, check Wake-on-LAN.</string>
+    <string name="wol_fail">Failed to send Wake-On-LAN packets</string>
+
+    <!-- Unpair messages -->
+    <string name="unpairing">Unpairing…</string>
+    <string name="unpair_success">Unpaired successfully</string>
+    <string name="unpair_fail">Failed to unpair</string>
+    <string name="unpair_error">Device was not paired</string>
+
+    <!-- Errors -->
+    <string name="error_pc_offline">Computer is offline</string>
+    <string name="error_manager_not_running">Wait a few seconds or restart the app.</string>
+    <string name="error_unknown_host">Failed to resolve host</string>
+    <string name="error_404">Host not found (404).\nStart or update the host app, then retry.</string>
+    <string name="title_decoding_error">Video decoder crashed</string>
+    <string name="message_decoding_error">Video decoding failed.\nTry another codec or lower resolution.</string>
+    <string name="title_decoding_reset">Video settings reset</string>
+    <string name="message_decoding_reset">Video decoding kept failing.\nStream settings were reset.</string>
+    <string name="error_usb_prohibited">Your device administrator has blocked USB access.</string>
+    <string name="unable_to_pin_shortcut">Your launcher cannot add shortcuts.</string>
+    <string name="video_decoder_init_failed">Video could not start.\nTry a lower resolution or frame rate.</string>
+    <string name="no_video_received_error">No video received from host.</string>
+    <string name="no_frame_received_error">Lower the bitrate or use a faster network.</string>
+    <string name="early_termination_error">Stream failed to start.\nClose protected videos or restart the PC.</string>
+    <string name="frame_conversion_error">Video encoding failed on the PC.\nTurn off HDR or change the resolution.</string>
+    <string name="check_ports_msg">Check firewall and forwarding for ports:</string>
+
+    <!-- Start application messages -->
+    <string name="conn_establishing_title">Connecting</string>
+    <string name="conn_establishing_msg">Starting connection</string>
+    <string name="conn_metered">This network may charge for data, and streaming uses a lot of it.</string>
+    <string name="conn_client_latency">Average decode time:</string>
+    <string name="conn_client_latency_hw">Hardware decode time:</string>
+    <string name="conn_hardware_latency">Average hardware decode time:</string>
+    <string name="conn_starting">Starting</string>
+    <string name="conn_error_title">Connection Error</string>
+    <string name="conn_error_msg">Failed to start</string>
+    <string name="conn_terminated_title">Connection Terminated</string>
+    <string name="conn_terminated_msg">The connection was terminated.</string>
+    <string name="error_code_prefix">Error code:</string>
+
+    <!-- General strings -->
+    <string name="ip_hint">IP address or PC name</string>
+    <string name="searching_pc">Searching for PCs…</string>
+    <string name="yes">Yes</string>
+    <string name="no">No</string>
+    <string name="lost_connection">Lost connection to PC</string>
+    <string name="title_details">Details</string>
+    <string name="help">Help</string>
+    <string name="delete_pc_msg">Remove this PC from Nightjar? Its name and saved library are forgotten here. The PC still lists this device until you unpair it.</string>
+    <string name="slow_connection_msg">Slow connection to PC\nReduce your bitrate</string>
+    <string name="poor_connection_msg">Poor connection to PC</string>
+    <string name="perf_overlay_streamdetails">Video stream: %1$s %2$.2f FPS</string>
+    <string name="perf_overlay_resolution_source">Resolution: %1$s</string>
+    <string name="perf_overlay_host_display">Display on the PC: %1$s</string>
+    <string name="resolution_source_native">native</string>
+    <string name="resolution_source_native_profile">native, PC profile</string>
+    <string name="resolution_source_fixed">fixed in settings</string>
+    <string name="resolution_source_fixed_profile">fixed, PC profile</string>
+    <string name="perf_overlay_decoder">Decoder: %1$s</string>
+    <string name="perf_overlay_incomingfps">Received: %1$.2f FPS</string>
+    <string name="perf_overlay_renderingfps">Rendered: %1$.2f FPS</string>
+    <string name="perf_overlay_hostprocessinglatency">Host min/max/avg: %1$.1f/%2$.1f/%3$.1f ms</string>
+    <string name="perf_overlay_netdrops">Network frame loss: %1$.2f%%</string>
+    <string name="perf_overlay_netlatency">Network: %1$d ms (±%2$d ms)</string>
+    <string name="perf_overlay_dectime">Decode time: %1$.2f ms</string>
+
+    <!-- AppList activity -->
+    <string name="applist_connect_msg">Connecting to PC…</string>
+    <string name="applist_menu_resume">Resume</string>
+    <string name="applist_menu_quit">Quit game</string>
+    <string name="library_quit_on_leave">Quit the game when I leave the stream</string>
+    <string name="library_quit_on_leave_on">On: Disconnect also quits it on the PC</string>
+    <string name="library_quit_on_leave_off">Off: Disconnect leaves it running on the PC</string>
+    <string name="applist_menu_cancel">Cancel</string>
+    <string name="applist_menu_details">View details</string>
+    <string name="applist_menu_scut">Create shortcut</string>
+    <string name="applist_menu_tv_channel">Add to channel</string>
+    <string name="applist_menu_hide_app">Hide game</string>
+    <string name="applist_refresh_title">App list</string>
+    <string name="applist_refresh_msg">Refreshing apps…</string>
+    <string name="applist_refresh_error_title">Error</string>
+    <string name="applist_refresh_error_msg">Failed to get app list</string>
+    <string name="applist_quit_app">Quitting</string>
+    <string name="applist_quit_success">Successfully quit</string>
+    <string name="applist_quit_fail">Failed to quit</string>
+    <string name="applist_quit_confirmation">Quit the running app?\nUnsaved progress will be lost.</string>
+    <string name="applist_details_id">App ID:</string>
+
+    <!-- Add computer manually activity -->
+    <string name="title_add_pc">Add PC</string>
+    <string name="msg_add_pc">Connecting to the PC…</string>
+    <string name="addpc_fail">Start a Moonlight-compatible streaming host, such as Apollo, Rubylight, Sunshine or Vibepollo, on the PC and allow it through the firewall.</string>
+    <string name="addpc_success">PC added</string>
+    <string name="addpc_unknown_host">PC not found. Check the address.</string>
+    <string name="addpc_enter_ip">Enter an IP address or PC name</string>
+    <string name="addpc_wrong_sitelocal">For Internet streaming, use your router’s public IP address.</string>
+
+    <!-- Preferences -->
+    <string name="title_resolution_list">Stream resolution</string>
+    <string name="summary_resolution_list">Choose a resolution below your screen’s size for upscaling, such as 720p on a 1080p screen. Lower values reduce network and decoding load.</string>
+    <string name="title_fps_list">Video frame rate</string>
+    <string name="summary_fps_list">Higher frame rates give smoother motion.</string>
+    <string name="title_seekbar_bitrate">Video bitrate</string>
+    <string name="suffix_seekbar_bitrate_mbps">Mbps</string>
+    <string name="dialog_seekbar_bitrate">Local network: try 20–80 Mbps.\nPyroWave: about 280 Mbps at 720p/60.</string>
+    <string name="seekbar_decrease">Decrease</string>
+    <string name="seekbar_increase">Increase</string>
+    <string name="seekbar_presets">Presets</string>
+    <string name="seekbar_presets_unit">Presets (%1$s)</string>
+    <string name="fps_suffix_fps">FPS</string>
+
+    <string name="title_audio_config_list">Surround sound</string>
+    <string name="summary_audio_config_list">Use 5.1 or 7.1 sound with your home theater.</string>
+    <string name="title_checkbox_enable_audiofx">Allow system audio effects</string>
+    <string name="summary_checkbox_enable_audiofx">Lets Android equalizers and effects process the sound. Can add audio delay.</string>
+
+    <string name="category_gamepad_settings">Controllers</string>
+    <string name="title_checkbox_multi_controller">Multiple controllers</string>
+    <string name="summary_checkbox_multi_controller">On: each controller is its own player, and the PC sees a controller only while one is connected. Off: every controller acts as player 1, and the PC always sees one controller.</string>
+    <string name="title_checkbox_vibrate_fallback">Vibrate device for rumble</string>
+    <string name="summary_checkbox_vibrate_fallback">Vibrate this device if your controller cannot.</string>
+    <string name="title_seekbar_vibrate_fallback_strength">Device vibration strength</string>
+    <string name="summary_seekbar_vibrate_fallback_strength">Adjust this device’s vibration strength.</string>
+    <string name="suffix_seekbar_vibrate_fallback_strength">%</string>
+    <string name="title_seekbar_deadzone">Analog stick deadzone</string>
+    <string name="summary_seekbar_deadzone">Some games use a larger deadzone. Negative values push small movements outwards to overcome the built-in deadzone of a controller or game. Negative values also amplify resting-stick drift.</string>
+    <string name="suffix_seekbar_deadzone">%</string>
+    <string name="title_checkbox_xb1_driver">USB controller driver</string>
+    <string name="summary_checkbox_xb1_driver">Built-in driver for Xbox controllers over USB. No root needed.</string>
+    <string name="title_usb_dualsense_haptics">USB DualSense audio and haptics</string>
+    <string name="summary_usb_dualsense_haptics">Detailed vibration from hosts that support DualSense haptics. Some hosts also carry the controller’s speaker, headset and microphone audio; the microphone also needs its own setting and permission. Reconnect the controller after changing this.</string>
+    <string name="title_usb_dualsense">USB DualSense driver</string>
+    <string name="summary_usb_dualsense">Use adaptive triggers, rumble and more over USB.</string>
+    <string name="usb_dualsense_permission_info">Allow USB access when you start a stream.\nWithout it, adaptive triggers stay off.</string>
+    <string name="usb_dualsense_enable">Enable USB driver</string>
+    <string name="usb_dualsense_denied">No USB access; adaptive triggers are off.\nReconnect the cable to retry.</string>
+    <string name="title_checkbox_usb_bind_all">Always use the USB driver</string>
+    <string name="summary_checkbox_usb_bind_all">Use the built-in driver even for controllers that Android already supports.</string>
+    <string name="title_checkbox_mouse_emulation">Controller mouse mode</string>
+    <string name="summary_checkbox_mouse_emulation">Hold Start to switch the controller between gamepad and mouse.</string>
+    <string name="title_checkbox_flip_face_buttons">Flip face buttons</string>
+    <string name="summary_checkbox_flip_face_buttons">Swap A/B and X/Y on gamepads and on-screen controls</string>
+    <string name="title_checkbox_gamepad_touchpad_as_mouse">Touchpad always moves mouse</string>
+    <string name="summary_checkbox_gamepad_touchpad_as_mouse">Use the gamepad touchpad to move the host’s mouse.</string>
+    <string name="title_checkbox_gamepad_motion_sensors">Gamepad motion sensors</string>
+    <string name="summary_checkbox_gamepad_motion_sensors">Use controller motion sensors while streaming.</string>
+    <string name="title_checkbox_gamepad_motion_fallback">Use device motion sensors</string>
+    <string name="summary_checkbox_gamepad_motion_fallback">Use this device’s gyro if the controller has none.</string>
+
+    <string name="category_input_settings">Touch &amp; mouse</string>
+    <string name="title_trackpad_speed">Trackpad speed</string>
+    <string name="title_mouse_speed">Mouse speed</string>
+    <string name="title_checkbox_absolute_mouse_mode">Desktop mouse mode</string>
+    <string name="summary_checkbox_absolute_mouse_mode">Moves the PC’s pointer like a desktop mouse, with acceleration. Games that steer the camera with the mouse may not work.</string>
+    <string name="title_checkbox_mouse_nav_buttons">Mouse back/forward buttons</string>
+    <string name="summary_checkbox_mouse_nav_buttons">May break right-click on some devices</string>
+
+    <string name="category_on_screen_controls_settings">On-screen controls</string>
+    <string name="title_checkbox_show_onscreen_controls">Show on-screen controls</string>
+    <string name="title_checkbox_vibrate_osc">Vibrate on press</string>
+    <string name="title_only_l3r3">Only show L3 and R3</string>
+    <string name="summary_only_l3r3">Hide all virtual buttons except L3 and R3</string>
+    <string name="title_show_guide_button">Show Guide button</string>
+    <string name="title_reset_osc">Reset controls layout</string>
+    <string name="dialog_title_reset_osc">Reset layout</string>
+    <string name="dialog_text_reset_osc">Put every on-screen button back to its default size and position?</string>
+    <string name="toast_reset_osc_success">On-screen controls reset to default</string>
+    <string name="title_osc_opacity">Opacity</string>
+    <string name="summary_osc_opacity">How visible the on-screen controls are</string>
+    <string name="suffix_osc_opacity">%</string>
+
+    <string name="title_checkbox_enable_pip">Picture in picture</string>
+    <string name="summary_checkbox_enable_pip">Keep watching in a small window when you leave the app. Controls don’t work there.</string>
+    <string name="title_language_list">Language</string>
+    <string name="title_checkbox_small_icon_mode">Use small box art</string>
+    <string name="summary_checkbox_small_icon_mode">Fit more games on screen in the library.</string>
+    <string name="title_quick_resume">Quick resume</string>
+    <string name="summary_quick_resume">Tapping a PC that is running a game goes straight back into the game instead of opening its library.</string>
+
+    <string name="title_checkbox_enable_sops">Game optimization hint</string>
+    <string name="summary_checkbox_enable_sops">Tells the PC whether it may optimize a game’s settings for this stream. What the PC does with it depends on the host: some change the game’s settings themselves, others only pass the choice on to commands you run on the PC.</string>
+    <string name="title_checkbox_host_audio">Play audio on the host PC</string>
+
+    <string name="title_unlock_fps">Show all frame rates</string>
+    <string name="title_checkbox_reduce_refresh_rate">Allow lower refresh rate</string>
+    <string name="summary_checkbox_reduce_refresh_rate">Save power at the cost of some delay.</string>
+    <string name="title_checkbox_disable_warnings">Hide connection warnings</string>
+    <string name="summary_checkbox_disable_warnings">Don’t show warnings about a poor connection during streams.</string>
+    <string name="title_video_format">Video codec</string>
+    <string name="summary_video_format">Choose a codec supported by your PC and device. PyroWave needs host support.</string>
+    <string name="pyrowave_ready">Ready on this phone. Needs host support.</string>
+    <string name="pyrowave_checking">Checking GPU support…</string>
+    <string name="pyrowave_needs_android">Not supported: needs Android 10</string>
+    <string name="pyrowave_needs_64_bit">Not supported: needs a 64-bit app</string>
+    <string name="pyrowave_decoder_unavailable">Not supported: decoder unavailable</string>
+    <string name="pyrowave_needs_vulkan">Not supported: needs Vulkan 1.3</string>
+    <string name="pyrowave_needs_subgroups">GPU does not support PyroWave</string>
+    <string name="pyrowave_missing_features">GPU does not support PyroWave</string>
+    <string name="pyrowave_missing_formats">GPU does not support PyroWave</string>
+    <string name="pyrowave_device_limits">GPU does not support PyroWave</string>
+    <string name="pyrowave_missing_queue">GPU does not support PyroWave</string>
+    <string name="pyrowave_missing_swapchain">Vulkan display unavailable</string>
+    <string name="pyrowave_missing_hdr">Not supported: HDR unavailable</string>
+    <string name="pyrowave_hdr_needs_android_15">needs Android 15 for HDR output</string>
+    <string name="pyrowave_hdr_display_refused">display or driver refused HDR output</string>
+    <string name="pyrowave_check_failed">Not supported: GPU check failed</string>
+    <string name="title_enable_hdr">HDR</string>
+    <string name="summary_enable_hdr">Needs an HDR screen on this device and HDR turned on for the PC’s display.</string>
+    <string name="title_full_range">Force full-range video</string>
+    <string name="summary_full_range">Use only when the PC and this screen both use full-range color. Otherwise dark and bright areas lose detail.</string>
+    <string name="title_enable_post_stream_toast">Show decode time after streaming</string>
+    <string name="summary_enable_post_stream_toast">Shows the average decode time when a stream ends.</string>
+    <string name="title_rust_engine">New streaming engine</string>
+    <string name="summary_rust_engine">Turned on by default. Turn it off to use the classic engine, for example if a stream misbehaves. Hosts older than GFE 3.22 use the classic engine automatically.</string>
+
+
+    <!-- Toasts -->
+    <string name="toast_controller_type_changed">Motion controls may change the controller type.</string>
+
+    <!-- Permission justification -->
+    <string name="local_network_rationale">Allow local network access to find your PCs.</string>
+
+    <!-- Array strings -->
+    <string name="resolution_360p">360p</string>
+    <string name="resolution_480p">480p</string>
+    <string name="resolution_720p">720p</string>
+    <string name="resolution_1080p">1080p</string>
+    <string name="resolution_1440p">1440p</string>
+    <string name="resolution_4k">4K</string>
+
+    <string name="fps_30">30 FPS</string>
+    <string name="fps_60">60 FPS</string>
+    <string name="fps_90">90 FPS</string>
+    <string name="fps_120">120 FPS</string>
+
+    <string name="audioconf_stereo">Stereo</string>
+    <string name="audioconf_51surround">5.1 Surround Sound</string>
+    <string name="audioconf_71surround">7.1 Surround Sound</string>
+
+    <string name="videoformat_auto">Automatic (recommended)</string>
+    <string name="videoformat_av1always">Prefer AV1</string>
+    <string name="videoformat_hevcalways">Prefer HEVC</string>
+    <string name="videoformat_h264always">H.264</string>
+
+    <string name="title_frame_pacing">Frame pacing</string>
+    <string name="pacing_latency">Lowest latency</string>
+    <string name="pacing_balanced">Balanced</string>
+    <string name="pacing_balanced_alt">Balanced with FPS limit</string>
+    <string name="pacing_smoothness">Smoothest video (more delay)</string>
+
+    <string name="title_analog_scrolling">Scroll with an analog stick</string>
+    <string name="summary_analog_scrolling">Used in controller mouse mode.</string>
+    <string name="analogscroll_none">Both sticks move the mouse</string>
+    <string name="analogscroll_right">Right analog stick</string>
+    <string name="analogscroll_left">Left analog stick</string>
+    <string name="latency_header">Delay in ms: avg/p95/p99 (%1$d frames)</string>
+    <string name="latency_queue_wait">Queue wait</string>
+    <string name="latency_input_output">Decode time</string>
+    <string name="latency_output_render">Display wait</string>
+    <string name="latency_receive_render">Client latency</string>
+    <string name="latency_host_processing">Host processing</string>
+    <string name="latency_host_processing_send">Host to network</string>
+    <string name="latency_host_split">Host queue / encode / send (avg): %1$.2f / %2$.2f / %3$.2f</string>
+    <string name="title_yuv444">Prefer YUV 4:4:4</string>
+    <string name="summary_yuv444">Sharper colored text when the PC and this device support it. HDR takes priority.</string>
+    <string name="yuv444_fallback">YUV 4:4:4 unavailable; using 4:2:0.</string>
+    <string name="title_virtual_display">Host virtual display</string>
+    <string name="summary_virtual_display">Ask the PC for a display that matches the stream. Off: the PC’s own display settings decide.</string>
+    <string name="title_vrr">Adaptive refresh (ARR / VRR)</string>
+    <string name="summary_vrr">On Android 16 screens with adaptive refresh, Android matches the refresh rate to the stream; other screens run at their highest rate. Hosts that support VRR are asked to use it too, depending on their settings. While this is on, frame pacing and a lower refresh rate don’t apply.</string>
+    <string name="title_host_frame_times">Show frames at the PC\'s frame times</string>
+    <string name="summary_host_frame_times">Hold each frame a few milliseconds so it appears when the game drew it, instead of when the network delivered it. Evens out jitter, especially with adaptive refresh. Replaces frame pacing. Not used with PyroWave.</string>
+    <string name="title_content_rate_frame_rate">Match the screen to the game\'s frame rate</string>
+    <string name="summary_content_rate_frame_rate">Tells Android the frame rate the game really runs at, so a screen with a matching refresh mode can switch to it without a blank screen. Needs a PC that sends frame times and Allow lower refresh rate; changes at most once every 2 seconds. Not used with PyroWave or adaptive refresh.</string>
+    <string name="title_virtual_display_scale">PC render resolution</string>
+    <string name="summary_virtual_display_scale">Percent of the stream resolution that the PC renders at. The size of the transmitted video does not change. To send fewer pixels and upscale on this device, lower Stream resolution.</string>
+    <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
+    <string name="latency_unavailable">no data yet</string>
+    <string name="title_export_latency_csv">Export latency CSV</string>
+    <string name="latency_csv_empty">Finish a stream before exporting its timings.</string>
+    <string name="latency_csv_no_picker">Install a file picker to save the CSV.</string>
+    <string name="latency_csv_saved">Latency CSV saved.</string>
+    <string name="latency_csv_failed">Could not save the latency CSV.</string>
+    <string name="latency_csv_lost">CSV rows lost to backlog: %1$d</string>
+    <string name="title_codec_low_latency">Android low-latency mode</string>
+    <string name="summary_codec_low_latency">Reduce video delay on Android 11 or later.</string>
+    <string name="title_experimental_chipset_tuning">Experimental chipset tuning</string>
+    <string name="summary_experimental_chipset_tuning">Extra low-latency settings for MediaTek Dimensity and Samsung Exynos decoders. If video stops or stutters, turn this off.</string>
+    <string name="title_vendor_low_latency">Chipset low-latency mode</string>
+    <string name="summary_vendor_low_latency">Reduce video delay with chipset support.</string>
+    <string name="title_codec_performance">Decoder performance hints</string>
+    <string name="summary_codec_performance">Speed up decoding at the cost of more power.</string>
+    <string name="title_phone_performance_hints">Phone performance hints</string>
+    <string name="summary_phone_performance_hints">Let Android tune performance during streaming.</string>
+    <string name="title_gpu_max_clocks">Boost GPU performance for PyroWave</string>
+    <string name="summary_gpu_max_clocks">Can reduce decoding time, but uses more power and produces more heat.</string>
+    <string name="title_drop_late_frames">Keep only the newest frame</string>
+    <string name="summary_drop_late_frames">Skip frames the screen can no longer show in time. Applies with Balanced frame pacing.</string>
+    <string name="title_texture_view">Compatibility video view</string>
+    <string name="summary_texture_view">Try this for black or flickering video. Not used with HDR, 10-bit SDR or PyroWave.</string>
+    <string name="title_unbatched_input">Instant mouse and pen input</string>
+    <string name="summary_unbatched_input">Send mouse and pen movements immediately.</string>
+    <string name="title_network_priority">Prioritize stream traffic</string>
+    <string name="summary_network_priority">Give stream traffic priority on this device.</string>
+    <string name="stream_menu">Stream</string>
+    <string name="stream_continue">Continue streaming</string>
+    <string name="stream_disconnect">Disconnect</string>
+    <string name="stream_status_unavailable">Host status unavailable.\nDisconnecting keeps the app running.</string>
+    <string name="stream_clipboard_send">Send clipboard to host</string>
+    <string name="stream_clipboard_receive">Copy host clipboard</string>
+    <string name="stream_clipboard_empty">The clipboard has no plain text</string>
+    <string name="stream_clipboard_sent">Clipboard text sent to host</string>
+    <string name="stream_clipboard_received">Host text copied to clipboard</string>
+    <string name="stream_server_commands">Server commands</string>
+    <string name="stream_command_confirm">Run this host command?\nIt may change the PC or end the session.</string>
+    <string name="stream_command_run">Run command</string>
+    <string name="stream_command_sent">Command sent; result unknown.</string>
+    <string name="stream_command_failed">Command could not be sent</string>
+    <string name="stream_host_status">Permissions and frame limits</string>
+    <string name="stream_host_menu">Open host menu</string>
+    <string name="stream_permissions_unknown">This host does not share device permissions.</string>
+    <string name="stream_permission_allowed">Allowed</string>
+    <string name="stream_permission_denied">Denied</string>
+    <string name="stream_permissions_help">Change permissions in your host’s settings or web UI.</string>
+    <string name="stream_input_denied">The PC blocks input from this device. Allow it in the host’s settings or web UI.</string>
+    <string name="stream_bitrate">Bitrate</string>
+    <string name="stream_bitrate_help">Set Mbps for this session.\nThis turns off automatic bitrate.</string>
+    <string name="stream_bitrate_invalid">Enter a bitrate from 0.5 to 2000 Mbps</string>
+    <string name="stream_bitrate_applied">Host applied %1$.1f Mbps</string>
+    <string name="stream_pyrowave_bitrate_low">%1$.1f Mbps is below PyroWave’s minimum of %2$d Mbps at %3$d×%4$d, %5$d FPS. Expect a broken-up picture.</string>
+    <string name="stream_enabled">On</string>
+    <string name="stream_disabled">Off</string>
+    <string name="stream_limiter_status">Host frame limit: %1$s\nAuto display limit: %2$s\nTarget: %3$s</string>
+    <string name="stream_limiter_stream_rate">Stream frame rate</string>
+    <string name="stream_android_pacing">Adaptive refresh is off. Your frame pacing setting applies.</string>
+    <string name="stream_android_arr">Android ARR: automatic policy. Works with any compatible host; Android chooses the actual refresh rate.</string>
+    <string name="stream_android_max_refresh">Android ARR: unavailable on this Android version or display. Requesting maximum refresh and showing frames as they arrive.</string>
+    <string name="stream_host_action_failed">Host action failed: %1$s</string>
+    <string name="stream_quit_on_leave_progress">Quitting %1$s on the PC…</string>
+    <string name="stream_quit_on_leave_failed">Couldn’t quit %1$s on the PC, so it is still running. %2$s</string>
+    <string name="host_launch_permission_denied">Allow this device to launch apps in your host’s settings or web UI.</string>
+    <string name="videoformat_pyrowave">PyroWave (host support required)</string>
+    <string name="settings">Settings</string>
+    <string name="settings_navigate_up">Navigate up</string>
+    <string name="settings_section_video">Video</string>
+    <string name="settings_section_video_summary">%1$s · %2$s · %3$s · %4$s</string>
+    <string name="settings_section_input">Controls</string>
+    <string name="settings_section_input_summary">Controllers, touch, mouse and keyboard</string>
+    <string name="settings_section_app">App</string>
+    <string name="settings_section_app_summary">Language, help and about · %1$s</string>
+    <string name="title_reset_settings">Reset all settings</string>
+    <string name="dialog_reset_settings_title">Reset all settings?</string>
+    <string name="dialog_reset_settings_text">All settings on these screens go back to their defaults. Paired PCs, PC stream settings, button mappings, the on-screen controls layout and the language stay as they are.</string>
+    <string name="dialog_reset_settings_confirm">Reset</string>
+    <string name="toast_reset_settings">Settings reset to defaults</string>
+    <string name="addpc_button">Add</string>
+    <string name="title_about">About</string>
+    <string name="role_view_only">View only</string>
+    <string name="role_input_only">Input only</string>
+    <string name="stream_monitor_title">Remote Monitor</string>
+    <string name="stream_input_title">Input-only</string>
+    <string name="stream_input_only_help">Input only\nUse touch, keys or a controller.\nBack opens the stream menu.</string>
+    <string name="stream_end_monitor">End monitor session</string>
+    <string name="stream_end_input">End input session</string>
+    <string name="launch_confirm_title">Confirm on this device</string>
+    <string name="launch_confirm_replace">Quit the running app and start this one?\nConfirm within 60 seconds.</string>
+    <string name="launch_confirm_terminate">Quit the app?\nMonitor/input clients stay connected.\nConfirm within 60 seconds.</string>
+    <string name="launch_confirm">Confirm</string>
+    <string name="summary_about">Version %1$s · Based on Moonlight (GPL-3.0)</string>
+    <string name="settings_search_hint">Search settings</string>
+    <string name="settings_search_empty">No matching settings on this device</string>
+    <string name="pip_disconnect_description">Disconnect and keep the PC app running</string>
+    <string name="title_upscaling">Client-side upscaling</string>
+    <string name="upscaling_off">Off</string>
+    <string name="upscaling_bilinear">Smooth</string>
+    <string name="upscaling_fsr1">Sharp (FSR)</string>
+    <string name="upscaling_sgsr1">Sharp, Snapdragon (SGSR)</string>
+    <string name="summary_upscaling">Reconstruct lower-resolution SDR video at your screen’s size. First lower Stream resolution. PyroWave uses SGSR for both FSR and SGSR selections. Uses more battery.</string>
+    <string name="title_upscaling_sharpness">Upscaling sharpness</string>
+    <string name="summary_upscaling_sharpness" formatted="false">FSR/SGSR sharpening: 0% off, 100% maximum; applies next stream, with SGSR reconstruction always active.</string>
+    <string name="upscaling_sharpness_value">%1$d%%</string>
+    <string name="upscaling_direct">Off (direct output)</string>
+    <string name="title_vulkan_render">Render through Vulkan</string>
+    <string name="summary_vulkan_render">Experimental. Presents video through Vulkan with its own frame pacing, for frame-generation overlays that hook Vulkan. Adds a render pass, so some latency. Needs Android 10 or later. Not used with PyroWave. Upscaling is off while this is on.</string>
+    <string name="vulkan_render_fallback">Vulkan rendering is not used. %1$s</string>
+    <string name="vulkan_reason_pyrowave">PyroWave video does not use it.</string>
+    <string name="vulkan_reason_api">It needs Android 10 or later.</string>
+    <string name="vulkan_reason_unsupported">This device does not support it.</string>
+    <string name="vulkan_reason_packed">4:4:4 video does not use it.</string>
+    <string name="vulkan_reason_start">The renderer could not start.</string>
+    <string name="vulkan_overrides_upscaling">Vulkan rendering is on, so upscaling is not used.</string>
+    <string name="upscaling_vulkan_short">Off while rendering through Vulkan</string>
+    <string name="vulkan_renderer_failed">The Vulkan renderer stopped working: %1$s\n\nTurn off “Render through Vulkan” in the settings (Decoder section) and start the stream again.</string>
+    <string name="vulkan_failure_unknown">unknown error</string>
+    <string name="upscaling_fallback">Upscaling: direct output. %1$s</string>
+    <string name="upscaling_hdr">HDR/10-bit keeps direct output to preserve color and precision.</string>
+    <string name="upscaling_pyrowave">PyroWave streams use SGSR on the GPU for both FSR and SGSR.</string>
+    <string name="upscaling_native">The stream already fills the output resolution; no upscaling is needed.</string>
+    <string name="upscaling_unsupported">GLES 3.0 video textures or EGL presentation timing are unavailable.</string>
+    <string name="upscaling_gpu_error">The GPU path or decoder surface failed. Direct output stays active until reconnect.</string>
+    <string name="upscaling_slow">Added processing exceeded one frame repeatedly. Direct output stays active until reconnect.</string>
+    <string name="upscaling_dropped">The GPU path dropped frames repeatedly. Direct output stays active until reconnect.</string>
+    <string name="upscaling_size_changed">The video or output size changed. Direct output stays active until reconnect.</string>
+    <string name="perf_overlay_upscaling">Upscaling: %1$s · added %2$s</string>
+    <string name="perf_overlay_upscaling_pyrowave">Upscaling: %1$s</string>
+    <string name="perf_overlay_gpu_driver">GPU: %1$s</string>
+    <string name="perf_overlay_streaming_engine">Streaming engine: %1$s</string>
+    <string name="video_format_measured">Decode time measured on this phone: %1$s. Automatic skips codecs that are clearly slower.</string>
+    <string name="upscaling_timing_estimate">Estimate includes texture handoff, GPU completion and swap wait (1 ms polling). Display presentation timing is unavailable.</string>
+    <string name="upscaling_last_timing">Last GPU path estimate: %1$s</string>
+    <string name="keyboard_shortcuts_title">Keyboard shortcuts</string>
+    <string name="keyboard_shortcuts_summary">Buttons for the extra keyboard toolbar</string>
+    <string name="keyboard_shortcuts_help">Create up to 32 shortcuts for Extra keyboard keys in the stream menu. Enter keys separated by +, for example CTRL + SHIFT + ESC or WIN + D. Each button presses the keys in order and releases them in reverse order.</string>
+    <string name="keyboard_shortcuts_add">Add shortcut</string>
+    <string name="keyboard_shortcuts_edit">Edit shortcut</string>
+    <string name="keyboard_shortcuts_save">Save</string>
+    <string name="keyboard_shortcuts_delete">Delete</string>
+    <string name="keyboard_shortcuts_name">Button name</string>
+    <string name="keyboard_shortcuts_chord">Keys, for example CTRL + C</string>
+    <string name="keyboard_shortcuts_invalid">Enter a name and 1–8 supported keys without duplicates.</string>
+    <string name="keyboard_shortcuts_import">Import shortcuts</string>
+    <string name="keyboard_shortcuts_export">Export shortcuts</string>
+    <string name="keyboard_shortcuts_replace">Replace your saved shortcuts with the %1$d shortcuts in this file?</string>
+    <string name="keyboard_shortcuts_replace_button">Replace</string>
+    <string name="keyboard_shortcuts_exported">Shortcuts exported.</string>
+    <string name="keyboard_shortcuts_file_error">Could not read or write the shortcut file. Check file access and use a valid shortcut export with at most 32 shortcuts.</string>
+    <string name="title_disable_hevc_low_latency">HEVC low-latency flags</string>
+    <string name="summary_disable_hevc_low_latency">Turn off if HEVC video stutters or freezes. Off skips the optional Android and chipset low-latency flags and reference-frame invalidation for HEVC. Required compatibility flags are preserved on older Fire TV decoders. Other codecs and decoder performance hints keep their own settings. Applies to the next stream.</string>
+    <string name="title_oled_black">OLED black</string>
+</resources>

@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_feature_permissions">Quyền của thiết bị</string>
+    <string name="host_feature_otp_pairing">Ghép đôi bằng mã PIN dùng một lần</string>
+    <string name="host_feature_clipboard">Bảng nhớ tạm</string>
+    <string name="host_feature_server_commands">Lệnh máy chủ</string>
+    <string name="host_feature_virtual_display">Màn hình ảo</string>
+    <string name="host_feature_virtual_display_hdr">Màn hình ảo HDR</string>
+    <string name="host_feature_display_modes">Chế độ hiển thị của PC</string>
+    <string name="host_feature_fractional_refresh">Tần số quét lẻ</string>
+    <string name="host_feature_vrr">VRR phía máy chủ</string>
+    <string name="host_feature_runtime_bitrate">Đổi tốc độ bit trong khi stream</string>
+    <string name="host_feature_pyrowave">PyroWave</string>
+    <string name="host_feature_speed_test">Kiểm tra tốc độ kết nối</string>
+    <string name="host_feature_hardware_metrics">Chỉ số CPU và GPU của máy chủ</string>
+    <string name="host_feature_network_path">Kiểm tra tuyến mạng</string>
+    <string name="host_feature_frame_limiter">Trạng thái giới hạn khung hình</string>
+    <string name="host_feature_controller_preparation">Kết nối lại tay cầm điều khiển</string>
+    <string name="host_feature_remote_sessions">Giám sát từ xa và Chỉ đầu vào</string>
+    <string name="host_feature_web_ui">Giao diện web</string>
+    <string name="host_feature_reason_update">Hãy cập nhật phần mềm máy chủ để dùng tính năng này</string>
+    <string name="host_feature_reason_pair">Hãy ghép đôi với PC này trước</string>
+    <string name="host_feature_reason_view_permission">Hãy cho phép thiết bị này xem stream trên máy chủ</string>
+    <string name="host_feature_reason_clipboard_permission">Hãy cho phép thiết bị này dùng bảng nhớ tạm trên máy chủ</string>
+    <string name="host_feature_reason_command_permission">Hãy cho phép thiết bị này dùng lệnh máy chủ trên máy chủ</string>
+    <string name="host_feature_reason_no_commands">Hãy thêm lệnh trong giao diện web của máy chủ</string>
+    <string name="host_feature_reason_virtual_display_off">Hãy bật màn hình ảo trong cài đặt của máy chủ</string>
+    <string name="host_feature_reason_virtual_display_driver">Driver màn hình ảo của máy chủ chưa sẵn sàng</string>
+    <string name="host_feature_reason_hardware_metrics_off">Hãy bật chỉ số phần cứng trong cài đặt của máy chủ</string>
+    <string name="host_feature_reason_sleep_permission">Thiết bị này không được phép cho PC vào chế độ ngủ</string>
+    <string name="host_feature_reason_file_permission">Chưa có quyền tệp: hãy cấp trong giao diện web của máy chủ</string>
+    <string name="host_feature_unknown">Áp dụng nếu máy chủ hỗ trợ</string>
+    <string name="host_details_software_apollo">Máy chủ tương thích Apollo</string>
+    <string name="host_details_software_vibepollo">Máy chủ tương thích Vibepollo</string>
+    <string name="host_details_software_unknown">Máy chủ tương thích Moonlight</string>
+    <string name="host_details_features">Tính năng</string>
+    <string name="host_details_features_unknown">Hãy kết nối với PC này một lần để xem PC hỗ trợ những gì.</string>
+    <string name="host_details_features_none">Không có tính năng bổ sung nào được báo cáo</string>
+    <string name="host_pyrowave_unavailable">PC này không stream được PyroWave nên sẽ dùng %1$s.</string>
+    <string name="connection_test_intro_delay">Kiểm tra độ trễ đến PC của bạn.</string>
+    <string name="host_feature_cursor_shape">Hình dạng con trỏ</string>
+</resources>

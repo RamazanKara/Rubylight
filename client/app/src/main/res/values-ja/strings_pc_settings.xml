@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pc_settings_title">PC の設定</string>
+    <string name="pc_settings_display">PC 側の表示</string>
+    <string name="pc_settings_connection">接続</string>
+    <string name="pc_settings_host">ホスト</string>
+    <string name="pc_settings_needs_online">PC がオンラインのときに使用できます</string>
+    <string name="pc_settings_test_speed">Ping、ジッター、損失、ダウンロード速度</string>
+    <string name="pc_settings_test_delay">Ping、ジッター、損失</string>
+    <string name="pc_settings_remote_summary">インターネット経由のストリーミングを設定</string>
+    <string name="pc_settings_wake">Wake-on-LAN</string>
+    <string name="pc_settings_wake_ready">このデバイスはメニューから PC を起動できます</string>
+    <string name="pc_settings_wake_unknown">PC の電源が入っているときにペアリングしてから、PC で Wake-on-LAN を有効にしてください</string>
+    <string name="pc_settings_details_summary">ホストソフトウェア、機能、アドレス</string>
+    <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
+    <string name="pc_settings_shortcut">ホーム画面に追加</string>
+    <string name="pc_settings_shortcut_summary">この PC のライブラリを開きます</string>
+    <string name="connection_test_ms">%1$s ms</string>
+    <string name="connection_test_percent">%1$s%%</string>
+    <string name="connection_test_speed">速度 %1$.1f Mbps</string>
+    <string name="connection_test_speed_needs_pairing">速度未測定: 先にこの PC とペアリングしてください</string>
+    <string name="connection_test_speed_no_answer">速度未測定: PC から応答がありませんでした</string>
+    <string name="connection_test_speed_unsupported">速度未測定: このホストには速度テストがありません</string>
+</resources>

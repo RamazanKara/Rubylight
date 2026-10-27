@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pin_lock_title">Bloqueo con PIN</string>
+    <string name="pin_lock_summary">Pide un PIN para abrir Nightjar o iniciar una transmisión. Un PIN olvidado solo se puede restablecer borrando los datos de Nightjar en los ajustes de Android, lo que también elimina tus PCs vinculados.</string>
+    <string name="pin_set">Establecer PIN</string>
+    <string name="pin_change">Cambiar PIN</string>
+    <string name="pin_remove">Quitar PIN</string>
+    <string name="pin_set_summary">Elige de 4 a 8 dígitos.</string>
+    <string name="pin_is_set_summary">Hay un PIN establecido. Para cambiarlo o quitarlo se pide el PIN actual.</string>
+    <string name="pin_mode_title">Bloqueo</string>
+    <string name="pin_mode_off">Desactivado</string>
+    <string name="pin_mode_app">Al abrir Nightjar</string>
+    <string name="pin_mode_streams">Al iniciar cualquier transmisión</string>
+    <string name="pin_mode_selected">Al iniciar una transmisión en los PCs seleccionados</string>
+    <string name="pin_pcs_title">PCs seleccionados</string>
+    <string name="pin_pcs_none">Ninguno seleccionado</string>
+    <plurals name="pin_pcs_selected">
+        <item quantity="one">%d PC</item>
+        <item quantity="other">%d PCs</item>
+    </plurals>
+    <string name="pin_pcs_empty">Aún no se ha añadido ningún PC.</string>
+    <string name="pin_grace_title">Volver a pedir tras</string>
+    <string name="pin_grace_always">Cada vez que se sale de Nightjar</string>
+    <string name="pin_grace_minutes">%d minutos</string>
+    <string name="pin_grace_hour">1 hora</string>
+    <string name="pin_remove_title">¿Quitar el PIN?</string>
+    <string name="pin_remove_message">Nightjar dejará de pedir un PIN.</string>
+    <string name="pin_footer">Si olvidas el PIN, la única forma de restablecerlo es borrar los datos de Nightjar en los ajustes de Android. Eso también elimina tus PCs vinculados, así que tendrás que vincularlos de nuevo.</string>
+    <string name="pin_saved">PIN guardado</string>
+    <string name="pin_removed">PIN quitado</string>
+    <string name="pin_title_app">Nightjar está bloqueado</string>
+    <string name="pin_title_enter">Introduce tu PIN</string>
+    <string name="pin_title_choose">Elige un PIN</string>
+    <string name="pin_title_confirm">Confirma tu PIN</string>
+    <string name="pin_subtitle_app">Introduce tu PIN para continuar</string>
+    <string name="pin_subtitle_stream">Necesario para iniciar una transmisión</string>
+    <string name="pin_subtitle_stream_pc">Necesario para iniciar una transmisión en %1$s</string>
+    <string name="pin_subtitle_verify">Necesario para cambiar el bloqueo con PIN</string>
+    <string name="pin_subtitle_choose">Usa de 4 a 8 dígitos</string>
+    <string name="pin_subtitle_confirm">Escribe el mismo PIN otra vez</string>
+    <string name="pin_wrong">PIN incorrecto. Inténtalo de nuevo.</string>
+    <string name="pin_locked_out">Demasiados intentos fallidos. Vuelve a intentarlo en %1$s.</string>
+    <string name="pin_too_short">Usa al menos 4 dígitos.</string>
+    <string name="pin_mismatch">Los PIN no coinciden. Elige un PIN de nuevo.</string>
+    <string name="pin_checking">Comprobando…</string>
+    <string name="pin_saving">Guardando…</string>
+    <string name="pin_cancel">Cancelar</string>
+    <string name="pin_close_app">Cerrar Nightjar</string>
+    <string name="pin_key_delete">Borrar</string>
+    <string name="pin_key_confirm">Confirmar</string>
+    <string name="pin_dots_description">%1$d de %2$d dígitos introducidos</string>
+    <string name="pin_hint">Arriba y Abajo eligen una fila. Izquierda, Aceptar y Derecha pulsan sus teclas.</string>
+    <string name="pin_row_1">Fila 1: 1, 2, 3</string>
+    <string name="pin_row_2">Fila 2: 4, 5, 6</string>
+    <string name="pin_row_3">Fila 3: 7, 8, 9</string>
+    <string name="pin_row_4">Fila 4: Borrar, 0, Confirmar</string>
+</resources>

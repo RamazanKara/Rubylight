@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="add_pc_address_error">请输入 IP 地址或电脑名称，可在后面加端口（例如 192.168.1.10:47989）。</string>
+    <string name="add_pc_connecting">正在连接…</string>
+    <string name="add_pc_service_unavailable">无法启动电脑发现功能。请关闭此界面后重试。</string>
+    <string name="sheet_close">关闭菜单</string>
+</resources>

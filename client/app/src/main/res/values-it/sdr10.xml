@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_enable_sdr10">Colore a 10 bit (SDR)</string>
+    <string name="summary_enable_sdr10">Trasmette l’SDR in HEVC o AV1 a 10 bit per ridurre il banding. Richiede un decoder Main10 su questo dispositivo; il display del PC deve essere in SDR.</string>
+    <string name="startup_sdr10_not_accepted">Questo PC non ha accettato i 10 bit, quindi lo stream è a 8 bit.</string>
+    <string name="stream_sdr10_host_hdr">Il PC sta inviando HDR. Imposta il suo display su SDR per l’SDR a 10 bit.</string>
+    <string name="stream_sdr10_unavailable">L’SDR a 10 bit non viene usato, quindi lo stream è a 8 bit: %1$s</string>
+    <string name="stream_sdr10_reason_decoder">con l’impostazione codec attuale non è disponibile alcun decoder Main10 HEVC o AV1.</string>
+    <string name="stream_sdr10_reason_pyrowave">è scelto PyroWave e la sua uscita a 10 bit è solo HDR.</string>
+    <string name="stream_sdr10_reason_packed">il 4:4:4 impacchettato gestisce i 10 bit a modo suo.</string>
+    <string name="upscaling_tenbit_short">Non usato con i 10 bit</string>
+    <string name="stream_sdr10_reason_yuv444">il 4:4:4 è attivo e il PC offre 4:4:4 o 10 bit, non entrambi.</string>
+    <string name="upscaling_tenbit">Con 10 bit resta l’output diretto per preservare la precisione.</string>
+</resources>

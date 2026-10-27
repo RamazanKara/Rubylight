@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="remote_setup_title">Jouer hors de chez vous</string>
+    <string name="remote_step">Étape %1$d sur 3</string>
+    <string name="remote_prepare">Préparez-vous à la maison\n\nAssociez cet appareil à votre PC sur votre réseau domestique et vérifiez qu’un stream normal fonctionne. Gardez le PC allumé et l’hôte lancé.\n\nLe Wake-on-LAN à distance nécessite un routeur compatible ou un appareil toujours allumé à la maison ; le téléphone ne peut pas réveiller seul un PC injoignable.</string>
+    <string name="remote_vpn">Connectez vos appareils\n\nUn VPN privé comme Tailscale peut relier votre téléphone et votre PC sans exposer l’interface Web de l’hôte sur Internet. Installez-le sur les deux appareils, connectez-vous à votre propre compte et activez leur connexion. Une configuration VPN existante peut aussi être utilisée.\n\nLe lien ouvre le guide de téléchargement officiel. Cette appli n’installe aucun logiciel, ne crée aucun compte, ne modifie pas les paramètres du routeur et n’active pas de redirection de port.</string>
+    <string name="remote_verify">Vérifiez depuis un autre réseau\n\nAjoutez l’adresse VPN du PC avec Ajouter une adresse, avec son port HTTP de streaming s’il a été personnalisé. Cela met à jour le PC enregistré si son identité correspond. Revenez ensuite ici.\n\nDéconnectez-vous de votre Wi-Fi domestique et utilisez les données mobiles ou un autre réseau. Le test vérifie l’identité du PC associé et effectue cinq petites requêtes HTTPS ; il ne lance pas de stream et ne télécharge pas de fichier de test de vitesse. Un test effectué uniquement à la maison ne prouve pas l’accessibilité depuis Internet.</string>
+    <string name="remote_get_vpn">Ouvrir la configuration de Tailscale</string>
+    <string name="remote_add_address">Ajouter une adresse VPN ou distante</string>
+    <string name="remote_test">Tester ce PC</string>
+    <string name="remote_previous">Précédent</string>
+    <string name="remote_next">Suivant</string>
+    <string name="remote_pair_first">Associez d’abord ce PC en local. Son certificat enregistré et son port HTTPS sont nécessaires pour vérifier que l’adresse distante mène bien à votre PC.</string>
+    <string name="remote_pair_revoked">Le PC a répondu, mais cet appareil n’est plus associé. Associez-le de nouveau à la maison avant de tester le jeu à distance.</string>
+    <string name="remote_permission_denied">Le PC associé a répondu, mais cet appareil ne peut pas voir les streams. Autorisez la visualisation ou le lancement d’applications pour cet appareil dans les paramètres ou l’interface Web de votre hôte.</string>
+    <string name="remote_running">Vérification de votre PC associé…</string>
+    <string name="remote_cancelled">Test annulé. Aucun paramètre de l’hôte ou du réseau n’a été modifié.</string>
+    <string name="remote_failed">Impossible de vérifier le PC associé. Vérifiez qu’il est allumé, que l’hôte et le VPN fonctionnent, et que l’adresse enregistrée et les ports de streaming sont corrects. Si l’association a changé, associez-le de nouveau à la maison. Ce test ne peut pas distinguer un PC en veille d’un itinéraire bloqué.</string>
+    <string name="remote_verified">Le PC associé a répondu sur ce réseau. Essayez maintenant un stream normal avec un débit modéré ; l’accessibilité HTTPS ne vérifie pas les ports UDP vidéo/audio ni les performances de streaming dans la durée.</string>
+    <string name="remote_direct">Tailscale indique un chemin direct pour cette connexion. Les chemins directs offrent généralement le meilleur débit et la meilleure latence.</string>
+    <string name="remote_relay">Tailscale indique un relais DERP. Il assure la connectivité, mais la vitesse de streaming peut être limitée. Consultez les conseils de connectivité de Tailscale ou configurez un relais pair adapté.</string>
+    <string name="remote_peer_relay">Tailscale indique un relais pair. Les performances dépendent de ce relais et des deux chemins réseau ; comparez avec un vrai stream.</string>
+    <string name="remote_unknown">Chemin direct ou relayé : indisponible. Cet hôte, ce VPN ou cette connexion n’indique pas la classification actuelle de l’itinéraire. Vérifiez l’état de votre VPN ; un ping faible ne prouve pas à lui seul un chemin direct.</string>
+    <string name="remote_measurements">Moyenne des requêtes HTTPS : %1$.1f ms\nRequêtes échouées : %2$.0f %%\nCe sont des mesures de requêtes applicatives, pas de la perte de paquets vidéo ni de la latence de saisie.</string>
+</resources>

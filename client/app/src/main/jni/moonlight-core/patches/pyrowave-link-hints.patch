@@ -1,0 +1,35 @@
+Carry the pacing hints in the stream configuration. pyrowaveLinkMbps is this client's own
+wired-link speed toward the host (0 when unknown, Wi-Fi or cellular) and pyrowavePaceMbps a
+loss-free PyroWave pace found by calibration (0 when there is none). Both use the names and
+meaning of Nonary's moonlight-common-c, so a host that reads them paces a client behind a
+slower network port the same way for either client. android_sdp.c sends them as
+x-ss-video[0].pyrowaveLinkMbps (every codec) and x-ss-video[0].pyrowavePaceMbps (PyroWave
+only) when above zero. clientWireless is nonzero when this client's route to the host is Wi-Fi or
+cellular; android_sdp.c then sends x-rl-video[0].clientWireless:1 (every codec), so a Rubylight
+host paces for a wireless link from the first frame. Hosts that do not know it ignore it.
+Independent of the other patches; add it at the end of the list.
+
+diff --git a/src/Limelight.h b/src/Limelight.h
+index 22bee46..ed67a46 100644
+--- a/src/Limelight.h
++++ b/src/Limelight.h
+@@ -100,6 +100,19 @@ typedef struct _STREAM_CONFIGURATION {
+     // in /launch and /resume requests.
+     char remoteInputAesKey[16];
+     char remoteInputAesIv[16];
++
++    // Routed client wired-link speed in Mbps, used by host pacing for every
++    // codec. Zero means unknown.
++    int pyrowaveLinkMbps;
++
++    // Highest frame pace in Mbps that calibration kept within its loss limit.
++    // The host paces PyroWave frames at this rate instead of its default
++    // pacing. Zero means no calibrated pace.
++    int pyrowavePaceMbps;
++
++    // Nonzero when the client's route to the host is Wi-Fi or cellular, so the host
++    // paces for a wireless link from the first frame. Zero is wired or unknown.
++    int clientWireless;
+ } STREAM_CONFIGURATION, *PSTREAM_CONFIGURATION;
+ 
+ // Use this function to zero the stream configuration when allocated on the stack or heap

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_details_close">Chiudi</string>
+    <string name="host_details_copy">Copia info di debug</string>
+    <string name="host_details_copied">Info di debug copiate</string>
+    <string name="host_details_status">Stato</string>
+    <string name="host_details_state">Connessione</string>
+    <string name="host_details_pairing">Accoppiamento</string>
+    <string name="host_details_paired">Accoppiato</string>
+    <string name="host_details_not_paired">Tocca il PC per accoppiarlo.</string>
+    <string name="host_details_running">App in esecuzione</string>
+    <string name="host_details_running_none">Nessuna</string>
+    <string name="host_details_running_app">App %1$d</string>
+    <string name="host_details_host">Host</string>
+    <string name="host_details_software">Software host</string>
+    <string name="host_details_software_butterpollo">Rubylight %1$s</string>
+    <string name="host_details_software_gamestream">NVIDIA GameStream</string>
+    <string name="host_details_software_other">Host compatibile con Sunshine</string>
+    <string name="host_details_id">ID host</string>
+    <string name="host_details_network">Rete</string>
+    <string name="host_details_active_address">Connesso tramite</string>
+    <string name="host_details_local_address">Indirizzo locale</string>
+    <string name="host_details_remote_address">Indirizzo Internet</string>
+    <string name="host_details_ipv6_address">Indirizzo IPv6</string>
+    <string name="host_details_manual_address">Indirizzo inserito</string>
+    <string name="host_details_https_port">Porta HTTPS</string>
+    <string name="host_details_mac">Indirizzo MAC (Wake-on-LAN)</string>
+    <string name="host_details_permissions">Autorizzazioni del dispositivo</string>
+</resources>

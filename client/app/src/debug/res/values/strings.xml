@@ -1,0 +1,3 @@
+<resources>
+    <string name="smoke_overlay_message" translatable="false">Nightjar overlay preview\nSynthetic measurements — no stream\nLong-press the overlay to switch modes</string>
+</resources>

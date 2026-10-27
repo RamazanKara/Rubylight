@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_profile_title">%1$s のストリーミング設定</string>
+    <string name="host_profile_status_global">すべての値が全 PC 共通の設定に従います。</string>
+    <string name="host_profile_status_custom">すべての値を全 PC 共通の設定に戻します。</string>
+    <string name="host_profile_explanation">ここで設定した値はこの PC にのみ適用されます。「全 PC と同じ」と表示された項目は、後からの変更も含めてメインのストリーミング設定に従います。</string>
+    <string name="host_profile_resolution">解像度（幅 × 高さ）</string>
+    <string name="host_profile_width">幅</string>
+    <string name="host_profile_height">高さ</string>
+    <string name="host_profile_match_screen">この画面に合わせる</string>
+    <string name="host_profile_native">画面サイズ（この画面に従う）</string>
+    <string name="host_profile_refresh">フレームレート（FPS）</string>
+    <string name="host_profile_bitrate">ビットレート（Mbps）</string>
+    <string name="host_profile_scale">PC のレンダリング解像度（%）</string>
+    <string name="host_profile_codec">動画コーデック</string>
+    <string name="host_profile_virtual_display">ホストの仮想ディスプレイ</string>
+    <string name="host_profile_hdr">HDR</string>
+    <string name="host_profile_full_range">フルレンジ映像</string>
+    <string name="host_profile_yuv444">YUV 4:4:4 を優先</string>
+    <string name="host_profile_save">保存</string>
+    <string name="host_profile_reset">すべて全 PC と同じにする</string>
+    <string name="host_profile_saved">PC のストリーミング設定を保存しました</string>
+    <string name="host_profile_reset_done">この PC は全 PC 共通の設定を使用するようになりました</string>
+    <string name="host_profile_invalid_number">%1$d～%2$d の整数を入力してください</string>
+    <string name="host_profile_invalid_refresh">1～1000 FPS の範囲で、小数点以下 2 桁までで入力してください</string>
+    <string name="host_profile_invalid_bitrate">0.5～2000 Mbps の範囲で入力してください</string>
+    <string-array name="host_profile_codecs">
+        <item>自動</item>
+        <item>@string/videoformat_av1always</item>
+        <item>@string/videoformat_hevcalways</item>
+        <item>@string/videoformat_h264always</item>
+        <item>@string/videoformat_pyrowave</item>
+    </string-array>
+    <string name="host_profile_follows">全 PC と同じ · %1$s</string>
+    <string name="host_profile_same_as_all_value">全 PC と同じ（%1$s）</string>
+    <string name="host_profile_on">オン</string>
+    <string name="host_profile_off">オフ</string>
+</resources>

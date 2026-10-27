@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_profile_title">%1$s 的串流設定</string>
+    <string name="host_profile_status_global">所有值都沿用所有電腦的設定。</string>
+    <string name="host_profile_status_custom">將所有值改回所有電腦的設定。</string>
+    <string name="host_profile_explanation">你在這裡設定的值只會套用到這部電腦。標示為「與所有電腦相同」的項目都會沿用主要的串流設定，包括之後的變更。</string>
+    <string name="host_profile_resolution">解析度 (寬 × 高)</string>
+    <string name="host_profile_width">寬度</string>
+    <string name="host_profile_height">高度</string>
+    <string name="host_profile_match_screen">使用這個螢幕</string>
+    <string name="host_profile_native">螢幕大小 (跟隨這個螢幕)</string>
+    <string name="host_profile_refresh">影格速率 (FPS)</string>
+    <string name="host_profile_bitrate">位元速率 (Mbps)</string>
+    <string name="host_profile_scale">電腦轉譯解析度 (%)</string>
+    <string name="host_profile_codec">視訊轉碼器</string>
+    <string name="host_profile_virtual_display">主機虛擬顯示器</string>
+    <string name="host_profile_hdr">HDR</string>
+    <string name="host_profile_full_range">全範圍視訊</string>
+    <string name="host_profile_yuv444">優先使用 YUV 4:4:4</string>
+    <string name="host_profile_save">儲存</string>
+    <string name="host_profile_reset">全部與所有電腦相同</string>
+    <string name="host_profile_saved">已儲存電腦串流設定</string>
+    <string name="host_profile_reset_done">這部電腦現在使用所有電腦的設定</string>
+    <string name="host_profile_invalid_number">請輸入 %1$d 到 %2$d 之間的整數</string>
+    <string name="host_profile_invalid_refresh">請輸入 1–1000 FPS，最多兩位小數</string>
+    <string name="host_profile_invalid_bitrate">請輸入 0.5–2000 Mbps</string>
+    <string-array name="host_profile_codecs">
+        <item>自動</item>
+        <item>@string/videoformat_av1always</item>
+        <item>@string/videoformat_hevcalways</item>
+        <item>@string/videoformat_h264always</item>
+        <item>@string/videoformat_pyrowave</item>
+    </string-array>
+    <string name="host_profile_follows">與所有電腦相同 · %1$s</string>
+    <string name="host_profile_same_as_all_value">與所有電腦相同 (%1$s)</string>
+    <string name="host_profile_on">開啟</string>
+    <string name="host_profile_off">關閉</string>
+</resources>

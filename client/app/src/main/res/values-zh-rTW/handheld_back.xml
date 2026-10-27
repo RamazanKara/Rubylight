@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_back_opens_menu">實體返回鍵開啟串流選單</string>
+    <string name="summary_checkbox_back_opens_menu">使用掌機或控制器的專用返回鍵開啟串流選單。Select 和 Start 保留原有對應。實體鍵盤優先使用「返回鍵傳送 Windows 鍵」設定。下次串流生效。</string>
+</resources>

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_details_close">Fechar</string>
+    <string name="host_details_copy">Copiar informações de depuração</string>
+    <string name="host_details_copied">Informações de depuração copiadas</string>
+    <string name="host_details_status">Status</string>
+    <string name="host_details_state">Conexão</string>
+    <string name="host_details_pairing">Pareamento</string>
+    <string name="host_details_paired">Pareado</string>
+    <string name="host_details_not_paired">Toque no PC para parear.</string>
+    <string name="host_details_running">App em execução</string>
+    <string name="host_details_running_none">Nenhum</string>
+    <string name="host_details_running_app">App %1$d</string>
+    <string name="host_details_host">Host</string>
+    <string name="host_details_software">Software do host</string>
+    <string name="host_details_software_butterpollo">Rubylight %1$s</string>
+    <string name="host_details_software_gamestream">NVIDIA GameStream</string>
+    <string name="host_details_software_other">Host compatível com Sunshine</string>
+    <string name="host_details_id">ID do host</string>
+    <string name="host_details_network">Rede</string>
+    <string name="host_details_active_address">Conectado via</string>
+    <string name="host_details_local_address">Endereço local</string>
+    <string name="host_details_remote_address">Endereço de internet</string>
+    <string name="host_details_ipv6_address">Endereço IPv6</string>
+    <string name="host_details_manual_address">Endereço que você inseriu</string>
+    <string name="host_details_https_port">Porta HTTPS</string>
+    <string name="host_details_mac">Endereço MAC (Wake-on-LAN)</string>
+    <string name="host_details_permissions">Permissões do dispositivo</string>
+</resources>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Extra space between a shell screen and the window edge, so nothing sits in a TV's overscan area. -->
+    <dimen name="shell_overscan_horizontal">0dp</dimen>
+    <dimen name="shell_overscan_vertical">0dp</dimen>
+</resources>

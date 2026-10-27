@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_touch_off_help">Touch ist aus. Wische zurück oder drücke Zurück für das Stream-Menü.</string>
+    <string name="title_local_cursor_speed">Tempo des lokalen Mauszeigers</string>
+    <string name="title_trackpad_acceleration">Zeigerbeschleunigung</string>
+    <string name="summary_trackpad_acceleration">Schnelle Wischbewegungen bewegen den Mauszeiger weiter als langsame, damit kleine Bewegungen präzise bleiben. Für Trackpad und Lokaler Mauszeiger.</string>
+    <string name="title_trackpad_acceleration_curve">Stärke der Beschleunigung</string>
+    <string-array name="trackpad_acceleration_curve_names">
+        <item>Sanft</item>
+        <item>Mittel</item>
+        <item>Stark</item>
+    </string-array>
+    <string name="title_trackpad_momentum">Nachgleiten nach Wischen</string>
+    <string name="summary_trackpad_momentum">Nach einem schnellen Wischen bewegt sich der Mauszeiger weiter und wird langsamer. Tippe auf den Bildschirm, um ihn anzuhalten. Für Trackpad und Lokaler Mauszeiger.</string>
+    <string name="title_trackpad_momentum_glide">Gleitweg</string>
+    <string-array name="trackpad_momentum_glide_names">
+        <item>Kurz</item>
+        <item>Mittel</item>
+        <item>Lang</item>
+    </string-array>
+    <string name="title_trackpad_area">Trackpad-Bereich</string>
+    <string name="summary_trackpad_area">Gesten für Trackpad und Lokaler Mauszeiger beginnen nur in diesem Teil des Bildschirms. Berührungen, die woanders beginnen, werden ignoriert.</string>
+    <string-array name="trackpad_area_names">
+        <item>Ganzer Bildschirm</item>
+        <item>Rechte Hälfte</item>
+        <item>Linke Hälfte</item>
+        <item>Untere Hälfte</item>
+        <item>Obere Hälfte</item>
+    </string-array>
+    <string name="title_three_finger_tap">Tippen mit drei Fingern</string>
+    <string name="summary_three_finger_tap">Was ein kurzes Tippen mit drei Fingern in den Modi Trackpad, Direkte Maussteuerung und Lokaler Mauszeiger auslöst.</string>
+    <string-array name="three_finger_tap_names">
+        <item>@string/desktop_controls_system_keyboard</item>
+        <item>Mittelklick</item>
+        <item>@string/desktop_controls_open</item>
+        <item>@string/stream_disabled</item>
+        <item>@string/pc_keyboard_title</item>
+    </string-array>
+    <string name="stream_cursor_shape_rejected">Nightjar kann die Mauszeigerform des PCs nicht zeichnen und zeigt den Standardpfeil.</string>
+    <string name="title_four_finger_tap">Vier-Finger-Tippen</string>
+    <string name="summary_four_finger_tap">Aktion beim kurzen Tippen mit vier Fingern in den Modi Trackpad, Direkte Maus und Lokaler Zeiger.</string>
+</resources>

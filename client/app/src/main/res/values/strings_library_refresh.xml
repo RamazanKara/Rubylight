@@ -1,0 +1,33 @@
+<resources>
+    <string name="library_search">Search games</string>
+    <string name="library_options">Library options</string>
+    <string name="library_more_for">More options for %1$s</string>
+    <string name="library_play">Play</string>
+    <string name="library_open">Open library</string>
+    <string name="library_loading">Loading your library…</string>
+    <string name="library_refresh">Refresh library</string>
+    <string name="library_retry">Try again</string>
+    <string name="library_show_hidden">Show hidden games</string>
+    <string name="library_hide_hidden">Hide hidden games</string>
+    <string name="library_no_matches">No games match your search.</string>
+    <string name="library_clear_search">Clear search</string>
+    <string name="library_all_hidden">Your games are hidden. Show hidden games to bring them back.</string>
+    <string name="library_offline">This PC is offline. Your saved library is still here. Reconnect to play.</string>
+    <string name="library_hidden_notice">Game hidden from your library</string>
+    <string name="library_undo">Undo</string>
+    <string name="library_discovery_title">Your games, on this screen</string>
+    <string name="library_discovery_body">Turn on your PC and start its streaming host, such as Apollo, Rubylight or Sunshine. PCs on the same network appear here automatically.</string>
+    <string name="library_discovery_hint">On a different network? Add your PC by address.</string>
+    <plurals name="library_results">
+        <item quantity="one">%1$d of %2$d game</item>
+        <item quantity="other">%1$d of %2$d games</item>
+    </plurals>
+    <plurals name="library_showing_hidden">
+        <item quantity="one">%1$d game · including hidden</item>
+        <item quantity="other">%1$d games · including hidden</item>
+    </plurals>
+    <plurals name="library_app_count">
+        <item quantity="one">%d game</item>
+        <item quantity="other">%d games</item>
+    </plurals>
+</resources>

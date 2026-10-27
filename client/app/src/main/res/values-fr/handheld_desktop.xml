@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_layout_title">Commandes pour ce jeu</string>
+    <string name="touch_layout_show">Afficher les boutons de jeu</string>
+    <string name="touch_layout_hide">Masquer les boutons de jeu</string>
+    <string name="touch_layout_add">Ajouter une commande</string>
+    <string name="touch_layout_move">Déplacer les boutons de jeu</string>
+    <string name="touch_layout_save">Enregistrer la disposition et jouer</string>
+    <string name="touch_layout_move_help">Faites glisser les boutons pour les placer. La saisie tactile est suspendue pendant le déplacement. Revenez ici et choisissez Enregistrer la disposition et jouer une fois terminé.</string>
+    <string name="touch_layout_import">Importer une disposition</string>
+    <string name="touch_layout_export">Exporter ou partager la disposition</string>
+    <string name="touch_layout_import_help">Collez une disposition Nightjar partagée, ou une disposition de clavier ou un fichier de touches personnalisées Artemis. Remplacer ne modifie que ce jeu sur ce PC. Une disposition non valide laisse vos commandes inchangées.</string>
+    <string name="touch_layout_paste">Coller le JSON de la disposition</string>
+    <string name="touch_layout_copy">Copier le JSON</string>
+    <string name="touch_layout_share">Partager le fichier JSON</string>
+    <string name="touch_layout_share_error">Impossible de partager la disposition. Copiez plutôt son JSON.</string>
+    <string name="touch_layout_limit">Une disposition peut contenir jusqu’à 32 commandes.</string>
+    <string name="touch_layout_name">Nom du bouton</string>
+    <string name="touch_layout_binding">Touches ou bouton de souris</string>
+    <string name="touch_layout_binding_help">Exemples : W, CTRL + C, SPACE. MOUSE_1 est le bouton gauche, MOUSE_2 le milieu, MOUSE_3 le droit, MOUSE_4 précédent et MOUSE_5 suivant.</string>
+    <string name="touch_layout_width">Largeur (pourcentage de la surface de commande, 4–80)</string>
+    <string name="touch_layout_height">Hauteur (pourcentage de la surface de commande, 4–80)</string>
+    <string name="touch_layout_toggle">Appuyer pour maintenir ; appuyer de nouveau pour relâcher</string>
+    <string name="touch_layout_hold">Maintenir tant que pressé</string>
+    <string name="touch_layout_pressed">Maintenu</string>
+    <string name="touch_layout_released">Relâché</string>
+    <string name="touch_layout_invalid">Vérifiez le nom, les touches ou le bouton, et que les nombres sont dans leur plage.</string>
+    <string name="desktop_zoom_enable">Activer le zoom et le panoramique par pincement</string>
+    <string name="desktop_zoom_disable">Désactiver le zoom et le panoramique par pincement</string>
+    <string name="desktop_zoom_reset">Réinitialiser le zoom</string>
+    <string name="desktop_zoom_help">Pincez avec deux doigts pour zoomer jusqu’à 4× ; faites glisser deux doigts pour vous déplacer. Un seul doigt conserve le mode tactile sélectionné. Le défilement à deux doigts est remplacé tant que les commandes de zoom sont activées.</string>
+    <string name="desktop_zoom_surface_help">Sur Android 5 et 6, activez TextureView dans les paramètres de streaming et reconnectez-vous pour utiliser le zoom.</string>
+    <string name="desktop_output">Sortie vidéo (reconnecte le stream)</string>
+    <string name="desktop_output_device">Cet appareil</string>
+    <string name="desktop_touchpad_help">La vidéo s’affiche sur votre écran externe. Utilisez cet écran comme pavé tactile. Le clavier, les boutons de jeu et le menu du stream restent disponibles ici.</string>
+    <string name="desktop_pacing_fallback">Écran externe : les images sont affichées dès leur arrivée.</string>
+    <string name="desktop_display_unavailable">Aucun écran externe ne peut afficher le stream : il reste donc sur cet appareil.</string>
+    <string name="controller_axes_title">Sticks, gâchettes et croix directionnelle</string>
+    <string name="controller_axes_configured">Attribution personnalisée des axes ou de la croix ; s’applique au prochain stream</string>
+    <string name="controller_axes_source">Entrée pour %1$s</string>
+    <string name="controller_axes_inverted">%1$s (inversé)</string>
+    <string-array name="controller_axes">
+        <item>Stick gauche horizontal</item>
+        <item>Stick gauche vertical</item>
+        <item>Stick droit horizontal</item>
+        <item>Stick droit vertical</item>
+        <item>Gâchette gauche</item>
+        <item>Gâchette droite</item>
+        <item>Croix haut</item>
+        <item>Croix bas</item>
+        <item>Croix gauche</item>
+        <item>Croix droite</item>
+    </string-array>
+    <string-array name="controller_dpad_targets">
+        <item>Rien</item>
+        <item>Croix haut</item>
+        <item>Croix bas</item>
+        <item>Croix gauche</item>
+        <item>Croix droite</item>
+        <item>A</item>
+        <item>B</item>
+        <item>X</item>
+        <item>Y</item>
+        <item>LB</item>
+        <item>RB</item>
+        <item>Clic du stick gauche</item>
+        <item>Clic du stick droit</item>
+        <item>Start</item>
+        <item>Select</item>
+        <item>Guide</item>
+    </string-array>
+</resources>

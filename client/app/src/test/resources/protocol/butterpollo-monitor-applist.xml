@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<!-- Butterpollo 118a0abb18480ff1da5564c57a2e00049ed67e47: catalogue values copied from remote.rs tests,
+     serialized using nvhttp.rs applist() with HDR disabled. -->
+<root status_code="200">
+<App><AppTitle>Resume</AppTitle><UUID>9a1c5a25-58fe-40e0-b9aa-7d3f00000001</UUID><IDX>0</IDX><ID>2147483501</ID><ArtVersion>remote-session-v6</ArtVersion><IsHdrSupported>0</IsHdrSupported></App>
+<App><AppTitle>Disconnect Monitor</AppTitle><UUID>9a1c5a25-58fe-40e0-b9aa-7d3f00000002</UUID><IDX>0</IDX><ID>2147483502</ID><ArtVersion>remote-session-v6</ArtVersion><IsHdrSupported>0</IsHdrSupported></App>
+</root>

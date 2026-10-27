@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="controller_mapping_title">Przyciski kontrolera</string>
+    <string name="controller_mapping_summary">Zmień przypisanie przycisków dla każdego modelu kontrolera</string>
+    <string name="controller_mapping_intro">Kliknij „Przypisz przycisk”, a potem naciśnij przycisk kontrolera, który chcesz zmienić.\nZmiany obowiązują od następnego strumienia.</string>
+    <string name="controller_mapping_waiting">Podłącz kontroler, a potem kliknij „Przypisz przycisk”.</string>
+    <string name="controller_mapping_unnamed">Kontroler</string>
+    <string name="controller_mapping_none">Wszystkie przyciski mają domyślne przypisanie.</string>
+    <string name="controller_mapping_row">Wysyła %1$s</string>
+    <string name="controller_mapping_choose">%1$s wysyła…</string>
+    <string name="controller_mapping_default">%1$s (domyślnie)</string>
+    <string name="controller_mapping_disabled">Nic</string>
+    <string name="controller_mapping_reset">Resetuj ten kontroler</string>
+    <string name="controller_button_left_stick">Wciśnięcie lewej gałki</string>
+    <string name="controller_button_right_stick">Wciśnięcie prawej gałki</string>
+    <string name="controller_button_start">Start</string>
+    <string name="controller_button_select">Back</string>
+    <string name="controller_button_guide">Guide</string>
+    <string name="controller_button_number">Przycisk %1$d</string>
+    <string name="pc_tap_to_pair">%1$s\nKliknij, aby sparować</string>
+</resources>

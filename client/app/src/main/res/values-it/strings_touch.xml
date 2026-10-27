@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_touch_off_help">Il touch è disattivato. Scorri indietro o premi Indietro per il menu dello stream.</string>
+    <string name="title_local_cursor_speed">Velocità del cursore locale</string>
+    <string name="title_trackpad_acceleration">Accelerazione del puntatore</string>
+    <string name="summary_trackpad_acceleration">Gli scorrimenti rapidi spostano il puntatore più lontano di quelli lenti, così i piccoli movimenti restano precisi. Per Trackpad e Cursore locale.</string>
+    <string name="title_trackpad_acceleration_curve">Intensità dell’accelerazione</string>
+    <string-array name="trackpad_acceleration_curve_names">
+        <item>Leggera</item>
+        <item>Media</item>
+        <item>Forte</item>
+    </string-array>
+    <string name="title_trackpad_momentum">Scivolamento dopo uno scatto</string>
+    <string name="summary_trackpad_momentum">Dopo uno scorrimento rapido il puntatore continua a muoversi e rallenta. Tocca lo schermo per fermarlo. Per Trackpad e Cursore locale.</string>
+    <string name="title_trackpad_momentum_glide">Distanza di scivolamento</string>
+    <string-array name="trackpad_momentum_glide_names">
+        <item>Corta</item>
+        <item>Media</item>
+        <item>Lunga</item>
+    </string-array>
+    <string name="title_trackpad_area">Area del trackpad</string>
+    <string name="summary_trackpad_area">I gesti di Trackpad e Cursore locale iniziano solo in questa parte dello schermo. I tocchi che iniziano altrove vengono ignorati.</string>
+    <string-array name="trackpad_area_names">
+        <item>Schermo intero</item>
+        <item>Metà destra</item>
+        <item>Metà sinistra</item>
+        <item>Metà inferiore</item>
+        <item>Metà superiore</item>
+    </string-array>
+    <string name="title_three_finger_tap">Tocco con tre dita</string>
+    <string name="summary_three_finger_tap">Cosa fa un tocco rapido con tre dita nelle modalità Trackpad, Mouse diretto e Cursore locale.</string>
+    <string-array name="three_finger_tap_names">
+        <item>@string/desktop_controls_system_keyboard</item>
+        <item>Clic centrale</item>
+        <item>@string/desktop_controls_open</item>
+        <item>@string/stream_disabled</item>
+        <item>@string/pc_keyboard_title</item>
+    </string-array>
+    <string name="stream_cursor_shape_rejected">Nightjar non può disegnare la forma del cursore del PC e mostra la freccia predefinita.</string>
+    <string name="title_four_finger_tap">Tocco con quattro dita</string>
+    <string name="summary_four_finger_tap">Azione di un tocco rapido con quattro dita nelle modalità Trackpad, Mouse diretto e Cursore locale.</string>
+</resources>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="add_pc_address_error">IP 주소 또는 PC 이름을 입력하세요. 포트를 덧붙일 수도 있습니다(예: 192.168.1.10:47989).</string>
+    <string name="add_pc_connecting">연결 중…</string>
+    <string name="add_pc_service_unavailable">PC 검색을 시작할 수 없습니다. 이 화면을 닫고 다시 시도하세요.</string>
+    <string name="sheet_close">메뉴 닫기</string>
+</resources>

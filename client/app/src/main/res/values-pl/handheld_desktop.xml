@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_layout_title">Sterowanie dla tej gry</string>
+    <string name="touch_layout_show">Pokaż przyciski gry</string>
+    <string name="touch_layout_hide">Ukryj przyciski gry</string>
+    <string name="touch_layout_add">Dodaj element sterujący</string>
+    <string name="touch_layout_move">Przesuń przyciski gry</string>
+    <string name="touch_layout_save">Zapisz układ i graj</string>
+    <string name="touch_layout_move_help">Przeciągnij przyciski, aby je rozmieścić. Podczas przesuwania sterowanie dotykiem jest wstrzymane. Po zakończeniu wróć tutaj i wybierz Zapisz układ i graj.</string>
+    <string name="touch_layout_import">Importuj układ</string>
+    <string name="touch_layout_export">Eksportuj lub udostępnij układ</string>
+    <string name="touch_layout_import_help">Wklej udostępniony układ Nightjar albo układ klawiatury lub plik własnych klawiszy z Artemis. Zastąpienie zmienia tylko tę grę na tym komputerze. Nieprawidłowy układ nie zmienia elementów sterujących.</string>
+    <string name="touch_layout_paste">Wklej JSON układu</string>
+    <string name="touch_layout_copy">Kopiuj JSON</string>
+    <string name="touch_layout_share">Udostępnij plik JSON</string>
+    <string name="touch_layout_share_error">Nie udało się udostępnić układu. Skopiuj zamiast tego jego JSON.</string>
+    <string name="touch_layout_limit">Układ może zawierać do 32 elementów sterujących.</string>
+    <string name="touch_layout_name">Nazwa przycisku</string>
+    <string name="touch_layout_binding">Klawisze lub przycisk myszy</string>
+    <string name="touch_layout_binding_help">Przykłady: W, CTRL + C, SPACE. MOUSE_1 to lewy, MOUSE_2 środkowy, MOUSE_3 prawy, MOUSE_4 wstecz i MOUSE_5 dalej.</string>
+    <string name="touch_layout_width">Szerokość (% powierzchni sterowania, 4–80)</string>
+    <string name="touch_layout_height">Wysokość (% powierzchni sterowania, 4–80)</string>
+    <string name="touch_layout_toggle">Dotknij, aby przytrzymać; dotknij ponownie, aby zwolnić</string>
+    <string name="touch_layout_hold">Przytrzymuj podczas naciskania</string>
+    <string name="touch_layout_pressed">Przytrzymany</string>
+    <string name="touch_layout_released">Zwolniony</string>
+    <string name="touch_layout_invalid">Sprawdź nazwę, klawisze lub przycisk oraz czy liczby mieszczą się w zakresie.</string>
+    <string name="desktop_zoom_enable">Włącz powiększanie i przesuwanie gestem</string>
+    <string name="desktop_zoom_disable">Wyłącz powiększanie i przesuwanie gestem</string>
+    <string name="desktop_zoom_reset">Resetuj powiększenie</string>
+    <string name="desktop_zoom_help">Rozsuń dwa palce, aby powiększyć do 4×; przeciągnij dwoma palcami, aby przesunąć. Jeden palec działa w wybranym trybie dotyku. Przewijanie dwoma palcami jest zastępowane, gdy powiększanie jest włączone.</string>
+    <string name="desktop_zoom_surface_help">Na Androidzie 5 i 6 włącz TextureView w ustawieniach strumieniowania i połącz ponownie, aby używać powiększania.</string>
+    <string name="desktop_output">Wyjście wideo (ponownie łączy strumień)</string>
+    <string name="desktop_output_device">To urządzenie</string>
+    <string name="desktop_touchpad_help">Wideo jest na ekranie zewnętrznym. Używaj tego ekranu jako touchpada. Klawiatura, przyciski gry i menu strumienia są nadal dostępne tutaj.</string>
+    <string name="desktop_pacing_fallback">Ekran zewnętrzny: klatki są wyświetlane od razu po odebraniu.</string>
+    <string name="desktop_display_unavailable">Żaden ekran zewnętrzny nie może wyświetlić strumienia, więc pozostaje on na tym urządzeniu.</string>
+    <string name="controller_axes_title">Gałki, spusty i D-pad</string>
+    <string name="controller_axes_configured">Własne przypisanie osi lub D-pada; obowiązuje od następnego strumienia</string>
+    <string name="controller_axes_source">Wejście dla: %1$s</string>
+    <string name="controller_axes_inverted">%1$s (odwrócone)</string>
+    <string-array name="controller_axes">
+        <item>Lewa gałka w poziomie</item>
+        <item>Lewa gałka w pionie</item>
+        <item>Prawa gałka w poziomie</item>
+        <item>Prawa gałka w pionie</item>
+        <item>Lewy spust</item>
+        <item>Prawy spust</item>
+        <item>D-pad w górę</item>
+        <item>D-pad w dół</item>
+        <item>D-pad w lewo</item>
+        <item>D-pad w prawo</item>
+    </string-array>
+    <string-array name="controller_dpad_targets">
+        <item>Nic</item>
+        <item>D-pad w górę</item>
+        <item>D-pad w dół</item>
+        <item>D-pad w lewo</item>
+        <item>D-pad w prawo</item>
+        <item>A</item>
+        <item>B</item>
+        <item>X</item>
+        <item>Y</item>
+        <item>LB</item>
+        <item>RB</item>
+        <item>Wciśnięcie lewej gałki</item>
+        <item>Wciśnięcie prawej gałki</item>
+        <item>Start</item>
+        <item>Select</item>
+        <item>Guide</item>
+    </string-array>
+</resources>

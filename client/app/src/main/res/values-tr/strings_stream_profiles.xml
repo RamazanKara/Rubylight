@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Named profiles (Settings → Video → Profiles) -->
+    <string name="profiles_title">Profiller</string>
+    <string name="profiles_subtitle">Profil</string>
+    <string name="profiles_summary_none">Yok: yayınlar ana ayarları kullanır</string>
+    <string name="profiles_summary_in_use">Kullanılan: %1$s</string>
+    <string name="profiles_summary_auto">Yayın başlarken ağa göre seçilir</string>
+    <string name="profiles_section_list">Profilleriniz</string>
+    <string name="profiles_section_choice">Yayının kullanacağı profil</string>
+    <string name="profiles_new">Yeni profil</string>
+    <string name="profiles_new_summary">Boş başlar: yalnızca değiştirmesi gereken değerleri ayarlayın.</string>
+    <string name="profiles_name">Profil adı</string>
+    <string name="profiles_name_empty">Bir ad girin</string>
+    <string name="profiles_name_too_long">En fazla %1$d karakter kullanın</string>
+    <string name="profiles_name_taken">Bu ad başka bir profilde kullanılıyor</string>
+    <string name="profiles_too_many">En fazla %1$d profil tutabilirsiniz.</string>
+    <string name="profiles_values_none">Henüz bir şey ayarlanmadı</string>
+    <plurals name="profiles_values_count">
+        <item quantity="one">%d değer ayarlandı</item>
+        <item quantity="other">%d değer ayarlandı</item>
+    </plurals>
+    <string name="profiles_marker_in_use">Kullanılıyor</string>
+    <string name="profiles_marker_rules">Seçildiği ağ: %1$s</string>
+    <string name="profiles_edit">Değerleri düzenle</string>
+    <string name="profiles_rename">Yeniden adlandır</string>
+    <string name="profiles_duplicate">Kopyasını oluştur</string>
+    <string name="profiles_delete">Sil</string>
+    <string name="profiles_copy_name">%1$s kopyası</string>
+    <string name="profiles_delete_title">%1$s silinsin mi?</string>
+    <string name="profiles_delete_message">Bu profili kullanan yayınlar bunun yerine ana ayarları kullanır. Bu işlem geri alınamaz.</string>
+    <string name="profiles_deleted">Profil silindi</string>
+    <string name="profiles_in_use">Kullanılan profil</string>
+    <string name="profiles_none">Yok (ana ayarlar)</string>
+    <string name="profiles_main_settings">ana ayarlar</string>
+    <string name="profiles_auto">Ağa göre seç</string>
+    <string name="profiles_auto_summary_on">Açık: yayın başlarken profili ağa göre aşağıdaki seçim belirler. Ethernet ve seçim yapılmamış ağlar kullanılan profili kullanır.</string>
+    <string name="profiles_auto_summary_off">Kapalı: her yayın kullanılan profili kullanır.</string>
+    <string name="profiles_rule_default">Kullanılan profil</string>
+    <string name="profiles_network_mobile">Mobil veri</string>
+    <string name="profiles_network_home_wifi">Ev Wi-Fi’ı</string>
+    <string name="profiles_network_wifi">Diğer Wi-Fi</string>
+    <string name="profiles_network_other">Ethernet veya diğer</string>
+    <string name="profiles_rule_mobile_summary">Android’in sınırlı olarak işaretlediği Wi-Fi ağları da dahildir (ör. telefonun hotspot’u).</string>
+    <string name="profiles_rule_wifi_summary">Ev Wi-Fi’ı olmayan her Wi-Fi veya ev Wi-Fi’ı ayarlanmamışken tüm Wi-Fi ağları.</string>
+    <string name="profiles_now">Bu ağdaki sonraki yayın</string>
+    <string name="profiles_now_value">%1$s: %2$s</string>
+    <string name="profiles_home_networks">Ev Wi-Fi ağları</string>
+    <string name="profiles_home_none">Ayarlanmadı: her Wi-Fi diğer Wi-Fi sayılır.</string>
+    <string name="profiles_home_saved">Bu cihaza kaydedildi. Kaldırmak için seçin.</string>
+    <string name="profiles_home_remove">Kaldır</string>
+    <string name="profiles_home_remove_title">%1$s ev Wi-Fi ağlarından kaldırılsın mı?</string>
+    <string name="profiles_home_no_access">Konum erişimi kapalı: ev Wi-Fi’ı tanınamaz, bu yüzden diğer Wi-Fi sayılır.</string>
+    <string name="profiles_home_add_current">Bu Wi-Fi’ı ekle</string>
+    <string name="profiles_home_add_current_summary">Bu cihazın bağlı olduğu Wi-Fi’ın adını kaydeder. Android, adı okumak için konum erişimi gerektirir.</string>
+    <string name="profiles_home_type">Wi-Fi adı yazın</string>
+    <string name="profiles_home_type_summary">Yayın başlarken tanınması için yine de konum erişimi gerekir.</string>
+    <string name="profiles_home_name">Wi-Fi adı</string>
+    <string name="profiles_location_title">Konum erişimine izin verilsin mi?</string>
+    <string name="profiles_location_message">Android, Wi-Fi adını yalnızca konum erişimi olan uygulamalara gösterir. Bu erişim tek bir amaçla kullanılır: yayın başlarken ev Wi-Fi’ınızı diğer Wi-Fi ağlarından ayırt etmek. Konumunuz okunmaz ve Wi-Fi adı bu cihazda kalır: hiçbir zaman gönderilmez veya günlüğe kaydedilmez. Erişim olmadan her Wi-Fi diğer Wi-Fi sayılır.</string>
+    <string name="profiles_location_continue">Devam</string>
+    <string name="profiles_location_denied">Konum erişimi yok: her Wi-Fi diğer Wi-Fi sayılır. Daha sonra Android’in uygulama ayarlarından izin verebilirsiniz.</string>
+    <string name="profiles_wifi_unreadable">Wi-Fi adı okunamıyor. Bu cihazın Wi-Fi’a bağlı ve konumun açık olduğunu kontrol edin veya adı yazın.</string>
+    <string name="profiles_order">Yayın başlarken her değer, onu ayarlayan ilk kaynaktan alınır: bu oyun, bu bilgisayar, profil ve son olarak ana ayarlar. Mobil veride bit hızı ardından “Mobil veride bit hızı” ile sınırlanır. Değişiklikler hiçbir zaman zaten çalışan bir yayına uygulanmaz.</string>
+    <string name="profiles_privacy">Ev Wi-Fi adları bu cihazda kalır; hiçbir zaman gönderilmez veya günlüğe kaydedilmez.</string>
+
+    <!-- Bitrate on mobile data (Settings → Video) -->
+    <string name="title_mobile_bitrate">Mobil veride bit hızı</string>
+    <string name="summary_mobile_bitrate">Yayın mobil veride veya Android’in sınırlı olarak işaretlediği bir Wi-Fi’da (ör. telefonun hotspot’u) başladığında bit hızını sınırlar. Her profil, bilgisayar ve oyun değerini de sınırlar. Kapalı, diğer ağlardaki ile aynı bit hızını kullanır.</string>
+    <string name="mobile_bitrate_off">Kapalı</string>
+
+    <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->
+    <string name="profile_settings_explanation">Yalnızca bu profilin değiştirmesi gereken değerleri ayarlayın. Ayarlanmayan her şey ana ayarlardan gelir. Bir bilgisayarın veya oyunun kendi değerleri yine de profilden önceliklidir.</string>
+    <string name="game_settings_title">Oyun yayın ayarları</string>
+    <string name="game_settings_subtitle">Bilgisayar: %1$s</string>
+    <string name="game_settings_explanation">Burada ayarladığınız değerler yalnızca bu bilgisayardaki bu oyun için geçerlidir. Ayarlanmayan her şey sırasıyla bu bilgisayarın ayarlarından, profilden ve ana ayarlardan gelir.</string>
+    <string name="game_settings_action">Bu oyun için yayın ayarları</string>
+    <string name="game_settings_note_none">Bu bilgisayarın ayarlarını kullanır</string>
+    <plurals name="game_settings_note_own">
+        <item quantity="one">Bu oyun için %d değer ayarlandı</item>
+        <item quantity="other">Bu oyun için %d değer ayarlandı</item>
+    </plurals>
+    <string name="layers_saved">Yayın ayarları kaydedildi</string>
+    <string name="layers_saved_context">Değişiklikler, kaydettikten sonraki yayında uygulanır.</string>
+    <string name="layers_unsaved_context">Kaydedilmemiş değişiklikler</string>
+    <string name="layers_unsaved_message">Bu yayın ayarlarında yaptığınız değişiklikler kaydedilmedi.</string>
+    <string name="layers_reset">Tüm değerleri temizle</string>
+    <string name="layers_reset_message">Tüm değerler “Ayarlanmadı” durumuna döner. Uygulamak için kaydedin.</string>
+    <string name="layers_status_empty">Burada hiçbir şey ayarlanmadı: tüm değerler alt katmanlardan gelir.</string>
+    <string name="layers_status_custom">Tüm değerleri “Ayarlanmadı” durumuna döndürür.</string>
+    <string name="layers_footer">Çıkmadan önce kaydedin. Değişiklikler sonraki yayına uygulanır, zaten çalışan bir yayına asla uygulanmaz.</string>
+    <string name="layers_not_set_value">Ayarlanmadı (%1$s)</string>
+    <string name="layers_value_from">%1$s · %2$s</string>
+    <string name="layers_from_main">ana ayarlardan</string>
+    <string name="layers_from_profile">%1$s profilinden</string>
+    <string name="layers_from_pc">bu bilgisayar için ayarlandı</string>
+    <string name="layers_from_game">bu oyun için ayarlandı</string>
+    <string name="layers_from_mobile_limit">mobil veri sınırı</string>
+    <string name="layers_pacing_vrr">Uyarlanabilir yenileme açık olduğundan yayın En düşük gecikme modunu kullanır.</string>
+
+    <!-- In the stream -->
+    <string name="layers_applied">Ayarlar: %1$s</string>
+    <string name="layers_part_profile">%1$s profili</string>
+    <string name="layers_part_profile_network">%1$s profili (%2$s için seçildi)</string>
+    <string name="layers_part_pc">bu bilgisayar</string>
+    <string name="layers_part_game">bu oyun</string>
+    <string name="layers_part_mobile_limit">mobil veri sınırı</string>
+    <string name="layers_problem_profile_missing">Kullanılan profil artık yok, bu yüzden ana ayarlar uygulanıyor.</string>
+    <string name="layers_problem_profile_missing_network">%1$s için seçilen profil artık yok, bu yüzden ana ayarlar uygulanıyor.</string>
+    <string name="layers_problem_profile_invalid">%1$s profilinde bu sürümün okuyamadığı bir değer var, bu yüzden ana ayarlar uygulanıyor. Düzeltmek için profili Profiller bölümünde açın.</string>
+    <string name="layers_problem_pc_invalid">Bu bilgisayarın kendi yayın ayarları okunamıyor, bu yüzden atlandı. Düzeltmek için bilgisayarın ayarlarını açın.</string>
+    <string name="layers_problem_game_invalid">Bu oyunun yayın ayarları okunamıyor, bu yüzden atlandı. Düzeltmek için ayarları oyunun menüsünden açın.</string>
+    <string name="layers_problem_home_wifi_unknown">Konum erişimi olmadan ev Wi-Fi’ı tanınamaz, bu yüzden bu Wi-Fi diğer Wi-Fi sayılır.</string>
+    <!-- Presets for one game's stream settings -->
+    <string name="game_preset_title">Ön ayar</string>
+    <string name="game_preset_competitive">Rekabetçi</string>
+    <string name="game_preset_competitive_summary">Kare hızlandırmayı en düşük gecikmeye ayarlar. Başka hiçbir şey değişmez.</string>
+    <string name="game_preset_smoothness">Akıcılık</string>
+    <string name="game_preset_smoothness_summary">Kareleri geciktirip gecikmeyi artıran en akıcı kare hızlandırmayı ayarlar ve bu oyun için uyarlanabilir yenilemeyi kapatır. Bit hızı değişmez.</string>
+    <string name="game_preset_quality">Kalite</string>
+    <string name="game_preset_quality_summary" formatted="false">Bit hızını bilgisayarın değerinin (bilgisayarda yoksa ana ayarların) %150’sine ayarlar; üst sınır ana bilgisayar sınırıdır. Kare hızlandırma ve uyarlanabilir yenileme değişmez; zayıf bağlantıda büyüyen kareler gecikmeyi artırabilir.</string>
+    <string name="game_preset_custom">Özel</string>
+    <string name="game_preset_custom_summary">Aşağıda ayarladığınız kendi değerleriniz.</string>
+</resources>

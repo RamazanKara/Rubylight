@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_display_menu">Mode d’affichage du PC</string>
+    <string name="host_display_location">Pour le mode Exclusif ou Étendu, ouvrez le menu de votre PC → Paramètres de stream → Mode d’affichage du PC. Le mode d’affichage est enregistré séparément pour chaque PC et nécessite la prise en charge par l’hôte.</string>
+    <string name="host_display_controls_virtual">Contrôlé par le mode d’affichage du PC : %1$s</string>
+    <string name="host_display_title">Affichage sur %1$s</string>
+    <string name="host_display_default">Réglage propre au PC</string>
+    <string name="host_display_exclusive">Exclusif — écran virtuel uniquement (écrans du PC éteints)</string>
+    <string name="host_display_extended_primary">Étendre — écran virtuel principal</string>
+    <string name="host_display_extended">Étendre — l’écran du PC reste principal</string>
+    <string name="host_display_extended_isolated">Étendu et séparé — le PC reste principal</string>
+    <string name="host_display_extended_primary_isolated">Étendu et séparé — écran virtuel principal</string>
+    <string name="host_display_physical">Écran physique (sans écran virtuel)</string>
+    <string name="host_display_saved">Choix d’affichage enregistré. Il s’applique à partir du prochain stream.</string>
+    <string name="host_display_save">Enregistrer le mode d’affichage</string>
+    <string name="host_display_explanation">Choisissez un mode, puis appuyez sur Enregistrer le mode d’affichage. Annuler conserve le choix actuel. Le nouveau mode s’applique à partir du prochain stream.\n\nL’écran du PC reste principal : votre moniteur reste l’écran principal de Windows. Écran virtuel principal : ce rôle passe à l’écran diffusé, où s’ouvrent généralement les jeux et les nouvelles fenêtres. Les deux options Étendre laissent les moniteurs du PC allumés.\n\nRéglage propre au PC suit l’option Écran virtuel de l’hôte et les paramètres d’affichage du PC. Exclusif éteint les moniteurs du PC pendant le stream. Les modes séparés placent l’écran diffusé loin des autres moniteurs dans la disposition du bureau, dans la même session Windows. Écran physique diffuse le moniteur du PC sans écran virtuel. Le PC rétablit ses écrans à la fin du stream.\n\nSeuls les PC dont l’hôte gère les modes d’affichage proposent ce choix ; sur les autres PC, c’est Écran virtuel de l’hôte qui décide.</string>
+    <string name="host_administration_menu">Ouvrir l’interface Web de l’hôte</string>
+    <string name="host_administration_help">Gérez les applications, les appareils associés et les paramètres de l’hôte dans son interface Web. Connectez-vous avec le compte propre à l’interface Web ; l’association ne vous connecte pas. L’accès à distance nécessite un port d’interface Web joignable.\n\n%1$s</string>
+    <string name="host_administration_open">Ouvrir dans le navigateur</string>
+    <string name="host_administration_no_browser">Aucun navigateur n’a pu ouvrir l’interface Web de l’hôte. Copiez son adresse et ouvrez-la sur un autre appareil.</string>
+</resources>

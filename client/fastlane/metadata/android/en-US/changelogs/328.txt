@@ -1,0 +1,2 @@
+Return to the library without a false disconnect error when the PC confirms that the game has ended, including during automatic recovery.
+Prevent the on-screen keyboard from opening automatically when starting a stream on a tablet. The keyboard shortcut still works normally.

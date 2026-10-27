@@ -1,0 +1,5 @@
+Automatische Stream-Wiederherstellung und optionale adaptive Qualitätsmodi.
+Stream-Diagnose mit rückgängig machbarem Bitratentest.
+Spielbezogene Touch-Steuerung, Desktop-Zoom und Video auf externen Displays.
+Hilfe für Fernzugriff und Routendiagnose gekoppelter Hosts.
+Zuverlässigere DualSense-USB-Anmeldung und Audioübertragung mit Schutz für Mikrofonstummschaltung und Berechtigungen.

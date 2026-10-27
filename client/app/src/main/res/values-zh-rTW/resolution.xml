@@ -1,0 +1,4 @@
+<resources>
+    <string name="resolution_custom">自訂…</string>
+    <string name="resolution_custom_size">自訂（%1$s）</string>
+</resources>

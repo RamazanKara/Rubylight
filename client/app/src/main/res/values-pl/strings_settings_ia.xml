@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_section_display">Ekran i obraz</string>
+    <string name="settings_display_adaptive">Adaptacyjne odświeżanie</string>
+    <string name="settings_display_no_upscaling">Bez skalowania</string>
+    <string name="settings_section_audio">Dźwięk</string>
+    <string name="settings_section_streaming">Strumieniowanie</string>
+    <string name="settings_section_streaming_summary">Nakładka, obraz w obrazie i przywracanie</string>
+    <string name="settings_category_refresh">Częstotliwość odświeżania</string>
+    <string name="settings_category_image">Obraz</string>
+    <string name="settings_category_pc_display">Ekran komputera</string>
+    <string name="settings_category_usb">Kontrolery USB</string>
+    <string name="settings_category_keyboard">Klawiatura</string>
+    <string name="settings_category_decoder">Dekoder</string>
+    <string name="settings_category_input_network">Sterowanie i sieć</string>
+    <string name="settings_category_diagnostics">Diagnostyka</string>
+    <string name="settings_needs_host_support">Wymaga obsługi przez host</string>
+    <string name="settings_pc_display_mode_value">Ustawiane dla każdego komputera w jego menu</string>
+    <string name="settings_help_summary">Konfiguracja, parowanie i typowe rozwiązania</string>
+    <string name="settings_latency_benchmark_summary">Przetestuj czasy tego urządzenia bez komputera</string>
+    <string name="settings_low_latency_partial">Częściowo wyłączone</string>
+    <string name="upscaling_hdr_short">Nieużywane z HDR</string>
+    <string name="upscaling_pyrowave_short">PyroWave używa SGSR</string>
+    <string name="title_low_latency_decoding">Dekodowanie o niskim opóźnieniu</string>
+    <string name="summary_low_latency_decoding">Używa trybów niskiego opóźnienia Androida i dekodera chipsetu oraz pozwala Androidowi dostrajać wydajność podczas strumieniowania. Wyłącz tylko w celu zbadania problemu z dekodowaniem.</string>
+    <string name="settings_touch_mode_help">Touchpad: przeciągnij, aby przesunąć kursor, dotknij, aby kliknąć.\nMysz bezpośrednia: kursor przesuwa się w miejsce dotknięcia.\nWielodotyk: dotknięcia trafiają do komputera jako dotyk. Bez obsługi przez host działa jak Mysz bezpośrednia.\nKursor lokalny: wskaźnik rysowany na tym urządzeniu od razu podąża za palcem; stuknij, aby kliknąć tam, gdzie wskazuje.\nDotyk wyłączony: ekran ignoruje dotyk, gdy grasz na kontrolerze. Przesuń wstecz lub naciśnij Wstecz, aby otworzyć menu strumienia.</string>
+    <string name="resolution_screen">Rozmiar ekranu (%1$s)</string>
+    <string name="resolution_screen_cutout">Rozmiar ekranu z pominięciem wycięcia aparatu (%1$s)</string>
+    <string name="resolution_screen_portrait">Rozmiar ekranu, pionowo (%1$s)</string>
+    <string name="resolution_screen_cutout_portrait">Rozmiar ekranu, pionowo, z pominięciem wycięcia aparatu (%1$s)</string>
+    <string name="fps_screen">Częstotliwość odświeżania ekranu (%1$d FPS)</string>
+</resources>

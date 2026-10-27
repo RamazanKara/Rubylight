@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shell_destinations">主要分区</string>
+    <string name="shell_current_page">当前页面</string>
+    <string name="host_menu_rename">重命名</string>
+    <string name="host_options_hint">按 X 或 ⋮ 查看选项</string>
+    <string name="host_rename_field">名称</string>
+    <string name="host_rename_help">仅在此设备上显示。留空则使用电脑自己的名称。</string>
+    <string name="host_rename_save">保存</string>
+    <string name="host_rename_title">重命名电脑</string>
+    <string name="host_unpair_title">要取消与 %1$s 的配对吗？</string>
+    <string name="host_unpair_message">电脑会忘记此设备，已保存的游戏库也会在此清除。之后需要重新配对才能串流。电脑仍保留在列表中。</string>
+    <string name="host_wake_needs_pairing">请在电脑开机时配对一次，以启用唤醒</string>
+    <string name="host_menu_sleep">让电脑睡眠</string>
+    <string name="host_menu_sleep_note">实验性</string>
+    <string name="host_sleep_title">要让 %1$s 进入睡眠吗？</string>
+    <string name="host_sleep_message">需先关闭电脑上的游戏和串流。可通过 Wake-on-LAN 再次唤醒。</string>
+    <string name="host_sleep_asking">正在询问电脑…</string>
+    <string name="host_sleep_accepted">电脑正在进入睡眠</string>
+    <string name="host_sleep_unsupported">这台电脑不支持睡眠。</string>
+    <string name="host_sleep_permission_help">如需允许，请在主机的网页控制台中打开此设备的设置，开启“让电脑睡眠”。</string>
+    <string name="host_sleep_busy">电脑现在无法睡眠。请关闭其上的游戏和串流后重试。</string>
+    <string name="host_sleep_refused">电脑拒绝进入睡眠 (HTTP %1$d)。</string>
+    <string name="host_sleep_failed">无法连接到电脑。</string>
+    <string name="host_sleep_error">无法询问电脑：%1$s</string>
+    <string name="settings_category_accessibility">无障碍</string>
+    <string name="title_ui_scale">界面大小</string>
+    <string name="summary_ui_scale">缩放应用的菜单、列表和对话框。视频流不会缩放。系统字体大小仍会叠加生效。立即生效。</string>
+    <string name="title_high_contrast">高对比度</string>
+    <string name="summary_high_contrast">在应用的每个界面使用黑色背景、更醒目的文字和轮廓，以及更粗的焦点框。视频流不受影响。</string>
+    <string name="title_reduce_motion">减少动效</string>
+    <string name="summary_reduce_motion">“跟随系统”会在 Android 动画缩放为 0 时关闭动画。“减少”用简单的焦点框取代焦点放大和滑动面板。“完整”始终播放动画。</string>
+    <string name="reduce_motion_system">跟随系统</string>
+    <string name="reduce_motion_reduce">减少</string>
+    <string name="reduce_motion_full">完整</string>
+    <!-- tv-mode-toggle -->
+    <string name="title_ui_mode">界面布局</string>
+    <string name="summary_ui_mode">“自动”跟随设备。“电视”会为电视排布应用，使用焦点和遥控器或手柄，适用于连接电视的掌机或手机。“手持”在电视上也使用触控布局。串流不受影响。立即生效。</string>
+    <string name="ui_mode_auto">自动</string>
+    <string name="ui_mode_tv">电视</string>
+    <string name="ui_mode_handheld">手持</string>
+</resources>

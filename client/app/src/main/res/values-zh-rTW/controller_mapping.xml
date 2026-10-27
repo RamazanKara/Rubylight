@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="controller_mapping_title">控制器按鈕</string>
+    <string name="controller_mapping_summary">為每種控制器型號重新對應按鈕</string>
+    <string name="controller_mapping_intro">輕觸「對應按鈕」，然後按下要重新對應的控制器按鈕。\n變更會在下次串流時套用。</string>
+    <string name="controller_mapping_waiting">請連接控制器，然後輕觸「對應按鈕」。</string>
+    <string name="controller_mapping_unnamed">控制器</string>
+    <string name="controller_mapping_none">所有按鈕都使用預設對應。</string>
+    <string name="controller_mapping_row">傳送 %1$s</string>
+    <string name="controller_mapping_choose">%1$s 傳送…</string>
+    <string name="controller_mapping_default">%1$s (預設)</string>
+    <string name="controller_mapping_disabled">無</string>
+    <string name="controller_mapping_reset">重設這個控制器</string>
+    <string name="controller_button_left_stick">按下左搖桿</string>
+    <string name="controller_button_right_stick">按下右搖桿</string>
+    <string name="controller_button_start">Start</string>
+    <string name="controller_button_select">Back</string>
+    <string name="controller_button_guide">Guide</string>
+    <string name="controller_button_number">按鈕 %1$d</string>
+    <string name="pc_tap_to_pair">%1$s\n輕觸即可配對</string>
+</resources>

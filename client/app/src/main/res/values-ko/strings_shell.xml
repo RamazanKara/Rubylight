@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shell_destinations">주요 섹션</string>
+    <string name="shell_current_page">현재 페이지</string>
+    <string name="host_menu_rename">이름 바꾸기</string>
+    <string name="host_options_hint">옵션: X 또는 ⋮</string>
+    <string name="host_rename_field">이름</string>
+    <string name="host_rename_help">이 기기에서만 표시됩니다. 비워 두면 PC 원래 이름을 사용합니다.</string>
+    <string name="host_rename_save">저장</string>
+    <string name="host_rename_title">PC 이름 바꾸기</string>
+    <string name="host_unpair_title">%1$s 페어링을 해제할까요?</string>
+    <string name="host_unpair_message">PC가 이 기기를 잊고 저장된 라이브러리도 여기서 지워집니다. 스트리밍하려면 다시 페어링해야 합니다. PC는 목록에 남습니다.</string>
+    <string name="host_wake_needs_pairing">PC가 켜져 있을 때 한 번 페어링하면 깨울 수 있습니다</string>
+    <string name="host_menu_sleep">PC 절전</string>
+    <string name="host_menu_sleep_note">실험적</string>
+    <string name="host_sleep_title">%1$s을(를) 절전 모드로 전환할까요?</string>
+    <string name="host_sleep_message">먼저 PC의 게임과 스트림을 종료해야 합니다. Wake-on-LAN으로 다시 깨울 수 있습니다.</string>
+    <string name="host_sleep_asking">PC에 확인하는 중…</string>
+    <string name="host_sleep_accepted">PC가 절전 모드로 전환됩니다</string>
+    <string name="host_sleep_unsupported">이 PC는 절전 모드를 지원하지 않습니다.</string>
+    <string name="host_sleep_permission_help">허용하려면 호스트 웹 콘솔의 이 기기 설정에서 PC 절전을 켜세요.</string>
+    <string name="host_sleep_busy">지금은 PC를 절전 모드로 전환할 수 없습니다. PC의 게임과 스트림을 종료한 후 다시 시도하세요.</string>
+    <string name="host_sleep_refused">PC가 절전 모드 전환을 거부했습니다(HTTP %1$d).</string>
+    <string name="host_sleep_failed">PC에 연결할 수 없습니다.</string>
+    <string name="host_sleep_error">PC에 확인할 수 없습니다: %1$s</string>
+    <string name="settings_category_accessibility">접근성</string>
+    <string name="title_ui_scale">인터페이스 크기</string>
+    <string name="summary_ui_scale">앱의 메뉴, 목록, 대화상자 크기를 조절합니다. 스트림은 조절되지 않습니다. 시스템 글꼴 크기는 그 위에 추가로 적용됩니다. 바로 적용됩니다.</string>
+    <string name="title_high_contrast">고대비</string>
+    <string name="summary_high_contrast">앱의 모든 화면에서 검은 배경, 더 선명한 글자와 윤곽선, 더 굵은 포커스 링을 사용합니다. 스트림은 바뀌지 않습니다.</string>
+    <string name="title_reduce_motion">동작 줄이기</string>
+    <string name="summary_reduce_motion">시스템 설정 따르기는 Android 애니메이션 배율이 0일 때 애니메이션을 끕니다. 줄이기는 포커스 확대와 슬라이드 시트를 단순한 링으로 바꿉니다. 전체는 항상 애니메이션을 사용합니다.</string>
+    <string name="reduce_motion_system">시스템 설정 따르기</string>
+    <string name="reduce_motion_reduce">줄이기</string>
+    <string name="reduce_motion_full">전체</string>
+    <!-- tv-mode-toggle -->
+    <string name="title_ui_mode">화면 레이아웃</string>
+    <string name="summary_ui_mode">「자동」은 기기를 따릅니다. 「TV」는 TV에 연결한 휴대용 게임기나 휴대폰에서도 포커스와 리모컨 또는 게임패드로 쓰는 TV용 레이아웃으로 앱을 구성합니다. 「휴대용」은 TV에서도 터치용 레이아웃을 씁니다. 스트림은 바뀌지 않습니다. 바로 적용됩니다.</string>
+    <string name="ui_mode_auto">자동</string>
+    <string name="ui_mode_tv">TV</string>
+    <string name="ui_mode_handheld">휴대용</string>
+</resources>

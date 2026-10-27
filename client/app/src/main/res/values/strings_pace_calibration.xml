@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pace_calibration_title">Calibrate frame pacing</string>
+    <string name="pace_calibration_summary">PyroWave: find the fastest speed the host can send whole frames to this device</string>
+    <string name="pace_calibration_saved">PyroWave frame pace: %1$d Mbps. Tap to calibrate again.</string>
+    <string name="pace_calibration_intro">The host sends test frames at different speeds, and Nightjar keeps the fastest speed at which whole frames arrive. PyroWave streams then use it. Stop any stream on this PC first. This takes one to three minutes.</string>
+    <string name="pace_calibration_preparing">Preparing the test…</string>
+    <string name="pace_calibration_running">Testing frames sent at %1$d Mbps…</string>
+    <string name="pace_calibration_result">Frame pace: %1$d Mbps on this %2$d Mbps connection. Saved for this PC.</string>
+    <string name="pace_calibration_result_unqualified">No tested speed met every loss limit. The best, %1$d Mbps on this %2$d Mbps connection, is saved for this PC. Some picture damage may remain.</string>
+    <string name="pace_calibration_no_link">Frame pacing needs the wired link speed of this device or of the PC, and neither is known.</string>
+    <string name="pace_calibration_too_fast">The stream already needs %1$d Mbps, too close to this %2$d Mbps connection. Lower the bitrate first.</string>
+    <string name="pace_calibration_streaming">The PC is streaming or already running a test. Stop the stream and try again.</string>
+    <string name="pace_calibration_unsupported">This PC can\'t test frame pacing. It needs a host with PyroWave pacing tests.</string>
+    <string name="pace_calibration_failed">The calibration could not be completed. Check the connection and try again.</string>
+    <string name="pace_calibration_none">No test completed. Try again.</string>
+    <string name="pace_calibration_clear">Clear</string>
+</resources>

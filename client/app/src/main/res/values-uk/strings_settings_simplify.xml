@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="fps_show_supported">Показувати лише підтримувані частоти кадрів</string>
+    <string name="title_adaptive_quality_setting">Знижувати роздільність або частоту кадрів за потреби</string>
+    <string name="summary_adaptive_quality_setting">Коли мережа, повільне декодування чи перегрів заважають трансляції, знижує роздільність або частоту кадрів, а коли все налагодиться, повертає їх. Не діє з PyroWave.</string>
+    <string name="title_low_latency_customize">Налаштувати</string>
+    <string name="low_latency_customize_closed">Виберіть, які частини низької затримки ввімкнено</string>
+    <string name="low_latency_customize_open">Сховати окремі перемикачі</string>
+    <string name="settings_category_compatibility">Сумісність</string>
+    <string name="summary_sops_short">Дозволяє ПК змінювати налаштування гри</string>
+    <string name="theme_high_contrast_note">Висока контрастність залишає застосунок чорним</string>
+    <string name="title_performance_overlay">Оверлей продуктивності</string>
+    <string name="overlay_off">Вимкнено</string>
+    <string name="title_theme">Тема</string>
+    <string name="theme_system">Системна</string>
+    <string name="theme_dark">Темна</string>
+</resources>

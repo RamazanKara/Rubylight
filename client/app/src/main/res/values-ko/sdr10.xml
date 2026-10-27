@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_enable_sdr10">10비트 색상 (SDR)</string>
+    <string name="summary_enable_sdr10">밴딩을 줄이기 위해 SDR을 10비트 HEVC 또는 AV1로 스트리밍합니다. 이 기기에 Main10 디코더가 필요하며 PC의 디스플레이는 SDR이어야 합니다.</string>
+    <string name="startup_sdr10_not_accepted">이 PC가 10비트를 받아들이지 않아 스트림은 8비트입니다.</string>
+    <string name="stream_sdr10_host_hdr">PC가 HDR을 보내고 있습니다. 10비트 SDR을 쓰려면 PC 디스플레이를 SDR로 바꾸세요.</string>
+    <string name="stream_sdr10_unavailable">10비트 SDR을 사용하지 않아 스트림은 8비트입니다: %1$s</string>
+    <string name="stream_sdr10_reason_decoder">현재 코덱 설정에서는 Main10 HEVC 또는 AV1 디코더를 사용할 수 없습니다.</string>
+    <string name="stream_sdr10_reason_pyrowave">PyroWave가 선택되었고 그 10비트 출력은 HDR 전용입니다.</string>
+    <string name="stream_sdr10_reason_packed">패킹된 4:4:4는 자체 10비트 처리를 사용합니다.</string>
+    <string name="upscaling_tenbit_short">10비트에서는 사용 안 함</string>
+    <string name="stream_sdr10_reason_yuv444">4:4:4가 켜져 있고, PC는 4:4:4와 10비트 중 하나만 사용합니다.</string>
+    <string name="upscaling_tenbit">10비트는 정밀도를 유지하기 위해 직접 출력을 사용합니다.</string>
+</resources>

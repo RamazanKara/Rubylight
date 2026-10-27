@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_section_advanced">Додатково</string>
+    <string name="settings_advanced_summary">Декодування, введення та діагностика</string>
+    <string name="settings_custom">Власні</string>
+    <string name="setting_help">Про %1$s</string>
+    <string name="stream_presets_help_title">Про пресети</string>
+    <string name="settings_version">Версія %1$s</string>
+    <string name="settings_source">Вихідний код і ліцензії</string>
+    <string name="settings_csv_summary">Зберегти останні вимірювання затримки</string>
+    <string name="host_profile_footer">Збережіть налаштування трансляції, перш ніж вийти. Режим дисплея зберігається окремо кнопкою «Зберегти режим дисплея» в його діалоговому вікні. Зміни застосуються до наступної трансляції.</string>
+    <string name="stream_overlay_menu">Оверлей</string>
+    <string name="stream_bitrate_manual">Задати бітрейт</string>
+    <string-array name="stream_preset_names">
+        <item>Рідна (рекомендовано)</item>
+        <item>Економія заряду</item>
+    </string-array>
+    <string name="applist_menu_show_app">Показати гру</string>
+</resources>

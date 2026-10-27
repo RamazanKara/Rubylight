@@ -1,0 +1,13 @@
+{
+  "source": "PyroWaveBitrateControllerTest.hostAppliedCapAlsoLowersFloor",
+  "rust": "pyrowave::BitrateController",
+  "java": "com.limelight.nvstream.PyroWaveBitrateController",
+  "new": [400000, 400000, 60, 0],
+  "calls": [
+    {"call": "applied", "args": [400000, 5000, 1000], "expect": null},
+    {"call": "sample", "args": [2000, true, false, 0, 0, 0], "expect": 0},
+    {"call": "sample", "args": [22000, true, false, 0, 0, 0], "expect": 0},
+    {"call": "sample", "args": [23000, true, true, 10, 0, 0], "expect": 0},
+    {"call": "sample", "args": [24000, true, true, 10, 0, 0], "expect": 0}
+  ]
+}

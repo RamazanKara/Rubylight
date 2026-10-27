@@ -1,0 +1,10 @@
+{
+  "source": "PeriodicStallsTest.onlyTheCountedPrefixIsUsed",
+  "rust": "health::PeriodicStalls",
+  "java": "com.limelight.policy.PeriodicStallsTrace",
+  "new": null,
+  "calls": [
+    {"call": "period_ms", "args": ["0 120000 240000 360000 480000 0 0", 5], "expect": 120000},
+    {"call": "period_ms", "args": ["0 120000 240000 360000 480000 0 0", 3], "expect": 0}
+  ]
+}

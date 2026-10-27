@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="startup_connection_failed">Impossible de se connecter au PC. Vérifiez que son hôte de streaming est lancé, que les deux appareils peuvent communiquer et que le pare-feu du PC autorise le streaming. Puis réessayez.</string>
+    <string name="startup_permission_denied">L’hôte a refusé cette demande. Dans les paramètres ou l’interface Web de votre hôte, activez cet appareil et autorisez la visualisation ou le lancement d’applications.</string>
+    <string name="startup_host_error">L’hôte n’a pas pu démarrer ce stream (erreur %1$d). Vérifiez l’état de l’hôte dans son interface Web, actualisez la liste des applications et réessayez.</string>
+    <string name="startup_invalid_host">Le PC a renvoyé une version de serveur non valide. Mettez à jour ou redémarrez l’hôte et réessayez.</string>
+    <string name="startup_virtual_display_unavailable">Ce PC n’a pas d’écran virtuel : il diffuse donc son propre écran.</string>
+    <string name="startup_not_paired">Cet appareil n’est plus associé. Revenez à la liste des PC et associez-le de nouveau.</string>
+    <string name="startup_app_missing">Cette application n’est plus dans la bibliothèque du PC. Actualisez la liste des applications et choisissez-en une autre.</string>
+    <string name="startup_resume_missing">Cette session n’est plus disponible. Actualisez la liste des applications et choisissez une session.</string>
+    <string name="startup_host_resolution_unsupported">Le PC ne prend pas en charge les résolutions supérieures à 4K. Choisissez 4K ou moins dans les paramètres de stream.</string>
+    <string name="startup_device_resolution_unsupported">Les résolutions supérieures à 4K nécessitent la prise en charge du HEVC ou de l’AV1 sur cet appareil. Choisissez une résolution plus basse ou un autre codec.</string>
+    <string name="startup_host_update_4k">Mettez à jour GeForce Experience sur le PC pour streamer en 4K. Ce stream est en 1080p.</string>
+    <string name="startup_hdr_unavailable">Le PC et cet appareil n’ont aucun codec HDR en commun : le stream est donc en SDR.</string>
+    <string name="startup_pyrowave_hdr_unavailable">Le HDR PyroWave n’est pas disponible sur cet appareil (%1$s) : le HDR utilise donc un autre codec.</string>
+    <string name="startup_resume_failed">Impossible de reprendre la session. Vérifiez l’application sur le PC et réessayez.</string>
+    <string name="startup_session_owner">Un autre appareil détient cette session. Terminez-la sur cet appareil ou sur le PC, puis réessayez.</string>
+    <string name="startup_app_minimized">L’application est réduite. Restaurez-la sur le PC, ou quittez la session et relancez-la.</string>
+    <string name="startup_quit_failed">Impossible de quitter la session précédente. Terminez-la sur le PC et réessayez.</string>
+    <string name="startup_launch_failed">Impossible de lancer l’application. Vérifiez qu’elle s’ouvre sur le PC, puis réessayez.</string>
+    <string name="applist_permission_required">Cet appareil ne peut pas lister les applications. Autorisez le listage des applications pour cet appareil dans les paramètres ou l’interface Web de votre hôte. La bibliothèque s’actualise automatiquement.</string>
+    <string name="applist_load_failed">Impossible de charger les applications du PC. Vérifiez l’hôte et l’autorisation de liste des applications de cet appareil dans ses paramètres ou son interface Web. Nouvelle tentative automatique.</string>
+    <string name="applist_empty">Aucune application disponible. Ajoutez des applications à la bibliothèque de l’hôte et vérifiez l’autorisation de liste des applications de cet appareil dans les paramètres ou l’interface Web de votre hôte.</string>
+    <string name="host_profile_unsaved_title">Enregistrer les paramètres de stream ?</string>
+    <string name="host_profile_unsaved_message">Vos modifications des paramètres de stream de ce PC n’ont pas été enregistrées. Un mode d’affichage confirmé dans sa propre boîte de dialogue est enregistré séparément.</string>
+    <string name="host_profile_discard">Annuler les modifications</string>
+    <string name="preset_replace_settings">Cela remplace la résolution, la fréquence d’images, le débit, le frame pacing, la mise à l’échelle, le VRR et les paramètres de performances par les valeurs de ce préréglage. Les choix de codec et de HDR restent inchangés.</string>
+    <string name="pair_otp_incorrect_pin">Code PIN refusé. Générez un nouveau code PIN à usage unique dans l’interface Web de votre hôte et vérifiez la phrase secrète.</string>
+    <string name="pc_accessibility_actions">Actions du PC</string>
+    <string name="app_details">Nom : %1$s\nHDR pris en charge : %2$s\nID de l’application : %3$d</string>
+    <string name="app_hdr_unknown">Inconnu</string>
+</resources>

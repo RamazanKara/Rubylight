@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_search">搜尋遊戲</string>
+    <string name="library_options">遊戲庫選項</string>
+    <string name="library_more_for">%1$s 的更多選項</string>
+    <string name="library_play">開始玩</string>
+    <string name="library_open">開啟遊戲庫</string>
+    <string name="library_loading">正在載入你的遊戲庫…</string>
+    <string name="library_refresh">重新整理遊戲庫</string>
+    <string name="library_retry">再試一次</string>
+    <string name="library_show_hidden">顯示隱藏的遊戲</string>
+    <string name="library_hide_hidden">隱藏已隱藏的遊戲</string>
+    <string name="library_no_matches">沒有符合搜尋條件的遊戲。</string>
+    <string name="library_clear_search">清除搜尋</string>
+    <string name="library_all_hidden">你的遊戲都已隱藏。顯示隱藏的遊戲即可將它們找回來。</string>
+    <string name="library_offline">這部電腦已離線。你儲存的遊戲庫仍在這裡。重新連線即可開始玩。</string>
+    <string name="library_hidden_notice">已從遊戲庫隱藏遊戲</string>
+    <string name="library_undo">復原</string>
+    <string name="library_discovery_title">你的遊戲，就在這個畫面上</string>
+    <string name="library_discovery_body">請開啟電腦並啟動串流主機軟體，例如 Apollo、Rubylight 或 Sunshine。同一網路中的電腦會自動顯示在這裡。</string>
+    <string name="library_discovery_hint">在不同的網路上？請透過位址新增你的電腦。</string>
+    <plurals name="library_results">
+        <item quantity="other">%1$d / %2$d 款遊戲</item>
+    </plurals>
+    <plurals name="library_showing_hidden">
+        <item quantity="other">%1$d 款遊戲 · 包含隱藏的遊戲</item>
+    </plurals>
+    <plurals name="library_app_count">
+        <item quantity="other">%d 款遊戲</item>
+    </plurals>
+</resources>

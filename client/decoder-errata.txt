@@ -1,0 +1,79 @@
+This file serves to document some of the decoder errata when using MediaCodec hardware decoders on certain devices.
+
+1. num_ref_frames is set to 16 by NVENC which causes decoders to allocate 16+ buffers. This can cause an error or lag on some devices.
+	- Affected decoders: TI OMAP4 crashes, Allwinner A20, MT8176 lags (HEVC not affected)
+	
+2. Some H.264 decoders have a huge per-frame latency with the unmodified SPS sent from NVENC. Setting max_dec_frame_buffering=1 fixes this latency issue.
+	- Affected decoders: NVIDIA Tegra 3 and 4, Broadcom VideoCore IV
+
+3. Some decoders strictly require that you pass BUFFER_FLAG_CODEC_CONFIG and crash upon the IDR frame if you don't
+	- Affected decoders: TI OMAP4
+
+4. Some decoders require num_ref_frames=1 and max_dec_frame_buffering=1 to avoid crashing on SPS on first I-frame
+	- Affected decoders: Qualcomm in GS3 on 4.3+, Exynos 4 at 1080p only
+
+5. Some decoders will hang or crash if max_dec_frame_buffering is not present and level_idc is >= 50
+	- Affected decoders: MediaTek decoder in Fire HD 6/7 (2014)
+	
+6. Some decoders will hang if max_dec_frame_buffering IS present
+	- Affected decoders: Exynos 5 in Galaxy Note 10.1 (2014)
+
+7. Some decoders will not enter low latency mode if adaptive playback is enabled
+	- Affected decoders: Intel decoder in Nexus Player
+
+8. Some decoders will not enter low latency mode if the profile isn't baseline in the first SPS because B-frames may be present.
+	- Affected decoders: Intel decoder in Nexus Player (prior to Android 6.0)
+
+9. Some decoders will not enter low latency mode if the profile isn't constrained high profile because B-frames may be present.
+	- Affected decoders: Intel decoder in Nexus Player (after Android 6.0)
+
+10. Some decoders actually suffer increased latency when max_dec_frame_buffering=1
+	- Affected decoders: MediaTek decoder in Fire TV 2015
+
+11. Attempting to use reference picture invalidation at 1080p causes the decoder to crash on low-end Snapdragon SoCs. 720p is unaffected.
+	- Affected decoders: Snapdragon 200, 410, 415, 430, 435, 616
+
+12. Enabling adaptive playback causes H.265 1080p and 4K playback to fail on some MediaTek SoCs.
+	- Affected decoders: MT5832 in Sony BRAVIA 4K GB (BRAVIA_ATV2) and MT5890 in Phillips 55PUS6501
+
+13. Some HEVC decoders hang when receiving a stream with 16 reference frames
+	- Affected decoders: Amlogic S905Z in Fire TV 3
+
+14. Some HEVC decoders lag when receiving a stream with 16 reference frames
+	- Affected decoders: Tegra X1 in Pixel C (but NOT in SHIELD TV darcy)
+
+15. Some devices that support Android 11's FEATURE_LowLatency don't support it on their first compatible H.264/HEVC decoder. It is important to examine *all* decoders for FEATURE_LowLatency before deciding on one.
+    - Affected devices: Pixel 4 (c2.qti.avc.decoder.low_latency vs c2.qti.avc.decoder) and Galaxy S21 Exynos (OMX.Exynos.avc.dec [FEATURE_LowLatency] vs C2.Exynos.avc.decoder [no FEATURE_LowLatency])
+
+16. Some decoder have magic undocumented MediaFormat options to enable low latency prior to the introduction of KEY_LOW_LATENCY in Android 11. See MediaCodecHelper.java for info.
+    - Affected devices: MediaTek, Amlogic, Amazon, Qualcomm, Exynos, Huawei
+
+17. Fire TV 3's Amlogic HEVC decoder doesn't produce any output frames without setting the magic "vdec-lowlatency" MediaFormat option
+    - Affected devices: Fire TV 3
+
+2024+ device evidence review (2026-10-09; reports, not local measurements)
+
+18. Vivo Pad3 Pro / Dimensity 9300, Android 14: the reporter observed a decode-time spike and cursor stutter when motion resumed after 2-3 seconds of a static image above 1440p. Codec/firmware cause and a client workaround are not established. Do not generalize older MTK OMX errata to all C2 MTK decoders.
+    - Source: https://github.com/moonlight-stream/moonlight-android/issues/1356
+    - Related codec-info evidence lists c2.mtk.hevc.decoder.lowlatency on Poco X6 Pro / Dimensity 8300 Ultra: https://github.com/moonlight-stream/moonlight-android/issues/1241#issuecomment-2833328947
+    - Existing policy: MediaCodecHelper.findKnownSafeDecoder() searches all candidates for advertised FEATURE_LowLatency first. setDecoderLowLatencyOptions() prefers KEY_LOW_LATENCY on that path before vendor retries. No new MTK key or SoC blacklist is justified by these reports.
+
+19. Samsung Galaxy S24+ (Exynos), Android 14: upstream reports high decode latency/stutter at 2560x1440/60, changing while screen recording is active. Comments contain conflicting software/workload workarounds and reports from older Exynos devices. No controlled result establishes an Exynos 2400 codec quirk or a reliable fix.
+    - Source: https://github.com/moonlight-stream/moonlight-android/issues/1370
+    - Existing policy: omx.exynos/c2.exynos vendor.rtc-ext-dec-low-latency.enable fallback remains. Screen recording, CPU-Z and forced GPU activity are not added as workarounds; measure the actual phone/firmware and advertised decoder first.
+
+20. iQOO 12 Pro / Snapdragon 8 Gen 3, Android 14: an upstream report describes periodic rendered-FPS drops at 3200x1440/120 with AV1/HDR and balanced pacing, while incoming FPS remains steady. This does not establish a codec-specific decoder defect or an effective vendor key.
+    - Source: https://github.com/moonlight-stream/moonlight-android/issues/1371
+    - Counterexample to a blanket Snapdragon blacklist: the Xiaomi Pad 7 Pro / 8s Gen 3 corruption/freeze reporter later resolved their issue by replacing the router: https://github.com/moonlight-stream/moonlight-android/issues/1471#issuecomment-2816285963
+    - Existing policy: omx.qcom/c2.qti low-latency and picture-order retries remain capability-based. 8s Gen 3, 8 Gen 3 and 8 Elite are not interchangeable driver evidence.
+
+21. Snapdragon 8 Elite, Tensor G4/Pixel 9, newer Dimensity and Exynos revisions: no verified model-specific decoder workaround or reproducible decode measurement was established by the reachable upstream issues and this code review. Absence of evidence is not certification. Keep standard low-latency capability selection, supported size/rate/profile checks and vendor-option retry fallback; do not invent SoC timings or new tuning keys.
+    - Local implementation reviewed: app/src/main/java/com/limelight/binding/video/MediaCodecHelper.java and MediaCodecDecoderRenderer.java.
+    - Upstream issue searches: https://github.com/moonlight-stream/moonlight-android/issues?q=is%3Aissue+%228+Elite%22 and https://github.com/moonlight-stream/moonlight-android/issues?q=is%3Aissue+%22Tensor+G4%22
+    - Required phone checks, including firmware/decoder names, static-to-motion transitions and thermal runs: internal/device-checklist.md.
+
+22. Xiaomi TV Stick MiTV-AYFR0, Android TV 14, c2.amlogic.hevc.decoder: a patched Moonlight build reports slideshow-like HEVC playback despite normal FPS statistics. Omitting setDecoderLowLatencyOptions() fixes the reported 1920x1080/60 Sunshine stream while retaining normal HEVC reference-frame invalidation detection.
+    - Source: https://github.com/Viktsolovevwork278/moonlight-android-hevc-fix/releases/tag/v1.0.0 (710e90e04b3c9f940d149e29f9b74fe737b42245; decoder change 44a3bb3677270af68996acb9047571757eb153d9).
+    - Related firmware-specific evidence: https://github.com/sven253/artemis-moonlight-android-hevc-fix#hevc-low-latency-options reports KEY_LOW_LATENCY as problematic on Homatics Box 4K Pro V2 / S905X5M. This does not establish a quirk for every device using that SoC.
+    - Nightjar policy: Settings -> Advanced -> Decoder -> Disable HEVC low-latency flags is a device-independent opt-in, off by default. It omits optional standard and vendor low-latency options for HEVC in streams and the decoder benchmark, and disables HEVC RFI. Performance hints retain their own setting, with one tuned attempt followed by a fallback without optional tuning. Fire TV 3 (AFTN) on Fire OS 6 retains vdec-lowlatency in every attempt, including when tuning is disabled, to preserve output (erratum 17). The output queue follows the flags actually requested. No automatic model/SoC blacklist is added.
+    - Regression coverage validates startup, restart, fallback, other codecs, default behavior and benchmark invalidation; Nightjar hardware validation on these sticks is pending.

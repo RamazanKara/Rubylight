@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_feature_permissions">设备权限</string>
+    <string name="host_feature_otp_pairing">一次性 PIN 码配对</string>
+    <string name="host_feature_clipboard">剪贴板</string>
+    <string name="host_feature_server_commands">服务器命令</string>
+    <string name="host_feature_virtual_display">虚拟显示器</string>
+    <string name="host_feature_virtual_display_hdr">HDR 虚拟显示器</string>
+    <string name="host_feature_display_modes">电脑显示模式</string>
+    <string name="host_feature_fractional_refresh">小数刷新率</string>
+    <string name="host_feature_vrr">主机端 VRR</string>
+    <string name="host_feature_runtime_bitrate">串流期间更改码率</string>
+    <string name="host_feature_pyrowave">PyroWave</string>
+    <string name="host_feature_speed_test">连接速度测试</string>
+    <string name="host_feature_hardware_metrics">主机 CPU 和 GPU 读数</string>
+    <string name="host_feature_network_path">网络路由检查</string>
+    <string name="host_feature_frame_limiter">帧率限制器状态</string>
+    <string name="host_feature_controller_preparation">手柄重新连接</string>
+    <string name="host_feature_remote_sessions">远程监视和仅输入</string>
+    <string name="host_feature_web_ui">网页界面</string>
+    <string name="host_feature_reason_update">请更新主机软件以使用此功能</string>
+    <string name="host_feature_reason_pair">请先与此电脑配对</string>
+    <string name="host_feature_reason_view_permission">请在主机上允许此设备查看串流</string>
+    <string name="host_feature_reason_clipboard_permission">请在主机上允许此设备使用剪贴板</string>
+    <string name="host_feature_reason_command_permission">请在主机上允许此设备使用服务器命令</string>
+    <string name="host_feature_reason_no_commands">请在主机的网页界面中添加命令</string>
+    <string name="host_feature_reason_virtual_display_off">请在主机设置中开启虚拟显示器</string>
+    <string name="host_feature_reason_virtual_display_driver">主机的虚拟显示器驱动尚未就绪</string>
+    <string name="host_feature_reason_hardware_metrics_off">请在主机设置中开启硬件指标</string>
+    <string name="host_feature_reason_sleep_permission">此设备无权让电脑睡眠</string>
+    <string name="host_feature_reason_file_permission">此设备没有文件权限，请在主机的网页界面中允许</string>
+    <string name="host_feature_unknown">如果主机支持则适用</string>
+    <string name="host_details_software_apollo">兼容 Apollo 的主机</string>
+    <string name="host_details_software_vibepollo">兼容 Vibepollo 的主机</string>
+    <string name="host_details_software_unknown">兼容 Moonlight 的主机</string>
+    <string name="host_details_features">功能</string>
+    <string name="host_details_features_unknown">连接此电脑一次即可查看其支持的功能。</string>
+    <string name="host_details_features_none">未报告额外功能</string>
+    <string name="host_pyrowave_unavailable">此电脑无法使用 PyroWave 串流，因此改用 %1$s。</string>
+    <string name="connection_test_intro_delay">测试到你电脑的延迟。</string>
+    <string name="host_feature_cursor_shape">光标形状</string>
+</resources>

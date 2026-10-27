@@ -1,0 +1,15 @@
+Stream your PC with low latency. Nightjar works with Sunshine, Apollo, Vibepollo, Rubylight, GeForce Experience and other Moonlight-compatible hosts.
+
+Bring your desktop and apps to your Android phone, tablet or TV. Pair your PC, open your library and start a stream. Use touch controls, a controller, or a keyboard and mouse.
+
+Choose the Native preset to stream at your screen's resolution and refresh rate, or Battery saver to keep that resolution at 30 fps and use less power. Save separate settings for each PC.
+
+Turn on the performance overlay for one line with frame rate, round-trip time and frame loss, next to a dot that turns amber or red when the stream struggles. Switch it to Statistics for detailed measurements. While you play, open the stream menu: its Input, Display, Quality and Host sections cover touch and mouse modes, on-screen controls, picture-in-picture, bitrate and host commands.
+
+Built-in help shows you how to connect and pair your PC, use the controls and fix common problems.
+
+Extras such as the PyroWave codec, PC display modes and host performance readings work on hosts that support them (currently Rubylight).
+
+Nightjar is free and open source. No ads or in-app purchases.
+
+Licensed under GPL-3.0. Based on Moonlight, with thanks to its contributors.

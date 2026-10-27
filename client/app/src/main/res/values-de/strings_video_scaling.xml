@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="video_scaling_title">Videoskalierung</string>
+    <string-array name="video_scaling_modes">
+        <item>Einpassen</item>
+        <item>Ausfüllen (zuschneiden)</item>
+        <item>Strecken</item>
+        <item>1:1-Pixel</item>
+    </string-array>
+    <string name="video_scaling_help">Einpassen: das ganze Bild, mit Balken, wenn der Bildschirm ein anderes Format hat.\nAusfüllen (zuschneiden): füllt den Bildschirm ohne Verzerrung; was nicht hineinpasst, wird abgeschnitten.\nStrecken: füllt den Bildschirm; Formen können breiter oder höher wirken.\n1:1-Pixel: ein Stream-Pixel pro Bildschirmpixel. Ein kleinerer Stream bekommt einen Rand, ein größerer wird beschnitten.\nVideoposition setzt ein eingepasstes oder 1:1-Bild an den oberen Rand. Zoomen mit zwei Fingern funktioniert in jedem Modus, und Bild-im-Bild zeigt immer das ganze Bild.</string>
+    <string name="title_video_alignment">Videoposition</string>
+    <string name="summary_video_alignment">Wo ein eingepasstes oder 1:1-Bild steht, wenn Platz übrig bleibt. Oben hält den Platz darunter frei, etwa für die Tastatur oder die untere Hälfte eines gefalteten Smartphones. Ausfüllen und Strecken decken den ganzen Bildschirm ab; dort ändert sich nichts.</string>
+    <string-array name="video_alignment_names">
+        <item>Mitte</item>
+        <item>Oben</item>
+    </string-array>
+</resources>

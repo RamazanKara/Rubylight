@@ -1,0 +1,13 @@
+{
+  "source": "StreamExitPolicyTest.errorsWithAdviceKeepTheDialog",
+  "rust": "launch::StreamExitPolicy",
+  "java": "com.limelight.LaunchTrace",
+  "new": null,
+  "calls": [
+    {"call": "termination_needs_action", "args": [-100, false, false, false], "expect": true},
+    {"call": "termination_needs_action", "args": [-101, false, false, false], "expect": true},
+    {"call": "termination_needs_action", "args": [-102, false, false, false], "expect": true},
+    {"call": "termination_needs_action", "args": [-103, false, false, false], "expect": true},
+    {"call": "termination_needs_action", "args": [-104, false, false, false], "expect": true}
+  ]
+}

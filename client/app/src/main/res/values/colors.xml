@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Colour roles for the app theme. Night is the default; values-notnight switches to the day set (palette.xml). -->
+    <color name="primary">@color/night_primary</color>
+    <color name="on_primary">@color/night_on_primary</color>
+    <color name="primary_container">@color/night_primary_container</color>
+    <color name="on_primary_container">@color/night_on_primary_container</color>
+    <color name="inverse_primary">@color/night_inverse_primary</color>
+    <color name="secondary">@color/night_secondary</color>
+    <color name="on_secondary">@color/night_on_secondary</color>
+    <color name="secondary_container">@color/night_secondary_container</color>
+    <color name="on_secondary_container">@color/night_on_secondary_container</color>
+    <color name="tertiary">@color/night_tertiary</color>
+    <color name="on_tertiary">@color/night_on_tertiary</color>
+    <color name="tertiary_container">@color/night_tertiary_container</color>
+    <color name="on_tertiary_container">@color/night_on_tertiary_container</color>
+    <color name="error">@color/night_error</color>
+    <color name="on_error">@color/night_on_error</color>
+    <color name="error_container">@color/night_error_container</color>
+    <color name="on_error_container">@color/night_on_error_container</color>
+    <color name="surface">@color/night_surface</color>
+    <color name="surface_dim">@color/night_surface_dim</color>
+    <color name="surface_bright">@color/night_surface_bright</color>
+    <color name="surface_container_lowest">@color/night_surface_container_lowest</color>
+    <color name="surface_container_low">@color/night_surface_container_low</color>
+    <color name="surface_container">@color/night_surface_container</color>
+    <color name="surface_container_high">@color/night_surface_container_high</color>
+    <color name="surface_container_highest">@color/night_surface_container_highest</color>
+    <color name="on_surface">@color/night_on_surface</color>
+    <color name="on_surface_variant">@color/night_on_surface_variant</color>
+    <color name="outline">@color/night_outline</color>
+    <color name="outline_variant">@color/night_outline_variant</color>
+    <color name="inverse_surface">@color/night_inverse_surface</color>
+    <color name="inverse_on_surface">@color/night_inverse_on_surface</color>
+    <!-- 12% of the error colour, for the press state of destructive buttons. -->
+    <color name="error_ripple">#1FFFB4AB</color>
+    <!-- The thin dark line inside a poster's focus ring (40% black), so the ring reads over bright art. -->
+    <color name="tv_ring_hairline">#66000000</color>
+    <bool name="light_system_bars">false</bool>
+</resources>

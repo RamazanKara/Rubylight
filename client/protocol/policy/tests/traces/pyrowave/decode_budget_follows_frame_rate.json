@@ -1,0 +1,12 @@
+{
+  "source": "PyroWaveBitrateControllerTest.decodeBudgetFollowsFrameRateAndTransientSpikesDoNotReduce",
+  "rust": "pyrowave::BitrateController",
+  "java": "com.limelight.nvstream.PyroWaveBitrateController",
+  "new": [400000, 300000, 60, 0],
+  "calls": [
+    {"call": "sample", "args": [4000, true, false, 0, 0, 20], "expect": 0},
+    {"call": "sample", "args": [5000, true, false, 0, 0, 9], "expect": 0},
+    {"call": "sample", "args": [24000, true, false, 0, 0, 9], "expect": 0},
+    {"call": "sample", "args": [25000, true, false, 0, 0, 9], "expect": 306000}
+  ]
+}

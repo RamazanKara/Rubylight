@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="overlay_compact">Kompakt</string>
+    <string name="overlay_compact_fps">%1$s FPS</string>
+    <string name="overlay_compact_rtt">%1$s ms RTT</string>
+    <string name="overlay_compact_loss">%%%1$s kayıp</string>
+    <string name="overlay_compact_waiting">Video bekleniyor</string>
+    <string name="link_notice_lowered">Ana bilgisayar bit hızını %1$s Mbps\'ye düşürdü: ağ</string>
+    <string name="overlay_health_good">Yayın iyi</string>
+    <string name="overlay_health_fair">Yayın zorlanıyor</string>
+    <string name="overlay_health_poor">Yayın zayıf</string>
+    <string name="overlay_health_unknown">Yayın başlıyor</string>
+    <string name="stream_section_input">Giriş</string>
+    <string name="stream_section_display">Ekran</string>
+    <string name="stream_section_quality">Kalite</string>
+    <string name="stream_section_host">Ana bilgisayar</string>
+    <string name="stream_microphone">Mikrofon</string>
+    <string name="stream_cursor_show">Fare imlecini göster</string>
+    <string name="stream_cursor_hide">Fare imlecini gizle</string>
+    <string name="stream_keyboard_keys_hide">Ek klavye tuşlarını gizle</string>
+    <string name="stream_overlay_page">Katman ve tanılama</string>
+    <string name="stream_picture_in_picture">Pencere içinde pencere</string>
+    <string name="stream_quit_game">Oyundan çık</string>
+    <string name="stream_quit_game_confirm">Bilgisayardaki oyundan çıkılsın mı?\nKaydedilmemiş ilerleme kaybolur.</string>
+    <string name="stream_end_session">Oturumu sonlandır</string>
+    <string name="stream_end_session_confirm">PC üzerindeki yayın oturumu sonlandırılsın mı?
+Oyun çalışmaya devam eder.</string>
+    <string name="stream_close_game">Oyunu kapat</string>
+    <string name="stream_close_game_confirm">PC üzerindeki oyun kapatılsın mı?
+Kaydedilmemiş ilerleme kaybolur.</string>
+    <string name="stream_choice_selected">Seçili</string>
+    <string name="stream_choice_not_selected">Seçili değil</string>
+    <string name="stream_web_ui_leaves">Tarayıcıyı açmak yayından çıkarır; oyun bilgisayarda çalışmaya devam eder.</string>
+    <string name="stream_menu_hint">Yayın menüsünü açmak için %1$s.</string>
+    <string name="stream_menu_hint_swipe">ekran kenarından geri kaydırın</string>
+    <string name="stream_menu_hint_buttons">alttan yukarı kaydırıp Geri’ye dokunun</string>
+    <string name="stream_menu_hint_back">Geri’ye basın</string>
+    <string name="stream_menu_hint_controller">kumandada Start + Back + LB + RB’ye basın</string>
+    <string name="stream_menu_hint_keyboard">Ctrl + Alt + Shift + M’ye basın</string>
+    <string name="stream_menu_hint_or">%1$s veya %2$s</string>
+    <string name="stream_menu_hint_list">%1$s, %2$s</string>
+    <string name="stream_menu_hint_close">Kapatmak için dokunun</string>
+    <string name="stream_h264_decoder_missing">Bu cihaz, yayın için gereken H.264 videoyu donanımla çözemiyor.</string>
+    <string name="perf_overlay_vrr">Panel: %1$.2f Hz · işleme: %2$.2f Hz · VRR: %3$s</string>
+    <string name="perf_overlay_vrr_max_hz">maks. Hz</string>
+    <string name="sheet_back">Geri</string>
+</resources>

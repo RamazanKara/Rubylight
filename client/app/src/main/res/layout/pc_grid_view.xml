@@ -1,0 +1,9 @@
+<com.limelight.ui.AdaptiveGridView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/fragmentView" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:nextFocusDown="@id/manuallyAddPc" android:accessibilityTraversalAfter="@id/home_toolbar"
+    android:numColumns="auto_fit" android:columnWidth="296dp" android:stretchMode="columnWidth"
+    android:horizontalSpacing="@dimen/grid_spacing" android:verticalSpacing="@dimen/grid_spacing"
+    android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter"
+    android:paddingTop="@dimen/grid_padding_top" android:paddingBottom="@dimen/fab_clearance"
+    android:focusable="true" android:focusableInTouchMode="true" android:clipToPadding="false" android:clipChildren="false"
+    android:listSelector="@drawable/grid_focus_ring" android:drawSelectorOnTop="true" android:gravity="center" />

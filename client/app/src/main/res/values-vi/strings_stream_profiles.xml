@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Named profiles (Settings → Video → Profiles) -->
+    <string name="profiles_title">Hồ sơ</string>
+    <string name="profiles_subtitle">Hồ sơ</string>
+    <string name="profiles_summary_none">Không có: stream dùng cài đặt chính</string>
+    <string name="profiles_summary_in_use">Đang dùng: %1$s</string>
+    <string name="profiles_summary_auto">Chọn theo mạng khi stream bắt đầu</string>
+    <string name="profiles_section_list">Hồ sơ của bạn</string>
+    <string name="profiles_section_choice">Hồ sơ mà stream sẽ dùng</string>
+    <string name="profiles_new">Hồ sơ mới</string>
+    <string name="profiles_new_summary">Bắt đầu trống: chỉ đặt những giá trị cần thay đổi.</string>
+    <string name="profiles_name">Tên hồ sơ</string>
+    <string name="profiles_name_empty">Nhập tên</string>
+    <string name="profiles_name_too_long">Dùng tối đa %1$d ký tự</string>
+    <string name="profiles_name_taken">Một hồ sơ khác đã có tên này</string>
+    <string name="profiles_too_many">Bạn có thể giữ tối đa %1$d hồ sơ.</string>
+    <string name="profiles_values_none">Chưa đặt giá trị nào</string>
+    <plurals name="profiles_values_count">
+        <item quantity="other">Đã đặt %d giá trị</item>
+    </plurals>
+    <string name="profiles_marker_in_use">Đang dùng</string>
+    <string name="profiles_marker_rules">Được chọn cho: %1$s</string>
+    <string name="profiles_edit">Sửa giá trị</string>
+    <string name="profiles_rename">Đổi tên</string>
+    <string name="profiles_duplicate">Nhân bản</string>
+    <string name="profiles_delete">Xóa</string>
+    <string name="profiles_copy_name">Bản sao của %1$s</string>
+    <string name="profiles_delete_title">Xóa %1$s?</string>
+    <string name="profiles_delete_message">Các stream từng dùng hồ sơ này sẽ dùng cài đặt chính thay thế. Không thể hoàn tác thao tác này.</string>
+    <string name="profiles_deleted">Đã xóa hồ sơ</string>
+    <string name="profiles_in_use">Hồ sơ đang dùng</string>
+    <string name="profiles_none">Không có (cài đặt chính)</string>
+    <string name="profiles_main_settings">cài đặt chính</string>
+    <string name="profiles_auto">Chọn theo mạng</string>
+    <string name="profiles_auto_summary_on">Bật: khi stream bắt đầu, mạng sẽ quyết định hồ sơ bên dưới. Ethernet và các mạng chưa chọn hồ sơ sẽ dùng hồ sơ đang dùng.</string>
+    <string name="profiles_auto_summary_off">Tắt: mọi stream đều dùng hồ sơ đang dùng.</string>
+    <string name="profiles_rule_default">Hồ sơ đang dùng</string>
+    <string name="profiles_network_mobile">Dữ liệu di động</string>
+    <string name="profiles_network_home_wifi">Wi-Fi gia đình</string>
+    <string name="profiles_network_wifi">Wi-Fi khác</string>
+    <string name="profiles_network_other">Ethernet hoặc mạng khác</string>
+    <string name="profiles_rule_mobile_summary">Bao gồm cả Wi-Fi mà Android đánh dấu là mạng có đo lượng dữ liệu, chẳng hạn điểm phát sóng của điện thoại.</string>
+    <string name="profiles_rule_wifi_summary">Mọi Wi-Fi không phải Wi-Fi gia đình, hoặc mọi Wi-Fi khi chưa đặt Wi-Fi gia đình.</string>
+    <string name="profiles_now">Stream tiếp theo trên mạng này</string>
+    <string name="profiles_now_value">%1$s: %2$s</string>
+    <string name="profiles_home_networks">Wi-Fi gia đình</string>
+    <string name="profiles_home_none">Chưa đặt: mọi Wi-Fi đều được tính là Wi-Fi khác.</string>
+    <string name="profiles_home_saved">Đã lưu trên thiết bị này. Chọn để xóa.</string>
+    <string name="profiles_home_remove">Xóa</string>
+    <string name="profiles_home_remove_title">Xóa %1$s khỏi Wi-Fi gia đình?</string>
+    <string name="profiles_home_no_access">Quyền truy cập vị trí đang tắt: không thể nhận ra Wi-Fi gia đình, nên nó được tính là Wi-Fi khác.</string>
+    <string name="profiles_home_add_current">Thêm Wi-Fi này</string>
+    <string name="profiles_home_add_current_summary">Lưu tên Wi-Fi mà thiết bị này đang kết nối. Android yêu cầu quyền truy cập vị trí để đọc tên này.</string>
+    <string name="profiles_home_type">Nhập tên Wi-Fi</string>
+    <string name="profiles_home_type_summary">Để nhận ra Wi-Fi này khi stream bắt đầu, vẫn cần quyền truy cập vị trí.</string>
+    <string name="profiles_home_name">Tên Wi-Fi</string>
+    <string name="profiles_location_title">Cho phép truy cập vị trí?</string>
+    <string name="profiles_location_message">Android chỉ hiển thị tên Wi-Fi cho ứng dụng có quyền truy cập vị trí. Quyền này chỉ dùng cho một việc: phân biệt Wi-Fi gia đình với Wi-Fi khác khi stream bắt đầu. Không có vị trí nào được đọc, và tên Wi-Fi chỉ lưu trên thiết bị này: không bao giờ được gửi đi hay ghi vào nhật ký. Nếu không có quyền, mọi Wi-Fi đều được tính là Wi-Fi khác.</string>
+    <string name="profiles_location_continue">Tiếp tục</string>
+    <string name="profiles_location_denied">Không có quyền truy cập vị trí: mọi Wi-Fi đều được tính là Wi-Fi khác. Bạn có thể cho phép sau trong phần cài đặt ứng dụng của Android.</string>
+    <string name="profiles_wifi_unreadable">Không đọc được tên Wi-Fi. Hãy kiểm tra thiết bị này đang kết nối Wi-Fi và vị trí đang bật, hoặc nhập tên.</string>
+    <string name="profiles_order">Khi stream bắt đầu, mỗi giá trị được lấy từ nguồn đầu tiên đặt giá trị đó: trò chơi này, PC này, hồ sơ, rồi đến cài đặt chính. Khi dùng dữ liệu di động, “Tốc độ bit trên dữ liệu di động” sẽ giới hạn tốc độ bit sau đó. Thay đổi không bao giờ áp dụng cho stream đang chạy.</string>
+    <string name="profiles_privacy">Tên Wi-Fi gia đình chỉ lưu trên thiết bị này và không bao giờ được gửi đi hay ghi vào nhật ký.</string>
+
+    <!-- Bitrate on mobile data (Settings → Video) -->
+    <string name="title_mobile_bitrate">Tốc độ bit trên dữ liệu di động</string>
+    <string name="summary_mobile_bitrate">Giới hạn tốc độ bit khi stream bắt đầu trên dữ liệu di động hoặc trên Wi-Fi mà Android đánh dấu là mạng có đo lượng dữ liệu, chẳng hạn điểm phát sóng của điện thoại. Giới hạn này cũng áp dụng cho mọi giá trị của hồ sơ, PC và trò chơi. Tắt sẽ dùng cùng tốc độ bit như trên các mạng khác.</string>
+    <string name="mobile_bitrate_off">Tắt</string>
+
+    <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->
+    <string name="profile_settings_explanation">Chỉ đặt những giá trị mà hồ sơ này cần thay đổi. Mọi mục chưa đặt sẽ lấy từ cài đặt chính. Giá trị riêng của PC hoặc trò chơi vẫn được ưu tiên hơn hồ sơ.</string>
+    <string name="game_settings_title">Cài đặt stream của trò chơi</string>
+    <string name="game_settings_subtitle">Trên %1$s</string>
+    <string name="game_settings_explanation">Các giá trị bạn đặt ở đây chỉ áp dụng cho trò chơi này trên PC này. Mọi mục chưa đặt sẽ lấy lần lượt từ cài đặt của PC này, hồ sơ và cài đặt chính.</string>
+    <string name="game_settings_action">Cài đặt stream cho trò chơi này</string>
+    <string name="game_settings_note_none">Dùng cài đặt của PC này</string>
+    <plurals name="game_settings_note_own">
+        <item quantity="other">Đã đặt %d giá trị cho trò chơi này</item>
+    </plurals>
+    <string name="layers_saved">Đã lưu cài đặt stream</string>
+    <string name="layers_saved_context">Sau khi lưu, thay đổi sẽ áp dụng cho stream tiếp theo.</string>
+    <string name="layers_unsaved_context">Thay đổi chưa lưu</string>
+    <string name="layers_unsaved_message">Các thay đổi của bạn đối với cài đặt stream này chưa được lưu.</string>
+    <string name="layers_reset">Xóa mọi giá trị</string>
+    <string name="layers_reset_message">Mọi giá trị sẽ trở về Chưa đặt. Hãy lưu để áp dụng.</string>
+    <string name="layers_status_empty">Chưa đặt gì ở đây: mọi giá trị đều lấy từ các lớp bên dưới.</string>
+    <string name="layers_status_custom">Đưa mọi giá trị về Chưa đặt.</string>
+    <string name="layers_footer">Hãy lưu trước khi rời đi. Thay đổi áp dụng cho stream tiếp theo, không bao giờ cho stream đang chạy.</string>
+    <string name="layers_not_set_value">Chưa đặt (%1$s)</string>
+    <string name="layers_value_from">%1$s · %2$s</string>
+    <string name="layers_from_main">từ cài đặt chính</string>
+    <string name="layers_from_profile">từ hồ sơ %1$s</string>
+    <string name="layers_from_pc">đặt cho PC này</string>
+    <string name="layers_from_game">đặt cho trò chơi này</string>
+    <string name="layers_from_mobile_limit">giới hạn dữ liệu di động</string>
+    <string name="layers_pacing_vrr">Tần số quét thích ứng đang bật, nên stream dùng Độ trễ thấp nhất.</string>
+
+    <!-- In the stream -->
+    <string name="layers_applied">Cài đặt: %1$s</string>
+    <string name="layers_part_profile">hồ sơ %1$s</string>
+    <string name="layers_part_profile_network">hồ sơ %1$s, được chọn cho %2$s</string>
+    <string name="layers_part_pc">PC này</string>
+    <string name="layers_part_game">trò chơi này</string>
+    <string name="layers_part_mobile_limit">giới hạn dữ liệu di động</string>
+    <string name="layers_problem_profile_missing">Hồ sơ đang dùng không còn tồn tại, nên cài đặt chính được áp dụng.</string>
+    <string name="layers_problem_profile_missing_network">Hồ sơ được chọn cho %1$s không còn tồn tại, nên cài đặt chính được áp dụng.</string>
+    <string name="layers_problem_profile_invalid">Hồ sơ %1$s có giá trị mà phiên bản này không đọc được, nên cài đặt chính được áp dụng. Hãy mở hồ sơ trong mục Hồ sơ để sửa.</string>
+    <string name="layers_problem_pc_invalid">Không đọc được cài đặt stream riêng của PC này, nên chúng bị bỏ qua. Hãy mở cài đặt của PC để sửa.</string>
+    <string name="layers_problem_game_invalid">Không đọc được cài đặt stream của trò chơi này, nên chúng bị bỏ qua. Hãy mở chúng từ menu của trò chơi để sửa.</string>
+    <string name="layers_problem_home_wifi_unknown">Không thể nhận ra Wi-Fi gia đình nếu không có quyền truy cập vị trí, nên Wi-Fi này được tính là Wi-Fi khác.</string>
+    <!-- Presets for one game's stream settings -->
+    <string name="game_preset_title">Cấu hình có sẵn</string>
+    <string name="game_preset_competitive">Thi đấu</string>
+    <string name="game_preset_competitive_summary">Đặt frame pacing ở độ trễ thấp nhất. Không có gì khác thay đổi.</string>
+    <string name="game_preset_smoothness">Mượt mà</string>
+    <string name="game_preset_smoothness_summary">Đặt frame pacing mượt nhất, giữ lại khung hình và tăng độ trễ, đồng thời tắt tần số quét thích ứng cho trò chơi này. Bitrate không đổi.</string>
+    <string name="game_preset_quality">Chất lượng</string>
+    <string name="game_preset_quality_summary" formatted="false">Đặt bitrate bằng 150% bitrate của PC, hoặc của cài đặt chính nếu PC không có, tối đa đến giới hạn của máy chủ. Frame pacing và tần số quét thích ứng không đổi; khi kết nối yếu, các khung hình lớn hơn có thể làm tăng độ trễ.</string>
+    <string name="game_preset_custom">Tùy chỉnh</string>
+    <string name="game_preset_custom_summary">Các giá trị riêng của bạn, đặt bên dưới.</string>
+</resources>

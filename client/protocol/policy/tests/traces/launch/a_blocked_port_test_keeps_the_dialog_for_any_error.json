@@ -1,0 +1,11 @@
+{
+  "source": "StreamExitPolicyTest.aBlockedPortTestKeepsTheDialogForAnyError",
+  "rust": "launch::StreamExitPolicy",
+  "java": "com.limelight.LaunchTrace",
+  "new": null,
+  "calls": [
+    {"call": "termination_needs_action", "args": [-1, true, false, false], "expect": true},
+    {"call": "termination_needs_action", "args": [110, true, false, false], "expect": true},
+    {"call": "termination_needs_action", "args": [503, true, false, false], "expect": true}
+  ]
+}

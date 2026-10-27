@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Controller and keyboard options -->
+    <string name="title_checkbox_disable_rumble">Disable rumble</string>
+    <string name="summary_checkbox_disable_rumble">Stops all vibration a game asks for: controller and trigger rumble, USB DualSense haptics, and this device vibrating in a controller\'s place.</string>
+    <string name="title_checkbox_mouse_emulation_fixed_step">Fixed-step mouse movement</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">In controller mouse mode, hold X while moving the stick to move the pointer a fixed number of pixels at a time. Press Y to double the step, from 1 up to 128 pixels and then back to 1.</string>
+    <string name="stream_mouse_step">Mouse step: %1$d px</string>
+    <string name="title_checkbox_back_as_meta">Keyboard Back sends Windows key</string>
+    <string name="summary_checkbox_back_as_meta">The Back key on a physical keyboard sends the Windows key (Command on a Mac). Open the stream menu with Ctrl+Alt+Shift+M, Android\'s Back gesture or button, or the controller chord.</string>
+    <string name="title_checkbox_right_alt_as_meta">Right Alt as Command</string>
+    <string name="summary_checkbox_right_alt_as_meta">Right Alt sends the Windows key, which a Mac uses as Command, so Right Alt+C copies. Left Alt is unchanged. Leave off if you type characters with AltGr.</string>
+
+    <!-- Controller test page -->
+    <string name="controller_test_title">Controller test</string>
+    <string name="controller_test_summary">Check buttons, sticks, triggers, rumble, lights and motion</string>
+    <string name="controller_test_open">Test controller</string>
+    <string name="controller_test_hint">Press buttons and move the sticks. The D-pad and A also move around this page; hold B or Back for one second to leave.</string>
+    <string name="controller_test_waiting">Connect a controller and press any button.</string>
+    <string name="controller_test_waiting_short">No controller yet.</string>
+    <string name="controller_test_usb_device">USB controller %1$s (Nightjar USB driver)</string>
+    <string name="controller_test_buttons">Buttons</string>
+    <string name="controller_test_pressed">Pressed: %1$s</string>
+    <string name="controller_test_pressed_none">Nothing pressed</string>
+    <string name="controller_test_sticks">Sticks and triggers</string>
+    <string name="controller_test_stick_values">Left stick  %1$+.2f %2$+.2f\nRight stick %3$+.2f %4$+.2f\nLT %5$d%%  RT %6$d%%</string>
+    <string name="controller_test_rumble">Rumble</string>
+    <string name="controller_test_rumble_strong">Strong motor</string>
+    <string name="controller_test_rumble_weak">Weak motor</string>
+    <string name="controller_test_rumble_all">Both motors</string>
+    <string name="controller_test_rumble_any">Vibrate</string>
+    <string name="controller_test_rumble_left_trigger">Left trigger</string>
+    <string name="controller_test_rumble_right_trigger">Right trigger</string>
+    <string name="controller_test_rumble_stop">Stop</string>
+    <string name="controller_test_rumble_disabled_note">Disable rumble is on, so streams will not vibrate. These tests still do.</string>
+    <string name="controller_test_lights">Lights</string>
+    <string name="controller_test_light_red">Red</string>
+    <string name="controller_test_light_green">Green</string>
+    <string name="controller_test_light_blue">Blue</string>
+    <string name="controller_test_light_off">Off</string>
+    <string name="controller_test_light_reset">Reset</string>
+    <string name="controller_test_motion">Motion sensors</string>
+    <string name="controller_test_motion_values">Gyro\n%1$s\nAccelerometer\n%2$s</string>
+    <string name="controller_test_waiting_motion">Move the controller</string>
+    <string name="controller_test_touchpad">Touchpad</string>
+    <string name="controller_test_touch_none">Touch the touchpad to see where.</string>
+    <string name="controller_test_touch_at">Finger at %1$d%% across, %2$d%% down</string>
+    <string name="controller_test_misc">Share</string>
+    <string name="controller_test_not_available">Not available on this controller.</string>
+    <string name="controller_test_needs_android_12">Needs Android 12 or later.</string>
+
+    <!-- USB Switch Pro driver -->
+    <string name="title_usb_switch_pro">USB Switch Pro driver</string>
+    <string name="summary_usb_switch_pro">Experimental. Reads a wired Nintendo Switch Pro Controller directly, with motion, rumble, Home and Capture.</string>
+    <string name="usb_switch_pro_denied">No USB access; the Switch Pro Controller stays on Android’s input.\nReconnect the cable to retry.</string>
+</resources>

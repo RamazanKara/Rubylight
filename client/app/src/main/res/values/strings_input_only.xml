@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_input_only_any_host">Input-only on any PC</string>
+    <string name="summary_checkbox_input_only_any_host">Adds Input-only to a game’s menu on PCs whose host has no Input-only mode of its own. The PC still sends video and audio at the smallest size, under 1 Mbit/s; Nightjar doesn’t show or play them. Hosts with their own mode keep using it.</string>
+    <string name="input_only_start">Input-only</string>
+    <string name="input_only_small_stream_note">Video still streams at the smallest size, about %1$.1f Mbit/s (%2$d MB an hour), but isn’t shown</string>
+    <string name="input_only_reason_input_permission">Allow input for this device on the host</string>
+    <string name="input_only_small_stream_status">Input only\nUse touch, keys or a controller.\nThe PC still streams small video (about %1$.1f Mbit/s); it isn’t shown.\nBack opens the stream menu.</string>
+    <string name="input_only_small_stream_refused">Input-only on this PC uses a small ordinary stream, and the host refused it. Some hosts allow only one stream at a time: end the other stream or allow more in the host’s settings.</string>
+    <string name="input_only_other_game">Another game is running on the PC. Input-only joins the running game and never quits it: choose that game, or end it first.</string>
+</resources>

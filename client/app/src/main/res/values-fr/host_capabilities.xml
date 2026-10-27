@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_feature_permissions">Autorisations de l’appareil</string>
+    <string name="host_feature_otp_pairing">Association par code PIN à usage unique</string>
+    <string name="host_feature_clipboard">Presse-papiers</string>
+    <string name="host_feature_server_commands">Commandes serveur</string>
+    <string name="host_feature_virtual_display">Écran virtuel</string>
+    <string name="host_feature_virtual_display_hdr">Écran virtuel HDR</string>
+    <string name="host_feature_display_modes">Modes d’affichage du PC</string>
+    <string name="host_feature_fractional_refresh">Fréquences de rafraîchissement fractionnaires</string>
+    <string name="host_feature_vrr">VRR côté hôte</string>
+    <string name="host_feature_runtime_bitrate">Changement de débit pendant un stream</string>
+    <string name="host_feature_pyrowave">PyroWave</string>
+    <string name="host_feature_speed_test">Test de vitesse de connexion</string>
+    <string name="host_feature_hardware_metrics">Relevés CPU et GPU de l’hôte</string>
+    <string name="host_feature_network_path">Vérification de l’itinéraire réseau</string>
+    <string name="host_feature_frame_limiter">État du limiteur d’images</string>
+    <string name="host_feature_controller_preparation">Reconnexion des manettes</string>
+    <string name="host_feature_remote_sessions">Remote Monitor et Input-only</string>
+    <string name="host_feature_web_ui">Interface Web</string>
+    <string name="host_feature_reason_update">Mettez à jour le logiciel hôte pour utiliser cette fonctionnalité</string>
+    <string name="host_feature_reason_pair">Associez d’abord ce PC</string>
+    <string name="host_feature_reason_view_permission">Autorisez la visualisation des streams pour cet appareil sur l’hôte</string>
+    <string name="host_feature_reason_clipboard_permission">Autorisez le presse-papiers pour cet appareil sur l’hôte</string>
+    <string name="host_feature_reason_command_permission">Autorisez les commandes serveur pour cet appareil sur l’hôte</string>
+    <string name="host_feature_reason_no_commands">Ajoutez des commandes dans l’interface Web de l’hôte</string>
+    <string name="host_feature_reason_virtual_display_off">Activez l’écran virtuel dans les paramètres de l’hôte</string>
+    <string name="host_feature_reason_virtual_display_driver">Le pilote d’écran virtuel de l’hôte n’est pas prêt</string>
+    <string name="host_feature_reason_hardware_metrics_off">Activez les mesures matérielles dans les paramètres de l’hôte</string>
+    <string name="host_feature_reason_sleep_permission">Cet appareil n’est pas autorisé à mettre le PC en veille</string>
+    <string name="host_feature_reason_file_permission">Pas d’accès aux fichiers : autorisez cet appareil sur l’hôte</string>
+    <string name="host_feature_unknown">S’applique si l’hôte le prend en charge</string>
+    <string name="host_details_software_apollo">Hôte compatible Apollo</string>
+    <string name="host_details_software_vibepollo">Hôte compatible Vibepollo</string>
+    <string name="host_details_software_unknown">Hôte compatible Moonlight</string>
+    <string name="host_details_features">Fonctionnalités</string>
+    <string name="host_details_features_unknown">Connectez-vous une fois à ce PC pour voir ce qu’il prend en charge.</string>
+    <string name="host_details_features_none">Aucune fonctionnalité supplémentaire signalée</string>
+    <string name="host_pyrowave_unavailable">Ce PC ne peut pas streamer en PyroWave : il utilise donc %1$s.</string>
+    <string name="connection_test_intro_delay">Testez le délai vers votre PC.</string>
+    <string name="host_feature_cursor_shape">Formes du curseur</string>
+</resources>

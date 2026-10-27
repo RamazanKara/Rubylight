@@ -1,0 +1,11 @@
+{
+  "source": "StreamExitPolicyTest.usedUpAutomaticReconnectingKeepsTheDialogForItsReconnectButton",
+  "rust": "launch::StreamExitPolicy",
+  "java": "com.limelight.LaunchTrace",
+  "new": null,
+  "calls": [
+    {"call": "termination_needs_action", "args": [-1, false, false, true], "expect": true},
+    {"call": "termination_needs_action", "args": [110, false, false, true], "expect": true},
+    {"call": "termination_needs_action", "args": [0, false, false, true], "expect": false}
+  ]
+}

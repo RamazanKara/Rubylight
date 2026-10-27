@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_touch_mode">Modalità touch</string>
+    <string name="stream_keyboard">Tastiera</string>
+    <string name="stream_controls_show">Mostra controlli a schermo</string>
+    <string name="stream_controls_hide">Nascondi controlli a schermo</string>
+    <string name="stream_controls_layout">Modifica layout del controller</string>
+    <string name="stream_controls_move_help">Trascina per spostare i controlli; usa il menu per ridimensionare o salvare.</string>
+    <string name="stream_controls_resize_help">Trascina per ridimensionare i controlli; usa il menu per salvare.</string>
+    <string name="stream_controls_saved">Layout del controller salvato</string>
+    <string name="stream_reconnect">Riconnetti stream</string>
+    <string name="stream_reconnecting">Riconnessione all’app in esecuzione…</string>
+    <string name="stream_native_touch_help">Il tocco controlla direttamente il PC.\nApri il menu dello stream per la tastiera.</string>
+    <string name="stream_native_touch_fallback">Il PC non accetta il multi-touch, quindi il tocco muove il mouse.</string>
+    <string-array name="stream_touch_modes">
+        <item>Trackpad</item>
+        <item>Mouse diretto</item>
+        <item>Multi-touch</item>
+        <item>Cursore locale</item>
+        <item>Touch disattivato</item>
+    </string-array>
+    <string-array name="stream_control_layout_actions">
+        <item>Sposta controlli</item>
+        <item>Ridimensiona controlli</item>
+        <item>Salva layout e gioca</item>
+    </string-array>
+</resources>

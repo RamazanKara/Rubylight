@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_update_available">Actualización a Rubylight %1$s disponible</string>
+    <string name="host_update_stream_notice">Rubylight %1$s está disponible. Actualízalo en la pestaña Mantenimiento del host.</string>
+    <string name="update_stream_notice">Nightjar %1$s está disponible. Abre los ajustes de Nightjar para actualizar.</string>
+    <string name="title_check_updates">Buscar actualizaciones automáticamente</string>
+    <string name="summary_check_updates">Busca una versión nueva al abrir la app, como máximo dos veces al día. No se instala nada sin que tú lo decidas.</string>
+    <string name="title_check_updates_now">Buscar actualizaciones ahora</string>
+    <string name="summary_check_updates_now">Buscar una versión más reciente</string>
+    <string name="update_checking">Buscando actualizaciones…</string>
+    <string name="update_up_to_date">Tienes la versión más reciente</string>
+    <string name="update_check_failed">No se pudo buscar actualizaciones</string>
+    <string name="update_available_title">Actualización disponible</string>
+    <string name="update_available_message">La versión %1$s está disponible. Tienes la %2$s.</string>
+    <string name="update_action_update">Actualizar</string>
+    <string name="update_action_later">Más tarde</string>
+    <string name="update_action_skip">Omitir esta versión</string>
+    <string name="update_allow_title">Permitir instalaciones</string>
+    <string name="update_allow_message">Android necesita tu permiso para que esta app pueda instalar actualizaciones. Actívalo, vuelve y toca Actualizar de nuevo.</string>
+    <string name="update_allow_open">Abrir ajustes</string>
+    <string name="update_downloading_title">Descargando la versión %1$s</string>
+    <string name="update_downloading">Iniciando la descarga…</string>
+    <string name="update_progress">%1$s de %2$s</string>
+    <string name="update_error_title">Error en la actualización</string>
+    <string name="update_error_no_apk">Esta versión no tiene descarga para este dispositivo.</string>
+    <string name="update_error_no_checksums">Esta versión no incluye un archivo de sumas de verificación, así que no se puede comprobar la descarga. No se instaló nada.</string>
+    <string name="update_error_checksum_missing">El archivo de sumas de verificación no incluye esta descarga. No se instaló nada.</string>
+    <string name="update_error_checksum_mismatch">La descarga no coincide con su suma de verificación y se eliminó. No se instaló nada.</string>
+    <string name="update_error_download">La descarga falló. Comprueba tu conexión e inténtalo de nuevo.</string>
+    <string name="update_error_install_start">No se pudo iniciar la actualización.</string>
+    <string name="update_error_install">No se pudo instalar la actualización: %1$s</string>
+    <string name="update_error_install_blocked">Android no abrió la pantalla de instalación. Vuelve a intentar la actualización.</string>
+</resources>

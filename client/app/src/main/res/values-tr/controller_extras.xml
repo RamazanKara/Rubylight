@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Controller and keyboard options -->
+    <string name="title_checkbox_disable_rumble">Titreşimi kapat</string>
+    <string name="summary_checkbox_disable_rumble">Bir oyunun istediği tüm titreşimi durdurur: kumanda ve tetik titreşimi, USB DualSense dokunsal geri bildirimi ve kumandanın yerine bu cihazın titreşmesi.</string>
+    <string name="title_checkbox_mouse_emulation_fixed_step">Sabit adımlı fare hareketi</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">Kumandayla fare modunda, imleci her seferinde sabit sayıda piksel hareket ettirmek için çubuğu hareket ettirirken X’e basılı tutun. Adımı iki katına çıkarmak için Y’ye basın; 1’den 128 piksele kadar çıkar, sonra yeniden 1 olur.</string>
+    <string name="stream_mouse_step">Fare adımı: %1$d px</string>
+    <string name="title_checkbox_back_as_meta">Klavyedeki Geri tuşu Windows tuşu gönderir</string>
+    <string name="summary_checkbox_back_as_meta">Fiziksel klavyedeki Geri tuşu Windows tuşunu (Mac’te Command) gönderir. Yayın menüsünü Ctrl+Alt+Shift+M, Android’in Geri hareketi veya düğmesi ya da kumanda tuş kombinasyonuyla açın.</string>
+    <string name="title_checkbox_right_alt_as_meta">Sağ Alt Command olarak</string>
+    <string name="summary_checkbox_right_alt_as_meta">Sağ Alt, Mac’in Command olarak kullandığı Windows tuşunu gönderir; böylece Sağ Alt+C kopyalar. Sol Alt değişmez. AltGr ile karakter yazıyorsanız kapalı bırakın.</string>
+
+    <!-- Controller test page -->
+    <string name="controller_test_title">Kumanda testi</string>
+    <string name="controller_test_summary">Düğmeleri, çubukları, tetikleri, titreşimi, ışıkları ve hareketi kontrol edin</string>
+    <string name="controller_test_open">Kumandayı test et</string>
+    <string name="controller_test_hint">Düğmelere basın ve çubukları hareket ettirin. Yön tuşları ve A ile de bu sayfada gezinebilirsiniz; çıkmak için B veya Back’e bir saniye basılı tutun.</string>
+    <string name="controller_test_waiting">Bir kumanda bağlayın ve herhangi bir düğmeye basın.</string>
+    <string name="controller_test_waiting_short">Henüz kumanda yok.</string>
+    <string name="controller_test_usb_device">USB kumanda %1$s (Nightjar USB sürücüsü)</string>
+    <string name="controller_test_buttons">Düğmeler</string>
+    <string name="controller_test_pressed">Basılan: %1$s</string>
+    <string name="controller_test_pressed_none">Hiçbir şeye basılmadı</string>
+    <string name="controller_test_sticks">Çubuklar ve tetikler</string>
+    <string name="controller_test_stick_values">Sol çubuk  %1$+.2f %2$+.2f\nSağ çubuk  %3$+.2f %4$+.2f\nLT %5$d%%  RT %6$d%%</string>
+    <string name="controller_test_rumble">Titreşim</string>
+    <string name="controller_test_rumble_strong">Güçlü motor</string>
+    <string name="controller_test_rumble_weak">Zayıf motor</string>
+    <string name="controller_test_rumble_all">İki motor</string>
+    <string name="controller_test_rumble_any">Titret</string>
+    <string name="controller_test_rumble_left_trigger">Sol tetik</string>
+    <string name="controller_test_rumble_right_trigger">Sağ tetik</string>
+    <string name="controller_test_rumble_stop">Durdur</string>
+    <string name="controller_test_rumble_disabled_note">Titreşimi kapat açık, bu yüzden yayınlar titremeyecek. Bu testler yine de titrer.</string>
+    <string name="controller_test_lights">Işıklar</string>
+    <string name="controller_test_light_red">Kırmızı</string>
+    <string name="controller_test_light_green">Yeşil</string>
+    <string name="controller_test_light_blue">Mavi</string>
+    <string name="controller_test_light_off">Kapalı</string>
+    <string name="controller_test_light_reset">Sıfırla</string>
+    <string name="controller_test_motion">Hareket sensörleri</string>
+    <string name="controller_test_motion_values">Jiroskop\n%1$s\nİvmeölçer\n%2$s</string>
+    <string name="controller_test_waiting_motion">Kumandayı hareket ettirin</string>
+    <string name="controller_test_touchpad">Dokunmatik yüzey</string>
+    <string name="controller_test_touch_none">Nereye dokunduğunuzu görmek için dokunmatik yüzeye dokunun.</string>
+    <string name="controller_test_touch_at">Parmak: yatayda %%%1$d, dikeyde %%%2$d</string>
+    <string name="controller_test_misc">Share</string>
+    <string name="controller_test_not_available">Bu kumandada kullanılamaz.</string>
+    <string name="controller_test_needs_android_12">Android 12 veya üstü gerekir.</string>
+
+    <!-- USB Switch Pro driver -->
+    <string name="title_usb_switch_pro">USB Switch Pro sürücüsü</string>
+    <string name="summary_usb_switch_pro">Deneysel. Kabloyla bağlı Nintendo Switch Pro Controller’ı doğrudan okur; hareket sensörleri, titreşim, Home ve Capture desteklenir.</string>
+    <string name="usb_switch_pro_denied">USB erişimi yok; Switch Pro Controller Android girişini kullanmaya devam ediyor.\nTekrar denemek için kabloyu yeniden takın.</string>
+</resources>

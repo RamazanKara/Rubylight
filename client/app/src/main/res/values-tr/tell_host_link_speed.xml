@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_tell_host_link_speed">PC\'ye bağlantı hızını bildir</string>
+    <string name="summary_tell_host_link_speed">PC\'nin gönderme hızını bu cihazın kablolu bağlantı noktasının hızıyla sınırlamasına izin verir.</string>
+</resources>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pc_settings_title">Cài đặt PC</string>
+    <string name="pc_settings_display">Hiển thị trên PC</string>
+    <string name="pc_settings_connection">Kết nối</string>
+    <string name="pc_settings_host">Máy chủ</string>
+    <string name="pc_settings_needs_online">Khả dụng khi PC đang trực tuyến</string>
+    <string name="pc_settings_test_speed">Ping, độ dao động, mất gói và tốc độ tải xuống</string>
+    <string name="pc_settings_test_delay">Ping, độ dao động và mất gói</string>
+    <string name="pc_settings_remote_summary">Thiết lập stream qua Internet</string>
+    <string name="pc_settings_wake">Wake-on-LAN</string>
+    <string name="pc_settings_wake_ready">Thiết bị này có thể đánh thức PC từ menu của PC</string>
+    <string name="pc_settings_wake_unknown">Hãy ghép đôi khi PC đang bật, rồi bật Wake-on-LAN trên PC</string>
+    <string name="pc_settings_details_summary">Phần mềm máy chủ, tính năng và địa chỉ</string>
+    <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
+    <string name="pc_settings_shortcut">Thêm vào màn hình chính</string>
+    <string name="pc_settings_shortcut_summary">Mở thư viện của PC này</string>
+    <string name="connection_test_ms">%1$s ms</string>
+    <string name="connection_test_percent">%1$s%%</string>
+    <string name="connection_test_speed">Tốc độ %1$.1f Mbps</string>
+    <string name="connection_test_speed_needs_pairing">Chưa đo tốc độ: hãy ghép đôi PC này trước</string>
+    <string name="connection_test_speed_no_answer">Chưa đo tốc độ: PC không phản hồi</string>
+    <string name="connection_test_speed_unsupported">Chưa đo tốc độ: máy chủ này không có bài kiểm tra tốc độ</string>
+</resources>

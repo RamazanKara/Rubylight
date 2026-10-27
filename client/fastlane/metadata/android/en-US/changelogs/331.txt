@@ -1,0 +1,4 @@
+Rubylight Android is now Nightjar, a client for any Moonlight-compatible host.
+Fixes false disconnect errors when a game ends, a missing toolbar on cold start, a blank library in landscape, a phantom controller, audio dropouts and a black strip next to foldable camera cutouts.
+Each PC shows only what its host supports.
+New look: simpler home, PC settings, settings grouped by task, a sectioned stream menu and a one-line overlay.

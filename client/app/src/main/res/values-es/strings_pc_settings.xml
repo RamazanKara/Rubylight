@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pc_settings_title">Ajustes del PC</string>
+    <string name="pc_settings_display">Pantalla del PC</string>
+    <string name="pc_settings_connection">Conexión</string>
+    <string name="pc_settings_host">Servidor</string>
+    <string name="pc_settings_needs_online">Disponible cuando el PC está en línea</string>
+    <string name="pc_settings_test_speed">Ping, jitter, pérdida y velocidad de descarga</string>
+    <string name="pc_settings_test_delay">Ping, jitter y pérdida</string>
+    <string name="pc_settings_remote_summary">Configurar la transmisión por Internet</string>
+    <string name="pc_settings_wake">Wake-on-LAN</string>
+    <string name="pc_settings_wake_ready">Este dispositivo puede activar el PC desde su menú</string>
+    <string name="pc_settings_wake_unknown">Vincula el PC mientras está encendido y activa Wake-on-LAN en el PC</string>
+    <string name="pc_settings_details_summary">Software del servidor, funciones y direcciones</string>
+    <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
+    <string name="pc_settings_shortcut">Añadir a la pantalla de inicio</string>
+    <string name="pc_settings_shortcut_summary">Abre la biblioteca de este PC</string>
+    <string name="connection_test_ms">%1$s ms</string>
+    <string name="connection_test_percent">%1$s %%</string>
+    <string name="connection_test_speed">Velocidad: %1$.1f Mbps</string>
+    <string name="connection_test_speed_needs_pairing">Velocidad no medida: vincula primero este PC</string>
+    <string name="connection_test_speed_no_answer">Velocidad no medida: el PC no ha respondido</string>
+    <string name="connection_test_speed_unsupported">Velocidad no medida: este servidor no tiene prueba de velocidad</string>
+</resources>

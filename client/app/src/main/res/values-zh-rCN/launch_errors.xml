@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="startup_host_message">主机无法启动此串流：%1$s（错误 %2$d）</string>
+    <string name="startup_launch_cancelled">已取消启动。</string>
+    <string name="startup_confirmation_timed_out">确认已超时。请再次点击该磁贴重试。</string>
+    <string name="startup_confirmation_rejected">主机会话已更改或确认已过期。请再次点击该磁贴。</string>
+    <string name="decoder_setup_rejected">此设备的视频解码器（%1$s）无法启动 %2$s（%3$dx%4$d，%5$d FPS）：%6$s。原因不在主机。请在设置中尝试 H.264、更低的分辨率或更低的帧率。如果问题仍然存在，请使用“报告问题”。</string>
+    <string name="decoder_setup_none">此设备没有 %1$s 的视频解码器。请在设置中选择其他视频编解码器。</string>
+</resources>

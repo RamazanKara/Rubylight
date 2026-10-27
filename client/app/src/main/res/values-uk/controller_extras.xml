@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Controller and keyboard options -->
+    <string name="title_checkbox_disable_rumble">Вимкнути вібрацію</string>
+    <string name="summary_checkbox_disable_rumble">Вимикає всю вібрацію, яку запитує гра: вібрацію контролера й тригерів, тактильну віддачу USB DualSense і вібрацію цього пристрою замість контролера.</string>
+    <string name="title_checkbox_mouse_emulation_fixed_step">Переміщення миші з фіксованим кроком</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">У режимі миші з контролера утримуйте X під час руху стіка, щоб вказівник зміщувався на фіксовану кількість пікселів. Натисніть Y, щоб подвоїти крок: від 1 до 128 пікселів, а потім знову 1.</string>
+    <string name="stream_mouse_step">Крок миші: %1$d пкс</string>
+    <string name="title_checkbox_back_as_meta">«Назад» на клавіатурі як клавіша Windows</string>
+    <string name="summary_checkbox_back_as_meta">Клавіша «Назад» на фізичній клавіатурі надсилає клавішу Windows (Command на Mac). Меню трансляції відкривається сполученням Ctrl+Alt+Shift+M, жестом або кнопкою «Назад» Android чи комбінацією кнопок контролера.</string>
+    <string name="title_checkbox_right_alt_as_meta">Правий Alt як Command</string>
+    <string name="summary_checkbox_right_alt_as_meta">Правий Alt надсилає клавішу Windows, яку Mac використовує як Command, тож правий Alt+C копіює. Лівий Alt не змінюється. Не вмикайте, якщо вводите символи за допомогою AltGr.</string>
+
+    <!-- Controller test page -->
+    <string name="controller_test_title">Перевірка контролера</string>
+    <string name="controller_test_summary">Перевірка кнопок, стіків, тригерів, вібрації, підсвічування та датчиків руху</string>
+    <string name="controller_test_open">Перевірити контролер</string>
+    <string name="controller_test_hint">Натискайте кнопки й рухайте стіки. Хрестовина й A також переміщують цією сторінкою; щоб вийти, утримуйте B або Back одну секунду.</string>
+    <string name="controller_test_waiting">Підключіть контролер і натисніть будь-яку кнопку.</string>
+    <string name="controller_test_waiting_short">Контролер ще не знайдено.</string>
+    <string name="controller_test_usb_device">USB-контролер %1$s (USB-драйвер Nightjar)</string>
+    <string name="controller_test_buttons">Кнопки</string>
+    <string name="controller_test_pressed">Натиснуто: %1$s</string>
+    <string name="controller_test_pressed_none">Нічого не натиснуто</string>
+    <string name="controller_test_sticks">Стіки й тригери</string>
+    <string name="controller_test_stick_values">Лівий стік  %1$+.2f %2$+.2f\nПравий стік  %3$+.2f %4$+.2f\nLT %5$d%%  RT %6$d%%</string>
+    <string name="controller_test_rumble">Вібрація</string>
+    <string name="controller_test_rumble_strong">Сильний мотор</string>
+    <string name="controller_test_rumble_weak">Слабкий мотор</string>
+    <string name="controller_test_rumble_all">Обидва мотори</string>
+    <string name="controller_test_rumble_any">Вібрувати</string>
+    <string name="controller_test_rumble_left_trigger">Лівий тригер</string>
+    <string name="controller_test_rumble_right_trigger">Правий тригер</string>
+    <string name="controller_test_rumble_stop">Стоп</string>
+    <string name="controller_test_rumble_disabled_note">Увімкнено «Вимкнути вібрацію», тому трансляції не вібруватимуть. Ці перевірки однаково вібрують.</string>
+    <string name="controller_test_lights">Підсвічування</string>
+    <string name="controller_test_light_red">Червоний</string>
+    <string name="controller_test_light_green">Зелений</string>
+    <string name="controller_test_light_blue">Синій</string>
+    <string name="controller_test_light_off">Вимк.</string>
+    <string name="controller_test_light_reset">Скинути</string>
+    <string name="controller_test_motion">Датчики руху</string>
+    <string name="controller_test_motion_values">Гіроскоп\n%1$s\nАкселерометр\n%2$s</string>
+    <string name="controller_test_waiting_motion">Порухайте контролером</string>
+    <string name="controller_test_touchpad">Тачпад</string>
+    <string name="controller_test_touch_none">Торкніться тачпада, щоб побачити точку дотику.</string>
+    <string name="controller_test_touch_at">Палець: %1$d%% по горизонталі, %2$d%% по вертикалі</string>
+    <string name="controller_test_misc">Share</string>
+    <string name="controller_test_not_available">Недоступно на цьому контролері.</string>
+    <string name="controller_test_needs_android_12">Потрібен Android 12 або новіший.</string>
+
+    <!-- USB Switch Pro driver -->
+    <string name="title_usb_switch_pro">Драйвер Switch Pro через USB</string>
+    <string name="summary_usb_switch_pro">Експериментально. Зчитує дротовий Nintendo Switch Pro Controller напряму: датчики руху, вібрація, Home і Capture.</string>
+    <string name="usb_switch_pro_denied">Немає доступу до USB; Switch Pro Controller працює через введення Android.\nПерепідключіть кабель, щоб повторити.</string>
+</resources>

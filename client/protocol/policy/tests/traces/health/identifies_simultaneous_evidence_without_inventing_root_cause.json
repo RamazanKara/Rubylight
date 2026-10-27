@@ -1,0 +1,16 @@
+{
+  "source": "StreamHealthTest.identifiesSimultaneousEvidenceWithoutInventingRootCause",
+  "rust": "health::StreamHealth",
+  "java": "com.limelight.policy.StreamHealthTrace",
+  "new": [],
+  "calls": [
+    {"call": "add_series", "args": [1000, 5, 1000, true, 60, 4, 1, 20, 25, 50, 60, 60, 40, 2, false], "expect": null},
+    {"call": "report_findings", "args": [5000], "expect": "NETWORK,DECODER,HOST,PRESENTATION,HEAT"},
+    {"call": "report_samples", "args": [5000], "expect": 5},
+    {"call": "report_can_suggest_bitrate", "args": [5000], "expect": true},
+    {"call": "report_worst_loss_percent", "args": [5000], "expect": 4},
+    {"call": "report_worst_decode_ms", "args": [5000], "expect": 20},
+    {"call": "report_worst_host_p95_ms", "args": [5000], "expect": 25},
+    {"call": "report_worst_display_p95_ms", "args": [5000], "expect": 50}
+  ]
+}

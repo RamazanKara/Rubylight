@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_layout_title">Controles para este juego</string>
+    <string name="touch_layout_show">Mostrar botones del juego</string>
+    <string name="touch_layout_hide">Ocultar botones del juego</string>
+    <string name="touch_layout_add">Añadir control</string>
+    <string name="touch_layout_move">Mover botones del juego</string>
+    <string name="touch_layout_save">Guardar diseño y jugar</string>
+    <string name="touch_layout_move_help">Arrastra los botones para colocarlos. La entrada táctil se pausa mientras los mueves. Cuando termines, vuelve aquí y elige Guardar diseño y jugar.</string>
+    <string name="touch_layout_import">Importar diseño</string>
+    <string name="touch_layout_export">Exportar o compartir diseño</string>
+    <string name="touch_layout_import_help">Pega un diseño de Nightjar compartido, o un diseño de teclado o un archivo de teclas personalizadas de Artemis. Sustituir solo cambia este juego en este PC. Los diseños no válidos no modifican tus controles.</string>
+    <string name="touch_layout_paste">Pegar JSON del diseño</string>
+    <string name="touch_layout_copy">Copiar JSON</string>
+    <string name="touch_layout_share">Compartir archivo JSON</string>
+    <string name="touch_layout_share_error">No se ha podido compartir el diseño. Copia su JSON en su lugar.</string>
+    <string name="touch_layout_limit">Un diseño puede contener hasta 32 controles.</string>
+    <string name="touch_layout_name">Nombre del botón</string>
+    <string name="touch_layout_binding">Teclas o botón del ratón</string>
+    <string name="touch_layout_binding_help">Ejemplos: W, CTRL + C, SPACE. MOUSE_1 es el izquierdo, MOUSE_2 el central, MOUSE_3 el derecho, MOUSE_4 atrás y MOUSE_5 adelante.</string>
+    <string name="touch_layout_width">Ancho (porcentaje de la superficie de control, 4–80)</string>
+    <string name="touch_layout_height">Alto (porcentaje de la superficie de control, 4–80)</string>
+    <string name="touch_layout_toggle">Toca para mantener; vuelve a tocar para soltar</string>
+    <string name="touch_layout_hold">Mantener mientras se pulsa</string>
+    <string name="touch_layout_pressed">Mantenido</string>
+    <string name="touch_layout_released">Soltado</string>
+    <string name="touch_layout_invalid">Comprueba el nombre, las teclas o el botón, y que los números estén dentro de su rango.</string>
+    <string name="desktop_zoom_enable">Activar zoom y desplazamiento con dos dedos</string>
+    <string name="desktop_zoom_disable">Desactivar zoom y desplazamiento con dos dedos</string>
+    <string name="desktop_zoom_reset">Restablecer zoom</string>
+    <string name="desktop_zoom_help">Pellizca con dos dedos para ampliar hasta 4×; arrastra con dos dedos para desplazarte. Un dedo mantiene el modo táctil seleccionado. El desplazamiento con dos dedos se sustituye mientras los controles de zoom están activados.</string>
+    <string name="desktop_zoom_surface_help">En Android 5 y 6, activa TextureView en los ajustes de transmisión y vuelve a conectarte para usar el zoom.</string>
+    <string name="desktop_output">Salida de vídeo (reconecta la transmisión)</string>
+    <string name="desktop_output_device">Este dispositivo</string>
+    <string name="desktop_touchpad_help">El vídeo se muestra en tu pantalla externa. Usa esta pantalla como touchpad. El teclado, los botones del juego y el menú de transmisión siguen disponibles aquí.</string>
+    <string name="desktop_pacing_fallback">Pantalla externa: los fotogramas se muestran en cuanto llegan.</string>
+    <string name="desktop_display_unavailable">Ninguna pantalla externa puede mostrar la transmisión, así que se queda en este dispositivo.</string>
+    <string name="controller_axes_title">Joysticks, gatillos y cruceta</string>
+    <string name="controller_axes_configured">Asignación personalizada de ejes o cruceta; se aplica a la próxima transmisión</string>
+    <string name="controller_axes_source">Entrada para %1$s</string>
+    <string name="controller_axes_inverted">%1$s (invertido)</string>
+    <string-array name="controller_axes">
+        <item>Joystick izquierdo horizontal</item>
+        <item>Joystick izquierdo vertical</item>
+        <item>Joystick derecho horizontal</item>
+        <item>Joystick derecho vertical</item>
+        <item>Gatillo izquierdo</item>
+        <item>Gatillo derecho</item>
+        <item>Cruceta arriba</item>
+        <item>Cruceta abajo</item>
+        <item>Cruceta izquierda</item>
+        <item>Cruceta derecha</item>
+    </string-array>
+    <string-array name="controller_dpad_targets">
+        <item>Nada</item>
+        <item>Cruceta arriba</item>
+        <item>Cruceta abajo</item>
+        <item>Cruceta izquierda</item>
+        <item>Cruceta derecha</item>
+        <item>A</item>
+        <item>B</item>
+        <item>X</item>
+        <item>Y</item>
+        <item>LB</item>
+        <item>RB</item>
+        <item>Pulsar joystick izquierdo</item>
+        <item>Pulsar joystick derecho</item>
+        <item>Start</item>
+        <item>Select</item>
+        <item>Guide</item>
+    </string-array>
+</resources>

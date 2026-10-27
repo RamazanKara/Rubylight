@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="startup_host_message">L’hôte n’a pas pu démarrer ce stream : %1$s (erreur %2$d)</string>
+    <string name="startup_launch_cancelled">Lancement annulé.</string>
+    <string name="startup_confirmation_timed_out">Délai de confirmation dépassé. Relancez la vignette pour réessayer.</string>
+    <string name="startup_confirmation_rejected">La session de l’hôte a changé ou la confirmation a expiré. Relancez la vignette.</string>
+    <string name="decoder_setup_rejected">Le décodeur vidéo de cet appareil (%1$s) n’a pas pu démarrer %2$s en %3$dx%4$d à %5$d IPS : %6$s. L’hôte n’est pas en cause. Dans les réglages, essayez H.264, une résolution plus basse ou une fréquence d’images plus basse. Si le problème persiste, utilisez « Signaler un problème ».</string>
+    <string name="decoder_setup_none">Cet appareil n’a pas de décodeur vidéo pour %1$s. Choisissez un autre codec vidéo dans les réglages.</string>
+</resources>

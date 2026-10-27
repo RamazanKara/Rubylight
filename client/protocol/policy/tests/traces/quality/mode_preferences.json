@@ -1,0 +1,14 @@
+{
+  "source": "AdaptiveQualityControllerTest.AdaptiveQualityController.Mode.parse",
+  "rust": "quality::AdaptiveQualityController",
+  "java": "com.limelight.policy.AdaptiveQualityTrace",
+  "new": null,
+  "calls": [
+    {"call": "parse_mode", "args": ["motion"], "expect": "motion"},
+    {"call": "parse_mode", "args": ["detail"], "expect": "detail"},
+    {"call": "parse_mode", "args": ["battery"], "expect": "battery"},
+    {"call": "parse_mode", "args": ["off"], "expect": "off"},
+    {"call": "parse_mode", "args": ["fast"], "expect": "off"},
+    {"call": "parse_mode", "args": [null], "expect": "off"}
+  ]
+}

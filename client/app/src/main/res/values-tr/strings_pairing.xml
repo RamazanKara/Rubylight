@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pair_otp_title">Tek kullanımlık PIN ile eşleştir</string>
+    <string name="pair_otp_help">Ana bilgisayarın PIN’ini ve parolasını girin.\nPIN üç dakika sonra geçerliliğini yitirir.</string>
+    <string name="pair_otp_pin">Tek kullanımlık PIN</string>
+    <string name="pair_otp_passphrase">Parola</string>
+    <string name="pair_otp_invalid_pin">Ana bilgisayardaki dört haneli PIN’i girin.</string>
+    <string name="pair_otp_invalid_passphrase">Ana bilgisayar parolasını girin (en az dört karakter).</string>
+    <string name="guide_title">Bilgisayarınıza bağlanın</string>
+    <string name="guide_text">1. Bilgisayarda Apollo, Rubylight, Sunshine veya Vibepollo gibi Moonlight uyumlu bir ana bilgisayar yazılımı başlatın.\n2. Android’de aynı ağdaki bilgisayarı seçin.\n3. Android’de gösterilen PIN’i ana bilgisayarın ayarlarına veya web arayüzüne girin.</string>
+    <string name="guide_done">Anladım</string>
+    <string name="guide_troubleshooting">Yardım</string>
+</resources>

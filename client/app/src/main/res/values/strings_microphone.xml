@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_enable_mic">Send microphone to the PC</string>
+    <string name="summary_checkbox_enable_mic">Games and chat apps on the PC hear this device\'s microphone, when the host takes one</string>
+    <string name="mic_permission_denied">Microphone access was not allowed, so the microphone stays off. Allow it in Android settings to talk through the PC.</string>
+    <string name="mic_status_sending">Microphone: sending</string>
+    <string name="mic_status_muted">Microphone: muted</string>
+    <string name="mic_status_not_offered">Microphone: not offered by host</string>
+    <string name="mic_status_unavailable">Microphone: unavailable</string>
+    <string name="mic_status_no_permission">Microphone: permission needed</string>
+</resources>

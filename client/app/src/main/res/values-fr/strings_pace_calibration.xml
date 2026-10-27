@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pace_calibration_title">Calibrer le rythme des images</string>
+    <string name="pace_calibration_summary">PyroWave : trouver la vitesse la plus élevée à laquelle l’hôte envoie des images complètes à cet appareil</string>
+    <string name="pace_calibration_saved">Rythme des images PyroWave : %1$d Mbit/s. Touchez pour recalibrer.</string>
+    <string name="pace_calibration_intro">L’hôte envoie des images de test à différentes vitesses et Nightjar garde la plus rapide à laquelle elles arrivent complètes. Les flux PyroWave l’utilisent ensuite. Arrêtez d’abord tout flux sur ce PC. Cela prend une à trois minutes.</string>
+    <string name="pace_calibration_preparing">Préparation du test…</string>
+    <string name="pace_calibration_running">Test des images envoyées à %1$d Mbit/s…</string>
+    <string name="pace_calibration_result">Rythme des images : %1$d Mbit/s sur cette connexion de %2$d Mbit/s. Enregistré pour ce PC.</string>
+    <string name="pace_calibration_result_unqualified">Aucune vitesse testée n’a respecté toutes les limites de perte. La meilleure, %1$d Mbit/s sur cette connexion de %2$d Mbit/s, est enregistrée pour ce PC. Des défauts d’image peuvent subsister.</string>
+    <string name="pace_calibration_no_link">Le rythme des images nécessite la vitesse de liaison filaire de cet appareil ou du PC, et aucune n’est connue.</string>
+    <string name="pace_calibration_too_fast">Le flux nécessite déjà %1$d Mbit/s, trop près de cette connexion de %2$d Mbit/s. Baissez d’abord le débit.</string>
+    <string name="pace_calibration_streaming">Le PC diffuse ou effectue déjà un test. Arrêtez le flux et réessayez.</string>
+    <string name="pace_calibration_unsupported">Ce PC ne peut pas tester le rythme des images. Il faut un hôte avec les tests de rythme PyroWave.</string>
+    <string name="pace_calibration_failed">La calibration n’a pas pu aboutir. Vérifiez la connexion et réessayez.</string>
+    <string name="pace_calibration_none">Aucun test n’a abouti. Réessayez.</string>
+    <string name="pace_calibration_clear">Effacer</string>
+</resources>

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_layout_title">Steuerung für dieses Spiel</string>
+    <string name="touch_layout_show">Spieltasten anzeigen</string>
+    <string name="touch_layout_hide">Spieltasten ausblenden</string>
+    <string name="touch_layout_add">Steuerelement hinzufügen</string>
+    <string name="touch_layout_move">Spieltasten verschieben</string>
+    <string name="touch_layout_save">Layout speichern und spielen</string>
+    <string name="touch_layout_move_help">Ziehe die Tasten an ihre Position. Die Touch-Eingabe ist beim Verschieben pausiert. Wähle danach hier „Layout speichern und spielen“.</string>
+    <string name="touch_layout_import">Layout importieren</string>
+    <string name="touch_layout_export">Layout exportieren oder teilen</string>
+    <string name="touch_layout_import_help">Füge ein geteiltes Nightjar-Layout ein, oder ein Artemis-Tastaturlayout bzw. eine Artemis-Datei mit eigenen Tasten. Ersetzen ändert nur dieses Spiel auf diesem PC. Ungültige Layouts lassen deine Steuerelemente unverändert.</string>
+    <string name="touch_layout_paste">Layout als JSON einfügen</string>
+    <string name="touch_layout_copy">JSON kopieren</string>
+    <string name="touch_layout_share">JSON-Datei teilen</string>
+    <string name="touch_layout_share_error">Das Layout konnte nicht geteilt werden. Kopiere stattdessen das JSON.</string>
+    <string name="touch_layout_limit">Ein Layout kann bis zu 32 Steuerelemente enthalten.</string>
+    <string name="touch_layout_name">Tastenname</string>
+    <string name="touch_layout_binding">Tasten oder Maustaste</string>
+    <string name="touch_layout_binding_help">Beispiele: W, CTRL + C, SPACE. MOUSE_1 ist links, MOUSE_2 Mitte, MOUSE_3 rechts, MOUSE_4 zurück und MOUSE_5 vorwärts.</string>
+    <string name="touch_layout_width">Breite (% der Bedienfläche, 4–80)</string>
+    <string name="touch_layout_height">Höhe (% der Bedienfläche, 4–80)</string>
+    <string name="touch_layout_toggle">Antippen zum Halten; erneut tippen zum Loslassen</string>
+    <string name="touch_layout_hold">Halten, solange gedrückt</string>
+    <string name="touch_layout_pressed">Gehalten</string>
+    <string name="touch_layout_released">Losgelassen</string>
+    <string name="touch_layout_invalid">Prüfe Name, Tasten oder Taste und ob die Zahlen im angegebenen Bereich liegen.</string>
+    <string name="desktop_zoom_enable">Zoom und Verschieben aktivieren</string>
+    <string name="desktop_zoom_disable">Zoom und Verschieben deaktivieren</string>
+    <string name="desktop_zoom_reset">Zoom zurücksetzen</string>
+    <string name="desktop_zoom_help">Mit zwei Fingern bis zu 4× zoomen und verschieben. Ein Finger verwendet weiterhin den gewählten Touchmodus. Scrollen mit zwei Fingern ist dabei ersetzt.</string>
+    <string name="desktop_zoom_surface_help">Aktiviere unter Android 5 und 6 TextureView in den Stream-Einstellungen und verbinde dich erneut, um zu zoomen.</string>
+    <string name="desktop_output">Videoausgabe (verbindet Stream neu)</string>
+    <string name="desktop_output_device">Dieses Gerät</string>
+    <string name="desktop_touchpad_help">Das Video läuft auf der externen Anzeige. Nutze diesen Bildschirm als Touchpad. Tastatur, Spieltasten und Stream-Menü bleiben hier verfügbar.</string>
+    <string name="desktop_pacing_fallback">Externer Bildschirm: Bilder erscheinen, sobald sie ankommen.</string>
+    <string name="desktop_display_unavailable">Kein externer Bildschirm kann den Stream zeigen, daher bleibt er auf diesem Gerät.</string>
+    <string name="controller_axes_title">Sticks, Trigger und Steuerkreuz</string>
+    <string name="controller_axes_configured">Eigene Achsen- oder Steuerkreuzbelegung; gilt ab dem nächsten Stream</string>
+    <string name="controller_axes_source">Eingabe für %1$s</string>
+    <string name="controller_axes_inverted">%1$s (invertiert)</string>
+    <string-array name="controller_axes">
+        <item>Linker Stick horizontal</item><item>Linker Stick vertikal</item>
+        <item>Rechter Stick horizontal</item><item>Rechter Stick vertikal</item>
+        <item>Linker Trigger</item><item>Rechter Trigger</item>
+        <item>Steuerkreuz oben</item><item>Steuerkreuz unten</item><item>Steuerkreuz links</item><item>Steuerkreuz rechts</item>
+    </string-array>
+    <string-array name="controller_dpad_targets">
+        <item>Nichts</item><item>Steuerkreuz oben</item><item>Steuerkreuz unten</item><item>Steuerkreuz links</item><item>Steuerkreuz rechts</item>
+        <item>A</item><item>B</item><item>X</item><item>Y</item><item>LB</item><item>RB</item>
+        <item>Linken Stick drücken</item><item>Rechten Stick drücken</item><item>Start</item><item>Select</item><item>Guide</item>
+    </string-array>
+</resources>

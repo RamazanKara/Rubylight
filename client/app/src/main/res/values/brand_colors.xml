@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Nightjar brand: a nightjar crossing an amber moon -->
+    <color name="brand_night">#14161F</color>
+    <color name="brand_moon">#F2A93B</color>
+    <!-- The TV screens' canvas: deeper than brand_night so the library's backdrop has range. -->
+    <color name="tv_canvas">#0B0D12</color>
+    <color name="ic_launcher_background">@color/brand_night</color>
+</resources>

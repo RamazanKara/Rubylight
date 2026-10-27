@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_touch_mode">Chế độ cảm ứng</string>
+    <string name="stream_keyboard">Bàn phím</string>
+    <string name="stream_controls_show">Hiện điều khiển trên màn hình</string>
+    <string name="stream_controls_hide">Ẩn điều khiển trên màn hình</string>
+    <string name="stream_controls_layout">Sửa bố cục tay cầm</string>
+    <string name="stream_controls_move_help">Kéo để di chuyển nút điều khiển; dùng menu để đổi kích thước hoặc lưu.</string>
+    <string name="stream_controls_resize_help">Kéo để đổi kích thước nút điều khiển; dùng menu để lưu.</string>
+    <string name="stream_controls_saved">Đã lưu bố cục tay cầm</string>
+    <string name="stream_reconnect">Kết nối lại stream</string>
+    <string name="stream_reconnecting">Đang kết nối lại với ứng dụng đang chạy…</string>
+    <string name="stream_native_touch_help">Thao tác chạm điều khiển trực tiếp PC.\nMở menu stream để dùng bàn phím.</string>
+    <string name="stream_native_touch_fallback">PC không nhận cảm ứng đa điểm nên thao tác chạm sẽ di chuyển chuột.</string>
+    <string-array name="stream_touch_modes">
+        <item>Bàn di chuột</item>
+        <item>Chuột trực tiếp</item>
+        <item>Cảm ứng đa điểm</item>
+        <item>Con trỏ cục bộ</item>
+        <item>Tắt cảm ứng</item>
+    </string-array>
+    <string-array name="stream_control_layout_actions">
+        <item>Di chuyển nút điều khiển</item>
+        <item>Đổi kích thước nút điều khiển</item>
+        <item>Lưu bố cục và chơi</item>
+    </string-array>
+</resources>

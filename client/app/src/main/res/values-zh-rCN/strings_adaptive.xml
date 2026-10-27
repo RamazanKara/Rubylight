@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="controller_mapping_capture">映射按键</string>
+    <string name="controller_mapping_press">按下要映射的手柄按键。按“返回”可取消。</string>
+</resources>

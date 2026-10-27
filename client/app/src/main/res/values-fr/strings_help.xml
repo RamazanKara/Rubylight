@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="help_connect_title">Connecter un PC</string>
+    <string name="help_connect_body">Nightjar diffuse depuis n’importe quel hôte compatible Moonlight installé sur votre PC. Lancez l’hôte et gardez les deux appareils sur le même réseau : le PC apparaît dans votre liste. Sinon, appuyez sur Ajouter un PC et saisissez l’adresse IP du PC. Si la connexion échoue toujours, autorisez l’hôte dans le pare-feu du PC.</string>
+    <string name="help_connect_link">Guide de configuration</string>
+    <string name="help_pairing_title">Association</string>
+    <string name="help_pairing_body">Appuyez sur le PC et laissez le code PIN affiché. Saisissez ce code PIN dans les paramètres ou la page Web de l’hôte sur le PC. Si l’hôte gère des autorisations par appareil, autorisez cet appareil à lister et lancer des applications.</string>
+    <string name="help_pairing_link">Guide d’association</string>
+    <string name="help_controls_title">Commandes et menu du stream</string>
+    <string name="help_controls_body">Pendant un stream, appuyez sur Retour pour ouvrir le menu du stream : clavier, mode de saisie, superposition, débit et déconnexion. Sur une manette, appuyez simultanément sur Start, Back, LB et RB. La déconnexion laisse le jeu tourner sur le PC, pour que vous puissiez le reprendre, sauf si vous avez activé « Quitter le jeu quand je quitte le stream » dans le menu de ce jeu dans la bibliothèque. Pour vérifier les boutons, les sticks et les vibrations d’une manette, ouvrez Paramètres, Commandes, Test de la manette. Dans Paramètres, Commandes, Mode tactile, Curseur local dessine le pointeur sur cet appareil et Tactile désactivé ignore l’écran pendant que vous jouez avec une manette. Dans le menu du stream, Saisie, Commandes pour ce jeu place des boutons clavier, souris et manette, des sticks, des gâchettes et une croix directionnelle pour ce jeu. Pour reprendre une disposition d’Artemis, appuyez longuement sur le jeu dans la bibliothèque et choisissez Importer les commandes du jeu. Pour utiliser cet appareil uniquement comme manette sur un hôte sans son propre mode de saisie uniquement, activez Paramètres, Streaming, Saisie uniquement sur tout PC ; le PC envoie quand même un petit flux vidéo qui n’est pas affiché.</string>
+    <string name="help_controls_link">Guide des commandes</string>
+    <string name="help_problems_title">Résoudre les problèmes courants</string>
+    <string name="help_problems_body"><b>Pas de vidéo :</b> essayez H.264 en 720p, avec le HDR et la mise à l’échelle désactivés.\n\n<b>Saccades :</b> baissez le débit, connectez le PC par câble ou rapprochez-vous du routeur. Préférez le Wi-Fi 5 ou 6 GHz au 2,4 GHz. Si le stream saccade toutes les quelques minutes, ouvrez « Pourquoi mon stream a-t-il saccadé ? » dans le menu du stream : il repère le rythme des recherches Wi-Fi en arrière-plan.\n\n<b>Latence des commandes :</b> activez la superposition des performances pour voir d’où vient le retard, et laissez le décodage à faible latence activé.\n\n<b>Pas de son :</b> choisissez Stéréo, vérifiez la sortie audio du PC, puis reconnectez-vous.</string>
+    <string name="help_problems_link">Guide de dépannage</string>
+    <string name="help_report_body">Partagez un journal dont les données personnelles ont été retirées. Rien n’est envoyé tant que vous n’avez pas choisi une appli pour le partager.</string>
+    <string name="help_report_link">Éléments à inclure</string>
+</resources>

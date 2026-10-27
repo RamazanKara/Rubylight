@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="help_connect_title">Połącz komputer</string>
+    <string name="help_connect_body">Nightjar strumieniuje z dowolnego hosta zgodnego z Moonlight działającego na komputerze. Uruchom host i trzymaj oba urządzenia w tej samej sieci, a komputer pojawi się na liście. Jeśli tak się nie stanie, kliknij Dodaj komputer i wpisz adres IP komputera. Jeśli nadal nie można się połączyć, zezwól na host w zaporze komputera.</string>
+    <string name="help_connect_link">Poradnik konfiguracji</string>
+    <string name="help_pairing_title">Parowanie</string>
+    <string name="help_pairing_body">Kliknij komputer i nie zamykaj ekranu z kodem PIN. Wpisz ten kod PIN w ustawieniach lub na stronie WWW hosta na komputerze. Jeśli host ma uprawnienia dla poszczególnych urządzeń, zezwól temu urządzeniu na wyświetlanie listy i uruchamianie aplikacji.</string>
+    <string name="help_pairing_link">Poradnik parowania</string>
+    <string name="help_controls_title">Sterowanie i menu strumienia</string>
+    <string name="help_controls_body">Podczas strumienia naciśnij Wstecz, aby otworzyć menu strumienia: klawiatura, tryb sterowania, nakładka, szybkość transmisji i rozłączanie. Na kontrolerze naciśnij jednocześnie Start, Back, LB i RB. Rozłączenie pozostawia grę uruchomioną na komputerze, więc możesz do niej wrócić, chyba że w menu tej gry w bibliotece włączono „Zamykaj grę po opuszczeniu strumienia”. Aby sprawdzić przyciski, gałki i wibracje kontrolera, otwórz Ustawienia, Sterowanie, Test kontrolera. W Ustawienia, Sterowanie, Tryb dotyku opcja Kursor lokalny rysuje wskaźnik na tym urządzeniu, a Dotyk wyłączony ignoruje ekran, gdy grasz na kontrolerze. W menu transmisji Sterowanie, Sterowanie dla tej gry rozmieszcza przyciski klawiatury, myszy i kontrolera, gałki, spusty i D-pad dla tej gry. Aby przenieść układ z Artemis, przytrzymaj grę w bibliotece i wybierz Importuj sterowanie gry. Aby używać tego urządzenia tylko jako kontrolera na hoście bez własnego trybu tylko sterowania, włącz Ustawienia, Strumieniowanie, Tylko sterowanie na każdym komputerze; komputer nadal wysyła mały strumień wideo, który nie jest pokazywany.</string>
+    <string name="help_controls_link">Poradnik sterowania</string>
+    <string name="help_problems_title">Rozwiązywanie typowych problemów</string>
+    <string name="help_problems_body"><b>Brak obrazu:</b> spróbuj H.264 w 720p z wyłączonym HDR i skalowaniem.\n\n<b>Przycięcia:</b> zmniejsz szybkość transmisji, podłącz komputer kablem lub podejdź bliżej routera. Używaj Wi-Fi 5 lub 6 GHz zamiast 2,4 GHz. Jeśli obraz przycina się co kilka minut, otwórz „Dlaczego strumień się przycinał?” w menu strumienia: wykrywa rytm skanowania Wi-Fi w tle.\n\n<b>Opóźnienie sterowania:</b> włącz nakładkę wydajności, aby zobaczyć, skąd bierze się opóźnienie, i nie wyłączaj dekodowania o niskim opóźnieniu.\n\n<b>Brak dźwięku:</b> wybierz Stereo, sprawdź wyjście audio komputera, a potem połącz się ponownie.</string>
+    <string name="help_problems_link">Rozwiązywanie problemów</string>
+    <string name="help_report_body">Udostępnij dziennik bez danych osobowych. Nic nie zostanie wysłane, dopóki nie wybierzesz aplikacji do udostępnienia.</string>
+    <string name="help_report_link">Co dołączyć</string>
+</resources>

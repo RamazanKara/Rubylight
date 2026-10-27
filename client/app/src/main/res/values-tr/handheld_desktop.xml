@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_layout_title">Bu oyunun kontrolleri</string>
+    <string name="touch_layout_show">Oyun düğmelerini göster</string>
+    <string name="touch_layout_hide">Oyun düğmelerini gizle</string>
+    <string name="touch_layout_add">Kontrol ekle</string>
+    <string name="touch_layout_move">Oyun düğmelerini taşı</string>
+    <string name="touch_layout_save">Düzeni kaydet ve oyna</string>
+    <string name="touch_layout_move_help">Düğmeleri yerleştirmek için sürükleyin. Taşıma sırasında dokunma girişi duraklatılır. Bitirdiğinizde buraya dönüp Düzeni kaydet ve oyna’yı seçin.</string>
+    <string name="touch_layout_import">Düzeni içe aktar</string>
+    <string name="touch_layout_export">Düzeni dışa aktar veya paylaş</string>
+    <string name="touch_layout_import_help">Paylaşılan bir Nightjar düzenini ya da bir Artemis klavye düzenini veya Özel Tuşlar dosyasını yapıştırın. Değiştir, yalnızca bu bilgisayardaki bu oyunu etkiler. Geçersiz düzenler kontrollerinizi değiştirmez.</string>
+    <string name="touch_layout_paste">Düzen JSON’unu yapıştır</string>
+    <string name="touch_layout_copy">JSON’u kopyala</string>
+    <string name="touch_layout_share">JSON dosyasını paylaş</string>
+    <string name="touch_layout_share_error">Düzen paylaşılamadı. Bunun yerine JSON’unu kopyalayın.</string>
+    <string name="touch_layout_limit">Bir düzende en fazla 32 kontrol olabilir.</string>
+    <string name="touch_layout_name">Düğme adı</string>
+    <string name="touch_layout_binding">Tuşlar veya fare düğmesi</string>
+    <string name="touch_layout_binding_help">Örnekler: W, CTRL + C, SPACE. MOUSE_1 sol, MOUSE_2 orta, MOUSE_3 sağ, MOUSE_4 geri ve MOUSE_5 ileri düğmesidir.</string>
+    <string name="touch_layout_width">Genişlik (kontrol yüzeyinin %’si, 4–80)</string>
+    <string name="touch_layout_height">Yükseklik (kontrol yüzeyinin %’si, 4–80)</string>
+    <string name="touch_layout_toggle">Basılı tutmak için dokunun; bırakmak için tekrar dokunun</string>
+    <string name="touch_layout_hold">Basılıyken tut</string>
+    <string name="touch_layout_pressed">Basılı</string>
+    <string name="touch_layout_released">Bırakıldı</string>
+    <string name="touch_layout_invalid">Adı, tuşları veya düğmeyi ve sayıların aralıkta olup olmadığını kontrol edin.</string>
+    <string name="desktop_zoom_enable">Sıkıştırarak yakınlaştırma ve kaydırmayı etkinleştir</string>
+    <string name="desktop_zoom_disable">Sıkıştırarak yakınlaştırma ve kaydırmayı devre dışı bırak</string>
+    <string name="desktop_zoom_reset">Yakınlaştırmayı sıfırla</string>
+    <string name="desktop_zoom_help">4 kata kadar yakınlaştırmak için iki parmakla sıkıştırın; kaydırmak için iki parmağı sürükleyin. Tek parmak seçili dokunma modunu korur. Yakınlaştırma kontrolleri etkinken iki parmakla kaydırmanın yerini alır.</string>
+    <string name="desktop_zoom_surface_help">Android 5 ve 6’da yakınlaştırmayı kullanmak için yayın ayarlarında TextureView’ı etkinleştirip yeniden bağlanın.</string>
+    <string name="desktop_output">Video çıkışı (yayını yeniden bağlar)</string>
+    <string name="desktop_output_device">Bu cihaz</string>
+    <string name="desktop_touchpad_help">Video harici ekranınızda. Bu ekranı dokunmatik yüzey olarak kullanın. Klavye, oyun düğmeleri ve yayın menüsü burada kullanılabilir.</string>
+    <string name="desktop_pacing_fallback">Harici ekran: kareler gelir gelmez gösterilir.</string>
+    <string name="desktop_display_unavailable">Yayını gösterebilecek harici ekran yok, bu nedenle yayın bu cihazda kalıyor.</string>
+    <string name="controller_axes_title">Çubuklar, tetikler ve D-pad</string>
+    <string name="controller_axes_configured">Özel eksen veya D-pad eşlemesi; sonraki yayında geçerli olur</string>
+    <string name="controller_axes_source">%1$s için giriş</string>
+    <string name="controller_axes_inverted">%1$s (ters)</string>
+    <string-array name="controller_axes">
+        <item>Sol çubuk yatay</item>
+        <item>Sol çubuk dikey</item>
+        <item>Sağ çubuk yatay</item>
+        <item>Sağ çubuk dikey</item>
+        <item>Sol tetik</item>
+        <item>Sağ tetik</item>
+        <item>D-pad yukarı</item>
+        <item>D-pad aşağı</item>
+        <item>D-pad sol</item>
+        <item>D-pad sağ</item>
+    </string-array>
+    <string-array name="controller_dpad_targets">
+        <item>Hiçbiri</item>
+        <item>D-pad yukarı</item>
+        <item>D-pad aşağı</item>
+        <item>D-pad sol</item>
+        <item>D-pad sağ</item>
+        <item>A</item>
+        <item>B</item>
+        <item>X</item>
+        <item>Y</item>
+        <item>LB</item>
+        <item>RB</item>
+        <item>Sol çubuğa basma</item>
+        <item>Sağ çubuğa basma</item>
+        <item>Start</item>
+        <item>Select</item>
+        <item>Guide</item>
+    </string-array>
+</resources>

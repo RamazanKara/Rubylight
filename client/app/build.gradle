@@ -1,0 +1,375 @@
+apply plugin: 'com.android.application'
+
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('keystore.properties')
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
+}
+def releaseSigning = [
+        storeFile: System.getenv('BP_KEYSTORE') ?: keystoreProperties.getProperty('storeFile'),
+        storePassword: System.getenv('BP_KEYSTORE_PASSWORD') ?: keystoreProperties.getProperty('storePassword'),
+        keyAlias: System.getenv('BP_KEY_ALIAS') ?: keystoreProperties.getProperty('keyAlias'),
+        keyPassword: System.getenv('BP_KEY_PASSWORD') ?: keystoreProperties.getProperty('keyPassword')
+]
+def hasReleaseSigning = releaseSigning.values().any { it }
+if (hasReleaseSigning && !releaseSigning.values().every { it }) {
+    throw new GradleException('Incomplete release signing: set all four BP_KEYSTORE/BP_KEYSTORE_PASSWORD/BP_KEY_ALIAS/BP_KEY_PASSWORD variables or keystore.properties entries.')
+}
+def brandName = project.property('brandName').toString()
+
+android {
+    ndkVersion "29.0.14206865"
+
+    compileSdk 37
+
+    namespace 'com.limelight'
+
+    defaultConfig {
+        minSdk 21
+        targetSdk 36
+
+        versionName "3.2.3"
+        versionCode = 357
+
+        resValue "string", "app_name", brandName
+        buildConfigField "String", "BRAND_NAME", "\"${brandName}\""
+        // Builds for a store that updates the app itself (-PgithubUpdates=false) hide the in-app updater.
+        buildConfigField "boolean", "GITHUB_UPDATES", project.findProperty('githubUpdates') == 'false' ? 'false' : 'true'
+
+        externalNativeBuild {
+            ndkBuild {
+                arguments "-j2"
+            }
+        }
+
+        // Generate native debug symbols to allow Google Play to symbolicate our native crashes
+        ndk.debugSymbolLevel = 'FULL'
+
+        // -PabiFilters=arm64-v8a builds a smaller single-ABI APK for device testing
+        if (project.hasProperty('abiFilters')) {
+            ndk.abiFilters.addAll(project.property('abiFilters').toString().split(',') as List)
+        }
+    }
+
+    flavorDimensions.add("root")
+
+    buildFeatures {
+        buildConfig = true
+        resValues = true
+    }
+
+    productFlavors {
+        root {
+            // Android O has native mouse capture, so don't show the rooted
+            // version to devices running O on the Play Store.
+            maxSdk 25
+
+            externalNativeBuild {
+                ndkBuild {
+                    arguments "PRODUCT_FLAVOR=root"
+                }
+            }
+
+            applicationId "com.butterpollo.client.root"
+            dimension "root"
+            buildConfigField "boolean", "ROOT_BUILD", "true"
+        }
+
+        nonRoot {
+            externalNativeBuild {
+                ndkBuild {
+                    arguments "PRODUCT_FLAVOR=nonRoot"
+                }
+            }
+
+            applicationId "com.butterpollo.client"
+            dimension "root"
+            buildConfigField "boolean", "ROOT_BUILD", "false"
+        }
+    }
+
+    compileOptions {
+        encoding "UTF-8"
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+        coreLibraryDesugaringEnabled true
+    }
+
+    androidResources {
+        localeFilters += ['en', 'de', 'es', 'fr', 'it', 'ja', 'ko', 'pl', 'pt-rBR', 'ru', 'tr', 'uk', 'vi', 'zh-rCN', 'zh-rTW']
+    }
+
+    lint {
+        enable 'MissingTranslation'
+        lintConfig file('lint.xml')
+    }
+
+    testOptions {
+        unitTests.includeAndroidResources = true
+        unitTests.all {
+            maxParallelForks = 2
+            // Robolectric keeps every locale's resource table in memory.
+            maxHeapSize = '1g'
+        }
+    }
+
+    bundle {
+        language {
+            // Avoid splitting by language, since we allow users
+            // to manually switch language in settings.
+            enableSplit = false
+        }
+        density {
+            // FIXME: This should not be necessary but we get
+            // weird crashes due to missing drawable resources
+            // when this split is enabled.
+            enableSplit = false
+        }
+    }
+
+    signingConfigs {
+        release {
+            if (hasReleaseSigning) {
+                storeFile rootProject.file(releaseSigning.storeFile)
+                storePassword releaseSigning.storePassword
+                keyAlias releaseSigning.keyAlias
+                keyPassword releaseSigning.keyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            // -PdebugIdSuffix=.n5 installs a side-by-side debug copy; the default stays ".debug".
+            applicationIdSuffix project.findProperty("debugIdSuffix") ?: ".debug"
+            resValue "string", "app_label", "${brandName} (Debug)"
+            resValue "string", "app_label_root", "${brandName} (Root Debug)"
+        }
+        release {
+            resValue "string", "app_label", brandName
+            resValue "string", "app_label_root", "${brandName} (Root)"
+
+            minifyEnabled true
+            signingConfig signingConfigs.release
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    externalNativeBuild {
+        ndkBuild {
+            path "src/main/jni/Android.mk"
+        }
+    }
+
+    packaging {
+        jniLibs.useLegacyPackaging = true
+        resources {
+            // BouncyCastle includes duplicate LICENSE.md files
+            excludes += '/META-INF/*.md'
+        }
+    }
+}
+
+def verifyReleaseSigning = tasks.register('verifyReleaseSigning') {
+    doLast {
+        if (!hasReleaseSigning) {
+            throw new GradleException('Release signing is required: configure keystore.properties or BP_KEYSTORE/BP_KEYSTORE_PASSWORD/BP_KEY_ALIAS/BP_KEY_PASSWORD.')
+        }
+        def keyStore = java.security.KeyStore.getInstance(rootProject.file(releaseSigning.storeFile), releaseSigning.storePassword.toCharArray())
+        def certificate = keyStore.getCertificate(releaseSigning.keyAlias)
+        if (certificate == null || certificate.subjectX500Principal.name.contains('CN=Android Debug')) {
+            throw new GradleException('Release signing requires a dedicated release key, not the Android debug key.')
+        }
+    }
+}
+
+// The patches only touch moonlight-common-c/src. When the set of patches changes (or the stamp is
+// missing), src is reset to the pinned commit and every patch is applied again in order, so an
+// edited patch never meets a tree that still carries its old version. scripts/test-native.sh uses
+// the same list and stamp. Change the patches, not the submodule: local edits to src are discarded.
+def nativePatchNames = ['bughunt-stream.patch', 'bughunt-input.patch', 'controller-haptics.patch', 'host-termination.patch',
+                        'disconnect-intercept.patch', 'control-payload.patch', 'control-teardown.patch', 'host-timing.patch',
+                        'network-grace.patch', 'cursor-shape.patch', 'network-grace-input.patch',
+                        'pyrowave-link-hints.patch', 'video-recv-buffer.patch', 'clock-sync.patch']
+
+def prepareNativePatches = tasks.register('prepareNativePatches') {
+    doLast {
+        def core = file('src/main/jni/moonlight-core')
+        def common = new File(core, 'moonlight-common-c')
+        if (!new File(common, 'src/Limelight.h').exists()) {
+            throw new GradleException('moonlight-common-c is not checked out. Run: git submodule update --init --recursive')
+        }
+        def patches = nativePatchNames.collect { new File(core, "patches/$it") }
+        def digest = java.security.MessageDigest.getInstance('SHA-256')
+        patches.each { digest.update(it.bytes) }
+        def stamp = digest.digest().encodeHex().toString()
+        def stampFile = file('build/native-patches.stamp')
+        if (stampFile.exists() && stampFile.text.trim() == stamp) {
+            return
+        }
+
+        def runGit = { List<String> arguments ->
+            def result = providers.exec {
+                workingDir common
+                commandLine(['git'] + arguments)
+                ignoreExitValue = true
+            }
+            [result.result.get().exitValue, result.standardError.asText.get()]
+        }
+        def reset = runGit(['checkout', '--', 'src'])
+        if (reset[0] != 0) {
+            throw new GradleException("Could not reset moonlight-common-c/src before patching: ${reset[1]}")
+        }
+        patches.each { patch ->
+            def applied = runGit(['apply', patch.absolutePath])
+            if (applied[0] != 0) {
+                throw new GradleException("Native patch ${patch.name} does not apply: ${applied[1]}")
+            }
+        }
+        stampFile.parentFile.mkdirs()
+        stampFile.text = stamp + '\n'
+    }
+}
+
+tasks.configureEach { task ->
+    if (task.name ==~ /pre.*ReleaseBuild/) {
+        task.dependsOn verifyReleaseSigning
+    }
+    if (task.name == 'preBuild' || task.name.startsWith('configureNdkBuild') || task.name.startsWith('buildNdkBuild')) {
+        task.dependsOn prepareNativePatches
+    }
+}
+
+// The Rust streaming engine (protocol/android, behind the "New streaming engine" setting):
+// libnightjar_core.so per ABI, built by cargo with the NDK's clang as compiler and linker and
+// packaged like jniLibs. It is not committed: it is a few MB per ABI and changes with every
+// engine change. Needs rustup with the four Android targets (see protocol/README.md).
+abstract class CargoAndroidBuild extends DefaultTask {
+    static final Map<String, List<String>> TARGETS = [
+            'arm64-v8a'  : ['aarch64-linux-android', 'aarch64-linux-android21'],
+            'armeabi-v7a': ['armv7-linux-androideabi', 'armv7a-linux-androideabi21'],
+            'x86'        : ['i686-linux-android', 'i686-linux-android21'],
+            'x86_64'     : ['x86_64-linux-android', 'x86_64-linux-android21'],
+    ]
+
+    @InputFiles @PathSensitive(PathSensitivity.RELATIVE)
+    abstract ConfigurableFileCollection getSources()
+
+    @Input
+    abstract ListProperty<String> getAbis()
+
+    @Input
+    abstract Property<String> getNdkPath()
+
+    @Internal
+    abstract DirectoryProperty getProtocolDir()
+
+    @OutputDirectory
+    abstract DirectoryProperty getOutputDir()
+
+    @javax.inject.Inject
+    abstract org.gradle.process.ExecOperations getExecOperations()
+
+    @TaskAction
+    void build() {
+        def windows = System.getProperty('os.name').toLowerCase().contains('windows')
+        def host = windows ? 'windows-x86_64' :
+                System.getProperty('os.name').toLowerCase().contains('mac') ? 'darwin-x86_64' : 'linux-x86_64'
+        def bin = new File(ndkPath.get(), "toolchains/llvm/prebuilt/$host/bin")
+        def clang = new File(bin, windows ? 'clang.exe' : 'clang').absolutePath
+        def ar = new File(bin, windows ? 'llvm-ar.exe' : 'llvm-ar').absolutePath
+        def cargo = System.getenv('CARGO') ?: 'cargo'
+        def homeCargo = new File(System.getProperty('user.home'), ".cargo/bin/${windows ? 'cargo.exe' : 'cargo'}")
+        if (!System.getenv('CARGO') && homeCargo.exists()) cargo = homeCargo.absolutePath
+        def protocol = protocolDir.get().asFile
+        def out = outputDir.get().asFile
+        out.deleteDir()
+        abis.get().each { abi ->
+            def (triple, clangTarget) = TARGETS[abi]
+            def upper = triple.toUpperCase().replace('-', '_')
+            def lower = triple.replace('-', '_')
+            def env = [
+                    ("CARGO_TARGET_${upper}_LINKER".toString())   : clang,
+                    ("CARGO_TARGET_${upper}_RUSTFLAGS".toString()): "-C link-arg=--target=$clangTarget -C link-arg=-Wl,-z,max-page-size=16384".toString(),
+                    ("CC_$lower".toString())                      : clang,
+                    ("CFLAGS_$lower".toString())                  : "--target=$clangTarget".toString(),
+                    ("AR_$lower".toString())                      : ar,
+            ]
+            execOperations.exec {
+                workingDir protocol
+                environment env
+                commandLine cargo, 'build', '--release', '--locked', '-p', 'nightjar-android', '--target', triple
+            }
+            def lib = new File(protocol, "target/$triple/release/libnightjar_core.so")
+            checkPageAlignment(lib)
+            def dir = new File(out, abi)
+            dir.mkdirs()
+            java.nio.file.Files.copy(lib.toPath(), new File(dir, lib.name).toPath())
+        }
+    }
+
+    // Android 15+ devices with 16 KiB pages load only libraries whose LOAD segments are aligned
+    // to at least 16 KiB.
+    static void checkPageAlignment(File lib) {
+        def buf = java.nio.ByteBuffer.wrap(lib.bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        boolean is64 = buf.get(4) == 2
+        long phoff = is64 ? buf.getLong(0x20) : (buf.getInt(0x1C) & 0xFFFFFFFFL)
+        int phentsize = buf.getShort(is64 ? 0x36 : 0x2A) & 0xFFFF
+        int phnum = buf.getShort(is64 ? 0x38 : 0x2C) & 0xFFFF
+        for (int i = 0; i < phnum; i++) {
+            int at = (int) (phoff + i * phentsize)
+            if (buf.getInt(at) != 1) continue // PT_LOAD
+            long align = is64 ? buf.getLong(at + 0x30) : (buf.getInt(at + 0x1C) & 0xFFFFFFFFL)
+            if (align < 16384) {
+                throw new GradleException("$lib has a LOAD segment aligned to $align bytes; 16 KiB pages need 16384")
+            }
+        }
+    }
+}
+
+def rustAbis = project.hasProperty('abiFilters') ?
+        project.property('abiFilters').toString().split(',').collect { it.trim() }.findAll { CargoAndroidBuild.TARGETS.containsKey(it) } :
+        CargoAndroidBuild.TARGETS.keySet().toList()
+def buildRustEngine = tasks.register('buildRustEngine', CargoAndroidBuild) {
+    def protocol = rootProject.file('protocol')
+    sources.from(fileTree(protocol) {
+        include '**/*.rs', '**/Cargo.toml', 'Cargo.lock'
+        exclude '**/target/**'
+    })
+    sources.from(fileTree('src/main/jni/moonlight-core/opus') { include '*/libopus.a' })
+    abis.set(rustAbis)
+    ndkPath.set(androidComponents.sdkComponents.ndkDirectory.map { it.asFile.absolutePath })
+    protocolDir.set(protocol)
+    outputDir.set(layout.buildDirectory.dir('rustJniLibs'))
+}
+
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        variant.sources.jniLibs?.addGeneratedSourceDirectory(buildRustEngine) { it.outputDir }
+    }
+}
+
+dependencies {
+    implementation 'androidx.window:window-java:1.4.0'
+    implementation 'androidx.window:window-core:1.4.0'
+    implementation('com.google.android.material:material:1.13.0') {
+        // OkHttp already supplies the merged Kotlin 2.2 JVM standard library.
+        exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'
+        exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8'
+        exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-common'
+    }
+    constraints {
+        implementation 'androidx.annotation:annotation:1.9.1'
+    }
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.16.1'
+    testImplementation 'net.sf.kxml:kxml2:2.3.0'
+    implementation 'org.bouncycastle:bcprov-jdk18on:1.86'
+    implementation 'org.bouncycastle:bcpkix-jdk18on:1.86'
+    implementation 'org.jcodec:jcodec:0.2.5'
+    implementation 'com.squareup.okhttp3:okhttp:5.5.0'
+    implementation 'org.jmdns:jmdns:3.6.3'
+    implementation 'com.github.cgutman:ShieldControllerExtensions:1.0.1'
+
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
+}

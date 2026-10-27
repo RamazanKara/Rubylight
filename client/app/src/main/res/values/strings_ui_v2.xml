@@ -1,0 +1,18 @@
+<resources>
+    <string name="settings_section_advanced">Advanced</string>
+    <string name="settings_advanced_summary">Decoding, input and diagnostics</string>
+    <string name="settings_custom">Custom</string>
+    <string name="setting_help">About %1$s</string>
+    <string name="stream_presets_help_title">About presets</string>
+    <string name="settings_version">Version %1$s</string>
+    <string name="settings_source">Source and licenses</string>
+    <string name="settings_csv_summary">Save the latest latency measurements</string>
+    <string name="host_profile_footer">Save stream settings before leaving. Display mode saves separately with Save display mode in its dialog. Changes apply to the next stream.</string>
+    <string name="stream_overlay_menu">Overlay</string>
+    <string name="stream_bitrate_manual">Set bitrate</string>
+    <string-array name="stream_preset_names">
+        <item>Native (recommended)</item>
+        <item>Battery saver</item>
+    </string-array>
+    <string name="applist_menu_show_app">Show game</string>
+</resources>

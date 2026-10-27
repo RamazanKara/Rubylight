@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_back_opens_menu">物理返回键打开串流菜单</string>
+    <string name="summary_checkbox_back_opens_menu">使用掌机或手柄的专用返回键打开串流菜单。Select 和 Start 保留原有映射。物理键盘上优先使用“返回键发送 Windows 键”设置。下次串流生效。</string>
+</resources>

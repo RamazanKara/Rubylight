@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_touch_mode">タッチモード</string>
+    <string name="stream_keyboard">キーボード</string>
+    <string name="stream_controls_show">オンスクリーンコントロールを表示</string>
+    <string name="stream_controls_hide">オンスクリーンコントロールを非表示</string>
+    <string name="stream_controls_layout">コントローラのレイアウトを編集</string>
+    <string name="stream_controls_move_help">ドラッグしてコントロールを移動します。サイズ変更や保存はメニューから行います。</string>
+    <string name="stream_controls_resize_help">ドラッグしてコントロールのサイズを変更します。保存はメニューから行います。</string>
+    <string name="stream_controls_saved">コントローラのレイアウトを保存しました</string>
+    <string name="stream_reconnect">ストリームに再接続</string>
+    <string name="stream_reconnecting">実行中のアプリに再接続しています…</string>
+    <string name="stream_native_touch_help">タッチで PC を直接操作します。\nキーボードはストリームメニューから開けます。</string>
+    <string name="stream_native_touch_fallback">PC がマルチタッチに対応していないため、タッチでマウスを操作します。</string>
+    <string-array name="stream_touch_modes">
+        <item>トラックパッド</item>
+        <item>ダイレクトマウス</item>
+        <item>マルチタッチ</item>
+        <item>ローカルカーソル</item>
+        <item>タッチオフ</item>
+    </string-array>
+    <string-array name="stream_control_layout_actions">
+        <item>コントロールを移動</item>
+        <item>コントロールのサイズを変更</item>
+        <item>レイアウトを保存してプレイ</item>
+    </string-array>
+</resources>

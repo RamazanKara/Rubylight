@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="help_connect_title">Connetti un PC</string>
+    <string name="help_connect_body">Nightjar trasmette in streaming da qualsiasi host compatibile con Moonlight in esecuzione sul PC. Avvia l’host e tieni entrambi i dispositivi sulla stessa rete: il PC comparirà nell’elenco. Se non compare, tocca Aggiungi PC e inserisci l’indirizzo IP del PC. Se ancora non riesce a connettersi, consenti l’host nel firewall del PC.</string>
+    <string name="help_connect_link">Guida configurazione</string>
+    <string name="help_pairing_title">Accoppiamento</string>
+    <string name="help_pairing_body">Tocca il PC e lascia il PIN sullo schermo. Inserisci quel PIN nelle impostazioni o nella pagina web dell’host sul PC. Se l’host ha autorizzazioni per dispositivo, consenti a questo dispositivo di elencare e avviare le app.</string>
+    <string name="help_pairing_link">Guida accoppiamento</string>
+    <string name="help_controls_title">Controlli e menu dello stream</string>
+    <string name="help_controls_body">Durante uno stream, premi Indietro per aprire il menu dello stream: tastiera, modalità di input, overlay, bitrate e disconnessione. Su un controller, premi insieme Start, Back, LB e RB. La disconnessione lascia il gioco in esecuzione sul PC, così puoi riprenderlo in seguito, a meno che tu non abbia attivato «Chiudi il gioco quando lascio lo stream» nel menu di quel gioco nella libreria. Per verificare pulsanti, levette e vibrazione di un controller, apri Impostazioni, Controlli, Test del controller. In Impostazioni, Controlli, Modalità touch, Cursore locale disegna il puntatore su questo dispositivo e Touch disattivato ignora lo schermo mentre giochi con un controller. Nel menu dello streaming, Input, Controlli per questo gioco posiziona pulsanti di tastiera, mouse e controller, levette, grilletti e una croce direzionale per quel gioco. Per portare un layout da Artemis, tieni premuto il gioco nella libreria e scegli Importa controlli del gioco. Per usare questo dispositivo solo come controller su un host senza una propria modalità solo input, attiva Impostazioni, Streaming, Solo input su qualsiasi PC; il PC invia comunque un piccolo stream video che non viene mostrato.</string>
+    <string name="help_controls_link">Guida controlli</string>
+    <string name="help_problems_title">Risolvere i problemi comuni</string>
+    <string name="help_problems_body"><b>Nessun video:</b> prova H.264 a 720p con HDR e upscaling disattivati.\n\n<b>Scatti:</b> abbassa il bitrate, collega il PC via cavo o avvicinati al router. Usa il Wi-Fi a 5 o 6 GHz invece di 2,4 GHz. Se scatta ogni pochi minuti, apri «Perché lo stream ha scattato?» nel menu dello stream: riconosce il ritmo delle ricerche Wi-Fi in background.\n\n<b>Ritardo dell’input:</b> attiva l’overlay delle prestazioni per vedere da dove viene il ritardo e lascia attiva la decodifica a bassa latenza.\n\n<b>Nessun audio:</b> scegli Stereo, controlla l’uscita audio del PC, poi riconnettiti.</string>
+    <string name="help_problems_link">Guida alla risoluzione</string>
+    <string name="help_report_body">Condividi un log senza dati personali. Non viene inviato nulla finché non scegli un’app con cui condividerlo.</string>
+    <string name="help_report_link">Cosa includere</string>
+</resources>

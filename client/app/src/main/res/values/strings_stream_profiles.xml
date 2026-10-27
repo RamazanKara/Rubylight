@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Named profiles (Settings → Video → Profiles) -->
+    <string name="profiles_title">Profiles</string>
+    <string name="profiles_subtitle">Profile</string>
+    <string name="profiles_summary_none">None: streams use the main settings</string>
+    <string name="profiles_summary_in_use">In use: %1$s</string>
+    <string name="profiles_summary_auto">Chosen by network when a stream starts</string>
+    <string name="profiles_section_list">Your profiles</string>
+    <string name="profiles_section_choice">Which profile a stream uses</string>
+    <string name="profiles_new">New profile</string>
+    <string name="profiles_new_summary">Starts empty: set only the values it should change.</string>
+    <string name="profiles_name">Profile name</string>
+    <string name="profiles_name_empty">Enter a name</string>
+    <string name="profiles_name_too_long">Use at most %1$d characters</string>
+    <string name="profiles_name_taken">Another profile has this name</string>
+    <string name="profiles_too_many">You can keep up to %1$d profiles.</string>
+    <string name="profiles_values_none">Nothing set yet</string>
+    <plurals name="profiles_values_count">
+        <item quantity="one">%d value set</item>
+        <item quantity="other">%d values set</item>
+    </plurals>
+    <string name="profiles_marker_in_use">In use</string>
+    <string name="profiles_marker_rules">Chosen for: %1$s</string>
+    <string name="profiles_edit">Edit values</string>
+    <string name="profiles_rename">Rename</string>
+    <string name="profiles_duplicate">Duplicate</string>
+    <string name="profiles_delete">Delete</string>
+    <string name="profiles_copy_name">%1$s copy</string>
+    <string name="profiles_delete_title">Delete %1$s?</string>
+    <string name="profiles_delete_message">Streams that used this profile use the main settings instead. This can’t be undone.</string>
+    <string name="profiles_deleted">Profile deleted</string>
+    <string name="profiles_in_use">Profile in use</string>
+    <string name="profiles_none">None (main settings)</string>
+    <string name="profiles_main_settings">main settings</string>
+    <string name="profiles_auto">Choose by network</string>
+    <string name="profiles_auto_summary_on">On: when a stream starts, the network picks the profile below. Ethernet and networks without a choice use the profile in use.</string>
+    <string name="profiles_auto_summary_off">Off: every stream uses the profile in use.</string>
+    <string name="profiles_rule_default">Profile in use</string>
+    <string name="profiles_network_mobile">Mobile data</string>
+    <string name="profiles_network_home_wifi">Home Wi-Fi</string>
+    <string name="profiles_network_wifi">Other Wi-Fi</string>
+    <string name="profiles_network_other">Ethernet or other</string>
+    <string name="profiles_rule_mobile_summary">Also Wi-Fi that Android marks as metered, such as a phone’s hotspot.</string>
+    <string name="profiles_rule_wifi_summary">Any Wi-Fi that isn’t a home Wi-Fi, or every Wi-Fi while no home Wi-Fi is set.</string>
+    <string name="profiles_now">Next stream on this network</string>
+    <string name="profiles_now_value">%1$s: %2$s</string>
+    <string name="profiles_home_networks">Home Wi-Fi</string>
+    <string name="profiles_home_none">None set: every Wi-Fi counts as other Wi-Fi.</string>
+    <string name="profiles_home_saved">Saved on this device. Select to remove.</string>
+    <string name="profiles_home_remove">Remove</string>
+    <string name="profiles_home_remove_title">Remove %1$s from home Wi-Fi?</string>
+    <string name="profiles_home_no_access">Location access is off: home Wi-Fi can’t be recognized, so it counts as other Wi-Fi.</string>
+    <string name="profiles_home_add_current">Add this Wi-Fi</string>
+    <string name="profiles_home_add_current_summary">Saves the name of the Wi-Fi this device is on. Android requires location access to read it.</string>
+    <string name="profiles_home_type">Type a Wi-Fi name</string>
+    <string name="profiles_home_type_summary">Recognizing it when a stream starts still needs location access.</string>
+    <string name="profiles_home_name">Wi-Fi name</string>
+    <string name="profiles_location_title">Allow location access?</string>
+    <string name="profiles_location_message">Android shows the Wi-Fi name only to apps with location access. It is used for one thing: telling your home Wi-Fi from other Wi-Fi when a stream starts. No location is read, and the Wi-Fi name stays on this device: it is never sent or logged. Without access, every Wi-Fi counts as other Wi-Fi.</string>
+    <string name="profiles_location_continue">Continue</string>
+    <string name="profiles_location_denied">No location access: every Wi-Fi counts as other Wi-Fi. You can allow it later in Android’s app settings.</string>
+    <string name="profiles_wifi_unreadable">Can’t read the Wi-Fi name. Check that this device is on Wi-Fi and location is on, or type the name.</string>
+    <string name="profiles_order">When a stream starts, each value comes from the first of these that sets it: this game, this PC, the profile, then the main settings. On mobile data, Bitrate on mobile data then caps the bitrate. Changes never apply to a stream that is already running.</string>
+    <string name="profiles_privacy">Home Wi-Fi names stay on this device and are never sent or logged.</string>
+
+    <!-- Bitrate on mobile data (Settings → Video) -->
+    <string name="title_mobile_bitrate">Bitrate on mobile data</string>
+    <string name="summary_mobile_bitrate">Caps the bitrate when a stream starts on mobile data or on Wi-Fi that Android marks as metered, such as a phone’s hotspot. It caps every profile, PC and game value too. Off uses the same bitrate as on other networks.</string>
+    <string name="mobile_bitrate_off">Off</string>
+
+    <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->
+    <string name="profile_settings_explanation">Set only the values this profile should change. Anything not set comes from the main settings. A PC’s or a game’s own values still win over the profile.</string>
+    <string name="game_settings_title">Game stream settings</string>
+    <string name="game_settings_subtitle">On %1$s</string>
+    <string name="game_settings_explanation">Values you set here apply to this game on this PC only. Anything not set comes from this PC’s settings, the profile and the main settings, in that order.</string>
+    <string name="game_settings_action">Stream settings for this game</string>
+    <string name="game_settings_note_none">Uses this PC’s settings</string>
+    <plurals name="game_settings_note_own">
+        <item quantity="one">%d value set for this game</item>
+        <item quantity="other">%d values set for this game</item>
+    </plurals>
+    <string name="layers_saved">Stream settings saved</string>
+    <string name="layers_saved_context">Changes apply to the next stream after you save.</string>
+    <string name="layers_unsaved_context">Unsaved changes</string>
+    <string name="layers_unsaved_message">Your changes to these stream settings have not been saved.</string>
+    <string name="layers_reset">Clear every value</string>
+    <string name="layers_reset_message">Every value goes back to Not set. Save to apply.</string>
+    <string name="layers_status_empty">Nothing is set here: every value comes from below.</string>
+    <string name="layers_status_custom">Sets every value back to Not set.</string>
+    <string name="layers_footer">Save before leaving. Changes apply to the next stream, never to one already running.</string>
+    <string name="layers_not_set_value">Not set (%1$s)</string>
+    <string name="layers_value_from">%1$s · %2$s</string>
+    <string name="layers_from_main">from the main settings</string>
+    <string name="layers_from_profile">from profile %1$s</string>
+    <string name="layers_from_pc">set for this PC</string>
+    <string name="layers_from_game">set for this game</string>
+    <string name="layers_from_mobile_limit">mobile data limit</string>
+    <string name="layers_pacing_vrr">Adaptive refresh is on, so the stream uses Lowest latency.</string>
+
+    <!-- In the stream -->
+    <string name="layers_applied">Settings: %1$s</string>
+    <string name="layers_part_profile">profile %1$s</string>
+    <string name="layers_part_profile_network">profile %1$s, chosen for %2$s</string>
+    <string name="layers_part_pc">this PC</string>
+    <string name="layers_part_game">this game</string>
+    <string name="layers_part_mobile_limit">mobile data limit</string>
+    <string name="layers_problem_profile_missing">The profile in use no longer exists, so the main settings apply.</string>
+    <string name="layers_problem_profile_missing_network">The profile chosen for %1$s no longer exists, so the main settings apply.</string>
+    <string name="layers_problem_profile_invalid">Profile %1$s has a value this version can’t read, so the main settings apply. Open it under Profiles to fix it.</string>
+    <string name="layers_problem_pc_invalid">This PC’s own stream settings can’t be read, so they are skipped. Open the PC’s settings to fix them.</string>
+    <string name="layers_problem_game_invalid">This game’s stream settings can’t be read, so they are skipped. Open them from the game’s menu to fix them.</string>
+    <string name="layers_problem_home_wifi_unknown">Home Wi-Fi can’t be recognized without location access, so this Wi-Fi counts as other Wi-Fi.</string>
+    <!-- Presets for one game's stream settings -->
+    <string name="game_preset_title">Preset</string>
+    <string name="game_preset_competitive">Competitive</string>
+    <string name="game_preset_competitive_summary">Sets frame pacing to lowest latency. Nothing else changes.</string>
+    <string name="game_preset_smoothness">Smoothness</string>
+    <string name="game_preset_smoothness_summary">Sets the smoothest frame pacing, which holds frames back and adds delay, and turns adaptive refresh off for this game. Bitrate is unchanged.</string>
+    <string name="game_preset_quality">Quality</string>
+    <string name="game_preset_quality_summary" formatted="false">Sets the bitrate to 150% of the PC’s, or of the main settings’ if the PC has none, up to the host limit. Frame pacing and adaptive refresh are unchanged; on a weak connection the larger frames can add delay.</string>
+    <string name="game_preset_custom">Custom</string>
+    <string name="game_preset_custom_summary">Your own values, set below.</string>
+</resources>

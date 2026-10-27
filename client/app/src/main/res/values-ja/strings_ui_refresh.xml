@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="add_pc_address_error">IP アドレスまたは PC 名を入力してください。必要に応じてポートも指定できます（例: 192.168.1.10:47989）。</string>
+    <string name="add_pc_connecting">接続しています…</string>
+    <string name="add_pc_service_unavailable">PC の検出を開始できませんでした。この画面を閉じてもう一度お試しください。</string>
+    <string name="sheet_close">メニューを閉じる</string>
+</resources>

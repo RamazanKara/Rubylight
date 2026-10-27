@@ -1,0 +1,7 @@
+Rubylight 0.4.0
+Stream your PC with low latency to Rubylight and other hosts.
+Choose presets and per-PC settings. View latency in the compact overlay. Adjust controls in the stream menu and map controller buttons.
+Send your microphone to the PC, encrypted, with mute in the stream menu.
+New Rubylight branding and clearer privacy info.
+Bitrate eases off when Wi-Fi queues. Faster AV1 recovery. HDR fits your screen.
+Foldables and resized windows keep native resolution without reconnecting.

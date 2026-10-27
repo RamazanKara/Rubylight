@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="keyboard_keys_show">Teclas adicionales</string>
+    <string name="keyboard_keys_hide">Ocultar teclas</string>
+    <string name="keyboard_task_manager">Administrador de tareas</string>
+    <string name="keyboard_switch_window">Cambiar de ventana</string>
+    <string name="keyboard_close_window">Cerrar ventana</string>
+    <string name="keyboard_arrow_left">Flecha izquierda</string>
+    <string name="keyboard_arrow_up">Flecha arriba</string>
+    <string name="keyboard_arrow_down">Flecha abajo</string>
+    <string name="keyboard_arrow_right">Flecha derecha</string>
+</resources>

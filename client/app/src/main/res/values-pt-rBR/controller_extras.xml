@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Controller and keyboard options -->
+    <string name="title_checkbox_disable_rumble">Desativar vibração</string>
+    <string name="summary_checkbox_disable_rumble">Interrompe toda vibração que um jogo pede: vibração do controle e dos gatilhos, háptico do DualSense via USB e a vibração deste dispositivo no lugar do controle.</string>
+    <string name="title_checkbox_mouse_emulation_fixed_step">Movimento do mouse em passos fixos</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">No modo mouse do controle, segure X enquanto move o analógico para mover o ponteiro um número fixo de pixels por vez. Pressione Y para dobrar o passo, de 1 até 128 pixels e depois de volta a 1.</string>
+    <string name="stream_mouse_step">Passo do mouse: %1$d px</string>
+    <string name="title_checkbox_back_as_meta">Voltar do teclado envia a tecla Windows</string>
+    <string name="summary_checkbox_back_as_meta">A tecla Voltar de um teclado físico envia a tecla Windows (Command no Mac). Abra o menu da transmissão com Ctrl+Alt+Shift+M, o gesto ou botão Voltar do Android ou a combinação de botões do controle.</string>
+    <string name="title_checkbox_right_alt_as_meta">Alt direito como Command</string>
+    <string name="summary_checkbox_right_alt_as_meta">O Alt direito envia a tecla Windows, que o Mac usa como Command, então Alt direito+C copia. O Alt esquerdo não muda. Deixe desativado se você digita caracteres com AltGr.</string>
+
+    <!-- Controller test page -->
+    <string name="controller_test_title">Teste do controle</string>
+    <string name="controller_test_summary">Verifique botões, analógicos, gatilhos, vibração, luzes e movimento</string>
+    <string name="controller_test_open">Testar controle</string>
+    <string name="controller_test_hint">Pressione botões e mova os analógicos. O direcional e o A também navegam por esta página; segure B ou Back por um segundo para sair.</string>
+    <string name="controller_test_waiting">Conecte um controle e pressione qualquer botão.</string>
+    <string name="controller_test_waiting_short">Nenhum controle ainda.</string>
+    <string name="controller_test_usb_device">Controle USB %1$s (driver USB do Nightjar)</string>
+    <string name="controller_test_buttons">Botões</string>
+    <string name="controller_test_pressed">Pressionado: %1$s</string>
+    <string name="controller_test_pressed_none">Nada pressionado</string>
+    <string name="controller_test_sticks">Analógicos e gatilhos</string>
+    <string name="controller_test_stick_values">Analógico esquerdo  %1$+.2f %2$+.2f\nAnalógico direito  %3$+.2f %4$+.2f\nLT %5$d%%  RT %6$d%%</string>
+    <string name="controller_test_rumble">Vibração</string>
+    <string name="controller_test_rumble_strong">Motor forte</string>
+    <string name="controller_test_rumble_weak">Motor fraco</string>
+    <string name="controller_test_rumble_all">Ambos os motores</string>
+    <string name="controller_test_rumble_any">Vibrar</string>
+    <string name="controller_test_rumble_left_trigger">Gatilho esquerdo</string>
+    <string name="controller_test_rumble_right_trigger">Gatilho direito</string>
+    <string name="controller_test_rumble_stop">Parar</string>
+    <string name="controller_test_rumble_disabled_note">Desativar vibração está ativado, então as transmissões não vão vibrar. Estes testes vibram mesmo assim.</string>
+    <string name="controller_test_lights">Luzes</string>
+    <string name="controller_test_light_red">Vermelho</string>
+    <string name="controller_test_light_green">Verde</string>
+    <string name="controller_test_light_blue">Azul</string>
+    <string name="controller_test_light_off">Desligado</string>
+    <string name="controller_test_light_reset">Redefinir</string>
+    <string name="controller_test_motion">Sensores de movimento</string>
+    <string name="controller_test_motion_values">Giroscópio\n%1$s\nAcelerômetro\n%2$s</string>
+    <string name="controller_test_waiting_motion">Mova o controle</string>
+    <string name="controller_test_touchpad">Touchpad</string>
+    <string name="controller_test_touch_none">Toque no touchpad para ver onde.</string>
+    <string name="controller_test_touch_at">Dedo a %1$d%% na horizontal e %2$d%% na vertical</string>
+    <string name="controller_test_misc">Share</string>
+    <string name="controller_test_not_available">Não disponível neste controle.</string>
+    <string name="controller_test_needs_android_12">Requer Android 12 ou mais recente.</string>
+
+    <!-- USB Switch Pro driver -->
+    <string name="title_usb_switch_pro">Driver USB do Switch Pro</string>
+    <string name="summary_usb_switch_pro">Experimental. Lê diretamente um Nintendo Switch Pro Controller conectado por cabo, com sensores de movimento, vibração, Home e Capture.</string>
+    <string name="usb_switch_pro_denied">Sem acesso USB; o Switch Pro Controller continua usando a entrada do Android.\nReconecte o cabo para tentar novamente.</string>
+</resources>

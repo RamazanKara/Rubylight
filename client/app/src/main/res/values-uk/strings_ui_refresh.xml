@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="add_pc_address_error">Введіть IP-адресу або ім’я ПК, за потреби з портом (наприклад, 192.168.1.10:47989).</string>
+    <string name="add_pc_connecting">Підключення…</string>
+    <string name="add_pc_service_unavailable">Не вдалося запустити пошук ПК. Закрийте цей екран і спробуйте ще раз.</string>
+    <string name="sheet_close">Закрити меню</string>
+</resources>

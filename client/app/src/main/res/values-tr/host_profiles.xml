@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_profile_title">%1$s yayın ayarları</string>
+    <string name="host_profile_status_global">Tüm değerler, tüm bilgisayarlar için olan ayarları izler.</string>
+    <string name="host_profile_status_custom">Tüm değerleri, tüm bilgisayarlar için olan ayarlara geri döndürür.</string>
+    <string name="host_profile_explanation">Burada ayarladığınız değerler yalnızca bu bilgisayar için geçerlidir. “Tüm bilgisayarlarla aynı” olarak işaretlenen her şey, sonraki değişiklikler dahil ana Yayın ayarlarını izler.</string>
+    <string name="host_profile_resolution">Çözünürlük (genişlik × yükseklik)</string>
+    <string name="host_profile_width">Genişlik</string>
+    <string name="host_profile_height">Yükseklik</string>
+    <string name="host_profile_match_screen">Bu ekranı kullan</string>
+    <string name="host_profile_native">Ekran boyutu (bu ekranı izler)</string>
+    <string name="host_profile_refresh">Kare hızı (FPS)</string>
+    <string name="host_profile_bitrate">Bit hızı (Mbps)</string>
+    <string name="host_profile_scale">Bilgisayarın işleme çözünürlüğü (%)</string>
+    <string name="host_profile_codec">Video codec’i</string>
+    <string name="host_profile_virtual_display">Ana bilgisayar sanal ekranı</string>
+    <string name="host_profile_hdr">HDR</string>
+    <string name="host_profile_full_range">Tam aralıklı video</string>
+    <string name="host_profile_yuv444">YUV 4:4:4 tercih et</string>
+    <string name="host_profile_save">Kaydet</string>
+    <string name="host_profile_reset">Her şey için tüm bilgisayarlarla aynı</string>
+    <string name="host_profile_saved">Bilgisayar yayın ayarları kaydedildi</string>
+    <string name="host_profile_reset_done">Bu bilgisayar artık tüm bilgisayarlar için olan ayarları kullanıyor</string>
+    <string name="host_profile_invalid_number">%1$d ile %2$d arasında bir tam sayı girin</string>
+    <string name="host_profile_invalid_refresh">En fazla iki ondalık basamakla 1–1000 FPS girin</string>
+    <string name="host_profile_invalid_bitrate">0.5–2000 Mbps girin</string>
+    <string-array name="host_profile_codecs">
+        <item>Otomatik</item>
+        <item>@string/videoformat_av1always</item>
+        <item>@string/videoformat_hevcalways</item>
+        <item>@string/videoformat_h264always</item>
+        <item>@string/videoformat_pyrowave</item>
+    </string-array>
+    <string name="host_profile_follows">Tüm bilgisayarlarla aynı · %1$s</string>
+    <string name="host_profile_same_as_all_value">Tüm bilgisayarlarla aynı (%1$s)</string>
+    <string name="host_profile_on">Açık</string>
+    <string name="host_profile_off">Kapalı</string>
+</resources>

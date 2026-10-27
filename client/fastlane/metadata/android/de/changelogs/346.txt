@@ -1,0 +1,1 @@
+Behebt Bildränder bei PyroWave auf Smartphones und Tablets, die über den Fragment-Pfad dekodieren, darunter Snapdragon-Geräte, durch einen aktualisierten PyroWave-Decoder.

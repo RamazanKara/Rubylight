@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="video_scaling_title">Mise à l’échelle de la vidéo</string>
+    <string-array name="video_scaling_modes">
+        <item>Ajuster</item>
+        <item>Remplir (rogner)</item>
+        <item>Étirer</item>
+        <item>Pixels 1:1</item>
+    </string-array>
+    <string name="video_scaling_help">Ajuster : l’image entière, avec des bandes si l’écran a une autre forme.\nRemplir (rogner) : remplit l’écran sans déformer l’image ; les bords qui dépassent sont coupés.\nÉtirer : remplit l’écran ; les formes peuvent paraître plus larges ou plus hautes.\nPixels 1:1 : un pixel du stream par pixel de l’écran. Un stream plus petit a une bordure ; un plus grand est rogné.\nPosition de la vidéo place une image Ajuster ou 1:1 en haut. Le zoom par pincement fonctionne dans tous les modes, et le picture-in-picture montre toujours l’image entière.</string>
+    <string name="title_video_alignment">Position de la vidéo</string>
+    <string name="summary_video_alignment">Emplacement d’une image Ajuster ou 1:1 quand il reste de la place. Haut laisse libre l’espace du bas pour le clavier ou la moitié inférieure d’un téléphone plié. Remplir et Étirer couvrent tout l’écran ; ce réglage n’y change rien.</string>
+    <string-array name="video_alignment_names">
+        <item>Centre</item>
+        <item>Haut</item>
+    </string-array>
+</resources>

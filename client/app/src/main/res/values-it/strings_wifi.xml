@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="wifi_heading">Connessione</string>
+    <string name="wifi_not_available">non disponibile</string>
+    <string name="wifi_unavailable">Dettagli Wi-Fi: non disponibili su questo dispositivo</string>
+    <string name="wifi_link_none">Connessione: Android non segnala alcuna rete attiva</string>
+    <string name="wifi_link_ethernet">Connessione: Ethernet, quindi i dettagli Wi-Fi non si applicano</string>
+    <string name="wifi_link_cellular">Connessione: dati mobili, quindi i dettagli Wi-Fi non si applicano</string>
+    <string name="wifi_link_other">Connessione: VPN o altro tipo di rete; dettagli Wi-Fi non disponibili</string>
+    <string name="wifi_band_24">2,4 GHz</string>
+    <string name="wifi_band_5">5 GHz</string>
+    <string name="wifi_band_6">6 GHz</string>
+    <string name="wifi_mhz">%1$d MHz</string>
+    <string name="wifi_dbm">%1$d dBm</string>
+    <string name="wifi_mbps">%1$d Mbps</string>
+    <string name="wifi_line_band">Banda Wi-Fi: %1$s · canale %2$s · larghezza %3$s</string>
+    <string name="wifi_line_signal">Segnale Wi-Fi: %1$s (%2$s)</string>
+    <string name="wifi_line_signal_unknown">Segnale Wi-Fi: non disponibile</string>
+    <string name="wifi_signal_excellent">ottimo</string>
+    <string name="wifi_signal_good">buono</string>
+    <string name="wifi_signal_fair">discreto</string>
+    <string name="wifi_signal_weak">debole</string>
+    <string name="wifi_line_speed">Velocità di collegamento Wi-Fi: invio %1$s · ricezione %2$s</string>
+    <string name="wifi_line_speed_single">Velocità di collegamento Wi-Fi: %1$s</string>
+    <string name="wifi_line_standard">Standard Wi-Fi: %1$s</string>
+    <string name="wifi_standard">Wi-Fi %1$d</string>
+    <string name="wifi_standard_6e">Wi-Fi 6E</string>
+    <string name="wifi_standard_legacy">802.11a/b/g</string>
+    <string name="wifi_line_lock">Blocco Wi-Fi a bassa latenza: %1$s</string>
+    <string name="wifi_lock_held">attivo</string>
+    <string name="wifi_lock_not_held">non attivo</string>
+    <string name="wifi_lock_unsupported">richiede Android 10</string>
+    <string name="wifi_warn_24">Attenzione: la banda 2,4 GHz è più lenta e affollata di 5 o 6 GHz e causa spesso scatti. Connettiti alla rete a 5 o 6 GHz del router, se presente.</string>
+    <string name="wifi_warn_weak">Segnale debole: avvicinati al router o rimuovi gli ostacoli in mezzo.</string>
+    <string name="wifi_line_rhythm">Ritmo degli scatti: circa ogni %1$s</string>
+    <string name="wifi_period_seconds">%1$d s</string>
+    <string name="wifi_period_minutes">%1$s min</string>
+</resources>

@@ -1,0 +1,1 @@
+{ "gpu": 11520, "changes": [ { "id": "chill.enabled", "value": true }, { "id": "chill.max_fps", "value": 144 } ] }

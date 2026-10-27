@@ -1,0 +1,33 @@
+<resources>
+    <string name="library_search">Spiele suchen</string>
+    <string name="library_options">Bibliotheksoptionen</string>
+    <string name="library_more_for">Weitere Optionen für %1$s</string>
+    <string name="library_play">Spielen</string>
+    <string name="library_open">Bibliothek öffnen</string>
+    <string name="library_loading">Bibliothek wird geladen…</string>
+    <string name="library_refresh">Bibliothek aktualisieren</string>
+    <string name="library_retry">Erneut versuchen</string>
+    <string name="library_show_hidden">Ausgeblendete Spiele anzeigen</string>
+    <string name="library_hide_hidden">Ausgeblendete Spiele verbergen</string>
+    <string name="library_no_matches">Keine Spiele entsprechen deiner Suche.</string>
+    <string name="library_clear_search">Suche löschen</string>
+    <string name="library_all_hidden">Deine Spiele sind ausgeblendet. Zeige ausgeblendete Spiele an, um sie wieder einzublenden.</string>
+    <string name="library_offline">Dieser PC ist offline. Deine gespeicherte Bibliothek ist noch da. Stelle die Verbindung zum Spielen wieder her.</string>
+    <string name="library_hidden_notice">Spiel aus der Bibliothek ausgeblendet</string>
+    <string name="library_undo">Rückgängig</string>
+    <string name="library_discovery_title">Deine Spiele auf diesem Bildschirm</string>
+    <string name="library_discovery_body">Schalte deinen PC ein und starte seinen Streaming-Host, etwa Apollo, Rubylight oder Sunshine. PCs im selben Netzwerk erscheinen hier automatisch.</string>
+    <string name="library_discovery_hint">In einem anderen Netzwerk? Füge deinen PC per Adresse hinzu.</string>
+    <plurals name="library_results">
+        <item quantity="one">%1$d von %2$d Spiel</item>
+        <item quantity="other">%1$d von %2$d Spielen</item>
+    </plurals>
+    <plurals name="library_showing_hidden">
+        <item quantity="one">%1$d Spiel · einschließlich ausgeblendeter</item>
+        <item quantity="other">%1$d Spiele · einschließlich ausgeblendeter</item>
+    </plurals>
+    <plurals name="library_app_count">
+        <item quantity="one">%d Spiel</item>
+        <item quantity="other">%d Spiele</item>
+    </plurals>
+</resources>

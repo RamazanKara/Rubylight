@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pc_settings_title">Налаштування ПК</string>
+    <string name="pc_settings_display">Дисплей на ПК</string>
+    <string name="pc_settings_connection">З’єднання</string>
+    <string name="pc_settings_host">Хост</string>
+    <string name="pc_settings_needs_online">Доступно, коли ПК у мережі</string>
+    <string name="pc_settings_test_speed">Пінг, джитер, втрати та швидкість завантаження</string>
+    <string name="pc_settings_test_delay">Пінг, джитер і втрати</string>
+    <string name="pc_settings_remote_summary">Налаштувати трансляцію через інтернет</string>
+    <string name="pc_settings_wake">Wake-on-LAN</string>
+    <string name="pc_settings_wake_ready">Цей пристрій може пробудити ПК з його меню</string>
+    <string name="pc_settings_wake_unknown">Створіть сполучення, коли ПК увімкнено, потім увімкніть Wake-on-LAN на ПК</string>
+    <string name="pc_settings_details_summary">ПЗ хоста, функції та адреси</string>
+    <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
+    <string name="pc_settings_shortcut">Додати на головний екран</string>
+    <string name="pc_settings_shortcut_summary">Відкриває бібліотеку цього ПК</string>
+    <string name="connection_test_ms">%1$s мс</string>
+    <string name="connection_test_percent">%1$s%%</string>
+    <string name="connection_test_speed">Швидкість %1$.1f Мбіт/с</string>
+    <string name="connection_test_speed_needs_pairing">Швидкість не виміряно: спершу сполучіть цей ПК</string>
+    <string name="connection_test_speed_no_answer">Швидкість не виміряно: ПК не відповів</string>
+    <string name="connection_test_speed_unsupported">Швидкість не виміряно: цей хост не має тесту швидкості</string>
+</resources>

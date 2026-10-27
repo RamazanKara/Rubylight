@@ -1,0 +1,12 @@
+{
+  "source": "StreamHealthTest.absentFramesDoNotBecomeHealthyMeasurements",
+  "rust": "health::StreamHealth",
+  "java": "com.limelight.policy.StreamHealthTrace",
+  "new": [],
+  "calls": [
+    {"call": "add_series", "args": [1000, 6, 1000, false, 60, 0, 1, 0, 0, 0, 0, 0, 0, 0, false], "expect": null},
+    {"call": "report_samples", "args": [6000], "expect": 0},
+    {"call": "report_recent", "args": [6000], "expect": false},
+    {"call": "report_worst_loss_percent", "args": [6000], "expect": -1}
+  ]
+}

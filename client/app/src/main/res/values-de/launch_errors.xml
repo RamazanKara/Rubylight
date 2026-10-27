@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="startup_host_message">Der Host konnte den Stream nicht starten: %1$s (Fehler %2$d)</string>
+    <string name="startup_launch_cancelled">Start abgebrochen.</string>
+    <string name="startup_confirmation_timed_out">Die Bestätigung ist abgelaufen. Starte die Kachel erneut, um es noch einmal zu versuchen.</string>
+    <string name="startup_confirmation_rejected">Die Sitzung auf dem Host hat sich geändert oder die Bestätigung ist abgelaufen. Starte die Kachel erneut.</string>
+    <string name="decoder_setup_rejected">Der Video-Decoder dieses Geräts (%1$s) konnte %2$s mit %3$dx%4$d bei %5$d FPS nicht starten: %6$s. Der Host ist nicht die Ursache. Probiere in den Einstellungen H.264, eine niedrigere Auflösung oder eine niedrigere Bildrate. Wenn es weiter auftritt, nutze „Problem melden“.</string>
+    <string name="decoder_setup_none">Dieses Gerät hat keinen Video-Decoder für %1$s. Wähle in den Einstellungen einen anderen Video-Codec.</string>
+</resources>

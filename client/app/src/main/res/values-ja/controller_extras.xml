@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Controller and keyboard options -->
+    <string name="title_checkbox_disable_rumble">振動を無効化</string>
+    <string name="summary_checkbox_disable_rumble">ゲームが要求するすべての振動を止めます: コントローラとトリガーの振動、USB DualSense のハプティクス、コントローラの代わりにこのデバイスが振動する機能。</string>
+    <string name="title_checkbox_mouse_emulation_fixed_step">固定ステップでマウスを移動</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">コントローラのマウスモードで X を押しながらスティックを動かすと、ポインタが一定のピクセル数ずつ移動します。Y を押すとステップが 2 倍になり、1 から 128 ピクセルまで増えた後 1 に戻ります。</string>
+    <string name="stream_mouse_step">マウスのステップ: %1$d px</string>
+    <string name="title_checkbox_back_as_meta">キーボードの戻るキーで Windows キーを送信</string>
+    <string name="summary_checkbox_back_as_meta">物理キーボードの戻るキーで Windows キー (Mac では Command) を送信します。ストリームメニューは Ctrl+Alt+Shift+M、Android の戻るジェスチャーまたはボタン、コントローラのボタン同時押しで開きます。</string>
+    <string name="title_checkbox_right_alt_as_meta">右 Alt を Command として使用</string>
+    <string name="summary_checkbox_right_alt_as_meta">右 Alt で Windows キーを送信します。Mac ではこれが Command として使われるため、右 Alt+C でコピーできます。左 Alt は変わりません。AltGr で文字を入力する場合はオフのままにしてください。</string>
+
+    <!-- Controller test page -->
+    <string name="controller_test_title">コントローラのテスト</string>
+    <string name="controller_test_summary">ボタン、スティック、トリガー、振動、ライト、モーションを確認</string>
+    <string name="controller_test_open">コントローラをテスト</string>
+    <string name="controller_test_hint">ボタンを押したりスティックを動かしたりしてください。十字キーと A でもこのページ内を移動できます。終了するには B か Back を 1 秒間長押しします。</string>
+    <string name="controller_test_waiting">コントローラを接続して、いずれかのボタンを押してください。</string>
+    <string name="controller_test_waiting_short">コントローラがまだありません。</string>
+    <string name="controller_test_usb_device">USB コントローラ %1$s (Nightjar USB ドライバ)</string>
+    <string name="controller_test_buttons">ボタン</string>
+    <string name="controller_test_pressed">押下中: %1$s</string>
+    <string name="controller_test_pressed_none">何も押されていません</string>
+    <string name="controller_test_sticks">スティックとトリガー</string>
+    <string name="controller_test_stick_values">左スティック  %1$+.2f %2$+.2f\n右スティック  %3$+.2f %4$+.2f\nLT %5$d%%  RT %6$d%%</string>
+    <string name="controller_test_rumble">振動</string>
+    <string name="controller_test_rumble_strong">強モーター</string>
+    <string name="controller_test_rumble_weak">弱モーター</string>
+    <string name="controller_test_rumble_all">両方のモーター</string>
+    <string name="controller_test_rumble_any">振動させる</string>
+    <string name="controller_test_rumble_left_trigger">左トリガー</string>
+    <string name="controller_test_rumble_right_trigger">右トリガー</string>
+    <string name="controller_test_rumble_stop">停止</string>
+    <string name="controller_test_rumble_disabled_note">[振動を無効化] がオンなので、ストリーム中は振動しません。このテストでは振動します。</string>
+    <string name="controller_test_lights">ライト</string>
+    <string name="controller_test_light_red">赤</string>
+    <string name="controller_test_light_green">緑</string>
+    <string name="controller_test_light_blue">青</string>
+    <string name="controller_test_light_off">オフ</string>
+    <string name="controller_test_light_reset">リセット</string>
+    <string name="controller_test_motion">モーションセンサー</string>
+    <string name="controller_test_motion_values">ジャイロ\n%1$s\n加速度センサー\n%2$s</string>
+    <string name="controller_test_waiting_motion">コントローラを動かしてください</string>
+    <string name="controller_test_touchpad">タッチパッド</string>
+    <string name="controller_test_touch_none">タッチパッドに触れると位置が表示されます。</string>
+    <string name="controller_test_touch_at">指の位置: 横 %1$d%%、縦 %2$d%%</string>
+    <string name="controller_test_misc">Share</string>
+    <string name="controller_test_not_available">このコントローラでは利用できません。</string>
+    <string name="controller_test_needs_android_12">Android 12 以降が必要です。</string>
+
+    <!-- USB Switch Pro driver -->
+    <string name="title_usb_switch_pro">USB Switch Pro ドライバ</string>
+    <string name="summary_usb_switch_pro">試験的機能。有線接続した Nintendo Switch Pro Controller を直接読み取り、モーション、振動、Home、Capture を使用します。</string>
+    <string name="usb_switch_pro_denied">USB にアクセスできないため、Switch Pro Controller は Android の入力を使用します。\n再試行するにはケーブルを接続し直してください。</string>
+</resources>

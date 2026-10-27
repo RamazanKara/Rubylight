@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="startup_host_message">Хосту не удалось начать эту трансляцию: %1$s (ошибка %2$d)</string>
+    <string name="startup_launch_cancelled">Запуск отменён.</string>
+    <string name="startup_confirmation_timed_out">Время подтверждения истекло. Чтобы повторить, снова запустите плитку.</string>
+    <string name="startup_confirmation_rejected">Сеанс на хосте изменился или срок подтверждения истёк. Снова запустите плитку.</string>
+    <string name="decoder_setup_rejected">Видеодекодер этого устройства (%1$s) не смог запустить %2$s в %3$dx%4$d при %5$d кадр/с: %6$s. Причина не в хосте. В настройках попробуйте H.264, более низкое разрешение или меньшую частоту кадров. Если это повторяется, используйте «Сообщить о проблеме».</string>
+    <string name="decoder_setup_none">На этом устройстве нет видеодекодера для %1$s. Выберите другой видеокодек в настройках.</string>
+</resources>

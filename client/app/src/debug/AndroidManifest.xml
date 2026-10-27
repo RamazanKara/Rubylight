@@ -1,0 +1,50 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity android:name="com.limelight.demo.DemoLauncherActivity" android:exported="true"
+            android:theme="@style/StreamTheme" />
+        <activity android:name="com.limelight.demo.DemoInputWorkspaceActivity" android:exported="false"
+            android:windowSoftInputMode="stateAlwaysHidden|adjustResize"
+            android:theme="@style/StreamTheme" />
+        <activity-alias android:name="com.limelight.demo.ControlsPreview"
+            android:targetActivity="com.limelight.demo.DemoInputWorkspaceActivity"
+            android:exported="true" android:label="@string/demo_controls_launcher"
+            android:icon="@mipmap/ic_launcher">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity android:name="com.limelight.demo.DemoPcView" android:exported="false" />
+        <activity android:name="com.limelight.demo.DemoAppView" android:exported="false" />
+        <activity android:name="com.limelight.demo.DemoConsoleHome" android:exported="false" />
+        <activity android:name="com.limelight.demo.DemoGameDetail" android:exported="false" />
+        <activity android:name="com.limelight.demo.DemoStreamSettings" android:exported="false" />
+        <activity android:name="com.limelight.demo.DemoHostStreamSettings" android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+        <activity android:name="com.limelight.demo.DemoControllerMappingActivity" android:exported="false" />
+        <activity android:name="com.limelight.demo.DemoGpuDriverSettings" android:exported="false" />
+        <activity android:name="com.limelight.demo.DemoGameActivity" android:exported="false"
+            android:supportsPictureInPicture="true" android:resizeableActivity="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout"
+            android:theme="@style/StreamTheme" />
+        <!-- Disabled until a capture script enables it with pm enable; see DemoHomeActivity. -->
+        <activity android:name="com.limelight.demo.DemoHomeActivity" android:exported="true" android:enabled="false"
+            android:launchMode="singleTask" android:excludeFromRecents="true" android:stateNotNeeded="true"
+            android:taskAffinity="${applicationId}.demohome" android:theme="@style/StreamTheme">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+        <service android:name="com.limelight.demo.DemoComputerManagerService" android:exported="false" />
+        <activity android:name="com.limelight.CrashTestActivity"
+            android:exported="true" />
+        <activity android:name="com.limelight.LatencyOverlaySmokeActivity"
+            android:exported="true"
+            android:label="Nightjar overlay smoke test"
+            android:theme="@style/StreamTheme" />
+        <!-- tv-redesign-4 -->
+        <activity android:name="com.limelight.demo.DemoAllGames" android:exported="false" />
+    </application>
+</manifest>

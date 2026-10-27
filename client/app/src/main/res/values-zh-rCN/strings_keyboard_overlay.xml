@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="keyboard_keys_show">额外键盘按键</string>
+    <string name="keyboard_keys_hide">隐藏按键</string>
+    <string name="keyboard_task_manager">任务管理器</string>
+    <string name="keyboard_switch_window">切换窗口</string>
+    <string name="keyboard_close_window">关闭窗口</string>
+    <string name="keyboard_arrow_left">左方向键</string>
+    <string name="keyboard_arrow_up">上方向键</string>
+    <string name="keyboard_arrow_down">下方向键</string>
+    <string name="keyboard_arrow_right">右方向键</string>
+</resources>

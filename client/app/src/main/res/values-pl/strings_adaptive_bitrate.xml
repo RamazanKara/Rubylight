@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_auto_bitrate_enable">Włącz automatyczną szybkość transmisji</string>
+    <string name="stream_auto_bitrate_disable">Wyłącz automatyczną szybkość transmisji</string>
+    <string name="stream_auto_bitrate_help">Dopasowuje szybkość transmisji do połączenia.\nZapisywane dla tego komputera; ręczne zmiany to wyłączają.</string>
+    <string name="stream_pyrowave_bitrate_help">Automatycznie dostosowuje PyroWave dla tego komputera.\nRęczna szybkość transmisji to wyłącza.</string>
+    <string name="stream_auto_bitrate_failed">Tymczasowy błąd aktualizacji szybkości transmisji. Ponawianie automatyczne.</string>
+    <string name="stream_auto_bitrate_unavailable">Ten komputer nie podaje szybkości transmisji strumienia. Automatyczna szybkość transmisji jest wyłączona dla tego strumienia.</string>
+    <string name="stream_auto_bitrate_status">Automatyczna szybkość transmisji: %1$.1f Mbps</string>
+    <string name="stream_bitrate_busy">Host jest zajęty. Spróbuj ponownie za chwilę.</string>
+    <string name="title_auto_bitrate">Automatyczna szybkość transmisji</string>
+    <string name="dialog_auto_bitrate">Obniża szybkość transmisji, gdy połączenie lub urządzenie nie nadąża, i podnosi ją z powrotem, gdy sytuacja się poprawi. Nigdy nie przekracza szybkości transmisji strumienia. To ustawienie domyślne dla wszystkich komputerów; menu strumienia może je zmienić dla jednego komputera.</string>
+</resources>

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_profile_title">Налаштування трансляції: %1$s</string>
+    <string name="host_profile_status_global">Усі значення відповідають налаштуванням для всіх ПК.</string>
+    <string name="host_profile_status_custom">Повертає всі значення до налаштувань для всіх ПК.</string>
+    <string name="host_profile_explanation">Задані тут значення діють лише для цього ПК. Усе, що позначено «Як для всіх ПК», відповідає основним налаштуванням трансляції, зокрема їхнім подальшим змінам.</string>
+    <string name="host_profile_resolution">Роздільна здатність (ширина × висота)</string>
+    <string name="host_profile_width">Ширина</string>
+    <string name="host_profile_height">Висота</string>
+    <string name="host_profile_match_screen">Як цей екран</string>
+    <string name="host_profile_native">Розмір екрана (як цей екран)</string>
+    <string name="host_profile_refresh">Частота кадрів (FPS)</string>
+    <string name="host_profile_bitrate">Бітрейт (Мбіт/с)</string>
+    <string name="host_profile_scale">Роздільність рендерингу на ПК (%)</string>
+    <string name="host_profile_codec">Відеокодек</string>
+    <string name="host_profile_virtual_display">Віртуальний дисплей хоста</string>
+    <string name="host_profile_hdr">HDR</string>
+    <string name="host_profile_full_range">Відео з повним діапазоном</string>
+    <string name="host_profile_yuv444">Віддавати перевагу YUV 4:4:4</string>
+    <string name="host_profile_save">Зберегти</string>
+    <string name="host_profile_reset">Усе як для всіх ПК</string>
+    <string name="host_profile_saved">Налаштування трансляції ПК збережено</string>
+    <string name="host_profile_reset_done">Цей ПК тепер використовує налаштування для всіх ПК</string>
+    <string name="host_profile_invalid_number">Введіть ціле число від %1$d до %2$d</string>
+    <string name="host_profile_invalid_refresh">Введіть 1–1000 FPS, не більше двох знаків після коми</string>
+    <string name="host_profile_invalid_bitrate">Введіть 0,5–2000 Мбіт/с</string>
+    <string-array name="host_profile_codecs">
+        <item>Автоматично</item>
+        <item>@string/videoformat_av1always</item>
+        <item>@string/videoformat_hevcalways</item>
+        <item>@string/videoformat_h264always</item>
+        <item>@string/videoformat_pyrowave</item>
+    </string-array>
+    <string name="host_profile_follows">Як для всіх ПК · %1$s</string>
+    <string name="host_profile_same_as_all_value">Як для всіх ПК (%1$s)</string>
+    <string name="host_profile_on">Увімкнено</string>
+    <string name="host_profile_off">Вимкнено</string>
+</resources>

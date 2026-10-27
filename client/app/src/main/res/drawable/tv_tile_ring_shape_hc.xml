@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- High contrast: a 4dp ring around the PC tile, from the view's edge to 4dp in (the view extends 5dp past the card), then the hairline. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:top="2dp" android:bottom="2dp" android:left="2dp" android:right="2dp">
+        <shape android:shape="rectangle">
+            <corners android:radius="19dp" />
+            <stroke android:width="4dp" android:color="?attr/colorPrimary" />
+        </shape>
+    </item>
+    <item android:top="4.5dp" android:bottom="4.5dp" android:left="4.5dp" android:right="4.5dp">
+        <shape android:shape="rectangle">
+            <corners android:radius="16.5dp" />
+            <stroke android:width="1dp" android:color="@color/tv_ring_hairline" />
+        </shape>
+    </item>
+</layer-list>

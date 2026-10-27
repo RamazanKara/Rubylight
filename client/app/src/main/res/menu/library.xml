@@ -1,0 +1,6 @@
+<menu xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item android:id="@+id/library_search_button" android:title="@string/library_search" android:icon="@drawable/ic_library_search"
+        app:iconTint="?attr/colorOnSurface" app:showAsAction="always" />
+    <item android:id="@+id/library_options" android:title="@string/library_options" android:icon="@drawable/ic_library_more"
+        app:iconTint="?attr/colorOnSurface" app:showAsAction="always" />
+</menu>

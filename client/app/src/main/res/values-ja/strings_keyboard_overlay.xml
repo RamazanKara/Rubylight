@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="keyboard_keys_show">追加のキーボードキー</string>
+    <string name="keyboard_keys_hide">キーを非表示</string>
+    <string name="keyboard_task_manager">タスク マネージャー</string>
+    <string name="keyboard_switch_window">ウィンドウを切り替え</string>
+    <string name="keyboard_close_window">ウィンドウを閉じる</string>
+    <string name="keyboard_arrow_left">左矢印</string>
+    <string name="keyboard_arrow_up">上矢印</string>
+    <string name="keyboard_arrow_down">下矢印</string>
+    <string name="keyboard_arrow_right">右矢印</string>
+</resources>

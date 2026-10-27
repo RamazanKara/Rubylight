@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="startup_connection_failed">Không thể kết nối với PC. Hãy kiểm tra máy chủ stream đang chạy, hai thiết bị có thể kết nối với nhau và tường lửa của PC cho phép stream. Sau đó thử lại.</string>
+    <string name="startup_permission_denied">Máy chủ đã từ chối yêu cầu này. Trong cài đặt hoặc giao diện web của máy chủ, hãy bật thiết bị này và cho phép xem hoặc mở ứng dụng.</string>
+    <string name="startup_host_error">Máy chủ không thể bắt đầu stream này (lỗi %1$d). Hãy kiểm tra trạng thái máy chủ trong giao diện web, làm mới danh sách ứng dụng rồi thử lại.</string>
+    <string name="startup_invalid_host">PC trả về phiên bản máy chủ không hợp lệ. Hãy cập nhật hoặc khởi động lại máy chủ rồi thử lại.</string>
+    <string name="startup_virtual_display_unavailable">PC này không có màn hình ảo nên sẽ stream màn hình của chính nó.</string>
+    <string name="startup_not_paired">Thiết bị này không còn được ghép đôi. Hãy quay lại danh sách PC và ghép đôi lại.</string>
+    <string name="startup_app_missing">Ứng dụng này không còn trong thư viện của PC. Hãy làm mới danh sách ứng dụng và chọn ứng dụng khác.</string>
+    <string name="startup_resume_missing">Phiên này không còn khả dụng. Hãy làm mới danh sách ứng dụng và chọn một phiên.</string>
+    <string name="startup_host_resolution_unsupported">PC không hỗ trợ độ phân giải trên 4K. Hãy chọn 4K hoặc thấp hơn trong Cài đặt stream.</string>
+    <string name="startup_device_resolution_unsupported">Độ phân giải trên 4K cần thiết bị này hỗ trợ HEVC hoặc AV1. Hãy chọn độ phân giải thấp hơn hoặc codec khác.</string>
+    <string name="startup_host_update_4k">Hãy cập nhật GeForce Experience trên PC để stream 4K. Stream này ở 1080p.</string>
+    <string name="startup_hdr_unavailable">PC và thiết bị này không có codec HDR chung nên stream dùng SDR.</string>
+    <string name="startup_pyrowave_hdr_unavailable">PyroWave HDR không dùng được trên thiết bị này (%1$s) nên HDR dùng codec khác.</string>
+    <string name="startup_resume_failed">Không thể tiếp tục phiên. Hãy kiểm tra ứng dụng trên PC rồi thử lại.</string>
+    <string name="startup_session_owner">Một thiết bị khác đang sở hữu phiên này. Hãy kết thúc phiên trên thiết bị đó hoặc trên PC rồi thử lại.</string>
+    <string name="startup_app_minimized">Ứng dụng đang bị thu nhỏ. Hãy khôi phục ứng dụng trên PC, hoặc thoát phiên rồi bắt đầu lại.</string>
+    <string name="startup_quit_failed">Không thể thoát phiên trước. Hãy kết thúc phiên trên PC rồi thử lại.</string>
+    <string name="startup_launch_failed">Không thể mở ứng dụng. Hãy kiểm tra ứng dụng mở được trên PC rồi thử lại.</string>
+    <string name="applist_permission_required">Thiết bị này không thể liệt kê ứng dụng. Hãy cho phép thiết bị này liệt kê ứng dụng trong cài đặt hoặc giao diện web của máy chủ. Thư viện sẽ tự động làm mới.</string>
+    <string name="applist_load_failed">Không thể tải ứng dụng của PC. Hãy kiểm tra máy chủ và quyền liệt kê ứng dụng của thiết bị này trong cài đặt hoặc giao diện web của máy chủ. Đang tự động thử lại.</string>
+    <string name="applist_empty">Không có ứng dụng nào. Hãy thêm ứng dụng vào thư viện của máy chủ và kiểm tra quyền liệt kê ứng dụng của thiết bị này trong cài đặt hoặc giao diện web của máy chủ.</string>
+    <string name="host_profile_unsaved_title">Lưu cài đặt stream?</string>
+    <string name="host_profile_unsaved_message">Các thay đổi cài đặt stream của PC này chưa được lưu. Chế độ hiển thị đã xác nhận trong hộp thoại riêng được lưu riêng.</string>
+    <string name="host_profile_discard">Hủy thay đổi</string>
+    <string name="preset_replace_settings">Thao tác này thay độ phân giải, tốc độ khung hình, tốc độ bit, nhịp độ khung hình, nâng cấp độ phân giải, VRR và cài đặt hiệu năng bằng giá trị của cấu hình sẵn này. Lựa chọn codec và HDR được giữ nguyên.</string>
+    <string name="pair_otp_incorrect_pin">Mã PIN bị từ chối. Hãy tạo mã PIN dùng một lần mới trong giao diện web của máy chủ và kiểm tra cụm mật khẩu.</string>
+    <string name="pc_accessibility_actions">Thao tác với PC</string>
+    <string name="app_details">Tên: %1$s\nHỗ trợ HDR: %2$s\nID ứng dụng: %3$d</string>
+    <string name="app_hdr_unknown">Không xác định</string>
+</resources>

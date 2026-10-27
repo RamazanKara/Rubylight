@@ -1,0 +1,31 @@
+<resources>
+    <string name="startup_connection_failed">Could not connect to the PC. Check that its streaming host is running, both devices can reach each other, and the PC firewall allows streaming. Then try again.</string>
+    <string name="startup_permission_denied">The host denied this request. In your host’s settings or web UI, enable this device and allow viewing or launching apps.</string>
+    <string name="startup_host_error">The host could not start this stream (error %1$d). Check the host’s status in its web UI, refresh the app list and try again.</string>
+    <string name="startup_invalid_host">The PC returned an invalid server version. Update or restart the host and try again.</string>
+    <string name="startup_virtual_display_unavailable">This PC has no virtual display, so it streams its own screen.</string>
+    <string name="startup_not_paired">This device is no longer paired. Return to the PC list and pair it again.</string>
+    <string name="startup_app_missing">This app is no longer in the PC’s library. Refresh the app list and choose another app.</string>
+    <string name="startup_resume_missing">This session is no longer available. Refresh the app list and choose a session.</string>
+    <string name="startup_host_resolution_unsupported">The PC does not support resolutions above 4K. Choose 4K or lower in Stream settings.</string>
+    <string name="startup_device_resolution_unsupported">Resolutions above 4K need HEVC or AV1 support on this device. Choose a lower resolution or another codec.</string>
+    <string name="startup_host_update_4k">Update GeForce Experience on the PC to stream 4K. This stream is 1080p.</string>
+    <string name="startup_hdr_unavailable">The PC and this device share no HDR codec, so the stream is in SDR.</string>
+    <string name="startup_pyrowave_hdr_unavailable">PyroWave HDR is unavailable on this device (%1$s), so HDR uses another codec.</string>
+    <string name="startup_resume_failed">Could not resume the session. Check the app on the PC and try again.</string>
+    <string name="startup_session_owner">Another device owns this session. End it on that device or on the PC, then try again.</string>
+    <string name="startup_app_minimized">The app is minimized. Restore it on the PC, or quit the session and start it again.</string>
+    <string name="startup_quit_failed">Could not quit the previous session. End it on the PC and try again.</string>
+    <string name="startup_launch_failed">Could not start the app. Check that it opens on the PC, then try again.</string>
+    <string name="applist_permission_required">This device cannot list apps. Allow application listing for this device in your host’s settings or web UI. The library refreshes automatically.</string>
+    <string name="applist_load_failed">Could not load the PC’s apps. Check the host and this device’s application-list permission in its settings or web UI. Retrying automatically.</string>
+    <string name="applist_empty">No apps are available. Add apps to the host library and check this device’s application-list permission in your host’s settings or web UI.</string>
+    <string name="host_profile_unsaved_title">Save stream settings?</string>
+    <string name="host_profile_unsaved_message">Your changes to this PC’s stream settings have not been saved. A display mode confirmed in its own dialog is saved separately.</string>
+    <string name="host_profile_discard">Discard changes</string>
+    <string name="preset_replace_settings">This replaces resolution, frame rate, bitrate, frame pacing, upscaling, VRR and performance settings with this preset’s values. Codec and HDR choices stay as they are.</string>
+    <string name="pair_otp_incorrect_pin">PIN rejected. Generate a new one-time PIN in your host’s web UI and check the passphrase.</string>
+    <string name="pc_accessibility_actions">PC actions</string>
+    <string name="app_details">Name: %1$s\nHDR supported: %2$s\nApp ID: %3$d</string>
+    <string name="app_hdr_unknown">Unknown</string>
+</resources>

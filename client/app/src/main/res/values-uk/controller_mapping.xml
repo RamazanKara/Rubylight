@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="controller_mapping_title">Кнопки контролера</string>
+    <string name="controller_mapping_summary">Перепризначення кнопок для кожної моделі контролера</string>
+    <string name="controller_mapping_intro">Торкніться «Призначити кнопку», потім натисніть кнопку контролера, яку потрібно перепризначити.\nЗміни застосуються до наступної трансляції.</string>
+    <string name="controller_mapping_waiting">Підключіть контролер, потім торкніться «Призначити кнопку».</string>
+    <string name="controller_mapping_unnamed">Контролер</string>
+    <string name="controller_mapping_none">Усі кнопки мають стандартне призначення.</string>
+    <string name="controller_mapping_row">Надсилає %1$s</string>
+    <string name="controller_mapping_choose">%1$s надсилає…</string>
+    <string name="controller_mapping_default">%1$s (стандартно)</string>
+    <string name="controller_mapping_disabled">Нічого</string>
+    <string name="controller_mapping_reset">Скинути цей контролер</string>
+    <string name="controller_button_left_stick">Натискання лівого стіка</string>
+    <string name="controller_button_right_stick">Натискання правого стіка</string>
+    <string name="controller_button_start">Start</string>
+    <string name="controller_button_select">Back</string>
+    <string name="controller_button_guide">Guide</string>
+    <string name="controller_button_number">Кнопка %1$d</string>
+    <string name="pc_tap_to_pair">%1$s\nТоркніться, щоб сполучити</string>
+</resources>

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="remote_setup_title">外出先でプレイ</string>
+    <string name="remote_step">ステップ %1$d/3</string>
+    <string name="remote_prepare">自宅で準備する\n\n自宅のネットワークでこのデバイスを PC とペアリングし、通常のストリーミングができることを確認します。PC はスリープさせず、ホストを起動したままにしてください。\n\nリモートで Wake-on-LAN を使うには、対応ルーターか自宅で常時稼働しているデバイスが必要です。スマートフォンだけでは、到達できない PC を起動することはできません。</string>
+    <string name="remote_vpn">デバイスを接続する\n\nTailscale などのプライベート VPN を使うと、ホストのウェブ UI をインターネットに公開せずにスマートフォンと PC を接続できます。両方のデバイスにインストールし、ご自身のアカウントでログインして接続を有効にしてください。既存の VPN 環境も使用できます。\n\nリンクから公式のダウンロード ガイドが開きます。このアプリがソフトウェアのインストール、アカウントの作成、ルーター設定の変更、ポート転送の有効化を行うことはありません。</string>
+    <string name="remote_verify">別のネットワークから確認する\n\n[アドレスを追加] で PC の VPN アドレスを追加します。ストリーミング用 HTTP ポートを変更している場合はそれも指定してください。ID が一致すれば保存済みの PC が更新されます。その後ここに戻ってください。\n\n自宅の Wi-Fi から切断し、モバイルデータまたは別のネットワークを使用します。テストでは、ペアリング済み PC の ID と 5 回の小さな HTTPS リクエストを確認します。ストリームの開始や速度テスト用ファイルのダウンロードは行いません。自宅でのテストだけでは、インターネット経由で到達できることの証明にはなりません。</string>
+    <string name="remote_get_vpn">Tailscale の設定を開く</string>
+    <string name="remote_add_address">VPN またはリモートアドレスを追加</string>
+    <string name="remote_test">この PC をテスト</string>
+    <string name="remote_previous">前へ</string>
+    <string name="remote_next">次へ</string>
+    <string name="remote_pair_first">先に自宅のネットワークでこの PC とペアリングしてください。リモートアドレスが PC に到達することを確認するには、保存済みの証明書と HTTPS ポートが必要です。</string>
+    <string name="remote_pair_revoked">PC は応答しましたが、このデバイスはペアリングされていません。リモートプレイをテストする前に、自宅でもう一度ペアリングしてください。</string>
+    <string name="remote_permission_denied">ペアリング済みの PC は応答しましたが、このデバイスはストリームを表示できません。ホストの設定またはウェブ UI で、このデバイスにアプリの表示または起動を許可してください。</string>
+    <string name="remote_running">ペアリング済みの PC を確認しています…</string>
+    <string name="remote_cancelled">テストをキャンセルしました。ホストやネットワークの設定は変更されていません。</string>
+    <string name="remote_failed">ペアリング済みの PC を確認できませんでした。PC が起動していること、ホストと VPN が動作していること、保存済みのアドレスとストリーミング用ポートが正しいことを確認してください。ペアリングが変わった場合は、自宅でもう一度ペアリングしてください。このテストでは、PC のスリープと経路のブロックを区別できません。</string>
+    <string name="remote_verified">ペアリング済みの PC がこのネットワークで応答しました。次に、控えめなビットレートで通常のストリーミングを試してください。HTTPS で到達できても、映像や音声の UDP ポート、継続的なストリーミング性能は確認されていません。</string>
+    <string name="remote_direct">Tailscale はこの接続を直接経路と報告しています。通常、直接経路はスループットと遅延の面で最適です。</string>
+    <string name="remote_relay">Tailscale は DERP リレーを報告しています。接続はできますが、ストリーミング速度が制限される可能性があります。Tailscale の接続に関するガイドを確認するか、適切なピアリレーを設定してください。</string>
+    <string name="remote_peer_relay">Tailscale はピアリレーを報告しています。性能はそのリレーと両方のネットワーク経路によって異なります。実際のストリームで比べてください。</string>
+    <string name="remote_unknown">直接経路かリレー経路か: 不明。このホスト、VPN、または接続は現在の経路の種類を公開していません。VPN のステータスを確認してください。Ping が低いだけでは直接経路の証明にはなりません。</string>
+    <string name="remote_measurements">HTTPS リクエストの平均: %1$.1f ms\n失敗したリクエスト: %2$.0f %%\nこれはアプリのリクエストの測定値であり、映像のパケット損失や入力遅延ではありません。</string>
+</resources>

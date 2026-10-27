@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_touch_off_help">Сенсор вимкнено. Проведіть назад або натисніть «Назад», щоб відкрити меню трансляції.</string>
+    <string name="title_local_cursor_speed">Швидкість локального курсора</string>
+    <string name="title_trackpad_acceleration">Прискорення вказівника</string>
+    <string name="summary_trackpad_acceleration">Швидкі рухи пальцем переміщують вказівник далі, ніж повільні, тож дрібні рухи лишаються точними. Для режимів «Трекпад» і «Локальний курсор».</string>
+    <string name="title_trackpad_acceleration_curve">Сила прискорення</string>
+    <string-array name="trackpad_acceleration_curve_names">
+        <item>Слабка</item>
+        <item>Середня</item>
+        <item>Сильна</item>
+    </string-array>
+    <string name="title_trackpad_momentum">Інерція після швидкого жесту</string>
+    <string name="summary_trackpad_momentum">Після швидкого жесту вказівник рухається далі й сповільнюється. Торкніться екрана, щоб зупинити його. Для режимів «Трекпад» і «Локальний курсор».</string>
+    <string name="title_trackpad_momentum_glide">Дальність інерції</string>
+    <string-array name="trackpad_momentum_glide_names">
+        <item>Коротка</item>
+        <item>Середня</item>
+        <item>Довга</item>
+    </string-array>
+    <string name="title_trackpad_area">Область трекпада</string>
+    <string name="summary_trackpad_area">Жести режимів «Трекпад» і «Локальний курсор» починаються лише в цій частині екрана. Дотики, що почалися деінде, ігноруються.</string>
+    <string-array name="trackpad_area_names">
+        <item>Увесь екран</item>
+        <item>Права половина</item>
+        <item>Ліва половина</item>
+        <item>Нижня половина</item>
+        <item>Верхня половина</item>
+    </string-array>
+    <string name="title_three_finger_tap">Дотик трьома пальцями</string>
+    <string name="summary_three_finger_tap">Що робить швидкий дотик трьома пальцями в режимах «Трекпад», «Пряме керування мишею» і «Локальний курсор».</string>
+    <string-array name="three_finger_tap_names">
+        <item>@string/desktop_controls_system_keyboard</item>
+        <item>Середнє клацання</item>
+        <item>@string/desktop_controls_open</item>
+        <item>@string/stream_disabled</item>
+        <item>@string/pc_keyboard_title</item>
+    </string-array>
+    <string name="stream_cursor_shape_rejected">Nightjar не може намалювати форму курсора ПК і показує стандартну стрілку.</string>
+    <string name="title_four_finger_tap">Дотик чотирма пальцями</string>
+    <string name="summary_four_finger_tap">Дія швидкого дотику чотирма пальцями в режимах «Тачпад», «Пряма миша» та «Локальний курсор».</string>
+</resources>

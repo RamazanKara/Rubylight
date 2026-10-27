@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_display_menu">PC-Displaymodus</string>
+    <string name="host_display_location">Exklusiv oder Erweitert findest du im Menü deines PCs → Stream-Einstellungen → PC-Displaymodus. Der Displaymodus wird für jeden PC separat gespeichert und braucht Unterstützung durch den Host.</string>
+    <string name="host_display_controls_virtual">Durch den PC-Displaymodus festgelegt: %1$s</string>
+    <string name="host_display_title">Display an %1$s</string>
+    <string name="host_display_default">Einstellung des PCs</string>
+    <string name="host_display_exclusive">Exklusiv — nur virtuelles Display (PC-Monitore aus)</string>
+    <string name="host_display_extended_primary">Erweitern — virtuelles Display zum Hauptdisplay machen</string>
+    <string name="host_display_extended">Erweitern — PC-Display als Hauptdisplay behalten</string>
+    <string name="host_display_extended_isolated">Erweitert und getrennt — PC bleibt Hauptdisplay</string>
+    <string name="host_display_extended_primary_isolated">Erweitert und getrennt — virtuelles Hauptdisplay</string>
+    <string name="host_display_physical">Physisches Display (kein virtuelles Display)</string>
+    <string name="host_display_saved">Display-Auswahl gespeichert. Sie gilt ab dem nächsten Stream.</string>
+    <string name="host_display_save">Displaymodus speichern</string>
+    <string name="host_display_explanation">Wähle einen Modus und tippe auf Displaymodus speichern. Abbrechen behält die aktuelle Auswahl bei. Der neue Modus gilt ab dem nächsten Stream.\n\nPC-Display als Hauptdisplay behalten lässt deinen Monitor als Windows-Hauptdisplay bestehen. Virtuelles Display zum Hauptdisplay machen verlegt diese Rolle auf das gestreamte Display, auf dem Spiele und neue Fenster üblicherweise öffnen. Beide Erweitern-Optionen lassen die PC-Monitore eingeschaltet.\n\nEinstellung des PCs folgt Virtuelles Host-Display und den Display-Einstellungen des PCs. Exklusiv schaltet die PC-Monitore während des Streams aus. Getrennte Modi platzieren das gestreamte Display im Desktop-Layout weit entfernt von den anderen Monitoren, in derselben Windows-Sitzung. Physisches Display streamt den PC-Monitor ohne virtuelles Display. Nach dem Stream stellt der PC seine Displays wieder her.\n\nNur PCs, deren Host Displaymodi unterstützt, bieten diese Auswahl; bei anderen PCs entscheidet Virtuelles Host-Display.</string>
+    <string name="host_administration_menu">Web-UI des Hosts öffnen</string>
+    <string name="host_administration_help">Verwalte Anwendungen, gekoppelte Geräte und Einstellungen in der Web-UI des Hosts. Melde dich mit dem eigenen Konto der Web-UI an; die Kopplung meldet dich dort nicht an. Für Fernzugriff muss der Port der Web-UI erreichbar sein.\n\n%1$s</string>
+    <string name="host_administration_open">Im Browser öffnen</string>
+    <string name="host_administration_no_browser">Kein Browser konnte die Web-UI des Hosts öffnen. Kopiere ihre Adresse und öffne sie auf einem anderen Gerät.</string>
+</resources>

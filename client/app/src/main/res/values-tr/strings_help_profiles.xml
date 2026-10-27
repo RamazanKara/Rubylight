@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="help_profiles_title">Profiller ve oyun ayarları</string>
+    <string name="help_profiles_body">Profiller, “Ev 4K120” veya “Otel” gibi adlandırılmış yayın değeri kümeleridir. Bunları Ayarlar, Video, Profiller bölümünde oluşturun ve kullanılan profili seçin ya da yayın başlarken profili ağın seçmesine izin verin: mobil veri, ev Wi-Fi’ı veya diğer Wi-Fi. Bir oyunun kendi değerleri (kitaplıktaki oyun menüsünde Bu oyun için yayın ayarları) bilgisayarınkilerden, bilgisayarınkiler profilden, profil de ana ayarlardan önce gelir. Mobil veride bit hızı, mobil veride bit hızını sınırlar.</string>
+    <string name="help_profiles_link">Profil kılavuzu</string>
+</resources>

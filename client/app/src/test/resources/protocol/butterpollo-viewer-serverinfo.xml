@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root status_code="200">
+  <hostname>Viewer fixture</hostname><uniqueid>ef95b248-f698-48d2-95e4-16e02a1fa911</uniqueid>
+  <appversion>7.1.431.-1</appversion><PairStatus>1</PairStatus>
+  <currentgame>42</currentgame><state>SUNSHINE_SERVER_BUSY</state>
+  <RustHostVersion>2.0.0-rc.20</RustHostVersion><Permission>50331648</Permission>
+  <FrameLimiterSupported>1</FrameLimiterSupported><FrameLimiterEnabled>0</FrameLimiterEnabled>
+  <VirtualDisplayFrameLimiterEnabled>1</VirtualDisplayFrameLimiterEnabled><FrameLimiterFpsLimitMilliHz>0</FrameLimiterFpsLimitMilliHz>
+</root>

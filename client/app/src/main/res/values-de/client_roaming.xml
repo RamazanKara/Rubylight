@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_client_roaming">Netzwerkwechsel (experimentell)</string>
+    <string name="summary_client_roaming">Der Stream läuft weiter, wenn dieses Gerät das Netzwerk wechselt. Funktioniert mit Rubylight-PCs, die das unterstützen.</string>
+    <string name="title_roaming_metered">Mit mobilen Daten fortsetzen</string>
+    <string name="summary_roaming_metered">Der Stream darf zu mobilen Daten oder einem anderen getakteten Netzwerk wechseln. Streaming verbraucht viele Daten.</string>
+</resources>

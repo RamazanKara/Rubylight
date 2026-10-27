@@ -1,0 +1,5 @@
+<!-- An untitled settings group: the section's own heading already names it, so it only keeps a gap. -->
+<View xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="@dimen/space_s"
+    android:importantForAccessibility="no" />

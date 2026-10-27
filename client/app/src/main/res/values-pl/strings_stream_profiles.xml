@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Named profiles (Settings → Video → Profiles) -->
+    <string name="profiles_title">Profile</string>
+    <string name="profiles_subtitle">Profil</string>
+    <string name="profiles_summary_none">Brak: strumienie używają głównych ustawień</string>
+    <string name="profiles_summary_in_use">W użyciu: %1$s</string>
+    <string name="profiles_summary_auto">Wybierany według sieci przy starcie strumienia</string>
+    <string name="profiles_section_list">Twoje profile</string>
+    <string name="profiles_section_choice">Którego profilu używa strumień</string>
+    <string name="profiles_new">Nowy profil</string>
+    <string name="profiles_new_summary">Na początku jest pusty: ustaw tylko wartości, które ma zmieniać.</string>
+    <string name="profiles_name">Nazwa profilu</string>
+    <string name="profiles_name_empty">Wpisz nazwę</string>
+    <string name="profiles_name_too_long">Maksymalna liczba znaków: %1$d</string>
+    <string name="profiles_name_taken">Inny profil ma już tę nazwę</string>
+    <string name="profiles_too_many">Maksymalna liczba profili: %1$d.</string>
+    <string name="profiles_values_none">Nic jeszcze nie ustawiono</string>
+    <plurals name="profiles_values_count">
+        <item quantity="one">%d ustawiona wartość</item>
+        <item quantity="few">%d ustawione wartości</item>
+        <item quantity="many">%d ustawionych wartości</item>
+        <item quantity="other">%d ustawionej wartości</item>
+    </plurals>
+    <string name="profiles_marker_in_use">W użyciu</string>
+    <string name="profiles_marker_rules">Wybierany dla: %1$s</string>
+    <string name="profiles_edit">Edytuj wartości</string>
+    <string name="profiles_rename">Zmień nazwę</string>
+    <string name="profiles_duplicate">Duplikuj</string>
+    <string name="profiles_delete">Usuń</string>
+    <string name="profiles_copy_name">%1$s – kopia</string>
+    <string name="profiles_delete_title">Usunąć %1$s?</string>
+    <string name="profiles_delete_message">Strumienie, które używały tego profilu, użyją zamiast niego głównych ustawień. Tej operacji nie można cofnąć.</string>
+    <string name="profiles_deleted">Profil usunięty</string>
+    <string name="profiles_in_use">Profil w użyciu</string>
+    <string name="profiles_none">Brak (główne ustawienia)</string>
+    <string name="profiles_main_settings">główne ustawienia</string>
+    <string name="profiles_auto">Wybieraj według sieci</string>
+    <string name="profiles_auto_summary_on">Wł.: przy starcie strumienia sieć wybiera profil poniżej. Ethernet i sieci bez wybranego profilu używają profilu w użyciu.</string>
+    <string name="profiles_auto_summary_off">Wył.: każdy strumień używa profilu w użyciu.</string>
+    <string name="profiles_rule_default">Profil w użyciu</string>
+    <string name="profiles_network_mobile">Dane mobilne</string>
+    <string name="profiles_network_home_wifi">Domowa sieć Wi-Fi</string>
+    <string name="profiles_network_wifi">Inna sieć Wi-Fi</string>
+    <string name="profiles_network_other">Ethernet lub inna</string>
+    <string name="profiles_rule_mobile_summary">Także sieci Wi-Fi oznaczone przez Androida jako sieci z pomiarem użycia danych, np. hotspot telefonu.</string>
+    <string name="profiles_rule_wifi_summary">Każda sieć Wi-Fi, która nie jest domowa, lub każda sieć Wi-Fi, gdy nie ustawiono domowej.</string>
+    <string name="profiles_now">Następny strumień w tej sieci</string>
+    <string name="profiles_now_value">%1$s: %2$s</string>
+    <string name="profiles_home_networks">Domowe sieci Wi-Fi</string>
+    <string name="profiles_home_none">Nie ustawiono: każda sieć Wi-Fi jest traktowana jako inna sieć Wi-Fi.</string>
+    <string name="profiles_home_saved">Zapisane na tym urządzeniu. Wybierz, aby usunąć.</string>
+    <string name="profiles_home_remove">Usuń</string>
+    <string name="profiles_home_remove_title">Usunąć %1$s z domowych sieci Wi-Fi?</string>
+    <string name="profiles_home_no_access">Dostęp do lokalizacji jest wyłączony: domowej sieci Wi-Fi nie da się rozpoznać, więc jest traktowana jako inna sieć Wi-Fi.</string>
+    <string name="profiles_home_add_current">Dodaj tę sieć Wi-Fi</string>
+    <string name="profiles_home_add_current_summary">Zapisuje nazwę sieci Wi-Fi, z którą połączone jest to urządzenie. Android wymaga dostępu do lokalizacji, aby ją odczytać.</string>
+    <string name="profiles_home_type">Wpisz nazwę sieci Wi-Fi</string>
+    <string name="profiles_home_type_summary">Rozpoznanie jej przy starcie strumienia nadal wymaga dostępu do lokalizacji.</string>
+    <string name="profiles_home_name">Nazwa sieci Wi-Fi</string>
+    <string name="profiles_location_title">Zezwolić na dostęp do lokalizacji?</string>
+    <string name="profiles_location_message">Android pokazuje nazwę sieci Wi-Fi tylko aplikacjom z dostępem do lokalizacji. Służy on tylko do jednego: odróżnienia domowej sieci Wi-Fi od innych przy starcie strumienia. Lokalizacja nie jest odczytywana, a nazwa sieci Wi-Fi pozostaje na tym urządzeniu: nigdy nie jest wysyłana ani zapisywana w logach. Bez dostępu każda sieć Wi-Fi jest traktowana jako inna sieć Wi-Fi.</string>
+    <string name="profiles_location_continue">Dalej</string>
+    <string name="profiles_location_denied">Brak dostępu do lokalizacji: każda sieć Wi-Fi jest traktowana jako inna sieć Wi-Fi. Możesz zezwolić na dostęp później w ustawieniach aplikacji w Androidzie.</string>
+    <string name="profiles_wifi_unreadable">Nie można odczytać nazwy sieci Wi-Fi. Sprawdź, czy to urządzenie jest połączone z Wi-Fi i czy lokalizacja jest włączona, albo wpisz nazwę.</string>
+    <string name="profiles_order">Przy starcie strumienia każda wartość pochodzi z pierwszego z tych miejsc, w którym jest ustawiona: ta gra, ten komputer, profil, a na końcu główne ustawienia. Na danych mobilnych szybkość transmisji jest potem ograniczana przez „Szybkość transmisji na danych mobilnych”. Zmiany nigdy nie dotyczą już trwającego strumienia.</string>
+    <string name="profiles_privacy">Nazwy domowych sieci Wi-Fi pozostają na tym urządzeniu i nigdy nie są wysyłane ani zapisywane w logach.</string>
+
+    <!-- Bitrate on mobile data (Settings → Video) -->
+    <string name="title_mobile_bitrate">Szybkość transmisji na danych mobilnych</string>
+    <string name="summary_mobile_bitrate">Ogranicza szybkość transmisji, gdy strumień startuje na danych mobilnych lub w sieci Wi-Fi oznaczonej przez Androida jako sieć z pomiarem użycia danych, np. w hotspocie telefonu. Ogranicza też wartości z każdego profilu, komputera i gry. Wył. oznacza tę samą szybkość transmisji co w innych sieciach.</string>
+    <string name="mobile_bitrate_off">Wył.</string>
+
+    <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->
+    <string name="profile_settings_explanation">Ustaw tylko wartości, które ten profil ma zmieniać. Wszystko, czego nie ustawiono, pochodzi z głównych ustawień. Własne wartości komputera lub gry nadal mają pierwszeństwo przed profilem.</string>
+    <string name="game_settings_title">Ustawienia strumienia gry</string>
+    <string name="game_settings_subtitle">Na komputerze %1$s</string>
+    <string name="game_settings_explanation">Ustawione tu wartości dotyczą tylko tej gry na tym komputerze. Wszystko, czego nie ustawiono, pochodzi kolejno z ustawień tego komputera, profilu i głównych ustawień.</string>
+    <string name="game_settings_action">Ustawienia strumienia dla tej gry</string>
+    <string name="game_settings_note_none">Używa ustawień tego komputera</string>
+    <plurals name="game_settings_note_own">
+        <item quantity="one">%d ustawiona wartość dla tej gry</item>
+        <item quantity="few">%d ustawione wartości dla tej gry</item>
+        <item quantity="many">%d ustawionych wartości dla tej gry</item>
+        <item quantity="other">%d ustawionej wartości dla tej gry</item>
+    </plurals>
+    <string name="layers_saved">Ustawienia strumienia zapisane</string>
+    <string name="layers_saved_context">Po zapisaniu zmiany obowiązują od następnego strumienia.</string>
+    <string name="layers_unsaved_context">Niezapisane zmiany</string>
+    <string name="layers_unsaved_message">Zmiany w tych ustawieniach strumienia nie zostały zapisane.</string>
+    <string name="layers_reset">Wyczyść wszystkie wartości</string>
+    <string name="layers_reset_message">Każda wartość wraca do stanu „Nie ustawiono”. Zapisz, aby zastosować.</string>
+    <string name="layers_status_empty">Nic tu nie ustawiono: każda wartość pochodzi z niższego poziomu.</string>
+    <string name="layers_status_custom">Przywraca każdą wartość do stanu „Nie ustawiono”.</string>
+    <string name="layers_footer">Zapisz przed wyjściem. Zmiany dotyczą następnego strumienia, nigdy już trwającego.</string>
+    <string name="layers_not_set_value">Nie ustawiono (%1$s)</string>
+    <string name="layers_value_from">%1$s · %2$s</string>
+    <string name="layers_from_main">z głównych ustawień</string>
+    <string name="layers_from_profile">z profilu %1$s</string>
+    <string name="layers_from_pc">ustawione dla tego komputera</string>
+    <string name="layers_from_game">ustawione dla tej gry</string>
+    <string name="layers_from_mobile_limit">limit dla danych mobilnych</string>
+    <string name="layers_pacing_vrr">Adaptacyjne odświeżanie jest włączone, więc strumień używa trybu Najniższe opóźnienie.</string>
+
+    <!-- In the stream -->
+    <string name="layers_applied">Ustawienia: %1$s</string>
+    <string name="layers_part_profile">profil %1$s</string>
+    <string name="layers_part_profile_network">profil %1$s, wybrany dla: %2$s</string>
+    <string name="layers_part_pc">ten komputer</string>
+    <string name="layers_part_game">ta gra</string>
+    <string name="layers_part_mobile_limit">limit dla danych mobilnych</string>
+    <string name="layers_problem_profile_missing">Profil w użyciu już nie istnieje, więc obowiązują główne ustawienia.</string>
+    <string name="layers_problem_profile_missing_network">Profil wybrany dla: %1$s już nie istnieje, więc obowiązują główne ustawienia.</string>
+    <string name="layers_problem_profile_invalid">Profil %1$s ma wartość, której ta wersja nie potrafi odczytać, więc obowiązują główne ustawienia. Otwórz go w sekcji Profile, aby to naprawić.</string>
+    <string name="layers_problem_pc_invalid">Nie można odczytać własnych ustawień strumienia tego komputera, więc zostały pominięte. Otwórz ustawienia komputera, aby to naprawić.</string>
+    <string name="layers_problem_game_invalid">Nie można odczytać ustawień strumienia tej gry, więc zostały pominięte. Otwórz je z menu gry, aby to naprawić.</string>
+    <string name="layers_problem_home_wifi_unknown">Bez dostępu do lokalizacji nie da się rozpoznać domowej sieci Wi-Fi, więc ta sieć Wi-Fi jest traktowana jako inna sieć Wi-Fi.</string>
+    <!-- Presets for one game's stream settings -->
+    <string name="game_preset_title">Ustawienie wstępne</string>
+    <string name="game_preset_competitive">Rywalizacja</string>
+    <string name="game_preset_competitive_summary">Ustawia frame pacing na najniższe opóźnienie. Nic więcej się nie zmienia.</string>
+    <string name="game_preset_smoothness">Płynność</string>
+    <string name="game_preset_smoothness_summary">Ustawia najpłynniejszy frame pacing, który wstrzymuje klatki i zwiększa opóźnienie, oraz wyłącza adaptacyjne odświeżanie dla tej gry. Bitrate się nie zmienia.</string>
+    <string name="game_preset_quality">Jakość</string>
+    <string name="game_preset_quality_summary" formatted="false">Ustawia bitrate na 150% wartości z komputera lub, jeśli komputer jej nie ma, z ustawień głównych, do limitu hosta. Frame pacing i adaptacyjne odświeżanie się nie zmieniają; przy słabym połączeniu większe klatki mogą zwiększyć opóźnienie.</string>
+    <string name="game_preset_custom">Własne</string>
+    <string name="game_preset_custom_summary">Twoje własne wartości, ustawione poniżej.</string>
+</resources>

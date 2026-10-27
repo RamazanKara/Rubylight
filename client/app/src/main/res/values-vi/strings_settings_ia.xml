@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_section_display">Hiển thị &amp; hình ảnh</string>
+    <string name="settings_display_adaptive">Tần số quét thích ứng</string>
+    <string name="settings_display_no_upscaling">Không nâng cấp độ phân giải</string>
+    <string name="settings_section_audio">Âm thanh</string>
+    <string name="settings_section_streaming">Stream</string>
+    <string name="settings_section_streaming_summary">Lớp phủ, hình trong hình và khôi phục</string>
+    <string name="settings_category_refresh">Tần số quét</string>
+    <string name="settings_category_image">Hình ảnh</string>
+    <string name="settings_category_pc_display">Màn hình PC</string>
+    <string name="settings_category_usb">Tay cầm điều khiển USB</string>
+    <string name="settings_category_keyboard">Bàn phím</string>
+    <string name="settings_category_decoder">Trình giải mã</string>
+    <string name="settings_category_input_network">Đầu vào và mạng</string>
+    <string name="settings_category_diagnostics">Chẩn đoán</string>
+    <string name="settings_needs_host_support">Cần máy chủ hỗ trợ</string>
+    <string name="settings_pc_display_mode_value">Đặt cho từng PC trong menu của PC đó</string>
+    <string name="settings_help_summary">Thiết lập, ghép đôi và cách khắc phục thường gặp</string>
+    <string name="settings_latency_benchmark_summary">Kiểm tra thời gian của thiết bị này mà không cần PC</string>
+    <string name="settings_low_latency_partial">Tắt một phần</string>
+    <string name="upscaling_hdr_short">Không dùng với HDR</string>
+    <string name="upscaling_pyrowave_short">PyroWave dùng SGSR</string>
+    <string name="title_low_latency_decoding">Giải mã độ trễ thấp</string>
+    <string name="summary_low_latency_decoding">Dùng các chế độ độ trễ thấp của Android và trình giải mã của chipset, đồng thời cho phép Android điều chỉnh hiệu năng khi bạn stream. Chỉ tắt để kiểm tra sự cố giải mã.</string>
+    <string name="settings_touch_mode_help">Bàn di chuột: kéo để di chuyển con trỏ, chạm để nhấp.\nChuột trực tiếp: con trỏ di chuyển đến nơi bạn chạm.\nCảm ứng đa điểm: thao tác chạm được gửi đến PC dưới dạng đầu vào cảm ứng. Nếu máy chủ không hỗ trợ, chế độ này hoạt động như Chuột trực tiếp.\nCon trỏ cục bộ: con trỏ được vẽ trên thiết bị này theo ngón tay của bạn ngay lập tức; chạm để nhấp vào chỗ nó trỏ tới.\nTắt cảm ứng: màn hình bỏ qua thao tác chạm khi bạn chơi bằng tay cầm. Vuốt quay lại hoặc nhấn Quay lại để mở menu stream.</string>
+    <string name="resolution_screen">Kích thước màn hình (%1$s)</string>
+    <string name="resolution_screen_cutout">Kích thước màn hình, tránh vùng khuyết camera (%1$s)</string>
+    <string name="resolution_screen_portrait">Kích thước màn hình, chiều dọc (%1$s)</string>
+    <string name="resolution_screen_cutout_portrait">Kích thước màn hình, chiều dọc, tránh vùng khuyết camera (%1$s)</string>
+    <string name="fps_screen">Tần số quét màn hình (%1$d FPS)</string>
+</resources>

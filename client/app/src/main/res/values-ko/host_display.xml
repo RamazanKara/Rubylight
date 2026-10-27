@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_display_menu">PC 디스플레이 모드</string>
+    <string name="host_display_location">전용 또는 확장 모드를 사용하려면 PC 메뉴 → 스트림 설정 → PC 디스플레이 모드를 여세요. 디스플레이 모드는 PC마다 따로 저장되며 호스트 지원이 필요합니다.</string>
+    <string name="host_display_controls_virtual">PC 디스플레이 모드에서 제어: %1$s</string>
+    <string name="host_display_title">%1$s의 디스플레이</string>
+    <string name="host_display_default">PC 자체 설정</string>
+    <string name="host_display_exclusive">전용 — 가상 디스플레이만 사용(PC 모니터 꺼짐)</string>
+    <string name="host_display_extended_primary">확장 — 가상 디스플레이를 주 디스플레이로</string>
+    <string name="host_display_extended">확장 — PC 디스플레이를 주 디스플레이로 유지</string>
+    <string name="host_display_extended_isolated">확장 및 분리 — PC가 주 디스플레이 유지</string>
+    <string name="host_display_extended_primary_isolated">확장 및 분리 — 가상 디스플레이가 주 디스플레이</string>
+    <string name="host_display_physical">물리 디스플레이(가상 디스플레이 없음)</string>
+    <string name="host_display_saved">디스플레이 선택을 저장했습니다. 다음 스트림부터 적용됩니다.</string>
+    <string name="host_display_save">디스플레이 모드 저장</string>
+    <string name="host_display_explanation">모드를 선택한 후 디스플레이 모드 저장을 탭하세요. 취소하면 현재 선택이 유지됩니다. 새 모드는 다음 스트림부터 적용됩니다.\n\nPC 디스플레이를 주 디스플레이로 유지하면 모니터가 Windows 주 디스플레이로 남습니다. 가상 디스플레이를 주 디스플레이로 설정하면 그 역할이 스트리밍되는 디스플레이로 옮겨지며, 게임과 새 창은 보통 이 디스플레이에서 열립니다. 두 확장 옵션 모두 PC 모니터를 켜 둡니다.\n\nPC 자체 설정은 호스트 가상 디스플레이와 PC의 디스플레이 설정을 따릅니다. 전용은 스트리밍 중에 PC 모니터를 끕니다. 분리 모드는 같은 Windows 세션 안에서 스트리밍되는 디스플레이를 바탕화면 레이아웃상 다른 모니터와 멀리 떨어뜨려 배치합니다. 물리 디스플레이는 가상 디스플레이 없이 PC 모니터를 스트리밍합니다. 스트림이 끝나면 PC가 디스플레이를 원래대로 복원합니다.\n\n호스트가 디스플레이 모드를 지원하는 PC에서만 이 옵션을 선택할 수 있으며, 다른 PC에서는 호스트 가상 디스플레이 설정에 따라 결정됩니다.</string>
+    <string name="host_administration_menu">호스트 웹 UI 열기</string>
+    <string name="host_administration_help">호스트의 웹 UI에서 애플리케이션, 페어링된 기기, 설정을 관리합니다. 웹 UI 자체 계정으로 로그인하세요. 페어링해도 로그인되지는 않습니다. 원격으로 접속하려면 웹 UI 포트에 연결할 수 있어야 합니다.\n\n%1$s</string>
+    <string name="host_administration_open">브라우저에서 열기</string>
+    <string name="host_administration_no_browser">호스트의 웹 UI를 열 수 있는 브라우저가 없습니다. 주소를 복사해 다른 기기에서 여세요.</string>
+</resources>

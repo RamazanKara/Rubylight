@@ -1,0 +1,15 @@
+<resources>
+    <style name="NightjarWindowAnimation" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@anim/tv_open_enter</item>
+        <item name="android:activityOpenExitAnimation">@anim/tv_open_exit</item>
+        <item name="android:activityCloseEnterAnimation">@anim/tv_close_enter</item>
+        <item name="android:activityCloseExitAnimation">@anim/tv_close_exit</item>
+    </style>
+
+    <style name="NightjarWindowAnimationStill" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@null</item>
+        <item name="android:activityOpenExitAnimation">@null</item>
+        <item name="android:activityCloseEnterAnimation">@null</item>
+        <item name="android:activityCloseExitAnimation">@null</item>
+    </style>
+</resources>

@@ -1,0 +1,34 @@
+diff --git a/src/ControlStream.c b/src/ControlStream.c
+index 2b5182e..eb72849 100644
+--- a/src/ControlStream.c
++++ b/src/ControlStream.c
+@@ -1,4 +1,5 @@
+ #include "Limelight-internal.h"
++#include "ControllerHaptics.h"
+-
++
+ // This is a private header, but it just contains some time macros
+ #include <enet/time.h>
+@@ -1295,5 +1296,21 @@ static void controlReceiveThreadFunc(void* context) {
+             // Process client callbacks in a separate thread
+-            if (needsAsyncCallback(ctlHdr->type)) {
++            if (ctlHdr->type == ML_HAPTICS_PACKET_TYPE) {
++                const uint8_t* payload = (const uint8_t*)(ctlHdr + 1);
++                if (IS_SUNSHINE() && encryptedControlStream && packetLength >= (int)sizeof(*ctlHdr) &&
++                    MlHapticsValidate(payload, packetLength - sizeof(*ctlHdr))) {
++                    BridgeClControllerHaptics(MlHapticsRead16(payload + 2), MlHapticsRead32(payload + 4),
++                                              payload + ML_HAPTICS_HEADER_SIZE, MlHapticsRead16(payload + 8));
++                }
++            }
++            else if (ctlHdr->type == 0x5533 || ctlHdr->type == 0x5535) {
++                const uint8_t* payload = (const uint8_t*)(ctlHdr + 1);
++                int length = packetLength - sizeof(*ctlHdr);
++                if (IS_SUNSHINE() && encryptedControlStream && length >= 8 && length <= 972 &&
++                    (ctlHdr->type != 0x5533 || MlHapticsValidate(payload, length))) {
++                    BridgeClControllerAudio(ctlHdr->type, payload, length);
++                }
++            }
++            else if (needsAsyncCallback(ctlHdr->type)) {
+                 queueAsyncCallback(ctlHdr, packetLength);
+             }
+             else if (ctlHdr->type == packetTypes[IDX_TERMINATION]) {

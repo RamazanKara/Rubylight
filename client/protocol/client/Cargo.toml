@@ -1,0 +1,37 @@
+[package]
+name = "nightjar-core"
+description = "Nightjar's client streaming engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+rubylight-protocol = { path = "../core" }
+aes = "0.8"
+aes-gcm = "0.10"
+cbc = { version = "0.1", features = ["alloc"] }
+rusty_enet = "0.4"
+# Host HTTP, pairing and encrypted RTSP. Pure Rust plus ring, so the same code builds for
+# Android, Windows and Linux without OpenSSL.
+rand_core = { version = "0.6", features = ["getrandom"] }
+# Log redaction (report/redact.rs). No Unicode tables: the patterns use Java's ASCII classes.
+regex = { version = "1", default-features = false, features = ["std", "perf"] }
+ring = "0.17"
+rsa = { version = "0.9", default-features = false, features = ["std"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+# Rubylight native API v1 types (library, session, Radeon, errors). Dependency-light on purpose:
+# butterpollo-core stays a dev-dependency.
+rubylight-native-api = { git = "https://github.com/RamazanKara/Rubylight", rev = "17fc45bb7ab4c7528d4f533916f4ea79eb9653a3", package = "rubylight-native-api" }
+serde = "1"
+serde_json = "1"
+# Receive buffer sizes on the media sockets.
+socket2 = "0.5"
+
+# SO_PRIORITY on the media sockets and nice values on the stream threads.
+[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+# The Rubylight host's protocol code, for interop tests (control, input, SDP, DESCRIBE, pairing).
+butterpollo-core = { version = "3.0.0-alpha.1", git = "https://github.com/RamazanKara/Rubylight", rev = "682aa119bc181d94652b65009f471eb5015e3c8a", package = "butterpollo-core" }

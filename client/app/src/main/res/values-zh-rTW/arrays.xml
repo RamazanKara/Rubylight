@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="host_permission_names">
+        <item>控制器輸入</item>
+        <item>觸控輸入</item>
+        <item>觸控筆輸入</item>
+        <item>滑鼠輸入</item>
+        <item>鍵盤輸入</item>
+        <item>傳送剪貼簿</item>
+        <item>讀取剪貼簿</item>
+        <item>伺服器指令</item>
+        <item>列出應用程式</item>
+        <item>檢視串流</item>
+        <item>啟動及結束應用程式</item>
+    </string-array>
+    <string-array name="language_names">
+        <item>系統預設</item>
+        <item>English</item>
+        <item>Deutsch</item>
+        <item>Español</item>
+        <item>Français</item>
+        <item>Italiano</item>
+        <item>Polski</item>
+        <item>Português (Brasil)</item>
+        <item>Tiếng Việt</item>
+        <item>Türkçe</item>
+        <item>Русский</item>
+        <item>Українська</item>
+        <item>日本語</item>
+        <item>한국어</item>
+        <item>简体中文</item>
+        <item>繁體中文</item>
+    </string-array>
+</resources>

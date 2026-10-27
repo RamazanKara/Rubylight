@@ -1,0 +1,7 @@
+Rubylight 0.4.0
+Streame deinen PC mit geringer Latenz zu Rubylight- und anderen Stream-Hosts.
+Voreinstellungen und Einstellungen pro PC. Latenz im kompakten Overlay. Steuerung im Stream-Menü anpassen, Controller-Tasten neu belegen.
+Mikrofon verschlüsselt an den PC senden, mit Stummschaltung.
+Neues Rubylight-Design und klare Datenschutzinfos.
+Bitrate sinkt bei WLAN-Stau. Schnellere AV1-Erholung. HDR passt zum Display.
+Foldables und Fenster behalten native Auflösung ohne Neuverbindung.

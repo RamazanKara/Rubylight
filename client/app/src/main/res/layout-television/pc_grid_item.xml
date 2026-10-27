@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A PC on TV: a 248x152 tile. Behind it, the cover of the game it is running, blurred and dimmed, or a gradient lit by
+     its state; over that its glyph, its name and its state with a dot. As with a library poster, the root's padding is the
+     glow's reach, the ring is a view around the card in that padding, and the root's animator scales and lifts the lot.
+     The ids are the phone row's, so PcGridAdapter fills both; on TV it also sets grid_backdrop and the dot. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:padding="@dimen/poster_glow" android:clipChildren="false" android:clipToPadding="false"
+    android:stateListAnimator="?attr/nightjarTileFocusAnimator" android:descendantFocusability="blocksDescendants">
+    <View android:id="@+id/grid_glow" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:layout_marginStart="-16dp" android:layout_marginEnd="-16dp" android:layout_marginTop="-16dp" android:layout_marginBottom="-16dp"
+        android:background="?attr/nightjarPosterGlow" android:duplicateParentState="true" android:importantForAccessibility="no" />
+    <com.google.android.material.card.MaterialCardView android:id="@+id/grid_card" style="@style/LibraryPoster"
+        android:layout_width="@dimen/tile_width" android:layout_height="@dimen/tile_height"
+        app:cardCornerRadius="16dp" app:cardPreventCornerOverlap="false"
+        app:cardBackgroundColor="@android:color/transparent" android:clipToOutline="true" android:duplicateParentState="true">
+        <FrameLayout android:layout_width="match_parent" android:layout_height="match_parent" android:duplicateParentState="true">
+            <ImageView android:id="@+id/grid_backdrop" android:layout_width="match_parent" android:layout_height="match_parent"
+                android:scaleType="centerCrop" android:background="@drawable/tv_tile_bg_idle" android:importantForAccessibility="no" />
+            <View android:id="@+id/grid_scrim" android:layout_width="match_parent" android:layout_height="@dimen/tile_scrim" android:layout_gravity="bottom"
+                android:background="@drawable/tv_tile_scrim" android:importantForAccessibility="no" />
+            <FrameLayout android:layout_width="40dp" android:layout_height="40dp" android:layout_gravity="top|start"
+                android:layout_marginStart="@dimen/space_l" android:layout_marginTop="@dimen/space_l"
+                android:importantForAccessibility="noHideDescendants">
+                <ImageView android:id="@+id/grid_image" android:layout_width="match_parent" android:layout_height="match_parent"
+                    android:src="@drawable/ic_computer" app:tint="?attr/colorOnSurface" android:importantForAccessibility="no" />
+                <ProgressBar android:id="@+id/grid_spinner" android:layout_width="match_parent" android:layout_height="match_parent"
+                    android:visibility="gone" />
+            </FrameLayout>
+            <ImageButton android:id="@+id/grid_more" style="@style/ToolbarIcon" android:layout_gravity="top|end"
+                android:padding="@dimen/space_m" android:background="@drawable/bg_cover_action" android:focusable="false"
+                android:importantForAccessibility="yes" android:src="@drawable/ic_library_more"
+                android:contentDescription="@string/library_options" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="bottom"
+                android:orientation="vertical" android:paddingStart="@dimen/space_l" android:paddingEnd="@dimen/space_l"
+                android:paddingBottom="@dimen/space_l">
+                <TextView android:id="@+id/grid_text" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:textAppearance="@style/TextAppearance.Nightjar.TileName" android:textColor="?attr/colorOnSurface"
+                    android:maxLines="1" android:ellipsize="end" android:importantForAccessibility="no" />
+                <TextView android:id="@+id/grid_status" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp" android:drawablePadding="@dimen/space_s" android:gravity="center_vertical"
+                    android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant"
+                    android:maxLines="1" android:ellipsize="end" android:importantForAccessibility="no" />
+                <TextView android:id="@+id/grid_update" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorPrimary"
+                    android:lines="1" android:ellipsize="end" android:visibility="gone" android:importantForAccessibility="no" />
+            </LinearLayout>
+        </FrameLayout>
+    </com.google.android.material.card.MaterialCardView>
+    <View android:id="@+id/grid_ring" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:layout_marginStart="-5dp" android:layout_marginEnd="-5dp" android:layout_marginTop="-5dp" android:layout_marginBottom="-5dp"
+        android:background="?attr/nightjarTileRing" android:duplicateParentState="true" android:importantForAccessibility="no" />
+</FrameLayout>

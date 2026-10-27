@@ -1,0 +1,52 @@
+name: Device results
+description: Add your device's decoder and latency results to the public device table
+title: "Device results: "
+labels: device-results
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for measuring your device. The steps are in the device results guide:
+        https://github.com/RamazanKara/nightjar/blob/main/docs/devices.md
+
+        In Nightjar, open the latency benchmark, run the test, tap **Share results** and then **Copy** or **Open report form**. Both put the results text on your clipboard. Paste it below.
+
+        **This issue is public.** Everything you paste here, including the device model, SoC, GPU, Android version and the measured times, can be read by anyone and is copied into the device table on the Nightjar website. Nightjar never sends these results by itself.
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      description: The device's marketing name, as you want it to appear in the table. Also put it in the issue title.
+      placeholder: e.g. Samsung Galaxy S23, Chromecast with Google TV
+    validations:
+      required: true
+  - type: textarea
+    id: results
+    attributes:
+      label: Results text
+      description: 'Paste the whole text from Share results. It starts with `"format": "nightjar-device-results"`. Remove any line you do not want to publish.'
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: conditions
+    attributes:
+      label: Test conditions
+      description: Plugged in or on battery, how warm the device was, and for a TV or TV box the output resolution and refresh rate set in Android.
+      placeholder: e.g. Plugged in, cool, 4K 60 Hz output
+    validations:
+      required: false
+  - type: textarea
+    id: stream
+    attributes:
+      label: Stream on this device (optional)
+      description: Codec, resolution, frame rate and the decode timing from the Debug overlay during a real stream.
+    validations:
+      required: false
+  - type: checkboxes
+    id: consent
+    attributes:
+      label: Publishing
+      options:
+        - label: I checked the results text and agree that it is published in this issue and in the public device table.
+          required: true

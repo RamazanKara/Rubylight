@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="latency_benchmark_title">Benchmark de latence</string>
+    <string name="latency_benchmark_description">Lancez un test de timing local de 10 secondes, sans hôte. Touchez l’écran, bougez une souris ou utilisez une manette pour recueillir des échantillons de saisie.</string>
+    <string name="latency_benchmark_start">Lancer le test de 10 s</string>
+    <string name="latency_benchmark_stop">Arrêter le test</string>
+    <string name="latency_benchmark_display">Rafraîchissement de l’écran indiqué : %1$.2f Hz</string>
+    <string name="latency_benchmark_audio">Audio indiqué : %1$s Hz · %2$s trames par tampon</string>
+    <string name="latency_benchmark_frame">Intervalle des rappels d’image</string>
+    <string name="latency_benchmark_callback">Retard des rappels d’image</string>
+    <string name="latency_benchmark_input">Ancienneté de la saisie à la distribution</string>
+    <string name="latency_benchmark_timer">Retard de réveil du minuteur</string>
+    <string name="latency_benchmark_limits">Les résultats utilisent jusqu’à 2 048 échantillons récents par mesure. L’ancienneté de la saisie part de l’horodatage de l’événement Android (résolution de 1 ms) ; elle ne mesure ni l’interrogation de la manette ni le retard de saisie de l’hôte. Les rappels d’image ne mesurent pas le balayage de l’écran. Les propriétés audio sont des capacités indiquées, pas une latence de sortie mesurée. Les latences réseau, de décodage et de bout en bout nécessitent un stream ou une mesure externe. Quitter cet écran arrête le test.</string>
+    <string name="latency_test">Mesurer la latence de saisie</string>
+    <string name="latency_test_running">Mesure en cours… affichez un bureau immobile avec le pointeur de la souris et ne touchez à rien pendant quelques secondes.</string>
+    <string name="latency_test_result">De la saisie à l’écran : %1$.1f ms en général, %2$.1f ms au mieux, %3$.1f ms pour les 10 %% les plus lents (%4$d échantillons).\n\nMesuré depuis l’envoi par cette appli d’un petit mouvement de souris jusqu’à l’affichage par Android de l’image de réponse de l’hôte. Cela inclut le réseau, la capture et l’encodage sur l’hôte, le décodage et l’affichage. Votre doigt et le retard propre de l’écran ne sont pas inclus.</string>
+    <string name="latency_test_failed">Mesure impossible. L’hôte a continué d’envoyer des images ou n’a pas répondu au mouvement de souris. Affichez un bureau immobile avec un pointeur de souris visible, fermez les jeux et vidéos, puis réessayez.</string>
+    <string name="latency_benchmark_share">Partager les résultats</string>
+    <string name="latency_benchmark_share_title">Résultats de l’appareil</string>
+    <string name="latency_benchmark_share_message">Nightjar n’envoie jamais ceci de lui-même. Le texte décrit cet appareil (modèle, SoC, GPU et version d’Android), son benchmark de décodeur et le dernier test de cet écran, sans noms de PC, adresses, numéros de série ni données de compte. « Ouvrir le formulaire » copie le texte et ouvre un formulaire GitHub public. Tout ce que vous y collez devient public et rejoint le tableau des appareils du site de Nightjar.</string>
+    <string name="latency_benchmark_copied">Résultats copiés</string>
+    <string name="latency_benchmark_report_form">Ouvrir le formulaire</string>
+    <string name="latency_benchmark_paste_hint">Résultats copiés. Collez-les dans le formulaire.</string>
+</resources>

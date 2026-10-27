@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_touch_off_help">Dokunma kapalı. Yayın menüsü için geri kaydırın veya Geri’ye basın.</string>
+    <string name="title_local_cursor_speed">Yerel imleç hızı</string>
+    <string name="title_trackpad_acceleration">İşaretçi ivmesi</string>
+    <string name="summary_trackpad_acceleration">Hızlı kaydırmalar işaretçiyi yavaş olanlardan daha uzağa taşır, böylece küçük hareketler hassas kalır. Trackpad ve Yerel imleç için.</string>
+    <string name="title_trackpad_acceleration_curve">İvme gücü</string>
+    <string-array name="trackpad_acceleration_curve_names">
+        <item>Hafif</item>
+        <item>Orta</item>
+        <item>Güçlü</item>
+    </string-array>
+    <string name="title_trackpad_momentum">Hızlı kaydırmadan sonra kayma</string>
+    <string name="summary_trackpad_momentum">Hızlı bir kaydırmadan sonra işaretçi hareket etmeye devam eder ve yavaşlar. Durdurmak için ekrana dokunun. Trackpad ve Yerel imleç için.</string>
+    <string name="title_trackpad_momentum_glide">Kayma mesafesi</string>
+    <string-array name="trackpad_momentum_glide_names">
+        <item>Kısa</item>
+        <item>Orta</item>
+        <item>Uzun</item>
+    </string-array>
+    <string name="title_trackpad_area">Trackpad alanı</string>
+    <string name="summary_trackpad_area">Trackpad ve Yerel imleç hareketleri yalnızca ekranın bu bölümünde başlar. Başka yerde başlayan dokunmalar yok sayılır.</string>
+    <string-array name="trackpad_area_names">
+        <item>Tam ekran</item>
+        <item>Sağ yarı</item>
+        <item>Sol yarı</item>
+        <item>Alt yarı</item>
+        <item>Üst yarı</item>
+    </string-array>
+    <string name="title_three_finger_tap">Üç parmakla dokunma</string>
+    <string name="summary_three_finger_tap">Trackpad, Doğrudan fare ve Yerel imleç modlarında üç parmakla hızlı dokunmanın yaptığı iş.</string>
+    <string-array name="three_finger_tap_names">
+        <item>@string/desktop_controls_system_keyboard</item>
+        <item>Orta tıklama</item>
+        <item>@string/desktop_controls_open</item>
+        <item>@string/stream_disabled</item>
+        <item>@string/pc_keyboard_title</item>
+    </string-array>
+    <string name="stream_cursor_shape_rejected">Nightjar bilgisayarın imleç şeklini çizemiyor, bu yüzden varsayılan oku gösteriyor.</string>
+    <string name="title_four_finger_tap">Dört parmakla dokunma</string>
+    <string name="summary_four_finger_tap">İzleme Dörtgeni, Doğrudan Fare ve Yerel İmleç modlarında dört parmakla hızlı dokunmanın eylemi.</string>
+</resources>

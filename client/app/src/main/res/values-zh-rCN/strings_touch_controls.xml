@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_layout_kind_button">键盘或鼠标按钮</string>
+    <string name="touch_layout_kind_gamepad">手柄按钮</string>
+    <string name="touch_layout_kind_stick">模拟摇杆</string>
+    <string name="touch_layout_kind_trigger">模拟扳机</string>
+    <string name="touch_layout_kind_dpad">方向键</string>
+    <string name="touch_layout_kind_wasd">WASD 摇杆（发送按键）</string>
+    <string name="touch_layout_side">侧</string>
+    <string name="touch_layout_side_left">左</string>
+    <string name="touch_layout_side_right">右</string>
+    <string name="touch_layout_floating">浮动：以拇指落下的位置为中心</string>
+    <string name="touch_layout_deadzone">死区（占摇杆行程的百分比，0–50）</string>
+    <string name="touch_layout_wasd_keys">上、左、下、右的按键</string>
+    <string name="touch_layout_wasd_help">按此顺序填写四个不同的按键，例如 W + A + S + D 或 UP + LEFT + DOWN + RIGHT。</string>
+    <string name="touch_layout_diagonal">斜向（度，0–90）：0 从不同时按住两个键，45 为八个均等方向</string>
+    <string name="touch_layout_snap">对齐网格：%1$s</string>
+    <string name="touch_layout_snap_title">对齐网格</string>
+    <string name="touch_layout_error_json">这不是 Nightjar 布局、Artemis 键盘布局或 Artemis 自定义按键文件。</string>
+    <string name="touch_layout_error_version">此布局为版本 %1$s。此版本的 Nightjar 可读取版本 1 和 2 的布局；请更新 Nightjar 后再导入。</string>
+    <string name="touch_layout_error_size">布局最多 32 个控件、64 KiB。</string>
+    <string name="touch_layout_error_duplicate">两个控件使用了相同的 ID %1$s。每个控件需要自己的 ID。</string>
+    <string name="touch_layout_error_control">控件 %1$d（%2$s）的类型、按键、按钮或尺寸不受支持。</string>
+    <string name="touch_layout_import_done">布局已导入</string>
+    <plurals name="touch_layout_imported">
+        <item quantity="other">已导入 %d 个控件。</item>
+    </plurals>
+    <string name="touch_layout_import_pixels">Artemis 保存的是不含屏幕尺寸的像素位置，因此已按此屏幕读取。请检查位置。</string>
+    <string name="touch_layout_import_scaled">Artemis 布局超出了此屏幕，已缩小以适应。请检查位置。</string>
+    <plurals name="touch_layout_import_hidden">
+        <item quantity="other">已略过 %d 个在 Artemis 中关闭或隐藏的元素。</item>
+    </plurals>
+    <string name="touch_layout_import_skipped">未导入：</string>
+    <string name="touch_layout_skip_no_equivalent">%1$s：Nightjar 没有对应的控件（例如 Artemis 触控板区域）</string>
+    <string name="touch_layout_skip_key">%1$s：Nightjar 无法发送的按键，或按键与鼠标按钮的组合</string>
+    <string name="touch_layout_skip_custom">%1$s：自定义按键；请将其自定义按键文件与布局文件一起选择</string>
+    <string name="touch_layout_skip_center">%1$s：摇杆中心的双击按键（摇杆本身已作为 WASD 摇杆导入）</string>
+    <string name="touch_layout_skip_too_many">%1$s：超出 32 个控件的上限</string>
+    <string name="touch_layout_skip_size">%1$s：尺寸无效</string>
+    <string name="library_import_controls">导入游戏控件</string>
+    <string name="library_import_controls_note">Nightjar 布局，或 Artemis 键盘布局和自定义按键文件</string>
+    <string name="library_import_controls_title">%1$s 的控件</string>
+    <string name="library_import_controls_replace">替换此电脑上这个游戏的屏幕控件？</string>
+    <string name="library_import_controls_saved">控件已保存，将在此游戏的下次串流中显示。</string>
+    <string name="library_import_controls_error">无法读取文件。</string>
+</resources>

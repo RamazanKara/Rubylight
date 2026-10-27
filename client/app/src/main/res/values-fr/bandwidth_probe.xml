@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bandwidth_probe_start">Lancer le test</string>
+    <string name="bandwidth_probe_link">Liaison PC %1$d Mbit/s</string>
+</resources>

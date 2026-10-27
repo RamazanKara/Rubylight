@@ -1,0 +1,73 @@
+Let the client wait longer for a silent network. The control stream already treats "no route"
+send errors (ENETUNREACH, ENETDOWN, EHOSTUNREACH, EHOSTDOWN, EADDRNOTAVAIL) as packet loss in
+enet/unix.c, so what ends a stream during a Wi-Fi roam, a dropout or a VPN moving to another
+path is the 10 second control peer timeout. LiSetNetworkGracePeriodMs() raises that timeout
+for the next connection; 0, the default, and anything up to 10 seconds change nothing. When
+the longer timeout runs out, ENet reports the disconnect as before and the stream ends with
+the same error, so the client can still say why. CONTROL_PEER_TIMEOUT_MS can be overridden
+before including ControlStream.c so a loopback test does not wait 10 seconds.
+Applies after control-teardown.patch.
+
+diff --git a/src/ControlStream.c b/src/ControlStream.c
+index d7acbc7..fa6a64d 100644
+--- a/src/ControlStream.c
++++ b/src/ControlStream.c
+@@ -105,6 +105,7 @@ static uint32_t lastSeenFrame;
+ static bool stopping;
+ static bool disconnectPending;
+ static bool disconnectPendingUnsequenced;
++static int networkGracePeriodMs;
+ static bool encryptedControlStream;
+ static bool hdrEnabled;
+ static SS_HDR_METADATA hdrMetadata;
+@@ -710,6 +711,18 @@ static bool isPacketSentWaitingForAck(ENetPacket* packet) {
+     return false;
+ }
+ 
++#ifndef CONTROL_PEER_TIMEOUT_MS
++#define CONTROL_PEER_TIMEOUT_MS 10000
++#endif
++
++void LiSetNetworkGracePeriodMs(int gracePeriodMs) {
++    networkGracePeriodMs = gracePeriodMs > 0 ? gracePeriodMs : 0;
++}
++
++static enet_uint32 controlPeerTimeoutMs(void) {
++    return networkGracePeriodMs > CONTROL_PEER_TIMEOUT_MS ? (enet_uint32)networkGracePeriodMs : CONTROL_PEER_TIMEOUT_MS;
++}
++
+ static bool sendMessageEnetInternal(short ptype, short paylen, const void* payload, uint8_t channelId, uint32_t flags, bool moreData) {
+     ENetPacket* enetPacket;
+     int err;
+@@ -2005,8 +2018,11 @@ int startControlStream(void) {
+         // The 3DS can take a bit longer to set up when starting fresh
+         enet_peer_timeout(peer, 2, 60000, 60000);
+ #else
+-        // Set the peer timeout to 10 seconds and limit backoff to 2x RTT
+-        enet_peer_timeout(peer, 2, 10000, 10000);
++        // Set the peer timeout to 10 seconds (or a longer network grace period) and limit backoff to 2x RTT
++        enet_peer_timeout(peer, 2, controlPeerTimeoutMs(), controlPeerTimeoutMs());
++        if (controlPeerTimeoutMs() != CONTROL_PEER_TIMEOUT_MS) {
++            Limelog("Control peer timeout: %u ms (network grace period)\n", controlPeerTimeoutMs());
++        }
+ #endif
+     }
+     else {
+diff --git a/src/Limelight.h b/src/Limelight.h
+index 22bee46..825d514 100644
+--- a/src/Limelight.h
++++ b/src/Limelight.h
+@@ -559,6 +559,13 @@ void LiStopConnection(void);
+ // so it is not safe to start another connection before the first LiStartConnection() call returns.
+ void LiInterruptConnection(void);
+ 
++// Sets how long a running stream waits for a silent network (a Wi-Fi roam or dropout, a VPN
++// moving to another path) before it ends. The control stream already treats "no route" send
++// errors as packet loss; what ends the stream is its peer timeout, 10 seconds by default.
++// 0, the default, keeps that. A value above 10000 ms becomes the control peer timeout for the
++// next LiStartConnection(); smaller values change nothing.
++void LiSetNetworkGracePeriodMs(int gracePeriodMs);
++
+ // Use to get a user-visible string to display initialization progress
+ // from the integer passed to the ConnListenerStageXXX callbacks
+ const char* LiGetStageName(int stage);

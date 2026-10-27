@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="startup_connection_failed">Nie można połączyć się z komputerem. Sprawdź, czy host do strumieniowania działa, czy oba urządzenia się widzą i czy zapora komputera zezwala na strumieniowanie. Potem spróbuj ponownie.</string>
+    <string name="startup_permission_denied">Host odrzucił to żądanie. W ustawieniach lub interfejsie WWW hosta włącz to urządzenie i zezwól na podgląd lub uruchamianie aplikacji.</string>
+    <string name="startup_host_error">Host nie mógł uruchomić tego strumienia (błąd %1$d). Sprawdź stan hosta w jego interfejsie WWW, odśwież listę aplikacji i spróbuj ponownie.</string>
+    <string name="startup_invalid_host">Komputer zwrócił nieprawidłową wersję serwera. Zaktualizuj lub uruchom ponownie host i spróbuj jeszcze raz.</string>
+    <string name="startup_virtual_display_unavailable">Ten komputer nie ma ekranu wirtualnego, więc strumieniuje własny ekran.</string>
+    <string name="startup_not_paired">To urządzenie nie jest już sparowane. Wróć do listy komputerów i sparuj je ponownie.</string>
+    <string name="startup_app_missing">Tej aplikacji nie ma już w bibliotece komputera. Odśwież listę aplikacji i wybierz inną.</string>
+    <string name="startup_resume_missing">Ta sesja nie jest już dostępna. Odśwież listę aplikacji i wybierz sesję.</string>
+    <string name="startup_host_resolution_unsupported">Komputer nie obsługuje rozdzielczości powyżej 4K. Wybierz 4K lub mniej w ustawieniach strumienia.</string>
+    <string name="startup_device_resolution_unsupported">Rozdzielczości powyżej 4K wymagają obsługi HEVC lub AV1 na tym urządzeniu. Wybierz niższą rozdzielczość lub inny kodek.</string>
+    <string name="startup_host_update_4k">Zaktualizuj GeForce Experience na komputerze, aby strumieniować w 4K. Ten strumień jest w 1080p.</string>
+    <string name="startup_hdr_unavailable">Komputer i to urządzenie nie mają wspólnego kodeka HDR, więc strumień jest w SDR.</string>
+    <string name="startup_pyrowave_hdr_unavailable">PyroWave HDR jest niedostępny na tym urządzeniu (%1$s), więc HDR używa innego kodeka.</string>
+    <string name="startup_resume_failed">Nie udało się wznowić sesji. Sprawdź aplikację na komputerze i spróbuj ponownie.</string>
+    <string name="startup_session_owner">Ta sesja należy do innego urządzenia. Zakończ ją na tamtym urządzeniu lub na komputerze, a potem spróbuj ponownie.</string>
+    <string name="startup_app_minimized">Aplikacja jest zminimalizowana. Przywróć ją na komputerze albo zamknij sesję i uruchom ją ponownie.</string>
+    <string name="startup_quit_failed">Nie udało się zamknąć poprzedniej sesji. Zakończ ją na komputerze i spróbuj ponownie.</string>
+    <string name="startup_launch_failed">Nie udało się uruchomić aplikacji. Sprawdź, czy otwiera się na komputerze, a potem spróbuj ponownie.</string>
+    <string name="applist_permission_required">To urządzenie nie może wyświetlać listy aplikacji. Zezwól temu urządzeniu na listę aplikacji w ustawieniach lub interfejsie WWW hosta. Biblioteka odświeży się automatycznie.</string>
+    <string name="applist_load_failed">Nie udało się wczytać aplikacji komputera. Sprawdź host i uprawnienie tego urządzenia do listy aplikacji w ustawieniach lub interfejsie WWW hosta. Ponawianie automatyczne.</string>
+    <string name="applist_empty">Brak dostępnych aplikacji. Dodaj aplikacje do biblioteki hosta i sprawdź uprawnienie tego urządzenia do listy aplikacji w ustawieniach lub interfejsie WWW hosta.</string>
+    <string name="host_profile_unsaved_title">Zapisać ustawienia strumienia?</string>
+    <string name="host_profile_unsaved_message">Zmiany ustawień strumienia tego komputera nie zostały zapisane. Tryb ekranu potwierdzony w jego własnym oknie jest zapisywany osobno.</string>
+    <string name="host_profile_discard">Odrzuć zmiany</string>
+    <string name="preset_replace_settings">Rozdzielczość, liczba klatek, szybkość transmisji, tempo klatek, skalowanie, VRR i ustawienia wydajności zostaną zastąpione wartościami tego profilu. Wybór kodeka i HDR pozostanie bez zmian.</string>
+    <string name="pair_otp_incorrect_pin">Kod PIN odrzucony. Wygeneruj nowy jednorazowy kod PIN w interfejsie WWW hosta i sprawdź hasło.</string>
+    <string name="pc_accessibility_actions">Działania komputera</string>
+    <string name="app_details">Nazwa: %1$s\nObsługa HDR: %2$s\nID aplikacji: %3$d</string>
+    <string name="app_hdr_unknown">Nieznana</string>
+</resources>

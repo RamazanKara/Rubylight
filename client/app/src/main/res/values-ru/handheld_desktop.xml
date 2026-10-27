@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_layout_title">Управление для этой игры</string>
+    <string name="touch_layout_show">Показать игровые кнопки</string>
+    <string name="touch_layout_hide">Скрыть игровые кнопки</string>
+    <string name="touch_layout_add">Добавить элемент управления</string>
+    <string name="touch_layout_move">Переместить игровые кнопки</string>
+    <string name="touch_layout_save">Сохранить раскладку и играть</string>
+    <string name="touch_layout_move_help">Перетаскивайте кнопки, чтобы расставить их. Пока вы их перемещаете, сенсорный ввод приостановлен. По завершении вернитесь сюда и выберите «Сохранить раскладку и играть».</string>
+    <string name="touch_layout_import">Импортировать раскладку</string>
+    <string name="touch_layout_export">Экспортировать или отправить раскладку</string>
+    <string name="touch_layout_import_help">Вставьте раскладку Nightjar, которой с вами поделились, или раскладку клавиатуры либо файл своих клавиш Artemis. «Заменить» меняет только эту игру на этом ПК. При неверной раскладке ваши элементы управления не изменятся.</string>
+    <string name="touch_layout_paste">Вставьте JSON раскладки</string>
+    <string name="touch_layout_copy">Копировать JSON</string>
+    <string name="touch_layout_share">Отправить файл JSON</string>
+    <string name="touch_layout_share_error">Не удалось отправить раскладку. Скопируйте её JSON.</string>
+    <string name="touch_layout_limit">Раскладка может содержать не более 32 элементов управления.</string>
+    <string name="touch_layout_name">Название кнопки</string>
+    <string name="touch_layout_binding">Клавиши или кнопка мыши</string>
+    <string name="touch_layout_binding_help">Примеры: W, CTRL + C, SPACE. MOUSE_1 — левая, MOUSE_2 — средняя, MOUSE_3 — правая, MOUSE_4 — «назад», MOUSE_5 — «вперёд».</string>
+    <string name="touch_layout_width">Ширина (% области управления, 4–80)</string>
+    <string name="touch_layout_height">Высота (% области управления, 4–80)</string>
+    <string name="touch_layout_toggle">Нажмите, чтобы удерживать; нажмите снова, чтобы отпустить</string>
+    <string name="touch_layout_hold">Удерживать, пока нажато</string>
+    <string name="touch_layout_pressed">Удерживается</string>
+    <string name="touch_layout_released">Отпущено</string>
+    <string name="touch_layout_invalid">Проверьте название, клавиши или кнопку и что числа в допустимых пределах.</string>
+    <string name="desktop_zoom_enable">Включить масштаб и прокрутку щипком</string>
+    <string name="desktop_zoom_disable">Отключить масштаб и прокрутку щипком</string>
+    <string name="desktop_zoom_reset">Сбросить масштаб</string>
+    <string name="desktop_zoom_help">Сведите или разведите два пальца, чтобы увеличить до 4×; перемещайте два пальца для прокрутки. Один палец работает в выбранном сенсорном режиме. Пока масштабирование включено, прокрутка двумя пальцами заменена.</string>
+    <string name="desktop_zoom_surface_help">На Android 5 и 6 включите TextureView в настройках трансляции и переподключитесь, чтобы использовать масштабирование.</string>
+    <string name="desktop_output">Вывод видео (переподключает трансляцию)</string>
+    <string name="desktop_output_device">Это устройство</string>
+    <string name="desktop_touchpad_help">Видео выводится на внешний дисплей. Используйте этот экран как тачпад. Клавиатура, игровые кнопки и меню трансляции остаются доступны здесь.</string>
+    <string name="desktop_pacing_fallback">Внешний дисплей: кадры показываются сразу по получении.</string>
+    <string name="desktop_display_unavailable">Ни один внешний дисплей не может показать трансляцию, поэтому она остаётся на этом устройстве.</string>
+    <string name="controller_axes_title">Стики, триггеры и крестовина</string>
+    <string name="controller_axes_configured">Своё назначение осей или крестовины; применится со следующей трансляции</string>
+    <string name="controller_axes_source">Ввод для: %1$s</string>
+    <string name="controller_axes_inverted">%1$s (инвертировано)</string>
+    <string-array name="controller_axes">
+        <item>Левый стик по горизонтали</item>
+        <item>Левый стик по вертикали</item>
+        <item>Правый стик по горизонтали</item>
+        <item>Правый стик по вертикали</item>
+        <item>Левый триггер</item>
+        <item>Правый триггер</item>
+        <item>Крестовина вверх</item>
+        <item>Крестовина вниз</item>
+        <item>Крестовина влево</item>
+        <item>Крестовина вправо</item>
+    </string-array>
+    <string-array name="controller_dpad_targets">
+        <item>Ничего</item>
+        <item>Крестовина вверх</item>
+        <item>Крестовина вниз</item>
+        <item>Крестовина влево</item>
+        <item>Крестовина вправо</item>
+        <item>A</item>
+        <item>B</item>
+        <item>X</item>
+        <item>Y</item>
+        <item>LB</item>
+        <item>RB</item>
+        <item>Нажатие левого стика</item>
+        <item>Нажатие правого стика</item>
+        <item>Start</item>
+        <item>Select</item>
+        <item>Guide</item>
+    </string-array>
+</resources>

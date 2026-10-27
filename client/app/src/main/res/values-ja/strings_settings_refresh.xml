@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_global_context">すべての PC のデフォルト設定です。PC ごとに個別のストリーミング設定も使用できます。</string>
+    <string name="settings_changes_saved">変更は自動的に保存されます</string>
+    <string name="settings_search_results">検索結果</string>
+    <string name="settings_back_to_search">検索結果に戻る</string>
+    <string name="settings_back_to_overview">設定に戻る</string>
+    <string name="settings_search_empty_help">「解像度」「音声」「コントローラ」など、短い語句で検索してください。</string>
+    <string name="settings_search_breadcrumb">%1$s · %2$s</string>
+    <plurals name="settings_search_count">
+        <item quantity="other">%d 件の設定が見つかりました</item>
+    </plurals>
+    <string name="settings_profile_saved_context">変更は保存後にこの PC に適用されます。</string>
+    <string name="settings_profile_unsaved_context">この PC の未保存の変更</string>
+    <string name="settings_profile_reset_message">すべての PC のデフォルト設定を使用します。この PC に適用するには保存してください。</string>
+    <string name="settings_profile_display_immediate">表示モードはそのダイアログで別途保存されます。</string>
+</resources>

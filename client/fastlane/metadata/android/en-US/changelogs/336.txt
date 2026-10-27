@@ -1,0 +1,1 @@
+AV1 streams fill the screen at sizes the PC's encoder pads, such as a Galaxy Z Fold's inner screen from an AMD GPU, and the Local cursor stays on the PC's pointer.

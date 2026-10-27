@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_layout_title">Controlli per questo gioco</string>
+    <string name="touch_layout_show">Mostra pulsanti di gioco</string>
+    <string name="touch_layout_hide">Nascondi pulsanti di gioco</string>
+    <string name="touch_layout_add">Aggiungi controllo</string>
+    <string name="touch_layout_move">Sposta pulsanti di gioco</string>
+    <string name="touch_layout_save">Salva layout e gioca</string>
+    <string name="touch_layout_move_help">Trascina i pulsanti per posizionarli. L’input touch è in pausa durante lo spostamento. Al termine, torna qui e scegli Salva layout e gioca.</string>
+    <string name="touch_layout_import">Importa layout</string>
+    <string name="touch_layout_export">Esporta o condividi layout</string>
+    <string name="touch_layout_import_help">Incolla un layout Nightjar condiviso, oppure un layout tastiera o un file di tasti personalizzati di Artemis. Sostituisci modifica solo questo gioco su questo PC. I layout non validi lasciano invariati i tuoi controlli.</string>
+    <string name="touch_layout_paste">Incolla JSON del layout</string>
+    <string name="touch_layout_copy">Copia JSON</string>
+    <string name="touch_layout_share">Condividi file JSON</string>
+    <string name="touch_layout_share_error">Impossibile condividere il layout. Copiane invece il JSON.</string>
+    <string name="touch_layout_limit">Un layout può contenere fino a 32 controlli.</string>
+    <string name="touch_layout_name">Nome del pulsante</string>
+    <string name="touch_layout_binding">Tasti o pulsante del mouse</string>
+    <string name="touch_layout_binding_help">Esempi: W, CTRL + C, SPACE. MOUSE_1 è il sinistro, MOUSE_2 il centrale, MOUSE_3 il destro, MOUSE_4 indietro e MOUSE_5 avanti.</string>
+    <string name="touch_layout_width">Larghezza (percentuale dell’area di controllo, 4–80)</string>
+    <string name="touch_layout_height">Altezza (percentuale dell’area di controllo, 4–80)</string>
+    <string name="touch_layout_toggle">Tocca per tenere premuto; tocca di nuovo per rilasciare</string>
+    <string name="touch_layout_hold">Premuto finché lo tieni</string>
+    <string name="touch_layout_pressed">Premuto</string>
+    <string name="touch_layout_released">Rilasciato</string>
+    <string name="touch_layout_invalid">Controlla il nome, i tasti o il pulsante e che i numeri siano nel loro intervallo.</string>
+    <string name="desktop_zoom_enable">Attiva zoom con pizzico e panoramica</string>
+    <string name="desktop_zoom_disable">Disattiva zoom con pizzico e panoramica</string>
+    <string name="desktop_zoom_reset">Reimposta zoom</string>
+    <string name="desktop_zoom_help">Pizzica con due dita per ingrandire fino a 4×; trascina con due dita per spostarti. Con un dito resta attiva la modalità touch selezionata. Lo scorrimento con due dita viene sostituito mentre i controlli dello zoom sono attivi.</string>
+    <string name="desktop_zoom_surface_help">Su Android 5 e 6, attiva TextureView nelle impostazioni di streaming e riconnettiti per usare lo zoom.</string>
+    <string name="desktop_output">Uscita video (riconnette lo stream)</string>
+    <string name="desktop_output_device">Questo dispositivo</string>
+    <string name="desktop_touchpad_help">Il video è sul display esterno. Usa questo schermo come touchpad. Tastiera, pulsanti di gioco e menu dello stream restano disponibili qui.</string>
+    <string name="desktop_pacing_fallback">Display esterno: i frame vengono mostrati appena arrivano.</string>
+    <string name="desktop_display_unavailable">Nessun display esterno può mostrare lo stream, quindi resta su questo dispositivo.</string>
+    <string name="controller_axes_title">Levette, grilletti e croce direzionale</string>
+    <string name="controller_axes_configured">Mappatura personalizzata di assi o croce direzionale; si applica al prossimo stream</string>
+    <string name="controller_axes_source">Input per %1$s</string>
+    <string name="controller_axes_inverted">%1$s (invertito)</string>
+    <string-array name="controller_axes">
+        <item>Levetta sinistra orizzontale</item>
+        <item>Levetta sinistra verticale</item>
+        <item>Levetta destra orizzontale</item>
+        <item>Levetta destra verticale</item>
+        <item>Grilletto sinistro</item>
+        <item>Grilletto destro</item>
+        <item>Croce direzionale su</item>
+        <item>Croce direzionale giù</item>
+        <item>Croce direzionale sinistra</item>
+        <item>Croce direzionale destra</item>
+    </string-array>
+    <string-array name="controller_dpad_targets">
+        <item>Niente</item>
+        <item>Croce direzionale su</item>
+        <item>Croce direzionale giù</item>
+        <item>Croce direzionale sinistra</item>
+        <item>Croce direzionale destra</item>
+        <item>A</item>
+        <item>B</item>
+        <item>X</item>
+        <item>Y</item>
+        <item>LB</item>
+        <item>RB</item>
+        <item>Pressione levetta sinistra</item>
+        <item>Pressione levetta destra</item>
+        <item>Start</item>
+        <item>Select</item>
+        <item>Guide</item>
+    </string-array>
+</resources>

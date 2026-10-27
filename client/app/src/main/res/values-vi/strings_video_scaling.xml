@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="video_scaling_title">Tỷ lệ video</string>
+    <string-array name="video_scaling_modes">
+        <item>Vừa màn hình</item>
+        <item>Lấp đầy (cắt)</item>
+        <item>Kéo giãn</item>
+        <item>Điểm ảnh 1:1</item>
+    </string-array>
+    <string name="video_scaling_help">Vừa màn hình: toàn bộ hình ảnh, có viền đen khi màn hình có tỷ lệ khác.\nLấp đầy (cắt): lấp đầy màn hình mà không làm méo hình; phần mép không vừa sẽ bị cắt.\nKéo giãn: lấp đầy màn hình; hình ảnh có thể trông rộng hơn hoặc cao hơn.\nĐiểm ảnh 1:1: mỗi điểm ảnh của stream hiển thị bằng một điểm ảnh màn hình. Stream nhỏ hơn sẽ có viền; stream lớn hơn sẽ bị cắt.\nVị trí video đưa hình Vừa màn hình hoặc 1:1 lên trên cùng. Thu phóng bằng hai ngón tay hoạt động ở mọi chế độ, và Hình trong hình luôn hiển thị toàn bộ hình ảnh.</string>
+    <string name="title_video_alignment">Vị trí video</string>
+    <string name="summary_video_alignment">Vị trí của hình Vừa màn hình hoặc 1:1 khi còn khoảng trống. Trên cùng để trống phần bên dưới cho bàn phím hoặc nửa dưới của điện thoại đang gập. Lấp đầy và Kéo giãn phủ kín màn hình nên không bị ảnh hưởng.</string>
+    <string-array name="video_alignment_names">
+        <item>Giữa</item>
+        <item>Trên cùng</item>
+    </string-array>
+</resources>

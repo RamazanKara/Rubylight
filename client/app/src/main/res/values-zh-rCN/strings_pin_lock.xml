@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pin_lock_title">PIN 锁</string>
+    <string name="pin_lock_summary">打开 Nightjar 或开始串流时要求输入 PIN。忘记的 PIN 只能通过在 Android 设置中清除 Nightjar 的应用数据来重置，这也会移除已配对的电脑。</string>
+    <string name="pin_set">设置 PIN</string>
+    <string name="pin_change">更改 PIN</string>
+    <string name="pin_remove">移除 PIN</string>
+    <string name="pin_set_summary">请选择 4 到 8 位数字。</string>
+    <string name="pin_is_set_summary">已设置 PIN。更改或移除时需要输入当前 PIN。</string>
+    <string name="pin_mode_title">锁定</string>
+    <string name="pin_mode_off">关闭</string>
+    <string name="pin_mode_app">打开 Nightjar 时</string>
+    <string name="pin_mode_streams">开始任何串流时</string>
+    <string name="pin_mode_selected">在所选电脑上开始串流时</string>
+    <string name="pin_pcs_title">所选电脑</string>
+    <string name="pin_pcs_none">未选择</string>
+    <plurals name="pin_pcs_selected">
+        <item quantity="other">%d 台电脑</item>
+    </plurals>
+    <string name="pin_pcs_empty">尚未添加电脑。</string>
+    <string name="pin_grace_title">再次询问的时间</string>
+    <string name="pin_grace_always">每次离开 Nightjar 时</string>
+    <string name="pin_grace_minutes">%d 分钟</string>
+    <string name="pin_grace_hour">1 小时</string>
+    <string name="pin_remove_title">移除 PIN？</string>
+    <string name="pin_remove_message">Nightjar 将不再要求输入 PIN。</string>
+    <string name="pin_footer">如果忘记 PIN，唯一的重置方法是在 Android 设置中清除 Nightjar 的应用数据。这也会移除已配对的电脑，您需要重新配对。</string>
+    <string name="pin_saved">PIN 已保存</string>
+    <string name="pin_removed">PIN 已移除</string>
+    <string name="pin_title_app">Nightjar 已锁定</string>
+    <string name="pin_title_enter">输入 PIN</string>
+    <string name="pin_title_choose">选择 PIN</string>
+    <string name="pin_title_confirm">确认 PIN</string>
+    <string name="pin_subtitle_app">输入 PIN 以继续</string>
+    <string name="pin_subtitle_stream">开始串流需要输入</string>
+    <string name="pin_subtitle_stream_pc">在 %1$s 上开始串流需要输入</string>
+    <string name="pin_subtitle_verify">更改 PIN 锁需要输入</string>
+    <string name="pin_subtitle_choose">请使用 4 到 8 位数字</string>
+    <string name="pin_subtitle_confirm">请再次输入相同的 PIN</string>
+    <string name="pin_wrong">PIN 错误，请重试。</string>
+    <string name="pin_locked_out">错误次数过多，请在 %1$s 后重试。</string>
+    <string name="pin_too_short">请至少使用 4 位数字。</string>
+    <string name="pin_mismatch">两次输入的 PIN 不一致，请重新选择 PIN。</string>
+    <string name="pin_checking">正在检查…</string>
+    <string name="pin_saving">正在保存…</string>
+    <string name="pin_cancel">取消</string>
+    <string name="pin_close_app">关闭 Nightjar</string>
+    <string name="pin_key_delete">删除</string>
+    <string name="pin_key_confirm">确认</string>
+    <string name="pin_dots_description">已输入 %1$d / %2$d 位</string>
+    <string name="pin_hint">上、下选择一行；左、确定、右按下该行的按键。</string>
+    <string name="pin_row_1">第 1 行：1, 2, 3</string>
+    <string name="pin_row_2">第 2 行：4, 5, 6</string>
+    <string name="pin_row_3">第 3 行：7, 8, 9</string>
+    <string name="pin_row_4">第 4 行：删除, 0, 确认</string>
+</resources>

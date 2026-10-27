@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_host_asks_named">Seu PC pergunta antes de fechar %1$s</string>
+    <string name="library_host_asks">Seu PC pergunta antes de fechar o jogo em execução</string>
+    <string name="library_quit_named_and_play">Encerrar %1$s e jogar</string>
+    <string name="library_quit_and_play">Encerrar o jogo em execução e jogar</string>
+    <string name="library_replace_message_named">Encerrar %1$s e iniciar %2$s?\nO progresso não salvo será perdido.</string>
+    <string name="library_replace_message">Encerrar o jogo em execução e iniciar %1$s?\nO progresso não salvo será perdido.</string>
+    <string name="library_replace_confirm">Encerrar e jogar</string>
+    <string name="library_replace_resume">Retomar %1$s</string>
+    <string name="library_replace_close_start">Fechar %1$s e iniciar %2$s</string>
+    <string name="library_replace_message_running">%1$s está em execução neste PC. Iniciar %2$s o fecha, e o progresso não salvo é perdido.</string>
+    <string name="library_replace_changed">O jogo em execução mudou. Confira a tela e tente novamente.</string>
+</resources>

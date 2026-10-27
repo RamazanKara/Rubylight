@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_section_advanced">Zaawansowane</string>
+    <string name="settings_advanced_summary">Dekodowanie, sterowanie i diagnostyka</string>
+    <string name="settings_custom">Niestandardowe</string>
+    <string name="setting_help">Informacje: %1$s</string>
+    <string name="stream_presets_help_title">Informacje o profilach</string>
+    <string name="settings_version">Wersja %1$s</string>
+    <string name="settings_source">Kod źródłowy i licencje</string>
+    <string name="settings_csv_summary">Zapisz najnowsze pomiary opóźnienia</string>
+    <string name="host_profile_footer">Zapisz ustawienia strumienia przed wyjściem. Tryb wyświetlania zapisuje się osobno przyciskiem Zapisz tryb wyświetlania w jego oknie. Zmiany obowiązują od następnego strumienia.</string>
+    <string name="stream_overlay_menu">Nakładka</string>
+    <string name="stream_bitrate_manual">Ustaw szybkość transmisji</string>
+    <string-array name="stream_preset_names">
+        <item>Natywny (zalecany)</item>
+        <item>Oszczędzanie baterii</item>
+    </string-array>
+    <string name="applist_menu_show_app">Pokaż grę</string>
+</resources>

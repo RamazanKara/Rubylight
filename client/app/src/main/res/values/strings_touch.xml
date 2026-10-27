@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_touch_off_help">Touch is off. Swipe back or press Back for the stream menu.</string>
+    <string name="title_local_cursor_speed">Local cursor speed</string>
+    <string name="title_trackpad_acceleration">Pointer acceleration</string>
+    <string name="summary_trackpad_acceleration">Fast swipes move the pointer farther than slow ones, so small moves stay precise. For Trackpad and Local cursor.</string>
+    <string name="title_trackpad_acceleration_curve">Acceleration strength</string>
+    <string-array name="trackpad_acceleration_curve_names">
+        <item>Gentle</item>
+        <item>Medium</item>
+        <item>Strong</item>
+    </string-array>
+    <string name="title_trackpad_momentum">Glide after a flick</string>
+    <string name="summary_trackpad_momentum">After a quick flick the pointer keeps moving and slows down. Touch the screen to stop it. For Trackpad and Local cursor.</string>
+    <string name="title_trackpad_momentum_glide">Glide distance</string>
+    <string-array name="trackpad_momentum_glide_names">
+        <item>Short</item>
+        <item>Medium</item>
+        <item>Long</item>
+    </string-array>
+    <string name="title_trackpad_area">Trackpad area</string>
+    <string name="summary_trackpad_area">Trackpad and Local cursor gestures start only in this part of the screen. Touches that start elsewhere are ignored.</string>
+    <string-array name="trackpad_area_names">
+        <item>Full screen</item>
+        <item>Right half</item>
+        <item>Left half</item>
+        <item>Bottom half</item>
+        <item>Top half</item>
+    </string-array>
+    <string name="title_three_finger_tap">Three-finger tap</string>
+    <string name="summary_three_finger_tap">What a quick tap with three fingers does in Trackpad, Direct mouse and Local cursor modes.</string>
+    <string-array name="three_finger_tap_names">
+        <item>@string/desktop_controls_system_keyboard</item>
+        <item>Middle click</item>
+        <item>@string/desktop_controls_open</item>
+        <item>@string/stream_disabled</item>
+        <item>@string/pc_keyboard_title</item>
+    </string-array>
+
+    <string-array name="trackpad_acceleration_curve_values" translatable="false">
+        <item>gentle</item>
+        <item>medium</item>
+        <item>strong</item>
+    </string-array>
+    <string-array name="trackpad_momentum_glide_values" translatable="false">
+        <item>short</item>
+        <item>medium</item>
+        <item>long</item>
+    </string-array>
+    <string-array name="trackpad_area_values" translatable="false">
+        <item>full</item>
+        <item>right_half</item>
+        <item>left_half</item>
+        <item>bottom_half</item>
+        <item>top_half</item>
+    </string-array>
+    <string-array name="three_finger_tap_values" translatable="false">
+        <item>keyboard</item>
+        <item>middle_click</item>
+        <item>desktop_controls</item>
+        <item>none</item>
+        <item>pc_keyboard</item>
+    </string-array>
+    <string name="stream_cursor_shape_rejected">Nightjar can’t draw the PC’s cursor shape, so it shows the default arrow.</string>
+    <string name="title_four_finger_tap">Four-finger tap</string>
+    <string name="summary_four_finger_tap">What a quick tap with four fingers does in Trackpad, Direct mouse and Local cursor modes.</string>
+</resources>

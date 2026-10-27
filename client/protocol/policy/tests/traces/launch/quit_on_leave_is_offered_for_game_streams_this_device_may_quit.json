@@ -1,0 +1,10 @@
+{
+  "source": "LaunchPolicyTest.quitOnLeaveIsOfferedForGameStreamsThisDeviceMayQuit",
+  "rust": "launch::LaunchPolicy",
+  "java": "com.limelight.LaunchTrace",
+  "new": null,
+  "calls": [
+    {"call": "offers_quit_on_leave", "args": [true, "none", "stream"], "expect": true},
+    {"call": "offers_quit_on_leave", "args": [false, "none", "stream"], "expect": false}
+  ]
+}

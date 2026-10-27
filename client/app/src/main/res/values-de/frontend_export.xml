@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="frontend_export_menu">Spiele zu einem Launcher hinzufügen</string>
+    <string name="frontend_export_roms_title">ROM-Ordner wählen</string>
+    <string name="frontend_export_roms_message">Füge hier Spielverknüpfungen für ES-DE oder andere Frontends hinzu.</string>
+    <string name="frontend_export_esde_title">ES-DE-Ordner wählen</string>
+    <string name="frontend_export_esde_message">%1$s und Cover für ES-DE?\nSonst wähle „Überspringen“.</string>
+    <string name="frontend_export_pick">Ordner wählen</string>
+    <string name="frontend_export_skip">Überspringen</string>
+    <string name="frontend_export_no_apps">Öffne zuerst die Spieleliste dieses PCs.</string>
+    <string name="frontend_export_no_picker">Keine Ordnerauswahl auf diesem Gerät verfügbar.</string>
+    <string name="frontend_export_working">Spiele werden hinzugefügt…</string>
+    <plurals name="frontend_export_done">
+        <item quantity="one">%1$d Spiel exportiert.</item>
+        <item quantity="other">%1$d Spiele exportiert.</item>
+    </plurals>
+    <string name="frontend_export_failed">Spiele nicht hinzugefügt.\nWähle einen lokalen Ordner oder die SD-Karte.</string>
+    <string name="scut_invalid_entry">Spieldatei nicht verfügbar.\nFüge die Spiele in %1$s erneut hinzu.</string>
+    <string name="frontend_export_update">Spiele aktualisieren</string>
+    <string name="frontend_setup_title">Einrichtung</string>
+    <string name="frontend_setup_copy">Startbefehl kopieren</string>
+    <string name="frontend_setup_beacon">Füge in Beacon eine Custom-Plattform hinzu. Wähle %1$s als Player app und den exportierten Ordner butterpollo als ROMs folder. Füge .art zu den Dateiendungen hinzu. Wähle unter Advanced die Dateiverarbeitung Default, aktiviere Use custom launch und füge den Befehl unten ein. Speichere und scanne die Plattform.</string>
+    <string name="frontend_setup_esde">Starte ES-DE neu, um das Nightjar-System zu laden. Falls du den Konfigurationsordner übersprungen hast, wähle ihn beim nächsten Export, um das System und gespeicherte Cover hinzuzufügen.</string>
+    <string name="frontend_setup_daijisho">Erstelle eine Plattform für .art-Dateien im exportierten Ordner butterpollo. Füge einen Android-Player mit den Intent-Argumenten unten hinzu und scanne den Ordner.</string>
+    <string name="frontend_setup_pegasus">Verwende den exportierten Ordner butterpollo und die .art-Einträge. Trage den Startbefehl unten in die Metadaten deiner Sammlung ein.</string>
+</resources>

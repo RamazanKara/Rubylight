@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="video_scaling_title">映像のスケーリング</string>
+    <string-array name="video_scaling_modes">
+        <item>画面に合わせる</item>
+        <item>画面を埋める（切り取り）</item>
+        <item>引き伸ばし</item>
+        <item>1:1 ピクセル</item>
+    </string-array>
+    <string name="video_scaling_help">画面に合わせる：映像全体を表示します。画面の形が異なる場合は黒帯が入ります。\n画面を埋める（切り取り）：映像をゆがめずに画面全体に表示し、はみ出した端を切り取ります。\n引き伸ばし：画面全体に表示します。映像が横長または縦長に見える場合があります。\n1:1 ピクセル：ストリームの 1 ピクセルを画面の 1 ピクセルで表示します。小さいストリームには枠が付き、大きいストリームは切り取られます。\n映像の位置で、画面に合わせる または 1:1 の映像を上端に寄せられます。ピンチズームはすべてのモードで使え、ピクチャー イン ピクチャーでは常に映像全体を表示します。</string>
+    <string name="title_video_alignment">映像の位置</string>
+    <string name="summary_video_alignment">画面に合わせる または 1:1 の映像に余白があるときの表示位置です。上にすると下側が空き、キーボードや折りたたんだ端末の下半分に使えます。画面を埋める と 引き伸ばし は画面全体を覆うため、影響しません。</string>
+    <string-array name="video_alignment_names">
+        <item>中央</item>
+        <item>上</item>
+    </string-array>
+</resources>

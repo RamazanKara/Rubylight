@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_adaptive_quality">自動串流品質</string>
+    <string name="summary_adaptive_quality">在持續壅塞、解碼緩慢或過熱時降低解析度或 FPS，之後再逐步恢復。在支援時會使用自動位元速率。需要主機支援重新設定以及自適應解碼器；使用 PyroWave 時無法使用。</string>
+    <string name="title_adaptive_quality_min_resolution">最低自動解析度</string>
+    <string name="summary_adaptive_quality_min_resolution">最小的短邊長度，並維持長寬比。所選的串流解析度仍為上限。較低的起始解析度不會因這個限制而提高。</string>
+    <string name="title_adaptive_quality_min_fps">最低自動影格速率</string>
+    <string name="summary_adaptive_quality_min_fps">允許的最低 FPS。所選的串流影格速率仍為上限。適用於自動品質，包括電池模式。</string>
+    <string name="quality_off">關閉</string>
+    <string name="quality_motion">保留流暢度</string>
+    <string name="quality_detail">保留細節</string>
+    <string name="quality_battery">延長電池續航力</string>
+    <string name="quality_use_settings">使用應用程式設定</string>
+    <string name="quality_about">運作方式</string>
+    <string name="quality_stream_help">會為這部電腦儲存。「流暢度」會先降低解析度；「細節」會先降低 FPS。「電池」會在你的最低限制範圍內，逐步將負載限制在最高 60 FPS 和 1080 像素短邊。轉碼器、HDR 和顯示器選擇會維持協商結果。</string>
+    <string name="quality_unavailable">自動品質已關閉：這部電腦或裝置無法在串流期間變更解析度和影格速率。</string>
+    <string name="quality_request_failed">自動品質已停止：電腦未套用新的大小。串流會繼續進行；請在串流選單中選擇其他模式。</string>
+    <string name="quality_status">自動品質：%1$s · %2$d × %3$d · 目標 %4$d FPS</string>
+</resources>

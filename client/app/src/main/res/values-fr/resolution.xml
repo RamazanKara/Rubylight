@@ -1,0 +1,4 @@
+<resources>
+    <string name="resolution_custom">Personnalisée…</string>
+    <string name="resolution_custom_size">Personnalisée (%1$s)</string>
+</resources>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="help_connect_title">連線電腦</string>
+    <string name="help_connect_body">Nightjar 可從你電腦上執行的任何 Moonlight 相容主機串流。啟動主機並讓兩部裝置位於同一網路，電腦就會出現在清單中。如果沒有出現，請輕觸「新增電腦」並輸入電腦的 IP 位址。如果仍然無法連線，請在電腦的防火牆中允許主機軟體通過。</string>
+    <string name="help_connect_link">設定指南</string>
+    <string name="help_pairing_title">配對</string>
+    <string name="help_pairing_body">輕觸電腦，並讓 PIN 碼保持顯示在畫面上。在電腦上主機的設定或網頁中輸入該 PIN 碼。如果主機有個別裝置權限，請允許這部裝置列出及啟動應用程式。</string>
+    <string name="help_pairing_link">配對指南</string>
+    <string name="help_controls_title">控制方式和串流選單</string>
+    <string name="help_controls_body">串流期間，按「返回」即可開啟串流選單：鍵盤、輸入模式、覆蓋層、位元速率和中斷連線。使用控制器時，請同時按下 Start、Back、LB 和 RB。中斷連線後，遊戲會繼續在電腦上執行，讓你之後可以接著玩；除非你在該遊戲的遊戲庫選單中開啟了「離開串流時結束遊戲」。若要檢查控制器的按鈕、搖桿和震動，請依序開啟「設定」、「控制」、「控制器測試」。在「設定」、「控制」、「觸控模式」中，本機游標會在本裝置上繪製指標，關閉觸控則會在你使用控制器遊玩時忽略螢幕觸碰。在串流選單的「輸入」中，「這款遊戲的控制按鈕」可為該遊戲放置鍵盤、滑鼠和控制器按鈕、搖桿、扳機鍵和方向鍵。若要沿用 Artemis 的版面配置，請在遊戲庫中長按該遊戲並選擇「匯入遊戲控制項」。若要在沒有內建僅限輸入模式的主機上只把這部裝置當作控制器使用，請開啟「設定」、「串流」、「在任何電腦上僅限輸入」；電腦仍會傳送一個不顯示的小型影像串流。</string>
+    <string name="help_controls_link">控制指南</string>
+    <string name="help_problems_title">修正常見問題</string>
+    <string name="help_problems_body"><b>沒有畫面：</b>請嘗試使用 H.264 和 720p，並關閉 HDR 和升頻。\n\n<b>畫面卡頓：</b>請降低位元速率、以網路線連接電腦，或靠近路由器。請使用 5 或 6 GHz 的 Wi-Fi，而非 2.4 GHz。如果每隔幾分鐘就卡頓一次，請在串流選單中開啟「為什麼我的串流會卡頓？」：它能找出背景 Wi-Fi 掃描的節奏。\n\n<b>輸入延遲：</b>請開啟效能覆蓋層查看延遲來源，並保持開啟「低延遲解碼」。\n\n<b>沒有聲音：</b>請選擇「立體聲」，檢查電腦的音訊輸出，然後重新連線。</string>
+    <string name="help_problems_link">疑難排解指南</string>
+    <string name="help_report_body">分享已移除個人詳細資料的記錄檔。在你選擇要分享的應用程式之前，不會傳送任何內容。</string>
+    <string name="help_report_link">要包含的內容</string>
+</resources>

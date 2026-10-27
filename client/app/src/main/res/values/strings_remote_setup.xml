@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="remote_setup_title">Play away from home</string>
+    <string name="remote_step">Step %1$d of 3</string>
+    <string name="remote_prepare">Prepare at home\n\nPair this device with your PC on your home network and confirm a normal stream works. Keep the PC awake and the host running.\n\nRemote Wake-on-LAN needs a compatible router or an always-on device at home; the phone cannot wake an unreachable PC by itself.</string>
+    <string name="remote_vpn">Connect your devices\n\nA private VPN such as Tailscale can connect your phone and PC without exposing the host’s web UI to the Internet. Install it on both devices, sign into your own account and enable their connection. Existing VPN setups can also be used.\n\nThe link opens the official download guide. This app does not install software, create accounts, change router settings or enable port forwarding.</string>
+    <string name="remote_verify">Verify from another network\n\nAdd the PC’s VPN address using Add address, with its streaming HTTP port if customized. This updates the saved PC when its identity matches. Return here afterward.\n\nDisconnect from your home Wi-Fi and use mobile data or another network. Test checks the paired PC’s identity and five small HTTPS requests; it does not start a stream or download a speed-test file. A test at home alone does not prove Internet reachability.</string>
+    <string name="remote_get_vpn">Open Tailscale setup</string>
+    <string name="remote_add_address">Add VPN or remote address</string>
+    <string name="remote_test">Test this PC</string>
+    <string name="remote_previous">Previous</string>
+    <string name="remote_next">Next</string>
+    <string name="remote_pair_first">Pair this PC locally first. Its saved certificate and HTTPS port are required to verify that the remote address reaches your PC.</string>
+    <string name="remote_pair_revoked">The PC responded, but this device is no longer paired. Pair again at home before testing remote play.</string>
+    <string name="remote_permission_denied">The paired PC responded, but this device cannot view streams. Enable viewing or launching applications for this device in your host’s settings or web UI.</string>
+    <string name="remote_running">Checking your paired PC…</string>
+    <string name="remote_cancelled">Test cancelled. No host or network settings were changed.</string>
+    <string name="remote_failed">The paired PC could not be verified. Check that it is awake, the host and VPN are running, and the saved address and streaming ports are correct. If pairing changed, pair again at home. This test cannot distinguish a sleeping PC from a blocked route.</string>
+    <string name="remote_verified">The paired PC responded on this network. Next, try a normal stream at a modest bitrate; HTTPS reachability does not verify video/audio UDP ports or sustained streaming performance.</string>
+    <string name="remote_direct">Tailscale reports a direct path for this connection. Direct paths usually provide the best throughput and latency.</string>
+    <string name="remote_relay">Tailscale reports a DERP relay. It provides connectivity, but streaming speed may be limited. Check Tailscale’s connectivity guidance or configure a suitable peer relay.</string>
+    <string name="remote_peer_relay">Tailscale reports a peer relay. Performance depends on that relay and both network paths; compare a real stream.</string>
+    <string name="remote_unknown">Direct or relayed path: unavailable. This host, VPN or connection does not expose a current route classification. Check your VPN’s status; low ping alone does not prove a direct path.</string>
+    <string name="remote_measurements">HTTPS request average: %1$.1f ms\nFailed requests: %2$.0f %%\nThese are application-request measurements, not video packet loss or input latency.</string>
+</resources>

@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Controller test (ControllerTestActivity): live input, then the outputs a controller may offer. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <TextView style="@style/HelpTopic.Body" android:text="@string/controller_test_hint" />
+    <TextView android:id="@+id/controller_test_device"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_m"
+        android:accessibilityLiveRegion="polite"
+        android:textAppearance="@style/TextAppearance.Nightjar.Label"
+        android:textColor="?attr/colorPrimary" />
+
+    <TextView style="@style/HelpTopic.Heading" android:text="@string/controller_test_buttons"
+        android:accessibilityHeading="true" tools:targetApi="p" />
+    <com.google.android.material.chip.ChipGroup android:id="@+id/controller_test_buttons"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_s"
+        android:importantForAccessibility="no"
+        app:chipSpacingHorizontal="@dimen/space_s" />
+    <TextView android:id="@+id/controller_test_pressed" style="@style/HelpTopic.Body"
+        android:accessibilityLiveRegion="polite" />
+
+    <TextView style="@style/HelpTopic.Heading" android:text="@string/controller_test_sticks"
+        android:accessibilityHeading="true" tools:targetApi="p" />
+    <view class="com.limelight.preferences.ControllerTestActivity$SticksView" android:id="@+id/controller_test_sticks"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_s"
+        android:importantForAccessibility="no" />
+    <TextView android:id="@+id/controller_test_stick_values" style="@style/HelpTopic.Body"
+        android:textAppearance="@style/TextAppearance.Nightjar.Mono" />
+    <TextView android:id="@+id/controller_test_axes" style="@style/HelpTopic.Body"
+        android:textAppearance="@style/TextAppearance.Nightjar.Mono" />
+
+    <TextView style="@style/HelpTopic.Heading" android:text="@string/controller_test_rumble"
+        android:accessibilityHeading="true" tools:targetApi="p" />
+    <TextView android:id="@+id/controller_test_rumble_note" style="@style/HelpTopic.Body" />
+    <com.google.android.material.chip.ChipGroup android:id="@+id/controller_test_rumble_actions"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_xs"
+        app:chipSpacingHorizontal="@dimen/space_s" app:chipSpacingVertical="0dp" />
+
+    <TextView style="@style/HelpTopic.Heading" android:text="@string/controller_test_lights"
+        android:accessibilityHeading="true" tools:targetApi="p" />
+    <TextView android:id="@+id/controller_test_lights_note" style="@style/HelpTopic.Body" />
+    <com.google.android.material.chip.ChipGroup android:id="@+id/controller_test_light_actions"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_xs"
+        app:chipSpacingHorizontal="@dimen/space_s" app:chipSpacingVertical="0dp" />
+
+    <TextView style="@style/HelpTopic.Heading" android:text="@string/controller_test_motion"
+        android:accessibilityHeading="true" tools:targetApi="p" />
+    <TextView android:id="@+id/controller_test_motion_values" style="@style/HelpTopic.Body" />
+
+    <TextView style="@style/HelpTopic.Heading" android:text="@string/controller_test_touchpad"
+        android:accessibilityHeading="true" tools:targetApi="p" />
+    <TextView android:id="@+id/controller_test_touchpad_values" style="@style/HelpTopic.Body" />
+</LinearLayout>

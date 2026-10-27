@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_network_grace">Resisti alle interruzioni di rete</string>
+    <string name="summary_network_grace">Quanto attende uno stream quando la rete smette di rispondere, ad esempio mentre il Wi-Fi passa da un punto di accesso all’altro o una VPN passa dal Wi-Fi ai dati mobili. Disattivato termina lo stream dopo 10 secondi senza contatto. L’immagine si blocca finché la rete non torna. Attese oltre 10 secondi servono solo se anche l’host attende così a lungo: aumenta il suo timeout dei client.</string>
+    <string name="network_grace_off">Disattivato (10 secondi)</string>
+    <string name="network_grace_20">20 secondi</string>
+    <string name="network_grace_30">30 secondi</string>
+    <string name="network_grace_60">60 secondi</string>
+    <string name="network_grace_gave_up">La connessione è rimasta silenziosa più a lungo della tolleranza di %1$d secondi, oppure l’host ha terminato la sessione. Se l’host ha rinunciato prima, aumenta anche il suo timeout dei client.</string>
+</resources>

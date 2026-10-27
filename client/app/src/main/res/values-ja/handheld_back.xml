@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_back_opens_menu">物理戻るキーでストリームメニューを開く</string>
+    <string name="summary_checkbox_back_opens_menu">携帯ゲーム機やコントローラーの専用戻るキーでストリームメニューを開きます。SelectとStartの割り当ては変わりません。物理キーボードでは「戻るキーでWindowsキーを送信」が優先されます。次のストリームから適用されます。</string>
+</resources>

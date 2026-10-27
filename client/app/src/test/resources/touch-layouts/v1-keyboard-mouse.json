@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "buttons": [
+    {
+      "id": "jump",
+      "name": "Jump",
+      "type": "keyboard",
+      "toggle": false,
+      "x": 0.05999999865889549,
+      "y": 0.6499999761581421,
+      "width": 0.14000000059604645,
+      "height": 0.1599999964237213,
+      "keys": "W"
+    },
+    {
+      "id": "copy",
+      "name": "Copy",
+      "type": "keyboard",
+      "toggle": true,
+      "x": 0.5,
+      "y": 0.25,
+      "width": 0.20000000298023224,
+      "height": 0.20000000298023224,
+      "keys": "CTRL + C"
+    },
+    {
+      "id": "fire",
+      "name": "Fire",
+      "type": "mouse",
+      "toggle": false,
+      "x": 0.800000011920929,
+      "y": 0.699999988079071,
+      "width": 0.15000000596046448,
+      "height": 0.20000000298023224,
+      "button": 1
+    }
+  ]
+}

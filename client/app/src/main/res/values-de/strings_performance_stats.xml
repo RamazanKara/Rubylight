@@ -1,0 +1,23 @@
+<resources>
+    <string name="stats_decode_submission">CPU-Übermittlung: %1$s ms · Anzeigewartezeit: %2$s ms</string>
+    <string name="perf_overlay_pyrowave_submit">CPU-Übermittlungszeit: %1$s ms</string>
+    <string name="latency_pyrowave_completed_decode">Vollständige Dekodierung</string>
+    <string name="stats_waiting">Warte auf Stream-Statistiken…</string>
+    <string name="stats_frame_rates">Gerendert: %1$s FPS · Empfangen: %2$s FPS</string>
+    <string name="stats_throughput">Videodaten: %1$s Mbit/s · Verlust: %2$s%%</string>
+    <string name="stats_network">Netzwerk-RTT: %1$s ms (±%2$s ms)</string>
+    <string name="stats_host">Host-Verarbeitung: %1$s ms</string>
+    <string name="stats_host_network">Host bis Netzwerk: %1$s ms</string>
+    <string name="stats_client">Decodierung: %1$s ms · Anzeigewartezeit: %2$s ms</string>
+    <string name="hardware_title">Host-Hardware (alle GPUs)</string>
+    <string name="hardware_cpu">Host-CPU: %1$s%%</string>
+    <string name="hardware_gpu_summary">Host-GPU %1$d: %2$s%% · %3$s °C · %4$s W</string>
+    <string name="hardware_sample">Host-Messung: %1$d ms seit Unix-Epoche · Intervall: %2$d ms</string>
+    <string name="hardware_gpu_name">GPU %1$d · %2$s</string>
+    <string name="hardware_gpu_unnamed">Unbenannte GPU</string>
+    <string name="hardware_gpu_clocks">Auslastung: %1$s%% · GPU-Takt: %2$s MHz · Speichertakt: %3$s MHz</string>
+    <string name="hardware_gpu_temperatures">GPU: %1$s °C · Hotspot: %2$s °C · Speicher: %3$s °C</string>
+    <string name="hardware_gpu_fan_voltage">Spannung: %1$s mV · Lüfter: %2$s U/min (%3$s%%)</string>
+    <string name="hardware_gpu_power">GPU-Leistung: %1$s W · Board-Leistung: %2$s W</string>
+    <string name="hardware_gpu_memory">VRAM: %1$s MB (%2$s%%)</string>
+</resources>

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="startup_connection_failed">無法連線至電腦。請確認電腦的串流主機正在執行、兩部裝置可以互相連線，且電腦防火牆允許串流，然後再試一次。</string>
+    <string name="startup_permission_denied">主機拒絕了這項要求。請在主機的設定或網頁 UI 中啟用這部裝置，並允許檢視或啟動應用程式。</string>
+    <string name="startup_host_error">主機無法啟動這個串流 (錯誤 %1$d)。請在主機的網頁 UI 中檢查其狀態，重新整理應用程式清單後再試一次。</string>
+    <string name="startup_invalid_host">電腦傳回了無效的伺服器版本。請更新或重新啟動主機軟體後再試一次。</string>
+    <string name="startup_virtual_display_unavailable">這部電腦沒有虛擬顯示器，因此會串流其本身的螢幕。</string>
+    <string name="startup_not_paired">這部裝置已不再配對。請返回電腦清單並重新配對。</string>
+    <string name="startup_app_missing">這個應用程式已不在電腦的遊戲庫中。請重新整理應用程式清單並選擇其他應用程式。</string>
+    <string name="startup_resume_missing">這個工作階段已無法使用。請重新整理應用程式清單並選擇一個工作階段。</string>
+    <string name="startup_host_resolution_unsupported">這部電腦不支援高於 4K 的解析度。請在串流設定中選擇 4K 或更低的解析度。</string>
+    <string name="startup_device_resolution_unsupported">高於 4K 的解析度需要這部裝置支援 HEVC 或 AV1。請選擇較低的解析度或其他轉碼器。</string>
+    <string name="startup_host_update_4k">請更新電腦上的 GeForce Experience 以串流 4K。這個串流為 1080p。</string>
+    <string name="startup_hdr_unavailable">電腦和這部裝置沒有共同支援的 HDR 轉碼器，因此串流會使用 SDR。</string>
+    <string name="startup_pyrowave_hdr_unavailable">這部裝置無法使用 PyroWave HDR（%1$s），因此 HDR 會使用其他轉碼器。</string>
+    <string name="startup_resume_failed">無法繼續工作階段。請檢查電腦上的應用程式後再試一次。</string>
+    <string name="startup_session_owner">這個工作階段由另一部裝置所有。請在該裝置或電腦上結束工作階段，然後再試一次。</string>
+    <string name="startup_app_minimized">應用程式已最小化。請在電腦上將其還原，或結束工作階段後重新啟動。</string>
+    <string name="startup_quit_failed">無法結束先前的工作階段。請在電腦上結束後再試一次。</string>
+    <string name="startup_launch_failed">無法啟動應用程式。請確認它能在電腦上開啟，然後再試一次。</string>
+    <string name="applist_permission_required">這部裝置無法列出應用程式。請在主機的設定或網頁 UI 中，允許這部裝置列出應用程式。遊戲庫會自動重新整理。</string>
+    <string name="applist_load_failed">無法載入電腦的應用程式。請在主機的設定或網頁 UI 中檢查主機狀態及這部裝置的應用程式清單權限。正在自動重試。</string>
+    <string name="applist_empty">沒有可用的應用程式。請將應用程式新增至主機的遊戲庫，並在主機的設定或網頁 UI 中檢查這部裝置的應用程式清單權限。</string>
+    <string name="host_profile_unsaved_title">要儲存串流設定嗎？</string>
+    <string name="host_profile_unsaved_message">你對這部電腦串流設定所做的變更尚未儲存。在顯示模式對話方塊中確認的顯示模式會另外儲存。</string>
+    <string name="host_profile_discard">捨棄變更</string>
+    <string name="preset_replace_settings">這會以此預設組合的值取代解析度、影格速率、位元速率、影格調步、升頻、VRR 和效能設定。轉碼器和 HDR 選擇會維持不變。</string>
+    <string name="pair_otp_incorrect_pin">PIN 碼遭拒。請在主機的網頁 UI 中產生新的一次性 PIN 碼，並檢查通關密語。</string>
+    <string name="pc_accessibility_actions">電腦動作</string>
+    <string name="app_details">名稱：%1$s\n支援 HDR：%2$s\n應用程式 ID：%3$d</string>
+    <string name="app_hdr_unknown">不明</string>
+</resources>

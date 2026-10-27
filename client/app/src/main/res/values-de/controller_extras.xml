@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_disable_rumble">Vibration ausschalten</string>
+    <string name="summary_checkbox_disable_rumble">Unterdrückt jede Vibration, die ein Spiel anfordert: Controller- und Trigger-Vibration, USB-DualSense-Haptik und die Vibration dieses Geräts anstelle des Controllers.</string>
+    <string name="title_checkbox_mouse_emulation_fixed_step">Mausbewegung in festen Schritten</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">Halte im Controller-Mausmodus X gedrückt, während du den Stick bewegst, damit sich der Zeiger jeweils um eine feste Pixelzahl bewegt. Y verdoppelt den Schritt von 1 bis 128 Pixel und beginnt dann wieder bei 1.</string>
+    <string name="stream_mouse_step">Mausschritt: %1$d px</string>
+    <string name="title_checkbox_back_as_meta">Tastatur-Zurück sendet Windows-Taste</string>
+    <string name="summary_checkbox_back_as_meta">Die Zurück-Taste einer echten Tastatur sendet die Windows-Taste (Befehlstaste auf einem Mac). Das Stream-Menü öffnest du dann mit Strg+Alt+Umschalt+M, der Zurück-Geste oder -Taste von Android oder der Controller-Tastenkombination.</string>
+    <string name="title_checkbox_right_alt_as_meta">Rechte Alt-Taste als Befehlstaste</string>
+    <string name="summary_checkbox_right_alt_as_meta">Die rechte Alt-Taste sendet die Windows-Taste, die ein Mac als Befehlstaste nutzt, sodass Alt rechts+C kopiert. Die linke Alt-Taste bleibt unverändert. Lass die Option aus, wenn du Zeichen mit AltGr tippst.</string>
+
+    <string name="controller_test_title">Controller-Test</string>
+    <string name="controller_test_summary">Tasten, Sticks, Trigger, Vibration, Leuchten und Bewegung prüfen</string>
+    <string name="controller_test_open">Controller testen</string>
+    <string name="controller_test_hint">Drücke Tasten und bewege die Sticks. Mit dem Steuerkreuz und A bewegst du dich auch auf dieser Seite; halte B oder Zurück eine Sekunde lang, um sie zu verlassen.</string>
+    <string name="controller_test_waiting">Verbinde einen Controller und drücke eine beliebige Taste.</string>
+    <string name="controller_test_waiting_short">Noch kein Controller.</string>
+    <string name="controller_test_usb_device">USB-Controller %1$s (Nightjar-USB-Treiber)</string>
+    <string name="controller_test_buttons">Tasten</string>
+    <string name="controller_test_pressed">Gedrückt: %1$s</string>
+    <string name="controller_test_pressed_none">Nichts gedrückt</string>
+    <string name="controller_test_sticks">Sticks und Trigger</string>
+    <string name="controller_test_stick_values">Linker Stick  %1$+.2f %2$+.2f\nRechter Stick %3$+.2f %4$+.2f\nLT %5$d %%  RT %6$d %%</string>
+    <string name="controller_test_rumble">Vibration</string>
+    <string name="controller_test_rumble_strong">Starker Motor</string>
+    <string name="controller_test_rumble_weak">Schwacher Motor</string>
+    <string name="controller_test_rumble_all">Beide Motoren</string>
+    <string name="controller_test_rumble_any">Vibrieren</string>
+    <string name="controller_test_rumble_left_trigger">Linker Trigger</string>
+    <string name="controller_test_rumble_right_trigger">Rechter Trigger</string>
+    <string name="controller_test_rumble_stop">Stopp</string>
+    <string name="controller_test_rumble_disabled_note">„Vibration ausschalten“ ist an, Streams vibrieren also nicht. Diese Tests schon.</string>
+    <string name="controller_test_lights">Leuchten</string>
+    <string name="controller_test_light_red">Rot</string>
+    <string name="controller_test_light_green">Grün</string>
+    <string name="controller_test_light_blue">Blau</string>
+    <string name="controller_test_light_off">Aus</string>
+    <string name="controller_test_light_reset">Zurücksetzen</string>
+    <string name="controller_test_motion">Bewegungssensoren</string>
+    <string name="controller_test_motion_values">Gyroskop\n%1$s\nBeschleunigungssensor\n%2$s</string>
+    <string name="controller_test_waiting_motion">Bewege den Controller</string>
+    <string name="controller_test_touchpad">Touchpad</string>
+    <string name="controller_test_touch_none">Berühre das Touchpad, um die Position zu sehen.</string>
+    <string name="controller_test_touch_at">Finger bei %1$d %% von links, %2$d %% von oben</string>
+    <string name="controller_test_misc">Teilen</string>
+    <string name="controller_test_not_available">Bei diesem Controller nicht verfügbar.</string>
+    <string name="controller_test_needs_android_12">Erfordert Android 12 oder neuer.</string>
+
+    <!-- USB Switch Pro driver -->
+    <string name="title_usb_switch_pro">Switch Pro per USB</string>
+    <string name="summary_usb_switch_pro">Experimentell. Liest einen per Kabel verbundenen Nintendo Switch Pro Controller direkt, mit Bewegungssensoren, Vibration, Home und Capture.</string>
+    <string name="usb_switch_pro_denied">Kein USB-Zugriff; der Switch Pro Controller nutzt weiter Androids Eingabe.\nVerbinde das Kabel erneut.</string>
+</resources>

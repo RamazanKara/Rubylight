@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shell_destinations">メインセクション</string>
+    <string name="shell_current_page">現在のページ</string>
+    <string name="host_menu_rename">名前を変更</string>
+    <string name="host_options_hint">オプションは X または ⋮</string>
+    <string name="host_rename_field">名前</string>
+    <string name="host_rename_help">この端末にだけ表示されます。空にすると PC 本来の名前を使います。</string>
+    <string name="host_rename_save">保存</string>
+    <string name="host_rename_title">PC の名前を変更</string>
+    <string name="host_unpair_title">%1$s のペアリングを解除しますか？</string>
+    <string name="host_unpair_message">PC はこの端末を忘れ、保存済みのライブラリもここで消去されます。ストリーミングするには再度ペアリングが必要です。PC は一覧に残ります。</string>
+    <string name="host_wake_needs_pairing">PC の電源が入っているときに一度ペアリングすると、起動できるようになります</string>
+    <string name="host_menu_sleep">PC をスリープ</string>
+    <string name="host_menu_sleep_note">試験運用</string>
+    <string name="host_sleep_title">%1$s をスリープしますか？</string>
+    <string name="host_sleep_message">先に PC のゲームとストリームを終了してください。Wake-on-LAN で再び起動できます。</string>
+    <string name="host_sleep_asking">PC に問い合わせています…</string>
+    <string name="host_sleep_accepted">PC をスリープしています</string>
+    <string name="host_sleep_unsupported">この PC はスリープできません。</string>
+    <string name="host_sleep_permission_help">許可するには、ホストの Web コンソールでこのデバイスの設定を開き、PC のスリープをオンにしてください。</string>
+    <string name="host_sleep_busy">PC は今スリープできません。PC のゲームとストリームを終了してから、もう一度お試しください。</string>
+    <string name="host_sleep_refused">PC がスリープを拒否しました (HTTP %1$d)。</string>
+    <string name="host_sleep_failed">PC に接続できませんでした。</string>
+    <string name="host_sleep_error">PC に問い合わせできませんでした: %1$s</string>
+    <string name="settings_category_accessibility">ユーザー補助</string>
+    <string name="title_ui_scale">インターフェースのサイズ</string>
+    <string name="summary_ui_scale">アプリのメニュー、リスト、ダイアログを拡大・縮小します。ストリームは拡大・縮小されません。システムのフォントサイズは引き続き適用されます。すぐに反映されます。</string>
+    <string name="title_high_contrast">ハイコントラスト</string>
+    <string name="summary_high_contrast">黒い背景、より強い文字と輪郭、より太いフォーカスリングをアプリのすべての画面で使います。ストリームは変わりません。</string>
+    <string name="title_reduce_motion">動きを減らす</string>
+    <string name="summary_reduce_motion">「システムに従う」は、Android のアニメーションスケールが 0 のときにアニメーションをオフにします。「減らす」は、フォーカスのズームとスライドするシートを単純なリングに置き換えます。「通常」は常にアニメーションします。</string>
+    <string name="reduce_motion_system">システムに従う</string>
+    <string name="reduce_motion_reduce">減らす</string>
+    <string name="reduce_motion_full">通常</string>
+    <!-- tv-mode-toggle -->
+    <string name="title_ui_mode">画面レイアウト</string>
+    <string name="summary_ui_mode">「自動」は端末に合わせます。「TV」は、テレビにつないだ携帯ゲーム機やスマートフォンでも、フォーカスとリモコンやゲームパッドで操作するテレビ向けのレイアウトにします。「携帯機」はテレビでもタッチ向けのレイアウトを使います。ストリームは変わりません。すぐに反映されます。</string>
+    <string name="ui_mode_auto">自動</string>
+    <string name="ui_mode_tv">TV</string>
+    <string name="ui_mode_handheld">携帯機</string>
+</resources>

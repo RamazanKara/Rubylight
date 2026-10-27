@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pc_settings_title">电脑设置</string>
+    <string name="pc_settings_display">电脑上的显示</string>
+    <string name="pc_settings_connection">连接</string>
+    <string name="pc_settings_host">主机</string>
+    <string name="pc_settings_needs_online">电脑在线时可用</string>
+    <string name="pc_settings_test_speed">延迟、抖动、丢包和下载速度</string>
+    <string name="pc_settings_test_delay">延迟、抖动和丢包</string>
+    <string name="pc_settings_remote_summary">设置通过互联网串流</string>
+    <string name="pc_settings_wake">Wake-on-LAN</string>
+    <string name="pc_settings_wake_ready">此设备可通过菜单唤醒电脑</string>
+    <string name="pc_settings_wake_unknown">请在电脑开机时配对，然后在电脑上开启 Wake-on-LAN</string>
+    <string name="pc_settings_details_summary">主机软件、功能和地址</string>
+    <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
+    <string name="pc_settings_shortcut">添加到主屏幕</string>
+    <string name="pc_settings_shortcut_summary">打开此电脑的游戏库</string>
+    <string name="connection_test_ms">%1$s ms</string>
+    <string name="connection_test_percent">%1$s%%</string>
+    <string name="connection_test_speed">速度 %1$.1f Mbps</string>
+    <string name="connection_test_speed_needs_pairing">未测量速度：请先配对此电脑</string>
+    <string name="connection_test_speed_no_answer">未测量速度：电脑未响应</string>
+    <string name="connection_test_speed_unsupported">未测量速度：此主机不支持速度测试</string>
+</resources>

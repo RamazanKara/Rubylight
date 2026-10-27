@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_feature_permissions">Разрешения устройства</string>
+    <string name="host_feature_otp_pairing">Сопряжение по одноразовому PIN-коду</string>
+    <string name="host_feature_clipboard">Буфер обмена</string>
+    <string name="host_feature_server_commands">Серверные команды</string>
+    <string name="host_feature_virtual_display">Виртуальный дисплей</string>
+    <string name="host_feature_virtual_display_hdr">Виртуальный дисплей с HDR</string>
+    <string name="host_feature_display_modes">Режимы дисплея ПК</string>
+    <string name="host_feature_fractional_refresh">Дробная частота обновления</string>
+    <string name="host_feature_vrr">VRR на стороне хоста</string>
+    <string name="host_feature_runtime_bitrate">Изменение битрейта во время трансляции</string>
+    <string name="host_feature_pyrowave">PyroWave</string>
+    <string name="host_feature_speed_test">Тест скорости подключения</string>
+    <string name="host_feature_hardware_metrics">Показатели CPU и GPU хоста</string>
+    <string name="host_feature_network_path">Проверка сетевого маршрута</string>
+    <string name="host_feature_frame_limiter">Статус ограничителя кадров</string>
+    <string name="host_feature_controller_preparation">Переподключение контроллеров</string>
+    <string name="host_feature_remote_sessions">Remote Monitor и только ввод</string>
+    <string name="host_feature_web_ui">Веб-интерфейс</string>
+    <string name="host_feature_reason_update">Обновите ПО хоста, чтобы использовать эту функцию</string>
+    <string name="host_feature_reason_pair">Сначала выполните сопряжение с этим ПК</string>
+    <string name="host_feature_reason_view_permission">Разрешите этому устройству просмотр трансляций на хосте</string>
+    <string name="host_feature_reason_clipboard_permission">Разрешите этому устройству буфер обмена на хосте</string>
+    <string name="host_feature_reason_command_permission">Разрешите этому устройству серверные команды на хосте</string>
+    <string name="host_feature_reason_no_commands">Добавьте команды в веб-интерфейсе хоста</string>
+    <string name="host_feature_reason_virtual_display_off">Включите виртуальный дисплей в настройках хоста</string>
+    <string name="host_feature_reason_virtual_display_driver">Драйвер виртуального дисплея хоста не готов</string>
+    <string name="host_feature_reason_hardware_metrics_off">Включите показатели оборудования в настройках хоста</string>
+    <string name="host_feature_reason_sleep_permission">Этому устройству не разрешено переводить ПК в спящий режим</string>
+    <string name="host_feature_reason_file_permission">Нет доступа к файлам: разрешите в веб-интерфейсе хоста</string>
+    <string name="host_feature_unknown">Работает, если хост это поддерживает</string>
+    <string name="host_details_software_apollo">Хост, совместимый с Apollo</string>
+    <string name="host_details_software_vibepollo">Хост, совместимый с Vibepollo</string>
+    <string name="host_details_software_unknown">Хост, совместимый с Moonlight</string>
+    <string name="host_details_features">Функции</string>
+    <string name="host_details_features_unknown">Подключитесь к этому ПК хотя бы раз, чтобы узнать, что он поддерживает.</string>
+    <string name="host_details_features_none">Дополнительные функции не заявлены</string>
+    <string name="host_pyrowave_unavailable">Этот ПК не может транслировать PyroWave, поэтому использует %1$s.</string>
+    <string name="connection_test_intro_delay">Проверьте задержку до ПК.</string>
+    <string name="host_feature_cursor_shape">Формы курсора</string>
+</resources>

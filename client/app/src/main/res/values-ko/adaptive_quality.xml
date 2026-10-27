@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_adaptive_quality">자동 스트림 품질</string>
+    <string name="summary_adaptive_quality">혼잡, 느린 디코딩, 발열이 지속되면 해상도나 FPS를 낮춘 후 점차 복구합니다. 지원되면 자동 비트레이트를 사용합니다. 호스트의 재구성 지원과 적응형 디코더가 필요하며, PyroWave에서는 사용할 수 없습니다.</string>
+    <string name="title_adaptive_quality_min_resolution">최소 자동 해상도</string>
+    <string name="summary_adaptive_quality_min_resolution">화면비를 유지한 가장 작은 짧은 변 길이입니다. 선택한 스트림 해상도가 최대값으로 유지됩니다. 시작 해상도가 더 낮으면 이 제한 때문에 높아지지 않습니다.</string>
+    <string name="title_adaptive_quality_min_fps">최소 자동 프레임 속도</string>
+    <string name="summary_adaptive_quality_min_fps">허용되는 최저 FPS입니다. 선택한 스트림 프레임 속도가 최대값으로 유지됩니다. 배터리 모드를 포함한 자동 품질에 적용됩니다.</string>
+    <string name="quality_off">사용 안함</string>
+    <string name="quality_motion">움직임 우선</string>
+    <string name="quality_detail">디테일 우선</string>
+    <string name="quality_battery">배터리 수명 연장</string>
+    <string name="quality_use_settings">앱 설정 사용</string>
+    <string name="quality_about">작동 방식</string>
+    <string name="quality_stream_help">이 PC에 저장됩니다. 움직임 우선은 해상도를 먼저 낮추고, 디테일 우선은 FPS를 먼저 낮춥니다. 배터리 모드는 최소 제한 내에서 작업량을 최대 60 FPS, 짧은 변 1080픽셀로 점차 제한합니다. 코덱, HDR, 디스플레이 선택은 협상된 대로 유지됩니다.</string>
+    <string name="quality_unavailable">자동 품질이 꺼져 있습니다: 이 PC 또는 기기는 스트리밍 중에 해상도와 프레임 속도를 변경할 수 없습니다.</string>
+    <string name="quality_request_failed">자동 품질이 중지되었습니다: PC가 새 크기를 적용하지 않았습니다. 스트림은 계속되며, 스트림 메뉴에서 다른 모드를 선택하세요.</string>
+    <string name="quality_status">자동 품질: %1$s · %2$d × %3$d · 목표 %4$d FPS</string>
+</resources>

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="host_permission_names">
+        <item>Entrada de controle</item>
+        <item>Entrada por toque</item>
+        <item>Entrada por caneta</item>
+        <item>Entrada de mouse</item>
+        <item>Entrada de teclado</item>
+        <item>Enviar área de transferência</item>
+        <item>Ler área de transferência</item>
+        <item>Comandos do servidor</item>
+        <item>Listar aplicativos</item>
+        <item>Ver transmissões</item>
+        <item>Iniciar e encerrar aplicativos</item>
+    </string-array>
+    <string-array name="language_names">
+        <item>Padrão do sistema</item>
+        <item>English</item>
+        <item>Deutsch</item>
+        <item>Español</item>
+        <item>Français</item>
+        <item>Italiano</item>
+        <item>Polski</item>
+        <item>Português (Brasil)</item>
+        <item>Tiếng Việt</item>
+        <item>Türkçe</item>
+        <item>Русский</item>
+        <item>Українська</item>
+        <item>日本語</item>
+        <item>한국어</item>
+        <item>简体中文</item>
+        <item>繁體中文</item>
+    </string-array>
+</resources>

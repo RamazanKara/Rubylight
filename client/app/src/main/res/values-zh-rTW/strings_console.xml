@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="console_title">首頁</string>
+    <string name="console_section_favourites">我的最愛</string>
+    <string name="console_section_continue">繼續遊戲</string>
+    <string name="console_section_library">遊戲庫</string>
+    <string name="console_section_hosts">電腦</string>
+    <string name="console_hint_options">選項</string>
+    <string name="console_hint_open">開啟</string>
+    <string name="console_hint_key_ok">確定</string>
+    <string name="console_hint_key_menu">選單</string>
+    <string name="console_hint_line">%1$s %2$s    %3$s %4$s</string>
+    <string name="console_favourite_add">加入我的最愛</string>
+    <string name="console_favourite_remove">從我的最愛移除</string>
+    <string name="console_favourite_description">我的最愛</string>
+    <string name="console_badge_running">執行中</string>
+    <string name="console_badge_suspended">已暫停</string>
+    <string name="console_card_on_host">位於 %1$s</string>
+    <string name="console_card_on_hosts">位於 %1$d 台主機</string>
+    <string name="console_host_games">遊戲：%1$d</string>
+    <string name="console_host_saved_games">已離線。已儲存的遊戲：%1$d</string>
+    <string name="console_host_offline">已離線</string>
+    <string name="console_host_no_library">遊戲尚未載入</string>
+    <string name="console_empty_title">還沒有電腦</string>
+    <string name="console_empty_body">將 Nightjar 與 PC 配對後，即可在此查看其遊戲。</string>
+    <string name="console_empty_open_hosts">開啟電腦</string>
+    <string name="console_detail_host">主機</string>
+    <string name="console_detail_profile">串流設定</string>
+    <string name="console_detail_status_running">在 %1$s 上執行中</string>
+    <string name="console_detail_status_suspended">已在 %1$s 上暫停</string>
+    <string name="console_detail_replaces">%1$s 正在執行。開始此遊戲會將其關閉。</string>
+    <string name="console_profile_values">%1$d × %2$d, %3$d FPS, %4$s Mbps</string>
+    <string name="console_profile_main">主要設定</string>
+    <string name="console_home_setting_title">在首頁開啟</string>
+    <string name="console_home_setting_summary">從可繼續的遊戲和遊戲庫開始。關閉後從 PC 清單開始。</string>
+    <!-- tv-redesign-4 -->
+    <string name="console_row_recent">最近玩過</string>
+    <string name="console_row_other">其他應用程式</string>
+    <string name="console_row_unadded">在你的 PC 上，尚未加入</string>
+    <string name="console_chip_not_installed">未安裝</string>
+    <string name="console_chip_not_added">未加入</string>
+    <string name="console_add_on_pc">請在 PC 上加入</string>
+    <string name="console_adding">正在加入 %1$s…</string>
+    <string name="console_add_failed">無法加入 %1$s</string>
+    <string name="console_detail_not_installed">未安裝於 %1$s</string>
+    <string name="console_detail_not_launchable">%1$s 無法啟動此遊戲</string>
+    <string name="console_filter_all">全部</string>
+    <string name="console_filter_installed">已安裝</string>
+    <string name="console_all_games_title">所有遊戲</string>
+    <string name="console_all_games_empty">此篩選條件下沒有遊戲。</string>
+    <plurals name="console_all_tile_title">
+        <item quantity="other">全部 %1$d 款</item>
+    </plurals>
+    <plurals name="console_all_tile_description">
+        <item quantity="other">%1$s：全部 %2$d 款遊戲</item>
+    </plurals>
+    <plurals name="console_filter_description">
+        <item quantity="other">%1$s，%2$d 款遊戲</item>
+    </plurals>
+    <!-- tv-redesign-5 -->
+    <string name="console_detail_installed">已安裝</string>
+    <string name="console_card_asleep">%1$s，電腦已休眠</string>
+    <string name="console_wake_and_play">喚醒電腦並開始玩</string>
+    <string name="console_wake_waiting">正在等待 %1$s 喚醒…</string>
+    <string name="console_wake_timeout">%1$s 未能及時喚醒。請檢查是否已設定 Wake-on-LAN，然後重試。</string>
+    <string name="console_choose_pc">要在哪部電腦上玩？</string>
+    <string name="console_badge_asleep">電腦已休眠</string>
+</resources>

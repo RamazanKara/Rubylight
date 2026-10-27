@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="latency_benchmark_title">Benchmark della latenza</string>
+    <string name="latency_benchmark_description">Esegui un test di temporizzazione locale di 10 secondi senza host. Tocca lo schermo, muovi un mouse o usa un controller per raccogliere campioni di input.</string>
+    <string name="latency_benchmark_start">Avvia test di 10 secondi</string>
+    <string name="latency_benchmark_stop">Interrompi test</string>
+    <string name="latency_benchmark_display">Frequenza del pannello segnalata: %1$.2f Hz</string>
+    <string name="latency_benchmark_audio">Audio segnalato: %1$s Hz · %2$s frame per buffer</string>
+    <string name="latency_benchmark_frame">Intervallo dei callback dei frame</string>
+    <string name="latency_benchmark_callback">Ritardo dei callback dei frame</string>
+    <string name="latency_benchmark_input">Età dell’input all’invio</string>
+    <string name="latency_benchmark_timer">Ritardo di risveglio del timer</string>
+    <string name="latency_benchmark_limits">I risultati usano fino a 2048 campioni recenti per metrica. L’età dell’input parte dal timestamp dell’evento Android (risoluzione di 1 ms); non misura il polling del controller né il ritardo di input dell’host. I callback dei frame non misurano la scansione del pannello. Le proprietà audio sono capacità dichiarate, non latenza di uscita misurata. La latenza di rete, di decodifica ed end-to-end richiede uno stream o una misurazione esterna. Uscire da questa schermata interrompe il test.</string>
+    <string name="latency_test">Misura la latenza dell’input</string>
+    <string name="latency_test_running">Misurazione in corso… mostra un desktop fermo con il puntatore del mouse e non toccare nulla per qualche secondo.</string>
+    <string name="latency_test_result">Dall’input allo schermo: %1$.1f ms tipico, %2$.1f ms migliore, %3$.1f ms nel 10%% più lento (%4$d campioni).\n\nMisurato dal momento in cui questa app invia un piccolo movimento del mouse fino a quando Android mostra il frame di risposta dell’host. Include rete, acquisizione e codifica sull’host, decodifica e visualizzazione. Il tuo dito e il ritardo proprio del pannello non sono inclusi.</string>
+    <string name="latency_test_failed">Impossibile misurare. L’host ha continuato a inviare frame o non ha risposto al movimento del mouse. Mostra un desktop fermo con il puntatore del mouse visibile, chiudi giochi e video e riprova.</string>
+    <string name="latency_benchmark_share">Condividi risultati</string>
+    <string name="latency_benchmark_share_title">Risultati del dispositivo</string>
+    <string name="latency_benchmark_share_message">Nightjar non lo invia mai da solo. Il testo riporta questo dispositivo (modello, SoC, GPU e versione di Android), il benchmark del decoder e l’ultimo test di questa schermata, senza nomi dei PC, indirizzi, numeri di serie o dati dell’account. «Apri modulo» copia il testo e apre un modulo pubblico su GitHub. Tutto ciò che incolli lì diventa pubblico e viene aggiunto alla tabella dei dispositivi sul sito di Nightjar.</string>
+    <string name="latency_benchmark_copied">Risultati copiati</string>
+    <string name="latency_benchmark_report_form">Apri modulo</string>
+    <string name="latency_benchmark_paste_hint">Risultati copiati. Incollali nel modulo.</string>
+</resources>

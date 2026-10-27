@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shell_destinations">Ana bölümler</string>
+    <string name="shell_current_page">Geçerli sayfa</string>
+    <string name="host_menu_rename">Yeniden adlandır</string>
+    <string name="host_options_hint">Seçenekler için X veya ⋮</string>
+    <string name="host_rename_field">Ad</string>
+    <string name="host_rename_help">Yalnızca bu cihazda gösterilir. Bilgisayarın kendi adını kullanmak için boş bırakın.</string>
+    <string name="host_rename_save">Kaydet</string>
+    <string name="host_rename_title">Bilgisayarı yeniden adlandır</string>
+    <string name="host_unpair_title">%1$s eşleştirmesi kaldırılsın mı?</string>
+    <string name="host_unpair_message">Bilgisayar bu cihazı unutur ve kayıtlı kitaplık burada temizlenir. Yayın için yeniden eşleştirmeniz gerekir. Bilgisayar listede kalır.</string>
+    <string name="host_wake_needs_pairing">Uyandırabilmek için bilgisayar açıkken bir kez eşleştirin</string>
+    <string name="host_menu_sleep">Bilgisayarı uyut</string>
+    <string name="host_menu_sleep_note">Deneysel</string>
+    <string name="host_sleep_title">%1$s uyku moduna alınsın mı?</string>
+    <string name="host_sleep_message">Önce bilgisayardaki oyunlar ve yayınlar kapatılmalı. Wake-on-LAN onu yeniden uyandırabilir.</string>
+    <string name="host_sleep_asking">Bilgisayara soruluyor…</string>
+    <string name="host_sleep_accepted">Bilgisayar uyku moduna geçiyor</string>
+    <string name="host_sleep_unsupported">Bu bilgisayar uyku moduna geçemiyor.</string>
+    <string name="host_sleep_permission_help">İzin vermek için ana bilgisayarın web konsolunda bu cihazın ayarlarından Bilgisayarı uyut seçeneğini açın.</string>
+    <string name="host_sleep_busy">Bilgisayar şu anda uyku moduna geçemiyor. Üzerindeki oyunları ve yayınları kapatıp yeniden deneyin.</string>
+    <string name="host_sleep_refused">Bilgisayar uyku modunu reddetti (HTTP %1$d).</string>
+    <string name="host_sleep_failed">Bilgisayara ulaşılamadı.</string>
+    <string name="host_sleep_error">Bilgisayara sorulamadı: %1$s</string>
+    <string name="settings_category_accessibility">Erişilebilirlik</string>
+    <string name="title_ui_scale">Arayüz boyutu</string>
+    <string name="summary_ui_scale">Uygulamanın menülerini, listelerini ve iletişim kutularını ölçekler. Yayın ölçeklenmez. Sistem yazı tipi boyutu ayrıca uygulanmaya devam eder. Hemen etkili olur.</string>
+    <string name="title_high_contrast">Yüksek kontrast</string>
+    <string name="summary_high_contrast">Uygulamanın her ekranında siyah arka plan, daha belirgin metin ve çerçeveler ve daha kalın bir odak halkası kullanır. Yayın değişmez.</string>
+    <string name="title_reduce_motion">Hareketi azalt</string>
+    <string name="summary_reduce_motion">Sistemi izle, Android animasyon ölçeği 0 olduğunda animasyonu kapatır. Azalt, odak yakınlaştırmasını ve kayan panelleri sade bir halkayla değiştirir. Tam her zaman animasyon kullanır.</string>
+    <string name="reduce_motion_system">Sistemi izle</string>
+    <string name="reduce_motion_reduce">Azalt</string>
+    <string name="reduce_motion_full">Tam</string>
+    <!-- tv-mode-toggle -->
+    <string name="title_ui_mode">Arayüz düzeni</string>
+    <string name="summary_ui_mode">“Otomatik” cihazı izler. “TV”, bir televizyona bağlı el konsolunda veya telefonda bile uygulamayı odak ve kumanda ya da oyun kolu için TV düzeniyle gösterir. “El cihazı” televizyonda da dokunmatik düzenleri kullanır. Yayın değişmez. Hemen uygulanır.</string>
+    <string name="ui_mode_auto">Otomatik</string>
+    <string name="ui_mode_tv">TV</string>
+    <string name="ui_mode_handheld">El cihazı</string>
+</resources>

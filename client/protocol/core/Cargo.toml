@@ -1,0 +1,11 @@
+[package]
+name = "rubylight-protocol"
+description = "Rubylight wire formats shared by the host and its clients"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# no_std + alloc and no dependencies, so the same crate builds into the Windows host and,
+# through rubylight-protocol-ffi, into the Android client.
+[dependencies]

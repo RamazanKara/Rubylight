@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="health_title">¿Por qué ha dado tirones la transmisión?</string>
+    <string name="health_intro">Muestras activas: %1$d. Los datos cubren los últimos 30 segundos. Varias etapas pueden ir lentas a la vez; estas observaciones sugieren causas, no son un diagnóstico seguro. No se registra vídeo ni información personal.</string>
+    <string name="health_insufficient">No hay suficiente vídeo reciente para evaluar. Juega unos segundos con el menú cerrado y vuelve justo después de un tirón.</string>
+    <string name="health_no_issue">No se ha observado ningún cuello de botella repetido en las mediciones disponibles. Los picos breves y las etapas no medidas pueden causar tirones igualmente.</string>
+    <string name="health_network">Red: pérdida de fotogramas o variación del tiempo de ida y vuelta repetidas. Prueba una tasa de bits más baja, un servidor conectado por cable o una conexión Wi-Fi menos congestionada.</string>
+    <string name="health_decoder">Decodificación: la salida tardó repetidamente al menos un intervalo de fotograma. Prueba una resolución o velocidad de fotogramas más baja; reducir solo la tasa de bits puede no servir.</string>
+    <string name="health_host">Servidor: las muestras de procesamiento más lentas superaron el intervalo de fotograma. Compara la carga del juego o la GPU y un límite de fotogramas más bajo en el juego. Esta medición incluye más que la codificación.</string>
+    <string name="health_presentation">Presentación: los fotogramas se liberaron más rápido de lo que se mostraron, con esperas largas de pantalla. Compara los modos de ritmo de fotogramas y la frecuencia de actualización de la pantalla.</string>
+    <string name="health_heat">Temperatura: Android ha indicado una presión térmica alta. Reduce la velocidad de fotogramas o la resolución, o desactiva el procesamiento costoso en el cliente; deja que el dispositivo se enfríe.</string>
+    <string name="health_evidence">Valores más altos observados:\nPérdida de fotogramas: %1$s %%\nDecodificación: %2$s ms\nProcesamiento del servidor p95: %3$s ms\nEspera de pantalla p95: %4$s ms\nEstas etapas no suman la latencia de la entrada a la pantalla.</string>
+    <string name="health_evidence_send">Valores más altos observados:\nPérdida de fotogramas: %1$s %%\nDecodificación: %2$s ms\nServidor a la red p95: %3$s ms\nEspera de pantalla p95: %4$s ms\nEstas etapas no suman la latencia de la entrada a la pantalla.</string>
+    <string name="health_trial_help">Una prueba de tasa de bits solo cambia esta sesión. Compara otros 30 segundos de juego similar y vuelve aquí para deshacerla. Los cambios manuales o automáticos de la tasa de bits sustituyen a la prueba.</string>
+    <string name="health_try">Probar una tasa de bits más baja</string>
+    <string name="health_undo">Deshacer prueba de tasa de bits</string>
+    <string name="health_bitrate_unavailable">El servidor no ha indicado la tasa de bits actual del codificador. No se ha aplicado la prueba.</string>
+    <string name="health_trial_replaced">La tasa de bits del servidor ha cambiado desde la prueba. Se ha cancelado deshacer para conservar ese cambio.</string>
+    <string name="health_bitrate_minimum">El codificador ya está en la tasa de bits mínima de prueba. No se ha hecho ningún cambio.</string>
+    <string name="health_periodic">Tirones repetidos: %2$d cortes de red en los últimos 20 minutos, cada %1$s aproximadamente. Un ritmo tan regular suele deberse a búsquedas de Wi-Fi en segundo plano en este dispositivo o en el PC. Para reducirlas:\n• Android: Ajustes → Ubicación → Servicios de ubicación, desactiva Búsqueda de redes Wi-Fi y Búsqueda de dispositivos Bluetooth.\n• Android: deja activada Opciones para desarrolladores → Limitación de búsqueda de redes Wi-Fi.\n• Durante la transmisión, cierra las aplicaciones que buscan redes o dispositivos cercanos.\n• PC: conéctalo por cable o detén las herramientas que buscan redes Wi-Fi.\nNightjar ya mantiene el bloqueo Wi-Fi de baja latencia de Android durante la transmisión, que pide al sistema retrasar las búsquedas; algunos dispositivos buscan igualmente.</string>
+</resources>

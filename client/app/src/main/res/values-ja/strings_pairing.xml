@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pair_otp_title">ワンタイム PIN でペアリング</string>
+    <string name="pair_otp_help">ホストの PIN とパスフレーズを入力してください。\nPIN の有効期限は 3 分です。</string>
+    <string name="pair_otp_pin">ワンタイム PIN</string>
+    <string name="pair_otp_passphrase">パスフレーズ</string>
+    <string name="pair_otp_invalid_pin">ホストに表示された 4 桁の PIN を入力してください。</string>
+    <string name="pair_otp_invalid_passphrase">ホストのパスフレーズを入力してください（4 文字以上）。</string>
+    <string name="guide_title">PC に接続</string>
+    <string name="guide_text">1. PC で Apollo、Rubylight、Sunshine、Vibepollo などの Moonlight 互換ホストを起動します。\n2. Android で、同じネットワーク上の PC を選択します。\n3. Android に表示された PIN を、ホストの設定またはウェブ UI に入力します。</string>
+    <string name="guide_done">OK</string>
+    <string name="guide_troubleshooting">ヘルプ</string>
+</resources>

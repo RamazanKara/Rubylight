@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="controller_mapping_title">Nút tay cầm điều khiển</string>
+    <string name="controller_mapping_summary">Gán lại nút cho từng mẫu tay cầm điều khiển</string>
+    <string name="controller_mapping_intro">Nhấn “Gán một nút”, rồi nhấn nút trên tay cầm điều khiển cần gán lại.\nThay đổi áp dụng cho stream tiếp theo.</string>
+    <string name="controller_mapping_waiting">Hãy kết nối tay cầm điều khiển rồi nhấn “Gán một nút”.</string>
+    <string name="controller_mapping_unnamed">Tay cầm điều khiển</string>
+    <string name="controller_mapping_none">Tất cả các nút đang dùng cách gán mặc định.</string>
+    <string name="controller_mapping_row">Gửi %1$s</string>
+    <string name="controller_mapping_choose">%1$s gửi…</string>
+    <string name="controller_mapping_default">%1$s (mặc định)</string>
+    <string name="controller_mapping_disabled">Không có</string>
+    <string name="controller_mapping_reset">Đặt lại tay cầm điều khiển này</string>
+    <string name="controller_button_left_stick">Nhấn cần analog trái</string>
+    <string name="controller_button_right_stick">Nhấn cần analog phải</string>
+    <string name="controller_button_start">Start</string>
+    <string name="controller_button_select">Back</string>
+    <string name="controller_button_guide">Guide</string>
+    <string name="controller_button_number">Nút %1$d</string>
+    <string name="pc_tap_to_pair">%1$s\nNhấn để ghép đôi</string>
+</resources>

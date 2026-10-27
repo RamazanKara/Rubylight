@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f8f9fd" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#14161f" media="(prefers-color-scheme: dark)">
+  <title>Privacy, clearly explained · Nightjar</title>
+  <meta name="description" content="How Nightjar handles your stream, saved hosts, diagnostics, network checks, backups and shared reports.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Nightjar">
+  <meta property="og:title" content="Privacy, clearly explained · Nightjar">
+  <meta property="og:description" content="How Nightjar handles your stream, saved hosts, diagnostics, network checks, backups and shared reports.">
+  <meta property="og:image" content="assets/og.png">
+  <meta property="og:image:alt" content="Nightjar — Stream your PC to Android.">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:locale" content="en_US">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon.png">
+  <link rel="stylesheet" href="assets/site.css">
+  <script src="assets/site.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header wrap">
+    <a class="brand" href="index.html" aria-label="Nightjar home"><img src="assets/launcher.png" alt="" width="32" height="32">NIGHTJAR</a>
+    <nav class="main-nav" aria-label="Main navigation">
+      <a href="index.html#features">Features</a>
+      <a href="index.html#setup">Setup</a>
+      <a href="docs.html">Docs</a>
+      <a href="download.html">Download</a>
+    </nav>
+    <nav class="language-nav" aria-label="Language">
+      <a href="index.html" lang="en" hreflang="en" aria-label="English" aria-current="true">EN</a>
+      <a href="de/index.html" lang="de" hreflang="de" aria-label="Deutsch">DE</a>
+    </nav>
+  </header>
+  <main id="main" tabindex="-1">
+    <section class="page-heading wrap"><h1>Your stream.<br><span>Your privacy.</span></h1><p class="lead">What the app stores. Where it connects. What you control.</p><p class="policy-source">For Nightjar for Android. See the <a href="https://github.com/RamazanKara/nightjar/blob/main/docs/PRIVACY.md">repository privacy policy</a> for the current source version and full details.</p></section>
+    <div class="wrap reading-layout">
+      <aside class="page-aside"><p class="small-heading">On this page</p><nav aria-label="Privacy topics"><a href="#stream">Your stream</a><a href="#device">On your device</a><a href="#network">Network connections</a><a href="#reports">Sharing reports</a><a href="#deletion">Backups and deletion</a><a href="#website">This website</a></nav></aside>
+      <div class="reading-content">
+        <section id="stream"><h2>Directly between you and your PC.</h2><p>Nightjar streams your PC’s desktop, apps, video and audio to your Android device. Your controls and the clipboard text you choose to send go to your PC.</p><p>Nightjar runs no streaming relay, advertising service, analytics service or automatic crash-report upload service.</p></section>
+        <section id="device"><h2>What stays on your device</h2><p>The app stores saved and paired hosts: their names, addresses, identifiers and host certificates. It stores the client certificate and private key for pairing, a locally generated client identifier, app and per-PC settings, controller mappings, and cached app lists and artwork.</p><p>If you list a home Wi-Fi for named profiles, its name is stored on your device to tell home Wi-Fi from other Wi-Fi when a stream starts. Android shows the Wi-Fi name only to apps with location access, so the app asks for it when you add the Wi-Fi you are on. No location is read, and Wi-Fi names are never sent, logged or included in reports. Without the access, every Wi-Fi counts as other Wi-Fi.</p><p>A short, redacted event log stays in memory. A redacted record of the latest crash or abnormal exit is saved locally. Enabling latency logging saves a local CSV file. Preparing a problem report creates a temporary local file.</p><p>These records include diagnostic fields such as the app version, Android version, device model, decoder settings, timing measurements and crash details.</p><p>During a stream, Nightjar reads this device’s Wi-Fi band, channel, signal strength, link speed and Wi-Fi standard for the Debug overlay and the stream health report. It does not read the network name or access point address. The reading stays in memory and is sent nowhere.</p></section>
+        <section id="network"><h2>Network connections</h2><p>Your stream, input and clipboard transfers travel between your device and the PC you connect to. Pairing exchanges identity information with that PC. Host discovery uses your local network.</p><p>The app also uses public servers for external-address discovery and connection-failure checks. Those servers receive your public IP address and network protocol traffic. They do not receive your stream, clipboard or problem reports.</p><p>The <a href="https://github.com/RamazanKara/nightjar/blob/main/docs/PRIVACY.md">source policy lists the network-check endpoints</a>. Their operators set their own retention practices.</p><p>Opening a help or source link contacts the website you choose. That website and your browser apply their own privacy practices.</p></section>
+        <section id="reports"><h2>You choose when to share.</h2><p>Problem and crash reports are not sent automatically. A report is shared after you choose <strong>Share</strong> and select a receiving app in Android’s share sheet. Canceling the sheet shares nothing.</p><p>Reports omit addresses, user-assigned host names, PINs, credentials and free-text diagnostic details. The receiving app controls what happens to the report afterward.</p><p>The latency benchmark’s <strong>Share results</strong> works the same way. The text lists the device model and codename, SoC, hardware and board names, GPU, Android version, the Nightjar version, decoder names and timings, and the latest latency test. It leaves out PC names, addresses, serial numbers, the build fingerprint and account data. <strong>Open report form</strong> copies the text and opens a public GitHub issue form that contains no device data until you paste it. If you post it, the issue is public and the maintainers copy the results into the <a href="devices.html">device results</a> table on this site.</p></section>
+        <section id="deletion"><h2>Backups and deletion</h2><p>Android backup and device transfer are enabled. Your Android settings control backup and transfer of eligible app data, including saved hosts and optional latency files. Client certificates, private keys, the client identifier and preferences are excluded. Crash records and temporary reports stay outside Android backup.</p><ul><li>Remove a saved PC in Nightjar to delete its saved-host entry, per-PC and per-game settings, hidden-app choices and cached library/artwork.</li><li>Revoke pairing on the PC to remove that device’s access.</li><li>Clear the app’s storage or uninstall it to remove local data.</li><li>Delete exported launcher entries, logs, shared reports and Android backups separately in the app or service holding them.</li></ul><p>Nightjar has no developer-hosted user account to delete. For policy questions, use the contact details on the Nightjar store listing.</p></section>
+        <section id="website"><h2>This website</h2><p>This site serves its own images, styles and scripts. It sets no cookies, uses no external fonts and runs no analytics or trackers. Your browser connects to GitHub Pages to load the site. Release, host and repository links open GitHub.</p></section>
+      </div>
+    </div>
+  </main>
+  <footer class="site-footer wrap">
+    <div><a class="brand" href="index.html">NIGHTJAR</a><p>Your PC. Your stream.</p></div>
+    <nav aria-label="Footer navigation"><a href="docs.html">Documentation</a><a href="devices.html">Device results</a><a href="privacy.html">Privacy</a><a href="https://github.com/RamazanKara/nightjar">Source code</a></nav>
+    <p class="footer-note">Built for Android. Free and open source.</p>
+  </footer>
+</body>
+</html>

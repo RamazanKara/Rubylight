@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_section_advanced">Avançado</string>
+    <string name="settings_advanced_summary">Decodificação, entrada e diagnóstico</string>
+    <string name="settings_custom">Personalizado</string>
+    <string name="setting_help">Sobre %1$s</string>
+    <string name="stream_presets_help_title">Sobre as predefinições</string>
+    <string name="settings_version">Versão %1$s</string>
+    <string name="settings_source">Código-fonte e licenças</string>
+    <string name="settings_csv_summary">Salvar as medições de latência mais recentes</string>
+    <string name="host_profile_footer">Salve as configurações de transmissão antes de sair. O modo de exibição é salvo separadamente com Salvar modo de exibição na caixa de diálogo dele. As alterações valem para a próxima transmissão.</string>
+    <string name="stream_overlay_menu">Sobreposição</string>
+    <string name="stream_bitrate_manual">Definir taxa de bits</string>
+    <string-array name="stream_preset_names">
+        <item>Nativo (recomendado)</item>
+        <item>Economia de bateria</item>
+    </string-array>
+    <string name="applist_menu_show_app">Mostrar jogo</string>
+</resources>

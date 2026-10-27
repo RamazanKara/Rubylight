@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_touch_off_help">Le tactile est désactivé. Balayez vers l’arrière ou appuyez sur Retour pour ouvrir le menu du stream.</string>
+    <string name="title_local_cursor_speed">Vitesse du curseur local</string>
+    <string name="title_trackpad_acceleration">Accélération du pointeur</string>
+    <string name="summary_trackpad_acceleration">Les balayages rapides déplacent le pointeur plus loin que les lents, pour garder des petits mouvements précis. Pour Pavé tactile et Curseur local.</string>
+    <string name="title_trackpad_acceleration_curve">Intensité de l’accélération</string>
+    <string-array name="trackpad_acceleration_curve_names">
+        <item>Douce</item>
+        <item>Moyenne</item>
+        <item>Forte</item>
+    </string-array>
+    <string name="title_trackpad_momentum">Glisser après un mouvement rapide</string>
+    <string name="summary_trackpad_momentum">Après un balayage rapide, le pointeur continue de bouger puis ralentit. Touchez l’écran pour l’arrêter. Pour Pavé tactile et Curseur local.</string>
+    <string name="title_trackpad_momentum_glide">Distance de glisse</string>
+    <string-array name="trackpad_momentum_glide_names">
+        <item>Courte</item>
+        <item>Moyenne</item>
+        <item>Longue</item>
+    </string-array>
+    <string name="title_trackpad_area">Zone du pavé tactile</string>
+    <string name="summary_trackpad_area">Les gestes Pavé tactile et Curseur local ne commencent que dans cette partie de l’écran. Les contacts qui commencent ailleurs sont ignorés.</string>
+    <string-array name="trackpad_area_names">
+        <item>Plein écran</item>
+        <item>Moitié droite</item>
+        <item>Moitié gauche</item>
+        <item>Moitié inférieure</item>
+        <item>Moitié supérieure</item>
+    </string-array>
+    <string name="title_three_finger_tap">Appui à trois doigts</string>
+    <string name="summary_three_finger_tap">Action d’un appui rapide à trois doigts dans les modes Pavé tactile, Souris directe et Curseur local.</string>
+    <string-array name="three_finger_tap_names">
+        <item>@string/desktop_controls_system_keyboard</item>
+        <item>Clic du milieu</item>
+        <item>@string/desktop_controls_open</item>
+        <item>@string/stream_disabled</item>
+        <item>@string/pc_keyboard_title</item>
+    </string-array>
+    <string name="stream_cursor_shape_rejected">Nightjar ne peut pas dessiner la forme du curseur du PC et affiche la flèche par défaut.</string>
+    <string name="title_four_finger_tap">Appui à quatre doigts</string>
+    <string name="summary_four_finger_tap">Action lors d’un appui bref à quatre doigts en mode Pavé tactile, Souris directe ou Curseur local.</string>
+</resources>

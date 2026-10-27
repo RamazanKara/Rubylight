@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_global_context">所有電腦的預設值。每部電腦都可以使用自己的串流設定。</string>
+    <string name="settings_changes_saved">變更會自動儲存</string>
+    <string name="settings_search_results">搜尋結果</string>
+    <string name="settings_back_to_search">返回搜尋結果</string>
+    <string name="settings_back_to_overview">返回設定</string>
+    <string name="settings_search_empty_help">請嘗試較短的字詞，例如解析度、音訊或控制器。</string>
+    <string name="settings_search_breadcrumb">%1$s · %2$s</string>
+    <plurals name="settings_search_count">
+        <item quantity="other">找到 %d 項設定</item>
+    </plurals>
+    <string name="settings_profile_saved_context">儲存後，變更會套用到這部電腦。</string>
+    <string name="settings_profile_unsaved_context">這部電腦有未儲存的變更</string>
+    <string name="settings_profile_reset_message">使用所有電腦的預設值。儲存後即可將這項變更套用到這部電腦。</string>
+    <string name="settings_profile_display_immediate">顯示模式會在其對話方塊中另外儲存。</string>
+</resources>

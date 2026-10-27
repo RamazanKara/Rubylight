@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<!-- Butterpollo 118a0abb18480ff1da5564c57a2e00049ed67e47: catalogue values copied from remote.rs tests,
+     serialized using nvhttp.rs applist() with HDR disabled. -->
+<root status_code="200">
+<App><AppTitle>Game</AppTitle><UUID></UUID><IDX>0</IDX><ID>73</ID><ArtVersion></ArtVersion><IsHdrSupported>0</IsHdrSupported></App>
+<App><AppTitle>Remote Input</AppTitle><UUID>9a1c5a25-58fe-40e0-b9aa-7d3f00000006</UUID><IDX>0</IDX><ID>2147483506</ID><ArtVersion>remote-session-v6</ArtVersion><IsHdrSupported>0</IsHdrSupported></App>
+<App><AppTitle>Remote Monitor</AppTitle><UUID>9a1c5a25-58fe-40e0-b9aa-7d3f00000005</UUID><IDX>0</IDX><ID>2147483505</ID><ArtVersion>remote-session-v6</ArtVersion><IsHdrSupported>0</IsHdrSupported></App>
+</root>

@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Named profiles (Settings → Video → Profiles) -->
+    <string name="profiles_title">Профили</string>
+    <string name="profiles_subtitle">Профиль</string>
+    <string name="profiles_summary_none">Нет: трансляции используют основные настройки</string>
+    <string name="profiles_summary_in_use">Используется: %1$s</string>
+    <string name="profiles_summary_auto">Выбирается по сети при запуске трансляции</string>
+    <string name="profiles_section_list">Ваши профили</string>
+    <string name="profiles_section_choice">Какой профиль использует трансляция</string>
+    <string name="profiles_new">Новый профиль</string>
+    <string name="profiles_new_summary">Создаётся пустым: задайте только те значения, которые он должен менять.</string>
+    <string name="profiles_name">Название профиля</string>
+    <string name="profiles_name_empty">Введите название</string>
+    <string name="profiles_name_too_long">Максимальное число символов: %1$d</string>
+    <string name="profiles_name_taken">Профиль с таким названием уже есть</string>
+    <string name="profiles_too_many">Максимальное число профилей: %1$d.</string>
+    <string name="profiles_values_none">Ничего не задано</string>
+    <plurals name="profiles_values_count">
+        <item quantity="one">Задано %d значение</item>
+        <item quantity="few">Задано %d значения</item>
+        <item quantity="many">Задано %d значений</item>
+        <item quantity="other">Задано %d значения</item>
+    </plurals>
+    <string name="profiles_marker_in_use">Используется</string>
+    <string name="profiles_marker_rules">Выбран для: %1$s</string>
+    <string name="profiles_edit">Изменить значения</string>
+    <string name="profiles_rename">Переименовать</string>
+    <string name="profiles_duplicate">Дублировать</string>
+    <string name="profiles_delete">Удалить</string>
+    <string name="profiles_copy_name">%1$s (копия)</string>
+    <string name="profiles_delete_title">Удалить %1$s?</string>
+    <string name="profiles_delete_message">Трансляции, которые использовали этот профиль, будут использовать основные настройки. Это действие нельзя отменить.</string>
+    <string name="profiles_deleted">Профиль удалён</string>
+    <string name="profiles_in_use">Текущий профиль</string>
+    <string name="profiles_none">Нет (основные настройки)</string>
+    <string name="profiles_main_settings">основные настройки</string>
+    <string name="profiles_auto">Выбирать по сети</string>
+    <string name="profiles_auto_summary_on">Вкл.: при запуске трансляции профиль выбирается по сети, как указано ниже. Ethernet и сети без выбранного профиля используют текущий профиль.</string>
+    <string name="profiles_auto_summary_off">Выкл.: все трансляции используют текущий профиль.</string>
+    <string name="profiles_rule_default">Текущий профиль</string>
+    <string name="profiles_network_mobile">Мобильный интернет</string>
+    <string name="profiles_network_home_wifi">Домашняя сеть Wi-Fi</string>
+    <string name="profiles_network_wifi">Другая сеть Wi-Fi</string>
+    <string name="profiles_network_other">Ethernet или другая</string>
+    <string name="profiles_rule_mobile_summary">А также сети Wi-Fi, которые Android отмечает как лимитные, например точка доступа телефона.</string>
+    <string name="profiles_rule_wifi_summary">Любая сеть Wi-Fi, кроме домашней, или любая сеть Wi-Fi, если домашняя не задана.</string>
+    <string name="profiles_now">Следующая трансляция в этой сети</string>
+    <string name="profiles_now_value">%1$s: %2$s</string>
+    <string name="profiles_home_networks">Домашние сети Wi-Fi</string>
+    <string name="profiles_home_none">Не заданы: любая сеть Wi-Fi считается другой сетью Wi-Fi.</string>
+    <string name="profiles_home_saved">Сохранено на этом устройстве. Нажмите, чтобы удалить.</string>
+    <string name="profiles_home_remove">Удалить</string>
+    <string name="profiles_home_remove_title">Удалить %1$s из домашних сетей Wi-Fi?</string>
+    <string name="profiles_home_no_access">Доступ к геоданным отключён: домашнюю сеть Wi-Fi невозможно распознать, поэтому она считается другой сетью Wi-Fi.</string>
+    <string name="profiles_home_add_current">Добавить эту сеть Wi-Fi</string>
+    <string name="profiles_home_add_current_summary">Сохраняет название сети Wi-Fi, к которой подключено устройство. Чтобы прочитать его, Android требует доступ к геоданным.</string>
+    <string name="profiles_home_type">Ввести название сети Wi-Fi</string>
+    <string name="profiles_home_type_summary">Чтобы распознать её при запуске трансляции, всё равно нужен доступ к геоданным.</string>
+    <string name="profiles_home_name">Название сети Wi-Fi</string>
+    <string name="profiles_location_title">Разрешить доступ к геоданным?</string>
+    <string name="profiles_location_message">Android показывает название сети Wi-Fi только приложениям с доступом к геоданным. Он нужен только для одного: отличать домашнюю сеть Wi-Fi от других при запуске трансляции. Местоположение не считывается, а название сети Wi-Fi остаётся на этом устройстве: оно никогда не отправляется и не записывается в журналы. Без доступа любая сеть Wi-Fi считается другой сетью Wi-Fi.</string>
+    <string name="profiles_location_continue">Продолжить</string>
+    <string name="profiles_location_denied">Нет доступа к геоданным: любая сеть Wi-Fi считается другой сетью Wi-Fi. Разрешить доступ можно позже в настройках приложения Android.</string>
+    <string name="profiles_wifi_unreadable">Не удаётся прочитать название сети Wi-Fi. Убедитесь, что устройство подключено к Wi-Fi и геолокация включена, или введите название вручную.</string>
+    <string name="profiles_order">При запуске трансляции каждое значение берётся из первого источника, где оно задано: эта игра, этот ПК, профиль, затем основные настройки. В мобильном интернете битрейт затем ограничивается параметром «Битрейт в мобильном интернете». Изменения никогда не применяются к уже идущей трансляции.</string>
+    <string name="profiles_privacy">Названия домашних сетей Wi-Fi остаются на этом устройстве и никогда не отправляются и не записываются в журналы.</string>
+
+    <!-- Bitrate on mobile data (Settings → Video) -->
+    <string name="title_mobile_bitrate">Битрейт в мобильном интернете</string>
+    <string name="summary_mobile_bitrate">Ограничивает битрейт, когда трансляция запускается в мобильном интернете или в сети Wi-Fi, которую Android отмечает как лимитную, например в точке доступа телефона. Ограничение действует и на значения профилей, ПК и игр. «Выкл.» — тот же битрейт, что и в других сетях.</string>
+    <string name="mobile_bitrate_off">Выкл.</string>
+
+    <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->
+    <string name="profile_settings_explanation">Задайте только те значения, которые должен менять этот профиль. Всё незаданное берётся из основных настроек. Собственные значения ПК или игры по-прежнему важнее профиля.</string>
+    <string name="game_settings_title">Настройки трансляции игры</string>
+    <string name="game_settings_subtitle">На ПК %1$s</string>
+    <string name="game_settings_explanation">Заданные здесь значения действуют только для этой игры на этом ПК. Всё незаданное берётся по порядку из настроек этого ПК, профиля и основных настроек.</string>
+    <string name="game_settings_action">Настройки трансляции для этой игры</string>
+    <string name="game_settings_note_none">Используются настройки этого ПК</string>
+    <plurals name="game_settings_note_own">
+        <item quantity="one">Для этой игры задано %d значение</item>
+        <item quantity="few">Для этой игры задано %d значения</item>
+        <item quantity="many">Для этой игры задано %d значений</item>
+        <item quantity="other">Для этой игры задано %d значения</item>
+    </plurals>
+    <string name="layers_saved">Настройки трансляции сохранены</string>
+    <string name="layers_saved_context">После сохранения изменения применятся к следующей трансляции.</string>
+    <string name="layers_unsaved_context">Несохранённые изменения</string>
+    <string name="layers_unsaved_message">Изменения этих настроек трансляции не сохранены.</string>
+    <string name="layers_reset">Очистить все значения</string>
+    <string name="layers_reset_message">Все значения вернутся к состоянию «Не задано». Сохраните, чтобы применить.</string>
+    <string name="layers_status_empty">Здесь ничего не задано: все значения берутся с уровней ниже.</string>
+    <string name="layers_status_custom">Возвращает все значения к состоянию «Не задано».</string>
+    <string name="layers_footer">Сохраните перед выходом. Изменения применяются к следующей трансляции, а не к уже идущей.</string>
+    <string name="layers_not_set_value">Не задано (%1$s)</string>
+    <string name="layers_value_from">%1$s · %2$s</string>
+    <string name="layers_from_main">из основных настроек</string>
+    <string name="layers_from_profile">из профиля %1$s</string>
+    <string name="layers_from_pc">задано для этого ПК</string>
+    <string name="layers_from_game">задано для этой игры</string>
+    <string name="layers_from_mobile_limit">лимит для мобильного интернета</string>
+    <string name="layers_pacing_vrr">Адаптивная частота включена, поэтому трансляция использует режим «Минимальная задержка».</string>
+
+    <!-- In the stream -->
+    <string name="layers_applied">Настройки: %1$s</string>
+    <string name="layers_part_profile">профиль %1$s</string>
+    <string name="layers_part_profile_network">профиль %1$s, выбранный для: %2$s</string>
+    <string name="layers_part_pc">этот ПК</string>
+    <string name="layers_part_game">эта игра</string>
+    <string name="layers_part_mobile_limit">лимит для мобильного интернета</string>
+    <string name="layers_problem_profile_missing">Текущий профиль больше не существует, поэтому применяются основные настройки.</string>
+    <string name="layers_problem_profile_missing_network">Профиль, выбранный для: %1$s, больше не существует, поэтому применяются основные настройки.</string>
+    <string name="layers_problem_profile_invalid">Профиль %1$s содержит значение, которое эта версия не может прочитать, поэтому применяются основные настройки. Откройте его в разделе «Профили», чтобы исправить.</string>
+    <string name="layers_problem_pc_invalid">Собственные настройки трансляции этого ПК не удаётся прочитать, поэтому они пропущены. Откройте настройки ПК, чтобы исправить их.</string>
+    <string name="layers_problem_game_invalid">Настройки трансляции этой игры не удаётся прочитать, поэтому они пропущены. Откройте их из меню игры, чтобы исправить.</string>
+    <string name="layers_problem_home_wifi_unknown">Без доступа к геоданным домашнюю сеть Wi-Fi невозможно распознать, поэтому эта сеть Wi-Fi считается другой сетью Wi-Fi.</string>
+    <!-- Presets for one game's stream settings -->
+    <string name="game_preset_title">Пресет</string>
+    <string name="game_preset_competitive">Соревновательный</string>
+    <string name="game_preset_competitive_summary">Устанавливает pacing кадров на минимальную задержку. Остальное не меняется.</string>
+    <string name="game_preset_smoothness">Плавность</string>
+    <string name="game_preset_smoothness_summary">Устанавливает самый плавный pacing кадров, который удерживает кадры и добавляет задержку, и отключает адаптивную частоту обновления для этой игры. Битрейт не меняется.</string>
+    <string name="game_preset_quality">Качество</string>
+    <string name="game_preset_quality_summary" formatted="false">Устанавливает битрейт в 150% от значения ПК (или основных настроек, если у ПК его нет) в пределах лимита хоста. Pacing кадров и адаптивная частота обновления не меняются; при слабом соединении более крупные кадры могут добавить задержку.</string>
+    <string name="game_preset_custom">Свой</string>
+    <string name="game_preset_custom_summary">Ваши собственные значения, заданные ниже.</string>
+</resources>

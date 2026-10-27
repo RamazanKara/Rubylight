@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        What High contrast and Reduce motion change, as theme attributes, so layouts and drawables stay the same
+        and AppTheme.apply only layers ThemeOverlay.Nightjar.HighContrast and ThemeOverlay.Nightjar.ReducedMotion.
+    -->
+    <!-- Stroke of the focus ring on rows, shell items and icon buttons. -->
+    <attr name="nightjarFocusRingWidth" format="dimension" />
+    <!-- Stroke of the focus ring on cards and grid items. -->
+    <attr name="nightjarCardFocusRingWidth" format="dimension" />
+    <!-- Colour of a tonal button's outline at rest: none normally, the on-surface colour in high contrast. -->
+    <attr name="nightjarButtonRestStroke" format="color|reference" />
+    <!-- Stroke of an unfocused card. -->
+    <attr name="nightjarCardStrokeWidth" format="dimension" />
+    <!-- Focus animators (res/animator): full, still, thick and thick-still versions. -->
+    <attr name="nightjarCardFocusAnimator" format="reference" />
+    <attr name="nightjarControlFocusAnimator" format="reference" />
+    <!-- A TV library poster: its focus tween (large and small), its ring and its glow. High contrast thickens the
+         ring and drops the glow; Reduce motion stops the zoom and the fades. -->
+    <attr name="nightjarPosterFocusAnimator" format="reference" />
+    <attr name="nightjarPosterFocusAnimatorSmall" format="reference" />
+    <attr name="nightjarPosterRing" format="reference" />
+    <attr name="nightjarPosterGlow" format="reference" />
+</resources>

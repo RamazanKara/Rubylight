@@ -1,0 +1,6 @@
+Updates: Nightjar sucht auf GitHub nach neuen Versionen und installiert sie (Einstellungen > App).
+Bitrate bis 2000 Mbit/s; der Host behält seine eigene Grenze.
+Galaxy Z Fold: Streams füllen beide Displays randlos, samt Kamerabereich.
+PyroWave: Tempo-Kalibrierung auf Vibeshine-Hosts und eine Warnung unter der Mindestbitrate.
+Trennen klappt auch während einer Host-Anfrage.
+Behoben: Drei-Finger-Tipp, DualSense-Verzögerung, Vibration nach dem Abstecken, lokalem Cursor und großer Schrift.

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pair_otp_title">使用一次性 PIN 码配对</string>
+    <string name="pair_otp_help">输入主机的 PIN 码和口令。\nPIN 码将在三分钟后失效。</string>
+    <string name="pair_otp_pin">一次性 PIN 码</string>
+    <string name="pair_otp_passphrase">口令</string>
+    <string name="pair_otp_invalid_pin">请输入主机上显示的四位数 PIN 码。</string>
+    <string name="pair_otp_invalid_passphrase">请输入主机口令（至少四个字符）。</string>
+    <string name="guide_title">连接到你的电脑</string>
+    <string name="guide_text">1. 在电脑上启动兼容 Moonlight 的主机，例如 Apollo、Rubylight、Sunshine 或 Vibepollo。\n2. 在 Android 上，选择同一网络中的电脑。\n3. 在主机的设置或网页界面中输入 Android 上显示的 PIN 码。</string>
+    <string name="guide_done">知道了</string>
+    <string name="guide_troubleshooting">帮助</string>
+</resources>

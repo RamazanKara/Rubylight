@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- A digit on the PIN pad; larger on TV through pin_key_text. -->
+    <style name="TextAppearance.Nightjar.PinKey" parent="TextAppearance.Material3.HeadlineSmall">
+        <item name="android:textSize">@dimen/pin_key_text</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="fontFamily">sans-serif-medium</item>
+    </style>
+</resources>

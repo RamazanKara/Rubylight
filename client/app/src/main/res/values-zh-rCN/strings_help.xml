@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="help_connect_title">连接电脑</string>
+    <string name="help_connect_body">Nightjar 可从电脑上运行的任何兼容 Moonlight 的主机进行串流。启动主机并让两台设备处于同一网络中，电脑就会出现在你的列表中。如果没有出现，请点按“添加电脑”并输入电脑的 IP 地址。如果仍然无法连接，请在电脑的防火墙中允许该主机。</string>
+    <string name="help_connect_link">设置指南</string>
+    <string name="help_pairing_title">配对</string>
+    <string name="help_pairing_body">点按电脑，并让 PIN 码保持显示在屏幕上。在电脑上主机的设置或网页中输入该 PIN 码。如果主机支持按设备设置权限，请允许此设备列出和启动应用。</string>
+    <string name="help_pairing_link">配对指南</string>
+    <string name="help_controls_title">控制方式和串流菜单</string>
+    <string name="help_controls_body">串流期间，按“返回”可打开串流菜单：键盘、输入模式、叠加层、码率和断开连接。使用手柄时，同时按下 Start、Back、LB 和 RB。断开连接后游戏仍会在电脑上运行，你可以稍后继续，除非你在该游戏的游戏库菜单中开启了“离开串流时退出游戏”。要检查手柄的按键、摇杆和震动，请依次打开“设置”、“控制”、“手柄测试”。在“设置”、“控制”、“触控模式”中，本地光标会在本设备上绘制指针，关闭触控会在你使用手柄游玩时忽略屏幕触摸。在串流菜单的“输入”中，“此游戏的控制按钮”可为该游戏放置键盘、鼠标和手柄按钮、摇杆、扳机和方向键。要沿用 Artemis 的布局，请在游戏库中长按该游戏并选择“导入游戏控件”。要在没有自带仅输入模式的主机上只把此设备当作手柄使用，请打开“设置”、“串流”、“在任意电脑上仅输入”；电脑仍会发送一个不显示的小视频流。</string>
+    <string name="help_controls_link">控制指南</string>
+    <string name="help_problems_title">解决常见问题</string>
+    <string name="help_problems_body"><b>没有画面：</b>请尝试 H.264、720p，并关闭 HDR 和放大。\n\n<b>卡顿：</b>请降低码率、用网线连接电脑，或靠近路由器。请使用 5 或 6 GHz Wi-Fi，而不是 2.4 GHz。如果每隔几分钟卡顿一次，请在串流菜单中打开“串流为什么会卡顿？”：它能识别后台 Wi-Fi 扫描的节奏。\n\n<b>输入延迟：</b>请开启性能叠加层查看延迟来源，并保持开启低延迟解码。\n\n<b>没有声音：</b>请选择立体声，检查电脑的音频输出，然后重新连接。</string>
+    <string name="help_problems_link">故障排除指南</string>
+    <string name="help_report_body">分享已移除个人信息的日志。在你选择用于分享的应用之前，不会发送任何内容。</string>
+    <string name="help_report_link">应包含的内容</string>
+</resources>

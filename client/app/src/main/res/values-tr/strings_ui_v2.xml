@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_section_advanced">Gelişmiş</string>
+    <string name="settings_advanced_summary">Kod çözme, giriş ve tanılama</string>
+    <string name="settings_custom">Özel</string>
+    <string name="setting_help">%1$s hakkında</string>
+    <string name="stream_presets_help_title">Hazır ayarlar hakkında</string>
+    <string name="settings_version">Sürüm %1$s</string>
+    <string name="settings_source">Kaynak kodu ve lisanslar</string>
+    <string name="settings_csv_summary">En son gecikme ölçümlerini kaydet</string>
+    <string name="host_profile_footer">Ayrılmadan önce yayın ayarlarını kaydedin. Ekran modu, kendi iletişim kutusundaki Ekran modunu kaydet ile ayrıca kaydedilir. Değişiklikler sonraki yayında geçerli olur.</string>
+    <string name="stream_overlay_menu">Katman</string>
+    <string name="stream_bitrate_manual">Bit hızını ayarla</string>
+    <string-array name="stream_preset_names">
+        <item>Yerel (önerilen)</item>
+        <item>Pil tasarrufu</item>
+    </string-array>
+    <string name="applist_menu_show_app">Oyunu göster</string>
+</resources>

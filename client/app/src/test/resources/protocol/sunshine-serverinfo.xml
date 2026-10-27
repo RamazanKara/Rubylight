@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root status_code="200">
+  <hostname>Sunshine fixture</hostname><appversion>7.1.431.-1</appversion><GfeVersion>3.23.0.74</GfeVersion>
+  <uniqueid>3c0e9b6e-6d8b-4a43-9c2e-5f1d1a2b3c4d</uniqueid><HttpsPort>47984</HttpsPort><ExternalPort>47989</ExternalPort>
+  <MaxLumaPixelsHEVC>1869449984</MaxLumaPixelsHEVC><mac>00:00:00:00:00:00</mac><LocalIP>192.0.2.10</LocalIP>
+  <ServerCodecModeSupport>197377</ServerCodecModeSupport>
+  <PairStatus>1</PairStatus><currentgame>0</currentgame><state>SUNSHINE_SERVER_FREE</state>
+</root>

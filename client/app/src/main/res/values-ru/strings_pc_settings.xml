@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pc_settings_title">Настройки ПК</string>
+    <string name="pc_settings_display">Дисплей на ПК</string>
+    <string name="pc_settings_connection">Подключение</string>
+    <string name="pc_settings_host">Хост</string>
+    <string name="pc_settings_needs_online">Доступно, когда ПК в сети</string>
+    <string name="pc_settings_test_speed">Пинг, джиттер, потери и скорость загрузки</string>
+    <string name="pc_settings_test_delay">Пинг, джиттер и потери</string>
+    <string name="pc_settings_remote_summary">Настроить трансляцию через интернет</string>
+    <string name="pc_settings_wake">Wake-on-LAN</string>
+    <string name="pc_settings_wake_ready">Это устройство может разбудить ПК из его меню</string>
+    <string name="pc_settings_wake_unknown">Выполните сопряжение, пока ПК включён, затем включите Wake-on-LAN на ПК</string>
+    <string name="pc_settings_details_summary">ПО хоста, функции и адреса</string>
+    <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
+    <string name="pc_settings_shortcut">Добавить на главный экран</string>
+    <string name="pc_settings_shortcut_summary">Открывает библиотеку этого ПК</string>
+    <string name="connection_test_ms">%1$s мс</string>
+    <string name="connection_test_percent">%1$s%%</string>
+    <string name="connection_test_speed">Скорость %1$.1f Мбит/с</string>
+    <string name="connection_test_speed_needs_pairing">Скорость не измерена: сначала выполните сопряжение с ПК</string>
+    <string name="connection_test_speed_no_answer">Скорость не измерена: ПК не ответил</string>
+    <string name="connection_test_speed_unsupported">Скорость не измерена: у этого хоста нет теста скорости</string>
+</resources>

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_profile_title">Ustawienia strumieniowania: %1$s</string>
+    <string name="host_profile_status_global">Każda wartość jest zgodna z ustawieniami dla wszystkich komputerów.</string>
+    <string name="host_profile_status_custom">Przywraca każdą wartość do ustawień dla wszystkich komputerów.</string>
+    <string name="host_profile_explanation">Ustawione tu wartości dotyczą tylko tego komputera. Wszystko oznaczone jako „Jak dla wszystkich komputerów” jest zgodne z głównymi ustawieniami strumienia, łącznie z późniejszymi zmianami.</string>
+    <string name="host_profile_resolution">Rozdzielczość (szerokość × wysokość)</string>
+    <string name="host_profile_width">Szerokość</string>
+    <string name="host_profile_height">Wysokość</string>
+    <string name="host_profile_match_screen">Użyj tego ekranu</string>
+    <string name="host_profile_native">Rozmiar ekranu (zgodnie z tym ekranem)</string>
+    <string name="host_profile_refresh">Liczba klatek (FPS)</string>
+    <string name="host_profile_bitrate">Szybkość transmisji (Mbps)</string>
+    <string name="host_profile_scale">Rozdzielczość renderowania komputera (%)</string>
+    <string name="host_profile_codec">Kodek wideo</string>
+    <string name="host_profile_virtual_display">Wirtualny ekran hosta</string>
+    <string name="host_profile_hdr">HDR</string>
+    <string name="host_profile_full_range">Wideo w pełnym zakresie</string>
+    <string name="host_profile_yuv444">Preferuj YUV 4:4:4</string>
+    <string name="host_profile_save">Zapisz</string>
+    <string name="host_profile_reset">Wszystko jak dla wszystkich komputerów</string>
+    <string name="host_profile_saved">Ustawienia strumieniowania komputera zapisane</string>
+    <string name="host_profile_reset_done">Ten komputer używa teraz ustawień dla wszystkich komputerów</string>
+    <string name="host_profile_invalid_number">Wpisz liczbę całkowitą od %1$d do %2$d</string>
+    <string name="host_profile_invalid_refresh">Wpisz 1–1000 FPS z maksymalnie dwoma miejscami po przecinku</string>
+    <string name="host_profile_invalid_bitrate">Wpisz 0,5–2000 Mbps</string>
+    <string-array name="host_profile_codecs">
+        <item>Automatycznie</item>
+        <item>@string/videoformat_av1always</item>
+        <item>@string/videoformat_hevcalways</item>
+        <item>@string/videoformat_h264always</item>
+        <item>@string/videoformat_pyrowave</item>
+    </string-array>
+    <string name="host_profile_follows">Jak dla wszystkich komputerów · %1$s</string>
+    <string name="host_profile_same_as_all_value">Jak dla wszystkich komputerów (%1$s)</string>
+    <string name="host_profile_on">Wł.</string>
+    <string name="host_profile_off">Wył.</string>
+</resources>

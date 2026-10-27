@@ -1,0 +1,14 @@
+<resources>
+    <string name="gpu_driver_title">Snapdragon GPU driver</string>
+    <string name="gpu_driver_system">System GPU driver</string>
+    <string name="gpu_driver_explanation">PyroWave can use an Adreno driver ZIP with meta.json and arm64 libraries. Choose a package you trust that supports your GPU and Android version. Changes apply to the next stream and only affect this app. If loading fails, the app uses the system driver. After a crash with a custom driver, the next launch returns to the system driver. Compatibility and performance still depend on your phone and driver.</string>
+    <string name="gpu_driver_unsupported">Custom drivers require Android 10 or newer, a 64-bit arm64 app and an Adreno GPU. This device uses the system GPU driver.</string>
+    <string name="gpu_driver_system_fallback">Using the system GPU driver after a custom-driver failure.</string>
+    <string name="gpu_driver_import">Import driver ZIP</string>
+    <string name="gpu_driver_no_picker">Install a file picker to import a driver ZIP.</string>
+    <string name="gpu_driver_remove">Remove a driver</string>
+    <string name="gpu_driver_removed">Driver removed.</string>
+    <string name="gpu_driver_imported">Imported and selected: %1$s</string>
+    <string name="gpu_driver_working">Checking the driver…</string>
+    <string name="gpu_driver_error">Driver operation failed: %1$s</string>
+</resources>

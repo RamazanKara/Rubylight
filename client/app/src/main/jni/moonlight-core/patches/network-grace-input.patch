@@ -1,0 +1,344 @@
+Hold input back while a network grace period rides out a silent network. ENet queues every
+reliable input packet while the host does not answer and delivers all of them, however old,
+once the network returns; with a 20-60 second grace period that replays many seconds of stale
+input and grows ENet's queue past the input stream's own bound. While a grace period is set and
+nothing has come back from the host for a second (the 100 ms periodic ping is acked otherwise),
+isControlContactLost() is true and the input send thread drops input before it is encrypted or
+sequenced, keeping only the latest state of each key, mouse button and controller. When the
+host is heard again (the control receive thread wakes the input thread, or the next input
+packet notices), it sends that state, releases first, and cancels touches and pen contacts that
+changed meanwhile. Mouse motion, scrolling and text from the silence are dropped. Packets
+already handed to ENet before contact counted as lost are still delivered. Without a grace
+period isControlContactLost() is always false and nothing changes.
+During a grace period the control receive thread also stops spinning through a silence: ENet
+does not ping while reliable data waits for an ack, so it waits for the resend timer instead of
+waking at once for a ping that is never sent.
+Applies after cursor-shape.patch.
+
+diff --git a/src/ControlStream.c b/src/ControlStream.c
+index 4bf35e2..c7b9c42 100644
+--- a/src/ControlStream.c
++++ b/src/ControlStream.c
+@@ -724,6 +724,31 @@ static enet_uint32 controlPeerTimeoutMs(void) {
+     return networkGracePeriodMs > CONTROL_PEER_TIMEOUT_MS ? (enet_uint32)networkGracePeriodMs : CONTROL_PEER_TIMEOUT_MS;
+ }
+ 
++#ifndef INPUT_CONTACT_LOST_MS
++#define INPUT_CONTACT_LOST_MS 1000
++#endif
++
++// True while a network grace period is set and nothing at all (not even an ack of the 100 ms
++// periodic ping) has come back from the host for INPUT_CONTACT_LOST_MS. The input stream holds
++// input back meanwhile: ENet would queue every input packet and deliver all of them, however
++// old, once the network returns. Without a grace period this is always false.
++bool isControlContactLost(void) {
++    ENetPeer* currentPeer = peer;
++    enet_uint32 lastReceiveTime;
++
++    if (networkGracePeriodMs <= CONTROL_PEER_TIMEOUT_MS || currentPeer == NULL) {
++        return false;
++    }
++
++    // Read without enetMutex like LiGetEstimatedRttInfo(): a torn read only shifts the moment
++    // input is held or released by one packet. A peer that timed out is not contact regained.
++    if (currentPeer->state != ENET_PEER_STATE_CONNECTED) {
++        return true;
++    }
++    lastReceiveTime = currentPeer->lastReceiveTime;
++    return lastReceiveTime != 0 && ENET_TIME_DIFFERENCE(enet_time_get(), lastReceiveTime) >= INPUT_CONTACT_LOST_MS;
++}
++
+ static bool sendMessageEnetInternal(short ptype, short paylen, const void* payload, uint8_t channelId, uint32_t flags, bool moreData) {
+     ENetPacket* enetPacket;
+     int err;
+@@ -1268,8 +1293,12 @@ static void controlReceiveThreadFunc(void* context) {
+                 enet_uint32 timeSinceLastComm = MIN(timeSinceLastSend, timeSinceLastRecv);
+ 
+                 if (timeSinceLastComm >= peer->pingInterval) {
+-                    // Ping is due now for this peer
+-                    waitTimeMs = 0;
++                    // Ping is due now for this peer. ENet does not ping while reliable data waits
++                    // for an ack, so during a grace period silence wait for the resend timer (or
++                    // the host) instead of spinning through the whole silence.
++                    if (networkGracePeriodMs <= CONTROL_PEER_TIMEOUT_MS || enet_list_empty(&peer->sentReliableCommands)) {
++                        waitTimeMs = 0;
++                    }
+                 } else {
+                     waitTimeMs = MIN(waitTimeMs, peer->pingInterval - timeSinceLastComm);
+                 }
+@@ -1281,6 +1310,10 @@ static void controlReceiveThreadFunc(void* context) {
+ 
+         PltUnlockMutex(&enetMutex);
+ 
++        if (networkGracePeriodMs > CONTROL_PEER_TIMEOUT_MS) {
++            wakeInputAfterContactLoss();
++        }
++
+         if (err == 0) {
+             // Handle a pending disconnect after unsuccessfully polling
+             // for new events to handle.
+diff --git a/src/InputStream.c b/src/InputStream.c
+index efc4045..1332d88 100644
+--- a/src/InputStream.c
++++ b/src/InputStream.c
+@@ -92,6 +92,44 @@ static struct {
+     bool dirty; // Update ready to send (queued packet holder in packetQueue)
+ } currentAbsoluteMouseState;
+ 
++// While the host is silent during a network grace period (isControlContactLost()), input is not
++// queued in ENet, which would deliver all of it, however stale, once the network returns. The
++// input send thread keeps only the latest state of each key, mouse button and controller (and
++// whether touch or pen input was dropped) and sends that when the host is heard again: keys and
++// buttons released meanwhile are released, ones still held are pressed, controllers get their
++// current state and touches and pen contacts are cancelled. Mouse motion, scrolling and text
++// from the silence are dropped. Only the input send thread touches these.
++#define HELD_KEY_COUNT 256
++#define HELD_MOUSE_BUTTON_COUNT 8
++typedef struct _HELD_INPUT {
++    bool valid;
++    uint8_t channelId;
++    uint32_t enetPacketFlags;
++    union {
++        NV_INPUT_HEADER header;
++        NV_KEYBOARD_PACKET keyboard;
++        NV_MOUSE_BUTTON_PACKET mouseButton;
++        NV_MULTI_CONTROLLER_PACKET multiController;
++        SS_TOUCH_PACKET touch;
++        SS_PEN_PACKET pen;
++        SS_CONTROLLER_ARRIVAL_PACKET controllerArrival;
++        SS_CONTROLLER_MOTION_PACKET controllerMotion;
++        SS_CONTROLLER_BATTERY_PACKET controllerBattery;
++    } packet;
++} HELD_INPUT, *PHELD_INPUT;
++static struct {
++    HELD_INPUT controllerArrival[MAX_GAMEPADS];
++    HELD_INPUT keyboard[HELD_KEY_COUNT];
++    HELD_INPUT mouseButton[HELD_MOUSE_BUTTON_COUNT];
++    HELD_INPUT controller[MAX_GAMEPADS];
++    HELD_INPUT controllerMotion[MAX_GAMEPADS][MAX_MOTION_EVENTS];
++    HELD_INPUT controllerBattery[MAX_GAMEPADS];
++    HELD_INPUT touch;
++    HELD_INPUT pen;
++    uint32_t dropped;
++} heldInput;
++static volatile bool inputHeldForContact;
++
+ // Initializes the input stream
+ int initializeInputStream(void) {
+     memcpy(currentAesIv, StreamConfig.remoteInputAesIv, sizeof(currentAesIv));
+@@ -122,6 +160,8 @@ int initializeInputStream(void) {
+     memset(currentQueuedControllerPacket, 0, sizeof(currentQueuedControllerPacket));
+     memset(&currentRelativeMouseState, 0, sizeof(currentRelativeMouseState));
+     memset(&currentAbsoluteMouseState, 0, sizeof(currentAbsoluteMouseState));
++    memset(&heldInput, 0, sizeof(heldInput));
++    inputHeldForContact = false;
+     PltCreateMutex(&batchedInputMutex);
+ 
+     return 0;
+@@ -233,7 +273,7 @@ static PPACKET_HOLDER allocatePacketHolder(int extraLength) {
+     }
+ }
+ 
+-static bool sendInputPacket(PPACKET_HOLDER holder, bool moreData) {
++static bool sendInputPacketNow(PPACKET_HOLDER holder, bool moreData) {
+     SOCK_RET err;
+ 
+     // On GFE 3.22, the entire control stream is encrypted (and support for separate RI encrypted)
+@@ -307,6 +347,150 @@ static bool sendInputPacket(PPACKET_HOLDER holder, bool moreData) {
+     return true;
+ }
+ 
++static void holdInput(PHELD_INPUT slot, PPACKET_HOLDER holder, size_t size) {
++    LC_ASSERT(size <= sizeof(slot->packet));
++    slot->valid = true;
++    slot->channelId = holder->channelId;
++    slot->enetPacketFlags = holder->enetPacketFlags;
++    memcpy(&slot->packet, &holder->packet, size);
++}
++
++// Called on the input send thread for each packet while the host is silent
++static void holdInputForContact(PPACKET_HOLDER holder) {
++    uint32_t magic = LE32(holder->packet.header.magic);
++
++    if (!inputHeldForContact) {
++        Limelog("Input: no reply from the host, holding input until it is heard again\n");
++        inputHeldForContact = true;
++    }
++    heldInput.dropped++;
++
++    if (magic == KEY_DOWN_EVENT_MAGIC || magic == KEY_UP_EVENT_MAGIC) {
++        holdInput(&heldInput.keyboard[LE16(holder->packet.keyboard.keyCode) & 0xFF], holder, sizeof(NV_KEYBOARD_PACKET));
++    }
++    else if (magic == MOUSE_BUTTON_DOWN_EVENT_MAGIC_GEN5 || magic == MOUSE_BUTTON_UP_EVENT_MAGIC_GEN5) {
++        if (holder->packet.mouseButton.button < HELD_MOUSE_BUTTON_COUNT) {
++            holdInput(&heldInput.mouseButton[holder->packet.mouseButton.button], holder, sizeof(NV_MOUSE_BUTTON_PACKET));
++        }
++    }
++    else if (magic == MULTI_CONTROLLER_MAGIC_GEN5) {
++        uint16_t controllerNumber = LE16(holder->packet.multiController.controllerNumber);
++        if (controllerNumber < MAX_GAMEPADS) {
++            holdInput(&heldInput.controller[controllerNumber], holder, sizeof(NV_MULTI_CONTROLLER_PACKET));
++        }
++    }
++    else if (magic == SS_CONTROLLER_ARRIVAL_MAGIC) {
++        if (holder->packet.controllerArrival.controllerNumber < MAX_GAMEPADS) {
++            holdInput(&heldInput.controllerArrival[holder->packet.controllerArrival.controllerNumber], holder,
++                      sizeof(SS_CONTROLLER_ARRIVAL_PACKET));
++        }
++    }
++    else if (magic == SS_CONTROLLER_MOTION_MAGIC) {
++        uint8_t controllerNumber = holder->packet.controllerMotion.controllerNumber;
++        uint8_t motionType = holder->packet.controllerMotion.motionType;
++        if (controllerNumber < MAX_GAMEPADS && motionType >= 1 && motionType <= MAX_MOTION_EVENTS) {
++            holdInput(&heldInput.controllerMotion[controllerNumber][motionType - 1], holder, sizeof(SS_CONTROLLER_MOTION_PACKET));
++        }
++    }
++    else if (magic == SS_CONTROLLER_BATTERY_MAGIC) {
++        if (holder->packet.controllerBattery.controllerNumber < MAX_GAMEPADS) {
++            holdInput(&heldInput.controllerBattery[holder->packet.controllerBattery.controllerNumber], holder,
++                      sizeof(SS_CONTROLLER_BATTERY_PACKET));
++        }
++    }
++    else if (magic == SS_TOUCH_MAGIC) {
++        holdInput(&heldInput.touch, holder, sizeof(SS_TOUCH_PACKET));
++        heldInput.touch.packet.touch.eventType = LI_TOUCH_EVENT_CANCEL_ALL;
++        heldInput.touch.enetPacketFlags = ENET_PACKET_FLAG_RELIABLE;
++    }
++    else if (magic == SS_PEN_MAGIC) {
++        holdInput(&heldInput.pen, holder, sizeof(SS_PEN_PACKET));
++        heldInput.pen.packet.pen.eventType = LI_TOUCH_EVENT_CANCEL_ALL;
++        heldInput.pen.enetPacketFlags = ENET_PACKET_FLAG_RELIABLE;
++    }
++}
++
++static bool sendHeldInput(PHELD_INPUT slot) {
++    PACKET_HOLDER holder;
++
++    if (!slot->valid) {
++        return true;
++    }
++
++    if (isControlContactLost()) {
++        // Silent again: keep it for the next time the host is heard
++        inputHeldForContact = true;
++        return true;
++    }
++
++    slot->valid = false;
++    holder.channelId = slot->channelId;
++    holder.enetPacketFlags = slot->enetPacketFlags;
++    memcpy(&holder.packet, &slot->packet, sizeof(slot->packet));
++    return sendInputPacketNow(&holder, true);
++}
++
++static bool sendHeldInputWithMagic(PHELD_INPUT slots, int count, uint32_t magic) {
++    for (int i = 0; i < count; i++) {
++        if (slots[i].valid && LE32(slots[i].packet.header.magic) == magic && !sendHeldInput(&slots[i])) {
++            return false;
++        }
++    }
++    return true;
++}
++
++// Sends the latest held state once the host is heard again. Releases go before presses.
++static bool sendInputHeldForContact(void) {
++    inputHeldForContact = false;
++    Limelog("Input: the host is heard again, sending the current input state in place of %u held packets\n",
++            heldInput.dropped);
++    heldInput.dropped = 0;
++
++    for (int i = 0; i < MAX_GAMEPADS; i++) {
++        if (!sendHeldInput(&heldInput.controllerArrival[i])) {
++            return false;
++        }
++    }
++    if (!sendHeldInputWithMagic(heldInput.keyboard, HELD_KEY_COUNT, KEY_UP_EVENT_MAGIC) ||
++        !sendHeldInputWithMagic(heldInput.mouseButton, HELD_MOUSE_BUTTON_COUNT, MOUSE_BUTTON_UP_EVENT_MAGIC_GEN5) ||
++        !sendHeldInputWithMagic(heldInput.keyboard, HELD_KEY_COUNT, KEY_DOWN_EVENT_MAGIC) ||
++        !sendHeldInputWithMagic(heldInput.mouseButton, HELD_MOUSE_BUTTON_COUNT, MOUSE_BUTTON_DOWN_EVENT_MAGIC_GEN5)) {
++        return false;
++    }
++    for (int i = 0; i < MAX_GAMEPADS; i++) {
++        if (!sendHeldInput(&heldInput.controller[i]) ||
++            !sendHeldInput(&heldInput.controllerMotion[i][0]) ||
++            !sendHeldInput(&heldInput.controllerMotion[i][1]) ||
++            !sendHeldInput(&heldInput.controllerBattery[i])) {
++            return false;
++        }
++    }
++    if (!sendHeldInput(&heldInput.touch) || !sendHeldInput(&heldInput.pen)) {
++        return false;
++    }
++
++    flushInputOnControlStream();
++    return true;
++}
++
++// Called by the control stream's receive thread while a network grace period is set
++void wakeInputAfterContactLoss(void) {
++    if (inputHeldForContact && !isControlContactLost()) {
++        LbqSignalQueueUserWake(&packetQueue);
++    }
++}
++
++static bool sendInputPacket(PPACKET_HOLDER holder, bool moreData) {
++    if (inputHeldForContact && !isControlContactLost() && !sendInputHeldForContact()) {
++        return false;
++    }
++    if (isControlContactLost()) {
++        holdInputForContact(holder);
++        return true;
++    }
++    return sendInputPacketNow(holder, moreData);
++}
++
+ static void floatToNetfloat(float in, netfloat out) {
+     if (IS_LITTLE_ENDIAN()) {
+         memcpy(out, &in, sizeof(in));
+@@ -341,7 +525,13 @@ static void inputSendThreadProc(void* context) {
+ 
+     while (!PltIsThreadInterrupted(&inputSendThread)) {
+         err = LbqWaitForQueueElement(&packetQueue, (void**)&holder);
+-        if (err != LBQ_SUCCESS) {
++        if (err == LBQ_USER_WAKE) {
++            if (inputHeldForContact && !isControlContactLost() && !sendInputHeldForContact()) {
++                return;
++            }
++            continue;
++        }
++        else if (err != LBQ_SUCCESS) {
+             return;
+         }
+ 
+@@ -555,10 +745,17 @@ static void inputSendThreadProc(void* context) {
+             // have been processed prior to sending these UTF-8 events to avoid interference between
+             // the two (especially with modifier keys).
+             flushInputOnControlStream();
+-            while (!PltIsThreadInterrupted(&inputSendThread) && isControlDataInTransit()) {
++            while (!PltIsThreadInterrupted(&inputSendThread) && isControlDataInTransit() && !isControlContactLost()) {
+                 PltSleepMs(10);
+             }
+ 
++            // Text typed while the host is silent would arrive late, so it is dropped
++            if (isControlContactLost()) {
++                holdInputForContact(holder);
++                freePacketHolder(holder);
++                continue;
++            }
++
+             // Finally, sleep an additional 50 ms to allow the events to be processed by Windows
+             PltSleepMs(50);
+ 
+diff --git a/src/Limelight-internal.h b/src/Limelight-internal.h
+index e1314c5..dd1b51d 100644
+--- a/src/Limelight-internal.h
++++ b/src/Limelight-internal.h
+@@ -125,6 +125,8 @@ void connectionSendFrameFecStatus(PSS_FRAME_FEC_STATUS fecStatus);
+ int sendInputPacketOnControlStream(unsigned char* data, int length, uint8_t channelId, uint32_t flags, bool moreData);
+ void flushInputOnControlStream(void);
+ bool isControlDataInTransit(void);
++bool isControlContactLost(void);
++void wakeInputAfterContactLoss(void);
+ 
+ int performRtspHandshake(PSERVER_INFORMATION serverInfo);
+ 

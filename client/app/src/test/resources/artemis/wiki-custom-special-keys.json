@@ -1,0 +1,20 @@
+{
+	"data": [
+		{
+			"id": "copy",
+			"name": "COPY",
+			"keys": [
+				"VK_LCONTROL",
+				"VK_C"
+			]
+		},
+		{
+			"id": "paste",
+			"name": "PASTE",
+			"keys": [
+				"VK_LCONTROL",
+				"VK_V"
+			]
+		}
+	]
+}

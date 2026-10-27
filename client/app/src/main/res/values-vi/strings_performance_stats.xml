@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stats_decode_submission">Gửi từ CPU: %1$s ms · Chờ hiển thị: %2$s ms</string>
+    <string name="perf_overlay_pyrowave_submit">Thời gian gửi từ CPU: %1$s ms</string>
+    <string name="latency_pyrowave_completed_decode">Giải mã hoàn tất</string>
+    <string name="stats_waiting">Đang chờ thống kê stream…</string>
+    <string name="stats_frame_rates">Kết xuất: %1$s FPS · Nhận: %2$s FPS</string>
+    <string name="stats_throughput">Dữ liệu video: %1$s Mbps · Mất gói: %2$s%%</string>
+    <string name="stats_network">RTT mạng: %1$s ms (±%2$s ms)</string>
+    <string name="stats_host">Xử lý trên máy chủ: %1$s ms</string>
+    <string name="stats_host_network">Máy chủ đến mạng: %1$s ms</string>
+    <string name="stats_client">Giải mã: %1$s ms · Chờ hiển thị: %2$s ms</string>
+    <string name="hardware_title">Phần cứng máy chủ (tất cả GPU)</string>
+    <string name="hardware_cpu">CPU máy chủ: %1$s%%</string>
+    <string name="hardware_gpu_summary">GPU máy chủ %1$d: %2$s%% · %3$s °C · %4$s W</string>
+    <string name="hardware_sample">Mẫu từ máy chủ: %1$d ms kể từ Unix epoch · Chu kỳ: %2$d ms</string>
+    <string name="hardware_gpu_name">GPU %1$d · %2$s</string>
+    <string name="hardware_gpu_unnamed">GPU không tên</string>
+    <string name="hardware_gpu_clocks">Mức sử dụng: %1$s%% · Xung GPU: %2$s MHz · Xung bộ nhớ: %3$s MHz</string>
+    <string name="hardware_gpu_temperatures">GPU: %1$s °C · Điểm nóng: %2$s °C · Bộ nhớ: %3$s °C</string>
+    <string name="hardware_gpu_fan_voltage">Điện áp: %1$s mV · Quạt: %2$s RPM (%3$s%%)</string>
+    <string name="hardware_gpu_power">Công suất GPU: %1$s W · Công suất bo mạch: %2$s W</string>
+    <string name="hardware_gpu_memory">VRAM: %1$s MB (%2$s%%)</string>
+</resources>

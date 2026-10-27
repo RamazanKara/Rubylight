@@ -1,0 +1,28 @@
+{
+  "source": "AdaptiveQualityControllerTest.sustainedLateFramesReduceQualityDespiteLowMeanAndAvailableBitrate",
+  "rust": "quality::AdaptiveQualityController",
+  "java": "com.limelight.policy.AdaptiveQualityTrace",
+  "new": ["motion", 1920, 1080, 120, 720, 30, 2, 2, 0],
+  "calls": [
+    {"call": "sample_timed", "args": [20000, true, false, 0, 2, 0, 0, 0, true, 0, 19000000000, 20000000000, 19050000000, 19950000000, 120, 120, 12], "expect": null},
+    {"call": "sample_timed", "args": [21000, true, false, 0, 2, 0, 0, 0, true, 0, 20000000000, 21000000000, 20050000000, 20950000000, 120, 120, 12], "expect": null},
+    {"call": "sample_timed", "args": [22000, true, false, 0, 2, 0, 0, 0, true, 0, 21000000000, 22000000000, 21050000000, 21950000000, 120, 120, 12], "expect": null},
+    {"call": "sample_timed", "args": [23000, true, false, 0, 2, 0, 0, 0, true, 0, 22000000000, 23000000000, 22050000000, 22950000000, 120, 120, 12], "expect": "1536x864@120"},
+    {"call": "applied", "args": ["1536x864@120", 23000], "expect": null},
+    {"call": "sample_timed", "args": [24000, true, false, 0, 2, 0, 0, 0, true, 0, 23000000000, 24000000000, 23050000000, 23950000000, 120, 120, 12], "expect": null},
+    {"call": "sample_timed", "args": [25000, true, false, 0, 2, 0, 0, 0, true, 0, 24000000000, 25000000000, 24050000000, 24950000000, 120, 120, 12], "expect": null},
+    {"call": "sample_timed", "args": [26000, true, false, 0, 2, 0, 0, 0, true, 0, 25000000000, 26000000000, 25050000000, 25950000000, 120, 120, 12], "expect": null},
+    {"call": "sample_timed", "args": [27000, true, false, 0, 2, 0, 0, 0, true, 0, 26000000000, 27000000000, 26050000000, 26950000000, 120, 120, 12], "expect": null},
+    {"call": "sample_timed", "args": [28000, true, false, 0, 2, 0, 0, 0, true, 0, 27000000000, 28000000000, 27050000000, 27950000000, 120, 120, 12], "expect": null},
+    {"call": "sample_timed", "args": [29000, true, false, 0, 2, 0, 0, 0, true, 0, 28000000000, 29000000000, 28050000000, 28950000000, 120, 120, 12], "expect": null},
+    {"call": "sample_timed", "args": [30000, true, false, 0, 2, 0, 0, 0, true, 0, 29000000000, 30000000000, 29050000000, 29950000000, 120, 120, 12], "expect": null},
+    {"call": "sample_timed", "args": [31000, true, false, 0, 2, 0, 0, 0, true, 0, 30000000000, 31000000000, 30050000000, 30950000000, 120, 120, 12], "expect": null},
+    {"call": "sample_timed", "args": [32000, true, false, 0, 2, 0, 0, 0, true, 0, 31000000000, 32000000000, 31050000000, 31950000000, 120, 120, 12], "expect": null},
+    {"call": "sample_timed", "args": [33000, true, false, 0, 2, 0, 0, 0, true, 0, 32000000000, 33000000000, 32050000000, 32950000000, 120, 120, 12], "expect": null},
+    {"call": "sample_timed", "args": [34000, true, false, 0, 2, 0, 0, 0, true, 0, 33000000000, 34000000000, 33050000000, 33950000000, 120, 120, 12], "expect": null},
+    {"call": "sample_timed", "args": [35000, true, false, 0, 2, 0, 0, 0, true, 0, 34000000000, 35000000000, 34050000000, 34950000000, 120, 120, 12], "expect": null},
+    {"call": "sample_timed", "args": [36000, true, false, 0, 2, 0, 0, 0, true, 0, 35000000000, 36000000000, 35050000000, 35950000000, 120, 120, 12], "expect": null},
+    {"call": "sample_timed", "args": [37000, true, false, 0, 2, 0, 0, 0, true, 0, 36000000000, 37000000000, 36050000000, 36950000000, 120, 120, 12], "expect": null},
+    {"call": "sample_timed", "args": [38000, true, false, 0, 2, 0, 0, 0, true, 0, 37000000000, 38000000000, 37050000000, 37950000000, 120, 120, 12], "expect": "1280x720@120"}
+  ]
+}

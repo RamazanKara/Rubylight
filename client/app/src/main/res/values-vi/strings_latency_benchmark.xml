@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="latency_benchmark_title">Đo độ trễ</string>
+    <string name="latency_benchmark_description">Chạy bài kiểm tra thời gian cục bộ 10 giây mà không cần máy chủ. Chạm vào màn hình, di chuyển chuột hoặc dùng tay cầm điều khiển để thu thập mẫu đầu vào.</string>
+    <string name="latency_benchmark_start">Bắt đầu kiểm tra 10 giây</string>
+    <string name="latency_benchmark_stop">Dừng kiểm tra</string>
+    <string name="latency_benchmark_display">Tần số quét màn hình được báo cáo: %1$.2f Hz</string>
+    <string name="latency_benchmark_audio">Âm thanh được báo cáo: %1$s Hz · %2$s khung mỗi bộ đệm</string>
+    <string name="latency_benchmark_frame">Khoảng cách giữa các lệnh gọi lại khung hình</string>
+    <string name="latency_benchmark_callback">Độ trễ lệnh gọi lại khung hình</string>
+    <string name="latency_benchmark_input">Thời gian chờ phân phối đầu vào</string>
+    <string name="latency_benchmark_timer">Độ trễ đánh thức bộ hẹn giờ</string>
+    <string name="latency_benchmark_limits">Kết quả dùng tối đa 2048 mẫu gần nhất cho mỗi chỉ số. Thời gian chờ đầu vào tính từ dấu thời gian sự kiện của Android (độ phân giải 1 ms); không đo tần suất quét tay cầm điều khiển hay độ trễ đầu vào trên máy chủ. Lệnh gọi lại khung hình không đo quá trình xuất hình lên màn hình. Thuộc tính âm thanh là khả năng được báo cáo, không phải độ trễ đầu ra đo được. Độ trễ mạng, giải mã và toàn trình cần một stream hoặc phép đo bên ngoài. Rời khỏi màn hình này sẽ dừng bài kiểm tra.</string>
+    <string name="latency_test">Đo độ trễ đầu vào</string>
+    <string name="latency_test_running">Đang đo… hãy hiển thị màn hình desktop tĩnh có con trỏ chuột và không chạm vào gì trong vài giây.</string>
+    <string name="latency_test_result">Từ đầu vào đến màn hình: thông thường %1$.1f ms, tốt nhất %2$.1f ms, 10%% chậm nhất %3$.1f ms (%4$d mẫu).\n\nĐược tính từ lúc ứng dụng này gửi một cú dịch chuột cho đến khi Android hiển thị khung hình phản hồi của máy chủ. Bao gồm mạng, quá trình chụp và mã hóa trên máy chủ, giải mã và hiển thị. Không bao gồm ngón tay của bạn và độ trễ riêng của màn hình.</string>
+    <string name="latency_test_failed">Không đo được. Máy chủ liên tục gửi khung hình hoặc không phản hồi cú dịch chuột. Hãy hiển thị màn hình desktop tĩnh có con trỏ chuột, đóng trò chơi và video rồi thử lại.</string>
+    <string name="latency_benchmark_share">Chia sẻ kết quả</string>
+    <string name="latency_benchmark_share_title">Kết quả thiết bị</string>
+    <string name="latency_benchmark_share_message">Nightjar không bao giờ tự gửi nội dung này. Văn bản gồm thiết bị này (mẫu máy, SoC, GPU và phiên bản Android), bài đo bộ giải mã và lần kiểm tra gần nhất trên màn hình này, không có tên PC, địa chỉ, số sê-ri hay dữ liệu tài khoản. “Mở biểu mẫu” sao chép văn bản và mở một biểu mẫu GitHub công khai. Mọi thứ bạn dán vào đó đều trở thành công khai và được thêm vào bảng thiết bị trên trang web Nightjar.</string>
+    <string name="latency_benchmark_copied">Đã sao chép kết quả</string>
+    <string name="latency_benchmark_report_form">Mở biểu mẫu</string>
+    <string name="latency_benchmark_paste_hint">Đã sao chép kết quả. Hãy dán vào biểu mẫu.</string>
+</resources>

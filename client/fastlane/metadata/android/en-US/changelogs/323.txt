@@ -1,0 +1,1 @@
+Launcher exports now update renamed games without duplicate entries and retry failed entry or cover writes cleanly. Removing a PC also clears its cached library, artwork directory and hidden-app preferences. Release helpers validate both flavors and build a universal APK. Documentation checks and bug-report guidance are improved.

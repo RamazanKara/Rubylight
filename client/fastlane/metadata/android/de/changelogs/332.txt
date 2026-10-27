@@ -1,0 +1,7 @@
+13 neue Sprachen.
+Neue Touch-Modi: natürliches Trackpad, Lokaler Mauszeiger und Touch aus.
+Steuerungseditor mit Sticks, Triggern und Steuerkreuz, Import von Artemis-Layouts.
+Videoskalierung, Bildposition und Ausrichtung.
+Streamprofile, Einstellungen pro Spiel, Bitratengrenze für mobile Daten.
+Controller-Test, Vibration aus, optionaler Switch-Pro-USB-Treiber.
+Schnell fortsetzen, Spiel beim Verlassen beenden, Steuern an jedem PC, Netzwerkaussetzer überbrücken (optional).

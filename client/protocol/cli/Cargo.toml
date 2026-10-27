@@ -1,0 +1,24 @@
+[package]
+name = "nightjar-cli"
+description = "Headless Moonlight-protocol test client on nightjar-core, a drop-in for Rubylight's moonlight_client.c"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "nightjar-cli"
+path = "src/main.rs"
+
+[features]
+# Decode video with FFmpeg (libavcodec) and audio with libopus, linked from the system or
+# NIGHTJAR_FFMPEG_DIR. Without it every frame and packet is counted as a decode failure.
+ffmpeg = ["dep:cc"]
+
+[dependencies]
+nightjar-core = { path = "../client" }
+rubylight-protocol = { path = "../core" }
+
+[build-dependencies]
+cc = { version = "1", optional = true }

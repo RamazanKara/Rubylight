@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_adaptive_quality">Otomatik yayın kalitesi</string>
+    <string name="summary_adaptive_quality">Süregelen ağ tıkanıklığı, yavaş kod çözme veya ısınma sırasında çözünürlüğü ya da FPS’yi düşürür, ardından kademeli olarak geri yükseltir. Destekleniyorsa otomatik bit hızını kullanır. Ana bilgisayarın yeniden yapılandırma desteği ve uyarlanabilir bir kod çözücü gerektirir; PyroWave ile kullanılamaz.</string>
+    <string name="title_adaptive_quality_min_resolution">En düşük otomatik çözünürlük</string>
+    <string name="summary_adaptive_quality_min_resolution">En boy oranı korunarak en küçük kısa kenar. Seçilen yayın çözünürlüğü üst sınır olarak kalır. Daha düşük bir başlangıç çözünürlüğü bu sınır nedeniyle asla yükseltilmez.</string>
+    <string name="title_adaptive_quality_min_fps">En düşük otomatik kare hızı</string>
+    <string name="summary_adaptive_quality_min_fps">İzin verilen en düşük FPS. Seçilen yayın kare hızı üst sınır olarak kalır. Pil modu dahil otomatik kalite için geçerlidir.</string>
+    <string name="quality_off">Kapalı</string>
+    <string name="quality_motion">Hareketi koru</string>
+    <string name="quality_detail">Ayrıntıyı koru</string>
+    <string name="quality_battery">Pil ömrünü uzat</string>
+    <string name="quality_use_settings">Uygulama ayarlarını kullan</string>
+    <string name="quality_about">Nasıl çalışır</string>
+    <string name="quality_stream_help">Bu bilgisayar için kaydedilir. Hareket önce çözünürlüğü, Ayrıntı önce FPS’yi düşürür. Pil, minimum sınırlarınız dahilinde iş yükünü kademeli olarak en fazla 60 FPS ve 1080 piksel kısa kenarla sınırlar. Codec, HDR ve ekran seçimi anlaşıldığı gibi kalır.</string>
+    <string name="quality_unavailable">Otomatik kalite kapalı: bu bilgisayar veya cihaz yayın sırasında çözünürlüğü ve kare hızını değiştiremiyor.</string>
+    <string name="quality_request_failed">Otomatik kalite durduruldu: bilgisayar yeni boyutu uygulamadı. Yayın devam ediyor; yayın menüsünden başka bir mod seçin.</string>
+    <string name="quality_status">Otomatik kalite: %1$s · %2$d × %3$d · hedef %4$d FPS</string>
+</resources>

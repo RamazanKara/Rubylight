@@ -1,0 +1,42 @@
+<!-- A game in the library: its cover, a one-line title caption on TV, a status chip
+     for a running or hidden game, a chip for a remote role (over the cover, so a role never changes the
+     card's height) and its options button. AppGridAdapter fills it; GenericGridAdapter
+     sets the cover height. -->
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto" app:cardPreventCornerOverlap="false" android:clipToOutline="true"
+    android:layout_width="match_parent" android:layout_height="wrap_content" style="@style/LibraryCard"
+    android:descendantFocusability="blocksDescendants">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical">
+        <FrameLayout android:layout_width="match_parent" android:layout_height="144dp"
+            android:background="?attr/colorSurfaceContainerHigh">
+            <com.limelight.ui.PosterImageView android:id="@+id/grid_image" android:layout_width="match_parent" android:layout_height="match_parent"
+                android:scaleType="centerCrop" android:importantForAccessibility="no" />
+            <TextView android:id="@+id/grid_text" android:layout_width="match_parent" android:layout_height="match_parent"
+                android:gravity="center" android:padding="@dimen/space_m"
+                android:textAppearance="@style/TextAppearance.Nightjar.Body" android:textColor="?attr/colorOnSurface"
+                android:maxLines="4" android:ellipsize="end" android:importantForAccessibility="no" />
+            <TextView android:id="@+id/grid_status" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_gravity="top|start" android:layout_margin="@dimen/space_xs"
+                android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s"
+                android:paddingTop="@dimen/space_xs" android:paddingBottom="@dimen/space_xs" android:background="@drawable/bg_chip"
+                android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurface"
+                android:visibility="gone" android:importantForAccessibility="no" />
+            <TextView android:id="@+id/grid_role" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_gravity="bottom|start" android:layout_margin="@dimen/space_xs"
+                android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s"
+                android:paddingTop="@dimen/space_xs" android:paddingBottom="@dimen/space_xs"
+                android:maxLines="1" android:ellipsize="end" android:background="@drawable/bg_chip" android:drawablePadding="@dimen/space_xs"
+                android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurface"
+                android:visibility="gone" android:importantForAccessibility="no" />
+            <ImageButton android:id="@+id/grid_more" style="@style/ToolbarIcon" android:layout_gravity="top|end"
+                android:padding="@dimen/space_l" android:background="@drawable/bg_cover_action" android:focusable="false"
+                android:importantForAccessibility="yes" android:src="@drawable/ic_library_more" android:contentDescription="@string/library_options" />
+        </FrameLayout>
+        <TextView android:id="@+id/grid_title" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s" android:paddingTop="@dimen/space_xs" android:paddingBottom="@dimen/space_s"
+            android:lines="1" android:ellipsize="end"
+            android:textAppearance="@style/TextAppearance.Nightjar.Label" android:textColor="?attr/colorOnSurface"
+            android:visibility="gone" android:importantForAccessibility="no" />
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>

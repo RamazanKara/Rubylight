@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="video_scaling_title">Escalado de vídeo</string>
+    <string-array name="video_scaling_modes">
+        <item>Ajustar</item>
+        <item>Rellenar (recortar)</item>
+        <item>Estirar</item>
+        <item>Píxeles 1:1</item>
+    </string-array>
+    <string name="video_scaling_help">Ajustar: la imagen completa, con barras si la pantalla tiene otra forma.\nRellenar (recortar): llena la pantalla sin deformar la imagen; se recortan los bordes que no caben.\nEstirar: llena la pantalla; las formas pueden verse más anchas o más altas.\nPíxeles 1:1: un píxel de la transmisión por cada píxel de la pantalla. Una transmisión más pequeña tiene un borde; una más grande se recorta.\nPosición del vídeo sube una imagen en Ajustar o 1:1 a la parte superior. El zoom con dos dedos funciona en todos los modos, e Imagen en imagen siempre muestra la imagen completa.</string>
+    <string name="title_video_alignment">Posición del vídeo</string>
+    <string name="summary_video_alignment">Dónde se coloca una imagen en Ajustar o 1:1 cuando sobra espacio. Arriba deja libre el espacio de abajo para el teclado o la mitad inferior de un teléfono plegado. Rellenar y Estirar cubren toda la pantalla, así que no les afecta.</string>
+    <string-array name="video_alignment_names">
+        <item>Centro</item>
+        <item>Arriba</item>
+    </string-array>
+</resources>

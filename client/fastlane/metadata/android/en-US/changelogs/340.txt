@@ -1,0 +1,1 @@
+Playback fixes: preserve fractional frame rates, recover from brief decoder stalls without prolonged frame dropping, and make Balanced frame replacement atomic. Timing feedback moves off the presentation thread on supported hosts. Adaptive quality uses fresh decoder timing samples. Results depend on the device, host and workload.

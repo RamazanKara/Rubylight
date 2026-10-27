@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One shelf of Home on TV: a small heading over a row of posters that peeks at the next one past the keyline. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical"
+    android:clipChildren="false" android:clipToPadding="false">
+    <TextView android:id="@+id/shelf_title" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s"
+        android:paddingTop="@dimen/space_m" android:paddingBottom="@dimen/space_xs"
+        android:textAppearance="@style/TextAppearance.Nightjar.Title" android:textColor="?attr/colorOnSurfaceVariant"
+        android:accessibilityHeading="true" />
+    <androidx.recyclerview.widget.RecyclerView android:id="@+id/shelf_cards"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:clipToPadding="false" android:clipChildren="false" android:overScrollMode="never"
+        android:paddingEnd="@dimen/shelf_keyline" android:focusable="false"
+        android:descendantFocusability="afterDescendants" />
+</LinearLayout>

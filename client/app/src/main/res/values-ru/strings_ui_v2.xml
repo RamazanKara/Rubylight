@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_section_advanced">Дополнительно</string>
+    <string name="settings_advanced_summary">Декодирование, ввод и диагностика</string>
+    <string name="settings_custom">Свой вариант</string>
+    <string name="setting_help">О параметре «%1$s»</string>
+    <string name="stream_presets_help_title">О пресетах</string>
+    <string name="settings_version">Версия %1$s</string>
+    <string name="settings_source">Исходный код и лицензии</string>
+    <string name="settings_csv_summary">Сохранить последние измерения задержки</string>
+    <string name="host_profile_footer">Сохраните настройки трансляции перед выходом. Режим дисплея сохраняется отдельно кнопкой «Сохранить режим дисплея» в его диалоге. Изменения вступят в силу со следующей трансляции.</string>
+    <string name="stream_overlay_menu">Оверлей</string>
+    <string name="stream_bitrate_manual">Задать битрейт</string>
+    <string-array name="stream_preset_names">
+        <item>Нативный (советуем)</item>
+        <item>Экономия заряда</item>
+    </string-array>
+    <string name="applist_menu_show_app">Показать игру</string>
+</resources>

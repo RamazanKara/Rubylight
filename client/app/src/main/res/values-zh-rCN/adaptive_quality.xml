@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_adaptive_quality">自动串流画质</string>
+    <string name="summary_adaptive_quality">在持续拥塞、解码缓慢或发热时降低分辨率或 FPS，然后逐步恢复。支持时会使用自动码率。需要主机支持重新配置并使用自适应解码器；PyroWave 下不可用。</string>
+    <string name="title_adaptive_quality_min_resolution">最低自动分辨率</string>
+    <string name="summary_adaptive_quality_min_resolution">最小短边长度，保持宽高比。所选的串流分辨率仍为上限。较低的起始分辨率不会因此限制而提高。</string>
+    <string name="title_adaptive_quality_min_fps">最低自动帧率</string>
+    <string name="summary_adaptive_quality_min_fps">允许的最低 FPS。所选的串流帧率仍为上限。适用于自动画质，包括省电模式。</string>
+    <string name="quality_off">关闭</string>
+    <string name="quality_motion">保持流畅</string>
+    <string name="quality_detail">保持细节</string>
+    <string name="quality_battery">延长电池续航</string>
+    <string name="quality_use_settings">使用应用设置</string>
+    <string name="quality_about">工作原理</string>
+    <string name="quality_stream_help">按此电脑保存。“流畅”优先降低分辨率；“细节”优先降低 FPS。“省电”会逐步将负载限制为最多 60 FPS 和 1080 像素短边，且不低于你设置的最低限制。编解码器、HDR 和显示选择保持协商结果不变。</string>
+    <string name="quality_unavailable">自动画质已关闭：此电脑或设备无法在串流期间更改分辨率和帧率。</string>
+    <string name="quality_request_failed">自动画质已停止：电脑未应用新尺寸。串流将继续；请在串流菜单中选择其他模式。</string>
+    <string name="quality_status">自动画质：%1$s · %2$d × %3$d · 目标 %4$d FPS</string>
+</resources>

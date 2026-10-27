@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="startup_connection_failed">Não foi possível conectar ao PC. Confira se o host de transmissão está em execução, se os dois dispositivos se alcançam na rede e se o firewall do PC permite a transmissão. Depois, tente novamente.</string>
+    <string name="startup_permission_denied">O host recusou esta solicitação. Nas configurações ou na interface web do host, ative este dispositivo e permita ver ou iniciar apps.</string>
+    <string name="startup_host_error">O host não conseguiu iniciar esta transmissão (erro %1$d). Verifique o status do host na interface web dele, atualize a lista de apps e tente novamente.</string>
+    <string name="startup_invalid_host">O PC retornou uma versão de servidor inválida. Atualize ou reinicie o host e tente novamente.</string>
+    <string name="startup_virtual_display_unavailable">Este PC não tem tela virtual, então transmite a própria tela.</string>
+    <string name="startup_not_paired">Este dispositivo não está mais pareado. Volte à lista de PCs e pareie novamente.</string>
+    <string name="startup_app_missing">Este app não está mais na biblioteca do PC. Atualize a lista de apps e escolha outro app.</string>
+    <string name="startup_resume_missing">Esta sessão não está mais disponível. Atualize a lista de apps e escolha uma sessão.</string>
+    <string name="startup_host_resolution_unsupported">O PC não suporta resoluções acima de 4K. Escolha 4K ou menos nas Configurações de transmissão.</string>
+    <string name="startup_device_resolution_unsupported">Resoluções acima de 4K exigem suporte a HEVC ou AV1 neste dispositivo. Escolha uma resolução menor ou outro codec.</string>
+    <string name="startup_host_update_4k">Atualize o GeForce Experience no PC para transmitir em 4K. Esta transmissão está em 1080p.</string>
+    <string name="startup_hdr_unavailable">O PC e este dispositivo não têm um codec HDR em comum, então a transmissão está em SDR.</string>
+    <string name="startup_pyrowave_hdr_unavailable">O PyroWave HDR não está disponível neste dispositivo (%1$s), então o HDR usa outro codec.</string>
+    <string name="startup_resume_failed">Não foi possível retomar a sessão. Verifique o app no PC e tente novamente.</string>
+    <string name="startup_session_owner">Outro dispositivo é dono desta sessão. Encerre-a nesse dispositivo ou no PC e tente novamente.</string>
+    <string name="startup_app_minimized">O app está minimizado. Restaure-o no PC ou encerre a sessão e inicie-a novamente.</string>
+    <string name="startup_quit_failed">Não foi possível encerrar a sessão anterior. Encerre-a no PC e tente novamente.</string>
+    <string name="startup_launch_failed">Não foi possível iniciar o app. Confira se ele abre no PC e tente novamente.</string>
+    <string name="applist_permission_required">Este dispositivo não pode listar apps. Permita a listagem de aplicativos para este dispositivo nas configurações ou na interface web do host. A biblioteca é atualizada automaticamente.</string>
+    <string name="applist_load_failed">Não foi possível carregar os apps do PC. Verifique o host e a permissão de listar aplicativos deste dispositivo nas configurações ou na interface web dele. Tentando novamente de forma automática.</string>
+    <string name="applist_empty">Nenhum app disponível. Adicione apps à biblioteca do host e verifique a permissão de listar aplicativos deste dispositivo nas configurações ou na interface web do host.</string>
+    <string name="host_profile_unsaved_title">Salvar configurações de transmissão?</string>
+    <string name="host_profile_unsaved_message">Suas alterações nas configurações de transmissão deste PC não foram salvas. Um modo de tela confirmado na própria caixa de diálogo é salvo separadamente.</string>
+    <string name="host_profile_discard">Descartar alterações</string>
+    <string name="preset_replace_settings">Isto substitui resolução, taxa de quadros, taxa de bits, ritmo de quadros, upscaling, VRR e configurações de desempenho pelos valores desta predefinição. As escolhas de codec e HDR permanecem como estão.</string>
+    <string name="pair_otp_incorrect_pin">PIN recusado. Gere um novo PIN de uso único na interface web do host e confira a senha.</string>
+    <string name="pc_accessibility_actions">Ações do PC</string>
+    <string name="app_details">Nome: %1$s\nHDR compatível: %2$s\nID do app: %3$d</string>
+    <string name="app_hdr_unknown">Desconhecido</string>
+</resources>

@@ -1,0 +1,16 @@
+<resources>
+    <string name="refresh_diag_no_mode">Поток запрашивает %1$s Гц, но этот экран поддерживает только %2$s Гц и сейчас работает на %3$s Гц.</string>
+    <string name="refresh_diag_not_seamless">Экран остаётся на %2$s Гц вместо запрошенных %1$s Гц: переключение ненадолго погасило бы изображение (режимы: %3$s Гц).</string>
+    <string name="refresh_diag_needs_match_setting">Экран остаётся на %2$s Гц вместо запрошенных %1$s Гц: при переключении изображение ненадолго пропало бы, а Android делает это только если в настройках экрана разрешено согласование частоты кадров с контентом (режимы: %3$s Гц).</string>
+    <string name="refresh_diag_user_limit">Экран остаётся на %2$s Гц вместо запрошенных %1$s Гц: настройка частоты обновления Android разрешает не больше %3$s Гц.</string>
+    <string name="refresh_diag_battery_saver">Экран остаётся на %2$s Гц вместо запрошенных %1$s Гц: её ограничивает режим энергосбережения.</string>
+    <string name="refresh_diag_thermal">Экран остаётся на %2$s Гц вместо запрошенных %1$s Гц: устройство нагрето и ограничивает её до 60 Гц.</string>
+    <string name="refresh_diag_unexplained">Экран остаётся на %2$s Гц вместо запрошенных %1$s Гц. Android не называет причину (режимы: %3$s Гц).</string>
+    <string name="stream_vrr_old_android">Переменная частота требует Android 16, поэтому экран работает на максимальной частоте.</string>
+    <string name="stream_vrr_no_arr">У этого экрана нет адаптивной частоты обновления, поэтому он работает на максимальной частоте.</string>
+    <string name="stream_hdr_mode_unsupported">Этот режим экрана не показывает HDR, поэтому поток идёт в SDR.</string>
+    <string name="stream_hdr_not_negotiated">HDR запрошен, но ПК не прислал HDR-видео, поэтому поток идёт в SDR.</string>
+    <string name="stream_hdr_host_sdr">HDR запрошен, но ПК сообщает SDR. Включите HDR в Windows для транслируемого экрана.</string>
+    <string name="stream_hdr_no_metadata">HDR включён, но ПК не прислал данные мастеринга, поэтому яркость может выглядеть неверно.</string>
+    <string name="stream_hdr_output_not_pq">HDR включён, но декодер этого устройства сообщает вывод без HDR, поэтому цвета могут выглядеть блёклыми.</string>
+</resources>

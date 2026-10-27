@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="gpu_driver_title">骁龙 GPU 驱动</string>
+    <string name="gpu_driver_system">系统 GPU 驱动</string>
+    <string name="gpu_driver_explanation">PyroWave 可以使用包含 meta.json 和 arm64 库的 Adreno 驱动 ZIP。请选择你信任且支持你的 GPU 和 Android 版本的驱动包。更改将在下次串流时生效，且仅影响此应用。如果加载失败，应用会使用系统驱动。使用自定义驱动发生崩溃后，下次启动时会恢复为系统驱动。兼容性和性能仍取决于你的手机和驱动。</string>
+    <string name="gpu_driver_unsupported">自定义驱动需要 Android 10 或更高版本、64 位 arm64 应用以及 Adreno GPU。此设备使用系统 GPU 驱动。</string>
+    <string name="gpu_driver_system_fallback">自定义驱动失败，现正使用系统 GPU 驱动。</string>
+    <string name="gpu_driver_import">导入驱动 ZIP</string>
+    <string name="gpu_driver_no_picker">请安装文件选择器以导入驱动 ZIP。</string>
+    <string name="gpu_driver_remove">移除驱动</string>
+    <string name="gpu_driver_removed">驱动已移除。</string>
+    <string name="gpu_driver_imported">已导入并选择：%1$s</string>
+    <string name="gpu_driver_working">正在检查驱动…</string>
+    <string name="gpu_driver_error">驱动操作失败：%1$s</string>
+</resources>

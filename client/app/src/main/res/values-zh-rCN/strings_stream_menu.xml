@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="overlay_compact">精简</string>
+    <string name="overlay_compact_fps">%1$s FPS</string>
+    <string name="overlay_compact_rtt">RTT %1$s ms</string>
+    <string name="overlay_compact_loss">丢包 %1$s%%</string>
+    <string name="overlay_compact_waiting">正在等待视频</string>
+    <string name="link_notice_lowered">主机已将码率降至 %1$s Mbps：网络</string>
+    <string name="overlay_health_good">串流良好</string>
+    <string name="overlay_health_fair">串流不稳定</string>
+    <string name="overlay_health_poor">串流较差</string>
+    <string name="overlay_health_unknown">串流启动中</string>
+    <string name="stream_section_input">输入</string>
+    <string name="stream_section_display">显示</string>
+    <string name="stream_section_quality">画质</string>
+    <string name="stream_section_host">主机</string>
+    <string name="stream_microphone">麦克风</string>
+    <string name="stream_cursor_show">显示鼠标光标</string>
+    <string name="stream_cursor_hide">隐藏鼠标光标</string>
+    <string name="stream_keyboard_keys_hide">隐藏额外键盘按键</string>
+    <string name="stream_overlay_page">叠加层和诊断</string>
+    <string name="stream_picture_in_picture">画中画</string>
+    <string name="stream_quit_game">退出游戏</string>
+    <string name="stream_quit_game_confirm">要退出电脑上的游戏吗？\n未保存的进度将会丢失。</string>
+    <string name="stream_end_session">结束会话</string>
+    <string name="stream_end_session_confirm">要结束电脑上的串流会话吗？
+游戏将继续运行。</string>
+    <string name="stream_close_game">关闭游戏</string>
+    <string name="stream_close_game_confirm">要关闭电脑上的游戏吗？
+未保存的进度将会丢失。</string>
+    <string name="stream_choice_selected">已选择</string>
+    <string name="stream_choice_not_selected">未选择</string>
+    <string name="stream_web_ui_leaves">打开浏览器会离开串流；游戏会继续在电脑上运行。</string>
+    <string name="stream_menu_hint">如需打开串流菜单，请%1$s。</string>
+    <string name="stream_menu_hint_swipe">从屏幕边缘向内滑动返回</string>
+    <string name="stream_menu_hint_buttons">从底部向上滑动并点按“返回”</string>
+    <string name="stream_menu_hint_back">按“返回”</string>
+    <string name="stream_menu_hint_controller">在手柄上同时按 Start + Back + LB + RB</string>
+    <string name="stream_menu_hint_keyboard">按 Ctrl + Alt + Shift + M</string>
+    <string name="stream_menu_hint_or">%1$s或%2$s</string>
+    <string name="stream_menu_hint_list">%1$s、%2$s</string>
+    <string name="stream_menu_hint_close">点按即可关闭</string>
+    <string name="stream_h264_decoder_missing">此设备无法以硬件方式解码 H.264 视频，而串流需要此功能。</string>
+    <string name="perf_overlay_vrr">屏幕：%1$.2f Hz · 渲染：%2$.2f Hz · VRR：%3$s</string>
+    <string name="perf_overlay_vrr_max_hz">最高 Hz</string>
+    <string name="sheet_back">返回</string>
+</resources>

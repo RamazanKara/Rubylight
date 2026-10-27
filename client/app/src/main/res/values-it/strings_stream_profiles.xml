@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Named profiles (Settings → Video → Profiles) -->
+    <string name="profiles_title">Profili</string>
+    <string name="profiles_subtitle">Profilo</string>
+    <string name="profiles_summary_none">Nessuno: gli stream usano le impostazioni principali</string>
+    <string name="profiles_summary_in_use">In uso: %1$s</string>
+    <string name="profiles_summary_auto">Scelto in base alla rete all’avvio dello stream</string>
+    <string name="profiles_section_list">I tuoi profili</string>
+    <string name="profiles_section_choice">Quale profilo usa uno stream</string>
+    <string name="profiles_new">Nuovo profilo</string>
+    <string name="profiles_new_summary">Parte vuoto: imposta solo i valori che deve cambiare.</string>
+    <string name="profiles_name">Nome del profilo</string>
+    <string name="profiles_name_empty">Inserisci un nome</string>
+    <string name="profiles_name_too_long">Usa al massimo %1$d caratteri</string>
+    <string name="profiles_name_taken">Un altro profilo ha già questo nome</string>
+    <string name="profiles_too_many">Puoi avere fino a %1$d profili.</string>
+    <string name="profiles_values_none">Ancora nessun valore</string>
+    <plurals name="profiles_values_count">
+        <item quantity="one">%d valore impostato</item>
+        <item quantity="other">%d valori impostati</item>
+    </plurals>
+    <string name="profiles_marker_in_use">In uso</string>
+    <string name="profiles_marker_rules">Scelto per: %1$s</string>
+    <string name="profiles_edit">Modifica valori</string>
+    <string name="profiles_rename">Rinomina</string>
+    <string name="profiles_duplicate">Duplica</string>
+    <string name="profiles_delete">Elimina</string>
+    <string name="profiles_copy_name">%1$s (copia)</string>
+    <string name="profiles_delete_title">Eliminare %1$s?</string>
+    <string name="profiles_delete_message">Gli stream che usavano questo profilo useranno le impostazioni principali. L’operazione non può essere annullata.</string>
+    <string name="profiles_deleted">Profilo eliminato</string>
+    <string name="profiles_in_use">Profilo in uso</string>
+    <string name="profiles_none">Nessuno (impostazioni principali)</string>
+    <string name="profiles_main_settings">impostazioni principali</string>
+    <string name="profiles_auto">Scegli in base alla rete</string>
+    <string name="profiles_auto_summary_on">Attivo: all’avvio di uno stream, la rete sceglie il profilo qui sotto. Ethernet e le reti senza una scelta usano il profilo in uso.</string>
+    <string name="profiles_auto_summary_off">Disattivato: ogni stream usa il profilo in uso.</string>
+    <string name="profiles_rule_default">Profilo in uso</string>
+    <string name="profiles_network_mobile">Dati mobili</string>
+    <string name="profiles_network_home_wifi">Wi-Fi di casa</string>
+    <string name="profiles_network_wifi">Altra Wi-Fi</string>
+    <string name="profiles_network_other">Ethernet o altro</string>
+    <string name="profiles_rule_mobile_summary">Anche le reti Wi-Fi che Android considera a consumo, come l’hotspot di un telefono.</string>
+    <string name="profiles_rule_wifi_summary">Qualsiasi Wi-Fi che non sia di casa, oppure ogni Wi-Fi se non è impostata nessuna Wi-Fi di casa.</string>
+    <string name="profiles_now">Prossimo stream su questa rete</string>
+    <string name="profiles_now_value">%1$s: %2$s</string>
+    <string name="profiles_home_networks">Wi-Fi di casa</string>
+    <string name="profiles_home_none">Nessuna impostata: ogni Wi-Fi conta come altra Wi-Fi.</string>
+    <string name="profiles_home_saved">Salvate su questo dispositivo. Seleziona per rimuovere.</string>
+    <string name="profiles_home_remove">Rimuovi</string>
+    <string name="profiles_home_remove_title">Rimuovere %1$s dalle Wi-Fi di casa?</string>
+    <string name="profiles_home_no_access">L’accesso alla posizione è disattivato: la Wi-Fi di casa non può essere riconosciuta e conta come altra Wi-Fi.</string>
+    <string name="profiles_home_add_current">Aggiungi questa Wi-Fi</string>
+    <string name="profiles_home_add_current_summary">Salva il nome della Wi-Fi a cui è connesso questo dispositivo. Android richiede l’accesso alla posizione per leggerlo.</string>
+    <string name="profiles_home_type">Digita un nome Wi-Fi</string>
+    <string name="profiles_home_type_summary">Per riconoscerla all’avvio di uno stream serve comunque l’accesso alla posizione.</string>
+    <string name="profiles_home_name">Nome della Wi-Fi</string>
+    <string name="profiles_location_title">Consentire l’accesso alla posizione?</string>
+    <string name="profiles_location_message">Android mostra il nome della Wi-Fi solo alle app con accesso alla posizione. Viene usato per un solo scopo: distinguere la tua Wi-Fi di casa dalle altre Wi-Fi all’avvio di uno stream. Nessuna posizione viene letta e il nome della Wi-Fi resta su questo dispositivo: non viene mai inviato né registrato. Senza accesso, ogni Wi-Fi conta come altra Wi-Fi.</string>
+    <string name="profiles_location_continue">Continua</string>
+    <string name="profiles_location_denied">Nessun accesso alla posizione: ogni Wi-Fi conta come altra Wi-Fi. Puoi consentirlo in seguito nelle impostazioni app di Android.</string>
+    <string name="profiles_wifi_unreadable">Impossibile leggere il nome della Wi-Fi. Verifica che questo dispositivo sia connesso alla Wi-Fi e che la posizione sia attiva, oppure digita il nome.</string>
+    <string name="profiles_order">All’avvio di uno stream, ogni valore viene dal primo di questi livelli che lo imposta: questo gioco, questo PC, il profilo e infine le impostazioni principali. Con i dati mobili, Bitrate con dati mobili limita poi il bitrate. Le modifiche non si applicano mai a uno stream già in corso.</string>
+    <string name="profiles_privacy">I nomi delle Wi-Fi di casa restano su questo dispositivo e non vengono mai inviati né registrati.</string>
+
+    <!-- Bitrate on mobile data (Settings → Video) -->
+    <string name="title_mobile_bitrate">Bitrate con dati mobili</string>
+    <string name="summary_mobile_bitrate">Limita il bitrate quando uno stream parte con i dati mobili o su una Wi-Fi che Android considera a consumo, come l’hotspot di un telefono. Il limite vale anche per i valori di profili, PC e giochi. Disattivato usa lo stesso bitrate delle altre reti.</string>
+    <string name="mobile_bitrate_off">Disattivato</string>
+
+    <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->
+    <string name="profile_settings_explanation">Imposta solo i valori che questo profilo deve cambiare. Ciò che non è impostato viene dalle impostazioni principali. I valori propri di un PC o di un gioco hanno comunque la precedenza sul profilo.</string>
+    <string name="game_settings_title">Impostazioni dello stream del gioco</string>
+    <string name="game_settings_subtitle">Su %1$s</string>
+    <string name="game_settings_explanation">I valori impostati qui valgono solo per questo gioco su questo PC. Ciò che non è impostato viene, in quest’ordine, dalle impostazioni di questo PC, dal profilo e dalle impostazioni principali.</string>
+    <string name="game_settings_action">Impostazioni dello stream per questo gioco</string>
+    <string name="game_settings_note_none">Usa le impostazioni di questo PC</string>
+    <plurals name="game_settings_note_own">
+        <item quantity="one">%d valore impostato per questo gioco</item>
+        <item quantity="other">%d valori impostati per questo gioco</item>
+    </plurals>
+    <string name="layers_saved">Impostazioni dello stream salvate</string>
+    <string name="layers_saved_context">Le modifiche si applicano al prossimo stream dopo il salvataggio.</string>
+    <string name="layers_unsaved_context">Modifiche non salvate</string>
+    <string name="layers_unsaved_message">Le modifiche a queste impostazioni dello stream non sono state salvate.</string>
+    <string name="layers_reset">Cancella tutti i valori</string>
+    <string name="layers_reset_message">Ogni valore torna a Non impostato. Salva per applicare.</string>
+    <string name="layers_status_empty">Qui non è impostato nulla: ogni valore viene dai livelli sottostanti.</string>
+    <string name="layers_status_custom">Riporta ogni valore a Non impostato.</string>
+    <string name="layers_footer">Salva prima di uscire. Le modifiche si applicano al prossimo stream, mai a uno già in corso.</string>
+    <string name="layers_not_set_value">Non impostato (%1$s)</string>
+    <string name="layers_value_from">%1$s · %2$s</string>
+    <string name="layers_from_main">dalle impostazioni principali</string>
+    <string name="layers_from_profile">dal profilo %1$s</string>
+    <string name="layers_from_pc">impostato per questo PC</string>
+    <string name="layers_from_game">impostato per questo gioco</string>
+    <string name="layers_from_mobile_limit">limite dati mobili</string>
+    <string name="layers_pacing_vrr">L’aggiornamento adattivo è attivo, quindi lo stream usa Latenza minima.</string>
+
+    <!-- In the stream -->
+    <string name="layers_applied">Impostazioni: %1$s</string>
+    <string name="layers_part_profile">profilo %1$s</string>
+    <string name="layers_part_profile_network">profilo %1$s, scelto per %2$s</string>
+    <string name="layers_part_pc">questo PC</string>
+    <string name="layers_part_game">questo gioco</string>
+    <string name="layers_part_mobile_limit">limite dati mobili</string>
+    <string name="layers_problem_profile_missing">Il profilo in uso non esiste più, quindi valgono le impostazioni principali.</string>
+    <string name="layers_problem_profile_missing_network">Il profilo scelto per %1$s non esiste più, quindi valgono le impostazioni principali.</string>
+    <string name="layers_problem_profile_invalid">Il profilo %1$s ha un valore che questa versione non può leggere, quindi valgono le impostazioni principali. Aprilo in Profili per correggerlo.</string>
+    <string name="layers_problem_pc_invalid">Le impostazioni dello stream proprie di questo PC non sono leggibili e vengono ignorate. Apri le impostazioni del PC per correggerle.</string>
+    <string name="layers_problem_game_invalid">Le impostazioni dello stream di questo gioco non sono leggibili e vengono ignorate. Aprile dal menu del gioco per correggerle.</string>
+    <string name="layers_problem_home_wifi_unknown">Senza accesso alla posizione la Wi-Fi di casa non può essere riconosciuta, quindi questa Wi-Fi conta come altra Wi-Fi.</string>
+    <!-- Presets for one game's stream settings -->
+    <string name="game_preset_title">Preset</string>
+    <string name="game_preset_competitive">Competitivo</string>
+    <string name="game_preset_competitive_summary">Imposta il frame pacing sulla latenza più bassa. Nient’altro cambia.</string>
+    <string name="game_preset_smoothness">Fluidità</string>
+    <string name="game_preset_smoothness_summary">Imposta il frame pacing più fluido, che trattiene i fotogrammi e aggiunge ritardo, e disattiva la frequenza adattiva per questo gioco. Il bitrate non cambia.</string>
+    <string name="game_preset_quality">Qualità</string>
+    <string name="game_preset_quality_summary" formatted="false">Imposta il bitrate al 150% di quello del PC, o delle impostazioni principali se il PC non ne ha uno, fino al limite dell’host. Il frame pacing e la frequenza adattiva non cambiano; con una connessione debole i fotogrammi più grandi possono aggiungere ritardo.</string>
+    <string name="game_preset_custom">Personalizzato</string>
+    <string name="game_preset_custom_summary">I tuoi valori, impostati qui sotto.</string>
+</resources>

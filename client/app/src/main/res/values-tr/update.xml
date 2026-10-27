@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_update_available">Rubylight %1$s güncellemesi mevcut</string>
+    <string name="host_update_stream_notice">Rubylight %1$s mevcut. Ana makinenin Bakım sekmesinden güncelleyin.</string>
+    <string name="update_stream_notice">Nightjar %1$s mevcut. Güncellemek için Nightjar ayarlarını açın.</string>
+    <string name="title_check_updates">Güncellemeleri otomatik denetle</string>
+    <string name="summary_check_updates">Uygulama açıldığında yeni sürüm arar, günde en fazla iki kez. Siz seçmeden hiçbir şey kurulmaz.</string>
+    <string name="title_check_updates_now">Güncellemeleri şimdi denetle</string>
+    <string name="summary_check_updates_now">Daha yeni bir sürüm ara</string>
+    <string name="update_checking">Güncellemeler denetleniyor…</string>
+    <string name="update_up_to_date">En son sürümü kullanıyorsunuz</string>
+    <string name="update_check_failed">Güncellemeler denetlenemedi</string>
+    <string name="update_available_title">Güncelleme var</string>
+    <string name="update_available_message">%1$s sürümü mevcut. Sizdeki sürüm %2$s.</string>
+    <string name="update_action_update">Güncelle</string>
+    <string name="update_action_later">Sonra</string>
+    <string name="update_action_skip">Bu sürümü atla</string>
+    <string name="update_allow_title">Kurulumlara izin ver</string>
+    <string name="update_allow_message">Bu uygulamanın güncelleme kurabilmesi için Android\'in izni gerekir. İzni açın, geri dönün ve yeniden Güncelle\'ye dokunun.</string>
+    <string name="update_allow_open">Ayarları aç</string>
+    <string name="update_downloading_title">%1$s sürümü indiriliyor</string>
+    <string name="update_downloading">İndirme başlıyor…</string>
+    <string name="update_progress">%1$s / %2$s</string>
+    <string name="update_error_title">Güncelleme başarısız</string>
+    <string name="update_error_no_apk">Bu sürümde bu cihaz için indirme yok.</string>
+    <string name="update_error_no_checksums">Bu sürümde sağlama toplamı dosyası yok, bu yüzden indirme doğrulanamaz. Hiçbir şey kurulmadı.</string>
+    <string name="update_error_checksum_missing">Sağlama toplamı dosyasında bu indirme yok. Hiçbir şey kurulmadı.</string>
+    <string name="update_error_checksum_mismatch">İndirilen dosya sağlama toplamıyla eşleşmiyor ve silindi. Hiçbir şey kurulmadı.</string>
+    <string name="update_error_download">İndirme başarısız oldu. Bağlantınızı denetleyip yeniden deneyin.</string>
+    <string name="update_error_install_start">Güncelleme başlatılamadı.</string>
+    <string name="update_error_install">Güncelleme kurulamadı: %1$s</string>
+    <string name="update_error_install_blocked">Android kurulum ekranını açmadı. Güncellemeyi yeniden deneyin.</string>
+</resources>

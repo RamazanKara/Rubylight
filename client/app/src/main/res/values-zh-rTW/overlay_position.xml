@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_overlay_position">覆蓋層位置</string>
+    <string name="overlay_position_section">位置</string>
+    <string name="overlay_position_top_left">左上角</string>
+    <string name="overlay_position_top_right">右上角</string>
+    <string name="overlay_position_bottom_left">左下角</string>
+    <string name="overlay_position_bottom_right">右下角</string>
+</resources>

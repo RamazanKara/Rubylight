@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="controller_mapping_title">Botones del mando</string>
+    <string name="controller_mapping_summary">Reasigna los botones para cada modelo de mando</string>
+    <string name="controller_mapping_intro">Toca «Asignar un botón» y pulsa el botón del mando que quieras reasignar.\nLos cambios se aplican a la próxima transmisión.</string>
+    <string name="controller_mapping_waiting">Conecta un mando y toca «Asignar un botón».</string>
+    <string name="controller_mapping_unnamed">Mando</string>
+    <string name="controller_mapping_none">Todos los botones usan su asignación predeterminada.</string>
+    <string name="controller_mapping_row">Envía %1$s</string>
+    <string name="controller_mapping_choose">%1$s envía…</string>
+    <string name="controller_mapping_default">%1$s (predeterminado)</string>
+    <string name="controller_mapping_disabled">Nada</string>
+    <string name="controller_mapping_reset">Restablecer este mando</string>
+    <string name="controller_button_left_stick">Pulsar joystick izquierdo</string>
+    <string name="controller_button_right_stick">Pulsar joystick derecho</string>
+    <string name="controller_button_start">Start</string>
+    <string name="controller_button_select">Back</string>
+    <string name="controller_button_guide">Guide</string>
+    <string name="controller_button_number">Botón %1$d</string>
+    <string name="pc_tap_to_pair">%1$s\nToca para vincular</string>
+</resources>

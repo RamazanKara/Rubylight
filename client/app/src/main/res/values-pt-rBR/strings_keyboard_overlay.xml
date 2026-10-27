@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="keyboard_keys_show">Teclas extras do teclado</string>
+    <string name="keyboard_keys_hide">Ocultar teclas</string>
+    <string name="keyboard_task_manager">Gerenciador de Tarefas</string>
+    <string name="keyboard_switch_window">Alternar janela</string>
+    <string name="keyboard_close_window">Fechar janela</string>
+    <string name="keyboard_arrow_left">Seta para a esquerda</string>
+    <string name="keyboard_arrow_up">Seta para cima</string>
+    <string name="keyboard_arrow_down">Seta para baixo</string>
+    <string name="keyboard_arrow_right">Seta para a direita</string>
+</resources>

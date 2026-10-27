@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_input_only_any_host">在任意电脑上仅输入</string>
+    <string name="summary_checkbox_input_only_any_host">在主机没有自带仅输入模式的电脑上，向游戏菜单添加“仅输入”。电脑仍会以最小尺寸发送视频和音频（低于 1 Mbit/s）；Nightjar 不会显示或播放它们。自带该模式的主机仍使用自带模式。</string>
+    <string name="input_only_start">仅输入</string>
+    <string name="input_only_small_stream_note">视频仍以最小尺寸串流，约 %1$.1f Mbit/s（每小时 %2$d MB），但不会显示</string>
+    <string name="input_only_reason_input_permission">请在主机上允许此设备输入</string>
+    <string name="input_only_small_stream_status">仅输入\n使用触控、按键或手柄。\n电脑仍在串流小尺寸视频（约 %1$.1f Mbit/s），但不会显示。\n按“返回”可打开串流菜单。</string>
+    <string name="input_only_small_stream_refused">此电脑上的“仅输入”使用一个小尺寸的普通串流，但主机拒绝了它。有些主机同一时间只允许一个串流：请结束另一个串流，或在主机设置中允许更多串流。</string>
+    <string name="input_only_other_game">电脑上正在运行另一个游戏。“仅输入”会加入正在运行的游戏，绝不会退出它：请选择该游戏，或先结束它。</string>
+</resources>

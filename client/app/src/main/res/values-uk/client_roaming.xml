@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_client_roaming">Роумінг клієнта (експериментально)</string>
+    <string name="summary_client_roaming">Стрим триває, коли цей пристрій змінює мережу. Працює з ПК Rubylight, які це підтримують.</string>
+    <string name="title_roaming_metered">Продовжувати через мобільні дані</string>
+    <string name="summary_roaming_metered">Дозволяє переводити стрим на мобільні дані або іншу лімітну мережу. Стримінг витрачає багато трафіку.</string>
+</resources>

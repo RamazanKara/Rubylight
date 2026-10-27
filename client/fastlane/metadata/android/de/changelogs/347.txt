@@ -1,0 +1,1 @@
+Neu: Bilder im Takt des PCs zeigen. Bilder erscheinen, wann das Spiel sie gezeichnet hat, statt wann das Netzwerk sie geliefert hat; das gleicht Schwankungen aus, besonders mit adaptiver Bildwiederholrate.

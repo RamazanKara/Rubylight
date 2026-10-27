@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_update_available">Có bản cập nhật Rubylight %1$s</string>
+    <string name="host_update_stream_notice">Đã có Rubylight %1$s. Hãy cập nhật trong thẻ Bảo trì của máy chủ.</string>
+    <string name="update_stream_notice">Đã có Nightjar %1$s. Mở phần cài đặt Nightjar để cập nhật.</string>
+    <string name="title_check_updates">Tự động kiểm tra bản cập nhật</string>
+    <string name="summary_check_updates">Tìm phiên bản mới khi mở ứng dụng, tối đa hai lần mỗi ngày. Không có gì được cài đặt nếu bạn không chọn.</string>
+    <string name="title_check_updates_now">Kiểm tra bản cập nhật ngay</string>
+    <string name="summary_check_updates_now">Tìm phiên bản mới hơn</string>
+    <string name="update_checking">Đang kiểm tra bản cập nhật…</string>
+    <string name="update_up_to_date">Bạn đang dùng phiên bản mới nhất</string>
+    <string name="update_check_failed">Không thể kiểm tra bản cập nhật</string>
+    <string name="update_available_title">Có bản cập nhật</string>
+    <string name="update_available_message">Đã có phiên bản %1$s. Bạn đang dùng %2$s.</string>
+    <string name="update_action_update">Cập nhật</string>
+    <string name="update_action_later">Để sau</string>
+    <string name="update_action_skip">Bỏ qua phiên bản này</string>
+    <string name="update_allow_title">Cho phép cài đặt</string>
+    <string name="update_allow_message">Android cần bạn cho phép trước khi ứng dụng này cài được bản cập nhật. Hãy bật quyền, quay lại và nhấn Cập nhật lần nữa.</string>
+    <string name="update_allow_open">Mở cài đặt</string>
+    <string name="update_downloading_title">Đang tải phiên bản %1$s</string>
+    <string name="update_downloading">Đang bắt đầu tải…</string>
+    <string name="update_progress">%1$s / %2$s</string>
+    <string name="update_error_title">Cập nhật thất bại</string>
+    <string name="update_error_no_apk">Bản phát hành này không có bản tải cho thiết bị này.</string>
+    <string name="update_error_no_checksums">Bản phát hành này không có tệp checksum nên không thể xác minh bản tải. Chưa cài đặt gì.</string>
+    <string name="update_error_checksum_missing">Tệp checksum không liệt kê bản tải này. Chưa cài đặt gì.</string>
+    <string name="update_error_checksum_mismatch">Bản tải không khớp checksum và đã bị xóa. Chưa cài đặt gì.</string>
+    <string name="update_error_download">Tải thất bại. Kiểm tra kết nối rồi thử lại.</string>
+    <string name="update_error_install_start">Không thể bắt đầu cập nhật.</string>
+    <string name="update_error_install">Không thể cài đặt bản cập nhật: %1$s</string>
+    <string name="update_error_install_blocked">Android không mở màn hình cài đặt. Hãy thử cập nhật lại.</string>
+</resources>

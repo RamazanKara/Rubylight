@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_feature_permissions">기기 권한</string>
+    <string name="host_feature_otp_pairing">일회용 PIN 페어링</string>
+    <string name="host_feature_clipboard">클립보드</string>
+    <string name="host_feature_server_commands">서버 명령</string>
+    <string name="host_feature_virtual_display">가상 디스플레이</string>
+    <string name="host_feature_virtual_display_hdr">HDR 가상 디스플레이</string>
+    <string name="host_feature_display_modes">PC 디스플레이 모드</string>
+    <string name="host_feature_fractional_refresh">소수점 주사율</string>
+    <string name="host_feature_vrr">호스트 측 VRR</string>
+    <string name="host_feature_runtime_bitrate">스트리밍 중 비트레이트 변경</string>
+    <string name="host_feature_pyrowave">PyroWave</string>
+    <string name="host_feature_speed_test">연결 속도 테스트</string>
+    <string name="host_feature_hardware_metrics">호스트 CPU 및 GPU 측정값</string>
+    <string name="host_feature_network_path">네트워크 경로 확인</string>
+    <string name="host_feature_frame_limiter">프레임 제한 상태</string>
+    <string name="host_feature_controller_preparation">컨트롤러 재연결</string>
+    <string name="host_feature_remote_sessions">원격 모니터 및 입력 전용</string>
+    <string name="host_feature_web_ui">웹 UI</string>
+    <string name="host_feature_reason_update">사용하려면 호스트 소프트웨어를 업데이트하세요</string>
+    <string name="host_feature_reason_pair">먼저 이 PC와 페어링하세요</string>
+    <string name="host_feature_reason_view_permission">호스트에서 이 기기의 스트림 보기를 허용하세요</string>
+    <string name="host_feature_reason_clipboard_permission">호스트에서 이 기기의 클립보드 사용을 허용하세요</string>
+    <string name="host_feature_reason_command_permission">호스트에서 이 기기의 서버 명령을 허용하세요</string>
+    <string name="host_feature_reason_no_commands">호스트의 웹 UI에서 명령을 추가하세요</string>
+    <string name="host_feature_reason_virtual_display_off">호스트 설정에서 가상 디스플레이를 켜세요</string>
+    <string name="host_feature_reason_virtual_display_driver">호스트의 가상 디스플레이 드라이버가 준비되지 않았습니다</string>
+    <string name="host_feature_reason_hardware_metrics_off">호스트 설정에서 하드웨어 측정값을 켜세요</string>
+    <string name="host_feature_reason_sleep_permission">이 기기는 PC를 절전 모드로 전환할 수 없도록 설정되어 있습니다</string>
+    <string name="host_feature_reason_file_permission">이 기기에 파일 권한이 없습니다. 호스트의 웹 UI에서 허용하세요</string>
+    <string name="host_feature_unknown">호스트가 지원하는 경우 적용됨</string>
+    <string name="host_details_software_apollo">Apollo 호환 호스트</string>
+    <string name="host_details_software_vibepollo">Vibepollo 호환 호스트</string>
+    <string name="host_details_software_unknown">Moonlight 호환 호스트</string>
+    <string name="host_details_features">기능</string>
+    <string name="host_details_features_unknown">지원 기능을 확인하려면 이 PC에 한 번 연결하세요.</string>
+    <string name="host_details_features_none">보고된 추가 기능 없음</string>
+    <string name="host_pyrowave_unavailable">이 PC는 PyroWave를 스트리밍할 수 없어 %1$s을(를) 사용합니다.</string>
+    <string name="connection_test_intro_delay">PC까지의 지연 시간을 테스트합니다.</string>
+    <string name="host_feature_cursor_shape">커서 모양</string>
+</resources>

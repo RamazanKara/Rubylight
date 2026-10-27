@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_input_only_any_host">Chỉ đầu vào trên mọi PC</string>
+    <string name="summary_checkbox_input_only_any_host">Thêm Chỉ đầu vào vào menu của trò chơi trên những PC có máy chủ không có chế độ chỉ đầu vào riêng. PC vẫn gửi hình và âm thanh ở kích thước nhỏ nhất, dưới 1 Mbit/s; Nightjar không hiển thị hay phát chúng. Máy chủ có chế độ riêng vẫn dùng chế độ đó.</string>
+    <string name="input_only_start">Chỉ đầu vào</string>
+    <string name="input_only_small_stream_note">Video vẫn được stream ở kích thước nhỏ nhất, khoảng %1$.1f Mbit/s (%2$d MB mỗi giờ), nhưng không được hiển thị</string>
+    <string name="input_only_reason_input_permission">Hãy cho phép thiết bị này nhập liệu trên máy chủ</string>
+    <string name="input_only_small_stream_status">Chỉ đầu vào\nDùng cảm ứng, phím hoặc tay cầm điều khiển.\nPC vẫn stream video nhỏ (khoảng %1$.1f Mbit/s); video không được hiển thị.\nQuay lại sẽ mở menu stream.</string>
+    <string name="input_only_small_stream_refused">Trên PC này, Chỉ đầu vào dùng một stream thường cỡ nhỏ và máy chủ đã từ chối. Một số máy chủ chỉ cho phép một stream mỗi lúc: hãy kết thúc stream kia hoặc cho phép nhiều hơn trong cài đặt máy chủ.</string>
+    <string name="input_only_other_game">Một trò chơi khác đang chạy trên PC. Chỉ đầu vào tham gia trò chơi đang chạy và không bao giờ thoát nó: hãy chọn trò chơi đó hoặc kết thúc nó trước.</string>
+</resources>

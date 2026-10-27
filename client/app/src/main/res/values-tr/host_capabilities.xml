@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_feature_permissions">Cihaz izinleri</string>
+    <string name="host_feature_otp_pairing">Tek kullanımlık PIN ile eşleştirme</string>
+    <string name="host_feature_clipboard">Pano</string>
+    <string name="host_feature_server_commands">Sunucu komutları</string>
+    <string name="host_feature_virtual_display">Sanal ekran</string>
+    <string name="host_feature_virtual_display_hdr">HDR sanal ekran</string>
+    <string name="host_feature_display_modes">Bilgisayar ekran modları</string>
+    <string name="host_feature_fractional_refresh">Kesirli yenileme hızları</string>
+    <string name="host_feature_vrr">Ana bilgisayar tarafında VRR</string>
+    <string name="host_feature_runtime_bitrate">Yayın sırasında bit hızı değişikliği</string>
+    <string name="host_feature_pyrowave">PyroWave</string>
+    <string name="host_feature_speed_test">Bağlantı hızı testi</string>
+    <string name="host_feature_hardware_metrics">Ana bilgisayar CPU ve GPU değerleri</string>
+    <string name="host_feature_network_path">Ağ rotası kontrolü</string>
+    <string name="host_feature_frame_limiter">Kare sınırlayıcı durumu</string>
+    <string name="host_feature_controller_preparation">Kumanda yeniden bağlantıları</string>
+    <string name="host_feature_remote_sessions">Uzak Monitör ve Yalnızca Giriş</string>
+    <string name="host_feature_web_ui">Web arayüzü</string>
+    <string name="host_feature_reason_update">Bunu kullanmak için ana bilgisayar yazılımını güncelleyin</string>
+    <string name="host_feature_reason_pair">Önce bu bilgisayarla eşleştirin</string>
+    <string name="host_feature_reason_view_permission">Ana bilgisayarda bu cihaz için yayın görüntülemeye izin verin</string>
+    <string name="host_feature_reason_clipboard_permission">Ana bilgisayarda bu cihaz için panoya izin verin</string>
+    <string name="host_feature_reason_command_permission">Ana bilgisayarda bu cihaz için sunucu komutlarına izin verin</string>
+    <string name="host_feature_reason_no_commands">Ana bilgisayarın web arayüzünden komut ekleyin</string>
+    <string name="host_feature_reason_virtual_display_off">Ana bilgisayarın ayarlarından sanal ekranı açın</string>
+    <string name="host_feature_reason_virtual_display_driver">Ana bilgisayarın sanal ekran sürücüsü hazır değil</string>
+    <string name="host_feature_reason_hardware_metrics_off">Ana bilgisayarın ayarlarından donanım ölçümlerini açın</string>
+    <string name="host_feature_reason_sleep_permission">Bu cihazın bilgisayarı uyutma izni yok</string>
+    <string name="host_feature_reason_file_permission">Dosya izni yok: ana bilgisayarın web arayüzünden verin</string>
+    <string name="host_feature_unknown">Ana bilgisayar destekliyorsa geçerlidir</string>
+    <string name="host_details_software_apollo">Apollo uyumlu ana bilgisayar</string>
+    <string name="host_details_software_vibepollo">Vibepollo uyumlu ana bilgisayar</string>
+    <string name="host_details_software_unknown">Moonlight uyumlu ana bilgisayar</string>
+    <string name="host_details_features">Özellikler</string>
+    <string name="host_details_features_unknown">Neleri desteklediğini görmek için bu bilgisayara bir kez bağlanın.</string>
+    <string name="host_details_features_none">Bildirilen ek özellik yok</string>
+    <string name="host_pyrowave_unavailable">Bu bilgisayar PyroWave yayını yapamadığı için %1$s kullanıyor.</string>
+    <string name="connection_test_intro_delay">Bilgisayarınıza olan gecikmeyi test edin.</string>
+    <string name="host_feature_cursor_shape">İmleç şekilleri</string>
+</resources>

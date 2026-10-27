@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_tell_host_link_speed">Сообщать ПК скорость соединения</string>
+    <string name="summary_tell_host_link_speed">ПК сможет ограничить скорость отправки скоростью проводного порта этого устройства.</string>
+</resources>

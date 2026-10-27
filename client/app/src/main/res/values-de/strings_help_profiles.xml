@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="help_profiles_title">Profile und Spieleinstellungen</string>
+    <string name="help_profiles_body">Profile sind benannte Sätze von Stream-Werten, etwa „Zuhause 4K120“ oder „Hotel“. Lege sie unter Einstellungen, Video, Profile an und wähle das aktive Profil, oder lass beim Start eines Streams das Netz eines wählen: mobile Daten, Heim-WLAN oder anderes WLAN. Die eigenen Werte eines Spiels (Stream-Einstellungen für dieses Spiel, im Menü des Spiels in der Mediathek) haben Vorrang vor denen des PCs, die des PCs vor dem Profil und das Profil vor den Haupteinstellungen. Bitrate bei mobilen Daten begrenzt die Bitrate über mobile Daten.</string>
+    <string name="help_profiles_link">Profile-Anleitung</string>
+</resources>

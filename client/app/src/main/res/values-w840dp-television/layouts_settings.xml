@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- TV Settings: the rail with its bar over the radial canvas. Width outranks the television qualifier, so a TV that is
+     840dp or wider (any 1080p TV) needs this alias beside layout-w840dp/activity_stream_settings as well. -->
+<resources>
+    <item name="activity_stream_settings" type="layout">@layout/activity_stream_settings_tv</item>
+</resources>

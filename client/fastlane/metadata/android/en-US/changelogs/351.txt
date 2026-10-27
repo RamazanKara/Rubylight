@@ -1,0 +1,1 @@
+New Home with Continue playing and your library across Rubylight 3.0 PCs, a game detail screen, and a Session and graphics page in the stream menu with session actions and a Radeon panel. Needs a Rubylight 3.0 host; the Radeon panel needs its next alpha. Other hosts keep the classic grid.

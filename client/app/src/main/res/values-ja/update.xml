@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_update_available">Rubylight %1$s に更新できます</string>
+    <string name="host_update_stream_notice">Rubylight %1$s が利用可能です。ホストのメンテナンスタブから更新してください。</string>
+    <string name="update_stream_notice">Nightjar %1$s が利用可能です。Nightjar の設定を開いて更新してください。</string>
+    <string name="title_check_updates">アップデートを自動で確認</string>
+    <string name="summary_check_updates">アプリを開いたときに新しいバージョンを確認します（1日2回まで）。選択するまでインストールされることはありません。</string>
+    <string name="title_check_updates_now">今すぐアップデートを確認</string>
+    <string name="summary_check_updates_now">新しいバージョンを確認します</string>
+    <string name="update_checking">アップデートを確認中…</string>
+    <string name="update_up_to_date">最新バージョンです</string>
+    <string name="update_check_failed">アップデートを確認できませんでした</string>
+    <string name="update_available_title">アップデートがあります</string>
+    <string name="update_available_message">バージョン %1$s が利用できます。現在のバージョンは %2$s です。</string>
+    <string name="update_action_update">アップデート</string>
+    <string name="update_action_later">後で</string>
+    <string name="update_action_skip">このバージョンをスキップ</string>
+    <string name="update_allow_title">インストールを許可</string>
+    <string name="update_allow_message">このアプリがアップデートをインストールするには、Androidでの許可が必要です。許可をオンにして戻り、もう一度「アップデート」をタップしてください。</string>
+    <string name="update_allow_open">設定を開く</string>
+    <string name="update_downloading_title">バージョン %1$s をダウンロード中</string>
+    <string name="update_downloading">ダウンロードを開始しています…</string>
+    <string name="update_progress">%1$s / %2$s</string>
+    <string name="update_error_title">アップデートに失敗しました</string>
+    <string name="update_error_no_apk">このリリースには、この端末向けのダウンロードがありません。</string>
+    <string name="update_error_no_checksums">このリリースにはチェックサムファイルがないため、ダウンロードを検証できません。何もインストールされていません。</string>
+    <string name="update_error_checksum_missing">チェックサムファイルにこのダウンロードが記載されていません。何もインストールされていません。</string>
+    <string name="update_error_checksum_mismatch">ダウンロードがチェックサムと一致しないため削除しました。何もインストールされていません。</string>
+    <string name="update_error_download">ダウンロードに失敗しました。接続を確認して、もう一度お試しください。</string>
+    <string name="update_error_install_start">アップデートを開始できませんでした。</string>
+    <string name="update_error_install">アップデートをインストールできませんでした: %1$s</string>
+    <string name="update_error_install_blocked">Androidがインストール画面を開きませんでした。もう一度アップデートをお試しください。</string>
+</resources>

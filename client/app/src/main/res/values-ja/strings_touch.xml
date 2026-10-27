@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_touch_off_help">タッチはオフです。戻るジェスチャーまたは戻るボタンでストリームメニューを開きます。</string>
+    <string name="title_local_cursor_speed">ローカルカーソルの速度</string>
+    <string name="title_trackpad_acceleration">ポインタの加速</string>
+    <string name="summary_trackpad_acceleration">速くスワイプするとゆっくり動かすよりポインタが遠くまで動くため、小さな動きは正確なままです。トラックパッドとローカルカーソルで有効です。</string>
+    <string name="title_trackpad_acceleration_curve">加速の強さ</string>
+    <string-array name="trackpad_acceleration_curve_names">
+        <item>弱</item>
+        <item>中</item>
+        <item>強</item>
+    </string-array>
+    <string name="title_trackpad_momentum">フリック後の慣性</string>
+    <string name="summary_trackpad_momentum">素早くフリックすると、ポインタは動き続けて徐々に止まります。画面に触れると止まります。トラックパッドとローカルカーソルで有効です。</string>
+    <string name="title_trackpad_momentum_glide">慣性の距離</string>
+    <string-array name="trackpad_momentum_glide_names">
+        <item>短い</item>
+        <item>中</item>
+        <item>長い</item>
+    </string-array>
+    <string name="title_trackpad_area">トラックパッドの範囲</string>
+    <string name="summary_trackpad_area">トラックパッドとローカルカーソルのジェスチャーは、画面のこの部分でのみ開始できます。ほかの場所で始まったタッチは無視されます。</string>
+    <string-array name="trackpad_area_names">
+        <item>画面全体</item>
+        <item>右半分</item>
+        <item>左半分</item>
+        <item>下半分</item>
+        <item>上半分</item>
+    </string-array>
+    <string name="title_three_finger_tap">3 本指タップ</string>
+    <string name="summary_three_finger_tap">トラックパッド、ダイレクトマウス、ローカルカーソルの各モードで、3 本指で素早くタップしたときの動作です。</string>
+    <string-array name="three_finger_tap_names">
+        <item>@string/desktop_controls_system_keyboard</item>
+        <item>中クリック</item>
+        <item>@string/desktop_controls_open</item>
+        <item>@string/stream_disabled</item>
+        <item>@string/pc_keyboard_title</item>
+    </string-array>
+    <string name="stream_cursor_shape_rejected">Nightjar は PC のカーソル形状を描画できないため、標準の矢印を表示します。</string>
+    <string name="title_four_finger_tap">4本指タップ</string>
+    <string name="summary_four_finger_tap">トラックパッド、直接マウス、ローカルカーソルモードで4本指で素早くタップしたときの動作。</string>
+</resources>

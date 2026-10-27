@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="fps_show_supported">Show supported frame rates only</string>
+    <string name="title_adaptive_quality_setting">Lower resolution or frame rate when needed</string>
+    <string name="summary_adaptive_quality_setting">When the network, slow decoding or heat keep the stream from running well, lowers the resolution or frame rate, then raises them again as things recover. Doesn’t apply to PyroWave.</string>
+    <string name="title_low_latency_customize">Customize</string>
+    <string name="low_latency_customize_closed">Choose which low-latency parts are on</string>
+    <string name="low_latency_customize_open">Hide the individual switches</string>
+    <string name="settings_category_compatibility">Compatibility</string>
+    <string name="summary_sops_short">Lets the PC adjust the game’s settings</string>
+    <string name="theme_high_contrast_note">High contrast keeps the app black</string>
+    <string name="title_performance_overlay">Performance overlay</string>
+    <string name="overlay_off">Off</string>
+    <string name="title_theme">Theme</string>
+    <string name="theme_system">System</string>
+    <string name="theme_dark">Dark</string>
+    <string-array name="overlay_choice_names" translatable="false"><item>@string/overlay_off</item><item>@string/overlay_compact</item><item>@string/overlay_statistics</item><item>@string/overlay_debug</item></string-array>
+    <string-array name="theme_choice_names" translatable="false"><item>@string/theme_system</item><item>@string/theme_dark</item><item>@string/title_oled_black</item></string-array>
+</resources>

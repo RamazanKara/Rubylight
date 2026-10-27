@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A section row of the TV settings rail: the section the right pane shows is a filled pill (the amber bar over it is
+     StreamSettings' rail indicator, one view that slides between rows). Focus adds the rail's ring (tv_settings_rail_focus). -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_activated="true">
+        <inset android:insetLeft="4dp" android:insetRight="4dp" android:insetTop="2dp" android:insetBottom="2dp">
+            <shape android:shape="rectangle">
+                <solid android:color="@color/tv_rail_fill" />
+                <corners android:radius="16dp" />
+            </shape>
+        </inset>
+    </item>
+    <item android:state_pressed="true">
+        <color android:color="?attr/colorControlHighlight" />
+    </item>
+    <item>
+        <color android:color="@android:color/transparent" />
+    </item>
+</selector>

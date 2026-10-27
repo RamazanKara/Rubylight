@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="controller_mapping_capture">Przypisz przycisk</string>
+    <string name="controller_mapping_press">Naciśnij przycisk kontrolera do przypisania. Wstecz anuluje.</string>
+</resources>

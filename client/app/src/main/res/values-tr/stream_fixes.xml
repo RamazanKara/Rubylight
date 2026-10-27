@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_hdr_display_unsupported">Bu ekran HDR gösteremediği için yayın SDR olarak sürüyor.</string>
+    <string name="stream_hdr_android_unsupported">HDR için Android 7 veya üstü gerekir, bu nedenle yayın SDR olarak sürüyor.</string>
+    <string name="stream_hdr_decoder_unsupported">Bu cihaz HDR video oynatamadığı için yayın SDR olarak sürüyor.</string>
+    <string name="stream_hevc_decoder_missing">Bu cihaz HEVC oynatamadığı için yayında başka bir codec kullanılıyor.</string>
+    <string name="stream_av1_decoder_missing">Bu cihaz AV1 oynatamadığı için yayında başka bir codec kullanılıyor.</string>
+    <string name="stream_mouse_mode_on">Kumandayla fare modu etkinleştirildi</string>
+    <string name="stream_mouse_mode_off">Kumandayla fare modu devre dışı bırakıldı</string>
+</resources>

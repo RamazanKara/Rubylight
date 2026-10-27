@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_global_context">Domyślne dla wszystkich komputerów. Każdy komputer może mieć własne ustawienia strumienia.</string>
+    <string name="settings_changes_saved">Zmiany zapisują się automatycznie</string>
+    <string name="settings_search_results">Wyniki wyszukiwania</string>
+    <string name="settings_back_to_search">Wróć do wyników wyszukiwania</string>
+    <string name="settings_back_to_overview">Wróć do ustawień</string>
+    <string name="settings_search_empty_help">Spróbuj krótszego hasła, np. rozdzielczość, dźwięk lub kontroler.</string>
+    <string name="settings_search_breadcrumb">%1$s · %2$s</string>
+    <plurals name="settings_search_count">
+        <item quantity="one">Znaleziono %d ustawienie</item>
+        <item quantity="few">Znaleziono %d ustawienia</item>
+        <item quantity="many">Znaleziono %d ustawień</item>
+        <item quantity="other">Znaleziono %d ustawienia</item>
+    </plurals>
+    <string name="settings_profile_saved_context">Zmiany zostaną zastosowane do tego komputera po zapisaniu.</string>
+    <string name="settings_profile_unsaved_context">Niezapisane zmiany dla tego komputera</string>
+    <string name="settings_profile_reset_message">Użyj ustawień domyślnych dla wszystkich komputerów. Zapisz, aby zastosować tę zmianę do tego komputera.</string>
+    <string name="settings_profile_display_immediate">Tryb wyświetlania zapisuje się osobno w jego oknie.</string>
+</resources>

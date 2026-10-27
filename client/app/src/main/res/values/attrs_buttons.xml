@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Theme attributes for the button hierarchy, so code can create each kind (see styles.xml). -->
+    <attr name="nightjarButtonTonalStyle" format="reference" />
+    <attr name="nightjarButtonTextStyle" format="reference" />
+    <attr name="nightjarButtonDestructiveStyle" format="reference" />
+</resources>

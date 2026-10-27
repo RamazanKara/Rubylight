@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root status_code="200">
+  <hostname>Apollo fixture</hostname><appversion>7.1.431.-1</appversion><GfeVersion>3.23.0.74</GfeVersion>
+  <uniqueid>6f2d5a1c-0b8e-4c7a-9d3f-1e2a3b4c5d6e</uniqueid><HttpsPort>47984</HttpsPort><ExternalPort>47989</ExternalPort>
+  <MaxLumaPixelsHEVC>1869449984</MaxLumaPixelsHEVC><mac>00:00:00:00:00:00</mac><LocalIP>192.0.2.11</LocalIP>
+  <ServerCodecModeSupport>197377</ServerCodecModeSupport><PairStatus>1</PairStatus>
+  <currentgame>0</currentgame><currentgameuuid></currentgameuuid><state>SUNSHINE_SERVER_FREE</state>
+  <VirtualDisplayCapable>true</VirtualDisplayCapable><VirtualDisplayDriverReady>true</VirtualDisplayDriverReady>
+  <Permission>4294967295</Permission>
+  <ServerCommand>Display &amp; audio</ServerCommand><ServerCommand></ServerCommand><ServerCommand>Sleep</ServerCommand>
+</root>

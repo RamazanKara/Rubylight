@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_details_close">Đóng</string>
+    <string name="host_details_copy">Sao chép thông tin gỡ lỗi</string>
+    <string name="host_details_copied">Đã sao chép thông tin gỡ lỗi</string>
+    <string name="host_details_status">Trạng thái</string>
+    <string name="host_details_state">Kết nối</string>
+    <string name="host_details_pairing">Ghép đôi</string>
+    <string name="host_details_paired">Đã ghép đôi</string>
+    <string name="host_details_not_paired">Nhấn vào PC để ghép đôi.</string>
+    <string name="host_details_running">Ứng dụng đang chạy</string>
+    <string name="host_details_running_none">Không có</string>
+    <string name="host_details_running_app">Ứng dụng %1$d</string>
+    <string name="host_details_host">Máy chủ</string>
+    <string name="host_details_software">Phần mềm máy chủ</string>
+    <string name="host_details_software_butterpollo">Rubylight %1$s</string>
+    <string name="host_details_software_gamestream">NVIDIA GameStream</string>
+    <string name="host_details_software_other">Máy chủ tương thích Sunshine</string>
+    <string name="host_details_id">ID máy chủ</string>
+    <string name="host_details_network">Mạng</string>
+    <string name="host_details_active_address">Kết nối qua</string>
+    <string name="host_details_local_address">Địa chỉ cục bộ</string>
+    <string name="host_details_remote_address">Địa chỉ Internet</string>
+    <string name="host_details_ipv6_address">Địa chỉ IPv6</string>
+    <string name="host_details_manual_address">Địa chỉ bạn đã nhập</string>
+    <string name="host_details_https_port">Cổng HTTPS</string>
+    <string name="host_details_mac">Địa chỉ MAC (Wake-on-LAN)</string>
+    <string name="host_details_permissions">Quyền của thiết bị</string>
+</resources>

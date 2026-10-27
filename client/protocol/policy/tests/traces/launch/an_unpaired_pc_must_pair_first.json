@@ -1,0 +1,10 @@
+{
+  "source": "InputOnlyPolicyTest.anUnpairedPcMustPairFirst",
+  "rust": "launch::InputOnlyPolicy",
+  "java": "com.limelight.LaunchTrace",
+  "new": null,
+  "calls": [
+    {"call": "small_stream_blocker", "args": [false, -1], "expect": "pair"},
+    {"call": "small_stream_blocker", "args": [false, 100671232], "expect": "pair"}
+  ]
+}

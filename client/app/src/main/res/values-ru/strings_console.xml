@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="console_title">Главная</string>
+    <string name="console_section_favourites">Избранное</string>
+    <string name="console_section_continue">Продолжить игру</string>
+    <string name="console_section_library">Библиотека</string>
+    <string name="console_section_hosts">ПК</string>
+    <string name="console_hint_options">Параметры</string>
+    <string name="console_hint_open">Открыть</string>
+    <string name="console_hint_key_ok">OK</string>
+    <string name="console_hint_key_menu">Меню</string>
+    <string name="console_hint_line">%1$s %2$s    %3$s %4$s</string>
+    <string name="console_favourite_add">Добавить в избранное</string>
+    <string name="console_favourite_remove">Убрать из избранного</string>
+    <string name="console_favourite_description">В избранном</string>
+    <string name="console_badge_running">Запущена</string>
+    <string name="console_badge_suspended">Приостановлена</string>
+    <string name="console_card_on_host">На %1$s</string>
+    <string name="console_card_on_hosts">На хостах: %1$d</string>
+    <string name="console_host_games">Игр: %1$d</string>
+    <string name="console_host_saved_games">Не в сети. Сохранённых игр: %1$d</string>
+    <string name="console_host_offline">Не в сети</string>
+    <string name="console_host_no_library">Игры ещё не загружены</string>
+    <string name="console_empty_title">ПК пока нет</string>
+    <string name="console_empty_body">Свяжите Nightjar с ПК, чтобы увидеть здесь его игры.</string>
+    <string name="console_empty_open_hosts">Открыть ПК</string>
+    <string name="console_detail_host">Хост</string>
+    <string name="console_detail_profile">Настройки трансляции</string>
+    <string name="console_detail_status_running">Запущена на %1$s</string>
+    <string name="console_detail_status_suspended">Приостановлена на %1$s</string>
+    <string name="console_detail_replaces">%1$s запущена. Если начать эту игру, она закроется.</string>
+    <string name="console_profile_values">%1$d × %2$d, %3$d FPS, %4$s Mbps</string>
+    <string name="console_profile_main">Основные настройки</string>
+    <string name="console_home_setting_title">Открывать на главной</string>
+    <string name="console_home_setting_summary">Запуск с игр для продолжения и библиотеки. Если выключено, запуск со списка ПК.</string>
+    <!-- tv-redesign-4 -->
+    <string name="console_row_recent">Недавно запускались</string>
+    <string name="console_row_other">Другие приложения</string>
+    <string name="console_row_unadded">На ваших ПК, не добавлены</string>
+    <string name="console_chip_not_installed">Не установлена</string>
+    <string name="console_chip_not_added">Не добавлена</string>
+    <string name="console_add_on_pc">Добавьте её на ПК</string>
+    <string name="console_adding">Добавление: %1$s…</string>
+    <string name="console_add_failed">Не удалось добавить: %1$s</string>
+    <string name="console_detail_not_installed">Не установлено на %1$s</string>
+    <string name="console_detail_not_launchable">%1$s не может запустить эту игру</string>
+    <string name="console_filter_all">Все</string>
+    <string name="console_filter_installed">Установленные</string>
+    <string name="console_all_games_title">Все игры</string>
+    <string name="console_all_games_empty">С этим фильтром игр нет.</string>
+    <plurals name="console_all_tile_title">
+        <item quantity="one">Все %1$d игра</item>
+        <item quantity="few">Все %1$d игры</item>
+        <item quantity="many">Все %1$d игр</item>
+        <item quantity="other">Все %1$d игры</item>
+    </plurals>
+    <plurals name="console_all_tile_description">
+        <item quantity="one">%1$s: все %2$d игра</item>
+        <item quantity="few">%1$s: все %2$d игры</item>
+        <item quantity="many">%1$s: все %2$d игр</item>
+        <item quantity="other">%1$s: все %2$d игры</item>
+    </plurals>
+    <plurals name="console_filter_description">
+        <item quantity="one">%1$s, %2$d игра</item>
+        <item quantity="few">%1$s, %2$d игры</item>
+        <item quantity="many">%1$s, %2$d игр</item>
+        <item quantity="other">%1$s, %2$d игры</item>
+    </plurals>
+    <!-- tv-redesign-5 -->
+    <string name="console_detail_installed">Установлена</string>
+    <string name="console_card_asleep">%1$s, ПК в спящем режиме</string>
+    <string name="console_wake_and_play">Разбудить ПК и играть</string>
+    <string name="console_wake_waiting">Ждём, пока %1$s проснётся…</string>
+    <string name="console_wake_timeout">%1$s не проснулся вовремя. Проверьте, что Wake-on-LAN настроен, и попробуйте снова.</string>
+    <string name="console_choose_pc">На каком ПК играть?</string>
+    <string name="console_badge_asleep">ПК в спящем режиме</string>
+</resources>

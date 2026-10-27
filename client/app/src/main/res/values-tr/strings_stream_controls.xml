@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_touch_mode">Dokunma modu</string>
+    <string name="stream_keyboard">Klavye</string>
+    <string name="stream_controls_show">Ekran kontrollerini göster</string>
+    <string name="stream_controls_hide">Ekran kontrollerini gizle</string>
+    <string name="stream_controls_layout">Kumanda düzenini düzenle</string>
+    <string name="stream_controls_move_help">Kontrolleri taşımak için sürükleyin; yeniden boyutlandırmak veya kaydetmek için menüyü kullanın.</string>
+    <string name="stream_controls_resize_help">Kontrolleri yeniden boyutlandırmak için sürükleyin; kaydetmek için menüyü kullanın.</string>
+    <string name="stream_controls_saved">Kumanda düzeni kaydedildi</string>
+    <string name="stream_reconnect">Yayına yeniden bağlan</string>
+    <string name="stream_reconnecting">Çalışan uygulamaya yeniden bağlanılıyor…</string>
+    <string name="stream_native_touch_help">Dokunma, bilgisayarı doğrudan kontrol eder.\nKlavye için yayın menüsünü açın.</string>
+    <string name="stream_native_touch_fallback">Bilgisayar çoklu dokunmayı desteklemediği için dokunma fareyi hareket ettirir.</string>
+    <string-array name="stream_touch_modes">
+        <item>Trackpad</item>
+        <item>Doğrudan fare</item>
+        <item>Çoklu dokunma</item>
+        <item>Yerel imleç</item>
+        <item>Dokunma kapalı</item>
+    </string-array>
+    <string-array name="stream_control_layout_actions">
+        <item>Kontrolleri taşı</item>
+        <item>Kontrolleri yeniden boyutlandır</item>
+        <item>Düzeni kaydet ve oyna</item>
+    </string-array>
+</resources>

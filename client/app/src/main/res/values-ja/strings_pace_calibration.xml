@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pace_calibration_title">フレームペーシングを調整</string>
+    <string name="pace_calibration_summary">PyroWave: ホストがこのデバイスにフレーム全体を送れる最高速度を測定します</string>
+    <string name="pace_calibration_saved">PyroWave フレームペース: %1$d Mbps。タップして再調整します。</string>
+    <string name="pace_calibration_intro">ホストがさまざまな速度でテストフレームを送り、Nightjar はフレームが欠けずに届く最も速い速度を記録します。以後の PyroWave ストリームはその速度を使います。先にこの PC のストリームを停止してください。1～3 分かかります。</string>
+    <string name="pace_calibration_preparing">テストを準備しています…</string>
+    <string name="pace_calibration_running">%1$d Mbps で送られるフレームをテスト中…</string>
+    <string name="pace_calibration_result">フレームペース: この %2$d Mbps 接続で %1$d Mbps。この PC に保存しました。</string>
+    <string name="pace_calibration_result_unqualified">すべての損失基準を満たす速度はありませんでした。最良の値（この %2$d Mbps 接続で %1$d Mbps）をこの PC に保存しました。映像の乱れが残る場合があります。</string>
+    <string name="pace_calibration_no_link">フレームペーシングには、このデバイスまたは PC の有線リンク速度が必要ですが、どちらも不明です。</string>
+    <string name="pace_calibration_too_fast">ストリームはすでに %1$d Mbps 必要で、この %2$d Mbps 接続に近すぎます。先にビットレートを下げてください。</string>
+    <string name="pace_calibration_streaming">PC がストリーミング中か、すでにテスト中です。ストリームを停止してもう一度お試しください。</string>
+    <string name="pace_calibration_unsupported">この PC はフレームペーシングをテストできません。PyroWave ペーシングテストに対応したホストが必要です。</string>
+    <string name="pace_calibration_failed">調整を完了できませんでした。接続を確認してもう一度お試しください。</string>
+    <string name="pace_calibration_none">テストが完了しませんでした。もう一度お試しください。</string>
+    <string name="pace_calibration_clear">消去</string>
+</resources>

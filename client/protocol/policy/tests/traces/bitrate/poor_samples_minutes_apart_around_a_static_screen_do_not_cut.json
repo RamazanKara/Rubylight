@@ -1,0 +1,13 @@
+{
+  "source": "AdaptiveBitrateControllerTest.poorSamplesMinutesApartAroundAStaticScreenDoNotCut",
+  "rust": "bitrate::AdaptiveBitrateController",
+  "java": "com.limelight.nvstream.AdaptiveBitrateController",
+  "new": [40000, 40000, 60, 0],
+  "calls": [
+    {"call": "has_room_before_quality_reduction", "args": [], "expect": true},
+    {"call": "sample", "args": [5000, true, false, 10, 2], "expect": 0},
+    {"call": "sample", "args": [6000, false, false, 0, 2], "expect": 0},
+    {"call": "sample", "args": [300000, true, false, 10, 2], "expect": 0},
+    {"call": "sample", "args": [301000, true, false, 10, 2], "expect": 32000}
+  ]
+}

@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_touch_off_help">觸控已關閉。向後滑動或按返回鍵可開啟串流選單。</string>
+    <string name="title_local_cursor_speed">本機游標速度</string>
+    <string name="title_trackpad_acceleration">指標加速</string>
+    <string name="summary_trackpad_acceleration">快速滑動時，指標移動得比慢速滑動更遠，小幅移動仍能保持精準。適用於觸控板和本機游標模式。</string>
+    <string name="title_trackpad_acceleration_curve">加速強度</string>
+    <string-array name="trackpad_acceleration_curve_names">
+        <item>輕</item>
+        <item>中</item>
+        <item>強</item>
+    </string-array>
+    <string name="title_trackpad_momentum">快速滑動後慣性滑行</string>
+    <string name="summary_trackpad_momentum">快速滑動後，指標會繼續移動並逐漸減速。觸碰螢幕即可停止。適用於觸控板和本機游標模式。</string>
+    <string name="title_trackpad_momentum_glide">滑行距離</string>
+    <string-array name="trackpad_momentum_glide_names">
+        <item>短</item>
+        <item>中</item>
+        <item>長</item>
+    </string-array>
+    <string name="title_trackpad_area">觸控板區域</string>
+    <string name="summary_trackpad_area">觸控板和本機游標手勢只能從螢幕的這個部分開始。從其他位置開始的觸碰會被忽略。</string>
+    <string-array name="trackpad_area_names">
+        <item>全螢幕</item>
+        <item>右半邊</item>
+        <item>左半邊</item>
+        <item>下半邊</item>
+        <item>上半邊</item>
+    </string-array>
+    <string name="title_three_finger_tap">三指輕觸</string>
+    <string name="summary_three_finger_tap">在觸控板、直接滑鼠和本機游標模式下，以三指快速輕觸時執行的動作。</string>
+    <string-array name="three_finger_tap_names">
+        <item>@string/desktop_controls_system_keyboard</item>
+        <item>中鍵點擊</item>
+        <item>@string/desktop_controls_open</item>
+        <item>@string/stream_disabled</item>
+        <item>@string/pc_keyboard_title</item>
+    </string-array>
+    <string name="stream_cursor_shape_rejected">Nightjar 無法繪製電腦的游標形狀，因此顯示預設箭頭。</string>
+    <string name="title_four_finger_tap">四指輕點</string>
+    <string name="summary_four_finger_tap">在觸控板、直接滑鼠和本機游標模式下，四指快速輕點時執行的動作。</string>
+</resources>

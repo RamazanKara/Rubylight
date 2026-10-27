@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="startup_connection_failed">Не удалось подключиться к ПК. Убедитесь, что хост для трансляции запущен, устройства видят друг друга, а брандмауэр ПК разрешает трансляцию. Затем повторите попытку.</string>
+    <string name="startup_permission_denied">Хост отклонил запрос. В настройках или веб-интерфейсе хоста включите это устройство и разрешите просмотр или запуск приложений.</string>
+    <string name="startup_host_error">Хосту не удалось начать трансляцию (ошибка %1$d). Проверьте статус хоста в его веб-интерфейсе, обновите список приложений и повторите попытку.</string>
+    <string name="startup_invalid_host">ПК вернул недопустимую версию сервера. Обновите или перезапустите хост и повторите попытку.</string>
+    <string name="startup_virtual_display_unavailable">У этого ПК нет виртуального дисплея, поэтому транслируется его собственный экран.</string>
+    <string name="startup_not_paired">Это устройство больше не сопряжено. Вернитесь к списку ПК и повторите сопряжение.</string>
+    <string name="startup_app_missing">Этого приложения больше нет в библиотеке ПК. Обновите список приложений и выберите другое.</string>
+    <string name="startup_resume_missing">Этот сеанс больше недоступен. Обновите список приложений и выберите сеанс.</string>
+    <string name="startup_host_resolution_unsupported">ПК не поддерживает разрешения выше 4K. Выберите 4K или ниже в настройках трансляции.</string>
+    <string name="startup_device_resolution_unsupported">Для разрешений выше 4K нужна поддержка HEVC или AV1 на этом устройстве. Выберите меньшее разрешение или другой кодек.</string>
+    <string name="startup_host_update_4k">Обновите GeForce Experience на ПК, чтобы транслировать в 4K. Эта трансляция идёт в 1080p.</string>
+    <string name="startup_hdr_unavailable">У ПК и этого устройства нет общего HDR-кодека, поэтому трансляция идёт в SDR.</string>
+    <string name="startup_pyrowave_hdr_unavailable">PyroWave HDR недоступен на этом устройстве (%1$s), поэтому HDR идёт через другой кодек.</string>
+    <string name="startup_resume_failed">Не удалось возобновить сеанс. Проверьте приложение на ПК и повторите попытку.</string>
+    <string name="startup_session_owner">Этим сеансом владеет другое устройство. Завершите его на том устройстве или на ПК и повторите попытку.</string>
+    <string name="startup_app_minimized">Приложение свёрнуто. Разверните его на ПК или закройте сеанс и запустите его снова.</string>
+    <string name="startup_quit_failed">Не удалось закрыть предыдущий сеанс. Завершите его на ПК и повторите попытку.</string>
+    <string name="startup_launch_failed">Не удалось запустить приложение. Убедитесь, что оно открывается на ПК, и повторите попытку.</string>
+    <string name="applist_permission_required">Этому устройству запрещено получать список приложений. Разрешите это в настройках или веб-интерфейсе хоста. Библиотека обновится автоматически.</string>
+    <string name="applist_load_failed">Не удалось загрузить приложения ПК. Проверьте хост и разрешение этого устройства на список приложений в его настройках или веб-интерфейсе. Повтор выполняется автоматически.</string>
+    <string name="applist_empty">Нет доступных приложений. Добавьте приложения в библиотеку хоста и проверьте разрешение этого устройства на список приложений в настройках или веб-интерфейсе хоста.</string>
+    <string name="host_profile_unsaved_title">Сохранить настройки трансляции?</string>
+    <string name="host_profile_unsaved_message">Изменения настроек трансляции этого ПК не сохранены. Режим дисплея, подтверждённый в своём диалоге, сохраняется отдельно.</string>
+    <string name="host_profile_discard">Отменить изменения</string>
+    <string name="preset_replace_settings">Разрешение, частота кадров, битрейт, синхронизация кадров, масштабирование, VRR и параметры производительности будут заменены значениями этого пресета. Выбор кодека и HDR не изменится.</string>
+    <string name="pair_otp_incorrect_pin">PIN-код отклонён. Создайте новый одноразовый PIN-код в веб-интерфейсе хоста и проверьте кодовую фразу.</string>
+    <string name="pc_accessibility_actions">Действия с ПК</string>
+    <string name="app_details">Название: %1$s\nПоддержка HDR: %2$s\nID приложения: %3$d</string>
+    <string name="app_hdr_unknown">Неизвестно</string>
+</resources>

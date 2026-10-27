@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Settings sections -->
+    <string name="settings_section_display">Display &amp; image</string>
+    <!-- Two values on one line, such as frame pacing · upscaling -->
+    <string name="settings_joined" translatable="false">%1$s · %2$s</string>
+    <string name="settings_display_adaptive">Adaptive refresh</string>
+    <string name="settings_display_no_upscaling">No upscaling</string>
+    <string name="settings_section_audio">Audio</string>
+    <string name="settings_section_streaming">Streaming</string>
+    <string name="settings_section_streaming_summary">Overlay, picture in picture and recovery</string>
+
+    <!-- Groups inside a section -->
+    <string name="settings_category_refresh">Refresh rate</string>
+    <string name="settings_category_image">Image</string>
+    <string name="settings_category_pc_display">PC display</string>
+    <string name="settings_category_usb">USB controllers</string>
+    <string name="settings_category_keyboard">Keyboard</string>
+    <string name="settings_category_decoder">Decoder</string>
+    <string name="settings_category_input_network">Input and network</string>
+    <string name="settings_category_diagnostics">Diagnostics</string>
+
+    <!-- Short lines under a row -->
+    <string name="settings_needs_host_support">Needs host support</string>
+    <string name="settings_pc_display_mode_value">Set for each PC in its menu</string>
+    <string name="settings_help_summary">Setup, pairing and common fixes</string>
+    <string name="settings_latency_benchmark_summary">Test this device’s timing without a PC</string>
+    <string name="settings_low_latency_partial">Partly off</string>
+    <string name="upscaling_hdr_short">Not used with HDR</string>
+    <string name="upscaling_pyrowave_short">PyroWave uses SGSR</string>
+
+    <string name="title_low_latency_decoding">Low-latency decoding</string>
+    <string name="summary_low_latency_decoding">Uses the low-latency modes of Android and the chipset’s decoder, and lets Android tune performance while you stream. Turn it off only to test a decoding problem.</string>
+
+    <string name="settings_touch_mode_help">Trackpad: drag to move the cursor, tap to click.\nDirect mouse: the cursor goes where you tap.\nMulti-touch: touches reach the PC as touch input. Without host support this works like Direct mouse.\nLocal cursor: a pointer drawn on this device follows your finger at once; tap to click where it points.\nTouch off: the screen ignores touch while you play with a controller. Swipe back or press Back for the stream menu.</string>
+
+    <!-- Resolution and frame rate choices that come from this device's screen -->
+    <string name="resolution_screen">Screen size (%1$s)</string>
+    <string name="resolution_screen_cutout">Screen size, avoiding the camera cutout (%1$s)</string>
+    <string name="resolution_screen_portrait">Screen size, portrait (%1$s)</string>
+    <string name="resolution_screen_cutout_portrait">Screen size, portrait, avoiding the camera cutout (%1$s)</string>
+    <string name="fps_screen">Screen refresh rate (%1$d FPS)</string>
+</resources>

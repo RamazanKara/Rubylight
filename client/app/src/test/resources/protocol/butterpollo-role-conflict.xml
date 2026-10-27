@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Butterpollo 118a0abb18480ff1da5564c57a2e00049ed67e47: nvhttp.rs xml(), validate_launch_request(), replace_launch_app(), launch_response().
+     Exact source messages and fields; session URL uses a test address. -->
+<root status_code="409" status_message="Remote session action conflicts with this client's current session state"><gamesession>0</gamesession></root>

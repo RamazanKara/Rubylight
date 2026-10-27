@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_hdr_display_unsupported">此屏幕无法显示 HDR，因此串流使用 SDR。</string>
+    <string name="stream_hdr_android_unsupported">HDR 需要 Android 7 或更高版本，因此串流使用 SDR。</string>
+    <string name="stream_hdr_decoder_unsupported">此设备无法播放 HDR 视频，因此串流使用 SDR。</string>
+    <string name="stream_hevc_decoder_missing">此设备无法播放 HEVC，因此串流改用其他编解码器。</string>
+    <string name="stream_av1_decoder_missing">此设备无法播放 AV1，因此串流改用其他编解码器。</string>
+    <string name="stream_mouse_mode_on">已启用手柄鼠标模式</string>
+    <string name="stream_mouse_mode_off">已停用手柄鼠标模式</string>
+</resources>

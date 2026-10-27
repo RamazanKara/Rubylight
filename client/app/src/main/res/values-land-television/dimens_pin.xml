@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Ten feet away: bigger keys, digits and dots. -->
+    <dimen name="pin_key_height">72dp</dimen>
+    <dimen name="pin_pad_width">380dp</dimen>
+    <dimen name="pin_key_text">30sp</dimen>
+    <dimen name="pin_dot_size">20dp</dimen>
+    <dimen name="pin_icon_size">48dp</dimen>
+</resources>

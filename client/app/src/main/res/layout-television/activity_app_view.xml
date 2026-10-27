@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The TV library: the focused game's cover as a blurred backdrop over the whole window (it lays itself out past the safe-area
+     padding), and under the bar a focus line with that game's title and chips, with the game count at the end. The ids are
+     those of the phone layout, so AppView treats both alike. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:clipChildren="false" android:clipToPadding="false">
+    <com.limelight.ui.BackdropView android:id="@+id/library_backdrop"
+        android:layout_width="match_parent" android:layout_height="match_parent"
+        android:importantForAccessibility="no" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent"
+        android:orientation="vertical" android:clipChildren="false" android:clipToPadding="false">
+        <include android:id="@+id/library_toolbar" layout="@layout/view_top_app_bar" />
+        <androidx.appcompat.widget.SearchView android:id="@+id/library_search"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/screen_gutter" android:layout_marginEnd="@dimen/screen_gutter"
+            android:layout_marginBottom="@dimen/space_s" android:minHeight="@dimen/touch_target"
+            android:background="@drawable/settings_search_background"
+            app:queryBackground="@android:color/transparent" app:submitBackground="@android:color/transparent"
+            android:visibility="gone" app:queryHint="@string/library_search" app:iconifiedByDefault="false"
+            android:inputType="text" android:imeOptions="actionSearch" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:minHeight="@dimen/focus_line_height" android:orientation="horizontal" android:gravity="center_vertical"
+            android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter" android:paddingBottom="@dimen/space_s">
+            <TextView android:id="@+id/library_focus_title" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:maxWidth="@dimen/focus_line_title_max" android:maxLines="1" android:ellipsize="end"
+                android:textAppearance="@style/TextAppearance.Nightjar.Title" android:textColor="?attr/colorOnSurface"
+                android:importantForAccessibility="no" />
+            <TextView android:id="@+id/library_focus_status" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/space_m"
+                android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s"
+                android:paddingTop="@dimen/space_xs" android:paddingBottom="@dimen/space_xs" android:background="@drawable/bg_chip"
+                android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurface"
+                android:visibility="gone" android:importantForAccessibility="no" />
+            <View android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1" />
+            <TextView android:id="@+id/library_summary" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant"
+                android:visibility="gone" />
+        </LinearLayout>
+        <ProgressBar android:id="@+id/library_loading" style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent" android:layout_height="4dp" android:indeterminate="true" />
+        <LinearLayout android:id="@+id/library_status_panel" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="vertical" android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter"
+            android:paddingTop="@dimen/space_m" android:paddingBottom="@dimen/space_s" android:visibility="gone">
+            <TextView android:id="@+id/app_list_status"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:textAppearance="@style/TextAppearance.Nightjar.Body"
+                android:accessibilityLiveRegion="polite" android:visibility="gone" />
+            <com.google.android.material.button.MaterialButton android:id="@+id/library_retry"
+                style="@style/Widget.Nightjar.Button.Text" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:minHeight="@dimen/touch_target" android:text="@string/library_retry" android:visibility="gone" />
+        </LinearLayout>
+        <FrameLayout android:id="@+id/appFragmentContainer"
+            android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
+    </LinearLayout>
+</FrameLayout>

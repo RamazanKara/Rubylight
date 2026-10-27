@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_network_grace">Aguentar quedas de rede</string>
+    <string name="summary_network_grace">Quanto tempo uma transmissão espera quando a rede para de responder, por exemplo quando o Wi-Fi troca de ponto de acesso ou uma VPN passa do Wi-Fi para os dados móveis. Desativado encerra a transmissão após 10 segundos sem contato. A imagem congela até a rede voltar. Esperas acima de 10 segundos só ajudam se o host também esperar: aumente o tempo limite de clientes dele.</string>
+    <string name="network_grace_off">Desativado (10 segundos)</string>
+    <string name="network_grace_20">20 segundos</string>
+    <string name="network_grace_30">30 segundos</string>
+    <string name="network_grace_60">60 segundos</string>
+    <string name="network_grace_gave_up">A conexão ficou em silêncio por mais tempo que a tolerância de %1$d segundos, ou o host encerrou a sessão. Se o host desistiu primeiro, aumente também o tempo limite de clientes dele.</string>
+</resources>

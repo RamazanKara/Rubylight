@@ -1,0 +1,1 @@
+Nightjar 3.0. Home, PCs and a new settings shell, an on-screen PC keyboard, and the new streaming engine on by default. More decoder tuning keys from Artemis and moonlight-noir, link-rate notices and a timing record for your latency CSV. Adds a Windows and Linux desktop client (Experimental). Home and the session menu need a Rubylight 3.0 host; other hosts keep working.

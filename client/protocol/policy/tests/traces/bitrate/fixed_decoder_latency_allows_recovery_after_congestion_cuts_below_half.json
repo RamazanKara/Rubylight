@@ -1,0 +1,31 @@
+{
+  "source": "AdaptiveBitrateControllerTest.fixedDecoderLatencyAllowsRecoveryAfterCongestionCutsBelowHalf",
+  "rust": "bitrate::AdaptiveBitrateController",
+  "java": "com.limelight.nvstream.AdaptiveBitrateController",
+  "new": [10000, 10000, 120, 0],
+  "calls": [
+    {"call": "has_room_before_quality_reduction", "args": [], "expect": true},
+    {"call": "sample", "args": [2000, true, true, 5, 10], "expect": 0},
+    {"call": "sample", "args": [3000, true, true, 5, 10], "expect": 8000},
+    {"call": "applied", "args": [8000, 8000, 3000], "expect": null},
+    {"call": "has_room_before_quality_reduction", "args": [], "expect": true},
+    {"call": "sample", "args": [5000, true, true, 5, 10], "expect": 0},
+    {"call": "sample", "args": [6000, true, true, 5, 10], "expect": 6400},
+    {"call": "applied", "args": [6400, 6400, 6000], "expect": null},
+    {"call": "has_room_before_quality_reduction", "args": [], "expect": false},
+    {"call": "sample", "args": [8000, true, true, 5, 10], "expect": 0},
+    {"call": "sample", "args": [9000, true, true, 5, 10], "expect": 5120},
+    {"call": "applied", "args": [5120, 5120, 9000], "expect": null},
+    {"call": "has_room_before_quality_reduction", "args": [], "expect": false},
+    {"call": "sample", "args": [11000, true, true, 5, 10], "expect": 0},
+    {"call": "sample", "args": [12000, true, true, 5, 10], "expect": 4096},
+    {"call": "applied", "args": [4096, 4096, 12000], "expect": null},
+    {"call": "has_room_before_quality_reduction", "args": [], "expect": false},
+    {"call": "sample", "args": [14000, true, true, 5, 10], "expect": 0},
+    {"call": "sample", "args": [15000, true, true, 5, 10], "expect": 3276},
+    {"call": "applied", "args": [3276, 3276, 15000], "expect": null},
+    {"call": "has_room_before_quality_reduction", "args": [], "expect": false},
+    {"call": "sample", "args": [30000, true, false, 0, 10], "expect": 0},
+    {"call": "sample", "args": [45000, true, false, 0, 10], "expect": 3526}
+  ]
+}

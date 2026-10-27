@@ -1,0 +1,14 @@
+{
+  "source": "PyroWaveBitrateControllerTest.sustainedDecodeOverBudgetReducesWithoutPacketLossOrQueueing",
+  "rust": "pyrowave::BitrateController",
+  "java": "com.limelight.nvstream.PyroWaveBitrateController",
+  "new": [300000, 300000, 120, 0],
+  "calls": [
+    {"call": "sample", "args": [4000, true, false, 0, 0, 9], "expect": 0},
+    {"call": "sample", "args": [5000, true, false, 0, 0, 9], "expect": 255000},
+    {"call": "applied", "args": [255000, 255000, 5000], "expect": null},
+    {"call": "sample", "args": [6000, true, false, 0, 0, 9], "expect": 0},
+    {"call": "sample", "args": [7000, true, false, 0, 0, 9], "expect": 0},
+    {"call": "sample", "args": [8000, true, false, 0, 0, 9], "expect": 216750}
+  ]
+}

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_adaptive_quality">Automatische Streamqualität</string>
+    <string name="summary_adaptive_quality">Verringert bei anhaltender Überlastung, langsamer Dekodierung oder Hitze die Auflösung oder Bildrate und erhöht sie später schrittweise. Nutzt automatische Bitrate, sofern unterstützt. Erfordert Unterstützung durch Host und Decoder; nicht mit PyroWave verfügbar.</string>
+    <string name="title_adaptive_quality_min_resolution">Minimale automatische Auflösung</string>
+    <string name="summary_adaptive_quality_min_resolution">Kürzeste Kante bei gleichem Seitenverhältnis. Die gewählte Streamauflösung bleibt das Maximum. Eine niedrigere Startauflösung wird dadurch nicht erhöht.</string>
+    <string name="title_adaptive_quality_min_fps">Minimale automatische Bildrate</string>
+    <string name="summary_adaptive_quality_min_fps">Niedrigste erlaubte Bildrate. Die gewählte Streambildrate bleibt das Maximum. Gilt auch für den Akkumodus.</string>
+    <string name="quality_off">Aus</string>
+    <string name="quality_motion">Flüssige Bewegung bevorzugen</string>
+    <string name="quality_detail">Details bevorzugen</string>
+    <string name="quality_battery">Akkulaufzeit verlängern</string>
+    <string name="quality_use_settings">App-Einstellungen verwenden</string>
+    <string name="quality_about">Funktionsweise</string>
+    <string name="quality_stream_help">Wird für diesen PC gespeichert. Bewegung reduziert zuerst die Auflösung, Details zuerst die Bildrate. Der Akkumodus begrenzt schrittweise auf höchstens 60 FPS und 1080 Pixel an der kurzen Kante, unter Beachtung deiner Mindestwerte. Codec, HDR und Bildschirmauswahl bleiben erhalten.</string>
+    <string name="quality_unavailable">Automatische Qualität ist aus: Dieser PC oder dieses Gerät kann Auflösung und Bildrate nicht während des Streams ändern.</string>
+    <string name="quality_request_failed">Automatische Qualität angehalten: Der PC hat die neue Größe nicht übernommen. Der Stream läuft weiter; wähle im Streammenü einen anderen Modus.</string>
+    <string name="quality_status">Automatische Qualität: %1$s · %2$d × %3$d · Ziel %4$d FPS</string>
+</resources>

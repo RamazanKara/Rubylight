@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_auto_bitrate_enable">Ativar taxa de bits automática</string>
+    <string name="stream_auto_bitrate_disable">Desativar taxa de bits automática</string>
+    <string name="stream_auto_bitrate_help">Ajusta a taxa de bits à sua conexão.\nSalvo para este PC; alterações manuais a desativam.</string>
+    <string name="stream_pyrowave_bitrate_help">Ajusta o PyroWave automaticamente para este PC.\nA taxa de bits manual desativa isto.</string>
+    <string name="stream_auto_bitrate_failed">Falha temporária ao atualizar a taxa de bits. Tentando novamente de forma automática.</string>
+    <string name="stream_auto_bitrate_unavailable">Este PC não informa a taxa de bits da transmissão. A taxa de bits automática está desativada nesta transmissão.</string>
+    <string name="stream_auto_bitrate_status">Taxa de bits automática: %1$.1f Mbps</string>
+    <string name="stream_bitrate_busy">Host ocupado. Tente novamente em instantes.</string>
+    <string name="title_auto_bitrate">Taxa de bits automática</string>
+    <string name="dialog_auto_bitrate">Reduz a taxa de bits quando a conexão ou o dispositivo não dá conta e a aumenta de novo quando melhora. Nunca passa da taxa de bits da transmissão. É o padrão para todos os PCs; o menu da transmissão pode mudá-lo para um só PC.</string>
+</resources>

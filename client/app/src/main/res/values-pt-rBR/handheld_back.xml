@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_back_opens_menu">Voltar físico abre o menu do stream</string>
+    <string name="summary_checkbox_back_opens_menu">A tecla Voltar dedicada do portátil ou controle abre o menu do stream. Select e Start mantêm seus mapeamentos. A opção Voltar envia Windows tem prioridade em teclados físicos. Vale no próximo stream.</string>
+</resources>

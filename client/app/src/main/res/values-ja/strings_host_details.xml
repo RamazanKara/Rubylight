@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_details_close">閉じる</string>
+    <string name="host_details_copy">デバッグ情報をコピー</string>
+    <string name="host_details_copied">デバッグ情報をコピーしました</string>
+    <string name="host_details_status">ステータス</string>
+    <string name="host_details_state">接続</string>
+    <string name="host_details_pairing">ペアリング</string>
+    <string name="host_details_paired">ペアリング済み</string>
+    <string name="host_details_not_paired">PC をタップしてペアリングします。</string>
+    <string name="host_details_running">実行中のアプリ</string>
+    <string name="host_details_running_none">なし</string>
+    <string name="host_details_running_app">アプリ %1$d</string>
+    <string name="host_details_host">ホスト</string>
+    <string name="host_details_software">ホストソフトウェア</string>
+    <string name="host_details_software_butterpollo">Rubylight %1$s</string>
+    <string name="host_details_software_gamestream">NVIDIA GameStream</string>
+    <string name="host_details_software_other">Sunshine 互換ホスト</string>
+    <string name="host_details_id">ホスト ID</string>
+    <string name="host_details_network">ネットワーク</string>
+    <string name="host_details_active_address">接続経路</string>
+    <string name="host_details_local_address">ローカルアドレス</string>
+    <string name="host_details_remote_address">インターネットアドレス</string>
+    <string name="host_details_ipv6_address">IPv6 アドレス</string>
+    <string name="host_details_manual_address">入力したアドレス</string>
+    <string name="host_details_https_port">HTTPS ポート</string>
+    <string name="host_details_mac">MAC アドレス（Wake-on-LAN）</string>
+    <string name="host_details_permissions">デバイスの権限</string>
+</resources>

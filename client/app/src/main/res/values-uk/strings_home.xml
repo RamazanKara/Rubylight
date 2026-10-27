@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pc_status_ready">Готово</string>
+    <string name="pc_status_playing">Запущено: %1$s</string>
+    <string name="pc_status_playing_unknown">Запущено гру</string>
+    <string name="pc_status_waking">Пробудження…</string>
+    <string name="discovery_connect_help">Як підключитися</string>
+    <string name="pc_menu_settings">Налаштування ПК…</string>
+    <string name="pc_menu_resume_game">Продовжити %1$s</string>
+    <string name="pc_menu_quit_game">Закрити %1$s</string>
+</resources>

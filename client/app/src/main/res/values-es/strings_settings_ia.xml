@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_section_display">Pantalla e imagen</string>
+    <string name="settings_display_adaptive">Frecuencia adaptativa</string>
+    <string name="settings_display_no_upscaling">Sin escalado</string>
+    <string name="settings_section_audio">Audio</string>
+    <string name="settings_section_streaming">Transmisión</string>
+    <string name="settings_section_streaming_summary">Superposición, imagen en imagen y recuperación</string>
+    <string name="settings_category_refresh">Frecuencia de actualización</string>
+    <string name="settings_category_image">Imagen</string>
+    <string name="settings_category_pc_display">Pantalla del PC</string>
+    <string name="settings_category_usb">Mandos USB</string>
+    <string name="settings_category_keyboard">Teclado</string>
+    <string name="settings_category_decoder">Decodificador</string>
+    <string name="settings_category_input_network">Entrada y red</string>
+    <string name="settings_category_diagnostics">Diagnóstico</string>
+    <string name="settings_needs_host_support">Requiere compatibilidad del servidor</string>
+    <string name="settings_pc_display_mode_value">Se configura para cada PC en su menú</string>
+    <string name="settings_help_summary">Configuración, vinculación y soluciones comunes</string>
+    <string name="settings_latency_benchmark_summary">Prueba la temporización de este dispositivo sin un PC</string>
+    <string name="settings_low_latency_partial">Parcialmente desactivado</string>
+    <string name="upscaling_hdr_short">No se usa con HDR</string>
+    <string name="upscaling_pyrowave_short">PyroWave usa SGSR</string>
+    <string name="title_low_latency_decoding">Decodificación de baja latencia</string>
+    <string name="summary_low_latency_decoding">Usa los modos de baja latencia de Android y del decodificador del chipset, y permite que Android ajuste el rendimiento mientras transmites. Desactívalo solo para probar un problema de decodificación.</string>
+    <string name="settings_touch_mode_help">Trackpad: arrastra para mover el cursor y toca para hacer clic.\nRatón directo: el cursor va donde tocas.\nMultitáctil: los toques llegan al PC como entrada táctil. Si el servidor no lo admite, funciona como Ratón directo.\nCursor local: un puntero dibujado en este dispositivo sigue tu dedo al instante; toca para hacer clic donde apunta.\nTáctil desactivado: la pantalla ignora el tacto mientras juegas con un mando. Desliza hacia atrás o pulsa Atrás para abrir el menú de transmisión.</string>
+    <string name="resolution_screen">Tamaño de pantalla (%1$s)</string>
+    <string name="resolution_screen_cutout">Tamaño de pantalla, evitando el recorte de la cámara (%1$s)</string>
+    <string name="resolution_screen_portrait">Tamaño de pantalla, vertical (%1$s)</string>
+    <string name="resolution_screen_cutout_portrait">Tamaño de pantalla, vertical, evitando el recorte de la cámara (%1$s)</string>
+    <string name="fps_screen">Frecuencia de actualización de la pantalla (%1$d FPS)</string>
+</resources>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_network_grace">Пережидать обрывы сети</string>
+    <string name="summary_network_grace">Сколько трансляция ждёт, если сеть перестала отвечать, например когда Wi-Fi переключается между точками доступа или VPN переходит с Wi-Fi на мобильный интернет. «Выкл.» завершает трансляцию через 10 секунд без связи. Изображение замирает, пока сеть не вернётся. Ожидание дольше 10 секунд помогает, только если хост ждёт так же долго: увеличьте его тайм-аут клиента.</string>
+    <string name="network_grace_off">Выкл. (10 секунд)</string>
+    <string name="network_grace_20">20 секунд</string>
+    <string name="network_grace_30">30 секунд</string>
+    <string name="network_grace_60">60 секунд</string>
+    <string name="network_grace_gave_up">Связи не было дольше допустимых %1$d с, или хост завершил сеанс. Если хост сдался первым, увеличьте и его тайм-аут клиента.</string>
+</resources>

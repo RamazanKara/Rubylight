@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="help_connect_title">Kết nối PC</string>
+    <string name="help_connect_body">Nightjar stream từ bất kỳ máy chủ tương thích Moonlight nào đang chạy trên PC của bạn. Hãy khởi động máy chủ và để cả hai thiết bị trong cùng một mạng, PC sẽ xuất hiện trong danh sách. Nếu không, hãy nhấn Thêm PC và nhập địa chỉ IP của PC. Nếu vẫn không kết nối được, hãy cho phép máy chủ đi qua tường lửa của PC.</string>
+    <string name="help_connect_link">Hướng dẫn thiết lập</string>
+    <string name="help_pairing_title">Ghép đôi</string>
+    <string name="help_pairing_body">Nhấn vào PC và giữ mã PIN trên màn hình. Nhập mã PIN đó vào phần cài đặt hoặc trang web của máy chủ trên PC. Nếu máy chủ có phân quyền theo từng thiết bị, hãy cho phép thiết bị này liệt kê và mở ứng dụng.</string>
+    <string name="help_pairing_link">Hướng dẫn ghép đôi</string>
+    <string name="help_controls_title">Điều khiển và menu stream</string>
+    <string name="help_controls_body">Trong khi stream, nhấn Quay lại để mở menu stream: bàn phím, chế độ nhập, lớp phủ, tốc độ bit và ngắt kết nối. Trên tay cầm điều khiển, nhấn đồng thời Start, Back, LB và RB. Ngắt kết nối sẽ để trò chơi tiếp tục chạy trên PC, nên bạn có thể chơi tiếp sau, trừ khi bạn đã bật “Thoát trò chơi khi tôi rời stream” trong menu thư viện của trò chơi đó. Để kiểm tra nút, cần và rung của tay cầm, hãy mở Cài đặt, Điều khiển, Kiểm tra tay cầm. Trong Cài đặt, Điều khiển, Chế độ cảm ứng, Con trỏ cục bộ vẽ con trỏ trên thiết bị này, còn Tắt cảm ứng bỏ qua màn hình khi bạn chơi bằng tay cầm. Trong menu phát, Đầu vào, Điều khiển cho trò chơi này đặt nút bàn phím, chuột và tay cầm, cần analog, cò và D-pad cho trò chơi đó. Để mang bố cục từ Artemis sang, hãy nhấn giữ trò chơi trong thư viện và chọn Nhập điều khiển trò chơi. Để chỉ dùng thiết bị này làm tay cầm trên máy chủ không có chế độ chỉ đầu vào riêng, hãy bật Cài đặt, Stream, Chỉ đầu vào trên mọi PC; PC vẫn gửi một stream video nhỏ không được hiển thị.</string>
+    <string name="help_controls_link">Hướng dẫn điều khiển</string>
+    <string name="help_problems_title">Khắc phục sự cố thường gặp</string>
+    <string name="help_problems_body"><b>Không có hình:</b> hãy thử H.264 ở 720p, tắt HDR và nâng cấp độ phân giải.\n\n<b>Giật hình:</b> giảm tốc độ bit, nối PC bằng cáp mạng hoặc lại gần router hơn. Dùng Wi-Fi 5 hoặc 6 GHz thay vì 2,4 GHz. Nếu cứ vài phút lại giật, hãy mở “Vì sao stream bị giật?” trong menu stream: tính năng này phát hiện nhịp quét Wi-Fi chạy nền.\n\n<b>Độ trễ đầu vào:</b> bật lớp phủ hiệu năng để xem độ trễ đến từ đâu, và giữ bật Giải mã độ trễ thấp.\n\n<b>Không có tiếng:</b> chọn Stereo, kiểm tra đầu ra âm thanh của PC rồi kết nối lại.</string>
+    <string name="help_problems_link">Hướng dẫn khắc phục sự cố</string>
+    <string name="help_report_body">Chia sẻ nhật ký đã loại bỏ thông tin cá nhân. Không có gì được gửi cho đến khi bạn chọn ứng dụng để chia sẻ.</string>
+    <string name="help_report_link">Cần gửi kèm những gì</string>
+</resources>

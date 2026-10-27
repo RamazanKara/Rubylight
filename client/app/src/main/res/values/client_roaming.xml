@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_client_roaming">Client roaming (Experimental)</string>
+    <string name="summary_client_roaming">Keeps the stream running when this device changes networks. Works with Rubylight PCs that support it.</string>
+    <string name="title_roaming_metered">Continue on mobile data</string>
+    <string name="summary_roaming_metered">Lets the stream move onto mobile data or another metered network. Streaming uses a lot of data.</string>
+</resources>

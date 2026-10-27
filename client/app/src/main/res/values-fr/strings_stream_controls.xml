@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_touch_mode">Mode tactile</string>
+    <string name="stream_keyboard">Clavier</string>
+    <string name="stream_controls_show">Afficher les commandes à l’écran</string>
+    <string name="stream_controls_hide">Masquer les commandes à l’écran</string>
+    <string name="stream_controls_layout">Modifier la disposition de la manette</string>
+    <string name="stream_controls_move_help">Faites glisser pour déplacer les commandes ; utilisez le menu pour redimensionner ou enregistrer.</string>
+    <string name="stream_controls_resize_help">Faites glisser pour redimensionner les commandes ; utilisez le menu pour enregistrer.</string>
+    <string name="stream_controls_saved">Disposition de la manette enregistrée</string>
+    <string name="stream_reconnect">Reconnecter le stream</string>
+    <string name="stream_reconnecting">Reconnexion à l’application en cours…</string>
+    <string name="stream_native_touch_help">Le tactile contrôle directement le PC.\nOuvrez le menu du stream pour le clavier.</string>
+    <string name="stream_native_touch_fallback">Le PC ne gère pas le multitouch : le toucher déplace donc la souris.</string>
+    <string-array name="stream_touch_modes">
+        <item>Pavé tactile</item>
+        <item>Souris directe</item>
+        <item>Multitouch</item>
+        <item>Curseur local</item>
+        <item>Tactile désactivé</item>
+    </string-array>
+    <string-array name="stream_control_layout_actions">
+        <item>Déplacer les commandes</item>
+        <item>Redimensionner les commandes</item>
+        <item>Enregistrer la disposition et jouer</item>
+    </string-array>
+</resources>

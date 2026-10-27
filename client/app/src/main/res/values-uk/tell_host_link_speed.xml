@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_tell_host_link_speed">Повідомляти ПК швидкість з\'єднання</string>
+    <string name="summary_tell_host_link_speed">ПК зможе обмежити швидкість надсилання швидкістю дротового порту цього пристрою.</string>
+</resources>

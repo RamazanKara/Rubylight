@@ -1,0 +1,4 @@
+<resources>
+    <string name="resolution_custom">사용자 지정…</string>
+    <string name="resolution_custom_size">사용자 지정 (%1$s)</string>
+</resources>

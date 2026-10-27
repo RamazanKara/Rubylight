@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="gpu_driver_title">Snapdragon GPU sürücüsü</string>
+    <string name="gpu_driver_system">Sistem GPU sürücüsü</string>
+    <string name="gpu_driver_explanation">PyroWave, meta.json ve arm64 kitaplıkları içeren bir Adreno sürücü ZIP’ini kullanabilir. GPU’nuzu ve Android sürümünüzü destekleyen, güvendiğiniz bir paket seçin. Değişiklikler sonraki yayında geçerli olur ve yalnızca bu uygulamayı etkiler. Yükleme başarısız olursa uygulama sistem sürücüsünü kullanır. Özel sürücüyle bir çökme yaşanırsa sonraki başlatmada sistem sürücüsüne dönülür. Uyumluluk ve performans yine de telefonunuza ve sürücüye bağlıdır.</string>
+    <string name="gpu_driver_unsupported">Özel sürücüler için Android 10 veya üstü, 64 bit arm64 uygulama ve Adreno GPU gerekir. Bu cihaz sistem GPU sürücüsünü kullanıyor.</string>
+    <string name="gpu_driver_system_fallback">Özel sürücü hatası nedeniyle sistem GPU sürücüsü kullanılıyor.</string>
+    <string name="gpu_driver_import">Sürücü ZIP’i içe aktar</string>
+    <string name="gpu_driver_no_picker">Sürücü ZIP’i içe aktarmak için bir dosya seçici yükleyin.</string>
+    <string name="gpu_driver_remove">Sürücü kaldır</string>
+    <string name="gpu_driver_removed">Sürücü kaldırıldı.</string>
+    <string name="gpu_driver_imported">İçe aktarıldı ve seçildi: %1$s</string>
+    <string name="gpu_driver_working">Sürücü kontrol ediliyor…</string>
+    <string name="gpu_driver_error">Sürücü işlemi başarısız oldu: %1$s</string>
+</resources>

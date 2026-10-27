@@ -1,0 +1,14 @@
+{
+  "source": "AdaptiveBitrateControllerTest.nativeCongestionCanReduceBitrateWhenFramesStopArriving",
+  "rust": "bitrate::AdaptiveBitrateController",
+  "java": "com.limelight.nvstream.AdaptiveBitrateController",
+  "new": [10000, 10000, 60, 0],
+  "calls": [
+    {"call": "has_room_before_quality_reduction", "args": [], "expect": true},
+    {"call": "sample", "args": [5000, false, true, 0, 2], "expect": 0},
+    {"call": "sample", "args": [6000, false, true, 0, 2], "expect": 8000},
+    {"call": "applied", "args": [8000, 8000, 6000], "expect": null},
+    {"call": "has_room_before_quality_reduction", "args": [], "expect": true},
+    {"call": "sample", "args": [30000, false, false, 0, 2], "expect": 0}
+  ]
+}

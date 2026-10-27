@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_profile_title">Cài đặt stream của %1$s</string>
+    <string name="host_profile_status_global">Mọi giá trị đều theo cài đặt cho tất cả PC.</string>
+    <string name="host_profile_status_custom">Đưa mọi giá trị về cài đặt cho tất cả PC.</string>
+    <string name="host_profile_explanation">Các giá trị bạn đặt ở đây chỉ áp dụng cho PC này. Mọi mục được đánh dấu “Giống tất cả PC” sẽ theo cài đặt Stream chính, kể cả các thay đổi sau này.</string>
+    <string name="host_profile_resolution">Độ phân giải (rộng × cao)</string>
+    <string name="host_profile_width">Chiều rộng</string>
+    <string name="host_profile_height">Chiều cao</string>
+    <string name="host_profile_match_screen">Dùng màn hình này</string>
+    <string name="host_profile_native">Kích thước màn hình (theo màn hình này)</string>
+    <string name="host_profile_refresh">Tốc độ khung hình (FPS)</string>
+    <string name="host_profile_bitrate">Tốc độ bit (Mbps)</string>
+    <string name="host_profile_scale">Độ phân giải kết xuất trên PC (%)</string>
+    <string name="host_profile_codec">Codec video</string>
+    <string name="host_profile_virtual_display">Màn hình ảo trên máy chủ</string>
+    <string name="host_profile_hdr">HDR</string>
+    <string name="host_profile_full_range">Video dải màu đầy đủ</string>
+    <string name="host_profile_yuv444">Ưu tiên YUV 4:4:4</string>
+    <string name="host_profile_save">Lưu</string>
+    <string name="host_profile_reset">Giống tất cả PC cho mọi mục</string>
+    <string name="host_profile_saved">Đã lưu cài đặt stream của PC</string>
+    <string name="host_profile_reset_done">PC này hiện dùng cài đặt cho tất cả PC</string>
+    <string name="host_profile_invalid_number">Nhập số nguyên từ %1$d đến %2$d</string>
+    <string name="host_profile_invalid_refresh">Nhập 1–1000 FPS với tối đa hai chữ số thập phân</string>
+    <string name="host_profile_invalid_bitrate">Nhập 0,5–2000 Mbps</string>
+    <string-array name="host_profile_codecs">
+        <item>Tự động</item>
+        <item>@string/videoformat_av1always</item>
+        <item>@string/videoformat_hevcalways</item>
+        <item>@string/videoformat_h264always</item>
+        <item>@string/videoformat_pyrowave</item>
+    </string-array>
+    <string name="host_profile_follows">Giống tất cả PC · %1$s</string>
+    <string name="host_profile_same_as_all_value">Giống tất cả PC (%1$s)</string>
+    <string name="host_profile_on">Bật</string>
+    <string name="host_profile_off">Tắt</string>
+</resources>

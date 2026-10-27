@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Settings sections -->
+    <string name="settings_section_display">Display und Bild</string>
+    <string name="settings_display_adaptive">Adaptive Bildwiederholrate</string>
+    <string name="settings_display_no_upscaling">Ohne Hochskalierung</string>
+    <string name="settings_section_audio">Audio</string>
+    <string name="settings_section_streaming">Streaming</string>
+    <string name="settings_section_streaming_summary">Leistungsanzeige, Bild im Bild und Wiederherstellung</string>
+
+    <!-- Groups inside a section -->
+    <string name="settings_category_refresh">Bildwiederholrate</string>
+    <string name="settings_category_image">Bild</string>
+    <string name="settings_category_pc_display">PC-Display</string>
+    <string name="settings_category_usb">USB-Controller</string>
+    <string name="settings_category_keyboard">Tastatur</string>
+    <string name="settings_category_decoder">Decoder</string>
+    <string name="settings_category_input_network">Eingabe und Netzwerk</string>
+    <string name="settings_category_diagnostics">Diagnose</string>
+
+    <!-- Short lines under a row -->
+    <string name="settings_needs_host_support">Braucht Unterstützung durch den Host</string>
+    <string name="settings_pc_display_mode_value">Für jeden PC in seinem Menü einstellen</string>
+    <string name="settings_help_summary">Einrichtung, Koppeln und häufige Probleme</string>
+    <string name="settings_latency_benchmark_summary">Timing dieses Geräts ohne PC testen</string>
+    <string name="settings_low_latency_partial">Teilweise aus</string>
+    <string name="upscaling_hdr_short">Nicht mit HDR</string>
+    <string name="upscaling_pyrowave_short">PyroWave nutzt SGSR</string>
+
+    <string name="title_low_latency_decoding">Latenzarmes Dekodieren</string>
+    <string name="summary_low_latency_decoding">Nutzt die latenzarmen Modi von Android und dem Decoder des Chipsatzes und lässt Android die Leistung beim Streamen anpassen. Schalte es nur aus, um ein Dekodierproblem zu testen.</string>
+
+    <string name="settings_touch_mode_help">Trackpad: Zum Bewegen des Mauszeigers ziehen, zum Klicken tippen.\nDirekte Maussteuerung: Der Mauszeiger springt dorthin, wo du tippst.\nMultitouch: Berührungen kommen am PC als Touch-Eingabe an. Ohne Unterstützung durch den Host funktioniert das wie die direkte Maussteuerung.\nLokaler Mauszeiger: Ein auf diesem Gerät gezeichneter Mauszeiger folgt deinem Finger sofort; tippe, um dort zu klicken, wohin er zeigt.\nTouch aus: Der Bildschirm ignoriert Berührungen, während du mit einem Controller spielst. Wische zurück oder drücke Zurück für das Stream-Menü.</string>
+
+    <!-- Resolution and frame rate choices that come from this device's screen -->
+    <string name="resolution_screen">Bildschirmgröße (%1$s)</string>
+    <string name="resolution_screen_cutout">Bildschirmgröße ohne Kamera-Aussparung (%1$s)</string>
+    <string name="resolution_screen_portrait">Bildschirmgröße, Hochformat (%1$s)</string>
+    <string name="resolution_screen_cutout_portrait">Bildschirmgröße, Hochformat, ohne Kamera-Aussparung (%1$s)</string>
+    <string name="fps_screen">Bildwiederholrate des Displays (%1$d FPS)</string>
+</resources>

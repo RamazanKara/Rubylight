@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The width the game page's cover is decoded for. -->
+    <dimen name="detail_cover_width">132dp</dimen>
+    <!-- 2:3 at that width; only the TV layout reads it, the base value keeps lint's MissingDefaultResource quiet. -->
+    <dimen name="detail_cover_height">198dp</dimen>
+</resources>

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_global_context">Padrões para todos os PCs. Cada PC pode usar suas próprias configurações de transmissão.</string>
+    <string name="settings_changes_saved">As alterações são salvas automaticamente</string>
+    <string name="settings_search_results">Resultados da pesquisa</string>
+    <string name="settings_back_to_search">Voltar aos resultados da pesquisa</string>
+    <string name="settings_back_to_overview">Voltar às configurações</string>
+    <string name="settings_search_empty_help">Tente um termo mais curto, como resolução, áudio ou controle.</string>
+    <string name="settings_search_breadcrumb">%1$s · %2$s</string>
+    <plurals name="settings_search_count">
+        <item quantity="one">%d configuração encontrada</item>
+        <item quantity="many">%d de configurações encontradas</item>
+        <item quantity="other">%d configurações encontradas</item>
+    </plurals>
+    <string name="settings_profile_saved_context">As alterações valem para este PC depois que você salvar.</string>
+    <string name="settings_profile_unsaved_context">Alterações não salvas para este PC</string>
+    <string name="settings_profile_reset_message">Usar os padrões de todos os PCs. Salve para aplicar esta alteração a este PC.</string>
+    <string name="settings_profile_display_immediate">O modo de exibição é salvo separadamente na caixa de diálogo dele.</string>
+</resources>

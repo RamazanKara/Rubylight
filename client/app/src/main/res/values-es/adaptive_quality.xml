@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_adaptive_quality">Calidad de transmisión automática</string>
+    <string name="summary_adaptive_quality">Reduce la resolución o los FPS si hay congestión continuada, decodificación lenta o calor, y luego los recupera poco a poco. Usa la tasa de bits automática si es compatible. Requiere que el servidor admita reconfiguración y un decodificador adaptativo; no disponible con PyroWave.</string>
+    <string name="title_adaptive_quality_min_resolution">Resolución automática mínima</string>
+    <string name="summary_adaptive_quality_min_resolution">Lado corto más pequeño, manteniendo la relación de aspecto. La resolución de transmisión seleccionada sigue siendo el máximo. Este límite nunca aumenta una resolución inicial más baja.</string>
+    <string name="title_adaptive_quality_min_fps">Velocidad de fotogramas automática mínima</string>
+    <string name="summary_adaptive_quality_min_fps">FPS mínimos permitidos. La velocidad de fotogramas de transmisión seleccionada sigue siendo el máximo. Se aplica a la calidad automática, incluido el modo batería.</string>
+    <string name="quality_off">Desactivada</string>
+    <string name="quality_motion">Priorizar fluidez</string>
+    <string name="quality_detail">Priorizar detalle</string>
+    <string name="quality_battery">Ahorrar batería</string>
+    <string name="quality_use_settings">Usar ajustes de la aplicación</string>
+    <string name="quality_about">Cómo funciona</string>
+    <string name="quality_stream_help">Se guarda para este PC. Fluidez reduce primero la resolución; Detalle reduce primero los FPS. Batería limita el trabajo poco a poco a un máximo de 60 FPS y un lado corto de 1080 píxeles, dentro de tus límites mínimos. El códec, HDR y la pantalla elegida se mantienen tal como se negociaron.</string>
+    <string name="quality_unavailable">La calidad automática está desactivada: este PC o dispositivo no puede cambiar la resolución ni la velocidad de fotogramas durante una transmisión.</string>
+    <string name="quality_request_failed">La calidad automática se ha detenido: el PC no ha aplicado el nuevo tamaño. La transmisión continúa; elige otro modo en el menú de transmisión.</string>
+    <string name="quality_status">Calidad automática: %1$s · %2$d × %3$d · objetivo %4$d FPS</string>
+</resources>

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_update_available">Mise à jour Rubylight %1$s disponible</string>
+    <string name="host_update_stream_notice">Rubylight %1$s est disponible. Mettez-le à jour dans l’onglet Maintenance de l’hôte.</string>
+    <string name="update_stream_notice">Nightjar %1$s est disponible. Ouvrez les paramètres de Nightjar pour mettre à jour.</string>
+    <string name="title_check_updates">Rechercher les mises à jour automatiquement</string>
+    <string name="summary_check_updates">Cherche une nouvelle version à l’ouverture de l’app, au plus deux fois par jour. Rien n’est installé sans votre accord.</string>
+    <string name="title_check_updates_now">Rechercher les mises à jour maintenant</string>
+    <string name="summary_check_updates_now">Chercher une version plus récente</string>
+    <string name="update_checking">Recherche de mises à jour…</string>
+    <string name="update_up_to_date">La version installée est la plus récente</string>
+    <string name="update_check_failed">Impossible de rechercher les mises à jour</string>
+    <string name="update_available_title">Mise à jour disponible</string>
+    <string name="update_available_message">La version %1$s est disponible. Vous avez la %2$s.</string>
+    <string name="update_action_update">Mettre à jour</string>
+    <string name="update_action_later">Plus tard</string>
+    <string name="update_action_skip">Ignorer cette version</string>
+    <string name="update_allow_title">Autoriser les installations</string>
+    <string name="update_allow_message">Android doit d’abord autoriser cette app à installer des mises à jour. Activez l’option, revenez en arrière et touchez de nouveau Mettre à jour.</string>
+    <string name="update_allow_open">Ouvrir les paramètres</string>
+    <string name="update_downloading_title">Téléchargement de la version %1$s</string>
+    <string name="update_downloading">Démarrage du téléchargement…</string>
+    <string name="update_progress">%1$s sur %2$s</string>
+    <string name="update_error_title">Échec de la mise à jour</string>
+    <string name="update_error_no_apk">Cette version n’a pas de téléchargement pour cet appareil.</string>
+    <string name="update_error_no_checksums">Cette version n’inclut pas de fichier de sommes de contrôle : le téléchargement ne peut pas être vérifié. Rien n’a été installé.</string>
+    <string name="update_error_checksum_missing">Le fichier de sommes de contrôle ne mentionne pas ce téléchargement. Rien n’a été installé.</string>
+    <string name="update_error_checksum_mismatch">Le téléchargement ne correspond pas à sa somme de contrôle et a été supprimé. Rien n’a été installé.</string>
+    <string name="update_error_download">Échec du téléchargement. Vérifiez la connexion et réessayez.</string>
+    <string name="update_error_install_start">Impossible de lancer la mise à jour.</string>
+    <string name="update_error_install">Impossible d’installer la mise à jour : %1$s</string>
+    <string name="update_error_install_blocked">Android n’a pas ouvert l’écran d’installation. Réessayez la mise à jour.</string>
+</resources>

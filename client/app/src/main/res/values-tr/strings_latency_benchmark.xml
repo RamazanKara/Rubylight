@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="latency_benchmark_title">Gecikme testi</string>
+    <string name="latency_benchmark_description">Ana bilgisayar olmadan 10 saniyelik yerel bir zamanlama testi çalıştırın. Giriş örnekleri toplamak için ekrana dokunun, fareyi hareket ettirin veya kumanda kullanın.</string>
+    <string name="latency_benchmark_start">10 sn’lik testi başlat</string>
+    <string name="latency_benchmark_stop">Testi durdur</string>
+    <string name="latency_benchmark_display">Bildirilen ekran yenileme hızı: %1$.2f Hz</string>
+    <string name="latency_benchmark_audio">Bildirilen ses: %1$s Hz · arabellek başına %2$s kare</string>
+    <string name="latency_benchmark_frame">Kare geri çağırma aralığı</string>
+    <string name="latency_benchmark_callback">Kare geri çağırma gecikmesi</string>
+    <string name="latency_benchmark_input">Giriş iletim yaşı</string>
+    <string name="latency_benchmark_timer">Zamanlayıcı uyanma gecikmesi</string>
+    <string name="latency_benchmark_limits">Sonuçlar ölçüt başına en fazla 2048 son örneği kullanır. Giriş yaşı Android olay zaman damgasından başlar (1 ms çözünürlük); kumanda yoklamasını veya ana bilgisayar giriş gecikmesini ölçmez. Kare geri çağırmaları ekrana taramayı ölçmez. Ses özellikleri ölçülmüş çıkış gecikmesi değil, bildirilen yeteneklerdir. Ağ, kod çözme ve uçtan uca gecikme için bir yayın veya harici ölçüm gerekir. Bu ekrandan çıkmak testi durdurur.</string>
+    <string name="latency_test">Giriş gecikmesini ölç</string>
+    <string name="latency_test_running">Ölçülüyor… fare imleciyle hareketsiz bir masaüstü gösterin ve birkaç saniye hiçbir şeye dokunmayın.</string>
+    <string name="latency_test_result">Girişten ekrana: tipik %1$.1f ms, en iyi %2$.1f ms, en yavaş %%10 için %3$.1f ms (%4$d örnek).\n\nBu uygulamanın fareyi hafifçe kaydırmasından, Android’in ana bilgisayarın yanıt karesini göstermesine kadar geçen süredir. Ağı, ana bilgisayardaki yakalama ve kodlamayı, kod çözmeyi ve görüntülemeyi kapsar. Parmağınız ve ekran panelinin kendi gecikmesi dahil değildir.</string>
+    <string name="latency_test_failed">Ölçülemedi. Ana bilgisayar kare göndermeye devam etti veya fare kaydırmasına yanıt vermedi. Fare imleci görünen hareketsiz bir masaüstü gösterin, oyunları ve videoları kapatın, sonra tekrar deneyin.</string>
+    <string name="latency_benchmark_share">Sonuçları paylaş</string>
+    <string name="latency_benchmark_share_title">Cihaz sonuçları</string>
+    <string name="latency_benchmark_share_message">Nightjar bunu asla kendiliğinden göndermez. Metin bu cihazı (model, SoC, GPU ve Android sürümü), kod çözücü testini ve bu ekrandaki son testi içerir; PC adları, adresler, seri numaraları veya hesap verileri içermez. “Formu aç” metni kopyalar ve herkese açık bir GitHub formu açar. Oraya yapıştırdığınız her şey herkese açık olur ve Nightjar web sitesindeki cihaz tablosuna eklenir.</string>
+    <string name="latency_benchmark_copied">Sonuçlar kopyalandı</string>
+    <string name="latency_benchmark_report_form">Formu aç</string>
+    <string name="latency_benchmark_paste_hint">Sonuçlar kopyalandı. Forma yapıştırın.</string>
+</resources>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The options button over cover art: a solid disc so it reads on any artwork, under the same
+     ripple and focus ring as the other icon buttons. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:left="@dimen/space_s" android:top="@dimen/space_s" android:right="@dimen/space_s" android:bottom="@dimen/space_s">
+        <shape android:shape="oval">
+            <solid android:color="?attr/colorSurfaceContainerHigh" />
+        </shape>
+    </item>
+    <item android:drawable="@drawable/bg_icon_button" />
+</layer-list>

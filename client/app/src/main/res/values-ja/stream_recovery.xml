@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_auto_reconnect">中断したストリームを復旧</string>
+    <string name="summary_auto_reconnect">一時的な接続エラーの後、実行中の同じゲームを自動的に再開します。1 分以内に最大 5 回試行します。[戻る] でキャンセルできます。</string>
+    <string name="stream_recovery_attempt">ゲームに再接続しています… %2$d 回中 %1$d 回目。[戻る] でキャンセルします。</string>
+    <string name="stream_recovery_session_changed">以前のゲームセッションは利用できなくなりました。ゲームを起動したり置き換えたりしないよう、自動復旧を停止しました。</string>
+    <string name="stream_recovery_exhausted">1 分以内に自動で再接続できませんでした。ゲームは終了していません。接続を確認してから [再接続] を選んでもう一度お試しください。</string>
+    <string name="stream_recovery_paused">ストリームを離れたため、自動復旧を停止しました。続けるには [再接続] を選んでください。</string>
+</resources>

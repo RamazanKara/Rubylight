@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="controller_mapping_title">Kumanda düğmeleri</string>
+    <string name="controller_mapping_summary">Her kumanda modeli için düğmeleri yeniden eşleyin</string>
+    <string name="controller_mapping_intro">“Düğme eşle”ye dokunun, ardından yeniden eşlenecek kumanda düğmesine basın.\nDeğişiklikler sonraki yayında geçerli olur.</string>
+    <string name="controller_mapping_waiting">Bir kumanda bağlayın, ardından “Düğme eşle”ye dokunun.</string>
+    <string name="controller_mapping_unnamed">Kumanda</string>
+    <string name="controller_mapping_none">Tüm düğmeler varsayılan eşlemeyi kullanıyor.</string>
+    <string name="controller_mapping_row">%1$s gönderir</string>
+    <string name="controller_mapping_choose">%1$s şunu gönderir…</string>
+    <string name="controller_mapping_default">%1$s (varsayılan)</string>
+    <string name="controller_mapping_disabled">Hiçbiri</string>
+    <string name="controller_mapping_reset">Bu kumandayı sıfırla</string>
+    <string name="controller_button_left_stick">Sol çubuğa basma</string>
+    <string name="controller_button_right_stick">Sağ çubuğa basma</string>
+    <string name="controller_button_start">Start</string>
+    <string name="controller_button_select">Back</string>
+    <string name="controller_button_guide">Guide</string>
+    <string name="controller_button_number">Düğme %1$d</string>
+    <string name="pc_tap_to_pair">%1$s\nEşleştirmek için dokunun</string>
+</resources>

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_update_available">Rubylight %1$s update available</string>
+    <string name="host_update_stream_notice">Rubylight %1$s is available. Update it in the host’s Maintenance tab.</string>
+    <string name="update_stream_notice">Nightjar %1$s is available. Open Nightjar Settings to update.</string>
+    <string name="title_check_updates">Check for updates automatically</string>
+    <string name="summary_check_updates">Looks for a new version when the app opens, at most twice a day. Nothing is installed without your choice.</string>
+    <string name="title_check_updates_now">Check for updates now</string>
+    <string name="summary_check_updates_now">Look for a newer version</string>
+    <string name="update_checking">Checking for updates…</string>
+    <string name="update_up_to_date">You have the latest version</string>
+    <string name="update_check_failed">Couldn\'t check for updates</string>
+    <string name="update_available_title">Update available</string>
+    <string name="update_available_message">Version %1$s is available. You have %2$s.</string>
+    <string name="update_action_update">Update</string>
+    <string name="update_action_later">Later</string>
+    <string name="update_action_skip">Skip this version</string>
+    <string name="update_allow_title">Allow installs</string>
+    <string name="update_allow_message">Android needs your permission before this app can install updates. Turn it on, go back and tap Update again.</string>
+    <string name="update_allow_open">Open settings</string>
+    <string name="update_downloading_title">Downloading version %1$s</string>
+    <string name="update_downloading">Starting download…</string>
+    <string name="update_progress">%1$s of %2$s</string>
+    <string name="update_error_title">Update failed</string>
+    <string name="update_error_no_apk">This release has no download for this device.</string>
+    <string name="update_error_no_checksums">This release has no checksum file, so the download can\'t be verified. Nothing was installed.</string>
+    <string name="update_error_checksum_missing">The checksum file doesn\'t list this download. Nothing was installed.</string>
+    <string name="update_error_checksum_mismatch">The download doesn\'t match its checksum and was deleted. Nothing was installed.</string>
+    <string name="update_error_download">The download failed. Check your connection and try again.</string>
+    <string name="update_error_install_start">The update couldn\'t be started.</string>
+    <string name="update_error_install">The update couldn\'t be installed: %1$s</string>
+    <string name="update_error_install_blocked">Android didn\'t open the install screen. Try the update again.</string>
+</resources>

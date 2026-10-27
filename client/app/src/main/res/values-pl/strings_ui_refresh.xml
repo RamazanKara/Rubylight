@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="add_pc_address_error">Wpisz adres IP lub nazwę komputera, opcjonalnie z portem (na przykład 192.168.1.10:47989).</string>
+    <string name="add_pc_connecting">Łączenie…</string>
+    <string name="add_pc_service_unavailable">Nie udało się uruchomić wyszukiwania komputerów. Zamknij ten ekran i spróbuj ponownie.</string>
+    <string name="sheet_close">Zamknij menu</string>
+</resources>

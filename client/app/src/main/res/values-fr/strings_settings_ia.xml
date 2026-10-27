@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_section_display">Affichage et image</string>
+    <string name="settings_display_adaptive">Rafraîchissement adaptatif</string>
+    <string name="settings_display_no_upscaling">Pas de mise à l’échelle</string>
+    <string name="settings_section_audio">Audio</string>
+    <string name="settings_section_streaming">Streaming</string>
+    <string name="settings_section_streaming_summary">Superposition, Picture-in-picture et récupération</string>
+    <string name="settings_category_refresh">Fréquence de rafraîchissement</string>
+    <string name="settings_category_image">Image</string>
+    <string name="settings_category_pc_display">Affichage du PC</string>
+    <string name="settings_category_usb">Manettes USB</string>
+    <string name="settings_category_keyboard">Clavier</string>
+    <string name="settings_category_decoder">Décodeur</string>
+    <string name="settings_category_input_network">Saisie et réseau</string>
+    <string name="settings_category_diagnostics">Diagnostics</string>
+    <string name="settings_needs_host_support">Nécessite la prise en charge par l’hôte</string>
+    <string name="settings_pc_display_mode_value">Défini pour chaque PC dans son menu</string>
+    <string name="settings_help_summary">Configuration, association et solutions courantes</string>
+    <string name="settings_latency_benchmark_summary">Tester le timing de cet appareil sans PC</string>
+    <string name="settings_low_latency_partial">Partiellement désactivé</string>
+    <string name="upscaling_hdr_short">Non utilisé avec le HDR</string>
+    <string name="upscaling_pyrowave_short">PyroWave utilise SGSR</string>
+    <string name="title_low_latency_decoding">Décodage à faible latence</string>
+    <string name="summary_low_latency_decoding">Utilise les modes à faible latence d’Android et du décodeur de la puce, et laisse Android optimiser les performances pendant le streaming. Désactivez-le uniquement pour tester un problème de décodage.</string>
+    <string name="settings_touch_mode_help">Pavé tactile : faites glisser pour déplacer le curseur, appuyez pour cliquer.\nSouris directe : le curseur va là où vous appuyez.\nMultitouch : les touchers parviennent au PC comme saisie tactile. Sans prise en charge par l’hôte, fonctionne comme Souris directe.\nCurseur local : un pointeur dessiné sur cet appareil suit votre doigt immédiatement ; touchez pour cliquer là où il pointe.\nTactile désactivé : l’écran ignore le toucher pendant que vous jouez avec une manette. Balayez vers l’arrière ou appuyez sur Retour pour ouvrir le menu du stream.</string>
+    <string name="resolution_screen">Taille de l’écran (%1$s)</string>
+    <string name="resolution_screen_cutout">Taille de l’écran, hors encoche de la caméra (%1$s)</string>
+    <string name="resolution_screen_portrait">Taille de l’écran, portrait (%1$s)</string>
+    <string name="resolution_screen_cutout_portrait">Taille de l’écran, portrait, hors encoche de la caméra (%1$s)</string>
+    <string name="fps_screen">Fréquence de rafraîchissement de l’écran (%1$d FPS)</string>
+</resources>

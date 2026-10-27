@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_adaptive_quality">Automatyczna jakość strumienia</string>
+    <string name="summary_adaptive_quality">Obniża rozdzielczość lub FPS przy długotrwałym przeciążeniu, wolnym dekodowaniu lub przegrzaniu, a potem stopniowo je przywraca. Używa automatycznej szybkości transmisji, gdy jest obsługiwana. Wymaga obsługi rekonfiguracji przez host i adaptacyjnego dekodera; niedostępne z PyroWave.</string>
+    <string name="title_adaptive_quality_min_resolution">Minimalna automatyczna rozdzielczość</string>
+    <string name="summary_adaptive_quality_min_resolution">Najmniejsza krótsza krawędź, z zachowaniem proporcji. Wybrana rozdzielczość strumienia pozostaje maksymalną. Niższa rozdzielczość początkowa nigdy nie jest podnoszona przez ten limit.</string>
+    <string name="title_adaptive_quality_min_fps">Minimalna automatyczna liczba klatek</string>
+    <string name="summary_adaptive_quality_min_fps">Najniższa dozwolona liczba FPS. Wybrana liczba klatek strumienia pozostaje maksymalną. Dotyczy automatycznej jakości, w tym trybu baterii.</string>
+    <string name="quality_off">Wyłączone</string>
+    <string name="quality_motion">Zachowaj płynność</string>
+    <string name="quality_detail">Zachowaj szczegóły</string>
+    <string name="quality_battery">Wydłuż czas pracy baterii</string>
+    <string name="quality_use_settings">Użyj ustawień aplikacji</string>
+    <string name="quality_about">Jak to działa</string>
+    <string name="quality_stream_help">Zapisywane dla tego komputera. Płynność najpierw obniża rozdzielczość; Szczegóły najpierw obniżają FPS. Bateria stopniowo ogranicza pracę do maksymalnie 60 FPS i krótszej krawędzi 1080 pikseli, w granicach ustawionych minimów. Kodek, HDR i wybór ekranu pozostają zgodne z negocjacją.</string>
+    <string name="quality_unavailable">Automatyczna jakość jest wyłączona: ten komputer lub urządzenie nie może zmieniać rozdzielczości i liczby klatek podczas strumienia.</string>
+    <string name="quality_request_failed">Automatyczna jakość zatrzymana: komputer nie zastosował nowego rozmiaru. Strumień trwa dalej; wybierz inny tryb w menu strumienia.</string>
+    <string name="quality_status">Automatyczna jakość: %1$s · %2$d × %3$d · cel %4$d FPS</string>
+</resources>

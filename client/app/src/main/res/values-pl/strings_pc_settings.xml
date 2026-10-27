@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pc_settings_title">Ustawienia komputera</string>
+    <string name="pc_settings_display">Ekran na komputerze</string>
+    <string name="pc_settings_connection">Połączenie</string>
+    <string name="pc_settings_host">Host</string>
+    <string name="pc_settings_needs_online">Dostępne, gdy komputer jest online</string>
+    <string name="pc_settings_test_speed">Ping, jitter, utrata pakietów i szybkość pobierania</string>
+    <string name="pc_settings_test_delay">Ping, jitter i utrata pakietów</string>
+    <string name="pc_settings_remote_summary">Skonfiguruj strumieniowanie przez internet</string>
+    <string name="pc_settings_wake">Wake-on-LAN</string>
+    <string name="pc_settings_wake_ready">To urządzenie może wybudzić komputer z jego menu</string>
+    <string name="pc_settings_wake_unknown">Sparuj, gdy komputer jest włączony, a potem włącz Wake-on-LAN na komputerze</string>
+    <string name="pc_settings_details_summary">Oprogramowanie hosta, funkcje i adresy</string>
+    <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
+    <string name="pc_settings_shortcut">Dodaj do ekranu głównego</string>
+    <string name="pc_settings_shortcut_summary">Otwiera bibliotekę tego komputera</string>
+    <string name="connection_test_ms">%1$s ms</string>
+    <string name="connection_test_percent">%1$s%%</string>
+    <string name="connection_test_speed">Szybkość %1$.1f Mbps</string>
+    <string name="connection_test_speed_needs_pairing">Szybkość niezmierzona: najpierw sparuj ten komputer</string>
+    <string name="connection_test_speed_no_answer">Szybkość niezmierzona: komputer nie odpowiedział</string>
+    <string name="connection_test_speed_unsupported">Szybkość niezmierzona: ten host nie ma testu szybkości</string>
+</resources>

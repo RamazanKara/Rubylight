@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="frontend_export_menu">添加游戏到启动器</string>
+    <string name="frontend_export_roms_title">选择你的 ROM 文件夹</string>
+    <string name="frontend_export_roms_message">将游戏快捷方式添加到此文件夹，供 ES-DE 或其他前端使用。</string>
+    <string name="frontend_export_esde_title">选择你的 ES-DE 文件夹</string>
+    <string name="frontend_export_esde_message">要将 %1$s 和游戏封面添加到 ES-DE 吗？\n使用其他前端请跳过。</string>
+    <string name="frontend_export_pick">选择文件夹</string>
+    <string name="frontend_export_skip">跳过</string>
+    <string name="frontend_export_no_apps">请先打开一次此电脑的游戏列表，然后重试。</string>
+    <string name="frontend_export_no_picker">此设备上没有可用的文件夹选择器。</string>
+    <string name="frontend_export_working">正在添加游戏…</string>
+    <plurals name="frontend_export_done">
+        <item quantity="other">已导出 %1$d 个游戏。</item>
+    </plurals>
+    <string name="frontend_export_failed">无法添加游戏。\n请选择本地或 SD 卡中的文件夹。</string>
+    <string name="scut_invalid_entry">游戏文件不可用。\n请在 %1$s 中重新添加游戏。</string>
+    <string name="frontend_export_update">更新游戏</string>
+    <string name="frontend_setup_title">设置说明</string>
+    <string name="frontend_setup_copy">复制启动命令</string>
+    <string name="frontend_setup_beacon">在 Beacon 中添加 Custom 平台。将 Player app 设为 %1$s，ROMs folder 设为导出的 butterpollo 文件夹，并在扩展名中加入 .art。在 Advanced 中将文件处理设为 Default，启用 Use custom launch 并粘贴下方命令。保存并扫描平台。</string>
+    <string name="frontend_setup_esde">重新启动 ES-DE 以加载 Nightjar 系统。如果跳过了配置文件夹，请在下次导出时选择它，以添加系统和已缓存的封面。</string>
+    <string name="frontend_setup_daijisho">为导出的 butterpollo 文件夹中的 .art 文件创建平台。使用下方 intent 参数添加 Android 播放器，然后扫描文件夹。</string>
+    <string name="frontend_setup_pegasus">使用导出的 butterpollo 文件夹和 .art 文件。在收藏集元数据中设置下方启动命令。</string>
+</resources>

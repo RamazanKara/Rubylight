@@ -1,0 +1,2 @@
+Behebt einen Fehler, der nach dem normalen Beenden eines Spiels auf dem PC einen falschen Verbindungsfehler oder einen erneuten Verbindungsversuch auslösen konnte, besonders bei weiterhin gesendeten Controller-Eingaben.
+Echte Netzwerkfehler und vom Host gemeldete Fehler bleiben sichtbar.

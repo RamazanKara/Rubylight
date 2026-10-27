@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_layout_kind_button">鍵盤或滑鼠按鈕</string>
+    <string name="touch_layout_kind_gamepad">控制器按鈕</string>
+    <string name="touch_layout_kind_stick">類比搖桿</string>
+    <string name="touch_layout_kind_trigger">類比扳機鍵</string>
+    <string name="touch_layout_kind_dpad">方向鍵</string>
+    <string name="touch_layout_kind_wasd">WASD 搖桿 (傳送按鍵)</string>
+    <string name="touch_layout_side">側</string>
+    <string name="touch_layout_side_left">左</string>
+    <string name="touch_layout_side_right">右</string>
+    <string name="touch_layout_floating">浮動：以拇指落下的位置為中心</string>
+    <string name="touch_layout_deadzone">死區 (搖桿行程的 %，0–50)</string>
+    <string name="touch_layout_wasd_keys">上、左、下、右的按鍵</string>
+    <string name="touch_layout_wasd_help">依此順序填入四個不同按鍵，例如 W + A + S + D 或 UP + LEFT + DOWN + RIGHT。</string>
+    <string name="touch_layout_diagonal">斜向 (度，0–90)：0 永不同時按住兩個鍵，45 為八個平均方向</string>
+    <string name="touch_layout_snap">對齊格線：%1$s</string>
+    <string name="touch_layout_snap_title">對齊格線</string>
+    <string name="touch_layout_error_json">這不是 Nightjar 版面配置、Artemis 鍵盤版面配置或 Artemis 自訂按鍵檔案。</string>
+    <string name="touch_layout_error_version">此版面配置為版本 %1$s。此版本的 Nightjar 可讀取版本 1 和 2 的版面配置；請更新 Nightjar 後再匯入。</string>
+    <string name="touch_layout_error_size">版面配置最多 32 個控制項、64 KiB。</string>
+    <string name="touch_layout_error_duplicate">兩個控制項使用相同的 ID %1$s。每個控制項都需要自己的 ID。</string>
+    <string name="touch_layout_error_control">控制項 %1$d (%2$s) 的類型、按鍵、按鈕或大小不受支援。</string>
+    <string name="touch_layout_import_done">已匯入版面配置</string>
+    <plurals name="touch_layout_imported">
+        <item quantity="other">已匯入 %d 個控制項。</item>
+    </plurals>
+    <string name="touch_layout_import_pixels">Artemis 儲存的是不含螢幕大小的像素位置，因此已依此螢幕讀取。請檢查位置。</string>
+    <string name="touch_layout_import_scaled">Artemis 版面配置超出此螢幕，已縮小以符合。請檢查位置。</string>
+    <plurals name="touch_layout_import_hidden">
+        <item quantity="other">已略過 %d 個在 Artemis 中關閉或隱藏的元素。</item>
+    </plurals>
+    <string name="touch_layout_import_skipped">未匯入：</string>
+    <string name="touch_layout_skip_no_equivalent">%1$s：Nightjar 沒有對應的控制項 (例如 Artemis 觸控板區域)</string>
+    <string name="touch_layout_skip_key">%1$s：Nightjar 無法傳送的按鍵，或按鍵與滑鼠按鈕的組合</string>
+    <string name="touch_layout_skip_custom">%1$s：自訂按鍵；請將其自訂按鍵檔案與版面配置檔案一起選取</string>
+    <string name="touch_layout_skip_center">%1$s：搖桿中央的輕觸兩下按鍵 (搖桿本身已匯入為 WASD 搖桿)</string>
+    <string name="touch_layout_skip_too_many">%1$s：超出 32 個控制項的上限</string>
+    <string name="touch_layout_skip_size">%1$s：大小無效</string>
+    <string name="library_import_controls">匯入遊戲控制項</string>
+    <string name="library_import_controls_note">Nightjar 版面配置，或 Artemis 鍵盤版面配置和自訂按鍵檔案</string>
+    <string name="library_import_controls_title">%1$s 的控制項</string>
+    <string name="library_import_controls_replace">要取代這部電腦上這款遊戲的螢幕控制項嗎？</string>
+    <string name="library_import_controls_saved">已儲存控制項，會在這款遊戲的下次串流中顯示。</string>
+    <string name="library_import_controls_error">無法讀取檔案。</string>
+</resources>

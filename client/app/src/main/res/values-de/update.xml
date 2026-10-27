@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_update_available">Update auf Rubylight %1$s verfügbar</string>
+    <string name="host_update_stream_notice">Rubylight %1$s ist verfügbar. Aktualisiere es im Bereich „Wartung“ des Hosts.</string>
+    <string name="update_stream_notice">Nightjar %1$s ist verfügbar. Öffne zum Aktualisieren die Nightjar-Einstellungen.</string>
+    <string name="title_check_updates">Automatisch nach Updates suchen</string>
+    <string name="summary_check_updates">Sucht beim Öffnen der App nach einer neuen Version, höchstens zweimal täglich. Ohne Zustimmung wird nichts installiert.</string>
+    <string name="title_check_updates_now">Jetzt nach Updates suchen</string>
+    <string name="summary_check_updates_now">Nach einer neueren Version suchen</string>
+    <string name="update_checking">Suche nach Updates…</string>
+    <string name="update_up_to_date">Die neueste Version ist installiert</string>
+    <string name="update_check_failed">Updates konnten nicht geprüft werden</string>
+    <string name="update_available_title">Update verfügbar</string>
+    <string name="update_available_message">Version %1$s ist verfügbar. Installiert ist %2$s.</string>
+    <string name="update_action_update">Aktualisieren</string>
+    <string name="update_action_later">Später</string>
+    <string name="update_action_skip">Version überspringen</string>
+    <string name="update_allow_title">Installationen erlauben</string>
+    <string name="update_allow_message">Android braucht eine Erlaubnis, bevor diese App Updates installieren darf. Aktiviere sie, gehe zurück und tippe erneut auf Aktualisieren.</string>
+    <string name="update_allow_open">Einstellungen öffnen</string>
+    <string name="update_downloading_title">Version %1$s wird heruntergeladen</string>
+    <string name="update_downloading">Download startet…</string>
+    <string name="update_progress">%1$s von %2$s</string>
+    <string name="update_error_title">Update fehlgeschlagen</string>
+    <string name="update_error_no_apk">Diese Version hat keinen Download für dieses Gerät.</string>
+    <string name="update_error_no_checksums">Diese Version enthält keine Prüfsummendatei, daher lässt sich der Download nicht überprüfen. Es wurde nichts installiert.</string>
+    <string name="update_error_checksum_missing">Die Prüfsummendatei führt diesen Download nicht auf. Es wurde nichts installiert.</string>
+    <string name="update_error_checksum_mismatch">Der Download stimmt nicht mit seiner Prüfsumme überein und wurde gelöscht. Es wurde nichts installiert.</string>
+    <string name="update_error_download">Der Download ist fehlgeschlagen. Prüfe die Verbindung und versuche es erneut.</string>
+    <string name="update_error_install_start">Das Update konnte nicht gestartet werden.</string>
+    <string name="update_error_install">Das Update konnte nicht installiert werden: %1$s</string>
+    <string name="update_error_install_blocked">Android hat den Installationsdialog nicht geöffnet. Versuche das Update erneut.</string>
+</resources>

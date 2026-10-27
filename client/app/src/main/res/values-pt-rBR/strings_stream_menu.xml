@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="overlay_compact">Compacta</string>
+    <string name="overlay_compact_fps">%1$s FPS</string>
+    <string name="overlay_compact_rtt">RTT de %1$s ms</string>
+    <string name="overlay_compact_loss">%1$s%% de perda</string>
+    <string name="overlay_compact_waiting">Aguardando vídeo</string>
+    <string name="link_notice_lowered">O host reduziu o bitrate para %1$s Mbps: rede</string>
+    <string name="overlay_health_good">Transmissão boa</string>
+    <string name="overlay_health_fair">Transmissão instável</string>
+    <string name="overlay_health_poor">Transmissão ruim</string>
+    <string name="overlay_health_unknown">Iniciando transmissão</string>
+    <string name="stream_section_input">Entrada</string>
+    <string name="stream_section_display">Tela</string>
+    <string name="stream_section_quality">Qualidade</string>
+    <string name="stream_section_host">Host</string>
+    <string name="stream_microphone">Microfone</string>
+    <string name="stream_cursor_show">Mostrar cursor do mouse</string>
+    <string name="stream_cursor_hide">Ocultar cursor do mouse</string>
+    <string name="stream_keyboard_keys_hide">Ocultar teclas extras do teclado</string>
+    <string name="stream_overlay_page">Sobreposição e diagnósticos</string>
+    <string name="stream_picture_in_picture">Picture-in-picture</string>
+    <string name="stream_quit_game">Encerrar jogo</string>
+    <string name="stream_quit_game_confirm">Encerrar o jogo no PC?\nO progresso não salvo será perdido.</string>
+    <string name="stream_end_session">Encerrar sessão</string>
+    <string name="stream_end_session_confirm">Encerrar a sessão de streaming no PC?
+O jogo continua em execução.</string>
+    <string name="stream_close_game">Fechar jogo</string>
+    <string name="stream_close_game_confirm">Fechar o jogo no PC?
+O progresso não salvo será perdido.</string>
+    <string name="stream_choice_selected">Selecionado</string>
+    <string name="stream_choice_not_selected">Não selecionado</string>
+    <string name="stream_web_ui_leaves">Abrir o navegador sai da transmissão; o jogo continua em execução no PC.</string>
+    <string name="stream_menu_hint">Para abrir o menu da transmissão, %1$s.</string>
+    <string name="stream_menu_hint_swipe">deslize da borda da tela para voltar</string>
+    <string name="stream_menu_hint_buttons">deslize de baixo para cima e toque em Voltar</string>
+    <string name="stream_menu_hint_back">pressione Voltar</string>
+    <string name="stream_menu_hint_controller">pressione Start + Back + LB + RB no controle</string>
+    <string name="stream_menu_hint_keyboard">pressione Ctrl + Alt + Shift + M</string>
+    <string name="stream_menu_hint_or">%1$s ou %2$s</string>
+    <string name="stream_menu_hint_list">%1$s, %2$s</string>
+    <string name="stream_menu_hint_close">Toque para fechar</string>
+    <string name="stream_h264_decoder_missing">Este dispositivo não consegue decodificar vídeo H.264 por hardware, o que é necessário para a transmissão.</string>
+    <string name="perf_overlay_vrr">Painel: %1$.2f Hz · renderização: %2$.2f Hz · VRR: %3$s</string>
+    <string name="perf_overlay_vrr_max_hz">Hz máx.</string>
+    <string name="sheet_back">Voltar</string>
+</resources>

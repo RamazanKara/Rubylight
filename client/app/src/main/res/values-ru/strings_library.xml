@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_host_asks_named">ПК спросит подтверждение перед закрытием %1$s</string>
+    <string name="library_host_asks">ПК спросит подтверждение перед закрытием запущенной игры</string>
+    <string name="library_quit_named_and_play">Закрыть %1$s и играть</string>
+    <string name="library_quit_and_play">Закрыть запущенную игру и играть</string>
+    <string name="library_replace_message_named">Закрыть %1$s и запустить %2$s?\nНесохранённый прогресс будет потерян.</string>
+    <string name="library_replace_message">Закрыть запущенную игру и запустить %1$s?\nНесохранённый прогресс будет потерян.</string>
+    <string name="library_replace_confirm">Закрыть и играть</string>
+    <string name="library_replace_resume">Продолжить %1$s</string>
+    <string name="library_replace_close_start">Закрыть %1$s и запустить %2$s</string>
+    <string name="library_replace_message_running">%1$s запущена на этом ПК. Запуск %2$s закроет её, а несохранённый прогресс будет потерян.</string>
+    <string name="library_replace_changed">Запущенная игра изменилась. Проверьте экран и повторите попытку.</string>
+</resources>

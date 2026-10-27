@@ -1,0 +1,23 @@
+<resources>
+    <string name="latency_benchmark_title">Latenz-Benchmark</string>
+    <string name="latency_benchmark_description">Führe einen lokalen Zeittest von 10 Sekunden ohne Host durch. Berühre den Bildschirm, bewege eine Maus oder verwende einen Controller, um Eingaben zu messen.</string>
+    <string name="latency_benchmark_start">10-Sekunden-Test starten</string>
+    <string name="latency_benchmark_stop">Test stoppen</string>
+    <string name="latency_benchmark_display">Gemeldete Bildwiederholrate: %1$.2f Hz</string>
+    <string name="latency_benchmark_audio">Gemeldetes Audio: %1$s Hz · %2$s Frames pro Puffer</string>
+    <string name="latency_benchmark_frame">Abstand der Bild-Callbacks</string>
+    <string name="latency_benchmark_callback">Verzögerung der Bild-Callbacks</string>
+    <string name="latency_benchmark_input">Alter bei Eingabeverarbeitung</string>
+    <string name="latency_benchmark_timer">Verzögerung des Timers</string>
+    <string name="latency_benchmark_limits">Die Ergebnisse verwenden bis zu 2048 aktuelle Messwerte pro Metrik. Das Eingabealter beginnt beim Android-Ereigniszeitstempel (Auflösung: 1 ms); Controller-Abfrage und Eingabeverzögerung zum Host werden nicht gemessen. Bild-Callbacks messen keine Bildschirmausgabe. Audiowerte sind gemeldete Eigenschaften, keine gemessene Ausgabelatenz. Netzwerk-, Decodier- und Gesamtlatenz benötigen einen Stream oder eine externe Messung. Beim Verlassen dieser Seite endet der Test.</string>
+    <string name="latency_test">Eingabelatenz messen</string>
+    <string name="latency_test_running">Messung läuft… zeige einen ruhigen Desktop mit Mauszeiger und berühre einige Sekunden nichts.</string>
+    <string name="latency_test_result">Eingabe bis Bild: %1$.1f ms typisch, %2$.1f ms bestenfalls, %3$.1f ms langsamste 10 %% (%4$d Messungen).\n\nGemessen ab dem Senden eines kleinen Mausschubs durch diese App, bis Android das Antwortbild des Hosts zeigt. Enthalten sind Netzwerk, Aufnahme und Kodierung am Host, Dekodierung und Anzeige. Dein Finger und die Eigenverzögerung des Displays sind nicht enthalten.</string>
+    <string name="latency_test_failed">Messung nicht möglich. Der Host hat ständig Bilder gesendet oder nicht auf den Mausschub reagiert. Zeige einen ruhigen Desktop mit sichtbarem Mauszeiger, schließe Spiele und Videos und versuche es erneut.</string>
+    <string name="latency_benchmark_share">Ergebnisse teilen</string>
+    <string name="latency_benchmark_share_title">Geräteergebnisse</string>
+    <string name="latency_benchmark_share_message">Nightjar sendet das nie von selbst. Der Text enthält dieses Gerät (Modell, SoC, GPU und Android-Version), seinen Decoder-Benchmark und den letzten Test auf diesem Bildschirm, ohne PC-Namen, Adressen, Seriennummern oder Kontodaten. „Formular öffnen“ kopiert den Text und öffnet ein öffentliches GitHub-Formular. Alles, was du dort einfügst, wird öffentlich und kommt in die Gerätetabelle auf der Nightjar-Website.</string>
+    <string name="latency_benchmark_copied">Ergebnisse kopiert</string>
+    <string name="latency_benchmark_report_form">Formular öffnen</string>
+    <string name="latency_benchmark_paste_hint">Ergebnisse kopiert. Füge sie in das Formular ein.</string>
+</resources>

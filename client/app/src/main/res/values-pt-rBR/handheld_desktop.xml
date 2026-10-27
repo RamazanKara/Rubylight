@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_layout_title">Controles deste jogo</string>
+    <string name="touch_layout_show">Mostrar botões do jogo</string>
+    <string name="touch_layout_hide">Ocultar botões do jogo</string>
+    <string name="touch_layout_add">Adicionar controle</string>
+    <string name="touch_layout_move">Mover botões do jogo</string>
+    <string name="touch_layout_save">Salvar layout e jogar</string>
+    <string name="touch_layout_move_help">Arraste os botões para posicioná-los. A entrada por toque fica pausada enquanto você move. Ao terminar, volte aqui e escolha Salvar layout e jogar.</string>
+    <string name="touch_layout_import">Importar layout</string>
+    <string name="touch_layout_export">Exportar ou compartilhar layout</string>
+    <string name="touch_layout_import_help">Cole um layout do Nightjar compartilhado, ou um layout de teclado ou arquivo de teclas personalizadas do Artemis. Substituir altera apenas este jogo neste PC. Layouts inválidos deixam seus controles inalterados.</string>
+    <string name="touch_layout_paste">Colar JSON do layout</string>
+    <string name="touch_layout_copy">Copiar JSON</string>
+    <string name="touch_layout_share">Compartilhar arquivo JSON</string>
+    <string name="touch_layout_share_error">Não foi possível compartilhar o layout. Copie o JSON dele.</string>
+    <string name="touch_layout_limit">Um layout pode ter até 32 controles.</string>
+    <string name="touch_layout_name">Nome do botão</string>
+    <string name="touch_layout_binding">Teclas ou botão do mouse</string>
+    <string name="touch_layout_binding_help">Exemplos: W, CTRL + C, SPACE. MOUSE_1 é o esquerdo, MOUSE_2 o do meio, MOUSE_3 o direito, MOUSE_4 voltar e MOUSE_5 avançar.</string>
+    <string name="touch_layout_width">Largura (porcentagem da área de controle, 4–80)</string>
+    <string name="touch_layout_height">Altura (porcentagem da área de controle, 4–80)</string>
+    <string name="touch_layout_toggle">Toque para segurar; toque novamente para soltar</string>
+    <string name="touch_layout_hold">Segurar enquanto pressionado</string>
+    <string name="touch_layout_pressed">Segurado</string>
+    <string name="touch_layout_released">Solto</string>
+    <string name="touch_layout_invalid">Verifique o nome, as teclas ou o botão e se os números estão dentro do intervalo.</string>
+    <string name="desktop_zoom_enable">Ativar zoom com pinça e movimento</string>
+    <string name="desktop_zoom_disable">Desativar zoom com pinça e movimento</string>
+    <string name="desktop_zoom_reset">Redefinir zoom</string>
+    <string name="desktop_zoom_help">Faça o gesto de pinça com dois dedos para ampliar até 4×; arraste dois dedos para mover. Um dedo mantém o modo de toque selecionado. A rolagem com dois dedos é substituída enquanto os controles de zoom estão ativados.</string>
+    <string name="desktop_zoom_surface_help">No Android 5 e 6, ative a TextureView nas configurações de transmissão e reconecte para usar o zoom.</string>
+    <string name="desktop_output">Saída de vídeo (reconecta a transmissão)</string>
+    <string name="desktop_output_device">Este dispositivo</string>
+    <string name="desktop_touchpad_help">O vídeo está na sua tela externa. Use esta tela como touchpad. Teclado, botões do jogo e o menu da transmissão continuam disponíveis aqui.</string>
+    <string name="desktop_pacing_fallback">Tela externa: os quadros são exibidos assim que chegam.</string>
+    <string name="desktop_display_unavailable">Nenhuma tela externa pode exibir a transmissão, então ela permanece neste dispositivo.</string>
+    <string name="controller_axes_title">Analógicos, gatilhos e direcional</string>
+    <string name="controller_axes_configured">Mapeamento personalizado de eixos ou direcional; vale para a próxima transmissão</string>
+    <string name="controller_axes_source">Entrada para %1$s</string>
+    <string name="controller_axes_inverted">%1$s (invertido)</string>
+    <string-array name="controller_axes">
+        <item>Analógico esquerdo horizontal</item>
+        <item>Analógico esquerdo vertical</item>
+        <item>Analógico direito horizontal</item>
+        <item>Analógico direito vertical</item>
+        <item>Gatilho esquerdo</item>
+        <item>Gatilho direito</item>
+        <item>Direcional para cima</item>
+        <item>Direcional para baixo</item>
+        <item>Direcional para a esquerda</item>
+        <item>Direcional para a direita</item>
+    </string-array>
+    <string-array name="controller_dpad_targets">
+        <item>Nada</item>
+        <item>Direcional para cima</item>
+        <item>Direcional para baixo</item>
+        <item>Direcional para a esquerda</item>
+        <item>Direcional para a direita</item>
+        <item>A</item>
+        <item>B</item>
+        <item>X</item>
+        <item>Y</item>
+        <item>LB</item>
+        <item>RB</item>
+        <item>Clique do analógico esquerdo</item>
+        <item>Clique do analógico direito</item>
+        <item>Start</item>
+        <item>Select</item>
+        <item>Guide</item>
+    </string-array>
+</resources>

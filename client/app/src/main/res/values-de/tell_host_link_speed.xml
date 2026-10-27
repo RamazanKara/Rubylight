@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_tell_host_link_speed">Dem PC die Verbindungsgeschwindigkeit mitteilen</string>
+    <string name="summary_tell_host_link_speed">Der PC kann seine Senderate auf die Geschwindigkeit des Kabelanschlusses dieses Geräts begrenzen.</string>
+</resources>

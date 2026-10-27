@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_section_advanced">Avanzate</string>
+    <string name="settings_advanced_summary">Decodifica, input e diagnostica</string>
+    <string name="settings_custom">Personalizzato</string>
+    <string name="setting_help">Informazioni su %1$s</string>
+    <string name="stream_presets_help_title">Informazioni sui preset</string>
+    <string name="settings_version">Versione %1$s</string>
+    <string name="settings_source">Codice sorgente e licenze</string>
+    <string name="settings_csv_summary">Salva le ultime misurazioni della latenza</string>
+    <string name="host_profile_footer">Salva le impostazioni dello stream prima di uscire. La modalità display si salva a parte con Salva modalità display nella relativa finestra. Le modifiche si applicano al prossimo stream.</string>
+    <string name="stream_overlay_menu">Overlay</string>
+    <string name="stream_bitrate_manual">Imposta bitrate</string>
+    <string-array name="stream_preset_names">
+        <item>Nativo (consigliato)</item>
+        <item>Risparmio batteria</item>
+    </string-array>
+    <string name="applist_menu_show_app">Mostra gioco</string>
+</resources>

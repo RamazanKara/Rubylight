@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_feature_permissions">Uprawnienia urządzenia</string>
+    <string name="host_feature_otp_pairing">Parowanie jednorazowym kodem PIN</string>
+    <string name="host_feature_clipboard">Schowek</string>
+    <string name="host_feature_server_commands">Polecenia serwera</string>
+    <string name="host_feature_virtual_display">Ekran wirtualny</string>
+    <string name="host_feature_virtual_display_hdr">Ekran wirtualny HDR</string>
+    <string name="host_feature_display_modes">Tryby ekranu komputera</string>
+    <string name="host_feature_fractional_refresh">Ułamkowe częstotliwości odświeżania</string>
+    <string name="host_feature_vrr">VRR po stronie hosta</string>
+    <string name="host_feature_runtime_bitrate">Zmiana szybkości transmisji w trakcie strumienia</string>
+    <string name="host_feature_pyrowave">PyroWave</string>
+    <string name="host_feature_speed_test">Test szybkości połączenia</string>
+    <string name="host_feature_hardware_metrics">Odczyty CPU i GPU hosta</string>
+    <string name="host_feature_network_path">Sprawdzanie trasy sieciowej</string>
+    <string name="host_feature_frame_limiter">Stan limitu klatek</string>
+    <string name="host_feature_controller_preparation">Ponowne łączenie kontrolerów</string>
+    <string name="host_feature_remote_sessions">Zdalny monitor i tylko sterowanie</string>
+    <string name="host_feature_web_ui">Interfejs WWW</string>
+    <string name="host_feature_reason_update">Zaktualizuj oprogramowanie hosta, aby z tego korzystać</string>
+    <string name="host_feature_reason_pair">Najpierw sparuj z tym komputerem</string>
+    <string name="host_feature_reason_view_permission">Zezwól temu urządzeniu na hoście na podgląd strumieni</string>
+    <string name="host_feature_reason_clipboard_permission">Zezwól temu urządzeniu na hoście na dostęp do schowka</string>
+    <string name="host_feature_reason_command_permission">Zezwól temu urządzeniu na hoście na polecenia serwera</string>
+    <string name="host_feature_reason_no_commands">Dodaj polecenia w interfejsie WWW hosta</string>
+    <string name="host_feature_reason_virtual_display_off">Włącz ekran wirtualny w ustawieniach hosta</string>
+    <string name="host_feature_reason_virtual_display_driver">Sterownik ekranu wirtualnego hosta nie jest gotowy</string>
+    <string name="host_feature_reason_hardware_metrics_off">Włącz metryki sprzętowe w ustawieniach hosta</string>
+    <string name="host_feature_reason_sleep_permission">To urządzenie nie ma uprawnień do usypiania komputera</string>
+    <string name="host_feature_reason_file_permission">Brak dostępu do plików: zezwól temu urządzeniu na hoście</string>
+    <string name="host_feature_unknown">Działa, jeśli host to obsługuje</string>
+    <string name="host_details_software_apollo">Host zgodny z Apollo</string>
+    <string name="host_details_software_vibepollo">Host zgodny z Vibepollo</string>
+    <string name="host_details_software_unknown">Host zgodny z Moonlight</string>
+    <string name="host_details_features">Funkcje</string>
+    <string name="host_details_features_unknown">Połącz się raz z tym komputerem, aby zobaczyć, co obsługuje.</string>
+    <string name="host_details_features_none">Nie zgłoszono dodatkowych funkcji</string>
+    <string name="host_pyrowave_unavailable">Ten komputer nie może strumieniować PyroWave, więc używa %1$s.</string>
+    <string name="connection_test_intro_delay">Przetestuj opóźnienie do komputera.</string>
+    <string name="host_feature_cursor_shape">Kształty kursora</string>
+</resources>

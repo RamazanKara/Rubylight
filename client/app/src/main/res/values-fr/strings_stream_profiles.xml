@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Named profiles (Settings → Video → Profiles) -->
+    <string name="profiles_title">Profils</string>
+    <string name="profiles_subtitle">Profil</string>
+    <string name="profiles_summary_none">Aucun : les streams utilisent les paramètres principaux</string>
+    <string name="profiles_summary_in_use">Utilisé : %1$s</string>
+    <string name="profiles_summary_auto">Choisi selon le réseau au début du stream</string>
+    <string name="profiles_section_list">Vos profils</string>
+    <string name="profiles_section_choice">Profil utilisé par un stream</string>
+    <string name="profiles_new">Nouveau profil</string>
+    <string name="profiles_new_summary">Commence vide : définissez seulement les valeurs qu’il doit modifier.</string>
+    <string name="profiles_name">Nom du profil</string>
+    <string name="profiles_name_empty">Saisissez un nom</string>
+    <string name="profiles_name_too_long">%1$d caractères maximum</string>
+    <string name="profiles_name_taken">Un autre profil porte ce nom</string>
+    <string name="profiles_too_many">Vous pouvez avoir jusqu’à %1$d profils.</string>
+    <string name="profiles_values_none">Aucune valeur définie</string>
+    <plurals name="profiles_values_count">
+        <item quantity="one">%d valeur définie</item>
+        <item quantity="other">%d valeurs définies</item>
+    </plurals>
+    <string name="profiles_marker_in_use">Utilisé</string>
+    <string name="profiles_marker_rules">Choisi pour : %1$s</string>
+    <string name="profiles_edit">Modifier les valeurs</string>
+    <string name="profiles_rename">Renommer</string>
+    <string name="profiles_duplicate">Dupliquer</string>
+    <string name="profiles_delete">Supprimer</string>
+    <string name="profiles_copy_name">%1$s (copie)</string>
+    <string name="profiles_delete_title">Supprimer %1$s ?</string>
+    <string name="profiles_delete_message">Les streams qui utilisaient ce profil utiliseront les paramètres principaux. Cette action est irréversible.</string>
+    <string name="profiles_deleted">Profil supprimé</string>
+    <string name="profiles_in_use">Profil utilisé</string>
+    <string name="profiles_none">Aucun (paramètres principaux)</string>
+    <string name="profiles_main_settings">paramètres principaux</string>
+    <string name="profiles_auto">Choisir selon le réseau</string>
+    <string name="profiles_auto_summary_on">Activé : au début d’un stream, le réseau détermine le profil ci-dessous. L’Ethernet et les réseaux sans choix utilisent le profil utilisé.</string>
+    <string name="profiles_auto_summary_off">Désactivé : chaque stream utilise le profil utilisé.</string>
+    <string name="profiles_rule_default">Profil utilisé</string>
+    <string name="profiles_network_mobile">Données mobiles</string>
+    <string name="profiles_network_home_wifi">Wi-Fi domestique</string>
+    <string name="profiles_network_wifi">Autre Wi-Fi</string>
+    <string name="profiles_network_other">Ethernet ou autre</string>
+    <string name="profiles_rule_mobile_summary">Inclut aussi les réseaux Wi-Fi qu’Android considère comme facturés à l’usage, comme le partage de connexion d’un téléphone.</string>
+    <string name="profiles_rule_wifi_summary">Tout Wi-Fi qui n’est pas un Wi-Fi domestique, ou tous les Wi-Fi si aucun Wi-Fi domestique n’est défini.</string>
+    <string name="profiles_now">Prochain stream sur ce réseau</string>
+    <string name="profiles_now_value">%1$s : %2$s</string>
+    <string name="profiles_home_networks">Wi-Fi domestique</string>
+    <string name="profiles_home_none">Aucun défini : tout Wi-Fi compte comme autre Wi-Fi.</string>
+    <string name="profiles_home_saved">Enregistré sur cet appareil. Sélectionnez-le pour le retirer.</string>
+    <string name="profiles_home_remove">Retirer</string>
+    <string name="profiles_home_remove_title">Retirer %1$s du Wi-Fi domestique ?</string>
+    <string name="profiles_home_no_access">L’accès à la position est désactivé : le Wi-Fi domestique ne peut pas être reconnu et compte donc comme autre Wi-Fi.</string>
+    <string name="profiles_home_add_current">Ajouter ce Wi-Fi</string>
+    <string name="profiles_home_add_current_summary">Enregistre le nom du Wi-Fi auquel cet appareil est connecté. Android exige l’accès à la position pour le lire.</string>
+    <string name="profiles_home_type">Saisir un nom de Wi-Fi</string>
+    <string name="profiles_home_type_summary">Le reconnaître au début d’un stream nécessite quand même l’accès à la position.</string>
+    <string name="profiles_home_name">Nom du Wi-Fi</string>
+    <string name="profiles_location_title">Autoriser l’accès à la position ?</string>
+    <string name="profiles_location_message">Android ne montre le nom du Wi-Fi qu’aux applis ayant accès à la position. Il ne sert qu’à une chose : distinguer votre Wi-Fi domestique des autres Wi-Fi au début d’un stream. Aucune position n’est lue, et le nom du Wi-Fi reste sur cet appareil : il n’est jamais envoyé ni journalisé. Sans cet accès, tout Wi-Fi compte comme autre Wi-Fi.</string>
+    <string name="profiles_location_continue">Continuer</string>
+    <string name="profiles_location_denied">Pas d’accès à la position : tout Wi-Fi compte comme autre Wi-Fi. Vous pourrez l’autoriser plus tard dans les paramètres de l’appli Android.</string>
+    <string name="profiles_wifi_unreadable">Impossible de lire le nom du Wi-Fi. Vérifiez que cet appareil est connecté au Wi-Fi et que la localisation est activée, ou saisissez le nom.</string>
+    <string name="profiles_order">Au début d’un stream, chaque valeur provient du premier élément qui la définit : ce jeu, ce PC, le profil, puis les paramètres principaux. Sur les données mobiles, Débit sur données mobiles limite ensuite le débit. Les modifications ne s’appliquent jamais à un stream déjà en cours.</string>
+    <string name="profiles_privacy">Les noms des Wi-Fi domestiques restent sur cet appareil et ne sont jamais envoyés ni journalisés.</string>
+
+    <!-- Bitrate on mobile data (Settings → Video) -->
+    <string name="title_mobile_bitrate">Débit sur données mobiles</string>
+    <string name="summary_mobile_bitrate">Limite le débit quand un stream démarre sur données mobiles ou sur un Wi-Fi qu’Android considère comme facturé à l’usage, comme le partage de connexion d’un téléphone. La limite s’applique aussi aux valeurs des profils, des PC et des jeux. Désactivé utilise le même débit que sur les autres réseaux.</string>
+    <string name="mobile_bitrate_off">Désactivé</string>
+
+    <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->
+    <string name="profile_settings_explanation">Définissez seulement les valeurs que ce profil doit modifier. Tout ce qui n’est pas défini provient des paramètres principaux. Les valeurs propres à un PC ou à un jeu restent prioritaires sur le profil.</string>
+    <string name="game_settings_title">Paramètres de stream du jeu</string>
+    <string name="game_settings_subtitle">Sur %1$s</string>
+    <string name="game_settings_explanation">Les valeurs définies ici s’appliquent uniquement à ce jeu sur ce PC. Tout ce qui n’est pas défini provient, dans cet ordre, des paramètres de ce PC, du profil et des paramètres principaux.</string>
+    <string name="game_settings_action">Paramètres de stream pour ce jeu</string>
+    <string name="game_settings_note_none">Utilise les paramètres de ce PC</string>
+    <plurals name="game_settings_note_own">
+        <item quantity="one">%d valeur définie pour ce jeu</item>
+        <item quantity="other">%d valeurs définies pour ce jeu</item>
+    </plurals>
+    <string name="layers_saved">Paramètres de stream enregistrés</string>
+    <string name="layers_saved_context">Les modifications s’appliquent au prochain stream une fois enregistrées.</string>
+    <string name="layers_unsaved_context">Modifications non enregistrées</string>
+    <string name="layers_unsaved_message">Vos modifications de ces paramètres de stream n’ont pas été enregistrées.</string>
+    <string name="layers_reset">Effacer toutes les valeurs</string>
+    <string name="layers_reset_message">Toutes les valeurs repassent à Non défini. Enregistrez pour appliquer.</string>
+    <string name="layers_status_empty">Rien n’est défini ici : chaque valeur provient des niveaux inférieurs.</string>
+    <string name="layers_status_custom">Remet toutes les valeurs à Non défini.</string>
+    <string name="layers_footer">Enregistrez avant de quitter. Les modifications s’appliquent au prochain stream, jamais à un stream déjà en cours.</string>
+    <string name="layers_not_set_value">Non défini (%1$s)</string>
+    <string name="layers_value_from">%1$s · %2$s</string>
+    <string name="layers_from_main">des paramètres principaux</string>
+    <string name="layers_from_profile">du profil %1$s</string>
+    <string name="layers_from_pc">défini pour ce PC</string>
+    <string name="layers_from_game">défini pour ce jeu</string>
+    <string name="layers_from_mobile_limit">limite données mobiles</string>
+    <string name="layers_pacing_vrr">Le rafraîchissement adaptatif est activé, le stream utilise donc Latence minimale.</string>
+
+    <!-- In the stream -->
+    <string name="layers_applied">Paramètres : %1$s</string>
+    <string name="layers_part_profile">profil %1$s</string>
+    <string name="layers_part_profile_network">profil %1$s, choisi pour %2$s</string>
+    <string name="layers_part_pc">ce PC</string>
+    <string name="layers_part_game">ce jeu</string>
+    <string name="layers_part_mobile_limit">limite données mobiles</string>
+    <string name="layers_problem_profile_missing">Le profil utilisé n’existe plus, les paramètres principaux s’appliquent donc.</string>
+    <string name="layers_problem_profile_missing_network">Le profil choisi pour %1$s n’existe plus, les paramètres principaux s’appliquent donc.</string>
+    <string name="layers_problem_profile_invalid">Le profil %1$s contient une valeur que cette version ne peut pas lire, les paramètres principaux s’appliquent donc. Ouvrez-le dans Profils pour le corriger.</string>
+    <string name="layers_problem_pc_invalid">Les paramètres de stream propres à ce PC sont illisibles et sont donc ignorés. Ouvrez les paramètres du PC pour les corriger.</string>
+    <string name="layers_problem_game_invalid">Les paramètres de stream de ce jeu sont illisibles et sont donc ignorés. Ouvrez-les depuis le menu du jeu pour les corriger.</string>
+    <string name="layers_problem_home_wifi_unknown">Sans accès à la position, le Wi-Fi domestique ne peut pas être reconnu : ce Wi-Fi compte donc comme autre Wi-Fi.</string>
+    <!-- Presets for one game's stream settings -->
+    <string name="game_preset_title">Préréglage</string>
+    <string name="game_preset_competitive">Compétitif</string>
+    <string name="game_preset_competitive_summary">Règle le frame pacing sur la latence la plus basse. Rien d’autre ne change.</string>
+    <string name="game_preset_smoothness">Fluidité</string>
+    <string name="game_preset_smoothness_summary">Règle le frame pacing le plus fluide, qui retient les images et ajoute du délai, et désactive le rafraîchissement adaptatif pour ce jeu. Le débit ne change pas.</string>
+    <string name="game_preset_quality">Qualité</string>
+    <string name="game_preset_quality_summary" formatted="false">Règle le débit à 150 % de celui du PC, ou des réglages principaux si le PC n’en a pas, jusqu’à la limite de l’hôte. Le frame pacing et le rafraîchissement adaptatif ne changent pas ; sur une connexion faible, les images plus lourdes peuvent ajouter du délai.</string>
+    <string name="game_preset_custom">Personnalisé</string>
+    <string name="game_preset_custom_summary">Vos propres valeurs, réglées ci-dessous.</string>
+</resources>

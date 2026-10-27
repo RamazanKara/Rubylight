@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_display_menu">PC display mode</string>
+    <string name="host_display_location">For Exclusive or Extended mode, open your PC’s menu → Stream settings → PC display mode. Display mode is saved separately for each PC and needs host support.</string>
+    <string name="host_display_controls_virtual">Controlled by PC display mode: %1$s</string>
+    <string name="host_display_title">Display on %1$s</string>
+    <string name="host_display_default">The PC’s own setting</string>
+    <string name="host_display_exclusive">Exclusive — virtual display only (PC monitors off)</string>
+    <string name="host_display_extended_primary">Extend — make virtual display primary</string>
+    <string name="host_display_extended">Extend — keep PC display primary</string>
+    <string name="host_display_extended_isolated">Extended and separated — PC stays primary</string>
+    <string name="host_display_extended_primary_isolated">Extended and separated — virtual display primary</string>
+    <string name="host_display_physical">Physical display (no virtual display)</string>
+    <string name="host_display_saved">Display choice saved. It applies from the next stream.</string>
+    <string name="host_display_save">Save display mode</string>
+    <string name="host_display_explanation">Choose a mode, then tap Save display mode. Cancel keeps the current choice. The new mode applies from the next stream.\n\nKeep PC display primary leaves your monitor as the Windows primary display. Make virtual display primary moves that role to the streamed display, where games and new windows usually open. Both Extend options keep the PC’s monitors on.\n\nThe PC’s own setting follows Host virtual display and the PC’s display settings. Exclusive switches the PC’s monitors off during the stream. Separated modes place the streamed display far from the other monitors in the desktop layout, in the same Windows session. Physical display streams the PC’s monitor without a virtual display. The PC restores its displays when the stream ends.\n\nOnly PCs whose host supports display modes offer this choice; on other PCs, Host virtual display decides.</string>
+    <string name="host_administration_menu">Open host web UI</string>
+    <string name="host_administration_help">Manage the host’s applications, paired devices and settings in its web UI. Sign in with the web UI’s own account; pairing does not sign you in. Remote access requires a reachable web UI port.\n\n%1$s</string>
+    <string name="host_administration_open">Open in browser</string>
+    <string name="host_administration_no_browser">No browser could open the host’s web UI. Copy its address and open it on another device.</string>
+</resources>

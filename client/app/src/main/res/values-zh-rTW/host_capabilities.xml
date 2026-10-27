@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_feature_permissions">裝置權限</string>
+    <string name="host_feature_otp_pairing">一次性 PIN 碼配對</string>
+    <string name="host_feature_clipboard">剪貼簿</string>
+    <string name="host_feature_server_commands">伺服器指令</string>
+    <string name="host_feature_virtual_display">虛擬顯示器</string>
+    <string name="host_feature_virtual_display_hdr">HDR 虛擬顯示器</string>
+    <string name="host_feature_display_modes">電腦顯示模式</string>
+    <string name="host_feature_fractional_refresh">非整數更新率</string>
+    <string name="host_feature_vrr">主機端 VRR</string>
+    <string name="host_feature_runtime_bitrate">串流期間變更位元速率</string>
+    <string name="host_feature_pyrowave">PyroWave</string>
+    <string name="host_feature_speed_test">連線速度測試</string>
+    <string name="host_feature_hardware_metrics">主機 CPU 和 GPU 讀數</string>
+    <string name="host_feature_network_path">網路路徑檢查</string>
+    <string name="host_feature_frame_limiter">影格限制器狀態</string>
+    <string name="host_feature_controller_preparation">控制器重新連線</string>
+    <string name="host_feature_remote_sessions">遠端監看和僅限輸入</string>
+    <string name="host_feature_web_ui">網頁 UI</string>
+    <string name="host_feature_reason_update">請更新主機軟體以使用此功能</string>
+    <string name="host_feature_reason_pair">請先與這部電腦配對</string>
+    <string name="host_feature_reason_view_permission">請在主機上允許這部裝置檢視串流</string>
+    <string name="host_feature_reason_clipboard_permission">請在主機上允許這部裝置使用剪貼簿</string>
+    <string name="host_feature_reason_command_permission">請在主機上允許這部裝置使用伺服器指令</string>
+    <string name="host_feature_reason_no_commands">請在主機的網頁 UI 中新增指令</string>
+    <string name="host_feature_reason_virtual_display_off">請在主機的設定中開啟虛擬顯示器</string>
+    <string name="host_feature_reason_virtual_display_driver">主機的虛擬顯示器驅動程式尚未就緒</string>
+    <string name="host_feature_reason_hardware_metrics_off">請在主機的設定中開啟硬體指標</string>
+    <string name="host_feature_reason_sleep_permission">此裝置無權讓電腦睡眠</string>
+    <string name="host_feature_reason_file_permission">此裝置沒有檔案權限，請在主機的網頁 UI 中允許</string>
+    <string name="host_feature_unknown">主機支援時才會套用</string>
+    <string name="host_details_software_apollo">與 Apollo 相容的主機</string>
+    <string name="host_details_software_vibepollo">與 Vibepollo 相容的主機</string>
+    <string name="host_details_software_unknown">與 Moonlight 相容的主機</string>
+    <string name="host_details_features">功能</string>
+    <string name="host_details_features_unknown">請先連線至這部電腦一次，以查看其支援的功能。</string>
+    <string name="host_details_features_none">未回報額外功能</string>
+    <string name="host_pyrowave_unavailable">這部電腦無法串流 PyroWave，因此會改用 %1$s。</string>
+    <string name="connection_test_intro_delay">測試與電腦之間的延遲。</string>
+    <string name="host_feature_cursor_shape">游標形狀</string>
+</resources>

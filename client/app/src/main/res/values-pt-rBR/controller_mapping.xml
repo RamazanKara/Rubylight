@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="controller_mapping_title">Botões do controle</string>
+    <string name="controller_mapping_summary">Remapear botões para cada modelo de controle</string>
+    <string name="controller_mapping_intro">Toque em “Mapear um botão” e pressione o botão do controle a ser remapeado.\nAs alterações valem para a próxima transmissão.</string>
+    <string name="controller_mapping_waiting">Conecte um controle e toque em “Mapear um botão”.</string>
+    <string name="controller_mapping_unnamed">Controle</string>
+    <string name="controller_mapping_none">Todos os botões usam o mapeamento padrão.</string>
+    <string name="controller_mapping_row">Envia %1$s</string>
+    <string name="controller_mapping_choose">%1$s envia…</string>
+    <string name="controller_mapping_default">%1$s (padrão)</string>
+    <string name="controller_mapping_disabled">Nada</string>
+    <string name="controller_mapping_reset">Redefinir este controle</string>
+    <string name="controller_button_left_stick">Clique do analógico esquerdo</string>
+    <string name="controller_button_right_stick">Clique do analógico direito</string>
+    <string name="controller_button_start">Start</string>
+    <string name="controller_button_select">Back</string>
+    <string name="controller_button_guide">Guide</string>
+    <string name="controller_button_number">Botão %1$d</string>
+    <string name="pc_tap_to_pair">%1$s\nToque para parear</string>
+</resources>

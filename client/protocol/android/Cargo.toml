@@ -1,0 +1,24 @@
+[package]
+name = "nightjar-android"
+description = "JNI bridge from Nightjar's Android app to nightjar-core (libnightjar_core.so)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "nightjar_core"
+# cdylib for the app; rlib so the unit tests link on the host.
+crate-type = ["cdylib", "rlib"]
+# The library shares nightjar-core's crate name (the app loads libnightjar_core.so), which
+# rustdoc cannot tell apart from the dependency; there are no doctests.
+doctest = false
+
+[dependencies]
+nightjar-core = { path = "../client" }
+rubylight-protocol = { path = "../core" }
+jni = "0.21"
+libc = "0.2"
+serde = "1"
+serde_json = "1"

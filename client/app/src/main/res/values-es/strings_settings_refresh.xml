@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_global_context">Valores predeterminados para todos los PCs. Cada PC puede usar sus propios ajustes de transmisión.</string>
+    <string name="settings_changes_saved">Los cambios se guardan automáticamente</string>
+    <string name="settings_search_results">Resultados de búsqueda</string>
+    <string name="settings_back_to_search">Volver a los resultados</string>
+    <string name="settings_back_to_overview">Volver a los ajustes</string>
+    <string name="settings_search_empty_help">Prueba con un término más corto, como resolución, audio o mando.</string>
+    <string name="settings_search_breadcrumb">%1$s · %2$s</string>
+    <plurals name="settings_search_count">
+        <item quantity="one">%d ajuste encontrado</item>
+        <item quantity="many">%d ajustes encontrados</item>
+        <item quantity="other">%d ajustes encontrados</item>
+    </plurals>
+    <string name="settings_profile_saved_context">Los cambios se aplican a este PC cuando los guardes.</string>
+    <string name="settings_profile_unsaved_context">Cambios sin guardar para este PC</string>
+    <string name="settings_profile_reset_message">Usa los valores predeterminados para todos los PCs. Guarda para aplicar este cambio a este PC.</string>
+    <string name="settings_profile_display_immediate">El modo de pantalla se guarda por separado en su diálogo.</string>
+</resources>

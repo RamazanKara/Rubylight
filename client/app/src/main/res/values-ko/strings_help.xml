@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="help_connect_title">PC 연결</string>
+    <string name="help_connect_body">Nightjar는 PC에서 실행 중인 모든 Moonlight 호환 호스트에서 스트리밍합니다. 호스트를 실행하고 두 기기를 같은 네트워크에 두면 PC가 목록에 표시됩니다. 표시되지 않으면 PC 추가를 탭하고 PC의 IP 주소를 입력하세요. 그래도 연결되지 않으면 PC 방화벽에서 호스트를 허용하세요.</string>
+    <string name="help_connect_link">설정 가이드</string>
+    <string name="help_pairing_title">페어링</string>
+    <string name="help_pairing_body">PC를 탭하고 PIN을 화면에 띄워 두세요. 그 PIN을 PC에 있는 호스트의 설정 또는 웹 페이지에 입력하세요. 호스트에 기기별 권한이 있다면 이 기기가 앱 목록을 보고 앱을 실행할 수 있도록 허용하세요.</string>
+    <string name="help_pairing_link">페어링 가이드</string>
+    <string name="help_controls_title">조작 및 스트림 메뉴</string>
+    <string name="help_controls_body">스트리밍 중에 뒤로를 누르면 스트림 메뉴가 열립니다: 키보드, 입력 모드, 오버레이, 비트레이트, 연결 끊기. 컨트롤러에서는 Start, Back, LB, RB를 함께 누르세요. 연결을 끊어도 게임은 PC에서 계속 실행되므로 나중에 이어서 할 수 있습니다. 단, 해당 게임의 라이브러리 메뉴에서 ‘스트림을 나갈 때 게임 종료’를 켰다면 게임도 종료됩니다. 컨트롤러의 버튼, 스틱, 진동을 확인하려면 설정, 조작, 컨트롤러 테스트를 여세요. 설정, 조작, 터치 모드에서 로컬 커서는 이 기기에 포인터를 그리고, 터치 끄기는 컨트롤러로 플레이하는 동안 화면을 무시합니다. 스트림 메뉴의 입력, 이 게임의 컨트롤에서 그 게임용 키보드, 마우스, 게임패드 버튼, 스틱, 트리거, 방향 패드를 배치합니다. Artemis 레이아웃을 가져오려면 라이브러리에서 게임을 길게 누르고 게임 컨트롤 가져오기를 선택하세요. 자체 입력 전용 모드가 없는 호스트에서 이 기기를 컨트롤러로만 사용하려면 설정, 스트리밍, 모든 PC에서 입력 전용을 켜세요. PC는 표시되지 않는 작은 영상 스트림을 계속 보냅니다.</string>
+    <string name="help_controls_link">조작 가이드</string>
+    <string name="help_problems_title">일반적인 문제 해결</string>
+    <string name="help_problems_body"><b>영상 없음:</b> HDR과 업스케일링을 끄고 720p H.264로 시도해 보세요.\n\n<b>끊김:</b> 비트레이트를 낮추거나, PC를 유선으로 연결하거나, 공유기에 더 가까이 가세요. 2.4 GHz 대신 5 GHz 또는 6 GHz Wi-Fi를 사용하세요. 몇 분마다 끊긴다면 스트림 메뉴에서 ‘스트림이 왜 끊겼나요?’를 여세요. 백그라운드 Wi-Fi 검색의 주기를 찾아 줍니다.\n\n<b>입력 지연:</b> 성능 오버레이를 켜서 지연이 어디서 생기는지 확인하고, 저지연 디코딩을 켜 두세요.\n\n<b>소리 없음:</b> 스테레오를 선택하고 PC의 오디오 출력을 확인한 후 다시 연결하세요.</string>
+    <string name="help_problems_link">문제 해결 가이드</string>
+    <string name="help_report_body">개인 정보를 제거한 로그를 공유합니다. 공유할 앱을 선택하기 전까지는 아무것도 전송되지 않습니다.</string>
+    <string name="help_report_link">포함할 내용</string>
+</resources>

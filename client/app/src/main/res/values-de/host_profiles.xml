@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_profile_title">Stream-Einstellungen: %1$s</string>
+    <string name="host_profile_status_global">Alle Werte folgen den Einstellungen für alle PCs.</string>
+    <string name="host_profile_status_custom">Setzt alle Werte auf die Einstellungen für alle PCs zurück.</string>
+    <string name="host_profile_explanation">Werte, die du hier setzt, gelten nur für diesen PC. Alles mit „Wie alle PCs“ folgt den Stream-Einstellungen, auch wenn du sie später änderst.</string>
+    <string name="host_profile_resolution">Auflösung (Breite × Höhe)</string>
+    <string name="host_profile_width">Breite</string>
+    <string name="host_profile_height">Höhe</string>
+    <string name="host_profile_match_screen">Wie dieses Display</string>
+    <string name="host_profile_native">Bildschirmgröße (folgt diesem Display)</string>
+    <string name="host_profile_refresh">Bildrate (FPS)</string>
+    <string name="host_profile_bitrate">Bitrate (Mbit/s)</string>
+    <string name="host_profile_scale">Render-Auflösung des PCs (%)</string>
+    <string name="host_profile_codec">Videocodec</string>
+    <string name="host_profile_virtual_display">Virtuelles Host-Display</string>
+    <string name="host_profile_hdr">HDR</string>
+    <string name="host_profile_full_range">Voller Farbbereich</string>
+    <string name="host_profile_yuv444">YUV 4:4:4 bevorzugen</string>
+    <string name="host_profile_save">Speichern</string>
+    <string name="host_profile_reset">Alles wie bei allen PCs</string>
+    <string name="host_profile_saved">Stream-Einstellungen für diesen PC gespeichert</string>
+    <string name="host_profile_reset_done">Dieser PC nutzt jetzt die Einstellungen für alle PCs.</string>
+    <string name="host_profile_invalid_number">Gib eine ganze Zahl von %1$d bis %2$d ein.</string>
+    <string name="host_profile_invalid_refresh">Gib 1–1000 FPS mit höchstens zwei Nachkommastellen ein</string>
+    <string name="host_profile_invalid_bitrate">Gib 0,5–2000 Mbit/s ein.</string>
+    <string-array name="host_profile_codecs">
+        <item>Automatisch</item>
+        <item>@string/videoformat_av1always</item>
+        <item>@string/videoformat_hevcalways</item>
+        <item>@string/videoformat_h264always</item>
+        <item>@string/videoformat_pyrowave</item>
+    </string-array>
+    <string name="host_profile_follows">Wie alle PCs · %1$s</string>
+    <string name="host_profile_same_as_all_value">Wie alle PCs (%1$s)</string>
+    <string name="host_profile_on">An</string>
+    <string name="host_profile_off">Aus</string>
+</resources>

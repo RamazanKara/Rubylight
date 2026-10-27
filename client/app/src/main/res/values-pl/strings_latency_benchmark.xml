@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="latency_benchmark_title">Test opóźnienia</string>
+    <string name="latency_benchmark_description">Uruchom 10-sekundowy lokalny test czasowy bez hosta. Dotykaj ekranu, ruszaj myszą lub używaj kontrolera, aby zebrać próbki wejścia.</string>
+    <string name="latency_benchmark_start">Rozpocznij 10-sekundowy test</string>
+    <string name="latency_benchmark_stop">Zatrzymaj test</string>
+    <string name="latency_benchmark_display">Zgłaszane odświeżanie panelu: %1$.2f Hz</string>
+    <string name="latency_benchmark_audio">Zgłaszany dźwięk: %1$s Hz · %2$s ramek na bufor</string>
+    <string name="latency_benchmark_frame">Odstęp wywołań klatek</string>
+    <string name="latency_benchmark_callback">Opóźnienie wywołania klatki</string>
+    <string name="latency_benchmark_input">Wiek przekazania wejścia</string>
+    <string name="latency_benchmark_timer">Opóźnienie wybudzenia timera</string>
+    <string name="latency_benchmark_limits">Wyniki obejmują do 2048 ostatnich próbek na metrykę. Wiek wejścia liczony jest od znacznika czasu zdarzenia Androida (rozdzielczość 1 ms); nie mierzy odpytywania kontrolera ani opóźnienia wejścia na hoście. Wywołania klatek nie mierzą wyświetlania na panelu (scanout). Właściwości dźwięku to zgłaszane możliwości, a nie zmierzone opóźnienie wyjścia. Opóźnienie sieci, dekodowania i całkowite wymaga strumienia lub pomiaru zewnętrznego. Opuszczenie tego ekranu zatrzymuje test.</string>
+    <string name="latency_test">Zmierz opóźnienie sterowania</string>
+    <string name="latency_test_running">Pomiar… pokaż nieruchomy pulpit z kursorem myszy i nie dotykaj niczego przez kilka sekund.</string>
+    <string name="latency_test_result">Od sterowania do ekranu: typowo %1$.1f ms, najlepiej %2$.1f ms, najwolniejsze 10%% %3$.1f ms (próbki: %4$d).\n\nMierzone od chwili, gdy ta aplikacja wysyła ruch myszy, do wyświetlenia przez Androida klatki odpowiedzi hosta. Obejmuje sieć, przechwytywanie i kodowanie na hoście, dekodowanie i wyświetlanie. Nie obejmuje reakcji palca ani opóźnienia samego panelu.</string>
+    <string name="latency_test_failed">Nie udało się zmierzyć. Host wysyłał klatki bez przerwy lub nie odpowiedział na ruch myszy. Pokaż nieruchomy pulpit z widocznym kursorem myszy, zamknij gry i filmy, a potem spróbuj ponownie.</string>
+    <string name="latency_benchmark_share">Udostępnij wyniki</string>
+    <string name="latency_benchmark_share_title">Wyniki urządzenia</string>
+    <string name="latency_benchmark_share_message">Nightjar nigdy nie wysyła tego samodzielnie. Tekst zawiera to urządzenie (model, SoC, GPU i wersję Androida), test dekodera i ostatni test z tego ekranu, bez nazw komputerów, adresów, numerów seryjnych i danych konta. „Otwórz formularz” kopiuje tekst i otwiera publiczny formularz GitHub. Wszystko, co tam wkleisz, staje się publiczne i trafia do tabeli urządzeń na stronie Nightjar.</string>
+    <string name="latency_benchmark_copied">Skopiowano wyniki</string>
+    <string name="latency_benchmark_report_form">Otwórz formularz</string>
+    <string name="latency_benchmark_paste_hint">Skopiowano wyniki. Wklej je do formularza.</string>
+</resources>

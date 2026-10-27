@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="controller_mapping_capture">버튼 매핑</string>
+    <string name="controller_mapping_press">매핑할 컨트롤러 버튼을 누르세요. 뒤로를 누르면 취소됩니다.</string>
+</resources>

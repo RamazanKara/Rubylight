@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_adaptive_quality">Qualidade automática da transmissão</string>
+    <string name="summary_adaptive_quality">Reduz a resolução ou os FPS durante congestionamento prolongado, decodificação lenta ou aquecimento, e depois recupera aos poucos. Usa taxa de bits automática quando compatível. Requer suporte a reconfiguração no host e um decodificador adaptável; indisponível com PyroWave.</string>
+    <string name="title_adaptive_quality_min_resolution">Resolução automática mínima</string>
+    <string name="summary_adaptive_quality_min_resolution">Menor lado curto, mantendo a proporção. A resolução de transmissão selecionada continua sendo o máximo. Uma resolução inicial mais baixa nunca é aumentada por este limite.</string>
+    <string name="title_adaptive_quality_min_fps">Taxa de quadros automática mínima</string>
+    <string name="summary_adaptive_quality_min_fps">Menor FPS permitido. A taxa de quadros de transmissão selecionada continua sendo o máximo. Vale para a qualidade automática, incluindo o modo bateria.</string>
+    <string name="quality_off">Desativado</string>
+    <string name="quality_motion">Preservar movimento</string>
+    <string name="quality_detail">Preservar detalhes</string>
+    <string name="quality_battery">Prolongar a bateria</string>
+    <string name="quality_use_settings">Usar configurações do app</string>
+    <string name="quality_about">Como funciona</string>
+    <string name="quality_stream_help">Salvo para este PC. Movimento reduz primeiro a resolução; Detalhes reduz primeiro os FPS. Bateria limita o trabalho aos poucos a no máximo 60 FPS e 1080 pixels no lado curto, dentro dos seus limites mínimos. Codec, HDR e a escolha de tela permanecem como negociados.</string>
+    <string name="quality_unavailable">A qualidade automática está desativada: este PC ou dispositivo não consegue mudar a resolução e a taxa de quadros durante uma transmissão.</string>
+    <string name="quality_request_failed">A qualidade automática parou: o PC não aplicou o novo tamanho. A transmissão continua; escolha outro modo no menu da transmissão.</string>
+    <string name="quality_status">Qualidade automática: %1$s · %2$d × %3$d · meta de %4$d FPS</string>
+</resources>

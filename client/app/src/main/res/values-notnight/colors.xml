@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Day colour roles; see values/palette.xml. -->
+    <color name="primary">@color/day_primary</color>
+    <color name="on_primary">@color/day_on_primary</color>
+    <color name="primary_container">@color/day_primary_container</color>
+    <color name="on_primary_container">@color/day_on_primary_container</color>
+    <color name="inverse_primary">@color/day_inverse_primary</color>
+    <color name="secondary">@color/day_secondary</color>
+    <color name="on_secondary">@color/day_on_secondary</color>
+    <color name="secondary_container">@color/day_secondary_container</color>
+    <color name="on_secondary_container">@color/day_on_secondary_container</color>
+    <color name="tertiary">@color/day_tertiary</color>
+    <color name="on_tertiary">@color/day_on_tertiary</color>
+    <color name="tertiary_container">@color/day_tertiary_container</color>
+    <color name="on_tertiary_container">@color/day_on_tertiary_container</color>
+    <color name="error">@color/day_error</color>
+    <color name="on_error">@color/day_on_error</color>
+    <color name="error_container">@color/day_error_container</color>
+    <color name="on_error_container">@color/day_on_error_container</color>
+    <color name="surface">@color/day_surface</color>
+    <color name="surface_dim">@color/day_surface_dim</color>
+    <color name="surface_bright">@color/day_surface_bright</color>
+    <color name="surface_container_lowest">@color/day_surface_container_lowest</color>
+    <color name="surface_container_low">@color/day_surface_container_low</color>
+    <color name="surface_container">@color/day_surface_container</color>
+    <color name="surface_container_high">@color/day_surface_container_high</color>
+    <color name="surface_container_highest">@color/day_surface_container_highest</color>
+    <color name="on_surface">@color/day_on_surface</color>
+    <color name="on_surface_variant">@color/day_on_surface_variant</color>
+    <color name="outline">@color/day_outline</color>
+    <color name="outline_variant">@color/day_outline_variant</color>
+    <color name="inverse_surface">@color/day_inverse_surface</color>
+    <color name="inverse_on_surface">@color/day_inverse_on_surface</color>
+    <!-- 12% of the error colour, for the press state of destructive buttons. -->
+    <color name="error_ripple">#1FBA1A1A</color>
+    <bool name="light_system_bars">true</bool>
+</resources>

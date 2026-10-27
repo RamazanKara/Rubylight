@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_auto_reconnect">Khôi phục stream bị gián đoạn</string>
+    <string name="summary_auto_reconnect">Tự động tiếp tục trò chơi đang chạy sau khi kết nối bị lỗi tạm thời. Tối đa năm lần thử trong vòng một phút; nhấn Quay lại để hủy.</string>
+    <string name="stream_recovery_attempt">Đang kết nối lại với trò chơi… Lần thử %1$d/%2$d. Nhấn Quay lại để hủy.</string>
+    <string name="stream_recovery_session_changed">Phiên chơi trước không còn khả dụng. Đã dừng khôi phục tự động để tránh khởi động hoặc thay thế trò chơi.</string>
+    <string name="stream_recovery_exhausted">Khôi phục tự động không thể kết nối lại trong vòng một phút. Trò chơi của bạn chưa bị thoát. Hãy kiểm tra kết nối rồi chọn Kết nối lại để thử lại.</string>
+    <string name="stream_recovery_paused">Khôi phục tự động đã dừng khi bạn rời khỏi stream. Chọn Kết nối lại để tiếp tục.</string>
+</resources>

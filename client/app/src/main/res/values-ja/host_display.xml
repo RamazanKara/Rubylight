@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_display_menu">PC の表示モード</string>
+    <string name="host_display_location">専用モードや拡張モードを使うには、PC のメニュー → [ストリーミング設定] → [PC の表示モード] を開きます。表示モードは PC ごとに別々に保存され、ホストの対応が必要です。</string>
+    <string name="host_display_controls_virtual">PC の表示モードで制御: %1$s</string>
+    <string name="host_display_title">%1$s での表示</string>
+    <string name="host_display_default">PC 自体の設定</string>
+    <string name="host_display_exclusive">専用 — 仮想ディスプレイのみ（PC のモニターはオフ）</string>
+    <string name="host_display_extended_primary">拡張 — 仮想ディスプレイをメインにする</string>
+    <string name="host_display_extended">拡張 — PC のディスプレイをメインのままにする</string>
+    <string name="host_display_extended_isolated">拡張・分離 — PC がメインのまま</string>
+    <string name="host_display_extended_primary_isolated">拡張・分離 — 仮想ディスプレイがメイン</string>
+    <string name="host_display_physical">物理ディスプレイ（仮想ディスプレイなし）</string>
+    <string name="host_display_saved">表示の選択を保存しました。次回のストリームから適用されます。</string>
+    <string name="host_display_save">表示モードを保存</string>
+    <string name="host_display_explanation">モードを選んで [表示モードを保存] をタップします。[キャンセル] を押すと現在の選択が維持されます。新しいモードは次回のストリームから適用されます。\n\n[PC のディスプレイをメインのままにする] では、モニターが Windows のメインディスプレイのままになります。[仮想ディスプレイをメインにする] では、その役割がストリーミングするディスプレイに移り、ゲームや新しいウィンドウは通常そちらに表示されます。どちらの拡張オプションでも PC のモニターはオンのままです。\n\n[PC 自体の設定] は、[ホストの仮想ディスプレイ] と PC のディスプレイ設定に従います。[専用] では、ストリーム中は PC のモニターがオフになります。分離モードでは、同じ Windows セッション内で、ストリーミングするディスプレイをデスクトップ配置上で他のモニターから離れた位置に置きます。[物理ディスプレイ] では、仮想ディスプレイを使わずに PC のモニターをストリーミングします。ストリームが終了すると、PC のディスプレイは元に戻ります。\n\nこの選択肢は、ホストが表示モードに対応している PC でのみ表示されます。それ以外の PC では [ホストの仮想ディスプレイ] の設定に従います。</string>
+    <string name="host_administration_menu">ホストのウェブ UI を開く</string>
+    <string name="host_administration_help">ホストのアプリ、ペアリング済みデバイス、設定はウェブ UI で管理します。ウェブ UI 専用のアカウントでログインしてください。ペアリングしてもログインはされません。リモートアクセスするには、ウェブ UI のポートにアクセスできる必要があります。\n\n%1$s</string>
+    <string name="host_administration_open">ブラウザで開く</string>
+    <string name="host_administration_no_browser">ホストのウェブ UI を開けるブラウザがありません。アドレスをコピーして別のデバイスで開いてください。</string>
+</resources>

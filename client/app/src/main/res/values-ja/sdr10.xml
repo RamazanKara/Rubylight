@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_enable_sdr10">10 ビットカラー (SDR)</string>
+    <string name="summary_enable_sdr10">バンディングを減らすため、SDR を 10 ビットの HEVC または AV1 でストリーミングします。このデバイスに Main10 デコーダーが必要で、PC のディスプレイは SDR にしておく必要があります。</string>
+    <string name="startup_sdr10_not_accepted">この PC は 10 ビットを受け付けなかったため、ストリームは 8 ビットです。</string>
+    <string name="stream_sdr10_host_hdr">PC が HDR を送信しています。10 ビット SDR にするには PC のディスプレイを SDR に切り替えてください。</string>
+    <string name="stream_sdr10_unavailable">10 ビット SDR は使用されず、ストリームは 8 ビットです: %1$s</string>
+    <string name="stream_sdr10_reason_decoder">現在のコーデック設定では、Main10 の HEVC / AV1 デコーダーを使用できません。</string>
+    <string name="stream_sdr10_reason_pyrowave">PyroWave が選択されており、その 10 ビット出力は HDR 専用です。</string>
+    <string name="stream_sdr10_reason_packed">パック形式の 4:4:4 は独自の 10 ビット処理を使用します。</string>
+    <string name="upscaling_tenbit_short">10 ビットでは使用されません</string>
+    <string name="stream_sdr10_reason_yuv444">4:4:4 が有効で、PC は 4:4:4 か 10 ビットのどちらか一方のみ使えます。</string>
+    <string name="upscaling_tenbit">10 ビットでは、精度を保つため直接出力のままにします。</string>
+</resources>

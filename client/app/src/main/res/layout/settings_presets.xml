@@ -1,0 +1,23 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:orientation="vertical" android:descendantFocusability="blocksDescendants"
+    android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter"
+    android:paddingTop="@dimen/space_m" android:paddingBottom="@dimen/space_l">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical">
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+            android:orientation="vertical" android:layout_marginEnd="@dimen/space_s">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="@string/stream_presets" android:textAppearance="@style/TextAppearance.Nightjar.Title" />
+            <TextView android:id="@+id/preset_value" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_xs" android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant" />
+        </LinearLayout>
+        <ImageButton android:id="@+id/preset_help" style="@style/ToolbarIcon"
+            android:layout_marginEnd="-12dp"
+            android:src="@drawable/ic_info" android:contentDescription="@string/stream_presets_help_title" />
+    </LinearLayout>
+    <com.google.android.material.chip.ChipGroup android:id="@+id/preset_chips"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_s"
+        app:singleSelection="true" app:selectionRequired="true" app:chipSpacingHorizontal="@dimen/space_s" />
+</LinearLayout>

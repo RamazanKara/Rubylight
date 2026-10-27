@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="help_connect_title">Conectar un PC</string>
+    <string name="help_connect_body">Nightjar transmite desde cualquier servidor compatible con Moonlight que se ejecute en tu PC. Inicia el servidor y mantén ambos dispositivos en la misma red; el PC aparecerá en tu lista. Si no aparece, toca Añadir PC e introduce la dirección IP del PC. Si sigue sin conectarse, permite el servidor en el cortafuegos del PC.</string>
+    <string name="help_connect_link">Guía de configuración</string>
+    <string name="help_pairing_title">Vinculación</string>
+    <string name="help_pairing_body">Toca el PC y deja el PIN en pantalla. Introduce ese PIN en los ajustes o en la página web del servidor en el PC. Si el servidor tiene permisos por dispositivo, permite que este dispositivo vea y abra aplicaciones.</string>
+    <string name="help_pairing_link">Guía de vinculación</string>
+    <string name="help_controls_title">Controles y menú de transmisión</string>
+    <string name="help_controls_body">Durante una transmisión, pulsa Atrás para abrir el menú de transmisión: teclado, modo de entrada, superposición, tasa de bits y desconexión. En un mando, pulsa Start, Back, LB y RB a la vez. Al desconectarte, el juego sigue en ejecución en el PC para que puedas retomarlo, salvo que hayas activado «Cerrar el juego al salir de la transmisión» en el menú de ese juego en la biblioteca. Para comprobar los botones, joysticks y vibración de un mando, abre Ajustes, Controles, Prueba del mando. En Ajustes, Controles, Modo táctil, Cursor local dibuja el puntero en este dispositivo y Táctil desactivado ignora la pantalla mientras juegas con un mando. En el menú de transmisión, Entrada, Controles para este juego coloca botones de teclado, ratón y mando, joysticks, gatillos y una cruceta para ese juego. Para traer un diseño de Artemis, mantén pulsado el juego en la biblioteca y elige Importar controles del juego. Para usar este dispositivo solo como mando en un servidor sin su propio modo de solo entrada, activa Ajustes, Transmisión, Solo entrada en cualquier PC; el PC sigue enviando una pequeña transmisión de vídeo que no se muestra.</string>
+    <string name="help_controls_link">Guía de controles</string>
+    <string name="help_problems_title">Solucionar problemas comunes</string>
+    <string name="help_problems_body"><b>Sin vídeo:</b> prueba H.264 a 720p con HDR y el escalado desactivados.\n\n<b>Tirones:</b> reduce la tasa de bits, conecta el PC por cable o acércate al router. Usa Wi-Fi de 5 o 6 GHz en lugar de 2,4 GHz. Si da tirones cada pocos minutos, abre «¿Por qué ha dado tirones la transmisión?» en el menú de transmisión: detecta el ritmo de las búsquedas de Wi-Fi en segundo plano.\n\n<b>Retraso de entrada:</b> activa la superposición de rendimiento para ver de dónde viene el retraso y mantén activada la decodificación de baja latencia.\n\n<b>Sin sonido:</b> elige Estéreo, comprueba la salida de audio del PC y vuelve a conectarte.</string>
+    <string name="help_problems_link">Guía de solución de problemas</string>
+    <string name="help_report_body">Comparte un registro sin datos personales. No se envía nada hasta que eliges una aplicación con la que compartirlo.</string>
+    <string name="help_report_link">Qué incluir</string>
+</resources>

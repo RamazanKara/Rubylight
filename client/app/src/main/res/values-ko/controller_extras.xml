@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Controller and keyboard options -->
+    <string name="title_checkbox_disable_rumble">진동 끄기</string>
+    <string name="summary_checkbox_disable_rumble">게임이 요청하는 모든 진동을 멈춥니다: 컨트롤러 및 트리거 진동, USB DualSense 햅틱, 컨트롤러 대신 이 기기가 진동하는 기능.</string>
+    <string name="title_checkbox_mouse_emulation_fixed_step">고정 단계로 마우스 이동</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">컨트롤러 마우스 모드에서 X를 누른 채 스틱을 움직이면 포인터가 한 번에 정해진 픽셀 수만큼 움직입니다. Y를 누르면 단계가 두 배가 되며, 1부터 128픽셀까지 늘어난 뒤 다시 1로 돌아갑니다.</string>
+    <string name="stream_mouse_step">마우스 단계: %1$d px</string>
+    <string name="title_checkbox_back_as_meta">키보드 뒤로 키로 Windows 키 보내기</string>
+    <string name="summary_checkbox_back_as_meta">실물 키보드의 뒤로 키가 Windows 키(Mac에서는 Command)를 보냅니다. 스트림 메뉴는 Ctrl+Alt+Shift+M, Android 뒤로 제스처나 버튼, 컨트롤러 버튼 조합으로 엽니다.</string>
+    <string name="title_checkbox_right_alt_as_meta">오른쪽 Alt를 Command로 사용</string>
+    <string name="summary_checkbox_right_alt_as_meta">오른쪽 Alt가 Windows 키를 보내며, Mac은 이를 Command로 사용하므로 오른쪽 Alt+C로 복사할 수 있습니다. 왼쪽 Alt는 그대로입니다. AltGr로 문자를 입력한다면 꺼 두세요.</string>
+
+    <!-- Controller test page -->
+    <string name="controller_test_title">컨트롤러 테스트</string>
+    <string name="controller_test_summary">버튼, 스틱, 트리거, 진동, 조명, 모션 확인</string>
+    <string name="controller_test_open">컨트롤러 테스트하기</string>
+    <string name="controller_test_hint">버튼을 누르고 스틱을 움직여 보세요. 방향 패드와 A로도 이 페이지를 이동할 수 있습니다. 나가려면 B 또는 Back을 1초간 누르세요.</string>
+    <string name="controller_test_waiting">컨트롤러를 연결하고 아무 버튼이나 누르세요.</string>
+    <string name="controller_test_waiting_short">아직 컨트롤러가 없습니다.</string>
+    <string name="controller_test_usb_device">USB 컨트롤러 %1$s(Nightjar USB 드라이버)</string>
+    <string name="controller_test_buttons">버튼</string>
+    <string name="controller_test_pressed">누름: %1$s</string>
+    <string name="controller_test_pressed_none">누른 버튼 없음</string>
+    <string name="controller_test_sticks">스틱 및 트리거</string>
+    <string name="controller_test_stick_values">왼쪽 스틱  %1$+.2f %2$+.2f\n오른쪽 스틱  %3$+.2f %4$+.2f\nLT %5$d%%  RT %6$d%%</string>
+    <string name="controller_test_rumble">진동</string>
+    <string name="controller_test_rumble_strong">강한 모터</string>
+    <string name="controller_test_rumble_weak">약한 모터</string>
+    <string name="controller_test_rumble_all">두 모터 모두</string>
+    <string name="controller_test_rumble_any">진동</string>
+    <string name="controller_test_rumble_left_trigger">왼쪽 트리거</string>
+    <string name="controller_test_rumble_right_trigger">오른쪽 트리거</string>
+    <string name="controller_test_rumble_stop">중지</string>
+    <string name="controller_test_rumble_disabled_note">진동 끄기가 켜져 있어 스트리밍 중에는 진동하지 않습니다. 이 테스트에서는 진동합니다.</string>
+    <string name="controller_test_lights">조명</string>
+    <string name="controller_test_light_red">빨강</string>
+    <string name="controller_test_light_green">초록</string>
+    <string name="controller_test_light_blue">파랑</string>
+    <string name="controller_test_light_off">끄기</string>
+    <string name="controller_test_light_reset">초기화</string>
+    <string name="controller_test_motion">모션 센서</string>
+    <string name="controller_test_motion_values">자이로\n%1$s\n가속도계\n%2$s</string>
+    <string name="controller_test_waiting_motion">컨트롤러를 움직이세요</string>
+    <string name="controller_test_touchpad">터치패드</string>
+    <string name="controller_test_touch_none">터치패드를 터치하면 위치가 표시됩니다.</string>
+    <string name="controller_test_touch_at">손가락 위치: 가로 %1$d%%, 세로 %2$d%%</string>
+    <string name="controller_test_misc">Share</string>
+    <string name="controller_test_not_available">이 컨트롤러에서는 사용할 수 없습니다.</string>
+    <string name="controller_test_needs_android_12">Android 12 이상이 필요합니다.</string>
+
+    <!-- USB Switch Pro driver -->
+    <string name="title_usb_switch_pro">USB Switch Pro 드라이버</string>
+    <string name="summary_usb_switch_pro">실험적 기능입니다. 유선으로 연결한 Nintendo Switch Pro Controller를 직접 읽어 모션, 진동, Home, Capture를 사용합니다.</string>
+    <string name="usb_switch_pro_denied">USB 접근 권한이 없어 Switch Pro Controller는 Android 입력을 사용합니다.\n다시 시도하려면 케이블을 다시 연결하세요.</string>
+</resources>

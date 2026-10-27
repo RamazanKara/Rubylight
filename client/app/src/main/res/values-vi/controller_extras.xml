@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Controller and keyboard options -->
+    <string name="title_checkbox_disable_rumble">Tắt rung</string>
+    <string name="summary_checkbox_disable_rumble">Dừng mọi rung mà trò chơi yêu cầu: rung tay cầm và rung cò, phản hồi xúc giác DualSense qua USB, và rung thiết bị này thay cho tay cầm.</string>
+    <string name="title_checkbox_mouse_emulation_fixed_step">Di chuyển chuột theo bước cố định</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">Ở chế độ chuột bằng tay cầm điều khiển, giữ X trong khi di chuyển cần để con trỏ di chuyển một số pixel cố định mỗi lần. Nhấn Y để nhân đôi bước, từ 1 đến 128 pixel rồi quay lại 1.</string>
+    <string name="stream_mouse_step">Bước chuột: %1$d px</string>
+    <string name="title_checkbox_back_as_meta">Phím Quay lại trên bàn phím gửi phím Windows</string>
+    <string name="summary_checkbox_back_as_meta">Phím Quay lại trên bàn phím vật lý sẽ gửi phím Windows (Command trên Mac). Mở menu stream bằng Ctrl+Alt+Shift+M, cử chỉ hoặc nút Quay lại của Android, hoặc tổ hợp nút trên tay cầm.</string>
+    <string name="title_checkbox_right_alt_as_meta">Alt phải làm Command</string>
+    <string name="summary_checkbox_right_alt_as_meta">Alt phải gửi phím Windows, phím mà Mac dùng làm Command, nên Alt phải+C sẽ sao chép. Alt trái không đổi. Hãy để tắt nếu bạn gõ ký tự bằng AltGr.</string>
+
+    <!-- Controller test page -->
+    <string name="controller_test_title">Kiểm tra tay cầm</string>
+    <string name="controller_test_summary">Kiểm tra nút, cần, cò, rung, đèn và chuyển động</string>
+    <string name="controller_test_open">Kiểm tra tay cầm</string>
+    <string name="controller_test_hint">Nhấn các nút và di chuyển cần. D-pad và A cũng di chuyển trong trang này; giữ B hoặc Back một giây để thoát.</string>
+    <string name="controller_test_waiting">Kết nối tay cầm điều khiển và nhấn nút bất kỳ.</string>
+    <string name="controller_test_waiting_short">Chưa có tay cầm.</string>
+    <string name="controller_test_usb_device">Tay cầm USB %1$s (driver USB của Nightjar)</string>
+    <string name="controller_test_buttons">Nút</string>
+    <string name="controller_test_pressed">Đang nhấn: %1$s</string>
+    <string name="controller_test_pressed_none">Không nhấn nút nào</string>
+    <string name="controller_test_sticks">Cần và cò</string>
+    <string name="controller_test_stick_values">Cần trái  %1$+.2f %2$+.2f\nCần phải  %3$+.2f %4$+.2f\nLT %5$d%%  RT %6$d%%</string>
+    <string name="controller_test_rumble">Rung</string>
+    <string name="controller_test_rumble_strong">Mô-tơ mạnh</string>
+    <string name="controller_test_rumble_weak">Mô-tơ yếu</string>
+    <string name="controller_test_rumble_all">Cả hai mô-tơ</string>
+    <string name="controller_test_rumble_any">Rung</string>
+    <string name="controller_test_rumble_left_trigger">Cò trái</string>
+    <string name="controller_test_rumble_right_trigger">Cò phải</string>
+    <string name="controller_test_rumble_stop">Dừng</string>
+    <string name="controller_test_rumble_disabled_note">Tắt rung đang bật nên khi stream sẽ không rung. Các bài kiểm tra này vẫn rung.</string>
+    <string name="controller_test_lights">Đèn</string>
+    <string name="controller_test_light_red">Đỏ</string>
+    <string name="controller_test_light_green">Xanh lá</string>
+    <string name="controller_test_light_blue">Xanh dương</string>
+    <string name="controller_test_light_off">Tắt</string>
+    <string name="controller_test_light_reset">Đặt lại</string>
+    <string name="controller_test_motion">Cảm biến chuyển động</string>
+    <string name="controller_test_motion_values">Con quay hồi chuyển\n%1$s\nGia tốc kế\n%2$s</string>
+    <string name="controller_test_waiting_motion">Hãy di chuyển tay cầm</string>
+    <string name="controller_test_touchpad">Touchpad</string>
+    <string name="controller_test_touch_none">Chạm vào touchpad để xem vị trí.</string>
+    <string name="controller_test_touch_at">Ngón tay ở %1$d%% chiều ngang, %2$d%% chiều dọc</string>
+    <string name="controller_test_misc">Share</string>
+    <string name="controller_test_not_available">Không khả dụng trên tay cầm này.</string>
+    <string name="controller_test_needs_android_12">Cần Android 12 trở lên.</string>
+
+    <!-- USB Switch Pro driver -->
+    <string name="title_usb_switch_pro">Driver Switch Pro qua USB</string>
+    <string name="summary_usb_switch_pro">Thử nghiệm. Đọc trực tiếp Nintendo Switch Pro Controller nối dây, có cảm biến chuyển động, rung, Home và Capture.</string>
+    <string name="usb_switch_pro_denied">Không có quyền truy cập USB; Switch Pro Controller vẫn dùng đầu vào của Android.\nHãy cắm lại cáp để thử lại.</string>
+</resources>

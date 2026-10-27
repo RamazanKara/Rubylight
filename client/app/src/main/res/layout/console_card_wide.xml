@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A game to continue, or a host: a small cover or icon, two lines and a state chip. -->
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto" app:cardPreventCornerOverlap="false" android:clipToOutline="true"
+    android:layout_width="match_parent" android:layout_height="wrap_content" style="@style/LibraryCard"
+    android:layout_margin="@dimen/space_s" android:focusable="true" android:clickable="true"
+    android:foreground="@drawable/grid_focus_ring" android:descendantFocusability="blocksDescendants">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical"
+        android:orientation="horizontal">
+        <FrameLayout android:id="@+id/console_thumb_frame" android:layout_width="72dp" android:layout_height="96dp"
+            android:background="?attr/colorSurfaceContainerHigh">
+            <ImageView android:id="@+id/console_thumb" android:layout_width="match_parent" android:layout_height="match_parent"
+                android:scaleType="centerCrop" android:importantForAccessibility="no" />
+            <TextView android:id="@+id/console_thumb_text" android:layout_width="match_parent" android:layout_height="match_parent"
+                android:gravity="center" android:padding="@dimen/space_xs" android:maxLines="4" android:ellipsize="end"
+                android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurface"
+                android:importantForAccessibility="no" />
+        </FrameLayout>
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+            android:orientation="vertical" android:padding="@dimen/space_m">
+            <TextView android:id="@+id/console_title" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:maxLines="2" android:ellipsize="end"
+                android:textAppearance="@style/TextAppearance.Nightjar.Title" android:textColor="?attr/colorOnSurface"
+                android:importantForAccessibility="no" />
+            <TextView android:id="@+id/console_subtitle" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:maxLines="2" android:ellipsize="end"
+                android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant"
+                android:importantForAccessibility="no" />
+            <TextView android:id="@+id/console_badge" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_xs"
+                android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s"
+                android:paddingTop="@dimen/space_xs" android:paddingBottom="@dimen/space_xs" android:background="@drawable/bg_chip"
+                android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurface"
+                android:visibility="gone" android:importantForAccessibility="no" />
+        </LinearLayout>
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>

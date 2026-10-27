@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_section_display">显示和画面</string>
+    <string name="settings_display_adaptive">自适应刷新</string>
+    <string name="settings_display_no_upscaling">不放大</string>
+    <string name="settings_section_audio">音频</string>
+    <string name="settings_section_streaming">串流</string>
+    <string name="settings_section_streaming_summary">叠加层、画中画和恢复</string>
+    <string name="settings_category_refresh">刷新率</string>
+    <string name="settings_category_image">画面</string>
+    <string name="settings_category_pc_display">电脑显示</string>
+    <string name="settings_category_usb">USB 手柄</string>
+    <string name="settings_category_keyboard">键盘</string>
+    <string name="settings_category_decoder">解码器</string>
+    <string name="settings_category_input_network">输入和网络</string>
+    <string name="settings_category_diagnostics">诊断</string>
+    <string name="settings_needs_host_support">需要主机支持</string>
+    <string name="settings_pc_display_mode_value">在每台电脑的菜单中单独设置</string>
+    <string name="settings_help_summary">设置、配对和常见问题解决</string>
+    <string name="settings_latency_benchmark_summary">无需电脑即可测试此设备的计时</string>
+    <string name="settings_low_latency_partial">部分关闭</string>
+    <string name="upscaling_hdr_short">HDR 下不使用</string>
+    <string name="upscaling_pyrowave_short">PyroWave 使用 SGSR</string>
+    <string name="title_low_latency_decoding">低延迟解码</string>
+    <string name="summary_low_latency_decoding">使用 Android 和芯片组解码器的低延迟模式，并允许 Android 在串流时调节性能。仅在测试解码问题时才关闭。</string>
+    <string name="settings_touch_mode_help">触控板：拖动可移动光标，点按可点击。\n直接鼠标：光标会移到你点按的位置。\n多点触控：触控会作为触控输入传送到电脑。如果主机不支持，则与“直接鼠标”效果相同。\n本地光标：在本设备上绘制的指针会立即跟随手指；轻点即可在指针所指位置单击。\n关闭触控：使用手柄游玩时屏幕会忽略触摸。向后滑动或按返回键可打开串流菜单。</string>
+    <string name="resolution_screen">屏幕尺寸（%1$s）</string>
+    <string name="resolution_screen_cutout">屏幕尺寸，避开摄像头挖孔（%1$s）</string>
+    <string name="resolution_screen_portrait">屏幕尺寸，竖屏（%1$s）</string>
+    <string name="resolution_screen_cutout_portrait">屏幕尺寸，竖屏，避开摄像头挖孔（%1$s）</string>
+    <string name="fps_screen">屏幕刷新率（%1$d FPS）</string>
+</resources>

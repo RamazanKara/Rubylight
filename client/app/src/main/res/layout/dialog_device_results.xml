@@ -1,0 +1,29 @@
+<!-- The message scrolls on its own so the three actions below it stay full width and in view at any font size. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:orientation="vertical" android:paddingTop="@dimen/space_s" android:paddingBottom="@dimen/space_l">
+    <androidx.core.widget.NestedScrollView android:id="@+id/device_results_scroll"
+        android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:scrollIndicators="top|bottom">
+        <TextView android:id="@+id/device_results_message"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:paddingStart="@dimen/space_xl" android:paddingEnd="@dimen/space_xl"
+            android:textAppearance="@style/TextAppearance.Nightjar.Body"
+            android:textColor="?attr/colorOnSurfaceVariant" />
+    </androidx.core.widget.NestedScrollView>
+    <com.google.android.material.button.MaterialButton android:id="@+id/device_results_share"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/space_xl" android:layout_marginEnd="@dimen/space_xl"
+        android:layout_marginTop="@dimen/space_l"
+        android:text="@string/latency_benchmark_share" />
+    <com.google.android.material.button.MaterialButton android:id="@+id/device_results_report_form"
+        style="@style/Widget.Material3.Button.OutlinedButton"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/space_xl" android:layout_marginEnd="@dimen/space_xl"
+        android:text="@string/latency_benchmark_report_form" />
+    <com.google.android.material.button.MaterialButton android:id="@+id/device_results_copy"
+        style="@style/Widget.Material3.Button.TextButton"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/space_xl" android:layout_marginEnd="@dimen/space_xl"
+        android:text="@android:string/copy" />
+</LinearLayout>

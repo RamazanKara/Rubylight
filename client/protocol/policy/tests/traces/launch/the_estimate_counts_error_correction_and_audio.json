@@ -1,0 +1,10 @@
+{
+  "source": "InputOnlyPolicyTest.theEstimateCountsErrorCorrectionAndAudio",
+  "rust": "launch::InputOnlyPolicy",
+  "java": "com.limelight.LaunchTrace",
+  "new": null,
+  "calls": [
+    {"call": "estimated_kbps", "args": [], "expect": 696},
+    {"call": "estimated_megabytes_per_hour", "args": [], "expect": 313}
+  ]
+}

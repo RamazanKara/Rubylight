@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pair_otp_title">Mit Einmal-PIN koppeln</string>
+    <string name="pair_otp_help">Gib PIN und Passphrase vom Host ein.\nDie PIN gilt drei Minuten.</string>
+    <string name="pair_otp_pin">Einmal-PIN</string>
+    <string name="pair_otp_passphrase">Passphrase</string>
+    <string name="pair_otp_invalid_pin">Gib die vierstellige PIN vom Host ein.</string>
+    <string name="pair_otp_invalid_passphrase">Gib die Host-Passphrase ein (mindestens vier Zeichen).</string>
+    <string name="guide_title">Mit deinem PC verbinden</string>
+    <string name="guide_text">1. Starte einen Moonlight-kompatiblen Host wie Apollo, Rubylight, Sunshine oder Vibepollo am PC.\n2. Wähle auf Android den PC im selben Netzwerk.\n3. Gib die auf Android angezeigte PIN in den Einstellungen oder der Web-UI deines Hosts ein.</string>
+    <string name="guide_done">Verstanden</string>
+    <string name="guide_troubleshooting">Hilfe</string>
+</resources>

@@ -1,0 +1,69 @@
+{
+  "cases": [
+    {
+      "name": "IPv4",
+      "input": "Connection to 192.168.1.12 failed",
+      "expect": "Connection to [address] failed"
+    },
+    {
+      "name": "IPv4 with port",
+      "input": "Connection to 192.168.1.12:47989 failed",
+      "expect": "Connection to [address] failed"
+    },
+    {
+      "name": "IPv6 with zone",
+      "input": "Connection to fe80::1234%wlan0 failed",
+      "expect": "Connection to [address] failed"
+    },
+    {
+      "name": "IPv4-mapped IPv6",
+      "input": "Connection to ::ffff:192.168.1.2 failed",
+      "expect": "Connection to [address][address] failed"
+    },
+    {
+      "name": "MAC",
+      "input": "Wake AA:BB:CC:DD:EE:FF sent",
+      "expect": "Wake [address] sent"
+    },
+    {
+      "name": "times look like addresses",
+      "input": "Took 00:01:23 to start",
+      "expect": "Took [address] to start"
+    },
+    {
+      "name": "URL with credentials",
+      "input": "Connection to https://user:secret@host/pair?pin=0123 failed",
+      "expect": "Connection to [url] failed"
+    },
+    {
+      "name": "e-mail",
+      "input": "Mail someone.else+nj@example.co.uk now",
+      "expect": "Mail [email] now"
+    },
+    {
+      "name": "e-mail with letters past ASCII",
+      "input": "Signed in as jörg.müller@bücher.de, ok",
+      "expect": "Signed in as [email], ok"
+    },
+    {
+      "name": "e-mail in another script",
+      "input": "メール 山田@例え.jp",
+      "expect": "メール [email]"
+    },
+    {
+      "name": "Android path",
+      "input": "Saved /sdcard/a.txt",
+      "expect": "Saved [path]"
+    },
+    {
+      "name": "a long path is data first",
+      "input": "Saved /storage/emulated/0/Download/report.txt",
+      "expect": "Saved [data].txt"
+    },
+    {
+      "name": "content URI",
+      "input": "Opened content://com.android.providers/doc/12",
+      "expect": "Opened [url]"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_stream_orientation">Orientação</string>
+    <string name="summary_stream_orientation">Automática mantém os celulares na horizontal e deixa os tablets girarem livremente. Horizontal e Vertical travam a tela. Girar com o dispositivo segue o dispositivo, a menos que o bloqueio de rotação do sistema esteja ativado.\nUm host que transmite da sua tela virtual inicia a transmissão no formato da tela e a gira com o dispositivo se puder mudar o tamanho durante a transmissão. Outros hosts mantêm o tamanho da transmissão, e a imagem é ajustada conforme escolhido em Escala do vídeo.</string>
+    <string-array name="stream_orientation_names">
+        <item>Automática</item>
+        <item>Horizontal</item>
+        <item>Vertical</item>
+        <item>Girar com o dispositivo</item>
+    </string-array>
+    <string name="stream_orientation_scaled">Este host mantém o formato da transmissão enquanto ela dura, então a imagem é ajustada à tela girada.</string>
+    <string name="stream_orientation_decoder_limit">O decodificador deste dispositivo não aceita o tamanho girado, então a transmissão mantém o formato e é ajustada à tela.</string>
+</resources>

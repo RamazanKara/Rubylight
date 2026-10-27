@@ -1,0 +1,20 @@
+{
+  "source": "StreamHealthTest.hostEvidenceSaysWhetherItIncludesTheSend",
+  "rust": "health::StreamHealth",
+  "java": "com.limelight.policy.StreamHealthTrace",
+  "new": [],
+  "calls": [
+    {"call": "add_series", "args": [1000, 3, 1000, true, 60, 0, 1, 4, 5, 2, 60, 60, 60, 0, true], "expect": null},
+    {"call": "report_host_includes_send", "args": [3000], "expect": true},
+    {"new": []},
+    {"call": "add_series", "args": [1000, 3, 1000, true, 60, 0, 1, 4, 5, 2, 60, 60, 60, 0, false], "expect": null},
+    {"call": "report_host_includes_send", "args": [3000], "expect": false},
+    {"new": []},
+    {"call": "add", "args": [1000, true, 60, 0, 1, 4, 5, 2, 60, 60, 60, 0, true], "expect": null},
+    {"call": "add", "args": [2000, true, 60, 0, 1, 4, 9, 2, 60, 60, 60, 0, false], "expect": null},
+    {"call": "report_worst_host_p95_ms", "args": [2000], "expect": 9},
+    {"call": "report_host_includes_send", "args": [2000], "expect": false},
+    {"new": []},
+    {"call": "report_host_includes_send", "args": [1000], "expect": false}
+  ]
+}

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_auto_reconnect">Récupérer les streams interrompus</string>
+    <string name="summary_auto_reconnect">Reprend automatiquement le même jeu en cours après une coupure de connexion temporaire. Jusqu’à cinq tentatives en une minute ; appuyez sur Retour pour annuler.</string>
+    <string name="stream_recovery_attempt">Reconnexion à votre jeu… Tentative %1$d sur %2$d. Appuyez sur Retour pour annuler.</string>
+    <string name="stream_recovery_session_changed">La session de jeu précédente n’est plus disponible. La récupération automatique s’est arrêtée pour éviter de lancer ou de remplacer un jeu.</string>
+    <string name="stream_recovery_exhausted">La récupération automatique n’a pas pu se reconnecter en une minute. Votre jeu n’a pas été quitté. Vérifiez la connexion, puis choisissez Reconnecter pour réessayer.</string>
+    <string name="stream_recovery_paused">La récupération automatique s’est arrêtée quand vous avez quitté le stream. Choisissez Reconnecter pour continuer.</string>
+</resources>

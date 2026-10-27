@@ -1,0 +1,46 @@
+<resources>
+    <!-- Spacing scale. Use these instead of ad-hoc values. -->
+    <dimen name="space_xs">4dp</dimen>
+    <dimen name="space_s">8dp</dimen>
+    <dimen name="space_m">12dp</dimen>
+    <dimen name="space_l">16dp</dimen>
+    <dimen name="space_xl">24dp</dimen>
+    <dimen name="space_xxl">32dp</dimen>
+    <dimen name="grid_spacing">8dp</dimen>
+    <!-- The gap between library posters. On TV each poster's own padding already holds its glow (poster_glow). -->
+    <dimen name="app_grid_spacing">8dp</dimen>
+    <!-- How far a poster's glow reaches around its card; the TV poster layout pads itself with it. -->
+    <dimen name="poster_glow">16dp</dimen>
+    <!-- Space a Home cover card keeps on each side: its margin, or on TV the glow padding it draws inside. -->
+    <dimen name="cover_inset">8dp</dimen>
+    <dimen name="grid_padding_top">4dp</dimen>
+    <dimen name="grid_padding_bottom">16dp</dimen>
+    <dimen name="settings_section_padding">16dp</dimen>
+    <!-- A setting row (layout/settings_preference); TVs pack them tighter so more fit on the screen. -->
+    <dimen name="settings_row_min_height">72dp</dimen>
+    <dimen name="settings_row_padding">@dimen/space_m</dimen>
+    <dimen name="settings_section_min_height">80dp</dimen>
+    <!-- Phones show a summary whole; the television layouts cap it until the row is selected. -->
+    <integer name="settings_section_summary_lines">2147483647</integer>
+    <integer name="settings_summary_lines">2147483647</integer>
+
+    <!-- Horizontal margin between the window's safe area and content; 24dp from 600dp wide (values-w600dp). -->
+    <dimen name="screen_gutter">16dp</dimen>
+    <!-- List screens keep one readable column; see com.limelight.ui.ContentFrame. -->
+    <dimen name="content_max_width">840dp</dimen>
+    <dimen name="touch_target">48dp</dimen>
+    <!-- Material's icon size, for icons that lead a row. -->
+    <dimen name="icon_size">24dp</dimen>
+    <!-- Bottom padding that keeps a list's last row clear of an extended FAB and its margin. -->
+    <dimen name="fab_clearance">96dp</dimen>
+    <!-- The top app bar's own start/end padding; its 48dp icon buttons then line up with the gutter. -->
+    <dimen name="top_app_bar_padding">4dp</dimen>
+    <dimen name="top_app_bar_height">64dp</dimen>
+
+    <!-- The TV library's focus line (title and chips of the selected game): its height, and the longest its title runs before it ellipsizes. -->
+    <dimen name="focus_line_height">40dp</dimen>
+    <dimen name="focus_line_title_max">480dp</dimen>
+
+    <dimen name="tv_channel_logo_width">80dp</dimen>
+    <dimen name="tv_channel_logo_height">80dp</dimen>
+</resources>

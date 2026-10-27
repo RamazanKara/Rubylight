@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_section_display">Дисплей і зображення</string>
+    <string name="settings_display_adaptive">Адаптивна частота</string>
+    <string name="settings_display_no_upscaling">Без масштабування</string>
+    <string name="settings_section_audio">Звук</string>
+    <string name="settings_section_streaming">Трансляція</string>
+    <string name="settings_section_streaming_summary">Оверлей, картинка в картинці та відновлення</string>
+    <string name="settings_category_refresh">Частота оновлення</string>
+    <string name="settings_category_image">Зображення</string>
+    <string name="settings_category_pc_display">Дисплей ПК</string>
+    <string name="settings_category_usb">USB-контролери</string>
+    <string name="settings_category_keyboard">Клавіатура</string>
+    <string name="settings_category_decoder">Декодер</string>
+    <string name="settings_category_input_network">Введення та мережа</string>
+    <string name="settings_category_diagnostics">Діагностика</string>
+    <string name="settings_needs_host_support">Потрібна підтримка хоста</string>
+    <string name="settings_pc_display_mode_value">Задається для кожного ПК у його меню</string>
+    <string name="settings_help_summary">Налаштування, сполучення та поширені виправлення</string>
+    <string name="settings_latency_benchmark_summary">Перевірити таймінги цього пристрою без ПК</string>
+    <string name="settings_low_latency_partial">Частково вимкнено</string>
+    <string name="upscaling_hdr_short">Не використовується з HDR</string>
+    <string name="upscaling_pyrowave_short">PyroWave використовує SGSR</string>
+    <string name="title_low_latency_decoding">Декодування з низькою затримкою</string>
+    <string name="summary_low_latency_decoding">Використовує режими низької затримки Android і декодера чипсета та дозволяє Android налаштовувати продуктивність під час трансляції. Вимикайте лише для перевірки проблем із декодуванням.</string>
+    <string name="settings_touch_mode_help">Трекпад: перетягуйте, щоб рухати курсор, торкніться, щоб клацнути.\nПряме керування мишею: курсор переходить туди, де ви торкаєтеся.\nМультитач: дотики надходять на ПК як сенсорне введення. Без підтримки хоста працює як пряме керування мишею.\nЛокальний курсор: вказівник, намальований на цьому пристрої, одразу стежить за пальцем; торкніться, щоб клацнути там, куди він вказує.\nСенсор вимкнено: екран ігнорує дотики, поки ви граєте на контролері. Проведіть назад або натисніть «Назад», щоб відкрити меню трансляції.</string>
+    <string name="resolution_screen">Розмір екрана (%1$s)</string>
+    <string name="resolution_screen_cutout">Розмір екрана без вирізу камери (%1$s)</string>
+    <string name="resolution_screen_portrait">Розмір екрана, портретна (%1$s)</string>
+    <string name="resolution_screen_cutout_portrait">Розмір екрана, портретна, без вирізу камери (%1$s)</string>
+    <string name="fps_screen">Частота оновлення екрана (%1$d FPS)</string>
+</resources>

@@ -1,0 +1,9 @@
+{
+  "source": "PeriodicStallsTest.oneMissedBeatAndOneUnrelatedStallStillMatch",
+  "rust": "health::PeriodicStalls",
+  "java": "com.limelight.policy.PeriodicStallsTrace",
+  "new": null,
+  "calls": [
+    {"call": "period_ms", "args": ["0 120000 200000 360000 480000 600000", 6], "expect": 120000}
+  ]
+}

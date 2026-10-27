@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="latency_benchmark_title">Prueba de latencia</string>
+    <string name="latency_benchmark_description">Ejecuta una prueba de temporización local de 10 segundos sin servidor. Toca la pantalla, mueve un ratón o usa un mando para recoger muestras de entrada.</string>
+    <string name="latency_benchmark_start">Iniciar prueba de 10 s</string>
+    <string name="latency_benchmark_stop">Detener prueba</string>
+    <string name="latency_benchmark_display">Frecuencia de actualización indicada: %1$.2f Hz</string>
+    <string name="latency_benchmark_audio">Audio indicado: %1$s Hz · %2$s fotogramas por búfer</string>
+    <string name="latency_benchmark_frame">Intervalo de callback de fotograma</string>
+    <string name="latency_benchmark_callback">Retraso de callback de fotograma</string>
+    <string name="latency_benchmark_input">Antigüedad del envío de entrada</string>
+    <string name="latency_benchmark_timer">Retraso de activación del temporizador</string>
+    <string name="latency_benchmark_limits">Los resultados usan hasta 2048 muestras recientes por métrica. La antigüedad de la entrada parte de la marca de tiempo del evento de Android (resolución de 1 ms); no mide el sondeo del mando ni el retraso de entrada del servidor. Los callbacks de fotograma no miden el escaneo de la pantalla. Las propiedades de audio son capacidades indicadas, no la latencia de salida medida. La latencia de red, de decodificación y de extremo a extremo requiere una transmisión o una medición externa. Salir de esta pantalla detiene la prueba.</string>
+    <string name="latency_test">Medir latencia de entrada</string>
+    <string name="latency_test_running">Midiendo… muestra un escritorio quieto con el puntero del ratón y no toques nada durante unos segundos.</string>
+    <string name="latency_test_result">De la entrada a la pantalla: %1$.1f ms habitual, %2$.1f ms mejor, %3$.1f ms el 10 %% más lento (%4$d muestras).\n\nSe mide desde que esta aplicación envía un pequeño movimiento del ratón hasta que Android muestra el fotograma de respuesta del servidor. Incluye la red, la captura y codificación del servidor, la decodificación y la pantalla. No se incluyen tu dedo ni el retraso propio del panel.</string>
+    <string name="latency_test_failed">No se ha podido medir. El servidor siguió enviando fotogramas o no respondió al movimiento. Muestra un escritorio quieto con el puntero del ratón visible, cierra juegos y vídeos y vuelve a intentarlo.</string>
+    <string name="latency_benchmark_share">Compartir resultados</string>
+    <string name="latency_benchmark_share_title">Resultados del dispositivo</string>
+    <string name="latency_benchmark_share_message">Nightjar nunca envía esto por sí solo. El texto incluye este dispositivo (modelo, SoC, GPU y versión de Android), su prueba de decodificador y la última prueba de esta pantalla, sin nombres de PC, direcciones, números de serie ni datos de cuenta. «Abrir formulario» copia el texto y abre un formulario público de GitHub. Todo lo que pegues allí se vuelve público y se añade a la tabla de dispositivos del sitio web de Nightjar.</string>
+    <string name="latency_benchmark_copied">Resultados copiados</string>
+    <string name="latency_benchmark_report_form">Abrir formulario</string>
+    <string name="latency_benchmark_paste_hint">Resultados copiados. Pégalos en el formulario.</string>
+</resources>

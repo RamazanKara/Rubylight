@@ -1,0 +1,1 @@
+New keyboard and mouse panel: choose a full desktop keyboard, trackpad, or both. Includes Windows/modifier keys, function keys, navigation, numpad and window shortcuts. Customize sizes, opacity, pointer speed, scrolling, mouse buttons and shortcuts inside the stream. Phone keyboard remains a separate option. Held buttons release safely when the panel closes or loses focus.

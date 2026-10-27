@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_touch_mode">Сенсорный режим</string>
+    <string name="stream_keyboard">Клавиатура</string>
+    <string name="stream_controls_show">Показать экранные кнопки</string>
+    <string name="stream_controls_hide">Скрыть экранные кнопки</string>
+    <string name="stream_controls_layout">Изменить раскладку кнопок</string>
+    <string name="stream_controls_move_help">Перетаскивайте кнопки, чтобы переместить их; размер и сохранение — в меню.</string>
+    <string name="stream_controls_resize_help">Перетаскивайте, чтобы изменить размер кнопок; сохранение — в меню.</string>
+    <string name="stream_controls_saved">Раскладка кнопок сохранена</string>
+    <string name="stream_reconnect">Переподключить трансляцию</string>
+    <string name="stream_reconnecting">Повторное подключение к запущенному приложению…</string>
+    <string name="stream_native_touch_help">Касания управляют ПК напрямую.\nКлавиатура — в меню трансляции.</string>
+    <string name="stream_native_touch_fallback">ПК не принимает мультитач, поэтому касания двигают мышь.</string>
+    <string-array name="stream_touch_modes">
+        <item>Трекпад</item>
+        <item>Прямое управление мышью</item>
+        <item>Мультитач</item>
+        <item>Локальный курсор</item>
+        <item>Сенсор выключен</item>
+    </string-array>
+    <string-array name="stream_control_layout_actions">
+        <item>Переместить кнопки</item>
+        <item>Изменить размер кнопок</item>
+        <item>Сохранить раскладку и играть</item>
+    </string-array>
+</resources>

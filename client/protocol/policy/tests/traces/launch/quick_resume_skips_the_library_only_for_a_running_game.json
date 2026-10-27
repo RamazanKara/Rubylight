@@ -1,0 +1,10 @@
+{
+  "source": "LaunchPolicyTest.quickResumeSkipsTheLibraryOnlyForARunningGame",
+  "rust": "launch::LaunchPolicy",
+  "java": "com.limelight.LaunchTrace",
+  "new": null,
+  "calls": [
+    {"call": "resumes_on_pc_tap", "args": [true, true], "expect": true},
+    {"call": "resumes_on_pc_tap", "args": [true, false], "expect": false}
+  ]
+}

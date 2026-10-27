@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_feature_permissions">Permisos del dispositivo</string>
+    <string name="host_feature_otp_pairing">Vinculación con PIN de un solo uso</string>
+    <string name="host_feature_clipboard">Portapapeles</string>
+    <string name="host_feature_server_commands">Comandos del servidor</string>
+    <string name="host_feature_virtual_display">Pantalla virtual</string>
+    <string name="host_feature_virtual_display_hdr">Pantalla virtual HDR</string>
+    <string name="host_feature_display_modes">Modos de pantalla del PC</string>
+    <string name="host_feature_fractional_refresh">Frecuencias de actualización fraccionarias</string>
+    <string name="host_feature_vrr">VRR en el servidor</string>
+    <string name="host_feature_runtime_bitrate">Cambios de tasa de bits durante una transmisión</string>
+    <string name="host_feature_pyrowave">PyroWave</string>
+    <string name="host_feature_speed_test">Prueba de velocidad de conexión</string>
+    <string name="host_feature_hardware_metrics">Lecturas de CPU y GPU del servidor</string>
+    <string name="host_feature_network_path">Comprobación de la ruta de red</string>
+    <string name="host_feature_frame_limiter">Estado del limitador de fotogramas</string>
+    <string name="host_feature_controller_preparation">Reconexión de mandos</string>
+    <string name="host_feature_remote_sessions">Monitor remoto y Solo entrada</string>
+    <string name="host_feature_web_ui">Interfaz web</string>
+    <string name="host_feature_reason_update">Actualiza el software del servidor para usar esta función</string>
+    <string name="host_feature_reason_pair">Vincula primero este PC</string>
+    <string name="host_feature_reason_view_permission">Permite ver transmisiones a este dispositivo en el servidor</string>
+    <string name="host_feature_reason_clipboard_permission">Permite el portapapeles a este dispositivo en el servidor</string>
+    <string name="host_feature_reason_command_permission">Permite los comandos del servidor a este dispositivo en el servidor</string>
+    <string name="host_feature_reason_no_commands">Añade comandos en la interfaz web del servidor</string>
+    <string name="host_feature_reason_virtual_display_off">Activa la pantalla virtual en los ajustes del servidor</string>
+    <string name="host_feature_reason_virtual_display_driver">El controlador de pantalla virtual del servidor no está listo</string>
+    <string name="host_feature_reason_hardware_metrics_off">Activa las métricas de hardware en los ajustes del servidor</string>
+    <string name="host_feature_reason_sleep_permission">Este dispositivo no tiene permiso para suspender el PC</string>
+    <string name="host_feature_reason_file_permission">Sin acceso a archivos: actívalo en la web del servidor</string>
+    <string name="host_feature_unknown">Se aplica si el servidor lo admite</string>
+    <string name="host_details_software_apollo">Servidor compatible con Apollo</string>
+    <string name="host_details_software_vibepollo">Servidor compatible con Vibepollo</string>
+    <string name="host_details_software_unknown">Servidor compatible con Moonlight</string>
+    <string name="host_details_features">Funciones</string>
+    <string name="host_details_features_unknown">Conéctate una vez a este PC para ver qué admite.</string>
+    <string name="host_details_features_none">No se ha indicado ninguna función adicional</string>
+    <string name="host_pyrowave_unavailable">Este PC no puede transmitir con PyroWave, así que usa %1$s.</string>
+    <string name="connection_test_intro_delay">Prueba el retraso hasta tu PC.</string>
+    <string name="host_feature_cursor_shape">Formas del cursor</string>
+</resources>

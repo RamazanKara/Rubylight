@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="help_connect_title">Conectar um PC</string>
+    <string name="help_connect_body">O Nightjar transmite de qualquer host compatível com Moonlight em execução no seu PC. Inicie o host e mantenha os dois dispositivos na mesma rede, e o PC aparecerá na sua lista. Se não aparecer, toque em Adicionar PC e insira o endereço IP do PC. Se ainda assim não conectar, libere o host no firewall do PC.</string>
+    <string name="help_connect_link">Guia de configuração</string>
+    <string name="help_pairing_title">Pareamento</string>
+    <string name="help_pairing_body">Toque no PC e mantenha o PIN na tela. Insira esse PIN nas configurações ou na página web do host no PC. Se o host tiver permissões por dispositivo, permita que este dispositivo liste e inicie apps.</string>
+    <string name="help_pairing_link">Guia de pareamento</string>
+    <string name="help_controls_title">Controles e menu da transmissão</string>
+    <string name="help_controls_body">Durante uma transmissão, pressione Voltar para abrir o menu da transmissão: teclado, modo de entrada, sobreposição, taxa de bits e desconectar. Em um controle, pressione Start, Back, LB e RB juntos. Desconectar mantém o jogo em execução no PC, para você continuar depois, a menos que você tenha ativado “Encerrar o jogo ao sair da transmissão” no menu desse jogo na biblioteca. Para verificar os botões, analógicos e vibração de um controle, abra Configurações, Controles, Teste do controle. Em Configurações, Controles, Modo de toque, Cursor local desenha o ponteiro neste dispositivo e Toque desativado ignora a tela enquanto você joga com um controle. No menu da transmissão, Entrada, Controles deste jogo posiciona botões de teclado, mouse e controle, analógicos, gatilhos e um direcional para esse jogo. Para trazer um layout do Artemis, toque e segure o jogo na biblioteca e escolha Importar controles do jogo. Para usar este dispositivo só como controle em um host sem modo próprio de somente entrada, ative Configurações, Transmissão, Somente entrada em qualquer PC; o PC continua enviando uma pequena transmissão de vídeo que não é mostrada.</string>
+    <string name="help_controls_link">Guia de controles</string>
+    <string name="help_problems_title">Corrigir problemas comuns</string>
+    <string name="help_problems_body"><b>Sem vídeo:</b> tente H.264 em 720p com HDR e upscaling desativados.\n\n<b>Travamentos:</b> diminua a taxa de bits, conecte o PC por cabo ou fique mais perto do roteador. Use Wi-Fi de 5 ou 6 GHz em vez de 2,4 GHz. Se travar a cada poucos minutos, abra “Por que minha transmissão travou?” no menu da transmissão: ele identifica o ritmo das buscas de Wi-Fi em segundo plano.\n\n<b>Atraso na entrada:</b> ative a sobreposição de desempenho para ver de onde vem o atraso e mantenha a Decodificação de baixa latência ativada.\n\n<b>Sem som:</b> escolha Estéreo, verifique a saída de áudio do PC e reconecte.</string>
+    <string name="help_problems_link">Guia de solução de problemas</string>
+    <string name="help_report_body">Compartilhe um log sem dados pessoais. Nada é enviado até você escolher um app para compartilhar.</string>
+    <string name="help_report_link">O que incluir</string>
+</resources>

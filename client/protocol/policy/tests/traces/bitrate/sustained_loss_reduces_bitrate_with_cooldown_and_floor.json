@@ -1,0 +1,21 @@
+{
+  "source": "AdaptiveBitrateControllerTest.sustainedLossReducesBitrateWithCooldownAndFloor",
+  "rust": "bitrate::AdaptiveBitrateController",
+  "java": "com.limelight.nvstream.AdaptiveBitrateController",
+  "new": [10000, 10000, 60, 0],
+  "calls": [
+    {"call": "has_room_before_quality_reduction", "args": [], "expect": true},
+    {"call": "sample", "args": [1000, true, true, 0, 2], "expect": 0},
+    {"call": "sample", "args": [2000, true, true, 0, 2], "expect": 0},
+    {"call": "sample", "args": [3000, true, true, 0, 2], "expect": 8000},
+    {"call": "applied", "args": [8000, 8000, 5000], "expect": null},
+    {"call": "has_room_before_quality_reduction", "args": [], "expect": true},
+    {"call": "sample", "args": [6000, true, true, 0, 2], "expect": 0},
+    {"call": "sample", "args": [7000, true, true, 0, 2], "expect": 0},
+    {"call": "sample", "args": [8000, true, true, 0, 2], "expect": 6400},
+    {"call": "applied", "args": [2000, 2000, 10000], "expect": null},
+    {"call": "has_room_before_quality_reduction", "args": [], "expect": false},
+    {"call": "sample", "args": [15000, true, true, 0, 2], "expect": 0},
+    {"call": "sample", "args": [16000, true, true, 0, 2], "expect": 0}
+  ]
+}

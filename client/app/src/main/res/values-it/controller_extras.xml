@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Controller and keyboard options -->
+    <string name="title_checkbox_disable_rumble">Disattiva vibrazione</string>
+    <string name="summary_checkbox_disable_rumble">Blocca ogni vibrazione richiesta da un gioco: vibrazione del controller e dei grilletti, feedback aptico del DualSense via USB e la vibrazione di questo dispositivo al posto del controller.</string>
+    <string name="title_checkbox_mouse_emulation_fixed_step">Movimento del mouse a passi fissi</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">Nella modalità mouse del controller, tieni premuto X mentre muovi la levetta per spostare il puntatore di un numero fisso di pixel alla volta. Premi Y per raddoppiare il passo, da 1 fino a 128 pixel e poi di nuovo a 1.</string>
+    <string name="stream_mouse_step">Passo del mouse: %1$d px</string>
+    <string name="title_checkbox_back_as_meta">Indietro della tastiera invia il tasto Windows</string>
+    <string name="summary_checkbox_back_as_meta">Il tasto Indietro di una tastiera fisica invia il tasto Windows (Command su Mac). Apri il menu dello stream con Ctrl+Alt+Shift+M, il gesto o il pulsante Indietro di Android, oppure la combinazione di tasti del controller.</string>
+    <string name="title_checkbox_right_alt_as_meta">Alt destro come Command</string>
+    <string name="summary_checkbox_right_alt_as_meta">Alt destro invia il tasto Windows, che un Mac usa come Command, quindi Alt destro+C copia. Alt sinistro non cambia. Lascia disattivato se digiti caratteri con AltGr.</string>
+
+    <!-- Controller test page -->
+    <string name="controller_test_title">Test del controller</string>
+    <string name="controller_test_summary">Verifica pulsanti, levette, grilletti, vibrazione, luci e movimento</string>
+    <string name="controller_test_open">Testa il controller</string>
+    <string name="controller_test_hint">Premi i pulsanti e muovi le levette. Anche la croce direzionale e A permettono di spostarti in questa pagina; tieni premuto B o Back per un secondo per uscire.</string>
+    <string name="controller_test_waiting">Collega un controller e premi un pulsante qualsiasi.</string>
+    <string name="controller_test_waiting_short">Nessun controller per ora.</string>
+    <string name="controller_test_usb_device">Controller USB %1$s (driver USB di Nightjar)</string>
+    <string name="controller_test_buttons">Pulsanti</string>
+    <string name="controller_test_pressed">Premuti: %1$s</string>
+    <string name="controller_test_pressed_none">Nessun pulsante premuto</string>
+    <string name="controller_test_sticks">Levette e grilletti</string>
+    <string name="controller_test_stick_values">Levetta sinistra  %1$+.2f %2$+.2f\nLevetta destra  %3$+.2f %4$+.2f\nLT %5$d%%  RT %6$d%%</string>
+    <string name="controller_test_rumble">Vibrazione</string>
+    <string name="controller_test_rumble_strong">Motore forte</string>
+    <string name="controller_test_rumble_weak">Motore debole</string>
+    <string name="controller_test_rumble_all">Entrambi i motori</string>
+    <string name="controller_test_rumble_any">Vibra</string>
+    <string name="controller_test_rumble_left_trigger">Grilletto sinistro</string>
+    <string name="controller_test_rumble_right_trigger">Grilletto destro</string>
+    <string name="controller_test_rumble_stop">Ferma</string>
+    <string name="controller_test_rumble_disabled_note">Disattiva vibrazione è attivo, quindi gli stream non vibreranno. Questi test vibrano comunque.</string>
+    <string name="controller_test_lights">Luci</string>
+    <string name="controller_test_light_red">Rosso</string>
+    <string name="controller_test_light_green">Verde</string>
+    <string name="controller_test_light_blue">Blu</string>
+    <string name="controller_test_light_off">Spente</string>
+    <string name="controller_test_light_reset">Ripristina</string>
+    <string name="controller_test_motion">Sensori di movimento</string>
+    <string name="controller_test_motion_values">Giroscopio\n%1$s\nAccelerometro\n%2$s</string>
+    <string name="controller_test_waiting_motion">Muovi il controller</string>
+    <string name="controller_test_touchpad">Touchpad</string>
+    <string name="controller_test_touch_none">Tocca il touchpad per vedere dove.</string>
+    <string name="controller_test_touch_at">Dito al %1$d%% in orizzontale e al %2$d%% in verticale</string>
+    <string name="controller_test_misc">Share</string>
+    <string name="controller_test_not_available">Non disponibile su questo controller.</string>
+    <string name="controller_test_needs_android_12">Richiede Android 12 o versioni successive.</string>
+
+    <!-- USB Switch Pro driver -->
+    <string name="title_usb_switch_pro">Driver Switch Pro USB</string>
+    <string name="summary_usb_switch_pro">Sperimentale. Legge direttamente un Nintendo Switch Pro Controller collegato via cavo, con sensori di movimento, vibrazione, Home e Capture.</string>
+    <string name="usb_switch_pro_denied">Nessun accesso USB; lo Switch Pro Controller resta sull’input di Android.\nRicollega il cavo per riprovare.</string>
+</resources>

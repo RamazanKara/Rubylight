@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="health_title">Warum hat der Stream geruckelt?</string>
+    <string name="health_intro">Messungen der letzten 30 Sekunden (%1$d aktive Stichproben). Mehrere Stufen können gleichzeitig langsam sein. Die Hinweise sind keine sichere Diagnose. Video und persönliche Daten werden nicht aufgezeichnet.</string>
+    <string name="health_insufficient">Zu wenig aktuelle Videodaten. Spiele einige Sekunden mit geschlossenem Menü und öffne diese Ansicht direkt nach einem Ruckler erneut.</string>
+    <string name="health_no_issue">Die verfügbaren Messungen zeigen keinen wiederholten Engpass. Kurze Spitzen und nicht gemessene Stufen können dennoch Ruckler verursachen.</string>
+    <string name="health_network">Netzwerk: wiederholte Bildverluste oder schwankende Antwortzeiten. Versuche eine niedrigere Bitrate, ein Netzwerkkabel am PC oder weniger ausgelastetes WLAN.</string>
+    <string name="health_decoder">Dekodierung: die Ausgabe dauerte wiederholt mindestens ein Bildintervall. Verringere Auflösung oder Bildrate; eine niedrigere Bitrate allein hilft möglicherweise nicht.</string>
+    <string name="health_host">PC: langsamere Verarbeitungszeiten überschritten das Bildintervall. Vergleiche Spiel-/GPU-Auslastung und ein niedrigeres FPS-Limit im Spiel. Diese Messung umfasst mehr als die Kodierung.</string>
+    <string name="health_presentation">Anzeige: Bilder wurden schneller freigegeben als angezeigt, bei langen Wartezeiten. Vergleiche Frame-Pacing und Bildschirmfrequenz.</string>
+    <string name="health_heat">Temperatur: Android meldete hohe thermische Belastung. Verringere Bildrate/Auflösung oder aufwendige Client-Verarbeitung und lasse das Gerät abkühlen.</string>
+    <string name="health_evidence">Größte beobachtete Werte:\nBildverlust: %1$s %%\nDekodierung: %2$s ms\nPC-Verarbeitung p95: %3$s ms\nAnzeigewartezeit p95: %4$s ms\nDiese Stufen ergeben zusammen keine Eingabe-bis-Bildschirm-Latenz.</string>
+    <string name="health_evidence_send">Größte beobachtete Werte:\nBildverlust: %1$s %%\nDekodierung: %2$s ms\nHost bis Netzwerk p95: %3$s ms\nAnzeigewartezeit p95: %4$s ms\nDiese Stufen ergeben zusammen keine Eingabe-bis-Bildschirm-Latenz.</string>
+    <string name="health_trial_help">Der Bitratentest gilt nur für diese Sitzung. Vergleiche weitere 30 Sekunden ähnliches Spielgeschehen und kehre zum Rückgängigmachen zurück. Manuelle oder automatische Bitratenänderungen ersetzen den Test.</string>
+    <string name="health_try">Niedrigere Bitrate testen</string>
+    <string name="health_undo">Bitratentest rückgängig machen</string>
+    <string name="health_bitrate_unavailable">Der Host hat seine aktuelle Encoder-Bitrate nicht gemeldet. Der Test wurde nicht angewendet.</string>
+    <string name="health_trial_replaced">Die Host-Bitrate wurde nach dem Test geändert. Die Wiederherstellung wurde abgebrochen, damit diese Änderung erhalten bleibt.</string>
+    <string name="health_bitrate_minimum">Der Encoder nutzt bereits die niedrigste Testbitrate. Es wurde nichts geändert.</string>
+    <string name="health_periodic">Wiederkehrende Ruckler: %2$d Netzwerk-Aussetzer in den letzten 20 Minuten, etwa alle %1$s. Ein gleichmäßiger Rhythmus wie dieser kommt meist von WLAN-Suchläufen im Hintergrund, auf diesem Gerät oder am PC. So lassen sie sich verringern:\n• Android: Einstellungen → Standort → Standortdienste, WLAN-Suche und Bluetooth-Suche ausschalten.\n• Android: Entwickleroptionen → Drosselung der WLAN-Suche eingeschaltet lassen.\n• Apps schließen, die während des Streams nach Netzwerken oder Geräten in der Nähe suchen.\n• PC: per Kabel verbinden oder Programme beenden, die nach WLAN-Netzen suchen.\nNightjar hält während des Streams bereits Androids WLAN-Sperre für niedrige Latenz, die das System bittet, Suchläufe aufzuschieben; manche Geräte suchen trotzdem.</string>
+</resources>

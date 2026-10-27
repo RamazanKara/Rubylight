@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root status_code="200">
+  <App><AppTitle>Desktop</AppTitle><UUID>00000000-0000-0000-0000-000000000042</UUID><IDX>0</IDX><ID>42</ID><ArtVersion>1</ArtVersion><IsHdrSupported>1</IsHdrSupported></App>
+  <App><AppTitle>Game &amp; tools</AppTitle><UUID>00000000-0000-0000-0000-000000000043</UUID><IDX>1</IDX><ID>43</ID><ArtVersion>2</ArtVersion><IsHdrSupported>1</IsHdrSupported></App>
+</root>

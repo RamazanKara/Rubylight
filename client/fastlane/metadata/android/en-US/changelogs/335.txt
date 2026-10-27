@@ -1,0 +1,1 @@
+Pairing keeps going when you leave Nightjar to type the PIN on the host's web page or the screen turns off, instead of failing without a message.

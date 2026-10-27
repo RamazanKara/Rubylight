@@ -1,0 +1,44 @@
+--- a/src/InputStream.c
++++ b/src/InputStream.c
+@@ -119,6 +119,7 @@
+     absCurrentPosX = absCurrentPosY = 0.5f;
+ 
+     memset(currentGamepadSensorState, 0, sizeof(currentGamepadSensorState));
++    memset(currentQueuedControllerPacket, 0, sizeof(currentQueuedControllerPacket));
+     memset(&currentRelativeMouseState, 0, sizeof(currentRelativeMouseState));
+     memset(&currentAbsoluteMouseState, 0, sizeof(currentAbsoluteMouseState));
+     PltCreateMutex(&batchedInputMutex);
+@@ -840,8 +841,8 @@
+ // Send a relative motion event using absolute position to the streaming machine
+ int LiSendMouseMoveAsMousePositionEvent(short deltaX, short deltaY, short referenceWidth, short referenceHeight) {
+     // Convert the current position to be relative to the provided reference dimensions
+-    short oldPositionX = (short)(absCurrentPosX * referenceWidth);
+-    short oldPositionY = (short)(absCurrentPosY * referenceHeight);
++    short oldPositionX = (short)(absCurrentPosX * (referenceWidth - 1) + 0.5f);
++    short oldPositionY = (short)(absCurrentPosY * (referenceHeight - 1) + 0.5f);
+ 
+     return LiSendMousePositionEvent(CLAMP(oldPositionX + deltaX, 0, referenceWidth),
+                                     CLAMP(oldPositionY + deltaY, 0, referenceHeight),
+@@ -1150,6 +1151,11 @@
+         if (err != LBQ_SUCCESS) {
+             LC_ASSERT(err == LBQ_BOUND_EXCEEDED);
+             Limelog("Input queue reached maximum size limit\n");
++            PltLockMutex(&batchedInputMutex);
++            if (currentQueuedControllerPacket[controllerNumber] == holder) {
++                currentQueuedControllerPacket[controllerNumber] = NULL;
++            }
++            PltUnlockMutex(&batchedInputMutex);
+             freePacketHolder(holder);
+         }
+     }
+@@ -1533,8 +1539,8 @@
+     }
+ 
+     // Check for valid motion type values
+-    if (motionType - 1 >= MAX_MOTION_EVENTS) {
+-        LC_ASSERT(motionType - 1 < MAX_MOTION_EVENTS);
++    if (motionType < 1 || motionType > MAX_MOTION_EVENTS) {
++        LC_ASSERT(motionType >= 1 && motionType <= MAX_MOTION_EVENTS);
+         return -3;
+     }
+ 

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="wifi_heading">連線</string>
+    <string name="wifi_not_available">無法使用</string>
+    <string name="wifi_unavailable">Wi-Fi 詳細資料：這部裝置不支援</string>
+    <string name="wifi_link_none">連線：Android 回報目前沒有使用中的網路</string>
+    <string name="wifi_link_ethernet">連線：乙太網路，不適用 Wi-Fi 詳細資料</string>
+    <string name="wifi_link_cellular">連線：行動數據，不適用 Wi-Fi 詳細資料</string>
+    <string name="wifi_link_other">連線：VPN 或其他網路類型；無法取得 Wi-Fi 詳細資料</string>
+    <string name="wifi_band_24">2.4 GHz</string>
+    <string name="wifi_band_5">5 GHz</string>
+    <string name="wifi_band_6">6 GHz</string>
+    <string name="wifi_mhz">%1$d MHz</string>
+    <string name="wifi_dbm">%1$d dBm</string>
+    <string name="wifi_mbps">%1$d Mbps</string>
+    <string name="wifi_line_band">Wi-Fi 頻段：%1$s · 頻道 %2$s · 頻寬 %3$s</string>
+    <string name="wifi_line_signal">Wi-Fi 訊號：%1$s（%2$s）</string>
+    <string name="wifi_line_signal_unknown">Wi-Fi 訊號：無法取得</string>
+    <string name="wifi_signal_excellent">極佳</string>
+    <string name="wifi_signal_good">良好</string>
+    <string name="wifi_signal_fair">普通</string>
+    <string name="wifi_signal_weak">微弱</string>
+    <string name="wifi_line_speed">Wi-Fi 連線速度：傳送 %1$s · 接收 %2$s</string>
+    <string name="wifi_line_speed_single">Wi-Fi 連線速度：%1$s</string>
+    <string name="wifi_line_standard">Wi-Fi 標準：%1$s</string>
+    <string name="wifi_standard">Wi-Fi %1$d</string>
+    <string name="wifi_standard_6e">Wi-Fi 6E</string>
+    <string name="wifi_standard_legacy">802.11a/b/g</string>
+    <string name="wifi_line_lock">低延遲 Wi-Fi 鎖定：%1$s</string>
+    <string name="wifi_lock_held">已啟用</string>
+    <string name="wifi_lock_not_held">未啟用</string>
+    <string name="wifi_lock_unsupported">需要 Android 10</string>
+    <string name="wifi_warn_24">警告：2.4 GHz 比 5 或 6 GHz 慢且更壅塞，經常造成卡頓。如果路由器有 5 或 6 GHz 網路，請改為連線至該網路。</string>
+    <string name="wifi_warn_weak">訊號微弱：請靠近路由器，或移除兩者之間的障礙物。</string>
+    <string name="wifi_line_rhythm">卡頓節奏：約每 %1$s 一次</string>
+    <string name="wifi_period_seconds">%1$d 秒</string>
+    <string name="wifi_period_minutes">%1$s 分鐘</string>
+</resources>

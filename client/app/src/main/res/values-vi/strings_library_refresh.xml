@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_search">Tìm trò chơi</string>
+    <string name="library_options">Tùy chọn thư viện</string>
+    <string name="library_more_for">Tùy chọn khác cho %1$s</string>
+    <string name="library_play">Chơi</string>
+    <string name="library_open">Mở thư viện</string>
+    <string name="library_loading">Đang tải thư viện của bạn…</string>
+    <string name="library_refresh">Làm mới thư viện</string>
+    <string name="library_retry">Thử lại</string>
+    <string name="library_show_hidden">Hiện trò chơi đã ẩn</string>
+    <string name="library_hide_hidden">Ẩn trò chơi đã ẩn</string>
+    <string name="library_no_matches">Không có trò chơi nào khớp với tìm kiếm của bạn.</string>
+    <string name="library_clear_search">Xóa tìm kiếm</string>
+    <string name="library_all_hidden">Các trò chơi của bạn đang bị ẩn. Hãy hiện trò chơi đã ẩn để đưa chúng trở lại.</string>
+    <string name="library_offline">PC này đang ngoại tuyến. Thư viện đã lưu của bạn vẫn còn đây. Hãy kết nối lại để chơi.</string>
+    <string name="library_hidden_notice">Đã ẩn trò chơi khỏi thư viện</string>
+    <string name="library_undo">Hoàn tác</string>
+    <string name="library_discovery_title">Trò chơi của bạn, ngay trên màn hình này</string>
+    <string name="library_discovery_body">Bật PC và khởi động máy chủ stream trên đó, chẳng hạn Apollo, Rubylight hoặc Sunshine. Các PC trong cùng mạng sẽ tự động xuất hiện ở đây.</string>
+    <string name="library_discovery_hint">Ở mạng khác? Hãy thêm PC bằng địa chỉ.</string>
+    <plurals name="library_results">
+        <item quantity="other">%1$d/%2$d trò chơi</item>
+    </plurals>
+    <plurals name="library_showing_hidden">
+        <item quantity="other">%1$d trò chơi · gồm cả trò chơi đã ẩn</item>
+    </plurals>
+    <plurals name="library_app_count">
+        <item quantity="other">%d trò chơi</item>
+    </plurals>
+</resources>

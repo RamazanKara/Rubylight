@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_layout_kind_button">Кнопка клавиатуры или мыши</string>
+    <string name="touch_layout_kind_gamepad">Кнопка геймпада</string>
+    <string name="touch_layout_kind_stick">Аналоговый стик</string>
+    <string name="touch_layout_kind_trigger">Аналоговый триггер</string>
+    <string name="touch_layout_kind_dpad">Крестовина</string>
+    <string name="touch_layout_kind_wasd">Стик WASD (отправляет клавиши)</string>
+    <string name="touch_layout_side">Сторона</string>
+    <string name="touch_layout_side_left">Левый</string>
+    <string name="touch_layout_side_right">Правый</string>
+    <string name="touch_layout_floating">Плавающий: центр там, куда лёг большой палец</string>
+    <string name="touch_layout_deadzone">Мёртвая зона (% хода стика, 0–50)</string>
+    <string name="touch_layout_wasd_keys">Клавиши для вверх, влево, вниз и вправо</string>
+    <string name="touch_layout_wasd_help">Четыре разные клавиши в этом порядке, например W + A + S + D или UP + LEFT + DOWN + RIGHT.</string>
+    <string name="touch_layout_diagonal">Диагонали (градусы, 0–90): при 0 никогда не нажаты две клавиши, 45 даёт восемь равных направлений</string>
+    <string name="touch_layout_snap">Привязка к сетке: %1$s</string>
+    <string name="touch_layout_snap_title">Привязка к сетке</string>
+    <string name="touch_layout_error_json">Это не раскладка Nightjar, не раскладка клавиатуры Artemis и не файл своих клавиш Artemis.</string>
+    <string name="touch_layout_error_version">Версия этой раскладки — %1$s. Эта версия Nightjar читает раскладки версий 1 и 2; обновите Nightjar, чтобы импортировать её.</string>
+    <string name="touch_layout_error_size">Раскладка ограничена 32 элементами управления и 64 КиБ.</string>
+    <string name="touch_layout_error_duplicate">У двух элементов управления одинаковый ID %1$s. Каждому элементу нужен свой ID.</string>
+    <string name="touch_layout_error_control">У элемента управления %1$d (%2$s) неподдерживаемый тип, клавиша, кнопка или размер.</string>
+    <string name="touch_layout_import_done">Раскладка импортирована</string>
+    <plurals name="touch_layout_imported">
+        <item quantity="one">Импортирован %d элемент управления.</item>
+        <item quantity="few">Импортировано %d элемента управления.</item>
+        <item quantity="many">Импортировано %d элементов управления.</item>
+        <item quantity="other">Импортировано %d элемента управления.</item>
+    </plurals>
+    <string name="touch_layout_import_pixels">Artemis хранит позиции в пикселях без размера экрана, поэтому они прочитаны для этого экрана. Проверьте расположение.</string>
+    <string name="touch_layout_import_scaled">Раскладка Artemis выходила за этот экран и была уменьшена. Проверьте расположение.</string>
+    <plurals name="touch_layout_import_hidden">
+        <item quantity="one">Пропущен %d элемент, выключенный или скрытый в Artemis.</item>
+        <item quantity="few">Пропущено %d элемента, выключенных или скрытых в Artemis.</item>
+        <item quantity="many">Пропущено %d элементов, выключенных или скрытых в Artemis.</item>
+        <item quantity="other">Пропущено %d элемента, выключенных или скрытых в Artemis.</item>
+    </plurals>
+    <string name="touch_layout_import_skipped">Не импортировано:</string>
+    <string name="touch_layout_skip_no_equivalent">%1$s: в Nightjar нет подходящего элемента (например, области тачпада Artemis)</string>
+    <string name="touch_layout_skip_key">%1$s: клавиша или сочетание клавиш с кнопками мыши, которое Nightjar не может отправить</string>
+    <string name="touch_layout_skip_custom">%1$s: своя клавиша; выберите её файл своих клавиш вместе с файлом раскладки</string>
+    <string name="touch_layout_skip_center">%1$s: клавиша двойного касания в центре стика (сам стик импортирован как стик WASD)</string>
+    <string name="touch_layout_skip_too_many">%1$s: сверх лимита в 32 элемента управления</string>
+    <string name="touch_layout_skip_size">%1$s: неверный размер</string>
+    <string name="library_import_controls">Импортировать управление игрой</string>
+    <string name="library_import_controls_note">Раскладка Nightjar или раскладка клавиатуры и файл своих клавиш Artemis</string>
+    <string name="library_import_controls_title">Управление для %1$s</string>
+    <string name="library_import_controls_replace">Заменить экранное управление этой игры на этом ПК?</string>
+    <string name="library_import_controls_saved">Управление сохранено. Оно появится в следующей трансляции этой игры.</string>
+    <string name="library_import_controls_error">Не удалось прочитать файл.</string>
+</resources>

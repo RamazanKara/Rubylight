@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_network_grace">Aguantar cortes de red</string>
+    <string name="summary_network_grace">Cuánto espera una transmisión cuando la red deja de responder, por ejemplo mientras el Wi-Fi cambia de punto de acceso o una VPN pasa del Wi-Fi a los datos móviles. Desactivado finaliza la transmisión tras 10 segundos sin contacto. La imagen se congela hasta que vuelve la red. Esperas de más de 10 segundos solo sirven si el servidor también espera: aumenta su propio tiempo de espera de clientes.</string>
+    <string name="network_grace_off">Desactivado (10 segundos)</string>
+    <string name="network_grace_20">20 segundos</string>
+    <string name="network_grace_30">30 segundos</string>
+    <string name="network_grace_60">60 segundos</string>
+    <string name="network_grace_gave_up">La conexión estuvo en silencio más tiempo que la tolerancia de %1$d segundos, o el servidor finalizó la sesión. Si el servidor se rindió antes, aumenta también su tiempo de espera de clientes.</string>
+</resources>

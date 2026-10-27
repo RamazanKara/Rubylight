@@ -1,0 +1,123 @@
+Hold back enet_peer_disconnect_now() like GFE's reliable disconnect so a queued termination
+message is still delivered. Sunshine forks send their end message and disconnect at once.
+Only a disconnect that passes ENet's own peer ID, peer state and session ID checks is held
+back, so a stale or stray disconnect datagram that ENet would drop cannot end the stream.
+On stop, a host whose disconnect was held back is released at once instead of lingering for
+an acknowledgement it never sends, and the intercept is removed before a graceful linger so
+a host disconnect that arrives during it ends the linger.
+Applies after host-termination.patch.
+
+diff --git a/src/ControlStream.c b/src/ControlStream.c
+index efad638..9ff219d 100644
+--- a/src/ControlStream.c
++++ b/src/ControlStream.c
+@@ -103,6 +103,7 @@ static uint32_t lastGoodFrame;
+ static uint32_t lastSeenFrame;
+ static bool stopping;
+ static bool disconnectPending;
++static bool disconnectPendingUnsequenced;
+ static bool encryptedControlStream;
+ static bool hdrEnabled;
+ static SS_HDR_METADATA hdrMetadata;
+@@ -892,13 +893,60 @@ static bool sendMessageAndDiscardReply(short ptype, short paylen, const void* pa
+ // pending receives first. It works around what appears to be a bug in ENet
+ // where pending disconnects can cause loss of unprocessed received data.
+ static int ignoreDisconnectIntercept(ENetHost* host, ENetEvent* event) {
+-    if (host->receivedDataLength == sizeof(ENetProtocolHeader) + sizeof(ENetProtocolDisconnect)) {
+-        ENetProtocolHeader* protoHeader = (ENetProtocolHeader*)host->receivedData;
+-        ENetProtocolDisconnect* disconnect = (ENetProtocolDisconnect*)(protoHeader + 1);
++    ENetProtocolHeader* protoHeader;
++    ENetPeer* target;
++    enet_uint16 peerID;
++    enet_uint16 headerFlags;
++    enet_uint8 sessionID;
++    size_t headerSize;
++
++    if (host->receivedDataLength < (size_t)&((ENetProtocolHeader*)0)->sentTime) {
++        return 0;
++    }
++
++    // Size the header as ENet does. GFE's reliable disconnect carries a sent time, but
++    // enet_peer_disconnect_now() (Sunshine forks, right after their termination message)
++    // sends an unsequenced disconnect without one.
++    protoHeader = (ENetProtocolHeader*)host->receivedData;
++    peerID = ENET_NET_TO_HOST_16(protoHeader->peerID);
++    sessionID = (peerID & ENET_PROTOCOL_HEADER_SESSION_MASK) >> ENET_PROTOCOL_HEADER_SESSION_SHIFT;
++    headerFlags = peerID & ENET_PROTOCOL_HEADER_FLAG_MASK;
++    peerID &= ~(ENET_PROTOCOL_HEADER_FLAG_MASK | ENET_PROTOCOL_HEADER_SESSION_MASK);
++    if (headerFlags & ENET_PROTOCOL_HEADER_FLAG_COMPRESSED) {
++        return 0;
++    }
++
++    // Hold back only a disconnect that ENet itself would act on, using its peer checks:
++    // ENet drops a datagram addressed to no peer or to another peer, or one carrying another
++    // session's ID, such as a stale disconnect from an old server peer whose port this
++    // client now reuses. The source address is not compared: this ENet deliberately skips
++    // that check for multi-homed hosts, so it would still act on a disconnect from another
++    // address, and letting one through here would lose the queued receives again.
++    if (peerID == ENET_PROTOCOL_MAXIMUM_PEER_ID || peerID >= host->peerCount) {
++        return 0;
++    }
++    target = &host->peers[peerID];
++    if (target->state == ENET_PEER_STATE_DISCONNECTED ||
++        target->state == ENET_PEER_STATE_ZOMBIE ||
++        (target->outgoingPeerID < ENET_PROTOCOL_MAXIMUM_PEER_ID &&
++         sessionID != target->incomingSessionID)) {
++        return 0;
++    }
++
++    headerSize = (headerFlags & ENET_PROTOCOL_HEADER_FLAG_SENT_TIME) ?
++        sizeof(ENetProtocolHeader) : (size_t)&((ENetProtocolHeader*)0)->sentTime;
++    if (host->checksum != NULL) {
++        headerSize += sizeof(enet_uint32);
++    }
++
++    if (host->receivedDataLength == headerSize + sizeof(ENetProtocolDisconnect)) {
++        ENetProtocolDisconnect* disconnect = (ENetProtocolDisconnect*)(host->receivedData + headerSize);
+ 
+         if ((disconnect->header.command & ENET_PROTOCOL_COMMAND_MASK) == ENET_PROTOCOL_COMMAND_DISCONNECT) {
+             Limelog("ENet disconnect event pending\n");
+             disconnectPending = true;
++            // An unsequenced disconnect is never retransmitted once it is dropped here.
++            disconnectPendingUnsequenced = (disconnect->header.command & ENET_PROTOCOL_COMMAND_FLAG_UNSEQUENCED) != 0;
+             if (event) {
+                 event->type = ENET_EVENT_TYPE_NONE;
+             }
+@@ -1166,7 +1214,17 @@ static void controlReceiveThreadFunc(void* context) {
+                 // removing the intercept callback.
+                 err = serviceEnetHost(client, &event, client->intercept ? 100 : 1000);
+                 if (err == 0) {
+-                    if (client->intercept) {
++                    if (client->intercept && disconnectPendingUnsequenced) {
++                        // The server called enet_peer_disconnect_now() without sending a
++                        // termination message. That disconnect is never retransmitted, so
++                        // release the peer now instead of waiting for it to come again.
++                        Limelog("Server disconnected without a termination reason\n");
++                        ListenerCallbacks.connectionTerminated(-1);
++                        enet_peer_disconnect_now(peer, 0);
++                        PltUnlockMutex(&enetMutex);
++                        return;
++                    }
++                    else if (client->intercept) {
+                         // Now that no pending receive events remain, we can
+                         // remove our intercept hook and allow the server's
+                         // disconnect to be processed as expected. We will wait
+@@ -1704,7 +1762,17 @@ int stopControlStream(void) {
+     if (peer != NULL) {
+         // Gracefully disconnect to ensure the remote host receives all of our final
+         // outbound traffic, including any key up events that might be sent.
+-        gracefullyDisconnectEnetPeer(client, peer, CONTROL_STREAM_LINGER_TIMEOUT_SEC * 1000);
++        if (disconnectPending) {
++            // The intercept held back a disconnect the host has already sent. That host
++            // will never acknowledge ours, so a graceful disconnect would wait out the
++            // whole linger.
++            enet_peer_disconnect_now(peer, 0);
++        }
++        else {
++            // A host disconnect that arrives during the linger must end it, not be held back.
++            client->intercept = NULL;
++            gracefullyDisconnectEnetPeer(client, peer, CONTROL_STREAM_LINGER_TIMEOUT_SEC * 1000);
++        }
+         peer = NULL;
+     }
+     if (client != NULL) {

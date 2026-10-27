@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="remote_setup_title">Graj poza domem</string>
+    <string name="remote_step">Krok %1$d z 3</string>
+    <string name="remote_prepare">Przygotowanie w domu\n\nSparuj to urządzenie z komputerem w sieci domowej i sprawdź, czy zwykły strumień działa. Nie pozwól komputerowi przejść w uśpienie i nie zamykaj hosta.\n\nZdalne Wake-on-LAN wymaga zgodnego routera lub stale włączonego urządzenia w domu; telefon sam nie wybudzi nieosiągalnego komputera.</string>
+    <string name="remote_vpn">Połącz urządzenia\n\nPrywatny VPN, np. Tailscale, może połączyć telefon i komputer bez wystawiania interfejsu WWW hosta do internetu. Zainstaluj go na obu urządzeniach, zaloguj się na własne konto i włącz połączenie między nimi. Można też użyć istniejącej konfiguracji VPN.\n\nLink otwiera oficjalny przewodnik pobierania. Ta aplikacja nie instaluje oprogramowania, nie tworzy kont, nie zmienia ustawień routera ani nie włącza przekierowania portów.</string>
+    <string name="remote_verify">Weryfikacja z innej sieci\n\nDodaj adres VPN komputera przyciskiem Dodaj adres, wraz z portem HTTP strumieniowania, jeśli jest zmieniony. Zapisany komputer zostanie zaktualizowany, gdy jego tożsamość się zgadza. Potem wróć tutaj.\n\nOdłącz się od domowej sieci Wi-Fi i użyj danych mobilnych lub innej sieci. Test sprawdza tożsamość sparowanego komputera i wykonuje pięć małych żądań HTTPS; nie uruchamia strumienia ani nie pobiera pliku testu szybkości. Sam test w domu nie dowodzi osiągalności przez internet.</string>
+    <string name="remote_get_vpn">Otwórz konfigurację Tailscale</string>
+    <string name="remote_add_address">Dodaj adres VPN lub zdalny</string>
+    <string name="remote_test">Testuj komputer</string>
+    <string name="remote_previous">Poprzedni</string>
+    <string name="remote_next">Dalej</string>
+    <string name="remote_pair_first">Najpierw sparuj ten komputer lokalnie. Jego zapisany certyfikat i port HTTPS są potrzebne, aby sprawdzić, czy adres zdalny prowadzi do Twojego komputera.</string>
+    <string name="remote_pair_revoked">Komputer odpowiedział, ale to urządzenie nie jest już sparowane. Sparuj ponownie w domu, zanim przetestujesz grę zdalną.</string>
+    <string name="remote_permission_denied">Sparowany komputer odpowiedział, ale to urządzenie nie może oglądać strumieni. Zezwól temu urządzeniu na podgląd lub uruchamianie aplikacji w ustawieniach lub interfejsie WWW hosta.</string>
+    <string name="remote_running">Sprawdzanie sparowanego komputera…</string>
+    <string name="remote_cancelled">Test anulowany. Nie zmieniono żadnych ustawień hosta ani sieci.</string>
+    <string name="remote_failed">Nie udało się zweryfikować sparowanego komputera. Sprawdź, czy jest wybudzony, czy host i VPN działają oraz czy zapisany adres i porty strumieniowania są poprawne. Jeśli parowanie się zmieniło, sparuj ponownie w domu. Ten test nie odróżnia uśpionego komputera od zablokowanej trasy.</string>
+    <string name="remote_verified">Sparowany komputer odpowiedział w tej sieci. Teraz spróbuj zwykłego strumienia z umiarkowaną szybkością transmisji; osiągalność HTTPS nie potwierdza portów UDP wideo/audio ani stałej wydajności strumieniowania.</string>
+    <string name="remote_direct">Tailscale zgłasza bezpośrednią trasę dla tego połączenia. Trasy bezpośrednie zwykle zapewniają najlepszą przepustowość i opóźnienie.</string>
+    <string name="remote_relay">Tailscale zgłasza przekaźnik DERP. Zapewnia on łączność, ale szybkość strumieniowania może być ograniczona. Sprawdź wskazówki Tailscale dotyczące łączności lub skonfiguruj odpowiedni przekaźnik peer.</string>
+    <string name="remote_peer_relay">Tailscale zgłasza przekaźnik peer. Wydajność zależy od tego przekaźnika i obu tras sieciowych; porównaj z rzeczywistym strumieniem.</string>
+    <string name="remote_unknown">Trasa bezpośrednia lub przekazywana: niedostępne. Ten host, VPN lub połączenie nie udostępnia bieżącej klasyfikacji trasy. Sprawdź stan VPN; sam niski ping nie dowodzi trasy bezpośredniej.</string>
+    <string name="remote_measurements">Średni czas żądania HTTPS: %1$.1f ms\nNieudane żądania: %2$.0f %%\nTo pomiary żądań aplikacji, a nie utrata pakietów wideo ani opóźnienie sterowania.</string>
+</resources>

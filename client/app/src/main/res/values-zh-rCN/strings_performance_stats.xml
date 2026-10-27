@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stats_decode_submission">CPU 提交: %1$s ms · 显示等待: %2$s ms</string>
+    <string name="perf_overlay_pyrowave_submit">CPU 提交时间: %1$s ms</string>
+    <string name="latency_pyrowave_completed_decode">完整解码</string>
+    <string name="stats_waiting">正在等待串流统计信息…</string>
+    <string name="stats_frame_rates">渲染：%1$s FPS · 接收：%2$s FPS</string>
+    <string name="stats_throughput">视频负载：%1$s Mbps · 丢包：%2$s%%</string>
+    <string name="stats_network">网络 RTT：%1$s ms（±%2$s ms）</string>
+    <string name="stats_host">主机处理：%1$s ms</string>
+    <string name="stats_host_network">主机到网络：%1$s ms</string>
+    <string name="stats_client">解码：%1$s ms · 显示等待：%2$s ms</string>
+    <string name="hardware_title">主机硬件（所有 GPU）</string>
+    <string name="hardware_cpu">主机 CPU：%1$s%%</string>
+    <string name="hardware_gpu_summary">主机 GPU %1$d：%2$s%% · %3$s °C · %4$s W</string>
+    <string name="hardware_sample">主机采样：Unix 纪元后 %1$d ms · 间隔：%2$d ms</string>
+    <string name="hardware_gpu_name">GPU %1$d · %2$s</string>
+    <string name="hardware_gpu_unnamed">未命名 GPU</string>
+    <string name="hardware_gpu_clocks">使用率：%1$s%% · GPU 频率：%2$s MHz · 显存频率：%3$s MHz</string>
+    <string name="hardware_gpu_temperatures">GPU：%1$s °C · 热点：%2$s °C · 显存：%3$s °C</string>
+    <string name="hardware_gpu_fan_voltage">电压：%1$s mV · 风扇：%2$s RPM（%3$s%%）</string>
+    <string name="hardware_gpu_power">GPU 功耗：%1$s W · 板卡功耗：%2$s W</string>
+    <string name="hardware_gpu_memory">显存：%1$s MB（%2$s%%）</string>
+</resources>

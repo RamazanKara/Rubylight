@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_layout_title">このゲームの操作</string>
+    <string name="touch_layout_show">ゲームボタンを表示</string>
+    <string name="touch_layout_hide">ゲームボタンを非表示</string>
+    <string name="touch_layout_add">コントロールを追加</string>
+    <string name="touch_layout_move">ゲームボタンを移動</string>
+    <string name="touch_layout_save">レイアウトを保存してプレイ</string>
+    <string name="touch_layout_move_help">ボタンをドラッグして配置します。移動中はタッチ入力が一時停止します。完了したらここに戻り、[レイアウトを保存してプレイ] を選んでください。</string>
+    <string name="touch_layout_import">レイアウトをインポート</string>
+    <string name="touch_layout_export">レイアウトをエクスポートまたは共有</string>
+    <string name="touch_layout_import_help">共有された Nightjar レイアウト、または Artemis のキーボードレイアウトかカスタムキーファイルを貼り付けます。置き換えはこの PC のこのゲームにのみ適用されます。無効なレイアウトの場合、コントロールは変更されません。</string>
+    <string name="touch_layout_paste">レイアウトの JSON を貼り付け</string>
+    <string name="touch_layout_copy">JSON をコピー</string>
+    <string name="touch_layout_share">JSON ファイルを共有</string>
+    <string name="touch_layout_share_error">レイアウトを共有できませんでした。代わりに JSON をコピーしてください。</string>
+    <string name="touch_layout_limit">1 つのレイアウトに配置できるコントロールは最大 32 個です。</string>
+    <string name="touch_layout_name">ボタン名</string>
+    <string name="touch_layout_binding">キーまたはマウスボタン</string>
+    <string name="touch_layout_binding_help">例: W、CTRL + C、SPACE。MOUSE_1 は左、MOUSE_2 は中央、MOUSE_3 は右、MOUSE_4 は戻る、MOUSE_5 は進むボタンです。</string>
+    <string name="touch_layout_width">幅（操作領域に対する %、4～80）</string>
+    <string name="touch_layout_height">高さ（操作領域に対する %、4～80）</string>
+    <string name="touch_layout_toggle">タップで押したままにし、もう一度タップで離す</string>
+    <string name="touch_layout_hold">押している間だけ押下</string>
+    <string name="touch_layout_pressed">押下中</string>
+    <string name="touch_layout_released">解放</string>
+    <string name="touch_layout_invalid">名前、キーまたはボタン、数値が範囲内かを確認してください。</string>
+    <string name="desktop_zoom_enable">ピンチズームとパンを有効にする</string>
+    <string name="desktop_zoom_disable">ピンチズームとパンを無効にする</string>
+    <string name="desktop_zoom_reset">ズームをリセット</string>
+    <string name="desktop_zoom_help">2 本の指でピンチすると最大 4 倍までズームし、2 本の指でドラッグするとパンします。1 本の指では選択中のタッチモードがそのまま使えます。ズーム操作が有効な間は、2 本指スクロールは使えません。</string>
+    <string name="desktop_zoom_surface_help">Android 5 と 6 でズームを使うには、ストリーミング設定で TextureView を有効にして再接続してください。</string>
+    <string name="desktop_output">映像出力（ストリームに再接続します）</string>
+    <string name="desktop_output_device">このデバイス</string>
+    <string name="desktop_touchpad_help">映像は外部ディスプレイに表示されています。この画面はタッチパッドとして使用できます。キーボード、ゲームボタン、ストリームメニューは引き続きここで使用できます。</string>
+    <string name="desktop_pacing_fallback">外部ディスプレイ: フレームは受信後すぐに表示されます。</string>
+    <string name="desktop_display_unavailable">ストリームを表示できる外部ディスプレイがないため、このデバイスに表示します。</string>
+    <string name="controller_axes_title">スティック、トリガー、十字キー</string>
+    <string name="controller_axes_configured">軸または十字キーのカスタム割り当て。次回のストリームから適用されます</string>
+    <string name="controller_axes_source">%1$s の入力</string>
+    <string name="controller_axes_inverted">%1$s（反転）</string>
+    <string-array name="controller_axes">
+        <item>左スティック 横</item>
+        <item>左スティック 縦</item>
+        <item>右スティック 横</item>
+        <item>右スティック 縦</item>
+        <item>左トリガー</item>
+        <item>右トリガー</item>
+        <item>十字キー 上</item>
+        <item>十字キー 下</item>
+        <item>十字キー 左</item>
+        <item>十字キー 右</item>
+    </string-array>
+    <string-array name="controller_dpad_targets">
+        <item>なし</item>
+        <item>十字キー 上</item>
+        <item>十字キー 下</item>
+        <item>十字キー 左</item>
+        <item>十字キー 右</item>
+        <item>A</item>
+        <item>B</item>
+        <item>X</item>
+        <item>Y</item>
+        <item>LB</item>
+        <item>RB</item>
+        <item>左スティック押し込み</item>
+        <item>右スティック押し込み</item>
+        <item>Start</item>
+        <item>Select</item>
+        <item>Guide</item>
+    </string-array>
+</resources>

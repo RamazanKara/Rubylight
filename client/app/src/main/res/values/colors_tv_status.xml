@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- A game or PC that is live (running, ready to stream) on the TV screens: the dot in its chip or status line. -->
+    <color name="tv_status_live">#5FD38D</color>
+    <!-- The pill behind a chip over art or the backdrop: 72% black, so 13sp text reads over any cover. -->
+    <color name="tv_chip_scrim">#B8000000</color>
+    <!-- A panel over the backdrop (the game page's stream settings): 60% black. -->
+    <color name="tv_panel_fill">#99000000</color>
+    <!-- The fill of TV Settings' current section and of the focused row in its right pane. -->
+    <color name="tv_rail_fill">#1FFFFFFF</color>
+</resources>

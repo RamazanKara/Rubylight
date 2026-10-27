@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The shell bar: Home, PCs and Settings under the top app bar. -->
+    <string name="shell_destinations">Main sections</string>
+    <string name="shell_current_page">Current page</string>
+    <string name="host_menu_rename">Rename</string>
+    <string name="host_options_hint">X or ⋮ for options</string>
+    <string name="host_rename_field">Name</string>
+    <string name="host_rename_help">Shown only on this device. Leave it empty to use the PC’s own name.</string>
+    <string name="host_rename_save">Save</string>
+    <string name="host_rename_title">Rename PC</string>
+    <string name="host_unpair_title">Unpair %1$s?</string>
+    <string name="host_unpair_message">The PC forgets this device and its saved library is cleared here. You will need to pair again to stream. The PC stays in the list.</string>
+    <string name="host_wake_needs_pairing">Pair once while the PC is on to enable Wake</string>
+    <!-- Sleep PC: the host's /power-actions/v1. Refusals show the host's own message. -->
+    <string name="host_menu_sleep">Sleep PC</string>
+    <string name="host_menu_sleep_note">Experimental</string>
+    <string name="host_sleep_title">Put %1$s to sleep?</string>
+    <string name="host_sleep_message">Games and streams on the PC must be closed first. Wake-on-LAN can wake it again.</string>
+    <string name="host_sleep_asking">Asking the PC…</string>
+    <string name="host_sleep_accepted">PC is going to sleep</string>
+    <string name="host_sleep_unsupported">This PC can’t sleep.</string>
+    <string name="host_sleep_permission_help">To allow it, turn on Sleep PC for this device in the host’s web console, under its device settings.</string>
+    <string name="host_sleep_busy">The PC can’t sleep right now. Close games and streams on it, then try again.</string>
+    <string name="host_sleep_refused">The PC refused to sleep (HTTP %1$d).</string>
+    <string name="host_sleep_failed">Couldn’t reach the PC.</string>
+    <string name="host_sleep_error">Couldn’t ask the PC: %1$s</string>
+    <!-- Accessibility: interface size, high contrast and reduced motion. -->
+    <string name="settings_category_accessibility">Accessibility</string>
+    <string name="title_ui_scale">Interface size</string>
+    <string name="summary_ui_scale">Scales the menus, lists and dialogs of the app. The stream is not scaled. The system font size still applies on top. Takes effect at once.</string>
+    <string name="title_high_contrast">High contrast</string>
+    <string name="summary_high_contrast">A black background, stronger text and outlines, and a thicker focus ring on every screen of the app. The stream is not changed.</string>
+    <string name="title_reduce_motion">Reduce motion</string>
+    <string name="summary_reduce_motion">Follow system turns animation off when Android’s animation scale is 0. Reduce replaces the focus zoom and the sliding sheets with a plain ring. Full always animates.</string>
+    <string name="reduce_motion_system">Follow system</string>
+    <string name="reduce_motion_reduce">Reduce</string>
+    <string name="reduce_motion_full">Full</string>
+    <string-array name="ui_scale_names" translatable="false"><item>85%</item><item>100%</item><item>115%</item><item>130%</item><item>150%</item></string-array>
+    <string-array name="ui_scale_values" translatable="false"><item>85</item><item>100</item><item>115</item><item>130</item><item>150</item></string-array>
+    <string-array name="reduce_motion_names"><item>@string/reduce_motion_system</item><item>@string/reduce_motion_reduce</item><item>@string/reduce_motion_full</item></string-array>
+    <string-array name="reduce_motion_values" translatable="false"><item>system</item><item>reduce</item><item>full</item></string-array>
+    <!-- tv-mode-toggle -->
+    <string name="title_ui_mode">Interface layout</string>
+    <string name="summary_ui_mode">Automatic follows the device. Choose TV to lay the app out for a TV, with focus and a remote or gamepad, on a handheld or phone that is connected to one. Choose Handheld for the touch layouts on a TV. The stream is not changed. Takes effect at once.</string>
+    <string name="ui_mode_auto">Automatic</string>
+    <string name="ui_mode_tv">TV</string>
+    <string name="ui_mode_handheld">Handheld</string>
+    <string-array name="ui_mode_names"><item>@string/ui_mode_auto</item><item>@string/ui_mode_tv</item><item>@string/ui_mode_handheld</item></string-array>
+    <string-array name="ui_mode_values" translatable="false"><item>auto</item><item>tv</item><item>handheld</item></string-array>
+</resources>

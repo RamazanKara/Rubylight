@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="startup_connection_failed">PC に接続できませんでした。ストリーミング ホストが動作していること、両方のデバイスが互いに通信できること、PC のファイアウォールがストリーミングを許可していることを確認してから、もう一度お試しください。</string>
+    <string name="startup_permission_denied">ホストがこのリクエストを拒否しました。ホストの設定またはウェブ UI で、このデバイスを有効にし、アプリの表示または起動を許可してください。</string>
+    <string name="startup_host_error">ホストがこのストリームを開始できませんでした（エラー %1$d）。ウェブ UI でホストの状態を確認し、アプリ一覧を更新してからもう一度お試しください。</string>
+    <string name="startup_invalid_host">PC が無効なサーバーバージョンを返しました。ホストを更新または再起動してから、もう一度お試しください。</string>
+    <string name="startup_virtual_display_unavailable">この PC には仮想ディスプレイがないため、PC 自体の画面をストリーミングします。</string>
+    <string name="startup_not_paired">このデバイスはペアリングされていません。PC の一覧に戻ってもう一度ペアリングしてください。</string>
+    <string name="startup_app_missing">このアプリは PC のライブラリにありません。アプリ一覧を更新して別のアプリを選んでください。</string>
+    <string name="startup_resume_missing">このセッションは利用できなくなりました。アプリ一覧を更新してセッションを選んでください。</string>
+    <string name="startup_host_resolution_unsupported">PC は 4K を超える解像度に対応していません。ストリーミング設定で 4K 以下を選んでください。</string>
+    <string name="startup_device_resolution_unsupported">4K を超える解像度には、このデバイスの HEVC または AV1 対応が必要です。より低い解像度か別のコーデックを選んでください。</string>
+    <string name="startup_host_update_4k">4K でストリーミングするには PC の GeForce Experience を更新してください。このストリームは 1080p です。</string>
+    <string name="startup_hdr_unavailable">PC とこのデバイスに共通の HDR コーデックがないため、SDR でストリーミングします。</string>
+    <string name="startup_pyrowave_hdr_unavailable">このデバイスでは PyroWave HDR を利用できません (%1$s)。HDR には別のコーデックを使用します。</string>
+    <string name="startup_resume_failed">セッションを再開できませんでした。PC 上のアプリを確認して、もう一度お試しください。</string>
+    <string name="startup_session_owner">このセッションは別のデバイスが使用しています。そのデバイスか PC でセッションを終了してから、もう一度お試しください。</string>
+    <string name="startup_app_minimized">アプリが最小化されています。PC でアプリを元に戻すか、セッションを終了して再起動してください。</string>
+    <string name="startup_quit_failed">前のセッションを終了できませんでした。PC でセッションを終了してから、もう一度お試しください。</string>
+    <string name="startup_launch_failed">アプリを起動できませんでした。PC でアプリが開くことを確認してから、もう一度お試しください。</string>
+    <string name="applist_permission_required">このデバイスはアプリの一覧を取得できません。ホストの設定またはウェブ UI で、このデバイスにアプリの一覧表示を許可してください。ライブラリは自動的に更新されます。</string>
+    <string name="applist_load_failed">PC のアプリを読み込めませんでした。ホストの設定またはウェブ UI で、ホストとこのデバイスのアプリ一覧の権限を確認してください。自動的に再試行しています。</string>
+    <string name="applist_empty">利用できるアプリがありません。ホストのライブラリにアプリを追加し、ホストの設定またはウェブ UI でこのデバイスのアプリ一覧の権限を確認してください。</string>
+    <string name="host_profile_unsaved_title">ストリーミング設定を保存しますか？</string>
+    <string name="host_profile_unsaved_message">この PC のストリーミング設定の変更は保存されていません。専用ダイアログで確定した表示モードは別途保存されます。</string>
+    <string name="host_profile_discard">変更を破棄</string>
+    <string name="preset_replace_settings">解像度、フレームレート、ビットレート、フレームペーシング、アップスケーリング、VRR、パフォーマンスの設定がこのプリセットの値に置き換わります。コーデックと HDR の選択はそのままです。</string>
+    <string name="pair_otp_incorrect_pin">PIN が拒否されました。ホストのウェブ UI で新しいワンタイム PIN を生成し、パスフレーズを確認してください。</string>
+    <string name="pc_accessibility_actions">PC の操作</string>
+    <string name="app_details">名前: %1$s\nHDR 対応: %2$s\nアプリ ID: %3$d</string>
+    <string name="app_hdr_unknown">不明</string>
+</resources>

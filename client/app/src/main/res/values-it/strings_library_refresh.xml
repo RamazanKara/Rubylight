@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_search">Cerca giochi</string>
+    <string name="library_options">Opzioni libreria</string>
+    <string name="library_more_for">Altre opzioni per %1$s</string>
+    <string name="library_play">Gioca</string>
+    <string name="library_open">Apri libreria</string>
+    <string name="library_loading">Caricamento della libreria…</string>
+    <string name="library_refresh">Aggiorna libreria</string>
+    <string name="library_retry">Riprova</string>
+    <string name="library_show_hidden">Mostra giochi nascosti</string>
+    <string name="library_hide_hidden">Nascondi giochi nascosti</string>
+    <string name="library_no_matches">Nessun gioco corrisponde alla ricerca.</string>
+    <string name="library_clear_search">Cancella ricerca</string>
+    <string name="library_all_hidden">I tuoi giochi sono nascosti. Mostra i giochi nascosti per farli ricomparire.</string>
+    <string name="library_offline">Questo PC è offline. La libreria salvata è ancora qui. Riconnettiti per giocare.</string>
+    <string name="library_hidden_notice">Gioco nascosto dalla libreria</string>
+    <string name="library_undo">Annulla</string>
+    <string name="library_discovery_title">I tuoi giochi, su questo schermo</string>
+    <string name="library_discovery_body">Accendi il PC e avvia il suo host di streaming, come Apollo, Rubylight o Sunshine. I PC sulla stessa rete compaiono qui automaticamente.</string>
+    <string name="library_discovery_hint">Su un’altra rete? Aggiungi il PC tramite indirizzo.</string>
+    <plurals name="library_results">
+        <item quantity="one">%1$d di %2$d gioco</item>
+        <item quantity="many">%1$d di %2$d giochi</item>
+        <item quantity="other">%1$d di %2$d giochi</item>
+    </plurals>
+    <plurals name="library_showing_hidden">
+        <item quantity="one">%1$d gioco · inclusi i nascosti</item>
+        <item quantity="many">%1$d giochi · inclusi i nascosti</item>
+        <item quantity="other">%1$d giochi · inclusi i nascosti</item>
+    </plurals>
+    <plurals name="library_app_count">
+        <item quantity="one">%d gioco</item>
+        <item quantity="many">%d giochi</item>
+        <item quantity="other">%d giochi</item>
+    </plurals>
+</resources>

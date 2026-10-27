@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- A TV PC tile: its focus tween and its ring. High contrast thickens the ring; Reduce motion stops the zoom and the
+         fade. The glow is the poster's (nightjarPosterGlow). -->
+    <attr name="nightjarTileFocusAnimator" format="reference" />
+    <attr name="nightjarTileRing" format="reference" />
+</resources>

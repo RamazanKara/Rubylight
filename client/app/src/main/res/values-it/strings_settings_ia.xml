@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_section_display">Display e immagine</string>
+    <string name="settings_display_adaptive">Aggiornamento adattivo</string>
+    <string name="settings_display_no_upscaling">Nessun upscaling</string>
+    <string name="settings_section_audio">Audio</string>
+    <string name="settings_section_streaming">Streaming</string>
+    <string name="settings_section_streaming_summary">Overlay, picture in picture e recupero</string>
+    <string name="settings_category_refresh">Frequenza di aggiornamento</string>
+    <string name="settings_category_image">Immagine</string>
+    <string name="settings_category_pc_display">Display del PC</string>
+    <string name="settings_category_usb">Controller USB</string>
+    <string name="settings_category_keyboard">Tastiera</string>
+    <string name="settings_category_decoder">Decoder</string>
+    <string name="settings_category_input_network">Input e rete</string>
+    <string name="settings_category_diagnostics">Diagnostica</string>
+    <string name="settings_needs_host_support">Richiede il supporto dell’host</string>
+    <string name="settings_pc_display_mode_value">Si imposta per ogni PC nel suo menu</string>
+    <string name="settings_help_summary">Configurazione, accoppiamento e soluzioni comuni</string>
+    <string name="settings_latency_benchmark_summary">Testa la temporizzazione di questo dispositivo senza PC</string>
+    <string name="settings_low_latency_partial">Parzialmente disattivata</string>
+    <string name="upscaling_hdr_short">Non usato con HDR</string>
+    <string name="upscaling_pyrowave_short">PyroWave usa SGSR</string>
+    <string name="title_low_latency_decoding">Decodifica a bassa latenza</string>
+    <string name="summary_low_latency_decoding">Usa le modalità a bassa latenza di Android e del decoder del chipset e consente ad Android di ottimizzare le prestazioni durante lo streaming. Disattivala solo per testare un problema di decodifica.</string>
+    <string name="settings_touch_mode_help">Trackpad: trascina per muovere il cursore, tocca per fare clic.\nMouse diretto: il cursore va dove tocchi.\nMulti-touch: i tocchi arrivano al PC come input touch. Senza il supporto dell’host funziona come Mouse diretto.\nCursore locale: un puntatore disegnato su questo dispositivo segue subito il dito; tocca per fare clic dove punta.\nTouch disattivato: lo schermo ignora il tocco mentre giochi con un controller. Scorri indietro o premi Indietro per il menu dello stream.</string>
+    <string name="resolution_screen">Dimensioni schermo (%1$s)</string>
+    <string name="resolution_screen_cutout">Dimensioni schermo, evitando il foro della fotocamera (%1$s)</string>
+    <string name="resolution_screen_portrait">Dimensioni schermo, verticale (%1$s)</string>
+    <string name="resolution_screen_cutout_portrait">Dimensioni schermo, verticale, evitando il foro della fotocamera (%1$s)</string>
+    <string name="fps_screen">Frequenza di aggiornamento dello schermo (%1$d FPS)</string>
+</resources>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_auto_reconnect">Recover interrupted streams</string>
+    <string name="summary_auto_reconnect">Automatically resume the same running game after a temporary connection failure. Up to five attempts within one minute; press Back to cancel.</string>
+    <string name="stream_recovery_attempt">Reconnecting to your game… Attempt %1$d of %2$d. Press Back to cancel.</string>
+    <string name="stream_recovery_session_changed">The previous game session is no longer available. Automatic recovery stopped to avoid starting or replacing a game.</string>
+    <string name="stream_recovery_exhausted">Automatic recovery could not reconnect within one minute. Your game was not quit. Check the connection, then choose Reconnect to try again.</string>
+    <string name="stream_recovery_paused">Automatic recovery stopped when you left the stream. Choose Reconnect to continue.</string>
+</resources>

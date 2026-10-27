@@ -1,0 +1,24 @@
+<!-- Only English and German are packaged; both translations are provided. -->
+<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
+    <string name="latency_benchmark_title">Latency benchmark</string>
+    <string name="latency_benchmark_description">Run a 10-second local timing test without a host. Touch the screen, move a mouse or use a controller to collect input samples.</string>
+    <string name="latency_benchmark_start">Start 10-second test</string>
+    <string name="latency_benchmark_stop">Stop test</string>
+    <string name="latency_benchmark_display">Reported panel refresh: %1$.2f Hz</string>
+    <string name="latency_benchmark_audio">Reported audio: %1$s Hz · %2$s frames per buffer</string>
+    <string name="latency_benchmark_frame">Frame callback interval</string>
+    <string name="latency_benchmark_callback">Frame callback delay</string>
+    <string name="latency_benchmark_input">Input dispatch age</string>
+    <string name="latency_benchmark_timer">Timer wakeup delay</string>
+    <string name="latency_benchmark_limits">Results use up to 2048 recent samples per metric. Input age starts at the Android event timestamp (1 ms resolution); it does not measure controller polling or host input delay. Frame callbacks do not measure scanout. Audio properties are reported capabilities, not measured output latency. Network, decoding and end-to-end latency require a stream or external measurement. Leaving this screen stops the test.</string>
+    <string name="latency_test">Measure input latency</string>
+    <string name="latency_test_running">Measuring… show a still desktop with the mouse pointer and don\'t touch anything for a few seconds.</string>
+    <string name="latency_test_result">Input to screen: %1$.1f ms typical, %2$.1f ms best, %3$.1f ms slowest 10%% (%4$d samples).\n\nTimed from the moment this app sends a mouse nudge until Android shows the host\'s answering frame. It covers the network, host capture and encoding, decoding and display. Your finger and the panel\'s own lag are not included.</string>
+    <string name="latency_test_failed">Couldn\'t measure. The host kept sending frames or didn\'t answer the nudge. Show a still desktop with a visible mouse pointer, close games and videos, and try again.</string>
+    <string name="latency_benchmark_share">Share results</string>
+    <string name="latency_benchmark_share_title">Device results</string>
+    <string name="latency_benchmark_share_message">Nightjar never sends this by itself. The text lists this device (model, SoC, GPU and Android version), its decoder benchmark and the latest test from this screen, without PC names, addresses, serial numbers or account data. Open report form copies the text and opens a public GitHub issue form. Everything you paste there becomes public and is added to the device table on the Nightjar website.</string>
+    <string name="latency_benchmark_copied">Results copied</string>
+    <string name="latency_benchmark_report_form">Open report form</string>
+    <string name="latency_benchmark_paste_hint">Results copied. Paste them into the form.</string>
+</resources>

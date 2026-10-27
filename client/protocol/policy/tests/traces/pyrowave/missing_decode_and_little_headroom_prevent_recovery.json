@@ -1,0 +1,14 @@
+{
+  "source": "PyroWaveBitrateControllerTest.missingDecodeMeasurementsAndLittleHeadroomPreventRecovery",
+  "rust": "pyrowave::BitrateController",
+  "java": "com.limelight.nvstream.PyroWaveBitrateController",
+  "new": [400000, 300000, 120, 0],
+  "calls": [
+    {"call": "sample", "args": [1000, true, false, 0, 0, 5], "expect": 0},
+    {"call": "sample", "args": [21000, true, false, 0, 0, -1], "expect": 0},
+    {"call": "sample", "args": [22000, true, false, 0, 0, 5], "expect": 0},
+    {"call": "sample", "args": [42000, true, false, 0, 0, 7], "expect": 0},
+    {"call": "sample", "args": [43000, true, false, 0, 0, 5], "expect": 0},
+    {"call": "sample", "args": [63000, true, false, 0, 0, 5], "expect": 306000}
+  ]
+}

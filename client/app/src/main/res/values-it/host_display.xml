@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_display_menu">Modalità display del PC</string>
+    <string name="host_display_location">Per la modalità Esclusiva o Estesa, apri il menu del PC → Impostazioni dello stream → Modalità display del PC. La modalità display viene salvata separatamente per ogni PC e richiede il supporto dell’host.</string>
+    <string name="host_display_controls_virtual">Controllato dalla modalità display del PC: %1$s</string>
+    <string name="host_display_title">Display su %1$s</string>
+    <string name="host_display_default">Impostazione del PC</string>
+    <string name="host_display_exclusive">Esclusiva: solo display virtuale (monitor del PC spenti)</string>
+    <string name="host_display_extended_primary">Estendi: rendi principale il display virtuale</string>
+    <string name="host_display_extended">Estendi: mantieni principale il display del PC</string>
+    <string name="host_display_extended_isolated">Estesa e separata: il PC resta principale</string>
+    <string name="host_display_extended_primary_isolated">Estesa e separata: display virtuale principale</string>
+    <string name="host_display_physical">Display fisico (nessun display virtuale)</string>
+    <string name="host_display_saved">Scelta del display salvata. Si applica dal prossimo stream.</string>
+    <string name="host_display_save">Salva modalità display</string>
+    <string name="host_display_explanation">Scegli una modalità, poi tocca Salva modalità display. Annulla mantiene la scelta attuale. La nuova modalità si applica dal prossimo stream.\n\nMantieni principale il display del PC lascia il tuo monitor come display principale di Windows. Rendi principale il display virtuale sposta quel ruolo sul display in streaming, dove di solito si aprono giochi e nuove finestre. Entrambe le opzioni Estendi lasciano accesi i monitor del PC.\n\nImpostazione del PC segue Display virtuale dell’host e le impostazioni dello schermo del PC. Esclusiva spegne i monitor del PC durante lo stream. Le modalità separate collocano il display in streaming lontano dagli altri monitor nel layout del desktop, nella stessa sessione di Windows. Display fisico trasmette il monitor del PC senza display virtuale. Il PC ripristina i suoi display al termine dello stream.\n\nSolo i PC il cui host supporta le modalità display offrono questa scelta; sugli altri PC decide Display virtuale dell’host.</string>
+    <string name="host_administration_menu">Apri interfaccia web dell’host</string>
+    <string name="host_administration_help">Gestisci applicazioni, dispositivi accoppiati e impostazioni dell’host nella sua interfaccia web. Accedi con l’account dell’interfaccia web; l’accoppiamento non effettua l’accesso. L’accesso remoto richiede una porta dell’interfaccia web raggiungibile.\n\n%1$s</string>
+    <string name="host_administration_open">Apri nel browser</string>
+    <string name="host_administration_no_browser">Nessun browser è riuscito ad aprire l’interfaccia web dell’host. Copiane l’indirizzo e aprilo su un altro dispositivo.</string>
+</resources>

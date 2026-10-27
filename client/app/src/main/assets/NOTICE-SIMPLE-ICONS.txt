@@ -1,0 +1,18 @@
+Store marks from Simple Icons
+=============================
+
+The store glyphs on the TV library's cards (res/drawable/ic_store_steam, ic_store_epic,
+ic_store_gog, ic_store_ea, ic_store_ubisoft, ic_store_battlenet and ic_store_xbox) are
+the path data of these Simple Icons, version 16.35.0, drawn as single-colour vectors:
+
+  steam, epicgames, gogdotcom, ea, ubisoft, battledotnet, xbox
+
+Source: https://github.com/simple-icons/simple-icons (https://simpleicons.org)
+
+Simple Icons releases its icon data under CC0 1.0 Universal:
+https://creativecommons.org/publicdomain/zero/1.0/
+
+The marks themselves are trademarks of their owners (Valve, Epic Games, CD PROJEKT,
+Electronic Arts, Ubisoft, Blizzard Entertainment and Microsoft). Nightjar uses them only
+to name the store a game comes from, always beside or in place of the store's name, and
+implies no endorsement by or affiliation with any of them.

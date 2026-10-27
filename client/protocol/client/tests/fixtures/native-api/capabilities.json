@@ -1,0 +1,6 @@
+{
+  "api_version": 1,
+  "host": { "name": "GAMING-PC", "version": "3.0.0-alpha.2", "unique_id": "5E0F4B1C-7A3D-4C52-9E10-0B6F2D8A4C11" },
+  "features": ["library", "session", "session.close_game", "radeon.read", "radeon.write"],
+  "permissions": { "list": true, "view": true, "launch": true, "host_control": false }
+}

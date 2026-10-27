@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_touch_off_help">Cảm ứng đang tắt. Vuốt quay lại hoặc nhấn Quay lại để mở menu stream.</string>
+    <string name="title_local_cursor_speed">Tốc độ con trỏ cục bộ</string>
+    <string name="title_trackpad_acceleration">Gia tốc con trỏ</string>
+    <string name="summary_trackpad_acceleration">Vuốt nhanh sẽ di chuyển con trỏ xa hơn vuốt chậm, nên các chuyển động nhỏ vẫn chính xác. Dùng cho Bàn di chuột và Con trỏ cục bộ.</string>
+    <string name="title_trackpad_acceleration_curve">Mức gia tốc</string>
+    <string-array name="trackpad_acceleration_curve_names">
+        <item>Nhẹ</item>
+        <item>Vừa</item>
+        <item>Mạnh</item>
+    </string-array>
+    <string name="title_trackpad_momentum">Trượt tiếp sau khi vuốt nhanh</string>
+    <string name="summary_trackpad_momentum">Sau một cú vuốt nhanh, con trỏ tiếp tục di chuyển rồi chậm dần. Chạm vào màn hình để dừng. Dùng cho Bàn di chuột và Con trỏ cục bộ.</string>
+    <string name="title_trackpad_momentum_glide">Quãng trượt</string>
+    <string-array name="trackpad_momentum_glide_names">
+        <item>Ngắn</item>
+        <item>Vừa</item>
+        <item>Dài</item>
+    </string-array>
+    <string name="title_trackpad_area">Vùng bàn di chuột</string>
+    <string name="summary_trackpad_area">Cử chỉ Bàn di chuột và Con trỏ cục bộ chỉ bắt đầu trong phần này của màn hình. Các lần chạm bắt đầu ở chỗ khác sẽ bị bỏ qua.</string>
+    <string-array name="trackpad_area_names">
+        <item>Toàn màn hình</item>
+        <item>Nửa phải</item>
+        <item>Nửa trái</item>
+        <item>Nửa dưới</item>
+        <item>Nửa trên</item>
+    </string-array>
+    <string name="title_three_finger_tap">Chạm ba ngón</string>
+    <string name="summary_three_finger_tap">Tác dụng của một lần chạm nhanh bằng ba ngón trong các chế độ Bàn di chuột, Chuột trực tiếp và Con trỏ cục bộ.</string>
+    <string-array name="three_finger_tap_names">
+        <item>@string/desktop_controls_system_keyboard</item>
+        <item>Nhấp chuột giữa</item>
+        <item>@string/desktop_controls_open</item>
+        <item>@string/stream_disabled</item>
+        <item>@string/pc_keyboard_title</item>
+    </string-array>
+    <string name="stream_cursor_shape_rejected">Nightjar không thể vẽ hình dạng con trỏ của PC nên hiển thị mũi tên mặc định.</string>
+    <string name="title_four_finger_tap">Chạm bằng bốn ngón tay</string>
+    <string name="summary_four_finger_tap">Thao tác khi chạm nhanh bằng bốn ngón tay trong chế độ Bàn di chuột, Chuột trực tiếp và Con trỏ cục bộ.</string>
+</resources>

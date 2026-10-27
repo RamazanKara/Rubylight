@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_back_opens_menu">Фізична «Назад» відкриває меню потоку</string>
+    <string name="summary_checkbox_back_opens_menu">Окрема клавіша «Назад» портативної консолі або контролера відкриває меню потоку. Select і Start зберігають призначення. На фізичній клавіатурі пріоритет має режим «Назад надсилає Windows». З наступного потоку.</string>
+</resources>

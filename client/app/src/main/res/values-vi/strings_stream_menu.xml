@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="overlay_compact">Thu gọn</string>
+    <string name="overlay_compact_fps">%1$s FPS</string>
+    <string name="overlay_compact_rtt">RTT %1$s ms</string>
+    <string name="overlay_compact_loss">Mất %1$s%%</string>
+    <string name="overlay_compact_waiting">Đang chờ video</string>
+    <string name="link_notice_lowered">Máy chủ đã giảm bitrate xuống %1$s Mbps: mạng</string>
+    <string name="overlay_health_good">Stream tốt</string>
+    <string name="overlay_health_fair">Stream chập chờn</string>
+    <string name="overlay_health_poor">Stream kém</string>
+    <string name="overlay_health_unknown">Đang bắt đầu stream</string>
+    <string name="stream_section_input">Đầu vào</string>
+    <string name="stream_section_display">Hiển thị</string>
+    <string name="stream_section_quality">Chất lượng</string>
+    <string name="stream_section_host">Máy chủ</string>
+    <string name="stream_microphone">Micrô</string>
+    <string name="stream_cursor_show">Hiện con trỏ chuột</string>
+    <string name="stream_cursor_hide">Ẩn con trỏ chuột</string>
+    <string name="stream_keyboard_keys_hide">Ẩn phím bàn phím bổ sung</string>
+    <string name="stream_overlay_page">Lớp phủ và chẩn đoán</string>
+    <string name="stream_picture_in_picture">Hình trong hình</string>
+    <string name="stream_quit_game">Thoát trò chơi</string>
+    <string name="stream_quit_game_confirm">Thoát trò chơi trên PC?\nTiến trình chưa lưu sẽ bị mất.</string>
+    <string name="stream_end_session">Kết thúc phiên</string>
+    <string name="stream_end_session_confirm">Kết thúc phiên stream trên PC?
+Trò chơi vẫn tiếp tục chạy.</string>
+    <string name="stream_close_game">Đóng trò chơi</string>
+    <string name="stream_close_game_confirm">Đóng trò chơi trên PC?
+Tiến trình chưa lưu sẽ bị mất.</string>
+    <string name="stream_choice_selected">Đã chọn</string>
+    <string name="stream_choice_not_selected">Chưa chọn</string>
+    <string name="stream_web_ui_leaves">Mở trình duyệt sẽ rời khỏi stream; trò chơi vẫn tiếp tục chạy trên PC.</string>
+    <string name="stream_menu_hint">Để mở menu stream, %1$s.</string>
+    <string name="stream_menu_hint_swipe">vuốt từ cạnh màn hình để quay lại</string>
+    <string name="stream_menu_hint_buttons">vuốt lên từ cạnh dưới và nhấn Quay lại</string>
+    <string name="stream_menu_hint_back">nhấn Quay lại</string>
+    <string name="stream_menu_hint_controller">nhấn Start + Back + LB + RB trên tay cầm điều khiển</string>
+    <string name="stream_menu_hint_keyboard">nhấn Ctrl + Alt + Shift + M</string>
+    <string name="stream_menu_hint_or">%1$s hoặc %2$s</string>
+    <string name="stream_menu_hint_list">%1$s, %2$s</string>
+    <string name="stream_menu_hint_close">Nhấn để đóng</string>
+    <string name="stream_h264_decoder_missing">Thiết bị này không giải mã được video H.264 bằng phần cứng, điều cần thiết để stream.</string>
+    <string name="perf_overlay_vrr">Màn hình: %1$.2f Hz · kết xuất: %2$.2f Hz · VRR: %3$s</string>
+    <string name="perf_overlay_vrr_max_hz">Hz tối đa</string>
+    <string name="sheet_back">Quay lại</string>
+</resources>

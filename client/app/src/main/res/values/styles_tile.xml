@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- A TV PC tile's name: one line, a size above the library's titles. -->
+    <style name="TextAppearance.Nightjar.TileName" parent="TextAppearance.Nightjar.Title">
+        <item name="android:textSize">22sp</item>
+        <item name="lineHeight">28sp</item>
+    </style>
+</resources>

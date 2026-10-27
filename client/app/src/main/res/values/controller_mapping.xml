@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="controller_mapping_title">Controller buttons</string>
+    <string name="controller_mapping_summary">Remap buttons for each controller model</string>
+    <string name="controller_mapping_intro">Tap “Map a button”, then press the controller button to remap.\nChanges apply to the next stream.</string>
+    <string name="controller_mapping_waiting">Connect a controller, then tap “Map a button”.</string>
+    <string name="controller_mapping_unnamed">Controller</string>
+    <string name="controller_mapping_none">All buttons use their default mapping.</string>
+    <string name="controller_mapping_row">Sends %1$s</string>
+    <string name="controller_mapping_choose">%1$s sends…</string>
+    <string name="controller_mapping_default">%1$s (default)</string>
+    <string name="controller_mapping_disabled">Nothing</string>
+    <string name="controller_mapping_reset">Reset this controller</string>
+    <string name="controller_button_left_stick">Left stick click</string>
+    <string name="controller_button_right_stick">Right stick click</string>
+    <string name="controller_button_start">Start</string>
+    <string name="controller_button_select">Back</string>
+    <string name="controller_button_guide">Guide</string>
+    <string name="controller_button_number">Button %1$d</string>
+    <string name="pc_tap_to_pair">%1$s\nTap to pair</string>
+</resources>

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_section_display">디스플레이 및 화질</string>
+    <string name="settings_display_adaptive">적응형 주사율</string>
+    <string name="settings_display_no_upscaling">업스케일링 없음</string>
+    <string name="settings_section_audio">오디오</string>
+    <string name="settings_section_streaming">스트리밍</string>
+    <string name="settings_section_streaming_summary">오버레이, PIP 모드 및 복구</string>
+    <string name="settings_category_refresh">주사율</string>
+    <string name="settings_category_image">화질</string>
+    <string name="settings_category_pc_display">PC 디스플레이</string>
+    <string name="settings_category_usb">USB 컨트롤러</string>
+    <string name="settings_category_keyboard">키보드</string>
+    <string name="settings_category_decoder">디코더</string>
+    <string name="settings_category_input_network">입력 및 네트워크</string>
+    <string name="settings_category_diagnostics">진단</string>
+    <string name="settings_needs_host_support">호스트 지원 필요</string>
+    <string name="settings_pc_display_mode_value">각 PC의 메뉴에서 설정</string>
+    <string name="settings_help_summary">설정, 페어링 및 일반적인 문제 해결</string>
+    <string name="settings_latency_benchmark_summary">PC 없이 이 기기의 타이밍 테스트</string>
+    <string name="settings_low_latency_partial">일부 꺼짐</string>
+    <string name="upscaling_hdr_short">HDR에서는 사용 안 됨</string>
+    <string name="upscaling_pyrowave_short">PyroWave는 SGSR 사용</string>
+    <string name="title_low_latency_decoding">저지연 디코딩</string>
+    <string name="summary_low_latency_decoding">Android와 칩셋 디코더의 저지연 모드를 사용하고, 스트리밍 중 Android가 성능을 조정하도록 합니다. 디코딩 문제를 테스트할 때만 끄세요.</string>
+    <string name="settings_touch_mode_help">트랙패드: 드래그하여 커서를 움직이고 탭하여 클릭합니다.\n다이렉트 마우스: 탭한 위치로 커서가 이동합니다.\n멀티 터치: 터치가 PC에 터치 입력으로 전달됩니다. 호스트가 지원하지 않으면 다이렉트 마우스처럼 작동합니다.\n로컬 커서: 이 기기에 그려진 포인터가 손가락을 바로 따라갑니다. 탭하면 포인터가 가리키는 곳을 클릭합니다.\n터치 끄기: 컨트롤러로 플레이하는 동안 화면 터치를 무시합니다. 뒤로 스와이프하거나 뒤로 버튼을 누르면 스트림 메뉴가 열립니다.</string>
+    <string name="resolution_screen">화면 크기(%1$s)</string>
+    <string name="resolution_screen_cutout">화면 크기, 카메라 컷아웃 제외(%1$s)</string>
+    <string name="resolution_screen_portrait">화면 크기, 세로 모드(%1$s)</string>
+    <string name="resolution_screen_cutout_portrait">화면 크기, 세로 모드, 카메라 컷아웃 제외(%1$s)</string>
+    <string name="fps_screen">화면 주사율(%1$d FPS)</string>
+</resources>

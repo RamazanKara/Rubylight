@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_host_asks_named">PC của bạn sẽ hỏi trước khi đóng %1$s</string>
+    <string name="library_host_asks">PC của bạn sẽ hỏi trước khi đóng trò chơi đang chạy</string>
+    <string name="library_quit_named_and_play">Thoát %1$s và chơi</string>
+    <string name="library_quit_and_play">Thoát trò chơi đang chạy và chơi</string>
+    <string name="library_replace_message_named">Thoát %1$s và bắt đầu %2$s?\nTiến trình chưa lưu sẽ bị mất.</string>
+    <string name="library_replace_message">Thoát trò chơi đang chạy và bắt đầu %1$s?\nTiến trình chưa lưu sẽ bị mất.</string>
+    <string name="library_replace_confirm">Thoát và chơi</string>
+    <string name="library_replace_resume">Tiếp tục %1$s</string>
+    <string name="library_replace_close_start">Đóng %1$s và bắt đầu %2$s</string>
+    <string name="library_replace_message_running">%1$s đang chạy trên PC này. Bắt đầu %2$s sẽ đóng nó, và tiến trình chưa lưu sẽ mất.</string>
+    <string name="library_replace_changed">Trò chơi đang chạy đã thay đổi. Hãy kiểm tra màn hình và thử lại.</string>
+</resources>

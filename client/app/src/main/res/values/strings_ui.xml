@@ -1,0 +1,11 @@
+<resources>
+    <string name="library_computers">PCs</string>
+    <string name="pc_needs_pairing">Not paired</string>
+    <string name="pc_offline">Offline</string>
+    <string name="pc_checking">Checking connection…</string>
+    <string name="app_running">Running</string>
+    <string name="app_hidden">Hidden</string>
+    <string name="app_running_hidden">Running · Hidden</string>
+    <string name="library_item_description">%1$s, %2$s</string>
+    <string name="add_pc_hint">Enter an IP address or PC name, with an optional port.</string>
+</resources>

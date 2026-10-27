@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_section_advanced">고급</string>
+    <string name="settings_advanced_summary">디코딩, 입력 및 진단</string>
+    <string name="settings_custom">사용자 지정</string>
+    <string name="setting_help">%1$s 정보</string>
+    <string name="stream_presets_help_title">사전 설정 정보</string>
+    <string name="settings_version">버전 %1$s</string>
+    <string name="settings_source">소스 및 라이선스</string>
+    <string name="settings_csv_summary">최근 지연 시간 측정 결과 저장</string>
+    <string name="host_profile_footer">나가기 전에 스트림 설정을 저장하세요. 디스플레이 모드는 해당 대화상자의 디스플레이 모드 저장으로 따로 저장됩니다. 변경 사항은 다음 스트림부터 적용됩니다.</string>
+    <string name="stream_overlay_menu">오버레이</string>
+    <string name="stream_bitrate_manual">비트레이트 설정</string>
+    <string-array name="stream_preset_names">
+        <item>기본 해상도(권장)</item>
+        <item>배터리 절약</item>
+    </string-array>
+    <string name="applist_menu_show_app">게임 표시</string>
+</resources>

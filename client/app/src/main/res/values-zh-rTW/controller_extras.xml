@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Controller and keyboard options -->
+    <string name="title_checkbox_disable_rumble">停用震動</string>
+    <string name="summary_checkbox_disable_rumble">停止遊戲要求的所有震動：控制器與扳機震動、USB DualSense 觸覺回饋，以及這部裝置代替控制器的震動。</string>
+    <string name="title_checkbox_mouse_emulation_fixed_step">以固定步距移動滑鼠</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">在控制器滑鼠模式下，移動搖桿時按住 X，指標每次會移動固定的像素數。按 Y 可將步距加倍，從 1 增加到 128 像素，然後回到 1。</string>
+    <string name="stream_mouse_step">滑鼠步距：%1$d 像素</string>
+    <string name="title_checkbox_back_as_meta">鍵盤返回鍵傳送 Windows 鍵</string>
+    <string name="summary_checkbox_back_as_meta">實體鍵盤上的返回鍵會傳送 Windows 鍵（在 Mac 上為 Command）。請使用 Ctrl+Alt+Shift+M、Android 的返回手勢或按鈕，或控制器組合鍵開啟串流選單。</string>
+    <string name="title_checkbox_right_alt_as_meta">右 Alt 作為 Command</string>
+    <string name="summary_checkbox_right_alt_as_meta">右 Alt 會傳送 Windows 鍵，Mac 會將其當作 Command，因此右 Alt+C 即可複製。左 Alt 不變。如果你用 AltGr 輸入字元，請保持關閉。</string>
+
+    <!-- Controller test page -->
+    <string name="controller_test_title">控制器測試</string>
+    <string name="controller_test_summary">檢查按鈕、搖桿、扳機、震動、燈光和動作感應</string>
+    <string name="controller_test_open">測試控制器</string>
+    <string name="controller_test_hint">按下按鈕並移動搖桿。方向鍵和 A 也能在此頁面中移動；按住 B 或 Back 一秒即可離開。</string>
+    <string name="controller_test_waiting">連接控制器並按任一按鈕。</string>
+    <string name="controller_test_waiting_short">尚未偵測到控制器。</string>
+    <string name="controller_test_usb_device">USB 控制器 %1$s（Nightjar USB 驅動程式）</string>
+    <string name="controller_test_buttons">按鈕</string>
+    <string name="controller_test_pressed">已按下：%1$s</string>
+    <string name="controller_test_pressed_none">未按下任何按鈕</string>
+    <string name="controller_test_sticks">搖桿與扳機</string>
+    <string name="controller_test_stick_values">左搖桿  %1$+.2f %2$+.2f\n右搖桿  %3$+.2f %4$+.2f\nLT %5$d%%  RT %6$d%%</string>
+    <string name="controller_test_rumble">震動</string>
+    <string name="controller_test_rumble_strong">強馬達</string>
+    <string name="controller_test_rumble_weak">弱馬達</string>
+    <string name="controller_test_rumble_all">兩個馬達</string>
+    <string name="controller_test_rumble_any">震動</string>
+    <string name="controller_test_rumble_left_trigger">左扳機</string>
+    <string name="controller_test_rumble_right_trigger">右扳機</string>
+    <string name="controller_test_rumble_stop">停止</string>
+    <string name="controller_test_rumble_disabled_note">「停用震動」已開啟，因此串流時不會震動。這些測試仍會震動。</string>
+    <string name="controller_test_lights">燈光</string>
+    <string name="controller_test_light_red">紅色</string>
+    <string name="controller_test_light_green">綠色</string>
+    <string name="controller_test_light_blue">藍色</string>
+    <string name="controller_test_light_off">關閉</string>
+    <string name="controller_test_light_reset">重設</string>
+    <string name="controller_test_motion">動作感應器</string>
+    <string name="controller_test_motion_values">陀螺儀\n%1$s\n加速度計\n%2$s</string>
+    <string name="controller_test_waiting_motion">請移動控制器</string>
+    <string name="controller_test_touchpad">觸控板</string>
+    <string name="controller_test_touch_none">觸碰觸控板即可查看位置。</string>
+    <string name="controller_test_touch_at">手指位於水平 %1$d%%、垂直 %2$d%%</string>
+    <string name="controller_test_misc">Share</string>
+    <string name="controller_test_not_available">此控制器不支援。</string>
+    <string name="controller_test_needs_android_12">需要 Android 12 以上版本。</string>
+
+    <!-- USB Switch Pro driver -->
+    <string name="title_usb_switch_pro">USB Switch Pro 驅動程式</string>
+    <string name="summary_usb_switch_pro">實驗性功能。直接讀取有線連接的 Nintendo Switch Pro Controller，支援體感、震動、Home 和 Capture 鍵。</string>
+    <string name="usb_switch_pro_denied">沒有 USB 存取權；Switch Pro Controller 繼續使用 Android 輸入。\n請重新連接傳輸線以重試。</string>
+</resources>

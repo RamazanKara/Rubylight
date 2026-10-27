@@ -1,0 +1,23 @@
+{
+  "source": "StreamHealthTest.fewStallsAndContinuousLossAreNoRhythm",
+  "note": "Five minutes of the two-minute loss bursts, then fifteen minutes of continuous loss",
+  "rust": "health::StreamHealth",
+  "java": "com.limelight.policy.StreamHealthTrace",
+  "new": [],
+  "calls": [
+    {"call": "add_series", "args": [1000, 29, 1000, true, 60, 0, 1, 4, 3, 2, 60, 60, 60, 0, false], "expect": null},
+    {"call": "add_series", "args": [30000, 3, 1000, true, 60, 6, 1, 4, 3, 2, 60, 60, 60, 0, false], "expect": null},
+    {"call": "add_series", "args": [33000, 117, 1000, true, 60, 0, 1, 4, 3, 2, 60, 60, 60, 0, false], "expect": null},
+    {"call": "add_series", "args": [150000, 3, 1000, true, 60, 6, 1, 4, 3, 2, 60, 60, 60, 0, false], "expect": null},
+    {"call": "add_series", "args": [153000, 117, 1000, true, 60, 0, 1, 4, 3, 2, 60, 60, 60, 0, false], "expect": null},
+    {"call": "add_series", "args": [270000, 3, 1000, true, 60, 6, 1, 4, 3, 2, 60, 60, 60, 0, false], "expect": null},
+    {"call": "add_series", "args": [273000, 28, 1000, true, 60, 0, 1, 4, 3, 2, 60, 60, 60, 0, false], "expect": null},
+    {"call": "report_stall_period_ms", "args": [300000], "expect": 0},
+    {"call": "report_stalls", "args": [300000], "expect": 3},
+    {"new": []},
+    {"call": "add_series", "args": [1000, 900, 1000, true, 60, 4, 1, 1, 1, 1, 60, 60, 60, 0, false], "expect": null},
+    {"call": "report_stalls", "args": [900000], "expect": 1},
+    {"call": "report_stall_period_ms", "args": [900000], "expect": 0},
+    {"call": "report_findings", "args": [900000], "expect": "NETWORK"}
+  ]
+}

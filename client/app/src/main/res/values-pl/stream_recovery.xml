@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_auto_reconnect">Przywracaj przerwane strumienie</string>
+    <string name="summary_auto_reconnect">Automatycznie wznawia tę samą uruchomioną grę po chwilowej awarii połączenia. Do pięciu prób w ciągu jednej minuty; naciśnij Wstecz, aby anulować.</string>
+    <string name="stream_recovery_attempt">Ponowne łączenie z grą… Próba %1$d z %2$d. Naciśnij Wstecz, aby anulować.</string>
+    <string name="stream_recovery_session_changed">Poprzednia sesja gry nie jest już dostępna. Automatyczne przywracanie zostało zatrzymane, aby nie uruchomić ani nie zastąpić gry.</string>
+    <string name="stream_recovery_exhausted">Automatyczne przywracanie nie zdołało połączyć się ponownie w ciągu jednej minuty. Gra nie została zamknięta. Sprawdź połączenie, a następnie wybierz Połącz ponownie, aby spróbować jeszcze raz.</string>
+    <string name="stream_recovery_paused">Automatyczne przywracanie zostało zatrzymane po opuszczeniu strumienia. Wybierz Połącz ponownie, aby kontynuować.</string>
+</resources>

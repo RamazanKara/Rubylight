@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="startup_host_message">O host não conseguiu iniciar esta transmissão: %1$s (erro %2$d)</string>
+    <string name="startup_launch_cancelled">Inicialização cancelada.</string>
+    <string name="startup_confirmation_timed_out">O tempo de confirmação esgotou. Toque no bloco novamente para tentar de novo.</string>
+    <string name="startup_confirmation_rejected">A sessão do host mudou ou a confirmação expirou. Toque no bloco novamente.</string>
+    <string name="decoder_setup_rejected">O decodificador de vídeo deste dispositivo (%1$s) não conseguiu iniciar %2$s em %3$dx%4$d a %5$d FPS: %6$s. O host não é a causa. Em Configurações, tente H.264, uma resolução menor ou uma taxa de quadros menor. Se continuar, use “Informar um problema”.</string>
+    <string name="decoder_setup_none">Este dispositivo não tem um decodificador de vídeo para %1$s. Escolha outro codec de vídeo em Configurações.</string>
+</resources>

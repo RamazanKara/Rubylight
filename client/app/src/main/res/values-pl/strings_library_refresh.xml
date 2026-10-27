@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_search">Szukaj gier</string>
+    <string name="library_options">Opcje biblioteki</string>
+    <string name="library_more_for">Więcej opcji dla %1$s</string>
+    <string name="library_play">Graj</string>
+    <string name="library_open">Otwórz bibliotekę</string>
+    <string name="library_loading">Wczytywanie biblioteki…</string>
+    <string name="library_refresh">Odśwież bibliotekę</string>
+    <string name="library_retry">Spróbuj ponownie</string>
+    <string name="library_show_hidden">Pokaż ukryte gry</string>
+    <string name="library_hide_hidden">Ukryj ukryte gry</string>
+    <string name="library_no_matches">Żadna gra nie pasuje do wyszukiwania.</string>
+    <string name="library_clear_search">Wyczyść wyszukiwanie</string>
+    <string name="library_all_hidden">Twoje gry są ukryte. Pokaż ukryte gry, aby je przywrócić.</string>
+    <string name="library_offline">Ten komputer jest offline. Zapisana biblioteka nadal tu jest. Połącz się ponownie, aby grać.</string>
+    <string name="library_hidden_notice">Gra ukryta w bibliotece</string>
+    <string name="library_undo">Cofnij</string>
+    <string name="library_discovery_title">Twoje gry na tym ekranie</string>
+    <string name="library_discovery_body">Włącz komputer i uruchom na nim host do strumieniowania, np. Apollo, Rubylight lub Sunshine. Komputery w tej samej sieci pojawią się tu automatycznie.</string>
+    <string name="library_discovery_hint">Inna sieć? Dodaj komputer po adresie.</string>
+    <plurals name="library_results">
+        <item quantity="one">Gry: %1$d z %2$d</item>
+        <item quantity="few">Gry: %1$d z %2$d</item>
+        <item quantity="many">Gry: %1$d z %2$d</item>
+        <item quantity="other">Gry: %1$d z %2$d</item>
+    </plurals>
+    <plurals name="library_showing_hidden">
+        <item quantity="one">%1$d gra · z ukrytymi</item>
+        <item quantity="few">%1$d gry · z ukrytymi</item>
+        <item quantity="many">%1$d gier · z ukrytymi</item>
+        <item quantity="other">%1$d gry · z ukrytymi</item>
+    </plurals>
+    <plurals name="library_app_count">
+        <item quantity="one">%d gra</item>
+        <item quantity="few">%d gry</item>
+        <item quantity="many">%d gier</item>
+        <item quantity="other">%d gry</item>
+    </plurals>
+</resources>

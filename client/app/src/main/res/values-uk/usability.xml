@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="startup_connection_failed">Не вдалося підключитися до ПК. Переконайтеся, що хост для трансляції запущено, обидва пристрої бачать один одного, а брандмауер ПК дозволяє трансляцію. Потім спробуйте ще раз.</string>
+    <string name="startup_permission_denied">Хост відхилив цей запит. У налаштуваннях або вебінтерфейсі хоста ввімкніть цей пристрій і дозвольте перегляд або запуск застосунків.</string>
+    <string name="startup_host_error">Хосту не вдалося почати цю трансляцію (помилка %1$d). Перевірте стан хоста в його вебінтерфейсі, оновіть список застосунків і спробуйте ще раз.</string>
+    <string name="startup_invalid_host">ПК повернув недійсну версію сервера. Оновіть або перезапустіть хост і спробуйте ще раз.</string>
+    <string name="startup_virtual_display_unavailable">Цей ПК не має віртуального дисплея, тому транслює власний екран.</string>
+    <string name="startup_not_paired">Цей пристрій більше не сполучено. Поверніться до списку ПК і сполучіть його знову.</string>
+    <string name="startup_app_missing">Цього застосунку більше немає в бібліотеці ПК. Оновіть список застосунків і виберіть інший.</string>
+    <string name="startup_resume_missing">Цей сеанс більше недоступний. Оновіть список застосунків і виберіть сеанс.</string>
+    <string name="startup_host_resolution_unsupported">ПК не підтримує роздільну здатність понад 4K. Виберіть 4K або нижче в налаштуваннях трансляції.</string>
+    <string name="startup_device_resolution_unsupported">Для роздільної здатності понад 4K цей пристрій має підтримувати HEVC або AV1. Виберіть нижчу роздільну здатність або інший кодек.</string>
+    <string name="startup_host_update_4k">Оновіть GeForce Experience на ПК, щоб транслювати в 4K. Ця трансляція йде в 1080p.</string>
+    <string name="startup_hdr_unavailable">ПК і цей пристрій не мають спільного HDR-кодека, тому трансляція йде в SDR.</string>
+    <string name="startup_pyrowave_hdr_unavailable">PyroWave HDR недоступний на цьому пристрої (%1$s), тому HDR іде через інший кодек.</string>
+    <string name="startup_resume_failed">Не вдалося відновити сеанс. Перевірте застосунок на ПК і спробуйте ще раз.</string>
+    <string name="startup_session_owner">Цей сеанс належить іншому пристрою. Завершіть його на тому пристрої або на ПК і спробуйте ще раз.</string>
+    <string name="startup_app_minimized">Застосунок згорнуто. Розгорніть його на ПК або закрийте сеанс і запустіть знову.</string>
+    <string name="startup_quit_failed">Не вдалося закрити попередній сеанс. Завершіть його на ПК і спробуйте ще раз.</string>
+    <string name="startup_launch_failed">Не вдалося запустити застосунок. Переконайтеся, що він відкривається на ПК, і спробуйте ще раз.</string>
+    <string name="applist_permission_required">Цей пристрій не може отримати список застосунків. Дозвольте цьому пристрою перегляд списку застосунків у налаштуваннях або вебінтерфейсі хоста. Бібліотека оновиться автоматично.</string>
+    <string name="applist_load_failed">Не вдалося завантажити застосунки ПК. Перевірте хост і дозвіл цього пристрою на список застосунків у налаштуваннях або вебінтерфейсі хоста. Автоматична повторна спроба.</string>
+    <string name="applist_empty">Немає доступних застосунків. Додайте застосунки в бібліотеку хоста й перевірте дозвіл цього пристрою на список застосунків у налаштуваннях або вебінтерфейсі хоста.</string>
+    <string name="host_profile_unsaved_title">Зберегти налаштування трансляції?</string>
+    <string name="host_profile_unsaved_message">Зміни налаштувань трансляції цього ПК не збережено. Режим дисплея, підтверджений у власному діалоговому вікні, зберігається окремо.</string>
+    <string name="host_profile_discard">Скасувати зміни</string>
+    <string name="preset_replace_settings">Роздільна здатність, частота кадрів, бітрейт, рівномірність кадрів, масштабування, VRR і параметри продуктивності буде замінено значеннями цього пресета. Кодек і HDR залишаться без змін.</string>
+    <string name="pair_otp_incorrect_pin">PIN-код відхилено. Створіть новий одноразовий PIN-код у вебінтерфейсі хоста й перевірте парольну фразу.</string>
+    <string name="pc_accessibility_actions">Дії з ПК</string>
+    <string name="app_details">Назва: %1$s\nПідтримка HDR: %2$s\nID застосунку: %3$d</string>
+    <string name="app_hdr_unknown">Невідомо</string>
+</resources>

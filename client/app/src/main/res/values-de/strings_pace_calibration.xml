@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pace_calibration_title">Frame-Pacing kalibrieren</string>
+    <string name="pace_calibration_summary">PyroWave: höchste Geschwindigkeit finden, mit der der Host ganze Frames an dieses Gerät sendet</string>
+    <string name="pace_calibration_saved">PyroWave-Frame-Tempo: %1$d Mbit/s. Tippen, um neu zu kalibrieren.</string>
+    <string name="pace_calibration_intro">Der Host sendet Test-Frames mit verschiedenen Geschwindigkeiten, und Nightjar behält die schnellste, bei der ganze Frames ankommen. PyroWave-Streams nutzen sie dann. Beende zuerst jeden Stream auf diesem PC. Das dauert ein bis drei Minuten.</string>
+    <string name="pace_calibration_preparing">Test wird vorbereitet…</string>
+    <string name="pace_calibration_running">Teste Frames mit %1$d Mbit/s…</string>
+    <string name="pace_calibration_result">Frame-Tempo: %1$d Mbit/s auf dieser %2$d-Mbit/s-Verbindung. Für diesen PC gespeichert.</string>
+    <string name="pace_calibration_result_unqualified">Keine getestete Geschwindigkeit hielt alle Verlustgrenzen ein. Die beste, %1$d Mbit/s auf dieser %2$d-Mbit/s-Verbindung, ist für diesen PC gespeichert. Bildfehler können bleiben.</string>
+    <string name="pace_calibration_no_link">Frame-Pacing braucht die LAN-Geschwindigkeit dieses Geräts oder des PCs, aber keine ist bekannt.</string>
+    <string name="pace_calibration_too_fast">Der Stream braucht schon %1$d Mbit/s, zu nah an dieser %2$d-Mbit/s-Verbindung. Senke zuerst die Bitrate.</string>
+    <string name="pace_calibration_streaming">Der PC streamt oder testet gerade. Beende den Stream und versuche es erneut.</string>
+    <string name="pace_calibration_unsupported">Dieser PC kann Frame-Pacing nicht testen. Dafür braucht es einen Host mit PyroWave-Pacing-Tests.</string>
+    <string name="pace_calibration_failed">Die Kalibrierung konnte nicht abgeschlossen werden. Prüfe die Verbindung und versuche es erneut.</string>
+    <string name="pace_calibration_none">Kein Test wurde abgeschlossen. Versuche es erneut.</string>
+    <string name="pace_calibration_clear">Löschen</string>
+</resources>

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_tell_host_wireless">Avisar al PC cuando uso Wi-Fi</string>
+    <string name="summary_tell_host_wireless">Un PC con Rubylight ajusta entonces el ritmo del stream para Wi-Fi desde el principio. Los demás PC no reciben el aviso.</string>
+</resources>

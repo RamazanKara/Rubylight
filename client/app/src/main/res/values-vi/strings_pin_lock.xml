@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pin_lock_title">Khóa bằng PIN</string>
+    <string name="pin_lock_summary">Yêu cầu mã PIN khi mở Nightjar hoặc bắt đầu một luồng phát. Mã PIN đã quên chỉ có thể đặt lại bằng cách xóa dữ liệu ứng dụng Nightjar trong phần cài đặt Android, thao tác này cũng xóa các PC đã ghép nối.</string>
+    <string name="pin_set">Đặt mã PIN</string>
+    <string name="pin_change">Đổi mã PIN</string>
+    <string name="pin_remove">Xóa mã PIN</string>
+    <string name="pin_set_summary">Chọn từ 4 đến 8 chữ số.</string>
+    <string name="pin_is_set_summary">Đã đặt mã PIN. Đổi hoặc xóa mã PIN cần nhập mã hiện tại.</string>
+    <string name="pin_mode_title">Khóa</string>
+    <string name="pin_mode_off">Tắt</string>
+    <string name="pin_mode_app">Khi mở Nightjar</string>
+    <string name="pin_mode_streams">Khi bắt đầu bất kỳ luồng phát nào</string>
+    <string name="pin_mode_selected">Khi bắt đầu luồng phát trên các PC đã chọn</string>
+    <string name="pin_pcs_title">PC đã chọn</string>
+    <string name="pin_pcs_none">Chưa chọn PC nào</string>
+    <plurals name="pin_pcs_selected">
+        <item quantity="other">%d PC</item>
+    </plurals>
+    <string name="pin_pcs_empty">Chưa thêm PC nào.</string>
+    <string name="pin_grace_title">Hỏi lại sau</string>
+    <string name="pin_grace_always">Mỗi khi rời Nightjar</string>
+    <string name="pin_grace_minutes">%d phút</string>
+    <string name="pin_grace_hour">1 giờ</string>
+    <string name="pin_remove_title">Xóa mã PIN?</string>
+    <string name="pin_remove_message">Nightjar sẽ không hỏi mã PIN nữa.</string>
+    <string name="pin_footer">Nếu quên mã PIN, cách duy nhất để đặt lại là xóa dữ liệu ứng dụng Nightjar trong phần cài đặt Android. Thao tác này cũng xóa các PC đã ghép nối nên bạn phải ghép nối lại.</string>
+    <string name="pin_saved">Đã lưu mã PIN</string>
+    <string name="pin_removed">Đã xóa mã PIN</string>
+    <string name="pin_title_app">Nightjar đã bị khóa</string>
+    <string name="pin_title_enter">Nhập mã PIN</string>
+    <string name="pin_title_choose">Chọn mã PIN</string>
+    <string name="pin_title_confirm">Xác nhận mã PIN</string>
+    <string name="pin_subtitle_app">Nhập mã PIN để tiếp tục</string>
+    <string name="pin_subtitle_stream">Cần để bắt đầu một luồng phát</string>
+    <string name="pin_subtitle_stream_pc">Cần để bắt đầu luồng phát trên %1$s</string>
+    <string name="pin_subtitle_verify">Cần để thay đổi khóa PIN</string>
+    <string name="pin_subtitle_choose">Dùng từ 4 đến 8 chữ số</string>
+    <string name="pin_subtitle_confirm">Nhập lại cùng mã PIN</string>
+    <string name="pin_wrong">Sai mã PIN. Hãy thử lại.</string>
+    <string name="pin_locked_out">Sai quá nhiều lần. Hãy thử lại sau %1$s.</string>
+    <string name="pin_too_short">Dùng ít nhất 4 chữ số.</string>
+    <string name="pin_mismatch">Hai mã PIN không khớp. Hãy chọn lại mã PIN.</string>
+    <string name="pin_checking">Đang kiểm tra…</string>
+    <string name="pin_saving">Đang lưu…</string>
+    <string name="pin_cancel">Hủy</string>
+    <string name="pin_close_app">Đóng Nightjar</string>
+    <string name="pin_key_delete">Xóa</string>
+    <string name="pin_key_confirm">Xác nhận</string>
+    <string name="pin_dots_description">Đã nhập %1$d trên %2$d chữ số</string>
+    <string name="pin_hint">Lên và Xuống chọn một hàng. Trái, OK và Phải bấm các phím của hàng đó.</string>
+    <string name="pin_row_1">Hàng 1: 1, 2, 3</string>
+    <string name="pin_row_2">Hàng 2: 4, 5, 6</string>
+    <string name="pin_row_3">Hàng 3: 7, 8, 9</string>
+    <string name="pin_row_4">Hàng 4: Xóa, 0, Xác nhận</string>
+</resources>

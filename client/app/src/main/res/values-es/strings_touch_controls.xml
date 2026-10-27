@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_layout_kind_button">Botón de teclado o ratón</string>
+    <string name="touch_layout_kind_gamepad">Botón del mando</string>
+    <string name="touch_layout_kind_stick">Joystick analógico</string>
+    <string name="touch_layout_kind_trigger">Gatillo analógico</string>
+    <string name="touch_layout_kind_dpad">Cruceta</string>
+    <string name="touch_layout_kind_wasd">Joystick WASD (envía teclas)</string>
+    <string name="touch_layout_side">Lado</string>
+    <string name="touch_layout_side_left">Izquierdo</string>
+    <string name="touch_layout_side_right">Derecho</string>
+    <string name="touch_layout_floating">Flotante: se centra donde se apoya el pulgar</string>
+    <string name="touch_layout_deadzone">Zona muerta (% del recorrido del joystick, 0–50)</string>
+    <string name="touch_layout_wasd_keys">Teclas para arriba, izquierda, abajo y derecha</string>
+    <string name="touch_layout_wasd_help">Cuatro teclas distintas en ese orden, por ejemplo W + A + S + D o UP + LEFT + DOWN + RIGHT.</string>
+    <string name="touch_layout_diagonal">Diagonales (grados, 0–90): 0 nunca mantiene dos teclas, 45 da ocho direcciones iguales</string>
+    <string name="touch_layout_snap">Ajustar a la cuadrícula: %1$s</string>
+    <string name="touch_layout_snap_title">Ajustar a la cuadrícula</string>
+    <string name="touch_layout_error_json">No es un diseño de Nightjar, ni un diseño de teclado ni un archivo de teclas personalizadas de Artemis.</string>
+    <string name="touch_layout_error_version">Este diseño es de la versión %1$s. Esta versión de Nightjar lee diseños de las versiones 1 y 2; actualiza Nightjar para importarlo.</string>
+    <string name="touch_layout_error_size">Los diseños están limitados a 32 controles y 64 KiB.</string>
+    <string name="touch_layout_error_duplicate">Dos controles comparten el ID %1$s. Cada control necesita su propio ID.</string>
+    <string name="touch_layout_error_control">El control %1$d (%2$s) tiene un tipo, tecla, botón o tamaño no compatible.</string>
+    <string name="touch_layout_import_done">Diseño importado</string>
+    <plurals name="touch_layout_imported">
+        <item quantity="one">%d control importado.</item>
+        <item quantity="many">%d controles importados.</item>
+        <item quantity="other">%d controles importados.</item>
+    </plurals>
+    <string name="touch_layout_import_pixels">Artemis guarda posiciones en píxeles sin el tamaño de pantalla, así que se han leído para esta pantalla. Comprueba la colocación.</string>
+    <string name="touch_layout_import_scaled">El diseño de Artemis se salía de esta pantalla y se ha reducido para que quepa. Comprueba la colocación.</string>
+    <plurals name="touch_layout_import_hidden">
+        <item quantity="one">Se ha omitido %d elemento desactivado u oculto en Artemis.</item>
+        <item quantity="many">Se han omitido %d elementos desactivados u ocultos en Artemis.</item>
+        <item quantity="other">Se han omitido %d elementos desactivados u ocultos en Artemis.</item>
+    </plurals>
+    <string name="touch_layout_import_skipped">No importado:</string>
+    <string name="touch_layout_skip_no_equivalent">%1$s: Nightjar no tiene un control equivalente (como un área de panel táctil de Artemis)</string>
+    <string name="touch_layout_skip_key">%1$s: una tecla, o teclas mezcladas con botones del ratón, que Nightjar no puede enviar</string>
+    <string name="touch_layout_skip_custom">%1$s: tecla personalizada; elige su archivo de teclas personalizadas junto con el archivo de diseño</string>
+    <string name="touch_layout_skip_center">%1$s: la tecla central de doble toque del joystick (el joystick se importó como joystick WASD)</string>
+    <string name="touch_layout_skip_too_many">%1$s: supera el límite de 32 controles</string>
+    <string name="touch_layout_skip_size">%1$s: tamaño no válido</string>
+    <string name="library_import_controls">Importar controles del juego</string>
+    <string name="library_import_controls_note">Diseño de Nightjar, o diseño de teclado y archivo de teclas personalizadas de Artemis</string>
+    <string name="library_import_controls_title">Controles para %1$s</string>
+    <string name="library_import_controls_replace">¿Sustituir los controles en pantalla de este juego en este PC?</string>
+    <string name="library_import_controls_saved">Controles guardados. Aparecerán en la próxima transmisión de este juego.</string>
+    <string name="library_import_controls_error">No se ha podido leer el archivo.</string>
+</resources>

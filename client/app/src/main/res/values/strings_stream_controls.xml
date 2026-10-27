@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_touch_mode">Touch mode</string>
+    <string name="stream_keyboard">Keyboard</string>
+    <string name="stream_controls_show">Show on-screen controls</string>
+    <string name="stream_controls_hide">Hide on-screen controls</string>
+    <string name="stream_controls_layout">Edit controller layout</string>
+    <string name="stream_controls_move_help">Drag to move controls; use the menu to resize or save.</string>
+    <string name="stream_controls_resize_help">Drag to resize controls; use the menu to save.</string>
+    <string name="stream_controls_saved">Controller layout saved</string>
+    <string name="stream_reconnect">Reconnect stream</string>
+    <string name="stream_reconnecting">Reconnecting to the running app…</string>
+    <string name="stream_native_touch_help">Touch controls the PC directly.\nOpen the stream menu for the keyboard.</string>
+    <string name="stream_native_touch_fallback">The PC doesn’t take multi-touch, so touch moves the mouse.</string>
+    <string-array name="stream_touch_modes">
+        <item>Trackpad</item>
+        <item>Direct mouse</item>
+        <item>Multi-touch</item>
+        <item>Local cursor</item>
+        <item>Touch off</item>
+    </string-array>
+    <string-array name="stream_control_layout_actions">
+        <item>Move controls</item>
+        <item>Resize controls</item>
+        <item>Save layout and play</item>
+    </string-array>
+</resources>

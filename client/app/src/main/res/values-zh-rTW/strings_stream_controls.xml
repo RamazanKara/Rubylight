@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_touch_mode">觸控模式</string>
+    <string name="stream_keyboard">鍵盤</string>
+    <string name="stream_controls_show">顯示螢幕控制按鈕</string>
+    <string name="stream_controls_hide">隱藏螢幕控制按鈕</string>
+    <string name="stream_controls_layout">編輯控制器版面配置</string>
+    <string name="stream_controls_move_help">拖曳即可移動控制按鈕；使用選單調整大小或儲存。</string>
+    <string name="stream_controls_resize_help">拖曳即可調整控制按鈕大小；使用選單儲存。</string>
+    <string name="stream_controls_saved">已儲存控制器版面配置</string>
+    <string name="stream_reconnect">重新連線串流</string>
+    <string name="stream_reconnecting">正在重新連線至執行中的應用程式…</string>
+    <string name="stream_native_touch_help">觸控會直接操作電腦。\n開啟串流選單即可使用鍵盤。</string>
+    <string name="stream_native_touch_fallback">這部電腦不支援多點觸控，因此觸控會移動滑鼠。</string>
+    <string-array name="stream_touch_modes">
+        <item>觸控板</item>
+        <item>直接滑鼠</item>
+        <item>多點觸控</item>
+        <item>本機游標</item>
+        <item>關閉觸控</item>
+    </string-array>
+    <string-array name="stream_control_layout_actions">
+        <item>移動控制按鈕</item>
+        <item>調整控制按鈕大小</item>
+        <item>儲存版面配置並開始玩</item>
+    </string-array>
+</resources>

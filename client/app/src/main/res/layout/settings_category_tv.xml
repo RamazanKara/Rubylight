@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A group heading in TV Settings' right pane, used by StreamSettings only when the rail is there: the 16sp label in
+     sentence case over the rows, quieter than the rows themselves. The host pages keep settings_category. -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@android:id/title"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:minHeight="40dp"
+    android:gravity="bottom"
+    android:paddingStart="@dimen/screen_gutter"
+    android:paddingEnd="@dimen/screen_gutter"
+    android:paddingTop="@dimen/space_m"
+    android:paddingBottom="@dimen/space_xs"
+    android:textAppearance="@style/TextAppearance.Nightjar.Label"
+    android:textColor="?attr/colorOnSurfaceVariant"
+    android:accessibilityHeading="true" tools:targetApi="p" />

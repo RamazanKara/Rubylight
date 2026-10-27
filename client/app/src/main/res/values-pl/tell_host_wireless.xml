@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_tell_host_wireless">Informuj komputer o Wi-Fi</string>
+    <string name="summary_tell_host_wireless">Komputer z Rubylight od początku dostosowuje wtedy tempo strumienia do Wi-Fi. Inne komputery nie dostają tej informacji.</string>
+</resources>

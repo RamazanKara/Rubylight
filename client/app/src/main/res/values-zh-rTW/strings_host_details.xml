@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_details_close">關閉</string>
+    <string name="host_details_copy">複製偵錯資訊</string>
+    <string name="host_details_copied">已複製偵錯資訊</string>
+    <string name="host_details_status">狀態</string>
+    <string name="host_details_state">連線</string>
+    <string name="host_details_pairing">配對</string>
+    <string name="host_details_paired">已配對</string>
+    <string name="host_details_not_paired">輕觸電腦即可配對。</string>
+    <string name="host_details_running">執行中的應用程式</string>
+    <string name="host_details_running_none">無</string>
+    <string name="host_details_running_app">應用程式 %1$d</string>
+    <string name="host_details_host">主機</string>
+    <string name="host_details_software">主機軟體</string>
+    <string name="host_details_software_butterpollo">Rubylight %1$s</string>
+    <string name="host_details_software_gamestream">NVIDIA GameStream</string>
+    <string name="host_details_software_other">與 Sunshine 相容的主機</string>
+    <string name="host_details_id">主機 ID</string>
+    <string name="host_details_network">網路</string>
+    <string name="host_details_active_address">連線方式</string>
+    <string name="host_details_local_address">本機位址</string>
+    <string name="host_details_remote_address">網際網路位址</string>
+    <string name="host_details_ipv6_address">IPv6 位址</string>
+    <string name="host_details_manual_address">你輸入的位址</string>
+    <string name="host_details_https_port">HTTPS 通訊埠</string>
+    <string name="host_details_mac">MAC 位址 (Wake-on-LAN)</string>
+    <string name="host_details_permissions">裝置權限</string>
+</resources>

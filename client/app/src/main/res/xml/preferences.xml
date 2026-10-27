@@ -1,0 +1,755 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Global settings. StreamSettings.SECTIONS groups these categories into the screens listed in
+    preferences_root.xml, and scripts/generate-settings.py documents them in docs/settings.md.
+
+    Keys are stored user settings: move, retitle or reword rows, but never rename a key.
+    Rows show their title and current value. android:summary is an optional short line;
+    android:dialogMessage holds the longer explanation, shown in the picker or behind the
+    switch's info button. A category without a title continues its section's own heading.
+-->
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:seekbar="http://schemas.moonlight-stream.com/apk/res/seekbar">
+
+    <!-- Video -->
+    <PreferenceCategory android:key="category_basic_settings">
+        <!-- Opens the named profiles; the summary says which one streams use (StreamSettings). -->
+        <Preference
+            android:key="stream_profiles"
+            android:title="@string/profiles_title"
+            android:summary="@string/profiles_summary_none" />
+        <com.limelight.preferences.ResolutionPreference
+            android:key="list_resolution"
+            android:title="@string/title_resolution_list"
+            android:dialogMessage="@string/summary_resolution_list"
+            android:entries="@array/resolution_names"
+            android:entryValues="@array/resolution_values"
+            android:defaultValue="1280x720" />
+        <!-- The picker also switches between the supported rates and every rate (checkbox_unlock_fps). -->
+        <com.limelight.preferences.FpsPreference
+            android:key="list_fps"
+            android:title="@string/title_fps_list"
+            android:dialogMessage="@string/summary_fps_list"
+            android:entries="@array/fps_names"
+            android:entryValues="@array/fps_values"
+            android:defaultValue="60" />
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_bitrate_kbps"
+            android:dialogMessage="@string/dialog_seekbar_bitrate"
+            seekbar:min="500"
+            android:max="2000000"
+            seekbar:step="500"
+            seekbar:keyStep="1000"
+            seekbar:divisor="1000"
+            seekbar:logScale="true"
+            seekbar:presets="@array/bitrate_presets_kbps"
+            android:text="@string/suffix_seekbar_bitrate_mbps"
+            android:title="@string/title_seekbar_bitrate" />
+        <!-- The default for every PC; the stream menu's toggle saves a choice for one PC (AutoBitrateChoice). -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_auto_bitrate"
+            android:title="@string/title_auto_bitrate"
+            android:dialogMessage="@string/dialog_auto_bitrate"
+            android:defaultValue="false" />
+        <!-- The same feature as the stream menu's Automatic quality; the two minimums show only while it is on
+             (StreamSettings, SettingRules). -->
+        <com.limelight.preferences.MaterialListPreference
+            android:key="adaptive_quality_mode"
+            android:title="@string/title_adaptive_quality_setting"
+            android:dialogMessage="@string/summary_adaptive_quality_setting"
+            android:entries="@array/adaptive_quality_names"
+            android:entryValues="@array/adaptive_quality_values"
+            android:defaultValue="off" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="adaptive_quality_min_resolution"
+            android:title="@string/title_adaptive_quality_min_resolution"
+            android:dialogMessage="@string/summary_adaptive_quality_min_resolution"
+            android:entries="@array/adaptive_quality_resolution_names"
+            android:entryValues="@array/adaptive_quality_resolution_values"
+            android:defaultValue="720" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="adaptive_quality_min_fps"
+            android:title="@string/title_adaptive_quality_min_fps"
+            android:dialogMessage="@string/summary_adaptive_quality_min_fps"
+            android:entries="@array/adaptive_quality_fps_names"
+            android:entryValues="@array/adaptive_quality_fps_values"
+            android:defaultValue="30" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_mobile_bitrate_kbps"
+            android:title="@string/title_mobile_bitrate"
+            android:dialogMessage="@string/summary_mobile_bitrate"
+            android:entries="@array/mobile_bitrate_names"
+            android:entryValues="@array/mobile_bitrate_values"
+            android:defaultValue="0" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="video_format"
+            android:title="@string/title_video_format"
+            android:entries="@array/video_format_names"
+            android:entryValues="@array/video_format_values"
+            android:dialogMessage="@string/summary_video_format"
+            android:defaultValue="auto" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_enable_hdr"
+            android:title="@string/title_enable_hdr"
+            android:dialogMessage="@string/summary_enable_hdr"
+            android:defaultValue="false" />
+        <!-- 10-bit SDR when HDR is not streamed; the HDR switch above wins (Sdr10Policy). -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_enable_sdr_10bit"
+            android:title="@string/title_enable_sdr10"
+            android:dialogMessage="@string/summary_enable_sdr10"
+            android:defaultValue="false" />
+    </PreferenceCategory>
+
+    <!-- Display & image -->
+    <PreferenceCategory android:key="category_display_refresh" android:title="@string/settings_category_refresh">
+        <!-- Adaptive refresh replaces frame pacing and the lower refresh rate; host frame times replace only frame pacing (StreamSettings, SettingRules). -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_vrr"
+            android:title="@string/title_vrr"
+            android:dialogMessage="@string/summary_vrr"
+            android:disableDependentsState="true"
+            android:defaultValue="false" />
+        <!-- Applies with adaptive refresh on or off: frames are released at their host frame times. -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_host_frame_times"
+            android:title="@string/title_host_frame_times"
+            android:dialogMessage="@string/summary_host_frame_times"
+            android:defaultValue="false" />
+        <!-- Greyed while host frame times replace it. -->
+        <com.limelight.preferences.MaterialListPreference
+            android:key="frame_pacing"
+            android:dependency="checkbox_vrr"
+            android:title="@string/title_frame_pacing"
+            android:dialogMessage="@string/summary_frame_pacing"
+            android:entries="@array/video_frame_pacing_names"
+            android:entryValues="@array/video_frame_pacing_values"
+            android:defaultValue="latency" />
+        <!-- Part of Balanced frame pacing: shown only with it (StreamSettings, SettingRules). -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_drop_late_frames"
+            android:title="@string/title_drop_late_frames"
+            android:dialogMessage="@string/summary_drop_late_frames"
+            android:defaultValue="true" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_reduce_refresh_rate"
+            android:dependency="checkbox_vrr"
+            android:title="@string/title_checkbox_reduce_refresh_rate"
+            android:dialogMessage="@string/summary_checkbox_reduce_refresh_rate"
+            android:defaultValue="false" />
+        <!-- Needs a host that sends frame times; a vote never changes the mode with a blank screen. Without
+             a lower refresh rate allowed the vote cannot drop below the stream's own, so it needs that switch. -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_content_rate_frame_rate"
+            android:dependency="checkbox_reduce_refresh_rate"
+            android:title="@string/title_content_rate_frame_rate"
+            android:dialogMessage="@string/summary_content_rate_frame_rate"
+            android:defaultValue="false" />
+    </PreferenceCategory>
+    <PreferenceCategory android:key="category_upscaling" android:title="@string/settings_category_image">
+        <com.limelight.preferences.MaterialListPreference
+            android:key="upscaling_mode"
+            android:title="@string/title_upscaling"
+            android:dialogMessage="@string/summary_upscaling"
+            android:entries="@array/upscaling_names"
+            android:entryValues="@array/upscaling_values"
+            android:defaultValue="off" />
+        <com.limelight.preferences.SeekBarPreference
+            android:key="upscaling_sharpness"
+            android:title="@string/title_upscaling_sharpness"
+            android:dialogMessage="@string/summary_upscaling_sharpness"
+            android:defaultValue="50"
+            seekbar:min="0"
+            android:max="100"
+            seekbar:step="1"
+            android:text="%" />
+        <Preference android:key="checkbox_stretch_video"
+            android:title="@string/video_scaling_title" android:persistent="false" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="video_alignment"
+            android:title="@string/title_video_alignment"
+            android:dialogMessage="@string/summary_video_alignment"
+            android:entries="@array/video_alignment_names"
+            android:entryValues="@array/video_alignment_values"
+            android:defaultValue="center" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="stream_orientation"
+            android:title="@string/title_stream_orientation"
+            android:dialogMessage="@string/summary_stream_orientation"
+            android:entries="@array/stream_orientation_names"
+            android:entryValues="@array/stream_orientation_values"
+            android:defaultValue="auto" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_yuv444"
+            android:title="@string/title_yuv444"
+            android:dialogMessage="@string/summary_yuv444"
+            android:defaultValue="false" />
+    </PreferenceCategory>
+    <PreferenceCategory android:key="category_host_display" android:title="@string/settings_category_pc_display">
+        <Preference android:key="host_display_location" android:title="@string/host_display_menu"
+            android:summary="@string/settings_pc_display_mode_value" android:persistent="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_virtual_display"
+            android:title="@string/title_virtual_display"
+            android:summary="@string/settings_needs_host_support"
+            android:dialogMessage="@string/summary_virtual_display"
+            android:defaultValue="false" />
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_virtual_display_scale"
+            android:dependency="checkbox_virtual_display"
+            android:title="@string/title_virtual_display_scale"
+            android:dialogMessage="@string/summary_virtual_display_scale"
+            android:defaultValue="100"
+            seekbar:min="50"
+            android:max="200"
+            seekbar:step="5"
+            android:text="%" />
+    </PreferenceCategory>
+
+    <!-- Controls -->
+    <PreferenceCategory android:key="category_gamepad_settings" android:title="@string/category_gamepad_settings">
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_multi_controller"
+            android:title="@string/title_checkbox_multi_controller"
+            android:dialogMessage="@string/summary_checkbox_multi_controller"
+            android:defaultValue="true" />
+        <Preference
+            android:key="controller_button_mapping"
+            android:title="@string/controller_mapping_title"
+            android:summary="@string/controller_mapping_summary" />
+        <Preference
+            android:key="controller_test"
+            android:title="@string/controller_test_title"
+            android:summary="@string/controller_test_summary" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_back_opens_menu"
+            android:title="@string/title_checkbox_back_opens_menu"
+            android:dialogMessage="@string/summary_checkbox_back_opens_menu"
+            android:defaultValue="false" />
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_deadzone"
+            android:defaultValue="7"
+            android:max="20"
+            seekbar:min="-20"
+            android:dialogMessage="@string/summary_seekbar_deadzone"
+            android:text="@string/suffix_seekbar_deadzone"
+            android:title="@string/title_seekbar_deadzone"/>
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_flip_face_buttons"
+            android:title="@string/title_checkbox_flip_face_buttons"
+            android:dialogMessage="@string/summary_checkbox_flip_face_buttons"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_mouse_emulation"
+            android:title="@string/title_checkbox_mouse_emulation"
+            android:dialogMessage="@string/summary_checkbox_mouse_emulation"
+            android:defaultValue="true" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="analog_scrolling"
+            android:dependency="checkbox_mouse_emulation"
+            android:title="@string/title_analog_scrolling"
+            android:dialogMessage="@string/summary_analog_scrolling"
+            android:entries="@array/analog_scrolling_names"
+            android:entryValues="@array/analog_scrolling_values"
+            android:defaultValue="right" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_mouse_emulation_fixed_step"
+            android:dependency="checkbox_mouse_emulation"
+            android:title="@string/title_checkbox_mouse_emulation_fixed_step"
+            android:dialogMessage="@string/summary_checkbox_mouse_emulation_fixed_step"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_gamepad_touchpad_as_mouse"
+            android:title="@string/title_checkbox_gamepad_touchpad_as_mouse"
+            android:dialogMessage="@string/summary_checkbox_gamepad_touchpad_as_mouse"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_gamepad_motion_sensors"
+            android:title="@string/title_checkbox_gamepad_motion_sensors"
+            android:dialogMessage="@string/summary_checkbox_gamepad_motion_sensors"
+            android:defaultValue="true" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_gamepad_motion_fallback"
+            android:title="@string/title_checkbox_gamepad_motion_fallback"
+            android:dialogMessage="@string/summary_checkbox_gamepad_motion_fallback"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_disable_rumble"
+            android:title="@string/title_checkbox_disable_rumble"
+            android:dialogMessage="@string/summary_checkbox_disable_rumble"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_vibrate_fallback"
+            android:title="@string/title_checkbox_vibrate_fallback"
+            android:dialogMessage="@string/summary_checkbox_vibrate_fallback"
+            android:defaultValue="false" />
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_vibrate_fallback_strength"
+            android:dependency="checkbox_vibrate_fallback"
+            android:defaultValue="100"
+            android:max="200"
+            android:dialogMessage="@string/summary_seekbar_vibrate_fallback_strength"
+            android:text="@string/suffix_seekbar_vibrate_fallback_strength"
+            android:title="@string/title_seekbar_vibrate_fallback_strength"/>
+    </PreferenceCategory>
+    <PreferenceCategory android:key="category_usb_controllers" android:title="@string/settings_category_usb">
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_usb_driver"
+            android:title="@string/title_checkbox_xb1_driver"
+            android:dialogMessage="@string/summary_checkbox_xb1_driver"
+            android:defaultValue="true" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_usb_bind_all"
+            android:dependency="checkbox_usb_driver"
+            android:title="@string/title_checkbox_usb_bind_all"
+            android:dialogMessage="@string/summary_checkbox_usb_bind_all"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_usb_dualsense"
+            android:title="@string/title_usb_dualsense"
+            android:dialogMessage="@string/summary_usb_dualsense"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_usb_dualsense_haptics"
+            android:dependency="checkbox_usb_dualsense"
+            android:title="@string/title_usb_dualsense_haptics"
+            android:summary="@string/settings_needs_host_support"
+            android:dialogMessage="@string/summary_usb_dualsense_haptics"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_usb_switch_pro"
+            android:title="@string/title_usb_switch_pro"
+            android:dialogMessage="@string/summary_usb_switch_pro"
+            android:defaultValue="false" />
+    </PreferenceCategory>
+    <PreferenceCategory android:key="category_input_settings" android:title="@string/category_input_settings">
+        <Preference android:key="checkbox_touchscreen_trackpad"
+            android:title="@string/stream_touch_mode" android:persistent="false" />
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_trackpad_speed"
+            android:title="@string/title_trackpad_speed"
+            android:defaultValue="100"
+            seekbar:min="25"
+            android:max="400"
+            android:text="%" />
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_local_cursor_speed"
+            android:title="@string/title_local_cursor_speed"
+            android:defaultValue="100"
+            seekbar:min="25"
+            android:max="400"
+            android:text="%" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_trackpad_acceleration"
+            android:title="@string/title_trackpad_acceleration"
+            android:dialogMessage="@string/summary_trackpad_acceleration"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_trackpad_acceleration_curve"
+            android:dependency="checkbox_trackpad_acceleration"
+            android:title="@string/title_trackpad_acceleration_curve"
+            android:entries="@array/trackpad_acceleration_curve_names"
+            android:entryValues="@array/trackpad_acceleration_curve_values"
+            android:defaultValue="medium" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_trackpad_momentum"
+            android:title="@string/title_trackpad_momentum"
+            android:dialogMessage="@string/summary_trackpad_momentum"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_trackpad_momentum_glide"
+            android:dependency="checkbox_trackpad_momentum"
+            android:title="@string/title_trackpad_momentum_glide"
+            android:entries="@array/trackpad_momentum_glide_names"
+            android:entryValues="@array/trackpad_momentum_glide_values"
+            android:defaultValue="medium" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_trackpad_area"
+            android:title="@string/title_trackpad_area"
+            android:dialogMessage="@string/summary_trackpad_area"
+            android:entries="@array/trackpad_area_names"
+            android:entryValues="@array/trackpad_area_values"
+            android:defaultValue="full" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_three_finger_tap"
+            android:title="@string/title_three_finger_tap"
+            android:dialogMessage="@string/summary_three_finger_tap"
+            android:entries="@array/three_finger_tap_names"
+            android:entryValues="@array/three_finger_tap_values"
+            android:defaultValue="keyboard" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_four_finger_tap"
+            android:title="@string/title_four_finger_tap"
+            android:dialogMessage="@string/summary_four_finger_tap"
+            android:entries="@array/three_finger_tap_names"
+            android:entryValues="@array/three_finger_tap_values"
+            android:defaultValue="none" />
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_mouse_speed"
+            android:title="@string/title_mouse_speed"
+            android:defaultValue="100"
+            seekbar:min="25"
+            android:max="400"
+            android:text="%" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_mouse_nav_buttons"
+            android:title="@string/title_checkbox_mouse_nav_buttons"
+            android:dialogMessage="@string/summary_checkbox_mouse_nav_buttons"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_absolute_mouse_mode"
+            android:title="@string/title_checkbox_absolute_mouse_mode"
+            android:dialogMessage="@string/summary_checkbox_absolute_mouse_mode"
+            android:defaultValue="false" />
+    </PreferenceCategory>
+    <PreferenceCategory android:key="category_onscreen_controls" android:title="@string/category_on_screen_controls_settings">
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_show_onscreen_controls"
+            android:title="@string/title_checkbox_show_onscreen_controls"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_vibrate_osc"
+            android:dependency="checkbox_show_onscreen_controls"
+            android:title="@string/title_checkbox_vibrate_osc"
+            android:defaultValue="true" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_only_show_L3R3"
+            android:dependency="checkbox_show_onscreen_controls"
+            android:title="@string/title_only_l3r3"
+            android:dialogMessage="@string/summary_only_l3r3"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_show_guide_button"
+            android:dependency="checkbox_show_onscreen_controls"
+            android:title="@string/title_show_guide_button"
+            android:defaultValue="true" />
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_osc_opacity"
+            android:dependency="checkbox_show_onscreen_controls"
+            android:dialogMessage="@string/summary_osc_opacity"
+            seekbar:min="0"
+            seekbar:step="1"
+            android:max="100"
+            android:defaultValue="90"
+            android:text="@string/suffix_osc_opacity"
+            android:title="@string/title_osc_opacity" />
+        <com.limelight.preferences.ConfirmDeleteOscPreference
+            android:key="reset_osc"
+            android:title="@string/title_reset_osc"
+            android:dialogTitle="@string/dialog_title_reset_osc"
+            android:dialogMessage="@string/dialog_text_reset_osc"
+            android:positiveButtonText="@string/dialog_reset_settings_confirm"
+            android:negativeButtonText="@android:string/cancel" />
+    </PreferenceCategory>
+    <PreferenceCategory android:key="category_keyboard_shortcuts" android:title="@string/settings_category_keyboard">
+        <Preference android:key="keyboard_shortcuts_editor"
+            android:title="@string/keyboard_shortcuts_title"
+            android:summary="@string/keyboard_shortcuts_summary" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_back_as_meta"
+            android:title="@string/title_checkbox_back_as_meta"
+            android:dialogMessage="@string/summary_checkbox_back_as_meta"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_right_alt_as_meta"
+            android:title="@string/title_checkbox_right_alt_as_meta"
+            android:dialogMessage="@string/summary_checkbox_right_alt_as_meta"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_pc_keyboard_layout"
+            android:title="@string/pc_keyboard_layout_title"
+            android:dialogMessage="@string/pc_keyboard_layout_summary"
+            android:entries="@array/pc_keyboard_layout_names"
+            android:entryValues="@array/pc_keyboard_layout_values"
+            android:defaultValue="auto" />
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_pc_keyboard_size"
+            android:title="@string/pc_keyboard_size_title"
+            android:defaultValue="50"
+            seekbar:min="30"
+            android:max="70"
+            seekbar:step="5"
+            android:text="%" />
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_pc_keyboard_opacity"
+            android:title="@string/pc_keyboard_opacity_title"
+            android:defaultValue="90"
+            seekbar:min="30"
+            android:max="100"
+            seekbar:step="5"
+            android:text="%" />
+    </PreferenceCategory>
+
+    <!-- Audio -->
+    <PreferenceCategory android:key="category_audio_settings">
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_audio_config"
+            android:title="@string/title_audio_config_list"
+            android:dialogMessage="@string/summary_audio_config_list"
+            android:entries="@array/audio_config_names"
+            android:entryValues="@array/audio_config_values"
+            android:defaultValue="2" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_host_audio"
+            android:title="@string/title_checkbox_host_audio"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_enable_mic"
+            android:title="@string/title_checkbox_enable_mic"
+            android:summary="@string/settings_needs_host_support"
+            android:dialogMessage="@string/summary_checkbox_enable_mic"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_enable_audiofx"
+            android:title="@string/title_checkbox_enable_audiofx"
+            android:dialogMessage="@string/summary_checkbox_enable_audiofx"
+            android:defaultValue="false" />
+    </PreferenceCategory>
+
+    <!-- Streaming -->
+    <PreferenceCategory android:key="category_streaming">
+        <!-- Off, Compact, Statistics or Debug: writes checkbox_enable_perf_overlay and performance_overlay_mode (OverlayChoice). -->
+        <Preference android:key="checkbox_enable_perf_overlay"
+            android:title="@string/title_performance_overlay" android:persistent="false" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="performance_overlay_position"
+            android:title="@string/title_overlay_position"
+            android:entries="@array/overlay_position_names"
+            android:entryValues="@array/overlay_position_values"
+            android:defaultValue="top_left" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_enable_pip"
+            android:title="@string/title_checkbox_enable_pip"
+            android:dialogMessage="@string/summary_checkbox_enable_pip"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_auto_reconnect"
+            android:title="@string/title_auto_reconnect"
+            android:dialogMessage="@string/summary_auto_reconnect"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_network_grace"
+            android:title="@string/title_network_grace"
+            android:dialogMessage="@string/summary_network_grace"
+            android:entries="@array/network_grace_names"
+            android:entryValues="@array/network_grace_values"
+            android:defaultValue="0" />
+        <!-- Rust engine only (SettingRules.clientRoamingApplies); mobile data only while roaming is on. -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_client_roaming"
+            android:title="@string/title_client_roaming"
+            android:dialogMessage="@string/summary_client_roaming"
+            android:defaultValue="true" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_roaming_metered"
+            android:title="@string/title_roaming_metered"
+            android:dialogMessage="@string/summary_roaming_metered"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_tell_host_wireless"
+            android:title="@string/title_tell_host_wireless"
+            android:dialogMessage="@string/summary_tell_host_wireless"
+            android:defaultValue="true" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_tell_host_link_speed"
+            android:title="@string/title_tell_host_link_speed"
+            android:dialogMessage="@string/summary_tell_host_link_speed"
+            android:defaultValue="true" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_input_only_any_host"
+            android:title="@string/title_checkbox_input_only_any_host"
+            android:dialogMessage="@string/summary_checkbox_input_only_any_host"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_disable_warnings"
+            android:title="@string/title_checkbox_disable_warnings"
+            android:dialogMessage="@string/summary_checkbox_disable_warnings"
+            android:defaultValue="false" />
+    </PreferenceCategory>
+
+    <!-- App -->
+    <PreferenceCategory android:key="category_ui_settings">
+        <!-- System, Dark or OLED black: writes checkbox_always_dark and checkbox_oled_black (ThemeChoice). -->
+        <Preference android:key="checkbox_always_dark"
+            android:title="@string/title_theme" android:persistent="false" />
+        <com.limelight.preferences.LanguagePreference
+            android:key="list_languages"
+            android:title="@string/title_language_list"
+            android:dialogMessage="@string/summary_language"
+            android:entries="@array/language_names"
+            android:entryValues="@array/language_values"
+            android:defaultValue="default" />
+        <com.limelight.preferences.SmallIconCheckboxPreference
+            android:key="checkbox_small_icon_mode"
+            android:title="@string/title_checkbox_small_icon_mode"
+            android:dialogMessage="@string/summary_checkbox_small_icon_mode" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_quick_resume"
+            android:title="@string/title_quick_resume"
+            android:dialogMessage="@string/summary_quick_resume"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_console_home"
+            android:title="@string/console_home_setting_title"
+            android:dialogMessage="@string/console_home_setting_summary"
+            android:defaultValue="true" />
+        <Preference android:key="pin_lock" android:title="@string/pin_lock_title"
+            android:summary="@string/pin_lock_summary" android:persistent="false" />
+        <Preference android:key="help" android:title="@string/help"
+            android:summary="@string/settings_help_summary" />
+        <Preference android:key="report_problem" android:title="@string/report_problem"
+            android:summary="@string/report_problem_summary" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_check_updates"
+            android:title="@string/title_check_updates"
+            android:dialogMessage="@string/summary_check_updates"
+            android:defaultValue="true" />
+        <Preference android:key="check_updates_now" android:title="@string/title_check_updates_now"
+            android:summary="@string/summary_check_updates_now" android:persistent="false" />
+        <Preference android:key="about_app" android:title="@string/title_about" android:persistent="false" />
+        <Preference android:key="reset_all" android:title="@string/title_reset_settings" />
+    </PreferenceCategory>
+
+    <!-- App: Accessibility (read by AppTheme and Motion, not by PreferenceConfiguration) -->
+    <PreferenceCategory android:key="category_accessibility" android:title="@string/settings_category_accessibility">
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_ui_scale"
+            android:title="@string/title_ui_scale"
+            android:dialogMessage="@string/summary_ui_scale"
+            android:entries="@array/ui_scale_names"
+            android:entryValues="@array/ui_scale_values"
+            android:defaultValue="100" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_ui_mode"
+            android:title="@string/title_ui_mode"
+            android:dialogMessage="@string/summary_ui_mode"
+            android:entries="@array/ui_mode_names"
+            android:entryValues="@array/ui_mode_values"
+            android:defaultValue="auto" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_high_contrast"
+            android:title="@string/title_high_contrast"
+            android:dialogMessage="@string/summary_high_contrast"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_reduce_motion"
+            android:title="@string/title_reduce_motion"
+            android:dialogMessage="@string/summary_reduce_motion"
+            android:entries="@array/reduce_motion_names"
+            android:entryValues="@array/reduce_motion_values"
+            android:defaultValue="system" />
+    </PreferenceCategory>
+
+    <!-- Advanced -->
+    <PreferenceCategory android:key="category_advanced_settings">
+        <!-- Sets the decoder, chipset and phone switches below together (StreamSettings). -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="low_latency_decoding"
+            android:title="@string/title_low_latency_decoding"
+            android:dialogMessage="@string/summary_low_latency_decoding"
+            android:persistent="false" />
+        <!-- Shows and hides the switches below (StreamSettings). -->
+        <Preference android:key="low_latency_customize"
+            android:title="@string/title_low_latency_customize" android:persistent="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_codec_low_latency"
+            android:title="@string/title_codec_low_latency"
+            android:dialogMessage="@string/summary_codec_low_latency"
+            android:defaultValue="true" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_vendor_low_latency"
+            android:title="@string/title_vendor_low_latency"
+            android:dialogMessage="@string/summary_vendor_low_latency"
+            android:defaultValue="true" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_phone_performance_hints"
+            android:title="@string/title_phone_performance_hints"
+            android:dialogMessage="@string/summary_phone_performance_hints"
+            android:defaultValue="true" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_codec_performance"
+            android:title="@string/title_codec_performance"
+            android:dialogMessage="@string/summary_codec_performance"
+            android:defaultValue="true" />
+        <!-- Shown as "use" and stored as "disable" (InvertedSwitchPreference). -->
+        <com.limelight.preferences.InvertedSwitchPreference
+            android:key="checkbox_disable_hevc_low_latency"
+            android:title="@string/title_disable_hevc_low_latency"
+            android:dialogMessage="@string/summary_disable_hevc_low_latency"
+            android:defaultValue="true" />
+        <!-- Shown on arm64 Adreno devices only, like the driver screen itself (GpuDriverStore.isSupported). -->
+        <Preference android:key="gpu_driver" android:title="@string/gpu_driver_title" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:key="category_advanced_decoder" android:title="@string/settings_category_decoder">
+        <!-- Opt-in: holding the GPU at full speed costs battery. Shown on Adreno devices only. -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_gpu_max_clocks"
+            android:title="@string/title_gpu_max_clocks"
+            android:summary="@string/summary_gpu_max_clocks"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_texture_view"
+            android:title="@string/title_texture_view"
+            android:dialogMessage="@string/summary_texture_view"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_vulkan_render"
+            android:title="@string/title_vulkan_render"
+            android:dialogMessage="@string/summary_vulkan_render"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_full_range"
+            android:title="@string/title_full_range"
+            android:dialogMessage="@string/summary_full_range"
+            android:defaultValue="false" />
+    </PreferenceCategory>
+    <PreferenceCategory android:key="category_advanced_compatibility" android:title="@string/settings_category_compatibility">
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_enable_sops"
+            android:title="@string/title_checkbox_enable_sops"
+            android:summary="@string/summary_sops_short"
+            android:dialogMessage="@string/summary_checkbox_enable_sops"
+            android:defaultValue="true" />
+    </PreferenceCategory>
+    <PreferenceCategory android:key="category_advanced_input" android:title="@string/settings_category_input_network">
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_unbatched_input"
+            android:title="@string/title_unbatched_input"
+            android:dialogMessage="@string/summary_unbatched_input"
+            android:defaultValue="true" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_network_priority"
+            android:title="@string/title_network_priority"
+            android:dialogMessage="@string/summary_network_priority"
+            android:defaultValue="true" />
+    </PreferenceCategory>
+    <PreferenceCategory android:key="category_advanced_diagnostics" android:title="@string/settings_category_diagnostics">
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_enable_post_stream_toast"
+            android:title="@string/title_enable_post_stream_toast"
+            android:dialogMessage="@string/summary_enable_post_stream_toast"
+            android:defaultValue="false"/>
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_rust_engine"
+            android:title="@string/title_rust_engine"
+            android:dialogMessage="@string/summary_rust_engine"
+            android:defaultValue="true" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="experimental_packed_444"
+            android:title="@string/title_packed_444"
+            android:dialogMessage="@string/summary_packed_444"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_experimental_chipset_tuning"
+            android:title="@string/title_experimental_chipset_tuning"
+            android:dialogMessage="@string/summary_experimental_chipset_tuning"
+            android:defaultValue="false" />
+        <Preference android:key="latency_benchmark" android:title="@string/latency_benchmark_title"
+            android:summary="@string/settings_latency_benchmark_summary" />
+        <Preference
+            android:key="export_latency_csv"
+            android:title="@string/title_export_latency_csv"
+            android:summary="@string/settings_csv_summary" />
+    </PreferenceCategory>
+</PreferenceScreen>

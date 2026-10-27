@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pc_keyboard_title">Klawiatura PC</string>
+    <string name="pc_keyboard_close">Zamknij klawiaturę</string>
+    <string name="pc_keyboard_layout_auto">Automatyczny</string>
+    <string name="pc_keyboard_layout_us">Angielski (USA)</string>
+    <string name="pc_keyboard_layout_de">Niemiecki (QWERTZ)</string>
+    <string name="pc_keyboard_layout_title">Układ klawiatury</string>
+    <string name="pc_keyboard_layout_summary">Układ ekranowej klawiatury PC. Klawisze wysyłają pozycje klawiszy, więc to układ klawiatury Windows na komputerze decyduje, jaki znak zostanie wpisany. Ustaw oba na ten sam układ.</string>
+    <string name="pc_keyboard_size_title">Rozmiar klawiatury</string>
+    <string name="pc_keyboard_opacity_title">Przezroczystość klawiatury</string>
+</resources>

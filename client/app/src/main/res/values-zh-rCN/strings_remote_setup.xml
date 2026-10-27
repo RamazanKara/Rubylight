@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="remote_setup_title">在外面玩</string>
+    <string name="remote_step">第 %1$d 步，共 3 步</string>
+    <string name="remote_prepare">在家中准备\n\n在家庭网络中将此设备与你的电脑配对，并确认可以正常串流。让电脑保持唤醒状态并让主机保持运行。\n\n远程 Wake-on-LAN 需要兼容的路由器或家中一台始终开启的设备；手机无法独自唤醒无法访问的电脑。</string>
+    <string name="remote_vpn">连接你的设备\n\nTailscale 等私人 VPN 可以连接你的手机和电脑，而不会将主机的网页界面暴露在互联网上。请在两台设备上安装它，登录你自己的帐号并启用两者的连接。也可以使用现有的 VPN 设置。\n\n该链接会打开官方下载指南。此应用不会安装软件、创建帐号、更改路由器设置或启用端口转发。</string>
+    <string name="remote_verify">从其他网络验证\n\n使用“添加地址”添加电脑的 VPN 地址，如果自定义了串流 HTTP 端口，请一并填写。当身份匹配时，这会更新已保存的电脑。完成后返回此处。\n\n断开家庭 Wi-Fi，使用移动数据或其他网络。“测试”会检查已配对电脑的身份并发送五个小型 HTTPS 请求；它不会启动串流，也不会下载测速文件。仅在家中测试并不能证明可以通过互联网访问。</string>
+    <string name="remote_get_vpn">打开 Tailscale 设置指南</string>
+    <string name="remote_add_address">添加 VPN 或远程地址</string>
+    <string name="remote_test">测试此电脑</string>
+    <string name="remote_previous">上一步</string>
+    <string name="remote_next">下一步</string>
+    <string name="remote_pair_first">请先在本地配对此电脑。需要其已保存的证书和 HTTPS 端口，才能验证远程地址是否能访问你的电脑。</string>
+    <string name="remote_pair_revoked">电脑已响应，但此设备已不再配对。请先在家中重新配对，然后再测试远程游玩。</string>
+    <string name="remote_permission_denied">已配对的电脑已响应，但此设备无法查看串流。请在主机的设置或网页界面中为此设备启用查看或启动应用的权限。</string>
+    <string name="remote_running">正在检查已配对的电脑…</string>
+    <string name="remote_cancelled">测试已取消。未更改任何主机或网络设置。</string>
+    <string name="remote_failed">无法验证已配对的电脑。请检查电脑是否处于唤醒状态、主机和 VPN 是否正在运行，以及已保存的地址和串流端口是否正确。如果配对已更改，请在家中重新配对。此测试无法区分电脑处于睡眠状态还是路由被阻止。</string>
+    <string name="remote_verified">已配对的电脑在此网络上已响应。接下来，请以适中的码率尝试正常串流；HTTPS 可访问性并不能验证视频/音频 UDP 端口或持续串流的性能。</string>
+    <string name="remote_direct">Tailscale 报告此连接使用直连路径。直连路径通常能提供最佳的吞吐量和延迟。</string>
+    <string name="remote_relay">Tailscale 报告使用 DERP 中继。它能保证连通性，但串流速度可能受限。请查看 Tailscale 的连接指南，或配置合适的对等中继。</string>
+    <string name="remote_peer_relay">Tailscale 报告使用对等中继。性能取决于该中继和两端的网络路径；请以实际串流进行比较。</string>
+    <string name="remote_unknown">直连或中继路径：不可用。此主机、VPN 或连接未提供当前的路由分类。请检查 VPN 的状态；仅凭低延迟并不能证明是直连路径。</string>
+    <string name="remote_measurements">HTTPS 请求平均耗时：%1$.1f ms\n失败请求：%2$.0f %%\n这些是应用请求的测量结果，并非视频丢包或输入延迟。</string>
+</resources>

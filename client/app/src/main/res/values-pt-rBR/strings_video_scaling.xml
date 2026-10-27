@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="video_scaling_title">Escala do vídeo</string>
+    <string-array name="video_scaling_modes">
+        <item>Ajustar</item>
+        <item>Preencher (cortar)</item>
+        <item>Esticar</item>
+        <item>Pixels 1:1</item>
+    </string-array>
+    <string name="video_scaling_help">Ajustar: a imagem inteira, com faixas quando a tela tem outro formato.\nPreencher (cortar): preenche a tela sem distorcer; as bordas que não cabem são cortadas.\nEsticar: preenche a tela; as formas podem parecer mais largas ou mais altas.\nPixels 1:1: um pixel da transmissão por pixel da tela. Uma transmissão menor ganha uma borda; uma maior é cortada.\nPosição do vídeo move uma imagem em Ajustar ou 1:1 para o topo. O zoom com pinça funciona em todos os modos, e o picture-in-picture sempre mostra a imagem inteira.</string>
+    <string name="title_video_alignment">Posição do vídeo</string>
+    <string name="summary_video_alignment">Onde fica uma imagem em Ajustar ou 1:1 quando sobra espaço. Topo deixa livre o espaço de baixo para o teclado ou a metade inferior de um celular dobrado. Preencher e Esticar cobrem a tela toda, então nada muda neles.</string>
+    <string-array name="video_alignment_names">
+        <item>Centro</item>
+        <item>Topo</item>
+    </string-array>
+</resources>

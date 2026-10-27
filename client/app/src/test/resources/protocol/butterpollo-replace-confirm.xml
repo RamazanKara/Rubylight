@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Butterpollo 118a0abb18480ff1da5564c57a2e00049ed67e47: nvhttp.rs xml(), validate_launch_request(), replace_launch_app(), launch_response().
+     Exact source messages and fields; session URL uses a test address. -->
+<root status_code="410" status_message="An app is already running. Launch this app again within 60 seconds to confirm that you want to close it."><gamesession>0</gamesession></root>

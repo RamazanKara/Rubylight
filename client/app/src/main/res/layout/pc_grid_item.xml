@@ -1,0 +1,31 @@
+<!-- One PC on the home screen: what it is, one line of state, and its menu. Tapping the row does the
+     state's main action; PcGridAdapter fills the row and PcView handles the tap. -->
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="wrap_content" style="@style/LibraryCard"
+    android:descendantFocusability="blocksDescendants">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical"
+        android:paddingStart="@dimen/space_l" android:paddingEnd="@dimen/space_xs"
+        android:paddingTop="@dimen/space_m" android:paddingBottom="@dimen/space_m">
+        <FrameLayout android:layout_width="@dimen/icon_size" android:layout_height="@dimen/icon_size"
+            android:layout_marginEnd="@dimen/space_l" android:importantForAccessibility="noHideDescendants">
+            <ImageView android:id="@+id/grid_image" android:layout_width="match_parent" android:layout_height="match_parent"
+                android:src="@drawable/ic_computer" app:tint="?attr/colorOnSurfaceVariant" android:importantForAccessibility="no" />
+            <ProgressBar android:id="@+id/grid_spinner" android:layout_width="match_parent" android:layout_height="match_parent" android:visibility="gone" />
+        </FrameLayout>
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+            android:orientation="vertical">
+            <TextView android:id="@+id/grid_text" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:textAppearance="@style/TextAppearance.Nightjar.Title" android:textColor="?attr/colorOnSurface"
+                android:maxLines="2" android:ellipsize="end" android:importantForAccessibility="no" />
+            <TextView android:id="@+id/grid_status" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant"
+                android:maxLines="2" android:ellipsize="end" android:importantForAccessibility="no" />
+            <TextView android:id="@+id/grid_update" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorPrimary"
+                android:lines="1" android:ellipsize="end"
+                android:visibility="gone" android:importantForAccessibility="no" />
+        </LinearLayout>
+        <ImageButton android:id="@+id/grid_more" style="@style/ToolbarIcon" android:focusable="false"
+            android:importantForAccessibility="yes" android:src="@drawable/ic_library_more" android:contentDescription="@string/library_options" />
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>

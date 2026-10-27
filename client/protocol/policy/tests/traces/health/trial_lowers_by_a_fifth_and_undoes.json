@@ -1,0 +1,26 @@
+{
+  "source": "docs/stream-health.md: Try a lower bitrate takes 20% off the live encoder bitrate, Undo bitrate trial restores it",
+  "rust": "health::BitrateTrial",
+  "java": null,
+  "new": [],
+  "calls": [
+    {"call": "offer", "args": [true, 20000, true, false, false], "expect": "try"},
+    {"call": "begin", "args": [false, 20000], "expect": 16000},
+    {"call": "trial_kbps", "args": [], "expect": 0},
+    {"call": "applied", "args": [false, 20000, 16000], "expect": null},
+    {"call": "original_kbps", "args": [], "expect": 20000},
+    {"call": "trial_kbps", "args": [], "expect": 16000},
+    {"call": "offer", "args": [false, 16000, true, false, false], "expect": "undo"},
+    {"call": "offer", "args": [true, 16000, true, false, false], "expect": "undo"},
+    {"call": "begin", "args": [true, 16000], "expect": 20000},
+    {"call": "applied", "args": [true, 16000, 20000], "expect": null},
+    {"call": "original_kbps", "args": [], "expect": 0},
+    {"call": "trial_kbps", "args": [], "expect": 0},
+    {"call": "offer", "args": [false, 20000, true, false, false], "expect": "none"},
+    {"call": "offer", "args": [true, 20000, true, false, false], "expect": "try"},
+    {"call": "begin", "args": [false, 20000], "expect": 16000},
+    {"call": "applied", "args": [false, 20000, 15000], "expect": null},
+    {"call": "offer", "args": [false, 15000, true, false, false], "expect": "undo"},
+    {"call": "begin", "args": [true, 15000], "expect": 20000}
+  ]
+}

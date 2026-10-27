@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="controller_mapping_title">Controller-Tasten</string>
+    <string name="controller_mapping_summary">Tasten je Controllermodell belegen</string>
+    <string name="controller_mapping_intro">Tippe auf „Taste zuordnen“ und drücke dann die Controller-Taste.\nGilt ab dem nächsten Stream.</string>
+    <string name="controller_mapping_waiting">Verbinde einen Controller und tippe auf „Taste zuordnen“.</string>
+    <string name="controller_mapping_unnamed">Controller</string>
+    <string name="controller_mapping_none">Alle Tasten nutzen die Standardbelegung.</string>
+    <string name="controller_mapping_row">Sendet %1$s</string>
+    <string name="controller_mapping_choose">%1$s sendet…</string>
+    <string name="controller_mapping_default">%1$s (Standard)</string>
+    <string name="controller_mapping_disabled">Keine Aktion</string>
+    <string name="controller_mapping_reset">Controller zurücksetzen</string>
+    <string name="controller_button_left_stick">Linker Stick-Klick</string>
+    <string name="controller_button_right_stick">Rechter Stick-Klick</string>
+    <string name="controller_button_start">Start</string>
+    <string name="controller_button_select">Zurück</string>
+    <string name="controller_button_guide">Guide</string>
+    <string name="controller_button_number">Taste %1$d</string>
+    <string name="pc_tap_to_pair">%1$s\nZum Koppeln tippen</string>
+</resources>

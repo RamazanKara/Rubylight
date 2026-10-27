@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pc_keyboard_title">PC-Tastatur</string>
+    <string name="pc_keyboard_close">Tastatur schließen</string>
+    <string name="pc_keyboard_layout_auto">Automatisch</string>
+    <string name="pc_keyboard_layout_us">Englisch (US)</string>
+    <string name="pc_keyboard_layout_de">Deutsch (QWERTZ)</string>
+    <string name="pc_keyboard_layout_title">Tastaturbelegung</string>
+    <string name="pc_keyboard_layout_summary">Die Belegung der PC-Tastatur auf dem Bildschirm. Die Tasten senden Tastenpositionen, daher bestimmt die Windows-Tastaturbelegung am PC, welches Zeichen getippt wird. Stelle beide auf dieselbe Belegung.</string>
+    <string name="pc_keyboard_size_title">Tastaturgröße</string>
+    <string name="pc_keyboard_opacity_title">Tastaturdeckkraft</string>
+</resources>

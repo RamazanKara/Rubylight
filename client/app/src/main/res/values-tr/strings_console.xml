@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="console_title">Ana sayfa</string>
+    <string name="console_section_favourites">Favoriler</string>
+    <string name="console_section_continue">Oynamaya devam et</string>
+    <string name="console_section_library">Kitaplık</string>
+    <string name="console_section_hosts">Bilgisayarlar</string>
+    <string name="console_hint_options">Seçenekler</string>
+    <string name="console_hint_open">Aç</string>
+    <string name="console_hint_key_ok">OK</string>
+    <string name="console_hint_key_menu">Menü</string>
+    <string name="console_hint_line">%1$s %2$s    %3$s %4$s</string>
+    <string name="console_favourite_add">Favorilere ekle</string>
+    <string name="console_favourite_remove">Favorilerden kaldır</string>
+    <string name="console_favourite_description">Favori</string>
+    <string name="console_badge_running">Çalışıyor</string>
+    <string name="console_badge_suspended">Duraklatıldı</string>
+    <string name="console_card_on_host">%1$s üzerinde</string>
+    <string name="console_card_on_hosts">%1$d ana bilgisayarda</string>
+    <string name="console_host_games">Oyunlar: %1$d</string>
+    <string name="console_host_saved_games">Çevrimdışı. Kayıtlı oyunlar: %1$d</string>
+    <string name="console_host_offline">Çevrimdışı</string>
+    <string name="console_host_no_library">Oyunlar henüz yüklenmedi</string>
+    <string name="console_empty_title">Henüz bilgisayar yok</string>
+    <string name="console_empty_body">Oyunlarını burada görmek için Nightjar’ı bir bilgisayarla eşleştir.</string>
+    <string name="console_empty_open_hosts">Bilgisayarları aç</string>
+    <string name="console_detail_host">Ana bilgisayar</string>
+    <string name="console_detail_profile">Yayın ayarları</string>
+    <string name="console_detail_status_running">%1$s üzerinde çalışıyor</string>
+    <string name="console_detail_status_suspended">%1$s üzerinde duraklatıldı</string>
+    <string name="console_detail_replaces">%1$s çalışıyor. Bu oyunu başlatmak onu kapatır.</string>
+    <string name="console_profile_values">%1$d × %2$d, %3$d FPS, %4$s Mbps</string>
+    <string name="console_profile_main">Ana ayarlar</string>
+    <string name="console_home_setting_title">Ana sayfada aç</string>
+    <string name="console_home_setting_summary">Devam edilecek oyunlar ve kitaplıkla açılır. Kapalıyken bilgisayar listesiyle açılır.</string>
+    <!-- tv-redesign-4 -->
+    <string name="console_row_recent">Son oynananlar</string>
+    <string name="console_row_other">Diğer uygulamalar</string>
+    <string name="console_row_unadded">Bilgisayarlarında, eklenmemiş</string>
+    <string name="console_chip_not_installed">Yüklü değil</string>
+    <string name="console_chip_not_added">Eklenmedi</string>
+    <string name="console_add_on_pc">Bilgisayarda ekle</string>
+    <string name="console_adding">%1$s ekleniyor…</string>
+    <string name="console_add_failed">%1$s eklenemedi</string>
+    <string name="console_detail_not_installed">%1$s üzerinde yüklü değil</string>
+    <string name="console_detail_not_launchable">%1$s bu oyunu başlatamıyor</string>
+    <string name="console_filter_all">Tümü</string>
+    <string name="console_filter_installed">Yüklü</string>
+    <string name="console_all_games_title">Tüm oyunlar</string>
+    <string name="console_all_games_empty">Bu filtrede oyun yok.</string>
+    <plurals name="console_all_tile_title">
+        <item quantity="one">%1$d oyun</item>
+        <item quantity="other">Tüm %1$d oyun</item>
+    </plurals>
+    <plurals name="console_all_tile_description">
+        <item quantity="one">%1$s: %2$d oyun</item>
+        <item quantity="other">%1$s: tüm %2$d oyun</item>
+    </plurals>
+    <plurals name="console_filter_description">
+        <item quantity="one">%1$s, %2$d oyun</item>
+        <item quantity="other">%1$s, %2$d oyun</item>
+    </plurals>
+    <!-- tv-redesign-5 -->
+    <string name="console_detail_installed">Yüklü</string>
+    <string name="console_card_asleep">%1$s, bilgisayar uykuda</string>
+    <string name="console_wake_and_play">Bilgisayarı uyandır ve oyna</string>
+    <string name="console_wake_waiting">%1$s uyanana kadar bekleniyor…</string>
+    <string name="console_wake_timeout">%1$s zamanında uyanmadı. Wake-on-LAN’ın kurulu olduğunu denetleyip yeniden deneyin.</string>
+    <string name="console_choose_pc">Hangi bilgisayarda oynansın?</string>
+    <string name="console_badge_asleep">Bilgisayar uykuda</string>
+</resources>

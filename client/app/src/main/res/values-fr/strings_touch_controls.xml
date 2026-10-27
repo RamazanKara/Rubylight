@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_layout_kind_button">Bouton clavier ou souris</string>
+    <string name="touch_layout_kind_gamepad">Bouton de manette</string>
+    <string name="touch_layout_kind_stick">Stick analogique</string>
+    <string name="touch_layout_kind_trigger">Gâchette analogique</string>
+    <string name="touch_layout_kind_dpad">Croix directionnelle</string>
+    <string name="touch_layout_kind_wasd">Stick WASD (envoie des touches)</string>
+    <string name="touch_layout_side">Côté</string>
+    <string name="touch_layout_side_left">Gauche</string>
+    <string name="touch_layout_side_right">Droite</string>
+    <string name="touch_layout_floating">Flottant : se centre là où le pouce se pose</string>
+    <string name="touch_layout_deadzone">Zone morte (% de la course du stick, 0–50)</string>
+    <string name="touch_layout_wasd_keys">Touches pour haut, gauche, bas et droite</string>
+    <string name="touch_layout_wasd_help">Quatre touches différentes dans cet ordre, par exemple W + A + S + D ou UP + LEFT + DOWN + RIGHT.</string>
+    <string name="touch_layout_diagonal">Diagonales (degrés, 0–90) : 0 n’enfonce jamais deux touches, 45 donne huit directions égales</string>
+    <string name="touch_layout_snap">Aligner sur la grille : %1$s</string>
+    <string name="touch_layout_snap_title">Aligner sur la grille</string>
+    <string name="touch_layout_error_json">Ce n’est ni une disposition Nightjar, ni une disposition de clavier, ni un fichier de touches personnalisées Artemis.</string>
+    <string name="touch_layout_error_version">Cette disposition est en version %1$s. Cette version de Nightjar lit les versions 1 et 2 ; mettez Nightjar à jour pour l’importer.</string>
+    <string name="touch_layout_error_size">Les dispositions sont limitées à 32 commandes et 64 Kio.</string>
+    <string name="touch_layout_error_duplicate">Deux commandes partagent l’ID %1$s. Chaque commande doit avoir son propre ID.</string>
+    <string name="touch_layout_error_control">La commande %1$d (%2$s) a un type, une touche, un bouton ou une taille non pris en charge.</string>
+    <string name="touch_layout_import_done">Disposition importée</string>
+    <plurals name="touch_layout_imported">
+        <item quantity="one">%d commande importée.</item>
+        <item quantity="many">%d de commandes importées.</item>
+        <item quantity="other">%d commandes importées.</item>
+    </plurals>
+    <string name="touch_layout_import_pixels">Artemis enregistre des positions en pixels sans la taille de l’écran ; elles ont donc été lues pour cet écran. Vérifiez la disposition.</string>
+    <string name="touch_layout_import_scaled">La disposition Artemis dépassait de cet écran et a été réduite pour tenir. Vérifiez la disposition.</string>
+    <plurals name="touch_layout_import_hidden">
+        <item quantity="one">%d élément désactivé ou masqué dans Artemis a été ignoré.</item>
+        <item quantity="many">%d d’éléments désactivés ou masqués dans Artemis ont été ignorés.</item>
+        <item quantity="other">%d éléments désactivés ou masqués dans Artemis ont été ignorés.</item>
+    </plurals>
+    <string name="touch_layout_import_skipped">Non importé :</string>
+    <string name="touch_layout_skip_no_equivalent">%1$s : Nightjar n’a pas de commande équivalente (comme une zone de pavé tactile Artemis)</string>
+    <string name="touch_layout_skip_key">%1$s : une touche, ou des touches mêlées à des boutons de souris, que Nightjar ne peut pas envoyer</string>
+    <string name="touch_layout_skip_custom">%1$s : touche personnalisée ; choisissez son fichier de touches personnalisées avec le fichier de disposition</string>
+    <string name="touch_layout_skip_center">%1$s : la touche centrale du stick par double appui (le stick lui-même a été importé comme stick WASD)</string>
+    <string name="touch_layout_skip_too_many">%1$s : au-delà de la limite de 32 commandes</string>
+    <string name="touch_layout_skip_size">%1$s : taille non valide</string>
+    <string name="library_import_controls">Importer les commandes du jeu</string>
+    <string name="library_import_controls_note">Disposition Nightjar, ou disposition de clavier et fichier de touches personnalisées Artemis</string>
+    <string name="library_import_controls_title">Commandes pour %1$s</string>
+    <string name="library_import_controls_replace">Remplacer les commandes à l’écran de ce jeu sur ce PC ?</string>
+    <string name="library_import_controls_saved">Commandes enregistrées. Elles s’afficheront lors du prochain streaming de ce jeu.</string>
+    <string name="library_import_controls_error">Impossible de lire le fichier.</string>
+</resources>

@@ -1,0 +1,12 @@
+{
+  "source": "StreamExitPolicyTest.aReasonOnlyThePcKnowsReturnsToTheList",
+  "rust": "launch::StreamExitPolicy",
+  "java": "com.limelight.LaunchTrace",
+  "new": null,
+  "calls": [
+    {"call": "termination_needs_action", "args": [503, false, false, false], "expect": false},
+    {"call": "termination_needs_action", "args": [404, false, false, false], "expect": false},
+    {"call": "termination_needs_action", "args": [-2147287008, false, false, false], "expect": false},
+    {"call": "termination_needs_action", "args": [-1073741819, false, false, false], "expect": false}
+  ]
+}

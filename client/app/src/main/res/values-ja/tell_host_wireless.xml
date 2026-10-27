@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_tell_host_wireless">Wi-Fi接続をPCに知らせる</string>
+    <string name="summary_tell_host_wireless">RubylightのPCは、最初からWi-Fi向けにストリームのペースを調整します。他のPCには送信されません。</string>
+</resources>

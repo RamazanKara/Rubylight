@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A PC tile with no cover behind it that is ready (or playing): the canvas, lit green from the top left. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <gradient android:angle="315" android:startColor="#FF1D3528" android:endColor="#FF101219" android:type="linear" />
+</shape>

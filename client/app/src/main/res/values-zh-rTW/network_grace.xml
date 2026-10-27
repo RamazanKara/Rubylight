@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_network_grace">撐過網路中斷</string>
+    <string name="summary_network_grace">網路沒有回應時串流等待的時間，例如 Wi-Fi 在存取點之間切換，或 VPN 在 Wi-Fi 與行動數據之間切換時。關閉時，10 秒沒有通訊就會結束串流。網路恢復前畫面會停住。超過 10 秒的等待只有在主機也等待同樣久時才有用：請一併調高主機本身的用戶端逾時。</string>
+    <string name="network_grace_off">關閉（10 秒）</string>
+    <string name="network_grace_20">20 秒</string>
+    <string name="network_grace_30">30 秒</string>
+    <string name="network_grace_60">60 秒</string>
+    <string name="network_grace_gave_up">連線中斷的時間超過 %1$d 秒的容忍時間，或主機結束了工作階段。如果是主機先放棄，請一併調高主機本身的用戶端逾時。</string>
+</resources>

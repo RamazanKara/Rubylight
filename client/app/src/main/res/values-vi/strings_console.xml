@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="console_title">Trang chủ</string>
+    <string name="console_section_favourites">Yêu thích</string>
+    <string name="console_section_continue">Chơi tiếp</string>
+    <string name="console_section_library">Thư viện</string>
+    <string name="console_section_hosts">PC</string>
+    <string name="console_hint_options">Tùy chọn</string>
+    <string name="console_hint_open">Mở</string>
+    <string name="console_hint_key_ok">OK</string>
+    <string name="console_hint_key_menu">Menu</string>
+    <string name="console_hint_line">%1$s %2$s    %3$s %4$s</string>
+    <string name="console_favourite_add">Thêm vào yêu thích</string>
+    <string name="console_favourite_remove">Xóa khỏi yêu thích</string>
+    <string name="console_favourite_description">Yêu thích</string>
+    <string name="console_badge_running">Đang chạy</string>
+    <string name="console_badge_suspended">Đã tạm dừng</string>
+    <string name="console_card_on_host">Trên %1$s</string>
+    <string name="console_card_on_hosts">Trên %1$d máy chủ</string>
+    <string name="console_host_games">Trò chơi: %1$d</string>
+    <string name="console_host_saved_games">Ngoại tuyến. Trò chơi đã lưu: %1$d</string>
+    <string name="console_host_offline">Ngoại tuyến</string>
+    <string name="console_host_no_library">Chưa tải trò chơi</string>
+    <string name="console_empty_title">Chưa có PC</string>
+    <string name="console_empty_body">Ghép đôi Nightjar với một PC để xem các trò chơi của PC tại đây.</string>
+    <string name="console_empty_open_hosts">Mở danh sách PC</string>
+    <string name="console_detail_host">Máy chủ</string>
+    <string name="console_detail_profile">Cài đặt luồng</string>
+    <string name="console_detail_status_running">Đang chạy trên %1$s</string>
+    <string name="console_detail_status_suspended">Đã tạm dừng trên %1$s</string>
+    <string name="console_detail_replaces">%1$s đang chạy. Chơi trò này sẽ đóng nó.</string>
+    <string name="console_profile_values">%1$d × %2$d, %3$d FPS, %4$s Mbps</string>
+    <string name="console_profile_main">Cài đặt chính</string>
+    <string name="console_home_setting_title">Mở ở Trang chủ</string>
+    <string name="console_home_setting_summary">Bắt đầu bằng các trò chơi để chơi tiếp và thư viện. Khi tắt, bắt đầu bằng danh sách PC.</string>
+    <!-- tv-redesign-4 -->
+    <string name="console_row_recent">Đã chơi gần đây</string>
+    <string name="console_row_other">Ứng dụng khác</string>
+    <string name="console_row_unadded">Trên PC của bạn, chưa thêm</string>
+    <string name="console_chip_not_installed">Chưa cài đặt</string>
+    <string name="console_chip_not_added">Chưa thêm</string>
+    <string name="console_add_on_pc">Thêm trên PC</string>
+    <string name="console_adding">Đang thêm %1$s…</string>
+    <string name="console_add_failed">Không thể thêm %1$s</string>
+    <string name="console_detail_not_installed">Chưa cài đặt trên %1$s</string>
+    <string name="console_detail_not_launchable">%1$s không thể khởi chạy trò chơi này</string>
+    <string name="console_filter_all">Tất cả</string>
+    <string name="console_filter_installed">Đã cài đặt</string>
+    <string name="console_all_games_title">Tất cả trò chơi</string>
+    <string name="console_all_games_empty">Không có trò chơi nào với bộ lọc này.</string>
+    <plurals name="console_all_tile_title">
+        <item quantity="other">Tất cả %1$d trò chơi</item>
+    </plurals>
+    <plurals name="console_all_tile_description">
+        <item quantity="other">%1$s: tất cả %2$d trò chơi</item>
+    </plurals>
+    <plurals name="console_filter_description">
+        <item quantity="other">%1$s, %2$d trò chơi</item>
+    </plurals>
+    <!-- tv-redesign-5 -->
+    <string name="console_detail_installed">Đã cài đặt</string>
+    <string name="console_card_asleep">%1$s, PC đang ngủ</string>
+    <string name="console_wake_and_play">Đánh thức PC và chơi</string>
+    <string name="console_wake_waiting">Đang chờ %1$s thức dậy…</string>
+    <string name="console_wake_timeout">%1$s không thức dậy kịp. Hãy kiểm tra Wake-on-LAN đã được thiết lập, rồi thử lại.</string>
+    <string name="console_choose_pc">Chơi trên PC nào?</string>
+    <string name="console_badge_asleep">PC đang ngủ</string>
+</resources>

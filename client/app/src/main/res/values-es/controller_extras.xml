@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Controller and keyboard options -->
+    <string name="title_checkbox_disable_rumble">Desactivar vibración</string>
+    <string name="summary_checkbox_disable_rumble">Detiene toda la vibración que pide un juego: vibración del mando y de los gatillos, respuesta háptica del DualSense por USB y la vibración de este dispositivo en lugar del mando.</string>
+    <string name="title_checkbox_mouse_emulation_fixed_step">Movimiento del ratón por pasos fijos</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">En el modo ratón del mando, mantén pulsado X mientras mueves el joystick para desplazar el puntero un número fijo de píxeles cada vez. Pulsa Y para duplicar el paso, de 1 hasta 128 píxeles y luego de vuelta a 1.</string>
+    <string name="stream_mouse_step">Paso del ratón: %1$d px</string>
+    <string name="title_checkbox_back_as_meta">Atrás del teclado envía la tecla Windows</string>
+    <string name="summary_checkbox_back_as_meta">La tecla Atrás de un teclado físico envía la tecla Windows (Comando en un Mac). Abre el menú de transmisión con Ctrl+Alt+Shift+M, el gesto o botón Atrás de Android o la combinación de botones del mando.</string>
+    <string name="title_checkbox_right_alt_as_meta">Alt derecha como Comando</string>
+    <string name="summary_checkbox_right_alt_as_meta">Alt derecha envía la tecla Windows, que un Mac usa como Comando, así que Alt derecha+C copia. Alt izquierda no cambia. Déjalo desactivado si escribes caracteres con AltGr.</string>
+
+    <!-- Controller test page -->
+    <string name="controller_test_title">Prueba del mando</string>
+    <string name="controller_test_summary">Comprueba botones, joysticks, gatillos, vibración, luces y movimiento</string>
+    <string name="controller_test_open">Probar mando</string>
+    <string name="controller_test_hint">Pulsa botones y mueve los joysticks. La cruceta y A también sirven para moverte por esta página; mantén pulsado B o Back un segundo para salir.</string>
+    <string name="controller_test_waiting">Conecta un mando y pulsa cualquier botón.</string>
+    <string name="controller_test_waiting_short">Aún no hay ningún mando.</string>
+    <string name="controller_test_usb_device">Mando USB %1$s (controlador USB de Nightjar)</string>
+    <string name="controller_test_buttons">Botones</string>
+    <string name="controller_test_pressed">Pulsado: %1$s</string>
+    <string name="controller_test_pressed_none">Nada pulsado</string>
+    <string name="controller_test_sticks">Joysticks y gatillos</string>
+    <string name="controller_test_stick_values">Joystick izquierdo  %1$+.2f %2$+.2f\nJoystick derecho  %3$+.2f %4$+.2f\nLT %5$d%%  RT %6$d%%</string>
+    <string name="controller_test_rumble">Vibración</string>
+    <string name="controller_test_rumble_strong">Motor fuerte</string>
+    <string name="controller_test_rumble_weak">Motor débil</string>
+    <string name="controller_test_rumble_all">Ambos motores</string>
+    <string name="controller_test_rumble_any">Vibrar</string>
+    <string name="controller_test_rumble_left_trigger">Gatillo izquierdo</string>
+    <string name="controller_test_rumble_right_trigger">Gatillo derecho</string>
+    <string name="controller_test_rumble_stop">Detener</string>
+    <string name="controller_test_rumble_disabled_note">Desactivar vibración está activado, así que las transmisiones no vibrarán. Estas pruebas sí vibran.</string>
+    <string name="controller_test_lights">Luces</string>
+    <string name="controller_test_light_red">Rojo</string>
+    <string name="controller_test_light_green">Verde</string>
+    <string name="controller_test_light_blue">Azul</string>
+    <string name="controller_test_light_off">Apagado</string>
+    <string name="controller_test_light_reset">Restablecer</string>
+    <string name="controller_test_motion">Sensores de movimiento</string>
+    <string name="controller_test_motion_values">Giroscopio\n%1$s\nAcelerómetro\n%2$s</string>
+    <string name="controller_test_waiting_motion">Mueve el mando</string>
+    <string name="controller_test_touchpad">Panel táctil</string>
+    <string name="controller_test_touch_none">Toca el panel táctil para ver dónde.</string>
+    <string name="controller_test_touch_at">Dedo al %1$d%% en horizontal y al %2$d%% en vertical</string>
+    <string name="controller_test_misc">Share</string>
+    <string name="controller_test_not_available">No disponible en este mando.</string>
+    <string name="controller_test_needs_android_12">Requiere Android 12 o posterior.</string>
+
+    <!-- USB Switch Pro driver -->
+    <string name="title_usb_switch_pro">Controlador USB de Switch Pro</string>
+    <string name="summary_usb_switch_pro">Experimental. Lee directamente un Nintendo Switch Pro Controller conectado por cable, con sensores de movimiento, vibración, Home y Capture.</string>
+    <string name="usb_switch_pro_denied">Sin acceso USB; el Switch Pro Controller sigue usando la entrada de Android.\nVuelve a conectar el cable para reintentarlo.</string>
+</resources>

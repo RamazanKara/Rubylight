@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_stream_orientation">화면 방향</string>
+    <string name="summary_stream_orientation">자동: 휴대폰은 가로 모드를 유지하고 태블릿은 자유롭게 회전합니다. 가로와 세로는 화면을 고정합니다. 기기에 따라 회전은 시스템 회전 잠금이 꺼져 있을 때 기기 방향을 따릅니다.\n가상 디스플레이에서 스트리밍하는 호스트는 화면 모양에 맞춰 스트림을 시작하고, 스트리밍 중 크기를 바꿀 수 있으면 기기에 따라 스트림을 회전합니다. 다른 호스트에서는 스트림 크기가 유지되며, 영상 크기 조정에서 고른 대로 화면에 맞춰 표시됩니다.</string>
+    <string-array name="stream_orientation_names">
+        <item>자동</item>
+        <item>가로</item>
+        <item>세로</item>
+        <item>기기에 따라 회전</item>
+    </string-array>
+    <string name="stream_orientation_scaled">이 호스트는 스트리밍 중 스트림 모양을 유지하므로 회전된 화면에 맞춰 영상을 표시합니다.</string>
+    <string name="stream_orientation_decoder_limit">이 기기의 디코더가 회전된 크기를 지원하지 않아 스트림 모양을 유지하고 화면에 맞춰 표시합니다.</string>
+</resources>

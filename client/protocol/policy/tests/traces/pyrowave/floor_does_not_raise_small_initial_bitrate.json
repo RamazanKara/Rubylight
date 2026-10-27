@@ -1,0 +1,10 @@
+{
+  "source": "PyroWaveBitrateControllerTest.floorDoesNotRaiseSmallInitialBitrate",
+  "rust": "pyrowave::BitrateController",
+  "java": "com.limelight.nvstream.PyroWaveBitrateController",
+  "new": [1000, 1000, 60, 0],
+  "calls": [
+    {"call": "sample", "args": [5000, true, false, 5, 100, 0], "expect": 0},
+    {"call": "sample", "args": [6000, true, false, 5, 100, 0], "expect": 0}
+  ]
+}

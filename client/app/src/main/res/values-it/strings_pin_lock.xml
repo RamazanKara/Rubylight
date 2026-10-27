@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pin_lock_title">Blocco con PIN</string>
+    <string name="pin_lock_summary">Chiede un PIN per aprire Nightjar o avviare uno stream. Un PIN dimenticato si può reimpostare solo cancellando i dati di Nightjar nelle impostazioni di Android, il che rimuove anche i tuoi PC associati.</string>
+    <string name="pin_set">Imposta PIN</string>
+    <string name="pin_change">Cambia PIN</string>
+    <string name="pin_remove">Rimuovi PIN</string>
+    <string name="pin_set_summary">Scegli da 4 a 8 cifre.</string>
+    <string name="pin_is_set_summary">Un PIN è impostato. Per cambiarlo o rimuoverlo serve il PIN attuale.</string>
+    <string name="pin_mode_title">Blocco</string>
+    <string name="pin_mode_off">Disattivato</string>
+    <string name="pin_mode_app">All’apertura di Nightjar</string>
+    <string name="pin_mode_streams">All’avvio di qualsiasi stream</string>
+    <string name="pin_mode_selected">All’avvio di uno stream sui PC selezionati</string>
+    <string name="pin_pcs_title">PC selezionati</string>
+    <string name="pin_pcs_none">Nessuno selezionato</string>
+    <plurals name="pin_pcs_selected">
+        <item quantity="one">%d PC</item>
+        <item quantity="other">%d PC</item>
+    </plurals>
+    <string name="pin_pcs_empty">Nessun PC aggiunto finora.</string>
+    <string name="pin_grace_title">Chiedi di nuovo dopo</string>
+    <string name="pin_grace_always">Ogni volta che si esce da Nightjar</string>
+    <string name="pin_grace_minutes">%d minuti</string>
+    <string name="pin_grace_hour">1 ora</string>
+    <string name="pin_remove_title">Rimuovere il PIN?</string>
+    <string name="pin_remove_message">Nightjar non chiederà più un PIN.</string>
+    <string name="pin_footer">Se dimentichi il PIN, l’unico modo per reimpostarlo è cancellare i dati di Nightjar nelle impostazioni di Android. Questo rimuove anche i tuoi PC associati, che dovrai associare di nuovo.</string>
+    <string name="pin_saved">PIN salvato</string>
+    <string name="pin_removed">PIN rimosso</string>
+    <string name="pin_title_app">Nightjar è bloccato</string>
+    <string name="pin_title_enter">Inserisci il PIN</string>
+    <string name="pin_title_choose">Scegli un PIN</string>
+    <string name="pin_title_confirm">Conferma il PIN</string>
+    <string name="pin_subtitle_app">Inserisci il PIN per continuare</string>
+    <string name="pin_subtitle_stream">Necessario per avviare uno stream</string>
+    <string name="pin_subtitle_stream_pc">Necessario per avviare uno stream su %1$s</string>
+    <string name="pin_subtitle_verify">Necessario per cambiare il blocco con PIN</string>
+    <string name="pin_subtitle_choose">Usa da 4 a 8 cifre</string>
+    <string name="pin_subtitle_confirm">Inserisci di nuovo lo stesso PIN</string>
+    <string name="pin_wrong">PIN errato. Riprova.</string>
+    <string name="pin_locked_out">Troppi tentativi errati. Riprova tra %1$s.</string>
+    <string name="pin_too_short">Usa almeno 4 cifre.</string>
+    <string name="pin_mismatch">I PIN non coincidono. Scegli di nuovo un PIN.</string>
+    <string name="pin_checking">Verifica in corso…</string>
+    <string name="pin_saving">Salvataggio in corso…</string>
+    <string name="pin_cancel">Annulla</string>
+    <string name="pin_close_app">Chiudi Nightjar</string>
+    <string name="pin_key_delete">Elimina</string>
+    <string name="pin_key_confirm">Conferma</string>
+    <string name="pin_dots_description">%1$d cifre su %2$d inserite</string>
+    <string name="pin_hint">Su e Giù scelgono una riga. Sinistra, OK e Destra premono i suoi tasti.</string>
+    <string name="pin_row_1">Riga 1: 1, 2, 3</string>
+    <string name="pin_row_2">Riga 2: 4, 5, 6</string>
+    <string name="pin_row_3">Riga 3: 7, 8, 9</string>
+    <string name="pin_row_4">Riga 4: Elimina, 0, Conferma</string>
+</resources>

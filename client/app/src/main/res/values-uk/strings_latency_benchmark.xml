@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="latency_benchmark_title">Тест затримки</string>
+    <string name="latency_benchmark_description">Запустіть 10-секундний локальний тест таймінгів без хоста. Торкайтеся екрана, рухайте мишею або використовуйте контролер, щоб зібрати вибірки введення.</string>
+    <string name="latency_benchmark_start">Почати тест на 10 с</string>
+    <string name="latency_benchmark_stop">Зупинити тест</string>
+    <string name="latency_benchmark_display">Заявлена частота оновлення панелі: %1$.2f Гц</string>
+    <string name="latency_benchmark_audio">Заявлений звук: %1$s Гц · %2$s кадрів на буфер</string>
+    <string name="latency_benchmark_frame">Інтервал зворотного виклику кадру</string>
+    <string name="latency_benchmark_callback">Затримка зворотного виклику кадру</string>
+    <string name="latency_benchmark_input">Вік передачі введення</string>
+    <string name="latency_benchmark_timer">Затримка пробудження таймера</string>
+    <string name="latency_benchmark_limits">Результати використовують до 2048 останніх вибірок на метрику. Вік введення відраховується від мітки часу події Android (роздільність 1 мс); він не вимірює опитування контролера чи затримку введення на хості. Зворотні виклики кадрів не вимірюють виведення на екран. Властивості звуку — це заявлені можливості, а не виміряна затримка виходу. Для затримки мережі, декодування та наскрізної затримки потрібна трансляція або зовнішнє вимірювання. Вихід із цього екрана зупиняє тест.</string>
+    <string name="latency_test">Виміряти затримку введення</string>
+    <string name="latency_test_running">Вимірювання… покажіть нерухомий робочий стіл із вказівником миші й нічого не торкайтеся кілька секунд.</string>
+    <string name="latency_test_result">Від введення до екрана: зазвичай %1$.1f мс, найкраще %2$.1f мс, найповільніші 10%% — %3$.1f мс (вибірок: %4$d).\n\nВимірюється від моменту, коли цей застосунок зрушує мишу, до показу в Android кадру-відповіді від хоста. Охоплює мережу, захоплення й кодування на хості, декодування та показ. Реакція вашого пальця і власна затримка панелі не враховуються.</string>
+    <string name="latency_test_failed">Не вдалося виміряти. Хост постійно надсилав кадри або не відповів на рух миші. Покажіть нерухомий робочий стіл із видимим вказівником миші, закрийте ігри та відео й спробуйте ще раз.</string>
+    <string name="latency_benchmark_share">Поділитися результатами</string>
+    <string name="latency_benchmark_share_title">Результати пристрою</string>
+    <string name="latency_benchmark_share_message">Nightjar ніколи не надсилає це сам. Текст містить цей пристрій (модель, SoC, GPU і версію Android), тест декодера й останній тест на цьому екрані, без імен ПК, адрес, серійних номерів і даних облікового запису. «Відкрити форму» копіює текст і відкриває публічну форму GitHub. Усе, що ви туди вставите, стане загальнодоступним і потрапить до таблиці пристроїв на сайті Nightjar.</string>
+    <string name="latency_benchmark_copied">Результати скопійовано</string>
+    <string name="latency_benchmark_report_form">Відкрити форму</string>
+    <string name="latency_benchmark_paste_hint">Результати скопійовано. Вставте їх у форму.</string>
+</resources>

@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Controller and keyboard options -->
+    <string name="title_checkbox_disable_rumble">Désactiver les vibrations</string>
+    <string name="summary_checkbox_disable_rumble">Coupe toutes les vibrations demandées par un jeu : vibrations de la manette et des gâchettes, retour haptique de la DualSense en USB et vibrations de cet appareil à la place de la manette.</string>
+    <string name="title_checkbox_mouse_emulation_fixed_step">Déplacement de la souris par pas fixe</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">En mode souris de la manette, maintenez X en bougeant le stick pour déplacer le pointeur d’un nombre fixe de pixels à la fois. Appuyez sur Y pour doubler le pas, de 1 jusqu’à 128 pixels, puis retour à 1.</string>
+    <string name="stream_mouse_step">Pas de la souris : %1$d px</string>
+    <string name="title_checkbox_back_as_meta">Retour du clavier en touche Windows</string>
+    <string name="summary_checkbox_back_as_meta">La touche Retour d’un clavier physique envoie la touche Windows (Commande sur Mac). Ouvrez le menu du stream avec Ctrl+Alt+Shift+M, le geste ou le bouton Retour d’Android, ou la combinaison de boutons de la manette.</string>
+    <string name="title_checkbox_right_alt_as_meta">Alt droite comme Commande</string>
+    <string name="summary_checkbox_right_alt_as_meta">Alt droite envoie la touche Windows, qu’un Mac utilise comme Commande : Alt droite+C copie donc. Alt gauche ne change pas. Laissez désactivé si vous tapez des caractères avec AltGr.</string>
+
+    <!-- Controller test page -->
+    <string name="controller_test_title">Test de la manette</string>
+    <string name="controller_test_summary">Vérifier boutons, sticks, gâchettes, vibrations, lumières et mouvements</string>
+    <string name="controller_test_open">Tester la manette</string>
+    <string name="controller_test_hint">Appuyez sur des boutons et bougez les sticks. La croix directionnelle et A permettent aussi de naviguer dans cette page ; maintenez B ou Back une seconde pour quitter.</string>
+    <string name="controller_test_waiting">Connectez une manette et appuyez sur un bouton.</string>
+    <string name="controller_test_waiting_short">Aucune manette pour l’instant.</string>
+    <string name="controller_test_usb_device">Manette USB %1$s (pilote USB Nightjar)</string>
+    <string name="controller_test_buttons">Boutons</string>
+    <string name="controller_test_pressed">Appuyé : %1$s</string>
+    <string name="controller_test_pressed_none">Aucun bouton appuyé</string>
+    <string name="controller_test_sticks">Sticks et gâchettes</string>
+    <string name="controller_test_stick_values">Stick gauche  %1$+.2f %2$+.2f\nStick droit  %3$+.2f %4$+.2f\nLT %5$d%%  RT %6$d%%</string>
+    <string name="controller_test_rumble">Vibrations</string>
+    <string name="controller_test_rumble_strong">Moteur fort</string>
+    <string name="controller_test_rumble_weak">Moteur faible</string>
+    <string name="controller_test_rumble_all">Les deux moteurs</string>
+    <string name="controller_test_rumble_any">Vibrer</string>
+    <string name="controller_test_rumble_left_trigger">Gâchette gauche</string>
+    <string name="controller_test_rumble_right_trigger">Gâchette droite</string>
+    <string name="controller_test_rumble_stop">Arrêter</string>
+    <string name="controller_test_rumble_disabled_note">Désactiver les vibrations est activé : les streams ne vibreront pas. Ces tests vibrent quand même.</string>
+    <string name="controller_test_lights">Lumières</string>
+    <string name="controller_test_light_red">Rouge</string>
+    <string name="controller_test_light_green">Vert</string>
+    <string name="controller_test_light_blue">Bleu</string>
+    <string name="controller_test_light_off">Éteint</string>
+    <string name="controller_test_light_reset">Réinitialiser</string>
+    <string name="controller_test_motion">Capteurs de mouvement</string>
+    <string name="controller_test_motion_values">Gyroscope\n%1$s\nAccéléromètre\n%2$s</string>
+    <string name="controller_test_waiting_motion">Bougez la manette</string>
+    <string name="controller_test_touchpad">Pavé tactile</string>
+    <string name="controller_test_touch_none">Touchez le pavé tactile pour voir où.</string>
+    <string name="controller_test_touch_at">Doigt à %1$d%% en largeur, %2$d%% en hauteur</string>
+    <string name="controller_test_misc">Share</string>
+    <string name="controller_test_not_available">Non disponible sur cette manette.</string>
+    <string name="controller_test_needs_android_12">Nécessite Android 12 ou version ultérieure.</string>
+
+    <!-- USB Switch Pro driver -->
+    <string name="title_usb_switch_pro">Pilote Switch Pro USB</string>
+    <string name="summary_usb_switch_pro">Expérimental. Lit directement une Nintendo Switch Pro Controller branchée par câble, avec capteurs de mouvement, vibrations, Home et Capture.</string>
+    <string name="usb_switch_pro_denied">Pas d’accès USB ; la Switch Pro Controller reste sur l’entrée d’Android.\nRebranchez le câble pour réessayer.</string>
+</resources>

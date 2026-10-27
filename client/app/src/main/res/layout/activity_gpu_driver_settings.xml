@@ -1,0 +1,15 @@
+<com.limelight.ui.ContentFrame xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/gpu_driver_root"
+    android:layout_width="match_parent" android:layout_height="match_parent">
+    <LinearLayout
+        android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical">
+        <include android:id="@+id/gpu_driver_toolbar" layout="@layout/view_top_app_bar" />
+        <ScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+            android:clipToPadding="false">
+            <LinearLayout android:id="@+id/gpu_driver_content" android:orientation="vertical"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter"
+                android:paddingTop="@dimen/space_s" android:paddingBottom="@dimen/space_xl" />
+        </ScrollView>
+    </LinearLayout>
+</com.limelight.ui.ContentFrame>

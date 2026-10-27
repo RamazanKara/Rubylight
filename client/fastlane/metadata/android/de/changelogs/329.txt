@@ -1,0 +1,4 @@
+Behebt festhängende Bildschirmtasten bei Mehrfingereingaben und unerwünschte Rechtsklicks nach Freigabe der Maus.
+Versteckte Spiele und Verknüpfungen bleiben bei geänderten Spiel-IDs korrekt. Verspätete Bibliotheksantworten werden nach Verlassen der Ansicht ignoriert.
+Zuvor unerreichbare PCs werden bei erneuter Suche wieder erkannt.
+Verhindert Abstürze beim GPU-Treiberimport auf Geräten ohne Dateiauswahl.

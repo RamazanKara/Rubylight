@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="console_title">Home</string>
+    <string name="console_section_favourites">Preferiti</string>
+    <string name="console_section_continue">Continua a giocare</string>
+    <string name="console_section_library">Libreria</string>
+    <string name="console_section_hosts">PC</string>
+    <string name="console_hint_options">Opzioni</string>
+    <string name="console_hint_open">Apri</string>
+    <string name="console_hint_key_ok">OK</string>
+    <string name="console_hint_key_menu">Menu</string>
+    <string name="console_hint_line">%1$s %2$s    %3$s %4$s</string>
+    <string name="console_favourite_add">Aggiungi ai preferiti</string>
+    <string name="console_favourite_remove">Rimuovi dai preferiti</string>
+    <string name="console_favourite_description">Preferito</string>
+    <string name="console_badge_running">In esecuzione</string>
+    <string name="console_badge_suspended">Sospeso</string>
+    <string name="console_card_on_host">Su %1$s</string>
+    <string name="console_card_on_hosts">Su %1$d host</string>
+    <string name="console_host_games">Giochi: %1$d</string>
+    <string name="console_host_saved_games">Offline. Giochi salvati: %1$d</string>
+    <string name="console_host_offline">Offline</string>
+    <string name="console_host_no_library">Giochi non ancora caricati</string>
+    <string name="console_empty_title">Ancora nessun PC</string>
+    <string name="console_empty_body">Associa Nightjar a un PC per vedere qui i suoi giochi.</string>
+    <string name="console_empty_open_hosts">Apri i PC</string>
+    <string name="console_detail_host">Host</string>
+    <string name="console_detail_profile">Impostazioni dello stream</string>
+    <string name="console_detail_status_running">In esecuzione su %1$s</string>
+    <string name="console_detail_status_suspended">Sospeso su %1$s</string>
+    <string name="console_detail_replaces">%1$s è in esecuzione. Avviare questo gioco lo chiude.</string>
+    <string name="console_profile_values">%1$d × %2$d, %3$d FPS, %4$s Mbps</string>
+    <string name="console_profile_main">Impostazioni principali</string>
+    <string name="console_home_setting_title">Apri sulla Home</string>
+    <string name="console_home_setting_summary">Parte dai giochi da continuare e dalla libreria. Disattivato parte dall’elenco dei PC.</string>
+    <!-- tv-redesign-4 -->
+    <string name="console_row_recent">Giocati di recente</string>
+    <string name="console_row_other">Altre app</string>
+    <string name="console_row_unadded">Sui tuoi PC, non aggiunti</string>
+    <string name="console_chip_not_installed">Non installato</string>
+    <string name="console_chip_not_added">Non aggiunto</string>
+    <string name="console_add_on_pc">Aggiungilo sul PC</string>
+    <string name="console_adding">Aggiunta di %1$s…</string>
+    <string name="console_add_failed">Impossibile aggiungere %1$s</string>
+    <string name="console_detail_not_installed">Non installato su %1$s</string>
+    <string name="console_detail_not_launchable">%1$s non può avviare questo gioco</string>
+    <string name="console_filter_all">Tutti</string>
+    <string name="console_filter_installed">Installati</string>
+    <string name="console_all_games_title">Tutti i giochi</string>
+    <string name="console_all_games_empty">Nessun gioco con questo filtro.</string>
+    <plurals name="console_all_tile_title">
+        <item quantity="one">%1$d gioco</item>
+        <item quantity="many">Tutti i %1$d giochi</item>
+        <item quantity="other">Tutti i %1$d giochi</item>
+    </plurals>
+    <plurals name="console_all_tile_description">
+        <item quantity="one">%1$s: %2$d gioco</item>
+        <item quantity="many">%1$s: tutti i %2$d giochi</item>
+        <item quantity="other">%1$s: tutti i %2$d giochi</item>
+    </plurals>
+    <plurals name="console_filter_description">
+        <item quantity="one">%1$s, %2$d gioco</item>
+        <item quantity="many">%1$s, %2$d giochi</item>
+        <item quantity="other">%1$s, %2$d giochi</item>
+    </plurals>
+    <!-- tv-redesign-5 -->
+    <string name="console_detail_installed">Installato</string>
+    <string name="console_card_asleep">%1$s, PC in standby</string>
+    <string name="console_wake_and_play">Riattiva il PC e gioca</string>
+    <string name="console_wake_waiting">In attesa che %1$s si riattivi…</string>
+    <string name="console_wake_timeout">%1$s non si è riattivato in tempo. Controlla che Wake-on-LAN sia configurato e riprova.</string>
+    <string name="console_choose_pc">Su quale PC vuoi giocare?</string>
+    <string name="console_badge_asleep">PC in standby</string>
+</resources>

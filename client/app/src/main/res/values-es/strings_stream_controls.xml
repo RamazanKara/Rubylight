@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_touch_mode">Modo táctil</string>
+    <string name="stream_keyboard">Teclado</string>
+    <string name="stream_controls_show">Mostrar controles en pantalla</string>
+    <string name="stream_controls_hide">Ocultar controles en pantalla</string>
+    <string name="stream_controls_layout">Editar diseño de controles</string>
+    <string name="stream_controls_move_help">Arrastra para mover los controles; usa el menú para cambiar el tamaño o guardar.</string>
+    <string name="stream_controls_resize_help">Arrastra para cambiar el tamaño de los controles; usa el menú para guardar.</string>
+    <string name="stream_controls_saved">Diseño de controles guardado</string>
+    <string name="stream_reconnect">Reconectar transmisión</string>
+    <string name="stream_reconnecting">Reconectando con la aplicación en ejecución…</string>
+    <string name="stream_native_touch_help">La pantalla táctil controla el PC directamente.\nAbre el menú de transmisión para usar el teclado.</string>
+    <string name="stream_native_touch_fallback">El PC no admite multitáctil, así que la pantalla táctil mueve el ratón.</string>
+    <string-array name="stream_touch_modes">
+        <item>Trackpad</item>
+        <item>Ratón directo</item>
+        <item>Multitáctil</item>
+        <item>Cursor local</item>
+        <item>Táctil desactivado</item>
+    </string-array>
+    <string-array name="stream_control_layout_actions">
+        <item>Mover controles</item>
+        <item>Cambiar tamaño de controles</item>
+        <item>Guardar diseño y jugar</item>
+    </string-array>
+</resources>

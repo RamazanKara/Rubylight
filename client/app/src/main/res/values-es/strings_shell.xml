@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shell_destinations">Secciones principales</string>
+    <string name="shell_current_page">Página actual</string>
+    <string name="host_menu_rename">Renombrar</string>
+    <string name="host_options_hint">X o ⋮ para opciones</string>
+    <string name="host_rename_field">Nombre</string>
+    <string name="host_rename_help">Solo se muestra en este dispositivo. Déjalo vacío para usar el nombre propio del PC.</string>
+    <string name="host_rename_save">Guardar</string>
+    <string name="host_rename_title">Renombrar PC</string>
+    <string name="host_unpair_title">¿Desvincular %1$s?</string>
+    <string name="host_unpair_message">El PC olvida este dispositivo y aquí se borra su biblioteca guardada. Tendrás que volver a vincularlo para transmitir. El PC sigue en la lista.</string>
+    <string name="host_wake_needs_pairing">Vincula el PC una vez mientras esté encendido para poder activarlo</string>
+    <string name="host_menu_sleep">Suspender PC</string>
+    <string name="host_menu_sleep_note">Experimental</string>
+    <string name="host_sleep_title">¿Suspender %1$s?</string>
+    <string name="host_sleep_message">Primero hay que cerrar los juegos y transmisiones del PC. Wake-on-LAN puede volver a activarlo.</string>
+    <string name="host_sleep_asking">Consultando al PC…</string>
+    <string name="host_sleep_accepted">El PC se está suspendiendo</string>
+    <string name="host_sleep_unsupported">Este PC no puede suspenderse.</string>
+    <string name="host_sleep_permission_help">Para permitirlo, activa Suspender PC para este dispositivo en la consola web del servidor, en los ajustes del dispositivo.</string>
+    <string name="host_sleep_busy">El PC no puede suspenderse ahora. Cierra los juegos y transmisiones en él y vuelve a intentarlo.</string>
+    <string name="host_sleep_refused">El PC rechazó la suspensión (HTTP %1$d).</string>
+    <string name="host_sleep_failed">No se pudo contactar con el PC.</string>
+    <string name="host_sleep_error">No se pudo consultar al PC: %1$s</string>
+    <string name="settings_category_accessibility">Accesibilidad</string>
+    <string name="title_ui_scale">Tamaño de la interfaz</string>
+    <string name="summary_ui_scale">Escala los menús, las listas y los diálogos de la app. La transmisión no se escala. El tamaño de fuente del sistema se aplica además. Se aplica al instante.</string>
+    <string name="title_high_contrast">Contraste alto</string>
+    <string name="summary_high_contrast">Fondo negro, texto y contornos más marcados y un anillo de foco más grueso en todas las pantallas de la app. La transmisión no cambia.</string>
+    <string name="title_reduce_motion">Reducir movimiento</string>
+    <string name="summary_reduce_motion">Según el sistema desactiva las animaciones cuando la escala de animación de Android es 0. Reducir sustituye el zoom del foco y los paneles deslizantes por un anillo simple. Completo anima siempre.</string>
+    <string name="reduce_motion_system">Según el sistema</string>
+    <string name="reduce_motion_reduce">Reducir</string>
+    <string name="reduce_motion_full">Completo</string>
+    <!-- tv-mode-toggle -->
+    <string name="title_ui_mode">Diseño de la interfaz</string>
+    <string name="summary_ui_mode">«Automático» sigue al dispositivo. «TV» organiza la app para un televisor, con foco y mando a distancia o gamepad, en una consola portátil o un móvil conectado a uno. «Portátil» usa los diseños táctiles también en un televisor. La transmisión no cambia. Se aplica al instante.</string>
+    <string name="ui_mode_auto">Automático</string>
+    <string name="ui_mode_tv">TV</string>
+    <string name="ui_mode_handheld">Portátil</string>
+</resources>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_host_asks_named">PC가 %1$s을(를) 닫기 전에 확인을 요청합니다</string>
+    <string name="library_host_asks">PC가 실행 중인 게임을 닫기 전에 확인을 요청합니다</string>
+    <string name="library_quit_named_and_play">%1$s 종료 후 플레이</string>
+    <string name="library_quit_and_play">실행 중인 게임 종료 후 플레이</string>
+    <string name="library_replace_message_named">%1$s을(를) 종료하고 %2$s을(를) 시작할까요?\n저장하지 않은 진행 상황은 사라집니다.</string>
+    <string name="library_replace_message">실행 중인 게임을 종료하고 %1$s을(를) 시작할까요?\n저장하지 않은 진행 상황은 사라집니다.</string>
+    <string name="library_replace_confirm">종료 후 플레이</string>
+    <string name="library_replace_resume">%1$s 이어하기</string>
+    <string name="library_replace_close_start">%1$s 닫고 %2$s 시작</string>
+    <string name="library_replace_message_running">%1$s이(가) 이 PC에서 실행 중입니다. %2$s을(를) 시작하면 닫히며, 저장하지 않은 진행 상황은 사라집니다.</string>
+    <string name="library_replace_changed">실행 중인 게임이 바뀌었습니다. 화면을 확인하고 다시 시도하세요.</string>
+</resources>

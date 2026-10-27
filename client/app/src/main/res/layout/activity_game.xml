@@ -1,0 +1,106 @@
+<merge xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".Game" >
+
+    <View
+        android:id="@+id/backgroundTouchView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_gravity="center" />
+
+    <com.limelight.ui.StreamView
+        android:id="@+id/surfaceView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_gravity="center"
+        android:focusable="true"
+        android:focusableInTouchMode="true"
+        android:focusedByDefault="true"
+        android:defaultFocusHighlightEnabled="false">
+        <requestFocus />
+    </com.limelight.ui.StreamView>
+
+    <com.limelight.ui.LocalCursorView
+        android:id="@+id/localCursor"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/inputOnlyStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:padding="24dp"
+        android:gravity="center"
+        android:text="@string/stream_input_only_help"
+        android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
+        android:textColor="@android:color/white"
+        android:visibility="gone" />
+
+    <ScrollView
+        android:id="@+id/performanceOverlayScroll"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_margin="8dp"
+        android:layout_gravity="top|start"
+        android:background="@drawable/bg_stream_overlay"
+        android:focusable="false"
+        android:descendantFocusability="blocksDescendants"
+        android:preferKeepClear="true"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/performanceOverlay"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="start"
+            android:textAppearance="@style/TextAppearance.Nightjar.Mono"
+            android:textColor="@android:color/white"
+            android:shadowColor="#FF000000"
+            android:shadowRadius="2"
+            android:lineSpacingExtra="1dp"
+            android:maxWidth="440dp"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="4dp" />
+    </ScrollView>
+
+    <!-- Shown once, on the first stream: how to open the stream menu with this device's inputs. -->
+    <TextView
+        android:id="@+id/streamMenuHint"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_margin="16dp"
+        android:maxWidth="560dp"
+        android:background="@drawable/bg_stream_overlay"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="10dp"
+        android:gravity="center"
+        android:textAppearance="@style/TextAppearance.Nightjar.Supporting"
+        android:textColor="@android:color/white"
+        android:focusable="false"
+        android:importantForAccessibility="yes"
+        android:accessibilityLiveRegion="polite"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/notificationOverlay"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginRight="10dp"
+        android:layout_marginEnd="10dp"
+        android:layout_marginTop="10dp"
+        android:layout_gravity="right"
+        android:textAppearance="?android:attr/textAppearanceLarge"
+        android:gravity="right"
+        android:background="#B3000000"
+        android:textColor="@android:color/white"
+        android:padding="4dp"
+        android:preferKeepClear="true"
+        android:visibility="gone" />
+
+</merge>

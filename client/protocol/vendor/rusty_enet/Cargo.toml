@@ -1,0 +1,32 @@
+# rusty_enet 0.4.0 (MIT, https://github.com/jabuwu/rusty_enet), changed in these ways only. Used
+# through [patch.crates-io] in protocol/Cargo.toml.
+# - src/c/protocol.rs, the round trip smoothing in the acknowledgement handler (marked
+#   "Nightjar"): five divisions round up like moonlight-common-c's ENet fork, so the smoothed
+#   round trip time converges on the samples. Variance decay: (v + 3) / 4 instead of v / 4.
+#   Variance step, both directions: (diff + 3) / 4 instead of diff / 4. Mean step, both
+#   directions: (diff + 7) / 8 instead of diff / 8.
+# - src/c/protocol.rs, enet_protocol_handle_incoming_commands (marked "Nightjar"): no check that
+#   a datagram comes from the peer's address, as in moonlight-common-c's ENet fork (cf38f85,
+#   "Be more lenient with the expected peer address for multi-homed hosts"); the peer follows
+#   the source. A multi-homed host may answer from another address than the one connected to.
+# - src/lib.rs: `#![allow(warnings)]` added, the upstream lint output is not ours to fix.
+# - src/lib.rs: the `mod test` declaration is dropped together with src/test and src/test.rs, and
+#   the dev-dependencies (rand, rand_chacha) with them.
+# - Cargo.toml: the generated header and the docs.rs and exclude metadata are dropped.
+[package]
+edition = "2021"
+rust-version = "1.77"
+name = "rusty_enet"
+version = "0.4.0"
+description = "ENet for Rust (and wasm!) transpiled from C."
+readme = "README.md"
+license = "MIT"
+repository = "https://github.com/jabuwu/rusty_enet"
+
+[features]
+connected = []
+default = ["std"]
+std = []
+
+[target."cfg(target_arch = \"wasm32\")".dependencies.js-sys]
+version = "0.3.69"

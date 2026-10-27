@@ -1,0 +1,4 @@
+<resources>
+    <string name="controller_mapping_capture">Taste zuordnen</string>
+    <string name="controller_mapping_press">Drücke die zuzuordnende Controller-Taste. Zurück bricht ab.</string>
+</resources>

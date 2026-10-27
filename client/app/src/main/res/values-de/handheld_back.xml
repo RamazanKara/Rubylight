@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_back_opens_menu">Physische Zurücktaste öffnet Stream-Menü</string>
+    <string name="summary_checkbox_back_opens_menu">Die eigene Zurücktaste eines Handhelds oder Controllers öffnet das Stream-Menü. Select und Start behalten ihre Belegung. „Tastatur-Zurück sendet Windows-Taste“ hat bei physischen Tastaturen Vorrang. Gilt ab dem nächsten Stream.</string>
+</resources>

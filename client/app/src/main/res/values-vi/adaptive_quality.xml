@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_adaptive_quality">Chất lượng stream tự động</string>
+    <string name="summary_adaptive_quality">Giảm độ phân giải hoặc FPS khi mạng tắc nghẽn kéo dài, giải mã chậm hoặc máy nóng, sau đó khôi phục dần. Dùng tốc độ bit tự động khi được hỗ trợ. Cần máy chủ hỗ trợ cấu hình lại và trình giải mã thích ứng; không khả dụng với PyroWave.</string>
+    <string name="title_adaptive_quality_min_resolution">Độ phân giải tự động tối thiểu</string>
+    <string name="summary_adaptive_quality_min_resolution">Cạnh ngắn nhỏ nhất, giữ nguyên tỷ lệ khung hình. Độ phân giải stream đã chọn vẫn là mức tối đa. Giới hạn này không bao giờ làm tăng độ phân giải ban đầu thấp hơn.</string>
+    <string name="title_adaptive_quality_min_fps">Tốc độ khung hình tự động tối thiểu</string>
+    <string name="summary_adaptive_quality_min_fps">FPS thấp nhất cho phép. Tốc độ khung hình stream đã chọn vẫn là mức tối đa. Áp dụng cho chất lượng tự động, kể cả chế độ pin.</string>
+    <string name="quality_off">Tắt</string>
+    <string name="quality_motion">Ưu tiên chuyển động</string>
+    <string name="quality_detail">Ưu tiên chi tiết</string>
+    <string name="quality_battery">Kéo dài thời lượng pin</string>
+    <string name="quality_use_settings">Dùng cài đặt ứng dụng</string>
+    <string name="quality_about">Cách hoạt động</string>
+    <string name="quality_stream_help">Được lưu cho PC này. Chuyển động giảm độ phân giải trước; Chi tiết giảm FPS trước. Pin giới hạn dần tải xử lý ở mức tối đa 60 FPS và cạnh ngắn 1080 pixel, trong phạm vi giới hạn tối thiểu của bạn. Codec, HDR và lựa chọn màn hình giữ nguyên như đã thỏa thuận.</string>
+    <string name="quality_unavailable">Chất lượng tự động đã tắt: PC hoặc thiết bị này không thể đổi độ phân giải và tốc độ khung hình trong khi stream.</string>
+    <string name="quality_request_failed">Chất lượng tự động đã dừng: PC không áp dụng kích thước mới. Stream vẫn tiếp tục; hãy chọn chế độ khác trong menu stream.</string>
+    <string name="quality_status">Chất lượng tự động: %1$s · %2$d × %3$d · mục tiêu %4$d FPS</string>
+</resources>

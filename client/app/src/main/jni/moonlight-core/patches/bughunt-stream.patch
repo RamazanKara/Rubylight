@@ -1,0 +1,159 @@
+Native stream fixes against moonlight-common-c f900dd4767759c7b9d0e93bcea666b55c69ea62f (also applies to 874ac954).
+
+diff --git a/src/AudioStream.c b/src/AudioStream.c
+index 2fcc1f0e..8aacf95a 100644
+--- a/src/AudioStream.c
++++ b/src/AudioStream.c
+@@ -449,7 +449,6 @@ int startAudioStream(void* audioContext, int arFlags) {
+     err = PltCreateThread("AudioRecv", AudioReceiveThreadProc, NULL, &receiveThread);
+     if (err != 0) {
+         AudioCallbacks.stop();
+-        closeSocket(rtpSocket);
+         AudioCallbacks.cleanup();
+         return err;
+     }
+@@ -460,7 +459,6 @@ int startAudioStream(void* audioContext, int arFlags) {
+             AudioCallbacks.stop();
+             PltInterruptThread(&receiveThread);
+             PltJoinThread(&receiveThread);
+-            closeSocket(rtpSocket);
+             AudioCallbacks.cleanup();
+             return err;
+         }
+diff --git a/src/RtpAudioQueue.c b/src/RtpAudioQueue.c
+index d9ef7f1d..388ce123 100644
+--- a/src/RtpAudioQueue.c
++++ b/src/RtpAudioQueue.c
+@@ -544,7 +544,7 @@ static void handleMissingPackets(PRTP_AUDIO_QUEUE queue) {
+     // At this point, we know we've got a second FEC block queued up waiting on the first one to complete.
+     // If we've never seen OOS data from this host, we'll assume the first one is lost and skip forward.
+     // If we have seen OOS data, we'll wait for a little while longer to see if OOS packets arrive before giving up.
+-    if (!queue->receivedOosData || PltGetMicroseconds() - queue->blockHead->queueTimeUs > (uint64_t)(AudioPacketDuration * RTPA_DATA_SHARDS) + (RTPQ_OOS_WAIT_TIME_MS * 1000)) {
++    if (!queue->receivedOosData || PltGetMicroseconds() - queue->blockHead->queueTimeUs > (uint64_t)AudioPacketDuration * RTPA_DATA_SHARDS * 1000 + (RTPQ_OOS_WAIT_TIME_MS * 1000)) {
+         LC_ASSERT(!isBefore16(queue->nextRtpSequenceNumber, queue->blockHead->fecHeader.baseSequenceNumber));
+ 
+         queue->stats.packetCountFecFailed++;
+diff --git a/src/VideoDepacketizer.c b/src/VideoDepacketizer.c
+index 43f2df92..0658f978 100644
+--- a/src/VideoDepacketizer.c
++++ b/src/VideoDepacketizer.c
+@@ -510,7 +510,12 @@ static void reassembleFrame(int frameNumber, bool frameIsLTR) {
+             nalChainDataLength = 0;
+ 
+             if ((VideoCallbacks.capabilities & CAPABILITY_DIRECT_SUBMIT) == 0) {
+-                if (LbqOfferQueueItem(&decodeUnitQueue, qdu, &qdu->entry) == LBQ_BOUND_EXCEEDED) {
++                int err = LbqOfferQueueItem(&decodeUnitQueue, qdu, &qdu->entry);
++                if (err == LBQ_INTERRUPTED) {
++                    LiCompleteVideoFrame(qdu, DR_CLEANUP);
++                    return;
++                }
++                else if (err == LBQ_BOUND_EXCEEDED) {
+                     Limelog("Video decode unit queue overflow\n");
+ 
+                     // RFI recovery is not supported here
+diff --git a/src/RtspParser.c b/src/RtspParser.c
+index 208d8533..b353808c 100644
+--- a/src/RtspParser.c
++++ b/src/RtspParser.c
+@@ -168,6 +168,10 @@ int parseRtspMessage(PRTSP_MESSAGE msg, char* rtspMessage, int length) {
+                 // Check if we're at the end of the message portion marked by \r\n\r\n
+                 // endCheck points to the remainder of messageBuffer after the token
+                 endCheck = &token[0] + strlen(token) + 1;
++                if (endCheck >= messageBuffer + length) {
++                    exitCode = RTSP_ERROR_MALFORMED;
++                    goto ExitFailure;
++                }
+ 
+                 // See if we've hit the end of the message. The first \r is missing because it's been tokenized
+                 if (startsWith(endCheck, "\n") && endCheck[1] == '\0') {
+@@ -282,6 +286,7 @@ char* getOptionContent(POPTION_ITEM optionsHead, char* option) {
+ // Adds new option opt to the struct's option list
+ void insertOption(POPTION_ITEM* optionsHead, POPTION_ITEM opt) {
+     POPTION_ITEM current = *optionsHead;
++    POPTION_ITEM previous = NULL;
+     opt->next = NULL;
+ 
+     // Empty options list
+@@ -294,13 +299,22 @@ void insertOption(POPTION_ITEM* optionsHead, POPTION_ITEM opt) {
+     while (current != NULL) {
+         // Check for duplicate option; if so, replace the option currently there
+         if (!strcmp(current->option, opt->option)) {
+-            current->content = opt->content;
++            opt->next = current->next;
++            if (previous != NULL) {
++                previous->next = opt;
++            }
++            else {
++                *optionsHead = opt;
++            }
++            current->next = NULL;
++            freeOptionList(current);
+             return;
+         }
+         if (current->next == NULL) {
+             current->next = opt;
+             return;
+         }
++        previous = current;
+         current = current->next;
+     }
+ }
+diff --git a/src/ControlStream.c b/src/ControlStream.c
+index 2b5182ed..d5cdac90 100644
+--- a/src/ControlStream.c
++++ b/src/ControlStream.c
+@@ -157,6 +157,7 @@ static const short packetTypesGen3[] = {
+     -1,     // Rumble triggers (unused)
+     -1,     // Set motion event (unused)
+     -1,     // Set RGB LED (unused)
++    -1,     // Adaptive triggers (unused)
+ };
+ static const short packetTypesGen4[] = {
+     0x0606, // Request IDR frame
+@@ -171,6 +172,7 @@ static const short packetTypesGen4[] = {
+     -1,     // Rumble triggers (unused)
+     -1,     // Set motion event (unused)
+     -1,     // Set RGB LED (unused)
++    -1,     // Adaptive triggers (unused)
+ };
+ static const short packetTypesGen5[] = {
+     0x0305, // Start A
+@@ -185,6 +187,7 @@ static const short packetTypesGen5[] = {
+     -1,     // Rumble triggers (unused)
+     -1,     // Set motion event (unused)
+     -1,     // Set RGB LED (unused)
++    -1,     // Adaptive triggers (unused)
+ };
+ static const short packetTypesGen7[] = {
+     0x0305, // Start A
+@@ -199,6 +202,7 @@ static const short packetTypesGen7[] = {
+     -1,     // Rumble triggers (unused)
+     -1,     // Set motion event (unused)
+     -1,     // Set RGB LED (unused)
++    -1,     // Adaptive triggers (unused)
+ };
+ static const short packetTypesGen7Enc[] = {
+     0x0302, // Request IDR frame
+@@ -1262,6 +1266,13 @@ static void controlReceiveThreadFunc(void* context) {
+ 
+             // All below codepaths must free ctlHdr!!!
+ 
++            if ((ctlHdr->type == packetTypes[IDX_HDR_INFO] && packetLength < sizeof(*ctlHdr) + sizeof(uint8_t)) ||
++                (ctlHdr->type == packetTypes[IDX_TERMINATION] && packetLength < sizeof(*ctlHdr) + sizeof(uint16_t))) {
++                Limelog("Discarding runt HDR/termination control packet: %d\n", packetLength);
++                free(ctlHdr);
++                continue;
++            }
++
+             // Process HDR data immediately to update global HDR enabled state and HDR metadata.
+             // The actual client callback will be invoked in the async callback thread.
+             if (ctlHdr->type == packetTypes[IDX_HDR_INFO]) {
+@@ -1389,7 +1400,7 @@ static void lossStatsThreadFunc(void* context) {
+     BYTE_BUFFER byteBuffer;
+ 
+     if (usePeriodicPing) {
+-        char periodicPingPayload[8];
++        char periodicPingPayload[8] = {0};
+ 
+         BbInitializeWrappedBuffer(&byteBuffer, periodicPingPayload, 0, sizeof(periodicPingPayload), BYTE_ORDER_LITTLE);
+         BbPut16(&byteBuffer, 4); // Length of payload

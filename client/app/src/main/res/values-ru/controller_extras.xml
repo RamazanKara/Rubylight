@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Controller and keyboard options -->
+    <string name="title_checkbox_disable_rumble">Отключить вибрацию</string>
+    <string name="summary_checkbox_disable_rumble">Отключает всю вибрацию, которую запрашивает игра: вибрацию контроллера и триггеров, тактильную отдачу USB DualSense и вибрацию этого устройства вместо контроллера.</string>
+    <string name="title_checkbox_mouse_emulation_fixed_step">Перемещение мыши с фиксированным шагом</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">В режиме мыши на контроллере удерживайте X при движении стика, чтобы указатель смещался на фиксированное число пикселей. Нажмите Y, чтобы удвоить шаг: от 1 до 128 пикселей, затем снова 1.</string>
+    <string name="stream_mouse_step">Шаг мыши: %1$d пкс</string>
+    <string name="title_checkbox_back_as_meta">«Назад» на клавиатуре как клавиша Windows</string>
+    <string name="summary_checkbox_back_as_meta">Клавиша «Назад» на физической клавиатуре отправляет клавишу Windows (Command на Mac). Меню трансляции открывается сочетанием Ctrl+Alt+Shift+M, жестом или кнопкой «Назад» Android либо комбинацией кнопок контроллера.</string>
+    <string name="title_checkbox_right_alt_as_meta">Правый Alt как Command</string>
+    <string name="summary_checkbox_right_alt_as_meta">Правый Alt отправляет клавишу Windows, которую Mac использует как Command, поэтому правый Alt+C копирует. Левый Alt не меняется. Не включайте, если вводите символы с помощью AltGr.</string>
+
+    <!-- Controller test page -->
+    <string name="controller_test_title">Проверка контроллера</string>
+    <string name="controller_test_summary">Проверка кнопок, стиков, триггеров, вибрации, подсветки и датчиков движения</string>
+    <string name="controller_test_open">Проверить контроллер</string>
+    <string name="controller_test_hint">Нажимайте кнопки и двигайте стики. Крестовина и A тоже перемещают по этой странице; чтобы выйти, удерживайте B или Back одну секунду.</string>
+    <string name="controller_test_waiting">Подключите контроллер и нажмите любую кнопку.</string>
+    <string name="controller_test_waiting_short">Контроллер пока не найден.</string>
+    <string name="controller_test_usb_device">USB-контроллер %1$s (USB-драйвер Nightjar)</string>
+    <string name="controller_test_buttons">Кнопки</string>
+    <string name="controller_test_pressed">Нажато: %1$s</string>
+    <string name="controller_test_pressed_none">Ничего не нажато</string>
+    <string name="controller_test_sticks">Стики и триггеры</string>
+    <string name="controller_test_stick_values">Левый стик  %1$+.2f %2$+.2f\nПравый стик  %3$+.2f %4$+.2f\nLT %5$d%%  RT %6$d%%</string>
+    <string name="controller_test_rumble">Вибрация</string>
+    <string name="controller_test_rumble_strong">Сильный мотор</string>
+    <string name="controller_test_rumble_weak">Слабый мотор</string>
+    <string name="controller_test_rumble_all">Оба мотора</string>
+    <string name="controller_test_rumble_any">Вибрировать</string>
+    <string name="controller_test_rumble_left_trigger">Левый триггер</string>
+    <string name="controller_test_rumble_right_trigger">Правый триггер</string>
+    <string name="controller_test_rumble_stop">Стоп</string>
+    <string name="controller_test_rumble_disabled_note">Включено «Отключить вибрацию», поэтому трансляции не будут вибрировать. Эти проверки всё равно вибрируют.</string>
+    <string name="controller_test_lights">Подсветка</string>
+    <string name="controller_test_light_red">Красный</string>
+    <string name="controller_test_light_green">Зелёный</string>
+    <string name="controller_test_light_blue">Синий</string>
+    <string name="controller_test_light_off">Выкл.</string>
+    <string name="controller_test_light_reset">Сбросить</string>
+    <string name="controller_test_motion">Датчики движения</string>
+    <string name="controller_test_motion_values">Гироскоп\n%1$s\nАкселерометр\n%2$s</string>
+    <string name="controller_test_waiting_motion">Подвигайте контроллер</string>
+    <string name="controller_test_touchpad">Тачпад</string>
+    <string name="controller_test_touch_none">Коснитесь тачпада, чтобы увидеть точку касания.</string>
+    <string name="controller_test_touch_at">Палец: %1$d%% по горизонтали, %2$d%% по вертикали</string>
+    <string name="controller_test_misc">Share</string>
+    <string name="controller_test_not_available">Недоступно на этом контроллере.</string>
+    <string name="controller_test_needs_android_12">Требуется Android 12 или новее.</string>
+
+    <!-- USB Switch Pro driver -->
+    <string name="title_usb_switch_pro">Драйвер USB Switch Pro</string>
+    <string name="summary_usb_switch_pro">Экспериментально. Считывает проводной Nintendo Switch Pro Controller напрямую: датчики движения, вибрация, Home и Capture.</string>
+    <string name="usb_switch_pro_denied">Нет доступа к USB; Switch Pro Controller работает через ввод Android.\nПереподключите кабель, чтобы повторить.</string>
+</resources>

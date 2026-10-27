@@ -1,0 +1,12 @@
+{
+  "source": "GameRecoveryTest.lockResumePreservesCapturedIdentityOutputAndExistingRetryBudget",
+  "rust": "recovery::StreamRecoveryPolicy",
+  "java": "com.limelight.StreamRecoveryPolicy",
+  "new": [2, 5100],
+  "calls": [
+    {"call": "reset_after_stable_connection", "args": [10100, 10100], "expect": null},
+    {"call": "next_delay", "args": [10100, -1], "expect": 4000},
+    {"call": "attempts", "args": [], "expect": 3},
+    {"call": "started_at", "args": [], "expect": 5100}
+  ]
+}

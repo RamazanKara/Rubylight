@@ -1,0 +1,1 @@
+Export games to Beacon, ES-DE, Daijisho and Pegasus, with saved folders and built-in setup instructions. Improve Fire TV remote and gamepad menu navigation, and add an optional physical Back shortcut to open the stream menu on handhelds. Make dialogs and settings easier to navigate with B/Back and D-pad controls.

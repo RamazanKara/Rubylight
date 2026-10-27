@@ -1,0 +1,16 @@
+<resources>
+    <string name="refresh_diag_no_mode">串流需要 %1$s Hz，但此螢幕只提供 %2$s Hz，目前為 %3$s Hz。</string>
+    <string name="refresh_diag_not_seamless">螢幕停留在 %2$s Hz，而不是要求的 %1$s Hz：切換會讓畫面短暫黑屏（模式：%3$s Hz）。</string>
+    <string name="refresh_diag_needs_match_setting">螢幕停留在 %2$s Hz，而不是要求的 %1$s Hz：切換會讓畫面短暫黑屏，而 Android 只有在顯示設定中允許「配合內容影格率」時才會這樣做（模式：%3$s Hz）。</string>
+    <string name="refresh_diag_user_limit">螢幕停留在 %2$s Hz，而不是要求的 %1$s Hz：Android 的更新率設定最高只允許 %3$s Hz。</string>
+    <string name="refresh_diag_battery_saver">螢幕停留在 %2$s Hz，而不是要求的 %1$s Hz：省電模式限制了它。</string>
+    <string name="refresh_diag_thermal">螢幕停留在 %2$s Hz，而不是要求的 %1$s Hz：裝置過熱，已限制為 60 Hz。</string>
+    <string name="refresh_diag_unexplained">螢幕停留在 %2$s Hz，而不是要求的 %1$s Hz。Android 沒有提供原因（模式：%3$s Hz）。</string>
+    <string name="stream_vrr_old_android">可變更新率需要 Android 16，因此螢幕以最高更新率運作。</string>
+    <string name="stream_vrr_no_arr">此螢幕沒有自適應更新率，因此以最高更新率運作。</string>
+    <string name="stream_hdr_mode_unsupported">此螢幕模式無法顯示 HDR，因此串流為 SDR。</string>
+    <string name="stream_hdr_not_negotiated">已要求 HDR，但電腦沒有傳送 HDR 影像，因此串流為 SDR。</string>
+    <string name="stream_hdr_host_sdr">已要求 HDR，但電腦回報為 SDR。請在 Windows 中為串流的顯示器開啟 HDR。</string>
+    <string name="stream_hdr_no_metadata">HDR 已開啟，但電腦沒有傳送母帶資料，因此亮度可能不正確。</string>
+    <string name="stream_hdr_output_not_pq">HDR 已開啟，但此裝置的解碼器回報輸出不是 HDR，因此顏色可能顯得偏灰。</string>
+</resources>

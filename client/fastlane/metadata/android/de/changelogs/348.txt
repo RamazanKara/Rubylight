@@ -1,0 +1,1 @@
+Neu: Immer dunkel, damit die App auf Fernsehern mit hellem Systemdesign dunkel bleibt; bei OLED-Schwarz bekommen Dialoge und Menüs einen Rand. Rechts auf dem Steuerkreuz wechselt in der Bibliothek mit einem Druck zur nächsten Kachel, und Erklärungen zu Einstellungen öffnen sich mit nur einer Animation.

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_layout_kind_button">Кнопка клавіатури або миші</string>
+    <string name="touch_layout_kind_gamepad">Кнопка геймпада</string>
+    <string name="touch_layout_kind_stick">Аналоговий стік</string>
+    <string name="touch_layout_kind_trigger">Аналоговий тригер</string>
+    <string name="touch_layout_kind_dpad">D-pad</string>
+    <string name="touch_layout_kind_wasd">Стік WASD (надсилає клавіші)</string>
+    <string name="touch_layout_side">Бік</string>
+    <string name="touch_layout_side_left">Лівий</string>
+    <string name="touch_layout_side_right">Правий</string>
+    <string name="touch_layout_floating">Плаваючий: центр там, де торкнувся великий палець</string>
+    <string name="touch_layout_deadzone">Мертва зона (% ходу стіка, 0–50)</string>
+    <string name="touch_layout_wasd_keys">Клавіші для вгору, вліво, вниз і вправо</string>
+    <string name="touch_layout_wasd_help">Чотири різні клавіші в цьому порядку, наприклад W + A + S + D або UP + LEFT + DOWN + RIGHT.</string>
+    <string name="touch_layout_diagonal">Діагоналі (градуси, 0–90): 0 ніколи не тримає дві клавіші, 45 дає вісім рівних напрямків</string>
+    <string name="touch_layout_snap">Прив’язка до сітки: %1$s</string>
+    <string name="touch_layout_snap_title">Прив’язка до сітки</string>
+    <string name="touch_layout_error_json">Це не розкладка Nightjar, не розкладка клавіатури Artemis і не файл власних клавіш Artemis.</string>
+    <string name="touch_layout_error_version">Ця розкладка має версію %1$s. Ця версія Nightjar читає розкладки версій 1 і 2; оновіть Nightjar, щоб імпортувати її.</string>
+    <string name="touch_layout_error_size">Розкладки обмежені 32 елементами керування та 64 КіБ.</string>
+    <string name="touch_layout_error_duplicate">Два елементи керування мають однаковий ID %1$s. Кожному елементу потрібен власний ID.</string>
+    <string name="touch_layout_error_control">Елемент керування %1$d (%2$s) має непідтримуваний тип, клавішу, кнопку або розмір.</string>
+    <string name="touch_layout_import_done">Розкладку імпортовано</string>
+    <plurals name="touch_layout_imported">
+        <item quantity="one">Імпортовано %d елемент керування.</item>
+        <item quantity="few">Імпортовано %d елементи керування.</item>
+        <item quantity="many">Імпортовано %d елементів керування.</item>
+        <item quantity="other">Імпортовано %d елемента керування.</item>
+    </plurals>
+    <string name="touch_layout_import_pixels">Artemis зберігає позиції в пікселях без розміру екрана, тому їх прочитано для цього екрана. Перевірте розташування.</string>
+    <string name="touch_layout_import_scaled">Розкладка Artemis виходила за межі цього екрана, і її зменшено. Перевірте розташування.</string>
+    <plurals name="touch_layout_import_hidden">
+        <item quantity="one">Пропущено %d елемент, вимкнений або прихований в Artemis.</item>
+        <item quantity="few">Пропущено %d елементи, вимкнені або приховані в Artemis.</item>
+        <item quantity="many">Пропущено %d елементів, вимкнених або прихованих в Artemis.</item>
+        <item quantity="other">Пропущено %d елемента, вимкнених або прихованих в Artemis.</item>
+    </plurals>
+    <string name="touch_layout_import_skipped">Не імпортовано:</string>
+    <string name="touch_layout_skip_no_equivalent">%1$s: у Nightjar немає відповідного елемента (наприклад, області тачпада Artemis)</string>
+    <string name="touch_layout_skip_key">%1$s: клавіша або клавіші разом із кнопками миші, які Nightjar не може надіслати</string>
+    <string name="touch_layout_skip_custom">%1$s: власна клавіша; виберіть її файл власних клавіш разом із файлом розкладки</string>
+    <string name="touch_layout_skip_center">%1$s: клавіша подвійного дотику в центрі стіка (сам стік імпортовано як стік WASD)</string>
+    <string name="touch_layout_skip_too_many">%1$s: понад ліміт у 32 елементи керування</string>
+    <string name="touch_layout_skip_size">%1$s: недійсний розмір</string>
+    <string name="library_import_controls">Імпортувати керування грою</string>
+    <string name="library_import_controls_note">Розкладка Nightjar або розкладка клавіатури й файл власних клавіш Artemis</string>
+    <string name="library_import_controls_title">Керування для %1$s</string>
+    <string name="library_import_controls_replace">Замінити екранне керування цієї гри на цьому ПК?</string>
+    <string name="library_import_controls_saved">Керування збережено. Воно з’явиться в наступній трансляції цієї гри.</string>
+    <string name="library_import_controls_error">Не вдалося прочитати файл.</string>
+</resources>

@@ -402,6 +402,149 @@ async fn serverinfo_extras_preserve_permissions_codecs_commands_and_limiter_unit
     assert!(root.get_child("ServerCommand").is_none());
 }
 
+/// `/serverinfo` of a host with the default configuration, byte for byte, unpaired over HTTP
+/// and paired over HTTPS. Anything a host adds later must be offered, so these stay as they
+/// are; only the host's own name, identity, version, profile and sleep support vary.
+#[tokio::test]
+async fn serverinfo_for_a_default_config_is_byte_identical() {
+    let f = Fixture::new();
+    let client = f.client(u32::MAX);
+    let config = butterpollo_core::config::Config::default();
+    let text = |response: Response| async move {
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        String::from_utf8(bytes.to_vec()).unwrap()
+    };
+    let unpaired = text(serverinfo_response(
+        &f.host,
+        &f.connection(false),
+        &config,
+        None,
+        true,
+        "00:00:00:00:00:00".into(),
+        0,
+        false,
+    ))
+    .await;
+    let paired = text(serverinfo_response(
+        &f.host,
+        &f.connection(true),
+        &config,
+        Some(&client),
+        true,
+        "01:02:03:04:05:06".into(),
+        1000,
+        true,
+    ))
+    .await;
+    let hostname = crate::network::host_name(&config);
+    let unique_id = f.host.paired.read().unwrap().unique_id.clone();
+    let version = env!("CARGO_PKG_VERSION");
+    let profile = butterpollo_core::migration::profile_id(&f.host.directory);
+    let sleep = u8::from(f.host.power.supported());
+    assert_eq!(
+        paired,
+        format!(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?><root status_code=\"200\">\
+             <NetworkPathVersion>1</NetworkPathVersion>\
+             <HardwareMetricsVersion>0</HardwareMetricsVersion>\
+             <NativeApiVersion>1</NativeApiVersion>\
+             <hostname>{hostname}</hostname>\
+             <appversion>7.1.431.-1</appversion>\
+             <GfeVersion>3.23.0.74</GfeVersion>\
+             <uniqueid>{unique_id}</uniqueid>\
+             <HttpsPort>47984</HttpsPort>\
+             <ExternalPort>47989</ExternalPort>\
+             <PairStatus>1</PairStatus>\
+             <currentgame>0</currentgame>\
+             <currentgameuuid></currentgameuuid>\
+             <state>SUNSHINE_SERVER_FREE</state>\
+             <LocalIP>127.0.0.1</LocalIP>\
+             <mac>01:02:03:04:05:06</mac>\
+             <MaxLumaPixelsHEVC>1869449984</MaxLumaPixelsHEVC>\
+             <ServerCodecModeSupport>769</ServerCodecModeSupport>\
+             <RustHostVersion>{version}</RustHostVersion>\
+             <RustHostEncoderBitrateKbps>0</RustHostEncoderBitrateKbps>\
+             <RustHostInitialEncoderBitrateKbps>0</RustHostInitialEncoderBitrateKbps>\
+             <RustHostSessionCount>0</RustHostSessionCount>\
+             <RustHostPendingSessionCount>0</RustHostPendingSessionCount>\
+             <RustHostApplicationActive>0</RustHostApplicationActive>\
+             <RustHostProfile>{profile}</RustHostProfile>\
+             <PyroWaveHostLinkMbps>1000</PyroWaveHostLinkMbps>\
+             <PyroWaveBandwidthProbeBytes>33554432</PyroWaveBandwidthProbeBytes>\
+             <PyroWaveUdpProbeVersion>1</PyroWaveUdpProbeVersion>\
+             <PyroWaveUdpHandshakeVersion>1</PyroWaveUdpHandshakeVersion>\
+             <PyroWaveUdpProbeBurstVersion>1</PyroWaveUdpProbeBurstVersion>\
+             <PyroWaveWireBudgetVersion>1</PyroWaveWireBudgetVersion>\
+             <PyroWaveCriticalFecPercentage>20</PyroWaveCriticalFecPercentage>\
+             <PyroWaveMinParityShards>2</PyroWaveMinParityShards>\
+             <Permission>4294967295</Permission>\
+             <FrameLimiterSupported>1</FrameLimiterSupported>\
+             <FrameLimiterEnabled>1</FrameLimiterEnabled>\
+             <VirtualDisplayFrameLimiterEnabled>1</VirtualDisplayFrameLimiterEnabled>\
+             <FrameLimiterFpsLimitMilliHz>0</FrameLimiterFpsLimitMilliHz>\
+             <VirtualDisplayCapable>true</VirtualDisplayCapable>\
+             <VirtualDisplayDriverReady>true</VirtualDisplayDriverReady>\
+             <ControllerPreparation>1</ControllerPreparation>\
+             <VirtualDisplayHDRCapable>true</VirtualDisplayHDRCapable>\
+             <PowerActionVersion>1</PowerActionVersion>\
+             <SleepSupported>{sleep}</SleepSupported>\
+             <SleepAllowed>0</SleepAllowed>\
+             </root>"
+        ),
+        "{paired}"
+    );
+    assert_eq!(
+        unpaired,
+        format!(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?><root status_code=\"200\">\
+             <NetworkPathVersion>0</NetworkPathVersion>\
+             <HardwareMetricsVersion>0</HardwareMetricsVersion>\
+             <NativeApiVersion>0</NativeApiVersion>\
+             <hostname>{hostname}</hostname>\
+             <appversion>7.1.431.-1</appversion>\
+             <GfeVersion>3.23.0.74</GfeVersion>\
+             <uniqueid>{unique_id}</uniqueid>\
+             <HttpsPort>47984</HttpsPort>\
+             <ExternalPort>47989</ExternalPort>\
+             <PairStatus>0</PairStatus>\
+             <currentgame>0</currentgame>\
+             <currentgameuuid></currentgameuuid>\
+             <state>SUNSHINE_SERVER_FREE</state>\
+             <LocalIP>127.0.0.1</LocalIP>\
+             <mac>00:00:00:00:00:00</mac>\
+             <MaxLumaPixelsHEVC>1869449984</MaxLumaPixelsHEVC>\
+             <ServerCodecModeSupport>769</ServerCodecModeSupport>\
+             <RustHostVersion>{version}</RustHostVersion>\
+             <RustHostEncoderBitrateKbps>0</RustHostEncoderBitrateKbps>\
+             <RustHostInitialEncoderBitrateKbps>0</RustHostInitialEncoderBitrateKbps>\
+             <RustHostSessionCount>0</RustHostSessionCount>\
+             <RustHostPendingSessionCount>0</RustHostPendingSessionCount>\
+             <RustHostApplicationActive>0</RustHostApplicationActive>\
+             <RustHostProfile>{profile}</RustHostProfile>\
+             <PyroWaveHostLinkMbps>0</PyroWaveHostLinkMbps>\
+             <PyroWaveBandwidthProbeBytes>0</PyroWaveBandwidthProbeBytes>\
+             <PyroWaveUdpProbeVersion>0</PyroWaveUdpProbeVersion>\
+             <PyroWaveUdpHandshakeVersion>0</PyroWaveUdpHandshakeVersion>\
+             <PyroWaveUdpProbeBurstVersion>0</PyroWaveUdpProbeBurstVersion>\
+             <PyroWaveWireBudgetVersion>0</PyroWaveWireBudgetVersion>\
+             <PyroWaveCriticalFecPercentage></PyroWaveCriticalFecPercentage>\
+             <PyroWaveMinParityShards></PyroWaveMinParityShards>\
+             <Permission>0</Permission>\
+             <FrameLimiterSupported>1</FrameLimiterSupported>\
+             <FrameLimiterEnabled>1</FrameLimiterEnabled>\
+             <VirtualDisplayFrameLimiterEnabled>1</VirtualDisplayFrameLimiterEnabled>\
+             <FrameLimiterFpsLimitMilliHz>0</FrameLimiterFpsLimitMilliHz>\
+             <VirtualDisplayCapable>true</VirtualDisplayCapable>\
+             <VirtualDisplayDriverReady>false</VirtualDisplayDriverReady>\
+             <ControllerPreparation>1</ControllerPreparation>\
+             <VirtualDisplayHDRCapable>true</VirtualDisplayHDRCapable>\
+             </root>"
+        ),
+        "{unpaired}"
+    );
+}
+
 #[tokio::test]
 async fn serverinfo_carries_the_packed_444_modes_only_when_packed_is_on() {
     use butterpollo_core::packed444::mode_bit;

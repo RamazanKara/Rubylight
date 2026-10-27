@@ -15,6 +15,7 @@ use std::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+mod extension_tests;
 mod interop_tests;
 mod roaming_tests;
 mod webrtc_tests;

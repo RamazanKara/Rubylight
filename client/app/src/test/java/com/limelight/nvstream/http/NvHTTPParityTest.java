@@ -612,6 +612,32 @@ public class NvHTTPParityTest {
     }
 
     @Test
+    public void theFecChoiceGoesOnlyToAHostThatTakesIt() throws Exception {
+        assertFalse(context("butterpollo-serverinfo.xml").hostCaps.has(HostCapabilities.Feature.CLIENT_FEC));
+        assertTrue(context("rubylight-30-serverinfo.xml").hostCaps.has(HostCapabilities.Feature.CLIENT_FEC));
+        for (String server : new String[] {"butterpollo-serverinfo.xml", "rubylight-30-serverinfo.xml"}) {
+            ConnectionContext context = context(server);
+            String plain = NvHTTP.getLaunchQuery(context, 42, false);
+            assertFalse(server, plain.contains(FecChoice.LAUNCH_PARAMETER));
+            context.fecChoice = FecChoice.AUTO;
+            String asked = NvHTTP.getLaunchQuery(context, 42, false);
+            if (!context.hostCaps.has(HostCapabilities.Feature.CLIENT_FEC)) {
+                // A host without FecControlVersion gets exactly the query it got before.
+                assertEquals(server, plain, asked);
+                continue;
+            }
+            // The rest of the query stays byte for byte; the choice comes last, before the core's corever.
+            assertEquals(plain + "&rlFecPercentage=auto", asked);
+            context.fecChoice = FecChoice.HOST;
+            assertEquals("host", query(context, false).queryParameter("rlFecPercentage"));
+            context.fecChoice = FecChoice.fixed(255);
+            assertEquals("255", query(context, false).queryParameter("rlFecPercentage"));
+        }
+        assertThrows(IllegalArgumentException.class, () -> FecChoice.fixed(256));
+        assertThrows(IllegalArgumentException.class, () -> FecChoice.fixed(-1));
+    }
+
+    @Test
     public void renderScaleDoesNotChangeTheStreamViewport() throws Exception {
         ConnectionContext context = context("butterpollo-serverinfo.xml");
         context.streamConfig = new StreamConfiguration.Builder().setLaunchRefreshRate(144)

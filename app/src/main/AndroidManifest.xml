@@ -121,6 +121,7 @@
              in each activity even though it is implied by targeting API 24+ -->
 
         <activity android:name=".RemoteSetupActivity" android:exported="false" android:resizeableActivity="true" />
+        <activity android:name=".FolderBrowserActivity" android:exported="false" android:resizeableActivity="true" />
         <activity
             android:name=".PcView"
             android:exported="true"

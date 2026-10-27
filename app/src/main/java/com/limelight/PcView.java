@@ -160,6 +160,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
     private final static int PAIRING_HELP_ID = HostMenu.PAIRING_HELP;
     private final static int RENAME_ID = HostMenu.RENAME;
     private final static int SLEEP_ID = HostMenu.SLEEP;
+    private final static int SHARED_FOLDERS_ID = HostMenu.SHARED_FOLDERS;
 
     /** How long a row says "Waking…" after a wake signal while the PC has not answered. */
     static final long WAKE_WINDOW_MS = 2 * 60 * 1000;
@@ -494,7 +495,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
     }
 
     /**
-     * The PC's menu, in this order: Open library, Resume and Quit, Pair, one-time PIN, Wake or Sleep, PC settings,
+     * The PC's menu, in this order: Open library, Resume and Quit, Shared folders, Pair, one-time PIN, Wake or Sleep, PC settings,
      * Rename, Unpair or Pairing help, then Remove PC last. Touch reaches it by long press or the three
      * dots, a mouse by right-click, a D-pad or keyboard by Menu or Shift+F10, a controller by X.
      */
@@ -603,6 +604,10 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
 
             case PC_SETTINGS_ID:
                 HostStreamSettings.show(this, computer.details.uuid, computer.details.displayName());
+                return true;
+
+            case SHARED_FOLDERS_ID:
+                FolderBrowserActivity.open(this, computer.details);
                 return true;
 
             case PAIRING_HELP_ID:

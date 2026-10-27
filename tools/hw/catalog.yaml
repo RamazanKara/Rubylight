@@ -345,3 +345,23 @@ cases:
     output: '{{out}}\host-*.log, {{out}}\auto-*.log (host log excerpts), {{out}}\nightjar-*.txt (overlay stats)'
     status: pending
     note: needs the Nightjar error-correction setting (Host, Auto, percentage) and the 0x5539 sender. Steps through adb, one arm at a time with the device about 8 m and one wall from the access point; read "client fec choice" and the 5 s "stream timings" lines from the host log after each run
+
+  - id: usb-forward-flash-drive
+    device: desktop
+    title: USB forwarding (Experimental), the STORE N GO flash drive from Nightjar desktop to an isolated host on this PC
+    command: 'Write-Error "not scripted yet: see note"; exit 1'
+    preconditions: [idle, isolated-ports, system]
+    pass: the console shows the drive "Attached on port N", Windows mounts it through usbip-win2 with the same directory listing and file hash as before; Detach clears it (usbip.exe port lists nothing, no "Detach failed"); afterwards the stick is on USBSTOR again with the same listing and hash
+    output: '{{out}}\usb-flash-drive.txt (listing and hashes before, attached and after; pnputil driver before and after)'
+    status: pending
+    note: steps, driver bind and restore in hw-queue.md (usb-forward-flash-drive); only USB\VID_18A5&PID_0302\07B4150705D2E144, never a keyboard, mouse, controller or hub; read only, never format or write
+
+  - id: usb-forward-gamepad
+    device: user
+    title: USB forwarding (Experimental), a USB gamepad from Nightjar desktop on the laptop
+    command: 'the user attaches a spare USB gamepad from Nightjar on the laptop during a stream, tests it in joy.cpl on the PC, detaches it'
+    preconditions: [idle]
+    pass: the PC lists the gamepad while it is attached, every button and stick reacts in joy.cpl, Detach removes it, and the laptop uses it normally again after its driver is restored
+    output: the host log's usb lines and the console's USB devices panel (read after the user's run)
+    status: pending
+    note: user-tests.md usb-forward-gamepad; needs WinUSB on the laptop for that gamepad only (Zadig), restored afterwards

@@ -9,6 +9,7 @@ Rubylight, called Butterpollo until rc.29, is written in Rust: host, native help
 ## Unreleased
 
 - Nightjar on Android and desktop has an Error correction setting: leave it to the PC, let it follow the device's losses, or fix it at 10 to 50 %. On shaped Wi-Fi links following the device's losses cut median loss from 2.37 to 0.26 % and freezes from 21 to 1 against the PC's adaptive error correction. The PC's setting stays the default until automatic has been measured on a phone over Wi-Fi. A link test before the first automatic bitrate is there too, as an Experimental setting that is off by default: on a shaped 50 Mbit/s link it held the encoder at 28-30 Mbps instead of 59, with more loss and freezes.
+- **USB forwarding (Experimental).** A USB device plugged into a client, such as a flash drive or a USB gamepad, can be attached to this PC during a stream. The client serves it over USB/IP inside a TLS tunnel on the stream's HTTPS port and usbip-win2 attaches it here; no USB/IP port is open to the network. It is off until you turn on **USB forwarding** under General and tick **USB devices** in a device's permissions; **USB devices at once** (1 to 16, default 4) caps how many devices this PC takes at the same time. The Devices page lists each client's attached devices with their state and a Detach button, and a failed detach says why. Nightjar for Windows and Linux forwards devices from its stream controls; on Windows a device needs the WinUSB driver. [Setup and limits](../docs/usb-forwarding.md).
 
 ## New in 3.0.0-rc.3
 

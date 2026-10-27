@@ -12,6 +12,7 @@ import android.os.Bundle;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.PreferenceConfiguration;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -46,6 +47,12 @@ public class MediaCodecHevcLowLatencyTest {
     @Before
     public void setUp() {
         ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);
+        ReflectionHelpers.setStaticField(MediaCodecHelper.class, "isFireTv", false);
+    }
+
+    @After
+    public void tearDown() {
+        ReflectionHelpers.setStaticField(MediaCodecHelper.class, "isFireTv", false);
     }
 
     @Test
@@ -71,8 +78,8 @@ public class MediaCodecHevcLowLatencyTest {
 
     @Test
     @Config(sdk = {28, 34})
-    public void amlogicHevcDecodersNeverGetTheFlagsWithoutTheOptIn() {
-        for (String name : new String[] {AML_HEVC, "OMX.amlogic.hevc.decoder.awesome2"}) {
+    public void codec2AmlogicHevcDecodersNeverGetTheFlagsWithoutTheOptIn() {
+        for (String name : new String[] {AML_HEVC, "C2.Amlogic.hevc.decoder.secure"}) {
             for (String model : new String[] {"MiTV-AYFR0", "Homatics Box 4K Pro V2", "Chromecast", "AFTMM"}) {
                 ShadowBuild.setModel(model);
                 MediaCodecInfo decoder = decoder(name, HEVC);
@@ -98,12 +105,14 @@ public class MediaCodecHevcLowLatencyTest {
         int auto = PreferenceConfiguration.HEVC_LOW_LATENCY_AUTO;
         int on = PreferenceConfiguration.HEVC_LOW_LATENCY_ON;
         int off = PreferenceConfiguration.HEVC_LOW_LATENCY_OFF;
-        for (String name : new String[] {AML_HEVC, "OMX.amlogic.hevc.decoder.awesome2", "omx.amlogic.hevc.decoder"}) {
+        for (String name : new String[] {AML_HEVC, "C2.Amlogic.hevc.decoder.secure"}) {
             assertTrue(name, MediaCodecHelper.omitsHevcLowLatencyFlags(HEVC, name, auto));
             assertFalse(name, MediaCodecHelper.omitsHevcLowLatencyFlags(HEVC, name, on));
             assertTrue(name, MediaCodecHelper.omitsHevcLowLatencyFlags(HEVC, name, off));
         }
-        for (String name : new String[] {OTHER_HEVC, "c2.qti.hevc.decoder", "c2.exynos.hevc.decoder"}) {
+        // The stall reports (erratum 22) are Codec2 only: Auto keeps the flags on the OMX decoders.
+        for (String name : new String[] {OTHER_HEVC, "c2.qti.hevc.decoder", "c2.exynos.hevc.decoder",
+                "OMX.amlogic.hevc.decoder.awesome2", "omx.amlogic.hevc.decoder"}) {
             assertFalse(name, MediaCodecHelper.omitsHevcLowLatencyFlags(HEVC, name, auto));
             assertFalse(name, MediaCodecHelper.omitsHevcLowLatencyFlags(HEVC, name, on));
             assertTrue(name, MediaCodecHelper.omitsHevcLowLatencyFlags(HEVC, name, off));
@@ -118,7 +127,7 @@ public class MediaCodecHevcLowLatencyTest {
 
     @Test
     public void onRestoresEveryLowLatencyFlagOnAmlogicHevcDecoders() {
-        for (String name : new String[] {AML_HEVC, "OMX.amlogic.hevc.decoder.awesome2"}) {
+        for (String name : new String[] {AML_HEVC, "C2.Amlogic.hevc.decoder.secure"}) {
             MediaFormat format = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
             assertTrue(MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder(name, HEVC), 0,
                     true, true, true, PreferenceConfiguration.HEVC_LOW_LATENCY_ON, false));
@@ -137,6 +146,32 @@ public class MediaCodecHevcLowLatencyTest {
                 false, false, true, PreferenceConfiguration.HEVC_LOW_LATENCY_ON, false);
         assertFalse(format.containsKey(AML_LOW_LATENCY));
         assertFalse(format.containsKey(MediaFormat.KEY_LOW_LATENCY));
+    }
+
+    // Fire OS: the OMX Amlogic decoders (Fire TV Cube, Fire TV 3 on Fire OS 7) and any Codec2 one
+    // keep the HEVC flags under Auto; only Off leaves them out.
+    @Test
+    @Config(sdk = {28, 34})
+    public void fireTvAmlogicDecodersKeepTheFlagsUnderAuto() {
+        ShadowBuild.setManufacturer("Amazon");
+        ShadowBuild.setModel("AFTR");
+        ReflectionHelpers.setStaticField(MediaCodecHelper.class, "isFireTv", true);
+        for (String name : new String[] {"OMX.amlogic.hevc.decoder.awesome2", AML_HEVC}) {
+            MediaFormat format = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
+            assertTrue(name, MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder(name, HEVC), 0,
+                    true, true, false, PreferenceConfiguration.HEVC_LOW_LATENCY_AUTO, false));
+            assertEquals(name, 1, format.getInteger(MediaFormat.KEY_LOW_LATENCY));
+            assertEquals(name, 1, format.getInteger(AML_LOW_LATENCY));
+            assertTrue(name, MediaCodecHelper.omitsHevcLowLatencyFlags(HEVC, name, PreferenceConfiguration.HEVC_LOW_LATENCY_OFF));
+        }
+        // Off the Fire TV, the OMX decoder keeps them under Auto too.
+        ReflectionHelpers.setStaticField(MediaCodecHelper.class, "isFireTv", false);
+        ShadowBuild.setManufacturer("Xiaomi");
+        MediaFormat format = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
+        MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder("OMX.amlogic.hevc.decoder.awesome2", HEVC), 0,
+                true, true, false, PreferenceConfiguration.HEVC_LOW_LATENCY_AUTO, false);
+        assertEquals(1, format.getInteger(MediaFormat.KEY_LOW_LATENCY));
+        assertEquals(1, format.getInteger(AML_LOW_LATENCY));
     }
 
     @Test

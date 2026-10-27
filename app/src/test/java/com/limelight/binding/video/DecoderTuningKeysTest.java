@@ -327,7 +327,7 @@ public class DecoderTuningKeysTest {
         String[][] cases = {
                 {"c2.exynos.hevc.decoder", "vendor.rtc-ext-dec-low-latency.enable"},
                 {"OMX.hisi.video.decoder.hevc", "vendor.hisi-ext-low-latency-video-dec.video-scene-for-low-latency-req"},
-                // Amlogic HEVC decoders get no low-latency flags (MediaCodecHevcLowLatencyTest).
+                // Codec2 Amlogic HEVC decoders get no low-latency flags on Auto (MediaCodecHevcLowLatencyTest).
                 {"c2.amlogic.avc.decoder", "vendor.low-latency.enable"},
         };
         for (String[] c : cases) {

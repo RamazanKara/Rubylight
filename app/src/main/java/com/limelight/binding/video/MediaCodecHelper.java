@@ -56,6 +56,8 @@ public class MediaCodecHelper {
 
     private static boolean isLowEndSnapdragon = false;
     private static boolean isAdreno620 = false;
+    // Amazon Fire TV (the amazon.hardware.fire_tv feature), set by initialize().
+    private static boolean isFireTv = false;
     private static boolean initialized = false;
 
     static {
@@ -361,7 +363,8 @@ public class MediaCodecHelper {
         // Older Sony ATVs (SVP-DTV15) have broken MediaTek codecs (decoder hangs after rendering the first frame).
         // I know the Fire TV 2 and 3 works, so I'll whitelist Amazon devices which seem to actually be tested.
         // We still have to check Build.MANUFACTURER to catch Amazon Fire tablets.
-        if (context.getPackageManager().hasSystemFeature("amazon.hardware.fire_tv") ||
+        isFireTv = context.getPackageManager().hasSystemFeature("amazon.hardware.fire_tv");
+        if (isFireTv ||
                 Build.MANUFACTURER.equalsIgnoreCase("Amazon")) {
             // HEVC and RFI have been confirmed working on Fire TV 2, Fire TV Stick 2, Fire TV 4K Max,
             // Fire HD 8 2020, and Fire HD 8 2022 models.
@@ -627,17 +630,28 @@ public class MediaCodecHelper {
     /**
      * Whether a decoder goes without the Android and vendor low-latency flags under the HEVC
      * low-latency mode, Moonlight V+'s HevcLowLatencyPolicy (qiin2333/moonlight-vplus, GPL-3.0):
-     * only HEVC is affected; Off leaves them out on every decoder, On on none, and Auto on Amlogic
-     * decoders, which configure fine with them and then show about one frame a second (erratum 22,
-     * V+ issue 499, moonlight-android 1584), which no configure fallback can catch.
+     * only HEVC is affected; Off leaves them out on every decoder, On on none, and Auto on the
+     * decoders of {@link #autoOmitsHevcLowLatencyFlags}.
      */
     static boolean omitsHevcLowLatencyFlags(String mimeType, String decoderName, int hevcLowLatencyMode) {
         if (!"video/hevc".equals(mimeType)) return false;
         switch (hevcLowLatencyMode) {
             case PreferenceConfiguration.HEVC_LOW_LATENCY_OFF: return true;
             case PreferenceConfiguration.HEVC_LOW_LATENCY_ON: return false;
-            default: return isDecoderInList(amlogicDecoderPrefixes, decoderName);
+            default: return autoOmitsHevcLowLatencyFlags(decoderName);
         }
+    }
+
+    /**
+     * Auto's exception: Codec2 Amlogic decoders, which configure fine with the flags and then show
+     * about one frame a second (erratum 22, c2.amlogic.hevc.decoder; V+ issue 499,
+     * moonlight-android 1584), which no configure fallback can catch. V+ also lists omx.amlogic,
+     * but the reports are Codec2 only. Fire TV is left out: its Amlogic decoders run HEVC with
+     * low-latency decoding (the Fire TV 3 shows no frames without it) and no report there shows
+     * the stall.
+     */
+    static boolean autoOmitsHevcLowLatencyFlags(String decoderName) {
+        return !isFireTv && decoderName.toLowerCase(Locale.ROOT).startsWith("c2.amlogic");
     }
 
     public static boolean setDecoderLowLatencyOptions(MediaFormat videoFormat, MediaCodecInfo decoderInfo, int tryNumber,
@@ -652,7 +666,7 @@ public class MediaCodecHelper {
         // HEVC low-latency mode decides, independent of decoder performance hints.
         String mime = videoFormat.getString(MediaFormat.KEY_MIME);
         boolean disableLowLatency = omitsHevcLowLatencyFlags(mime, decoderInfo.getName(), hevcLowLatencyMode);
-        boolean amlogic = "video/hevc".equals(mime) && isDecoderInList(amlogicDecoderPrefixes, decoderInfo.getName());
+        boolean amlogic = "video/hevc".equals(mime) && autoOmitsHevcLowLatencyFlags(decoderInfo.getName());
         if (amlogic && tryNumber == 0 && (lowLatency || vendorLowLatency)) {
             if (hevcLowLatencyMode == PreferenceConfiguration.HEVC_LOW_LATENCY_AUTO) {
                 LimeLog.warning("HEVC low-latency flags omitted on Amlogic decoder " + decoderInfo.getName() +

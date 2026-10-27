@@ -118,6 +118,41 @@ public class AppThemeTest {
         }
     }
 
+    /** A TV in system light mode (a Shield) drew the day palette's dark text on the dark TV canvas. */
+    @Test
+    @Config(qualifiers = "television")
+    public void aTvKeepsTheNightPaletteWithTheSystemThemeInLightMode() {
+        ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup();
+        try {
+            Screen screen = controller.get();
+            assertTrue(AppTheme.isDark(screen));
+            assertEquals(screen.getColor(com.limelight.R.color.night_surface),
+                    MaterialColors.getColor(screen, com.google.android.material.R.attr.colorSurface, 0));
+            int text = MaterialColors.getColor(screen, com.google.android.material.R.attr.colorOnSurface, 0);
+            assertTrue("light text on the TV canvas", androidx.core.graphics.ColorUtils.calculateContrast(text,
+                    screen.getColor(com.limelight.R.color.tv_canvas)) >= 7);
+            assertEquals(screen.getString(com.limelight.R.string.theme_system_tv),
+                    screen.getResources().getStringArray(com.limelight.R.array.theme_choice_names)[0]);
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void aPhoneFollowsTheSystemTheme() {
+        ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup();
+        try {
+            Screen screen = controller.get();
+            assertFalse(AppTheme.isDark(screen));
+            assertNotEquals(screen.getColor(com.limelight.R.color.night_surface),
+                    MaterialColors.getColor(screen, com.google.android.material.R.attr.colorSurface, 0));
+            assertEquals(screen.getString(com.limelight.R.string.theme_system),
+                    screen.getResources().getStringArray(com.limelight.R.array.theme_choice_names)[0]);
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     @Test
     public void blackDialogsAndSheetsGetAnOutline() {
         black(true);

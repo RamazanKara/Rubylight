@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- On a TV the System choice keeps the night palette (AppTheme.isDark), and says so. -->
+    <string-array name="theme_choice_names" translatable="false"><item>@string/theme_system_tv</item><item>@string/theme_dark</item><item>@string/title_oled_black</item></string-array>
+</resources>

@@ -60,6 +60,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // Chosen for 10-bit SDR only (null when the usual decoder serves): the 8-bit formats never use them.
     private MediaCodecInfo hevcDecoder10;
     private MediaCodecInfo av1Decoder10;
+    // A hardware video/dolby-vision profile 8 decoder, looked for only when HDR is asked for. An
+    // ANNOUNCE that asked for Dolby Vision decodes through it until it fails (then the same stream
+    // goes to the HEVC decoder for good); dolbyVisionActive is the decoder running now.
+    private MediaCodecInfo dolbyVisionDecoder;
+    private volatile int announcedHdrFormat;
+    private volatile boolean dolbyVisionFailed;
+    private volatile boolean dolbyVisionActive;
 
     private final ArrayList<byte[]> vpsBuffers = new ArrayList<>();
     private final ArrayList<byte[]> spsBuffers = new ArrayList<>();
@@ -1107,7 +1114,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         if (!tenBit) return text + "\n8-bit SDR";
         Boolean hdr = currentHdrMode;
         return text + "\n10-bit " + (hdr == null ? "(waiting for the PC's HDR report)" :
-                hdr ? "HDR10" : "SDR (the PC reports SDR)");
+                hdr ? HdrFormatPolicy.baseLayerName(announcedHdrFormat) : "SDR (the PC reports SDR)");
     }
 
     private String upscalingStats() {
@@ -1275,6 +1282,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
 
         selectHevcAndAv1Decoders(prefs, meteredData, requestedHdr, false);
+        if (requestedHdr) {
+            dolbyVisionDecoder = MediaCodecHelper.findDolbyVisionDecoder();
+            LimeLog.info(dolbyVisionDecoder != null ? "Dolby Vision profile 8 decoder: " + dolbyVisionDecoder.getName() :
+                    "No Dolby Vision profile 8 decoder");
+        }
         if (Sdr10Policy.decoderChoiceMayChange(prefs.enableSdr10Bit, requestedHdr,
                 prefs.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE, prefs.experimentalPacked444)) {
             // 10-bit SDR may pick other decoders, but only for its own 10-bit formats and only ones that
@@ -1691,6 +1703,53 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         this.sdr10 = sdr10;
     }
 
+    @Override
+    public int pickHdrFormat(int hostHdrFormats, int videoFormats, boolean packed444) {
+        if (hostHdrFormats == 0) return 0;
+        int[] displayTypes = HdrPolicy.displayHdrTypes(outputDisplay);
+        // The outputs this client draws itself are BT.2020/PQ surfaces (HdrFormatPolicy).
+        String pqSurface = packed444 ? "packed full chroma" :
+                (videoFormats & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 ? "PyroWave" :
+                VideoRendererChoice.choose(prefs.vulkanRender, false, Build.VERSION.SDK_INT,
+                        VulkanRendererBridge::isSupported, false, prefs.upscalingMode).renderer ==
+                        VideoRendererChoice.Renderer.VULKAN ? "the Vulkan renderer" : null;
+        int format = HdrFormatPolicy.pick(hostHdrFormats, displayTypes, dolbyVisionDecoder != null, pqSurface != null);
+        LimeLog.info("HDR formats: the PC offers 0x" + Integer.toHexString(hostHdrFormats) + ", asking for " +
+                HdrFormatPolicy.name(format) + (pqSurface != null ? " (" + pqSurface + " draws PQ only)" :
+                dolbyVisionDecoder == null ? " (no Dolby Vision decoder)" : ""));
+        if (pqSurface != null && !HdrPolicy.hasHdr10(displayTypes) &&
+                HdrFormatPolicy.hlgInstead(hostHdrFormats, displayTypes)) {
+            LimeLog.warning("The screen reports HLG and no HDR10, but " + pqSurface +
+                    " draws PQ only: this stream is HDR10");
+        }
+        return format;
+    }
+
+    @Override
+    public void setAnnouncedHdrFormat(int format) {
+        announcedHdrFormat = format;
+        dolbyVisionFailed = false;
+        if (format != 0) LimeLog.info("HDR format announced: " + HdrFormatPolicy.name(format));
+    }
+
+    /** The format this stream's ANNOUNCE asked for, 0 for stock HDR10. */
+    public int getAnnouncedHdrFormat() {
+        return announcedHdrFormat;
+    }
+
+    /** The colour transfer this stream's HDR is in: HLG for HLG and Dolby Vision 8.4, else PQ. */
+    public int getStreamTransfer() {
+        return HdrFormatPolicy.transfer(announcedHdrFormat);
+    }
+
+    // The next HEVC decoder is the Dolby Vision one: asked for, not failed, not packed (that output
+    // is not the picture) and 10-bit.
+    private boolean dolbyVisionDecoding() {
+        return HdrFormatPolicy.dolbyVision(announcedHdrFormat) && dolbyVisionDecoder != null && !dolbyVisionFailed &&
+                packing == null && (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0 &&
+                (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
+    }
+
     /** The host's last HDR report, null until it has sent one. */
     public Boolean getHostHdrReport() {
         return currentHdrMode;
@@ -1703,11 +1762,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     /**
      * The colour transfer the decoder reports for its output, or null when there is none to judge:
      * before the first frame, on the PyroWave and packed paths (their output is not the codec's),
-     * or when the decoder leaves the key out.
+     * through a Dolby Vision decoder (it maps the picture for the screen itself), or when the
+     * decoder leaves the key out.
      */
     public Integer getDecodedTransfer() {
         MediaFormat format = outputFormat;
-        if (format == null || packing != null || upscaler != null ||
+        if (format == null || packing != null || upscaler != null || dolbyVisionActive ||
                 (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 ||
                 Build.VERSION.SDK_INT < Build.VERSION_CODES.N ||
                 !format.containsKey(MediaFormat.KEY_COLOR_TRANSFER)) {
@@ -1785,6 +1845,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             videoFormat.setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileHigh444);
         } else if (this.videoFormat == MoonBridge.VIDEO_FORMAT_H265_REXT8_444) {
             videoFormat.setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.HEVCProfileMain444);
+        } else if (HdrFormatPolicy.MIME_DOLBY_VISION.equals(mimeType)) {
+            videoFormat.setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheSt);
         }
 
         // Avoid setting KEY_FRAME_RATE on Lollipop and earlier to reduce compatibility risk
@@ -1859,8 +1921,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // The colour keys the codec is configured with: SDR/BT.709 (or 601) and no mastering metadata
     // unless HDR is taken to be on, which a 10-bit SDR stream is not until the PC says so.
     static void applyConfigureColor(MediaFormat format, boolean hdr, int colorSpace, byte[] hdrMetadata) {
-        format.setInteger(MediaFormat.KEY_COLOR_TRANSFER, hdr ?
-                MediaFormat.COLOR_TRANSFER_ST2084 : MediaFormat.COLOR_TRANSFER_SDR_VIDEO);
+        applyConfigureColor(format, hdr, colorSpace, hdrMetadata, MediaFormat.COLOR_TRANSFER_ST2084);
+    }
+
+    // hdrTransfer is the stream's HDR transfer (HdrFormatPolicy.transfer): PQ, or HLG.
+    static void applyConfigureColor(MediaFormat format, boolean hdr, int colorSpace, byte[] hdrMetadata,
+                                    int hdrTransfer) {
+        format.setInteger(MediaFormat.KEY_COLOR_TRANSFER, hdr ? hdrTransfer : MediaFormat.COLOR_TRANSFER_SDR_VIDEO);
         format.setInteger(MediaFormat.KEY_COLOR_STANDARD, hdr ? MediaFormat.COLOR_STANDARD_BT2020 :
                 colorSpace == MoonBridge.COLORSPACE_REC_601 ?
                         MediaFormat.COLOR_STANDARD_BT601_NTSC : MediaFormat.COLOR_STANDARD_BT709);
@@ -1877,7 +1944,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             }
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             boolean hdr = currentHdrMode != null ? currentHdrMode : assumesHdr();
-            applyConfigureColor(format, hdr, getPreferredColorSpace(), currentHdrMetadata);
+            applyConfigureColor(format, hdr, getPreferredColorSpace(), currentHdrMetadata, getStreamTransfer());
         }
 
         LimeLog.info("Configuring with format: "+format);
@@ -2082,6 +2149,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         else if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0) {
             mimeType = "video/hevc";
             selectedDecoderInfo = decoderFor(videoFormat);
+            if (dolbyVisionDecoding()) {
+                // Profile 8 is HEVC Main10 with RPUs: the HEVC decoder takes the same stream.
+                mimeType = HdrFormatPolicy.MIME_DOLBY_VISION;
+                selectedDecoderInfo = dolbyVisionDecoder;
+            }
 
             if (selectedDecoderInfo == null) {
                 LimeLog.severe("No available HEVC decoder!");
@@ -2111,6 +2183,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             return -3;
         }
 
+        boolean dolbyVision = HdrFormatPolicy.MIME_DOLBY_VISION.equals(mimeType);
+        dolbyVisionActive = false;
         adaptivePlayback = MediaCodecHelper.decoderSupportsAdaptivePlayback(selectedDecoderInfo, mimeType);
         fusedIdrFrame = MediaCodecHelper.decoderSupportsFusedIdrFrame(selectedDecoderInfo, mimeType);
 
@@ -2135,7 +2209,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             lowLatencyKeysApplied = triedKeys;
 
             // Throw the underlying codec exception on the last attempt if the caller requested it
-            if (tryConfigureDecoder(selectedDecoderInfo, mediaFormat, !newFormat && upscaler == null && throwOnCodecError)) {
+            // A Dolby Vision decoder that refuses every try falls back to HEVC below instead of throwing.
+            if (tryConfigureDecoder(selectedDecoderInfo, mediaFormat,
+                    !newFormat && upscaler == null && throwOnCodecError && !dolbyVision)) {
                 boolean androidLowLatency = mediaFormat.containsKey(MediaFormat.KEY_LOW_LATENCY) &&
                         mediaFormat.getInteger(MediaFormat.KEY_LOW_LATENCY) != 0;
                 outputBufferQueueLimit = DecoderQueuePolicy.outputLimit(selectedDecoderInfo.getName(),
@@ -2152,10 +2228,18 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                         " tuning keys applied: " +
                         describeKeys(lowLatencyKeysApplied) + "; dropped after rejected configures: " +
                         describeKeys(lowLatencyKeysDropped));
+                dolbyVisionActive = dolbyVision;
                 break;
             }
 
             if (!newFormat) {
+                if (dolbyVision) {
+                    dolbyVisionFailed = true;
+                    LimeLog.warning("Dolby Vision decoder " + selectedDecoderInfo.getName() +
+                            " refused the stream; decoding it as HEVC with its " +
+                            HdrFormatPolicy.baseLayerName(announcedHdrFormat) + " base layer");
+                    return initializeDecoder(throwOnCodecError);
+                }
                 if (upscaler != null && packing == null) {
                     LimeLog.warning("Retrying decoder formats without the upscaling surface");
                     closeUpscaler();
@@ -2421,6 +2505,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 if (codecRecoveryType.get() == CR_RECOVERY_TYPE_RESET) {
                     LimeLog.warning("Trying to recreate decoder after CodecException");
                     videoDecoder.release();
+                    if (dolbyVisionActive) {
+                        // The same stream decodes as HEVC; the Dolby Vision decoder is not tried again.
+                        dolbyVisionFailed = true;
+                        LimeLog.warning("Dolby Vision decoder failed while streaming; recreating the decoder for HEVC");
+                    }
 
                     try {
                         int err = initializeDecoder(true);
@@ -3415,8 +3504,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             String codec = (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 ? "PyroWave" :
                     (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_AV1) != 0 ? "AV1" :
                     (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0 ? "HEVC" : "H.264";
-            String color = Sdr10Policy.overlayColor((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0,
-                    sdr10, currentHdrMode);
+            String color = Boolean.TRUE.equals(currentHdrMode) ?
+                    HdrFormatPolicy.overlayWord(announcedHdrFormat, dolbyVisionActive) :
+                    Sdr10Policy.overlayColor((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0, sdr10, currentHdrMode);
             String stream = streamWidth + "×" + streamHeight + " · " + codec + " · " + color
                     + " · " + StreamEngine.label();
             StringBuilder video = new StringBuilder();

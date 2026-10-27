@@ -642,8 +642,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             // getHdrCapabilities() returns null on some devices (Lenovo Mirage Solo, Android 8.0).
             Display.HdrCapabilities hdrCaps = display.getHdrCapabilities();
             if (hdrCaps != null) {
-                // The same HDR10 test as the request: HLG alone does not make this an HDR10 output.
-                displayHdr = HdrPolicy.displayRefusal(display, true) == HdrPolicy.Refusal.NONE;
+                // The same test as the request: HLG alone makes this an HDR output only when the host streams HLG.
+                displayHdr = HdrPolicy.displayRefusal(display, true, conn.getHostDetails().caps.hdrFormats()) ==
+                        HdrPolicy.Refusal.NONE;
                 maxNits = hdrCaps.getDesiredMaxLuminance();
                 maxAverageNits = hdrCaps.getDesiredMaxAverageLuminance();
                 minNits = hdrCaps.getDesiredMinLuminance();
@@ -1213,7 +1214,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         // Check if the user has enabled HDR
         boolean willStreamHdr = false;
         if (mediaStream && prefConfig.enableHdr) {
-            HdrPolicy.Refusal refusal = HdrPolicy.displayRefusal(getVideoDisplay(), true);
+            HdrPolicy.Refusal refusal = HdrPolicy.displayRefusal(getVideoDisplay(), true,
+                    cachedCaps == null ? 0 : cachedCaps.hdrFormats());
             willStreamHdr = refusal == HdrPolicy.Refusal.NONE;
             if (!willStreamHdr) refuseHdr(refusal);
         }
@@ -7040,7 +7042,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             int format = decoderRenderer.getActiveVideoFormat();
             HdrPolicy.Status status = format == 0 ? HdrPolicy.Status.WAITING : HdrPolicy.status(true,
                     (format & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0, decoderRenderer.getHostHdrReport(),
-                    decoderRenderer.getHdrMetadataState(), decoderRenderer.getDecodedTransfer());
+                    decoderRenderer.getHdrMetadataState(), decoderRenderer.getDecodedTransfer(),
+                    decoderRenderer.getStreamTransfer());
             int res = hdrStatusText(status);
             if (res != 0) text = getString(res);
             if (status != lastHdrStatus) {

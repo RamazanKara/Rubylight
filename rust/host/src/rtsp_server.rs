@@ -213,6 +213,11 @@ async fn connection(
                             );
                         }
                     }
+                    body.extend_from_slice(
+                        crate::extensions::offered(&h, &config)
+                            .describe_lines()
+                            .as_bytes(),
+                    );
                     if mic {
                         body.extend_from_slice(butterpollo_core::mic::sdp(ports.mic).as_bytes());
                     }
@@ -291,6 +296,7 @@ async fn connection(
                         butterpollo_core::stream_policy::apply_color(&mut negotiated, &config);
                     }
                     negotiated.validate()?;
+                    crate::extensions::offered(&h, &config).check_announce(&negotiated)?;
                     if negotiated.chroma_packing != 0 {
                         anyhow::ensure!(
                             config.boolean("experimental_packed_444", false),

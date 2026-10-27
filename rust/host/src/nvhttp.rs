@@ -618,6 +618,7 @@ fn serverinfo_response(
                 .to_string(),
         ));
     }
+    fields.extend(crate::extensions::offered(h, config).serverinfo_fields());
     fields.extend(commands.into_iter().map(|name| ("ServerCommand", name)));
     xml(200, &fields, None)
 }

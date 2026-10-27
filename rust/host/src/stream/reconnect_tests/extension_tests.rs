@@ -32,7 +32,60 @@ async fn describe_for_a_default_config_is_byte_identical() -> Result<()> {
         ),
         "{body}"
     );
+    // The 3.0 control messages get a second line only once a host offers one.
+    assert_eq!(body.matches("a=x-rl-control:").count(), 1, "{body}");
+    assert!(body.contains(butterpollo_core::rtsp::CONTROL_MESSAGES));
     let (session, client) = h.play(&launch).await?;
+    h.end(&session, client).await?;
+    h.finish().await
+}
+
+/// An ANNOUNCE that picks a 3.0 extension the host did not offer is refused,
+/// naming it, and the stock ANNOUNCE that follows streams as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn announce_refuses_3_0_choices_that_were_not_offered() -> Result<()> {
+    let h = Harness::new(10_000, 1).await?;
+    let launch = h.launch(0, false).await?;
+    let stock = "a=x-nv-video[0].clientViewportWd:640
+a=x-nv-video[0].clientViewportHt:480
+";
+    // Sequences 1 to 3 stay free for the play below.
+    for (sequence, sdp, message) in [
+        (
+            20,
+            "a=x-nv-video[0].dynamicRangeMode:1
+a=x-nv-vqos[0].bitStreamFormat:1
+a=x-rl-video[0].hdrFormat:1
+",
+            "x-rl-video[0].hdrFormat 1 was not offered",
+        ),
+        (
+            21,
+            "a=x-rl-audio.codec:2
+",
+            "x-rl-audio.codec 2 was not offered",
+        ),
+        (
+            22,
+            "a=x-nv-audio.surround.numChannels:12
+a=x-nv-audio.surround.channelMask:185919
+",
+            "7.1.4",
+        ),
+    ] {
+        let response = h
+            .rtsp(&launch, sequence, "ANNOUNCE", &format!("{stock}{sdp}"))
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(response.starts_with("RTSP/1.0 400"), "{response}");
+        assert!(response.contains(message), "{response}");
+    }
+    let (session, client) = h.play(&launch).await?;
+    assert_eq!(
+        (session.config.hdr_format, session.config.audio_codec),
+        (0, 0)
+    );
     h.end(&session, client).await?;
     h.finish().await
 }

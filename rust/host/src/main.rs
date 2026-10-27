@@ -2,6 +2,7 @@ mod console;
 mod controller_sessions;
 mod couch_menu;
 mod display_session;
+mod extensions;
 mod launcher_watch;
 mod library;
 mod logging;

@@ -290,7 +290,13 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
         },
         |config| config.couch_menu(),
     );
-    let name = crate::network::host_name(&h.config.read().unwrap_or_else(PoisonError::into_inner));
+    let (name, extension_features) = {
+        let config = h.config.read().unwrap_or_else(PoisonError::into_inner);
+        (
+            crate::network::host_name(&config),
+            crate::extensions::native_features(&h, &config),
+        )
+    };
     Ok(json(
         StatusCode::OK,
         &Capabilities {
@@ -338,6 +344,7 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
                 (couch_menu && (client.allows(VIEW) || client.allows(LAUNCH)))
                     .then_some(feature::COUCH_MENU),
             )
+            .chain(extension_features)
             .map(String::from)
             .collect(),
             permissions: Permissions {

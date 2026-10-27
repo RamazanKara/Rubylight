@@ -386,6 +386,35 @@ async fn capabilities_list_the_features_and_the_callers_permissions() {
 }
 
 #[tokio::test]
+async fn usb_and_shared_folders_show_what_the_device_holds_and_list_no_feature() {
+    let s = Setup::new();
+    let capabilities = || async {
+        serde_json::from_slice::<Capabilities>(&s.get("/capabilities").await.body).unwrap()
+    };
+    let none = capabilities().await;
+    assert_eq!(
+        (none.permissions.usb, none.permissions.shared_folders),
+        (false, false)
+    );
+    {
+        let mut paired = s.host().paired.write().unwrap();
+        let extra = &mut paired.clients[0].extra;
+        extra.insert("allow_usb".into(), true.into());
+        extra.insert(
+            "shared_folders".into(),
+            serde_json::json!({"games": "read"}),
+        );
+    }
+    let granted = capabilities().await;
+    assert_eq!(
+        (granted.permissions.usb, granted.permissions.shared_folders),
+        (true, true)
+    );
+    // Neither is served yet, so the features stay what a 2.x client reads.
+    assert_eq!(granted.features, none.features);
+}
+
+#[tokio::test]
 async fn a_missing_permission_is_403_and_names_what_to_turn_on() {
     // Library needs List apps.
     let s = Setup::with(VIEW_BIT | LAUNCH);

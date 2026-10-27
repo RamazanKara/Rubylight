@@ -74,6 +74,11 @@ impl AdaptiveFec {
         Self::with_ceiling(enabled, configured.min(255) as u8)
     }
 
+    /// A percentage the client chose (`rlFecPercentage`), capped by the host: it never moves.
+    pub fn fixed(percent: u8) -> Self {
+        Self::with_ceiling(false, percent)
+    }
+
     fn with_ceiling(enabled: bool, ceiling: u8) -> Self {
         Self {
             enabled,

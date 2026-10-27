@@ -2615,6 +2615,11 @@ pub struct Session<P = (), A = ()> {
     /// frame, and `adaptive_fec` moves it from the client's 0x5502 reports.
     pub fec_percent: AtomicU32,
     pub adaptive_fec: std::sync::Mutex<crate::adaptive_fec::AdaptiveFec>,
+    /// Statistical FEC from the client's 0x5539 reports, for a client that
+    /// launched with `rlFecPercentage=auto`; `adaptive_fec` is off then.
+    pub client_fec: std::sync::Mutex<Option<crate::statistical_fec::StatisticalFec>>,
+    /// Whether `client_fec` is set: frames skip its lock otherwise.
+    client_fec_on: AtomicBool,
     /// Capture timing locked to the client's display, from its 0x5530 reports.
     pub phase_sync: std::sync::Mutex<crate::phase_sync::PhaseSync>,
     /// The stream's current mode and the client's 0x5532 requests to change it.
@@ -2725,6 +2730,8 @@ impl<P, A> Session<P, A> {
                 crate::adaptive_fec::AdaptiveFec::default().percent() as u32
             ),
             adaptive_fec: Default::default(),
+            client_fec: Default::default(),
+            client_fec_on: AtomicBool::new(false),
             phase_sync: Default::default(),
             reconfigure: std::sync::Mutex::new(crate::reconfigure::Reconfiguration::new(mode)),
             stats: Stats::default(),
@@ -2977,6 +2984,86 @@ impl<P, A> Session<P, A> {
         let percent = fec.percent();
         self.fec_percent.store(percent as u32, Ordering::Release);
         percent
+    }
+    /// Starts the stream's FEC as the client chose it with `rlFecPercentage`:
+    /// the host's own (`adaptive` and `configured`, as [`Self::configure_fec`]),
+    /// a fixed share capped at `maximum` (`fec_max_percentage`), or statistical
+    /// FEC up to `maximum` that keeps `configured` until the client's reports
+    /// arrive. PyroWave keeps its own protection. Returns the first percentage.
+    pub fn configure_fec_choice(
+        &self,
+        choice: crate::extensions::FecChoice,
+        adaptive: bool,
+        configured: usize,
+        maximum: u8,
+    ) -> usize {
+        use crate::extensions::FecChoice;
+        let mut client = self.client_fec.lock().unwrap();
+        *client = None;
+        self.client_fec_on.store(false, Ordering::Release);
+        if self.config.codec == 3 || choice == FecChoice::Host {
+            drop(client);
+            return self.configure_fec(adaptive, configured);
+        }
+        let fallback = configured.min(255) as u8;
+        let percent = match choice {
+            FecChoice::Fixed(percent) => percent.min(maximum),
+            _ => {
+                *client = Some(crate::statistical_fec::StatisticalFec::new(
+                    maximum,
+                    fallback,
+                    self.config.min_fec,
+                    Instant::now(),
+                ));
+                self.client_fec_on.store(true, Ordering::Release);
+                fallback
+            }
+        };
+        *self.adaptive_fec.lock().unwrap() = crate::adaptive_fec::AdaptiveFec::fixed(percent);
+        self.fec_percent
+            .store(u32::from(percent), Ordering::Release);
+        usize::from(percent)
+    }
+    /// Takes a 0x5539 FEC report: the report and whether statistical FEC
+    /// used it (only under `rlFecPercentage=auto`), or why it was refused.
+    pub fn record_fec_report(
+        &self,
+        payload: &[u8],
+    ) -> std::result::Result<(crate::statistical_fec::FecReport, bool), String> {
+        let report = crate::statistical_fec::FecReport::decode(payload)
+            .ok_or_else(|| format!("malformed ({} bytes)", payload.len()))?;
+        let mut client = self.client_fec.lock().unwrap();
+        let Some(fec) = client.as_mut() else {
+            return Ok((report, false));
+        };
+        let now = Instant::now();
+        fec.report(now, &report).map_err(|e| e.to_string())?;
+        let percent = fec.percent(now, self.typical_fec_shards());
+        self.fec_percent.store(percent as u32, Ordering::Release);
+        Ok((report, true))
+    }
+    /// Data shards of an average frame at the current bitrate: statistical
+    /// FEC's percentage for frames sent in parts and for pacing estimates.
+    fn typical_fec_shards(&self) -> usize {
+        let bytes = u64::from(self.bitrate.load(Ordering::Relaxed)) * 1000
+            / 8
+            / u64::from(self.config.fps.max(1));
+        self.fec_shards(bytes as usize)
+    }
+    /// Data shards of a video frame of `payload_bytes`, as the packetizer splits it.
+    fn fec_shards(&self, payload_bytes: usize) -> usize {
+        (payload_bytes + 8).div_ceil(self.config.packet_size.saturating_sub(16).max(1))
+    }
+    /// The FEC percentage for a whole video frame of `payload_bytes` about to
+    /// be packetized: under `rlFecPercentage=auto` the statistical choice for
+    /// its size, otherwise [`Self::frame_fec_percent`].
+    pub fn video_fec_percent(&self, recovery: bool, payload_bytes: usize) -> usize {
+        if self.client_fec_on.load(Ordering::Acquire)
+            && let Some(fec) = self.client_fec.lock().unwrap().as_ref()
+        {
+            return fec.percent(Instant::now(), self.fec_shards(payload_bytes));
+        }
+        self.frame_fec_percent(recovery)
     }
     /// The FEC percentage for the next video frame.
     pub fn fec_percent(&self) -> usize {
@@ -3539,6 +3626,12 @@ impl<P, A> Session<P, A> {
     /// Lets adaptive FEC fall on a clean link; call regularly. Returns the
     /// `(old, new)` percentage to log, at most once a second.
     pub fn tick_fec(&self, now: Instant) -> Option<(usize, usize)> {
+        if let Some(fec) = self.client_fec.lock().unwrap().as_mut() {
+            // Reports that stopped hand the stream back to the host's percentage.
+            let percent = fec.percent(now, self.typical_fec_shards());
+            self.fec_percent.store(percent as u32, Ordering::Release);
+            return fec.log_due(now, percent);
+        }
         let mut fec = self.adaptive_fec.lock().unwrap();
         if !fec.enabled() {
             return None;

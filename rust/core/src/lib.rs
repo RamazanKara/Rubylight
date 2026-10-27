@@ -96,6 +96,7 @@ pub mod session;
 pub mod session_state;
 pub mod stall_watch;
 pub mod state;
+pub mod statistical_fec;
 pub mod steam;
 pub mod steam_deck;
 pub mod steam_feedback;

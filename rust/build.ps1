@@ -4,6 +4,8 @@ param(
     [string]$Dependencies = "$env:LOCALAPPDATA\ButterpolloRust\sdk",
     [string]$TargetDirectory = "$env:LOCALAPPDATA\ButterpolloRust\target",
     [string]$PyrowaveRoot = $env:BUTTERPOLLO_PYROWAVE_ROOT,
+    # FFmpeg's LGPL AC3 and E-AC3 codecs for audio passthrough (rust/tools/build_ffmpeg.sh).
+    [string]$FfmpegRoot = $env:BUTTERPOLLO_FFMPEG_ROOT,
     # Signed virtual display and gamepad driver packages (a Vibepollo
     # installation's drivers folder); fetched from Vibepollo 2.0.0 otherwise.
     [string]$DriverRoot = $env:BUTTERPOLLO_DRIVER_ROOT,
@@ -46,6 +48,17 @@ if ($FetchDependencies) {
         & "$MsysRoot\usr\bin\bash.exe" $buildScript '502a3b52a39312ab82c85b1e2fc0e746faee91a4' $prefix
         Assert-NativeExit 'PyroWave SDK build'
     }
+    if (!$FfmpegRoot) {
+        # The official source release, built with only the AC3 and E-AC3 codecs (LGPL).
+        $FfmpegRoot = Join-Path $Dependencies 'ffmpeg-8.1.2'
+        $tarball = Join-Path $Dependencies 'ffmpeg-8.1.2.tar.xz'
+        Get-PinnedArchive 'https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz' $tarball '464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c'
+        $cygpath = "$MsysRoot\usr\bin\cygpath.exe"
+        $env:FFMPEG_WORKDIR = & $cygpath -u (Join-Path $Dependencies 'ffmpeg-work')
+        $env:MSYSTEM = 'UCRT64'
+        & "$MsysRoot\usr\bin\bash.exe" (& $cygpath -u (Join-Path $repo 'rust\tools\build_ffmpeg.sh')) (& $cygpath -u $tarball) (& $cygpath -u $FfmpegRoot)
+        Assert-NativeExit 'FFmpeg AC3 build'
+    }
 }
 if ($FetchDependencies -and !$DriverRoot) {
     # The gamepad driver (libvirtualgamepad 0.1.0-beta.6, MIT), signed for
@@ -83,6 +96,21 @@ foreach ($identity in @(
     }
 }
 $env:BUTTERPOLLO_PYROWAVE_ROOT = $PyrowaveRoot
+if (!$FfmpegRoot) { throw 'Provide the FFmpeg AC3 build path, or use -FetchDependencies' }
+$ffmpegInfo = Join-Path $FfmpegRoot 'share\licenses\ffmpeg\build-info.txt'
+if (!(Test-Path -LiteralPath $ffmpegInfo)) { throw 'FFmpeg build-info.txt is missing; rebuild using -FetchDependencies' }
+$ffmpegIdentity = Get-Content -LiteralPath $ffmpegInfo -Raw
+foreach ($identity in @(
+    'source_sha256=464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c',
+    'license=LGPL version 2.1 or later'
+)) {
+    if ($ffmpegIdentity -notmatch ('(?m)^' + [regex]::Escape($identity) + '\r?$')) {
+        throw "FFmpeg does not match the pinned LGPL build: expected $identity. Rebuild using -FetchDependencies without -FfmpegRoot."
+    }
+}
+$ffmpegDlls = @('avcodec-62.dll', 'avutil-60.dll')
+# The ignored FFmpeg tests decode what the host encodes; the test step below runs them.
+$env:BUTTERPOLLO_TEST_FFMPEG_ROOT = Join-Path $FfmpegRoot 'bin'
 Push-Location -LiteralPath $repo
 try {
     # Workspace members only: --all would also check client/ (the protocol path
@@ -93,6 +121,10 @@ try {
         & (Join-Path $repo 'rust\drivers\usbip\test_usbip.ps1')
         & cargo $toolchain test --workspace --locked
         Assert-NativeExit 'Rust tests'
+        & cargo $toolchain test -p butterpollo-windows --locked -- --ignored ffmpeg::
+        Assert-NativeExit 'FFmpeg AC3 tests'
+        & cargo $toolchain test -p butterpollo --locked -- --ignored audio_encoder::tests::ffmpeg_
+        Assert-NativeExit 'FFmpeg ANNOUNCE tests'
         & cargo $toolchain clippy --workspace --all-targets --locked -- -D warnings
         Assert-NativeExit 'Rust lint'
     }
@@ -110,9 +142,10 @@ try {
     & cargo $toolchain @protocolArgs
     Assert-NativeExit 'Rust protocol performance probe build'
     $output = Join-Path $TargetDirectory $profile
-    $runtimeDlls = @('libopus-0.dll','libpyrowave-shared-1.dll')
+    $runtimeDlls = @('libopus-0.dll','libpyrowave-shared-1.dll') + $ffmpegDlls
     Copy-Item -LiteralPath (Join-Path "$MsysRoot\ucrt64\bin" 'libopus-0.dll') -Destination $output
     Copy-Item -LiteralPath (Join-Path $PyrowaveRoot 'bin\libpyrowave-shared-1.dll') -Destination $output
+    foreach ($dll in $ffmpegDlls) { Copy-Item -LiteralPath (Join-Path $FfmpegRoot "bin\$dll") -Destination $output }
     if ($Package) {
         $distribution = Join-Path $TargetDirectory "butterpollo-rust-$profile"
         if (Test-Path -LiteralPath $distribution) {
@@ -159,6 +192,7 @@ try {
         Copy-Item -LiteralPath (Join-Path $repo 'rust\service.ps1') -Destination $distribution
         Copy-Item -LiteralPath (Join-Path $repo 'Cargo.lock') -Destination "$distribution\licenses"
         if (Test-Path -LiteralPath (Join-Path $PyrowaveRoot 'share\licenses')) { Copy-Item -LiteralPath (Join-Path $PyrowaveRoot 'share\licenses') -Destination "$distribution\licenses\pyrowave" -Recurse -Force }
+        Copy-Item -LiteralPath (Join-Path $FfmpegRoot 'share\licenses\ffmpeg') -Destination "$distribution\licenses\ffmpeg" -Recurse -Force
         foreach ($library in @('gcc-libs','libwinpthread','winpthreads','opus')) {
             $source = Join-Path "$MsysRoot\ucrt64\share\licenses" $library
             if (Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination "$distribution\licenses\$library" -Recurse -Force }

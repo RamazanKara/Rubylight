@@ -119,6 +119,8 @@ jobs:
             mingw-w64-ucrt-x86_64-ninja
             mingw-w64-ucrt-x86_64-vulkan-headers
             mingw-w64-ucrt-x86_64-opus
+            mingw-w64-ucrt-x86_64-nasm
+            make
       - name: Rust toolchains
         run: |
           rustup toolchain install 1.98.1-x86_64-pc-windows-gnu --profile minimal --component rustfmt --component clippy
@@ -169,7 +171,7 @@ jobs:
             ~/AppData/Local/ButterpolloRust/sdk
             ~/.cargo/registry
             ~/.cargo/git
-          key: rust-sdk-v4-pyro-502a3b52-patched
+          key: rust-sdk-v5-pyro-502a3b52-patched-ffmpeg-8.1.2
       # Compiled dependencies (not the workspace crates), keyed on Cargo.lock
       # and the toolchain; only main saves. The target is $RUNNER_TEMP's.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0

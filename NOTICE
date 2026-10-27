@@ -13,6 +13,17 @@ rust/codec-patches/pyrowave, two of them adapted from Punktfunk
 (https://git.unom.io/unom/punktfunk, Copyright (c) 2026 unom - Enrico Bühler,
 MIT OR Apache-2.0, used under MIT); the MIT notice is in rust/THIRD_PARTY.md.
 
+FFmpeg
+
+Windows builds ship avcodec-62.dll and avutil-60.dll from FFmpeg 8.1.2
+(https://ffmpeg.org), built by rust/tools/build_ffmpeg.sh with nothing but the AC3
+and E-AC3 codecs. FFmpeg is licensed under the GNU Lesser General Public License 2.1
+or later. The host loads both libraries at run time and runs without them, so they
+can be replaced by another build of the same FFmpeg version. Their license text and
+build-info.txt (source checksum, configure line, compiler) are installed under
+licenses/ffmpeg next to the application. Source:
+https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz.
+
 Foundation Sunshine
 
 The AMD encoder's opt-in treatment of the low-latency mode, the input queue size

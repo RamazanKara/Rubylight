@@ -11,7 +11,7 @@ To install a release and start streaming, use [Getting started](getting-started.
 Use Windows x64 with PowerShell, Git, Rustup and Node.js 22. In an MSYS2 UCRT64 shell, install these packages, matching CI:
 
 ```sh
-pacman -S --needed git mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-vulkan-headers mingw-w64-ucrt-x86_64-opus
+pacman -S --needed git mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-vulkan-headers mingw-w64-ucrt-x86_64-opus mingw-w64-ucrt-x86_64-nasm make
 ```
 
 The default MSYS2 path is `C:\msys64`; pass `-MsysRoot` if yours differs. The host uses the GNU Rust target.
@@ -36,7 +36,7 @@ Run the full build from the repository root in a **Visual Studio x64 developer P
 .\rust\build.ps1 -FetchDependencies -Package
 ```
 
-The script builds the pinned PyroWave SDK and extracts the signed display/gamepad packages and the Playnite plugin from the pinned Vibepollo release. Archive hashes, PyroWave build identity and driver signatures are checked. CMake builds the external PyroWave SDK; Cargo builds the host.
+The script builds the pinned PyroWave SDK and FFmpeg 8.1.2's AC3 and E-AC3 codecs (LGPL, `rust/tools/build_ffmpeg.sh`, kept when the dependency folder already holds the same build), and extracts the signed display/gamepad packages and the Playnite plugin from the pinned Vibepollo release. Archive hashes, PyroWave and FFmpeg build identity and driver signatures are checked. CMake builds the external PyroWave SDK; Cargo builds the host.
 
 The build checks Rust formatting, runs ordinary workspace tests and Clippy with warnings denied, then builds the release executables, performance probes and the display driver. Packaging also builds the Svelte console and includes runtime libraries, drivers, the Playnite plugin, artwork, licenses, the optional Moonlight source patch and a SHA-256 file manifest. Building a package does not install it. Packaging also downloads and verifies the pinned, signed usbip-win2 0.9.8.1 installer (about 26 MB), cached in the dependencies folder, and includes it with its BSD license. It never executes that installer. `rust/drivers/usbip/bundle.ps1` can check this small packaging step independently of a host build.
 
@@ -57,6 +57,7 @@ Useful options:
 | --- | --- |
 | `-DebugBuild` | Build debug executables for development. Use release builds for streaming measurements. |
 | `-PyrowaveRoot` | Reuse an existing PyroWave SDK. Its identity must match the pinned revision and patches. |
+| `-FfmpegRoot` | Reuse an existing `rust/tools/build_ffmpeg.sh` build. Its `build-info.txt` must name the pinned source and the LGPL. |
 | `-DriverRoot <path>` | Supply the signed release's `drivers` folder for packaging. |
 | `-SkipTests` | Skip workspace tests and Clippy for a local iteration. Formatting still runs; this is not the release validation path. |
 
@@ -70,6 +71,8 @@ Cargo alone cannot build the Windows crates: their build scripts generate bindin
 | `BUTTERPOLLO_VULKAN_INCLUDE` | `rust/windows/build.rs` | Vulkan 1.4 headers, `C:\msys64\ucrt64\include` in MSYS2. |
 | `LIBCLANG_PATH` | bindgen | MSYS2's `ucrt64\bin`, which holds `libclang.dll`. |
 | `BUTTERPOLLO_DRIVER_ROOT` | `rust/build.ps1` | Default for `-DriverRoot`. |
+| `BUTTERPOLLO_FFMPEG_ROOT` | `rust/build.ps1` | Default for `-FfmpegRoot`. |
+| `BUTTERPOLLO_TEST_FFMPEG_ROOT` | the ignored FFmpeg tests | The FFmpeg build's `bin` folder; `rust/build.ps1` sets it and runs them. |
 
 `butterpollo-core` needs none of them and builds and tests on any OS with plain `cargo test -p butterpollo-core`.
 

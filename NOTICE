@@ -47,9 +47,9 @@ hdr_luminance_analysis_cs.hlsl from the same commit.
 Copyright (c) Foundation Sunshine authors, GPL-3.0.
 
 The Dolby Vision profile 8.1 RPU writer (rust/core/src/dovi.rs) follows the syntax,
-default values and L1 limits of the dolby_vision crate of dovi_tool 3.4.0
-(https://github.com/quietvoid/dovi_tool), Copyright (c) quietvoid, MIT. The MIT
-terms are included in rust/THIRD_PARTY.md.
+default values and L1 limits of the dolby_vision crate 3.4.0 of dovi_tool
+(https://github.com/quietvoid/dovi_tool, tag libdovi-3.4.0), Copyright (c) 2026
+quietvoid, MIT. The MIT terms are included in rust/THIRD_PARTY.md.
 
 InputPlumber and SDL
 

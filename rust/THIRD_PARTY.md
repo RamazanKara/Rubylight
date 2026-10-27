@@ -48,11 +48,11 @@ SOFTWARE.
 
 ## Dolby Vision RPUs from dovi_tool
 
-The Dolby Vision profile 8.1 RPU writer in `rust/core/src/dovi.rs` follows the syntax, default values and L1 limits of the `dolby_vision` crate of [dovi_tool 3.4.0](https://github.com/quietvoid/dovi_tool) (`rpu/rpu_data_header.rs`, `rpu/rpu_data_mapping.rs`, `rpu/vdr_dm_data.rs`, `rpu/profiles/profile81.rs`, `rpu/extension_metadata/blocks`), used here under the MIT License. No dovi_tool code or crate is compiled in.
+The Dolby Vision profile 8.1 RPU writer in `rust/core/src/dovi.rs` follows the syntax, default values and L1 limits of the `dolby_vision` crate 3.4.0 of [dovi_tool](https://github.com/quietvoid/dovi_tool/tree/libdovi-3.4.0) (`rpu/rpu_data_header.rs`, `rpu/rpu_data_mapping.rs`, `rpu/vdr_dm_data.rs`, `rpu/profiles/profile81.rs`, `rpu/extension_metadata/blocks`), used here under the MIT License. No dovi_tool code or crate is compiled in.
 
 MIT License
 
-Copyright (c) quietvoid
+Copyright (c) 2026 quietvoid
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

@@ -10,10 +10,11 @@
 //! and L6 (the stream's static HDR10 metadata).
 //!
 //! Syntax, default values and the L1 limits follow the `dolby_vision` crate of
-//! dovi_tool (quietvoid/dovi_tool 3.4.0: `rpu/rpu_data_header.rs`,
-//! `rpu/rpu_data_mapping.rs`, `rpu/vdr_dm_data.rs`, `rpu/profiles/profile81.rs`,
-//! `rpu/extension_metadata/blocks`), Copyright (c) quietvoid, MIT. FFmpeg's
-//! `libavcodec/dovi_rpudec.c` reads the same syntax.
+//! dovi_tool (quietvoid/dovi_tool, crate 3.4.0 at tag libdovi-3.4.0:
+//! `rpu/rpu_data_header.rs`, `rpu/rpu_data_mapping.rs`, `rpu/vdr_dm_data.rs`,
+//! `rpu/profiles/profile81.rs`, `rpu/extension_metadata/blocks`), Copyright
+//! (c) 2026 quietvoid, MIT. FFmpeg's `libavcodec/dovi_rpudec.c` reads the same
+//! syntax.
 use crate::hdr::Metadata;
 use crate::hdr_dynamic::{FrameStats, Smoothed, escape, nits_to_pq};
 

@@ -2129,6 +2129,9 @@ impl Launcher {
                     toggle(ui, &mut s.roaming_metered)
                 });
             }
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["usb_forwarding"], "USB forwarding (Experimental)", "Attach USB devices plugged into this computer to the PC from the stream controls. The PC must allow USB devices for this client. On Windows a device needs the WinUSB driver.", |ui, s| {
+                toggle(ui, &mut s.usb_forwarding)
+            });
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["unbatched_input"], "Instant mouse and pen input", "Send mouse and pen movements immediately.", |ui, s| {
                 toggle(ui, &mut s.unbatched_input)
             });

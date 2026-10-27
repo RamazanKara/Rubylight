@@ -15,6 +15,7 @@
 mod audio;
 mod net;
 mod roam;
+mod usb;
 mod video;
 
 use std::io;

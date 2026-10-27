@@ -34,6 +34,10 @@ mod strings;
 mod theme;
 mod timing_csv;
 mod ui;
+mod usb;
+// Windows reads its drivers here; the parsing is tested everywhere.
+#[cfg(any(windows, test))]
+mod usb_winusb;
 // build.rs uses the parser; here only its tests do.
 #[cfg_attr(not(test), allow(dead_code))]
 mod version_name;
@@ -1713,6 +1717,10 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                         for (index, device) in input_selections {
                             if let Err(error) = pads.set_audio_input(index, device) { s.show_toast(error); }
                         }
+                    }
+                    if let Some(panel) = s.usb.as_mut() {
+                        ui.separator();
+                        usb::show(ui, panel);
                     }
                     if !s.facts.server_commands.is_empty() {
                         ui.separator();

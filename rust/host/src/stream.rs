@@ -966,6 +966,42 @@ fn restart_on_new_path(s: &Session, c: &Config) {
     );
     configure_adaptive_bitrate(s, c);
 }
+/// The stream's video FEC at its start: the configured percentage is adaptive
+/// FEC's ceiling (with `adaptive_fec` off, or a client that sends no FEC status,
+/// it is used for every frame as before), unless the client chose its own with
+/// `rlFecPercentage`.
+fn configure_video_fec(s: &Session, c: &Config) -> Result<()> {
+    let requested_fec = c.integer("fec_percentage", 20);
+    if requested_fec != requested_fec.clamp(0, 100) {
+        s.launch.warnings.set("network_fec_config", format!("FEC percentage {requested_fec} is outside 0-100; using {}%. Correct fec_percentage in Video settings.", requested_fec.clamp(0, 100)));
+    }
+    let fec_ceiling = if s.config.codec == 3 {
+        c.integer("pyrowave_critical_fec_percentage", 20)
+            .clamp(0, 255) as usize
+    } else {
+        requested_fec.clamp(0, 100) as usize
+    };
+    // A client's `rlFecPercentage` was checked at /launch.
+    let choice = butterpollo_core::extensions::fec_choice(&s.launch.options)?;
+    let maximum = c.fec_max_percentage();
+    let start = s.configure_fec_choice(
+        choice,
+        c.boolean("adaptive_fec", true),
+        fec_ceiling,
+        maximum,
+    );
+    if choice != butterpollo_core::extensions::FecChoice::Host {
+        tracing::info!(
+            client = %s.launch.client.name,
+            choice = %choice.as_param(),
+            pyrowave = s.config.codec == 3,
+            percent = start,
+            maximum,
+            "client fec choice"
+        );
+    }
+    Ok(())
+}
 /// Host bitrate adaptation (`host_adaptive_bitrate`), from scratch.
 fn configure_adaptive_bitrate(s: &Session, c: &Config) {
     let maximum = if s.config.codec == 3 {
@@ -1689,17 +1725,7 @@ impl Media {
                     let mut staging = None;
                     client_commands = Some(crate::process::ClientCommands::start(&h, &s)?);
                     audio = Some(m.spawn_audio(&h, &s)?);
-                    let requested_fec = c.integer("fec_percentage", 20);
-                    if requested_fec != requested_fec.clamp(0, 100) {
-                        s.launch.warnings.set("network_fec_config", format!("FEC percentage {requested_fec} is outside 0-100; using {}%. Correct fec_percentage in Video settings.", requested_fec.clamp(0, 100)));
-                    }
-                    // The configured percentage is adaptive FEC's ceiling; with
-                    // `adaptive_fec` off, or a client that sends no FEC status, it
-                    // is used for every frame as before.
-                    let fec_ceiling = if s.config.codec == 3 {
-                        c.integer("pyrowave_critical_fec_percentage", 20).clamp(0, 255) as usize
-                    } else { requested_fec.clamp(0, 100) as usize };
-                    s.configure_fec(c.boolean("adaptive_fec", true), fec_ceiling);
+                    configure_video_fec(&s, &c)?;
                     configure_adaptive_bitrate(&s, &c);
                     s.configure_link_rate(c.link_rate_adaptation(), c.integer("max_bitrate", 0).clamp(0, 500_000) as u32);
                     // Packet adaptation is opt-in, or automatic for a client that
@@ -1920,7 +1946,7 @@ impl Media {
                                 crate::video_send::recovery::pace(&s, &c, &packetizer, stream_period.get(), peer, route);
                             let mut frame_packetizer = packetizer.clone();
                             let large_frame = output.iter().any(|frame| {
-                                frame_packetizer.fec_percent = s.frame_fec_percent(frame.idr || frame.after_invalidation);
+                                frame_packetizer.fec_percent = s.video_fec_percent(frame.idr || frame.after_invalidation, frame.bytes.len());
                                 let wire = butterpollo_core::network_pacing::video_frame_wire_rate_bps(&frame_packetizer, frame.bytes.len(), stream_period.get(), peer.is_ipv6());
                                 butterpollo_core::network_pacing::paced(bps, wire)
                             });
@@ -2164,7 +2190,7 @@ impl Media {
                             if frame.bytes.is_empty() {
                                 continue;
                             }
-                            packetizer.fec_percent = s.frame_fec_percent(frame.idr || frame.after_invalidation);
+                            packetizer.fec_percent = s.video_fec_percent(frame.idr || frame.after_invalidation, frame.bytes.len());
                             let wire_frame = packetizer.frame;
                             let block_layout = packetizer.block_layout(frame.bytes.len());
                             let fec_limited = packetizer.fec_limited(frame.bytes.len());
@@ -3790,6 +3816,23 @@ impl Media {
                             // This dispatch receives only client-to-host packets;
                             // 0x5502 in the other direction is controller feedback.
                             0x5502 => s.record_fec_status(&payload),
+                            butterpollo_core::statistical_fec::FEC_REPORT_MESSAGE_TYPE => {
+                                match s.record_fec_report(&payload) {
+                                    Ok((report, used)) => tracing::debug!(
+                                        seq = report.seq,
+                                        data = report.data_shards,
+                                        parity = report.parity_shards,
+                                        missing = report.missing_shards,
+                                        unrecovered = report.unrecovered_blocks,
+                                        interval_ms = report.interval_ms,
+                                        used,
+                                        "fec report"
+                                    ),
+                                    Err(error) => {
+                                        tracing::debug!(%error, "fec report refused")
+                                    }
+                                }
+                            }
                             butterpollo_core::phase_sync::REPORT_MESSAGE_TYPE => {
                                 match s
                                     .phase_sync

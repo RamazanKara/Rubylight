@@ -331,6 +331,9 @@ impl Fixture {
             key: None,
         };
         *s.encoder.write().unwrap() = "reconnect fixture".into();
+        // The video FEC as the video worker starts it; the fixture's own frames
+        // keep sending without parity.
+        super::configure_video_fec(s, &super::effective_config(h, &s.launch)?)?;
         // As the encoder does once it has the display's metadata: the control
         // worker then sends the HDR mode message (0x010e).
         s.set_display_hdr_metadata(butterpollo_core::hdr::Metadata::default());

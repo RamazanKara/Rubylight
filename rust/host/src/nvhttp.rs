@@ -1247,6 +1247,9 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         }
         let mut launch =
             build_launch_session(&connection, &args, client, app_id, role, key, key_id);
+        // A refused `rlFecPercentage` fails the launch rather than streaming
+        // with protection the client did not ask for.
+        butterpollo_core::extensions::fec_choice(&launch.options)?;
         launch.background = Some(validate_background_launch(&h, &launch)?);
         let rtsp_port = h.config.read().unwrap().ports()?.rtsp;
         if !launch.rtsp_encrypted

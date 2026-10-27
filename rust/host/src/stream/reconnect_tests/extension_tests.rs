@@ -30,14 +30,14 @@ async fn describe_for_a_default_config_is_byte_identical() -> Result<()> {
              a=x-rl-audio.codecs:3\r\n\
              a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
              a=x-rl-audio.layout714Hq:12,12,0,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
-             a=x-rl-control:0x553d\r\n\
+             a=x-rl-control:0x5539,0x553d\r\n\
              m=audio {mic} RTP/AVP 96\r\n\
              a=rtpmap:96 opus/48000/1\r\n\
              a=fmtp:96 minptime=10;useinbandfec=1\r\n"
         ),
         "{body}"
     );
-    // The 3.0 control messages the host offers (pipeline rates) are a second line.
+    // The default host's 3.0 control messages (FEC report, pipeline rates) are a second line.
     assert_eq!(body.matches("a=x-rl-control:").count(), 2, "{body}");
     assert!(body.contains(butterpollo_core::rtsp::CONTROL_MESSAGES));
     let (session, client) = h.play(&launch).await?;
@@ -79,7 +79,7 @@ async fn describe_with_packed_444_and_the_microphone_is_byte_identical() -> Resu
              a=x-rl-audio.codecs:3\r\n\
              a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
              a=x-rl-audio.layout714Hq:12,12,0,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
-             a=x-rl-control:0x553d\r\n\
+             a=x-rl-control:0x5539,0x553d\r\n\
              m=audio {mic} RTP/AVP 96\r\n\
              a=rtpmap:96 opus/48000/1\r\n\
              a=fmtp:96 minptime=10;useinbandfec=1\r\n"

@@ -14,9 +14,11 @@
 //! whole suite on a busy machine.
 use super::*;
 use butterpollo_core::{
+    extensions::FecChoice,
     native::{FILE_DOWNLOAD, FILE_UPLOAD},
     native_api::feature,
     power_action::SleepStates,
+    statistical_fec::{FEC_REPORT_MESSAGE_TYPE, FecReport},
 };
 use nightjar_core::{
     control::{ControlEvent, ptype},
@@ -135,6 +137,15 @@ async fn stream(
     h: &Harness,
     client: &HostClient,
 ) -> Result<(Launch, Arc<Session>, Stream, Recorder)> {
+    stream_with(h, client, None).await
+}
+
+/// [`stream`] with Nightjar's video FEC choice.
+async fn stream_with(
+    h: &Harness,
+    client: &HostClient,
+    fec: Option<FecChoice>,
+) -> Result<(Launch, Arc<Session>, Stream, Recorder)> {
     let info = client.server_info(true)?;
     assert!(info.paired);
     let apps = client.app_list(&info.capabilities)?;
@@ -151,6 +162,7 @@ async fn stream(
         fps: 60,
         ri_key: KEY,
         ri_key_id: KEY_ID,
+        fec,
         ..Default::default()
     };
     let launched = client.launch(&request, &info)?.expect("a session URL");
@@ -205,7 +217,7 @@ async fn stream(
 }
 
 /// The host's control extensions Nightjar must know, in the order the host announces them.
-const CONTROL_EXTENSIONS: [u16; 10] = [
+const CONTROL_EXTENSIONS: [u16; 11] = [
     ptype::PHASE_LOCK_REPORT,
     ptype::DISPLAY_CAPS,
     ptype::RECONFIGURE,
@@ -215,6 +227,7 @@ const CONTROL_EXTENSIONS: [u16; 10] = [
     ptype::HOST_TIMING,
     ptype::CLOCK_SYNC,
     ptype::LINK_NOTICE,
+    FEC_REPORT_MESSAGE_TYPE,
     ptype::PIPELINE_RATES,
 ];
 
@@ -268,6 +281,95 @@ async fn nightjar_launches_and_streams_with_control_both_ways() -> Result<()> {
     .await;
     assert!(!h.h.sessions.lock().unwrap().active.contains_key(&launch.id));
     assert_eq!(recorder.seen(|s| s.terminated), None);
+    h.finish().await
+}
+
+/// Nightjar's `rlFecPercentage`: `auto` keeps the host's percentage until 0x5539 reports
+/// arrive, then follows them up to `fec_max_percentage`; a fixed choice is capped by it; and
+/// a launch without one keeps the host's own FEC.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn nightjar_chooses_the_video_fec() -> Result<()> {
+    let h = Harness::configured(
+        10_000,
+        1,
+        "fec_percentage = 20
+fec_max_percentage = 40
+",
+    )
+    .await?;
+    let client = device(&h, u32::MAX, &[])?;
+    let caps = client.server_info(true)?.capabilities;
+    assert_eq!(
+        caps.availability(Feature::ClientFec),
+        Availability::Supported
+    );
+
+    let (launch, session, stream, _) = stream_with(&h, &client, Some(FecChoice::Auto)).await?;
+    assert_eq!(
+        launch.options.get("rlFecPercentage").map(String::as_str),
+        Some("auto")
+    );
+    assert!(session.client_fec.lock().unwrap().is_some());
+    assert_eq!(
+        session.fec_percent(),
+        20,
+        "the host's percentage until reports arrive"
+    );
+    let report = |seq, missing| FecReport {
+        seq,
+        data_shards: 900,
+        parity_shards: 180,
+        missing_shards: missing,
+        unrecovered_blocks: 0,
+        interval_ms: 1000,
+    };
+    let (_, used) = session.record_fec_report(&report(0, 0).encode()).unwrap();
+    assert!(used);
+    assert_eq!(
+        session.video_fec_percent(false, 30_000),
+        0,
+        "no loss, no parity"
+    );
+    session.record_fec_report(&report(1, 540).encode()).unwrap();
+    assert_eq!(
+        session.video_fec_percent(true, 30_000),
+        40,
+        "25 % loss is capped"
+    );
+    assert!(
+        session.record_fec_report(&report(1, 0).encode()).is_err(),
+        "a repeat"
+    );
+    stream.stop();
+    until("sessions released", LOADED, || {
+        h.h.sessions.lock().unwrap().idle()
+    })
+    .await;
+
+    let (_, session, stream, _) = stream_with(&h, &client, Some(FecChoice::Fixed(90))).await?;
+    assert!(session.client_fec.lock().unwrap().is_none());
+    assert_eq!(
+        session.video_fec_percent(true, 30_000),
+        40,
+        "capped by fec_max_percentage"
+    );
+    let (_, used) = session.record_fec_report(&report(0, 108).encode()).unwrap();
+    assert!(!used, "only auto acts on reports");
+    stream.stop();
+    until("sessions released", LOADED, || {
+        h.h.sessions.lock().unwrap().idle()
+    })
+    .await;
+
+    let (launch, session, stream, _) = stream_with(&h, &client, None).await?;
+    assert!(!launch.options.contains_key("rlFecPercentage"));
+    assert!(session.client_fec.lock().unwrap().is_none());
+    assert_eq!(session.adaptive_fec.lock().unwrap().ceiling(), 20);
+    stream.stop();
+    until("sessions released", LOADED, || {
+        h.h.sessions.lock().unwrap().idle()
+    })
+    .await;
     h.finish().await
 }
 
@@ -444,6 +546,7 @@ const SERVERINFO_FIELDS: &[(&str, Reading)] = &[
     ("PyroWaveWireBudgetVersion", Reading::Read),
     ("PyroWaveCriticalFecPercentage", Reading::Read),
     ("PyroWaveMinParityShards", Reading::Read),
+    ("FecControlVersion", Reading::Read),
     ("AudioCodecs", Reading::Read),
     ("AudioLayouts", Reading::Read),
     ("PipelineRatesVersion", Reading::Read),
@@ -551,6 +654,7 @@ fn expected(feature: Feature) -> Availability {
         | Feature::HostConfirmsReplacement
         | Feature::HostTiming
         | Feature::PipelineRates
+        | Feature::ClientFec
         | Feature::WebUi
         | Feature::NativeApi
         | Feature::Sleep
@@ -577,7 +681,6 @@ fn expected(feature: Feature) -> Availability {
         // The 3.0 extensions are defined but offered by nothing yet.
         Feature::DolbyVision
         | Feature::Hlg
-        | Feature::ClientFec
         | Feature::BandwidthProbe
         | Feature::UsbForwarding
         | Feature::TextInput

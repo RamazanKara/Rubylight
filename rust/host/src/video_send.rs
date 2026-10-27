@@ -322,7 +322,7 @@ impl Sender {
                 if frame.bytes.is_empty() {
                     return Ok(packetizer.frame);
                 }
-                packetizer.fec_percent = s.frame_fec_percent(frame.idr || frame.after_invalidation);
+                packetizer.fec_percent = s.video_fec_percent(frame.idr || frame.after_invalidation, frame.bytes.len());
                 let wire_frame = packetizer.frame;
                 let layout = packetizer.block_layout(frame.bytes.len());
                 let fec_limited = packetizer.fec_limited(frame.bytes.len());

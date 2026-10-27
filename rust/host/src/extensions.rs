@@ -32,9 +32,12 @@ fn hdr_formats(_h: &Shared, _config: &Config) -> u8 {
     0
 }
 
-/// Network (B): client-chosen and statistical FEC.
+/// Network (B): client-chosen and statistical FEC (`rlFecPercentage` and
+/// 0x5539 reports). Always offered: a client that sends neither keeps the
+/// host's `fec_percentage` and `adaptive_fec`, and `fec_max_percentage` caps
+/// what a client may ask for.
 fn client_fec(_h: &Shared, _config: &Config) -> bool {
-    false
+    true
 }
 
 /// Network (B): `GET /bandwidth-probe`.

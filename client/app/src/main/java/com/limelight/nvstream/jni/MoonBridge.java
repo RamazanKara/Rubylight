@@ -298,6 +298,21 @@ public class MoonBridge {
         }
     }
 
+    public static int bridgeArInitEncoded(int audioConfiguration, int codec) {
+        if (audioRenderer != null) {
+            return audioRenderer.setupEncoded(new AudioConfiguration(audioConfiguration), codec);
+        }
+        else {
+            return -1;
+        }
+    }
+
+    public static void bridgeArPlayEncoded(byte[] frame, int length) {
+        if (audioRenderer != null) {
+            audioRenderer.playEncodedAudio(frame, length);
+        }
+    }
+
     public static void bridgeClStageStarting(int stage) {
         // LiStartConnection resets its interrupt flag before this first callback.
         if (connectionCancelled != null && connectionCancelled.getAsBoolean()) {
@@ -445,6 +460,7 @@ public class MoonBridge {
     private static volatile int networkGracePeriodMs;
     private static volatile boolean roamingRequested = true;
     private static volatile boolean roamingMeteredRequested;
+    private static volatile int audioPassthroughRequested;
 
     /** Call before startConnection(): whether the next stream should use the Rust engine. */
     public static void requestRustEngine(boolean requested) {
@@ -458,6 +474,14 @@ public class MoonBridge {
     public static void requestRoaming(boolean enabled, boolean metered) {
         roamingRequested = enabled;
         roamingMeteredRequested = metered;
+    }
+
+    /**
+     * Call before startConnection(): the passthrough codecs (AudioPassthrough.CODEC_* bits) the
+     * audio route plays, or 0 for Opus. Only the Rust engine asks the host for them.
+     */
+    public static void requestAudioPassthrough(int codecs) {
+        audioPassthroughRequested = codecs;
     }
 
     /** Whether the running stream (or the last one) uses the Rust engine. */
@@ -518,6 +542,10 @@ public class MoonBridge {
         } else {
             LimeLog.info("Streaming engine: " + StreamEngine.summary());
         }
+        if (audioPassthroughRequested != 0 && !rust) {
+            LimeLog.warning("Audio passthrough: needs the New streaming engine; this stream plays Opus");
+            bridgeClDisplayMessage("Audio passthrough needs the New streaming engine. This stream plays Opus.");
+        }
         rustStream = rust;
         if (rust) {
             if (packed444Requested) {
@@ -533,7 +561,8 @@ public class MoonBridge {
                     supportedVideoFormats, clientRefreshRateX100, riAesKey, riAesIv, videoCapabilities,
                     colorSpace, colorRange, hostFeatures, inputOnly, enableMic, hapticsPcm,
                     pyrowaveLinkMbps, pyrowavePaceMbps, clientWireless, networkGracePeriodMs, packed444Requested, packedModes,
-                    remoteMonitor, unbatchedInput, networkPriority, roamingRequested, roamingMeteredRequested);
+                    remoteMonitor, unbatchedInput, networkPriority, roamingRequested, roamingMeteredRequested,
+                    audioPassthroughRequested);
         }
         return cStartConnection(address, appVersion, gfeVersion, rtspSessionUrl, serverCodecModeSupport,
                 width, height, fps, bitrate, packetSize, streamingRemotely, audioConfiguration,

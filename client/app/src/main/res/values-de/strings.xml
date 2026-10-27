@@ -133,6 +133,8 @@
     <string name="summary_audio_config_list">Nutze 5.1- oder 7.1-Sound im Heimkino.</string>
     <string name="title_checkbox_enable_audiofx">System-Audioeffekte</string>
     <string name="summary_checkbox_enable_audiofx">Lässt Equalizer und Effekte von Android den Ton bearbeiten. Kann den Ton verzögern.</string>
+    <string name="title_checkbox_audio_passthrough">Audio-Passthrough (Experimentell)</string>
+    <string name="summary_checkbox_audio_passthrough">Fordert vom Rubylight-PC den Ton in einem Format an, das deine Audioausgabe unverändert abspielt: unkomprimiertes PCM oder Dolby Digital (AC3) bzw. Dolby Digital Plus (E-AC3) für einen Receiver, eine Soundbar oder einen Fernseher, der es dekodiert. Braucht Android 10 oder neuer und die neue Streaming-Engine. Dolby-Ton kommt in Blöcken von 32 ms und damit später als Opus. Andere PCs und Ausgaben behalten Opus.</string>
     <string name="category_gamepad_settings">Controller</string>
     <string name="title_checkbox_multi_controller">Mehrere Controller</string>
     <string name="summary_checkbox_multi_controller">An: Jeder Controller ist ein eigener Spieler, und der PC sieht nur verbundene Controller. Aus: Alle Controller steuern Spieler 1, und der PC sieht immer einen Controller.</string>

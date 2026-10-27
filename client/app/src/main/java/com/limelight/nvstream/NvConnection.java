@@ -39,6 +39,7 @@ import org.xmlpull.v1.XmlPullParserException;
 
 import com.limelight.LimeLog;
 import com.limelight.R;
+import com.limelight.binding.audio.AudioPassthrough;
 import com.limelight.binding.audio.MicrophoneCapture;
 import com.limelight.binding.audio.MicrophoneStatus;
 import com.limelight.binding.input.InputBatcher;
@@ -512,6 +513,27 @@ public class NvConnection {
         return StreamConfiguration.STREAM_CFG_AUTO;
     }
     
+    /**
+     * The passthrough codecs to ask for: those the audio output plays for the stream's channel
+     * count, or 0 for Opus. Switched on with nothing to ask for, the stream says why it plays Opus.
+     */
+    static int audioPassthroughCodecs(boolean enabled, int channels) {
+        if (!enabled) return 0;
+        int codecs = AudioPassthrough.playableCodecs(channels);
+        if (codecs != 0) {
+            LimeLog.info("Audio passthrough: the audio output plays " + AudioPassthrough.names(codecs) +
+                    " with " + channels + " channels");
+        } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            LimeLog.warning("Audio passthrough: needs Android 10 or later; this stream plays Opus");
+            MoonBridge.bridgeClDisplayMessage("Audio passthrough needs Android 10 or later. This stream plays Opus.");
+        } else {
+            LimeLog.warning("Audio passthrough: the audio output plays no passthrough format with " + channels +
+                    " channels; this stream plays Opus");
+            MoonBridge.bridgeClDisplayMessage("This audio output plays no passthrough format. This stream plays Opus.");
+        }
+        return codecs;
+    }
+
     /**
      * HDR is streaming, but not as PyroWave although the host and this device both offered
      * PyroWave 10-bit: the device could not create its HDR output.
@@ -1135,6 +1157,8 @@ public class NvConnection {
                         // The session's choice (Game turns it off after a packed failure), not the saved setting.
                         MoonBridge.requestPacked444(context.streamConfig.isPacked444());
                         MoonBridge.requestRoaming(prefs.clientRoaming, prefs.roamingMetered);
+                        MoonBridge.requestAudioPassthrough(audioPassthroughCodecs(prefs.audioPassthrough,
+                                context.streamConfig.getAudioConfiguration().channelCount));
                         // Before the start, so a change during the handshake is still reported.
                         Network streamNetwork =prefs.rustEngine && prefs.clientRoaming ?
                                 RoamingNetworkWatch.defaultNetwork(appContext) : null;

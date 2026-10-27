@@ -54,6 +54,15 @@ final class SettingRules {
         return prefs.getBoolean(PreferenceConfiguration.RUST_ENGINE_PREF_STRING, true);
     }
 
+    /**
+     * Passthrough needs the new streaming engine, and Android 10 or later to tell which formats the
+     * audio output plays as is.
+     */
+    static boolean audioPassthroughApplies(SharedPreferences prefs, int sdk) {
+        return sdk >= android.os.Build.VERSION_CODES.Q &&
+                prefs.getBoolean(PreferenceConfiguration.RUST_ENGINE_PREF_STRING, true);
+    }
+
     /** Continuing on mobile data is a roaming choice, so it shows only while roaming is on. */
     static boolean roamingMeteredApplies(SharedPreferences prefs) {
         return clientRoamingApplies(prefs) &&

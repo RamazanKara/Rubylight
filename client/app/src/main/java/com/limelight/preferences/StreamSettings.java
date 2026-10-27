@@ -1211,6 +1211,8 @@ public class StreamSettings extends NightjarActivity {
             setShown(SettingRules.ADAPTIVE_QUALITY_MIN_FPS, limits);
             setShown(PreferenceConfiguration.CLIENT_ROAMING_PREF_STRING, SettingRules.clientRoamingApplies(prefs));
             setShown(PreferenceConfiguration.ROAMING_METERED_PREF_STRING, SettingRules.roamingMeteredApplies(prefs));
+            setShown(PreferenceConfiguration.AUDIO_PASSTHROUGH_PREF_STRING,
+                    SettingRules.audioPassthroughApplies(prefs, Build.VERSION.SDK_INT));
             boolean open = customizeOpen();
             for (String key : LOW_LATENCY_CUSTOMIZED) {
                 if (open) folded.remove(key);

@@ -156,6 +156,7 @@ pub fn start(bridge: &'static Bridge, params: StartParams) -> i32 {
     ENGINE.host_packed444_modes.store(-1, Ordering::SeqCst);
 
     let microphone_requested = params.config.stream.microphone;
+    let audio_passthrough = params.config.stream.audio_passthrough;
     let events = Arc::new(Events::new(bridge));
     platform::info(&format!(
         "Starting a stream with the Rust engine: {}x{}@{} formats=0x{:x} input_only={}",
@@ -169,7 +170,7 @@ pub fn start(bridge: &'static Bridge, params: StartParams) -> i32 {
         &params.host,
         params.config,
         Box::new(Video::new(bridge)),
-        Box::new(Audio::new(bridge)),
+        Box::new(Audio::new(bridge, audio_passthrough)),
         events.clone(),
         &interrupt,
     ) {

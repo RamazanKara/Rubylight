@@ -117,6 +117,7 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_startConnectio
     network_priority: jboolean,
     roaming: jboolean,
     roaming_metered: jboolean,
+    audio_passthrough: jint,
 ) -> jint {
     let Some(bridge) = bridge::get() else {
         platform::error("RustBridge.startConnection before init");
@@ -156,6 +157,7 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_startConnectio
     stream.pyrowave_link_mbps = pyrowave_link_mbps.max(0);
     stream.pyrowave_pace_mbps = pyrowave_pace_mbps.max(0);
     stream.client_wireless = client_wireless == JNI_TRUE;
+    stream.audio_passthrough = extras::audio_passthrough(audio_passthrough);
     let config = SessionConfig {
         stream,
         location: extras::location(streaming_remotely),

@@ -250,6 +250,7 @@ public class RustEngineJniParityTest {
         passedAs.put("packedModes", "packed444Modes");
         passedAs.put("roamingRequested", "roaming");
         passedAs.put("roamingMeteredRequested", "roamingMetered");
+        passedAs.put("audioPassthroughRequested", "audioPassthrough");
         List<String> declared = new ArrayList<>();
         for (String parameter : splitParameters(declaration.group(1))) {
             String[] words = parameter.trim().split("\\s+");

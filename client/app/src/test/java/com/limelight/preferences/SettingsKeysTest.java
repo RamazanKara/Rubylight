@@ -307,6 +307,7 @@ public class SettingsKeysTest {
         reads.put("checkbox_host_audio", new Read(false, true, c -> c.playHostAudio));
         reads.put("checkbox_enable_mic", new Read(false, true, c -> c.enableMic));
         reads.put("checkbox_enable_audiofx", new Read(false, true, c -> c.enableAudioFx));
+        reads.put("checkbox_audio_passthrough", new Read(false, true, c -> c.audioPassthrough));
         reads.put("checkbox_enable_perf_overlay", new Read(false, true, c -> c.enablePerfOverlay));
         reads.put("performance_overlay_position", new Read("top_left", "bottom_right", c -> c.overlayPosition));
         reads.put("checkbox_enable_pip", new Read(false, true, c -> c.enablePip));

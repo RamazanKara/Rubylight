@@ -728,6 +728,64 @@ public class NvHTTP {
         return details.pyroWaveBandwidthProbeBytes * 8000.0 / Math.max(1, System.nanoTime() - startedNs);
     }
 
+    /** What {@link #probeLinkMbps} asks for: the host's largest bandwidth probe. */
+    public static final int LINK_PROBE_BYTES = 4 * 1024 * 1024;
+    /** The share of a probed link a stream starts at (nightjar_core::http::probe_start_kbps). */
+    static final double PROBE_START_SHARE = 0.8;
+    static final int PROBE_FLOOR_KBPS = 2000;
+
+    /**
+     * The first bitrate of a stream whose bitrate is automatic: the configured one, lowered to
+     * {@link #PROBE_START_SHARE} of a link probed at probeMbps, never below the floor. A probe never
+     * raises it.
+     */
+    public static int probeStartKbps(int configuredKbps, double probeMbps) {
+        double share = Double.isNaN(probeMbps) ? 0 : Math.max(0, probeMbps) * 1000 * PROBE_START_SHARE;
+        int shareKbps = (int) Math.min(Integer.MAX_VALUE, share);
+        return Math.max(Math.min(PROBE_FLOOR_KBPS, configuredKbps), Math.min(configuredKbps, shareKbps));
+    }
+
+    /**
+     * Mbit/s of one GET /bandwidth-probe (BANDWIDTH_PROBE, every codec), timed from the response
+     * headers to the end of the body. The host stops writing after 3 s, so a body that ends early
+     * on a slow link is still a measurement; an empty one is not.
+     */
+    public double probeLinkMbps() throws IOException {
+        if (serverCert == null) {
+            throw new IOException("This PC is not paired");
+        }
+        OkHttpClient client = httpClientLongConnectTimeout.newBuilder()
+                .callTimeout(10, TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false).build();
+        long[] headersNs = {0};
+        long received;
+        try (ResponseBody response = openHttpConnection(client, getHttpsUrl(true), "bandwidth-probe",
+                "bytes=" + LINK_PROBE_BYTES, null, headers -> headersNs[0] = System.nanoTime())) {
+            received = readLinkProbe(response);
+        }
+        return received * 8000.0 / Math.max(1, System.nanoTime() - headersNs[0]);
+    }
+
+    static long readLinkProbe(ResponseBody response) throws IOException {
+        MediaType type = response.contentType();
+        if (type == null || !"application".equals(type.type()) || !"octet-stream".equals(type.subtype())) {
+            throw new IOException("Unexpected bandwidth test content type");
+        }
+        InputStream input = response.byteStream();
+        byte[] buffer = new byte[64 * 1024];
+        long total = 0;
+        int count;
+        while ((count = input.read(buffer)) != -1) {
+            total += count;
+            if (total > LINK_PROBE_BYTES) {
+                throw new IOException("Bandwidth test exceeded the requested size");
+            }
+        }
+        if (total == 0) {
+            throw new IOException("The bandwidth test sent nothing");
+        }
+        return total;
+    }
+
     interface HeadersListener {
         void onHeaders(okhttp3.Headers headers) throws IOException;
     }

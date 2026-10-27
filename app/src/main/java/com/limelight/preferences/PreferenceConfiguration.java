@@ -14,6 +14,7 @@ import com.limelight.binding.input.touch.TouchMode;
 import com.limelight.binding.input.touch.TouchMomentum;
 import com.limelight.binding.input.touch.TrackpadArea;
 import com.limelight.computers.HostCapabilityCache;
+import com.limelight.nvstream.http.FecChoice;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.binding.video.DisplayFrameRatePolicy;
@@ -83,6 +84,7 @@ public class PreferenceConfiguration {
     private static final String NETWORK_GRACE_PREF_STRING = "list_network_grace";
     private static final String TELL_HOST_WIRELESS_PREF_STRING = "checkbox_tell_host_wireless";
     private static final String TELL_HOST_LINK_SPEED_PREF_STRING = "checkbox_tell_host_link_speed";
+    static final String FEC_CHOICE_PREF_STRING = "list_fec_choice";
     private static final String QUICK_RESUME_PREF_STRING = "checkbox_quick_resume";
     private static final String AUTO_RECONNECT_DEFAULT_OFF_PREF_STRING = "auto_reconnect_default_off";
     private static final String ENABLE_PERF_OVERLAY_STRING = "checkbox_enable_perf_overlay";
@@ -244,6 +246,13 @@ public class PreferenceConfiguration {
     /** Tell a Rubylight PC when the route to it is Wi-Fi or cellular. On unless switched off. */
     public boolean tellHostWireless = true;
     public boolean tellHostLinkSpeed = true;
+    /** The video FEC asked for at launch from a PC that lets the client choose it; the PC's own by default. */
+    public FecChoice fecChoice = FecChoice.HOST;
+    /**
+     * The bitrate is the default for the stream's size and rate, set by no profile, PC or game:
+     * a new stream may test the link first and start lower (the mobile data limit still caps it).
+     */
+    public boolean automaticBitrate;
     public boolean quickResume;
     public com.limelight.nvstream.AdaptiveQualityController.Mode adaptiveQualityMode =
             com.limelight.nvstream.AdaptiveQualityController.Mode.OFF;
@@ -698,6 +707,7 @@ public class PreferenceConfiguration {
         }
         StreamLayers.Result layers = StreamLayers.resolve(input);
         config.layers = layers;
+        config.automaticBitrate &= !layers.bitrateLayered;
         if (layers.layered()) {
             HostStreamProfile profile = layers.values;
             boolean followedScreen = config.resolutionFollowsScreen;
@@ -1123,7 +1133,8 @@ public class PreferenceConfiguration {
         // A bitrate the user did not pick follows the size the stream really uses.
         String fpsString = Integer.toString(config.fps);
         String used = getResolutionText(config.width, config.height);
-        if (savedResolution != null && !used.equals(savedResolution) && !isBitrateUserSet(prefs)) {
+        config.automaticBitrate = !isBitrateUserSet(prefs);
+        if (savedResolution != null && !used.equals(savedResolution) && config.automaticBitrate) {
             config.bitrate = getDefaultBitrate(used, fpsString);
         }
 
@@ -1177,6 +1188,7 @@ public class PreferenceConfiguration {
                 prefs.getString(NETWORK_GRACE_PREF_STRING, "0"));
         config.tellHostWireless = prefs.getBoolean(TELL_HOST_WIRELESS_PREF_STRING, true);
         config.tellHostLinkSpeed = prefs.getBoolean(TELL_HOST_LINK_SPEED_PREF_STRING, true);
+        config.fecChoice = FecChoice.fromPreference(prefs.getString(FEC_CHOICE_PREF_STRING, FecChoice.HOST.wireValue));
         config.quickResume = prefs.getBoolean(QUICK_RESUME_PREF_STRING, false);
         config.adaptiveQualityMode = com.limelight.nvstream.AdaptiveQualityController.Mode.parse(
                 prefs.getString("adaptive_quality_mode", "off"));

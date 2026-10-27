@@ -232,6 +232,29 @@ public class StreamLayersTest {
         assertNull(StreamLayers.resolve(input).values.bitrate);
     }
 
+    // A bitrate from a profile, this PC or this game is chosen, so a new stream is not link-tested;
+    // the mobile data limit caps the automatic bitrate without choosing one.
+    @Test
+    public void onlyALayerThatSetsTheBitrateMakesItChosen() {
+        StreamLayers.Input input = input(Network.MOBILE);
+        input.mobileLimitKbps = 10000;
+        StreamLayers.Result result = StreamLayers.resolve(input);
+        assertTrue(result.bitrateLimited);
+        assertFalse(result.bitrateLayered);
+
+        input.pcValues = "v2;bitrate=50000";
+        assertTrue(StreamLayers.resolve(input).bitrateLayered);
+        input.pcValues = "v2;hdr=true";
+        assertFalse(StreamLayers.resolve(input).bitrateLayered);
+        input.gameValues = "v2;bitrate=5000";
+        assertTrue(StreamLayers.resolve(input).bitrateLayered);
+        input.gameValues = null;
+        profile("1", "Hotel", "v2;bitrate=8000");
+        stored.put(StreamProfiles.ACTIVE, "1");
+        input.profiles = StreamProfiles.Snapshot.from(stored);
+        assertTrue(StreamLayers.resolve(input).bitrateLayered);
+    }
+
     @Test
     public void theLogDescriptionNamesNoProfileOrNetworkName() {
         profile("1", "Grandma's house", "v2;bitrate=8000");

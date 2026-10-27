@@ -61,6 +61,8 @@ public final class StreamLayers {
         /** The name of a profile that was picked but can't be read. */
         public String invalidProfileName;
         public boolean pcApplied, gameApplied, bitrateLimited;
+        /** A profile, this PC or this game set the bitrate (the mobile data limit does not count). */
+        public boolean bitrateLayered;
 
         public Source source(HostStreamProfile.Field field) {
             Source source = sources.get(field);
@@ -146,6 +148,7 @@ public final class StreamLayers {
         }
         result.pcApplied = result.sources.containsValue(Source.PC);
         result.gameApplied = result.sources.containsValue(Source.GAME);
+        result.bitrateLayered = result.values.bitrate != null;
 
         if (in.network == Network.MOBILE && in.mobileLimitKbps > 0) {
             int bitrate = result.values.bitrate != null ? result.values.bitrate : in.mainBitrate;

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_fec_choice">Sửa lỗi</string>
+    <string name="summary_fec_choice">Lượng dữ liệu khôi phục mà PC chạy Rubylight thêm vào video. Tự động theo mức mất gói của thiết bị này. Các PC khác dùng cài đặt riêng.</string>
+    <string name="fec_choice_host">Cài đặt của PC</string>
+    <string name="fec_choice_auto">Tự động</string>
+</resources>

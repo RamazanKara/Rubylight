@@ -561,6 +561,13 @@
             android:title="@string/title_tell_host_link_speed"
             android:dialogMessage="@string/summary_tell_host_link_speed"
             android:defaultValue="true" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_fec_choice"
+            android:title="@string/title_fec_choice"
+            android:dialogMessage="@string/summary_fec_choice"
+            android:entries="@array/fec_choice_names"
+            android:entryValues="@array/fec_choice_values"
+            android:defaultValue="host" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_input_only_any_host"
             android:title="@string/title_checkbox_input_only_any_host"

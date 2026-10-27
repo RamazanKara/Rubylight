@@ -323,6 +323,8 @@ public class NvConnection {
         this.context.httpsPort = httpsPort;
         this.context.streamConfig = config;
         this.context.serverCert = serverCert;
+        this.context.fecChoice = config.getFecChoice();
+        this.context.startBitrateKbps = config.getBitrate();
 
         // This is unique per connection
         this.context.riKey = generateRiAesKey();
@@ -980,8 +982,54 @@ public class NvConnection {
         return launchNotRunningApp(h, context);
     }
     
+    /** Mbit/s of one link test toward the host ({@link NvHTTP#probeLinkMbps}). */
+    interface LinkProbe {
+        double mbps() throws IOException;
+    }
+
+    /**
+     * A new stream at the automatic bitrate times the link first when the PC offers the test
+     * (BANDWIDTH_PROBE), as the desktop client does. PyroWave has its own test and a minimum
+     * bitrate; resumes, control tiles and input-only streams keep the configured bitrate.
+     */
+    static boolean probesFirstBitrate(ConnectionContext context) {
+        StreamConfiguration config = context.streamConfig;
+        NvApp app = config.getApp();
+        return config.probesFirstBitrate() && !config.isResumeOnly() &&
+                app.getControl() == NvApp.Control.NONE && app.getRole() != NvApp.Role.INPUT_ONLY &&
+                !app.isSmallStreamInputOnly() &&
+                (context.negotiatedVideoFormats & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0 &&
+                context.hostCaps.has(HostCapabilities.Feature.BANDWIDTH_PROBE);
+    }
+
+    /**
+     * The bitrate a new stream starts at: {@link NvHTTP#probeStartKbps} of a link test when
+     * {@link #probesFirstBitrate}, else the configured one. A failed test is logged and the stream
+     * starts at the configured bitrate.
+     */
+    static int firstBitrateKbps(ConnectionContext context, LinkProbe probe) {
+        int configured = context.streamConfig.getBitrate();
+        if (!probesFirstBitrate(context)) {
+            return configured;
+        }
+        try {
+            double mbps = probe.mbps();
+            int first = NvHTTP.probeStartKbps(configured, mbps);
+            LimeLog.info(String.format(java.util.Locale.ROOT,
+                    "Bandwidth test %.1f Mbit/s, starting at %d kbps", mbps, first));
+            return first;
+        } catch (IOException | RuntimeException e) {
+            LimeLog.warning("Bandwidth test failed, starting at " + configured + " kbps: " + e);
+            return configured;
+        }
+    }
+
     private boolean launchNotRunningApp(NvHTTP h, ConnectionContext context)
             throws IOException, XmlPullParserException {
+        context.startBitrateKbps = firstBitrateKbps(context, h::probeLinkMbps);
+        if (stopRequested) {
+            return false;
+        }
         // Launch the app since it's not running
         if (!launchApp(h, context, "launch")) {
             if (!context.launchActionCompleted) {
@@ -1166,7 +1214,7 @@ public class NvConnection {
                                 context.serverAppVersion, context.serverGfeVersion, context.rtspSessionUrl,
                                 context.serverCodecModeSupport,
                                 context.negotiatedWidth, context.negotiatedHeight,
-                                context.streamConfig.getRefreshRate(), context.streamConfig.getBitrate(),
+                                context.streamConfig.getRefreshRate(), context.startBitrateKbps,
                                 context.negotiatedPacketSize, context.negotiatedRemoteStreaming,
                                 context.streamConfig.getAudioConfiguration().toInt(),
                                 context.negotiatedVideoFormats,
@@ -1248,6 +1296,11 @@ public class NvConnection {
     
     public ComputerDetails getHostDetails() {
         return hostDetails;
+    }
+
+    /** The bitrate this stream started at: the configured one, or lower after a link test. */
+    public int getStartBitrateKbps() {
+        return context.startBitrateKbps;
     }
 
     public synchronized boolean startHardwareMetricsPolling(Consumer<HardwareMetrics> listener) {

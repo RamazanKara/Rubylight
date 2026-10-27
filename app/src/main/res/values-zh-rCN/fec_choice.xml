@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_fec_choice">纠错</string>
+    <string name="summary_fec_choice">Rubylight 电脑在视频中加入的恢复数据量。自动会跟随此设备的丢包情况。其他电脑使用自己的设置。</string>
+    <string name="fec_choice_host">电脑的设置</string>
+    <string name="fec_choice_auto">自动</string>
+</resources>

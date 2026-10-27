@@ -1,5 +1,6 @@
 package com.limelight.nvstream;
 
+import com.limelight.nvstream.http.FecChoice;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.HostDisplayChoice;
@@ -26,7 +27,11 @@ public class StreamConfiguration {
     private boolean vrr;
     // The PC's display choice as saved for the PC the stream was started from; null: look it up.
     private HostDisplayChoice hostDisplay;
+    // The video FEC to ask a PC that lets the client choose; null sends nothing.
+    private FecChoice fecChoice;
     private int bitrate;
+    // The bitrate is the automatic one: a new stream may time the link and start lower.
+    private boolean probeFirstBitrate;
     private boolean sops;
     private boolean enableAdaptiveResolution;
     private boolean playLocalAudio;
@@ -97,6 +102,17 @@ public class StreamConfiguration {
             return this;
         }
         
+        /** The bitrate above is automatic, so a new stream times the link first and starts no higher than it holds. */
+        public StreamConfiguration.Builder setProbeFirstBitrate(boolean probe) {
+            config.probeFirstBitrate = probe;
+            return this;
+        }
+
+        public StreamConfiguration.Builder setFecChoice(FecChoice choice) {
+            config.fecChoice = choice;
+            return this;
+        }
+
         public StreamConfiguration.Builder setEnableSops(boolean enable) {
             config.sops = enable;
             return this;
@@ -235,6 +251,14 @@ public class StreamConfiguration {
         return bitrate;
     }
     
+    public boolean probesFirstBitrate() {
+        return probeFirstBitrate;
+    }
+
+    public FecChoice getFecChoice() {
+        return fecChoice;
+    }
+
     public int getMaxPacketSize() {
         return maxPacketSize;
     }

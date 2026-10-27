@@ -34,6 +34,8 @@ public class ConnectionContext {
     public String preparedControllers = "";
     // The video FEC to ask for; null leaves it to the host and sends nothing
     public FecChoice fecChoice;
+    // The bitrate the stream starts at: the configured one, or lower after a link test
+    public int startBitrateKbps;
 
     public int negotiatedWidth, negotiatedHeight;
     // HDR is asked for in the launch only when this is set; 10-bit SDR negotiates 10-bit without it.

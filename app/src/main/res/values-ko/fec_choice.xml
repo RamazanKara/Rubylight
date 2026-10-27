@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_fec_choice">오류 정정</string>
+    <string name="summary_fec_choice">Rubylight PC가 영상에 추가하는 복구 데이터의 양입니다. 자동은 이 기기의 손실에 맞춥니다. 다른 PC는 자체 설정을 사용합니다.</string>
+    <string name="fec_choice_host">PC 설정</string>
+    <string name="fec_choice_auto">자동</string>
+</resources>

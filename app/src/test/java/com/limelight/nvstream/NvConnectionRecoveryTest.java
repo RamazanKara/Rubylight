@@ -270,8 +270,16 @@ public class NvConnectionRecoveryTest {
         static String lastQuery;
         static int probes;
         static final List<String> requests = new ArrayList<>();
+        // The link test before a launch: its result in Mbit/s, or the failure it throws.
+        static double linkMbps;
+        static IOException linkFailure;
 
         @Implementation public String getServerInfo(boolean likelyOnline) { return initial; }
+        @Implementation public double probeLinkMbps() throws IOException {
+            requests.add("bandwidth-probe");
+            if (linkFailure != null) throw linkFailure;
+            return linkMbps;
+        }
         @Implementation public NvApp getAppByUuid(String uuid) {
             NvApp app = new NvApp("Game", 73, false);
             app.setAppUuid(uuid);

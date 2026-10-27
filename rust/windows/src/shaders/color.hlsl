@@ -33,6 +33,21 @@ float3 depq(float3 rgb) {
     float3 p = pow(clamp(rgb, 0, 1), 32.0 / 2523.0);
     return pow(max(p - 3424.0 / 4096.0, 0) / max(2413.0 / 128.0 - 2392.0 / 128.0 * p, 0.000001), 16384.0 / 2610.0);
 }
+// BT.2100 HLG (ARIB STD-B67, `hdr == 2`) from BT.2020 display light in scRGB
+// units (1.0 = 80 nits), graded for a fixed 1000-nit display: the inverse
+// reference OOTF at system gamma 1.2, then the OETF. Light above 1000 nits
+// keeps its headroom until the codes clamp. After Foundation Sunshine's
+// scRGBTo2100HLG, DisplayLinearToHLGScene and LinearToHLG
+// (src_assets/windows/assets/shaders/directx/include/common.hlsl,
+// AlkaidLab/foundation-sunshine, commit 880f1ef). Copyright (c) Foundation
+// Sunshine authors, GPL-3.0. `color::hlg` is the CPU reference.
+float3 hlg(float3 light) {
+    float3 display = max(light, 0) * (80.0 / 1000.0);
+    float y = dot(display, float3(0.2627, 0.6780, 0.0593));
+    float3 scene = y > 0 ? display * pow(max(y, 1e-6), (1.0 - 1.2) / 1.2) : 0;
+    return lerp(0.17883277 * log(max(12.0 * scene - 0.28466892, 1e-6)) + 0.55991073,
+                sqrt(3.0 * scene), step(scene, 1.0 / 12.0));
+}
 float3 pointer_srgb(float3 rgb) {
     if (pixel == 1) return saturate(gamma(rgb / sdrWhiteScale));
     if (pixel == 2) {
@@ -158,6 +173,7 @@ float3 nonlinear(float2 target) {
         // only the BT.2020 YUV coefficients would relabel those primaries.
         return colorMatrix == 2 ? bt2020_sdr(gamut2020(pixel == 1 ? rgb : srgb_linear(rgb))) : rgb;
     }
+    if (hdr == 2) return hlg(pixel == 2 ? depq(rgb) * 125.0 : gamut2020(rgb));
     if (pixel == 2) return rgb;
     return pq(gamut2020(rgb) / 125.0);
 }
@@ -178,6 +194,7 @@ Texture2D<float4> menuImage : register(t2);
 float3 menu_rgb(float2 target) {
     int2 at = clamp((int2(target) - int2(menuOrigin)) / int(menuScale), 0, int2(menuSize / menuScale) - 1);
     float3 c = menuImage.Load(int3(at, 0)).rgb;
+    if (hdr == 2) return hlg(gamut2020(srgb_linear(c)) * sdrWhiteScale);
     if (hdr != 0) return pq(gamut2020(srgb_linear(c)) * sdrWhiteScale / 125.0);
     return colorMatrix == 2 ? bt2020_sdr(gamut2020(srgb_linear(c))) : c;
 }
@@ -602,6 +619,9 @@ void hdr_stats_cs(uint3 id : SV_DispatchThreadID, uint index : SV_GroupIndex) {
     if (all(id.xy < statsGrid)) {
         float3 rgb = load(int2((2 * id.xy + 1) * sourceSize / (2 * statsGrid)));
         if (pixel != 2) rgb = pq(gamut2020(rgb) / 125.0);
+        // An HLG stream is graded for 1000 nits (`hlg`): its statistics end
+        // there, PQ(1000 nits), as the signal does.
+        if (hdr == 2) rgb = min(rgb, 0.7518271);
         // Without the sign bit, the bits of floats in 0..=1 order as integers.
         uint code = asuint(saturate(max(rgb.r, max(rgb.g, rgb.b)))) & 0x7fffffff;
         InterlockedAdd(statsBins[min(uint(asfloat(code) * 1024), 1023)], 1);

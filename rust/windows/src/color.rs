@@ -8,6 +8,28 @@ fn pq(nits: f32) -> f32 {
     let y = (nits.max(0.) / 10000.).powf(2610. / 16384.);
     ((3424. / 4096. + 2413. / 128. * y) / (1. + 2392. / 128. * y)).powf(2523. / 32.)
 }
+/// color.hlsl's `hlg` on the CPU, for the tests: BT.2020 display light in
+/// scRGB units (1.0 = 80 nits) to the BT.2100 HLG signal, graded for a fixed
+/// 1000-nit display (inverse reference OOTF at system gamma 1.2, then the
+/// ARIB STD-B67 OETF).
+#[cfg(test)]
+pub(crate) fn hlg(light: [f64; 3]) -> [f64; 3] {
+    const A: f64 = 0.17883277;
+    let display = light.map(|v| v.max(0.) * 80. / 1000.);
+    let y = 0.2627 * display[0] + 0.6780 * display[1] + 0.0593 * display[2];
+    display.map(|v| {
+        let scene = if y > 0. {
+            v * y.powf((1. - 1.2) / 1.2)
+        } else {
+            0.
+        };
+        if scene <= 1. / 12. {
+            (3. * scene).sqrt()
+        } else {
+            A * (12. * scene - (1. - 4. * A)).ln() + 0.5 - A * (4. * A).ln()
+        }
+    })
+}
 pub(crate) fn pointer_linear(value: u8) -> f32 {
     srgb_table()[value as usize] * 1.25
 }
@@ -239,6 +261,28 @@ mod tests {
         assert!((pq(1000.) - 0.7518271).abs() < 0.00002);
         assert!((pq(10000.) - 1.).abs() < 0.00002);
         assert!((f32::from(code(1., pq_table())) / 65535. - pq(80.)).abs() < 0.0001);
+    }
+    #[test]
+    fn hlg_matches_bt2100_and_bt2408_reference_points() {
+        let grey = |nits: f64| hlg([nits / 80.; 3])[0];
+        assert_eq!(hlg([0.; 3]), [0.; 3]);
+        assert_eq!(hlg([-1., 0., 0.]), [0.; 3]);
+        // The 1000-nit grading's peak is signal 1, and BT.2408's HDR reference
+        // white, 203 nits on a 1000-nit display, is 75 %.
+        assert!((grey(1000.) - 1.).abs() < 1e-6);
+        assert!((grey(203.) - 0.75).abs() < 0.0005);
+        // ARIB STD-B67's two segments meet at scene light 1/12, signal 0.5.
+        let knee = (1f64 / 12.).powf(1.2) * 1000.;
+        assert!((grey(knee) - 0.5).abs() < 1e-6);
+        assert!((grey(knee * 0.999) - 0.5).abs() < 0.001);
+        assert!((grey(knee * 1.001) - 0.5).abs() < 0.001);
+        // Light above the grading keeps its headroom.
+        assert!(grey(2000.) > 1.1);
+        // The inverse OOTF scales by luminance, so a saturated 1000-nit red
+        // lifts above signal 1 and keeps its hue: green and blue stay black.
+        let red = hlg([12.5, 0., 0.]);
+        assert!((red[0] - 1.0407).abs() < 0.0001, "{red:?}");
+        assert_eq!(&red[1..], &[0., 0.]);
     }
     #[test]
     fn half_lookup_preserves_finite_values_and_sanitizes_nonfinite() {

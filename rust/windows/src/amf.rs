@@ -110,6 +110,23 @@ pub(crate) fn int(n: i64) -> AMFVariantStruct {
         __bindgen_anon_1: AMFVariantStruct__bindgen_ty_1 { int64Value: n },
     }
 }
+/// The `ColorTransferChar` AMF writes into the VUI or sequence header
+/// (`AMF_COLOR_TRANSFER_CHARACTERISTIC_*`, the H.273 codes): ARIB STD-B67
+/// (18) for HLG and Dolby Vision 8.4, SMPTE ST 2084 (16) for other HDR, and
+/// each SDR matrix's own curve.
+fn transfer_characteristic(config: &butterpollo_core::rtsp::Negotiated) -> i64 {
+    if config.hlg() {
+        18
+    } else if config.hdr {
+        16
+    } else {
+        match config.color_matrix() {
+            0 => 6,
+            2 => 14,
+            _ => 1,
+        }
+    }
+}
 struct OutputRange {
     name: &'static str,
     full: bool,
@@ -702,15 +719,7 @@ impl Encoder {
                 2 => 9,
                 _ => 1,
             };
-            let transfer = if config.hdr {
-                16
-            } else {
-                match matrix {
-                    0 => 6,
-                    2 => 14,
-                    _ => 1,
-                }
-            };
+            let transfer = transfer_characteristic(config);
             let prefix = match config.codec {
                 0 => "",
                 1 => "Hevc",

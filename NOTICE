@@ -43,7 +43,9 @@ statistics and scene-cut thresholds, and the HEVC SEI and AV1 metadata OBU splic
 The GPU luminance statistics those writers take, the hdr_stats_cs compute shader
 (rust/windows/src/shaders/color.hlsl) and its dispatch and readback
 (rust/windows/src/compute_hdr_stats.rs), follow Foundation Sunshine's
-hdr_luminance_analysis_cs.hlsl from the same commit.
+hdr_luminance_analysis_cs.hlsl from the same commit. The HLG encoding curve, hlg in
+rust/windows/src/shaders/color.hlsl, follows scRGBTo2100HLG, DisplayLinearToHLGScene
+and LinearToHLG in that commit's src_assets/windows/assets/shaders/directx/include/common.hlsl.
 Copyright (c) Foundation Sunshine authors, GPL-3.0.
 
 The Dolby Vision profile 8.1 RPU writer (rust/core/src/dovi.rs) follows the syntax,

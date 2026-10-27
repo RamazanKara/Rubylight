@@ -106,6 +106,8 @@ pub(crate) mod reference {
     #[derive(Clone, Copy, Debug)]
     pub(crate) struct Colour {
         hdr: bool,
+        /// `hdr == 2`: color.hlsl's `hlg` instead of PQ.
+        hlg: bool,
         matrix: u32,
         full_range: bool,
         ten_bit: bool,
@@ -115,6 +117,7 @@ pub(crate) mod reference {
         pub(crate) fn from_values(values: &[u32; 20]) -> Self {
             Self {
                 hdr: values[5] != 0,
+                hlg: values[5] == 2,
                 matrix: values[6],
                 full_range: values[7] != 0,
                 ten_bit: values[8] != 0,
@@ -134,7 +137,9 @@ pub(crate) mod reference {
         /// `menu_rgb`'s transform of a panel pixel.
         fn transform(self, rgb: [f64; 3]) -> [f64; 3] {
             let linear = || gamut2020(rgb.map(srgb_linear));
-            if self.hdr {
+            if self.hlg {
+                crate::color::hlg(linear().map(|v| v * self.white))
+            } else if self.hdr {
                 linear().map(|v| pq(v * self.white / 125.))
             } else if self.matrix == 2 {
                 linear().map(bt2020_sdr)

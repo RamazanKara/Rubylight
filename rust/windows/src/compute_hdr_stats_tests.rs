@@ -359,6 +359,41 @@ fn hdr_stats_measure_flat_and_split_frames() -> Result<()> {
 
 #[test]
 #[ignore = "requires D3D12 compute"]
+fn hlg_stream_statistics_end_at_the_1000_nit_grading() -> Result<()> {
+    let rig = Rig::new()?;
+    // Half the frame at 100 nits, half at 4000: an HLG stream's signal ends
+    // at 1000 nits, and so do its statistics.
+    for image in [
+        scrgb(64, 32, |x, _| if x < 32 { 100. } else { 4000. }),
+        pq10(64, 32, |x, _| {
+            (nits_to_pq(if x < 32 { 100. } else { 4000. }) * 1023.).round() as u32
+        }),
+    ] {
+        let mut converter = rig.converter(&image)?;
+        // cbuffer Config: hdr=5, 2 for HLG (`gpu_color::constants`).
+        converter.values[5] = 2;
+        let converted = rig.convert(&mut converter, &image)?;
+        let readout = converter.latest_hdr_stats(0)?.context("HLG statistics")?;
+        assert_eq!(readout.conversion, converted.conversion);
+        let what = format!("HLG {:?}", image.pixel);
+        close(
+            readout.max_pq,
+            nits_to_pq(1000.),
+            2e-3,
+            &format!("{what} max"),
+        );
+        close(
+            readout.min_pq,
+            pixel_pq(&image, 0, 0),
+            2e-3,
+            &format!("{what} min"),
+        );
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires D3D12 compute"]
 fn hdr_stats_follow_hdr_conversions_only() -> Result<()> {
     let rig = Rig::new()?;
     let sdr = Image {

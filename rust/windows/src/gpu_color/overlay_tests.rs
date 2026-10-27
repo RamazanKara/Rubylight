@@ -26,6 +26,8 @@ enum Colour {
     Sdr709Ten,
     Bt2020,
     Pq,
+    /// HLG, which only standard 4:2:0 streams carry.
+    Hlg,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Route {
@@ -64,7 +66,11 @@ fn cases() -> Vec<(Kind, Colour, Route)> {
             Colour::Sdr709Ten,
             Colour::Bt2020,
             Colour::Pq,
+            Colour::Hlg,
         ] {
+            if colour == Colour::Hlg && kind != Kind::Yuv420 {
+                continue;
+            }
             let routes: &[Route] = match kind {
                 Kind::Pyro444 => &[Route::D3d12, Route::D3d11Graphics, Route::D3d11Separate],
                 _ => &[Route::D3d12, Route::D3d11Compute, Route::D3d11Graphics],
@@ -81,7 +87,8 @@ fn config(kind: Kind, colour: Colour) -> Negotiated {
         width: WIDTH,
         height: HEIGHT,
         codec: if kind.pyro() { 3 } else { 1 },
-        hdr: colour == Colour::Pq,
+        hdr: matches!(colour, Colour::Pq | Colour::Hlg),
+        hdr_format: if colour == Colour::Hlg { 2 } else { 0 },
         sdr_10bit: matches!(colour, Colour::Sdr709Ten | Colour::Bt2020),
         csc_mode: if colour == Colour::Bt2020 { 4 } else { 2 },
         chroma_packing: match kind {
@@ -344,7 +351,8 @@ const CLOSED: &[(&str, u64)] = &[
 fn overlay_closed_outputs_match_their_fixture_hashes() -> Result<()> {
     let mut rig = Rig::new()?;
     let mut actual = Vec::new();
-    for (kind, colour, route) in cases() {
+    // HLG has no hashes recorded on a GPU yet; the reference test covers it.
+    for (kind, colour, route) in cases().into_iter().filter(|c| c.1 != Colour::Hlg) {
         let planes = rig.convert(kind, colour, route, None)?;
         // A second run must agree, or the fixture would only record noise.
         assert_eq!(

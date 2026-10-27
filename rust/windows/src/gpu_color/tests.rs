@@ -1193,6 +1193,128 @@ fn hdr_full_and_limited_range_match_absolute_pq_on_both_gpu_paths() -> Result<()
 }
 
 #[test]
+fn hlg_streams_and_dolby_vision_8_4_tell_the_shader_hlg() {
+    // cbuffer Config: hdr=5. rubylight_protocol::hdr: PQ 1, HLG 2, DV_81 4, DV_84 8.
+    let hdr = |hdr, hdr_format| {
+        let config = butterpollo_core::rtsp::Negotiated {
+            width: 64,
+            height: 64,
+            codec: 1,
+            hdr,
+            hdr_format,
+            ..Default::default()
+        };
+        constants(&config, (64, 64, Pixel::RgbaF16), [100., 1.], None)[5]
+    };
+    assert_eq!(hdr(false, 0), 0);
+    assert_eq!(hdr(false, 2), 0, "HLG needs an HDR stream");
+    assert_eq!(hdr(true, 0), 1);
+    assert_eq!(hdr(true, 1), 1);
+    assert_eq!(hdr(true, 4), 1);
+    assert_eq!(hdr(true, 2), 2);
+    assert_eq!(hdr(true, 8), 2);
+}
+
+#[test]
+fn the_shader_hlg_constants_match_arib_std_b67() {
+    // ARIB STD-B67: b = 1 - 4a, c = 0.5 - a ln(4a), and the statistics' cap is
+    // PQ at the 1000-nit grading (`color::tests` checks PQ itself).
+    let a: f64 = 0.17883277;
+    let pq_1000 = {
+        let y = 0.1f64.powf(2610. / 16384.);
+        ((3424. / 4096. + 2413. / 128. * y) / (1. + 2392. / 128. * y)).powf(2523. / 32.)
+    };
+    for (literal, value) in [
+        ("0.17883277", a),
+        ("0.28466892", 1. - 4. * a),
+        ("0.55991073", 0.5 - a * (4. * a).ln()),
+        ("0.7518271", pq_1000),
+    ] {
+        assert!(SHADER.contains(literal), "color.hlsl lost {literal}");
+        assert!(
+            (literal.parse::<f64>().unwrap() - value).abs() < 1e-7,
+            "{literal} vs {value}"
+        );
+    }
+    assert!(SHADER.contains("(1.0 - 1.2) / 1.2"), "system gamma 1.2");
+    assert!(SHADER.contains("80.0 / 1000.0"), "the 1000-nit grading");
+}
+
+#[test]
+#[ignore = "requires a D3D11 GPU with native P010 render views and D3D12 compute"]
+fn gpu_hlg_matches_the_cpu_reference_in_every_converter() -> Result<()> {
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    // Grey at 0, 80, 203, 1000 and 2000 nits, then saturated red at 1000.
+    let colours = [
+        [0.; 3],
+        [1.; 3],
+        [203. / 80.; 3],
+        [12.5; 3],
+        [25.; 3],
+        [12.5, 0., 0.],
+    ];
+    let image = make_image(&colours, 64, 64);
+    let config = butterpollo_core::rtsp::Negotiated {
+        width: image.width,
+        height: image.height,
+        codec: 1,
+        hdr: true,
+        hdr_format: 2,
+        ..Default::default()
+    };
+    let source = (image.width, image.height, image.pixel);
+    let uploaded = GpuImage::upload(&gpu, &image)?;
+    let mut pixel_passes = Converter::new(&gpu, &config, source)?;
+    pixel_passes.compute = None;
+    let pixel_passes = readback(&gpu, pixel_passes.convert(&uploaded)?.as_ref())?;
+    let mut graphics = Converter::new(&gpu, &config, source)?;
+    let graphics = readback(&gpu, graphics.convert(&uploaded)?.as_ref())?;
+    let queue = crate::compute::Compute::for_device(&gpu.device)?;
+    let mut converter =
+        crate::compute::Converter::new(queue.clone(), image.width, image.height, true)?;
+    converter.values = constants(&config, source, [100., 1.], None);
+    let opened = queue.open(&uploaded.texture)?;
+    let converted = converter.convert(
+        &opened,
+        crate::compute::format(image.pixel),
+        None,
+        &uploaded,
+    )?;
+    converted.wait()?;
+    let compute = readback_compute(&queue, &converted.texture)?;
+    let width = image.width as usize;
+    for (patch, colour) in colours.iter().enumerate() {
+        // BT.2020 primaries are Rec.709's for grey; red goes through the
+        // shader's gamut matrix.
+        let light = if patch == 5 {
+            [0.627404, 0.069097, 0.016391].map(|k| k * 12.5)
+        } else {
+            colour.map(f64::from)
+        };
+        let rgb = crate::color::hlg(light);
+        let y = 0.2627 * rgb[0] + 0.6780 * rgb[1] + 0.0593 * rgb[2];
+        let expected = (64. + 876. * y).round().clamp(0., 1023.);
+        let x = patch * 64 + 32;
+        for (path, output) in [
+            ("pixel passes", &pixel_passes),
+            ("graphics", &graphics),
+            ("compute", &compute),
+        ] {
+            let actual = f64::from(output[32 * width + x]);
+            assert!(
+                (actual - expected).abs() <= 2.,
+                "{path} patch {patch}: luma {actual}, wanted {expected}"
+            );
+        }
+    }
+    // HLG's peak and BT.2408's reference white, in codes.
+    assert!(graphics[32 * width + 3 * 64 + 32].abs_diff(940) <= 1);
+    assert!(graphics[32 * width + 2 * 64 + 32].abs_diff(721) <= 1);
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires a D3D11 GPU with native P010 render views"]
 fn gpu_hdr_preserves_absolute_luminance_gamut_and_linear_resize() -> Result<()> {
     let _com = ComGuard::new()?;

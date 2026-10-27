@@ -1276,6 +1276,131 @@ fn hdr10_metadata_and_range_reach_the_bitstream() -> Result<()> {
     Ok(())
 }
 #[test]
+fn hlg_and_dolby_vision_8_4_signal_arib_std_b67() {
+    // rubylight_protocol::hdr: PQ 1, HLG 2, DV_81 4, DV_84 8.
+    let stream = |codec, hdr, hdr_format, csc_mode| butterpollo_core::rtsp::Negotiated {
+        codec,
+        hdr,
+        hdr_format,
+        csc_mode,
+        ..Default::default()
+    };
+    for codec in [1, 2] {
+        assert_eq!(transfer_characteristic(&stream(codec, true, 2, 4)), 18);
+        assert_eq!(transfer_characteristic(&stream(codec, true, 0, 4)), 16);
+        assert_eq!(transfer_characteristic(&stream(codec, true, 1, 4)), 16);
+        // HLG needs an HDR stream: SDR keeps its matrix's curve.
+        assert_eq!(transfer_characteristic(&stream(codec, false, 2, 2)), 1);
+    }
+    assert_eq!(transfer_characteristic(&stream(1, true, 8, 4)), 18);
+    assert_eq!(transfer_characteristic(&stream(1, true, 4, 4)), 16);
+    assert_eq!(transfer_characteristic(&stream(0, false, 0, 0)), 6);
+    assert_eq!(transfer_characteristic(&stream(0, false, 0, 2)), 1);
+}
+#[test]
+#[ignore = "requires AMD AMF and an independent FFprobe"]
+fn hlg_and_dolby_vision_8_4_reach_the_bitstream() -> Result<()> {
+    use crate::capture::{ComGuard, Pixel};
+    use std::{os::windows::process::CommandExt, process::Command};
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let ffprobe =
+        std::env::var_os("BUTTERPOLLO_TEST_FFPROBE").context("set BUTTERPOLLO_TEST_FFPROBE")?;
+    let directory = tempfile::tempdir()?;
+    let (width, height) = (1920u32, 1080u32);
+    let pixels = (0..width * height)
+        .flat_map(|index| {
+            let value =
+                half::f16::from_f32([0.05, 2.5, 12.5][(index % width * 3 / width) as usize]);
+            [value, value, value, half::f16::ONE]
+        })
+        .flat_map(|value| value.to_le_bytes())
+        .collect();
+    let source = GpuImage::upload(
+        &gpu,
+        &Image {
+            width,
+            height,
+            stride: width as usize * 8,
+            bytes: pixels,
+            captured: Instant::now(),
+            pixel: Pixel::RgbaF16,
+        },
+    )?;
+    source.readback(&mut None)?;
+    let options = butterpollo_core::config::Config::default();
+    // rubylight_protocol::hdr: HLG 2, DV_84 8 (HEVC only).
+    for (codec, hdr_format) in [(1u8, 2u8), (2, 2), (1, 8)] {
+        for compute in [false, true] {
+            let config = butterpollo_core::rtsp::Negotiated {
+                width,
+                height,
+                codec,
+                hdr: true,
+                hdr_format,
+                csc_mode: 4,
+                fps: 60,
+                bitrate_kbps: 40000,
+                ..Default::default()
+            };
+            let queue = compute
+                .then(|| crate::compute::Compute::for_device(&gpu.device))
+                .transpose()?;
+            let mut encoder = Encoder::new_gpu(&config, gpu.clone(), &options, queue)?;
+            encoder.set_hdr_metadata(butterpollo_core::hdr::Metadata::display(1000., 0.005, 400.));
+            let mut output = encoder.encode_gpu(&source, true, config.bitrate_kbps)?;
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while encoder.pending() {
+                output.extend(encoder.poll()?);
+                if Instant::now() >= deadline {
+                    bail!("HLG probe output timed out");
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            let name = format!("codec{codec}-format{hdr_format}-compute{compute}");
+            let frame = output
+                .first()
+                .with_context(|| format!("{name}: no output"))?;
+            assert!(frame.idr, "{name}");
+            let bitstream = directory.path().join(format!("{name}.bin"));
+            std::fs::write(&bitstream, &frame.bytes)?;
+            let probed = Command::new(&ffprobe)
+                .args([
+                    "-v",
+                    "error",
+                    "-f",
+                    if codec == 1 { "hevc" } else { "obu" },
+                    "-i",
+                ])
+                .arg(&bitstream)
+                .args(["-show_frames", "-of", "json"])
+                .creation_flags(0x08000000)
+                .output()?;
+            assert!(
+                probed.status.success(),
+                "{}",
+                String::from_utf8_lossy(&probed.stderr)
+            );
+            let probed: serde_json::Value = serde_json::from_slice(&probed.stdout)?;
+            let first = &probed["frames"][0];
+            // VUI / sequence header transfer_characteristics 18.
+            assert_eq!(first["color_transfer"], "arib-std-b67", "{name}: {first}");
+            assert_eq!(first["color_primaries"], "bt2020", "{name}: {first}");
+            assert_eq!(first["color_space"], "bt2020nc", "{name}: {first}");
+            // Dolby Vision 8.4 ends the access unit with an RPU, NAL type 62;
+            // plain HLG carries none. HEVC payloads never hold a start code.
+            if codec == 1 {
+                let rpu = frame
+                    .bytes
+                    .windows(4)
+                    .any(|w| w[..3] == [0, 0, 1] && (w[3] >> 1) & 0x3f == 62);
+                assert_eq!(rpu, hdr_format == 8, "{name}: RPU");
+            }
+        }
+    }
+    Ok(())
+}
+#[test]
 #[ignore = "requires AMD AMF, independent FFprobe and an artifact directory"]
 fn native_av1_geometry_and_hdr_are_preserved() -> Result<()> {
     use crate::capture::{ComGuard, Pixel};

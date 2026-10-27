@@ -113,7 +113,7 @@ pub(crate) fn constants(
             Pixel::RgbaF16 => 1,
             Pixel::Rgba10Pq => 2,
         },
-        u32::from(config.hdr),
+        hdr_constant(config),
         u32::from(config.color_matrix()),
         u32::from(config.full_range()),
         u32::from(config.ten_bit()),
@@ -123,6 +123,15 @@ pub(crate) fn constants(
     values[11] = u32::from(config.chroma_packing);
     values[12..].copy_from_slice(&pointer_constants(pointer));
     values
+}
+/// `cbuffer Config`'s `hdr`: 0 for SDR, 1 for PQ, 2 for HLG (`hlg` in
+/// color.hlsl), which Dolby Vision 8.4's base layer is too.
+fn hdr_constant(config: &butterpollo_core::rtsp::Negotiated) -> u32 {
+    if config.hlg() {
+        2
+    } else {
+        u32::from(config.hdr)
+    }
 }
 /// The pointer's part of `cbuffer Config`: position, size and blend mode.
 fn pointer_constants(pointer: Option<&crate::cursor::Cursor>) -> [u32; 8] {

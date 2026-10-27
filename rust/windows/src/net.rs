@@ -127,6 +127,66 @@ pub fn unicast_addresses() -> Result<Vec<IpAddr>> {
     }
     anyhow::bail!("network interfaces changed during enumeration")
 }
+/// The process that owns the IPv4 TCP connection from `local` to `remote`; None when there is
+/// no such connection. Kernel drivers' connections belong to System, PID 4.
+pub fn tcp_owner(
+    local: std::net::SocketAddrV4,
+    remote: std::net::SocketAddrV4,
+) -> Result<Option<u32>> {
+    use windows::Win32::{
+        Foundation::{ERROR_INSUFFICIENT_BUFFER, NO_ERROR},
+        NetworkManagement::IpHelper::*,
+    };
+    let address = |raw: u32| std::net::Ipv4Addr::from(raw.to_ne_bytes());
+    // The low 16 bits hold the port in network order.
+    let port = |raw: u32| {
+        let bytes = raw.to_ne_bytes();
+        u16::from_be_bytes([bytes[0], bytes[1]])
+    };
+    let mut size = 0u32;
+    let mut storage = Vec::<u64>::new();
+    for _ in 0..4 {
+        // SAFETY: `storage` is 8-byte aligned, at least `size` bytes long, and outlives the call;
+        // an empty one only queries the size.
+        let status = unsafe {
+            GetExtendedTcpTable(
+                (!storage.is_empty()).then(|| storage.as_mut_ptr().cast()),
+                &mut size,
+                false,
+                AF_INET.0 as u32,
+                TCP_TABLE_OWNER_PID_CONNECTIONS,
+                0,
+            )
+        };
+        if status == ERROR_INSUFFICIENT_BUFFER.0 {
+            anyhow::ensure!(size <= 64 << 20, "the TCP table exceeds its limit");
+            storage = vec![0u64; (size as usize).div_ceil(8)];
+            continue;
+        }
+        if status != NO_ERROR.0 {
+            return Err(std::io::Error::from_raw_os_error(status as i32).into());
+        }
+        if storage.is_empty() {
+            return Ok(None);
+        }
+        // SAFETY: The call filled `storage` with a MIB_TCPTABLE_OWNER_PID whose `dwNumEntries`
+        // rows follow its count inside the `size` bytes it reported.
+        let rows = unsafe {
+            let table = &*storage.as_ptr().cast::<MIB_TCPTABLE_OWNER_PID>();
+            std::slice::from_raw_parts(table.table.as_ptr(), table.dwNumEntries as usize)
+        };
+        return Ok(rows
+            .iter()
+            .find(|row| {
+                address(row.dwLocalAddr) == *local.ip()
+                    && port(row.dwLocalPort) == local.port()
+                    && address(row.dwRemoteAddr) == *remote.ip()
+                    && port(row.dwRemotePort) == remote.port()
+            })
+            .map(|row| row.dwOwningPid));
+    }
+    anyhow::bail!("TCP connections changed during enumeration")
+}
 /// Active Ethernet/Wi-Fi IPv4 addresses for Moonlight's manual Add PC flow.
 pub fn lan_addresses() -> Result<Vec<String>> {
     use windows::Win32::{
@@ -1509,6 +1569,26 @@ fn last_error() -> std::io::Error {
 mod tests {
     use super::*;
     use windows::Win32::NetworkManagement::{IpHelper::*, Ndis::*};
+
+    #[test]
+    fn a_loopback_connection_belongs_to_the_process_that_opened_it() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let client = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (_accepted, _) = listener.accept().unwrap();
+        let v4 = |address: SocketAddr| match address {
+            SocketAddr::V4(v4) => v4,
+            SocketAddr::V6(v6) => panic!("{v6} is not IPv4"),
+        };
+        let (local, remote) = (
+            v4(client.local_addr().unwrap()),
+            v4(listener.local_addr().unwrap()),
+        );
+        assert_eq!(tcp_owner(local, remote).unwrap(), Some(std::process::id()));
+        // The reverse direction is the accepted end's, also ours; a made-up one is no one's.
+        assert_eq!(tcp_owner(remote, local).unwrap(), Some(std::process::id()));
+        let elsewhere = std::net::SocketAddrV4::new(*local.ip(), 1);
+        assert_eq!(tcp_owner(elsewhere, remote).unwrap(), None);
+    }
 
     #[test]
     fn a_refused_datagram_or_segmented_batch_retries_once_after_buffer_pressure() {

@@ -14,10 +14,20 @@ impl Vhci for Installed {
     fn ready(&self) -> bool {
         true
     }
+    fn is_driver(
+        &self,
+        _peer: std::net::SocketAddr,
+        _relay: std::net::SocketAddr,
+    ) -> anyhow::Result<bool> {
+        anyhow::bail!("the router tests relay nothing")
+    }
     fn attach(&self, _tcp_port: u16, _busid: &str) -> anyhow::Result<u32> {
         anyhow::bail!("the router tests attach nothing")
     }
     fn detach(&self, _port: u32, _tcp_port: u16, _busid: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    fn stop(&self, _tcp_port: u16, _busid: &str) -> anyhow::Result<()> {
         Ok(())
     }
 }
@@ -170,4 +180,24 @@ async fn a_usb_tunnel_token_opens_once_for_the_device_that_asked() {
     open(&s, &s.connection, UPGRADE, Some(&token))
         .await
         .assert_error(404, "not_found");
+}
+
+#[tokio::test]
+async fn a_used_usb_tunnel_token_is_not_found_rather_than_over_the_limit() {
+    let s = Setup::new();
+    s.host().usb.set_vhci(Arc::new(Installed));
+    set(&s, "usb_forwarding", "enabled");
+    let client = allow_usb(&s, 0, true);
+    let token = token(&s, &client);
+    let bytes: [u8; 16] =
+        std::array::from_fn(|at| u8::from_str_radix(&token[at * 2..at * 2 + 2], 16).unwrap());
+    // Another tunnel already carries it.
+    let _opened = s
+        .host()
+        .usb
+        .claim(&bytes, &client.cert, Instant::now())
+        .unwrap();
+    let reply = open(&s, &s.connection, UPGRADE, Some(&token)).await;
+    reply.assert_error(404, "not_found");
+    assert!(reply.text().contains("already used"), "{}", reply.text());
 }

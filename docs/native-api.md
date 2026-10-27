@@ -425,13 +425,13 @@ Feature `usb` is listed while the host's USB forwarding setting (`usb_forwarding
 |---|---|---|---|
 | GET | `/usb/tunnel` | `usb`, a token | 101, then USB/IP |
 
-- The USB tunnel is a request with `Connection: Upgrade`, `Upgrade: rubylight-usbip/1` and `X-Rubylight-Usb-Token` (32 hex digits). The token comes from control message `0x553A` ([control messages](control-messages.md#0x553a-usb-forwarding)): it is good once, for 30 s, and only for the device that asked for it. After `101 Switching Protocols` the connection carries standard USB/IP, with the client as the USB/IP server. The host relays it to its driver over 127.0.0.1, checking every message against what the driver asked, so no USB/IP port is reachable from the network and a client can't hand the driver malformed USB/IP. A missing token or `Upgrade` is `invalid_request`, an unknown or expired token (or another device's) `not_found`, and a reused one `usb_limit`.
+- The USB tunnel is a request with `Connection: Upgrade`, `Upgrade: rubylight-usbip/1` and `X-Rubylight-Usb-Token` (32 hex digits). The token comes from control message `0x553A` ([control messages](control-messages.md#0x553a-usb-forwarding)): it is good once, for 30 s, and only for the device that asked for it. After `101 Switching Protocols` the connection carries standard USB/IP, with the client as the USB/IP server. The host relays it to its driver over 127.0.0.1, checking every message against what the driver asked, so no USB/IP port is reachable from the network and a client can't hand the driver malformed USB/IP. A missing token or `Upgrade` is `invalid_request`, and an unknown, expired, already used or another device's token `not_found`.
 - An attachment ends with the client's own DETACH, the console's detach (`POST /api/usb/detach`), either end closing the tunnel, the stream ending, or the device disconnecting. The client hears why on `0x553A`, unless it is the one that disconnected.
 
 | HTTP | `code` | When |
 |---|---|---|
 | 403 | `usb_disabled` | The host's USB forwarding setting is off, or the device has no `usb` permission |
-| 409 | `usb_limit` | The host already forwards as many devices as it allows, or the token was used |
+| 409 | `usb_limit` | The host already forwards as many devices as it allows |
 
 ## Defined, not yet served
 

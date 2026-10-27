@@ -559,8 +559,9 @@ async fn usb_tunnel(
                 ErrorCode::NotFound,
                 "This USB tunnel token is unknown or expired. Ask for the device again.",
             ),
+            // Not usb_limit: the limit was checked when the device asked.
             crate::usb_forward::Refused::Used => Failure::new(
-                ErrorCode::UsbLimit,
+                ErrorCode::NotFound,
                 "This USB tunnel token was already used.",
             ),
         })?;

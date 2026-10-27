@@ -185,4 +185,41 @@ impl UsbipDriver {
         stop(&self.exe, &tcp_port.to_string(), busid)?;
         detached.map(drop)
     }
+    /// Stops the driver attaching `busid` from 127.0.0.1:`tcp_port` again, for an attach whose
+    /// hub port is unknown. Succeeds when there was nothing to stop.
+    pub fn stop(&self, tcp_port: u16, busid: &str) -> Result<()> {
+        stop(&self.exe, &tcp_port.to_string(), busid).map(drop)
+    }
+    /// Whether the connection from `peer` to the USB/IP server at `server` is the driver's.
+    /// usbip-win2's vhci connects from the kernel (Winsock Kernel), so its connections belong
+    /// to System; any process on the PC could reach a loopback port first.
+    pub fn connected(peer: std::net::SocketAddr, server: std::net::SocketAddr) -> Result<bool> {
+        const SYSTEM: u32 = 4;
+        let (std::net::SocketAddr::V4(peer), std::net::SocketAddr::V4(server)) = (peer, server)
+        else {
+            bail!("the USB/IP server listens on IPv4 only, not {server} from {peer}");
+        };
+        let owner = crate::net::tcp_owner(peer, server)?;
+        if owner.is_none() {
+            tracing::warn!(%peer, "no TCP connection from this peer to the USB/IP server");
+        }
+        Ok(owner == Some(SYSTEM))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_process_reaching_the_usbip_port_is_not_the_driver() {
+        let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = server.local_addr().unwrap();
+        let stranger = std::net::TcpStream::connect(address).unwrap();
+        let (_accepted, peer) = server.accept().unwrap();
+        assert_eq!(peer, stranger.local_addr().unwrap());
+        assert!(!UsbipDriver::connected(peer, address).unwrap());
+        let v6 = "[::1]:1".parse().unwrap();
+        assert!(UsbipDriver::connected(v6, address).is_err());
+    }
 }

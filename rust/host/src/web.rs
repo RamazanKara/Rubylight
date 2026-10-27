@@ -1090,7 +1090,8 @@ pub(crate) async fn api(
                 let Some(id) = data.get("id").and_then(Value::as_u64) else {
                     anyhow::bail!("id is missing");
                 };
-                if !h.usb.detach(id) {
+                // A device the driver kept is detached again here; its error is the answer.
+                if !h.usb.detach(id)? {
                     anyhow::bail!("no forwarded USB device {id}");
                 }
                 json!({"status":true})

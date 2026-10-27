@@ -32,7 +32,7 @@ public final class StreamMenu {
         VIDEO_SCALING, ZOOM, ZOOM_RESET, OVERLAY_PAGE, PICTURE_IN_PICTURE, VIDEO_OUTPUT,
         BITRATE, AUTOMATIC_QUALITY, AUTOMATIC_BITRATE,
         HOST_MENU, SERVER_COMMANDS, CLIPBOARD_SEND, CLIPBOARD_RECEIVE, IMAGE_CLIPBOARD_SEND, IMAGE_CLIPBOARD_RECEIVE,
-        USB_DEVICES, HOST_WEB_UI, HOST_STATUS,
+        USB_DEVICES, FILES, HOST_WEB_UI, HOST_STATUS,
         RECONNECT, DISCONNECT, QUIT_GAME, END_SESSION, END_HOST_SESSION, CLOSE_GAME,
         NATIVE_PAGE, NATIVE_RESUME,
         OVERLAY_OFF, OVERLAY_COMPACT, OVERLAY_STATISTICS, OVERLAY_DEBUG,
@@ -232,6 +232,10 @@ public final class StreamMenu {
         }
         if (o.role != NvApp.Role.REMOTE_MONITOR && o.usbForwarding) {
             entries.add(action(Section.HOST, Item.USB_DEVICES, R.string.stream_usb_devices, R.drawable.ic_usb));
+        }
+        // File transfer belongs to the PC, not the session; its screen says whether this device may use it.
+        if (caps.has(HostCapabilities.Feature.NATIVE_API)) {
+            entries.add(action(Section.HOST, Item.FILES, R.string.files_menu, R.drawable.ic_files));
         }
         if (o.webUiAddress && caps.mayHave(HostCapabilities.Feature.WEB_UI)) {
             entries.add(action(Section.HOST, Item.HOST_WEB_UI, R.string.host_administration_menu, R.drawable.ic_web));

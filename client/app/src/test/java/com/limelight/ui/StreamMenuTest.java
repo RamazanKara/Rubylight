@@ -143,6 +143,21 @@ public class StreamMenuTest {
     }
 
     @Test
+    public void filesShowOnlyOnANativeApiHostInEveryRole() {
+        for (NvApp.Role role : NvApp.Role.values()) {
+            List<StreamMenu.Entry> entries = StreamMenu.mainPage(options(nativeApiHost(), role));
+            assertTrue(role.name(), sections(entries).get(StreamMenu.Section.HOST).contains(FILES));
+            for (StreamMenu.Entry entry : entries) {
+                if (entry.item == FILES) assertEquals(R.string.files_menu, entry.label);
+            }
+        }
+        for (String fixture : new String[] {"gamestream-serverinfo.xml", "sunshine-serverinfo.xml",
+                "apollo-serverinfo.xml", "vibepollo-serverinfo.xml", "rubylight-serverinfo.xml"}) {
+            assertFalse(fixture, items(StreamMenu.mainPage(options(fixture, NvApp.Role.STREAM))).contains(FILES));
+        }
+    }
+
+    @Test
     public void everyRowHasItsOwnIcon() {
         StreamMenu.Options options = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
         options.imageClipboard = true;

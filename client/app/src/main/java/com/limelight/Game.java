@@ -3025,6 +3025,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             case USB_DEVICES: action = this::showUsbDevices; break;
             case IMAGE_CLIPBOARD_SEND: action = () -> transferClipboardImage(true); break;
             case IMAGE_CLIPBOARD_RECEIVE: action = () -> transferClipboardImage(false); break;
+            case FILES: action = this::showFiles; break;
             case HOST_WEB_UI: action = this::showHostWebUi; break;
             case HOST_STATUS: action = this::refreshHostStatus; break;
             case HOST_MENU: action = this::openHostMenu; break;
@@ -3171,6 +3172,18 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         showStreamDialog(dialog);
         TextView message = dialog.findViewById(android.R.id.message);
         if (message != null) message.setTextIsSelectable(true);
+    }
+
+    /** The PC's file transfer screen; it opens over the stream, so the menu says it leaves it first. */
+    private void showFiles() {
+        String uuid = getIntent().getStringExtra(EXTRA_PC_UUID);
+        if (uuid == null) return;
+        showStreamDialog(new NavigationDialogBuilder(this).setTitle(R.string.files_menu)
+                .setMessage(R.string.files_stream_leaves)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.files_open, (prompt, which) -> streamMenuAction = () ->
+                        startActivity(com.limelight.files.FileTransferActivity.forPc(this, uuid)))
+                .create());
     }
 
     // Once, on the first stream: how to open the stream menu with this device's own inputs.

@@ -12,6 +12,7 @@ import com.limelight.computers.ComputerManagerListener;
 import com.limelight.computers.HostActions;
 import com.limelight.computers.ComputerManagerService;
 import com.limelight.computers.HostMenu;
+import com.limelight.files.FileTransferActivity;
 import com.limelight.grid.PcGridAdapter;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
@@ -161,6 +162,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
     private final static int RENAME_ID = HostMenu.RENAME;
     private final static int SLEEP_ID = HostMenu.SLEEP;
     private final static int SHARED_FOLDERS_ID = HostMenu.SHARED_FOLDERS;
+    private final static int FILES_ID = HostMenu.FILES;
 
     /** How long a row says "Waking…" after a wake signal while the PC has not answered. */
     static final long WAKE_WINDOW_MS = 2 * 60 * 1000;
@@ -495,8 +497,8 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
     }
 
     /**
-     * The PC's menu, in this order: Open library, Resume and Quit, Shared folders, Pair, one-time PIN, Wake or Sleep, PC settings,
-     * Rename, Unpair or Pairing help, then Remove PC last. Touch reaches it by long press or the three
+     * The PC's menu, in this order: Open library, Resume and Quit, Shared folders, Pair, one-time PIN, Wake or Sleep,
+     * Files, PC settings, Rename, Unpair or Pairing help, then Remove PC last. Touch reaches it by long press or the three
      * dots, a mouse by right-click, a D-pad or keyboard by Menu or Shift+F10, a controller by X.
      */
     void showComputerMenu(ComputerObject computer) {
@@ -574,6 +576,10 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
 
             case SLEEP_ID:
                 hostActions.sleep(computer.details);
+                return true;
+
+            case FILES_ID:
+                startActivity(FileTransferActivity.forPc(this, computer.details.uuid));
                 return true;
 
             case DELETE_ID:

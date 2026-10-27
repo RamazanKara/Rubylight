@@ -320,8 +320,9 @@ public class HomeShellTest {
         try {
             Home screen = controller.get();
             showHosts(screen, nativeHost("tower", "Tower", true));
-            List<String> expected = expected(screen, R.string.library_open, R.string.folders_title, R.string.pc_menu_settings,
-                    R.string.host_menu_rename, R.string.pcview_menu_unpair_pc, R.string.pcview_menu_delete_pc);
+            List<String> expected = expected(screen, R.string.library_open, R.string.folders_title, R.string.files_menu,
+                    R.string.pc_menu_settings, R.string.host_menu_rename, R.string.pcview_menu_unpair_pc,
+                    R.string.pcview_menu_delete_pc);
             // Shared folders carries its note on a second line.
             expected.set(1, screen.getString(R.string.folders_title) + "\n" + screen.getString(R.string.host_menu_folders_note));
 
@@ -353,6 +354,40 @@ public class HomeShellTest {
         } finally {
             controller.pause().stop().destroy();
         }
+    }
+
+    @Test
+    public void filesOpensTheFileTransferScreenForThatPc() throws Exception {
+        ActivityController<Home> controller = home();
+        try {
+            Home screen = controller.get();
+            showHosts(screen, nativeHost("tower", "Tower", true));
+            hostCard(screen, "tower").findViewById(R.id.console_more).performClick();
+            ActionSheet sheet = openSheet();
+            MaterialButton files = button(sheet.findViewById(android.R.id.content), screen.getString(R.string.files_menu));
+            assertNotNull(files);
+            files.performClick();
+            shadowOf(Looper.getMainLooper()).idle();
+            Intent opened = nextStarted(screen);
+            assertEquals(com.limelight.files.FileTransferActivity.class.getName(), opened.getComponent().getClassName());
+            assertEquals("tower", opened.getStringExtra(com.limelight.files.FileTransferActivity.EXTRA_PC_UUID));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    private static MaterialButton button(View view, String label) {
+        if (view instanceof MaterialButton && label.equals(((MaterialButton) view).getText().toString())) {
+            return (MaterialButton) view;
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                MaterialButton found = button(group.getChildAt(i), label);
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     @Test

@@ -137,16 +137,22 @@ impl Record {
             .open_folder()?
             .with_context(|| format!("{} is gone", folder.display()))?;
         let temporary = self.path.with_extension("tmp");
+        // One already there is never written into, only replaced: only SYSTEM and Administrators
+        // can write the folder (checked as it was opened) and setups wait for each other, so a
+        // setup cut short between making and renaming it left it.
         let mut file = match (self.create_file)(&temporary) {
-            Ok(file) => file,
-            Err(error) if error.kind() == ErrorKind::AlreadyExists => bail!(
-                "{} is already there: another setup may be writing it, or one was cut short. Rubylight does not use it; delete it, then set up child sessions again",
-                temporary.display()
-            ),
-            Err(error) => {
-                return Err(error).with_context(|| format!("creating {}", temporary.display()));
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+                std::fs::remove_file(&temporary).with_context(|| {
+                    format!(
+                        "removing {}, which a setup cut short left",
+                        temporary.display()
+                    )
+                })?;
+                (self.create_file)(&temporary)
             }
-        };
+            created => created,
+        }
+        .with_context(|| format!("creating {}", temporary.display()))?;
         let written = file
             .write_all(&text)
             .and_then(|()| file.sync_all())
@@ -1624,20 +1630,44 @@ mod tests {
     }
 
     #[test]
-    fn a_temporary_record_already_there_is_refused() {
-        // Someone else's file, opened by its name, could be read or changed while the record
-        // is written into it.
+    fn a_temporary_record_a_cut_short_setup_left_is_replaced() {
+        // A setup cut short between making and renaming it left one: it is never written into
+        // (it is replaced by one made new), and never holds off the next setup.
         let directory = scratch();
         let record = record_in(&directory);
         let temporary = record.path.with_extension("tmp");
         std::fs::create_dir_all(record.folder()).unwrap();
-        std::fs::write(&temporary, "planted").unwrap();
+        std::fs::write(&temporary, "left by a setup cut short").unwrap();
+        record.save(&recorded()).unwrap();
+        assert!(!temporary.exists());
+        assert_eq!(record.load().unwrap(), Some(recorded()));
+        // Replaced once: one that can't be made new even then is a failure that says so.
+        std::fs::write(&temporary, "left by a setup cut short").unwrap();
+        let stuck = Record {
+            create_file: |path| {
+                std::fs::write(path, "made again")?;
+                Err(std::io::ErrorKind::AlreadyExists.into())
+            },
+            ..record.clone()
+        };
+        let error = format!("{:#}", stuck.save(&recorded()).unwrap_err());
+        assert!(error.contains("creating") && error.contains(".tmp"), "{error}");
+        assert_eq!(record.load().unwrap(), Some(recorded()));
+        // One that can't be removed (held open, sharing nothing) is a failure that says so.
+        let held = {
+            use std::os::windows::fs::OpenOptionsExt;
+            std::fs::OpenOptions::new()
+                .read(true)
+                .share_mode(0)
+                .open(&temporary)
+                .unwrap()
+        };
         let error = format!("{:#}", record.save(&recorded()).unwrap_err());
-        assert!(error.contains("already there"), "{error}");
-        assert_eq!(std::fs::read_to_string(&temporary).unwrap(), "planted");
-        assert!(!record.path.exists());
-        // One this save made and could not write goes, so it holds off no later setup.
+        assert!(error.contains("which a setup cut short left"), "{error}");
+        drop(held);
         std::fs::remove_file(&temporary).unwrap();
+        record.remove().unwrap();
+        // One this save made and could not write goes, so it holds off no later setup.
         let unwritable = Record {
             create_file: |path| {
                 std::fs::write(path, "")?;

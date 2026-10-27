@@ -88,6 +88,7 @@ impl Fixture {
             preparing: Default::default(),
             transport: Default::default(),
             roaming_offered: Default::default(),
+            claimed_until: None,
             warnings: Default::default(),
         }
     }

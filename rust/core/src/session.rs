@@ -1549,6 +1549,97 @@ mod tests {
         assert!(sessions.start(fresh, Negotiated::default()).is_err());
     }
     #[test]
+    fn a_launch_takes_rtsp_only_once_prepared_and_starts_one_session() {
+        let mut sessions = Sessions::default();
+        let early = launch("early", Role::Stream);
+        early.preparing.store(true, Ordering::Release);
+        sessions.pending.insert(early.id.clone(), early.clone());
+        // Its client connects only after the reply: nothing may claim or
+        // start it while the display and app are still being prepared.
+        assert!(sessions.rtsp_for_peer(early.peer).is_empty());
+        assert!(sessions.pending_for_peer(early.peer).is_err());
+        let refused = sessions.claim("early").unwrap_err().to_string();
+        assert!(refused.contains("still being prepared"), "{refused}");
+        assert!(
+            sessions
+                .start(early.clone(), Negotiated::default())
+                .is_err()
+        );
+        assert!(sessions.active.is_empty() && sessions.pending.contains_key("early"));
+        drop(sessions.expire());
+        assert!(sessions.pending.contains_key("early"));
+
+        early.preparing.store(false, Ordering::Release);
+        assert_eq!(sessions.rtsp_for_peer(early.peer).len(), 1);
+        sessions.claim("early").unwrap();
+        let session = sessions
+            .start(early.clone(), Negotiated::default())
+            .unwrap();
+        // A second PLAY, or a claim of the consumed launch, starts nothing.
+        assert!(sessions.start(early, Negotiated::default()).is_err());
+        assert_eq!(sessions.active.len(), 1);
+        // The running stream's own requests (TEARDOWN) still pass.
+        sessions.claim("early").unwrap();
+        sessions.begin_teardown(&session);
+        assert!(sessions.claim("early").is_err());
+    }
+    #[test]
+    fn a_claimed_handshake_outlives_the_30_s_by_its_lease_up_to_the_limit() {
+        let mut sessions = Sessions::default();
+        let claimed = launch("claimed", Role::Stream);
+        let unclaimed = launch("unclaimed", Role::Stream);
+        sessions.pending.insert(claimed.id.clone(), claimed.clone());
+        sessions
+            .pending
+            .insert(unclaimed.id.clone(), unclaimed.clone());
+        sessions.claim("claimed").unwrap();
+        let until = sessions.pending["claimed"].claimed_until.unwrap();
+        assert!(until > Instant::now() + RTSP_LEASE - Duration::from_secs(1));
+        // 31 s after the reply: the claimed handshake goes on, the other expired.
+        for id in ["claimed", "unclaimed"] {
+            sessions.pending.get_mut(id).unwrap().created =
+                Instant::now() - Duration::from_secs(31);
+        }
+        let expired = sessions.expire();
+        assert_eq!(expired.len(), 1);
+        assert_eq!(expired[0].id, "unclaimed");
+        assert!(sessions.claim("unclaimed").is_err());
+        sessions.claim("claimed").unwrap();
+        // A lease never reaches past the limit, and an ended lease expires.
+        let at = sessions.pending["claimed"].created;
+        assert_eq!(
+            sessions.pending["claimed"].lease(at + CLAIM_LIMIT - Duration::from_secs(1)),
+            at + CLAIM_LIMIT
+        );
+        sessions.pending.get_mut("claimed").unwrap().claimed_until =
+            Some(Instant::now() - Duration::from_millis(1));
+        let ended = sessions.claim("claimed").unwrap_err().to_string();
+        assert!(ended.contains("expired"), "{ended}");
+        sessions.pending.get_mut("claimed").unwrap().claimed_until =
+            Some(Instant::now() + RTSP_LEASE);
+        sessions.pending.get_mut("claimed").unwrap().created = Instant::now() - CLAIM_LIMIT;
+        assert!(sessions.start(claimed, Negotiated::default()).is_err());
+        assert_eq!(sessions.expire().len(), 1);
+        assert!(sessions.pending.is_empty() && sessions.active.is_empty());
+    }
+    #[test]
+    fn a_reconnect_replaces_a_claimed_launch_which_then_starts_nothing() {
+        let mut sessions = Sessions::default();
+        let first = launch("first", Role::Stream);
+        drop(sessions.queue(first.clone()).unwrap());
+        sessions.claim("first").unwrap();
+        // The same device launches again while the first handshake is under way.
+        let replaced = sessions.queue(launch("second", Role::Stream)).unwrap();
+        assert_eq!(replaced.len(), 1);
+        assert_eq!(replaced[0].id, "first");
+        assert!(sessions.claim("first").is_err());
+        assert!(sessions.start(first, Negotiated::default()).is_err());
+        sessions.claim("second").unwrap();
+        let second = sessions.pending["second"].clone();
+        sessions.start(second, Negotiated::default()).unwrap();
+        assert_eq!(sessions.active.keys().collect::<Vec<_>>(), ["second"]);
+    }
+    #[test]
     fn rtsp_authorization_does_not_keep_canceled_preparations_alive() {
         use std::sync::{Mutex, Weak};
         struct Restore {
@@ -1791,6 +1882,7 @@ mod tests {
             preparing: Default::default(),
             transport: Default::default(),
             roaming_offered: Default::default(),
+            claimed_until: None,
             warnings: Default::default(),
         }
     }
@@ -2560,6 +2652,9 @@ pub struct Launch<P = (), A = ()> {
     pub transport: Transport,
     /// The DESCRIBE answer offered client roaming (`crate::roaming::SDP_ATTRIBUTE`).
     pub roaming_offered: Arc<AtomicBool>,
+    /// Until when an RTSP handshake holds this launch past its 30 s
+    /// ([`Sessions::claim`]); `None` until its first RTSP request.
+    pub claimed_until: Option<Instant>,
 }
 // Launch clones share the slots; the platform preparations need not be Clone.
 impl<P, A> Clone for Launch<P, A> {
@@ -2589,6 +2684,7 @@ impl<P, A> Clone for Launch<P, A> {
             preparing: self.preparing.clone(),
             transport: self.transport,
             roaming_offered: self.roaming_offered.clone(),
+            claimed_until: self.claimed_until,
         }
     }
 }
@@ -2609,9 +2705,42 @@ impl<P, A> Launch<P, A> {
         snapshot.audio_preparation = Default::default();
         snapshot
     }
-    /// Still waiting for its client: being prepared, or prepared under 30 s ago.
+    /// Still waiting for its client: being prepared, or able to take its
+    /// client's RTSP requests ([`Launch::claimable`]).
     fn live(&self) -> bool {
-        self.preparing.load(Ordering::Acquire) || self.created.elapsed() < Duration::from_secs(30)
+        self.preparing.load(Ordering::Acquire) || self.claimable().is_ok()
+    }
+    /// Whether RTSP may use this launch now: only once the host has prepared
+    /// it and sent the reply (the client connects only then), and only within
+    /// [`LAUNCH_WAIT`] of that, or while a claimed handshake's lease runs,
+    /// never past [`CLAIM_LIMIT`].
+    fn claimable(&self) -> Result<()> {
+        if self.preparing.load(Ordering::Acquire) {
+            bail!("the launch is still being prepared; the device connects after its reply");
+        }
+        let age = self.created.elapsed();
+        let leased = self
+            .claimed_until
+            .is_some_and(|until| Instant::now() < until && age < CLAIM_LIMIT);
+        if age >= LAUNCH_WAIT && !leased {
+            bail!(
+                "the launch expired: the device did not finish its RTSP handshake within {} s",
+                age.as_secs()
+            );
+        }
+        Ok(())
+    }
+}
+/// How long a prepared launch waits for its client's first RTSP request.
+pub const LAUNCH_WAIT: Duration = Duration::from_secs(30);
+/// How long each RTSP request on a claimed launch keeps it waiting for the next.
+pub const RTSP_LEASE: Duration = Duration::from_secs(10);
+/// The longest a claimed launch waits for PLAY, counted from its reply.
+pub const CLAIM_LIMIT: Duration = Duration::from_secs(60);
+impl<P, A> Launch<P, A> {
+    /// The lease an RTSP request at `now` gives this launch.
+    fn lease(&self, now: Instant) -> Instant {
+        (now + RTSP_LEASE).min(self.created + CLAIM_LIMIT)
     }
 }
 #[derive(Default)]
@@ -3799,9 +3928,37 @@ impl<P, A> Default for Sessions<P, A> {
     }
 }
 impl<P, A> Sessions<P, A> {
+    /// Remove the launches whose clients never started their streams, each
+    /// with a warning: the device got a launch reply and then gave up.
     #[must_use = "drop expired launches after releasing the sessions lock"]
     pub fn expire(&mut self) -> Vec<Launch<P, A>> {
-        self.remove_pending(|p| !p.live())
+        let expired = self.remove_pending(|p| !p.live());
+        for launch in &expired {
+            tracing::warn!(
+                client = %launch.client.name,
+                id = %launch.id,
+                claimed = launch.claimed_until.is_some(),
+                "launch expired before its stream started"
+            );
+        }
+        expired
+    }
+    /// An authenticated RTSP request for launch `id` claims it: the launch
+    /// then waits [`RTSP_LEASE`] for the next request, even past
+    /// [`LAUNCH_WAIT`], up to [`CLAIM_LIMIT`]. A launch still being prepared,
+    /// expired, replaced or already started is refused; the request of a
+    /// running stream (its TEARDOWN) passes. Only [`Sessions::start`]
+    /// consumes a launch, once.
+    pub fn claim(&mut self, id: &str) -> Result<()> {
+        let Some(launch) = self.pending.get_mut(id) else {
+            if self.active.get(id).is_some_and(|s| !s.stopping()) {
+                return Ok(());
+            }
+            bail!("the launch was replaced, canceled or already started");
+        };
+        launch.claimable()?;
+        launch.claimed_until = Some(launch.lease(Instant::now()));
+        Ok(())
     }
     fn remove_pending(
         &mut self,
@@ -3851,7 +4008,10 @@ impl<P, A> Sessions<P, A> {
         Ok(canceled)
     }
     pub fn pending_for_peer(&self, peer: IpAddr) -> Result<Launch<P, A>> {
-        let mut found = self.pending.values().filter(|p| p.peer == peer && p.live());
+        let mut found = self
+            .pending
+            .values()
+            .filter(|p| p.peer == peer && p.claimable().is_ok());
         let p = found.next().cloned();
         if found.next().is_some() {
             bail!("ambiguous pending session identity");
@@ -3863,7 +4023,7 @@ impl<P, A> Sessions<P, A> {
     pub fn rtsp_for_peer(&self, peer: IpAddr) -> Vec<Launch<P, A>> {
         self.pending
             .values()
-            .filter(|p| p.live())
+            .filter(|p| p.claimable().is_ok())
             .chain(
                 self.active
                     .values()
@@ -3880,14 +4040,12 @@ impl<P, A> Sessions<P, A> {
         config: Negotiated,
     ) -> Result<Arc<Session<P, A>>> {
         // RTSP authenticates before awaiting the request. Recheck the stored
-        // launch at PLAY so a stale snapshot cannot revive an expired launch.
-        // Leave expired preparations for expire() to release outside the lock.
-        if self
-            .pending
-            .get(&launch.id)
-            .is_none_or(|pending| !pending.live())
-        {
-            bail!("launch expired or already consumed");
+        // launch at PLAY so a stale snapshot cannot revive an expired launch,
+        // or start one still being prepared. Leave expired preparations for
+        // expire() to release outside the lock.
+        match self.pending.get(&launch.id) {
+            None => bail!("launch expired or already consumed"),
+            Some(pending) => pending.claimable()?,
         }
         let launch = self.pending.remove(&launch.id).unwrap();
         let s = Session::new(launch, config);

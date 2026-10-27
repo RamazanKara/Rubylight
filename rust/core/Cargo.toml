@@ -26,6 +26,8 @@ time = "0.3"
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring", "pem"] }
 uuid = { version = "1.18", features = ["v4", "v5", "serde"] }
 crc32fast = "1.5"
+# Clipboard images: PNG on the wire (`clipboard_image`).
+png = "0.18"
 # Wire formats shared with the Nightjar client, which lives in client/ of this repo.
 rubylight-protocol = { path = "../../client/protocol/core" }
 regex = "1.12"

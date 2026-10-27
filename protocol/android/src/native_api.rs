@@ -1,8 +1,8 @@
 //! The JNI side of `com.limelight.nvstream.jni.NativeApiBridge`: the Rubylight native API v1
 //! (`HostClient::{native_capabilities, library, session, session_action, couch_menu, radeon,
 //! write_radeon, restore_radeon, wake}`) for the console screens and the stream menu, and Sleep
-//! PC (`power_capabilities`, `sleep`). Calls block on HTTPS, so Java runs them on worker threads,
-//! never on the UI thread.
+//! PC (`power_capabilities`, `sleep`), and the file transfer permissions (`files.capabilities`).
+//! Calls block on HTTPS, so Java runs them on worker threads, never on the UI thread.
 //!
 //! One entry point, `request`, takes the operation, the host endpoint and an optional JSON
 //! argument, and always answers with one JSON object: `{"ok": <the API's JSON>}` or
@@ -20,7 +20,9 @@ use nightjar_core::http::native_api::library::Library;
 use nightjar_core::http::native_api::radeon::{Radeon, SettingsWrite};
 use nightjar_core::http::native_api::session::{ActionId, CouchMenu, CouchMenuRequest, Session};
 use nightjar_core::http::native_api::wake::Wake;
-use nightjar_core::http::{ClientIdentity, Error, HostClient, PowerError, PowerReply, Refusal};
+use nightjar_core::http::{
+    ClientIdentity, Error, HostClient, NativeCapabilities, PowerError, PowerReply, Refusal,
+};
 
 /// What the client of one host needs; Java builds it from the paired host's stored data.
 pub struct Endpoint {
@@ -37,6 +39,7 @@ pub struct Endpoint {
 /// The calls of `HostClient` this module makes, so the dispatch is testable without a host.
 pub trait Host {
     fn capabilities(&self) -> Result<Capabilities, Error>;
+    fn capabilities_with_files(&self) -> Result<NativeCapabilities, Error>;
     fn library(&self) -> Result<Library, Error>;
     fn session(&self) -> Result<Session, Error>;
     fn session_action(&self, action: ActionId) -> Result<Session, Error>;
@@ -52,6 +55,9 @@ pub trait Host {
 impl Host for HostClient {
     fn capabilities(&self) -> Result<Capabilities, Error> {
         self.native_capabilities()
+    }
+    fn capabilities_with_files(&self) -> Result<NativeCapabilities, Error> {
+        self.native_capabilities_with_files()
     }
     fn library(&self) -> Result<Library, Error> {
         HostClient::library(self)
@@ -138,6 +144,24 @@ pub fn error_envelope(error: &Error) -> String {
     json!({ "error": body }).to_string()
 }
 
+/// The capabilities with the permissions the pinned `Permissions` drops put back, so Java's
+/// `HostCapabilities.withNativeCapabilities` reads them as the host sent them.
+fn capabilities_with_files(result: Result<NativeCapabilities, Error>) -> String {
+    ok(result.and_then(|native| {
+        let mut value = serde_json::to_value(&native.capabilities)
+            .map_err(|e| Error::Malformed(format!("native API reply: {e}")))?;
+        let files = native.files;
+        let Some(permissions) = value.get_mut("permissions").and_then(Value::as_object_mut) else {
+            return Err(Error::Malformed("capabilities without permissions".into()));
+        };
+        permissions.insert("file_upload".into(), json!(files.file_upload));
+        permissions.insert("file_download".into(), json!(files.file_download));
+        permissions.insert("usb".into(), json!(files.usb));
+        permissions.insert("shared_folders".into(), json!(files.shared_folders));
+        Ok(value)
+    }))
+}
+
 fn argument_error(message: String) -> String {
     error_envelope(&Error::InvalidArgument(message))
 }
@@ -185,7 +209,8 @@ fn power(result: Result<PowerReply, PowerError>) -> String {
     }
 }
 
-/// Runs one operation: `capabilities`, `library`, `session`, `session_action` (argument
+/// Runs one operation: `capabilities`, `files.capabilities` (the same with the file, USB and
+/// shared folder permissions), `library`, `session`, `session_action` (argument
 /// `disconnect`, `end` or `close_game`), `couch_menu` (argument: the `CouchMenuRequest` JSON),
 /// `radeon`, `radeon_write` (argument: the `SettingsWrite` JSON), `radeon_restore`, `wake`,
 /// `power.capabilities` and `power.sleep` (argument: the token from `power.capabilities`). Gate
@@ -193,6 +218,7 @@ fn power(result: Result<PowerReply, PowerError>) -> String {
 pub fn execute(host: &dyn Host, op: &str, argument: &str) -> String {
     match op {
         "capabilities" => ok(host.capabilities()),
+        "files.capabilities" => capabilities_with_files(host.capabilities_with_files()),
         "library" => ok(host.library()),
         "session" => ok(host.session()),
         "session_action" => {
@@ -229,18 +255,41 @@ pub fn request(endpoint: &Endpoint, op: &str, argument: &str) -> String {
     }
 }
 
-fn string(env: &mut JNIEnv, value: &JString) -> Option<String> {
+pub(crate) fn string(env: &mut JNIEnv, value: &JString) -> Option<String> {
     if value.is_null() {
         return None;
     }
     env.get_string(value).ok().map(Into::into)
 }
 
-fn bytes(env: &mut JNIEnv, value: &JByteArray) -> Option<Vec<u8>> {
+pub(crate) fn bytes(env: &mut JNIEnv, value: &JByteArray) -> Option<Vec<u8>> {
     if value.is_null() {
         return None;
     }
     env.convert_byte_array(value).ok()
+}
+
+/// The endpoint from the arguments every bridge call carries; `None` when one is missing.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn endpoint(
+    env: &mut JNIEnv,
+    address: &JString,
+    http_port: jint,
+    https_port: jint,
+    server_certificate_pem: &JString,
+    unique_id: &JString,
+    client_certificate_der: &JByteArray,
+    client_private_key_pkcs8: &JByteArray,
+) -> Option<Endpoint> {
+    Some(Endpoint {
+        address: string(env, address)?,
+        http_port: u16::try_from(http_port).ok()?,
+        https_port: u16::try_from(https_port).unwrap_or(0),
+        server_certificate_pem: string(env, server_certificate_pem)?,
+        unique_id: string(env, unique_id)?,
+        client_certificate_der: bytes(env, client_certificate_der)?,
+        client_private_key_pkcs8: bytes(env, client_private_key_pkcs8)?,
+    })
 }
 
 #[no_mangle]
@@ -260,15 +309,16 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_NativeApiBridge_request(
 ) -> jstring {
     let reply = (|| {
         let op = string(&mut env, &op)?;
-        let endpoint = Endpoint {
-            address: string(&mut env, &address)?,
-            http_port: u16::try_from(http_port).ok()?,
-            https_port: u16::try_from(https_port).unwrap_or(0),
-            server_certificate_pem: string(&mut env, &server_certificate_pem)?,
-            unique_id: string(&mut env, &unique_id)?,
-            client_certificate_der: bytes(&mut env, &client_certificate_der)?,
-            client_private_key_pkcs8: bytes(&mut env, &client_private_key_pkcs8)?,
-        };
+        let endpoint = endpoint(
+            &mut env,
+            &address,
+            http_port,
+            https_port,
+            &server_certificate_pem,
+            &unique_id,
+            &client_certificate_der,
+            &client_private_key_pkcs8,
+        )?;
         let argument = string(&mut env, &argument).unwrap_or_default();
         Some(request(&endpoint, &op, &argument))
     })()
@@ -324,6 +374,13 @@ mod tests {
             self.note("capabilities");
             Ok(serde_json::from_str(
                 r#"{"api_version":1,"host":{"name":"PC","version":"3.0.0","unique_id":"U"},"features":["library"],"permissions":{"list":true,"view":true,"launch":true,"host_control":false}}"#,
+            )
+            .unwrap())
+        }
+        fn capabilities_with_files(&self) -> Result<NativeCapabilities, Error> {
+            self.note("files.capabilities");
+            Ok(serde_json::from_str(
+                r#"{"api_version":1,"host":{"name":"PC","version":"3.0.0","unique_id":"U"},"features":["files.upload","files.download"],"permissions":{"list":true,"view":true,"launch":true,"host_control":true,"file_upload":true,"file_download":false,"usb":"yes","shared_folders":true}}"#,
             )
             .unwrap())
         }
@@ -424,6 +481,27 @@ mod tests {
     }
 
     #[test]
+    fn file_capabilities_keep_the_permissions_the_pinned_type_drops() {
+        let fake = Fake::default();
+        let reply = parse(&execute(&fake, "files.capabilities", ""));
+        let permissions = &reply["ok"]["permissions"];
+        assert_eq!(permissions["file_upload"], true);
+        assert_eq!(permissions["file_download"], false);
+        // Anything but a bool reads as refused, as the Rust client reads it.
+        assert_eq!(permissions["usb"], false);
+        assert_eq!(permissions["shared_folders"], true);
+        assert_eq!(permissions["host_control"], true);
+        assert_eq!(reply["ok"]["features"][0], "files.upload");
+        assert_eq!(
+            fake.calls.lock().unwrap().last().unwrap(),
+            "files.capabilities"
+        );
+        // The plain capabilities stay as they were.
+        let plain = parse(&execute(&fake, "capabilities", ""));
+        assert!(plain["ok"]["permissions"].get("file_upload").is_none());
+    }
+
+    #[test]
     fn session_actions_map_by_name_and_resume_is_refused() {
         let fake = Fake::default();
         for (argument, called) in [
@@ -515,15 +593,36 @@ mod tests {
         let fake = Fake::default();
         let offer = parse(&execute(&fake, "power.capabilities", ""));
         assert_eq!(offer["ok"]["token"], TOKEN);
-        assert_eq!((offer["ok"]["status"].as_u64(), offer["ok"]["sleep_available"].as_bool()), (Some(200), Some(true)));
+        assert_eq!(
+            (
+                offer["ok"]["status"].as_u64(),
+                offer["ok"]["sleep_available"].as_bool()
+            ),
+            (Some(200), Some(true))
+        );
         let accepted = parse(&execute(&fake, "power.sleep", TOKEN));
-        assert_eq!((accepted["ok"]["accepted"].as_bool(), &accepted["ok"]["token"]), (Some(true), &Value::Null));
-        assert_eq!(fake.calls.lock().unwrap().last().unwrap(), &format!("sleep {TOKEN}"));
+        assert_eq!(
+            (
+                accepted["ok"]["accepted"].as_bool(),
+                &accepted["ok"]["token"]
+            ),
+            (Some(true), &Value::Null)
+        );
+        assert_eq!(
+            fake.calls.lock().unwrap().last().unwrap(),
+            &format!("sleep {TOKEN}")
+        );
 
         let refused = parse(&execute(&fake, "power.sleep", "spent"));
         let error = &refused["error"];
-        assert_eq!((error["kind"].as_str(), error["refusal"].as_str()), (Some("power_refused"), Some("conflict")));
-        assert_eq!((error["http_status"].as_u64(), error["message"].as_str()), (Some(409), Some("Sleep token expired or already used")));
+        assert_eq!(
+            (error["kind"].as_str(), error["refusal"].as_str()),
+            (Some("power_refused"), Some("conflict"))
+        );
+        assert_eq!(
+            (error["http_status"].as_u64(), error["message"].as_str()),
+            (Some(409), Some("Sleep token expired or already used"))
+        );
         assert_eq!(error["power"]["accepted"], false);
         assert!(refused.get("ok").is_none());
         let invalid = parse(&execute(&fake, "power.sleep", ""));

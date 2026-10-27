@@ -11,6 +11,7 @@
 mod bridge;
 mod engine;
 pub mod extras;
+pub mod files;
 mod listener;
 pub mod native_api;
 mod opus;

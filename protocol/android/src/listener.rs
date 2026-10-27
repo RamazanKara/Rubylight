@@ -357,6 +357,7 @@ impl Listener for Events {
                     ],
                 );
             }
+            ControlEvent::Usb(message) => platform::info(&format!("USB: {message:?}")),
             // The session reports terminations through connection_terminated.
             ControlEvent::Terminated { .. } => {}
         }

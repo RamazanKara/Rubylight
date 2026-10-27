@@ -525,6 +525,9 @@ impl ControlSession {
             ptype::CURSOR_SHAPE if extensions && self.cursor_shapes => {
                 Some(events::cursor_shape(p))
             }
+            ptype::USB if extensions && self.caps.supports_control_message(ptype::USB) => {
+                events::usb(p)
+            }
             _ => None,
         };
         if let Some(event) = event {
@@ -767,6 +770,75 @@ mod tests {
         s.fec_block(block(3, true), t0);
         s.poll(t0 + Duration::from_secs(1));
         assert!(host_reads(&mut s).iter().all(|m| m.2 != 0x5539));
+    }
+
+    #[test]
+    fn usb_messages_need_the_hosts_announcement_both_ways() {
+        use rubylight_protocol::usb::{UsbMessage, UsbReason, UsbState};
+        let usb_host = || HostCapabilities {
+            control_messages: vec![0x5536, 0x553A],
+            ..rubylight()
+        };
+        let mut s = ControlSession::new(usb_host(), &KEY, SessionOptions::default());
+        let t0 = Instant::now();
+        s.start(t0);
+        host_reads(&mut s);
+        let detach = UsbMessage::Detach { request_id: 3 };
+        s.send(ClientMessage::Usb(detach.clone())).unwrap();
+        let sent = host_reads(&mut s);
+        assert_eq!(sent.len(), 1);
+        assert_eq!((sent[0].1, sent[0].2), (Delivery::Reliable, 0x553A));
+        assert_eq!(UsbMessage::decode(&sent[0].3), Some(detach.clone()));
+
+        let status = UsbMessage::Status {
+            request_id: 3,
+            state: UsbState::Detached,
+            reason: UsbReason::SessionEnd,
+        };
+        let ready = UsbMessage::TunnelReady {
+            request_id: 3,
+            token: [9; 16],
+        };
+        let attach = UsbMessage::AttachRequest {
+            request_id: 3,
+            vid: 1,
+            pid: 2,
+            class: 3,
+            speed: 2,
+            busid: "1-1".into(),
+            name: String::new(),
+        };
+        let mut seq = 0;
+        let mut feed = |s: &mut ControlSession, payload: &[u8]| {
+            seq += 1;
+            s.handle_datagram(t0, &from_host(seq, 0x553A, payload))
+                .unwrap();
+        };
+        for message in [&ready, &status, &detach, &attach] {
+            feed(&mut s, &message.encode().unwrap());
+        }
+        // Runts and attach requests (the client's own kind) are dropped.
+        feed(&mut s, &[1, 1, 0, 0]);
+        assert_eq!(
+            s.take_events(),
+            [
+                ControlEvent::Usb(ready.clone()),
+                ControlEvent::Usb(status.clone()),
+                ControlEvent::Usb(detach.clone()),
+            ]
+        );
+
+        // A host that did not announce 0x553A is neither asked nor heard.
+        let mut bare = session(SessionOptions::default());
+        bare.start(t0);
+        host_reads(&mut bare);
+        assert_eq!(
+            bare.send(ClientMessage::Usb(detach)),
+            Err(SendError::Unsupported)
+        );
+        bare.handle_datagram(t0, &from_host(1, 0x553A, &status.encode().unwrap()))
+            .unwrap();
+        assert!(bare.take_events().is_empty());
     }
 
     #[test]

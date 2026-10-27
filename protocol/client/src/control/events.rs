@@ -10,6 +10,7 @@ use rubylight_protocol::control::{
 };
 use rubylight_protocol::pipeline_rates::{PipelineRatesReport, PIPELINE_RATES_REPORT_BYTES};
 use rubylight_protocol::steam_controller::{SteamError, SteamHaptic, SteamSettings};
+use rubylight_protocol::usb::UsbMessage;
 
 use super::haptics::{self, Pcm};
 use super::messages::CURSOR_SHAPE_MAX_EDGE;
@@ -251,6 +252,9 @@ pub enum ControlEvent {
         message_type: u16,
         error: SteamError,
     },
+    /// USB forwarding from the host (0x553A): a tunnel token, a status or a detach, for
+    /// [`crate::usb::Forwarder::on_message`]. Never coalesced.
+    Usb(UsbMessage),
     ConnectionStatus(ConnectionStatus),
     /// Client roaming started, moved the stream, gave up, or was not needed.
     Roam(RoamEvent),
@@ -378,6 +382,13 @@ pub(crate) fn hdr_mode(p: &[u8], sunshine: bool) -> Option<(bool, Option<HdrMeta
     let (&enable, rest) = p.split_first()?;
     let metadata = sunshine.then(|| HdrMetadata::decode(rest));
     Some((enable != 0, metadata))
+}
+
+/// Only the host's kinds: a client never hears its own attach request.
+pub(crate) fn usb(p: &[u8]) -> Option<ControlEvent> {
+    UsbMessage::decode(p)
+        .filter(|message| !matches!(message, UsbMessage::AttachRequest { .. }))
+        .map(ControlEvent::Usb)
 }
 
 pub(crate) fn controller_haptics(p: &[u8]) -> Option<ControlEvent> {

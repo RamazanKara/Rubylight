@@ -7,6 +7,7 @@ use rubylight_protocol::control::{
 use rubylight_protocol::fec_report::FecReport;
 use rubylight_protocol::phase_lock;
 use rubylight_protocol::pipeline_rates::PipelineRatesRequest;
+use rubylight_protocol::usb::UsbMessage;
 
 use super::wire::{channel, ptype, Delivery};
 use crate::control::haptics;
@@ -107,6 +108,9 @@ pub enum ClientMessage {
         controller: u16,
         flags: u8,
     },
+    /// USB forwarding (0x553A): an attach request or a detach. [`crate::usb::Forwarder`]
+    /// makes them.
+    Usb(UsbMessage),
 }
 
 impl ClientMessage {
@@ -132,6 +136,7 @@ impl ClientMessage {
             Self::KeyboardLayout(_) => ptype::KEYBOARD_LAYOUT,
             Self::ControllerMicrophone(_) => ptype::CONTROLLER_MICROPHONE,
             Self::ControllerAudioStatus { .. } => ptype::CONTROLLER_AUDIO_CONTROL,
+            Self::Usb(_) => ptype::USB,
         }
     }
 
@@ -173,6 +178,8 @@ impl ClientMessage {
                 let id = controller.to_le_bytes();
                 vec![1, 1, id[0], id[1], *flags, 0, 0, 0]
             }
+            // `is_valid` refused what does not encode.
+            Self::Usb(message) => message.encode().unwrap_or_default(),
         }
     }
 
@@ -183,7 +190,8 @@ impl ClientMessage {
             | Self::LtrFrameAck { .. } => channel::URGENT,
             Self::ServerCommand(_)
             | Self::ControllerMicrophone(_)
-            | Self::ControllerAudioStatus { .. } => channel::EXTENSION,
+            | Self::ControllerAudioStatus { .. }
+            | Self::Usb(_) => channel::EXTENSION,
             _ => channel::GENERIC,
         }
     }
@@ -214,7 +222,8 @@ impl ClientMessage {
             | Self::TextInputRequest(_)
             | Self::KeyboardLayout(_)
             | Self::ControllerMicrophone(_)
-            | Self::ControllerAudioStatus { .. } => Some(self.message_type()),
+            | Self::ControllerAudioStatus { .. }
+            | Self::Usb(_) => Some(self.message_type()),
             _ => None,
         }
     }
@@ -244,6 +253,13 @@ impl ClientMessage {
                 *controller < 16 && flags & !15 == 0
             }
             Self::KeyboardLayout(layout) => layout.encode().is_some(),
+            // Only the client's kinds, and only what encodes.
+            Self::Usb(message) => {
+                matches!(
+                    message,
+                    UsbMessage::AttachRequest { .. } | UsbMessage::Detach { .. }
+                ) && message.encode().is_some()
+            }
             _ => true,
         }
     }
@@ -357,5 +373,38 @@ mod tests {
             (2, 77, &[1, 0, 2, 0, 3, 0, 4, 0][..])
         );
         assert!(!ClientMessage::ControllerMicrophone(pcm[..pcm.len() - 1].to_vec()).is_valid());
+    }
+
+    #[test]
+    fn usb_messages_go_reliably_and_only_the_clients_kinds() {
+        use rubylight_protocol::usb::{UsbReason, UsbState};
+        let attach = UsbMessage::AttachRequest {
+            request_id: 7,
+            vid: 0x0781,
+            pid: 0x5581,
+            class: 8,
+            speed: 3,
+            busid: "1-2".into(),
+            name: "Flash drive".into(),
+        };
+        let message = ClientMessage::Usb(attach.clone());
+        assert!(message.is_valid());
+        assert_eq!(message.announcement(), Some(0x553A));
+        assert_eq!(message.delivery(), Delivery::Reliable);
+        assert_eq!(UsbMessage::decode(&message.payload()), Some(attach));
+        assert!(ClientMessage::Usb(UsbMessage::Detach { request_id: 7 }).is_valid());
+        // The host's kinds, and what does not encode, never go out.
+        assert!(!ClientMessage::Usb(UsbMessage::TunnelReady {
+            request_id: 7,
+            token: [1; 16]
+        })
+        .is_valid());
+        assert!(!ClientMessage::Usb(UsbMessage::Status {
+            request_id: 7,
+            state: UsbState::Attached,
+            reason: UsbReason::None
+        })
+        .is_valid());
+        assert!(!ClientMessage::Usb(UsbMessage::Detach { request_id: 0 }).is_valid());
     }
 }

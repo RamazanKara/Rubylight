@@ -409,15 +409,19 @@ pub fn idle_seconds() -> Result<u32> {
     Ok((now.wrapping_sub(input.dwTime) / 1000).min(604_800))
 }
 
-/// Set in `--idle-seconds`' exit code when it failed; the low bits carry the
-/// Win32 error.
+/// Set in `--idle-seconds`' exit code when it failed; the low 16 bits carry
+/// the Win32 error.
 pub const IDLE_FAILED: u32 = 0x8000_0000;
+/// Set in `--idle-seconds`' exit code when it read the time; the low 20 bits
+/// carry the seconds. Any other code (a panic's 101, a crash) is a failure,
+/// never idle time.
+pub const IDLE_READ: u32 = 0x4000_0000;
 
-/// `--idle-seconds`' exit code: [`idle_seconds`], or [`IDLE_FAILED`] with
-/// the Win32 error (1 when there is none).
+/// `--idle-seconds`' exit code: [`IDLE_READ`] with [`idle_seconds`], or
+/// [`IDLE_FAILED`] with the Win32 error (1 when there is none).
 pub fn idle_exit_code() -> u32 {
     match idle_seconds() {
-        Ok(seconds) => seconds,
+        Ok(seconds) => IDLE_READ | seconds,
         Err(error) => {
             IDLE_FAILED
                 | error

@@ -56,6 +56,9 @@ fn finish(mut command: Command, program: &str, timeout: Duration) -> Result<(i32
         // path behind, and Windows PowerShell 5.1 then fails to load its own
         // modules: the driver scripts could not check signatures.
         .env_remove("PSModulePath")
+        // The host's plan for `--apply-wake-settings`: setup's own run plans
+        // for this PC, never with a plan from the environment it inherited.
+        .env_remove("BUTTERPOLLO_WAKE_FIX")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1283,6 +1286,26 @@ mod tests {
         )?;
         assert_eq!(code, 0);
         assert!(!marker.exists() && !uninstaller.exists());
+        Ok(())
+    }
+
+    #[test]
+    fn a_wake_plan_in_setups_environment_never_reaches_the_host() -> Result<()> {
+        // SAFETY: Windows' environment block is locked per call; no test in
+        // this crate reads this variable.
+        unsafe {
+            std::env::set_var(
+                "BUTTERPOLLO_WAKE_FIX",
+                r#"{"adapters":[],"fast_startup_off":true}"#,
+            )
+        };
+        let (code, output) = run_cmd(
+            "if defined BUTTERPOLLO_WAKE_FIX (exit 7) else (exit 0)",
+            Duration::from_secs(30),
+        )?;
+        // SAFETY: as above.
+        unsafe { std::env::remove_var("BUTTERPOLLO_WAKE_FIX") };
+        assert_eq!(code, 0, "{output}");
         Ok(())
     }
     #[test]

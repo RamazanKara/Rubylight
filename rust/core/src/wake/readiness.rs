@@ -348,6 +348,21 @@ impl FixPlan {
     pub fn is_empty(&self) -> bool {
         self.adapters.is_empty() && !self.fast_startup_off
     }
+    /// Why a plan handed to the child can't be one [`FixPlan::new`] made: it
+    /// may only turn wake on, never set another advanced property.
+    pub fn refusal(&self) -> Option<String> {
+        self.adapters.iter().find_map(|fix| {
+            fix.keywords
+                .iter()
+                .find(|(keyword, value)| {
+                    ![MAGIC_PACKET, MODERN_STANDBY_MAGIC_PACKET].contains(&keyword.as_str())
+                        || value.as_str() != "1"
+                })
+                .map(|(keyword, value)| {
+                    format!("{}: refusing to set {keyword} to {value:?}", fix.name)
+                })
+        })
+    }
     /// Each change in plain words, for the installer, the console and the log.
     pub fn changes(&self) -> Vec<String> {
         let mut changes = Vec::new();
@@ -662,6 +677,33 @@ mod tests {
         let plan = FixPlan::new(&laptop, &report, &S3, false);
         assert_eq!(plan.adapters.len(), 1);
         assert!(plan.adapters[0].wake_enable && plan.adapters[0].keywords.is_empty());
+    }
+
+    #[test]
+    fn a_plan_may_only_turn_wake_on() {
+        let modern = SystemFacts {
+            modern_standby: true,
+            ..S3
+        };
+        let mut report = report("en");
+        report.adapters.iter_mut().for_each(|nic| {
+            nic.keywords
+                .values_mut()
+                .for_each(|value| *value = "0".into())
+        });
+        let plan = FixPlan::new(&this_pc(), &report, &modern, false);
+        assert!(!plan.adapters[0].keywords.is_empty(), "{plan:?}");
+        assert_eq!(plan.refusal(), None);
+        let mut forged = plan.clone();
+        forged.adapters[0]
+            .keywords
+            .insert("*SpeedDuplex".into(), "1".into());
+        assert!(forged.refusal().unwrap().contains("*SpeedDuplex"));
+        let mut forged = plan;
+        forged.adapters[0]
+            .keywords
+            .insert(MAGIC_PACKET.into(), "0".into());
+        assert!(forged.refusal().unwrap().contains("\"0\""));
     }
 
     #[test]

@@ -100,14 +100,14 @@ function Invoke-Apply {
         }
         if ($fix.wake_enable) {
             try {
-                foreach ($i in Find-Wmi 'MSPower_DeviceWakeEnable' $fix.pnp) {
+                foreach ($i in Find-Wmi 'MSPower_DeviceWakeEnable' $adapter.PnPDeviceID) {
                     Set-CimInstance -InputObject $i -Property @{ Enable = $true }
                 }
             } catch { $errors += "$($fix.guid) MSPower_DeviceWakeEnable: $_" }
         }
         if ($fix.magic_packet_only) {
             try {
-                foreach ($i in Find-Wmi 'MSNdis_DeviceWakeOnMagicPacketOnly' $fix.pnp) {
+                foreach ($i in Find-Wmi 'MSNdis_DeviceWakeOnMagicPacketOnly' $adapter.PnPDeviceID) {
                     Set-CimInstance -InputObject $i -Property @{ EnableWakeOnMagicPacketOnly = $true }
                 }
             } catch { $errors += "$($fix.guid) MSNdis_DeviceWakeOnMagicPacketOnly: $_" }

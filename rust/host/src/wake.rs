@@ -3,7 +3,7 @@
 //! Windows answers goes through [`PowerSystem`], which tests replace with a
 //! fake.
 use crate::state::Host;
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use butterpollo_core::{
     native_api::{session::State as Session, wake as api},
     wake::{
@@ -12,7 +12,7 @@ use butterpollo_core::{
         idle::{self, IdleSleep, Input, Settings, Snapshot, Status},
     },
 };
-use butterpollo_windows::wake::IDLE_FAILED;
+use butterpollo_windows::wake::{IDLE_FAILED, IDLE_READ};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
@@ -163,11 +163,16 @@ fn idle_helper() -> Result<u32> {
 
 /// The idle helper's exit code as local input.
 fn helper_input(code: u32) -> Input {
-    if code & IDLE_FAILED == 0 {
-        return Input::Idle(Duration::from_secs(code.into()));
+    const SECONDS: u32 = 0x000F_FFFF;
+    const WIN32: u32 = 0xFFFF;
+    if code & !SECONDS == IDLE_READ {
+        return Input::Idle(Duration::from_secs((code & SECONDS).into()));
     }
-    let error = std::io::Error::from_raw_os_error((code & !IDLE_FAILED) as i32);
-    Input::Failed(format!("the idle helper failed: {error}"))
+    if code & !WIN32 == IDLE_FAILED {
+        let error = std::io::Error::from_raw_os_error((code & WIN32) as i32);
+        return Input::Failed(format!("the idle helper failed: {error}"));
+    }
+    Input::Failed(format!("the idle helper exited with code {code:#x}"))
 }
 
 /// `--idle-seconds`: the exit code [`helper_input`] reads.
@@ -210,8 +215,12 @@ pub fn apply_settings(power: &dyn PowerSystem, fast_startup_off: bool) -> Result
     )
 }
 
-/// Apply `plan` as it is. An adapter it skipped is an error.
+/// Apply `plan` as it is. An adapter it skipped is an error, and a plan that
+/// would set more than wake is refused whole.
 pub fn apply_plan(power: &dyn PowerSystem, plan: &FixPlan) -> Result<Applied> {
+    if let Some(refusal) = plan.refusal() {
+        bail!("the Wake-on-LAN plan was refused: {refusal}");
+    }
     let mut applied = Applied {
         changes: plan.changes(),
         errors: plan.skipped.clone(),
@@ -437,8 +446,17 @@ pub fn tick(h: &Host) {
     tick_at(h, Instant::now());
 }
 
-/// What sleep after idle sees `now`, with the session in `state`.
-fn snapshot(h: &Host, power: &dyn PowerSystem, now: Instant, state: Session) -> Snapshot {
+/// What sleep after idle sees `now`, with the session in `state`. The
+/// recheck passes the `first` snapshot of the same tick: it holds the launch
+/// gate, so it keeps that one's input and power capabilities instead of
+/// starting the idle helper (up to [`IDLE_HELPER_WAIT`]) again under it.
+fn snapshot(
+    h: &Host,
+    power: &dyn PowerSystem,
+    now: Instant,
+    state: Session,
+    first: Option<&Snapshot>,
+) -> Snapshot {
     let settings = Settings::read(&h.config.read().unwrap_or_else(PoisonError::into_inner));
     let on = settings.as_ref().is_ok_and(|settings| settings.minutes > 0);
     let (mut streaming, mut suspended) = holding(h);
@@ -451,13 +469,16 @@ fn snapshot(h: &Host, power: &dyn PowerSystem, now: Instant, state: Session) -> 
     Snapshot {
         now,
         settings,
-        system: on
-            .then(|| {
-                power.system_facts().inspect_err(|error| {
-                    tracing::warn!("sleep after idle: {error:#}");
+        system: match first {
+            Some(first) => first.system,
+            None => on
+                .then(|| {
+                    power.system_facts().inspect_err(|error| {
+                        tracing::warn!("sleep after idle: {error:#}");
+                    })
                 })
-            })
-            .and_then(Result::ok),
+                .and_then(Result::ok),
+        },
         streaming,
         suspended,
         updating: updating(h),
@@ -470,7 +491,7 @@ fn snapshot(h: &Host, power: &dyn PowerSystem, now: Instant, state: Session) -> 
             Ok(0)
         },
         input: if on && !streaming {
-            power.input()
+            first.map_or_else(|| power.input(), |first| first.input.clone())
         } else {
             Input::Failed("not read".into())
         },
@@ -484,7 +505,7 @@ fn snapshot(h: &Host, power: &dyn PowerSystem, now: Instant, state: Session) -> 
 
 fn tick_at(h: &Host, now: Instant) {
     let power = h.wake.power();
-    let snapshot = snapshot(h, &*power, now, h.session_snapshot().state);
+    let snapshot = snapshot(h, &*power, now, h.session_snapshot().state, None);
     grace_at(h, &*power, now, snapshot.streaming);
     let mut idle = locked(&h.wake.idle);
     let status = idle.machine.tick(&snapshot);
@@ -512,7 +533,7 @@ fn tick_at(h: &Host, now: Instant) {
     };
     // Everything again, now that no launch can start: a stream, console
     // activity or an app's power request may have come since.
-    let snapshot = self::snapshot(h, &*power, now, state);
+    let snapshot = self::snapshot(h, &*power, now, state, Some(&snapshot));
     let mut idle = locked(&h.wake.idle);
     let status = idle.machine.tick(&snapshot);
     idle.last = Some(status.clone());
@@ -1333,6 +1354,17 @@ mod tests {
         );
     }
 
+    #[test]
+    fn the_recheck_under_the_launch_gate_starts_no_idle_helper() {
+        let (f, fake, start) = armed();
+        let before = fake.inputs.load(Ordering::SeqCst);
+        tick_at(&f.host, start + 11 * MINUTE);
+        assert_eq!(fake.sleeps(), 1);
+        // The first snapshot's reading, seconds old; a launch never waits
+        // for the helper.
+        assert_eq!(fake.inputs.load(Ordering::SeqCst) - before, 1);
+    }
+
     /// The fix thread's result, once it is done.
     fn finished(f: &Fixture) -> Result<Applied, String> {
         let deadline = Instant::now() + Duration::from_secs(20);
@@ -1478,9 +1510,9 @@ mod tests {
 
     #[test]
     fn the_idle_helpers_exit_code_is_seconds_or_an_error() {
-        assert_eq!(helper_input(0), Input::Idle(Duration::ZERO));
+        assert_eq!(helper_input(IDLE_READ), Input::Idle(Duration::ZERO));
         assert_eq!(
-            helper_input(604_800),
+            helper_input(IDLE_READ | 604_800),
             Input::Idle(Duration::from_secs(604_800))
         );
         let Input::Failed(error) = helper_input(IDLE_FAILED | 5) else {
@@ -1488,6 +1520,13 @@ mod tests {
         };
         assert!(error.starts_with("the idle helper failed"), "{error}");
         assert!(matches!(helper_input(IDLE_FAILED | 1), Input::Failed(_)));
+        // A panic, an argument error or a crash is not recent input.
+        for code in [101, 2, 0, 0xC000_0005] {
+            let Input::Failed(error) = helper_input(code) else {
+                panic!("exit code {code:#x} is not idle time");
+            };
+            assert!(error.contains("exited with code"), "{error}");
+        }
     }
 
     #[test]

@@ -107,8 +107,12 @@ pub fn decode_png(bytes: &[u8]) -> Result<Image, ImageError> {
         .output_buffer_size()
         .filter(|size| *size <= rgba_bytes)
         .ok_or(ImageError::TooLarge)?;
-    let mut buffer = vec![0; size];
-    let frame = reader.next_frame(&mut buffer).map_err(malformed)?;
+    // One buffer of the RGBA size: the frame is decoded into its start and
+    // spread to RGBA in place, so an image never takes twice its pixels.
+    let mut rgba = vec![0; rgba_bytes];
+    let frame = reader
+        .next_frame(&mut rgba[..size])
+        .map_err(malformed)?;
     if frame.bit_depth != png::BitDepth::Eight {
         return Err(ImageError::Unsupported(format!(
             "{:?} bits per channel",
@@ -125,28 +129,59 @@ pub fn decode_png(bytes: &[u8]) -> Result<Image, ImageError> {
         }
     };
     let row = width as usize * channels;
-    if frame.line_size < row || buffer.len() < frame.line_size * height as usize {
+    if frame.line_size < row || size < frame.line_size * height as usize {
         return Err(ImageError::Malformed(
             "the frame is shorter than its size".into(),
         ));
     }
-    let mut rgba = Vec::with_capacity(rgba_bytes);
-    for line in buffer.chunks_exact(frame.line_size).take(height as usize) {
-        for pixel in line[..row].chunks_exact(channels) {
-            rgba.extend_from_slice(&match *pixel {
-                [gray] => [gray, gray, gray, 255],
-                [gray, alpha] => [gray, gray, gray, alpha],
-                [r, g, b] => [r, g, b, 255],
-                [r, g, b, a] => [r, g, b, a],
-                _ => unreachable!("chunks of 1 to 4 channels"),
-            });
-        }
-    }
+    spread_to_rgba(&mut rgba, frame.line_size, channels, width as usize)?;
     Ok(Image {
         width,
         height,
         rgba,
     })
+}
+
+/// Spreads the rows of `line_size` bytes of `channels`-channel pixels at the
+/// start of `buffer`, which is exactly the RGBA size of rows of `width`
+/// pixels, to RGBA in place. From the last pixel back, each lands at or past
+/// where it was read, so none is overwritten before it is read.
+fn spread_to_rgba(
+    buffer: &mut [u8],
+    line_size: usize,
+    channels: usize,
+    width: usize,
+) -> Result<(), ImageError> {
+    let rgba_row = width * 4;
+    if !(1..=4).contains(&channels)
+        || line_size < width * channels
+        || line_size > rgba_row
+        || rgba_row == 0
+        || !buffer.len().is_multiple_of(rgba_row)
+    {
+        return Err(ImageError::Malformed(
+            "the frame does not fit its size".into(),
+        ));
+    }
+    if channels == 4 && line_size == rgba_row {
+        return Ok(());
+    }
+    let height = buffer.len() / rgba_row;
+    for y in (0..height).rev() {
+        for x in (0..width).rev() {
+            let from = y * line_size + x * channels;
+            let pixel = match buffer[from..from + channels] {
+                [gray] => [gray, gray, gray, 255],
+                [gray, alpha] => [gray, gray, gray, alpha],
+                [r, g, b] => [r, g, b, 255],
+                [r, g, b, a] => [r, g, b, a],
+                _ => unreachable!("1 to 4 channels"),
+            };
+            let to = y * rgba_row + x * 4;
+            buffer[to..to + 4].copy_from_slice(&pixel);
+        }
+    }
+    Ok(())
 }
 
 /// The length of the PNG `bytes` start with, through its `IEND` chunk, or
@@ -465,6 +500,78 @@ mod tests {
             assert!(png.starts_with(PNG_SIGNATURE));
             assert_eq!(decode_png(&png).unwrap(), picture);
         }
+    }
+
+    #[test]
+    fn every_png_color_type_decodes_in_its_one_rgba_buffer() {
+        // A 3 x 2 image of each color type, its samples numbered.
+        let encode = |color, depth, samples: &[u8], palette: Option<&[u8]>| {
+            let mut out = Vec::new();
+            let mut encoder = png::Encoder::new(&mut out, 3, 2);
+            encoder.set_color(color);
+            encoder.set_depth(depth);
+            if let Some(palette) = palette {
+                encoder.set_palette(palette.to_vec());
+            }
+            let mut writer = encoder.write_header().unwrap();
+            writer.write_image_data(samples).unwrap();
+            writer.finish().unwrap();
+            out
+        };
+        let eight = png::BitDepth::Eight;
+        let samples = |channels: u8| (1..=6 * channels).collect::<Vec<u8>>();
+        let gray = encode(png::ColorType::Grayscale, eight, &samples(1), None);
+        assert_eq!(
+            decode_png(&gray).unwrap().rgba,
+            (1..=6).flat_map(|v| [v, v, v, 255]).collect::<Vec<_>>()
+        );
+        let gray_alpha = encode(png::ColorType::GrayscaleAlpha, eight, &samples(2), None);
+        assert_eq!(
+            decode_png(&gray_alpha).unwrap().rgba,
+            (0..6)
+                .flat_map(|n| [2 * n + 1, 2 * n + 1, 2 * n + 1, 2 * n + 2])
+                .collect::<Vec<_>>()
+        );
+        let rgb = encode(png::ColorType::Rgb, eight, &samples(3), None);
+        assert_eq!(
+            decode_png(&rgb).unwrap().rgba,
+            (0..6)
+                .flat_map(|n| [3 * n + 1, 3 * n + 2, 3 * n + 3, 255])
+                .collect::<Vec<_>>()
+        );
+        let rgba = encode(png::ColorType::Rgba, eight, &samples(4), None);
+        assert_eq!(decode_png(&rgba).unwrap().rgba, samples(4));
+        // A palette expands, 16 bits keep their high byte.
+        let palette = [10, 20, 30, 40, 50, 60];
+        let indexed = encode(
+            png::ColorType::Indexed,
+            eight,
+            &[0, 1, 0, 1, 1, 0],
+            Some(&palette),
+        );
+        assert_eq!(
+            &decode_png(&indexed).unwrap().rgba[..8],
+            &[10, 20, 30, 255, 40, 50, 60, 255]
+        );
+        let wide = encode(png::ColorType::Grayscale, png::BitDepth::Sixteen, &[7; 12], None);
+        assert_eq!(decode_png(&wide).unwrap().rgba, [7, 7, 7, 255].repeat(6));
+    }
+
+    #[test]
+    fn rows_spread_to_rgba_in_place_past_their_padding() {
+        // Two rows of two RGB pixels, each row padded by a byte.
+        let mut buffer = vec![1, 2, 3, 4, 5, 6, 0, 7, 8, 9, 10, 11, 12, 0];
+        buffer.resize(16, 0xee);
+        spread_to_rgba(&mut buffer, 7, 3, 2).unwrap();
+        assert_eq!(
+            buffer,
+            [
+                1, 2, 3, 255, 4, 5, 6, 255, 7, 8, 9, 255, 10, 11, 12, 255
+            ]
+        );
+        // A row longer than its RGBA would overwrite pixels not yet read.
+        assert!(spread_to_rgba(&mut [0; 16], 9, 3, 2).is_err());
+        assert!(spread_to_rgba(&mut [0; 15], 6, 3, 2).is_err());
     }
 
     #[test]

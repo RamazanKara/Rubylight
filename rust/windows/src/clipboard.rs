@@ -3,6 +3,7 @@
 //! (`butterpollo_core::clipboard_image`).
 use anyhow::{Result, bail};
 use butterpollo_core::clipboard_image::{self, ImageError};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use windows::{
     Win32::{
         Foundation::*,
@@ -15,7 +16,20 @@ const MAX_BYTES: usize = 1024 * 1024;
 const CF_UNICODETEXT: u32 = 13;
 const CF_DIB: u32 = 8;
 const CF_DIBV5: u32 = 17;
-static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+static LOCK: Mutex<()> = Mutex::new(());
+/// Held while an image is decoded or encoded: each can take hundreds of MiB
+/// at the limits (`clipboard_image::MAX_PIXELS`), so requests take turns
+/// rather than adding up. Never held with the clipboard open.
+static CONVERT: Mutex<()> = Mutex::new(());
+/// The lock guards no data, so one a panic poisoned still serializes.
+fn lock(mutex: &Mutex<()>) -> MutexGuard<'_, ()> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+/// Runs `work`, an image conversion, after any other has finished.
+fn converting<T>(work: impl FnOnce() -> T) -> T {
+    let _turn = lock(&CONVERT);
+    work()
+}
 struct Open(HWND);
 impl Open {
     fn new() -> Result<Self> {
@@ -196,9 +210,12 @@ pub fn read_png(max_bytes: usize) -> Result<Option<Vec<u8>>> {
 /// `CF_DIB` and `CF_BITMAP` from it) and as `PNG`, re-encoded from the
 /// decoded pixels, so nothing but them reaches other programs.
 pub fn write_png(png: &[u8]) -> Result<()> {
-    let image = clipboard_image::decode_png(png)?;
-    let dib = clipboard_image::encode_dibv5(&image)?;
-    let png = clipboard_image::encode_png(&image)?;
+    // The PNG first, while only the pixels are held besides it.
+    let (png, dib) = converting(|| -> Result<_> {
+        let image = clipboard_image::decode_png(png)?;
+        let png = clipboard_image::encode_png(&image)?;
+        Ok((png, clipboard_image::encode_dibv5(&image)?))
+    })?;
     let format = png_format()?;
     let _lock = LOCK.lock().unwrap();
     let _open = Open::new()?;
@@ -212,6 +229,26 @@ pub fn write_png(png: &[u8]) -> Result<()> {
 mod tests {
     use super::*;
     use butterpollo_core::clipboard_image::Image;
+    use std::sync::mpsc;
+
+    #[test]
+    fn image_conversions_take_turns() {
+        let order = Mutex::new(Vec::new());
+        let (entered, first_inside) = mpsc::channel();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                converting(|| {
+                    entered.send(()).unwrap();
+                    // Long enough for the second to reach its turn.
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    order.lock().unwrap().push("first ends");
+                })
+            });
+            first_inside.recv().unwrap();
+            scope.spawn(|| converting(|| order.lock().unwrap().push("second starts")));
+        });
+        assert_eq!(*order.lock().unwrap(), ["first ends", "second starts"]);
+    }
 
     /// Replaces the clipboard of the PC it runs on (its text is put back), so
     /// it runs only on request: tools/hw/catalog.yaml `clipboard-image-desktop`.

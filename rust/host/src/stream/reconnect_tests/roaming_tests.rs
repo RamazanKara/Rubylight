@@ -5,11 +5,60 @@ use butterpollo_core::roaming::{Datagram, Header, Payload, RoamKeys, SDP_ATTRIBU
 
 /// The address the client moves to.
 const MOVED: [u8; 4] = [127, 0, 0, 2];
+/// Where it moves on a second roam.
+const MOVED_AGAIN: [u8; 4] = [127, 0, 0, 3];
 
 fn moved_udp() -> Result<UdpSocket> {
-    let socket = UdpSocket::bind(SocketAddr::from((MOVED, 0)))?;
+    udp_at(SocketAddr::from((MOVED, 0)))
+}
+
+fn udp_at(address: SocketAddr) -> Result<UdpSocket> {
+    let socket = UdpSocket::bind(address)?;
     socket.set_nonblocking(true)?;
     Ok(socket)
+}
+
+/// `address` once the socket a moved client left there is closed.
+async fn rebind(address: SocketAddr) -> Result<UdpSocket> {
+    let deadline = Instant::now() + WAIT;
+    loop {
+        match udp_at(address) {
+            Ok(socket) => return Ok(socket),
+            Err(error) if Instant::now() >= deadline => return Err(error),
+            Err(_) => tokio::time::sleep(Duration::from_millis(10)).await,
+        }
+    }
+}
+
+/// The session's keyframe requests and host keyframes so far.
+fn keyframes(session: &Session) -> u64 {
+    session.stats.idr_requests.load(Ordering::Acquire)
+}
+
+/// Moves `client`'s ENet to `control` and its video pings to a new socket on the same
+/// IP, and waits until video and a new keyframe reach it there: the client's heartbeat
+/// is quiet, so only the host's own keyframe for the new path counts.
+async fn follow(
+    h: &Harness,
+    launch: &Launch,
+    session: &Session,
+    client: &Client,
+    control: UdpSocket,
+) -> Result<()> {
+    let before = keyframes(session);
+    let video = udp_at(SocketAddr::new(control.local_addr()?.ip(), 0))?;
+    let moved_video = video.local_addr()?;
+    client.move_to(control, video);
+    until("video pings from the new address", WAIT, || {
+        video_peer(h, launch) == Some(moved_video)
+    })
+    .await;
+    let frames = client.frames.load(Ordering::Acquire);
+    until("a keyframe and video on the new address", WAIT, || {
+        client.frames.load(Ordering::Acquire) > frames + 2 && keyframes(session) > before
+    })
+    .await;
+    Ok(())
 }
 
 /// The client's half of the roaming exchange.
@@ -117,6 +166,8 @@ async fn a_client_that_proves_its_new_address_keeps_its_stream() -> Result<()> {
     let describe = h.rtsp(&launch, 10, "DESCRIBE", "").await?;
     assert!(describe.contains(SDP_ATTRIBUTE), "{describe}");
     let (session, client) = h.play(&launch).await?;
+    client.quiet_heartbeat().await;
+    let before = keyframes(&session);
     let control = moved_udp()?;
     let mut roamer = Roamer::new(h.ports, &launch);
     let probe = Payload::Probe {
@@ -138,20 +189,15 @@ async fn a_client_that_proves_its_new_address_keeps_its_stream() -> Result<()> {
     );
     assert_eq!(session.client_ip(), IpAddr::from(MOVED));
     assert_eq!(session.roams(), 1);
-    let video = moved_udp()?;
-    let moved_video = video.local_addr()?;
-    client.move_to(control, video);
-    until("video pings from the new address", WAIT, || {
-        video_peer(&h, &launch) == Some(moved_video)
-    })
-    .await;
+    // The keyframe waits for the new path's first video ping.
+    assert_eq!(keyframes(&session), before);
     // The worker sends from the new sockets only once it dropped the old ones.
-    let frames = client.frames.load(Ordering::Acquire);
-    let inputs = session.stats.idr_requests.load(Ordering::Acquire);
-    until("ENet input and video on the new address", WAIT, || {
-        client.frames.load(Ordering::Acquire) > frames + 2
-            // The new path's first keyframe request is one of them.
-            && session.stats.idr_requests.load(Ordering::Acquire) > inputs + 3
+    follow(&h, &launch, &session, &client, control).await?;
+    // ENet input on the new address: the client's IDR requests are heard there.
+    client.keyframe_heartbeat.store(true, Ordering::Release);
+    let requests = keyframes(&session);
+    until("ENet input on the new address", WAIT, || {
+        keyframes(&session) > requests + 3
     })
     .await;
     assert!(!session.stopping());
@@ -286,5 +332,136 @@ async fn a_session_not_offered_roaming_ignores_probes() -> Result<()> {
     assert_eq!(session.client_ip(), IpAddr::from([127, 0, 0, 1]));
     assert_eq!(session.roams(), 0);
     h.end(&session, client).await?;
+    h.finish().await
+}
+
+/// A stream that ends between CHALLENGE and CONFIRM moves nothing: the CONFIRM goes
+/// unanswered and the host releases the session as usual.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_session_that_ends_mid_roam_moves_nothing() -> Result<()> {
+    let h = Harness::new(10_000, 1).await?;
+    let launch = h.launch(0, false).await?;
+    offer(&h, &launch).await?;
+    let (session, client) = h.play(&launch).await?;
+    let control = moved_udp()?;
+    let mut roamer = Roamer::new(h.ports, &launch);
+    let probe = Payload::Probe {
+        nonce_c: 7,
+        flags: 0,
+    };
+    let Some(Payload::Challenge { challenge, .. }) = roamer.exchange(&control, probe, WAIT).await?
+    else {
+        panic!("no CHALLENGE");
+    };
+    h.end(&session, client).await?;
+    assert_eq!(
+        roamer
+            .exchange(
+                &control,
+                Payload::Confirm { challenge },
+                Duration::from_millis(500)
+            )
+            .await?,
+        None
+    );
+    assert_eq!(session.client_ip(), IpAddr::from([127, 0, 0, 1]));
+    assert_eq!(session.roams(), 0);
+    h.finish().await
+}
+
+/// A client roams twice: its stream follows it each time, with a keyframe each time.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_roam_moves_the_stream_again() -> Result<()> {
+    let h = Harness::new(10_000, 1).await?;
+    let launch = h.launch(0, false).await?;
+    offer(&h, &launch).await?;
+    let (session, client) = h.play(&launch).await?;
+    client.quiet_heartbeat().await;
+    let mut roamer = Roamer::new(h.ports, &launch);
+    let control = moved_udp()?;
+    roam(&mut roamer, &session, &control).await?;
+    follow(&h, &launch, &session, &client, control).await?;
+    // A session moves at most once a second.
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    let control = udp_at(SocketAddr::from((MOVED_AGAIN, 0)))?;
+    roam(&mut roamer, &session, &control).await?;
+    assert_eq!(session.roams(), 2);
+    follow(&h, &launch, &session, &client, control).await?;
+    assert_eq!(
+        video_peer(&h, &launch).unwrap().ip(),
+        IpAddr::from(MOVED_AGAIN)
+    );
+    h.end(&session, client).await?;
+    h.finish().await
+}
+
+/// A client that roams back to the very address it launched from: ENet's own address
+/// for the peer is its wire address again, and the stream follows it there.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_client_can_roam_back_to_its_launch_address() -> Result<()> {
+    let h = Harness::new(10_000, 1).await?;
+    let launch = h.launch(0, false).await?;
+    offer(&h, &launch).await?;
+    let (session, client) = h.play(&launch).await?;
+    client.quiet_heartbeat().await;
+    let mut roamer = Roamer::new(h.ports, &launch);
+    let control = moved_udp()?;
+    roam(&mut roamer, &session, &control).await?;
+    follow(&h, &launch, &session, &client, control).await?;
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    let home = rebind(client.control_address).await?;
+    roam(&mut roamer, &session, &home).await?;
+    assert_eq!(session.client_ip(), IpAddr::from([127, 0, 0, 1]));
+    follow(&h, &launch, &session, &client, home).await?;
+    // The termination message reaches the client back home.
+    h.end(&session, client).await?;
+    h.finish().await
+}
+
+/// Another client connecting from an address a roamed client left: while the roamed
+/// session lives the address is retired, so the connect is dropped and the roamed
+/// stream goes on; once that session ends, the same address connects.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_connect_from_a_retired_address_waits_for_the_roamed_session() -> Result<()> {
+    let h = Harness::new(20_000, 2).await?;
+    let launch = h.launch(0, true).await?;
+    offer(&h, &launch).await?;
+    let (session, client) = h.play(&launch).await?;
+    let mut roamer = Roamer::new(h.ports, &launch);
+    let control = moved_udp()?;
+    roam(&mut roamer, &session, &control).await?;
+    let video = moved_udp()?;
+    let moved_video = video.local_addr()?;
+    client.move_to(control, video);
+    until("video pings from the new address", WAIT, || {
+        video_peer(&h, &launch) == Some(moved_video)
+    })
+    .await;
+    let retired = rebind(client.control_address).await?;
+    let other = h.launch(1, true).await?;
+    h.rtsp(&other, 1, "ANNOUNCE", "a=x-nv-video[0].clientViewportWd:640\r\na=x-nv-video[0].clientViewportHt:480\r\na=x-ss-general.encryptionEnabled:0\r\n").await?;
+    h.rtsp(&other, 2, "PLAY", "").await?;
+    let other_session = h.h.sessions.lock().unwrap().active[&other.id].clone();
+    let other_client = Client::sending_from(h.ports, other.clone(), retired)?;
+    let frames = client.frames.load(Ordering::Acquire);
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(keyframes(&other_session), 0, "its ENet connect was dropped");
+    assert!(client.frames.load(Ordering::Acquire) > frames + 2);
+    assert!(!session.stopping());
+    h.rtsp(&launch, 3, "TEARDOWN", "").await?;
+    until("normal termination delivered", WAIT, || {
+        client.reason.load(Ordering::Acquire) != 0
+    })
+    .await;
+    drop(client);
+    // ENet retries the connect, which now reaches the host.
+    until(
+        "the retired address connects",
+        Duration::from_secs(15),
+        || keyframes(&other_session) > 0 && other_client.frames.load(Ordering::Acquire) > 2,
+    )
+    .await;
+    assert!(!other_session.stopping());
+    h.end(&other_session, other_client).await?;
     h.finish().await
 }

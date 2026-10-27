@@ -895,10 +895,19 @@ struct Client {
     /// Sockets ENet and the video pings move to (`move_to`).
     control_move: Arc<Mutex<Option<UdpSocket>>>,
     video_move: Arc<Mutex<Option<UdpSocket>>>,
+    /// Whether the control heartbeat is an IDR request (0x0302) rather than a plain
+    /// ping (0x0200), which leaves `idr_requests` to the host's own keyframes.
+    keyframe_heartbeat: Arc<AtomicBool>,
+    /// The address ENet first sent from.
+    control_address: SocketAddr,
     worker: Option<thread::JoinHandle<Result<()>>>,
 }
 impl Client {
     fn new(ports: Ports, launch: Launch) -> Result<Self> {
+        Self::sending_from(ports, launch, udp())
+    }
+    /// A client whose ENet sends from `control`.
+    fn sending_from(ports: Ports, launch: Launch, control: UdpSocket) -> Result<Self> {
         let control_down = Arc::new(AtomicBool::new(false));
         let video_down = Arc::new(AtomicBool::new(false));
         let stop = Arc::new(AtomicBool::new(false));
@@ -910,9 +919,11 @@ impl Client {
         let outbox = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
         let control_move = Arc::<Mutex<Option<UdpSocket>>>::default();
         let video_move = Arc::<Mutex<Option<UdpSocket>>>::default();
+        let keyframe_heartbeat = Arc::new(AtomicBool::new(true));
+        let control_address = control.local_addr()?;
         let mut host = Host::new(
             LossySocket {
-                socket: udp(),
+                socket: control,
                 blocked: control_down.clone(),
                 moved: control_move.clone(),
             },
@@ -936,6 +947,7 @@ impl Client {
         let (worker_notices, worker_outbox) = (notices.clone(), outbox.clone());
         let worker_hdr_modes = hdr_modes.clone();
         let worker_rounds = rounds.clone();
+        let worker_keyframe_heartbeat = keyframe_heartbeat.clone();
         let worker = thread::spawn(move || -> Result<()> {
             let mut next_ping = Instant::now();
             let mut buffer = [0; 2048];
@@ -975,8 +987,14 @@ impl Client {
                     if host.peer(peer_id).connected() {
                         // An IDR request is also a valid control heartbeat, and
                         // its counter proves the host parsed it after recovery.
+                        let heartbeat: &[u8] = if worker_keyframe_heartbeat.load(Ordering::Acquire)
+                        {
+                            &[2, 3]
+                        } else {
+                            &[0, 2]
+                        };
                         host.peer_mut(peer_id)
-                            .send(0, &Packet::new(&[2, 3][..], PacketKind::Reliable))?;
+                            .send(0, &Packet::new(heartbeat, PacketKind::Reliable))?;
                         // And an unreliable copy: a reliable one queued in an
                         // outage is resent on rusty_enet's doubling timeout, up
                         // to about the outage's length after the network returns
@@ -985,7 +1003,7 @@ impl Client {
                         host.peer_mut(peer_id).send(
                             0,
                             &Packet::new(
-                                &[2, 3][..],
+                                heartbeat,
                                 PacketKind::AlwaysUnreliable { sequenced: false },
                             ),
                         )?;
@@ -1024,8 +1042,22 @@ impl Client {
             outbox,
             control_move,
             video_move,
+            keyframe_heartbeat,
+            control_address,
             worker: Some(worker),
         })
+    }
+    /// Sends plain pings as the control heartbeat from now on, and returns once no IDR
+    /// request the heartbeat sent can still reach the host.
+    async fn quiet_heartbeat(&self) {
+        self.keyframe_heartbeat.store(false, Ordering::Release);
+        let round = self.rounds.load(Ordering::Acquire);
+        until("the client's last IDR heartbeat sent", WAIT, || {
+            self.rounds.load(Ordering::Acquire) > round
+        })
+        .await;
+        // The reliable copy is acknowledged within a loopback round trip.
+        tokio::time::sleep(Duration::from_millis(200)).await;
     }
     /// Sends a plain control message of `kind` (the host takes unencrypted ones in
     /// these streams).

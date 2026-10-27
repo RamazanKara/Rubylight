@@ -121,19 +121,28 @@ fn finish_watch(path: &Path) -> Result<()> {
 /// on a busy PC took longer than 100 ms; only a stalled watcher waits this.
 const KILLED_WATCH_EXIT_MS: u32 = 2000;
 fn wait_for_watch(process: &mut Child) -> Result<()> {
-    // SAFETY: Child owns the process handle for the entire bounded wait.
-    match unsafe { WaitForSingleObject(HANDLE(process.as_raw_handle()), 100) } {
+    let handle = HANDLE(process.as_raw_handle());
+    stop_watch(
+        // SAFETY: Child owns the process handle for the entire bounded wait,
+        // and still after requesting termination.
+        |ms| unsafe { WaitForSingleObject(handle, ms) },
+        || Ok(process.kill()?),
+    )
+}
+/// [`wait_for_watch`] with the process wait and kill passed in.
+fn stop_watch(
+    mut wait: impl FnMut(u32) -> WAIT_EVENT,
+    kill: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    match wait(100) {
         WAIT_OBJECT_0 => {}
         WAIT_TIMEOUT => {
             // Its journal is empty; a stalled watcher has nothing left to restore.
             tracing::warn!("display recovery helper did not exit within 100 ms; stopping it");
-            process.kill()?;
+            kill()?;
             // Termination is asynchronous. Keep the signaled watcher registered
             // unless it exits, so a new watcher cannot reuse its named event.
-            // SAFETY: Child still owns the process handle after requesting termination.
-            match unsafe {
-                WaitForSingleObject(HANDLE(process.as_raw_handle()), KILLED_WATCH_EXIT_MS)
-            } {
+            match wait(KILLED_WATCH_EXIT_MS) {
                 WAIT_OBJECT_0 => {}
                 WAIT_TIMEOUT => bail!(
                     "display recovery helper did not stop within {KILLED_WATCH_EXIT_MS} ms of being killed"
@@ -817,6 +826,40 @@ mod tests {
         );
         assert!(!child.wait()?.success());
         Ok(())
+    }
+    /// A killed watcher that takes `exit_ms` to go, as on a busy PC.
+    fn stop_slow_watch(exit_ms: u32) -> (Result<()>, Vec<u32>, bool) {
+        let mut waits = Vec::new();
+        let killed = std::cell::Cell::new(false);
+        let result = stop_watch(
+            |ms| {
+                waits.push(ms);
+                if killed.get() && ms >= exit_ms {
+                    WAIT_OBJECT_0
+                } else {
+                    WAIT_TIMEOUT
+                }
+            },
+            || {
+                killed.set(true);
+                Ok(())
+            },
+        );
+        (result, waits, killed.get())
+    }
+    #[test]
+    fn a_killed_watcher_slow_to_exit_on_a_busy_pc_stops() {
+        let (result, waits, killed) = stop_slow_watch(1500);
+        result.unwrap();
+        assert!(killed);
+        assert_eq!(waits, [100, KILLED_WATCH_EXIT_MS]);
+        let (result, _, _) = stop_slow_watch(KILLED_WATCH_EXIT_MS + 1);
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("did not stop within 2000 ms of being killed")
+        );
     }
     #[test]
     fn completed_journal_wakes_watcher_while_host_is_alive() -> Result<()> {

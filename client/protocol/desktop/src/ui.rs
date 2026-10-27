@@ -1653,6 +1653,9 @@ impl Launcher {
             });
             ui.label(RichText::new(tr("Leaving this page cancels the transfer.")).font(regular(text::CAPTION)).color(OUTLINE));
         }
+        if let Some(error) = &open.transfer_error {
+            ui.label(RichText::new(error).color(ERROR));
+        }
         if let Some(error) = &open.error {
             ui.label(RichText::new(error).color(ERROR));
         }

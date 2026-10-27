@@ -780,4 +780,8 @@ pub const TABLE: &[(&str, &str)] = &[
     ("The PC does not take this name.", "Der PC nimmt diesen Namen nicht an."),
     ("The file on this device could not be read or written.", "Die Datei auf diesem Gerät konnte nicht gelesen oder geschrieben werden."),
     ("Transfer cancelled.", "Übertragung abgebrochen."),
+    ("Another transfer is still running.", "Eine andere Übertragung läuft noch."),
+    ("A file dialog is already open. Finish it first.", "Ein Dateidialog ist schon offen. Schließe ihn zuerst."),
+    ("Transfer not started", "Übertragung nicht gestartet"),
+    ("The shared folders were closed while the file dialog was open. Open them again to transfer the file.", "Die freigegebenen Ordner wurden geschlossen, während der Dateidialog offen war. Öffne sie erneut, um die Datei zu übertragen."),
 ];

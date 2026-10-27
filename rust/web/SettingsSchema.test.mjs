@@ -452,3 +452,38 @@ test('pending keys are unique, and Foundation ports are neither credited in the 
     assert.doesNotMatch(`${setting.label} ${setting.description} ${setting.details ?? ''}`, /Experimental/, key);
   }
 });
+
+test('haptics from game audio are off by default, Experimental, and their options follow the toggle', () => {
+  const toggle = settings.get('audio_haptics');
+  assert.equal(toggle.default, false);
+  assert.match(toggle.label, /Experimental/);
+  assert.equal(toggle.group, 'Controllers');
+  assert.equal(toggle.visibleWhen({}), true);
+  // Generated haptics go out with game vibration, so they hide with it.
+  assert.equal(toggle.visibleWhen({ forward_rumble: false }), false);
+  assert.equal(toggle.visibleWhen({ controller: 'disabled' }), false);
+  const defaults = { audio_haptics_strength: 100, audio_haptics_curve: 'linear', audio_haptics_gate: -50 };
+  for (const [key, value] of Object.entries(defaults)) {
+    const setting = settings.get(key);
+    assert.equal(setting.default, value, key);
+    assert.equal(setting.category, 'input', key);
+    assert.equal(setting.advanced, true, key);
+    assert.equal(setting.visibleWhen({}), false, key);
+    assert.equal(setting.visibleWhen({ audio_haptics: 'on' }), true, key);
+    assert.equal(setting.visibleWhen({ audio_haptics: 'on', forward_rumble: 'off' }), false, key);
+    assert.equal(differsFromDefault(setting, {}, {}), false, key);
+  }
+  // The ranges the host checks on save (audio_haptics::check).
+  const strength = settings.get('audio_haptics_strength');
+  assert.equal(numberError(strength, '0'), '');
+  assert.equal(numberError(strength, '200'), '');
+  assert.notEqual(numberError(strength, '201'), '');
+  const gate = settings.get('audio_haptics_gate');
+  assert.equal(numberError(gate, '-80'), '');
+  assert.notEqual(numberError(gate, '-9'), '');
+  assert.deepEqual(settings.get('audio_haptics_curve').control.options.map(option => option.value), ['linear', 'soft', 'punchy']);
+  const draft = { audio_haptics: true, audio_haptics_strength: 150, audio_haptics_curve: 'punchy', audio_haptics_gate: -40 };
+  const sent = computeChanges(settings, draft, {});
+  assert.deepEqual(sent, draft);
+  assert.deepEqual(computeChanges(settings, draft, sent), {});
+});

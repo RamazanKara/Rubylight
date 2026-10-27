@@ -627,6 +627,8 @@ const audio: Setting[] = [
 const keyboardOn = (values: Values) => on(values, 'keyboard', true);
 const mouseOn = (values: Values) => on(values, 'mouse', true);
 const controllerOn = (values: Values) => on(values, 'controller', true);
+const rumbleOn = (values: Values) => controllerOn(values) && on(values, 'forward_rumble', true);
+const audioHapticsOn = (values: Values) => rumbleOn(values) && on(values, 'audio_haptics', false);
 
 /** What a back grip can press on the virtual controller, which has none. */
 const gripOptions: Option[] = [
@@ -852,6 +854,57 @@ const input: Setting[] = [
     default: true,
     inactiveHint: "Turn on Controllers under Input to use this setting. Paired devices also need the Controllers permission.",
     visibleWhen: controllerOn,
+  },
+  {
+    key: 'audio_haptics',
+    label: 'Haptics from game audio (Experimental)',
+    description:
+      "A DualSense on the device feels the game's bass and impacts when the game sends it no vibration of its own. Changes apply during a stream.",
+    details:
+      "Needs a client with DualSense waveform haptics. It stops the moment the game vibrates the controller and returns a minute after the game's last vibration.",
+    category: 'input',
+    group: 'Controllers',
+    control: { kind: 'toggle' },
+    default: false,
+    inactiveHint: "Turn on Controllers and Vibration under Input to use this setting.",
+    visibleWhen: rumbleOn,
+  },
+  {
+    key: 'audio_haptics_strength',
+    label: 'Audio haptics strength',
+    description: 'How strongly the bass drives the actuators. 0 is off; above 100 % quiet scenes are felt more but loud ones clip.',
+    category: 'input',
+    group: 'Controllers',
+    control: { kind: 'number', min: 0, max: 200, step: 5, unit: '%' },
+    default: 100,
+    visibleWhen: audioHapticsOn,
+  },
+  {
+    key: 'audio_haptics_curve',
+    label: 'Audio haptics response',
+    description: 'Soft lifts quiet bass, Punchy keeps only the big hits, Linear follows the sound.',
+    category: 'input',
+    group: 'Controllers',
+    control: {
+      kind: 'select',
+      options: [
+        { value: 'linear', label: 'Linear' },
+        { value: 'soft', label: 'Soft' },
+        { value: 'punchy', label: 'Punchy' },
+      ],
+    },
+    default: 'linear',
+    visibleWhen: audioHapticsOn,
+  },
+  {
+    key: 'audio_haptics_gate',
+    label: 'Audio haptics noise gate',
+    description: 'Bass quieter than this is not felt, so music and ambience under it stay still. Raise it if the controller hums.',
+    category: 'input',
+    group: 'Controllers',
+    control: { kind: 'number', min: -80, max: -10, step: 1, unit: 'dBFS' },
+    default: -50,
+    visibleWhen: audioHapticsOn,
   },
   {
     key: 'back_button_timeout',

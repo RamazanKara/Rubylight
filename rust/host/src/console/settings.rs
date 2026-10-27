@@ -140,6 +140,10 @@ pub const GLOBAL: &[Setting] = settings! {
         "key_repeat_frequency", "Keyboard repeat frequency (Hz)", Number;
         "high_resolution_scrolling", "High resolution scrolling", Bool;
         "forward_rumble", "Controller vibration", Bool;
+        "audio_haptics", "Haptics from game audio (Experimental)", Bool;
+        "audio_haptics_strength", "Audio haptics strength (percent, 0-200)", Number;
+        "audio_haptics_curve", "Audio haptics response", Choice(&["linear", "soft", "punchy"]);
+        "audio_haptics_gate", "Audio haptics noise gate (dBFS, -80 to -10)", Number;
         "motion_as_ds4", "Use PlayStation profile for motion input", Bool;
         "touchpad_as_ds4", "Use PlayStation profile for touchpad input", Bool;
         "back_button_timeout", "Hold Back to press Guide (milliseconds; -1 disables)", Number;

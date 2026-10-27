@@ -254,4 +254,42 @@ mod tests {
         value(first(&main).await.unwrap(), StatusCode::OK).await;
         assert!(main.host.credentials.read().unwrap().is_some());
     }
+
+    #[tokio::test]
+    async fn only_the_main_host_in_child_session_mode_sets_up_or_restores() {
+        // The child session's host: the PC's record is the main host's.
+        let child = Fixture::new();
+        child.host.config.write().unwrap().values.insert(
+            butterpollo_core::child_session::CHILD_HOST_KEY.into(),
+            "true".into(),
+        );
+        for path in ["/api/child-session/setup", "/api/child-session/restore"] {
+            let body = value(
+                request(&child, "POST", path, json!({})).await,
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )
+            .await;
+            assert!(
+                body["error"]
+                    .as_str()
+                    .unwrap()
+                    .contains("this is the child session's host"),
+                "{path}: {body}"
+            );
+        }
+        // Another background mode sets nothing up.
+        let main = Fixture::new();
+        let body = value(
+            request(&main, "POST", "/api/child-session/setup", json!({})).await,
+            StatusCode::INTERNAL_SERVER_ERROR,
+        )
+        .await;
+        assert!(
+            body["error"]
+                .as_str()
+                .unwrap()
+                .contains("Choose child sessions as the background mode first"),
+            "{body}"
+        );
+    }
 }

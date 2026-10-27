@@ -36,9 +36,20 @@ pub const SCALE_KEY: &str = "child_session_scale";
 pub const CHILD_BASE_PORT: u16 = 48989;
 /// The child-session host's WebRTC ports, beside the main host's 8000/8001.
 pub const CHILD_WEBRTC_PORTS: (u16, u16) = (8100, 8101);
-/// What setup changed ([`SetupState`]), in the host's profile; while it is
-/// there, restore (and the uninstaller) have something to put back.
+/// What setup changed ([`SetupState`]): one record for the PC, whichever
+/// Rubylight profile set it up ([`setup_record`]); while it is there, restore
+/// (and the uninstaller) have something to put back. Before, each profile kept
+/// its own, under this name in the profile.
 pub const SETUP_FILE: &str = "child_session_setup.json";
+/// The folder under [`crate::paths::data_root`] [`setup_record`] is in; only
+/// SYSTEM and Administrators can write it.
+pub const SETUP_FOLDER: &str = "windows-settings";
+/// `%ProgramData%\Butterpollo\windows-settings\child_session_setup.json`.
+pub fn setup_record() -> PathBuf {
+    crate::paths::data_root()
+        .join(SETUP_FOLDER)
+        .join(SETUP_FILE)
+}
 /// The flag that restores it: `butterpollo.exe --child-session-restore`.
 pub const RESTORE_FLAG: &str = "--child-session-restore";
 
@@ -1227,7 +1238,10 @@ fn hive(change: &Change, sid: &str) -> Hive {
     }
 }
 
-/// Read the values setup is about to change.
+/// Read the values setup is about to change. Refused on a PC that is set up
+/// already without the record (its block rule in effect, or every value at
+/// setup's): those would be recorded as the originals, and restoring them
+/// would leave RDP on for good.
 pub fn record(system: &dyn SystemSettings, user_sid: &str) -> Result<SetupState> {
     if user_sid.trim().is_empty() {
         bail!("child-session setup needs the streaming user's account");
@@ -1237,12 +1251,27 @@ pub fn record(system: &dyn SystemSettings, user_sid: &str) -> Result<SetupState>
             .read_dword(&hive(change, user_sid), change.path, change.name)
             .with_context(|| format!("reading {}", change.name))
     };
+    let current = [read(&CHANGES[0])?, read(&CHANGES[1])?, read(&CHANGES[2])?];
+    let active = system
+        .active_firewall(REMOTE_DESKTOP_RULES, BLOCK_RULE)
+        .context("reading the firewall rules in effect")?;
+    if active.blocked
+        || !active.block_ports.is_empty()
+        || CHANGES
+            .iter()
+            .zip(current)
+            .all(|(change, value)| value == Some(change.value))
+    {
+        bail!(
+            "child sessions are set up on this PC already, without a record of the settings from before: set up by another Rubylight profile or host, so restore it there. Otherwise remove the firewall rule \"{BLOCK_RULE}\" and turn Remote Desktop off, then set up again. Nothing was changed."
+        );
+    }
     Ok(SetupState {
         version: 1,
         user_sid: user_sid.into(),
-        deny_ts_connections: read(&CHANGES[0])?,
-        dwm_frame_interval: read(&CHANGES[1])?,
-        suppress_when_minimized: read(&CHANGES[2])?,
+        deny_ts_connections: current[0],
+        dwm_frame_interval: current[1],
+        suppress_when_minimized: current[2],
         child_sessions: system
             .child_sessions_enabled()
             .context("asking Windows whether child sessions are on")?,
@@ -1346,7 +1375,10 @@ pub fn setup(
     // From the first write on, RDP may be on: whatever fails after it turns RDP off again.
     if let Err(error) = turn_on(system, user_sid, state.rdp_port, wait) {
         let outcome = match rdp_off(system) {
-            Ok(()) => format!("Remote Desktop was turned off again ({} = 1)", CHANGES[0].name),
+            Ok(()) => format!(
+                "Remote Desktop was turned off again ({} = 1)",
+                CHANGES[0].name
+            ),
             Err(off) => format!(
                 "Remote Desktop is still on: turning it off failed ({off:#}); turn it off in Windows' settings or choose Restore Windows settings now"
             ),

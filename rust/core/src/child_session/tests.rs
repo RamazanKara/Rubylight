@@ -763,10 +763,16 @@ impl SystemSettings for Fake {
 
 fn set_up(fake: &mut Fake) -> SetupState {
     let saves = fake.log.clone();
-    setup(fake, None, SID, |_| {
-        saves.borrow_mut().push("save".into());
-        Ok(())
-    }, no_wait)
+    setup(
+        fake,
+        None,
+        SID,
+        |_| {
+            saves.borrow_mut().push("save".into());
+            Ok(())
+        },
+        no_wait,
+    )
     .unwrap()
 }
 
@@ -884,9 +890,13 @@ fn setting_up_again_keeps_the_first_originals() {
     let before = fake.machine.clone();
     let first = set_up(&mut fake);
     // A repair after setup: the values are Rubylight's now, the record is not.
-    let again = setup(&mut fake, Some(first.clone()), SID, |_| {
-        panic!("the originals are saved only once")
-    }, no_wait)
+    let again = setup(
+        &mut fake,
+        Some(first.clone()),
+        SID,
+        |_| panic!("the originals are saved only once"),
+        no_wait,
+    )
     .unwrap();
     assert_eq!(again, first);
     restore(&mut fake, &again).unwrap();
@@ -894,13 +904,73 @@ fn setting_up_again_keeps_the_first_originals() {
 }
 
 #[test]
+fn a_pc_set_up_without_the_record_is_refused() {
+    // B sets up, then A (whose record would hold B's values as the originals); before the
+    // refusal, B's restore and then A's left RDP on for good.
+    let mut fake = Fake::new();
+    let before = fake.machine.clone();
+    let b = set_up(&mut fake);
+    let set_up_by_b = fake.machine.clone();
+    let changes = fake.log.borrow().len();
+    let error = format!(
+        "{:#}",
+        setup(
+            &mut fake,
+            None,
+            SID,
+            |_| panic!("nothing is saved"),
+            no_wait
+        )
+        .unwrap_err()
+    );
+    assert!(
+        error.contains("restore it there") && error.contains("Nothing was changed"),
+        "{error}"
+    );
+    assert_eq!(fake.machine, set_up_by_b);
+    assert_eq!(fake.log.borrow().len(), changes);
+    restore(&mut fake, &b).unwrap();
+    assert_eq!(fake.machine, before);
+    // Setup's values with its block rule gone, and the block rule alone, are refused too.
+    let mut fake = Fake::new();
+    set_up(&mut fake);
+    fake.machine.block_rules.clear();
+    let error = format!("{:#}", record(&fake, SID).unwrap_err());
+    assert!(error.contains("restore it there"), "{error}");
+    let mut fake = Fake::new();
+    fake.machine.block_rules.insert(BLOCK_RULE.into(), 3389);
+    let error = format!("{:#}", record(&fake, SID).unwrap_err());
+    assert!(error.contains(BLOCK_RULE), "{error}");
+    // RDP the user turned on is not a setup: it is recorded, and restore leaves it on.
+    let mut fake = Fake::new();
+    fake.machine.values.insert(
+        key(Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections"),
+        0,
+    );
+    assert_eq!(record(&fake, SID).unwrap().deny_ts_connections, Some(0));
+}
+
+#[test]
+fn the_setup_record_is_one_for_the_pc() {
+    let record = setup_record();
+    assert!(record.ends_with(r"Butterpollo\windows-settings\child_session_setup.json"));
+    assert!(!record.starts_with(crate::paths::installed_profile()));
+}
+
+#[test]
 fn setup_refuses_with_the_firewall_off_and_changes_nothing() {
     let mut fake = Fake::new();
     fake.machine.firewall_problem = Some("Windows Firewall is off for the Public profile".into());
     let before = fake.machine.clone();
-    let error = setup(&mut fake, None, SID, |_| panic!("nothing is saved"), no_wait)
-        .unwrap_err()
-        .to_string();
+    let error = setup(
+        &mut fake,
+        None,
+        SID,
+        |_| panic!("nothing is saved"),
+        no_wait,
+    )
+    .unwrap_err()
+    .to_string();
     assert!(error.contains("Windows Firewall is off"), "{error}");
     assert_eq!(fake.machine, before);
     assert!(fake.log.borrow().is_empty());
@@ -973,7 +1043,9 @@ fn a_setup_that_fails_after_turning_rdp_on_turns_it_off_again() {
         fake.read_dword(&Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections")
             .unwrap()
     };
-    let failing: [(&str, fn(&mut Fake)); 3] = [
+    /// What fails, and how.
+    type Failure = (&'static str, fn(&mut Fake));
+    let failing: [Failure; 3] = [
         ("the call failed", |fake| fake.child_sessions_fail = true),
         ("did not turn on child sessions", |fake| {
             fake.child_sessions_stay_off = true
@@ -1013,7 +1085,7 @@ fn a_setup_that_fails_after_turning_rdp_on_turns_it_off_again() {
 #[test]
 fn the_firewall_is_checked_again_after_setup() {
     let mut fake = Fake::new();
-    set_up(&mut fake);
+    let state = set_up(&mut fake);
     assert!(firewall_missing(&fake, 3389).unwrap().is_empty());
     // Someone removes the block rule, or group policy changes later: the
     // host's start and every child-session start see it.
@@ -1025,7 +1097,7 @@ fn the_firewall_is_checked_again_after_setup() {
             .any(|m| m.contains(BLOCK_RULE) && m.contains("not in effect")),
         "{found:?}"
     );
-    set_up(&mut fake);
+    setup(&mut fake, Some(state), SID, |_| Ok(()), no_wait).unwrap();
     fake.machine.policy_overrides = vec!["Public".into()];
     let found = firewall_missing(&fake, 3389).unwrap();
     assert!(found.iter().any(|m| m.contains("Public")), "{found:?}");
@@ -1084,9 +1156,13 @@ fn a_firewall_that_stops_holding_rdp_turns_it_off() {
     // Restore still puts back the value from before setup, and setting up
     // again (with the firewall fixed) turns RDP back on.
     fake.machine.firewall_problem = None;
-    setup(&mut fake, Some(state.clone()), SID, |_| {
-        panic!("saved once")
-    }, no_wait)
+    setup(
+        &mut fake,
+        Some(state.clone()),
+        SID,
+        |_| panic!("saved once"),
+        no_wait,
+    )
     .unwrap();
     assert_eq!(rdp(&fake), Some(0));
     restore(&mut fake, &state).unwrap();
@@ -1328,10 +1404,16 @@ fn a_moved_rdp_port_is_refused_until_setup_runs_again() {
     // Setting up again follows the new port: the record, the block rule and the checks.
     let saved = Rc::new(RefCell::new(None));
     let into = saved.clone();
-    let again = setup(&mut fake, Some(state.clone()), SID, move |state| {
-        *into.borrow_mut() = Some(state.clone());
-        Ok(())
-    }, no_wait)
+    let again = setup(
+        &mut fake,
+        Some(state.clone()),
+        SID,
+        move |state| {
+            *into.borrow_mut() = Some(state.clone());
+            Ok(())
+        },
+        no_wait,
+    )
     .unwrap();
     assert_eq!(again.rdp_port, 3390);
     assert_eq!(saved.borrow().as_ref(), Some(&again));
@@ -1355,9 +1437,15 @@ fn a_moved_rdp_port_is_refused_until_setup_runs_again() {
 fn setup_for_another_account_is_refused() {
     let mut fake = Fake::new();
     let state = set_up(&mut fake);
-    let error = setup(&mut fake, Some(state), "S-1-5-21-other", |_| Ok(()), no_wait)
-        .unwrap_err()
-        .to_string();
+    let error = setup(
+        &mut fake,
+        Some(state),
+        "S-1-5-21-other",
+        |_| Ok(()),
+        no_wait,
+    )
+    .unwrap_err()
+    .to_string();
     assert!(error.contains("another Windows account"), "{error}");
     assert!(setup(&mut fake, None, " ", |_| Ok(()), no_wait).is_err());
 }

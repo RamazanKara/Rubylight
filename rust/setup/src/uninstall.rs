@@ -39,18 +39,38 @@ pub fn install_location() -> Option<PathBuf> {
                 .filter(|folder| is_package(folder))
         })
 }
-/// The record child-session setup leaves in the profile
-/// (`butterpollo_core::child_session::SETUP_FILE`).
+/// The record child-session setup leaves
+/// (`butterpollo_core::child_session::SETUP_FILE`), in its folder beside the
+/// profile (`SETUP_FOLDER`), or in the profile itself before that.
 const CHILD_SESSION_SETUP_FILE: &str = "child_session_setup.json";
+const CHILD_SESSION_SETUP_FOLDER: &str = "windows-settings";
 /// The host's flag that puts back what that setup changed
 /// (`butterpollo_core::child_session::RESTORE_FLAG`).
 const CHILD_SESSION_RESTORE_FLAG: &str = "--child-session-restore";
-/// The installed host when child-session setup left a record in `profile`
+/// The records child-session setup can leave for `profile`: the PC's one
+/// (`butterpollo_core::child_session::setup_record`), and the profile's own
+/// from before it, which the host moves there.
+fn child_session_records(profile: &Path) -> [PathBuf; 2] {
+    [
+        profile
+            .parent()
+            .unwrap_or(profile)
+            .join(CHILD_SESSION_SETUP_FOLDER)
+            .join(CHILD_SESSION_SETUP_FILE),
+        profile.join(CHILD_SESSION_SETUP_FILE),
+    ]
+}
+fn child_session_recorded(profile: &Path) -> bool {
+    child_session_records(profile)
+        .iter()
+        .any(|record| record.is_file())
+}
+/// The installed host when child-session setup left a record for `profile`
 /// for it to restore; None when there is nothing to put back or no host to
 /// do it.
 fn child_session_restore_pending(profile: &Path, install: &Path) -> Option<PathBuf> {
     let program = install.join("butterpollo.exe");
-    (profile.join(CHILD_SESSION_SETUP_FILE).is_file() && program.is_file()).then_some(program)
+    (child_session_recorded(profile) && program.is_file()).then_some(program)
 }
 /// Whether `folder` holds an installed Rubylight package.
 fn is_package(folder: &Path) -> bool {
@@ -161,15 +181,19 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<Vec<String>> 
     remove_leftover_folders(&install, &touched);
     if options.factory_reset {
         progress.set("Deleting settings and paired devices…");
-        let record = profile().join(CHILD_SESSION_SETUP_FILE);
-        remove_profile(
-            profile().parent().unwrap_or(&profile()),
-            unrestored.is_some().then_some(record.as_path()),
-        );
-        if unrestored.is_some() {
+        let records: Vec<PathBuf> = child_session_records(&profile())
+            .into_iter()
+            .filter(|record| unrestored.is_some() && record.is_file())
+            .collect();
+        remove_profile(profile().parent().unwrap_or(&profile()), &records);
+        if !records.is_empty() {
             let kept = format!(
                 "The factory reset kept {} so the Windows settings can still be restored: install Rubylight again and choose Restore Windows settings under Maintenance in the console.",
-                record.display()
+                records
+                    .iter()
+                    .map(|record| record.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(" and ")
             );
             line(format!("warning: {kept}"));
             notes.push(kept);
@@ -202,7 +226,7 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<Vec<String>> 
 fn restore_child_session(install: &Path, progress: &Progress) -> Option<String> {
     let profile = crate::install::profile();
     let Some(program) = child_session_restore_pending(&profile, install) else {
-        return profile.join(CHILD_SESSION_SETUP_FILE).is_file().then(|| {
+        return child_session_recorded(&profile).then(|| {
             format!(
                 "The Windows settings child sessions changed (Remote Desktop, its firewall rules, child sessions) were not restored: {} is missing.",
                 install.join("butterpollo.exe").display()
@@ -230,23 +254,28 @@ fn restore_child_session(install: &Path, progress: &Progress) -> Option<String> 
         )),
     }
 }
-/// Delete `root` for a factory reset, all but `keep` (a file inside it) when
-/// given. Best effort, like the rest of the removal.
-fn remove_profile(root: &Path, keep: Option<&Path>) {
-    let Some(keep) = keep.filter(|keep| keep.starts_with(root) && keep.is_file()) else {
+/// Delete `root` for a factory reset, all but `keep` (files inside it). Best
+/// effort, like the rest of the removal.
+fn remove_profile(root: &Path, keep: &[PathBuf]) {
+    let keep: Vec<&PathBuf> = keep
+        .iter()
+        .filter(|keep| keep.starts_with(root) && keep.is_file())
+        .collect();
+    if keep.is_empty() {
         let _ = std::fs::remove_dir_all(root);
         return;
-    };
+    }
     let Ok(entries) = std::fs::read_dir(root) else {
         return;
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path == keep {
+        if keep.contains(&&path) {
             continue;
         }
-        if keep.starts_with(&path) {
-            remove_profile(&path, Some(keep));
+        if keep.iter().any(|keep| keep.starts_with(&path)) {
+            let inside: Vec<PathBuf> = keep.iter().map(|keep| keep.to_path_buf()).collect();
+            remove_profile(&path, &inside);
         } else if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
             let _ = std::fs::remove_dir_all(&path);
         } else {
@@ -427,21 +456,40 @@ mod tests {
     }
     #[test]
     fn child_session_settings_are_restored_only_when_setup_recorded_them() {
-        let profile = tempfile::tempdir().unwrap();
         let install = tempfile::tempdir().unwrap();
         write(&install.path().join("butterpollo.exe"), "");
+        let root = tempfile::tempdir().unwrap();
+        let profile = root.path().join("config");
         assert_eq!(
-            child_session_restore_pending(profile.path(), install.path()),
+            child_session_restore_pending(&profile, install.path()),
             None
         );
-        write(&profile.path().join(CHILD_SESSION_SETUP_FILE), "{}");
+        // The PC's record, or the profile's own from before it.
+        let [machine, legacy] = child_session_records(&profile);
         assert_eq!(
-            child_session_restore_pending(profile.path(), install.path()),
-            Some(install.path().join("butterpollo.exe"))
+            machine,
+            root.path()
+                .join("windows-settings")
+                .join(CHILD_SESSION_SETUP_FILE)
         );
+        for record in [&machine, &legacy] {
+            write(record, "{}");
+            assert_eq!(
+                child_session_restore_pending(&profile, install.path()),
+                Some(install.path().join("butterpollo.exe")),
+                "{}",
+                record.display()
+            );
+            std::fs::remove_file(record).unwrap();
+            assert_eq!(
+                child_session_restore_pending(&profile, install.path()),
+                None
+            );
+        }
+        write(&machine, "{}");
         std::fs::remove_file(install.path().join("butterpollo.exe")).unwrap();
         assert_eq!(
-            child_session_restore_pending(profile.path(), install.path()),
+            child_session_restore_pending(&profile, install.path()),
             None
         );
     }
@@ -449,27 +497,32 @@ mod tests {
     fn a_factory_reset_keeps_the_child_session_record_a_failed_restore_needs() {
         let root = tempfile::tempdir().unwrap();
         let profile = root.path().join("config");
-        let record = profile.join(CHILD_SESSION_SETUP_FILE);
+        let records = child_session_records(&profile).to_vec();
         let fill = || {
-            write(&record, "{}");
+            for record in &records {
+                write(record, "{}");
+            }
             write(&profile.join("sunshine.conf"), "x");
             write(&profile.join("credentials").join("cacert.pem"), "x");
             write(&profile.join("logs").join("butterpollo.log"), "x");
             write(&root.path().join("state.json"), "x");
+            write(&records[0].with_file_name("other.json"), "x");
         };
         fill();
-        remove_profile(root.path(), Some(&record));
-        assert!(record.is_file(), "the record stays for a retry");
+        remove_profile(root.path(), &records);
+        let mut kept = records.clone();
+        kept.sort();
+        let mut left = files_in(root.path()).unwrap();
+        left.sort();
         assert_eq!(
-            files_in(root.path()).unwrap(),
-            vec![record.clone()],
-            "everything else is deleted"
+            left, kept,
+            "the records stay for a retry, everything else goes"
         );
         assert_eq!(std::fs::read_dir(&profile).unwrap().count(), 1);
 
         // Restored, or nothing to restore: the whole profile goes.
         fill();
-        remove_profile(root.path(), None);
+        remove_profile(root.path(), &[]);
         assert!(!root.path().exists());
     }
     #[test]
@@ -477,6 +530,15 @@ mod tests {
         assert_eq!(
             CHILD_SESSION_SETUP_FILE,
             butterpollo_core::child_session::SETUP_FILE
+        );
+        assert_eq!(
+            CHILD_SESSION_SETUP_FOLDER,
+            butterpollo_core::child_session::SETUP_FOLDER
+        );
+        // Beside the installed profile: the PC's record is the host's.
+        assert_eq!(
+            child_session_records(&profile())[0],
+            butterpollo_core::child_session::setup_record()
         );
         assert_eq!(
             CHILD_SESSION_RESTORE_FLAG,

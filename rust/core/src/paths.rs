@@ -5,12 +5,18 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// The installed service's profile, `%ProgramData%\Butterpollo\config`.
+/// Rubylight's machine-wide folder, `%ProgramData%\Butterpollo`: the
+/// installed service's profile and what every profile on this PC shares.
 /// Falls back to `C:\ProgramData` when the variable is unset, as it is for
 /// some service accounts.
-pub fn installed_profile() -> PathBuf {
+pub fn data_root() -> PathBuf {
     PathBuf::from(std::env::var_os("PROGRAMDATA").unwrap_or_else(|| r"C:\ProgramData".into()))
-        .join("Butterpollo/config")
+        .join("Butterpollo")
+}
+
+/// The installed service's profile, `%ProgramData%\Butterpollo\config`.
+pub fn installed_profile() -> PathBuf {
+    data_root().join("config")
 }
 
 /// A portable host uses an existing `config` folder beside its executable,

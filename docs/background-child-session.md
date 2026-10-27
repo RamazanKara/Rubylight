@@ -47,8 +47,15 @@ default, and it is what Windows Home uses: Home has no child sessions.
    - raises the session frame rate (`DWMFRAMEINTERVAL = 8`, about 120 fps);
    - lets the Remote Desktop client keep drawing while minimized
      (`RemoteDesktop_SuppressWhenMinimized = 2`);
-   - records every original value first. **Restore Windows settings** puts them
-     all back, and so does uninstalling Rubylight.
+   - records every original value first, in one record for the whole PC
+     (`%ProgramData%\Butterpollo\windows-settings\child_session_setup.json`,
+     which only SYSTEM and Administrators can change; Rubylight refuses a
+     record anyone else owns), whichever Rubylight host set it up. Setup
+     refuses on a PC another Rubylight host set up without that record:
+     restore it there first. Only the main host sets up and restores, in
+     child-session mode; the child session's own host never does.
+     **Restore Windows settings** puts them all back, and so does uninstalling
+     Rubylight.
 3. Enter your **Windows password** (not your PIN) in the panel and start the
    child session. The password is stored for your account only, encrypted with
    Windows DPAPI, and never logged; **Forget saved password** deletes it.

@@ -13,6 +13,10 @@ const LFE_GAIN: f32 = 0.5;
 const SURROUND: u32 = 16 | 32 | 512 | 1024;
 /// Frames rendered per register block.
 const BLOCK: usize = 16;
+/// Scaled taps below this are 0: the HRIRs' fade-out leaves ~1e-37 in the
+/// last tap, and that times a normal sample is subnormal (slow on CPUs
+/// without flush-to-zero). 1e-20 is ~-400 dB, far below any audible tap.
+const TAP_FLOOR: f32 = 1e-20;
 
 /// How a source endpoint lands in the 8 capture channels.
 #[derive(Clone, Debug, PartialEq)]
@@ -119,7 +123,8 @@ impl Binaural {
                 let mut taps = Box::new([[0.; TAPS]; 2]);
                 for (ear, h) in taps.iter_mut().enumerate() {
                     for (tap, v) in h.iter_mut().zip(pair[ear].iter().rev()) {
-                        *tap = v * level;
+                        let v = v * level;
+                        *tap = if v.abs() < TAP_FLOOR { 0. } else { v };
                     }
                 }
                 Some(Speaker {
@@ -389,7 +394,11 @@ mod tests {
                     let pair = hrir::pair(*azimuth);
                     for (e, filter) in pair.iter().enumerate() {
                         let got = ear(&output, e);
-                        assert_eq!(&got[..TAPS], &filter[..], "{slot} {e}");
+                        let want: Vec<f32> = filter
+                            .iter()
+                            .map(|v| if v.abs() < TAP_FLOOR { 0. } else { *v })
+                            .collect();
+                        assert_eq!(&got[..TAPS], &want[..], "{slot} {e}");
                         assert!(got[TAPS..].iter().all(|v| *v == 0.));
                     }
                 }
@@ -399,6 +408,60 @@ mod tests {
                     assert!(output[2..].iter().all(|v| *v == 0.));
                 }
             }
+        }
+    }
+
+    #[test]
+    fn no_scaled_tap_is_below_the_floor() {
+        // The SADIE fade leaves ~1e-37 in every filter's last tap.
+        assert!(
+            hrir::pair(30)
+                .iter()
+                .any(|h| h.iter().any(|v| *v != 0. && v.abs() < TAP_FLOOR))
+        );
+        for (channels, mask) in [(8, SEVEN_ONE), (6, FIVE_ONE_BACK), (6, FIVE_ONE_SIDE)] {
+            let layout = Layout::new(channels, mask).unwrap();
+            for level in [layout.level(), 1.] {
+                let binaural = Binaural::new(&layout, level);
+                for speaker in &binaural.speakers {
+                    for v in speaker.taps.iter().flatten() {
+                        assert!(*v == 0. || v.abs() >= TAP_FLOOR, "{mask:x} {v:e}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_normal_level_sine_makes_no_subnormal_products_or_outputs() {
+        let layout = Layout::new(8, SEVEN_ONE).unwrap();
+        let mut binaural = Binaural::new(&layout, layout.level());
+        let frames = 4800;
+        let input: Vec<f32> = (0..frames * 8)
+            .map(|i| {
+                let (n, slot) = (i / 8, i % 8);
+                let hz = 220. + 110. * slot as f32;
+                0.05 * (std::f32::consts::TAU * hz * n as f32 / 48_000.).sin()
+            })
+            .collect();
+        let subnormal = |v: f32| v != 0. && !v.is_normal();
+        assert!(!input.iter().any(|v| subnormal(*v)));
+        for chunk in input.chunks(480 * 8) {
+            // Every product the FIR forms over this packet: history and packet
+            // samples against every tap of both ears.
+            for speaker in &binaural.speakers {
+                let line: Vec<f32> = speaker
+                    .line
+                    .iter()
+                    .copied()
+                    .chain(chunk.iter().skip(speaker.slot).step_by(8).copied())
+                    .collect();
+                for h in speaker.taps.iter().flatten() {
+                    assert!(!line.iter().any(|x| subnormal(h * x)), "{h:e}");
+                }
+            }
+            let output = render(&mut binaural, chunk);
+            assert!(!output.iter().any(|v| subnormal(*v)));
         }
     }
 

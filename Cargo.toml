@@ -18,6 +18,11 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tracing = "0.1"
 
+# Nightjar pins the native API types by git rev for its own builds; the host's interop tests build
+# it against this repository's copy, so both sides speak the same version.
+[patch."https://github.com/RamazanKara/Rubylight"]
+rubylight-native-api = { path = "rust/core/native-api" }
+
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 

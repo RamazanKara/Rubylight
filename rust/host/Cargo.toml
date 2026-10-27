@@ -52,6 +52,8 @@ embed-resource = "3.0.12"
 [dev-dependencies]
 # File transfer tests open their folder as the developer.
 butterpollo-windows = { path = "../windows", features = ["test-folder"] }
+# Nightjar's client engine, for the interop tests against this host (stream/reconnect_tests/interop_tests.rs).
+nightjar-core = { path = "../../client/protocol/client" }
 
 [lints]
 workspace = true

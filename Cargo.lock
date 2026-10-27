@@ -360,6 +360,7 @@ dependencies = [
  "libloading",
  "log",
  "mdns-sd",
+ "nightjar-core",
  "rand 0.8.8",
  "reqwest",
  "rustls",
@@ -369,7 +370,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "socket2",
+ "socket2 0.6.5",
  "str0m",
  "time",
  "tokio",
@@ -457,7 +458,7 @@ dependencies = [
  "rubylight-vdisplay-proto",
  "serde",
  "serde_json",
- "socket2",
+ "socket2 0.6.5",
  "tempfile",
  "tracing",
  "tracing-subscriber",
@@ -1405,7 +1406,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2",
+ "socket2 0.6.5",
  "tokio",
  "tower-service",
  "tracing",
@@ -1717,7 +1718,7 @@ dependencies = [
  "log",
  "mio",
  "socket-pktinfo",
- "socket2",
+ "socket2 0.6.5",
 ]
 
 [[package]]
@@ -1758,6 +1759,27 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "nightjar-core"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "aes-gcm",
+ "cbc",
+ "libc",
+ "rand_core 0.6.4",
+ "regex",
+ "ring",
+ "rsa",
+ "rubylight-native-api",
+ "rubylight-protocol",
+ "rustls",
+ "rusty_enet",
+ "serde",
+ "serde_json",
+ "socket2 0.5.10",
 ]
 
 [[package]]
@@ -2112,7 +2134,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls",
- "socket2",
+ "socket2 0.6.5",
  "thiserror",
  "tokio",
  "tracing",
@@ -2150,7 +2172,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2",
+ "socket2 0.6.5",
  "tracing",
  "windows-sys 0.61.2",
 ]
@@ -2748,8 +2770,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "612942246d0cc239cfd83af1dfd39be47f649208a3524e5e9da651910128e0ac"
 dependencies = [
  "libc",
- "socket2",
+ "socket2 0.6.5",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "socket2"
+version = "0.5.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e22376abed350d73dd1cd119b57ffccad95b4e585a7cda43e286245ce23c0678"
+dependencies = [
+ "libc",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3011,7 +3043,7 @@ dependencies = [
  "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
- "socket2",
+ "socket2 0.6.5",
  "tokio-macros",
  "windows-sys 0.61.2",
 ]

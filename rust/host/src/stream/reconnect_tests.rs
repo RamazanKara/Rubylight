@@ -15,6 +15,7 @@ use std::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+mod interop_tests;
 mod roaming_tests;
 mod webrtc_tests;
 
@@ -329,6 +330,9 @@ impl Fixture {
         // As the encoder does once it has the display's metadata: the control
         // worker then sends the HDR mode message (0x010e).
         s.set_display_hdr_metadata(butterpollo_core::hdr::Metadata::default());
+        // The video clock starts with the stream, as in the video worker: clock sync
+        // probes are answered from here on.
+        *s.media_epoch.write().unwrap() = Some(Instant::now());
         while !h.stop.load(Ordering::Acquire) && !s.stopping() {
             let peer = media
                 .peers
@@ -339,10 +343,10 @@ impl Fixture {
             if let Some(peer) = peer {
                 let released = self.input_releases.load(Ordering::Acquire);
                 // A synthetic encoded access unit still uses the production
-                // packetizer and video socket. No decoder or GPU is involved.
-                for packet in
-                    packetizer.encode_recovery(&[0, 0, 0, 1, 0x65, 0x80], true, false, 0, 0)?
-                {
+                // packetizer and video socket. No decoder or GPU is involved. It opens with
+                // an SPS and PPS like an encoder's IDR: Moonlight's depacketizer, and
+                // Nightjar's (interop_tests), drop a key frame without them.
+                for packet in packetizer.encode_recovery(SYNTHETIC_IDR, true, false, 0, 0)? {
                     media.video.send_to(&packet, peer)?;
                     s.stats.packets.fetch_add(1, Ordering::Relaxed);
                 }
@@ -360,6 +364,11 @@ impl Fixture {
         Ok(())
     }
 }
+
+/// The fixture's H.264 key frame: SPS, PPS and an IDR slice, each a stub.
+const SYNTHETIC_IDR: &[u8] = &[
+    0, 0, 0, 1, 0x67, 0x42, 0, 0, 0, 1, 0x68, 0xce, 0, 0, 0, 1, 0x65, 0x80,
+];
 
 async fn until(message: &str, timeout: Duration, mut condition: impl FnMut() -> bool) {
     let deadline = Instant::now() + timeout;

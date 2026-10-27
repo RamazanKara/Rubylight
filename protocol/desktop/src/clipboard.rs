@@ -142,10 +142,22 @@ fn encode_png(image: &RgbaImage) -> Result<Vec<u8>, String> {
     Ok(png)
 }
 
+const FILE_HEADER: usize = 14;
+const BI_RGB: u32 = 0;
+const BI_BITFIELDS: u32 = 3;
+/// A BITMAPV4HEADER, the smallest header that holds its colour masks itself.
+const V4_HEADER: usize = 108;
+
+fn u32_at(bmp: &[u8], at: usize) -> Option<u32> {
+    Some(u32::from_le_bytes(bmp.get(at..at + 4)?.try_into().ok()?))
+}
+
 fn decode_bmp(bmp: &[u8]) -> Result<RgbaImage, String> {
-    let mut image = image::load_from_memory_with_format(bmp, image::ImageFormat::Bmp)
+    let bmp = pixels_where_they_are(bmp);
+    let mut image = image::load_from_memory_with_format(&bmp, image::ImageFormat::Bmp)
         .map_err(|e| e.to_string())?
         .to_rgba8();
+    reserved_byte_alpha(&bmp, &mut image);
     // A 32-bit DIB that Windows made from an opaque bitmap (a screenshot) may say it has alpha
     // and leave every alpha byte 0; read as written, it would arrive fully transparent.
     if image.pixels().all(|p| p[3] == 0) {
@@ -154,27 +166,97 @@ fn decode_bmp(bmp: &[u8]) -> Result<RgbaImage, String> {
     Ok(image)
 }
 
-/// A BMP file of `image` with a BITMAPV5HEADER: 32 bits per pixel, bottom-up, sRGB, with an
-/// alpha mask, which SDL hands Windows as CF_DIBV5.
+/// `bmp` with its file header pointing at the pixels. SDL makes a BMP file of a Windows DIB by
+/// putting the pixels 12 bytes after any BI_BITFIELDS header, for the three masks that follow a
+/// BITMAPINFOHEADER. A V4 or V5 header holds its masks itself, and apps differ on whether they
+/// repeat them after it: when those 12 bytes are not the header's masks again, they are the
+/// first pixels.
+fn pixels_where_they_are(bmp: &[u8]) -> std::borrow::Cow<'_, [u8]> {
+    let (Some(offset), Some(header), Some(compression)) = (
+        u32_at(bmp, 10),
+        u32_at(bmp, FILE_HEADER),
+        u32_at(bmp, FILE_HEADER + 16),
+    ) else {
+        return bmp.into();
+    };
+    let header_end = FILE_HEADER + header as usize;
+    if compression != BI_BITFIELDS
+        || (header as usize) < V4_HEADER
+        || offset as usize != header_end + 12
+    {
+        return bmp.into();
+    }
+    let masks = &bmp[FILE_HEADER + 40..FILE_HEADER + 52];
+    if bmp.get(header_end..header_end + 12) == Some(masks) {
+        return bmp.into();
+    }
+    let mut moved = bmp.to_vec();
+    moved[10..14].copy_from_slice(&(header_end as u32).to_le_bytes());
+    moved.into()
+}
+
+/// Takes the alpha of a 32-bit BI_RGB bitmap from the fourth byte of its pixels, which Windows
+/// calls reserved and the decoder drops, when any pixel has some there: an app that writes
+/// alpha there (as `bmp_v5` does) means it, and one that does not leaves it 0.
+fn reserved_byte_alpha(bmp: &[u8], image: &mut RgbaImage) {
+    let (Some(offset), Some(height)) = (u32_at(bmp, 10), u32_at(bmp, FILE_HEADER + 8)) else {
+        return;
+    };
+    let bits = bmp.get(FILE_HEADER + 14..FILE_HEADER + 16);
+    if bits != Some(&32u16.to_le_bytes()[..]) || u32_at(bmp, FILE_HEADER + 16) != Some(BI_RGB) {
+        return;
+    }
+    let (width, rows) = image.dimensions();
+    let stride = width as usize * 4;
+    // The decoder read these bytes, so they are there.
+    let Some(pixels) = bmp
+        .get(offset as usize..)
+        .and_then(|p| p.get(..stride * rows as usize))
+    else {
+        return;
+    };
+    if stride == 0 || pixels.chunks_exact(4).all(|p| p[3] == 0) {
+        return;
+    }
+    let top_down = (height as i32) < 0;
+    for (n, row) in pixels.chunks_exact(stride).enumerate() {
+        let y = if top_down { n } else { rows as usize - 1 - n };
+        for (x, p) in row.chunks_exact(4).enumerate() {
+            image.get_pixel_mut(x as u32, y as u32)[3] = p[3];
+        }
+    }
+}
+
+/// A BMP file of `image` with a BITMAPV5HEADER: 32 bits per pixel, bottom-up, sRGB, which SDL
+/// hands Windows as CF_DIBV5 (Windows makes CF_DIB and CF_BITMAP of it).
+///
+/// BI_RGB, not BI_BITFIELDS: SDL 3.4 reads a BI_BITFIELDS DIB back (WIN_ConvertDIBtoBMP) as if
+/// three masks followed every header, which a V5 header's own masks do not, so the image would
+/// fail as "Invalid BMP data" or come back three pixels off. Each pixel's fourth byte carries
+/// its alpha, not premultiplied, and the header's alpha mask says so; Windows calls that byte
+/// reserved in BI_RGB. Apps that go by Windows paste the image opaque, transparent pixels in
+/// whatever colour they hold; apps that read the byte as alpha, this one included, keep the
+/// transparency.
 fn bmp_v5(image: &RgbaImage) -> Vec<u8> {
-    const FILE_HEADER: u32 = 14;
     const V5_HEADER: u32 = 124;
+    let file_header = FILE_HEADER as u32;
     let (width, height) = image.dimensions();
     let pixels = width * height * 4;
-    let mut out = Vec::with_capacity((FILE_HEADER + V5_HEADER + pixels) as usize);
+    let mut out = Vec::with_capacity((file_header + V5_HEADER + pixels) as usize);
     out.extend_from_slice(b"BM");
-    out.extend_from_slice(&(FILE_HEADER + V5_HEADER + pixels).to_le_bytes());
+    out.extend_from_slice(&(file_header + V5_HEADER + pixels).to_le_bytes());
     out.extend_from_slice(&[0; 4]);
-    out.extend_from_slice(&(FILE_HEADER + V5_HEADER).to_le_bytes());
+    out.extend_from_slice(&(file_header + V5_HEADER).to_le_bytes());
     out.extend_from_slice(&V5_HEADER.to_le_bytes());
     out.extend_from_slice(&(width as i32).to_le_bytes());
     out.extend_from_slice(&(height as i32).to_le_bytes());
     out.extend_from_slice(&1u16.to_le_bytes()); // planes
     out.extend_from_slice(&32u16.to_le_bytes());
-    out.extend_from_slice(&3u32.to_le_bytes()); // BI_BITFIELDS
+    out.extend_from_slice(&BI_RGB.to_le_bytes());
     out.extend_from_slice(&pixels.to_le_bytes());
     out.extend_from_slice(&[0; 16]); // resolution, palette
-    for mask in [0x00ff_0000u32, 0x0000_ff00, 0x0000_00ff, 0xff00_0000] {
+                                     // The colour masks count only with BI_BITFIELDS; the alpha mask names the fourth byte.
+    for mask in [0u32, 0, 0, 0xff00_0000] {
         out.extend_from_slice(&mask.to_le_bytes());
     }
     out.extend_from_slice(b"BGRs"); // LCS_sRGB, little-endian
@@ -222,7 +304,109 @@ mod tests {
             u32::from_le_bytes(bmp[34..38].try_into().unwrap()),
             5 * 3 * 4
         );
+        assert_eq!(
+            u32_at(&bmp, 30),
+            Some(BI_RGB),
+            "SDL misplaces BI_BITFIELDS pixels"
+        );
         assert_eq!(decode_bmp(&bmp).unwrap(), picture());
+    }
+
+    /// SDL 3.4's WIN_ConvertBMPtoDIB: the DIB it hands Windows for a BMP file.
+    fn sdl_bmp_to_dib(bmp: &[u8]) -> Result<Vec<u8>, &'static str> {
+        let offset = u32_at(bmp, 10).unwrap() as usize;
+        let header = u32_at(bmp, 14).unwrap() as usize;
+        let colours = u32_at(bmp, 14 + 32).unwrap() as usize;
+        let pixels = u32_at(bmp, 14 + 20).unwrap() as usize;
+        let header_size = header + colours * 4;
+        if offset < 14 + header_size || offset + pixels > bmp.len() {
+            return Err("Invalid BMP data");
+        }
+        Ok([&bmp[14..14 + header_size], &bmp[offset..offset + pixels]].concat())
+    }
+
+    /// SDL 3.4's WIN_ConvertDIBtoBMP: the BMP file it makes of `dib`, held by Windows in a block
+    /// of `global_size` bytes (GlobalAlloc rounds up, and the slack holds anything).
+    fn sdl_dib_to_bmp(dib: &[u8], global_size: usize) -> Result<Vec<u8>, &'static str> {
+        let mut block = dib.to_vec();
+        block.resize(global_size, 0xa5);
+        let header = u32_at(&block, 0).unwrap() as usize;
+        let bits = u16::from_le_bytes(block[14..16].try_into().unwrap());
+        let colours = u32_at(&block, 32).unwrap() as usize;
+        let table = match u32_at(&block, 16).unwrap() {
+            BI_RGB if bits <= 8 => 4 * if colours == 0 { 1 << bits } else { colours },
+            BI_RGB => 0,
+            BI_BITFIELDS => 12,
+            6 => 16,
+            _ => 4 * colours,
+        };
+        if header + table + u32_at(&block, 20).unwrap() as usize > global_size {
+            return Err("Invalid BMP data");
+        }
+        let mut bmp = b"BM".to_vec();
+        bmp.extend_from_slice(&((14 + global_size) as u32).to_le_bytes());
+        bmp.extend_from_slice(&[0; 4]);
+        bmp.extend_from_slice(&((14 + header + table) as u32).to_le_bytes());
+        bmp.extend_from_slice(&block);
+        Ok(bmp)
+    }
+
+    #[test]
+    fn a_bitmap_written_for_windows_survives_sdls_trip_through_the_clipboard() {
+        let dib = sdl_bmp_to_dib(&bmp_v5(&picture())).unwrap();
+        assert_eq!(dib.len(), 124 + 5 * 3 * 4);
+        for slack in 0..16 {
+            let back = sdl_dib_to_bmp(&dib, dib.len() + slack).unwrap();
+            assert_eq!(
+                decode_bmp(&back).unwrap(),
+                picture(),
+                "{slack} bytes of slack"
+            );
+        }
+    }
+
+    /// A V5 DIB with BI_BITFIELDS as other apps put it on the clipboard, with or without the
+    /// masks repeated after the header.
+    fn bitfields_dib(image: &RgbaImage, masks_after: bool) -> Vec<u8> {
+        let bmp = bmp_v5(image);
+        let mut dib = bmp[14..14 + 124].to_vec();
+        dib[16..20].copy_from_slice(&BI_BITFIELDS.to_le_bytes());
+        let masks = [0x00ff_0000u32, 0x0000_ff00, 0x0000_00ff];
+        for (n, mask) in masks.iter().enumerate() {
+            dib[40 + 4 * n..44 + 4 * n].copy_from_slice(&mask.to_le_bytes());
+        }
+        if masks_after {
+            masks
+                .iter()
+                .for_each(|m| dib.extend_from_slice(&m.to_le_bytes()));
+        }
+        dib.extend_from_slice(&bmp[14 + 124..]);
+        dib
+    }
+
+    #[test]
+    fn bitfields_bitmaps_from_other_apps_decode_with_or_without_masks_after_the_header() {
+        let with = bitfields_dib(&picture(), true);
+        let back = sdl_dib_to_bmp(&with, with.len()).unwrap();
+        assert_eq!(decode_bmp(&back).unwrap(), picture());
+
+        // SDL puts the pixels 12 bytes on, into the slack Windows' block has past them.
+        let without = bitfields_dib(&picture(), false);
+        let back = sdl_dib_to_bmp(&without, without.len() + 12).unwrap();
+        assert_eq!(u32_at(&back, 10), Some(14 + 124 + 12));
+        assert_eq!(decode_bmp(&back).unwrap(), picture());
+        // Without that slack SDL refuses it, and reading the clipboard reports its error.
+        assert_eq!(
+            sdl_dib_to_bmp(&without, without.len()),
+            Err("Invalid BMP data")
+        );
+
+        // A BI_BITFIELDS bitmap with an alpha mask and every alpha 0 still reads opaque.
+        let mut clear = picture();
+        clear.pixels_mut().for_each(|p| p[3] = 0);
+        let dib = bitfields_dib(&clear, false);
+        let read = decode_bmp(&sdl_dib_to_bmp(&dib, dib.len() + 12).unwrap()).unwrap();
+        assert!(read.pixels().all(|p| p[3] == 255));
     }
 
     #[test]

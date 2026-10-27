@@ -592,19 +592,21 @@ impl<K: Kernel> UsbfsDevice<K> {
             urb.urb_mut().kind = URB_CONTROL;
             (urb, buffer, Shape::Control)
         } else if transfer.is_isochronous() {
-            let total: usize = transfer.iso.iter().map(|p| p.length as usize).sum();
-            if total > length {
+            // The host names the lengths and offsets: in u64 and checked, so no sum wraps (a
+            // 32-bit usize would) into a buffer shorter than the packets the kernel fills.
+            let total: u64 = transfer.iso.iter().map(|p| u64::from(p.length)).sum();
+            if total > length as u64 {
                 return Err(wire::EINVAL);
             }
+            let total = total as usize;
             let mut buffer = Vec::with_capacity(total);
             match transfer.direction {
                 // usbfs takes the packets back to back; USB/IP places them at their offsets.
                 Direction::Out => {
                     for packet in &transfer.iso {
-                        let (start, end) = (
-                            packet.offset as usize,
-                            (packet.offset + packet.length) as usize,
-                        );
+                        let end = packet.offset.checked_add(packet.length);
+                        let (start, end) =
+                            (packet.offset as usize, end.ok_or(wire::EINVAL)? as usize);
                         let data = transfer.data.get(start..end).ok_or(wire::EINVAL)?;
                         buffer.extend_from_slice(data);
                     }

@@ -671,6 +671,32 @@ fn set_interface_goes_through_its_ioctl_and_isochronous_packets_pack_both_ways()
 }
 
 #[test]
+fn isochronous_packets_whose_offsets_or_lengths_wrap_fail_and_reach_no_kernel() {
+    let kernel = FakeKernel::new();
+    let (mut driver, served) = serving(&kernel);
+    let alternate = driver.submit(0, wire::DIR_OUT, 0, setup(0x01, 11, 1, 0), &[], &[]);
+    assert_eq!(status_of(&driver.reply(false).0), (alternate, 0));
+    let packet = |offset, length| IsoPacket {
+        offset,
+        length,
+        actual_length: 0,
+        status: 0,
+    };
+    // offset + length past u32: it wrapped to 2, inside the data.
+    let data: Vec<u8> = (0..16).collect();
+    let wraps = [packet(u32::MAX - 1, 4)];
+    let out = driver.submit(3, wire::DIR_OUT, 16, [0; 8], &data, &wraps);
+    assert_eq!(status_of(&driver.reply(false).0), (out, wire::EINVAL));
+    // Lengths whose sum is past u32 (and a 32-bit usize).
+    let huge = [packet(0, 0x8000_0000), packet(0, 0x8000_0010)];
+    let iso = driver.submit(3, wire::DIR_IN, 16, [0; 8], &[], &huge);
+    assert_eq!(status_of(&driver.reply(true).0), (iso, wire::EINVAL));
+    assert!(submits(&kernel).is_empty());
+    drop(driver);
+    served.join().unwrap().unwrap();
+}
+
+#[test]
 fn configuration_halts_and_resets_change_the_kernels_state_not_the_devices() {
     let kernel = FakeKernel::new();
     let device = Arc::new(UsbfsDevice::open(kernel.clone(), PATH).unwrap());

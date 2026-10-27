@@ -1087,6 +1087,38 @@ fn a_line_over_the_cap_fails_alone_and_quotes_nothing() {
 }
 
 #[test]
+fn a_read_line_is_wiped_once_the_next_one_is_read() {
+    let secret = hex::encode(PASSWORD);
+    let data = format!("{{\"password\":\"{secret}\"}}\n{{\"command\":\"stop\"}}\n").into_bytes();
+    let mut reader = LineReader::new(
+        Trickle {
+            data,
+            at: 0,
+            chunk: 4096,
+        },
+        1024,
+    );
+    let first = reader.read_line().unwrap().unwrap();
+    assert!(String::from_utf8_lossy(first).contains(&secret));
+    let holds = |reader: &LineReader<Trickle>| {
+        reader
+            .buffer
+            .windows(secret.len())
+            .any(|window| window == secret.as_bytes())
+    };
+    assert_eq!(
+        reader.read_line().unwrap().unwrap(),
+        br#"{"command":"stop"}"#
+    );
+    assert!(!holds(&reader), "the first line is wiped");
+    assert!(reader.read_line().unwrap().is_none());
+    assert!(
+        reader.buffer.iter().all(|&byte| byte == 0),
+        "nothing is left"
+    );
+}
+
+#[test]
 fn the_password_never_reaches_a_log() {
     let secret = Secret::new(PASSWORD.into());
     let command = ViewerCommand::Start {

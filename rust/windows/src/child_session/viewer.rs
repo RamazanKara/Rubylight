@@ -16,13 +16,15 @@
 use crate::text::to_wide;
 use anyhow::{Context, Result, bail};
 use butterpollo_core::child_session::{
-    Confirmation, DisplaySettings, PasswordStore, RdpState, Secret, Viewer, ViewerAction,
-    ViewerCommand, ViewerStatus,
+    Confirmation, DisplaySettings, LineReader, PasswordStore, RdpState, Secret, Viewer,
+    ViewerAction, ViewerCommand, ViewerStatus,
 };
 use std::{
     ffi::c_void,
-    io::{BufRead, Write},
+    fs::File,
+    io::{ErrorKind, Read, Write},
     mem::ManuallyDrop,
+    os::windows::io::{AsRawHandle, FromRawHandle},
     path::PathBuf,
     sync::mpsc,
     time::Instant,
@@ -62,6 +64,9 @@ const RDP_CONTROL: &str = "{8B918B82-7985-4C24-89DF-C33AD2BBFBCD}";
 const POLL_MS: u32 = 500;
 const WAKE: u32 = WM_APP + 1;
 const CLASS: PCWSTR = w!("RubylightChildSessionViewer");
+/// The longest command the viewer reads; a start with any Windows password
+/// fits.
+const COMMAND_CAP: usize = 16 * 1024;
 
 /// `IMsRdpExtendedSettings` (mstsax.idl); only its first method, the
 /// property put, is declared because only that one is called.
@@ -647,33 +652,50 @@ fn read_commands(hwnd: isize, sender: mpsc::Sender<Result<ViewerCommand, String>
         let _ =
             unsafe { PostMessageW(Some(HWND(hwnd as *mut c_void)), WAKE, WPARAM(0), LPARAM(0)) };
     };
-    let stdin = std::io::stdin();
-    // Room for any command up front: a growing line would leave unwiped copies
-    // of the password behind. Each line is wiped before the next one is read.
-    let mut line = zeroize::Zeroizing::new(String::with_capacity(16 * 1024));
+    // The raw handle, unbuffered: std's stdin keeps a buffer of its own that is never wiped.
+    // SAFETY: the standard input handle stays open for the whole process, and ManuallyDrop
+    // never closes it.
+    let stdin =
+        ManuallyDrop::new(unsafe { File::from_raw_handle(std::io::stdin().as_raw_handle()) });
+    if forward_commands(&*stdin, &sender, wake) {
+        let _ = sender.send(Ok(ViewerCommand::Quit));
+        wake();
+    }
+}
+/// The commands on `input` to the window thread until the pipe closes (true)
+/// or the window thread is gone (false). Each line is read into one buffer
+/// that never grows and is wiped once the next line is read, and parsed from
+/// there: the password is never copied into a string.
+fn forward_commands(
+    input: impl Read,
+    sender: &mpsc::Sender<Result<ViewerCommand, String>>,
+    wake: impl Fn(),
+) -> bool {
+    let mut lines = LineReader::new(input, COMMAND_CAP);
     loop {
-        zeroize::Zeroize::zeroize(&mut *line);
-        match stdin.lock().read_line(&mut line) {
-            Ok(0) | Err(_) => break,
-            Ok(_) if line.trim().is_empty() => continue,
-            Ok(_) => {
-                // Only the position: serde's message can quote the line, which may hold the
-                // password.
-                let command = serde_json::from_str::<ViewerCommand>(line.trim()).map_err(|error| {
+        let command = match lines.read_line() {
+            Ok(None) => return true,
+            Err(error) if error.kind() == ErrorKind::InvalidData => Err(format!(
+                "the host sent a command longer than {} KiB; the viewer did not read it",
+                COMMAND_CAP / 1024
+            )),
+            Err(_) => return true,
+            Ok(Some(line)) if line.trim_ascii().is_empty() => continue,
+            // Only the position: serde's message can quote the line, which may hold the password.
+            Ok(Some(line)) => {
+                serde_json::from_slice::<ViewerCommand>(line.trim_ascii()).map_err(|error| {
                     format!(
                         "the host sent a command the viewer cannot read (column {})",
                         error.column()
                     )
-                });
-                if sender.send(command).is_err() {
-                    return;
-                }
-                wake();
+                })
             }
+        };
+        if sender.send(command).is_err() {
+            return false;
         }
+        wake();
     }
-    let _ = sender.send(Ok(ViewerCommand::Quit));
-    wake();
 }
 
 /// The saved password's file in the signed-in user's own profile
@@ -801,6 +823,56 @@ mod tests {
         assert_eq!(rdp.state().unwrap(), RdpState::Disconnected);
         // SAFETY: the window belongs to this thread.
         unsafe { DestroyWindow(hwnd) }.unwrap();
+    }
+
+    #[test]
+    fn commands_come_off_the_pipe_capped_and_never_quote_it() {
+        let start = ViewerCommand::Start {
+            display: DisplaySettings::default(),
+            rdp_port: 3390,
+            password: Some(Secret::new("correct horse".into())),
+        }
+        .line()
+        .unwrap();
+        let long = format!("{}SECRET\n", "x".repeat(COMMAND_CAP));
+        let input = format!(
+            "{}{long}\n{{\"command\":\"stop\"}}\n{{bad\n",
+            start.as_str()
+        );
+        let (sender, commands) = mpsc::channel();
+        let woken = std::cell::Cell::new(0);
+        assert!(forward_commands(input.as_bytes(), &sender, || woken.set(woken.get() + 1)));
+        let commands: Vec<_> = commands.try_iter().collect();
+        assert_eq!(commands.len(), 4);
+        assert_eq!(woken.get(), 4);
+        match &commands[0] {
+            Ok(ViewerCommand::Start {
+                rdp_port: 3390,
+                password: Some(password),
+                ..
+            }) => assert_eq!(password.expose(), "correct horse"),
+            other => panic!("{other:?}"),
+        }
+        let too_long = commands[1].as_ref().unwrap_err();
+        assert!(too_long.contains("longer than 16 KiB"), "{too_long}");
+        assert!(matches!(commands[2], Ok(ViewerCommand::Stop)));
+        let bad = commands[3].as_ref().unwrap_err();
+        assert!(bad.contains("cannot read (column"), "{bad}");
+        for problem in [too_long, bad] {
+            assert!(
+                !problem.contains("SECRET") && !problem.contains("bad"),
+                "{problem}"
+            );
+        }
+        // The window thread gone: the reader stops without a quit.
+        drop(commands);
+        let (sender, gone) = mpsc::channel();
+        drop(gone);
+        assert!(!forward_commands(
+            "{\"command\":\"stop\"}\n".as_bytes(),
+            &sender,
+            || ()
+        ));
     }
 
     #[test]

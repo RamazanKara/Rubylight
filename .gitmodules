@@ -6,3 +6,7 @@
 	path = third-party/moonlight-common-c
 	url = https://github.com/moonlight-stream/moonlight-common-c.git
 	branch = master
+# Nightjar's own (client/.gitmodules), which the nightjar mirror keeps using.
+[submodule "client/app/src/main/jni/moonlight-core/moonlight-common-c"]
+	path = client/app/src/main/jni/moonlight-core/moonlight-common-c
+	url = https://github.com/moonlight-stream/moonlight-common-c.git

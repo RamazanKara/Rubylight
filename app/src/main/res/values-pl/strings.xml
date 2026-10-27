@@ -425,6 +425,9 @@
     <string name="keyboard_shortcuts_exported">Skróty wyeksportowane.</string>
     <string name="keyboard_shortcuts_file_error">Nie udało się odczytać ani zapisać pliku skrótów. Sprawdź dostęp do plików i użyj prawidłowego eksportu skrótów zawierającego maksymalnie 32 skróty.</string>
     <string name="title_disable_hevc_low_latency">Flagi niskich opóźnień HEVC</string>
-    <string name="summary_disable_hevc_low_latency">Wyłącz, jeśli obraz HEVC się zacina lub zawiesza. Po wyłączeniu pomijane są opcjonalne flagi niskich opóźnień Androida i układu oraz unieważnianie klatek referencyjnych dla HEVC. Wymagane flagi zgodności pozostają na starszych dekoderach Fire TV. Inne kodeki i wskazówki wydajności dekodera zachowują własne ustawienia. Dotyczy następnego strumienia.</string>
+    <string name="summary_disable_hevc_low_latency">Automatycznie używa flag we wszystkich dekoderach HEVC poza dekoderami Amlogic, na których obraz się z nimi zatrzymuje; Wł. używa ich także tam. Wyłącz, jeśli obraz HEVC się zacina lub zawiesza. Po wyłączeniu pomijane są opcjonalne flagi niskich opóźnień Androida i układu oraz unieważnianie klatek referencyjnych dla HEVC. Wymagane flagi zgodności pozostają na starszych dekoderach Fire TV. Inne kodeki i wskazówki wydajności dekodera zachowują własne ustawienia. Dotyczy następnego strumienia.</string>
+    <string name="hevc_low_latency_auto">Automatycznie</string>
+    <string name="hevc_low_latency_on">Wł.</string>
+    <string name="hevc_low_latency_off">Wył.</string>
     <string name="title_oled_black">Czerń OLED</string>
 </resources>

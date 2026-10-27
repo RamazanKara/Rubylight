@@ -49,6 +49,7 @@ public class AdvancedOptionsTest {
     private static final String LEGACY_UNLOCK = "developer_options";
     private static final String GPU_BOOST = PreferenceConfiguration.GPU_MAX_CLOCKS_PREF_STRING;
     private static final String HEVC = PreferenceConfiguration.DISABLE_HEVC_LOW_LATENCY_PREF_STRING;
+    private static final String HEVC_MODE = PreferenceConfiguration.HEVC_LOW_LATENCY_MODE_PREF_STRING;
     /** The controls Advanced shows without any further tap. The individual decoding switches sit behind Customize. */
     private static final String[] ADVANCED_CONTROLS = {
             "low_latency_customize", "checkbox_unbatched_input",
@@ -84,21 +85,32 @@ public class AdvancedOptionsTest {
     }
 
     @Test
-    public void hevcLowLatencyOptOutIsOffByDefaultAndIndependentOfTheGeneralSwitch() {
+    public void hevcLowLatencyModeIsAutoByDefaultAndIndependentOfTheGeneralSwitch() {
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
             PreferenceScreen advanced = open(controller.get(), "advanced").getPreferenceScreen();
             openCustomize(advanced);
-            // The switch reads "use the flags" and stores the older "disable" choice.
-            SwitchPreference hevc = (SwitchPreference) advanced.findPreference(HEVC);
-            assertTrue(hevc.isChecked());
-            hevc.setChecked(false);
+            assertNull(advanced.findPreference(HEVC));
+            ListPreference hevc = (ListPreference) advanced.findPreference(HEVC_MODE);
+            assertEquals("auto", hevc.getValue());
+            assertEquals(PreferenceConfiguration.HEVC_LOW_LATENCY_AUTO,
+                    PreferenceConfiguration.readPreferences(controller.get()).hevcLowLatency());
+            // Off is stored as the older switch's "disable" choice, which other readers still use.
+            hevc.setValue("off");
+            assertTrue(prefs().getBoolean(HEVC, false));
             assertTrue(PreferenceConfiguration.readPreferences(controller.get()).disableHevcLowLatency);
             for (boolean general : new boolean[] {false, true}) {
                 PreferenceConfiguration.setLowLatencyDecoding(prefs(), general);
-                assertTrue(PreferenceConfiguration.readPreferences(controller.get()).disableHevcLowLatency);
+                assertEquals(PreferenceConfiguration.HEVC_LOW_LATENCY_OFF,
+                        PreferenceConfiguration.readPreferences(controller.get()).hevcLowLatency());
             }
-            hevc.setChecked(true);
-            assertFalse(PreferenceConfiguration.readPreferences(controller.get()).disableHevcLowLatency);
+            hevc.setValue("on");
+            assertFalse(prefs().getBoolean(HEVC, true));
+            PreferenceConfiguration config = PreferenceConfiguration.readPreferences(controller.get());
+            assertFalse(config.disableHevcLowLatency);
+            assertEquals(PreferenceConfiguration.HEVC_LOW_LATENCY_ON, config.hevcLowLatency());
+            hevc.setValue("auto");
+            assertEquals(PreferenceConfiguration.HEVC_LOW_LATENCY_AUTO,
+                    PreferenceConfiguration.readPreferences(controller.get()).hevcLowLatency());
         }
     }
 
@@ -227,7 +239,10 @@ public class AdvancedOptionsTest {
         for (String key : ADVANCED_CONTROLS) {
             if (key.startsWith("checkbox_")) choices.put(key, false);
         }
-        for (String key : StreamSettings.LOW_LATENCY_CUSTOMIZED) choices.put(key, false);
+        for (String key : StreamSettings.LOW_LATENCY_CUSTOMIZED) {
+            if (!HEVC_MODE.equals(key)) choices.put(key, false);
+        }
+        // Off, saved by the older HEVC switch, shows in the list that replaced it.
         choices.put(HEVC, true);
         choices.put("checkbox_texture_view", true);
         choices.put("checkbox_enable_post_stream_toast", true);
@@ -247,10 +262,12 @@ public class AdvancedOptionsTest {
                 for (String section : new String[] {"advanced", "developer"}) {
                     PreferenceScreen advanced = open(screen, section).getPreferenceScreen();
                     openCustomize(advanced);
+                    assertEquals("off", ((ListPreference) advanced.findPreference(HEVC_MODE)).getValue());
                     for (Map.Entry<String, Boolean> entry : choices.entrySet()) {
-                        boolean shown = HEVC.equals(entry.getKey()) ? !entry.getValue() : entry.getValue();
-                        assertEquals(entry.getKey(), shown,
-                                ((SwitchPreference) advanced.findPreference(entry.getKey())).isChecked());
+                        if (!HEVC.equals(entry.getKey())) {
+                            assertEquals(entry.getKey(), entry.getValue(),
+                                    ((SwitchPreference) advanced.findPreference(entry.getKey())).isChecked());
+                        }
                         assertEquals(entry.getKey(), entry.getValue(), prefs().getBoolean(entry.getKey(), !entry.getValue()));
                     }
                 }

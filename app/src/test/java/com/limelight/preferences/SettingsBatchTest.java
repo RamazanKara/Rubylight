@@ -2,6 +2,7 @@ package com.limelight.preferences;
 
 import android.app.Application;
 import android.content.SharedPreferences;
+import android.preference.ListPreference;
 import android.preference.Preference;
 import android.preference.PreferenceManager;
 import android.preference.PreferenceScreen;
@@ -219,7 +220,7 @@ public class SettingsBatchTest {
             for (String key : StreamSettings.LOW_LATENCY_CUSTOMIZED) assertNull(key, advanced.findPreference(key));
             // Folded settings are still found by search.
             StreamSettings.SettingsFragment results = SettingsStructureTest.search(controller.get(), "HEVC");
-            assertNotNull(SettingsStructureTest.resultGroup(results, "checkbox_disable_hevc_low_latency"));
+            assertNotNull(SettingsStructureTest.resultGroup(results, "list_hevc_low_latency_mode"));
             SettingsStructureTest.search(controller.get(), "");
             advanced = section(controller, "advanced");
             customize = advanced.findPreference("low_latency_customize");
@@ -252,29 +253,35 @@ public class SettingsBatchTest {
     }
 
     @Test
-    public void theHevcSwitchIsWordedPositivelyAndStillStoresTheDisableChoice() {
+    public void theHevcListOffersAutoOnAndOffAndStillStoresOffAsTheDisableChoice() {
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
             PreferenceScreen advanced = section(controller, "advanced");
             Preference customize = advanced.findPreference("low_latency_customize");
             customize.getOnPreferenceClickListener().onPreferenceClick(customize);
-            SwitchPreference hevc = (SwitchPreference) advanced.findPreference("checkbox_disable_hevc_low_latency");
+            ListPreference hevc = (ListPreference) advanced.findPreference("list_hevc_low_latency_mode");
             assertEquals("HEVC low-latency flags", hevc.getTitle().toString());
-            // Nothing stored: the flags are in use, as before, when "disable" was off.
-            assertTrue(hevc.isChecked());
+            assertEquals(java.util.Arrays.asList("Auto", "On", "Off"), java.util.Arrays.asList(
+                    hevc.getEntries()[0].toString(), hevc.getEntries()[1].toString(), hevc.getEntries()[2].toString()));
+            // Nothing stored: Auto, as before, when "disable" was off.
+            assertEquals("auto", hevc.getValue());
             assertFalse(PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication()).disableHevcLowLatency);
-            hevc.setChecked(false);
+            hevc.setValue("off");
             assertTrue(prefs().getBoolean("checkbox_disable_hevc_low_latency", false));
+            assertEquals("off", prefs().getString("list_hevc_low_latency_mode", null));
             assertTrue(PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication()).disableHevcLowLatency);
-            hevc.setChecked(true);
+            hevc.setValue("on");
             assertFalse(prefs().getBoolean("checkbox_disable_hevc_low_latency", true));
+            assertEquals("on", prefs().getString("list_hevc_low_latency_mode", null));
         }
-        // An older install that had turned the flags off shows the switch off.
-        prefs().edit().putBoolean("checkbox_disable_hevc_low_latency", true).commit();
+        // An older install that had turned the flags off shows Off.
+        prefs().edit().clear().putBoolean("checkbox_disable_hevc_low_latency", true).commit();
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
             PreferenceScreen advanced = section(controller, "advanced");
             Preference customize = advanced.findPreference("low_latency_customize");
             customize.getOnPreferenceClickListener().onPreferenceClick(customize);
-            assertFalse(((SwitchPreference) advanced.findPreference("checkbox_disable_hevc_low_latency")).isChecked());
+            ListPreference hevc = (ListPreference) advanced.findPreference("list_hevc_low_latency_mode");
+            assertEquals("off", hevc.getValue());
+            assertEquals("Off", hevc.getEntry().toString());
         }
     }
 

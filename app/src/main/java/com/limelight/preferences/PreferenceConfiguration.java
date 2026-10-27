@@ -137,6 +137,16 @@ public class PreferenceConfiguration {
     private static final String CODEC_LOW_LATENCY_PREF_STRING = "checkbox_codec_low_latency";
     private static final String VENDOR_LOW_LATENCY_PREF_STRING = "checkbox_vendor_low_latency";
     public static final String DISABLE_HEVC_LOW_LATENCY_PREF_STRING = "checkbox_disable_hevc_low_latency";
+    // Auto, On or Off for the HEVC low-latency flags, as Moonlight V+'s "HEVC low-latency decoding"
+    // (qiin2333/moonlight-vplus, GPL-3.0). Off stays stored in the switch's key above, so saved
+    // values, profiles and the benchmark key keep their meaning; this key tells Auto from On.
+    public static final String HEVC_LOW_LATENCY_MODE_PREF_STRING = "list_hevc_low_latency_mode";
+    /** The flags on every HEVC decoder except Amlogic's, which stall the display with them (erratum 22). */
+    public static final int HEVC_LOW_LATENCY_AUTO = 0;
+    /** The flags on every HEVC decoder, Amlogic's too. */
+    public static final int HEVC_LOW_LATENCY_ON = 1;
+    /** No HEVC decoder gets the flags. */
+    public static final int HEVC_LOW_LATENCY_OFF = 2;
     private static final String CODEC_PERFORMANCE_PREF_STRING = "checkbox_codec_performance";
     private static final String PHONE_PERFORMANCE_HINTS_PREF_STRING = "checkbox_phone_performance_hints";
     static final String GPU_MAX_CLOCKS_PREF_STRING = "checkbox_gpu_max_clocks";
@@ -318,7 +328,10 @@ public class PreferenceConfiguration {
     public boolean gamepadTouchpadAsMouse;
     public boolean gamepadMotionSensorsFallbackToDevice;
     public boolean codecLowLatency, vendorLowLatency, codecPerformance;
+    /** The HEVC low-latency mode is Off; reference-frame invalidation for HEVC goes with it. */
     public boolean disableHevcLowLatency;
+    /** Auto or On while {@link #disableHevcLowLatency} is false; use {@link #hevcLowLatency()}. */
+    public int hevcLowLatencyMode;
     public boolean phonePerformanceHints;
     public boolean gpuMaxClocks;
     public boolean dropLateFrames, useTextureView, unbatchedInput, networkPriority;
@@ -906,6 +919,32 @@ public class PreferenceConfiguration {
             CODEC_LOW_LATENCY_PREF_STRING, VENDOR_LOW_LATENCY_PREF_STRING, PHONE_PERFORMANCE_HINTS_PREF_STRING,
     };
 
+    /**
+     * The HEVC low-latency mode. Off is the old switch's stored "disable" (also what older saves,
+     * profiles and a reset write); otherwise "on" in the list's key is On and anything else Auto.
+     */
+    public static int readHevcLowLatencyMode(SharedPreferences prefs) {
+        if (prefs.getBoolean(DISABLE_HEVC_LOW_LATENCY_PREF_STRING, false)) return HEVC_LOW_LATENCY_OFF;
+        return "on".equals(prefs.getString(HEVC_LOW_LATENCY_MODE_PREF_STRING, "auto")) ?
+                HEVC_LOW_LATENCY_ON : HEVC_LOW_LATENCY_AUTO;
+    }
+
+    /** The HEVC low-latency mode the decoder uses: Off whenever {@link #disableHevcLowLatency} says so. */
+    public int hevcLowLatency() {
+        return disableHevcLowLatency ? HEVC_LOW_LATENCY_OFF : hevcLowLatencyMode;
+    }
+
+    /** Stores a mode the way {@link #readHevcLowLatencyMode} reads it. */
+    static void writeHevcLowLatencyMode(SharedPreferences.Editor editor, int mode) {
+        editor.putBoolean(DISABLE_HEVC_LOW_LATENCY_PREF_STRING, mode == HEVC_LOW_LATENCY_OFF)
+                .putString(HEVC_LOW_LATENCY_MODE_PREF_STRING, hevcLowLatencyModeValue(mode));
+    }
+
+    /** The list value of a mode: "auto", "on" or "off". */
+    static String hevcLowLatencyModeValue(int mode) {
+        return mode == HEVC_LOW_LATENCY_ON ? "on" : mode == HEVC_LOW_LATENCY_OFF ? "off" : "auto";
+    }
+
     /** How many of the low-latency decoding switches are on; each one defaults to on. */
     static int lowLatencyDecodingCount(SharedPreferences prefs) {
         int on = 0;
@@ -1271,7 +1310,8 @@ public class PreferenceConfiguration {
         config.gamepadMotionSensorsFallbackToDevice = prefs.getBoolean(GAMEPAD_MOTION_FALLBACK_PREF_STRING, DEFAULT_GAMEPAD_MOTION_FALLBACK);
         config.codecLowLatency = prefs.getBoolean(CODEC_LOW_LATENCY_PREF_STRING, true);
         config.vendorLowLatency = prefs.getBoolean(VENDOR_LOW_LATENCY_PREF_STRING, true);
-        config.disableHevcLowLatency = prefs.getBoolean(DISABLE_HEVC_LOW_LATENCY_PREF_STRING, false);
+        config.hevcLowLatencyMode = readHevcLowLatencyMode(prefs);
+        config.disableHevcLowLatency = config.hevcLowLatencyMode == HEVC_LOW_LATENCY_OFF;
         config.codecPerformance = prefs.getBoolean(CODEC_PERFORMANCE_PREF_STRING, true);
         config.phonePerformanceHints = prefs.getBoolean(PHONE_PERFORMANCE_HINTS_PREF_STRING, true);
         config.gpuMaxClocks = prefs.getBoolean(GPU_MAX_CLOCKS_PREF_STRING, DEFAULT_GPU_MAX_CLOCKS);

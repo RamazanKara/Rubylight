@@ -469,6 +469,9 @@
     <string name="keyboard_shortcuts_exported">Shortcuts exported.</string>
     <string name="keyboard_shortcuts_file_error">Could not read or write the shortcut file. Check file access and use a valid shortcut export with at most 32 shortcuts.</string>
     <string name="title_disable_hevc_low_latency">HEVC low-latency flags</string>
-    <string name="summary_disable_hevc_low_latency">Turn off if HEVC video stutters or freezes. Off skips the optional Android and chipset low-latency flags and reference-frame invalidation for HEVC. Required compatibility flags are preserved on older Fire TV decoders. Other codecs and decoder performance hints keep their own settings. Applies to the next stream.</string>
+    <string name="summary_disable_hevc_low_latency">Auto uses the flags on every HEVC decoder except Amlogic’s, which stall the display with them; On uses them there too. Turn off if HEVC video stutters or freezes. Off skips the optional Android and chipset low-latency flags and reference-frame invalidation for HEVC. Required compatibility flags are preserved on older Fire TV decoders. Other codecs and decoder performance hints keep their own settings. Applies to the next stream.</string>
+    <string name="hevc_low_latency_auto">Auto</string>
+    <string name="hevc_low_latency_on">On</string>
+    <string name="hevc_low_latency_off">Off</string>
     <string name="title_oled_black">OLED black</string>
 </resources>

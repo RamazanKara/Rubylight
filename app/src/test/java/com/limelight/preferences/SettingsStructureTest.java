@@ -293,18 +293,20 @@ public class SettingsStructureTest {
             Preference customize = advanced.findPreference(StreamSettings.LOW_LATENCY_CUSTOMIZE_KEY);
             customize.getOnPreferenceClickListener().onPreferenceClick(customize);
             SwitchPreference master = (SwitchPreference) advanced.findPreference(StreamSettings.LOW_LATENCY_DECODING_KEY);
-            // The switch reads "use the flags"; off stores the older "disable" choice.
-            SwitchPreference override = (SwitchPreference) advanced.findPreference(
-                    PreferenceConfiguration.DISABLE_HEVC_LOW_LATENCY_PREF_STRING);
-            override.setChecked(false);
+            // Off stores the older switch's "disable" choice.
+            android.preference.ListPreference override = (android.preference.ListPreference) advanced.findPreference(
+                    PreferenceConfiguration.HEVC_LOW_LATENCY_MODE_PREF_STRING);
+            override.setValue("on");
+            assertNull(master.getSummary());
+            override.setValue("off");
             assertEquals(screen.getString(R.string.settings_low_latency_partial), master.getSummary());
             master.getOnPreferenceChangeListener().onPreferenceChange(master, false);
             assertNull(master.getSummary());
             master.getOnPreferenceChangeListener().onPreferenceChange(master, true);
             assertEquals(screen.getString(R.string.settings_low_latency_partial), master.getSummary());
-            assertFalse(override.isChecked());
+            assertEquals("off", override.getValue());
             assertTrue(prefs().getBoolean(PreferenceConfiguration.DISABLE_HEVC_LOW_LATENCY_PREF_STRING, false));
-            override.setChecked(true);
+            override.setValue("auto");
             assertNull(master.getSummary());
         }
     }

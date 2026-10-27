@@ -425,6 +425,9 @@
     <string name="keyboard_shortcuts_exported">Raccourcis exportés.</string>
     <string name="keyboard_shortcuts_file_error">Impossible de lire ou d’écrire le fichier de raccourcis. Vérifiez l’accès aux fichiers et utilisez un export de raccourcis valide de 32 raccourcis au maximum.</string>
     <string name="title_disable_hevc_low_latency">Options HEVC à faible latence</string>
-    <string name="summary_disable_hevc_low_latency">Désactivez si la vidéo HEVC saccade ou se fige. Désactivé ignore les options facultatives de faible latence d’Android et du chipset ainsi que l’invalidation des images de référence pour HEVC. Les options de compatibilité requises sont conservées sur les anciens décodeurs Fire TV. Les autres codecs et les conseils de performance du décodeur gardent leurs propres réglages. S’applique au prochain stream.</string>
+    <string name="summary_disable_hevc_low_latency">Auto utilise ces options sur tous les décodeurs HEVC sauf ceux d’Amlogic, dont l’affichage se bloque avec elles ; Activé les utilise aussi sur ceux-ci. Désactivez si la vidéo HEVC saccade ou se fige. Désactivé ignore les options facultatives de faible latence d’Android et du chipset ainsi que l’invalidation des images de référence pour HEVC. Les options de compatibilité requises sont conservées sur les anciens décodeurs Fire TV. Les autres codecs et les conseils de performance du décodeur gardent leurs propres réglages. S’applique au prochain stream.</string>
+    <string name="hevc_low_latency_auto">Auto</string>
+    <string name="hevc_low_latency_on">Activé</string>
+    <string name="hevc_low_latency_off">Désactivé</string>
     <string name="title_oled_black">Noir OLED</string>
 </resources>

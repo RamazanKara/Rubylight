@@ -425,6 +425,9 @@
     <string name="keyboard_shortcuts_exported">Tastenkombinationen exportiert.</string>
     <string name="keyboard_shortcuts_file_error">Die Datei konnte nicht gelesen oder geschrieben werden. Prüfe den Dateizugriff und verwende einen gültigen Export mit höchstens 32 Tastenkombinationen.</string>
     <string name="title_disable_hevc_low_latency">HEVC-Latenzflags</string>
-    <string name="summary_disable_hevc_low_latency">Ausschalten, wenn HEVC-Video ruckelt oder einfriert. Aus überspringt die optionalen Android- und Chipsatz-Latenzflags sowie die Referenzbild-Invalidierung für HEVC. Erforderliche Kompatibilitätsflags bleiben auf älteren Fire-TV-Decodern erhalten. Andere Codecs und Decoder-Leistungshinweise behalten ihre eigenen Einstellungen. Gilt ab dem nächsten Stream.</string>
+    <string name="summary_disable_hevc_low_latency">Auto verwendet die Flags auf jedem HEVC-Decoder außer denen von Amlogic, deren Anzeige damit hängen bleibt; Ein verwendet sie auch dort. Ausschalten, wenn HEVC-Video ruckelt oder einfriert. Aus überspringt die optionalen Android- und Chipsatz-Latenzflags sowie die Referenzbild-Invalidierung für HEVC. Erforderliche Kompatibilitätsflags bleiben auf älteren Fire-TV-Decodern erhalten. Andere Codecs und Decoder-Leistungshinweise behalten ihre eigenen Einstellungen. Gilt ab dem nächsten Stream.</string>
+    <string name="hevc_low_latency_auto">Auto</string>
+    <string name="hevc_low_latency_on">Ein</string>
+    <string name="hevc_low_latency_off">Aus</string>
     <string name="title_oled_black">OLED-Schwarz</string>
 </resources>

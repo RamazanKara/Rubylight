@@ -94,7 +94,7 @@ public class StreamSettings extends NightjarActivity {
     /** The individual decoding switches, behind Customize. Search still finds them. */
     static final List<String> LOW_LATENCY_CUSTOMIZED = Arrays.asList(
             "checkbox_codec_low_latency", "checkbox_vendor_low_latency", "checkbox_phone_performance_hints",
-            "checkbox_codec_performance", PreferenceConfiguration.DISABLE_HEVC_LOW_LATENCY_PREF_STRING);
+            "checkbox_codec_performance", PreferenceConfiguration.HEVC_LOW_LATENCY_MODE_PREF_STRING);
     // Top-level screen keys (preferences_root.xml) and the preference categories each one shows
     static final Map<String, String[]> SECTIONS = new LinkedHashMap<>();
     static {

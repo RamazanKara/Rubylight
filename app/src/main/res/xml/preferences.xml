@@ -700,12 +700,15 @@
             android:title="@string/title_codec_performance"
             android:dialogMessage="@string/summary_codec_performance"
             android:defaultValue="true" />
-        <!-- Shown as "use" and stored as "disable" (InvertedSwitchPreference). -->
-        <com.limelight.preferences.InvertedSwitchPreference
-            android:key="checkbox_disable_hevc_low_latency"
+        <!-- Off is still stored in checkbox_disable_hevc_low_latency; this key tells Auto from On
+             (HevcLowLatencyPreference). -->
+        <com.limelight.preferences.HevcLowLatencyPreference
+            android:key="list_hevc_low_latency_mode"
             android:title="@string/title_disable_hevc_low_latency"
             android:dialogMessage="@string/summary_disable_hevc_low_latency"
-            android:defaultValue="true" />
+            android:entries="@array/hevc_low_latency_mode_names"
+            android:entryValues="@array/hevc_low_latency_mode_values"
+            android:defaultValue="auto" />
         <!-- Shown on arm64 Adreno devices only, like the driver screen itself (GpuDriverStore.isSupported). -->
         <Preference android:key="gpu_driver" android:title="@string/gpu_driver_title" />
     </PreferenceCategory>

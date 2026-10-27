@@ -63,6 +63,25 @@ fn readout_rejects_inconsistent_words() {
 }
 
 #[test]
+fn a_pass_that_failed_to_run_leaves_its_slot_no_fence_to_wait_for() {
+    // `submit_hdr_stats` marks the pass in flight before `execute`.
+    let mut stats = u64::MAX;
+    let error = executed(&mut stats, Err(anyhow::anyhow!("execute failed"))).unwrap_err();
+    assert_eq!(
+        format!("{error:#}"),
+        "execute failed",
+        "the pass's error is returned"
+    );
+    assert_eq!(
+        stats, 0,
+        "the slot's next conversion would wait for a value nothing signals"
+    );
+    let mut stats = u64::MAX;
+    assert_eq!(executed(&mut stats, Ok(42)).unwrap(), 42);
+    assert_eq!(stats, 42);
+}
+
+#[test]
 fn grid_strides_large_sources_and_samples_small_ones_whole() {
     assert_eq!(grid(1920, 1080), (240, 135));
     assert_eq!(grid(3840, 2160), (240, 135));
@@ -452,6 +471,39 @@ fn hdr_stats_pass_holds_the_capture_until_it_has_run() -> Result<()> {
         .latest_hdr_stats(0)?
         .context("statistics once the pass ran")?;
     assert_eq!(readout.conversion, converted.conversion);
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires D3D12 compute"]
+fn stopped_hdr_stats_hand_the_capture_back_and_queue_no_more() -> Result<()> {
+    let rig = Rig::new()?;
+    let hdr = scrgb(64, 32, |x, _| 10. * x as f32);
+    let mut converter = rig.converter(&hdr)?;
+    let (converted, slot, _) = rig.queue(&mut converter, &hdr)?;
+    assert_eq!(converter.slots[slot].stats, QUEUED);
+    // A pass failed: dynamic metadata is off for the rest of the stream.
+    converter.stop_hdr_stats();
+    assert_eq!(converter.slots[slot].stats, 0);
+    converted.wait()?;
+    rig.compute.wait(rig.compute.signal()?)?;
+    converter.release_completed();
+    assert!(
+        converter.slots[slot].capture.is_none(),
+        "a dropped pass kept the capture"
+    );
+    converter.submit_hdr_stats()?;
+    assert!(converter.latest_hdr_stats(0)?.is_none());
+    let (_, slot, _) = rig.queue(&mut converter, &hdr)?;
+    assert_eq!(converter.slots[slot].stats, 0, "a stopped pass was queued");
+    assert!(
+        converter.enable_hdr_stats().is_err(),
+        "stopped statistics came back on"
+    );
+    assert!(
+        !rig.compute.is_stuck(),
+        "the conversion's queue was retired"
+    );
     Ok(())
 }
 

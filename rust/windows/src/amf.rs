@@ -1861,23 +1861,16 @@ impl Encoder {
             Ok(output)
         }
     }
-    /// Once a frame went to the encoder: start its statistics pass, and take
-    /// the newest one finished, while the encoder works on the frame. Never
-    /// waits for the GPU.
-    fn sample_dynamic(&mut self) -> Result<()> {
-        let (Some(dynamic), Some(input)) =
-            (self.dynamic.as_deref_mut(), self.compute.as_deref_mut())
-        else {
-            return Ok(());
-        };
-        let started = Instant::now();
-        timed("HDR statistics submit", || {
-            input.converter.submit_hdr_stats()
-        })?;
-        dynamic.submitted(started);
-        let started = Instant::now();
-        dynamic.take(input.converter.latest_hdr_stats(dynamic.sampled()), started);
-        Ok(())
+    /// [`dynamic::sample`]: a failed statistics pass costs the stream its
+    /// dynamic metadata, never a frame.
+    fn sample_dynamic(&mut self) {
+        dynamic::sample(
+            &mut self.dynamic,
+            self.compute
+                .as_deref_mut()
+                .map(|input| &mut input.converter),
+            &self.warnings,
+        );
     }
     /// The `OutputBufferType` of a buffer QueryOutput returned: 0 frame, 1 slice
     /// or tile, 2 last slice or tile. None when the driver does not say.
@@ -2257,7 +2250,9 @@ impl Encoder {
             self.backlog.submitted();
             self.references.accepted(self.index as u64 + 1, &plan);
             self.index += 1;
-            self.sample_dynamic()?;
+            // Before the poll, so the frame it returns carries the newest
+            // finished sample; the frames already collected stay either way.
+            self.sample_dynamic();
             output.extend(self.poll()?);
             Ok(output)
         }

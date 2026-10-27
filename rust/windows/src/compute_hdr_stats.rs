@@ -26,6 +26,16 @@ fn grid(width: u32, height: u32) -> (u32, u32) {
     (width.clamp(1, GRID.0), height.clamp(1, GRID.1))
 }
 
+/// A slot's `Slot::stats` once [`Compute::execute`] ran its pass, or failed
+/// to. A failed pass leaves no fence value for the slot's next conversion to
+/// wait for, and the shared queue that conversion also uses stays as
+/// `execute` left it: `execute` retires it itself only when the queue's
+/// ordering broke (a failed signal), as for any conversion.
+fn executed(stats: &mut u64, executed: Result<u64>) -> Result<u64> {
+    *stats = *executed.as_ref().unwrap_or(&0);
+    executed
+}
+
 /// One finished statistics pass over a converted frame.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HdrStatsReadout {
@@ -95,6 +105,8 @@ pub(super) struct HdrStats {
     /// The words the pass accumulates into, in COMMON between passes.
     words: ID3D12Resource,
     slots: Vec<StatsSlot>,
+    /// [`Converter::stop_hdr_stats`]: no more passes are queued.
+    stopped: bool,
 }
 /// Parameters 2 and 3 of the statistics root signature, after the
 /// conversion's constants (b0) and source views (t0, t1): the words (u7) and
@@ -205,7 +217,11 @@ impl Converter {
     /// [`Converter::latest_hdr_stats`]. `convert` only: PyroWave's planes
     /// carry no dynamic metadata.
     pub fn enable_hdr_stats(&mut self) -> Result<()> {
-        if self.hdr_stats.is_some() {
+        if let Some(stats) = &self.hdr_stats {
+            anyhow::ensure!(
+                !stats.stopped,
+                "HDR statistics were stopped after a failed pass"
+            );
             return Ok(());
         }
         self.compute.ensure_active()?;
@@ -257,8 +273,24 @@ impl Converter {
             pass,
             words,
             slots,
+            stopped: false,
         }));
         Ok(())
+    }
+    /// No more statistics passes: dynamic metadata is off for the rest of
+    /// the stream. Passes left queued are dropped, so their slots hand the
+    /// capture back once the conversion has run; submitted ones keep their
+    /// fence, and their resources stay alive until the converter retires them.
+    pub fn stop_hdr_stats(&mut self) {
+        let Some(stats) = self.hdr_stats.as_deref_mut() else {
+            return;
+        };
+        stats.stopped = true;
+        for (slot, pass) in self.slots.iter_mut().zip(&mut stats.slots) {
+            if pass.queued.take().is_some() {
+                slot.stats = 0;
+            }
+        }
     }
     /// `slot` converts again: its last pass has finished (`Slot::last`) and a
     /// pass still queued is dropped.
@@ -286,7 +318,7 @@ impl Converter {
                 ready.readers.is_some() && ready.reader_fence.as_ref() != Some(&self.compute.fence)
             });
         // cbuffer Config: hdr=5.
-        if self.values[5] == 0 || foreign {
+        if self.values[5] == 0 || foreign || stats.stopped {
             return;
         }
         stats.slots[slot].queued = Some((conversion, grid(self.values[0], self.values[1])));
@@ -330,11 +362,7 @@ impl Converter {
                 list.Close()?;
             }
             self.slots[slot].stats = u64::MAX;
-            let fence = self
-                .compute
-                .execute(list)
-                .inspect_err(|_| self.compute.retire())?;
-            self.slots[slot].stats = fence;
+            let fence = executed(&mut self.slots[slot].stats, self.compute.execute(list))?;
             stats.slots[slot].measured = Some((conversion, u64::from(grid.0) * u64::from(grid.1)));
             // The capture's pool copy must not overwrite the source before the pass has read it.
             if let Some(ready) = self.slots[slot]

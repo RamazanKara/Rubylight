@@ -7,6 +7,7 @@
 //! first sample carry none.
 use crate::compute::HdrStatsReadout;
 use butterpollo_core::hdr_dynamic::{self, Codec, Writer};
+use butterpollo_core::session::Warnings;
 use std::time::{Duration, Instant};
 
 /// The codec whose HDR stream gets dynamic metadata: HEVC or AV1, HDR, with
@@ -19,6 +20,63 @@ pub(super) fn wanted(
         return None;
     }
     Codec::from_video_format(config.codec)
+}
+
+/// The statistics pass behind the compute conversion
+/// ([`crate::compute::Converter`]), or a fake in tests.
+pub(super) trait Stats {
+    fn submit(&mut self) -> anyhow::Result<()>;
+    fn latest(&self, newer_than: u64) -> anyhow::Result<Option<HdrStatsReadout>>;
+    /// No more passes: dynamic metadata is off for the rest of the stream.
+    fn stop(&mut self);
+}
+impl Stats for crate::compute::Converter {
+    fn submit(&mut self) -> anyhow::Result<()> {
+        super::timed("HDR statistics submit", || self.submit_hdr_stats())
+    }
+    fn latest(&self, newer_than: u64) -> anyhow::Result<Option<HdrStatsReadout>> {
+        self.latest_hdr_stats(newer_than)
+    }
+    fn stop(&mut self) {
+        self.stop_hdr_stats();
+    }
+}
+
+/// Dynamic metadata is off for this stream, which carries static HDR10
+/// only: the log and the session's warnings say why.
+fn off(warnings: &Warnings, message: String) {
+    tracing::warn!("{message}");
+    warnings.set("hdr_dynamic_metadata", message);
+}
+
+/// Once a frame went to the encoder: start its statistics pass, and take
+/// the newest one finished, while the encoder works on the frame. Never
+/// waits for the GPU. A pass that fails turns dynamic metadata off for the
+/// rest of the stream and says so; it costs no frame, and the stream goes
+/// on with static HDR10.
+pub(super) fn sample(
+    slot: &mut Option<Box<Dynamic>>,
+    stats: Option<&mut impl Stats>,
+    warnings: &Warnings,
+) {
+    let (Some(dynamic), Some(stats)) = (slot.as_deref_mut(), stats) else {
+        return;
+    };
+    let started = Instant::now();
+    if let Err(error) = stats.submit() {
+        stats.stop();
+        *slot = None;
+        off(
+            warnings,
+            format!(
+                "HDR10+ and HDR Vivid are off for the rest of this stream: the GPU statistics pass failed ({error:#}). The stream carries static HDR10 metadata. Report this with the host log"
+            ),
+        );
+        return;
+    }
+    dynamic.submitted(started);
+    let started = Instant::now();
+    dynamic.take(stats.latest(dynamic.sampled()), started);
 }
 
 /// One encoder's dynamic metadata.
@@ -332,6 +390,65 @@ mod tests {
             (1, 1)
         );
         assert_eq!(dynamic.sampled(), 4, "an invalid sample is not read again");
+    }
+
+    /// A statistics pass that fails to submit on call `fail_at`.
+    #[derive(Default)]
+    struct FakeStats {
+        submits: u32,
+        fail_at: Option<u32>,
+        stopped: bool,
+        readout: Option<HdrStatsReadout>,
+    }
+    impl Stats for FakeStats {
+        fn submit(&mut self) -> anyhow::Result<()> {
+            self.submits += 1;
+            if self.fail_at == Some(self.submits) {
+                anyhow::bail!("command allocator reset failed");
+            }
+            Ok(())
+        }
+        fn latest(&self, newer_than: u64) -> anyhow::Result<Option<HdrStatsReadout>> {
+            Ok(self
+                .readout
+                .clone()
+                .filter(|readout| readout.conversion > newer_than))
+        }
+        fn stop(&mut self) {
+            self.stopped = true;
+        }
+    }
+
+    #[test]
+    fn a_failed_statistics_pass_turns_dynamic_metadata_off_loudly() {
+        let warnings = Warnings::default();
+        let mut stats = FakeStats {
+            fail_at: Some(2),
+            readout: Some(readout(5, 200, 600)),
+            ..Default::default()
+        };
+        let mut slot = Some(Box::new(Dynamic::new(Codec::Hevc)));
+        sample(&mut slot, Some(&mut stats), &warnings);
+        assert_eq!(slot.as_deref().map(Dynamic::sampled), Some(5));
+        assert!(warnings.snapshot().is_empty());
+        // The second pass fails: no error reaches the encode, which keeps
+        // its frames; the stream says why it lost its dynamic metadata.
+        sample(&mut slot, Some(&mut stats), &warnings);
+        assert!(slot.is_none(), "dynamic metadata stayed on");
+        assert!(stats.stopped, "the converter kept queueing passes");
+        let shown = warnings.snapshot();
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0].code, "hdr_dynamic_metadata");
+        assert!(
+            shown[0]
+                .message
+                .contains("GPU statistics pass failed (command allocator reset failed)"),
+            "{}",
+            shown[0].message
+        );
+        // Off for the rest of the stream: no more passes.
+        sample(&mut slot, Some(&mut stats), &warnings);
+        assert_eq!(stats.submits, 2);
     }
 
     #[test]

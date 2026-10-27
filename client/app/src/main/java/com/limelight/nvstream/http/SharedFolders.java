@@ -154,6 +154,13 @@ public final class SharedFolders {
         }
     }
 
+    /** A folder id or path the host would not read, refused here before any request. */
+    public static final class InvalidPathException extends IllegalArgumentException {
+        InvalidPathException(String message) {
+            super(message);
+        }
+    }
+
     /** The transfer was cancelled through its {@link TransferCancel}. */
     public static final class CancelledException extends IOException {
         CancelledException() {
@@ -187,7 +194,7 @@ public final class SharedFolders {
             throws IOException {
         checkPath(path);
         if (path.isEmpty()) {
-            throw new IllegalArgumentException("A download needs a file path");
+            throw new InvalidPathException("A download needs a file path");
         }
         try (NvHTTP.HostCall call = http.hostCall("GET", route(id, "content"), pathQuery(path), null, cancel)) {
             if (call.response.code() != 200) {
@@ -248,6 +255,9 @@ public final class SharedFolders {
             public void writeTo(BufferedSink out) throws IOException {
                 byte[] buffer = new byte[64 * 1024];
                 long done = 0;
+                if (length == 0 && hasMore(file)) {
+                    throw new LocalFileException(new IOException("The file changed during the upload: it is no longer empty"));
+                }
                 while (done < length) {
                     int read;
                     try {
@@ -257,6 +267,11 @@ public final class SharedFolders {
                     }
                     if (read == -1) {
                         throw new LocalFileException(new IOException("The file ended after " + done + " of "
+                                + length + " bytes"));
+                    }
+                    if (done + read == length && hasMore(file)) {
+                        // Before the last bytes go: the host never sees a whole body, so it keeps no file.
+                        throw new LocalFileException(new IOException("The file changed during the upload: it has over "
                                 + length + " bytes"));
                     }
                     out.write(buffer, 0, read);
@@ -282,6 +297,15 @@ public final class SharedFolders {
             throw e;
         } catch (IOException e) {
             throw cancel.isCancelled() ? new CancelledException() : e;
+        }
+    }
+
+    /** Whether {@code file} has a byte past the length it was uploaded with. */
+    private static boolean hasMore(InputStream file) throws LocalFileException {
+        try {
+            return file.read(new byte[1], 0, 1) != -1;
+        } catch (IOException e) {
+            throw new LocalFileException(e);
         }
     }
 
@@ -406,7 +430,7 @@ public final class SharedFolders {
             valid = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_';
         }
         if (!valid) {
-            throw new IllegalArgumentException("Not a shared folder id: \"" + id + "\"");
+            throw new InvalidPathException("Not a shared folder id: \"" + id + "\"");
         }
     }
 
@@ -421,7 +445,7 @@ public final class SharedFolders {
             valid &= !name.isEmpty();
         }
         if (!valid) {
-            throw new IllegalArgumentException("Not a shared folder path: \"" + path + "\"");
+            throw new InvalidPathException("Not a shared folder path: \"" + path + "\"");
         }
     }
 

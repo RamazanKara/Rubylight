@@ -68,6 +68,10 @@ public final class FolderBrowserActivity extends NightjarActivity {
     public static final String EXTRA_PC_NAME = "folder_browser_pc_name";
     private static final int UPLOAD = 1;
     private static final int SAVE = 2;
+    private static final String STATE_SAVE_FOLDER = "folder_browser_save_folder";
+    private static final String STATE_SAVE_FILE = "folder_browser_save_file";
+    /** The file the save dialog is open for; kept in the instance state, as the app may die while it is open. */
+    private String saveFolder, saveFile;
     private LinearLayout content;
     private TextView transferText;
     private LinearProgressIndicator transferBar;
@@ -85,6 +89,10 @@ public final class FolderBrowserActivity extends NightjarActivity {
     @Override protected void onCreate(Bundle state) {
         UiHelper.setLocale(this);
         super.onCreate(state);
+        if (state != null) {
+            saveFolder = state.getString(STATE_SAVE_FOLDER);
+            saveFile = state.getString(STATE_SAVE_FILE);
+        }
         FrameLayout page = TopAppBar.setUpPage(this, R.string.folders_title, this::navigateBack);
         content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
@@ -111,6 +119,7 @@ public final class FolderBrowserActivity extends NightjarActivity {
         ComputerDetails saved = uuid == null ? null : manager.getComputer(uuid);
         if (saved == null || saved.serverCert == null) {
             work.fail(getString(R.string.folders_pair_first));
+            work.dropDeferred();
             return;
         }
         work.start(new ComputerDetails(saved), manager.getUniqueId());
@@ -215,11 +224,12 @@ public final class FolderBrowserActivity extends NightjarActivity {
     private void download(SharedFolders.Entry entry) {
         String path = SharedFolders.childPath(work.path, entry.name);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            work.download(path, null);
+            work.download(work.folder.id, path, null);
             return;
         }
         // Before Android 10 an app writes to Downloads only with storage permission: the user picks the file instead.
-        work.pendingSave = path;
+        saveFolder = work.folder.id;
+        saveFile = path;
         choose(new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
                 .setType(mimeType(entry.name)).putExtra(Intent.EXTRA_TITLE, entry.name), SAVE);
     }
@@ -252,18 +262,25 @@ public final class FolderBrowserActivity extends NightjarActivity {
         try {
             startActivityForResult(intent, request);
         } catch (ActivityNotFoundException e) {
-            work.pendingSave = null;
+            saveFolder = saveFile = null;
             work.fail(getString(R.string.folders_no_picker));
         }
     }
 
+    @Override protected void onSaveInstanceState(Bundle state) {
+        super.onSaveInstanceState(state);
+        state.putString(STATE_SAVE_FOLDER, saveFolder);
+        state.putString(STATE_SAVE_FILE, saveFile);
+    }
+
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
-        String save = work.pendingSave;
-        work.pendingSave = null;
+        String folderId = saveFolder, file = saveFile;
+        saveFolder = saveFile = null;
         if (result != RESULT_OK || data == null || data.getData() == null) return;
         if (request == UPLOAD) work.upload(data.getData());
-        else if (request == SAVE && save != null) work.download(save, data.getData());
+        else if (request == SAVE && (folderId == null || file == null)) work.dropPicked(data.getData(), getString(R.string.folders_save_lost));
+        else if (request == SAVE) work.download(folderId, file, data.getData());
     }
 
     @Override protected void onDestroy() {
@@ -299,7 +316,8 @@ public final class FolderBrowserActivity extends NightjarActivity {
     /** A transfer in progress. */
     static final class Transfer {
         final boolean upload;
-        final String name;
+        /** The file's name; an upload learns it from the picked document's provider off the main thread. */
+        volatile String name;
         final TransferCancel cancel = new TransferCancel();
         volatile long done, total;
         private long shownAt;
@@ -316,6 +334,11 @@ public final class FolderBrowserActivity extends NightjarActivity {
      * background thread. A load that ends after the user moved on is dropped by its generation.
      */
     public static final class FolderWork extends AndroidViewModel {
+        /** The PC's HTTPS connection; tests stand in for it. */
+        interface Connector {
+            NvHTTP http() throws IOException;
+        }
+
         final MutableLiveData<Long> changed = new MutableLiveData<>(0L);
         /** A transfer moved on; at most 5 times a second, besides its end. */
         final MutableLiveData<Transfer> progressed = new MutableLiveData<>();
@@ -330,8 +353,12 @@ public final class FolderBrowserActivity extends NightjarActivity {
         String path = "";
         SharedFolders.Listing listing;
         boolean loading, canRetry;
-        String error, message, pendingSave;
+        String error, message;
         Transfer transfer;
+        Connector connector = this::connect;
+        /** A save picked before the PC was known again, as after the app died with the save dialog open. */
+        private String deferredFolder, deferredFile;
+        private Uri deferredTarget;
 
         public FolderWork(Application application) { super(application); }
 
@@ -340,6 +367,35 @@ public final class FolderBrowserActivity extends NightjarActivity {
             this.computer = computer;
             this.uniqueId = uniqueId;
             reload();
+            if (deferredTarget != null) {
+                Uri target = deferredTarget;
+                deferredTarget = null;
+                download(deferredFolder, deferredFile, target);
+            }
+        }
+
+        /** Deletes the document a deferred save created, as the PC it was for is not known. */
+        void dropDeferred() {
+            if (deferredTarget == null) return;
+            Uri target = deferredTarget;
+            deferredTarget = null;
+            dropPicked(target, error);
+        }
+
+        /**
+         * Deletes the document the save dialog created for a download that will not run, and shows {@code why},
+         * with where the document stays when it cannot be deleted.
+         */
+        void dropPicked(Uri document, String why) {
+            ContentResolver resolver = getApplication().getContentResolver();
+            transfers.execute(() -> {
+                String left = discard(resolver, document, true);
+                main.post(() -> {
+                    error = left == null ? why : text(R.string.folders_partial_left, why, left);
+                    canRetry = false;
+                    changed();
+                });
+            });
         }
 
         void fail(String error) {
@@ -363,14 +419,14 @@ public final class FolderBrowserActivity extends NightjarActivity {
                     if (!capabilities.has(NativeCapabilities.FOLDERS)) {
                         finish(current, () -> {
                             folders = null;
-                            error = text(R.string.folders_disabled);
+                            error = text(R.string.folders_unsupported);
                             canRetry = true;
                         });
                         return;
                     }
-                    List<SharedFolders.Folder> list = new SharedFolders(http()).folders();
+                    List<SharedFolders.Folder> list = new SharedFolders(connector.http()).folders();
                     finish(current, () -> folders = list);
-                } catch (IOException | NativeApiException e) {
+                } catch (IOException | NativeApiException | RuntimeException e) {
                     finish(current, () -> failed(e, false));
                 }
             });
@@ -384,9 +440,10 @@ public final class FolderBrowserActivity extends NightjarActivity {
             changed();
             executor.execute(() -> {
                 try {
-                    SharedFolders.Listing result = new SharedFolders(http()).entries(target.id, targetPath);
+                    SharedFolders.Listing result = new SharedFolders(connector.http()).entries(target.id, targetPath);
                     finish(current, () -> listing = result);
-                } catch (IOException e) {
+                } catch (IOException | RuntimeException e) {
+                    // A RuntimeException is a folder id or path this side refuses; it must not end the app.
                     finish(current, () -> failed(e, false));
                 }
             });
@@ -412,29 +469,41 @@ public final class FolderBrowserActivity extends NightjarActivity {
             return true;
         }
 
-        /** Downloads {@code file} into Downloads, or into {@code target} picked in the save dialog. */
-        void download(String file, Uri target) {
-            if (transfer != null || folder == null) return;
-            SharedFolders.Folder from = folder;
+        /**
+         * Downloads {@code file} of the folder {@code folderId} into Downloads, or into {@code target} picked in the
+         * save dialog. A picked document that gets no download is deleted, never left empty without a word.
+         */
+        void download(String folderId, String file, Uri target) {
+            if (computer == null && target != null) {
+                // The app came back from the save dialog after it died: the PC is known again in start().
+                deferredFolder = folderId;
+                deferredFile = file;
+                deferredTarget = target;
+                return;
+            }
+            if (computer == null) return;
+            if (transfer != null) {
+                if (target != null) dropPicked(target, text(R.string.folders_busy));
+                return;
+            }
             String name = SharedFolders.fileName(file);
             Transfer run = begin(new Transfer(false, name, -1));
             ContentResolver resolver = getApplication().getContentResolver();
             transfers.execute(() -> {
                 Uri uri = target;
-                boolean done = false;
                 try {
                     if (uri == null) uri = pendingDownload(resolver, name);
-                    try (OutputStream out = resolver.openOutputStream(uri, "wt")) {
-                        if (out == null) throw new SharedFolders.LocalFileException(new IOException("Cannot open " + name));
-                        new SharedFolders(http()).download(from.id, file, out, (bytes, total) -> progress(run, bytes, total), run.cancel);
+                    try (OutputStream out = local(openOutput(resolver, uri), name)) {
+                        new SharedFolders(connector.http()).download(folderId, file, out,
+                                (bytes, total) -> progress(run, bytes, total), run.cancel);
                     }
                     if (target == null) publish(resolver, uri);
-                    done = true;
-                    end(run, null, text(target == null ? R.string.folders_downloaded : R.string.folders_saved, name), false);
-                } catch (IOException | SecurityException | IllegalArgumentException e) {
-                    end(run, e, null, false);
-                } finally {
-                    if (!done && uri != null) discard(resolver, uri, target != null);
+                    // Downloads may have stored it under another name, as "a (1).txt" next to an "a.txt".
+                    String stored = displayName(resolver, uri, name);
+                    end(run, null, text(target == null ? R.string.folders_downloaded : R.string.folders_saved, stored),
+                            false, null);
+                } catch (IOException | RuntimeException e) {
+                    end(run, e, null, false, uri == null ? null : discard(resolver, uri, target != null));
                 }
             });
         }
@@ -443,40 +512,104 @@ public final class FolderBrowserActivity extends NightjarActivity {
         void upload(Uri source) {
             if (transfer != null || folder == null || !folder.writable) return;
             ContentResolver resolver = getApplication().getContentResolver();
-            String name = null;
-            long size = -1;
-            try (Cursor cursor = resolver.query(source, new String[] {OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE},
-                    null, null, null)) {
-                if (cursor != null && cursor.moveToFirst()) {
-                    name = cursor.isNull(0) ? null : cursor.getString(0);
-                    size = cursor.isNull(1) ? -1 : cursor.getLong(1);
-                }
-            } catch (SecurityException | IllegalArgumentException e) {
-                fail(text(R.string.folders_local_failed, String.valueOf(e.getMessage())));
-                return;
-            }
-            if (name == null || name.isEmpty() || name.contains("/") || SharedFolders.hasPartSuffix(name)) {
-                fail(text(R.string.folders_invalid_name));
-                return;
-            }
-            if (size < 0) {
-                fail(text(R.string.folders_size_unknown));
-                return;
-            }
             SharedFolders.Folder into = folder;
-            String file = SharedFolders.childPath(path, name);
-            long length = size;
-            Transfer run = begin(new Transfer(true, name, size));
+            String dir = path;
+            String shown = source.getLastPathSegment();
+            Transfer run = begin(new Transfer(true, shown == null ? "" : shown, -1));
             transfers.execute(() -> {
-                try (InputStream in = resolver.openInputStream(source)) {
-                    if (in == null) throw new SharedFolders.LocalFileException(new IOException("Cannot open " + run.name));
-                    String stored = new SharedFolders(http()).upload(into.id, file, in, length,
-                            (bytes, total) -> progress(run, bytes, total), run.cancel);
-                    end(run, null, text(R.string.folders_uploaded, stored), true);
-                } catch (IOException | SecurityException | IllegalArgumentException e) {
-                    end(run, e, null, false);
+                // The provider answers on its own time: asked here, not on the main thread.
+                String name = null;
+                long size = -1;
+                try (Cursor cursor = resolver.query(source, new String[] {OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE},
+                        null, null, null)) {
+                    if (cursor != null && cursor.moveToFirst()) {
+                        name = cursor.isNull(0) ? null : cursor.getString(0);
+                        size = cursor.isNull(1) ? -1 : cursor.getLong(1);
+                    }
+                } catch (RuntimeException e) {
+                    end(run, new SharedFolders.LocalFileException(new IOException(e.getMessage(), e)), null, false, null);
+                    return;
+                }
+                if (name == null || name.isEmpty() || name.contains("/") || SharedFolders.hasPartSuffix(name)) {
+                    end(run, text(R.string.folders_invalid_name));
+                    return;
+                }
+                if (size < 0) {
+                    end(run, text(R.string.folders_size_unknown));
+                    return;
+                }
+                run.name = name;
+                run.total = size;
+                try (InputStream in = local(openInput(resolver, source), name)) {
+                    String stored = new SharedFolders(connector.http()).upload(into.id, SharedFolders.childPath(dir, name),
+                            in, size, (bytes, total) -> progress(run, bytes, total), run.cancel);
+                    end(run, null, text(R.string.folders_uploaded, stored), true, null);
+                } catch (IOException | RuntimeException e) {
+                    end(run, e, null, false, null);
                 }
             });
+        }
+
+        /** Opening a document fails on this device, not on the network. */
+        private static OutputStream openOutput(ContentResolver resolver, Uri uri) throws SharedFolders.LocalFileException {
+            try {
+                return resolver.openOutputStream(uri, "wt");
+            } catch (IOException e) {
+                throw new SharedFolders.LocalFileException(e);
+            }
+        }
+
+        private static InputStream openInput(ContentResolver resolver, Uri uri) throws SharedFolders.LocalFileException {
+            try {
+                return resolver.openInputStream(uri);
+            } catch (IOException e) {
+                throw new SharedFolders.LocalFileException(e);
+            }
+        }
+
+        /** {@code out}, whose flush and close failures are this device's, not the network's. */
+        private static OutputStream local(OutputStream out, String name) throws SharedFolders.LocalFileException {
+            if (out == null) throw new SharedFolders.LocalFileException(new IOException("Cannot open " + name));
+            return new java.io.FilterOutputStream(out) {
+                @Override public void write(byte[] bytes, int offset, int length) throws IOException {
+                    out.write(bytes, offset, length);
+                }
+                @Override public void close() throws IOException {
+                    try {
+                        super.close();
+                    } catch (SharedFolders.LocalFileException e) {
+                        throw e;
+                    } catch (IOException e) {
+                        throw new SharedFolders.LocalFileException(e);
+                    }
+                }
+            };
+        }
+
+        /** {@code in}, whose close failure is this device's, not the network's. */
+        private static InputStream local(InputStream in, String name) throws SharedFolders.LocalFileException {
+            if (in == null) throw new SharedFolders.LocalFileException(new IOException("Cannot open " + name));
+            return new java.io.FilterInputStream(in) {
+                @Override public void close() throws IOException {
+                    try {
+                        super.close();
+                    } catch (IOException e) {
+                        throw new SharedFolders.LocalFileException(e);
+                    }
+                }
+            };
+        }
+
+        /** The name the provider shows for {@code uri}, or {@code name} when it gives none. */
+        private static String displayName(ContentResolver resolver, Uri uri, String name) {
+            try (Cursor cursor = resolver.query(uri, new String[] {OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+                if (cursor != null && cursor.moveToFirst() && !cursor.isNull(0) && !cursor.getString(0).isEmpty()) {
+                    return cursor.getString(0);
+                }
+            } catch (RuntimeException e) {
+                LimeLog.warning("No display name for " + uri + ": " + e.getMessage());
+            }
+            return name;
         }
 
         void cancelTransfer() {
@@ -500,12 +633,25 @@ public final class FolderBrowserActivity extends NightjarActivity {
             }
         }
 
-        private void end(Transfer run, Exception failure, String done, boolean reload) {
+        /** Ends {@code run} with {@code error}, a refusal found on this side before anything was sent. */
+        private void end(Transfer run, String error) {
+            main.post(() -> {
+                if (transfer != run) return;
+                transfer = null;
+                this.error = error;
+                canRetry = false;
+                changed();
+            });
+        }
+
+        /** Ends {@code run}; {@code left} names a partial file a failure could not delete. */
+        private void end(Transfer run, Exception failure, String done, boolean reload, String left) {
             main.post(() -> {
                 if (transfer != run) return;
                 transfer = null;
                 if (failure != null) {
                     failed(failure, run.upload);
+                    if (left != null) error = text(R.string.folders_partial_left, error, left);
                     canRetry = false;
                 } else {
                     message = done;
@@ -538,14 +684,20 @@ public final class FolderBrowserActivity extends NightjarActivity {
             if (resolver.update(uri, values, null, null) != 1) throw new SharedFolders.LocalFileException(new IOException("Downloads did not publish " + uri));
         }
 
-        /** Deletes what a failed download left: the pending Downloads row, or the document the user picked. */
-        private static void discard(ContentResolver resolver, Uri uri, boolean document) {
+        /**
+         * Deletes what a failed download left: the pending Downloads row, or the document the user picked. Returns
+         * null once it is gone, or the name it stays under for the user to delete.
+         */
+        static String discard(ContentResolver resolver, Uri uri, boolean document) {
             try {
-                if (document) DocumentsContract.deleteDocument(resolver, uri);
-                else resolver.delete(uri, null, null);
+                boolean gone = document ? DocumentsContract.deleteDocument(resolver, uri)
+                        : resolver.delete(uri, null, null) > 0;
+                if (gone) return null;
+                LimeLog.warning("Failed download not removed: " + uri);
             } catch (Exception e) {
-                LimeLog.warning("Failed download not removed: " + e.getMessage());
+                LimeLog.warning("Failed download not removed: " + uri + ": " + e.getMessage());
             }
+            return displayName(resolver, uri, uri.toString());
         }
 
         private void failed(Exception e, boolean upload) {
@@ -555,6 +707,9 @@ public final class FolderBrowserActivity extends NightjarActivity {
                 error = text(R.string.folders_cancelled);
             } else if (e instanceof SharedFolders.RefusedException) {
                 error = text(refusalMessage(((SharedFolders.RefusedException) e).refusal, upload));
+            } else if (e instanceof SharedFolders.InvalidPathException) {
+                error = text(R.string.folders_bad_path, String.valueOf(e.getMessage()));
+                canRetry = false;
             } else if (e instanceof SharedFolders.LocalFileException || e instanceof SecurityException) {
                 error = text(R.string.folders_local_failed, String.valueOf(e.getMessage()));
             } else {
@@ -578,7 +733,7 @@ public final class FolderBrowserActivity extends NightjarActivity {
             });
         }
 
-        private NvHTTP http() throws IOException {
+        private NvHTTP connect() throws IOException {
             return new NvHTTP(ServerHelper.getCurrentAddressFromComputer(computer), computer.httpsPort, uniqueId,
                     computer.serverCert, PlatformBinding.getCryptoProvider(getApplication()));
         }

@@ -91,6 +91,8 @@ pub(crate) struct Converter {
     height: u32,
     layout: Layout,
     targets: Vec<Target>,
+    /// The couch menu's pass, while an overlay is set.
+    menu: menu::Menu,
 }
 /// `cbuffer Config` in color.hlsl, for a `source` (width, height, pixel)
 /// converted to the stream, as both converters fill it.
@@ -240,6 +242,7 @@ impl Converter {
                 height: config.coded_size().1,
                 layout,
                 targets: vec![],
+                menu: Default::default(),
             })
         }
     }
@@ -252,6 +255,15 @@ impl Converter {
             self.values[10] = scale;
             self.dirty = true;
         }
+    }
+    /// Draw `overlay` over the next conversions, or stop with `None`.
+    pub fn set_overlay(&mut self, overlay: Option<&crate::overlay::Overlay>) {
+        self.menu.set(overlay);
+    }
+    /// Panel images uploaded and menu passes run so far.
+    #[cfg(test)]
+    pub(crate) fn menu_counts(&self) -> (u64, u64) {
+        (self.menu.uploads, self.menu.passes)
     }
     fn target(&mut self) -> Result<usize> {
         if let Some(index) = self
@@ -394,6 +406,23 @@ impl Converter {
     pub fn convert(&mut self, image: &GpuImage) -> Result<Arc<ID3D11Texture2D>> {
         let index = self.target()?;
         let source = self.source_views(image)?;
+        let computes = self.compute.is_some() && self.targets[index].unordered.is_some();
+        let packing = self.values[11];
+        let menu = self.menu.prepare(
+            &self.gpu,
+            &self.values,
+            if packing == 1 { [2, 1] } else { [2, 2] },
+            match (computes, packing) {
+                (true, _) => &[],
+                (false, 0) => &[b"menu_luma\0", b"menu_chroma\0"],
+                (false, _) => &[b"menu_chroma_pack_y\0", b"menu_chroma_pack_uv\0"],
+            },
+            computes.then_some(if packing == 0 {
+                &b"yuv420_menu_cs\0"[..]
+            } else {
+                &b"chroma_pack_menu_cs\0"[..]
+            }),
+        )?;
         // SAFETY: The context is held from Enter to Leave with no early return between, all bound
         // objects are on this device, and `values` is the buffer's 80 bytes.
         unsafe {
@@ -413,6 +442,9 @@ impl Converter {
                 );
                 self.dirty = false;
             }
+            if let Some(menu) = &menu {
+                menu.update(context);
+            }
             let target = &self.targets[index];
             if let (Some(shader), Some(views)) = (&self.compute, &target.unordered) {
                 context.CSSetShader(shader, None);
@@ -425,6 +457,9 @@ impl Converter {
                     None,
                 );
                 context.Dispatch(self.width.div_ceil(16), self.height.div_ceil(16), 1);
+                if let Some(menu) = &menu {
+                    menu.dispatch(context);
+                }
                 context.CSSetUnorderedAccessViews(0, 2, Some([None, None].as_ptr()), None);
                 context.CSSetShaderResources(0, Some(&[None, None]));
                 context.CSSetShader(None, None);
@@ -436,8 +471,13 @@ impl Converter {
                 context.PSSetConstantBuffers(0, Some(&[Some(self.constants.clone())]));
                 context.RSSetState(None);
                 context.OMSetBlendState(None, None, u32::MAX);
-                for (view, shader, divisor) in std::iter::once((&target.luma, &self.luma, 1))
-                    .chain(target.chroma.as_ref().map(|view| (view, &self.chroma, 2)))
+                if let Some(menu) = &menu {
+                    menu.bind(context);
+                }
+                for (plane, (view, shader, divisor)) in
+                    std::iter::once((&target.luma, &self.luma, 1))
+                        .chain(target.chroma.as_ref().map(|view| (view, &self.chroma, 2)))
+                        .enumerate()
                 {
                     context.RSSetViewports(Some(&[D3D11_VIEWPORT {
                         Width: (self.width / divisor) as f32,
@@ -449,6 +489,13 @@ impl Converter {
                     context.OMSetRenderTargets(Some(&[Some(view.clone())]), None);
                     context.PSSetShader(shader, None);
                     context.Draw(3, 0);
+                    if let Some(menu) = &menu {
+                        context.PSSetShader(&menu.pixel[plane], None);
+                        context.Draw(3, 0);
+                    }
+                }
+                if menu.is_some() {
+                    menu::Pass::unbind(context);
                 }
                 context.PSSetShaderResources(0, Some(&[None, None]));
                 context.OMSetRenderTargets(None, None);
@@ -572,9 +619,27 @@ impl PlanarConverter {
             })
         }
     }
+    pub fn set_overlay(&mut self, overlay: Option<&crate::overlay::Overlay>) {
+        self.base.set_overlay(overlay);
+    }
+    #[cfg(test)]
+    pub(crate) fn menu_counts(&self) -> (u64, u64) {
+        self.base.menu_counts()
+    }
     pub fn convert(&mut self, image: &GpuImage, luminance: [f32; 2]) -> Result<()> {
         self.base.set_luminance(luminance);
         let source = self.base.source_views(image)?;
+        let menu = self.base.menu.prepare(
+            &self.base.gpu,
+            &self.base.values,
+            [2, 2],
+            match (&self.compute, &self.combined) {
+                (Some(_), _) => &[],
+                (None, Some(_)) => &[b"menu_pyro_444\0"],
+                (None, None) => &[b"menu_pyro_y\0", b"menu_pyro_u\0", b"menu_pyro_v\0"],
+            },
+            self.compute.is_some().then_some(&b"pyro_menu_cs\0"[..]),
+        )?;
         // SAFETY: The context is held from Enter to Leave with no early return between, all bound
         // objects are on this device, and `values` is the buffer's 80 bytes.
         unsafe {
@@ -592,6 +657,9 @@ impl PlanarConverter {
                 );
                 self.base.dirty = false;
             }
+            if let Some(menu) = &menu {
+                menu.update(context);
+            }
             if let Some((shader, views)) = &self.compute {
                 context.CSSetShader(shader, None);
                 context.CSSetShaderResources(0, Some(&source));
@@ -607,6 +675,9 @@ impl PlanarConverter {
                     self.base.height.div_ceil(16),
                     1,
                 );
+                if let Some(menu) = &menu {
+                    menu.dispatch(context);
+                }
                 context.CSSetUnorderedAccessViews(2, 3, Some([None, None, None].as_ptr()), None);
                 context.CSSetShaderResources(0, Some(&[None, None]));
                 context.CSSetShader(None, None);
@@ -618,6 +689,9 @@ impl PlanarConverter {
                 context.PSSetConstantBuffers(0, Some(&[Some(self.base.constants.clone())]));
                 context.RSSetState(None);
                 context.OMSetBlendState(None, None, u32::MAX);
+                if let Some(menu) = &menu {
+                    menu.bind(context);
+                }
                 if let Some(shader) = &self.combined {
                     context.RSSetViewports(Some(&[D3D11_VIEWPORT {
                         Width: self.base.width as f32,
@@ -632,6 +706,10 @@ impl PlanarConverter {
                     );
                     context.PSSetShader(shader, None);
                     context.Draw(3, 0);
+                    if let Some(menu) = &menu {
+                        context.PSSetShader(&menu.pixel[0], None);
+                        context.Draw(3, 0);
+                    }
                 } else {
                     for plane in 0..3 {
                         let divisor = if plane == 0 { 1 } else { self.divisor };
@@ -645,7 +723,14 @@ impl PlanarConverter {
                         context.OMSetRenderTargets(Some(&[Some(self.views[plane].clone())]), None);
                         context.PSSetShader(&self.shaders[plane], None);
                         context.Draw(3, 0);
+                        if let Some(menu) = &menu {
+                            context.PSSetShader(&menu.pixel[plane], None);
+                            context.Draw(3, 0);
+                        }
                     }
+                }
+                if menu.is_some() {
+                    menu::Pass::unbind(context);
                 }
                 context.PSSetShaderResources(0, Some(&[None, None]));
                 context.OMSetRenderTargets(None, None);
@@ -655,5 +740,6 @@ impl PlanarConverter {
         Ok(())
     }
 }
+mod menu;
 #[cfg(test)]
 mod tests;

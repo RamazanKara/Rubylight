@@ -4,6 +4,8 @@ Rubylight is GPL-3.0-only. Its administration console is a Svelte application se
 
 The negotiated HEVC intra-refresh policy follows Eftimin70's Xbox workaround and the verified finite-GOP/CTB-row configuration in [Nonary/vibeshine commit 5671498](https://github.com/Nonary/vibeshine/commit/5671498664f5a8f14e959d4ba05904f11c92525c). Rubylight's Rust implementation adds paired-setting verification and restores its previous policy when the driver rejects the workaround. Startup and recovery keyframe requests remain enabled. This adaptation remains under GPL-3.0-only.
 
+The statistical video FEC (`rust/core/src/statistical_fec.rs`) is ported from [AlkaidLab/foundation-sunshine](https://github.com/AlkaidLab/foundation-sunshine) commit 880f1ef, `src/streaming/fec.cpp` and `docs/dynamic-fec.zh-CN.md`; the encoder/FEC budget split in `Session::encoder_bitrate` follows its `src/video.cpp`. Both are GPL-3.0 and remain so here.
+
 External SDKs are not a port of the original host:
 
 - AMF headers 1.5.2 (MIT, Copyright Advanced Micro Devices, Inc.) are vendored unchanged apart from line endings in `rust/windows/include/AMF`, with their license headers; see its README. The AMF runtime is loaded from the installed AMD graphics driver. SDK: https://github.com/GPUOpen-LibrariesAndSDKs/AMF.

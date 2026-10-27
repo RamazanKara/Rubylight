@@ -3107,6 +3107,9 @@ impl<P, A> Session<P, A> {
     /// only at a `fence`, an IDR or a new encoder, so FEC alone never steps
     /// the rate inside a GOP. Host bitrate adaptation already budgets FEC:
     /// while it runs, the encoder gets `bitrate` as it is.
+    ///
+    /// The split follows Foundation Sunshine's `encoder_bitrate_from_total_bitrate`
+    /// in `src/video.cpp` (AlkaidLab/foundation-sunshine 880f1ef, GPL-3).
     pub fn encoder_bitrate(&self, fence: bool) -> u32 {
         let budget = self.bitrate.load(Ordering::Acquire);
         if !self.fec_split_on.load(Ordering::Acquire) {

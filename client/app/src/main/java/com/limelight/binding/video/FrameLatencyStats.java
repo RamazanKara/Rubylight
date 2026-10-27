@@ -490,6 +490,7 @@ class FrameLatencyStats {
             } else if (!hasRenderCallback) {
                 // Without render callbacks the release is the closest moment to the screen.
                 latencyProbe.onFrameRendered(frame.receiveNs, releaseNs);
+                presentJitter.record(releaseNs, true);
                 finish(frame, "render_unavailable");
             }
         }

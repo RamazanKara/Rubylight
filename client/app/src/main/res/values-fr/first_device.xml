@@ -28,6 +28,7 @@
     <string name="perf_overlay_shownfps">Rendues : %1$s</string>
     <string name="perf_overlay_presentdrops">Images perdues à l’affichage (estimation) : %1$d</string>
     <string name="perf_overlay_frame_pacing">Cadence des images : %1$s ms · gigue %2$s ms · saccades %3$s%%</string>
+    <string name="perf_overlay_frame_pacing_release">Cadence des images (à la libération) : %1$s ms · gigue %2$s ms · saccades %3$s%%</string>
     <string name="perf_overlay_vsyncs_per_frame">VSyncs par image : %1$s</string>
     <string name="perf_overlay_low_latency">Mode faible latence : %1$s</string>
     <string name="perf_overlay_low_latency_android_vendor">Android + fabricant de la puce</string>

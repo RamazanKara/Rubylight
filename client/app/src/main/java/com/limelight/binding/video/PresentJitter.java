@@ -30,6 +30,8 @@ final class PresentJitter {
     private int size;
     private long lastPresentNs;
     private boolean enabled;
+    // The window holds codec release times, not presents: the path has no render callbacks.
+    private boolean releaseTime;
 
     /** Starts or stops recording; either way the window starts empty. */
     void setEnabled(boolean on) {
@@ -55,7 +57,19 @@ final class PresentJitter {
 
     /** One present, in the System.nanoTime() domain. */
     void record(long presentNs) {
+        record(presentNs, false);
+    }
+
+    /**
+     * One present, or with releaseTime the release of an output buffer on a path without render
+     * callbacks (the GL upscaler, Android 5). Switching between the two starts the window over.
+     */
+    void record(long presentNs, boolean releaseTime) {
         if (!enabled) return;
+        if (releaseTime != this.releaseTime) {
+            clear();
+            this.releaseTime = releaseTime;
+        }
         long previous = lastPresentNs;
         if (presentNs <= previous) return; // out of order: keep the newest present
         lastPresentNs = presentNs;
@@ -71,6 +85,7 @@ final class PresentJitter {
     Snapshot snapshot(long vsyncNs) {
         if (!enabled || vsyncNs <= 0 || size == 0) return null;
         Snapshot out = new Snapshot();
+        out.releaseTime = releaseTime;
         long maxNs = vsyncNs * MAX_GAP_UNITS;
         int index = (head - size + CAPACITY) % CAPACITY;
         long sumNs = 0;
@@ -110,6 +125,8 @@ final class PresentJitter {
         float averageMs;
         float jitterMs;
         float judderPercent;
+        // Release times stand in for presents, so the overlay labels the line.
+        boolean releaseTime;
 
         float percent(int units) {
             return count == 0 ? 0 : 100f * histogram[units] / count;

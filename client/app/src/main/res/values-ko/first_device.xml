@@ -28,6 +28,7 @@
     <string name="perf_overlay_shownfps">렌더링: %1$s</string>
     <string name="perf_overlay_presentdrops">예상 표시 누락: %1$d</string>
     <string name="perf_overlay_frame_pacing">프레임 간격: %1$s ms · 지터 %2$s ms · 끊김 %3$s%%</string>
+    <string name="perf_overlay_frame_pacing_release">프레임 간격(릴리스 시점): %1$s ms · 지터 %2$s ms · 끊김 %3$s%%</string>
     <string name="perf_overlay_vsyncs_per_frame">프레임당 VSync: %1$s</string>
     <string name="perf_overlay_low_latency">저지연 모드: %1$s</string>
     <string name="perf_overlay_low_latency_android_vendor">Android + 칩 제조사</string>

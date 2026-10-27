@@ -52,7 +52,8 @@ public final class PerformanceOverlay {
     /**
      * The debug overlay's frame pacing lines, as Moonlight V+'s jitter monitor shows them
      * (qiin2333/moonlight-vplus, GPL-3.0): average present interval, jitter and judder, the share
-     * of frames per vsync count, and the window as a timeline. Null without a window.
+     * of frames per vsync count, and the window as a timeline. Null without a window. Labelled as
+     * release-time pacing when the path has no render callbacks.
      */
     @SuppressWarnings("deprecation")
     static String presentJitterText(Context context, PresentJitter.Snapshot window) {
@@ -65,7 +66,8 @@ public final class PerformanceOverlay {
             histogram.append(units).append(units == PresentJitter.MAX_UNITS ? "+" : "").append(": ")
                     .append(measurement(locale, window.percent(units), "%.1f")).append('%');
         }
-        return context.getString(R.string.perf_overlay_frame_pacing,
+        return context.getString(window.releaseTime ? R.string.perf_overlay_frame_pacing_release
+                        : R.string.perf_overlay_frame_pacing,
                 measurement(locale, window.averageMs, "%.1f"),
                 measurement(locale, window.jitterMs, "%.2f"),
                 measurement(locale, window.judderPercent, "%.1f")) + '\n' +

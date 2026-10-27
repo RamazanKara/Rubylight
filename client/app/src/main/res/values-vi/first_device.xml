@@ -28,6 +28,7 @@
     <string name="perf_overlay_shownfps">Đã kết xuất: %1$s</string>
     <string name="perf_overlay_presentdrops">Số khung hình hiển thị bị rớt ước tính: %1$d</string>
     <string name="perf_overlay_frame_pacing">Nhịp khung hình: %1$s ms · jitter %2$s ms · giật %3$s%%</string>
+    <string name="perf_overlay_frame_pacing_release">Nhịp khung hình (thời điểm giải phóng): %1$s ms · jitter %2$s ms · giật %3$s%%</string>
     <string name="perf_overlay_vsyncs_per_frame">VSync mỗi khung hình: %1$s</string>
     <string name="perf_overlay_low_latency">Chế độ độ trễ thấp: %1$s</string>
     <string name="perf_overlay_low_latency_android_vendor">Android + nhà sản xuất chip</string>

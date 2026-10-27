@@ -6,6 +6,8 @@
 use super::message::strtol;
 use super::RtspError;
 use crate::sdp::*;
+use rubylight_protocol::audio_ext::{self, Layout};
+use rubylight_protocol::{hdr, pen};
 
 /// The PyroWave bitstream revision this client decodes; a future revision falls back to the
 /// ordinary codecs.
@@ -33,6 +35,18 @@ pub struct DescribeInfo {
     pub microphone: Option<u16>,
     /// The host takes client roaming probes (`a=x-rl-roaming`, version 1 or later).
     pub roaming: bool,
+    /// The HDR formats this stream offers (`a=x-rl-video.hdrFormats`, `rubylight_protocol::hdr`
+    /// bits); 0 for stock HDR only.
+    pub hdr_formats: u8,
+    /// The audio codecs the host sends (`a=x-rl-audio.codecs`, `audio_ext::CODEC_*` bits); 0
+    /// when it names none, which is Opus only.
+    pub audio_codecs: u8,
+    /// The 7.1.4 Opus layouts (`a=x-rl-audio.layout714` and `a=x-rl-audio.layout714Hq`).
+    pub layout_714: Option<Layout>,
+    pub layout_714_hq: Option<Layout>,
+    /// The host reads pen barrel roll (`a=x-ss-general.penBarrelRoll:1`). Other Sunshine-family
+    /// hosts may send the same attribute: send the input only with `Feature::PenBarrelRoll` too.
+    pub pen_barrel_roll: bool,
 }
 
 /// moonlight-common-c's parseSdpAttributeToUInt: the first occurrence of `name` anywhere,
@@ -47,6 +61,22 @@ pub fn sdp_attribute_u32(sdp: &str, name: &str) -> Option<u32> {
 
 fn lines(sdp: &str) -> impl Iterator<Item = &str> {
     sdp.split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l))
+}
+
+/// The value of the first `a={name}:` line, without surrounding blanks.
+fn attribute<'a>(sdp: &'a str, name: &str) -> Option<&'a str> {
+    lines(sdp).find_map(|line| {
+        let (key, value) = line.strip_prefix("a=")?.split_once(':')?;
+        (key == name).then(|| value.trim_matches([' ', '\t']))
+    })
+}
+
+/// A decimal bit mask attribute, limited to `known`; 0 when absent or malformed.
+fn attribute_bits(sdp: &str, name: &str, known: u8) -> u8 {
+    attribute(sdp, name)
+        .and_then(|value| value.parse::<u8>().ok())
+        .unwrap_or(0)
+        & known
 }
 
 /// Rubylight 2.2.0+: `a=x-rl-control:0x5530,0x5531`; hex with 0x or decimal, malformed and
@@ -172,6 +202,19 @@ impl DescribeInfo {
             control_messages: parse_control_messages(sdp),
             microphone: microphone_offer(sdp),
             roaming: offers_roaming(sdp),
+            hdr_formats: attribute_bits(sdp, hdr::DESCRIBE_ATTRIBUTE, hdr::ALL),
+            audio_codecs: attribute_bits(
+                sdp,
+                audio_ext::CODECS_DESCRIBE_ATTRIBUTE,
+                audio_ext::CODECS_ALL,
+            ),
+            layout_714: attribute(sdp, audio_ext::LAYOUT_714_DESCRIBE_ATTRIBUTE)
+                .and_then(Layout::parse),
+            layout_714_hq: attribute(sdp, audio_ext::LAYOUT_714_HQ_DESCRIBE_ATTRIBUTE)
+                .and_then(Layout::parse),
+            pen_barrel_roll: attribute(sdp, pen::DESCRIBE_ATTRIBUTE)
+                .and_then(|value| value.parse::<u8>().ok())
+                .is_some_and(|version| version >= 1),
         }
     }
 
@@ -420,6 +463,64 @@ mod tests {
         );
         assert_eq!(info.microphone, Some(48012));
         assert!(!info.roaming, "no advertisement, no roaming");
+        // A host that offers no 3.0 extension reads as before.
+        assert_eq!((info.hdr_formats, info.audio_codecs), (0, 0));
+        assert_eq!((info.layout_714, info.layout_714_hq), (None, None));
+        assert!(!info.pen_barrel_roll);
+    }
+
+    #[test]
+    fn the_30_extensions_follow_their_attributes() {
+        use rubylight_protocol::audio_ext::{layout_714_lines, LAYOUT_714, LAYOUT_714_HQ};
+        let with = |lines: &str| DescribeInfo::parse(&format!("{RUBYLIGHT}{lines}"));
+        let offered = format!(
+            "a=x-rl-video.hdrFormats:15\r\na=x-rl-audio.codecs:15\r\n\
+             {}a=x-ss-general.penBarrelRoll:1\r\n\
+             a=x-rl-control:0x5539,0x553a,0x553b,0x553d,0x553e,0x5540\r\n",
+            layout_714_lines().concat()
+        );
+        let info = with(&offered);
+        assert_eq!((info.hdr_formats, info.audio_codecs), (15, 15));
+        assert_eq!(
+            (info.layout_714, info.layout_714_hq),
+            (Some(LAYOUT_714), Some(LAYOUT_714_HQ))
+        );
+        assert!(info.pen_barrel_roll);
+        // The second x-rl-control line adds to the first.
+        assert_eq!(info.control_messages.len(), 14);
+        assert!(info.control_messages.contains(&0x553e));
+        assert_eq!(
+            DescribeInfo::parse(&offered.replace("\r\n", "\n")),
+            DescribeInfo::parse(&offered)
+        );
+        // Unknown bits are dropped; malformed values are no offer.
+        assert_eq!(with("a=x-rl-video.hdrFormats:255\r\n").hdr_formats, 15);
+        assert_eq!(with("a=x-rl-video.hdrFormats: 2 \r\n").hdr_formats, 2);
+        for line in [
+            "a=x-rl-video.hdrFormats:256",
+            "a=x-rl-video.hdrFormats:-1",
+            "a=x-rl-video.hdrFormats:0x2",
+            "a=x-rl-video.hdrFormatsX:2",
+            "b=x-rl-video.hdrFormats:2",
+        ] {
+            assert_eq!(with(&format!("{line}\r\n")).hdr_formats, 0, "{line}");
+        }
+        assert_eq!(with("a=x-rl-audio.codecs:6\r\n").audio_codecs, 6);
+        assert_eq!(with("a=x-rl-audio.codecs:\r\n").audio_codecs, 0);
+        for line in [
+            "a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8",
+            "a=x-rl-audio.layout714:12,7,6,0,1,10,11,2,3,4,5,6,7,8,9",
+            "a=x-rl-audio.layout714:8,5,3,0,1,2,3,4,5,6,7",
+        ] {
+            assert_eq!(with(&format!("{line}\r\n")).layout_714, None, "{line}");
+        }
+        for line in [
+            "a=x-ss-general.penBarrelRoll:0",
+            "a=x-ss-general.penBarrelRoll:",
+            "a=x-ss-general.penBarrelRoll:yes",
+        ] {
+            assert!(!with(&format!("{line}\r\n")).pen_barrel_roll, "{line}");
+        }
     }
 
     #[test]

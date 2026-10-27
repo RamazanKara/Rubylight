@@ -33,6 +33,8 @@ fn params<'a>(
         mic_port: 0,
         high_quality_surround_supported: false,
         pyrowave_records_enabled: false,
+        hdr_format: 0,
+        audio_codec: 0,
     }
 }
 
@@ -358,6 +360,34 @@ fn wireless_route_is_flagged_for_every_codec_and_never_sent_as_zero() {
         let sdp = generate(&params(&config, SUNSHINE, "10.0.0.7", format)).text;
         assert_eq!(attribute(&sdp, WIRELESS), None, "{format:#x}");
         assert!(!sdp.contains("clientWireless"), "{format:#x}");
+    }
+}
+
+#[test]
+fn hdr_format_and_audio_codec_are_sent_only_when_asked_for() {
+    const HDR: &str = rubylight_protocol::hdr::ANNOUNCE_ATTRIBUTE;
+    const CODEC: &str = rubylight_protocol::audio_ext::CODEC_ANNOUNCE_ATTRIBUTE;
+    let config = StreamConfig::default();
+    for format in [VIDEO_FORMAT_H265_MAIN10, VIDEO_FORMAT_AV1_MAIN10, VIDEO_FORMAT_PYROWAVE] {
+        // Nothing asked for: the description is exactly what it was before the extensions.
+        let plain = generate(&params(&config, SUNSHINE, "10.0.0.7", format)).text;
+        assert!(!plain.contains("hdrFormat") && !plain.contains("x-rl-audio"), "{format:#x}");
+
+        let mut p = params(&config, SUNSHINE, "10.0.0.7", format);
+        p.hdr_format = rubylight_protocol::hdr::DV_84;
+        p.audio_codec = rubylight_protocol::audio_ext::CODEC_PCM;
+        let asked = generate(&p).text;
+        assert_eq!(attribute(&asked, HDR), Some("a=x-rl-video[0].hdrFormat:8"), "{format:#x}");
+        assert_eq!(attribute(&asked, CODEC), Some("a=x-rl-audio.codec:2"), "{format:#x}");
+        // Only the two lines differ.
+        let removed: String = asked
+            .split_inclusive("\r\n")
+            .filter(|line| {
+                !line.starts_with("a=x-rl-video[0].hdrFormat:")
+                    && !line.starts_with("a=x-rl-audio.codec:")
+            })
+            .collect();
+        assert_eq!(removed, plain, "{format:#x}");
     }
 }
 

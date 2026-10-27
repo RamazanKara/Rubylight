@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- File transfer (Experimental): FileTransferActivity, the PC menu and the stream menu. English and German;
+     the other languages show English until they are translated. -->
+<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
+    <string name="files_title">Files on PC</string>
+    <string name="files_menu">Files (Experimental)</string>
+    <string name="files_share_label">Send to PC</string>
+    <string name="files_send">Send files</string>
+    <string name="files_refresh">Check again</string>
+    <string name="files_clear_finished">Clear finished</string>
+    <string name="files_transfers">Transfers</string>
+    <string name="files_on_pc">On the PC</string>
+    <string name="files_folder">%1$s · %2$s free</string>
+    <string name="files_empty">No files in the PC’s folder yet.</string>
+    <string name="files_entry">%1$s · %2$s</string>
+    <string name="files_download">Download</string>
+    <string name="files_retry">Try again</string>
+    <string name="files_queued">Waiting</string>
+    <string name="files_sending">Sending · %1$d%% (%2$s of %3$s)</string>
+    <string name="files_receiving">Downloading · %1$d%% (%2$s of %3$s)</string>
+    <string name="files_receiving_unknown">Downloading · %1$s</string>
+    <string name="files_cancelling">Cancelling…</string>
+    <string name="files_sent">Sent</string>
+    <string name="files_sent_as">Sent as %1$s</string>
+    <string name="files_saved">Saved</string>
+    <string name="files_cancelled">Cancelled</string>
+    <string name="files_upload_name">%1$s → %2$s</string>
+    <string name="files_checking">Asking the PC…</string>
+    <string name="files_check_failed">Could not ask the PC: %1$s</string>
+    <string name="files_no_upload_permission">This device may not send files to this PC. On the PC, open the web UI’s Devices page and allow Upload files for it.</string>
+    <string name="files_no_download_permission">This device may not download this PC’s files. On the PC, open the web UI’s Devices page and allow Download files for it.</string>
+    <string name="files_off">File transfer is off on this PC. Turn it on in the PC’s web UI, under File transfer.</string>
+    <string name="files_unavailable">This PC’s host has no file transfer.</string>
+    <string name="files_no_library">This build of Nightjar cannot transfer files.</string>
+    <string name="files_offline">The PC is not online.</string>
+    <string name="files_pick_pc">Send to which PC?</string>
+    <string name="files_no_pc">No paired PC is online. Wake or pair one in the PC list first.</string>
+    <string name="files_waiting_to_send">Files waiting to send: %1$d. They go once this device may send files.</string>
+    <string name="files_size_unknown">%1$s was not sent: its size is unknown.</string>
+    <string name="files_problem_no_permission">This device lacks the permission; allow it on the PC’s web UI, under Devices.</string>
+    <string name="files_problem_transfer_off">File transfer is off on the PC; turn it on in its web UI.</string>
+    <string name="files_problem_invalid_name">The PC refused the file name.</string>
+    <string name="files_problem_interrupted">The upload stopped before its end.</string>
+    <string name="files_problem_too_large">The file is larger than the PC allows.</string>
+    <string name="files_problem_no_space">The PC does not have enough free space.</string>
+    <string name="files_problem_no_console_user">Nobody is signed in on the PC.</string>
+    <string name="files_problem_busy">The PC is busy with other transfers; try again shortly.</string>
+    <string name="files_problem_not_found">The file is no longer on the PC.</string>
+    <string name="files_problem_network">The connection to the PC failed.</string>
+    <string name="files_problem_local">The file on this device could not be read or written.</string>
+    <string name="files_problem_host">The PC answered with an error.</string>
+</resources>

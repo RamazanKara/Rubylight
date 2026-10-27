@@ -22,29 +22,55 @@ pub const DEVICE_FAILED: i32 = -4;
 pub const INVALID: i32 = -5;
 pub const HOST_FAILED: i32 = -6;
 
-static FORWARDER: Mutex<Option<Arc<Forwarder>>> = Mutex::new(None);
+/// The forwarder and the session (`engine::session_id`) it belongs to.
+type Slot = Mutex<Option<(u64, Arc<Forwarder>)>>;
 
-fn lock(slot: &Mutex<Option<Arc<Forwarder>>>) -> MutexGuard<'_, Option<Arc<Forwarder>>> {
+static FORWARDER: Slot = Mutex::new(None);
+
+fn lock(slot: &Slot) -> MutexGuard<'_, Option<(u64, Arc<Forwarder>)>> {
     slot.lock().unwrap_or_else(|p| p.into_inner())
 }
 
 /// The stream's forwarder, made by `make` on first use, or the code to return without one.
+/// `session` names the running stream; it is asked under the slot's lock, so a stream that
+/// stops meanwhile either ends this forwarder after it is stored or is gone before it is
+/// made. A forwarder of an earlier stream is replaced, never reused. Returns the replaced
+/// one too, to end out of the lock.
+#[allow(clippy::type_complexity)]
 fn forwarder(
-    slot: &Mutex<Option<Arc<Forwarder>>>,
-    streaming: bool,
+    slot: &Slot,
+    session: impl FnOnce() -> Option<u64>,
     make: impl FnOnce() -> Result<Forwarder, String>,
-) -> Result<Arc<Forwarder>, i32> {
+) -> Result<(Arc<Forwarder>, Option<Arc<Forwarder>>), i32> {
     let mut slot = lock(slot);
-    if !streaming {
+    let Some(session) = session() else {
         return Err(NO_STREAM);
-    }
-    if let Some(forwarder) = slot.as_ref() {
-        return Ok(forwarder.clone());
-    }
+    };
+    let stale = match slot.take() {
+        Some((of, forwarder)) if of == session => {
+            *slot = Some((of, forwarder.clone()));
+            return Ok((forwarder, None));
+        }
+        Some((of, forwarder)) => {
+            platform::warn(&format!(
+                "USB: session {of}'s forwarder outlived it; session {session} makes its own"
+            ));
+            Some(forwarder)
+        }
+        None => None,
+    };
     match make() {
-        Ok(forwarder) => Ok(slot.insert(Arc::new(forwarder)).clone()),
+        Ok(forwarder) => {
+            let forwarder = Arc::new(forwarder);
+            *slot = Some((session, forwarder.clone()));
+            Ok((forwarder, stale))
+        }
         Err(e) => {
             platform::error(&format!("USB: no client for the host: {e}"));
+            drop(slot);
+            if let Some(stale) = stale {
+                stale.end();
+            }
             Err(HOST_FAILED)
         }
     }
@@ -52,15 +78,20 @@ fn forwarder(
 
 /// Attaches `device`: its request id, or a code. The device is closed when it fails.
 fn attach_in(
-    slot: &Mutex<Option<Arc<Forwarder>>>,
-    streaming: bool,
+    slot: &Slot,
+    session: impl FnOnce() -> Option<u64>,
     make: impl FnOnce() -> Result<Forwarder, String>,
     device: Arc<dyn UsbDevice>,
     name: &str,
 ) -> i32 {
     // Out of the slot's lock: attaching sends and tells Java, which lists.
-    let forwarder = match forwarder(slot, streaming, make) {
-        Ok(forwarder) => forwarder,
+    let forwarder = match forwarder(slot, session, make) {
+        Ok((forwarder, stale)) => {
+            if let Some(stale) = stale {
+                stale.end();
+            }
+            forwarder
+        }
         Err(code) => {
             device.close();
             return code;
@@ -86,8 +117,8 @@ fn attach_in(
     }
 }
 
-fn current(slot: &Mutex<Option<Arc<Forwarder>>>) -> Option<Arc<Forwarder>> {
-    lock(slot).clone()
+fn current(slot: &Slot) -> Option<Arc<Forwarder>> {
+    lock(slot).as_ref().map(|(_, forwarder)| forwarder.clone())
 }
 
 /// Attaches `device` to the running stream's host; `make` builds the forwarder the first time.
@@ -96,8 +127,8 @@ pub fn attach(
     device: Arc<dyn UsbDevice>,
     name: &str,
 ) -> i32 {
-    let streaming = crate::engine::with_session(false, |_| true);
-    attach_in(&FORWARDER, streaming, make, device, name)
+    nightjar_core::usb::warn_with(platform::warn);
+    attach_in(&FORWARDER, crate::engine::session_id, make, device, name)
 }
 
 /// The user detached it or unplugged it; false when it is not attached.
@@ -116,13 +147,23 @@ pub fn on_message(message: UsbMessage) {
     }
 }
 
-/// The stream stopped: everything attached detaches.
-pub fn end() {
-    end_in(&FORWARDER);
+/// Session `session` stopped: everything attached in it detaches. The next stream's
+/// forwarder, should one be made already, stays.
+pub fn end(session: u64) {
+    end_in(&FORWARDER, session);
 }
 
-fn end_in(slot: &Mutex<Option<Arc<Forwarder>>>) {
-    let forwarder = lock(slot).take();
+fn end_in(slot: &Slot, session: u64) {
+    let forwarder = {
+        let mut slot = lock(slot);
+        match slot.take() {
+            Some((of, forwarder)) if of == session => Some(forwarder),
+            other => {
+                *slot = other;
+                None
+            }
+        }
+    };
     if let Some(forwarder) = forwarder {
         forwarder.end();
     }
@@ -233,6 +274,80 @@ mod tests {
         (fake.clone(), Arc::new(Blocking::new(fake)))
     }
 
+    fn in_stream_1() -> Option<u64> {
+        Some(1)
+    }
+
+    fn no_stream() -> Option<u64> {
+        None
+    }
+
+    #[test]
+    fn whether_a_stream_runs_is_asked_under_the_slots_lock() {
+        // Asked before the lock, a stream that stopped meanwhile left its forwarder behind.
+        let slot = Mutex::new(None);
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let (_, device) = device("1-5");
+        let session = || {
+            assert!(slot.try_lock().is_err(), "asked out of the lock");
+            Some(1)
+        };
+        let id = attach_in(
+            &slot,
+            session,
+            || Ok(sent_to(log.clone(), None)),
+            device,
+            "Pad",
+        );
+        assert_eq!(id, 1);
+    }
+
+    #[test]
+    fn the_last_streams_forwarder_is_never_reused_or_ended_by_its_stop_late() {
+        let slot = Mutex::new(None);
+        let old_log = Arc::new(Mutex::new(Vec::new()));
+        let (_, first) = device("1-5");
+        attach_in(
+            &slot,
+            in_stream_1,
+            || Ok(sent_to(old_log.clone(), None)),
+            first,
+            "Pad",
+        );
+        let old = current(&slot).unwrap();
+
+        // Stream 1's forwarder is still there when stream 2 attaches: stream 2 makes its own
+        // and the old one ends, rather than tunnel to stream 1's host.
+        let new_log = Arc::new(Mutex::new(Vec::new()));
+        let (_, second) = device("1-6");
+        let made = std::cell::Cell::new(false);
+        let id = attach_in(
+            &slot,
+            || Some(2),
+            || {
+                made.set(true);
+                Ok(sent_to(new_log.clone(), None))
+            },
+            second,
+            "Key",
+        );
+        assert_eq!(id, 1, "a new forwarder counts from 1");
+        assert!(made.get());
+        assert_eq!(old_log.lock().unwrap().len(), 1);
+        assert_eq!(new_log.lock().unwrap().len(), 1);
+        assert_eq!(to_json(&old.list())[0]["phase"], "ended");
+        let new = current(&slot).unwrap();
+        assert!(!Arc::ptr_eq(&old, &new));
+
+        // Stream 1's stop, late, leaves stream 2's forwarder alone; stream 2's ends it.
+        end_in(&slot, 1);
+        assert!(current(&slot).is_some_and(|f| Arc::ptr_eq(&f, &new)));
+        assert_eq!(to_json(&new.list())[0]["phase"], "asking");
+        end_in(&slot, 2);
+        assert!(current(&slot).is_none());
+        assert_eq!(to_json(&new.list())[0]["phase"], "ended");
+    }
+
     #[test]
     fn without_a_stream_nothing_attaches_and_the_device_closes() {
         let slot = Mutex::new(None);
@@ -240,7 +355,7 @@ mod tests {
         let made = std::cell::Cell::new(false);
         let code = attach_in(
             &slot,
-            false,
+            no_stream,
             || {
                 made.set(true);
                 Err("unused".into())
@@ -259,7 +374,13 @@ mod tests {
         let slot = Mutex::new(None);
         let log = Arc::new(Mutex::new(Vec::new()));
         let (_, first) = device("1-5");
-        let id = attach_in(&slot, true, || Ok(sent_to(log.clone(), None)), first, "Pad");
+        let id = attach_in(
+            &slot,
+            in_stream_1,
+            || Ok(sent_to(log.clone(), None)),
+            first,
+            "Pad",
+        );
         assert_eq!(id, 1);
         assert!(matches!(
             log.lock().unwrap()[..],
@@ -267,23 +388,23 @@ mod tests {
         ));
         // The same device again is busy, and a second forwarder is never made.
         let (fake, again) = device("1-5");
-        let code = attach_in(&slot, true, || panic!("made twice"), again, "Pad");
+        let code = attach_in(&slot, in_stream_1, || panic!("made twice"), again, "Pad");
         assert_eq!((code, fake.closes()), (BUSY, 1));
         let (_, other) = device("1-6");
         assert_eq!(
-            attach_in(&slot, true, || panic!("made twice"), other, "Key"),
+            attach_in(&slot, in_stream_1, || panic!("made twice"), other, "Key"),
             2
         );
 
-        let listed = to_json(&lock(&slot).as_ref().unwrap().list());
+        let listed = to_json(&current(&slot).unwrap().list());
         assert_eq!(listed[0]["requestId"], 1);
         assert_eq!(listed[0]["busid"], "1-5");
         assert_eq!(listed[0]["phase"], "asking");
         assert_eq!(listed[1]["name"], "Key");
 
         // The stream ends: both end, and the next stream makes its own.
-        let forwarder = lock(&slot).clone().unwrap();
-        end_in(&slot);
+        let forwarder = current(&slot).unwrap();
+        end_in(&slot, 1);
         assert!(lock(&slot).is_none());
         let ended = to_json(&forwarder.list());
         assert_eq!(ended[0]["phase"], "ended");
@@ -298,14 +419,23 @@ mod tests {
         let log = Arc::new(Mutex::new(Vec::new()));
         let (fake, device) = device("1-5");
         let make = || Ok(sent_to(log.clone(), Some(SendError::Unsupported)));
-        assert_eq!(attach_in(&slot, true, make, device, "Pad"), UNSUPPORTED);
+        assert_eq!(
+            attach_in(&slot, in_stream_1, make, device, "Pad"),
+            UNSUPPORTED
+        );
         assert_eq!(fake.closes(), 1);
-        assert!(lock(&slot).as_ref().unwrap().list().is_empty());
+        assert!(current(&slot).unwrap().list().is_empty());
 
         let slot = Mutex::new(None);
         let (fake, device) = self::device("2-1");
         assert_eq!(
-            attach_in(&slot, true, || Err("bad certificate".into()), device, "Pad"),
+            attach_in(
+                &slot,
+                in_stream_1,
+                || Err("bad certificate".into()),
+                device,
+                "Pad"
+            ),
             HOST_FAILED
         );
         assert_eq!(fake.closes(), 1);
@@ -319,12 +449,12 @@ mod tests {
         let (fake, device) = device("1-5");
         let id = attach_in(
             &slot,
-            true,
+            in_stream_1,
             || Ok(sent_to(log.clone(), None)),
             device,
             "Pad",
         );
-        let forwarder = lock(&slot).clone().unwrap();
+        let forwarder = current(&slot).unwrap();
         forwarder.on_message(UsbMessage::Status {
             request_id: id as u32,
             state: UsbState::Refused,

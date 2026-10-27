@@ -2,7 +2,7 @@
 //! reports, the microphone encoder and the present clock. The JNI entry points in `lib.rs`
 //! are thin wrappers over these functions.
 
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -35,7 +35,9 @@ struct Microphone {
 struct Engine {
     /// Held only for one short call (input, a query, a send). Stop takes the session out
     /// before tearing it down, so callbacks that query it while threads join cannot deadlock.
-    session: Mutex<Option<Session>>,
+    /// Each session has its own id, from 1: USB forwarding tells this stream from the last.
+    session: Mutex<Option<(u64, Session)>>,
+    sessions: AtomicU64,
     interrupt: Mutex<Interrupt>,
     phase_lock: Mutex<PhaseLockReports>,
     phase_lock_lead_us: AtomicI32,
@@ -53,6 +55,7 @@ struct Engine {
 
 static ENGINE: LazyLock<Engine> = LazyLock::new(|| Engine {
     session: Mutex::new(None),
+    sessions: AtomicU64::new(0),
     interrupt: Mutex::new(Interrupt::default()),
     phase_lock: Mutex::new(PhaseLockReports::default()),
     phase_lock_lead_us: AtomicI32::new(i32::MIN),
@@ -75,9 +78,14 @@ fn now_ms() -> u64 {
 pub fn with_session<R>(default: R, f: impl FnOnce(&Session) -> R) -> R {
     let guard = lock(&ENGINE.session);
     match guard.as_ref() {
-        Some(session) => f(session),
+        Some((_, session)) => f(session),
         None => default,
     }
+}
+
+/// The running session's id, unique in this process, or None without one.
+pub fn session_id() -> Option<u64> {
+    lock(&ENGINE.session).as_ref().map(|(id, _)| *id)
 }
 
 /// Sends a control message; false when it was not sent (no stream, not announced, invalid).
@@ -229,7 +237,8 @@ pub fn start(bridge: &'static Bridge, params: StartParams) -> i32 {
     ENGINE
         .microphone_state
         .store(microphone_state, Ordering::SeqCst);
-    *lock(&ENGINE.session) = Some(session);
+    let id = ENGINE.sessions.fetch_add(1, Ordering::SeqCst) + 1;
+    *lock(&ENGINE.session) = Some((id, session));
     if events.started.load(Ordering::SeqCst) {
         bridge.post(bridge.m.connection_started, &[]);
     }
@@ -251,8 +260,8 @@ pub fn stop() {
         .microphone_state
         .store(MIC_STATE_OFF, Ordering::SeqCst);
     // Detaches what is attached here; the host detaches its side as the stream ends.
-    crate::usb::end();
-    if let Some(session) = session {
+    if let Some((id, session)) = session {
+        crate::usb::end(id);
         session.stop();
         platform::info("Stream stopped");
     }

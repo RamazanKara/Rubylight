@@ -1384,6 +1384,78 @@ unsafe fn enet_protocol_handle_verify_connect<S: Socket>(
     enet_protocol_notify_connect(host, peer, event);
     0_i32
 }
+// Rubylight: a peer heard from again after a silence of two ping intervals or more, such as a
+// network outage, gets its outstanding reliable commands resent right away. Their timeouts
+// doubled while it was silent and would otherwise hold them back for about as long as the
+// silence lasted (RFC 6069 reverts TCP's backoff after a connectivity disruption the same
+// way). Each backed-off command restarts from the base timeout, round trip time plus four
+// variances; its send attempts and the peer's earliest timeout stay, so ENet disconnects the
+// peer when it would have anyway. A connected peer is heard from at least every ping interval,
+// so loss alone rarely makes a silence this long: then at most one extra resend per command.
+unsafe fn enet_protocol_resend_after_silence<S: Socket>(
+    host: *mut ENetHost<S>,
+    peer: *mut ENetPeer<S>,
+) {
+    let now = (*host).service_time;
+    let last = (*peer).last_datagram_time;
+    (*peer).last_datagram_time = if now > 1 { now } else { 1 };
+    if !(*peer).resend_after_silence
+        || last == 0
+        || enet_time_difference(now, last) < (*peer).ping_interval.saturating_mul(2)
+    {
+        return;
+    }
+    let base = ((*peer).round_trip_time)
+        .wrapping_add(4_u32.wrapping_mul((*peer).round_trip_time_variance));
+    let mut rearmed = false;
+    for list in [
+        core::ptr::addr_of_mut!((*peer).sent_reliable_commands),
+        core::ptr::addr_of_mut!((*peer).outgoing_send_reliable_commands),
+        core::ptr::addr_of_mut!((*peer).outgoing_commands),
+    ] {
+        let sentinel = core::ptr::addr_of_mut!((*list).sentinel);
+        let mut current = (*sentinel).next;
+        while current != sentinel {
+            let command: *mut ENetOutgoingCommand = current.cast();
+            current = (*current).next;
+            if (*command).round_trip_timeout > base {
+                (*command).round_trip_timeout = base;
+                rearmed = true;
+            }
+        }
+    }
+    if !rearmed {
+        return;
+    }
+    // The sent list is in send order, not timeout order: the next check is due when the first
+    // of its commands is.
+    let sentinel = core::ptr::addr_of_mut!((*peer).sent_reliable_commands.sentinel);
+    let mut current = (*sentinel).next;
+    let mut next_timeout = None;
+    while current != sentinel {
+        let command: *mut ENetOutgoingCommand = current.cast();
+        current = (*current).next;
+        let due = ((*command).sent_time).wrapping_add((*command).round_trip_timeout);
+        next_timeout = match next_timeout {
+            Some(next) if !enet_time_less(due, next) => Some(next),
+            _ => Some(due),
+        };
+    }
+    if let Some(next_timeout) = next_timeout {
+        (*peer).next_timeout = next_timeout;
+    }
+}
+// Rubylight: ENET_TIME_LESS and ENET_TIME_DIFFERENCE.
+fn enet_time_less(a: u32, b: u32) -> bool {
+    a.wrapping_sub(b) >= 86400000
+}
+fn enet_time_difference(a: u32, b: u32) -> u32 {
+    if enet_time_less(a, b) {
+        b.wrapping_sub(a)
+    } else {
+        a.wrapping_sub(b)
+    }
+}
 unsafe fn enet_protocol_handle_incoming_commands<S: Socket>(
     host: *mut ENetHost<S>,
     event: *mut ENetEvent<S>,
@@ -1512,6 +1584,7 @@ unsafe fn enet_protocol_handle_incoming_commands<S: Socket>(
         (*peer).incoming_data_total = ((*peer).incoming_data_total as usize)
             .wrapping_add((*host).received_data_length)
             as u32;
+        enet_protocol_resend_after_silence(host, peer);
     }
     current_data = ((*host).received_data).add(header_size);
     while current_data < ((*host).received_data).add((*host).received_data_length) {
@@ -1787,7 +1860,11 @@ unsafe fn enet_protocol_check_timeouts<S: Socket>(
             } else {
                 ((*host).service_time).wrapping_sub((*peer).earliest_timeout)
             }) >= (*peer).timeout_maximum
-                || (1_i32 << ((*outgoing_command).send_attempts as i32 - 1_i32)) as u32
+                // Rubylight: saturates, resends after a silence can take a command past 32
+                // attempts.
+                || 1_u32
+                    .checked_shl(((*outgoing_command).send_attempts as u32).wrapping_sub(1))
+                    .unwrap_or(u32::MAX)
                     >= (*peer).timeout_limit
                     && (if ((*host).service_time).wrapping_sub((*peer).earliest_timeout)
                         >= 86400000_i32 as u32

@@ -142,6 +142,13 @@ impl<S: Socket> Peer<S> {
         unsafe { enet_peer_ping_interval(self.0, ping_interval) }
     }
 
+    /// Rubylight: when the peer is heard from again after a silence of two ping intervals or
+    /// more, resend its outstanding reliable commands now instead of after the timeouts that
+    /// doubled while it was silent. Off by default, which is stock ENet; a reset turns it off.
+    pub fn set_resend_after_silence(&mut self, enabled: bool) {
+        unsafe { (*self.0).resend_after_silence = enabled }
+    }
+
     /// Configure the peer's throttle parameters.
     ///
     /// Unreliable packets are dropped by ENet in response to the varying conditions of the

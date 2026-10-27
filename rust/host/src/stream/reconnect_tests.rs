@@ -1706,6 +1706,75 @@ async fn link_notices_reach_only_a_client_that_asks() -> Result<()> {
     h.finish().await
 }
 
+/// Reliable control messages the host sent during a 10 s outage reach the client right after
+/// it: ENet resends them once the client is heard again, not when the timeouts that doubled
+/// in the outage run out (rust/vendor/rusty_enet).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reliable_messages_sent_in_an_outage_arrive_when_it_ends() -> Result<()> {
+    use butterpollo_core::link_notice::{
+        LINK_NOTICE_MESSAGE_TYPE, LinkNotice, LinkNoticeRequest, LinkReason, LinkState,
+    };
+    let limited = |current_kbps| LinkNotice {
+        state: LinkState::Limited,
+        reason: LinkReason::Network,
+        ceiling_kbps: 100_000,
+        current_kbps,
+    };
+    let arrival = |client: &Client, notice: LinkNotice| -> Option<Instant> {
+        client
+            .notices
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(_, payload)| LinkNotice::decode(payload).expect("a valid notice") == notice)
+            .map(|(at, _)| *at)
+    };
+    let h = Harness::new(15_000, 1).await?;
+    let launch = h.launch(0, false).await?;
+    let (session, client) = h.play(&launch).await?;
+    session.link_notices.lock().unwrap().note(limited(75_000));
+    client.send_control(
+        LINK_NOTICE_MESSAGE_TYPE,
+        &LinkNoticeRequest { enabled: true }.encode(),
+    );
+    until("the standing limit arrives", WAIT, || {
+        arrival(&client, limited(75_000)).is_some()
+    })
+    .await;
+
+    let lost_at = Instant::now();
+    client.network(true);
+    // Over a second apart, so the host sends both in the outage.
+    for (at_ms, kbps) in [(1_200, 60_000), (2_400, 50_000)] {
+        tokio::time::sleep(Duration::from_millis(at_ms).saturating_sub(lost_at.elapsed())).await;
+        session.link_notices.lock().unwrap().note(limited(kbps));
+    }
+    tokio::time::sleep(Duration::from_secs(10).saturating_sub(lost_at.elapsed())).await;
+    assert!(
+        arrival(&client, limited(60_000)).is_none(),
+        "a notice crossed the outage"
+    );
+    let restored_at = Instant::now();
+    client.network(false);
+    until(
+        "the notices sent in the outage arrive",
+        Duration::from_secs(20),
+        || arrival(&client, limited(50_000)).is_some(),
+    )
+    .await;
+    let delay = arrival(&client, limited(50_000))
+        .unwrap()
+        .duration_since(restored_at);
+    eprintln!("notice delay after the outage: {delay:?}");
+    assert!(
+        delay <= Duration::from_millis(500),
+        "{delay:?} after the outage ended"
+    );
+    assert!(!session.stopping());
+    h.end(&session, client).await?;
+    h.finish().await
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn background_resume_preserves_the_owner_and_rejects_mode_changes() -> Result<()> {
     let h = Harness::new(10_000, 2).await?;

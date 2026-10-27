@@ -3523,6 +3523,10 @@ impl Media {
                             let timeout =
                                 u32::try_from(ping_timeout.as_millis()).unwrap_or(u32::MAX);
                             peer.set_timeout(32, timeout, timeout.max(30_000));
+                            // After an outage, what the host queued (termination, rumble, HDR
+                            // metadata) goes out with the client's first datagram rather than
+                            // up to an outage later (rust/vendor/rusty_enet).
+                            peer.set_resend_after_silence(true);
                             peers.insert(
                                 peer.id(),
                                 ControlPeer {

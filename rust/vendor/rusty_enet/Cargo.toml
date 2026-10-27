@@ -3,6 +3,15 @@
 # - Cargo.toml: the published Cargo.toml.orig, without its `[workspace]` table (the ci member is
 #   not published). rust-toolchain, RELEASE.md and the registry metadata files are not copied.
 # - src/lib.rs: `#![allow(warnings)]` added, the upstream lint output is not ours to fix.
+# - Resend after a silence (marked "Rubylight", off unless `Peer::set_resend_after_silence`
+#   turns it on): when a peer is heard from again after two ping intervals or more without a
+#   datagram, src/c/protocol.rs (enet_protocol_resend_after_silence, called from
+#   enet_protocol_handle_incoming_commands) lowers the backed-off retransmission timeouts of
+#   its outstanding reliable commands to round trip time plus four variances, so they go out
+#   with the next send instead of up to an outage later. src/c/peer.rs adds the two peer
+#   fields, cleared on reset; src/peer.rs the setter. The wire protocol is unchanged.
+# - src/c/protocol.rs, enet_protocol_check_timeouts: the `1 << (send_attempts - 1)` disconnect
+#   test saturates instead of overflowing past 32 attempts, which the resends can reach.
 [package]
 name = "rusty_enet"
 version = "0.4.0"

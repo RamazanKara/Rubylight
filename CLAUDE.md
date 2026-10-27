@@ -1,12 +1,18 @@
 # Rubylight
 
-Windows Moonlight game-streaming host in Rust (formerly Butterpollo). Nightjar, the Android client, lives in `C:\src\rubylight-android`.
+Windows Moonlight game-streaming host in Rust (formerly Butterpollo). Nightjar, the Android and desktop client, lives in `client/` (see "Nightjar" below).
 
 Read the relevant doc instead of exploring: [docs/building.md](docs/building.md) (build, SDK, options), [rust/README.md](rust/README.md) (workspace, running, entry points), [docs/architecture.md](docs/architecture.md), [rust/release/README.md](rust/release/README.md) (release, hardware harness), [rust/PERFORMANCE.md](rust/PERFORMANCE.md) (measurements). 3.0 work follows [docs/rubylight-3.0-plan.md](docs/rubylight-3.0-plan.md); keep its status table current.
 
 ## Layout
 - Crates: `butterpollo-core` (`rust/core`, OS-independent protocol, crypto, FEC, input), `butterpollo-windows` (`rust/windows`: capture, GPU, AMF/PyroWave, audio, displays), `butterpollo` (`rust/host`, not `butterpollo-host`: HTTP, RTSP, ENet, stream lifecycle). The driver `rust/drivers/rubylight-vdisplay` is outside the workspace.
 - Internal names stay butterpollo (crates, `butterpollo.exe`, `BUTTERPOLLO_*`, `ProgramData\Butterpollo`, service `ApolloService`); only the install dir and branding say Rubylight.
+
+## Nightjar (`client/`)
+- Imported with its full history (`git subtree add`); read `client/CLAUDE.md` for client work. `client/` is the Gradle root (`keystore.properties` goes there). `C:\src\rubylight-android` is retired.
+- Its Cargo workspace `client/protocol` stays separate (root `Cargo.toml` excludes `client`). The host takes `rubylight-protocol` by path from `client/protocol/core`: a protocol change and its host use land in one commit, no rev bump.
+- Under `client/` cargo picks up the root 1.98.1 pin (Android targets are installed for it); CI's `nightjar-android.yml` sets stable like the mirror. Host fmt is `cargo fmt -- --check`, never `--all` (that would reformat `client/`).
+- RamazanKara/nightjar stays the public home (issues, releases, `vX.Y.Z` tags, F-Droid/Obtainium). After main's CI is green, `tools\mirror-nightjar.ps1 -DryRun`, then without `-DryRun`, pushes `git subtree split --prefix client` to nightjar `main`, fast-forward only. Commits made there come back first with `git subtree pull --prefix client https://github.com/RamazanKara/nightjar main`. Never force-push or archive nightjar.
 
 ## Build and check
 - Work in a Windows checkout under `C:\src`, never `\\wsl.localhost`; this overrides the global WSL rule. Fresh clone: `git submodule update --init --recursive`.
@@ -22,7 +28,7 @@ Read the relevant doc instead of exploring: [docs/building.md](docs/building.md)
 - Parallel agents each get their own worktree. Never `git stash` (shared across worktrees); move changes with `git diff --binary` and `git apply -3`.
 
 ## CI and release
-- CI: `.github/workflows/rust-windows.yml` (windows-2022, 2× minutes) on pushes to main touching `rust/**`, Cargo or toolchain files; docs-only commits skip it. Always pass `-R RamazanKara/Rubylight` to `gh`.
+- CI: `.github/workflows/rust-windows.yml` (windows-2022, 2× minutes) on pushes to main touching `rust/**`, `client/protocol/**`, Cargo or toolchain files; docs-only commits skip it. `nightjar-android.yml` runs on `client/**` (`client/.github/workflows` only run in the nightjar mirror). Always pass `-R RamazanKara/Rubylight` to `gh`.
 - Versions: patch bump for fixes, minor for features; fewer, well-tested releases. Commit style: `fix(stream): ...`, no model names.
 - Release (details in rust/release/README.md): changes go under `## Unreleased` in `rust/RELEASE_NOTES.md`. Run `python rust/release/bump.py X.Y.Z`, fill in `## New in X.Y.Z` with a "Tested." paragraph of our own measurements, check it with `python rust/release/notes.py vX.Y.Z --out body.md`, commit, push main.
 - Tag the exact SHA whose main run is green, not HEAD: `git tag -a vX.Y.Z -m "Rubylight X.Y.Z" <sha> && git push origin vX.Y.Z`. Expect 3 assets (setup exe, zip, SHA256SUMS), then run `rust/release/check.ps1 vX.Y.Z` on this PC.

@@ -7,6 +7,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | Find a result | Recorded evidence |
 | --- | --- |
 | AV1 intra refresh on AMF: keyframes, frame sizes and recovery after a lost frame, against LTR invalidation and keyframes (refresh turned off) | [October 27, AV1 intra refresh and recovery after a lost frame](#october-27-av1-intra-refresh-and-recovery-after-a-lost-frame) |
+| HDR10+ and HDR Vivid dynamic metadata: the units in real AMF HEVC and AV1 output, what a Moonlight client receives, CPU cost per frame, 4K60 encode stage on and off (ABBA) | [October 27, HDR10+ and HDR Vivid dynamic metadata](#october-27-hdr10-and-hdr-vivid-dynamic-metadata) |
 | A 60 Hz game's repeated frames under VRR: holding later compositions of a claimed frame, simulation and 60/120/240 Hz ABBA (not kept) | [October 26, holding later compositions (not kept)](#october-26-holding-later-compositions-of-a-claimed-frame-not-kept) |
 | Replying from the address the client reached (#54): send-path cost of matched, routed and pinned replies against the calls before the fix, batch and single datagram | [October 26, replying from the address the client reached](#october-26-replying-from-the-address-the-client-reached-54) |
 | VRR claims that follow the game's pictures: a 120 Hz game on a 60 fps VRR stream, age and present-to-sent p95, late claims; 240 and 60 Hz games | [October 26, VRR claims follow the game's pictures](#october-26-vrr-claims-follow-the-games-pictures) |
@@ -66,6 +67,63 @@ The driver reads back `Av1IntraRefreshMode` 2 and 300 stripes with refresh and t
 Refresh alone never recovers: AMF's AV1 stream signals frame IDs (`frame_id_numbers_present_flag`), and every refresh frame refers to and replaces reference slot 0, so after the loss dav1d rejects every frame header to the end of the run. With the keyframe the host sends, recovery is immediate but costs a 101,162-byte keyframe where the invalidated frame without refresh is 47,592 bytes, and inter frames average 51,203 bytes against 33,515 (without refresh the encoder stays under its budget on this source). On this driver refresh measured worse on every count.
 
 Decision: AMF AV1 no longer asks for intra refresh. A client that negotiates it gets the stream of one that never asked, keeps its long-term references and recovers from a loss with the invalidated frame (the "no refresh, invalidation" row). H.264 and HEVC refresh are unchanged. The refresh arms now force it with a test-only switch (`intra_refresh::force_av1`) so the measurement repeats; every arm negotiates refresh, and the invalidation arm fails unless the invalidated frame, not a keyframe, restores the picture. Rerun the same day with the policy in place: every arm gave the byte counts in the table, and the default path, asked for refresh and left without it (`Av1IntraRefreshMode` 0, `Av1MaxNumLTRFrames` 4), had its invalidation accepted and matched the full stream from frame 481.
+
+## October 27: HDR10+ and HDR Vivid dynamic metadata
+
+With `hdr_dynamic_metadata` on (the default), the compute conversion measures each HDR frame's maxRGB statistics on the GPU once the frame has gone to the encoder, and the frames AMF puts out from then on carry them: HDR10+ (SMPTE ST 2094-40) in HEVC and AV1, and HDR Vivid (CUVA 005.1) in HEVC. Nothing waits for a sample, so a frame carries the statistics of an earlier one. Measured on the RX 7900 XT, driver 32.0.32015.7029, Windows 11 build 26200, with the release `butterpollo.exe` and `amf_quality` of branch `rl-hdr` at `179046747` (3.0.0-rc.3 plus the feature). Isolated test hosts on their own port, the installed service idle and untouched, no encoder hang. This PC's main display has HDR off, so the streamed desktop is SDR content inside PQ, with flat statistics. The scene-cut values below come from a synthetic source instead: a dark scene (peak 20 nits) and then, from frame 60, a bright one (peak 1000 nits, with a moving highlight).
+
+### The units in AMF's output
+
+`amf_quality`, 1280x720 at 60 fps, 20 Mbps, 120 frames of the synthetic source, target display 1000 nits; each codec encoded with the setting on and off (HEVC off twice). Read with ffprobe from FFmpeg 9.0.2.
+
+| Codec | Frames with HDR10+ | Frames with Vivid | On, our units removed, against off | Dark scene: maxSCL / average | Bright scene: maxSCL / average |
+| --- | --- | --- | --- | --- | --- |
+| HEVC | 119 of 120 | 119 of 120 | byte-identical (the two off runs too) | 19.6 / 6.2 nits | 1000 / 327 nits |
+| AV1 | 119 of 120 | none (Vivid defines no AV1 carriage) | byte-identical | 19.6 / 6.2 nits | 1000 / 327 nits |
+
+Vivid's maximum maxRGB reads 1460/4095 in PQ (19.9 nits) in the dark scene and 3079/4095 (1000.6 nits) in the bright one. **The units add nothing else to the bitstream, and the values follow the source within 2 %.** Frame 0 carries none, because no sample has finished yet. The cut at frame 60 shows from frame 61, one frame later; the metadata on frame 60 is still the dark scene's.
+
+hdr10plus_tool 1.7.2 detects the metadata (`--verify`), but its `extract` refuses both files. First, frame 0 has no unit ("119 vs 120"). With frame 1's unit copied into frame 0 of a scratch copy, it still fails: "Invalid targeted_system_display_maximum_luminance for profile A, must be zero". With `--skip-validation`: "Invalid profile B: no Bezier curve data". We write a nonzero target display (the client's peak) without a tone-mapping curve, which matches neither of the tool's profiles. FFmpeg parses every unit.
+
+### What a Moonlight client receives
+
+Two 20 s streams to the test client (moonlight-common-c `2600bea`) at 1920x1080x60, with every received access unit recorded (`BUTTERPOLLO_TEST_BITSTREAM`). The client reported a 400-nit peak and the host targeted it. The host spliced 1110 of 1111 HEVC frames and 1159 of 1160 AV1 frames.
+
+- **AV1: ffprobe shows HDR10+ on 1154 of 1155 received frames**, target 400 nits, maxSCL 100 nits (SDR white in PQ) and average 10.8 nits on every frame.
+- **HEVC: the received stream has no SEI at all**, neither ours nor AMF's mastering-display SEI. moonlight-common-c drops every prefix SEI NAL unit in front of a frame's slices (`VideoDepacketizer.c`, both the IDR and the fast path) before the decoder sees it, so a client built on it never gets HEVC HDR10+ or Vivid. Static HDR10 metadata reaches it through Moonlight's own control message as before.
+
+Both streams decoded every frame. e2e failed them on three long frame intervals each (at most 193 and 659 ms), because they ran during a full build gate.
+
+### CPU cost
+
+From the host's "HDR dynamic metadata" summary line at each stream's end: the CPU time per frame to submit the statistics pass, to read and smooth a finished sample, and to splice the units into the frame. Mean (maximum) in µs.
+
+| Stream | Frames | Submit | Sample | Splice |
+| --- | --- | --- | --- | --- |
+| `amf_quality` HEVC, 720p60 | 120 | 62.8 (219) | 23.9 (43) | 0.7 (1) |
+| `amf_quality` AV1, 720p60 | 120 | 66.0 (366) | 35.7 (243) | 1.3 (23) |
+| Stream HEVC, 1080p60 | 1111 | 53.6 (185) | 33.0 (77) | 3.9 (60) |
+| Stream AV1, 1080p60 | 1160 | 51.1 (246) | 29.4 (267) | 3.4 (18) |
+| Stream HEVC, 4K60, four runs | 3568 to 3598 | 39.4 to 51.1 (103 to 412) | 24.1 to 30.6 (40 to 274) | 2.7 to 3.8 (61 to 111) |
+
+**About 60 to 90 µs of CPU per frame, 4 to 5 ms a second at 60 fps.** No run had an invalid sample, a readback error or a frame without a place for the units.
+
+### Encode stage on and off at 4K60 (ABBA)
+
+HEVC HDR 3840x2160x60, 80 Mbps, 60 s per run with the timing record (`--record`), the first 5 s dropped, the stage table from `timing.stages` in result.json. Arms in the order on, off, off, on; off is `hdr_dynamic_metadata = false`. Other agents' `-j 4` cargo checks kept running, but no full build gate did; the CPU load is the mean of 5 s samples of `Win32_PerfFormattedData_PerfOS_Processor` over each run. The test client's software decoder cannot hold 4K60 on a loaded CPU, so its frame rate tracks the load, not the arm. The host's own `stream timings` held 59.7 to 59.9 fps in every run. Set B's sampler failed (a counter path that is localized on this Windows) and spun on one core.
+
+| Set / arm | CPU load | Client fps | Encode p50 / p95 / p99 | Convert p50 / p95 |
+| --- | --- | --- | --- | --- |
+| B, on | not sampled | 45.4 | 5.830 / 6.329 / 6.749 | 0.337 / 0.396 |
+| B, off | not sampled | 39.0 | 5.864 / 6.313 / 6.735 | 0.397 / 0.469 |
+| B, off | not sampled | 46.4 | 5.861 / 6.398 / 6.815 | 0.317 / 0.377 |
+| B, on | not sampled | 42.7 | 5.876 / 6.335 / 6.772 | 0.389 / 0.473 |
+| C, on | 92 % | 44.4 | 5.848 / 6.365 / 6.698 | 0.421 / 0.483 |
+| C, off | 93 % | 51.9 | 5.817 / 6.328 / 6.591 | 0.393 / 0.462 |
+| C, off | 47 % | 60.1 | 5.782 / 6.327 / 6.532 | 0.239 / 0.344 |
+| C, on | 79 % | 52.9 | 5.862 / 6.380 / 6.622 | 0.306 / 0.367 |
+
+In set B, on minus off is −0.01 ms at the median and −0.02 ms at p95, with the off runs 0.003 and 0.085 ms apart. In set C it is +0.055 ms at the median and +0.045 ms at p95, with the off runs 0.035 and 0.001 ms apart. In set C the difference is larger than the off/off spread, but the off arms also ran under different loads (93 and 47 %). **Inconclusive: the two sets disagree in sign, and on and off span the same 5.78 to 5.88 ms median across the eight runs, so any cost to the encode stage is below about 0.05 ms.** A first set (A) ran under a full build gate that started 30 s into it. It is not counted, and it gave on 5.771 and 5.773 against off 5.803 and 5.843 ms.
 
 ## October 26: holding later compositions of a claimed frame (not kept)
 

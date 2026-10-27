@@ -23,8 +23,9 @@ use butterpollo_core::{
 use nightjar_core::{
     control::{ControlEvent, ptype},
     http::{
-        Availability, ClientIdentity, Family, Feature, FileError, HostClient, LaunchRequest,
-        PairResult, PowerError, Reason, Refusal, ServerInfo, TransferCancel,
+        Availability, ClientIdentity, EntryKind, Family, Feature, FileError, FolderAccess,
+        HostClient, LaunchRequest, PairResult, PowerError, Reason, Refusal, ServerInfo,
+        TransferCancel,
     },
     roaming::RoamEvent,
     sdp::{StreamConfig, VIDEO_FORMAT_H264},
@@ -917,6 +918,227 @@ async fn nightjar_reads_file_transfer_turned_off() -> Result<()> {
     assert_eq!(refusal(upload(&client, "notes.txt", b"x")), disabled);
     assert_eq!(refusal(download(&client, "notes.txt")), disabled);
     Ok(())
+}
+
+/// The names in `dir`, `.part` files included.
+fn names(dir: &std::path::Path) -> Result<Vec<String>> {
+    let mut names = std::fs::read_dir(dir)?
+        .map(|entry| Ok(entry?.file_name().to_string_lossy().into_owned()))
+        .collect::<Result<Vec<_>>>()?;
+    names.sort();
+    Ok(names)
+}
+fn upload_to(client: &HostClient, id: &str, path: &str, bytes: &[u8]) -> Result<String, FileError> {
+    let uploaded = client.upload_folder_file(
+        id,
+        path,
+        &mut &bytes[..],
+        bytes.len() as u64,
+        &mut |_, _| {},
+        &TransferCancel::new(),
+    )?;
+    assert_eq!(uploaded.size, bytes.len() as u64);
+    Ok(uploaded.name)
+}
+
+/// Shared folders through the native API: Nightjar lists the folders its grants allow,
+/// browses one, saves files beside the copies it already has, uploads files the host numbers,
+/// and reads each refusal. Nothing is left as `.part` on either side.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn nightjar_browses_and_moves_files_through_shared_folders() -> Result<()> {
+    let base = Folder::new()?;
+    let (games, music, saved) = (
+        base.0.join("Games"),
+        base.0.join("Music"),
+        base.0.join("saved"),
+    );
+    for dir in [&games.join("saves"), &music, &saved] {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(games.join("readme.txt"), b"hello")?;
+    std::fs::write(games.join("saves").join("slot1.sav"), b"slot")?;
+    let h = Harness::new(10_000, 1).await?;
+    h.h.file_transfers.fake_space(1 << 40, 1 << 41);
+    let client = device(&h, u32::MAX, &[])?;
+    assert_eq!(refusal(client.shared_folders()), (403, "folders_disabled"));
+    let share = serde_json::json!([
+        {"id": "games", "name": "Games", "path": games},
+        {"id": "music", "name": "Music", "path": music},
+    ]);
+    h.h.config
+        .write()
+        .unwrap()
+        .values
+        .insert("shared_folders".into(), share.to_string());
+    // Shared, but not with this device.
+    assert_eq!(refusal(client.shared_folders()), (403, "forbidden"));
+    let grant = |access: &str| {
+        paired(&h, |c| {
+            c.extra.insert(
+                "shared_folders".into(),
+                serde_json::json!({ "games": access }),
+            )
+        });
+    };
+    grant("write");
+    let capabilities = client
+        .server_info(true)?
+        .capabilities
+        .with_native(&client.native_capabilities_with_files()?);
+    assert!(capabilities.has(Feature::SharedFolders));
+    let folders = client.shared_folders()?;
+    let listed: Vec<_> = folders
+        .iter()
+        .map(|f| (f.id.as_str(), f.name.as_str(), f.access))
+        .collect();
+    assert_eq!(listed, [("games", "Games", FolderAccess::Write)]);
+
+    let root = client.folder_entries("games", "")?;
+    assert_eq!(root.path, "");
+    let entries: Vec<_> = root
+        .entries
+        .iter()
+        .map(|e| (e.name.as_str(), e.kind, e.size))
+        .collect();
+    assert_eq!(
+        entries,
+        [
+            ("saves", EntryKind::Dir, 0),
+            ("readme.txt", EntryKind::File, 5)
+        ]
+    );
+    let saves = client.folder_entries("games", "saves")?;
+    assert_eq!(saves.path, "saves");
+    assert_eq!(saves.entries[0].name, "slot1.sav");
+
+    // Saved twice: the second copy takes the next free name, as the host names uploads.
+    let stop = TransferCancel::new();
+    let first = client.save_folder_file("games", "readme.txt", &saved, &mut |_, _| {}, &stop)?;
+    let second = client.save_folder_file("games", "readme.txt", &saved, &mut |_, _| {}, &stop)?;
+    assert_eq!(
+        (first, second),
+        (saved.join("readme.txt"), saved.join("readme (1).txt"))
+    );
+    assert_eq!(std::fs::read(saved.join("readme (1).txt"))?, b"hello");
+    // A file the host doesn't have leaves nothing behind.
+    assert_eq!(
+        refusal(client.save_folder_file("games", "saves/none.sav", &saved, &mut |_, _| {}, &stop)),
+        (404, "not_found")
+    );
+    assert_eq!(names(&saved)?, ["readme (1).txt", "readme.txt"]);
+
+    assert_eq!(
+        upload_to(&client, "games", "saves/slot2.sav", b"from Nightjar")?,
+        "slot2.sav"
+    );
+    assert_eq!(
+        upload_to(&client, "games", "saves/slot2.sav", b"again")?,
+        "slot2 (1).sav"
+    );
+    assert_eq!(
+        std::fs::read(games.join("saves").join("slot2.sav"))?,
+        b"from Nightjar"
+    );
+    assert_eq!(
+        std::fs::read(games.join("saves").join("slot2 (1).sav"))?,
+        b"again"
+    );
+    assert_eq!(
+        names(&games.join("saves"))?,
+        ["slot1.sav", "slot2 (1).sav", "slot2.sav"]
+    );
+
+    assert_eq!(
+        refusal(client.folder_entries("music", "")),
+        (403, "forbidden")
+    );
+    assert_eq!(
+        refusal(client.folder_entries("games", "missing")),
+        (404, "not_found")
+    );
+    assert_eq!(
+        refusal(upload_to(&client, "games", "saves/CON", b"x")),
+        (400, "invalid_name")
+    );
+    // A read grant lists and downloads, and refuses uploads.
+    grant("read");
+    assert_eq!(client.shared_folders()?[0].access, FolderAccess::Read);
+    let mut bytes = vec![];
+    client.download_folder_file("games", "readme.txt", &mut bytes, &mut |_, _| {}, &stop)?;
+    assert_eq!(bytes, b"hello");
+    assert_eq!(
+        refusal(upload_to(&client, "games", "later.txt", b"x")),
+        (403, "forbidden")
+    );
+    assert!(!games.join("later.txt").exists());
+    Ok(())
+}
+
+/// The image clipboard while Nightjar streams: a PNG it sends lands on the host's clipboard
+/// and comes back as the same image. Without a stream of its own, over
+/// `clipboard_image_max_mb` or with a broken image, Nightjar reads the host's refusal.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn nightjar_copies_images_both_ways_while_it_streams() -> Result<()> {
+    use crate::nvhttp::parity_tests::clipboard;
+    use butterpollo_core::clipboard_image::{Image, decode_png, encode_png};
+    use nightjar_core::http::ImageClipboardError;
+    let _turn = clipboard::TURN.lock().await;
+    *clipboard::PNG.lock().unwrap() = None;
+    let h = Harness::new(10_000, 1).await?;
+    let client = device(&h, u32::MAX, &[])?;
+    let capabilities = client
+        .server_info(true)?
+        .capabilities
+        .with_native(&client.native_capabilities_with_files()?);
+    assert!(capabilities.has(Feature::ImageClipboard));
+    let image = Image {
+        width: 2,
+        height: 1,
+        rgba: vec![255, 0, 0, 255, 0, 0, 255, 128],
+    };
+    let png = encode_png(&image)?;
+    assert!(matches!(
+        client.send_clipboard_image(&png),
+        Err(ImageClipboardError::Forbidden)
+    ));
+
+    let (_, session, stream, _) = stream(&h, &client).await?;
+    assert!(client.clipboard_image()?.is_none());
+    client.send_clipboard_image(&png)?;
+    let copied = client.clipboard_image()?.expect("the image Nightjar sent");
+    assert_eq!(decode_png(&copied)?, image);
+    // A PNG header the host can't decode the rest of.
+    assert!(matches!(
+        client.send_clipboard_image(&png[..40]),
+        Err(ImageClipboardError::NotPng(_))
+    ));
+    // Over the host's limit both ways; it refuses the upload by its length, before the body.
+    h.h.config
+        .write()
+        .unwrap()
+        .values
+        .insert("clipboard_image_max_mb".into(), "1".into());
+    let mut large = png.clone();
+    large.resize((1 << 20) + 1, 0);
+    let sent = client.send_clipboard_image(&large);
+    assert!(
+        matches!(sent, Err(ImageClipboardError::TooLarge(_))),
+        "{sent:?}"
+    );
+    *clipboard::PNG.lock().unwrap() = Some(large);
+    assert!(matches!(
+        client.clipboard_image(),
+        Err(ImageClipboardError::TooLarge(_))
+    ));
+    *clipboard::PNG.lock().unwrap() = None;
+
+    stream.stop();
+    until("the host's session ended", LOADED, || session.stopping()).await;
+    until("sessions released", LOADED, || {
+        h.h.sessions.lock().unwrap().idle()
+    })
+    .await;
+    h.finish().await
 }
 
 /// A power backend with S3 that counts suspends in place of the PC's.

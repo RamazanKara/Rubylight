@@ -67,7 +67,7 @@ mod bandwidth_probe_tests;
 #[cfg(test)]
 mod native_tests;
 #[cfg(test)]
-mod parity_tests;
+pub(crate) mod parity_tests;
 #[derive(Debug)]
 struct LaunchFailure(u16, &'static str);
 impl std::fmt::Display for LaunchFailure {

@@ -8,9 +8,11 @@
 
 mod apps;
 mod capabilities;
+mod clipboard_image;
 mod crypto;
 mod der;
 mod files;
+mod folders;
 mod hardware_metrics;
 mod identity;
 mod launch;
@@ -33,7 +35,15 @@ pub use capabilities::{
     PERMISSION_LAUNCH, PERMISSION_LIST, PERMISSION_SERVER_COMMAND, PERMISSION_VIEW,
     PYROWAVE_CODEC_BITS,
 };
+pub use clipboard_image::{
+    png_size, ImageClipboardError, MAX_CLIPBOARD_IMAGE_BYTES, MAX_IMAGE_PIXELS, MAX_IMAGE_SIDE,
+    PNG_SIGNATURE,
+};
 pub use files::{FileError, FileList, FileRefusal, RemoteFile, TransferCancel, Uploaded};
+pub use folders::{
+    child_path, collision_name, file_name, has_part_suffix, parent_path, EntryKind, FolderAccess,
+    FolderEntries, FolderEntry, SharedFolder, MAX_FOLDER_DEPTH, PART_SUFFIX,
+};
 pub use hardware_metrics::{
     GpuMetrics, HardwareMetrics, Readings, CPU_METRICS, GPU_METRICS, MAX_HARDWARE_METRICS_BYTES,
 };

@@ -17,18 +17,18 @@ use std::time::Duration;
 const LIST_PATH: &str = "files";
 const CONTENT_PATH: &str = "files/content";
 /// A folder of a few thousand files is well under this.
-const MAX_LIST_BYTES: usize = 4 * 1024 * 1024;
+pub(super) const MAX_LIST_BYTES: usize = 4 * 1024 * 1024;
 /// An upload's answer, or a refusal.
-const MAX_JSON_BYTES: usize = 1024 * 1024;
+pub(super) const MAX_JSON_BYTES: usize = 1024 * 1024;
 /// The host gives up on a transfer idle for 30 s. The client waits a little longer, in either
 /// direction, so that the host's answer comes first.
-const TRANSFER_TIMEOUT: Duration = Duration::from_secs(35);
+pub(super) const TRANSFER_TIMEOUT: Duration = Duration::from_secs(35);
 
 /// Cancels one upload or download from another thread, at once, even while it waits on the
 /// host: the transfer's socket is shut down. One per transfer, cheap to share as an `Arc`; it
 /// leaves the client's other requests alone, unlike `HostClient::cancel_pending_requests`.
 #[derive(Default)]
-pub struct TransferCancel(transport::Cancel);
+pub struct TransferCancel(pub(super) transport::Cancel);
 
 impl TransferCancel {
     pub fn new() -> Self {
@@ -96,10 +96,12 @@ pub enum FileRefusal {
     TransferBusy,
     /// 404 `not_found`: no such file.
     NotFound,
+    /// 403 `folders_disabled`: the host shares no folders.
+    FoldersDisabled,
 }
 
 impl FileRefusal {
-    const ALL: [(u16, &'static str, FileRefusal); 10] = [
+    const ALL: [(u16, &'static str, FileRefusal); 11] = [
         (403, "forbidden", FileRefusal::Forbidden),
         (
             403,
@@ -118,6 +120,7 @@ impl FileRefusal {
         (409, "no_console_user", FileRefusal::NoConsoleUser),
         (409, "transfer_busy", FileRefusal::TransferBusy),
         (404, "not_found", FileRefusal::NotFound),
+        (403, "folders_disabled", FileRefusal::FoldersDisabled),
     ];
 
     fn from_answer(status: u16, code: &str) -> Option<Self> {
@@ -206,7 +209,7 @@ fn refusal(response: transport::Response, path: &str) -> FileError {
 }
 
 /// Reads an answer to `path`: `success` is the one status that is not a refusal.
-fn decode<T: serde::de::DeserializeOwned>(
+pub(super) fn decode<T: serde::de::DeserializeOwned>(
     response: transport::Response,
     path: &str,
     success: u16,
@@ -226,7 +229,7 @@ fn decode<T: serde::de::DeserializeOwned>(
 }
 
 /// Reads an upload's answer: 201, and the host stored as many bytes as were sent.
-fn uploaded(response: transport::Response, path: &str, length: u64) -> Result<Uploaded, FileError> {
+pub(super) fn uploaded(response: transport::Response, path: &str, length: u64) -> Result<Uploaded, FileError> {
     let uploaded: Uploaded = decode(response, path, 201)?;
     if uploaded.size != length {
         return Err(Error::Malformed(format!(
@@ -239,7 +242,7 @@ fn uploaded(response: transport::Response, path: &str, length: u64) -> Result<Up
 }
 
 /// Reads a download's answer: only a 200 delivered the `length` bytes in the sink.
-fn downloaded(response: transport::Response, path: &str, length: u64) -> Result<u64, FileError> {
+pub(super) fn downloaded(response: transport::Response, path: &str, length: u64) -> Result<u64, FileError> {
     match response.status {
         200 => Ok(length),
         201..=299 => Err(Error::Status {
@@ -253,13 +256,13 @@ fn downloaded(response: transport::Response, path: &str, length: u64) -> Result<
 
 /// The local side of a transfer. Keeps its first error, so that a full disk is not taken for a
 /// network failure.
-struct Local<T> {
+pub(super) struct Local<T> {
     inner: T,
     error: Option<std::io::Error>,
 }
 
 impl<T> Local<T> {
-    fn new(inner: T) -> Self {
+    pub(super) fn new(inner: T) -> Self {
         Self { inner, error: None }
     }
 
@@ -274,7 +277,7 @@ impl<T> Local<T> {
 
     /// `error`, unless the local side failed first. A cancel wins: what failed after it does
     /// not matter.
-    fn or(self, error: Error) -> FileError {
+    pub(super) fn or(self, error: Error) -> FileError {
         match (self.error, error) {
             (_, Error::Cancelled) => FileError::Host(Error::Cancelled),
             (Some(local), _) => FileError::Local(local),
@@ -300,7 +303,7 @@ impl<W: Write> Write for Local<W> {
 }
 
 impl HostClient {
-    fn files_request<'a>(
+    pub(super) fn files_request<'a>(
         &'a self,
         target: &'a str,
         limit: usize,
@@ -351,6 +354,7 @@ impl HostClient {
             reader: &mut file,
             length,
             content_type: "application/octet-stream",
+            method: "POST",
         };
         match transport::upload(&request, &self.cancel, upload, progress, &stop.0) {
             Ok(response) => uploaded(response, &path, length),
@@ -404,8 +408,8 @@ mod tests {
         )
     }
 
-    /// The design's error table, row by row.
-    const TABLE: [(u16, &str, FileRefusal); 10] = [
+    /// The design's error tables, Files and Shared folders, row by row.
+    const TABLE: [(u16, &str, FileRefusal); 11] = [
         (403, "forbidden", FileRefusal::Forbidden),
         (
             403,
@@ -424,6 +428,7 @@ mod tests {
         (409, "no_console_user", FileRefusal::NoConsoleUser),
         (409, "transfer_busy", FileRefusal::TransferBusy),
         (404, "not_found", FileRefusal::NotFound),
+        (403, "folders_disabled", FileRefusal::FoldersDisabled),
     ];
 
     #[test]

@@ -85,12 +85,15 @@ pub(super) fn ensure_streaming_session() -> Result<()> {
 
 /// The clipboard `/actions/clipboard` reaches in tests: in memory, with the
 /// real one's checks and conversions. Only
-/// `clipboard_images_travel_as_png_within_the_limit` puts an image there.
-pub(super) mod clipboard {
+/// `clipboard_images_travel_as_png_within_the_limit` and Nightjar's interop
+/// test put an image there, each holding [`TURN`] while it does.
+pub(crate) mod clipboard {
     use anyhow::Result;
     use butterpollo_core::clipboard_image::{self, ImageError};
     use std::sync::Mutex;
-    pub(super) static PNG: Mutex<Option<Vec<u8>>> = Mutex::new(None);
+    pub(crate) static PNG: Mutex<Option<Vec<u8>>> = Mutex::new(None);
+    /// One test at a time on the clipboard.
+    pub(crate) static TURN: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     pub fn read() -> Result<String> {
         Ok(String::new())
     }
@@ -1540,6 +1543,7 @@ async fn post_png(
 async fn clipboard_images_travel_as_png_within_the_limit() {
     use butterpollo_core::clipboard_image::{Image, decode_png, encode_png};
     const MIB: usize = 1024 * 1024;
+    let _turn = clipboard::TURN.lock().await;
     let f = Fixture::new();
     let client = f.client((1 << 16) | (1 << 17) | (1 << 25));
     let _session = f.session(client, Role::InputOnly);

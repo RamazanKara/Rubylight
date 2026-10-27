@@ -257,6 +257,8 @@ pub(crate) struct Upload<'a> {
     pub reader: &'a mut dyn Read,
     pub length: u64,
     pub content_type: &'static str,
+    /// `POST` for file transfer, `PUT` for a shared folder.
+    pub method: &'static str,
 }
 
 /// Bytes moved so far and the total: once at 0, then at most every `PROGRESS_BYTES` and
@@ -304,11 +306,41 @@ const UPLOAD_CHUNK: usize = 64 * 1024;
 /// `transfer` cancels only this upload, at once, even while a write blocks; the read timeout
 /// also bounds every write, and the time without progress over all of them, so a host that
 /// stops reading fails the upload once. A reader that ends before `length` fails loudly.
+///
+/// The body waits for the host's `100 Continue`, within the read timeout: a host that refuses
+/// the upload by its head (413, 403) answers and closes without reading it, and on Windows the
+/// reset of a body sent anyway discards that answer before it is read.
 pub(crate) fn upload(request: &Request<'_>, cancel: &Cancel, upload: Upload<'_>, progress: &mut Progress<'_>, transfer: &Cancel) -> Result<Response, Error> {
-    let head = head(request, Some((upload.content_type, upload.length)));
+    let mut head = head_with(upload.method, request, Some((upload.content_type, upload.length)));
+    head.insert_str(head.len() - 2, "Expect: 100-continue\r\n");
     connection(request, &[cancel, transfer], Deadline::idle(request), request.timeouts.read, &head, |stream, _| {
-        send_upload(stream, upload, request.body_limit, progress, transfer)
+        match await_continue(stream, request.body_limit)? {
+            Some(refusal) => Ok(refusal),
+            None => send_upload(stream, upload, request.body_limit, progress, transfer),
+        }
     })
+}
+
+/// Reads the host's answer to an `Expect: 100-continue` head: `None` once it says `100 Continue`,
+/// else its refusal, read whole. It cannot have accepted a body it did not get.
+fn await_continue(stream: &mut dyn Stream, body_limit: usize) -> Result<Option<Response>, Error> {
+    let mut reader = Reader { stream, buffer: Vec::new(), eof: false };
+    loop {
+        let head = read_head(&mut reader)?;
+        match head.status {
+            100 => break,
+            102..=199 => continue,
+            200..=299 => return Err(Error::Malformed(format!("the host answered {} before the upload was sent", head.status))),
+            _ => {
+                let body = read_body(&mut reader, &head, body_limit)?;
+                return Ok(Some(head.into_response(body)));
+            }
+        }
+    }
+    if !reader.buffer.is_empty() {
+        return Err(Error::Malformed("the host sent more than 100 Continue before the upload".into()));
+    }
+    Ok(None)
 }
 
 /// Why an upload stopped sending.
@@ -523,9 +555,12 @@ fn request_head(request: &Request<'_>, body: Option<Body<'_>>) -> String {
 
 /// A GET, or a POST of `(media type, length)`.
 fn head(request: &Request<'_>, body: Option<(&str, u64)>) -> String {
+    head_with(if body.is_some() { "POST" } else { "GET" }, request, body)
+}
+
+fn head_with(method: &str, request: &Request<'_>, body: Option<(&str, u64)>) -> String {
     let mut head = format!(
-        "{} /{} HTTP/1.1\r\nHost: {}:{}\r\nConnection: close\r\nUser-Agent: {}\r\n",
-        if body.is_some() { "POST" } else { "GET" },
+        "{method} /{} HTTP/1.1\r\nHost: {}:{}\r\nConnection: close\r\nUser-Agent: {}\r\n",
         request.target,
         request.host.url_host(),
         request.port,
@@ -1198,6 +1233,10 @@ mod tests {
         let head = request_head(&request, Some(Body::json(b"{}")));
         assert!(head.ends_with("Content-Type: application/json\r\nContent-Length: 2\r\n\r\n"), "{head}");
         assert!(request_head(&request, None).starts_with("GET /power-actions/v1/sleep?token=ab HTTP/1.1\r\n"));
+        // A shared folder's upload.
+        let head = head_with("PUT", &request, Some(("application/octet-stream", 3)));
+        assert!(head.starts_with("PUT /power-actions/v1/sleep?token=ab HTTP/1.1\r\n"), "{head}");
+        assert!(head.ends_with("Content-Type: application/octet-stream\r\nContent-Length: 3\r\n\r\n"), "{head}");
     }
 
     #[test]
@@ -1225,7 +1264,17 @@ mod tests {
         }))
     }
 
-    fn read_head_of(socket: &mut std::net::TcpStream) -> String {
+    /// Reads a request head and, like the host, lets an upload that expects it go on.
+    fn read_head_of(socket: &mut (impl Read + Write)) -> String {
+        let head = read_head_only(socket);
+        if head.contains("\r\nExpect: 100-continue\r\n") {
+            socket.write_all(b"HTTP/1.1 100 Continue\r\n\r\n").unwrap();
+            socket.flush().unwrap();
+        }
+        head
+    }
+
+    fn read_head_only(socket: &mut impl Read) -> String {
         let mut head = Vec::new();
         while !head.ends_with(b"\r\n\r\n") {
             let mut byte = [0]; socket.read_exact(&mut byte).unwrap(); head.push(byte[0]);
@@ -1334,14 +1383,38 @@ mod tests {
         // A reader with more than `length`: only `length` bytes go out.
         let mut reader = std::io::Cursor::new([sent.as_slice(), b"not sent"].concat());
         let response = upload(&transfer(&host_name, port, "files?name=a"), &Cancel::default(),
-            Upload { reader: &mut reader, length: sent.len() as u64, content_type: "application/octet-stream" },
+            Upload { reader: &mut reader, length: sent.len() as u64, content_type: "application/octet-stream", method: "POST" },
             &mut recorder(&mut calls), &Cancel::default()).unwrap();
         assert_eq!((response.status, response.body.as_slice()), (201, &b"{}"[..]));
         let (head, body) = server.join().unwrap();
         assert!(head.starts_with("POST /files?name=a HTTP/1.1\r\n"), "{head}");
         assert!(head.contains("Content-Type: application/octet-stream\r\nContent-Length: 5242887\r\n"), "{head}");
+        assert!(head.ends_with("\r\nExpect: 100-continue\r\n\r\n"), "{head}");
         assert!(body == sent);
         assert_progress(&calls, sent.len() as u64);
+    }
+
+    #[test]
+    fn an_upload_refused_by_its_head_sends_no_body_and_returns_the_refusal() {
+        let host_name = Host::parse("127.0.0.1").unwrap();
+        let refuse = |answer: &'static [u8]| host(move |mut socket| {
+            read_head_only(&mut socket);
+            socket.write_all(answer).unwrap();
+            read_rest(&mut socket).len()
+        });
+        let send = |port| upload(&transfer(&host_name, port, "files"), &Cancel::default(),
+            Upload { reader: &mut &file(1024 * 1024)[..], length: 1024 * 1024, content_type: "image/png", method: "POST" },
+            &mut |_, _| {}, &Cancel::default());
+        // Interim answers other than 100 are skipped.
+        let (port, server) = refuse(b"HTTP/1.1 103 Early Hints\r\n\r\nHTTP/1.1 413 Payload Too Large\r\nContent-Length: 3\r\n\r\nbig");
+        let response = send(port).unwrap();
+        assert_eq!((response.status, response.body.as_slice()), (413, &b"big"[..]));
+        assert_eq!(server.join().unwrap(), 0);
+        // A success for a body it never got is not one.
+        let (port, server) = refuse(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+        let result = send(port);
+        assert!(matches!(&result, Err(Error::Malformed(m)) if m.contains("before the upload was sent")), "{result:?}");
+        assert_eq!(server.join().unwrap(), 0);
     }
 
     #[test]
@@ -1350,7 +1423,7 @@ mod tests {
         // The file ends early.
         let (port, server) = host(|mut socket| { read_head_of(&mut socket); read_rest(&mut socket).len() });
         let result = upload(&transfer(&host_name, port, "files"), &Cancel::default(),
-            Upload { reader: &mut &file(1000)[..], length: 4000, content_type: "application/octet-stream" },
+            Upload { reader: &mut &file(1000)[..], length: 4000, content_type: "application/octet-stream", method: "POST" },
             &mut |_, _| {}, &Cancel::default());
         assert!(matches!(&result, Err(Error::InvalidArgument(m)) if m == "the upload ended after 1000 of 4000 bytes"), "{result:?}");
         assert_eq!(server.join().unwrap(), 1000);
@@ -1360,7 +1433,7 @@ mod tests {
         let data = file(4 * 1024 * 1024);
         let mut reader = Trip::new(&data[..], 1024 * 1024, || stop.cancel());
         let result = upload(&transfer(&host_name, port, "files"), &Cancel::default(),
-            Upload { reader: &mut reader, length: 4 * 1024 * 1024, content_type: "application/octet-stream" },
+            Upload { reader: &mut reader, length: 4 * 1024 * 1024, content_type: "application/octet-stream", method: "POST" },
             &mut |_, _| {}, &stop);
         assert!(matches!(result, Err(Error::Cancelled)), "{result:?}");
         // The cancel also shuts the socket, so the chunk in flight may not get out either.
@@ -1403,7 +1476,7 @@ mod tests {
         let canceller = cancel_later(&job, Duration::from_millis(200));
         let started = std::time::Instant::now();
         let result = upload(&transfer(&host_name, port, "files"), &client,
-            Upload { reader: &mut std::io::repeat(7).take(64 << 20), length: 64 << 20, content_type: "application/octet-stream" },
+            Upload { reader: &mut std::io::repeat(7).take(64 << 20), length: 64 << 20, content_type: "application/octet-stream", method: "POST" },
             &mut |_, _| {}, &job);
         assert!(matches!(result, Err(Error::Cancelled)), "{result:?}");
         assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
@@ -1509,7 +1582,7 @@ mod tests {
         for tls in [true, false] {
             let stall = |_| std::thread::sleep(Duration::from_secs(3));
             let (port, config, server) = if tls {
-                let (port, config, server) = tls_host(move |tls| stall(tls.sock));
+                let (port, config, server) = tls_host(move |mut tls| { read_head_of(&mut tls); stall(tls.sock) });
                 (port, Some(config), server)
             } else {
                 let (port, server) = host(move |mut socket| { read_head_of(&mut socket); stall(socket) });
@@ -1520,7 +1593,7 @@ mod tests {
             let mut last = 0;
             let started = std::time::Instant::now();
             let result = upload(&request, &Cancel::default(),
-                Upload { reader: &mut std::io::repeat(7).take(length), length, content_type: "application/octet-stream" },
+                Upload { reader: &mut std::io::repeat(7).take(length), length, content_type: "application/octet-stream", method: "POST" },
                 &mut |done, _| last = done, &Cancel::default());
             let took = started.elapsed();
             assert!(matches!(&result, Err(Error::Io(e)) if matches!(e.kind(), ErrorKind::TimedOut | ErrorKind::WouldBlock)),
@@ -1597,7 +1670,7 @@ mod tests {
         let send = |answer: &[u8]| {
             let mut stream = Refusing { accepted: 100 * 1024, answer: std::io::Cursor::new(answer.to_vec()) };
             send_upload(&mut stream, Upload { reader: &mut &file(1024 * 1024)[..], length: 1024 * 1024,
-                content_type: "application/octet-stream" }, 1024, &mut |_, _| {}, &Cancel::default())
+                content_type: "application/octet-stream", method: "POST" }, 1024, &mut |_, _| {}, &Cancel::default())
         };
         let error = br#"{"error":{"code":"too_large","message":""}}"#;
         let refusal = [format!("HTTP/1.1 413 Payload Too Large\r\nContent-Length: {}\r\n\r\n", error.len()).as_bytes(), error].concat();

@@ -303,6 +303,7 @@ impl Injector {
         pressure: f32,
         rotation: u16,
         tilt: u8,
+        roll: u16,
     ) -> Result<()> {
         // The pen cannot be active before the display exists.
         let Some(rect) = self.pointer_display() else {
@@ -310,7 +311,7 @@ impl Injector {
         };
         let location = self.location(rect, x, y);
         let Some(frame) = pen_frame(
-            self.pen, event, tool, buttons, location, pressure, rotation, tilt,
+            self.pen, event, tool, buttons, location, pressure, rotation, tilt, roll,
         ) else {
             return Ok(());
         };
@@ -392,6 +393,7 @@ fn pen_frame(
     pressure: f32,
     rotation: u16,
     tilt: u8,
+    roll: u16,
 ) -> Option<POINTER_PEN_INFO> {
     if event == 5 && pen.pointerInfo.pointerFlags == POINTER_FLAG_NONE {
         return None;
@@ -423,9 +425,12 @@ fn pen_frame(
             pen.penMask = PEN_MASK_NONE;
             pen.pressure = 0;
         }
-        if rotation != u16::MAX {
+        // Windows' rotation is the pen's twist. A known barrel roll (0x5500000B) is that;
+        // otherwise the tilt's direction goes there, as in the C++ host.
+        let twist = if roll != u16::MAX { roll } else { rotation };
+        if twist != u16::MAX {
             pen.penMask |= PEN_MASK_ROTATION;
-            pen.rotation = u32::from(rotation % 360);
+            pen.rotation = u32::from(twist % 360);
         }
         if tilt != u8::MAX && rotation != u16::MAX {
             let angle = f32::from(rotation).to_radians();
@@ -442,7 +447,17 @@ fn pen_cancel(pen: POINTER_PEN_INFO) -> Option<POINTER_PEN_INFO> {
     if pen.pointerInfo.pointerFlags == POINTER_FLAG_NONE {
         return None;
     }
-    pen_frame(pen, 7, 0, 0, POINT::default(), 0., u16::MAX, u8::MAX)
+    pen_frame(
+        pen,
+        7,
+        0,
+        0,
+        POINT::default(),
+        0.,
+        u16::MAX,
+        u8::MAX,
+        u16::MAX,
+    )
 }
 /// The pen after a frame: edge flags last one frame. A pen that ended, or
 /// that Windows refused to put down and so never saw, is inactive whether or
@@ -734,14 +749,37 @@ mod tests {
     }
     fn pen_event(pen: POINTER_PEN_INFO, event: u8, pressure: f32) -> Option<POINTER_PEN_INFO> {
         let location = POINT { x: 10, y: 20 };
-        pen_frame(pen, event, 1, 0, location, pressure, u16::MAX, u8::MAX)
+        pen_frame(
+            pen,
+            event,
+            1,
+            0,
+            location,
+            pressure,
+            u16::MAX,
+            u8::MAX,
+            u16::MAX,
+        )
     }
     #[test]
     fn pen_pressure_and_button_frames_match_the_cpp_host() {
         let idle = POINTER_PEN_INFO::default();
         let in_contact = POINTER_FLAG_UPDATE | POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT;
         // A button change with no active pen injects nothing.
-        assert!(pen_frame(idle, 5, 1, 1, POINT::default(), 0., u16::MAX, u8::MAX).is_none());
+        assert!(
+            pen_frame(
+                idle,
+                5,
+                1,
+                1,
+                POINT::default(),
+                0.,
+                u16::MAX,
+                u8::MAX,
+                u16::MAX
+            )
+            .is_none()
+        );
         // A pressure of 0 in contact is passed as none.
         let down = pen_event(idle, 1, 0.).unwrap();
         assert_eq!(
@@ -763,13 +801,62 @@ mod tests {
         assert_eq!((hover.penMask, hover.pressure), (PEN_MASK_NONE, 0));
         // With an active pen, a button change is passed on.
         let hovering = pen_after(hover, 0, false);
-        let barrel = pen_frame(hovering, 5, 1, 1, POINT::default(), 0., u16::MAX, u8::MAX).unwrap();
+        let barrel = pen_frame(
+            hovering,
+            5,
+            1,
+            1,
+            POINT::default(),
+            0.,
+            u16::MAX,
+            u8::MAX,
+            u16::MAX,
+        )
+        .unwrap();
         assert_eq!(barrel.penFlags, PEN_FLAG_BARREL);
         assert_eq!(
             barrel.pointerInfo.pointerFlags,
             POINTER_FLAG_UPDATE | POINTER_FLAG_INRANGE
         );
         assert_eq!(barrel.pointerInfo.ptPixelLocation, POINT { x: 10, y: 20 });
+    }
+    /// A known barrel roll is injected as the pen's twist, and the tilt still follows the
+    /// tilt's direction; an unknown roll keeps the stock mapping.
+    #[test]
+    fn a_barrel_roll_is_injected_as_the_twist() {
+        let frame = |rotation, tilt, roll| {
+            let location = POINT { x: 10, y: 20 };
+            pen_frame(
+                POINTER_PEN_INFO::default(),
+                1,
+                1,
+                0,
+                location,
+                0.5,
+                rotation,
+                tilt,
+                roll,
+            )
+            .unwrap()
+        };
+        let tilt = PEN_MASK_TILT_X | PEN_MASK_TILT_Y;
+        let stock = frame(90, 30, u16::MAX);
+        assert_eq!(stock.penMask, PEN_MASK_PRESSURE | PEN_MASK_ROTATION | tilt);
+        assert_eq!(stock.rotation, 90);
+        for roll in [0, 45, 359] {
+            let rolled = frame(90, 30, roll);
+            assert_eq!(rolled.penMask, stock.penMask, "{roll}");
+            assert_eq!(rolled.rotation, u32::from(roll));
+            assert_eq!((rolled.tiltX, rolled.tiltY), (stock.tiltX, stock.tiltY));
+            // With no tilt's direction the roll is still passed, without a tilt.
+            let upright = frame(u16::MAX, u8::MAX, roll);
+            assert_eq!(upright.penMask, PEN_MASK_PRESSURE | PEN_MASK_ROTATION);
+            assert_eq!(upright.rotation, u32::from(roll));
+        }
+        assert_eq!(
+            frame(u16::MAX, u8::MAX, u16::MAX).penMask,
+            PEN_MASK_PRESSURE
+        );
     }
     #[test]
     fn a_pen_frame_windows_refuses_is_not_repeated_as_a_stale_frame() {

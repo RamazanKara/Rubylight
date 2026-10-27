@@ -794,7 +794,10 @@ impl Injector {
                 pressure,
                 rotation,
                 tilt,
-            } => self.pen(*event, *tool, *buttons, *x, *y, *pressure, *rotation, *tilt)?,
+                roll,
+            } => self.pen(
+                *event, *tool, *buttons, *x, *y, *pressure, *rotation, *tilt, *roll,
+            )?,
             Haptics(enabled) => {
                 self.haptics = *enabled;
                 self.gamepads.set_haptics(*enabled);
@@ -955,6 +958,7 @@ mod tests {
                 pressure: 0.5,
                 rotation: u16::MAX,
                 tilt: u8::MAX,
+                roll: u16::MAX,
             },
         ] {
             injector.apply(&event).unwrap();
@@ -1530,6 +1534,7 @@ mod tests {
                 pressure: 0.,
                 rotation: u16::MAX,
                 tilt: u8::MAX,
+                roll: u16::MAX,
             },
             Event::Relative { x: 3, y: 0 },
         ];

@@ -706,6 +706,7 @@ mod tests {
             pressure: 1.,
             rotation: 0,
             tilt: 0,
+            roll: u16::MAX,
         }
     }
     fn absolute(x: i16, y: i16) -> Input {

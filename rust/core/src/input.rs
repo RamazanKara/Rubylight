@@ -65,6 +65,9 @@ pub enum Input {
         pressure: f32,
         rotation: u16,
         tilt: u8,
+        /// Barrel roll (twist), degrees 0-359 clockwise, or `u16::MAX` when unknown: only
+        /// 0x5500000B carries it.
+        roll: u16,
     },
     ControllerTouch {
         id: u8,
@@ -171,6 +174,7 @@ pub fn decode(b: &[u8]) -> Result<Input> {
         0x55000001 => 10,
         0x55000002 => 36,
         0x55000003 => 36,
+        0x5500000B => 40,
         0x55000004 => 16,
         0x55000005 => 28,
         0x55000006 => 24,
@@ -183,11 +187,14 @@ pub fn decode(b: &[u8]) -> Result<Input> {
     if matches!(magic, 0x55000004..=0x55000007) && b[8] >= 16 {
         bail!("invalid controller number");
     }
-    if matches!(magic, 0x55000002 | 0x55000003) && b[8] > 7 {
+    if matches!(magic, 0x55000002 | 0x55000003 | 0x5500000B) && b[8] > 7 {
         bail!("invalid pointer event");
     }
-    if magic == 0x55000003 && b[9] > 2 {
+    if matches!(magic, 0x55000003 | 0x5500000B) && b[9] > 2 {
         bail!("invalid pen tool");
+    }
+    if magic == 0x5500000B && !matches!(le16(b, 36), 0..360 | u16::MAX) {
+        bail!("invalid pen barrel roll");
     }
     if magic == 0x55000005 && b[9] > 7 {
         bail!("invalid controller touch event");
@@ -281,7 +288,8 @@ pub fn decode(b: &[u8]) -> Result<Input> {
             minor: float(b, 32)?,
             rotation: le16(b, 10),
         },
-        0x55000003 => Input::Pen {
+        // 0x5500000B is the pen packet followed by the barrel roll.
+        0x55000003 | 0x5500000B => Input::Pen {
             event: b[8],
             tool: b[9],
             buttons: b[10],
@@ -290,6 +298,11 @@ pub fn decode(b: &[u8]) -> Result<Input> {
             pressure: float(b, 20)?,
             rotation: le16(b, 24),
             tilt: b[26],
+            roll: if magic == 0x5500000B {
+                le16(b, 36)
+            } else {
+                u16::MAX
+            },
         },
         0x55000004 => {
             if b[8] >= 16 {
@@ -629,6 +642,7 @@ mod tests {
                 0x55000003,
                 0x55000005,
                 0x55000006,
+                0x5500000B,
                 STEAM_ATTRIBUTES_MAGIC,
                 u32::MAX,
             ] {
@@ -640,6 +654,60 @@ mod tests {
                 let _ = decode(&b);
             }
         }
+    }
+    /// 0x5500000B is the pen packet with the barrel roll after it (`rubylight_protocol::pen`);
+    /// the stock pen packet leaves the roll unknown.
+    #[test]
+    fn pen_barrel_roll_decodes_beside_the_stock_pen() {
+        use rubylight_protocol::pen::{PEN_BYTES, PenBarrelRoll, ROLL_UNKNOWN};
+        let mut pen = [0u8; PEN_BYTES];
+        pen[..4].copy_from_slice(&((PEN_BYTES - 4) as u32).to_be_bytes());
+        pen[4..8].copy_from_slice(&0x5500_0003u32.to_le_bytes());
+        pen[8] = 1;
+        pen[9] = 1;
+        pen[12..16].copy_from_slice(&0.25f32.to_le_bytes());
+        pen[16..20].copy_from_slice(&0.75f32.to_le_bytes());
+        pen[20..24].copy_from_slice(&0.5f32.to_le_bytes());
+        pen[24..26].copy_from_slice(&90u16.to_le_bytes());
+        pen[26] = 30;
+        let stock = decode(&pen).unwrap();
+        let Input::Pen { roll, .. } = stock else {
+            panic!("{stock:?}");
+        };
+        assert_eq!(roll, u16::MAX);
+        for value in [0, 270, 359, ROLL_UNKNOWN] {
+            let wire = PenBarrelRoll::new(&pen, value).unwrap().encode();
+            let Input::Pen {
+                event,
+                tool,
+                x,
+                y,
+                pressure,
+                rotation,
+                tilt,
+                roll,
+                ..
+            } = decode(&wire).unwrap()
+            else {
+                panic!("not a pen");
+            };
+            assert_eq!(
+                (event, tool, x, y, pressure, rotation, tilt, roll),
+                (1, 1, 0.25, 0.75, 0.5, 90, 30, value)
+            );
+        }
+        // A roll past 359 that is not unknown, a short packet and the pen's own checks
+        // refuse it.
+        let mut wire = PenBarrelRoll::new(&pen, 10).unwrap().encode();
+        wire[36..38].copy_from_slice(&360u16.to_le_bytes());
+        assert!(decode(&wire).is_err());
+        let mut short = PenBarrelRoll::new(&pen, 10).unwrap().encode().to_vec();
+        short.truncate(38);
+        short[..4].copy_from_slice(&34u32.to_be_bytes());
+        assert!(decode(&short).is_err());
+        let mut tool = PenBarrelRoll::new(&pen, 10).unwrap().encode();
+        tool[9] = 3;
+        assert!(decode(&tool).is_err());
     }
     #[test]
     fn keyboard_codes_drop_moonlights_high_byte() {

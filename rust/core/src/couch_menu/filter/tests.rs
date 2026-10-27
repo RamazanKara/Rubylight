@@ -294,6 +294,7 @@ fn random_input(rng: &mut Rng) -> Input {
             pressure: 0.5,
             rotation: 0,
             tilt: 0,
+            roll: u16::MAX,
         },
         10 => Input::ControllerTouch {
             id: 0,

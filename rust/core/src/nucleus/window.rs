@@ -68,7 +68,7 @@ pub fn parking(desktop: Rect, slot: usize, size: (u32, u32)) -> Result<Rect, Str
     if width <= 0 || height <= 0 {
         return Err(format!("no window size for a {}x{} stream", size.0, size.1));
     }
-    let x = desktop.right() + i64::from(GAP) + slot as i64 * i64::from(width + GAP);
+    let x = desktop.right() + i64::from(GAP) + slot as i64 * (i64::from(width) + i64::from(GAP));
     let y = i64::from(desktop.y);
     if x + i64::from(width) > LIMIT || y + i64::from(height) > LIMIT {
         return Err(format!(
@@ -173,6 +173,8 @@ mod tests {
         );
         assert!(parking(DESKTOP, 0, (0, 1080)).is_err());
         assert!(parking(DESKTOP, 0, (u32::MAX, 1080)).is_err());
+        // Fits an i32, but not with the gap added.
+        assert!(parking(DESKTOP, 1, (i32::MAX as u32, 1080)).is_err());
     }
 
     #[test]

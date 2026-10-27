@@ -159,7 +159,7 @@ pub struct Session {
 }
 
 impl Session {
-    /// A session whose first player, `owner`, takes slot 1. `pads` are the
+    /// A session whose first player, `owner`, takes the first slot. `pads` are the
     /// slots' XInput indices in slot order.
     pub fn new(
         id: u32,

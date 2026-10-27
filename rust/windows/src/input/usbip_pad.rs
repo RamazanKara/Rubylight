@@ -12,6 +12,9 @@ use std::{
 
 /// usbip.exe returns once the device is plugged in or the attach failed.
 const COMMAND_WAIT: Duration = Duration::from_secs(15);
+/// What `usbip.exe port <n>` says for a hub port no device is plugged into: its own words, the
+/// same in every display language (a failed `detach --port` prints Windows' localized error).
+const PORT_NOT_FOUND: &str = "requested port(s) not found";
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// usbip-win2's client: registered install folder, default folder, then PATH.
@@ -147,6 +150,25 @@ fn attach(exe: &Path, tcp: &str, busid: &str) -> Result<u32> {
         .with_context(|| format!("usbip.exe attach printed no port: {}", out.trim()))
 }
 
+/// A `detach --port` that failed because the driver had already unplugged the port, when its
+/// connection closed first, is a detach: `listed` (`usbip.exe port <n>`) finds nothing there.
+/// Any other answer keeps the failure.
+fn detached(result: Result<String>, listed: impl FnOnce() -> Result<String>) -> Result<()> {
+    let Err(error) = result else {
+        return Ok(());
+    };
+    match listed() {
+        Err(listing) if format!("{listing:#}").contains(PORT_NOT_FOUND) => {
+            tracing::info!(
+                error = format!("{error:#}"),
+                "usbip.exe detach failed for a port the driver already unplugged"
+            );
+            Ok(())
+        }
+        _ => Err(error),
+    }
+}
+
 /// Stops the driver attaching `busid` from loopback port `tcp` again.
 fn stop(exe: &Path, tcp: &str, busid: &str) -> Result<String> {
     usbip(
@@ -179,11 +201,13 @@ impl UsbipDriver {
     pub fn attach(&self, tcp_port: u16, busid: &str) -> Result<u32> {
         attach(&self.exe, &tcp_port.to_string(), busid)
     }
-    /// Unplugs hub `port` and stops the driver attaching the device again.
+    /// Unplugs hub `port` and stops the driver attaching the device again. A port the driver
+    /// already unplugged counts as detached.
     pub fn detach(&self, port: u32, tcp_port: u16, busid: &str) -> Result<()> {
-        let detached = usbip(&self.exe, &["detach", "--port", &port.to_string()]);
+        let port = port.to_string();
+        let result = usbip(&self.exe, &["detach", "--port", &port]);
         stop(&self.exe, &tcp_port.to_string(), busid)?;
-        detached.map(drop)
+        detached(result, || usbip(&self.exe, &["port", &port]))
     }
     /// Stops the driver attaching `busid` from 127.0.0.1:`tcp_port` again, for an attach whose
     /// hub port is unknown. Succeeds when there was nothing to stop.
@@ -221,5 +245,50 @@ mod tests {
         assert!(!UsbipDriver::connected(peer, address).unwrap());
         let v6 = "[::1]:1".parse().unwrap();
         assert!(UsbipDriver::connected(v6, address).is_err());
+    }
+
+    #[test]
+    fn a_failed_detach_of_a_port_the_driver_unplugged_is_a_detach() {
+        let failed = || {
+            Err(anyhow::anyhow!(
+                "usbip.exe detach --port 3 failed (exit code: 1): error: Falscher Parameter."
+            ))
+        };
+        let gone = || {
+            Err(anyhow::anyhow!(
+                "usbip.exe port 3 failed (exit code: 1): error: {PORT_NOT_FOUND}"
+            ))
+        };
+        assert!(detached(failed(), gone).is_ok());
+        // Still plugged in, or usbip.exe failing for another reason: the detach failed.
+        for listed in [
+            Ok("Port 03: device in use at High Speed(480Mbps)".to_owned()),
+            Err(anyhow::anyhow!(
+                "usbip.exe port 3 failed (exit code: 1): error: vhci driver is not loaded"
+            )),
+        ] {
+            let error = detached(failed(), || listed).unwrap_err();
+            assert!(
+                format!("{error:#}").contains("detach --port 3"),
+                "{error:#}"
+            );
+        }
+        assert!(
+            detached(Ok(String::new()), || panic!(
+                "a detach that worked lists nothing"
+            ))
+            .is_ok()
+        );
+    }
+
+    /// usbip-win2's own words for an empty port, which [`detached`] reads.
+    #[test]
+    fn usbip_says_an_empty_port_is_not_found() {
+        let Some(exe) = usbip_exe() else {
+            eprintln!("usbip-win2 is not installed here");
+            return;
+        };
+        let error = usbip(&exe, &["port", "255"]).unwrap_err();
+        assert!(format!("{error:#}").contains(PORT_NOT_FOUND), "{error:#}");
     }
 }

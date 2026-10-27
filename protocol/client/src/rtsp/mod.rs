@@ -287,6 +287,8 @@ pub struct RtspOutcome {
     pub sdp: String,
     /// The packed 4:4:4 modes the host's DESCRIBE offered (`packed444::mode_bit`), 0 without.
     pub host_packed444_modes: u8,
+    /// The HDR format the ANNOUNCE asked for (one `rubylight_protocol::hdr` bit), 0 for stock.
+    pub hdr_format: u8,
 }
 
 impl RtspOutcome {
@@ -504,6 +506,7 @@ impl Handshake {
                 control_connect_data: 0,
                 sdp: String::new(),
                 host_packed444_modes: 0,
+                hdr_format: 0,
             },
         })
     }
@@ -683,8 +686,7 @@ impl Handshake {
             mic_port: self.out.mic_port,
             high_quality_surround_supported: self.out.opus.high_quality.is_some(),
             pyrowave_records_enabled: self.out.pyrowave_records_enabled,
-            // Nothing asks for a 3.0 HDR format yet.
-            hdr_format: 0,
+            hdr_format: self.out.config.hdr_format,
             hdr_formats_offered: describe.hdr_formats,
             audio_codec,
             audio_codecs_offered: describe.audio_codecs,
@@ -695,6 +697,7 @@ impl Handshake {
         self.out.config.packet_size = sdp.packet_size;
         self.out.high_quality_surround_enabled = sdp.high_quality_surround_enabled;
         self.out.audio_packet_duration_ms = sdp.audio_packet_duration_ms;
+        self.out.hdr_format = sdp.hdr_format;
         self.out.sdp = sdp.text.clone();
         sdp.text
     }

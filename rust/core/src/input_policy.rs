@@ -430,6 +430,30 @@ mod tests {
         );
     }
     #[test]
+    fn touchpad_click_and_misc_reach_the_pad_unchanged() {
+        // A client's remapped extra buttons arrive as these flags; the VHF
+        // driver gets them as they are, so nothing on the way may drop them.
+        let extended = 0x10_0000 | 0x20_0000;
+        let mapped = Policy::resolve(
+            &Config::parse("back_grip_r4=a\nback_grip_l4=b\nback_grip_r5=x\nback_grip_l5=y\n")
+                .unwrap(),
+        )
+        .unwrap();
+        for policy in [Policy::resolve(&Config::default()).unwrap(), mapped] {
+            assert_eq!(policy.map_back_grips(extended, 0, 0), (extended, 0, 0));
+        }
+        let mut back = BackButton::default();
+        let timeout = Some(Duration::from_millis(500));
+        assert_eq!(
+            back.update(extended | 0x20, Duration::ZERO, timeout),
+            extended | 0x20
+        );
+        assert_eq!(
+            back.update(extended, Duration::from_millis(10), timeout),
+            extended
+        );
+    }
+    #[test]
     fn mapped_back_grips_press_their_button_or_trigger_instead() {
         let policy = Policy::resolve(
             &Config::parse(

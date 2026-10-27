@@ -149,6 +149,28 @@ fn usb_audio_preserves_actuator_samples_only_and_obeys_capability_and_altsetting
 }
 
 #[test]
+fn hid_input_presses_guide_touchpad_click_and_mute_from_the_extended_flags() {
+    let mut pad = DualSense::new(0, 0);
+    for (buttons, byte) in [
+        (0x400, 1),
+        (0x10_0000, 2),
+        (0x20_0000, 4),
+        (0x30_0400, 7),
+        (0, 0),
+    ] {
+        pad.apply(&Input::Controller {
+            id: 0,
+            active: 1,
+            buttons,
+            left_trigger: 0,
+            right_trigger: 0,
+            sticks: [0; 4],
+        });
+        assert_eq!(pad.input_report()[10], byte, "buttons {buttons:#x}");
+    }
+}
+
+#[test]
 fn hid_input_keeps_center_motion_and_both_touch_contacts() {
     let mut pad = DualSense::new(0, 0);
     pad.apply(&Input::Controller {

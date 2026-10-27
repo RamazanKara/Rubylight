@@ -7,7 +7,7 @@ use egui::{
 };
 
 use crate::config::{
-    step_zoom, AudioChannels, CodecPreference, DecoderPreference, HostDisplay, Language, MouseMode, Overrides, Profiles,
+    step_zoom, AudioChannels, CodecPreference, DecoderPreference, ErrorCorrection, HostDisplay, Language, MouseMode, Overrides, Profiles,
     ReduceMotion, Settings, WindowMode, UI_ZOOM_STEPS,
 };
 use crate::console::{self, EndAction, GameState, Playing, Source};
@@ -2099,6 +2099,16 @@ impl Launcher {
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["tell_host_link_speed"], "Tell the PC the link speed", "Lets the PC limit its sending rate to this device's wired port speed.", |ui, s| {
                 toggle(ui, &mut s.tell_host_link_speed)
             });
+            setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["error_correction"], "Error correction", "How much recovery data a Rubylight PC adds to the video. Automatic follows this device's losses. Other PCs use their own setting.", |ui, s| {
+                egui::ComboBox::from_id_salt("error-correction")
+                    .selected_text(error_correction_name(s.error_correction))
+                    .show_ui(ui, |ui| {
+                        let fixed = ErrorCorrection::PERCENTAGES.map(ErrorCorrection::Percent);
+                        for mode in [ErrorCorrection::Host, ErrorCorrection::Auto].into_iter().chain(fixed) {
+                            ui.selectable_value(&mut s.error_correction, mode, error_correction_name(mode));
+                        }
+                    }).response
+            });
             setting_row(ui, s, layered.then_some((&inherited, &mut *overrides)), &["network_grace_ms"], "Network interruption grace", "Keep the session alive through brief network interruptions.", |ui, s| {
                 egui::ComboBox::from_id_salt("network-grace")
                     .selected_text(trf("{} seconds", &[&(s.network_grace_ms / 1000)]))
@@ -3231,6 +3241,14 @@ fn section_at(ui: &mut Ui, title: &str, jump: &mut Option<&'static str>) {
     }
     ui.label(RichText::new(tr(title).to_uppercase()).font(semibold(text::CAPTION)).color(MOON));
     ui.add_space(2.0);
+}
+
+fn error_correction_name(mode: ErrorCorrection) -> String {
+    match mode {
+        ErrorCorrection::Host => tr("PC's setting").to_owned(),
+        ErrorCorrection::Auto => tr("Automatic").to_owned(),
+        ErrorCorrection::Percent(percentage) => trf("{} %", &[&percentage]),
+    }
 }
 
 fn setting_row(

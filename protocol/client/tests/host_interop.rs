@@ -895,6 +895,17 @@ fn start_test_host() -> TestHost {
                 let _ = tls.flush();
                 continue;
             }
+            if target.starts_with("/bandwidth-probe?") {
+                assert_eq!(tls.conn.peer_certificates().unwrap()[0].as_ref(), shared.lock().unwrap().paired_certificate.as_ref().unwrap());
+                assert!(target.starts_with("/bandwidth-probe?bytes=4194304&uniqueid="), "{target}");
+                // As the host past its 3 s cap: chunked, and the body ends before the bytes asked for.
+                write!(tls, "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n").unwrap();
+                for _ in 0..16 { write!(tls, "10000\r\n").unwrap(); tls.write_all(&[7; 65536]).unwrap(); write!(tls, "\r\n").unwrap(); }
+                write!(tls, "0\r\n\r\n").unwrap();
+                tls.conn.send_close_notify();
+                let _ = tls.flush();
+                continue;
+            }
             if target.starts_with("/pyrowave-bandwidth-probe?") {
                 assert_eq!(tls.conn.peer_certificates().unwrap()[0].as_ref(), shared.lock().unwrap().paired_certificate.as_ref().unwrap());
                 write!(tls, "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 33554432\r\nConnection: close\r\n\r\n").unwrap();
@@ -1120,6 +1131,11 @@ fn paired_probes_authenticate_udp_packets_and_transfer_the_advertised_bytes() {
     assert!(result.measured());
     let info = nightjar_core::http::ServerInfo::parse("<root status_code=\"200\"><uniqueid>probe-host</uniqueid><state>SERVER_FREE</state><PairStatus>1</PairStatus><PyroWaveBandwidthProbeBytes>33554432</PyroWaveBandwidthProbeBytes></root>", host.http_port).unwrap();
     let mbps = client.probe_bandwidth(&info).unwrap();
+    assert!(mbps.is_finite() && mbps > 0.0);
+    // Every codec's probe: a body the host cut short still measures, and only a host that offers it is asked.
+    assert!(matches!(client.probe_link(&info), Err(HttpError::InvalidArgument(_))));
+    let offered = nightjar_core::http::ServerInfo::parse("<root status_code=\"200\"><uniqueid>probe-host</uniqueid><state>SERVER_FREE</state><PairStatus>1</PairStatus><BandwidthProbeVersion>1</BandwidthProbeVersion></root>", host.http_port).unwrap();
+    let mbps = client.probe_link(&offered).unwrap();
     assert!(mbps.is_finite() && mbps > 0.0);
     let unpaired = HostClient::new("127.0.0.1", host.http_port, identity.clone()).unwrap().with_https_port(host.https_port);
     assert!(matches!(unpaired.probe_pace(5000, 1392, 60, 50_000), Err(HttpError::NotPaired)));

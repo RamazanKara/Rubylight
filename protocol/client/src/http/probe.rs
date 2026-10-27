@@ -28,6 +28,37 @@ impl HostClient {
         Ok(bytes as f64 * 8.0 / started.elapsed().as_secs_f64().max(0.000001) / 1_000_000.0)
     }
 
+    /// Mbit/s of one `GET /bandwidth-probe` of [`LINK_PROBE_BYTES`] (`Feature::BandwidthProbe`, every
+    /// codec), timed from the response headers to the end of the body. The host stops writing after
+    /// 3 s, so a body that ends early on a slow link is still a measurement; an empty one is not.
+    pub fn probe_link(&self, info: &ServerInfo) -> Result<f64, Error> {
+        if !info.paired || !info.capabilities.has(Feature::BandwidthProbe) {
+            return Err(Error::InvalidArgument("This paired PC does not offer the bandwidth test.".into()));
+        }
+        let bytes = LINK_PROBE_BYTES as usize;
+        let target = self.url_target("bandwidth-probe", Some(&format!("bytes={bytes}")));
+        let mut headers_at = None;
+        let response = transport::probe(&transport::Request {
+            host: &self.host, port: self.https_port(true)?, target: &target, tls: Some(self.tls()?),
+            timeouts: transport::Timeouts { connect: Duration::from_secs(5), read: Some(Duration::from_secs(5)) }, body_limit: bytes,
+        }, &self.cancel, Duration::from_secs(10), &mut |status, headers, _| {
+            if !(200..=299).contains(&status) {
+                return Err(Error::Status { code: status as i32, message: "The PC refused the bandwidth test.".into() });
+            }
+            let content_type = headers.iter().find(|(n, _)| n.eq_ignore_ascii_case("Content-Type")).map(|(_, v)| v.as_str());
+            if !content_type.is_some_and(|s| s.split(';').next().unwrap_or_default().trim().eq_ignore_ascii_case("application/octet-stream")) {
+                return Err(Error::Malformed("Unexpected bandwidth test type.".into()));
+            }
+            headers_at = Some(Instant::now());
+            Ok(())
+        })?;
+        let elapsed = headers_at.map_or(Duration::ZERO, |at| at.elapsed());
+        if response.body.is_empty() {
+            return Err(Error::Malformed("The bandwidth test sent nothing.".into()));
+        }
+        Ok(response.body.len() as f64 * 8.0 / elapsed.as_secs_f64().max(0.000001) / 1_000_000.0)
+    }
+
     pub fn probe_pace(&self, kbps: u32, packet_size: u32, fps: u32, pace_kbps: u32) -> Result<pace::Measurement, Error> {
         if !(5000..=3_000_000).contains(&kbps) || !(256..=1392).contains(&packet_size) || !(10..=500).contains(&fps)
             || pace_kbps < kbps || pace_kbps > 9_999_999 {
@@ -78,6 +109,22 @@ impl HostClient {
             Ok(result)
         })
     }
+}
+
+/// What [`HostClient::probe_link`] asks for: the host's largest probe, so a fast link is past TCP's
+/// slow start for most of it.
+pub const LINK_PROBE_BYTES: u32 = 4 * 1024 * 1024;
+/// The share of a probed link a stream starts at: room for FEC, audio and other traffic.
+pub const PROBE_START_SHARE: f64 = 0.8;
+/// No probe starts a stream below this.
+pub const PROBE_FLOOR_KBPS: u32 = 2000;
+
+/// The first bitrate of a stream whose bitrate is automatic: `configured_kbps`, lowered to
+/// [`PROBE_START_SHARE`] of a link probed at `probe_mbps`, never below [`PROBE_FLOOR_KBPS`]. A
+/// probe never raises it.
+pub fn probe_start_kbps(configured_kbps: u32, probe_mbps: f64) -> u32 {
+    let share = (probe_mbps.max(0.0) * 1000.0 * PROBE_START_SHARE).min(f64::from(u32::MAX)) as u32;
+    configured_kbps.min(share).max(PROBE_FLOOR_KBPS.min(configured_kbps))
 }
 
 fn status_ok(status: u16) -> Result<(), Error> {
@@ -139,5 +186,15 @@ mod tests {
         assert!(parse_result(&reply(101, 100, "2000"), 100).is_err());
         assert!(parse_result(&reply(100, 101, "2000"), 100).is_err());
         assert!(parse_result(&reply(100, 100, "NaN"), 100).is_err());
+    }
+
+    #[test]
+    fn a_probe_only_lowers_the_first_bitrate() {
+        assert_eq!(probe_start_kbps(20_000, 500.0), 20_000);
+        assert_eq!(probe_start_kbps(75_000, 50.0), 40_000);
+        assert_eq!(probe_start_kbps(20_000, 1.0), PROBE_FLOOR_KBPS);
+        assert_eq!(probe_start_kbps(1_500, 1.0), 1_500, "never above the setting, also under the floor");
+        assert_eq!(probe_start_kbps(20_000, f64::NAN), PROBE_FLOOR_KBPS);
+        assert_eq!(probe_start_kbps(u32::MAX, f64::INFINITY), u32::MAX);
     }
 }

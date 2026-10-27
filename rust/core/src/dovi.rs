@@ -41,6 +41,13 @@ const YCC_TO_RGB: [i16; 9] = [9574, 0, 13802, 9574, -1540, -5348, 9574, 17610, 0
 const YCC_TO_RGB_OFFSETS: [u32; 3] = [16_777_216, 134_217_728, 134_217_728];
 const RGB_TO_LMS: [i16; 9] = [7222, 8771, 390, 2654, 12430, 1300, 0, 422, 15962];
 
+/// Whether a negotiated stream carries profile 8.1 RPUs: HDR HEVC whose client
+/// picked Dolby Vision 8.1 (`x-rl-video[0].hdrFormat`). Stock clients pick no
+/// format, so their streams stay byte for byte HDR10.
+pub fn negotiated(stream: &crate::rtsp::Negotiated) -> bool {
+    stream.hdr && stream.codec == 1 && stream.hdr_format == rubylight_protocol::hdr::DV_81
+}
+
 /// A PQ signal value (0..=1) as the 12-bit code RPUs carry.
 pub fn pq12(pq: f32) -> u16 {
     if pq.is_nan() {
@@ -321,6 +328,14 @@ impl Writer {
     /// Whether frames carry measured L1 statistics yet.
     pub fn measured(&self) -> bool {
         self.measured.is_some()
+    }
+
+    /// The measurements ended: frames go back to the static light levels,
+    /// from a new scene.
+    pub fn forget_measurements(&mut self) {
+        if self.measured.take().is_some() {
+            self.refresh = true;
+        }
     }
 
     /// What the next frame's RPU says. A keyframe refreshes the scene too, so

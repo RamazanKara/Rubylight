@@ -1,26 +1,56 @@
-//! HDR10+ and HDR Vivid dynamic metadata in AMF's output
-//! (`butterpollo_core::hdr_dynamic`). The compute conversion's statistics pass
-//! (`compute_hdr_stats.rs`) measures each frame once it went to the encoder;
-//! the newest finished sample is smoothed into the units every output frame
-//! carries from then on. Nothing waits for a sample: a frame that comes out
-//! before its own has finished carries the previous one, and frames before the
-//! first sample carry a stand-in from the static HDR10 levels.
+//! Dynamic HDR metadata in AMF's output: HDR10+ and HDR Vivid
+//! (`butterpollo_core::hdr_dynamic`) before each frame's first slice, and a
+//! Dolby Vision profile 8.1 RPU (`butterpollo_core::dovi`) after its last. The
+//! compute conversion's statistics pass (`compute_hdr_stats.rs`) measures each
+//! frame once it went to the encoder; the newest finished sample is smoothed
+//! into what every output frame carries from then on. Nothing waits for a
+//! sample: a frame that comes out before its own has finished carries the
+//! previous one. Before the first sample, frames carry a stand-in from the
+//! static HDR10 levels.
 use crate::compute::HdrStatsReadout;
 use crate::encoder::Unit;
+use butterpollo_core::dovi;
 use butterpollo_core::hdr_dynamic::{self, Codec, Writer};
 use butterpollo_core::session::Warnings;
 use std::time::{Duration, Instant};
 
-/// The codec whose HDR stream gets dynamic metadata: HEVC or AV1, HDR, with
-/// `hdr_dynamic_metadata` on. `None` leaves every output byte as AMF wrote it.
+/// What an HDR stream's frames carry beside the picture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Wanted {
+    pub(super) codec: Codec,
+    /// HDR10+ and HDR Vivid (`hdr_dynamic_metadata`).
+    pub(super) t35: bool,
+    /// A Dolby Vision 8.1 RPU on every frame ([`dovi::negotiated`]).
+    pub(super) dolby_vision: bool,
+}
+
+impl Wanted {
+    #[cfg(test)]
+    pub(super) fn t35(codec: Codec) -> Self {
+        Self {
+            codec,
+            t35: true,
+            dolby_vision: false,
+        }
+    }
+}
+
+/// HEVC or AV1 HDR streams with `hdr_dynamic_metadata` on, and HEVC streams
+/// whose client picked Dolby Vision 8.1. `None` leaves every output byte as
+/// AMF wrote it.
 pub(super) fn wanted(
     config: &butterpollo_core::rtsp::Negotiated,
     options: &butterpollo_core::config::Config,
-) -> Option<Codec> {
-    if !config.hdr || !options.hdr_dynamic_metadata() {
+) -> Option<Wanted> {
+    if !config.hdr {
         return None;
     }
-    Codec::from_video_format(config.codec)
+    let wanted = Wanted {
+        codec: Codec::from_video_format(config.codec)?,
+        t35: options.hdr_dynamic_metadata(),
+        dolby_vision: dovi::negotiated(config),
+    };
+    (wanted.t35 || wanted.dolby_vision).then_some(wanted)
 }
 
 /// The statistics pass behind the compute conversion
@@ -47,52 +77,94 @@ impl Stats for crate::compute::Converter {
     }
 }
 
-/// Dynamic metadata is off for this stream, which carries static HDR10
-/// only: the log and the session's warnings say why.
-fn off(warnings: &Warnings, message: String) {
+/// Something a stream wanted is off: the log and the session's warnings
+/// (under the setting's name) say why.
+fn off(warnings: &Warnings, code: &'static str, message: String) {
     tracing::warn!("{message}");
-    warnings.set("hdr_dynamic_metadata", message);
+    warnings.set(code, message);
 }
 
-/// Dynamic metadata in `codec` for an HDR stream that wants it
-/// ([`wanted`]), from the statistics pass behind the compute conversion:
-/// `stats` is `None` on the D3D11 conversion. A stream that gets none says
-/// why in the log and the session's warnings.
+/// The statistics are gone for this stream (`why`, from `stream` on): HDR10+
+/// is off, and Dolby Vision RPUs carry the static light levels.
+fn unmeasured(wanted: Wanted, stream: &str, why: &str, warnings: &Warnings) {
+    if wanted.t35 {
+        off(
+            warnings,
+            "hdr_dynamic_metadata",
+            format!(
+                "HDR10+ and HDR Vivid are off for {stream}: {why}. It carries static HDR10 metadata only"
+            ),
+        );
+    }
+    if wanted.dolby_vision {
+        off(
+            warnings,
+            "hdr_dolby_vision",
+            format!(
+                "Dolby Vision carries the stream's static light levels for {stream}, not each frame's: {why}"
+            ),
+        );
+    }
+}
+
+/// Dynamic metadata for an HDR stream that wants it ([`wanted`]), measured
+/// by the statistics pass behind the compute conversion: `stats` is `None`
+/// on the D3D11 conversion. Without the pass, HDR10+ is off and Dolby Vision
+/// goes on with the static metadata; the log and the session's warnings say
+/// why. `packed` 4:4:4 never carries Dolby Vision
+/// (`stream_policy::packed_drops_dolby_vision`).
 pub(super) fn start(
-    codec: Codec,
+    mut wanted: Wanted,
     packed: bool,
     stats: Option<&mut impl Stats>,
     warnings: &Warnings,
 ) -> Option<Box<Dynamic>> {
-    let why = if packed {
-        "the stream uses packed 4:4:4".to_owned()
-    } else if let Some(stats) = stats {
-        match stats.enable() {
-            Ok(()) => {
-                tracing::info!(?codec, "HDR dynamic metadata (HDR10+, HDR Vivid) on");
-                return Some(Box::new(Dynamic::new(codec)));
-            }
-            Err(error) => format!(
-                "the GPU statistics pass did not start ({error:#}). Update the AMD driver, or turn off hdr_dynamic_metadata"
-            ),
+    if packed && wanted.dolby_vision {
+        off(
+            warnings,
+            "hdr_dolby_vision",
+            "Dolby Vision is off for this stream: packed 4:4:4 streams carry HDR10 and HDR10+ only. Report this with the host log, the negotiation should have dropped it".to_owned(),
+        );
+        wanted.dolby_vision = false;
+        if !wanted.t35 {
+            return None;
         }
-    } else {
-        "they are measured behind the compute conversion, and this stream uses the D3D11 conversion (gpu_compute_conversion)".to_owned()
-    };
-    off(
-        warnings,
-        format!(
-            "HDR10+ and HDR Vivid are off for this stream: {why}. It carries static HDR10 metadata only"
+    }
+    let why = match stats.map(|stats| stats.enable()) {
+        Some(Ok(())) => {
+            tracing::info!(
+                codec = ?wanted.codec,
+                hdr10_plus = wanted.t35,
+                dolby_vision = wanted.dolby_vision,
+                packed,
+                "HDR dynamic metadata on"
+            );
+            return Some(Box::new(Dynamic::with(wanted, true)));
+        }
+        Some(Err(error)) => format!(
+            "the GPU statistics pass did not start ({error:#}). Update the AMD driver, or turn off hdr_dynamic_metadata"
         ),
-    );
-    None
+        None => "the statistics are measured behind the compute conversion, and this stream uses the D3D11 conversion (gpu_compute_conversion)".to_owned(),
+    };
+    unmeasured(wanted, "this stream", &why, warnings);
+    if !wanted.dolby_vision {
+        return None;
+    }
+    tracing::info!(codec = ?wanted.codec, "Dolby Vision 8.1 on, from the static metadata");
+    Some(Box::new(Dynamic::with(
+        Wanted {
+            t35: false,
+            ..wanted
+        },
+        false,
+    )))
 }
 
 /// Once a frame went to the encoder: start its statistics pass, and take
 /// the newest one finished, while the encoder works on the frame. Never
-/// waits for the GPU. A pass that fails turns dynamic metadata off for the
-/// rest of the stream and says so; it costs no frame, and the stream goes
-/// on with static HDR10.
+/// waits for the GPU. A pass that fails ends the measurements for the rest
+/// of the stream and says so: it costs no frame, HDR10+ goes off and Dolby
+/// Vision goes back to the static light levels.
 pub(super) fn sample(
     slot: &mut Option<Box<Dynamic>>,
     stats: Option<&mut impl Stats>,
@@ -101,16 +173,27 @@ pub(super) fn sample(
     let (Some(dynamic), Some(stats)) = (slot.as_deref_mut(), stats) else {
         return;
     };
+    if !dynamic.measuring {
+        return;
+    }
     let started = Instant::now();
     if let Err(error) = stats.submit() {
         stats.stop();
-        *slot = None;
-        off(
+        unmeasured(
+            dynamic.wanted,
+            "the rest of this stream",
+            &format!("the GPU statistics pass failed ({error:#}). Report this with the host log"),
             warnings,
-            format!(
-                "HDR10+ and HDR Vivid are off for the rest of this stream: the GPU statistics pass failed ({error:#}). The stream carries static HDR10 metadata. Report this with the host log"
-            ),
         );
+        if !dynamic.wanted.dolby_vision {
+            *slot = None;
+            return;
+        }
+        dynamic.measuring = false;
+        dynamic.wanted.t35 = false;
+        if let Some(rpus) = dynamic.dovi.as_mut() {
+            rpus.forget_measurements();
+        }
         return;
     }
     dynamic.submitted(started);
@@ -119,15 +202,17 @@ pub(super) fn sample(
 }
 
 /// An output `unit` as the sender gets it, from the `bytes` AMF wrote and
-/// its frame `cap`: the current units go before a frame's first slice or
-/// tile, or into a whole frame, and every unit of that frame gets a cap
-/// that counts what the frame gained. The bytes are `None` to send them as
-/// they are: without dynamic metadata, a later unit, or nothing spliced.
+/// its frame `cap`: HDR10+ and HDR Vivid go before a frame's first slice or
+/// tile, the Dolby Vision RPU after its last (a whole frame gets both), and
+/// every unit of that frame gets a cap that counts what the frame gained.
+/// A `keyframe` refreshes the RPU's scene. The bytes are `None` to send them
+/// as they are: without dynamic metadata, a middle unit, or nothing added.
 pub(super) fn output(
     dynamic: Option<&mut Dynamic>,
     unit: Unit,
     bytes: &[u8],
     cap: Option<u64>,
+    keyframe: bool,
 ) -> (Option<Vec<u8>>, Option<u64>) {
     let Some(dynamic) = dynamic else {
         return (None, cap);
@@ -136,23 +221,33 @@ pub(super) fn output(
         unit,
         Unit::Whole | Unit::Slice { index: 0 } | Unit::Last { index: 0 }
     );
-    let spliced = if first {
-        dynamic.first_unit(bytes)
-    } else {
-        None
-    };
-    (spliced, dynamic.cap(cap))
+    let mut out = None;
+    if first {
+        out = dynamic.first_unit(bytes);
+        dynamic.next_rpu(!bytes.is_empty(), keyframe);
+    }
+    if matches!(unit, Unit::Whole | Unit::Last { .. }) {
+        out = dynamic.last_unit(out, bytes);
+    }
+    (out, dynamic.cap(cap))
 }
 
 /// One encoder's dynamic metadata.
 pub(super) struct Dynamic {
+    wanted: Wanted,
+    /// HDR10+ and HDR Vivid, and the smoothing every sample goes through.
     writer: Writer,
     display_peak: u16,
+    dovi: Option<dovi::Writer>,
+    /// The statistics pass runs for this stream.
+    measuring: bool,
     /// The conversion the last sample measured: each is smoothed once.
     sampled: u64,
-    /// Bytes the current frame's first unit gained. Its frame cap grows by
-    /// as much, so a streamed frame's payload stays within it.
+    /// Bytes the current frame gained. Each of its units' caps grows by as
+    /// much, so a streamed frame's payload stays within it.
     added: u64,
+    /// The current frame's RPU NAL unit, until its last unit takes it.
+    rpu: Vec<u8>,
     report: Report,
 }
 
@@ -168,11 +263,15 @@ struct Report {
     invalid: u64,
     readout_errors: u64,
     no_insertion: u64,
-    /// CPU time of submitting the statistics pass, taking a sample, and
-    /// splicing the units into a frame.
+    /// Frames that got an RPU, and how many of them before any measurement.
+    rpus: u64,
+    unmeasured_rpus: u64,
+    /// CPU time of submitting the statistics pass, taking a sample,
+    /// splicing the units into a frame, and writing an RPU.
     submit: Cost,
     sample: Cost,
     splice: Cost,
+    rpu: Cost,
 }
 
 #[derive(Default)]
@@ -197,14 +296,25 @@ impl Cost {
 }
 
 impl Dynamic {
-    /// Until the stream names its display peak, the 1000-nit default of
-    /// [`hdr_dynamic::target_display_nits`].
+    /// HDR10+ and HDR Vivid from the statistics pass.
+    #[cfg(test)]
     pub(super) fn new(codec: Codec) -> Self {
+        Self::with(Wanted::t35(codec), true)
+    }
+    /// Until the stream names its target display, the 1000-nit default of
+    /// [`hdr_dynamic::target_display_nits`]; until it names its static
+    /// metadata, `hdr::Metadata::default`.
+    pub(super) fn with(wanted: Wanted, measuring: bool) -> Self {
+        let target = hdr_dynamic::target_display_nits(None, None);
         Self {
-            writer: Writer::new(codec),
-            display_peak: hdr_dynamic::target_display_nits(None, None),
+            wanted,
+            writer: Writer::new(wanted.codec),
+            display_peak: target,
+            dovi: wanted.dolby_vision.then(|| dovi::Writer::new(target)),
+            measuring,
             sampled: 0,
             added: 0,
+            rpu: Vec::new(),
             report: Report::default(),
         }
     }
@@ -214,7 +324,8 @@ impl Dynamic {
         self.sampled
     }
     /// The receiver's display peak. HDR10+ profile A and HDR Vivid name no
-    /// target display, so the units stay as they are.
+    /// target display, so the units stay as they are; Dolby Vision's L2
+    /// trims are written for it.
     pub(super) fn set_target(&mut self, nits: u16) {
         if self.display_peak != nits {
             tracing::info!(
@@ -223,12 +334,18 @@ impl Dynamic {
                 "HDR dynamic metadata receiver display peak"
             );
             self.display_peak = nits;
+            if let Some(rpus) = self.dovi.as_mut() {
+                rpus.set_target_nits(nits);
+            }
         }
     }
     /// The stream's static HDR10 metadata, which frames before the first
-    /// sample carry as a stand-in.
+    /// sample carry as a stand-in, and which every RPU carries.
     pub(super) fn set_metadata(&mut self, metadata: butterpollo_core::hdr::Metadata) {
         self.writer.set_metadata(&metadata);
+        if let Some(rpus) = self.dovi.as_mut() {
+            rpus.set_metadata(metadata);
+        }
     }
     pub(super) fn submitted(&mut self, started: Instant) {
         self.report.submit.add(started);
@@ -251,6 +368,9 @@ impl Dynamic {
                     Some(smoothed) => {
                         self.report.samples += 1;
                         self.report.scene_cuts += u64::from(smoothed.scene_cut);
+                        if let Some(rpus) = self.dovi.as_mut() {
+                            rpus.sample(&smoothed);
+                        }
                     }
                     None => {
                         if self.report.invalid == 0 {
@@ -278,9 +398,9 @@ impl Dynamic {
             }
         }
     }
-    /// The first unit of an output frame with the current units in it, or
-    /// `None` to send it as it is: when it has no insertion point, or when
-    /// AMF produced nothing.
+    /// The first unit of an output frame with the current HDR10+ and HDR
+    /// Vivid units in it, or `None` to send it as it is: without them, when
+    /// it has no insertion point, or when AMF produced nothing.
     pub(super) fn first_unit(&mut self, bytes: &[u8]) -> Option<Vec<u8>> {
         let started = Instant::now();
         self.added = 0;
@@ -289,6 +409,9 @@ impl Dynamic {
         }
         self.report.frames += 1;
         let units = self.writer.units();
+        if !self.wanted.t35 {
+            return None;
+        }
         let Some(spliced) = hdr_dynamic::spliced(self.writer.codec(), bytes, units) else {
             if self.report.no_insertion == 0 {
                 tracing::warn!(
@@ -306,6 +429,35 @@ impl Dynamic {
         self.report.splice.add(started);
         Some(spliced)
     }
+    /// The RPU of a frame that starts, counted in its cap: none for a frame
+    /// AMF produced nothing for, or without Dolby Vision.
+    fn next_rpu(&mut self, frame: bool, keyframe: bool) {
+        self.rpu.clear();
+        let Some(rpus) = self.dovi.as_mut().filter(|_| frame) else {
+            return;
+        };
+        let started = Instant::now();
+        let measured = rpus.measured();
+        self.rpu = rpus.frame(keyframe).nal();
+        self.added += self.rpu.len() as u64;
+        self.report.rpus += 1;
+        self.report.unmeasured_rpus += u64::from(!measured);
+        self.report.rpu.add(started);
+    }
+    /// A frame's last unit (`out` if it was spliced, else `bytes`) with the
+    /// frame's RPU after it, the last NAL unit of the access unit.
+    fn last_unit(&mut self, out: Option<Vec<u8>>, bytes: &[u8]) -> Option<Vec<u8>> {
+        if self.rpu.is_empty() {
+            return out;
+        }
+        let mut out = out.unwrap_or_else(|| {
+            let mut copy = Vec::with_capacity(bytes.len() + self.rpu.len());
+            copy.extend_from_slice(bytes);
+            copy
+        });
+        out.append(&mut self.rpu);
+        Some(out)
+    }
     /// A frame cap that counts the units the current frame gained. Zero (the
     /// driver's unrestricted default) and unknown stay as they are.
     pub(super) fn cap(&self, cap: Option<u64>) -> Option<u64> {
@@ -321,9 +473,13 @@ impl Drop for Dynamic {
         }
         tracing::info!(
             codec = ?self.writer.codec(),
+            hdr10_plus = self.wanted.t35,
+            dolby_vision = self.dovi.is_some(),
             frames = r.frames,
             spliced = r.spliced,
             stand_in = r.stand_in,
+            rpus = r.rpus,
+            unmeasured_rpus = r.unmeasured_rpus,
             samples = r.samples,
             scene_cuts = r.scene_cuts,
             invalid = r.invalid,
@@ -335,6 +491,8 @@ impl Drop for Dynamic {
             sample_max_us = r.sample.worst_us(),
             splice_mean_us = r.splice.mean_us(),
             splice_max_us = r.splice.worst_us(),
+            rpu_mean_us = r.rpu.mean_us(),
+            rpu_max_us = r.rpu.worst_us(),
             "HDR dynamic metadata"
         );
     }
@@ -383,8 +541,11 @@ mod tests {
             hdr,
             ..Default::default()
         };
-        assert_eq!(wanted(&config(1, true), &on), Some(Codec::Hevc));
-        assert_eq!(wanted(&config(2, true), &on), Some(Codec::Av1));
+        assert_eq!(
+            wanted(&config(1, true), &on),
+            Some(Wanted::t35(Codec::Hevc))
+        );
+        assert_eq!(wanted(&config(2, true), &on), Some(Wanted::t35(Codec::Av1)));
         assert_eq!(wanted(&config(1, false), &on), None, "SDR");
         assert_eq!(wanted(&config(0, true), &on), None, "H.264");
         assert_eq!(wanted(&config(3, true), &on), None, "PyroWave");
@@ -566,7 +727,7 @@ mod tests {
     fn a_stream_without_the_statistics_pass_says_why_it_carries_static_hdr10_only() {
         let shown = |packed, stats: Option<&mut FakeStats>| {
             let warnings = Warnings::default();
-            let dynamic = start(Codec::Hevc, packed, stats, &warnings);
+            let dynamic = start(Wanted::t35(Codec::Hevc), packed, stats, &warnings);
             assert!(dynamic.is_none());
             let shown = warnings.snapshot();
             assert_eq!(shown.len(), 1);
@@ -583,24 +744,238 @@ mod tests {
             );
             shown[0].message.clone()
         };
+        for packed in [false, true] {
+            assert!(shown(packed, None::<&mut FakeStats>).contains("the D3D11 conversion"));
+            let mut failing = FakeStats {
+                enable_fails: true,
+                ..Default::default()
+            };
+            assert!(
+                shown(packed, Some(&mut failing))
+                    .contains("statistics pass did not start (root signature rejected)")
+            );
+        }
+        // With the pass, dynamic metadata is on and nothing is shown: packed
+        // 4:4:4 too, whose statistics come from the picture before packing.
         let mut stats = FakeStats::default();
-        assert!(shown(true, Some(&mut stats)).contains("packed 4:4:4"));
-        assert_eq!(stats.enables, 0, "packed 4:4:4 started a pass");
-        assert!(shown(false, None::<&mut FakeStats>).contains("the D3D11 conversion"));
-        let mut failing = FakeStats {
-            enable_fails: true,
+        for (codec, packed) in [(Codec::Av1, false), (Codec::Hevc, true)] {
+            let warnings = Warnings::default();
+            let dynamic = start(Wanted::t35(codec), packed, Some(&mut stats), &warnings);
+            assert!(dynamic.is_some_and(|dynamic| dynamic.measuring));
+            assert!(warnings.snapshot().is_empty());
+        }
+        assert_eq!(stats.enables, 2);
+    }
+
+    #[test]
+    fn packed_444_hdr10_plus_is_spliced_like_420() {
+        let warnings = Warnings::default();
+        let mut stats = FakeStats {
+            readout: Some(readout(4, 120, 640)),
             ..Default::default()
         };
-        assert!(
-            shown(false, Some(&mut failing))
-                .contains("statistics pass did not start (root signature rejected)")
+        let mut slot = start(Wanted::t35(Codec::Hevc), true, Some(&mut stats), &warnings);
+        sample(&mut slot, Some(&mut stats), &warnings);
+        let dynamic = slot.as_deref_mut().unwrap();
+        let units = frame_units(
+            Codec::Hevc,
+            &readout(4, 120, 640).frame_stats().unwrap(),
+        )
+        .unwrap();
+        let frame = keyframe();
+        let at = insert_offset(Codec::Hevc, &frame).unwrap();
+        assert_eq!(
+            output(Some(dynamic), Unit::Whole, &frame, Some(5000), true),
+            (
+                Some([&frame[..at], &units, &frame[at..]].concat()),
+                Some(5000 + units.len() as u64)
+            )
         );
-        // With the pass, dynamic metadata is on and nothing is shown.
+    }
+
+    fn dolby_vision(t35: bool) -> Wanted {
+        Wanted {
+            codec: Codec::Hevc,
+            t35,
+            dolby_vision: true,
+        }
+    }
+
+    /// The RPU a frame ends with: its NAL unit from the last start code on.
+    fn ending_rpu(bytes: &[u8]) -> &[u8] {
+        let at = bytes
+            .windows(6)
+            .rposition(|window| window[..4] == [0, 0, 0, 1] && window[4] == 62 << 1)
+            .expect("no RPU");
+        &bytes[at..]
+    }
+
+    #[test]
+    fn dolby_vision_is_wanted_for_hevc_streams_that_picked_it() {
+        let on = butterpollo_core::config::Config::default();
+        let off =
+            butterpollo_core::config::Config::parse("hdr_dynamic_metadata = false\n").unwrap();
+        let config = |codec, hdr_format| butterpollo_core::rtsp::Negotiated {
+            codec,
+            hdr: true,
+            hdr_format,
+            ..Default::default()
+        };
+        assert_eq!(wanted(&config(1, 4), &on), Some(dolby_vision(true)));
+        // Its RPUs do not need HDR10+.
+        assert_eq!(wanted(&config(1, 4), &off), Some(dolby_vision(false)));
+        // A stock pick (none), PQ, and AV1 carry none.
+        assert_eq!(wanted(&config(1, 0), &off), None);
+        assert_eq!(wanted(&config(1, 1), &off), None);
+        assert_eq!(wanted(&config(2, 4), &off), None);
+    }
+
+    #[test]
+    fn every_dolby_vision_frame_ends_with_an_rpu_counted_in_its_cap() {
+        let mut dynamic = Dynamic::with(dolby_vision(false), false);
+        let mut metadata = butterpollo_core::hdr::Metadata::display(1000., 0.005, 400.);
+        metadata.max_fall = 150;
+        dynamic.set_metadata(metadata);
+        dynamic.set_target(600);
+        let mut rpus = dovi::Writer::new(600);
+        rpus.set_metadata(metadata);
+        // A keyframe, whole: the RPU after its last slice.
+        let frame = keyframe();
+        let expected = rpus.frame(true).nal();
+        let (bytes, cap) = output(Some(&mut dynamic), Unit::Whole, &frame, Some(5000), true);
+        assert_eq!(bytes, Some([frame.clone(), expected.clone()].concat()));
+        assert_eq!(cap, Some(5000 + expected.len() as u64));
+        // A streamed frame in slices: the first and middle units go out as
+        // they are, the last takes the RPU, and all count it.
+        let expected = rpus.frame(false).nal();
+        let grown = Some(5000 + expected.len() as u64);
+        let mut sequencer = super::super::units::Sequencer::default();
+        let [streamed, ..] = frames();
+        let sent = deliver(
+            &mut sequencer,
+            Some(&mut dynamic),
+            1,
+            streamed.0,
+            &streamed.1,
+        );
+        assert_eq!(
+            sent,
+            [
+                (
+                    Unit::Slice { index: 0 },
+                    [aud(), nal(1, &[0xA1])].concat(),
+                    grown
+                ),
+                (Unit::Slice { index: 1 }, nal(1, &[0xA2]), grown),
+                (
+                    Unit::Last { index: 2 },
+                    [nal(1, &[0xA3]), expected].concat(),
+                    grown
+                ),
+            ]
+        );
+        // Static metadata only: the stream's light levels as L1.
+        let parsed = ending_rpu(&sent[2].1);
+        assert_eq!(parsed, &rpus.frame(false).nal()[..]);
+        assert_eq!(dynamic.report.unmeasured_rpus, 2);
+        // An empty output gets no RPU.
+        assert_eq!(
+            output(Some(&mut dynamic), Unit::Whole, &[], Some(5000), false),
+            (None, Some(5000))
+        );
+    }
+
+    #[test]
+    fn dolby_vision_takes_each_sample_and_hdr10_plus_goes_first() {
         let warnings = Warnings::default();
-        let dynamic = start(Codec::Av1, false, Some(&mut stats), &warnings);
-        assert!(dynamic.is_some());
-        assert_eq!(stats.enables, 1);
+        let mut stats = FakeStats {
+            readout: Some(readout(6, 100, 700)),
+            ..Default::default()
+        };
+        let mut slot = start(dolby_vision(true), false, Some(&mut stats), &warnings);
+        sample(&mut slot, Some(&mut stats), &warnings);
+        let dynamic = slot.as_deref_mut().unwrap();
+        let measured = readout(6, 100, 700).frame_stats().unwrap();
+        let units = frame_units(Codec::Hevc, &measured).unwrap();
+        let mut rpus = dovi::Writer::new(1000);
+        rpus.sample(
+            &hdr_dynamic::StatsSmoother::default()
+                .update(&measured)
+                .unwrap(),
+        );
+        let rpu = rpus.frame(false).nal();
+        let frame = keyframe();
+        let at = insert_offset(Codec::Hevc, &frame).unwrap();
+        let (bytes, cap) = output(Some(dynamic), Unit::Whole, &frame, Some(5000), false);
+        assert_eq!(
+            bytes,
+            Some([&frame[..at], &units, &frame[at..], &rpu].concat())
+        );
+        assert_eq!(cap, Some(5000 + (units.len() + rpu.len()) as u64));
+        assert_eq!(dynamic.report.unmeasured_rpus, 0);
         assert!(warnings.snapshot().is_empty());
+    }
+
+    #[test]
+    fn dolby_vision_without_statistics_goes_on_from_the_static_metadata_and_says_so() {
+        // The D3D11 conversion: HDR10+ off, RPUs from the static values.
+        let warnings = Warnings::default();
+        let mut slot = start(dolby_vision(true), false, None::<&mut FakeStats>, &warnings);
+        let dynamic = slot.as_deref_mut().expect("Dolby Vision went off");
+        assert!(!dynamic.measuring && !dynamic.wanted.t35);
+        let mut codes: Vec<_> = warnings.snapshot().into_iter().map(|w| w.code).collect();
+        codes.sort();
+        assert_eq!(codes, ["hdr_dolby_vision", "hdr_dynamic_metadata"]);
+        let frame = keyframe();
+        let (bytes, _) = output(Some(dynamic), Unit::Whole, &frame, None, false);
+        assert_eq!(&bytes.unwrap()[..frame.len()], &frame[..], "HDR10+ went in");
+
+        // A pass that fails mid-stream: the RPUs go back to the static values.
+        let warnings = Warnings::default();
+        let mut stats = FakeStats {
+            fail_at: Some(2),
+            readout: Some(readout(5, 200, 600)),
+            ..Default::default()
+        };
+        let mut slot = start(dolby_vision(true), false, Some(&mut stats), &warnings);
+        sample(&mut slot, Some(&mut stats), &warnings);
+        assert!(slot.as_ref().unwrap().dovi.as_ref().unwrap().measured());
+        sample(&mut slot, Some(&mut stats), &warnings);
+        let dynamic = slot.as_deref_mut().expect("Dolby Vision went off");
+        assert!(stats.stopped && !dynamic.measuring && !dynamic.wanted.t35);
+        assert!(!dynamic.dovi.as_ref().unwrap().measured());
+        let shown = warnings.snapshot();
+        assert_eq!(shown.len(), 2);
+        assert!(
+            shown
+                .iter()
+                .all(|w| w.message.contains("the rest of this stream")),
+            "{shown:?}"
+        );
+        let (bytes, _) = output(Some(dynamic), Unit::Whole, &frame, None, false);
+        let bytes = bytes.unwrap();
+        assert_eq!(&bytes[..frame.len()], &frame[..]);
+        let mut rpus = dovi::Writer::new(1000);
+        assert_eq!(ending_rpu(&bytes), &rpus.frame(false).nal()[..]);
+        sample(&mut slot, Some(&mut stats), &warnings);
+        assert_eq!(stats.submits, 2, "a pass after the failure");
+    }
+
+    #[test]
+    fn packed_444_never_carries_dolby_vision() {
+        let mut stats = FakeStats::default();
+        for t35 in [false, true] {
+            let warnings = Warnings::default();
+            let slot = start(dolby_vision(t35), true, Some(&mut stats), &warnings);
+            assert_eq!(
+                slot.map(|dynamic| (dynamic.dovi.is_some(), dynamic.wanted)),
+                t35.then_some((false, Wanted::t35(Codec::Hevc)))
+            );
+            let shown = warnings.snapshot();
+            assert_eq!(shown.len(), 1);
+            assert_eq!(shown[0].code, "hdr_dolby_vision");
+            assert!(shown[0].message.contains("packed 4:4:4"));
+        }
     }
 
     /// What the sender gets for one frame AMF returned as `units`
@@ -620,7 +995,7 @@ mod tests {
                 Step::Unit(unit, bytes) => (unit, bytes),
                 Step::Whole(bytes) => (Unit::Whole, bytes),
             };
-            let (spliced, cap) = output(dynamic.as_deref_mut(), unit, &bytes, Some(5000));
+            let (spliced, cap) = output(dynamic.as_deref_mut(), unit, &bytes, Some(5000), meta.idr);
             sent.push((unit, spliced.unwrap_or(bytes), cap));
         }
         sent
@@ -769,7 +1144,10 @@ mod tests {
             assert_eq!(bytes, input);
             assert!(sent.iter().all(|&(_, _, cap)| cap == Some(5000)));
         }
-        assert_eq!(output(None, Unit::Whole, &keyframe(), None), (None, None));
+        assert_eq!(
+            output(None, Unit::Whole, &keyframe(), None, true),
+            (None, None)
+        );
     }
 
     #[test]

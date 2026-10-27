@@ -49,6 +49,23 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 #[test]
+fn only_hdr_hevc_streams_that_picked_profile_8_1_carry_rpus() {
+    use rubylight_protocol::hdr;
+    let stream = |codec, hdr, hdr_format| crate::rtsp::Negotiated {
+        codec,
+        hdr,
+        hdr_format,
+        ..Default::default()
+    };
+    assert!(negotiated(&stream(1, true, hdr::DV_81)));
+    assert!(!negotiated(&stream(1, true, 0)), "stock clients pick none");
+    assert!(!negotiated(&stream(1, true, hdr::PQ)));
+    assert!(!negotiated(&stream(1, true, hdr::DV_84)), "8.4 needs HLG");
+    assert!(!negotiated(&stream(2, true, hdr::DV_81)), "AV1");
+    assert!(!negotiated(&stream(1, false, hdr::DV_81)), "SDR");
+}
+
+#[test]
 fn the_crc_is_crc32_mpeg2() {
     // The catalogue check value of CRC-32/MPEG-2.
     assert_eq!(crc32_mpeg2(b"123456789"), 0x0376_E6E7);

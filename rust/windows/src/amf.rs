@@ -1300,8 +1300,9 @@ impl Encoder {
         self.property_raw(&name, value)
     }
     /// HDR10+ and HDR Vivid for an HDR stream with `hdr_dynamic_metadata` on,
-    /// from the statistics pass behind the compute conversion
-    /// ([`dynamic::start`]). A stream without one warns that it carries none.
+    /// from the statistics pass behind the compute conversion, and Dolby
+    /// Vision 8.1 RPUs for a stream that picked it ([`dynamic::start`]). A
+    /// stream that gets less than it wanted says why.
     fn enable_dynamic(
         &mut self,
         config: &butterpollo_core::rtsp::Negotiated,
@@ -1327,7 +1328,8 @@ impl Encoder {
     /// Write HDR10 static metadata (the mastering display and light levels)
     /// into the bitstream. Clients that size HDR from the stream rather than from the
     /// control channel's copy otherwise get no mastering metadata at all.
-    /// Dynamic metadata takes its first frames' stand-in from it.
+    /// Dynamic metadata takes its first frames' stand-in from it, and Dolby
+    /// Vision RPUs carry it from the next frame on.
     pub fn set_hdr_metadata(&mut self, metadata: butterpollo_core::hdr::Metadata) {
         if let Some(dynamic) = self.dynamic.as_deref_mut() {
             dynamic.set_metadata(metadata);
@@ -1794,9 +1796,15 @@ impl Encoder {
                     units::Step::Unit(unit, bytes) => (unit, bytes),
                     units::Step::Whole(bytes) => (Unit::Whole, bytes),
                 };
-                // Dynamic metadata goes before the first slice or tile.
-                let (spliced, frame_cap_bytes) =
-                    dynamic::output(self.dynamic.as_deref_mut(), unit, &bytes, frame_cap_bytes);
+                // Dynamic metadata goes before the first slice or tile, the
+                // Dolby Vision RPU after the last.
+                let (spliced, frame_cap_bytes) = dynamic::output(
+                    self.dynamic.as_deref_mut(),
+                    unit,
+                    &bytes,
+                    frame_cap_bytes,
+                    pushed.meta.idr,
+                );
                 let bytes = spliced.unwrap_or(bytes);
                 let whole = unit == Unit::Whole;
                 // A joined or frame-mode keyframe is recovered as a whole.
@@ -1834,6 +1842,7 @@ impl Encoder {
                     Unit::Whole,
                     bytes,
                     frame_cap_bytes,
+                    idr,
                 );
                 (spliced.unwrap_or_else(|| bytes.to_vec()), cap)
             };

@@ -8,6 +8,12 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod settings30;
+pub use settings30::{
+    BackgroundMode, DisplayAdjust, KeyboardLayoutSetting, SETTINGS_30, SharedFolderConfig,
+    TouchMode,
+};
+
 /// Setting values Rubylight no longer offers, and what replaces each:
 /// the ViGEmBus controllers, which Sunshine, Apollo, Vibepollo and earlier
 /// Rubylight profiles can carry, became the VHF pad of the same family.
@@ -998,6 +1004,24 @@ pub fn override_allowed(key: &str) -> bool {
         "amd_av1_latency_mode",
         "encoder_focus",
         "hdr_peak_brightness",
+        // 3.0 extensions
+        "hdr_dynamic_metadata",
+        "hdr_dolby_vision",
+        "hdr_hlg",
+        "fec_max_percentage",
+        "audio_passthrough",
+        "audio_surround_714",
+        "keyboard_follows_focus",
+        "text_input_surrounding_text",
+        "keyboard_layout",
+        "touch_mode",
+        "touch_sensitivity",
+        "touch_gestures",
+        "client_cursor",
+        "dd_rotation_option",
+        "dd_manual_rotation",
+        "dd_scale_option",
+        "dd_manual_scale",
     ];
     ALLOWED.contains(&key)
 }

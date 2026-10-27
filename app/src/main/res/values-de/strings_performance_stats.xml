@@ -1,14 +1,14 @@
 <resources>
     <string name="stats_decode_submission">CPU-Übermittlung: %1$s ms · Anzeigewartezeit: %2$s ms</string>
     <string name="perf_overlay_pyrowave_submit">CPU-Übermittlungszeit: %1$s ms</string>
-    <string name="latency_pyrowave_completed_decode">Vollständige Dekodierung</string>
+    <string name="latency_pyrowave_completed_decode">Dekodierung abgeschlossen</string>
     <string name="stats_waiting">Warte auf Stream-Statistiken…</string>
     <string name="stats_frame_rates">Gerendert: %1$s FPS · Empfangen: %2$s FPS</string>
     <string name="stats_throughput">Videodaten: %1$s Mbit/s · Verlust: %2$s%%</string>
     <string name="stats_network">Netzwerk-RTT: %1$s ms (±%2$s ms)</string>
     <string name="stats_host">Host-Verarbeitung: %1$s ms</string>
     <string name="stats_host_network">Host bis Netzwerk: %1$s ms</string>
-    <string name="stats_client">Decodierung: %1$s ms · Anzeigewartezeit: %2$s ms</string>
+    <string name="stats_client">Dekodierung: %1$s ms · Anzeigewartezeit: %2$s ms</string>
     <string name="hardware_title">Host-Hardware (alle GPUs)</string>
     <string name="hardware_cpu">Host-CPU: %1$s%%</string>
     <string name="hardware_gpu_summary">Host-GPU %1$d: %2$s%% · %3$s °C · %4$s W</string>

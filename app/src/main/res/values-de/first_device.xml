@@ -32,8 +32,8 @@
     <string name="perf_overlay_low_latency_android">Android</string>
     <string name="perf_overlay_low_latency_vendor">Chiphersteller</string>
     <string name="perf_overlay_low_latency_off">aus</string>
-    <string name="perf_overlay_low_latency_keys">Decoder-Optionen bestätigt: %1$s</string>
-    <string name="perf_overlay_low_latency_unconfirmed">Decoder-Optionen unbestätigt: %1$s</string>
+    <string name="perf_overlay_low_latency_keys">Decoder-Einstellungen übernommen: %1$s</string>
+    <string name="perf_overlay_low_latency_unconfirmed">Decoder-Einstellungen nicht bestätigt: %1$s</string>
     <string name="perf_overlay_phone_hints">Android-Leistungssteuerung: %1$s</string>
     <string name="perf_overlay_thermal">Gerätetemperatur: %1$s</string>
     <string name="perf_overlay_thermal_normal">normal</string>

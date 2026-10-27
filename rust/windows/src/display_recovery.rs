@@ -117,6 +117,9 @@ fn finish_watch(path: &Path) -> Result<()> {
     watch.take();
     Ok(())
 }
+/// How long a killed watcher may take to go. Termination is asynchronous and
+/// on a busy PC took longer than 100 ms; only a stalled watcher waits this.
+const KILLED_WATCH_EXIT_MS: u32 = 2000;
 fn wait_for_watch(process: &mut Child) -> Result<()> {
     // SAFETY: Child owns the process handle for the entire bounded wait.
     match unsafe { WaitForSingleObject(HANDLE(process.as_raw_handle()), 100) } {
@@ -128,9 +131,13 @@ fn wait_for_watch(process: &mut Child) -> Result<()> {
             // Termination is asynchronous. Keep the signaled watcher registered
             // unless it exits, so a new watcher cannot reuse its named event.
             // SAFETY: Child still owns the process handle after requesting termination.
-            match unsafe { WaitForSingleObject(HANDLE(process.as_raw_handle()), 100) } {
+            match unsafe {
+                WaitForSingleObject(HANDLE(process.as_raw_handle()), KILLED_WATCH_EXIT_MS)
+            } {
                 WAIT_OBJECT_0 => {}
-                WAIT_TIMEOUT => bail!("display recovery helper did not stop within 100 ms"),
+                WAIT_TIMEOUT => bail!(
+                    "display recovery helper did not stop within {KILLED_WATCH_EXIT_MS} ms of being killed"
+                ),
                 _ => return Err(windows::core::Error::from_thread().into()),
             }
         }
@@ -797,7 +804,12 @@ mod tests {
             .spawn()?;
         let started = std::time::Instant::now();
         wait_for_watch(&mut child)?;
-        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+        // Bounded by the 100 ms grace and the wait after the kill, not by how
+        // quickly a busy PC ends the process.
+        assert!(
+            started.elapsed()
+                < std::time::Duration::from_millis(100 + u64::from(KILLED_WATCH_EXIT_MS) + 1000)
+        );
         assert_eq!(
             // SAFETY: Child retains its process handle through this bounded exit check.
             unsafe { WaitForSingleObject(HANDLE(child.as_raw_handle()), 1000) },

@@ -4,7 +4,7 @@
 
 Start with the current stream's settings, the console and the logs. Record the time of a failure before changing anything, and change one setting at a time. Capture and performance probes add work to the GPU; use an idle session for those comparisons.
 
-**Find a symptom:** [Setup says this PC cannot run Rubylight 3.0](#setup-or-the-host-says-this-pc-cannot-run-rubylight-30) · [Pairing](#moonlight-cannot-find-or-pair-with-the-pc) · [Console or port](#the-console-will-not-open-or-a-port-is-occupied) · [Black screen](#black-picture-no-display-or-wgc-fails) · [Audio](#audio-cuts-out-or-lags) · [Blurred PyroWave](#pyrowave-shows-blurred-grey-blocks) · [HDR colour](#hdr-looks-washed-out-too-bright-or-different-between-clients) · [Stutter](#low-latency-is-reported-but-motion-still-stutters) · [Playnite](#playnite-does-not-launch) · [RTSS](#rtss-does-not-start-or-the-game-ignores-the-cap) · [Display restoration](#monitors-stay-on-or-the-display-layout-does-not-return) · [Controllers](#a-controller-or-other-input-does-nothing) · [Steam Deck](#a-steam-deck-has-no-gyro-trackpads-or-back-grips) · [Nightjar and host control](#nightjar-cannot-close-a-game-or-change-radeon-settings) · [Updates](#an-update-stays-queued) · [Logs and support](#logs-and-a-useful-report)
+**Find a symptom:** [Setup says this PC cannot run Rubylight 3.0](#setup-or-the-host-says-this-pc-cannot-run-rubylight-30) · [Pairing](#moonlight-cannot-find-or-pair-with-the-pc) · [Console or port](#the-console-will-not-open-or-a-port-is-occupied) · [Black screen](#black-picture-no-display-or-wgc-fails) · [Audio](#audio-cuts-out-or-lags) · [Blurred PyroWave](#pyrowave-shows-blurred-grey-blocks) · [HDR colour](#hdr-looks-washed-out-too-bright-or-different-between-clients) · [Stutter](#low-latency-is-reported-but-motion-still-stutters) · [Playnite](#playnite-does-not-launch) · [RTSS](#rtss-does-not-start-or-the-game-ignores-the-cap) · [Display restoration](#monitors-stay-on-or-the-display-layout-does-not-return) · [Controllers](#a-controller-or-other-input-does-nothing) · [Steam Deck](#a-steam-deck-has-no-gyro-trackpads-or-back-grips) · [Nightjar and host control](#nightjar-cannot-close-a-game-or-change-radeon-settings) · [Updates](#an-update-stays-queued) · [Codec not available](#the-client-asks-for-a-codec-this-gpu-cannot-encode) · [Outside your network](#clients-outside-your-network-cannot-connect) · [Network drops](#the-stream-breaks-up-drops-or-times-out-on-the-network) · [Drivers](#a-driver-is-missing-or-out-of-date) · [Logs and support](#logs-and-a-useful-report)
 
 ## Setup or the host says this PC cannot run Rubylight 3.0
 
@@ -19,6 +19,10 @@ Rubylight 3.0 encodes only on an AMD Radeon GPU, through the AMF video encoder i
 | "... is not an AMD graphics card ... This PC also has AMD ..." | A monitor or the Graphics card setting points at the NVIDIA or Intel GPU of a PC that also has an AMD GPU. Connect the monitor to the AMD GPU, choose it under **Settings → Video → Graphics card**, or switch to WGC capture (Desktop Duplication captures on the GPU that drives the monitor), and reconnect. |
 
 A Moonlight client that cannot start a stream on such a PC shows "No video encoder is ready" with the same advice. The console's warnings and `butterpollo.log` hold the specific reason.
+
+## The client asks for a codec this GPU cannot encode
+
+`AMF_CODEC_NOT_SUPPORTED`, `AMF_ENCODER_NOT_PRESENT` or "this GPU or driver has no encoder for the request" in the log means the device asked for something this Radeon's video encoder does not have: a codec (AV1 on a Radeon without an AV1 encoder, for example), HDR with H.264, or a size or frame rate beyond the encoder's limit. **Home → Host readiness** lists the codecs this GPU encodes. Choose one of those in the client's video settings, or a lower resolution or frame rate, and reconnect. If a codec the GPU should have is missing, update the AMD Radeon driver.
 
 ## What the stream card warnings mean
 
@@ -44,6 +48,10 @@ The stream card shows the active encoder and warnings for the current session. E
 - If setup reported a firewall-rule failure, read the setup log for the exact error and check Windows Firewall's allowance for the installed `butterpollo.exe` on your local network. Avoid disabling the entire firewall to diagnose one application.
 
 If the device pairs but cannot launch Desktop, open **Devices → Edit** and check its enabled state and **List apps**, **View streams** and **Launch apps** permissions. A device missing mouse or keyboard permission can receive video without that input working.
+
+## Clients outside your network cannot connect
+
+With `upnp` on, the host asks the router to forward its streaming ports. "UPnP mapping failed" or "UPnP mapping timed out" means the router refused or did not answer: turn UPnP on in the router, or forward the ports by hand. "UPnP port is already owned by another mapping" means an older mapping, often from another streaming host, holds the port: remove it in the router's port forwarding list. Devices on the same network do not need UPnP.
 
 ## The console will not open, or a port is occupied
 
@@ -217,9 +225,20 @@ To capture Windows' reason, run [trace_display_modes.ps1](../rust/tests/trace_di
 
 Up to rc.10, a launch failed with this error when Windows left the new virtual display switched off, typically because it recalled a layout saved for the other connected displays (two TVs in duplicate mode, for example). rc.11 switches the display on itself after a second, without changing the other displays, and logs `Windows left the new virtual display switched off; switched it on beside the current displays`. Update before trying workarounds such as unplugging the TVs. If a launch still fails, the error says whether Windows reported the display as connected; include that line and the log around it in the report.
 
+## A driver is missing or out of date
+
+- **Rubylight's display driver:** "Rubylight's display driver is not installed", "the virtual display driver is missing" or "the Rubylight display driver speaks protocol ..." means virtual displays are unavailable until the driver is installed and current. Restart Windows if setup asked for it; otherwise run Rubylight's setup again, which reinstalls the driver. The service also sets the driver up again a minute after it finds it missing, unless a stream is running.
+- **AMD's graphics driver:** "AMFInit refused this host's AMF version", "AMF setting unavailable", "AMF LTR unavailable" or "DuplicateOutput1 unavailable" means the driver lacks a feature the host asks for. The stream runs with the driver's defaults. Install the current AMD Radeon driver (the full Adrenalin package, not only Windows Update's driver) and restart Windows if it asks.
+
 ## The stream disconnects after a second with "os error 10035"
 
 `video sender stopped: A non-blocking socket operation could not be completed immediately. (os error 10035)` comes from rc.1, which ended the stream when the Windows send buffer was momentarily full. Since rc.2 the host waits briefly, drops only those packets and keeps streaming, as Vibepollo does; the log then shows `UDP send failed; packets dropped` at most every five seconds. Install the current release. Frequent drop warnings mean the network cannot carry the bitrate: lower it, or use a standard codec rather than PyroWave over Wi-Fi.
+
+## The stream breaks up, drops or times out on the network
+
+- **"client control stream timed out" or "client audio ping timed out":** the device stopped sending on the stream's UDP ports. It lost Wi-Fi, went to sleep, closed the app, or a firewall dropped the traffic. Keep the device awake on the same network, and check that Windows Firewall allows `butterpollo.exe` on private networks; setup adds that rule, and other security software can block it.
+- **"Video frames were lost on the way to this device", "could not carry" or "keyframes are not arriving":** packets did not reach the device, usually on Wi-Fi or a busy link. The host paces the video or lowers the bitrate to get it through. Lower the bitrate in the client, use 5 GHz Wi-Fi closer to the access point, or connect the device by cable.
+- **"roaming reply not sent":** the device moved to another address during the stream, and the host could not answer it there. Reconnect once the device has settled on its new network.
 
 ## A controller or other input does nothing
 
@@ -274,6 +293,8 @@ These need the **Host control** permission for that device, which is off until y
 If a Radeon setting is greyed out, its state says why: some need a one-time setup in AMD Software, some the GPU or driver does not offer. If it says the driver is busy or ADLX did not load, try again later or update the Radeon driver. A change from the client that was not put back after the session ended is logged in `butterpollo.log` with the setting's id and retried at the next host start. A setting you changed on the PC in the meantime is left as you set it ([how restore works](configuration.md#radeon-settings-with-restore)).
 
 ## Logs and a useful report
+
+**Help & diagnostics → Log analysis** reads the newest part of the host log on the host itself and explains the encoder, capture, network and driver failures it recognises, each with how often and when it last happened and a link to its section here. It sends nothing anywhere.
 
 Use **Logs → Download log** for the host log or **Download support bundle** for a ZIP containing logs, configuration diagnostics and an available crash dump. Review the contents before posting publicly.
 

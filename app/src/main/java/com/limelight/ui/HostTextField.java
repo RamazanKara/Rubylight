@@ -137,11 +137,19 @@ public final class HostTextField {
     }
 
     /**
-     * deleteSurroundingText: removes up to before characters before the cursor and sends a
-     * backspace for each code point; text after the cursor is never here, the caller sends those.
+     * deleteSurroundingText: removes up to before UTF-16 units before the composing text, or the
+     * cursor without one, and keeps the composing text, as BaseInputConnection does. The host's
+     * caret is at the end of the composing text, so it gets a backspace for each code point of the
+     * composing and the deleted text, then the composing text again. Text after the cursor is never
+     * here; the caller sends those.
+     * <p>
+     * One backspace per code point: a ZWJ sequence (a family emoji) or a flag is several. Plain
+     * edit controls delete one code point per backspace; a browser or rich edit that deletes a whole
+     * grapheme per backspace then loses as many characters before it as the sequence has extra code
+     * points. The host types into fields whose behaviour it cannot read, and code points are what
+     * its typed text is made of.
      */
     public boolean deleteBefore(int before, Sink sink) {
-        finishComposing();
         int count = Math.min(Math.max(before, 0), committed.length());
         int start = committed.length() - count;
         if (start > 0 && start < committed.length() && Character.isLowSurrogate(committed.charAt(start))) {
@@ -151,9 +159,21 @@ public final class HostTextField {
         // Text from before the field was raised has no mirror here; it still goes.
         codePoints += Math.max(before, 0) - count;
         if (codePoints == 0) return true;
-        if (!sink.send(backspaces(codePoints))) return false;
+        String edit = backspaces(composing.codePointCount(0, composing.length()) + codePoints) + composing;
+        if (!sink.send(edit)) return false;
         committed.setLength(start);
         return true;
+    }
+
+    /**
+     * deleteSurroundingTextInCodePoints: as {@link #deleteBefore}, with before in code points; those
+     * the mirror holds are converted to UTF-16 units, each one before it is one unit.
+     */
+    public boolean deleteBeforeInCodePoints(int before, Sink sink) {
+        before = Math.max(before, 0);
+        int known = Math.min(before, committed.codePointCount(0, committed.length()));
+        int units = committed.length() - committed.offsetByCodePoints(committed.length(), -known);
+        return deleteBefore(units + before - known, sink);
     }
 
     /**

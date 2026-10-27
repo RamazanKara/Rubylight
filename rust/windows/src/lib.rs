@@ -18,6 +18,7 @@ pub mod amf;
 pub mod audio;
 pub mod audio_route;
 pub mod capture;
+pub mod child_session;
 pub mod clipboard;
 pub mod codec_probe;
 pub mod color;

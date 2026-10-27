@@ -8,8 +8,8 @@ use crate::state::Shared;
 use anyhow::{Context, Result, bail};
 use butterpollo_core::{
     child_session::{
-        self as logic, DisplaySettings, Mode, ModeDecision, ModeSetting, Phase, SetupState,
-        ViewerCommand, ViewerStatus,
+        self as logic, DisplaySettings, LineReader, Mode, ModeDecision, ModeSetting, Phase,
+        SetupState, ViewerCommand, ViewerStatus,
     },
     config::Config,
     state::{Credentials, ProfileFiles, load_json, write_json},
@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 use std::{
     ffi::OsString,
     fs::File,
-    io::{BufRead, BufReader, Write},
+    io::{ErrorKind, Read, Write},
     path::{Path, PathBuf},
     sync::{Mutex, MutexGuard, PoisonError},
 };
@@ -305,11 +305,7 @@ fn spawn_viewer(h: &Shared) -> Result<Running> {
     let commands = stdin.context("the child-session viewer has no command pipe")?;
     let output = stdout.context("the child-session viewer has no status pipe")?;
     if let Some(errors) = stderr {
-        std::thread::spawn(move || {
-            for line in BufReader::new(errors).lines().map_while(Result::ok) {
-                tracing::warn!(viewer = pid, "{line}");
-            }
-        });
+        std::thread::spawn(move || read_errors(pid, errors));
     }
     let h = h.clone();
     std::thread::spawn(move || read_status(&h, pid, output));
@@ -326,16 +322,43 @@ fn spawn_viewer(h: &Shared) -> Result<Running> {
     })
 }
 
+/// The viewer's standard error, line by line into the log.
+fn read_errors(pid: u32, errors: impl Read) {
+    let mut lines = LineReader::new(errors, logic::STATUS_LINE_CAP);
+    loop {
+        match lines.read_line() {
+            Ok(Some(line)) => {
+                tracing::warn!(viewer = pid, "{}", String::from_utf8_lossy(line));
+            }
+            Ok(None) => break,
+            // Nothing of the line itself: only that it was too long.
+            Err(error) if error.kind() == ErrorKind::InvalidData => {
+                tracing::warn!(viewer = pid, %error, "the child-session viewer wrote a line that is not logged");
+            }
+            Err(error) => {
+                tracing::warn!(viewer = pid, %error, "the child-session viewer's error pipe failed");
+                break;
+            }
+        }
+    }
+}
+
 fn read_status(h: &Shared, pid: u32, output: File) {
-    for line in BufReader::new(output).lines() {
-        let line = match line {
-            Ok(line) => line,
+    let mut lines = LineReader::new(output, logic::STATUS_LINE_CAP);
+    loop {
+        let line = match lines.read_line() {
+            Ok(Some(line)) => line,
+            Ok(None) => break,
+            Err(error) if error.kind() == ErrorKind::InvalidData => {
+                tracing::warn!(%error, "the child-session viewer sent a line that is not a status");
+                continue;
+            }
             Err(error) => {
                 tracing::warn!(%error, "the child-session viewer's status pipe failed");
                 break;
             }
         };
-        let status: ViewerStatus = match serde_json::from_str(&line) {
+        let status: ViewerStatus = match serde_json::from_slice(line) {
             Ok(status) => status,
             Err(error) => {
                 tracing::warn!(%error, "the child-session viewer sent a line that is not a status");
@@ -628,6 +651,25 @@ mod tests {
             problem.contains("could not be checked: COM failed"),
             "{problem}"
         );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn a_viewer_line_over_the_cap_is_not_read_or_logged() {
+        let directory = scratch();
+        let path = directory.join("viewer.log");
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::INFO)
+            .with_ansi(false)
+            .with_writer(Mutex::new(File::create(&path).unwrap()))
+            .finish();
+        let long = format!("{}SECRET\n", "x".repeat(logic::STATUS_LINE_CAP));
+        let input = format!("first\n{long}after\n");
+        tracing::subscriber::with_default(subscriber, || read_errors(7, input.as_bytes()));
+        let log = std::fs::read_to_string(&path).unwrap();
+        assert!(log.contains("first") && log.contains("after"), "{log}");
+        assert!(log.contains("a line that is not logged"), "{log}");
+        assert!(!log.contains("SECRET") && !log.contains("xxxx"), "{log}");
         std::fs::remove_dir_all(directory).unwrap();
     }
 

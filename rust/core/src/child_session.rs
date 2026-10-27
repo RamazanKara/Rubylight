@@ -921,6 +921,96 @@ pub struct ViewerStatus {
     pub notice: Option<String>,
 }
 
+/// The longest line the host reads from the viewer's pipes.
+pub const STATUS_LINE_CAP: usize = 64 * 1024;
+
+/// Lines from a pipe the other side controls, each at most `cap` bytes with
+/// its newline. The buffer is allocated once at `cap` and never grows, and
+/// each line is wiped once the next one is read (and on drop), so a line that
+/// holds a password leaves no copy behind. Read it unbuffered: a `BufReader`
+/// under it keeps copies of its own.
+pub struct LineReader<R> {
+    reader: R,
+    buffer: Zeroizing<Vec<u8>>,
+    /// Bytes read into `buffer`.
+    filled: usize,
+    /// The line handed out last, with its newline, at the front of `buffer`.
+    taken: usize,
+    /// The rest of a line over the cap is dropped until its newline.
+    skipping: bool,
+}
+impl<R: std::io::Read> LineReader<R> {
+    pub fn new(reader: R, cap: usize) -> Self {
+        Self {
+            reader,
+            buffer: Zeroizing::new(vec![0; cap.max(1)]),
+            filled: 0,
+            taken: 0,
+            skipping: false,
+        }
+    }
+    /// The next line without its newline; None once the pipe is closed. A
+    /// line over the cap is an `InvalidData` error that holds none of its
+    /// content, and reading goes on at the line after it.
+    pub fn read_line(&mut self) -> std::io::Result<Option<&[u8]>> {
+        self.drop_front(self.taken);
+        self.taken = 0;
+        loop {
+            let newline = self.buffer[..self.filled].iter().position(|&b| b == b'\n');
+            match (newline, self.skipping) {
+                (Some(end), true) => {
+                    self.drop_front(end + 1);
+                    self.skipping = false;
+                    continue;
+                }
+                (Some(end), false) => {
+                    self.taken = end + 1;
+                    return Ok(Some(&self.buffer[..end]));
+                }
+                (None, skipping) if self.filled == self.buffer.len() => {
+                    self.drop_front(self.filled);
+                    self.skipping = true;
+                    if !skipping {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("a line longer than {} bytes", self.buffer.len()),
+                        ));
+                    }
+                }
+                (None, _) => {}
+            }
+            let read = match self.reader.read(&mut self.buffer[self.filled..]) {
+                Ok(read) => read,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(error),
+            };
+            if read == 0 {
+                // A last line without a newline still counts; what is left of
+                // one over the cap does not.
+                if self.skipping || self.filled == 0 {
+                    self.drop_front(self.filled);
+                    self.skipping = false;
+                    return Ok(None);
+                }
+                self.taken = self.filled;
+                return Ok(Some(&self.buffer[..self.filled]));
+            }
+            self.filled += read;
+        }
+    }
+    /// Move what follows the first `count` bytes to the front and wipe the
+    /// bytes that are no longer in use.
+    fn drop_front(&mut self, count: usize) {
+        if count == 0 {
+            return;
+        }
+        self.buffer.copy_within(count..self.filled, 0);
+        let rest = self.filled - count;
+        zeroize::Zeroize::zeroize(&mut self.buffer[rest..self.filled]);
+        self.filled = rest;
+    }
+}
+
 /// Encryption bound to the Windows user (DPAPI's `CryptProtectData` with the
 /// current user's key); injectable for tests.
 pub trait Dpapi {

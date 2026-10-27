@@ -1014,6 +1014,78 @@ impl std::io::Write for Captured {
     }
 }
 
+/// A pipe that hands out at most `chunk` bytes per read.
+struct Trickle {
+    data: Vec<u8>,
+    at: usize,
+    chunk: usize,
+}
+impl std::io::Read for Trickle {
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        let count = self.chunk.min(out.len()).min(self.data.len() - self.at);
+        out[..count].copy_from_slice(&self.data[self.at..self.at + count]);
+        self.at += count;
+        Ok(count)
+    }
+}
+fn lines_of(reader: &mut LineReader<Trickle>) -> Vec<Result<String, String>> {
+    let mut lines = Vec::new();
+    loop {
+        match reader.read_line() {
+            Ok(Some(line)) => lines.push(Ok(String::from_utf8(line.to_vec()).unwrap())),
+            Ok(None) => return lines,
+            Err(error) => {
+                assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+                lines.push(Err(error.to_string()));
+            }
+        }
+    }
+}
+
+#[test]
+fn a_line_over_the_cap_fails_alone_and_quotes_nothing() {
+    let long = format!("{}SECRET", "x".repeat(40));
+    for chunk in [1, 7, 64, 4096] {
+        let data = format!("one\n{long}\ntwo\n\nlast").into_bytes();
+        let mut reader = LineReader::new(Trickle { data, at: 0, chunk }, 32);
+        let expected: Vec<Result<String, String>> = vec![
+            Ok("one".into()),
+            Err("a line longer than 32 bytes".into()),
+            Ok("two".into()),
+            Ok(String::new()),
+            Ok("last".into()),
+        ];
+        assert_eq!(lines_of(&mut reader), expected, "chunk {chunk}");
+        // The buffer never grew past the cap.
+        assert_eq!(reader.buffer.capacity(), 32, "chunk {chunk}");
+    }
+    // A line that fits only with its newline is still a line; an endless one
+    // ends with the pipe.
+    let fits = format!("{}\n", "y".repeat(31)).into_bytes();
+    let mut reader = LineReader::new(
+        Trickle {
+            data: fits,
+            at: 0,
+            chunk: 5,
+        },
+        32,
+    );
+    assert_eq!(lines_of(&mut reader), [Ok::<_, String>("y".repeat(31))]);
+    let endless = "z".repeat(100).into_bytes();
+    let mut reader = LineReader::new(
+        Trickle {
+            data: endless,
+            at: 0,
+            chunk: 9,
+        },
+        32,
+    );
+    assert_eq!(
+        lines_of(&mut reader),
+        [Err::<String, _>("a line longer than 32 bytes".to_owned())]
+    );
+}
+
 #[test]
 fn the_password_never_reaches_a_log() {
     let secret = Secret::new(PASSWORD.into());

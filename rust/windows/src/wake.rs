@@ -610,11 +610,33 @@ mod tests {
 
     /// `function name` from the NIC script, up to its closing brace.
     fn script_function(name: &str) -> &'static str {
-        let start = NICS_SCRIPT
+        function_in(NICS_SCRIPT, name)
+    }
+
+    /// `function name` in `script` up to and including the line ending after its
+    /// closing brace. CI's Windows checkout gives the script CRLF endings, so
+    /// both kinds count.
+    fn function_in<'a>(script: &'a str, name: &str) -> &'a str {
+        let start = script
             .find(&format!("function {name}"))
             .unwrap_or_else(|| panic!("{name} is not in the NIC script"));
-        let end = start + NICS_SCRIPT[start..].find("\n}\n").unwrap() + 3;
-        &NICS_SCRIPT[start..end]
+        let rest = &script[start..];
+        let (close, ending) = ["\n}\n", "\r\n}\r\n"]
+            .iter()
+            .filter_map(|ending| rest.find(ending).map(|at| (at, ending.len())))
+            .min()
+            .unwrap_or_else(|| panic!("{name} has no closing brace in the NIC script"));
+        &rest[..close + ending]
+    }
+
+    #[test]
+    fn script_functions_are_found_with_either_line_ending() {
+        let lf = "function A {\n  1\n}\nfunction B {\n  2\n}\n";
+        let crlf = lf.replace('\n', "\r\n");
+        assert_eq!(function_in(lf, "A"), "function A {\n  1\n}\n");
+        assert_eq!(function_in(lf, "B"), "function B {\n  2\n}\n");
+        assert_eq!(function_in(&crlf, "A"), "function A {\r\n  1\r\n}\r\n");
+        assert_eq!(function_in(&crlf, "B"), "function B {\r\n  2\r\n}\r\n");
     }
     /// `body` after `functions` from the NIC script, with stand-ins for the
     /// cmdlets that would touch the adapters; its JSON.

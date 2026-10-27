@@ -499,3 +499,59 @@ async fn a_connect_from_a_retired_address_waits_for_the_roamed_session() -> Resu
     h.end(&other_session, other_client).await?;
     h.finish().await
 }
+
+/// A client roams from its launch address to another port and on to 127.0.0.2. Another
+/// client connecting from the port it roamed on from connects at once, as ENet knows no
+/// peer there, and the roamed stream goes on.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_connect_from_an_address_a_client_roamed_on_from_connects_at_once() -> Result<()> {
+    let h = Harness::new(20_000, 2).await?;
+    let launch = h.launch(0, true).await?;
+    offer(&h, &launch).await?;
+    let (session, client) = h.play(&launch).await?;
+    client.quiet_heartbeat().await;
+    let mut roamer = Roamer::new(h.ports, &launch);
+    let control = udp_at(SocketAddr::from(([127, 0, 0, 1], 0)))?;
+    let left = control.local_addr()?;
+    roam(&mut roamer, &session, &control).await?;
+    // On the same IP a ping already queued from the old video port can take the new
+    // path's keyframe, so this hop waits for the video only.
+    let video = udp_at(SocketAddr::from(([127, 0, 0, 1], 0)))?;
+    let moved_video = video.local_addr()?;
+    client.move_to(control, video);
+    until("video pings from the new port", WAIT, || {
+        video_peer(&h, &launch) == Some(moved_video)
+    })
+    .await;
+    // A session moves at most once a second.
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    let control = moved_udp()?;
+    roam(&mut roamer, &session, &control).await?;
+    follow(&h, &launch, &session, &client, control).await?;
+    let other = h.launch(1, true).await?;
+    h.rtsp(&other, 1, "ANNOUNCE", "a=x-nv-video[0].clientViewportWd:640\r\na=x-nv-video[0].clientViewportHt:480\r\na=x-ss-general.encryptionEnabled:0\r\n").await?;
+    h.rtsp(&other, 2, "PLAY", "").await?;
+    let other_session = h.h.sessions.lock().unwrap().active[&other.id].clone();
+    let other_client = Client::sending_from(h.ports, other.clone(), rebind(left).await?)?;
+    until("the address the client roamed on from connects", WAIT, || {
+        keyframes(&other_session) > 0 && other_client.frames.load(Ordering::Acquire) > 2
+    })
+    .await;
+    let frames = client.frames.load(Ordering::Acquire);
+    until("the roamed stream goes on", WAIT, || {
+        client.frames.load(Ordering::Acquire) > frames + 2
+    })
+    .await;
+    assert!(!session.stopping());
+    assert_eq!(session.client_ip(), IpAddr::from(MOVED));
+    h.rtsp(&other, 3, "TEARDOWN", "").await?;
+    until("the new connection's termination delivered", WAIT * 3, || {
+        other_client.reason.load(Ordering::Acquire) != 0
+    })
+    .await;
+    assert_eq!(other_client.reason.load(Ordering::Acquire), CLOSED);
+    drop(other_client);
+    assert!(!session.stopping());
+    h.end(&session, client).await?;
+    h.finish().await
+}

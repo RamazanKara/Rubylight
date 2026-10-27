@@ -138,6 +138,28 @@ impl Roaming {
         (!self.retired.contains_key(&from)).then_some(from)
     }
 
+    /// Whether `data` from `from`, an address a client left that [`Self::peer_of`] drops,
+    /// is a fresh ENet connect that goes to ENet after all. Only where ENet knows no peer
+    /// by `from`, as when the client roamed on from it to a third address: the connect
+    /// is then another connection, and `from` is no longer retired. Where ENet still
+    /// knows the roamed peer by `from` (its launch address), what ENet sends there goes
+    /// to the roamed client, so the connect waits for that session to end.
+    pub(super) fn reopens(&mut self, from: SocketAddr, data: &[u8]) -> bool {
+        if self.retired.get(&from).is_none_or(|peer| *peer == from)
+            || self.sessions.contains_key(&from)
+            || !is_enet_connect(data)
+        {
+            return false;
+        }
+        self.retired.remove(&from);
+        self.retired_logged.remove(&from);
+        tracing::info!(
+            from = %canonical(from),
+            "a new connection from an address a roaming client left"
+        );
+        true
+    }
+
     /// Logs a datagram from `from`, an address a client left, that [`Self::peer_of`]
     /// dropped: once per address in [`RETIRED_LOG_INTERVAL`]. Returns whether it logged.
     pub(super) fn dropped(&mut self, now: Instant, from: SocketAddr) -> bool {
@@ -204,6 +226,25 @@ impl Roaming {
     pub(super) fn has_peers(&self) -> bool {
         !self.sessions.is_empty()
     }
+}
+
+/// Whether `data` is an ENet datagram whose first command is CONNECT: sent before the
+/// host gave the client a peer ID (ENet's maximum, 0xFFF), uncompressed and without a
+/// checksum, as the host's ENet takes them.
+fn is_enet_connect(data: &[u8]) -> bool {
+    const SENT_TIME: u16 = 1 << 15;
+    const COMPRESSED: u16 = 1 << 14;
+    const NO_PEER: u16 = 0x0FFF;
+    const CONNECT: u8 = 2;
+    let Some(&[high, low]) = data.first_chunk::<2>() else {
+        return false;
+    };
+    let header = u16::from_be_bytes([high, low]);
+    if header & COMPRESSED != 0 || header & NO_PEER != NO_PEER {
+        return false;
+    }
+    let command = if header & SENT_TIME != 0 { 4 } else { 2 };
+    data.get(command).is_some_and(|command| command & 0x0F == CONNECT)
 }
 
 pub(super) fn send(socket: &ReplySocket, datagram: &[u8], to: SocketAddr) {
@@ -323,6 +364,76 @@ mod tests {
         assert_eq!(roaming.peer_of(new), Some(new));
         assert_eq!(roaming.peer_of(peer), Some(peer));
         assert_eq!(roaming.wire_of(peer), peer);
+    }
+
+    /// ENet's CONNECT before the client has a peer ID, with its sent time.
+    const CONNECT: [u8; 8] = [0x8F, 0xFF, 0, 0, 0x82, 0xFF, 0, 1];
+    /// A reliable SEND of the peer with ID 3: what a roamed client's old path still
+    /// delivers.
+    const SEND: [u8; 8] = [0x80, 0x03, 0, 0, 0x86, 0, 0, 1];
+
+    #[test]
+    fn only_an_enet_connect_is_a_connect() {
+        assert!(is_enet_connect(&CONNECT));
+        assert!(is_enet_connect(&[0x0F, 0xFF, 0x82, 0xFF, 0, 1]), "no sent time");
+        assert!(!is_enet_connect(&SEND));
+        assert!(!is_enet_connect(&[0x8F, 0xFF, 0, 0, 0x85]), "a ping");
+        assert!(!is_enet_connect(&[0xCF, 0xFF, 0, 0, 0x82]), "compressed");
+        assert!(!is_enet_connect(&[0x8F, 0xFF, 0, 0]));
+        assert!(!is_enet_connect(&[0x8F]));
+        assert!(!is_enet_connect(&[]));
+    }
+
+    /// A client roams from its launch address to `b`, then to `c`. A fresh ENet connect
+    /// from `b`, where ENet knows no peer, is a new connection; one from the launch
+    /// address, where ENet still knows the roamed peer, waits for that session. A connect
+    /// from an address nobody left is never taken for the roamed client.
+    #[test]
+    fn a_fresh_connect_reopens_only_an_address_enet_knows_no_peer_by() {
+        let socket = ReplySocket::bind("127.0.0.1:0").unwrap();
+        let mut roaming = Roaming {
+            enabled: true,
+            table: RoamTable::with_challenges(|| CHALLENGE),
+            ..Default::default()
+        };
+        let peer: SocketAddr = "192.168.1.20:50000".parse().unwrap();
+        let b: SocketAddr = "10.0.0.7:41000".parse().unwrap();
+        let c: SocketAddr = "10.0.0.8:42000".parse().unwrap();
+        let fresh: SocketAddr = "10.0.0.9:43000".parse().unwrap();
+        roaming.insert("s", &RIKEY, peer);
+        let mut seq = 0;
+        let mut roam = |roaming: &mut Roaming, at: Instant, to: SocketAddr| {
+            for payload in [
+                Payload::Probe {
+                    nonce_c: 1,
+                    flags: 0,
+                },
+                Payload::Confirm {
+                    challenge: CHALLENGE,
+                },
+            ] {
+                seq += 1;
+                roaming.on_datagram(&socket, at, to, None, &client(seq, payload));
+            }
+            assert_eq!(roaming.take_commits().len(), 1, "moved to {to}");
+        };
+        let now = Instant::now();
+        roam(&mut roaming, now, b);
+        assert_eq!(roaming.peer_of(peer), None);
+        assert!(!roaming.reopens(peer, &CONNECT), "ENet's own address of the peer");
+        roam(&mut roaming, now + Duration::from_secs(2), c);
+        assert_eq!(roaming.peer_of(b), None);
+        assert!(!roaming.reopens(b, &SEND), "the old path's datagrams stay dropped");
+        assert_eq!(roaming.peer_of(fresh), Some(fresh));
+        assert!(!roaming.reopens(fresh, &CONNECT), "nobody left it");
+        assert!(roaming.reopens(b, &CONNECT));
+        assert_eq!(roaming.peer_of(b), Some(b), "the new connection's datagrams follow");
+        assert!(!roaming.reopens(b, &CONNECT), "reopened once");
+        // The roamed client is where it was.
+        assert_eq!(roaming.peer_of(c), Some(peer));
+        assert_eq!(roaming.wire_of(peer), c);
+        assert_eq!(roaming.peer_of(peer), None);
+        assert!(!roaming.reopens(peer, &CONNECT));
     }
 
     /// A restarted control worker's socket shares the seqs: the host's CHALLENGE seq goes

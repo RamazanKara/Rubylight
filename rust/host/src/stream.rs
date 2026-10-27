@@ -930,9 +930,13 @@ impl rusty_enet::Socket for ControlSocket {
                 );
                 continue;
             }
-            let Some(peer) = self.roaming.peer_of(from) else {
-                self.roaming.dropped(Instant::now(), from);
-                continue;
+            let peer = match self.roaming.peer_of(from) {
+                Some(peer) => peer,
+                None if self.roaming.reopens(from, &buffer[..size]) => from,
+                None => {
+                    self.roaming.dropped(Instant::now(), from);
+                    continue;
+                }
             };
             // ENet answers before it knows the session: learn from every datagram.
             self.socket.answer_from(from, local);

@@ -370,13 +370,7 @@ impl ControlSession {
             return;
         }
         let now_ms = self.fec_reports.ms(now);
-        self.fec_reports.tally.block(
-            block.data_shards,
-            block.parity_shards,
-            block.missing_shards,
-            block.unrecovered,
-            now_ms,
-        );
+        self.fec_reports.tally.block(block, now_ms);
     }
 
     /// Queues the FEC report once its interval is a second old (see [`FecTally::take`]).
@@ -684,12 +678,17 @@ mod tests {
         assert_eq!(sent.last().unwrap().2, 0x0200);
     }
 
-    fn block(missing_shards: u32, unrecovered: bool) -> FecBlock {
+    /// Ten data and two parity shards of one frame, `missing` of them lost.
+    fn block(missing: u32, unrecovered: bool) -> FecBlock {
         FecBlock {
+            frame: 1,
+            block_count: 1,
             data_shards: 10,
             parity_shards: 2,
-            missing_shards,
+            arrived_shards: 12 - missing,
+            missing_shards: if unrecovered { 0 } else { missing },
             unrecovered,
+            ..FecBlock::default()
         }
     }
 

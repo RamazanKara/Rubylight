@@ -136,20 +136,17 @@ impl RtpQueue {
         }));
     }
 
-    /// Counts the pending block for the FEC report as it finishes: `unrecovered` when the next
-    /// block begins before this one completed, so every shard that has not arrived is lost.
+    /// Hands the pending block's counters to the FEC report as it finishes: `unrecovered` when
+    /// the next block begins before this one completed (`FecTally::block` counts them).
     fn finish_fec_block<S: VideoSink>(&self, io: &mut Io<S>, unrecovered: bool) {
-        let total = self.buffer_data_packets + self.buffer_parity_packets;
-        let arrived = self.received_data_packets + self.received_parity_packets;
-        let missing_shards = if unrecovered {
-            total.saturating_sub(arrived)
-        } else {
-            self.missing_packets.min(total)
-        };
         io.sink.signal(VideoSignal::FecBlock(FecBlock {
+            frame: self.current_frame,
+            block_index: self.current_block,
+            block_count: self.last_block + 1,
             data_shards: self.buffer_data_packets,
             parity_shards: self.buffer_parity_packets,
-            missing_shards,
+            arrived_shards: self.received_data_packets + self.received_parity_packets,
+            missing_shards: self.missing_packets,
             unrecovered,
         }));
     }

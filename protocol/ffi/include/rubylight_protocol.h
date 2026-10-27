@@ -58,8 +58,11 @@ typedef struct RpFecTally RpFecTally;
 
 RpFecTally *rp_fec_tally_new(void);
 void rp_fec_tally_free(RpFecTally *tally);
-// Counts one finished FEC block, recovered or not; now_ms is any monotonic millisecond clock.
-void rp_fec_tally_block(RpFecTally *tally, uint32_t data_shards, uint32_t parity_shards,
+// Counts one finished FEC block, recovered or not, from the video queue's counters: the shards
+// that arrived and the holes before the last arrival. Blocks between this one and the last that
+// never arrived count as lost. now_ms is any monotonic millisecond clock.
+void rp_fec_tally_block(RpFecTally *tally, uint32_t frame, uint8_t block_index, uint8_t block_count,
+                        uint32_t data_shards, uint32_t parity_shards, uint32_t arrived_shards,
                         uint32_t missing_shards, bool unrecovered, uint64_t now_ms);
 // Writes the report to out once its interval is a second old; false otherwise (nothing to send).
 bool rp_fec_tally_report(RpFecTally *tally, uint64_t now_ms, uint8_t *out);

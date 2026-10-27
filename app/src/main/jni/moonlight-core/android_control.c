@@ -173,11 +173,13 @@ void resetFecReports(void) {
     pthread_mutex_unlock(&fecReportMutex);
 }
 
-void rlFecBlockFinished(uint32_t dataShards, uint32_t parityShards, uint32_t missingShards, bool unrecovered) {
+void rlFecBlockFinished(uint32_t frame, uint8_t blockIndex, uint8_t blockCount, uint32_t dataShards,
+                        uint32_t parityShards, uint32_t arrivedShards, uint32_t missingShards, bool unrecovered) {
     if (!hostSupportsControlMessage(RP_FEC_REPORT_MESSAGE_TYPE)) return;
     pthread_mutex_lock(&fecReportMutex);
     if (fecReportTally) {
-        rp_fec_tally_block(fecReportTally, dataShards, parityShards, missingShards, unrecovered, PltGetMillis());
+        rp_fec_tally_block(fecReportTally, frame, blockIndex, blockCount, dataShards, parityShards,
+                           arrivedShards, missingShards, unrecovered, PltGetMillis());
     }
     pthread_mutex_unlock(&fecReportMutex);
 }

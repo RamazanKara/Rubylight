@@ -83,10 +83,15 @@ void connectionSendFrameFecStatus(PSS_FRAME_FEC_STATUS fecStatus) {
     dtLogBytes(fecStatus, sizeof(*fecStatus));
 }
 
-void rlFecBlockFinished(uint32_t dataShards, uint32_t parityShards, uint32_t missingShards, bool unrecovered) {
+void rlFecBlockFinished(uint32_t frame, uint8_t blockIndex, uint8_t blockCount, uint32_t dataShards,
+                        uint32_t parityShards, uint32_t arrivedShards, uint32_t missingShards, bool unrecovered) {
     dtLogU8('B');
+    dtLogU32(frame);
+    dtLogU8(blockIndex);
+    dtLogU8(blockCount);
     dtLogU32(dataShards);
     dtLogU32(parityShards);
+    dtLogU32(arrivedShards);
     dtLogU32(missingShards);
     dtLogU8(unrecovered);
 }

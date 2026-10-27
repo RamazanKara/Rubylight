@@ -69,7 +69,9 @@ impl std::fmt::Display for AttachError {
             Self::Ended => f.write_str("the stream ended"),
             Self::Busy => f.write_str("the device is attached already"),
             Self::Invalid => f.write_str("the device's busid or name does not fit"),
-            Self::Send(SendError::Unsupported) => f.write_str("the host does not forward USB devices"),
+            Self::Send(SendError::Unsupported) => {
+                f.write_str("the host does not forward USB devices")
+            }
             Self::Send(e) => write!(f, "the request did not go out: {e:?}"),
         }
     }
@@ -121,15 +123,29 @@ impl Table {
             .find(|e| e.attachment.request_id == request_id && e.attachment.is_active())
     }
 
-    fn end(&mut self, request_id: u32, state: UsbState, reason: UsbReason, error: Option<String>) -> Option<Cleanup> {
+    fn end(
+        &mut self,
+        request_id: u32,
+        state: UsbState,
+        reason: UsbReason,
+        error: Option<String>,
+    ) -> Option<Cleanup> {
         let entry = self.active(request_id)?;
-        entry.attachment.phase = Phase::Ended { state, reason, error };
+        entry.attachment.phase = Phase::Ended {
+            state,
+            reason,
+            error,
+        };
         let cleanup = Cleanup {
             tunnel: entry.tunnel.take(),
             // A serving thread closes the device once its tunnel closes.
             device: (!entry.serving).then(|| entry.device.clone()),
         };
-        let ended = self.entries.iter().filter(|e| !e.attachment.is_active()).count();
+        let ended = self
+            .entries
+            .iter()
+            .filter(|e| !e.attachment.is_active())
+            .count();
         if ended > ENDED_KEPT {
             if let Some(at) = self.entries.iter().position(|e| !e.attachment.is_active()) {
                 self.entries.remove(at);
@@ -159,9 +175,10 @@ impl Inner {
 
     fn tunnel(self: &Arc<Self>, request_id: u32, token: [u8; TOKEN_BYTES]) {
         let failed = |inner: &Inner, error: String| {
-            let cleanup = inner
-                .table()
-                .end(request_id, UsbState::Failed, UsbReason::None, Some(error));
+            let cleanup =
+                inner
+                    .table()
+                    .end(request_id, UsbState::Failed, UsbReason::None, Some(error));
             if let Some(cleanup) = cleanup {
                 cleanup.run();
                 inner.tell_detached(request_id);
@@ -194,7 +211,12 @@ impl Inner {
             match served {
                 // The host closed the tunnel; its status says why.
                 Ok(()) => table.end(request_id, UsbState::Detached, UsbReason::None, None),
-                Err(e) => table.end(request_id, UsbState::Failed, UsbReason::DeviceError, Some(e.to_string())),
+                Err(e) => table.end(
+                    request_id,
+                    UsbState::Failed,
+                    UsbReason::DeviceError,
+                    Some(e.to_string()),
+                ),
             }
         };
         if let Some(cleanup) = cleanup {

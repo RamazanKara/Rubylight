@@ -360,8 +360,8 @@ fn run(shared: &Arc<Shared>, device: &dyn UsbDevice) -> Result<(), ServeError> {
                         )))
                     }
                 };
-                let payload = wire::submit_payload(base.direction, length, packets)
-                    .ok_or_else(|| {
+                let payload =
+                    wire::submit_payload(base.direction, length, packets).ok_or_else(|| {
                         ServeError::Protocol(format!(
                             "a submit of {length} bytes and {packets} packets"
                         ))
@@ -424,11 +424,7 @@ fn run(shared: &Arc<Shared>, device: &dyn UsbDevice) -> Result<(), ServeError> {
                     device.unlink(unlink);
                 }
             }
-            other => {
-                return Err(ServeError::Protocol(format!(
-                    "the driver sent {other:?}"
-                )))
-            }
+            other => return Err(ServeError::Protocol(format!("the driver sent {other:?}"))),
         }
     }
 }

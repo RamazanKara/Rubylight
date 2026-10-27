@@ -28,7 +28,7 @@ async fn describe_for_a_default_config_is_byte_identical() -> Result<()> {
              a=fmtp:97 surround-params=21101\r\n\
              a=fmtp:97 surround-params=660014523\r\n\
              a=fmtp:97 surround-params=88001456723\r\n\
-             a=x-rl-video.hdrFormats:5\r\n\
+             a=x-rl-video.hdrFormats:15\r\n\
              a=x-rl-audio.codecs:3\r\n\
              a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
              a=x-rl-audio.layout714Hq:12,12,0,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
@@ -79,7 +79,7 @@ async fn describe_with_packed_444_and_the_microphone_is_byte_identical() -> Resu
              a=x-rl-video.packed444Version:1\r\n\
              a=x-rl-video.packed444Modes:15\r\n\
              a=x-rl-video.packed444LayeredModes:10\r\n\
-             a=x-rl-video.hdrFormats:5\r\n\
+             a=x-rl-video.hdrFormats:15\r\n\
              a=x-rl-audio.codecs:3\r\n\
              a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
              a=x-rl-audio.layout714Hq:12,12,0,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
@@ -99,10 +99,11 @@ async fn describe_with_packed_444_and_the_microphone_is_byte_identical() -> Resu
 /// naming it, and the stock ANNOUNCE that follows streams as before.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn announce_refuses_3_0_choices_that_were_not_offered() -> Result<()> {
+    // HLG is offered by default; with it off, hdrFormat 2 was not.
     let h = Harness::configured(
         10_000,
         1,
-        "audio_passthrough=false\naudio_surround_714=false\n",
+        "audio_passthrough=false\naudio_surround_714=false\nhdr_hlg=false\n",
     )
     .await?;
     let launch = h.launch(0, false).await?;

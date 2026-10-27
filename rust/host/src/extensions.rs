@@ -63,9 +63,10 @@ fn offer(h: &Shared, config: &Config, dolby: u8) -> Offered {
     }
 }
 
-/// Off until AMF signals transfer 18 and the colour shader encodes HLG: until
-/// then HLG and Dolby Vision 8.4 stay unoffered, so no client can pick them.
-const ENCODER_WRITES_HLG: bool = false;
+/// AMF signals transfer 18 (`amf::transfer_characteristic`) and the colour
+/// shader encodes HLG (`hdr == 2`) for HLG and Dolby Vision 8.4 streams. Turning
+/// this off stops offering both, so no client can pick them.
+const ENCODER_WRITES_HLG: bool = true;
 
 /// HDR (A): the `rubylight_protocol::hdr` formats this host can encode now:
 /// HLG on HEVC or AV1 Main10 while `hdr_hlg` is on, and Dolby Vision 8.1 (8.4

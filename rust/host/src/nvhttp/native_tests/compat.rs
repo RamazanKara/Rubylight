@@ -80,8 +80,8 @@ async fn serverinfo_over_plain_http_and_unpaired_is_version_0_with_every_stock_f
     }
 }
 
-/// `xml` without `NativeApiVersion` is the pre-native-API answer `golden`, element by
-/// element. The host name, address, MAC and the live session and link readings come from the
+/// `xml` without `NativeApiVersion` is the pre-native-API answer `golden` (with the 3.0 offers
+/// a default host makes), element by element. The host name, address, MAC and the live session and link readings come from the
 /// machine, so only their presence is compared. The exact bytes are pinned in `native_tests.rs`.
 fn assert_same_as_before(f: &Fixture, xml: &str, golden_template: &str) {
     let elements = |xml: &str| -> Vec<(String, String)> {

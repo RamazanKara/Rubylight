@@ -180,15 +180,15 @@ ownership. PyroWave is excluded from this host controller.
 
 By default (`link_rate_adaptation`, [configuration](configuration.md#lower-bitrate-when-the-link-cannot-carry-it)) the host also lowers the bitrate when the network cannot carry the stream. It reads the same validated `0x5502` reports (frames the client could not rebuild, and the share of packets reported missing), and the same `0x0200` pings for freshness. The keyframe request `0x0302` and reference invalidation count as network evidence only from a client that sends no `0x5502` at all, and only when the host or the client's decode queue did not cause them. A `/bitrate` request from the client turns it off for that session, as it does for the controller above.
 
-## Defined, not yet offered
+## 3.0 extensions
 
-These are defined for 3.0, in the same crate, and no host offers them yet. A host that takes some of them adds a second line to its `DESCRIBE` answer, after the first:
+These are defined for 3.0, in the same crate. Rubylight offers `0x553D` pipeline rates; no host offers the others yet. A host that takes some of them adds a second line to its `DESCRIBE` answer, after the first:
 
 ```
 a=x-rl-control:0x5539,0x553a,0x553d
 ```
 
-Read every `a=x-rl-control:` line and merge them. The second line appears only when the host offers something, so today's answer has one line, byte for byte as before. Each feature is also announced in serverinfo; send its messages only when both say so.
+Read every `a=x-rl-control:` line and merge them. The second line appears only when the host offers something; Rubylight's is `a=x-rl-control:0x553d`, after the packed 4:4:4 lines and before the microphone's `m=audio`. Each feature is also announced in serverinfo; send its messages only when both say so.
 
 | Id | Name | Crate type | Direction | Serverinfo element |
 | --- | --- | --- | --- | --- |
@@ -259,6 +259,8 @@ Committed text still travels as Moonlight's UTF-8 text input.
 The request (client to host, 4 bytes): `0 version`, `1 enabled u8` (0 or 1), `2 interval_ms u16` (500-10000).
 
 The report (host to client, 28 bytes): `0 version`; `1 flags`, where bit 0 means the window was shorter than the interval; `2 reserved u16`; `4 window_ms u32`; then `8 source_mhz`, `12 capture_mhz`, `16 submit_mhz`, `20 output_mhz` and `24 repeat_mhz`, each a u32 in millihertz and `0xFFFFFFFF` when the host can't count it. In order they are the frames the game or desktop presented, the frames captured, the frames submitted to the encoder, the encoded frames sent and the frames sent again without new content.
+
+The host sends a report unreliably at the asked interval until the client turns them off. It counts the stages at the capture and send stamps it already takes, so the frame path waits on nothing; a stream that changed its capture source counts from the change.
 
 ### 0x553E keyboard layout (8 bytes and the tag)
 

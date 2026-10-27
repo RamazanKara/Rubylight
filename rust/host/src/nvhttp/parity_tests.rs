@@ -403,8 +403,9 @@ async fn serverinfo_extras_preserve_permissions_codecs_commands_and_limiter_unit
 }
 
 /// `/serverinfo` of a host with the default configuration, byte for byte, unpaired over HTTP
-/// and paired over HTTPS. Anything a host adds later must be offered, so these stay as they
-/// are; only the host's own name, identity, version, profile and sleep support vary.
+/// and paired over HTTPS. Anything a host adds later must be offered, so these change only with
+/// an offer (`PipelineRatesVersion`, last); only the host's own name, identity, version, profile
+/// and sleep support vary.
 #[tokio::test]
 async fn serverinfo_for_a_default_config_is_byte_identical() {
     let f = Fixture::new();
@@ -490,6 +491,7 @@ async fn serverinfo_for_a_default_config_is_byte_identical() {
              <PowerActionVersion>1</PowerActionVersion>\
              <SleepSupported>{sleep}</SleepSupported>\
              <SleepAllowed>0</SleepAllowed>\
+             <PipelineRatesVersion>1</PipelineRatesVersion>\
              </root>"
         ),
         "{paired}"
@@ -539,6 +541,7 @@ async fn serverinfo_for_a_default_config_is_byte_identical() {
              <VirtualDisplayDriverReady>false</VirtualDisplayDriverReady>\
              <ControllerPreparation>1</ControllerPreparation>\
              <VirtualDisplayHDRCapable>true</VirtualDisplayHDRCapable>\
+             <PipelineRatesVersion>1</PipelineRatesVersion>\
              </root>"
         ),
         "{unpaired}"

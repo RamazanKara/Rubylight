@@ -3,6 +3,7 @@
 //! Calls AMF's C ABI directly, takes D3D11 or D3D12
 //! textures from capture and Radeon compute without a copy, and applies the
 //! per-codec settings from `butterpollo_core::encoder_policy`.
+mod dynamic;
 pub mod focus;
 pub(crate) mod gpu;
 mod intra_refresh;
@@ -262,6 +263,8 @@ pub struct Encoder {
     hdr_metadata: metadata::State,
     /// Conversion on a D3D12 compute queue, with AMF on D3D12.
     compute: Option<Box<ComputeInput>>,
+    /// HDR10+ and HDR Vivid from the compute conversion's statistics.
+    dynamic: Option<Box<dynamic::Dynamic>>,
     last_query: Option<AMF_RESULT>,
     last_submit: Option<AMF_RESULT>,
     /// When AMF last accepted an input, for the stream's stage timings.
@@ -588,6 +591,7 @@ impl Encoder {
                 overlay: None,
                 hdr_metadata: metadata::State::default(),
                 compute,
+                dynamic: None,
                 last_query: None,
                 last_submit: None,
                 last_accepted: None,
@@ -838,6 +842,7 @@ impl Encoder {
             );
             e.frame_cap
                 .observe(e.read(rate_control::frame_cap_name(e.codec)));
+            e.dynamic = e.enable_dynamic(config, options);
             e.log_effective();
             Ok(e)
         }
@@ -1285,6 +1290,47 @@ impl Encoder {
         };
         let name = format!("{prefix}{name}");
         self.property_raw(&name, value)
+    }
+    /// HDR10+ and HDR Vivid for an HDR stream with `hdr_dynamic_metadata` on,
+    /// from the statistics pass behind the compute conversion. A stream
+    /// without that conversion logs that it carries none.
+    fn enable_dynamic(
+        &mut self,
+        config: &butterpollo_core::rtsp::Negotiated,
+        options: &butterpollo_core::config::Config,
+    ) -> Option<Box<dynamic::Dynamic>> {
+        let codec = dynamic::wanted(config, options)?;
+        if config.chroma_packing != 0 {
+            tracing::info!(
+                ?codec,
+                "packed 4:4:4 stream: no HDR dynamic metadata (HDR10+, HDR Vivid) is sent; static HDR metadata is unchanged"
+            );
+            return None;
+        }
+        let Some(input) = self.compute.as_deref_mut() else {
+            tracing::info!(
+                ?codec,
+                "D3D11 conversion: no HDR dynamic metadata (HDR10+, HDR Vivid) is sent; static HDR metadata is unchanged"
+            );
+            return None;
+        };
+        if let Err(error) = input.converter.enable_hdr_stats() {
+            let message = format!(
+                "HDR10+ and HDR Vivid are off for this stream: the GPU statistics pass did not start ({error:#}). Update the AMD driver, or turn off hdr_dynamic_metadata"
+            );
+            tracing::warn!("{message}");
+            self.warnings.set("hdr_dynamic_metadata", message);
+            return None;
+        }
+        tracing::info!(?codec, "HDR dynamic metadata (HDR10+, HDR Vivid) on");
+        Some(Box::new(dynamic::Dynamic::new(codec)))
+    }
+    /// The display peak HDR10+ is written for
+    /// (`butterpollo_core::display_caps::HdrSource::target_nits`).
+    pub fn set_hdr_target(&mut self, nits: u16) {
+        if let Some(dynamic) = self.dynamic.as_deref_mut() {
+            dynamic.set_target(nits);
+        }
     }
     /// Write HDR10 static metadata (the mastering display and light levels)
     /// into the bitstream. Clients that size HDR from the stream rather than from the
@@ -1752,6 +1798,19 @@ impl Encoder {
                     units::Step::Unit(unit, bytes) => (unit, bytes),
                     units::Step::Whole(bytes) => (Unit::Whole, bytes),
                 };
+                // Dynamic metadata goes before the first slice or tile.
+                let bytes = match self.dynamic.as_deref_mut() {
+                    Some(dynamic)
+                        if matches!(
+                            unit,
+                            Unit::Whole | Unit::Slice { index: 0 } | Unit::Last { index: 0 }
+                        ) =>
+                    {
+                        dynamic.first_unit(&bytes).unwrap_or(bytes)
+                    }
+                    _ => bytes,
+                };
+                let frame_cap_bytes = self.dynamic_cap(frame_cap_bytes);
                 let whole = unit == Unit::Whole;
                 // A joined or frame-mode keyframe is recovered as a whole.
                 let bytes =
@@ -1778,10 +1837,17 @@ impl Encoder {
             // bytes before Release makes its native storage available for reuse.
             let bytes = if self.codec == 0 && idr && self.references.enabled() {
                 butterpollo_core::bitstream::h264_reference_recovery(bytes)
+            } else if let Some(spliced) = self
+                .dynamic
+                .as_deref_mut()
+                .and_then(|dynamic| dynamic.first_unit(bytes))
+            {
+                spliced
             } else {
                 bytes.to_vec()
             };
             (v.Release.unwrap())(buffer);
+            let frame_cap_bytes = self.dynamic_cap(frame_cap_bytes);
             self.frame_completed(timing, !bytes.is_empty());
             output.push(Encoded {
                 bytes,
@@ -1794,6 +1860,24 @@ impl Encoder {
             });
             Ok(output)
         }
+    }
+    /// Once a frame went to the encoder: start its statistics pass, and take
+    /// the newest one finished, while the encoder works on the frame. Never
+    /// waits for the GPU.
+    fn sample_dynamic(&mut self) -> Result<()> {
+        let (Some(dynamic), Some(input)) =
+            (self.dynamic.as_deref_mut(), self.compute.as_deref_mut())
+        else {
+            return Ok(());
+        };
+        let started = Instant::now();
+        timed("HDR statistics submit", || {
+            input.converter.submit_hdr_stats()
+        })?;
+        dynamic.submitted(started);
+        let started = Instant::now();
+        dynamic.take(input.converter.latest_hdr_stats(dynamic.sampled()), started);
+        Ok(())
     }
     /// The `OutputBufferType` of a buffer QueryOutput returned: 0 frame, 1 slice
     /// or tile, 2 last slice or tile. None when the driver does not say.
@@ -1816,6 +1900,12 @@ impl Encoder {
                 && value.type_ == AMF_VARIANT_TYPE_AMF_VARIANT_INT64)
                 .then_some(value.__bindgen_anon_1.int64Value)
         }
+    }
+    /// A frame cap that counts the dynamic metadata its frame gained.
+    fn dynamic_cap(&self, cap: Option<u64>) -> Option<u64> {
+        self.dynamic
+            .as_deref()
+            .map_or(cap, |dynamic| dynamic.cap(cap))
     }
     /// The backlog learns from every frame AMF finishes.
     fn frame_completed(&mut self, timing: Option<(Instant, Duration)>, produced: bool) {
@@ -2167,6 +2257,7 @@ impl Encoder {
             self.backlog.submitted();
             self.references.accepted(self.index as u64 + 1, &plan);
             self.index += 1;
+            self.sample_dynamic()?;
             output.extend(self.poll()?);
             Ok(output)
         }

@@ -93,6 +93,13 @@ impl Encoder {
             encoder.set_hdr_metadata(metadata);
         }
     }
+    /// The display peak HDR10+ dynamic metadata is written for. PyroWave
+    /// carries none.
+    pub fn set_hdr_target(&mut self, nits: u16) {
+        if let Self::Amf(encoder) = self {
+            encoder.set_hdr_target(nits);
+        }
+    }
     /// SDR white is absolute luminance; the scRGB scale expands a 1000-nit ceiling.
     pub fn set_luminance(&mut self, white_nits: f32, linear_scale: f32) {
         let luminance = [white_nits.clamp(100., 200.), linear_scale.clamp(1., 2.)];
@@ -131,8 +138,14 @@ impl Encoder {
         // the previous AMF fallback before merging fresh startup warnings,
         // including when recovery selects a different codec.
         warnings.clear("encoder_intra_refresh");
+        warnings.clear("hdr_dynamic_metadata");
         require_amd(&image.gpu)?;
         if config.codec == 3 {
+            if config.hdr && tuning.hdr_dynamic_metadata() {
+                tracing::info!(
+                    "PyroWave stream: no HDR dynamic metadata (HDR10+, HDR Vivid) is sent"
+                );
+            }
             return Ok(Self::Pyrowave(Box::new(
                 crate::pyrowave::Encoder::new_device_reported(
                     config,

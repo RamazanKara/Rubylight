@@ -1391,6 +1391,7 @@ impl App {
             return;
         };
         streaming.drain_notices(&mut self.pads);
+        streaming.follow_text_field(window);
         streaming.pump();
         streaming.follow_display(display);
         if streaming.export_statistics {

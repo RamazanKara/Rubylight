@@ -18,6 +18,7 @@ mod quality;
 mod touch;
 mod upscale;
 mod phase;
+mod text_field;
 pub mod scanline;
 pub mod race;
 pub mod race_probe;
@@ -113,6 +114,10 @@ pub struct Facts {
     pub clock_sync: bool,
     pub display_caps: bool,
     pub cursor_shapes: bool,
+    /// The host says when one of its text fields takes or loses focus (0x553B), once asked.
+    pub text_input: bool,
+    /// The host takes this device's keyboard layout (0x553E).
+    pub keyboard_layout: bool,
     pub clipboard: bool,
     pub server_commands: Vec<String>,
     pub runtime_bitrate: bool,
@@ -958,6 +963,12 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         clock_sync: outcome.host_control_messages.contains(&CLOCK_SYNC_MESSAGE_TYPE),
         display_caps: outcome.host_control_messages.contains(&rubylight_protocol::control::DISPLAY_CAPS_MESSAGE_TYPE),
         cursor_shapes: plan.info.capabilities.has(Feature::CursorShape) && outcome.host_control_messages.contains(&0x5540),
+        text_input: plan.info.capabilities.has(Feature::TextInput)
+            && outcome.host_control_messages.contains(&rubylight_protocol::text_input::TEXT_INPUT_MESSAGE_TYPE)
+            && role != AppRole::RemoteMonitor,
+        keyboard_layout: plan.info.capabilities.has(Feature::ClientKeyboardLayout)
+            && outcome.host_control_messages.contains(&rubylight_protocol::keyboard_layout::KEYBOARD_LAYOUT_MESSAGE_TYPE)
+            && role != AppRole::RemoteMonitor,
         clipboard: plan.info.capabilities.has(Feature::Clipboard) && role != AppRole::RemoteMonitor,
         server_commands: if plan.info.capabilities.has(Feature::ServerCommands) && role != AppRole::RemoteMonitor {
             plan.info.server_commands.iter().take(256).cloned().collect()
@@ -1146,6 +1157,9 @@ pub struct Streaming {
     microphone: Option<microphone::Microphone>,
     cursor: cursor::Cursor,
     cursor_warning: bool,
+    text_field: text_field::TextField,
+    /// The keyboard layout last reported to the host.
+    keyboard_layout: Option<rubylight_protocol::keyboard_layout::KeyboardLayout>,
     clipboard_busy: bool,
     command_busy: bool,
     last_command: Option<Instant>,
@@ -1225,6 +1239,11 @@ impl Streaming {
             // Every second, as the overlay refreshes.
             let _ = session.send(ClientMessage::PipelineRatesRequest(PipelineRatesRequest { enabled: true, interval_ms: 1000 }));
         }
+        if facts.text_input {
+            if let Err(error) = session.send(ClientMessage::TextInputRequest(text_field::request())) {
+                eprintln!("nightjar: text field: could not ask for notices: {error}");
+            }
+        }
         let settings = connecting.settings.clone();
         let microphone = if settings.microphone && !connecting.plan.microphone_muted && facts.role != AppRole::RemoteMonitor {
             if session.microphone_available() {
@@ -1246,7 +1265,7 @@ impl Streaming {
         let quality_policy = (quality_mode != QualityMode::Off).then(|| quality::Quality::new(
             quality_mode, mode, settings.quality_min_short_edge, settings.quality_min_fps, 0));
         let backlog = connecting.shared.pacer_backlog.clone();
-        Self {
+        let mut streaming = Self {
             session,
             shared: connecting.shared,
             facts,
@@ -1275,6 +1294,8 @@ impl Streaming {
             microphone,
             cursor: cursor::Cursor::default(),
             cursor_warning: false,
+            text_field: text_field::TextField::default(),
+            keyboard_layout: None,
             clipboard_busy: false,
             command_busy: false,
             last_command: None,
@@ -1321,7 +1342,37 @@ impl Streaming {
             first_frame: false,
             needs_redraw: true,
             timings: VecDeque::new(),
+        };
+        streaming.report_keyboard_layout();
+        streaming
+    }
+
+    /// Sends the keyboard layout to a host that takes it, at the start and when it changed.
+    fn report_keyboard_layout(&mut self) {
+        if !self.facts.keyboard_layout {
+            return;
         }
+        let Some(layout) = text_field::current_layout() else {
+            if self.keyboard_layout.is_none() {
+                eprintln!("nightjar: keyboard layout unknown, not reported");
+            }
+            return;
+        };
+        if self.keyboard_layout.as_ref() == Some(&layout) {
+            return;
+        }
+        match self.session.send(ClientMessage::KeyboardLayout(layout.clone())) {
+            Ok(()) => {
+                eprintln!("nightjar: keyboard layout {:?} {}", layout.source, layout.tag);
+                self.keyboard_layout = Some(layout);
+            }
+            Err(error) => eprintln!("nightjar: could not report the keyboard layout {}: {error}", layout.tag),
+        }
+    }
+
+    /// Follows the host's focused text field with SDL text input, once per frame.
+    pub fn follow_text_field(&mut self, window: *mut SDL_Window) {
+        self.text_field.apply(window, self.menu_visible);
     }
 
     pub fn show_toast(&mut self, text: impl Into<String>) {
@@ -1718,6 +1769,7 @@ impl Streaming {
                 );
             }
             ControlEvent::Roam(event) => eprintln!("nightjar: {event}"),
+            ControlEvent::TextInput(notice) => self.text_field.notice(&notice),
             _ => {}
         }
     }
@@ -1833,7 +1885,15 @@ impl Streaming {
         self.menu_visible = !self.menu_visible;
         if !self.menu_visible {
             self.session_page = None;
+            // The menu's own text field takes no more text once it closes.
+            // SAFETY: a live window on the main thread.
+            unsafe {
+                if SDL_TextInputActive(window) && !SDL_StopTextInput(window) {
+                    eprintln!("nightjar: could not stop the menu's text input");
+                }
+            }
         }
+        self.text_field.apply(window, self.menu_visible);
         self.raise_all_keys();
         self.session.input(|q| pads.release(q));
         self.set_capture(window, !self.menu_visible);
@@ -2517,6 +2577,11 @@ impl Streaming {
                     self.exit = Some(Exit::CloseWindow);
                 }
                 SDL_EVENT_KEY_DOWN | SDL_EVENT_KEY_UP => self.key(&event.key, window, pads),
+                SDL_EVENT_TEXT_INPUT if !event.text.text.is_null() => {
+                    let text = std::ffi::CStr::from_ptr(event.text.text).to_string_lossy();
+                    self.text(&text);
+                }
+                SDL_EVENT_KEYMAP_CHANGED => self.report_keyboard_layout(),
                 SDL_EVENT_WINDOW_FOCUS_LOST => {
                     self.focused = false;
                     self.raise_all_keys();
@@ -2681,6 +2746,12 @@ impl Streaming {
 
     fn key(&mut self, k: &SDL_KeyboardEvent, window: *mut SDL_Window, pads: &mut Gamepads) {
         if k.repeat {
+            // The PC repeats a held key itself; SDL's repeated text is that key's too.
+            let held = key_input(k.scancode, k.r#mod, self.settings.capture_system_keys, self.settings.right_alt_as_meta)
+                .is_some_and(|key| self.keys_down.contains(&key.code));
+            if k.down && held {
+                self.text_field.key_down(text_field::types(k.key, k.r#mod));
+            }
             return;
         }
         if k.down && local_chord(k.r#mod) {
@@ -2757,11 +2828,25 @@ impl Streaming {
         };
         if k.down {
             self.keys_down.insert(code);
+            self.text_field.key_down(text_field::types(k.key, k.r#mod));
         } else {
             self.keys_down.remove(&code);
         }
         self.session.input(|q| {
             let _ = q.send_keyboard(0x8000 | code, k.down, modifiers, flags);
+        });
+    }
+
+    /// Text from SDL text input: only what a touch keyboard typed goes to the PC, as UTF-8.
+    fn text(&mut self, text: &str) {
+        let Some(text) = self.text_field.text(text) else { return; };
+        if !self.captured {
+            return;
+        }
+        self.session.input(|q| {
+            if let Err(error) = q.send_text(text) {
+                eprintln!("nightjar: text field: could not send text: {error}");
+            }
         });
     }
 
@@ -2773,6 +2858,7 @@ impl Streaming {
         }
         self.raise_all_keys();
         self.session.input(|q| pads.release(q));
+        self.text_field.stop(window);
         self.set_capture(window, false);
         self.cursor.clear();
         for controller in 0..16 {

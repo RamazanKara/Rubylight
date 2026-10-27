@@ -17,7 +17,6 @@ pub struct Gui {
     start: Instant,
     xy: Vec<f32>,
     colors: Vec<SDL_FColor>,
-    text_input: bool,
     cursor: Option<egui::CursorIcon>,
     cursors: HashMap<i32, *mut SDL_Cursor>,
     focused: bool,
@@ -149,7 +148,6 @@ impl Gui {
             start: Instant::now(),
             xy: Vec::new(),
             colors: Vec::new(),
-            text_input: false,
             cursor: None,
             cursors: HashMap::new(),
             focused: true,
@@ -288,10 +286,10 @@ impl Gui {
     /// Applies platform requests: text input, clipboard, cursor.
     pub fn platform(&mut self, window: *mut SDL_Window, output: &egui::PlatformOutput) {
         let wants_text = output.ime.is_some();
-        if wants_text != self.text_input {
-            self.text_input = wants_text;
-            // SAFETY: a live window.
-            unsafe {
+        // SDL's own state, not a copy: a stream's text field starts and stops text input too.
+        // SAFETY: a live window.
+        unsafe {
+            if wants_text != SDL_TextInputActive(window) {
                 if wants_text {
                     SDL_StartTextInput(window);
                 } else {

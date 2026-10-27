@@ -76,14 +76,59 @@ public class RemoteSetupActivity extends NightjarActivity {
         next.setOnClickListener(v -> { cancelTest(); step = Math.min(2, step + 1); showStep(); });
         link.setOnClickListener(v -> openGuide());
         address.setOnClickListener(v -> startActivity(new Intent(this, AddComputerManually.class)));
-        test.setOnClickListener(v -> { if (running) { cancelTest(); result.setText(R.string.remote_cancelled); } else startTest(); });
+        test.setOnClickListener(v -> { if (running) { cancelTest(); showResult(R.string.remote_cancelled); } else startTest(); });
+        // The result starts empty: until a check writes to it, a remote must not land on it.
+        showResult("");
         bound = bindService(new Intent(this, ComputerManagerService.class), service, BIND_AUTO_CREATE);
         showStep();
         UiHelper.notifyNewRootView(this);
+        // A remote or keyboard starts on the step's action (Next), not on the toolbar or an empty line.
+        guide.post(() -> {
+            if (isFinishing() || isDestroyed() || !com.limelight.ui.SubPageFocus.directional(this, guide)) return;
+            View current = focus();
+            if (current != null && current != result && within(guide, current)) return;
+            // A TV window can still be in touch mode at the start: leave it, as the other sub-pages do.
+            View action = primaryAction();
+            if (!action.requestFocus()) action.requestFocusFromTouch();
+        });
+    }
+
+    private void showResult(int text) {
+        showResult(getString(text));
+    }
+
+    /**
+     * Shows a check's outcome. The text stays selectable so its measurements can be copied, and takes focus only while
+     * it has something to read.
+     */
+    private void showResult(CharSequence text) {
+        result.setText(text);
+        boolean readable = text.length() > 0;
+        result.setFocusable(readable);
+        result.setFocusableInTouchMode(readable);
+    }
+
+    /** The action this step leads with: Next, then on the last step the check (or the address while it can't run). */
+    private View primaryAction() {
+        if (step < 2) return next;
+        return test.isEnabled() ? test : address;
+    }
+
+    /** The focused view, read from the view tree: the window reports it later, after the focus change is posted. */
+    private View focus() {
+        return getWindow().getDecorView().findFocus();
+    }
+
+    private static boolean within(View ancestor, View view) {
+        for (View v = view; v != null; v = v.getParent() instanceof View ? (View) v.getParent() : null) {
+            if (v == ancestor) return true;
+        }
+        return false;
     }
 
     private void showStep() {
         if (heading == null) return;
+        View focused = focus();
         heading.setText(getString(R.string.remote_step, step + 1));
         description.setText(new int[]{R.string.remote_prepare, R.string.remote_vpn, R.string.remote_verify}[step]);
         previous.setEnabled(step > 0 && !running);
@@ -94,6 +139,9 @@ public class RemoteSetupActivity extends NightjarActivity {
         test.setVisibility(step == 2 ? View.VISIBLE : View.GONE);
         test.setEnabled(manager != null);
         test.setText(running ? android.R.string.cancel : R.string.remote_test);
+        // Next hides on the last step and Previous disables on the first: focus moves on to the step's action
+        // instead of being dropped.
+        if (focused != null && (!focused.isShown() || !focused.isEnabled())) primaryAction().requestFocus();
     }
 
     private void openGuide() {
@@ -106,7 +154,7 @@ public class RemoteSetupActivity extends NightjarActivity {
         String uuid = getIntent().getStringExtra(EXTRA_PC_UUID);
         ComputerDetails saved = uuid == null ? null : manager.getComputer(uuid);
         if (saved == null || saved.serverCert == null || saved.httpsPort <= 0) {
-            result.setText(R.string.remote_pair_first); return;
+            showResult(R.string.remote_pair_first); return;
         }
         ComputerDetails computer = new ComputerDetails(saved);
         String uniqueId = manager.getUniqueId();
@@ -114,7 +162,7 @@ public class RemoteSetupActivity extends NightjarActivity {
         final int current = ++generation;
         final CheckRun run = new CheckRun();
         activeRun = run;
-        result.setText(R.string.remote_running);
+        showResult(R.string.remote_running);
         showStep();
         run.worker = new Thread(() -> {
             int message = R.string.remote_failed;
@@ -166,7 +214,7 @@ public class RemoteSetupActivity extends NightjarActivity {
                 String summary = getString(outcome);
                 if (outcome == R.string.remote_verified) summary += "\n\n" + getString(routeText) + "\n\n" +
                         getString(R.string.remote_measurements, stats.latencyMs(), stats.lossPercent());
-                result.setText(summary);
+                showResult(summary);
                 showStep();
             });
         }, "Remote setup verification");
@@ -186,7 +234,7 @@ public class RemoteSetupActivity extends NightjarActivity {
         generation++;
         if (activeRun != null) activeRun.cancel();
         activeRun = null;
-        if (running && result != null) result.setText(R.string.remote_cancelled);
+        if (running && result != null) showResult(R.string.remote_cancelled);
         running = false;
         showStep();
     }

@@ -17,15 +17,20 @@ public class GyroLivenessTrackerTest {
     }
 
     @Test
-    public void movementAndNoiseRestartTheRun() {
+    public void oneMovingSampleMeansTheGyroscopeIsRealForGood() {
+        // Noise before the run is complete, then zeros for far longer than the run: no trip.
         GyroLivenessTracker tracker = new GyroLivenessTracker(10);
         assertFalse(tracker.onSample(0f, 0f, 0f, 1));
         assertFalse(tracker.onSample(0.000001f, 0f, 0f, 5));
-        assertFalse(tracker.onSample(0f, 0f, 0f, 6));
-        assertFalse(tracker.onSample(0f, 0f, -0.2f, 15));
-        assertFalse(tracker.onSample(0f, 0f, 0f, 16));
-        assertFalse(tracker.onSample(0f, 0f, 0f, 25));
-        assertTrue(tracker.onSample(0f, 0f, 0f, 26));
+        for (long t = 6; t <= 1000; t++) {
+            assertFalse(tracker.onSample(0f, 0f, 0f, t));
+        }
+        // Motion first, then a controller at rest that the driver rounds to zero: no trip.
+        GyroLivenessTracker resting = new GyroLivenessTracker(10);
+        assertFalse(resting.onSample(0f, 0f, -0.2f, 1));
+        for (long t = 2; t <= 1000; t++) {
+            assertFalse(resting.onSample(0f, 0f, 0f, t));
+        }
     }
 
     @Test

@@ -1141,9 +1141,10 @@ struct Slot {
     allocator: ID3D12CommandAllocator,
     list: ID3D12GraphicsCommandList,
     fence: u64,
-    /// The source and cursor the slot's last conversion reads, kept until it
-    /// has run: the adapter-wide cache may release its own references.
-    inputs: [Option<ID3D12Resource>; 2],
+    /// The source, cursor and panel image the slot's last conversion reads,
+    /// kept until it has run: the adapter-wide cache may release its own
+    /// references.
+    inputs: [Option<ID3D12Resource>; 3],
     capture: Option<crate::capture::GpuImage>,
     outputs: Vec<ID3D12Resource>,
     waits: Vec<ID3D12Fence>,
@@ -1182,14 +1183,17 @@ pub struct Converter {
     focus: Option<Box<Focus>>,
     /// `pack_chroma` replaced `convert`, which focus cannot follow.
     packs_chroma: bool,
+    /// The couch menu's pass, while an overlay is set.
+    menu: menu::Menu,
 }
 // SAFETY: `mapped` and the focus readback pointers point into buffers this converter owns, the
 // D3D12 objects are free-threaded, and the command allocators and lists are used only through
 // `&mut self`.
 unsafe impl Send for Converter {}
 const SLOTS: usize = 4;
-/// Descriptors per slot: the source and pointer, then up to three outputs.
-const VIEWS: usize = 5;
+/// Descriptors per slot: the source and pointer, up to three outputs, then
+/// the couch menu's panel image ([`menu::VIEW`]).
+const VIEWS: usize = 6;
 
 fn validate_colour_input(values: &[u32; 20]) -> Result<()> {
     // cbuffer Config: pixel=4, hdr=5. scRGB/FP16 has an SDR path, PQ does not.
@@ -1275,7 +1279,7 @@ impl Converter {
             bail!("compute conversion needs even, nonzero dimensions");
         }
         // SAFETY: Every call is on the live `compute.device` with descriptions that outlive it, and
-        // `constants` (SLOTS * 256 bytes) stays mapped at `mapped` until Unmap in Drop.
+        // `constants` (SLOTS * 512 bytes) stays mapped at `mapped` until Unmap in Drop.
         unsafe {
             let device = &compute.device;
             let root = root_signature(device, 0, 2)?;
@@ -1296,7 +1300,8 @@ impl Converter {
                     ..Default::default()
                 },
                 D3D12_HEAP_FLAG_NONE,
-                &buffer_desc((SLOTS * 256) as u64),
+                // `Config` per slot, then `cbuffer Menu` per slot.
+                &buffer_desc((SLOTS * 512) as u64),
                 D3D12_RESOURCE_STATE_GENERIC_READ,
                 None,
                 &mut constants,
@@ -1319,7 +1324,7 @@ impl Converter {
                     allocator,
                     list,
                     fence: 0,
-                    inputs: [None, None],
+                    inputs: [None, None, None],
                     capture: None,
                     outputs: Vec::new(),
                     waits: Vec::new(),
@@ -1345,6 +1350,7 @@ impl Converter {
                 uploads: Vec::new(),
                 focus: None,
                 packs_chroma: false,
+                menu: Default::default(),
             })
         }
     }
@@ -1498,7 +1504,7 @@ impl Converter {
         for slot in &mut self.slots {
             if self.compute.completed(slot.fence) {
                 slot.capture = None;
-                slot.inputs = [None, None];
+                slot.inputs = [None, None, None];
                 slot.outputs.clear();
                 slot.waits.clear();
             }
@@ -1623,6 +1629,12 @@ impl Converter {
         self.slot = (self.slot + 1) % SLOTS;
         self.compute.wait(self.slots[slot].fence)?;
         self.slots[slot].capture = None;
+        let (entry, block) = match (self.packs_chroma, self.values[11]) {
+            (false, _) => (&b"yuv420_menu_cs\0"[..], [2, 2]),
+            (true, 2) => (&b"chroma_pack_menu_cs\0"[..], [2, 2]),
+            (true, _) => (&b"chroma_pack_menu_cs\0"[..], [2, 1]),
+        };
+        let menu = self.menu_pass(slot, entry, 0, 2, block)?;
         // SAFETY: The slot's last conversion has finished (waited above), the 80 bytes of `values`
         // fit its 256-byte slot, and every view and barrier names a live resource on this device.
         unsafe {
@@ -1702,6 +1714,9 @@ impl Converter {
             });
             allocator.Reset()?;
             list.Reset(allocator, convert)?;
+            if let Some(menu) = &menu {
+                menu.copy(list);
+            }
             let mut barriers = [transition(
                 target.as_ref(),
                 state,
@@ -1731,6 +1746,9 @@ impl Converter {
             if let Some(focus) = focus {
                 focus.record(list, slot);
             }
+            if let Some(menu) = &menu {
+                menu.record(list, self.constants.GetGPUVirtualAddress(), slot, table);
+            }
             let mut barriers = [transition(
                 target.as_ref(),
                 D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
@@ -1742,7 +1760,11 @@ impl Converter {
         }
         // The slot's previous conversion has finished (waited above), so its
         // inputs can go; this one's stay until the slot comes round again.
-        self.slots[slot].inputs = [Some(source.clone()), pointer.cloned()];
+        self.slots[slot].inputs = [
+            Some(source.clone()),
+            pointer.cloned(),
+            menu.as_ref().map(|menu| menu.texture.clone()),
+        ];
         self.slots[slot].capture = Some(image.clone());
         self.slots[slot].outputs.clear();
         self.slots[slot].waits = ready.map(|ready| ready.fence.clone()).into_iter().collect();
@@ -1766,6 +1788,9 @@ impl Converter {
             .execute(&self.slots[slot].list)
             .inspect_err(|_| self.compute.retire())?;
         self.slots[slot].fence = fence;
+        if let Some(menu) = &menu {
+            self.menu_submitted(menu, fence);
+        }
         // Only now, so a failed wait or submission leaves the age reset pending.
         if let Some(focus) = self.focus.as_deref_mut() {
             focus.recorded(slot);
@@ -1822,7 +1847,12 @@ impl Converter {
         self.slot = (self.slot + 1) % SLOTS;
         self.compute.wait(self.slots[slot].fence)?;
         self.slots[slot].capture = None;
-        self.slots[slot].inputs = [Some(source.clone()), pointer.cloned()];
+        let menu = self.menu_pass(slot, b"pyro_menu_cs\0", 2, 3, [2, 2])?;
+        self.slots[slot].inputs = [
+            Some(source.clone()),
+            pointer.cloned(),
+            menu.as_ref().map(|menu| menu.texture.clone()),
+        ];
         self.slots[slot].capture = image.cloned();
         self.slots[slot].outputs = target.planes.to_vec();
         self.slots[slot].waits = ready
@@ -1886,6 +1916,9 @@ impl Converter {
             } = &self.slots[slot];
             allocator.Reset()?;
             list.Reset(allocator, &planar)?;
+            if let Some(menu) = &menu {
+                menu.copy(list);
+            }
             let mut barriers = target.planes.each_ref().map(|plane| {
                 transition(
                     plane,
@@ -1911,6 +1944,9 @@ impl Converter {
                 (self.height / 2).div_ceil(8),
                 1,
             );
+            if let Some(menu) = &menu {
+                menu.record(list, self.constants.GetGPUVirtualAddress(), slot, table);
+            }
             let mut barriers = target.planes.each_ref().map(|plane| {
                 transition(
                     plane,
@@ -1941,6 +1977,9 @@ impl Converter {
             .compute
             .execute(&self.slots[slot].list)
             .inspect_err(|_| self.compute.retire())?;
+        if let Some(menu) = &menu {
+            self.menu_submitted(menu, self.slots[slot].fence);
+        }
         if let Some(ready) = ready {
             ready.read_by(&self.compute, self.slots[slot].fence)?;
         }
@@ -2000,6 +2039,7 @@ impl Drop for Converter {
         if let Some(focus) = &self.focus {
             focus.retain(&mut work);
         }
+        self.menu.retain(&mut work);
         work.finish(&self.compute);
         // SAFETY: `constants` was mapped once in `new`, and nothing writes through `mapped` after
         // this. Unmap ends CPU access; retained GPU work still owns the resource.
@@ -2353,6 +2393,8 @@ impl Converter {
 #[cfg(test)]
 #[path = "compute_focus_tests.rs"]
 mod focus_tests;
+#[path = "compute_menu.rs"]
+mod menu;
 /// A transition of every subresource; `drop_barriers` releases its reference.
 fn transition(
     resource: &ID3D12Resource,

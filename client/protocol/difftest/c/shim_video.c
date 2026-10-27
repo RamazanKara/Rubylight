@@ -3,6 +3,7 @@
 // receive step mirrors VideoReceiveThreadProc in VideoStream.c without the socket.
 #include "android_depacketizer.c"
 #include "shim.h"
+#include "fec_report.h"
 
 // Globals the core expects from Connection.c, Misc.c and friends.
 CONNECTION_LISTENER_CALLBACKS ListenerCallbacks;
@@ -80,6 +81,14 @@ void connectionSawFrame(uint32_t frameIndex) {
 void connectionSendFrameFecStatus(PSS_FRAME_FEC_STATUS fecStatus) {
     dtLogU8('S');
     dtLogBytes(fecStatus, sizeof(*fecStatus));
+}
+
+void rlFecBlockFinished(uint32_t dataShards, uint32_t parityShards, uint32_t missingShards, bool unrecovered) {
+    dtLogU8('B');
+    dtLogU32(dataShards);
+    dtLogU32(parityShards);
+    dtLogU32(missingShards);
+    dtLogU8(unrecovered);
 }
 
 // A single-threaded LBQ: the decode unit queue is the only one in this translation unit.

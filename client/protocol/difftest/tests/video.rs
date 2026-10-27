@@ -6,7 +6,7 @@ use nightjar_difftest::host::{
     bitstream, VideoFrame, VideoHost, FRAME_AFTER_INVALIDATION, FRAME_IDR, FRAME_P,
 };
 use nightjar_difftest::net::{Impairment, Rng};
-use nightjar_difftest::{run_video, Step};
+use nightjar_difftest::{run_video, run_video_events, Step};
 
 const H264: u32 = 0x0001;
 const HEVC: u32 = 0x0100;
@@ -181,7 +181,18 @@ fn shard_loss_within_and_beyond_parity() {
                 session.deliver(packets);
             }
             session.send_clean(FRAME_P, 3);
-            session.run();
+            // Both cores count every block for the FEC loss report (0x5539) the same way:
+            // recovered ones with their holes, the ones beyond the parity as unrecovered.
+            let events = run_video_events(&session.config, 0, &session.steps);
+            let blocks: Vec<&String> = events
+                .iter()
+                .filter(|e| e.starts_with("fec block "))
+                .collect();
+            assert!(blocks.len() >= 14, "{blocks:?}");
+            assert!(blocks.iter().any(|e| e.ends_with("unrecovered 1")));
+            assert!(blocks
+                .iter()
+                .any(|e| e.ends_with("unrecovered 0") && !e.contains("missing 0 ")));
         }
     }
 }

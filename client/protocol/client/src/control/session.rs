@@ -5,7 +5,7 @@ use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use rubylight_protocol::control::ClockSyncRequest;
-use rubylight_protocol::fec_report::{FecReport, MAX_INTERVAL_MS, NOMINAL_INTERVAL_MS};
+use rubylight_protocol::fec_report::FecTally;
 
 use super::events::{self, ConnectionStatus, ControlEvent, HdrMetadata};
 use super::messages::{ClientMessage, FrameFecStatus};
@@ -67,13 +67,18 @@ enum ReferenceFrameControl {
     Acknowledge(u32),
 }
 
-/// Video FEC outcomes since the last 0x5539 report.
+/// Video FEC outcomes since the last 0x5539 report, timed from the first block counted.
 #[derive(Default)]
-struct FecTally {
-    report: FecReport,
-    /// When the interval began: the first block counted, then each report.
-    since: Option<Instant>,
-    next_seq: u32,
+struct FecReports {
+    tally: FecTally,
+    epoch: Option<Instant>,
+}
+
+impl FecReports {
+    fn ms(&mut self, now: Instant) -> u64 {
+        let epoch = *self.epoch.get_or_insert(now);
+        now.saturating_duration_since(epoch).as_millis() as u64
+    }
 }
 
 /// The encrypted control stream of one connection.
@@ -91,7 +96,7 @@ pub struct ControlSession {
     idr_requested: bool,
     reference_frames: VecDeque<ReferenceFrameControl>,
     fec_statuses: VecDeque<FrameFecStatus>,
-    fec_tally: FecTally,
+    fec_reports: FecReports,
     next_ping: Option<Instant>,
 
     last_good_frame: u32,
@@ -127,7 +132,7 @@ impl ControlSession {
             idr_requested: false,
             reference_frames: VecDeque::new(),
             fec_statuses: VecDeque::new(),
-            fec_tally: FecTally::default(),
+            fec_reports: FecReports::default(),
             next_ping: None,
             last_good_frame: 0,
             last_seen_frame: 0,
@@ -364,38 +369,25 @@ impl ControlSession {
         {
             return;
         }
-        let tally = &mut self.fec_tally;
-        tally.since.get_or_insert(now);
-        let report = &mut tally.report;
-        report.data_shards = report.data_shards.saturating_add(block.data_shards);
-        report.parity_shards = report.parity_shards.saturating_add(block.parity_shards);
-        report.missing_shards = report.missing_shards.saturating_add(block.missing_shards);
-        report.unrecovered_blocks = report
-            .unrecovered_blocks
-            .saturating_add(u16::from(block.unrecovered));
+        let now_ms = self.fec_reports.ms(now);
+        self.fec_reports.tally.block(
+            block.data_shards,
+            block.parity_shards,
+            block.missing_shards,
+            block.unrecovered,
+            now_ms,
+        );
     }
 
-    /// Queues the FEC report once its interval is a second old. An interval without video
-    /// sends nothing, and one past the longest a report may cover (a stalled control thread)
-    /// is dropped: its counts can't be timed.
+    /// Queues the FEC report once its interval is a second old (see [`FecTally::take`]).
     fn flush_fec_report(&mut self, now: Instant) {
-        let tally = &mut self.fec_tally;
-        let Some(since) = tally.since else {
-            return;
-        };
-        let elapsed = now.saturating_duration_since(since);
-        if elapsed < Duration::from_millis(NOMINAL_INTERVAL_MS.into()) {
+        if self.fec_reports.epoch.is_none() {
             return;
         }
-        let mut report = std::mem::take(&mut tally.report);
-        tally.since = Some(now);
-        if report.data_shards == 0 || elapsed > Duration::from_millis(MAX_INTERVAL_MS.into()) {
-            return;
+        let now_ms = self.fec_reports.ms(now);
+        if let Some(report) = self.fec_reports.tally.take(now_ms) {
+            self.queue(&ClientMessage::FecReport(report));
         }
-        report.seq = tally.next_seq;
-        report.interval_ms = elapsed.as_millis() as u16;
-        tally.next_seq = tally.next_seq.wrapping_add(1);
-        self.queue(&ClientMessage::FecReport(report));
     }
 
     pub fn connection_status(&self) -> ConnectionStatus {
@@ -555,6 +547,7 @@ mod tests {
         ClockSyncReply, DisplayCaps, HostTiming, HostTimingExtra, LinkNotice, LinkNoticeRequest,
         LinkReason, LinkState, HOST_TIMING_EXTENDED_MAX_RECORDS,
     };
+    use rubylight_protocol::fec_report::FecReport;
 
     const KEY: Key = *b"0011223344556677";
 

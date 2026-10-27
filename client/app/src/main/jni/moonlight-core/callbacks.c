@@ -9,6 +9,7 @@
 #include "latency.h"
 #include "pyrowave_protocol.h"
 #include "phase_lock.h"
+#include "fec_report.h"
 #include "control_negotiation.h"
 #include "android_microphone.h"
 #include "ControllerHaptics.h"
@@ -612,6 +613,8 @@ Java_com_limelight_nvstream_jni_MoonBridge_cStartConnection(JNIEnv *env, jclass 
     PyroWaveRecordsSupported = (hostFeatures & HOST_FEATURE_PYROWAVE_RECORDS) != 0;
     // Phase-lock reports go only to hosts that announce them in this connection's DESCRIBE answer.
     resetPhaseLockReports();
+    // FEC loss reports count only this stream's blocks.
+    resetFecReports();
     // Filled from this connection's DESCRIBE answer (a=x-rl-control).
     resetHostControlMessages();
     resetCursorShapes();

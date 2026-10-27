@@ -38,6 +38,17 @@ pub fn run_video(
     queue_bound: usize,
     steps: &[Step],
 ) -> usize {
+    let events = run_video_events(config, queue_bound, steps);
+    events.iter().filter(|e| e.starts_with("frame ")).count()
+}
+
+/// As [`run_video`], returning the whole (identical) event log in readable form.
+#[cfg(difftest_c)]
+pub fn run_video_events(
+    config: &nightjar_core::video::VideoConfig,
+    queue_bound: usize,
+    steps: &[Step],
+) -> Vec<String> {
     let _guard = C_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut c = c::CVideo::new(config, queue_bound);
     let mut r = rust::RustVideo::new(config.clone(), queue_bound);
@@ -79,16 +90,17 @@ pub fn run_video(
     let events = describe_log(&c_all);
     let count = |prefix: &str| events.iter().filter(|e| e.starts_with(prefix)).count();
     eprintln!(
-        "{} steps: {} frames, {} IDR requests, {} invalidations, {} FEC reports, {} flushes, {:?} packets",
+        "{} steps: {} frames, {} IDR requests, {} invalidations, {} FEC reports, {} FEC blocks, {} flushes, {:?} packets",
         steps.len(),
         count("frame "),
         count("request IDR"),
         count("invalidate"),
         count("fec status"),
+        count("fec block"),
         count("flush"),
         c.stats(),
     );
-    count("frame ")
+    events
 }
 
 /// As [`run_video`] for audio; returns the number of samples played (including concealed).
@@ -188,6 +200,13 @@ pub fn describe_log(mut log: &[u8]) -> Vec<String> {
             b'S' => format!("fec status {:02x?}", take(&mut log, 21)),
             b'C' => format!("received {} ltr {}", u32le(&mut log), take(&mut log, 1)[0]),
             b'W' => format!("saw {}", u32le(&mut log)),
+            b'B' => format!(
+                "fec block {}+{} missing {} unrecovered {}",
+                u32le(&mut log),
+                u32le(&mut log),
+                u32le(&mut log),
+                take(&mut log, 1)[0]
+            ),
             b'X' => "flush".into(),
             b'A' => {
                 let len = u32le(&mut log);

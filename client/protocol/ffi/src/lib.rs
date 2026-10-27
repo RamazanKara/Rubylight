@@ -15,6 +15,7 @@ use rubylight_protocol::control::{
     RECONFIGURE_BYTES,
 };
 use rubylight_protocol::present_clock::{Grid, PresentClock, Settings};
+use rubylight_protocol::fec_report::{FecTally, FEC_REPORT_BYTES};
 use rubylight_protocol::phase_lock::{SlackWindow, REPORT_BYTES};
 use rubylight_protocol::pyrowave::{self, Records};
 
@@ -149,6 +150,53 @@ pub unsafe extern "C" fn rp_display_caps_encode(hdr: bool, max_nits: f32, max_av
         min_decimillinits: scale(min_nits, 10_000.0),
     };
     core::ptr::copy_nonoverlapping(caps.encode().as_ptr(), out, DISPLAY_CAPS_BYTES);
+}
+
+/// Creates an empty FEC loss tally for the once-a-second report (0x5539).
+#[no_mangle]
+pub extern "C" fn rp_fec_tally_new() -> *mut FecTally {
+    Box::into_raw(Box::default())
+}
+
+/// # Safety
+/// `tally` comes from `rp_fec_tally_new` and is not used afterwards; null is ignored.
+#[no_mangle]
+pub unsafe extern "C" fn rp_fec_tally_free(tally: *mut FecTally) {
+    if !tally.is_null() {
+        drop(Box::from_raw(tally));
+    }
+}
+
+/// Counts one finished video FEC block, recovered or not, at `now_ms` on any monotonic clock.
+///
+/// # Safety
+/// `tally` is live.
+#[no_mangle]
+pub unsafe extern "C" fn rp_fec_tally_block(
+    tally: *mut FecTally,
+    data_shards: u32,
+    parity_shards: u32,
+    missing_shards: u32,
+    unrecovered: bool,
+    now_ms: u64,
+) {
+    (*tally).block(data_shards, parity_shards, missing_shards, unrecovered, now_ms);
+}
+
+/// Writes the 24-byte report to `out` once its interval is a second old and returns true; an
+/// interval without video, or one past 5 s, writes nothing.
+///
+/// # Safety
+/// `tally` is live and `out` points to `RP_FEC_REPORT_BYTES` writable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn rp_fec_tally_report(tally: *mut FecTally, now_ms: u64, out: *mut u8) -> bool {
+    match (*tally).take(now_ms) {
+        Some(report) => {
+            core::ptr::copy_nonoverlapping(report.encode().as_ptr(), out, FEC_REPORT_BYTES);
+            true
+        }
+        None => false,
+    }
 }
 
 /// Writes the 12-byte reconfigure message (0x5532) to `out`.

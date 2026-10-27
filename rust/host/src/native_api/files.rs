@@ -762,7 +762,7 @@ pub(super) async fn upload(
     }
     response
 }
-pub(super) fn refused_upload(c: &Connection, failure: &Failure) {
+fn refused_upload(c: &Connection, failure: &Failure) {
     tracing::warn!(
         "File transfer refused an upload from {}: {}",
         c.peer.ip(),

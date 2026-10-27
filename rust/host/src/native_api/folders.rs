@@ -277,14 +277,14 @@ pub(super) async fn upload(
     let (parts, mut body) = request.into_parts();
     if let Err(refusal) = caller(&h, &c) {
         // Reading on would let anyone send the host data.
-        files::refused_upload(&c, &refusal);
+        refused_upload(&c, &refusal);
         return files::closing(refusal.into_response());
     }
     let received = receive(&h, &c, id, parts.uri.query(), &parts.headers, &mut body).await;
     let mut response = match received {
         Ok(response) => response,
         Err(failure) => {
-            files::refused_upload(&c, &failure);
+            refused_upload(&c, &failure);
             failure.into_response()
         }
     };
@@ -293,6 +293,13 @@ pub(super) async fn upload(
         response = files::closing(response);
     }
     response
+}
+fn refused_upload(c: &Connection, failure: &Failure) {
+    tracing::warn!(
+        "Shared folders refused an upload from {}: {}",
+        c.peer.ip(),
+        failure.message
+    );
 }
 async fn receive(
     h: &Shared,

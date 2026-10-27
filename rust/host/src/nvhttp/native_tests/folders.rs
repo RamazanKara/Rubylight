@@ -406,6 +406,30 @@ async fn an_upload_needs_a_write_grant_and_lands_where_it_was_sent() {
 }
 
 #[tokio::test]
+async fn a_refused_upload_is_logged_as_a_shared_folder_upload() {
+    let f = Folders::new();
+    f.grant(serde_json::json!({"games": "read"}));
+    let path = f.base.join("refused.log");
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::WARN)
+        .without_time()
+        .with_ansi(false)
+        .with_writer(std::sync::Mutex::new(std::fs::File::create(&path).unwrap()))
+        .finish();
+    let guard = tracing::subscriber::set_default(subscriber);
+    f.put("games", "new.sav", b"new")
+        .await
+        .assert_error(403, "forbidden");
+    drop(guard);
+    let log = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        log.contains("Shared folders refused an upload from"),
+        "{log}"
+    );
+    assert!(!log.contains("File transfer"), "{log}");
+}
+
+#[tokio::test]
 async fn dropping_a_write_grant_ends_an_upload_and_deletes_its_part() {
     let f = Folders::new();
     f.grant(serde_json::json!({"games": "write"}));

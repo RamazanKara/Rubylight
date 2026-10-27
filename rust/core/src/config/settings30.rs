@@ -575,7 +575,7 @@ mod tests {
     }
 
     /// The settings whose features have shipped, so the console shows them.
-    const LIVE: &[&str] = &["audio_surround_714"];
+    const LIVE: &[&str] = &["audio_surround_714", "fec_max_percentage", "bandwidth_probe"];
 
     /// Each setting's key and default in extensions.ts, with LF or CRLF line
     /// ends (CI checks the repository out with CRLF).

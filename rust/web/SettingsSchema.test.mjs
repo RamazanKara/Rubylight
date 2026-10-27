@@ -435,7 +435,7 @@ test('sleep after idle takes 0 or 5 to 1440 minutes, as the host does, and its s
 });
 
 // The 3.0 settings whose features have shipped (settings30.rs keeps the same list).
-const live = ['audio_surround_714'];
+const live = ['audio_surround_714', 'fec_max_percentage', 'bandwidth_probe'];
 
 test('settings still pending stay out of the console, and shipped ones are in it', () => {
   assert.equal(pending.length, 29);

@@ -11,10 +11,11 @@
 //! module above): loopback, the user's own account, CredSSP, the child-session
 //! flag and `KeyboardHookMode = 2`, so Windows-key shortcuts stay on the
 //! user's own desktop. On top of Annex, the RDP port setup recorded,
-//! `127.0.0.1` rather than `localhost`, and a check before every connect that
-//! Windows' own RDP server, and nothing else, listens on that port
-//! ([`check_rdp_server`]): with `AuthenticationLevel = 0` the client does not
-//! authenticate the server itself.
+//! `127.0.0.1` rather than `localhost`, and a check right before every connect
+//! that Windows' own RDP server, and nothing else, listens on that port over
+//! TCP or UDP ([`check_rdp_server`]): with `AuthenticationLevel = 0` the client
+//! does not authenticate the server itself. The client's own automatic
+//! reconnect is off, so no connect skips that check.
 
 use crate::text::to_wide;
 use anyhow::{Context, Result, bail};
@@ -34,7 +35,7 @@ use std::{
 };
 use windows::{
     Win32::{
-        Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, RECT, VARIANT_TRUE, WPARAM},
+        Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, RECT, VARIANT_FALSE, VARIANT_TRUE, WPARAM},
         System::{
             Com::{
                 CoTaskMemFree, DISPATCH_FLAGS, DISPATCH_METHOD, DISPATCH_PROPERTYGET,
@@ -60,6 +61,7 @@ use windows::{
         BSTR, GUID, HRESULT, IUnknown, IUnknown_Vtbl, Interface, PCWSTR, PWSTR, interface, s, w,
     },
 };
+use zeroize::Zeroizing;
 
 /// Microsoft RDP Client Control (MsTscAx), the CLSID Annex hosts.
 const RDP_CONTROL: &str = "{8B918B82-7985-4C24-89DF-C33AD2BBFBCD}";
@@ -113,9 +115,17 @@ impl Value {
             v.bstrVal = ManuallyDrop::new(BSTR::from(value))
         })
     }
-    /// A BSTR whose characters are wiped before it is freed.
+    fn no() -> Self {
+        Self::new(VT_BOOL, |v| v.boolVal = VARIANT_FALSE)
+    }
+    /// A BSTR whose characters are wiped before it is freed. The UTF-16 it is
+    /// made from is wiped too: [`wide_secret`] never grows it, so no copy is
+    /// left behind in a freed buffer.
     fn secret(value: &Secret) -> Secret2 {
-        Secret2(Self::text(value.expose()))
+        let wide = wide_secret(value.expose());
+        Secret2(Self::new(VT_BSTR, |v| {
+            v.bstrVal = ManuallyDrop::new(BSTR::from_wide(&wide))
+        }))
     }
     fn as_i32(&self) -> Result<i32> {
         let mut converted = Value(VARIANT::default());
@@ -138,6 +148,25 @@ impl Value {
     }
 }
 /// The password VARIANT: its BSTR is zeroed before [`Value`] frees it.
+/// Configure the client, check the server, connect: in that order, so the check is the last
+/// step before the password leaves, and a refused check never connects. The notices
+/// `configure` returned.
+fn connect_checked(
+    configure: impl FnOnce() -> Result<Vec<String>>,
+    check: impl FnOnce() -> Result<()>,
+    connect: impl FnOnce() -> Result<()>,
+) -> Result<Vec<String>> {
+    let notices = configure()?;
+    check()?;
+    connect()?;
+    Ok(notices)
+}
+/// `text` as UTF-16 in a buffer sized up front, wiped on drop.
+fn wide_secret(text: &str) -> Zeroizing<Vec<u16>> {
+    let mut wide = Zeroizing::new(Vec::with_capacity(text.encode_utf16().count()));
+    wide.extend(text.encode_utf16());
+    wide
+}
 struct Secret2(Value);
 impl Drop for Secret2 {
     fn drop(&mut self) {
@@ -330,6 +359,14 @@ impl Rdp {
             "AdvancedSettings5",
             "AuthenticationLevel",
             &Value::int(0),
+        )?;
+        // The client's own reconnect would skip [`check_rdp_server`]: every reconnect goes
+        // through the viewer's connect instead.
+        put_in(
+            control,
+            "AdvancedSettings2",
+            "EnableAutoReconnect",
+            &Value::no(),
         )?;
         self.extended("ConnectToChildSession", &Value::yes())?;
         let mut notices = Vec::new();
@@ -611,24 +648,31 @@ impl App {
                 .password
                 .as_ref()
                 .context("no Windows password to sign in with")?;
-            // Every connect, the automatic reconnects too, before the password reaches the
-            // client: a refusal detaches below and is not retried.
-            check_rdp_server(self.rdp_port, &super::rdp_server()?)?;
-            let notices = self
-                .rdp
-                .configure(&account()?, password, self.display, self.rdp_port)?;
-            if !notices.is_empty() {
-                self.notice = Some(notices.join("; "));
-            }
-            self.rdp.connect()
+            // Every connect, the automatic reconnects too (the client's own are off), right
+            // before the password leaves for the server: a refusal is not retried.
+            connect_checked(
+                || {
+                    self.rdp
+                        .configure(&account()?, password, self.display, self.rdp_port)
+                },
+                || check_rdp_server(self.rdp_port, &super::rdp_server()?),
+                || self.rdp.connect(),
+            )
         })();
-        if result.is_err() {
-            // A setting the session needs failed: no retry loop, the console shows why.
-            let state = self.state();
-            let actions = self.viewer.detach(state);
-            self.apply(actions);
+        match &result {
+            Ok(notices) if !notices.is_empty() => self.notice = Some(notices.join("; ")),
+            Ok(_) => {}
+            Err(error) => {
+                // A refused server or a setting the session needs: no retry loop, and the
+                // console shows why rather than a failed sign-in.
+                let state = self.state();
+                let actions = self.viewer.refuse(state, &format!("{error:#}"));
+                self.apply(actions);
+            }
         }
-        result.context("the child session's desktop could not be opened")
+        result
+            .map(drop)
+            .context("the child session's desktop could not be opened")
     }
     fn status(&self) -> ViewerStatus {
         ViewerStatus {
@@ -829,6 +873,7 @@ mod tests {
         };
         assert_eq!(read("AdvancedSettings2", "RDPPort"), 3390);
         assert_eq!(read("AdvancedSettings5", "AuthenticationLevel"), 0);
+        assert_eq!(read("AdvancedSettings2", "EnableAutoReconnect"), 0);
         let server = get(&rdp.control, "Server").unwrap();
         // SAFETY: the control returns the server name as a VT_BSTR.
         let server = unsafe {
@@ -889,6 +934,60 @@ mod tests {
             &sender,
             || ()
         ));
+    }
+
+    #[test]
+    fn the_server_is_checked_right_before_connecting() {
+        let steps = std::cell::RefCell::new(Vec::new());
+        let step = |name: &'static str| steps.borrow_mut().push(name);
+        let notices = connect_checked(
+            || {
+                step("configure");
+                Ok(vec!["notice".into()])
+            },
+            || {
+                step("check");
+                Ok(())
+            },
+            || {
+                step("connect");
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(notices, ["notice"]);
+        assert_eq!(*steps.borrow(), ["configure", "check", "connect"]);
+        // A refused server never connects.
+        steps.borrow_mut().clear();
+        let error = connect_checked(
+            || {
+                step("configure");
+                Ok(Vec::new())
+            },
+            || bail!("another program (process 6666) listens on port 3390"),
+            || {
+                step("connect");
+                Ok(())
+            },
+        )
+        .unwrap_err();
+        assert!(format!("{error:#}").contains("process 6666"), "{error:#}");
+        assert_eq!(*steps.borrow(), ["configure"]);
+    }
+
+    #[test]
+    fn the_password_is_encoded_without_a_spare_copy() {
+        let wide = wide_secret("p\u{e4}ss\u{1f600}");
+        assert_eq!(
+            *wide,
+            "p\u{e4}ss\u{1f600}".encode_utf16().collect::<Vec<_>>()
+        );
+        // Sized up front: extending never reallocated and left the old buffer unwiped.
+        assert_eq!(wide.capacity(), wide.len());
+        let value = Value::secret(&Secret::new("p\u{e4}ss".into()));
+        // SAFETY: Value::secret makes a VT_BSTR.
+        let text = unsafe { value.0.0.Anonymous.Anonymous.Anonymous.bstrVal.to_string() };
+        assert_eq!(text, "p\u{e4}ss");
     }
 
     #[test]

@@ -18,7 +18,7 @@ checks (see plan()):
 Markdown is documentation and maps to nothing. One PASS/FAIL table is printed;
 each check's output goes to <log dir>/<check>.log. Exits 1 if any check fails.
 """
-import argparse, dataclasses, os, pathlib, re, subprocess, sys, time, tomllib
+import argparse, dataclasses, os, pathlib, re, shutil, subprocess, sys, time, tomllib
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RL_QUICK = pathlib.Path(r'C:\src\rl-quick.ps1')
@@ -264,7 +264,18 @@ def run(command, log, cwd, env=None, shell=False):
     with open(log, 'a', encoding='utf-8', errors='replace') as f:
         f.write(f'\n== {command if isinstance(command, str) else " ".join(map(str, command))}\n')
         f.flush()
-        return subprocess.run(command, cwd=cwd, env=env, shell=shell, stdout=f, stderr=subprocess.STDOUT).returncode
+        if not shell:
+            # Windows looks the program up on this process's PATH, not env's (client_env adds cargo).
+            program = shutil.which(command[0], path=(env or os.environ).get('PATH'))
+            if not program:
+                f.write(f'{command[0]} is not on PATH\n')
+                return 127
+            command = [program, *command[1:]]
+        try:
+            return subprocess.run(command, cwd=cwd, env=env, shell=shell, stdout=f, stderr=subprocess.STDOUT).returncode
+        except OSError as error:
+            f.write(f'{error}\n')
+            return 127
 
 
 def client_specs(root, names):

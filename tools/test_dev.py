@@ -1,4 +1,4 @@
-import pathlib, sys, tempfile, unittest
+import os, pathlib, sys, tempfile, unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import dev  # noqa: E402
@@ -128,6 +128,17 @@ class QuickLog(unittest.TestCase):
         self.assertTrue(passed, repr(text))
         self.assertIn('\ntest result: ok. 3 passed; 0 failed\n', text)
         self.assertNotIn('\x00', text)
+
+    def test_programs_come_from_the_env_path_and_a_missing_one_fails_in_its_log(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bin_dir = pathlib.Path(directory, 'bin')
+            bin_dir.mkdir()
+            (bin_dir / 'only-here.cmd').write_text('@exit /b 7\n')
+            log = pathlib.Path(directory, 'check.log')
+            env = dict(os.environ, PATH=f'{bin_dir};{os.environ["PATH"]}')
+            self.assertEqual(dev.run(['only-here', 'x'], log, directory, env), 7)
+            self.assertEqual(dev.run(['no-such-program-here'], log, directory), 127)
+            self.assertIn('no-such-program-here is not on PATH', log.read_text(encoding='utf-8'))
 
     def test_a_failure_or_a_missing_log_fails(self):
         self.assertFalse(self.quick('EXIT 1')[1])

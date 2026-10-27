@@ -8,4 +8,15 @@
     <string name="mic_status_not_offered">麦克风：主机未提供</string>
     <string name="mic_status_unavailable">麦克风：不可用</string>
     <string name="mic_status_no_permission">麦克风：需要权限</string>
+    <string name="title_list_mic_echo_cancel">回声消除</string>
+    <string name="summary_list_mic_echo_cancel">防止扬声器里的游戏声音进入麦克风。自动模式在使用扬声器时开启，使用耳机和蓝牙耳机时关闭，并在串流中切换时跟随。</string>
+    <string name="mic_echo_auto">自动</string>
+    <string name="mic_echo_on">开启</string>
+    <string name="mic_echo_off">关闭</string>
+    <string name="title_checkbox_mic_noise_suppression">噪声抑制</string>
+    <string name="summary_checkbox_mic_noise_suppression">滤除麦克风中风扇等持续的背景噪声</string>
+    <string name="title_checkbox_mic_auto_gain">自动增益</string>
+    <string name="summary_checkbox_mic_auto_gain">让设备平衡小声和大声的说话。下方的麦克风增益会在此基础上应用。</string>
+    <string name="title_seekbar_mic_gain">麦克风增益</string>
+    <string name="summary_seekbar_mic_gain">在发送前调低或调高麦克风。响亮的峰值会被圆滑处理而不会削波。</string>
 </resources>

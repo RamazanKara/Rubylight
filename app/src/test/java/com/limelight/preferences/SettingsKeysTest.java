@@ -308,6 +308,10 @@ public class SettingsKeysTest {
         // MoonBridge audio constants it maps to are not created under the test shadow.
         reads.put("checkbox_host_audio", new Read(false, true, c -> c.playHostAudio));
         reads.put("checkbox_enable_mic", new Read(false, true, c -> c.enableMic));
+        reads.put("list_mic_echo_cancel", new Read("auto", "off", c -> c.micEcho));
+        reads.put("checkbox_mic_noise_suppression", new Read(true, false, c -> c.micNoiseSuppression));
+        reads.put("checkbox_mic_auto_gain", new Read(false, true, c -> c.micAutoGain));
+        reads.put("seekbar_mic_gain", new Read(100, 150, c -> c.micGainPercent));
         reads.put("checkbox_enable_audiofx", new Read(false, true, c -> c.enableAudioFx));
         reads.put("checkbox_audio_passthrough", new Read(false, true, c -> c.audioPassthrough));
         reads.put("checkbox_enable_perf_overlay", new Read(false, true, c -> c.enablePerfOverlay));

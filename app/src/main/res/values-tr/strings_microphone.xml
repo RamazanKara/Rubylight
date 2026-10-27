@@ -8,4 +8,15 @@
     <string name="mic_status_not_offered">Mikrofon: ana bilgisayar sunmuyor</string>
     <string name="mic_status_unavailable">Mikrofon: kullanılamıyor</string>
     <string name="mic_status_no_permission">Mikrofon: izin gerekli</string>
+    <string name="title_list_mic_echo_cancel">Yankı giderme</string>
+    <string name="summary_list_mic_echo_cancel">Hoparlördeki oyun sesinin mikrofona girmesini önler. Otomatik, hoparlörde açar, kulaklık ve Bluetooth kulaklık setlerinde kapatır ve yayın sırasındaki geçişleri izler.</string>
+    <string name="mic_echo_auto">Otomatik</string>
+    <string name="mic_echo_on">Açık</string>
+    <string name="mic_echo_off">Kapalı</string>
+    <string name="title_checkbox_mic_noise_suppression">Gürültü bastırma</string>
+    <string name="summary_checkbox_mic_noise_suppression">Fan gibi sabit arka plan gürültüsünü mikrofondan süzer</string>
+    <string name="title_checkbox_mic_auto_gain">Otomatik kazanç</string>
+    <string name="summary_checkbox_mic_auto_gain">Cihaz alçak ve yüksek sesli konuşmayı dengeler. Aşağıdaki mikrofon kazancı buna ek olarak uygulanır.</string>
+    <string name="title_seekbar_mic_gain">Mikrofon kazancı</string>
+    <string name="summary_seekbar_mic_gain">Mikrofonu göndermeden önce kısar veya yükseltir. Yüksek tepeler bozulmak yerine yumuşatılır.</string>
 </resources>

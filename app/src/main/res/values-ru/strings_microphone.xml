@@ -8,4 +8,15 @@
     <string name="mic_status_not_offered">Микрофон: не поддерживается хостом</string>
     <string name="mic_status_unavailable">Микрофон: недоступен</string>
     <string name="mic_status_no_permission">Микрофон: нужно разрешение</string>
+    <string name="title_list_mic_echo_cancel">Подавление эха</string>
+    <string name="summary_list_mic_echo_cancel">Не пускает звук игры из динамика в микрофон. «Автоматически» включает его с динамиком и выключает с наушниками и Bluetooth-гарнитурами, а также следует за переключением во время трансляции.</string>
+    <string name="mic_echo_auto">Автоматически</string>
+    <string name="mic_echo_on">Вкл.</string>
+    <string name="mic_echo_off">Выкл.</string>
+    <string name="title_checkbox_mic_noise_suppression">Шумоподавление</string>
+    <string name="summary_checkbox_mic_noise_suppression">Убирает из микрофона ровный фоновый шум, например вентилятора</string>
+    <string name="title_checkbox_mic_auto_gain">Автоусиление</string>
+    <string name="summary_checkbox_mic_auto_gain">Устройство выравнивает тихую и громкую речь. Усиление микрофона ниже применяется дополнительно.</string>
+    <string name="title_seekbar_mic_gain">Усиление микрофона</string>
+    <string name="summary_seekbar_mic_gain">Делает микрофон тише или громче перед отправкой. Громкие пики сглаживаются, а не перегружаются.</string>
 </resources>

@@ -8,4 +8,15 @@
     <string name="mic_status_not_offered">Mikrofon: vom Host nicht angeboten</string>
     <string name="mic_status_unavailable">Mikrofon: nicht verfügbar</string>
     <string name="mic_status_no_permission">Mikrofon: Berechtigung fehlt</string>
+    <string name="title_list_mic_echo_cancel">Echounterdrückung</string>
+    <string name="summary_list_mic_echo_cancel">Hält den Spielton aus dem Lautsprecher vom Mikrofon fern. Automatisch schaltet sie beim Lautsprecher ein und bei Kopfhörern und Bluetooth-Headsets aus und folgt einem Wechsel während des Streams.</string>
+    <string name="mic_echo_auto">Automatisch</string>
+    <string name="mic_echo_on">An</string>
+    <string name="mic_echo_off">Aus</string>
+    <string name="title_checkbox_mic_noise_suppression">Rauschunterdrückung</string>
+    <string name="summary_checkbox_mic_noise_suppression">Filtert gleichmäßige Hintergrundgeräusche wie einen Lüfter aus dem Mikrofon</string>
+    <string name="title_checkbox_mic_auto_gain">Automatische Verstärkung</string>
+    <string name="summary_checkbox_mic_auto_gain">Lässt das Gerät leise und laute Sprache angleichen. Die Mikrofonverstärkung darunter wirkt zusätzlich.</string>
+    <string name="title_seekbar_mic_gain">Mikrofonverstärkung</string>
+    <string name="summary_seekbar_mic_gain">Macht das Mikrofon vor dem Senden leiser oder lauter. Laute Spitzen werden abgerundet statt übersteuert.</string>
 </resources>

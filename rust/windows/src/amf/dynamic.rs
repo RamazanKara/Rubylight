@@ -25,12 +25,16 @@ pub(super) fn wanted(
 /// The statistics pass behind the compute conversion
 /// ([`crate::compute::Converter`]), or a fake in tests.
 pub(super) trait Stats {
+    fn enable(&mut self) -> anyhow::Result<()>;
     fn submit(&mut self) -> anyhow::Result<()>;
     fn latest(&self, newer_than: u64) -> anyhow::Result<Option<HdrStatsReadout>>;
     /// No more passes: dynamic metadata is off for the rest of the stream.
     fn stop(&mut self);
 }
 impl Stats for crate::compute::Converter {
+    fn enable(&mut self) -> anyhow::Result<()> {
+        self.enable_hdr_stats()
+    }
     fn submit(&mut self) -> anyhow::Result<()> {
         super::timed("HDR statistics submit", || self.submit_hdr_stats())
     }
@@ -47,6 +51,40 @@ impl Stats for crate::compute::Converter {
 fn off(warnings: &Warnings, message: String) {
     tracing::warn!("{message}");
     warnings.set("hdr_dynamic_metadata", message);
+}
+
+/// Dynamic metadata in `codec` for an HDR stream that wants it
+/// ([`wanted`]), from the statistics pass behind the compute conversion:
+/// `stats` is `None` on the D3D11 conversion. A stream that gets none says
+/// why in the log and the session's warnings.
+pub(super) fn start(
+    codec: Codec,
+    packed: bool,
+    stats: Option<&mut impl Stats>,
+    warnings: &Warnings,
+) -> Option<Box<Dynamic>> {
+    let why = if packed {
+        "the stream uses packed 4:4:4".to_owned()
+    } else if let Some(stats) = stats {
+        match stats.enable() {
+            Ok(()) => {
+                tracing::info!(?codec, "HDR dynamic metadata (HDR10+, HDR Vivid) on");
+                return Some(Box::new(Dynamic::new(codec)));
+            }
+            Err(error) => format!(
+                "the GPU statistics pass did not start ({error:#}). Update the AMD driver, or turn off hdr_dynamic_metadata"
+            ),
+        }
+    } else {
+        "they are measured behind the compute conversion, and this stream uses the D3D11 conversion (gpu_compute_conversion)".to_owned()
+    };
+    off(
+        warnings,
+        format!(
+            "HDR10+ and HDR Vivid are off for this stream: {why}. It carries static HDR10 metadata only"
+        ),
+    );
+    None
 }
 
 /// Once a frame went to the encoder: start its statistics pass, and take
@@ -395,12 +433,21 @@ mod tests {
     /// A statistics pass that fails to submit on call `fail_at`.
     #[derive(Default)]
     struct FakeStats {
+        enables: u32,
+        enable_fails: bool,
         submits: u32,
         fail_at: Option<u32>,
         stopped: bool,
         readout: Option<HdrStatsReadout>,
     }
     impl Stats for FakeStats {
+        fn enable(&mut self) -> anyhow::Result<()> {
+            self.enables += 1;
+            if self.enable_fails {
+                anyhow::bail!("root signature rejected");
+            }
+            Ok(())
+        }
         fn submit(&mut self) -> anyhow::Result<()> {
             self.submits += 1;
             if self.fail_at == Some(self.submits) {
@@ -449,6 +496,47 @@ mod tests {
         // Off for the rest of the stream: no more passes.
         sample(&mut slot, Some(&mut stats), &warnings);
         assert_eq!(stats.submits, 2);
+    }
+
+    #[test]
+    fn a_stream_without_the_statistics_pass_says_why_it_carries_static_hdr10_only() {
+        let shown = |packed, stats: Option<&mut FakeStats>| {
+            let warnings = Warnings::default();
+            let dynamic = start(Codec::Hevc, packed, stats, &warnings);
+            assert!(dynamic.is_none());
+            let shown = warnings.snapshot();
+            assert_eq!(shown.len(), 1);
+            assert_eq!(shown[0].code, "hdr_dynamic_metadata");
+            assert!(
+                shown[0]
+                    .message
+                    .starts_with("HDR10+ and HDR Vivid are off for this stream: ")
+                    && shown[0]
+                        .message
+                        .ends_with(". It carries static HDR10 metadata only"),
+                "{}",
+                shown[0].message
+            );
+            shown[0].message.clone()
+        };
+        let mut stats = FakeStats::default();
+        assert!(shown(true, Some(&mut stats)).contains("packed 4:4:4"));
+        assert_eq!(stats.enables, 0, "packed 4:4:4 started a pass");
+        assert!(shown(false, None::<&mut FakeStats>).contains("the D3D11 conversion"));
+        let mut failing = FakeStats {
+            enable_fails: true,
+            ..Default::default()
+        };
+        assert!(
+            shown(false, Some(&mut failing))
+                .contains("statistics pass did not start (root signature rejected)")
+        );
+        // With the pass, dynamic metadata is on and nothing is shown.
+        let warnings = Warnings::default();
+        let dynamic = start(Codec::Av1, false, Some(&mut stats), &warnings);
+        assert!(dynamic.is_some());
+        assert_eq!(stats.enables, 1);
+        assert!(warnings.snapshot().is_empty());
     }
 
     #[test]

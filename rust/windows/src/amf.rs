@@ -1292,38 +1292,21 @@ impl Encoder {
         self.property_raw(&name, value)
     }
     /// HDR10+ and HDR Vivid for an HDR stream with `hdr_dynamic_metadata` on,
-    /// from the statistics pass behind the compute conversion. A stream
-    /// without that conversion logs that it carries none.
+    /// from the statistics pass behind the compute conversion
+    /// ([`dynamic::start`]). A stream without one warns that it carries none.
     fn enable_dynamic(
         &mut self,
         config: &butterpollo_core::rtsp::Negotiated,
         options: &butterpollo_core::config::Config,
     ) -> Option<Box<dynamic::Dynamic>> {
-        let codec = dynamic::wanted(config, options)?;
-        if config.chroma_packing != 0 {
-            tracing::info!(
-                ?codec,
-                "packed 4:4:4 stream: no HDR dynamic metadata (HDR10+, HDR Vivid) is sent; static HDR metadata is unchanged"
-            );
-            return None;
-        }
-        let Some(input) = self.compute.as_deref_mut() else {
-            tracing::info!(
-                ?codec,
-                "D3D11 conversion: no HDR dynamic metadata (HDR10+, HDR Vivid) is sent; static HDR metadata is unchanged"
-            );
-            return None;
-        };
-        if let Err(error) = input.converter.enable_hdr_stats() {
-            let message = format!(
-                "HDR10+ and HDR Vivid are off for this stream: the GPU statistics pass did not start ({error:#}). Update the AMD driver, or turn off hdr_dynamic_metadata"
-            );
-            tracing::warn!("{message}");
-            self.warnings.set("hdr_dynamic_metadata", message);
-            return None;
-        }
-        tracing::info!(?codec, "HDR dynamic metadata (HDR10+, HDR Vivid) on");
-        Some(Box::new(dynamic::Dynamic::new(codec)))
+        dynamic::start(
+            dynamic::wanted(config, options)?,
+            config.chroma_packing != 0,
+            self.compute
+                .as_deref_mut()
+                .map(|input| &mut input.converter),
+            &self.warnings,
+        )
     }
     /// The display peak HDR10+ is written for
     /// (`butterpollo_core::display_caps::HdrSource::target_nits`).

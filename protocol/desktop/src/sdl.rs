@@ -53,6 +53,13 @@ pub fn open_url(url: &str) -> Result<(), String> {
 
 pub type FileChoice = std::sync::mpsc::Receiver<Result<Option<std::path::PathBuf>, String>>;
 
+/// What a file dialog's callback was given: an error, nothing chosen, or the first path.
+unsafe fn chosen_path(files: *const *const c_char) -> Result<Option<std::path::PathBuf>, String> {
+    if files.is_null() { Err(error()) }
+    else if unsafe { (*files).is_null() } { Ok(None) }
+    else { Ok(Some(std::path::PathBuf::from(unsafe { CStr::from_ptr(*files) }.to_string_lossy().into_owned()))) }
+}
+
 pub fn choose_json_file(window: *mut SDL_Window, save: bool) -> FileChoice {
     struct Request {
         sender: std::sync::mpsc::Sender<Result<Option<std::path::PathBuf>, String>>,
@@ -61,10 +68,7 @@ pub fn choose_json_file(window: *mut SDL_Window, save: bool) -> FileChoice {
     unsafe extern "C" fn chosen(userdata: *mut std::ffi::c_void, files: *const *const c_char, _: i32) {
         // SDL calls once; the request keeps the filter alive until this callback.
         let request = unsafe { Box::from_raw(userdata.cast::<Request>()) };
-        let result = if files.is_null() { Err(error()) }
-            else if unsafe { (*files).is_null() } { Ok(None) }
-            else { Ok(Some(std::path::PathBuf::from(unsafe { CStr::from_ptr(*files) }.to_string_lossy().into_owned()))) };
-        let _ = request.sender.send(result);
+        let _ = request.sender.send(unsafe { chosen_path(files) });
     }
     let (sender, receiver) = std::sync::mpsc::channel();
     let request = Box::into_raw(Box::new(Request {
@@ -77,6 +81,27 @@ pub fn choose_json_file(window: *mut SDL_Window, save: bool) -> FileChoice {
             SDL_ShowSaveFileDialog(Some(chosen), request.cast(), window, &(*request).filter, 1, c"nightjar-shortcuts.json".as_ptr());
         } else {
             SDL_ShowOpenFileDialog(Some(chosen), request.cast(), window, &(*request).filter, 1, std::ptr::null(), false);
+        }
+    }
+    receiver
+}
+
+/// A folder (`folder`) or a file of any type, to open.
+pub fn choose_path(window: *mut SDL_Window, folder: bool) -> FileChoice {
+    type Sender = std::sync::mpsc::Sender<Result<Option<std::path::PathBuf>, String>>;
+    unsafe extern "C" fn chosen(userdata: *mut std::ffi::c_void, files: *const *const c_char, _: i32) {
+        // SDL calls once.
+        let sender = unsafe { Box::from_raw(userdata.cast::<Sender>()) };
+        let _ = sender.send(unsafe { chosen_path(files) });
+    }
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let request = Box::into_raw(Box::new(sender));
+    // SAFETY: invoked on the UI thread; SDL owns the callback's lifetime.
+    unsafe {
+        if folder {
+            SDL_ShowOpenFolderDialog(Some(chosen), request.cast(), window, std::ptr::null(), false);
+        } else {
+            SDL_ShowOpenFileDialog(Some(chosen), request.cast(), window, std::ptr::null(), 0, std::ptr::null(), false);
         }
     }
     receiver

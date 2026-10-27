@@ -57,6 +57,12 @@ pub enum Command {
     RemoteCheck(u64),
     /// Open a PC's web UI in the default browser.
     OpenWebUi(String),
+    /// Open the details page's browser of the folders a PC shares with this device.
+    SharedFolders(u64),
+    /// Choose a folder here and download the file `name` of the listed directory into it.
+    FolderDownload { host: u64, name: String },
+    /// Choose a file here and upload it into the listed directory.
+    FolderUpload(u64),
     CancelPair,
     AddHost(String),
     Unpair(u64),
@@ -287,6 +293,8 @@ pub struct Launcher {
     look: Option<(bool, bool)>,
     /// The details page's remote access check.
     pub remote: crate::host_page::RemoteAccess,
+    /// The details page's shared folder browser.
+    pub folders: crate::folders_page::SharedFolders,
 }
 
 /// What the launcher shows, borrowed from the app each frame.
@@ -442,6 +450,7 @@ impl Launcher {
             system_languages: Vec::new(),
             look: None,
             remote: Default::default(),
+            folders: Default::default(),
         }
     }
 
@@ -685,6 +694,7 @@ impl Launcher {
             _ => None,
         });
         self.remote.poll(page);
+        self.folders.poll(page);
         let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
         self.home_ready = console::has_library(&sources);
         let escape = ctx.input(|i| i.key_pressed(Key::Escape));
@@ -1582,7 +1592,128 @@ impl Launcher {
                 }
                 Some(CheckState::Done(report)) => remote_report(ui, report),
             }
+            if caps.has(nightjar_core::http::Feature::SharedFolders) {
+                self.shared_folders(ui, id, commands);
+            }
         });
+    }
+
+    /// The details page's browser of the folders the PC shares with this device (Experimental).
+    fn shared_folders(&mut self, ui: &mut Ui, id: u64, commands: &mut Vec<Command>) {
+        use crate::folders_page::{size_text, Place};
+        use nightjar_core::http::EntryKind;
+        section(ui, "Shared folders");
+        let Some(open) = self.folders.state_for(id) else {
+            let button = row(ui, "Shared folders", "Browse the folders this PC shares with this device, download files from them and, with a write grant, upload to them. The PC opens them as the user signed in on it.", |ui| {
+                quiet_button(ui, "Browse")
+            });
+            self.focus_item(&button, "shared-folders", false);
+            if button.clicked() {
+                commands.push(Command::SharedFolders(id));
+            }
+            if let Some(error) = self.folders.failure_for(id) {
+                ui.label(RichText::new(error).color(ERROR));
+            }
+            return;
+        };
+        let busy = open.transfer.is_some();
+        let (title, writable) = match &open.place {
+            Place::Folders => (tr("Folders on this PC").to_owned(), false),
+            Place::Dir { folder, path } if path.is_empty() => (folder.name.clone(), folder.writable()),
+            Place::Dir { folder, path } => (format!("{} / {}", folder.name, path.replace('/', " / ")), folder.writable()),
+        };
+        let (mut up, mut refresh, mut close, mut cancel) = (false, false, false, false);
+        let mut enter_folder = None;
+        let mut enter_dir = None;
+        ui.label(RichText::new(&title).font(semibold(text::BODY)).color(ON_SURFACE));
+        ui.horizontal_wrapped(|ui| {
+            if open.place != Place::Folders {
+                up = quiet_button(ui, "Up").clicked();
+            }
+            refresh = quiet_button(ui, "Refresh").clicked();
+            if writable && ui.add_enabled_ui(!busy, |ui| quiet_button(ui, "Upload a file")).inner.clicked() {
+                commands.push(Command::FolderUpload(id));
+            }
+            close = text_button(ui, "Close").clicked();
+        });
+        if open.loading {
+            ui.horizontal(|ui| {
+                spinner(ui, 10.0);
+                ui.label(RichText::new(tr("Loading…")).color(ON_SURFACE_VARIANT));
+            });
+        }
+        if let Some(transfer) = &open.transfer {
+            let (done, total) = transfer.progress.get();
+            let template = if transfer.upload { en("Uploading {}: {} of {}") } else { en("Downloading {}: {} of {}") };
+            ui.label(RichText::new(trf(template, &[&transfer.name, &size_text(done), &size_text(total)])).color(ON_SURFACE_VARIANT));
+            ui.horizontal(|ui| {
+                let fraction = if total == 0 { 0.0 } else { done as f32 / total as f32 };
+                ui.add(egui::ProgressBar::new(fraction).desired_width(320.0));
+                cancel = quiet_button(ui, "Cancel").clicked();
+            });
+            ui.label(RichText::new(tr("Leaving this page cancels the transfer.")).font(regular(text::CAPTION)).color(OUTLINE));
+        }
+        if let Some(error) = &open.error {
+            ui.label(RichText::new(error).color(ERROR));
+        }
+        if let Some(done) = &open.done {
+            ui.label(RichText::new(done).color(ON_SURFACE));
+        }
+        ui.add_space(6.0);
+        match &open.place {
+            Place::Folders => {
+                if !open.loading && open.error.is_none() && open.folders.is_empty() {
+                    ui.label(RichText::new(tr("The PC shares no folders with this device.")).color(ON_SURFACE_VARIANT));
+                }
+                for folder in &open.folders {
+                    let access = if folder.writable() { tr("Read and write") } else { tr("Read only") };
+                    if folder_line(ui, &folder.name, access, |ui| quiet_button(ui, "Open")).clicked() {
+                        enter_folder = Some(folder.clone());
+                    }
+                }
+            }
+            Place::Dir { .. } => {
+                let entries = open.entries.as_ref().map_or(&[][..], |e| e.entries.as_slice());
+                if !open.loading && open.error.is_none() && entries.is_empty() {
+                    ui.label(RichText::new(tr("This folder is empty.")).color(ON_SURFACE_VARIANT));
+                }
+                for entry in entries {
+                    match entry.kind {
+                        EntryKind::Dir => {
+                            if folder_line(ui, &entry.name, tr("Folder"), |ui| quiet_button(ui, "Open")).clicked() {
+                                enter_dir = Some(entry.name.clone());
+                            }
+                        }
+                        EntryKind::File => {
+                            let download = folder_line(ui, &entry.name, &size_text(entry.size), |ui| {
+                                ui.add_enabled_ui(!busy, |ui| quiet_button(ui, "Download")).inner
+                            });
+                            if download.clicked() {
+                                commands.push(Command::FolderDownload { host: id, name: entry.name.clone() });
+                            }
+                        }
+                        // Neither a file nor a folder (a link the PC does not follow): shown, not opened.
+                        EntryKind::Unknown => {
+                            folder_line(ui, &entry.name, tr("Neither a file nor a folder"), |ui| ui.label(String::new()));
+                        }
+                    }
+                }
+            }
+        }
+        if up {
+            self.folders.up(id);
+        } else if refresh {
+            self.folders.list();
+        } else if close {
+            self.folders.close();
+        } else if let Some(folder) = enter_folder {
+            self.folders.enter_folder(id, folder);
+        } else if let Some(name) = enter_dir {
+            self.folders.enter_dir(id, &name);
+        }
+        if cancel {
+            self.folders.cancel_transfer(id);
+        }
     }
 
     fn profiles_page(&mut self, ui: &mut Ui, commands: &mut Vec<Command>) {
@@ -3119,6 +3250,17 @@ fn detail(ui: &mut Ui, label: &str, value: &str) {
         ui.label(RichText::new(label).font(semibold(text::BODY)).color(ON_SURFACE));
         ui.label(RichText::new(value).font(regular(text::BODY)).color(ON_SURFACE_VARIANT));
     });
+}
+
+/// A folder or file of the shared folder browser: its name as the PC spells it (never
+/// translated), what it is, and its button.
+fn folder_line(ui: &mut Ui, name: &str, info: &str, control: impl FnOnce(&mut Ui) -> Response) -> Response {
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(name).font(semibold(text::BODY)).color(ON_SURFACE));
+        ui.label(RichText::new(info).font(regular(text::CAPTION)).color(ON_SURFACE_VARIANT));
+        ui.with_layout(Layout::right_to_left(Align::Center), control).inner
+    })
+    .inner
 }
 
 /// What the remote access check found; an error as it came.

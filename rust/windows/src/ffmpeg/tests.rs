@@ -2,6 +2,7 @@
 //! build.ps1 sets it and runs them with `--ignored ffmpeg::`.
 use super::*;
 use std::path::PathBuf;
+use std::time::Instant;
 
 fn root() -> PathBuf {
     std::env::var_os("BUTTERPOLLO_TEST_FFMPEG_ROOT")
@@ -188,4 +189,105 @@ fn the_probe_opens_both_encoders_and_frames_must_be_whole() {
         encoder.encode(&[0.0; 2 * FRAME_SAMPLES]).unwrap().len(),
         768
     );
+}
+
+/// Where a click at `at` (interleaved frame index, channel 0) comes out after encoding and
+/// decoding: the codec delay a receiver adds, in samples.
+fn click_delay(directory: &Path, eac3: bool, channels: u8, bitrate: u32, at: usize) -> usize {
+    let count = usize::from(channels);
+    let mut encoder = Ac3Encoder::new(directory, eac3, channels, bitrate).unwrap();
+    let mut decoder = Decoder::new(directory, eac3).unwrap();
+    let mut decoded = Vec::new();
+    for frame in 0..4 {
+        let mut samples = vec![0.0; FRAME_SAMPLES * count];
+        if frame == at / FRAME_SAMPLES {
+            samples[(at % FRAME_SAMPLES) * count] = 0.9;
+        }
+        let (_, mut out) = decoder.decode(&encoder.encode(&samples).unwrap()).unwrap();
+        decoded.append(&mut out);
+    }
+    let peak = (0..decoded.len() / count)
+        .max_by(|a, b| {
+            decoded[a * count]
+                .abs()
+                .total_cmp(&decoded[b * count].abs())
+        })
+        .unwrap();
+    peak - at
+}
+
+/// Median, 99th percentile and largest of `times`, in microseconds.
+fn spread(times: &mut [std::time::Duration]) -> (f64, f64, f64) {
+    times.sort();
+    let us = |d: std::time::Duration| d.as_secs_f64() * 1e6;
+    (
+        us(times[times.len() / 2]),
+        us(times[times.len() * 99 / 100]),
+        us(times[times.len() - 1]),
+    )
+}
+
+/// The numbers for rust/PERFORMANCE.md, not a pass/fail check: the host's encode time per
+/// packet for AC3 and E-AC3 against Opus, and the AC3 codecs' delay. Run in release:
+/// `cargo test --release -p butterpollo-windows --lib -- --ignored --nocapture passthrough_encode_cost`
+/// with BUTTERPOLLO_TEST_FFMPEG_ROOT and BUTTERPOLLO_TEST_OPUS_ROOT (libopus-0.dll's folder).
+#[test]
+#[ignore = "a benchmark; needs BUTTERPOLLO_TEST_FFMPEG_ROOT and BUTTERPOLLO_TEST_OPUS_ROOT"]
+fn passthrough_encode_cost() {
+    let root = root();
+    let opus_root = PathBuf::from(
+        std::env::var_os("BUTTERPOLLO_TEST_OPUS_ROOT")
+            .expect("set BUTTERPOLLO_TEST_OPUS_ROOT to libopus-0.dll's folder"),
+    );
+    // 32 s of audio per encoder: music-like, a tone over noise on every channel.
+    let seconds = 32;
+    let signal = |channels: usize, samples: usize| -> Vec<f32> {
+        let mut state = 0x1234_5678u32;
+        (0..samples * channels)
+            .map(|index| {
+                state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                let noise = (state >> 8) as f32 / (1u32 << 24) as f32 - 0.5;
+                let t = (index / channels) as f32 / 48_000.0;
+                0.3 * (std::f32::consts::TAU * 440.0 * t).sin() + 0.1 * noise
+            })
+            .collect()
+    };
+    println!("codec, channels, packet ms, encode median/p99/max us, codec delay samples");
+    for (name, eac3, channels, bitrate) in [
+        ("AC3", false, 2u8, 192_000u32),
+        ("AC3", false, 6, 640_000),
+        ("E-AC3", true, 2, 256_000),
+        ("E-AC3", true, 6, 768_000),
+    ] {
+        let count = usize::from(channels);
+        let frames = seconds * 48_000 / FRAME_SAMPLES;
+        let audio = signal(count, frames * FRAME_SAMPLES);
+        let mut encoder = Ac3Encoder::new(&root, eac3, channels, bitrate).unwrap();
+        let mut times: Vec<_> = audio
+            .chunks_exact(FRAME_SAMPLES * count)
+            .map(|samples| {
+                let start = Instant::now();
+                std::hint::black_box(encoder.encode(samples).unwrap());
+                start.elapsed()
+            })
+            .collect();
+        let (median, p99, max) = spread(&mut times);
+        let delay = click_delay(&root, eac3, channels, bitrate, FRAME_SAMPLES + 100);
+        println!("{name}, {channels}, 32, {median:.1}/{p99:.1}/{max:.1}, {delay}");
+    }
+    for channels in [2usize, 6] {
+        let packet = 240;
+        let audio = signal(channels, seconds * 48_000);
+        let mut opus = crate::audio::Opus::new(&opus_root, channels, false).unwrap();
+        let mut times: Vec<_> = audio
+            .chunks_exact(packet * channels)
+            .map(|samples| {
+                let start = Instant::now();
+                std::hint::black_box(opus.encode(samples).unwrap());
+                start.elapsed()
+            })
+            .collect();
+        let (median, p99, max) = spread(&mut times);
+        println!("Opus, {channels}, 5, {median:.1}/{p99:.1}/{max:.1}, -");
+    }
 }

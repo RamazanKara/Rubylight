@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| Audio passthrough: AC3 and E-AC3 encode time per packet against Opus, codec delay, and what the 32 ms frames cost end to end | [October 27, audio passthrough encode cost](#october-27-audio-passthrough-encode-cost) |
 | AV1 intra refresh on AMF: keyframes, frame sizes and recovery after a lost frame, against LTR invalidation and keyframes (refresh turned off) | [October 27, AV1 intra refresh and recovery after a lost frame](#october-27-av1-intra-refresh-and-recovery-after-a-lost-frame) |
 | HDR10+ and HDR Vivid dynamic metadata: the units in real AMF HEVC and AV1 output, what a Moonlight client receives, CPU cost per frame, 4K60 encode stage on and off (ABBA) | [October 27, HDR10+ and HDR Vivid dynamic metadata](#october-27-hdr10-and-hdr-vivid-dynamic-metadata) |
 | A 60 Hz game's repeated frames under VRR: holding later compositions of a claimed frame, simulation and 60/120/240 Hz ABBA (not kept) | [October 26, holding later compositions (not kept)](#october-26-holding-later-compositions-of-a-claimed-frame-not-kept) |
@@ -50,6 +51,23 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## October 27: audio passthrough encode cost
+
+What the host spends encoding AC3 (Dolby Digital) and E-AC3 (Dolby Digital Plus) for a client that asks for passthrough, against the Opus it sends otherwise, and what the formats cost in latency. The fixture is the ignored test `passthrough_encode_cost` in `rust/windows/src/ffmpeg/tests.rs`: 32 s of a 440 Hz tone over noise on every channel, each packet timed on its own, release build (`cargo test --release -p butterpollo-windows --lib -- --ignored --nocapture passthrough_encode_cost`), FFmpeg 8.1.2 and the MSYS2 libopus, Ryzen 7 5800X3D, branch `rl-pass` (2026-10-27). One run; the PC was in use but not gaming, so the p99 and largest values carry scheduler noise and only the medians compare.
+
+| Codec | Channels, bitrate | Packet | Encode median / p99 / max (µs) | Encode per second of audio | Codec delay |
+| --- | --- | ---: | --- | ---: | ---: |
+| AC3 | 2, 192 kbit/s | 32 ms | 75.2 / 421.2 / 16,507.5 | 2.4 ms | 256 samples (5.3 ms) |
+| AC3 | 6, 640 kbit/s | 32 ms | 162.2 / 732.6 / 4,457.6 | 5.1 ms | 256 samples (5.3 ms) |
+| E-AC3 | 2, 256 kbit/s | 32 ms | 70.8 / 321.4 / 1,334.1 | 2.2 ms | 256 samples (5.3 ms) |
+| E-AC3 | 6, 768 kbit/s | 32 ms | 196.1 / 1,321.3 / 5,917.8 | 6.1 ms | 256 samples (5.3 ms) |
+| Opus | 2 | 5 ms | 61.2 / 692.8 / 21,880.7 | 12.2 ms | not measured |
+| Opus | 6 | 5 ms | 159.5 / 1,687.3 / 45,369.0 | 31.9 ms | not measured |
+
+Encoding is not where the latency goes: a 32 ms AC3 frame takes about the time of one 5 ms Opus packet, and per second of audio the Dolby encoders use about a fifth of the CPU Opus uses. The codec delay is where a click placed in the second frame comes back out of FFmpeg's decoder, the same 256 samples for all four.
+
+The cost is the format's framing, and it is inherent: an AC3 or E-AC3 frame holds 1,536 samples, so the host waits 32 ms for a frame where Opus waits 5 ms. A sound reaches the network up to 27 ms later than with Opus (13.5 ms on average, at a uniform position in the frame), plus the 256-sample codec delay against Opus's 2.5 ms look-ahead (its specified value, not measured here), so about 30 ms at worst before the client. The receiver, soundbar or TV then buffers and decodes whole frames, which adds its own delay on top; no sink has been measured yet (user case `audio-passthrough-tv` in `tools/hw/catalog.yaml`). PCM passthrough has no encoder and no codec delay, in 5, 2 or 1 ms packets for 2, 6 or 8 channels. This is why Opus stays the default and the client setting says Dolby audio arrives later.
 
 ## October 27: AV1 intra refresh and recovery after a lost frame
 

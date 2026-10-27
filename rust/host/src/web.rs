@@ -592,15 +592,6 @@ async fn guard(State(h): State<Shared>, mut request: Request, next: Next) -> Res
     {
         return error(StatusCode::UNAUTHORIZED, "authentication required");
     }
-    // A signed-in administrator using the console keeps the PC awake (sleep
-    // after idle); API tokens are automation, not someone at the console, and
-    // a page left open polls (`X-Rubylight-Poll`, and the power page's own
-    // status) without anyone there. Only a GET can be a poll.
-    let polled = method == Method::GET
-        && (path == "/api/power" || request.headers().contains_key("x-rubylight-poll"));
-    if path.starts_with("/api/") && !public && !fresh_password && !api_token && !polled {
-        crate::wake::note_console_activity(&h);
-    }
     if !matches!(method, Method::GET | Method::HEAD | Method::OPTIONS) {
         if let Some(origin) = request
             .headers()
@@ -645,6 +636,16 @@ async fn guard(State(h): State<Shared>, mut request: Request, next: Next) -> Res
                 return error(StatusCode::BAD_REQUEST, "CSRF token required");
             }
         }
+    }
+    // A signed-in administrator using the console keeps the PC awake (sleep
+    // after idle), once the request passed the origin and CSRF checks; API
+    // tokens are automation, not someone at the console, and a page left open
+    // polls (`X-Rubylight-Poll`, and the power page's own status) without
+    // anyone there. Only a GET can be a poll.
+    let polled = method == Method::GET
+        && (path == "/api/power" || request.headers().contains_key("x-rubylight-poll"));
+    if path.starts_with("/api/") && !public && !fresh_password && !api_token && !polled {
+        crate::wake::note_console_activity(&h);
     }
     let mut response = next.run(request).await;
     let headers = response.headers_mut();

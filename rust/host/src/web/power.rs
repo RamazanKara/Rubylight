@@ -82,13 +82,20 @@ async fn fix(h: &Shared, data: &Value) -> Response {
         Ok(Err(e)) => return error(StatusCode::INTERNAL_SERVER_ERROR, &format!("{e:#}")),
         Err(e) => return error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     };
-    if approved.is_some_and(|approved| approved != plan.changes()) {
+    // `GET /api/power` lists the adapters' changes; Fast Startup is its own
+    // choice, `fast_startup_off`.
+    let adapters = butterpollo_core::wake::FixPlan {
+        fast_startup_off: false,
+        ..plan.clone()
+    }
+    .changes();
+    if approved.is_some_and(|approved| approved != adapters) {
         return (
             StatusCode::CONFLICT,
             Json(json!({
                 "status": false,
                 "error": "not applied: the adapters' settings changed since you checked; check again",
-                "changes": plan.changes(),
+                "changes": adapters,
                 "skipped": plan.skipped,
             })),
         )
@@ -275,6 +282,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn fast_startup_is_its_own_choice_beside_the_changes_seen() {
+        let f = Fixture::new();
+        let fake = Fake::new().on(&f.host);
+        fake.facts.lock().unwrap().as_mut().unwrap().hibernate = true;
+        let status = value(
+            request(&f, "GET", "/api/power?refresh=1", Value::Null).await,
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(status["fix"]["fast_startup_off_offered"], true, "{status}");
+        let seen = status["fix"]["changes"].clone();
+        let accepted = value(
+            post_fix(&f, json!({"fast_startup_off": true, "changes": seen})).await,
+            StatusCode::ACCEPTED,
+        )
+        .await;
+        assert!(
+            accepted["changes"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("Turn off Fast Startup")),
+            "{accepted}"
+        );
+        last_fix(&f).await;
+        let fixes = fake.fixes.lock().unwrap().clone();
+        assert_eq!(fixes.len(), 1);
+        assert!(fixes[0].fast_startup_off);
+    }
+
+    #[tokio::test]
     async fn an_unreadable_nic_report_is_an_error_not_an_empty_fix() {
         let f = Fixture::new();
         let fake = Fake::new().on(&f.host);
@@ -386,8 +423,11 @@ mod tests {
         value(post(Some("wrong")).await.unwrap(), StatusCode::BAD_REQUEST).await;
         assert!(fake.fixes.lock().unwrap().is_empty());
         assert_eq!(fake.nic_reads.load(std::sync::atomic::Ordering::SeqCst), 0);
+        // A refused request is nobody at the console: it doesn't keep the PC awake.
+        assert!(f.host.wake.console.lock().unwrap().is_none());
         // The same session with its token gets through.
         value(post(Some(&csrf)).await.unwrap(), StatusCode::ACCEPTED).await;
+        assert!(f.host.wake.console.lock().unwrap().is_some());
         last_fix(&f).await;
     }
 

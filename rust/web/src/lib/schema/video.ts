@@ -237,7 +237,7 @@ const video: Setting[] = [
     description:
       'Adds HDR10+ brightness statistics to HDR video so compatible displays can tone-map scene by scene. Devices without HDR10+ ignore them.',
     details:
-      'HDR10+ goes into HEVC and AV1 streams. HEVC streams also carry HDR Vivid (CUVA 005.1) statistics. Turn this off if a display handles brightness worse with it.',
+      'HDR10+ goes into HEVC and AV1 streams. HEVC streams also carry HDR Vivid (CUVA 005.1) statistics. Moonlight drops them from HEVC before the decoder; Nightjar keeps them. In AV1 they reach any client whose decoder reads them. Turn this off if a display handles brightness worse with it.',
     category: 'video',
     group: 'Codecs',
     control: { kind: 'toggle' },

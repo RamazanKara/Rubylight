@@ -35,6 +35,8 @@ test('HDR dynamic metadata defaults on and ships HDR Vivid as a normal feature',
   assert.equal(setting.control.kind, 'toggle');
   assert.equal(setting.category, 'video');
   assert.match(setting.details, /HEVC streams also carry HDR Vivid/);
+  // Stock Moonlight strips HEVC SEI, so the reach is stated, not implied.
+  assert.match(setting.details, /Moonlight drops them from HEVC before the decoder; Nightjar keeps them/);
   assert.doesNotMatch(`${setting.label} ${setting.description} ${setting.details}`, /experimental/i);
   assert.equal(differsFromDefault(setting, {}, {}), false);
   assert.equal(differsFromDefault(setting, {}, { hdr_dynamic_metadata: false }), true);

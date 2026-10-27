@@ -120,6 +120,7 @@ import android.graphics.SurfaceTexture;
 import android.graphics.Rect;
 import android.hardware.input.InputManager;
 import android.media.AudioManager;
+import android.media.MediaFormat;
 import android.net.ConnectivityManager;
 import android.net.wifi.WifiManager;
 import android.os.Build;
@@ -642,9 +643,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             // getHdrCapabilities() returns null on some devices (Lenovo Mirage Solo, Android 8.0).
             Display.HdrCapabilities hdrCaps = display.getHdrCapabilities();
             if (hdrCaps != null) {
-                // The same test as the request: HLG alone makes this an HDR output only when the host streams HLG.
-                displayHdr = HdrPolicy.displayRefusal(display, true, conn.getHostDetails().caps.hdrFormats()) ==
-                        HdrPolicy.Refusal.NONE;
+                // HLG alone makes this an HDR output only while the stream is HLG: never for a PQ stream.
+                displayHdr = HdrPolicy.reportsHdrOutput(hdrCaps.getSupportedHdrTypes(), decoderRenderer != null ?
+                        decoderRenderer.getStreamTransfer() : MediaFormat.COLOR_TRANSFER_ST2084);
                 maxNits = hdrCaps.getDesiredMaxLuminance();
                 maxAverageNits = hdrCaps.getDesiredMaxAverageLuminance();
                 minNits = hdrCaps.getDesiredMinLuminance();
@@ -1214,8 +1215,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         // Check if the user has enabled HDR
         boolean willStreamHdr = false;
         if (mediaStream && prefConfig.enableHdr) {
+            // HLG stands in for HDR10 only when the decoder draws the picture, not the Vulkan renderer.
             HdrPolicy.Refusal refusal = HdrPolicy.displayRefusal(getVideoDisplay(), true,
-                    cachedCaps == null ? 0 : cachedCaps.hdrFormats());
+                    cachedCaps == null ? 0 : cachedCaps.hdrFormats(),
+                    MediaCodecDecoderRenderer.vulkanPresents(prefConfig));
             willStreamHdr = refusal == HdrPolicy.Refusal.NONE;
             if (!willStreamHdr) refuseHdr(refusal);
         }
@@ -6804,6 +6807,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             case MODE_WITHOUT_HDR10: text = R.string.stream_hdr_mode_unsupported; break;
             case DECODER_WITHOUT_HDR10: text = R.string.stream_hdr_decoder_unsupported; break;
             case DISPLAY_WITHOUT_HDR10: text = R.string.stream_hdr_display_unsupported; break;
+            case HLG_NEEDS_DIRECT_OUTPUT: text = R.string.stream_hdr_hlg_needs_direct_output; break;
             default: return;
         }
         LimeLog.warning("HDR requested but not used: " + refusal);
@@ -7043,7 +7047,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             HdrPolicy.Status status = format == 0 ? HdrPolicy.Status.WAITING : HdrPolicy.status(true,
                     (format & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0, decoderRenderer.getHostHdrReport(),
                     decoderRenderer.getHdrMetadataState(), decoderRenderer.getDecodedTransfer(),
-                    decoderRenderer.getStreamTransfer());
+                    decoderRenderer.getStreamTransfer(), HdrPolicy.hlgOnly(HdrPolicy.displayHdrTypes(getVideoDisplay())));
             int res = hdrStatusText(status);
             if (res != 0) text = getString(res);
             if (status != lastHdrStatus) {
@@ -7077,6 +7081,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             case HOST_SDR: return R.string.stream_hdr_host_sdr;
             case NO_METADATA: return R.string.stream_hdr_no_metadata;
             case OUTPUT_NOT_PQ: return R.string.stream_hdr_output_not_pq;
+            case PQ_ON_HLG_SCREEN: return R.string.stream_hdr_pq_on_hlg_screen;
             default: return 0;
         }
     }

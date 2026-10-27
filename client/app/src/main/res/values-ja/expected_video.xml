@@ -13,4 +13,6 @@
     <string name="stream_hdr_host_sdr">HDRを要求しましたが、PCはSDRと報告しています。Windowsでストリーミング中のディスプレイのHDRをオンにしてください。</string>
     <string name="stream_hdr_no_metadata">HDRはオンですが、PCがマスタリングデータを送らなかったため、明るさが正しく見えない場合があります。</string>
     <string name="stream_hdr_output_not_pq">HDRはオンですが、この端末のデコーダーがHDRではない出力を報告しているため、色が薄く見える場合があります。</string>
+    <string name="stream_hdr_hlg_needs_direct_output">この画面はHDRをHLGでしか表示できず、「Vulkanで描画」はHLGを描画できないため、ストリームはSDRです。</string>
+    <string name="stream_hdr_pq_on_hlg_screen">この画面はHDRをHLGでしか表示できませんが、PCはHDR10を送っているため、明るさや色が正しく見えない場合があります。</string>
 </resources>

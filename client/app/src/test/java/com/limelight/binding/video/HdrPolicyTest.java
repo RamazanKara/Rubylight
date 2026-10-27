@@ -140,6 +140,58 @@ public class HdrPolicyTest {
     }
 
     @Test
+    public void hlgDoesNotStandInForHdr10WhenTheVulkanRendererDrawsPqOnly() {
+        // The Vulkan renderer's surface is BT.2020/PQ: an HLG-only screen would get HDR10.
+        assertEquals(Refusal.HLG_NEEDS_DIRECT_OUTPUT, HdrPolicy.displayRefusal(33, true, new int[] {HLG}, null,
+                HdrFormatPolicy.ALL, true));
+        assertEquals(Refusal.NONE, HdrPolicy.displayRefusal(33, true, new int[] {HLG}, null,
+                HdrFormatPolicy.ALL, false));
+        // A screen with HDR10 does not care what draws the picture.
+        assertEquals(Refusal.NONE, HdrPolicy.displayRefusal(33, true, new int[] {HDR10, HLG}, null,
+                HdrFormatPolicy.ALL, true));
+        // Without HLG on offer the screen has no HDR at all, whatever the renderer.
+        assertEquals(Refusal.DISPLAY_WITHOUT_HDR10, HdrPolicy.displayRefusal(33, true, new int[] {HLG}, null,
+                HdrFormatPolicy.PQ, true));
+        // A mode with HDR10 is still the better advice.
+        assertEquals(Refusal.MODE_WITHOUT_HDR10, HdrPolicy.displayRefusal(34, true, new int[] {HLG},
+                new int[] {HDR10, HLG}, HdrFormatPolicy.ALL, true));
+        assertEquals(Refusal.SETTING_OFF, HdrPolicy.displayRefusal(33, false, new int[] {HLG}, null,
+                HdrFormatPolicy.ALL, true));
+    }
+
+    @Test
+    public void aPqStreamOnAnHlgOnlyScreenIsNamed() {
+        int hlg = MediaFormat.COLOR_TRANSFER_HLG;
+        int pq = MediaFormat.COLOR_TRANSFER_ST2084;
+        assertTrue(HdrPolicy.hlgOnly(new int[] {HLG}));
+        assertTrue(HdrPolicy.hlgOnly(new int[] {DOLBY, HLG}));
+        assertFalse(HdrPolicy.hlgOnly(new int[] {HDR10, HLG}));
+        assertFalse(HdrPolicy.hlgOnly(NO_TYPES));
+        assertFalse(HdrPolicy.hlgOnly(null));
+        // HLG was the reason HDR was asked for, but the ANNOUNCE carried none: named before
+        // anything the PC reports, and with no mastering data asked of it.
+        assertEquals(Status.PQ_ON_HLG_SCREEN, HdrPolicy.status(true, true, null, Metadata.ABSENT, null, pq, true));
+        assertEquals(Status.PQ_ON_HLG_SCREEN, HdrPolicy.status(true, true, true, Metadata.USABLE, pq, pq, true));
+        assertEquals(Status.QUIET, HdrPolicy.status(true, true, true, Metadata.ABSENT, hlg, hlg, true));
+        // A stream that did not negotiate 10-bit says that instead.
+        assertEquals(Status.NOT_NEGOTIATED, HdrPolicy.status(true, false, null, Metadata.ABSENT, null, pq, true));
+        assertEquals(Status.QUIET, HdrPolicy.status(false, true, true, Metadata.USABLE, pq, pq, true));
+    }
+
+    @Test
+    public void anHlgOnlyScreenIsReportedAsHdrOnlyForAnHlgStream() {
+        int hlg = MediaFormat.COLOR_TRANSFER_HLG;
+        int pq = MediaFormat.COLOR_TRANSFER_ST2084;
+        assertTrue(HdrPolicy.reportsHdrOutput(new int[] {HLG}, hlg));
+        assertFalse(HdrPolicy.reportsHdrOutput(new int[] {HLG}, pq));
+        assertTrue(HdrPolicy.reportsHdrOutput(new int[] {HDR10}, pq));
+        assertTrue(HdrPolicy.reportsHdrOutput(new int[] {HDR10, HLG}, hlg));
+        assertFalse(HdrPolicy.reportsHdrOutput(new int[] {DOLBY}, pq));
+        assertFalse(HdrPolicy.reportsHdrOutput(NO_TYPES, hlg));
+        assertFalse(HdrPolicy.reportsHdrOutput(null, hlg));
+    }
+
+    @Test
     public void anHlgStreamExpectsAnHlgOutputAndNoMasteringData() {
         int hlg = MediaFormat.COLOR_TRANSFER_HLG;
         assertEquals(Status.QUIET, HdrPolicy.status(true, true, true, Metadata.ABSENT, hlg, hlg));

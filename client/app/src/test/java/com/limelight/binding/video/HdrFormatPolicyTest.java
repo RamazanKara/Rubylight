@@ -48,6 +48,28 @@ public class HdrFormatPolicyTest {
     }
 
     @Test
+    public void anHlgOnlyScreenThatGetsStockHdr10IsNeitherQuietNorReportedAsHdr() {
+        // The screen got HDR because the PC offers HLG, then the stream stays PQ: a surface the
+        // client draws itself, or a host whose DESCRIBE leaves HLG out (format 0 either way).
+        int[] hlgOnly = {HLG};
+        assertTrue(HdrPolicy.displayRefusal(33, true, hlgOnly, null, HdrFormatPolicy.ALL) == HdrPolicy.Refusal.NONE);
+        for (int format : new int[] {HdrFormatPolicy.pick(HdrFormatPolicy.ALL, hlgOnly, false, true),
+                HdrFormatPolicy.pick(HdrFormatPolicy.PQ, hlgOnly, false, false)}) {
+            assertEquals(0, format);
+            int transfer = HdrFormatPolicy.transfer(format);
+            assertEquals(HdrPolicy.Status.PQ_ON_HLG_SCREEN, HdrPolicy.status(true, true, true,
+                    HdrPolicy.Metadata.USABLE, null, transfer, HdrPolicy.hlgOnly(hlgOnly)));
+            assertFalse(HdrPolicy.reportsHdrOutput(hlgOnly, transfer));
+        }
+        // The HLG stream it was asked for is quiet and reported as HDR.
+        int transfer = HdrFormatPolicy.transfer(HdrFormatPolicy.pick(HdrFormatPolicy.ALL, hlgOnly, false, false));
+        assertEquals(MediaFormat.COLOR_TRANSFER_HLG, transfer);
+        assertEquals(HdrPolicy.Status.QUIET, HdrPolicy.status(true, true, true, HdrPolicy.Metadata.ABSENT,
+                null, transfer, HdrPolicy.hlgOnly(hlgOnly)));
+        assertTrue(HdrPolicy.reportsHdrOutput(hlgOnly, transfer));
+    }
+
+    @Test
     public void hlgAndProfile84DecodeWithTheHlgTransfer() {
         assertEquals(MediaFormat.COLOR_TRANSFER_HLG, HdrFormatPolicy.transfer(HdrFormatPolicy.HLG));
         assertEquals(MediaFormat.COLOR_TRANSFER_HLG, HdrFormatPolicy.transfer(HdrFormatPolicy.DV_84));

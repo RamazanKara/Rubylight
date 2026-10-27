@@ -7,7 +7,8 @@ import android.view.Display;
 /**
  * The decisions around an HDR10 stream, apart from the Android objects so they can be tested with
  * made-up capabilities. HDR is asked for only when the setting is on and the screen reports HDR10
- * (not just Dolby Vision; HLG only when the host streams HLG, see HdrFormatPolicy); from Android 14 the capabilities follow the mode the screen is in,
+ * (not just Dolby Vision; HLG only when the host streams HLG and the decoder draws the picture, see
+ * HdrFormatPolicy); from Android 14 the capabilities follow the mode the screen is in,
  * so a mode without HDR10 is refused, with its own reason when another mode has it; a decoder
  * with a Main10 HDR10 profile is needed too. Whatever is asked for and not granted, or granted and then not delivered, is named
  * rather than left to look like SDR. Nothing here has run on an HDR panel; see
@@ -25,7 +26,12 @@ public final class HdrPolicy {
         DISPLAY_WITHOUT_HDR10,
         /** Android 14 and newer: the mode the screen is in has no HDR10, but another mode does. */
         MODE_WITHOUT_HDR10,
-        DECODER_WITHOUT_HDR10
+        DECODER_WITHOUT_HDR10,
+        /**
+         * The screen shows HDR only as HLG, but the client would draw the picture itself (the
+         * Vulkan renderer) on a BT.2020/PQ surface, so the stream could only be HDR10.
+         */
+        HLG_NEEDS_DIRECT_OUTPUT
     }
 
     /**
@@ -46,10 +52,23 @@ public final class HdrPolicy {
      */
     public static Refusal displayRefusal(int sdk, boolean enabled, int[] displayTypes, int[] anyModeTypes,
                                          int hostHdrFormats) {
+        return displayRefusal(sdk, enabled, displayTypes, anyModeTypes, hostHdrFormats, false);
+    }
+
+    /**
+     * @param pqSurface the client will draw the picture itself on a BT.2020/PQ surface (the Vulkan
+     *                  renderer, as MediaCodecDecoderRenderer.vulkanPresents predicts it), so HLG
+     *                  cannot stand in for HDR10
+     */
+    public static Refusal displayRefusal(int sdk, boolean enabled, int[] displayTypes, int[] anyModeTypes,
+                                         int hostHdrFormats, boolean pqSurface) {
         if (!enabled) return Refusal.SETTING_OFF;
         if (sdk < 24) return Refusal.ANDROID_TOO_OLD;
-        if (hasHdr10(displayTypes) || HdrFormatPolicy.hlgInstead(hostHdrFormats, displayTypes)) return Refusal.NONE;
-        return sdk >= 34 && hasHdr10(anyModeTypes) ? Refusal.MODE_WITHOUT_HDR10 : Refusal.DISPLAY_WITHOUT_HDR10;
+        if (hasHdr10(displayTypes)) return Refusal.NONE;
+        boolean hlg = HdrFormatPolicy.hlgInstead(hostHdrFormats, displayTypes);
+        if (hlg && !pqSurface) return Refusal.NONE;
+        if (sdk >= 34 && hasHdr10(anyModeTypes)) return Refusal.MODE_WITHOUT_HDR10;
+        return hlg ? Refusal.HLG_NEEDS_DIRECT_OUTPUT : Refusal.DISPLAY_WITHOUT_HDR10;
     }
 
     /** The screen's HDR types, null when Android gives none (before Android 7, and a few devices return null). */
@@ -74,9 +93,9 @@ public final class HdrPolicy {
         return all;
     }
 
-    public static Refusal displayRefusal(Display display, boolean enabled, int hostHdrFormats) {
+    public static Refusal displayRefusal(Display display, boolean enabled, int hostHdrFormats, boolean pqSurface) {
         return displayRefusal(Build.VERSION.SDK_INT, enabled, displayHdrTypes(display), anyModeHdrTypes(display),
-                hostHdrFormats);
+                hostHdrFormats, pqSurface);
     }
 
     /** HDR10 PQ is what the PC encodes; HLG and Dolby Vision on the panel do not stand in for it. */
@@ -86,6 +105,21 @@ public final class HdrPolicy {
             if (type == Display.HdrCapabilities.HDR_TYPE_HDR10) return true;
         }
         return false;
+    }
+
+    /** The screen shows HDR as HLG and not as HDR10: only an HLG stream is HDR on it. */
+    public static boolean hlgOnly(int[] displayTypes) {
+        return !hasHdr10(displayTypes) && HdrFormatPolicy.has(displayTypes, Display.HdrCapabilities.HDR_TYPE_HLG);
+    }
+
+    /**
+     * Whether the screen is reported to the PC as an HDR output (displayHdr in the display caps):
+     * with HDR10, or with HLG alone while this stream's transfer is HLG. An HLG-only screen is never
+     * reported for a PQ stream, which it cannot show.
+     * @param streamTransfer the stream's transfer (HdrFormatPolicy.transfer of the announced format)
+     */
+    public static boolean reportsHdrOutput(int[] displayTypes, int streamTransfer) {
+        return hasHdr10(displayTypes) || hlgOnly(displayTypes) && streamTransfer == MediaFormat.COLOR_TRANSFER_HLG;
     }
 
     public static Refusal decoderRefusal(boolean hevcMain10Hdr10, boolean av1Main10, boolean pyroWave) {
@@ -122,7 +156,13 @@ public final class HdrPolicy {
         /** HDR10 is on without usable mastering data from the PC. */
         NO_METADATA,
         /** The decoder says its output is not PQ, so the compositor would treat it as SDR. */
-        OUTPUT_NOT_PQ
+        OUTPUT_NOT_PQ,
+        /**
+         * HDR was asked for because the screen shows HLG, but the stream is PQ: the client draws
+         * PQ only (packed full chroma, PyroWave), or the PC did not offer HLG for this stream, or
+         * the codec carries none.
+         */
+        PQ_ON_HLG_SCREEN
     }
 
     /**
@@ -143,8 +183,17 @@ public final class HdrPolicy {
      */
     public static Status status(boolean asked, boolean tenBit, Boolean hostHdr, Metadata metadata,
                                 Integer outputTransfer, int streamTransfer) {
+        return status(asked, tenBit, hostHdr, metadata, outputTransfer, streamTransfer, false);
+    }
+
+    /**
+     * @param hlgOnlyScreen the screen shows HDR only as HLG (hlgOnly): a PQ stream is named first
+     */
+    public static Status status(boolean asked, boolean tenBit, Boolean hostHdr, Metadata metadata,
+                                Integer outputTransfer, int streamTransfer, boolean hlgOnlyScreen) {
         if (!asked) return Status.QUIET;
         if (!tenBit) return Status.NOT_NEGOTIATED;
+        if (hlgOnlyScreen && streamTransfer != MediaFormat.COLOR_TRANSFER_HLG) return Status.PQ_ON_HLG_SCREEN;
         if (hostHdr == null) return Status.WAITING;
         if (!hostHdr) return Status.HOST_SDR;
         if (outputTransfer != null && outputTransfer != streamTransfer) {

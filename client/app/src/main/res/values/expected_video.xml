@@ -13,4 +13,6 @@
     <string name="stream_hdr_host_sdr">HDR was asked for, but the PC reports SDR. Turn on HDR for the streamed display in Windows.</string>
     <string name="stream_hdr_no_metadata">HDR is on, but the PC sent no mastering data, so brightness may look off.</string>
     <string name="stream_hdr_output_not_pq">HDR is on, but this device’s decoder reports a non-HDR output, so colors may look washed out.</string>
+    <string name="stream_hdr_hlg_needs_direct_output">This screen shows HDR only as HLG, which “Render through Vulkan” can’t draw, so the stream is in SDR.</string>
+    <string name="stream_hdr_pq_on_hlg_screen">This screen shows HDR only as HLG, but the PC sends HDR10, so brightness and colors may look wrong.</string>
 </resources>

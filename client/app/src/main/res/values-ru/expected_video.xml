@@ -13,4 +13,6 @@
     <string name="stream_hdr_host_sdr">HDR запрошен, но ПК сообщает SDR. Включите HDR в Windows для транслируемого экрана.</string>
     <string name="stream_hdr_no_metadata">HDR включён, но ПК не прислал данные мастеринга, поэтому яркость может выглядеть неверно.</string>
     <string name="stream_hdr_output_not_pq">HDR включён, но декодер этого устройства сообщает вывод без HDR, поэтому цвета могут выглядеть блёклыми.</string>
+    <string name="stream_hdr_hlg_needs_direct_output">Этот экран показывает HDR только как HLG, а «Рендеринг через Vulkan» не может его отрисовать, поэтому поток идёт в SDR.</string>
+    <string name="stream_hdr_pq_on_hlg_screen">Этот экран показывает HDR только как HLG, но ПК отправляет HDR10, поэтому яркость и цвета могут выглядеть неправильно.</string>
 </resources>

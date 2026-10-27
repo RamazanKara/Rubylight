@@ -13,4 +13,6 @@
     <string name="stream_hdr_host_sdr">Se pidió HDR, pero el PC indica SDR. Activa HDR en Windows para la pantalla transmitida.</string>
     <string name="stream_hdr_no_metadata">HDR está activo, pero el PC no envió datos de masterización, así que el brillo puede verse mal.</string>
     <string name="stream_hdr_output_not_pq">HDR está activo, pero el decodificador de este dispositivo indica una salida sin HDR, así que los colores pueden verse apagados.</string>
+    <string name="stream_hdr_hlg_needs_direct_output">Esta pantalla muestra HDR solo como HLG, que «Renderizar con Vulkan» no puede dibujar, así que la transmisión es en SDR.</string>
+    <string name="stream_hdr_pq_on_hlg_screen">Esta pantalla muestra HDR solo como HLG, pero el PC envía HDR10, así que el brillo y los colores pueden verse mal.</string>
 </resources>

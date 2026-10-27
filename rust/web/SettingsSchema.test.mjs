@@ -385,3 +385,18 @@ test('file transfer is off by default, its options show once it is on, and the d
   assert.deepEqual(computeChanges(settings, draft, { ...saved, ...sent }), {});
   assert.deepEqual(computeChanges(settings, { file_transfer: null }, sent), { file_transfer: null });
 });
+
+test('sleep after idle takes 0 or 5 to 1440 minutes, as the host does, and its suspended option follows it', () => {
+  const minutes = settings.get('sleep_after_idle_minutes');
+  assert.deepEqual([minutes.category, minutes.group, minutes.default, minutes.advanced], ['general', 'Power', 0, false]);
+  // core/src/config.rs: 0 (off) or between 5 and 1440.
+  for (const ok of ['0', '5', '30', '1440', '']) assert.equal(numberError(minutes, ok), '', ok);
+  for (const bad of ['3', '4']) assert.equal(numberError(minutes, bad), 'Enter 0 (off) or 5 to 1440 minutes.', bad);
+  assert.equal(numberError(minutes, '1441'), 'Enter a number from 0 to 1440.');
+  assert.equal(numberError(minutes, '7.5'), 'Enter a whole number.');
+  const suspended = settings.get('sleep_while_suspended');
+  assert.equal(suspended.default, false);
+  assert.equal(suspended.visibleWhen({}), false);
+  assert.equal(suspended.visibleWhen({ sleep_after_idle_minutes: '30' }), true);
+  assert.equal(suspended.visibleWhen({ sleep_after_idle_minutes: 0 }), false);
+});

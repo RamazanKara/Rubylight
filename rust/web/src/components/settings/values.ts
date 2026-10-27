@@ -71,6 +71,7 @@ export function numberError(setting: Setting, text: string, badInput = false): s
   const value = toNumber(text);
   if (value === null) return 'Enter a valid number.';
   if (setting.key === 'update_check_interval' && value > 0 && value < 3600) return 'Enter 0 or at least 3600 seconds.';
+  if (setting.key === 'sleep_after_idle_minutes' && value > 0 && value < 5) return 'Enter 0 (off) or 5 to 1440 minutes.';
   const { min, max, step } = setting.control;
   if ((min !== undefined && value < min) || (max !== undefined && value > max)) {
     if (min !== undefined && max !== undefined) return `Enter a number from ${min} to ${max}.`;

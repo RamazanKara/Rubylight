@@ -29,6 +29,7 @@ const basicKeys = new Set([
   'update_check_interval',
   'auto_update',
   'notify_pre_releases',
+  'sleep_after_idle_minutes',
   'stream_preset',
   'max_bitrate',
   'frame_limiter_enable',

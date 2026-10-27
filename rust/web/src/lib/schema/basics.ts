@@ -137,6 +137,28 @@ const general: Setting[] = [
     default: false,
   },
   {
+    key: 'sleep_after_idle_minutes',
+    label: 'Sleep after idle',
+    description: 'Put this PC to sleep when nobody has streamed or used it for this many minutes. 0 turns it off.',
+    details:
+      'Allowed: 0, or 5 to 1440 minutes. Streams, launches, updates, this console, the keyboard and mouse, and apps that keep Windows awake all count as use. Help & diagnostics shows the countdown and Wake-on-LAN readiness.',
+    category: 'general',
+    group: 'Power',
+    control: { kind: 'number', min: 0, max: 1440, step: 1, unit: 'min' },
+    default: 0,
+  },
+  {
+    key: 'sleep_while_suspended',
+    label: 'Sleep with a suspended stream',
+    description: 'Let the PC sleep after idle while a stream is suspended or an app launched from a device is still running.',
+    category: 'general',
+    group: 'Power',
+    control: { kind: 'toggle' },
+    default: false,
+    inactiveHint: 'Set Sleep after idle above 0 to use this setting.',
+    visibleWhen: (values) => Number(values.sleep_after_idle_minutes ?? 0) > 0,
+  },
+  {
     key: 'min_log_level',
     label: 'Log level',
     description:

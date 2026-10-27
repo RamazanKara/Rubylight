@@ -124,22 +124,36 @@ public class DecoderTuningKeysTest {
     }
 
     @Test
-    public void mediaTekSecondTryAsksForShorterQueues() {
-        String[] tiered = {"vendor.mtk.vdec.input.max.queue.depth", "vendor.mtk.vdec.output.max.queue.depth",
+    public void mediaTekLadderGoesFromTheMostToTheLeastRiskyFormat() {
+        String[] queues = {"vendor.mtk.vdec.input.max.queue.depth", "vendor.mtk.vdec.output.max.queue.depth",
                 "vendor.mtk.vdec.buffer.fetch.timeout.ms", "vendor.mtk.vdec.bq.guard.interval.time",
                 "vendor.mtk.vdec.preload.frame.count"};
-        int[][] expected = {{3, 3, 4, 4, 1}, {2, 2, 2, 2, 0}};
-        for (int attempt = 0; attempt < 2; attempt++) {
-            MediaFormat format = tune("c2.mtk.hevc.decoder", attempt, false);
-            for (int i = 0; i < tiered.length; i++) {
-                assertEquals("try " + attempt + " " + tiered[i], expected[attempt][i], format.getInteger(tiered[i]));
+        int[] expected = {3, 3, 4, 4, 1};
+        for (String name : new String[] {"c2.mtk.hevc.decoder", "OMX.MTK.VIDEO.DECODER.HEVC"}) {
+            // Try 0 the preset with KEY_LOW_LATENCY, try 1 the same preset without it.
+            for (int attempt = 0; attempt < 2; attempt++) {
+                MediaFormat format = tune(name, attempt, true);
+                for (int i = 0; i < queues.length; i++) {
+                    assertEquals(name + " try " + attempt + " " + queues[i], expected[i], format.getInteger(queues[i]));
+                }
+                assertEquals(name + " try " + attempt, attempt == 0, format.containsKey(MediaFormat.KEY_LOW_LATENCY));
             }
-            // Everything outside the queue knobs is the same on both tries.
-            assertEquals("try " + attempt, 2, format.getInteger("vendor.mtk.vdec.cpu.boost.mode"));
-            assertEquals("try " + attempt, 1, format.getInteger("vendor.mtk.vdec.nvop.skip"));
-            assertEquals("try " + attempt, 0, format.getInteger("vendor.mtk.vdec.drop.nonref.frame"));
+            // Every try sends a subset of the try before, with the same values: never stricter.
+            // (MediaFormat.getKeys needs API 29, so the candidates are listed.)
+            java.util.Set<String> candidates = new java.util.LinkedHashSet<>(VendorLowLatencyKeys.MEDIATEK.keySet());
+            candidates.addAll(VendorLowLatencyKeys.KNOWN.keySet());
+            candidates.add(MediaFormat.KEY_LOW_LATENCY);
+            MediaFormat previous = tune(name, 0, true);
+            for (int attempt = 1; attempt <= 5; attempt++) {
+                MediaFormat format = tune(name, attempt, true);
+                for (String key : candidates) {
+                    if (!format.containsKey(key)) continue;
+                    assertTrue(name + " try " + attempt + " adds " + key, previous.containsKey(key));
+                    assertEquals(name + " try " + attempt + " " + key, previous.getInteger(key), format.getInteger(key));
+                }
+                previous = format;
+            }
         }
-        assertEquals(VendorLowLatencyKeys.MEDIATEK.keySet(), VendorLowLatencyKeys.MEDIATEK_SHORT.keySet());
     }
 
     @Test

@@ -687,3 +687,78 @@ fn frame_units_reject_invalid_statistics() {
     assert_eq!(Codec::from_video_format(2), Some(Codec::Av1));
     assert_eq!(Codec::from_video_format(0), None);
 }
+
+#[test]
+fn spliced_copies_as_splice_inserts() {
+    let headers = [nal(32, &[0x0C]), nal(33, &[0x01]), nal(34, &[0xC1])].concat();
+    let keyframe = [headers.clone(), nal(19, &[0xAF, 0x12])].concat();
+    let units = frame_units(Codec::Hevc, &sample(), 1000).unwrap();
+    let mut expected = keyframe.clone();
+    assert!(splice(Codec::Hevc, &mut expected, &units));
+    let copy = spliced(Codec::Hevc, &keyframe, &units).unwrap();
+    assert_eq!(copy, expected);
+    assert_eq!(
+        copy.capacity(),
+        keyframe.len() + units.len(),
+        "one allocation"
+    );
+    assert_eq!(spliced(Codec::Hevc, &keyframe, &[]), None);
+    assert_eq!(spliced(Codec::Hevc, &headers, &units), None);
+
+    let av1 = [obu(2, &[]), obu(1, &[0x0A, 0x0B]), obu(6, &[0x10, 0x20])].concat();
+    let units = frame_units(Codec::Av1, &sample(), 1000).unwrap();
+    let mut expected = av1.clone();
+    assert!(splice(Codec::Av1, &mut expected, &units));
+    assert_eq!(spliced(Codec::Av1, &av1, &units), Some(expected));
+}
+
+#[test]
+fn writer_keeps_the_last_sample_until_the_next() {
+    let mut writer = Writer::new(Codec::Hevc, 1000);
+    assert!(
+        writer.units().is_empty(),
+        "no units before the first sample"
+    );
+    assert!(writer.sample(&sample()).unwrap().scene_cut);
+    assert_eq!(
+        writer.units(),
+        frame_units(Codec::Hevc, &sample(), 1000).unwrap()
+    );
+
+    // The target changes the units of the same statistics.
+    writer.set_target_nits(600);
+    assert_eq!(writer.target_nits(), 600);
+    assert_eq!(
+        writer.units(),
+        frame_units(Codec::Hevc, &sample(), 600).unwrap()
+    );
+
+    // Invalid statistics keep the units.
+    let before = writer.units().to_vec();
+    let mut broken = sample();
+    broken.max_pq = f32::NAN;
+    assert_eq!(writer.sample(&broken), None);
+    assert_eq!(writer.units(), before);
+
+    // A small change is smoothed into the units, not taken as it is.
+    let mut brighter = sample();
+    brighter.mean_pq += 0.03;
+    let step = writer.sample(&brighter).unwrap();
+    assert!(!step.scene_cut);
+    assert_eq!(
+        writer.units(),
+        frame_units(Codec::Hevc, &step.stats, 600).unwrap()
+    );
+    assert_ne!(
+        writer.units(),
+        frame_units(Codec::Hevc, &brighter, 600).unwrap()
+    );
+
+    let mut av1 = Writer::new(Codec::Av1, 1000);
+    av1.sample(&sample()).unwrap();
+    assert_eq!(av1.codec(), Codec::Av1);
+    assert_eq!(
+        av1.units(),
+        frame_units(Codec::Av1, &sample(), 1000).unwrap()
+    );
+}

@@ -62,9 +62,11 @@ pub struct FrameStats {
 
 impl FrameStats {
     /// Statistics from a histogram of PQ(maxRGB) in equal bins over 0..=1 (the GPU pass
-    /// uses 1024) and the frame's exact minimum and maximum. Means come from bin centres,
-    /// percentiles from the upper edge of the bin that reaches them, all kept inside the
-    /// minimum and maximum. `None` for an empty histogram or bounds outside 0..=1.
+    /// uses 1024) and the minimum and maximum of the same samples. The GPU pass samples a
+    /// grid (one pixel per cell, at most 240x135), so both are the grid's, not the frame's
+    /// exact extremes: a highlight between the samples is missed. Means come from bin
+    /// centres, percentiles from the upper edge of the bin that reaches them, all kept
+    /// inside the minimum and maximum. `None` for an empty histogram or bounds outside 0..=1.
     pub fn from_histogram(bins: &[u32], min_pq: f32, max_pq: f32) -> Option<Self> {
         let total: u64 = bins.iter().map(|&count| u64::from(count)).sum();
         if total == 0 || !(0. ..=1.).contains(&min_pq) || !(min_pq..=1.).contains(&max_pq) {
@@ -357,6 +359,81 @@ pub fn splice(codec: Codec, frame: &mut Vec<u8>, units: &[u8]) -> bool {
             true
         }
         _ => false,
+    }
+}
+
+/// A copy of `frame` with `units` at [`insert_offset`], in one allocation: [`splice`] for a
+/// frame still in the encoder's buffer. `None` when there is no insertion point or nothing
+/// to insert.
+pub fn spliced(codec: Codec, frame: &[u8], units: &[u8]) -> Option<Vec<u8>> {
+    if units.is_empty() {
+        return None;
+    }
+    let at = insert_offset(codec, frame)?;
+    let mut out = Vec::with_capacity(frame.len() + units.len());
+    out.extend_from_slice(&frame[..at]);
+    out.extend_from_slice(units);
+    out.extend_from_slice(&frame[at..]);
+    Some(out)
+}
+
+/// One stream's dynamic metadata: each new analysis sample, smoothed, becomes the units
+/// every frame carries until the next sample. Frames before the first sample carry none.
+#[derive(Clone, Debug)]
+pub struct Writer {
+    codec: Codec,
+    target_nits: u16,
+    smoother: StatsSmoother,
+    stats: Option<FrameStats>,
+    units: Vec<u8>,
+}
+
+impl Writer {
+    pub fn new(codec: Codec, target_nits: u16) -> Self {
+        Self {
+            codec,
+            target_nits,
+            smoother: StatsSmoother::default(),
+            stats: None,
+            units: Vec::new(),
+        }
+    }
+
+    pub fn codec(&self) -> Codec {
+        self.codec
+    }
+
+    pub fn target_nits(&self) -> u16 {
+        self.target_nits
+    }
+
+    /// A new target display peak. The current units are rebuilt for it; the smoothing
+    /// carries on.
+    pub fn set_target_nits(&mut self, nits: u16) {
+        if nits == self.target_nits {
+            return;
+        }
+        self.target_nits = nits;
+        if let Some(units) = self
+            .stats
+            .and_then(|stats| frame_units(self.codec, &stats, nits))
+        {
+            self.units = units;
+        }
+    }
+
+    /// Feed one new analysis sample, as [`StatsSmoother::update`]. Invalid statistics
+    /// return `None` and keep the current units.
+    pub fn sample(&mut self, raw: &FrameStats) -> Option<Smoothed> {
+        let smoothed = self.smoother.update(raw)?;
+        self.units = frame_units(self.codec, &smoothed.stats, self.target_nits)?;
+        self.stats = Some(smoothed.stats);
+        Some(smoothed)
+    }
+
+    /// The units for the next frame, empty before the first sample.
+    pub fn units(&self) -> &[u8] {
+        &self.units
     }
 }
 

@@ -31,6 +31,18 @@ impl HdrSource {
         self.caps = Some(caps);
         Some(Update { caps, changed })
     }
+
+    /// The display peak dynamic metadata (`hdr_dynamic`) is written for: the receiver's
+    /// reported peak, else the source display's, else 1000 nits. Dynamic metadata names its
+    /// target display per frame, so following the receiver there changes no static value.
+    pub fn target_nits(&self) -> u16 {
+        crate::hdr_dynamic::target_display_nits(
+            self.caps
+                .and_then(|caps| caps.max_nits())
+                .map(|nits| nits as f32),
+            self.display.map(|display| f32::from(display.maximum_nits)),
+        )
+    }
 }
 
 #[cfg(test)]
@@ -87,5 +99,24 @@ mod tests {
             assert_eq!(source.caps, Some(panel()));
             assert_eq!(source.display, None);
         }
+    }
+
+    #[test]
+    fn dynamic_metadata_targets_the_receiver_then_the_source_display() {
+        let mut source = HdrSource::default();
+        assert_eq!(source.target_nits(), 1000);
+        source.display = Some(Metadata::display(600., 0.01, 300.));
+        assert_eq!(source.target_nits(), 600);
+        source.on_payload(&panel().encode()).unwrap();
+        assert_eq!(source.target_nits(), 2600);
+        // A receiver that reports no peak leaves the source display's.
+        let unknown = DisplayCaps {
+            max_centinits: 0,
+            ..panel()
+        };
+        source.on_payload(&unknown.encode()).unwrap();
+        assert_eq!(source.target_nits(), 600);
+        // Reading the target changes nothing the static metadata comes from.
+        assert_eq!(source.display, Some(Metadata::display(600., 0.01, 300.)));
     }
 }

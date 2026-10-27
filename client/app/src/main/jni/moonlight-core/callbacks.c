@@ -11,6 +11,7 @@
 #include "phase_lock.h"
 #include "fec_report.h"
 #include "control_negotiation.h"
+#include "hdr_format.h"
 #include "android_microphone.h"
 #include "ControllerHaptics.h"
 #include "cursor_shape.h"
@@ -588,6 +589,13 @@ Java_com_limelight_nvstream_jni_MoonBridge_cSetNetworkGracePeriodMs(JNIEnv *env,
     LiSetNetworkGracePeriodMs(gracePeriodMs);
 }
 
+// What this connection's ANNOUNCE asked for (one rubylight_protocol::hdr bit), 0 for stock HDR
+// or before the handshake; the decoder is chosen for it.
+JNIEXPORT jint JNICALL
+Java_com_limelight_nvstream_jni_MoonBridge_cGetAnnouncedHdrFormat(JNIEnv *env, jclass clazz) {
+    return RlHdrFormatAnnounced;
+}
+
 JNIEXPORT jint JNICALL
 Java_com_limelight_nvstream_jni_MoonBridge_cStartConnection(JNIEnv *env, jclass clazz,
                                                            jstring address, jstring appVersion, jstring gfeVersion,
@@ -604,7 +612,7 @@ Java_com_limelight_nvstream_jni_MoonBridge_cStartConnection(JNIEnv *env, jclass 
                                                            jboolean inputOnly, jboolean remoteMonitor,
                                                            jboolean enableMic, jboolean hapticsPcm,
                                                            jint pyrowaveLinkMbps, jint pyrowavePaceMbps,
-                                                           jboolean clientWireless) {
+                                                           jboolean clientWireless, jint hdrFormat) {
     AndroidInputOnly = inputOnly;
     AndroidRemoteMonitor = remoteMonitor;
     AndroidMicRequested = enableMic;
@@ -619,6 +627,10 @@ Java_com_limelight_nvstream_jni_MoonBridge_cStartConnection(JNIEnv *env, jclass 
     resetHostControlMessages();
     resetCursorShapes();
     PyroWaveRecordsEnabled = 0;
+    // One rubylight_protocol::hdr bit or 0; sent only if this connection's DESCRIBE offers it.
+    AndroidHdrFormatRequested = (uint8_t)(hdrFormat & RL_HDR_ALL);
+    RlHdrFormatsOffered = 0;
+    RlHdrFormatAnnounced = 0;
     atomic_store(&AndroidUnbatchedInput, unbatchedInput);
     atomic_store(&AndroidNetworkPriority, networkPriority);
     __android_log_print(ANDROID_LOG_INFO, "moonlight-core", "Latency options: unbatched input=%d, network priority=%d",

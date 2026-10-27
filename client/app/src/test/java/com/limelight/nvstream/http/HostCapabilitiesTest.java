@@ -129,6 +129,15 @@ public class HostCapabilitiesTest {
     }
 
     @Test
+    public void hdrFormatsComeOnlyFromAHostThatListsHlgOrDolbyVision() {
+        assertEquals(15, TestHosts.fixture("rubylight-30-serverinfo.xml").hdrFormats());
+        // PQ alone is stock HDR10: nothing to ask for.
+        assertEquals(0, TestHosts.fixture("rubylight-30-refused-serverinfo.xml").hdrFormats());
+        assertEquals(0, TestHosts.rubylight().hdrFormats());
+        assertEquals(0, TestHosts.fixture("sunshine-serverinfo.xml").hdrFormats());
+    }
+
+    @Test
     public void currentRubylightSupportsEverythingButCursorShapesTheNativeApiSleepAndFiles() {
         HostCapabilities caps = TestHosts.rubylight();
         assertEquals(Family.RUBYLIGHT, caps.family());

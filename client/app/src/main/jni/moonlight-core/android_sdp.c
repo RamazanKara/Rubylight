@@ -3,8 +3,13 @@
 #include <inttypes.h>
 #include "pyrowave_protocol.h"
 #include "android_microphone.h"
+#include "hdr_format.h"
 
 // Moonlight common-c 874ac954 (GPL-3.0), with Rubylight PyroWave negotiation.
+
+uint8_t AndroidHdrFormatRequested;
+uint8_t RlHdrFormatsOffered;
+uint8_t RlHdrFormatAnnounced;
 
 #define MAX_OPTION_NAME_LEN 128
 
@@ -487,6 +492,14 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
         // so a Rubylight host paces for a wireless link from the first frame. Never sent as 0.
         if (StreamConfig.clientWireless) {
             err |= addAttributeString(&optionHead, "x-rl-video[0].clientWireless", "1");
+        }
+
+        // The 3.0 HDR format, only when asked for and offered: a host without it never sees the key.
+        RlHdrFormatAnnounced = rlAnnouncedHdrFormat(AndroidHdrFormatRequested, RlHdrFormatsOffered,
+                                                    NegotiatedVideoFormat);
+        if (RlHdrFormatAnnounced != 0) {
+            snprintf(payloadStr, sizeof(payloadStr), "%d", RlHdrFormatAnnounced);
+            err |= addAttributeString(&optionHead, "x-rl-video[0].hdrFormat", payloadStr);
         }
 
         if (AppVersionQuad[0] >= 7) {

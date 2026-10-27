@@ -219,6 +219,8 @@ public class MoonBridge {
             // This stream's DESCRIBE has the PC's packed modes now: they name why 10-bit was not picked.
             int packedModes = getHostPacked444Modes();
             if (packedModes > 0) videoRenderer.setHostPacked444Modes(packedModes);
+            // And the ANNOUNCE is out: the renderer decodes the HDR format it actually asked for.
+            videoRenderer.setAnnouncedHdrFormat(getAnnouncedHdrFormat());
             return videoRenderer.setup(videoFormat, width, height, redrawRate);
         }
         else {
@@ -509,6 +511,7 @@ public class MoonBridge {
     // streaming call below goes to that engine until the next start.
     private static volatile boolean rustEngineRequested;
     private static volatile boolean packed444Requested;
+    private static volatile int hdrFormatRequested;
     private static volatile boolean rustStream;
     private static volatile int networkGracePeriodMs;
     private static volatile boolean roamingRequested = true;
@@ -553,6 +556,22 @@ public class MoonBridge {
     public static void requestPacked444(boolean requested) {
         packed444Requested = requested;
     }
+
+    /**
+     * Call before startConnection(): the one HdrFormatPolicy bit the next stream asks a Rubylight
+     * 3.0 host for, 0 for stock HDR10. The ANNOUNCE carries it only when the DESCRIBE offered it.
+     */
+    public static void requestHdrFormat(int format) {
+        hdrFormatRequested = format;
+    }
+
+    /** The HDR format this stream's ANNOUNCE asked for, 0 for stock (and before the ANNOUNCE). */
+    public static int getAnnouncedHdrFormat() {
+        // Nothing asked keeps the native libraries out of it (and out of tests without them).
+        if (hdrFormatRequested == 0) return 0;
+        return rustStream ? RustBridge.getAnnouncedHdrFormat() : cGetAnnouncedHdrFormat();
+    }
+    private static native int cGetAnnouncedHdrFormat();
 
     public static int startConnection(String address, String appVersion, String gfeVersion,
                                       String rtspSessionUrl, int serverCodecModeSupport,
@@ -615,14 +634,14 @@ public class MoonBridge {
                     colorSpace, colorRange, hostFeatures, inputOnly, enableMic, hapticsPcm,
                     pyrowaveLinkMbps, pyrowavePaceMbps, clientWireless, networkGracePeriodMs, packed444Requested, packedModes,
                     remoteMonitor, unbatchedInput, networkPriority, roamingRequested, roamingMeteredRequested,
-                    audioPassthroughRequested);
+                    audioPassthroughRequested, hdrFormatRequested);
         }
         return cStartConnection(address, appVersion, gfeVersion, rtspSessionUrl, serverCodecModeSupport,
                 width, height, fps, bitrate, packetSize, streamingRemotely, audioConfiguration,
                 supportedVideoFormats, clientRefreshRateX100, riAesKey, riAesIv, videoCapabilities,
                 colorSpace, colorRange, unbatchedInput, networkPriority, hostFeatures, inputOnly,
                 remoteMonitor, enableMic, hapticsPcm, pyrowaveLinkMbps, pyrowavePaceMbps,
-                clientWireless);
+                clientWireless, hdrFormatRequested);
     }
     private static native int cStartConnection(String address, String appVersion, String gfeVersion,
                                                String rtspSessionUrl, int serverCodecModeSupport,
@@ -637,7 +656,7 @@ public class MoonBridge {
                                                boolean inputOnly, boolean remoteMonitor, boolean enableMic,
                                                boolean hapticsPcm,
                                                int pyrowaveLinkMbps, int pyrowavePaceMbps,
-                                               boolean clientWireless);
+                                               boolean clientWireless, int hdrFormat);
 
     /** Call before startConnection(); 0 keeps the native 10 second control timeout. */
     public static void setNetworkGracePeriodMs(int gracePeriodMs) {

@@ -147,6 +147,10 @@ impl Listener for Events {
         engine::announce_host_packed444_modes(modes);
     }
 
+    fn announced_hdr_format(&self, format: u8) {
+        engine::announce_hdr_format(format);
+    }
+
     fn connection_started(&self) {
         self.started.store(true, Ordering::SeqCst);
     }

@@ -40,6 +40,8 @@ public class ConnectionContext {
     public int negotiatedWidth, negotiatedHeight;
     // HDR is asked for in the launch only when this is set; 10-bit SDR negotiates 10-bit without it.
     public boolean negotiatedHdr;
+    // The HdrFormatPolicy bit an HDR stream asks a Rubylight 3.0 host for; 0 for stock HDR10.
+    public int hdrFormat;
     public boolean negotiated10Bit;
     public int negotiatedVideoFormats;
 

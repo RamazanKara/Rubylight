@@ -51,6 +51,8 @@ struct Engine {
     /// The packed 4:4:4 modes the host's DESCRIBE offered, -1 until the handshake has them.
     /// Set with `host_messages`, so the video setup can read it before the session is stored.
     host_packed444_modes: AtomicI32,
+    /// The HDR format this stream's ANNOUNCE asked for, 0 until the handshake has it.
+    announced_hdr_format: AtomicI32,
 }
 
 static ENGINE: LazyLock<Engine> = LazyLock::new(|| Engine {
@@ -64,6 +66,7 @@ static ENGINE: LazyLock<Engine> = LazyLock::new(|| Engine {
     present_clock: Mutex::new(None),
     host_messages: Mutex::new(Vec::new()),
     host_packed444_modes: AtomicI32::new(-1),
+    announced_hdr_format: AtomicI32::new(0),
 });
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -162,6 +165,7 @@ pub fn start(bridge: &'static Bridge, params: StartParams) -> i32 {
     *lock(&ENGINE.interrupt) = interrupt.clone();
     set_host_messages(&[]);
     ENGINE.host_packed444_modes.store(-1, Ordering::SeqCst);
+    ENGINE.announced_hdr_format.store(0, Ordering::SeqCst);
 
     let microphone_requested = params.config.stream.microphone;
     let audio_passthrough = params.config.stream.audio_passthrough;
@@ -250,6 +254,7 @@ pub fn stop() {
     let session = lock(&ENGINE.session).take();
     set_host_messages(&[]);
     ENGINE.host_packed444_modes.store(-1, Ordering::SeqCst);
+    ENGINE.announced_hdr_format.store(0, Ordering::SeqCst);
     if let Some(microphone) = lock(&ENGINE.microphone).take() {
         platform::info(&format!(
             "Microphone: stopped after {} packets sent ({} errors)",
@@ -291,6 +296,22 @@ pub fn announce_host_packed444_modes(modes: u8) {
 /// `MoonBridge.getHostPacked444Modes`: what this stream's DESCRIBE offered, -1 before it.
 pub fn host_packed444_modes() -> i32 {
     ENGINE.host_packed444_modes.load(Ordering::SeqCst)
+}
+
+/// The listener's side of [`announced_hdr_format`], kept like [`announce_host_packed444_modes`].
+pub fn announce_hdr_format(format: u8) {
+    if lock(&ENGINE.interrupt).is_interrupted() {
+        return;
+    }
+    ENGINE
+        .announced_hdr_format
+        .store(i32::from(format), Ordering::SeqCst);
+}
+
+/// `MoonBridge.getAnnouncedHdrFormat`: the HDR format this stream's ANNOUNCE asked for, 0 for
+/// stock HDR and before the ANNOUNCE.
+pub fn announced_hdr_format() -> i32 {
+    ENGINE.announced_hdr_format.load(Ordering::SeqCst)
 }
 
 /// The listener's side of [`set_host_messages`]: ignores the announcement once the start was
@@ -508,6 +529,23 @@ mod tests {
         interrupt();
         announce_host_packed444_modes(0b1111);
         assert_eq!(host_packed444_modes(), -1);
+        *lock(&ENGINE.interrupt) = Interrupt::default();
+    }
+
+    #[test]
+    fn the_announced_hdr_format_lasts_from_the_handshake_until_stop() {
+        let _serial = lock(&ENGINE_TESTS);
+        *lock(&ENGINE.interrupt) = Interrupt::default();
+        stop();
+        assert_eq!(announced_hdr_format(), 0, "stock before a handshake");
+        announce_hdr_format(rubylight_protocol::hdr::DV_81);
+        assert_eq!(announced_hdr_format(), 4, "known before the decoder's setup");
+        stop();
+        assert_eq!(announced_hdr_format(), 0, "a stopped stream leaves none behind");
+
+        interrupt();
+        announce_hdr_format(rubylight_protocol::hdr::HLG);
+        assert_eq!(announced_hdr_format(), 0);
         *lock(&ENGINE.interrupt) = Interrupt::default();
     }
 

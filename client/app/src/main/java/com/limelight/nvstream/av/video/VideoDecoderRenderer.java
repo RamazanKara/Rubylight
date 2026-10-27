@@ -23,6 +23,16 @@ public abstract class VideoDecoderRenderer {
      */
     public void setHostPacked444Modes(int modes) {}
 
+    /**
+     * The one HdrFormatPolicy bit an HDR stream asks for among the PC's HdrFormats (0 when it
+     * lists none), or 0 for stock HDR10. Called after prepareVideoFormats with the negotiated
+     * video formats.
+     */
+    public int pickHdrFormat(int hostHdrFormats, int videoFormats, boolean packed444) { return 0; }
+
+    /** What this stream's ANNOUNCE asked for (0 for stock HDR10), set right before setup. */
+    public void setAnnouncedHdrFormat(int format) {}
+
     public int setChromaPacking(int version, int width, int height, int colorSpace, int colorRange) {
         return version == 0 ? 0 : -1;
     }

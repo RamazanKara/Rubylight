@@ -996,6 +996,7 @@ pub fn override_allowed(key: &str) -> bool {
         "amd_high_motion_quality_boost",
         "amd_av1_screen_content",
         "amd_av1_latency_mode",
+        "encoder_focus",
         "hdr_peak_brightness",
     ];
     ALLOWED.contains(&key)
@@ -1699,6 +1700,7 @@ webrtc_media_port = 99999
             "dd_mode_remapping",
             "encoder",
             "amd_quality",
+            "encoder_focus",
             "frame_limiter_fps_limit",
             "adaptive_fec",
             "host_adaptive_pacing",

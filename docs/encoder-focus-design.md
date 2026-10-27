@@ -10,7 +10,7 @@ Encoder focus gives the AMF encoder's bits to the parts of the picture where the
 - **`centre` is opt-in and experimental:** static plus a fixed weight on the screen centre and around the cursor. A whole-frame metric cannot show its benefit, so it is measured with centre-crop scores, and it is dropped if it does not earn its place (section 9).
 - **The map is built on the GPU in the existing D3D12 conversion submission**, from a per-16x16-block signature and a still-age counter. The CPU copies the last completed map, at most about 130 KB at 4K with H.264 and 8 KB with HEVC or AV1, from a READBACK buffer whose fence has already signalled. It never waits on a fence. The map is therefore one frame old, which suits a measure of how long a block has been still.
 - **Support is proven, never assumed.** AMF exposes caps for H.264 and HEVC but none for AV1, and a surface property is accepted whether or not the driver uses it. The startup encoder check therefore runs a functional probe: half the map at importance 10, half at 0, then the encoder's block QP feedback must show the difference. A codec that fails the probe reports `unsupported` with a reason in the native API document, the host log and the session warning when it is requested. There is no silent fallback.
-- **The setting is `encoder_focus = auto | off | static | centre`**, with per-app and per-device overrides, in the web console and through native API v1 (`stream.settings`, `stream.encoder_focus`). Nightjar toggles it live, without an encoder restart or an IDR. `auto` resolves per codec to the measured winner and is off for every codec until the measurement says otherwise.
+- **The setting is `encoder_focus = off | static | centre`, default `off`**, with per-app and per-device overrides, in the web console and through native API v1 (`stream.settings`, `stream.encoder_focus`). Nightjar toggles it live, without an encoder restart or an IDR. It is opt-in: there is no `auto` value. One is added, resolving per codec to the measured winner, only once a codec measures better (section 9).
 - **PyroWave is excluded**, explicitly: it codes every frame on its own, so a still block gains nothing from extra bits in one frame. A PyroWave session reports `unsupported` with the reason `pyrowave`.
 - **Default-on only if it measures better** (section 9). Otherwise it ships opt-in and labelled Experimental, or it is dropped.
 
@@ -38,21 +38,20 @@ Encoder focus gives the AMF encoder's bits to the parts of the picture where the
 | OS dirty rects (Desktop Duplication `GetFrameDirtyRects`, WGC dirty regions) | Rejected | Games redraw the whole frame, so dirty rects are always full-screen. WGC dirty regions need Windows 11 24H2, and Windows 10 must keep working. Our driver's swap-chain path (`ReleaseAndAcquireBuffer2`) passes no dirty rects. It would only cover the desktop case, through three different capture paths. |
 | GPU block diff in the existing conversion pass | **Chosen** | Capture-agnostic: the driver, WGC and Desktop Duplication all feed the same converter. It works for games, because a HUD is still even when the scene moves, and for desktops, Windows 10 and HDR. It is computed where the pixels already are, with no extra submission or wait. |
 | Screen centre and cursor neighbourhood | Opt-in experimental (`centre`) | A heuristic with no full-frame objective gain: it moves bits away from the edges by design. Kept only if centre-crop quality improves (section 9). |
-| PA temporal AQ / perceptual AQ (`PATemporalAQMode`, `PAPerceptualAQMode`, `PAActivityMap`) | Rejected as a source | PA is off by default because it cost 25 ms per 4K60 frame. It is forced only for QVBR/HQVBR/HQCBR, and only for 8-bit NV12. The host never sets TAQ or PAQ (driver default NONE). Static focus is the lookahead-free stand-in for TAQ, so it does not duplicate PA. With PA on, `auto` resolves to off; an explicit mode is allowed and logged "with pre-analysis". |
+| PA temporal AQ / perceptual AQ (`PATemporalAQMode`, `PAPerceptualAQMode`, `PAActivityMap`) | Rejected as a source | PA is off by default because it cost 25 ms per 4K60 frame. It is forced only for QVBR/HQVBR/HQCBR, and only for 8-bit NV12. The host never sets TAQ or PAQ (driver default NONE). Static focus is the lookahead-free stand-in for TAQ, so it does not duplicate PA. With PA on, a chosen mode runs and the `encoder focus` line logs `preanalysis=true`. |
 | VBAQ / AV1 CAQ | Kept as is | On for HEVC (`HevcEnableVBAQ`) and AV1 (`Av1AQMode=1`), off for H.264, where it measured worse (`docs/configuration.md`, `amd_vbaq`). It works within a frame on texture variance, while focus works across frames on stillness. Both stay on in both arms of the A/B, which is the shipping configuration. |
 | AV1 screen-content tools, high-motion boost, frame QP limits | Unrelated | Frame-wide, and settings of their own already exist. |
 | Block QP / q-index feedback | Used for verification | It proves that the driver honoured the map, in the probe and in measurement runs (`encoder_focus_verify`). |
 
 ## 4. Modes and levels
 
-`encoder_focus` (string; default `auto`; app and device overrides like the other `amd_*` keys):
+`encoder_focus` (string; default `off`, which an unset or empty value also means; app and device overrides like the other `amd_*` keys):
 
 - `off`: no map, no signature work. The conversion runs the existing `yuv420_cs` pipeline unchanged.
 - `static`: importance rises with each block's still-age.
 - `centre` (alias `center`): static, plus centre and cursor weighting.
-- `auto`: the per-codec entry of `encoder_focus::AUTO` in core. It starts as `off` for H.264, HEVC and AV1, and moves to `static` per codec only after the decision rules in section 9 pass.
 
-An unknown value is an error at session start (warning `encoder_focus`, effective `off` with the reason `invalid_value`). It is never ignored silently.
+An unknown value, `auto` included, is an error at session start (warning `encoder_focus`, effective `off` with the reason `invalid_value`). It is never ignored silently.
 
 Hidden tuning key, for measurement only and absent from the console: `encoder_focus_levels = "moving=2,still=6,ramp=4,centre=4,ctb_still=1.0"`, with all importances clamped to 0..10.
 
@@ -103,7 +102,7 @@ Buffers and both pipelines are created with the converter whenever the encoder c
 | Intra refresh | No special case; M3 has one arm with intra refresh on. |
 | LTR | No special case. |
 | Split-frame (dual VCN, HEVC/AV1 on the RX 7900 XT) | The probe runs with the stream's own encoder properties. M0 also verifies at 1080p and 4K with split-frame on Automatic. If split-frame ignores the map, focus reports `unsupported` with the reason `split_frame`; split-frame is never turned off on its own. |
-| Pre-analysis on | `auto` resolves to off. An explicit mode runs and logs "with pre-analysis". |
+| Pre-analysis on | A chosen mode runs, and the `encoder focus` line logs `preanalysis=true`. |
 | 10-bit HDR (P010) | Same shader path with the `ten_bit` flag. Probed separately for HEVC and AV1 10-bit. |
 | Packed 4:4:4 (`experimental_packed_444`) | Unsupported in v1, reason `packed_444`: chroma packed into the luma plane makes the block grid weight the wrong pixels. |
 | D3D11 conversion path (D3D12 conversion unavailable) | Unsupported, reason `d3d12_conversion_unavailable`. |
@@ -122,7 +121,7 @@ Buffers and both pipelines are created with the converter whenever the encoder c
 - **At session start**, core `encoder_focus::resolve` combines the requested mode, codec, bit depth, PyroWave, packed 4:4:4, D3D12 conversion, PA and the probe result.
   - The effective state is logged: `encoder focus: requested=static effective=static codec=hevc grid=30x17 levels=...`.
   - A requested mode that is not possible logs a WARN and sets the session warning `encoder_focus` with the reason, and the effective state is `off`.
-  - `auto` resolving to off is normal and logged at info.
+  - `off`, the default, is logged at info.
 - **Every 5 s while focus is on**, an `encoder focus` line reports `mode`, `maps`, `uniform`, `stale` and `skipped_recovery`, and `qp_delta` with `encoder_focus_verify`. It is a separate line, so `timing_report.py` parsers of `stream timings` are not affected.
 
 ## 8. Configuration, native API and clients
@@ -131,8 +130,8 @@ Buffers and both pipelines are created with the converter whenever the encoder c
 
 - `encoder_focus` joins the "Encoder tuning" entries of `override_allowed` (`rust/core/src/config.rs`). The app and device editors offer it automatically.
 - Console: a select in group "AMD AMF" (`rust/web/src/lib/schema/video.ts`, next to `amd_vbaq`), labelled **Encoder focus**:
-  - options: Automatic, Off, Still areas, Still areas and centre (Experimental);
-  - details: "Gives more bits to parts of the picture that stay still, such as text and HUDs, and fewer to motion. The stream stays a normal video stream. Automatic follows our measurements per codec; currently Off.";
+  - options: Off (default), Still areas, Still areas and centre; the description says Experimental;
+  - details: "Gives more bits to parts of the picture that stay still, such as text and HUDs, and fewer to motion. The stream stays a normal video stream.";
   - a Choice line in `rust/host/src/console/settings.rs`.
 - `docs/configuration.md` gets a paragraph that links the measurement once it exists.
 
@@ -155,12 +154,11 @@ Buffers and both pipelines are created with the converter whenever the encoder c
       "group": "encoder",
       "kind": "choice",
       "state": "configurable",
-      "value": "auto",
+      "value": "off",
       "source": "host",
       "effective": "off",
       "options": [
         { "value": "inherit", "label": "Host setting" },
-        { "value": "auto", "label": "Automatic" },
         { "value": "off", "label": "Off" },
         { "value": "static", "label": "Still areas" },
         { "value": "centre", "label": "Still areas and centre" }
@@ -325,13 +323,13 @@ Files (only these):
 Steps:
 
 1. **Core module `encoder_focus`:**
-   - `Requested {Auto, Off, Static, Centre}`, with `parse()` accepting `auto`/`""`, `off`, `static`, `centre`/`center` and returning an error otherwise.
+   - `Requested {Off, Static, Centre}`, with `parse()` accepting `""`/`off`, `static`, `centre`/`center` and returning an error otherwise (`auto` included). Off is wire value 0, so a zeroed session atomic is off.
    - `Mode {Static, Centre}`.
    - `Levels::parse("moving=2,still=6,ramp=4,centre=4,ctb_still=1.0,noise_bits=0")`, clamped, with these defaults.
    - `Reason`, with stable wire strings: `pyrowave`, `codec_unsupported`, `packed_444`, `d3d12_conversion_unavailable`, `split_frame`, `no_amf`, `not_probed`, `invalid_value`.
    - `Support {Verified{delta: f32}, Unsupported{reason, message}, NotProbed}`.
    - `Context {codec, ten_bit, pyrowave, packed_444, d3d12, preanalysis, support}`.
-   - `resolve(requested, &Context) -> Resolved {On(Mode), Off{reason: Option<Reason>}}`. `auto` reads `pub const AUTO: [(u8, Option<Mode>); 3]`, with every entry `None`.
+   - `resolve(requested, &Context) -> Resolved {On(Mode), Off{reason: Option<Reason>}}`.
    - `grid(codec, coded_w, coded_h) -> (u32, u32)`: 16x16 for codec 0, otherwise 64x64.
    - `importance(age, centre_weight, mode, &Levels) -> u32`, a CPU reference of the shader.
    - `wire()` and `from_wire()` for a `u8` session atomic.
@@ -468,7 +466,7 @@ Steps:
    - Register `GET` and `POST` on `/stream/settings` in `router()`, and add both features to the capabilities list.
 4. **Web:** add a select entry next to `amd_vbaq`, with the label and details from section 8 (the Experimental tag on `centre`), and a Choice line in `console/settings.rs`.
 5. **Docs:**
-   - a `configuration.md` paragraph (what it does, PyroWave excluded, Automatic currently off, the link to the measurement);
+   - a `configuration.md` paragraph (what it does, PyroWave excluded, opt-in and off by default, the link to the measurement);
    - the `native-api.md` endpoint, features, states and reasons;
    - a release-notes Unreleased entry.
 
@@ -523,7 +521,7 @@ Steps:
    - A 404 hides the row and stops polling.
 4. **`HostStreamSettings`:** the same row outside a stream. It writes the device override.
 5. **Desktop Session page:** the same row, beside the Radeon panel.
-6. **Strings:** host-neutral, with no host or GPU brand: "Encoder focus", "Still areas", "Still areas and centre", "Automatic", "Off", "Host setting".
+6. **Strings:** host-neutral, with no host or GPU brand: "Encoder focus", "Still areas", "Still areas and centre", "Off", "Host setting".
 
 Test commands:
 

@@ -791,6 +791,26 @@ const amd: Setting[] = [
     default: 'auto',
   },
   {
+    key: 'encoder_focus',
+    label: 'Encoder focus',
+    description:
+      'Gives more bits to parts of the picture that stay still, such as text and HUDs, and fewer to motion. Experimental.',
+    details:
+      'Off unless you choose a mode. The stream stays a normal video stream for every client. Still areas and centre also favors the middle of the screen and the cursor. Runs on H.264, HEVC and AV1 when the startup encoder check verified it on this GPU; otherwise the stream shows a warning and focus stays off.',
+    category: 'encoders',
+    group: 'AMD AMF',
+    control: {
+      kind: 'select',
+      options: [
+        { value: 'off', label: 'Off' },
+        { value: 'static', label: 'Still areas' },
+        { value: 'centre', label: 'Still areas and centre' },
+      ],
+    },
+    aliases: { match: 'case', spellings: { center: 'centre' } },
+    default: 'off',
+  },
+  {
     key: 'amd_av1_latency_mode',
     label: 'AV1 latency mode',
     description:

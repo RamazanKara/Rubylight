@@ -121,6 +121,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "amd_lowlatency_mode", "Low-latency mode (H.264 and HEVC)", Bool;
         "amd_av1_latency_mode", "AV1 latency mode", Choice(&["none","power_saving","realtime","lowest"]);
         "amd_split_frame", "Split-frame encoding (HEVC and AV1)", Choice(&["auto","enabled","disabled"]);
+        "encoder_focus", "Encoder focus (experimental; more bits for still areas such as text and HUDs)", Choice(&["off","static","centre"]);
         "amd_input_queue_size", "AMF input queue size", Number;
         "amd_ltr_frames", "Long-term reference frames", Number;
     ]
@@ -297,6 +298,9 @@ pub fn render(prefix: &str, schema: &[Setting], values: &Value) -> String {
                                 "Four times the stream frame rate"
                             }
                             "none" if setting.key == "amd_av1_latency_mode" => "Driver default",
+                            "off" if setting.key == "encoder_focus" => "Off",
+                            "static" if setting.key == "encoder_focus" => "Still areas",
+                            "centre" if setting.key == "encoder_focus" => "Still areas and centre",
                             "true" | "enabled" => "On",
                             "false" | "disabled" => "Off",
                             "auto" => "Automatic",
@@ -495,9 +499,36 @@ mod tests {
         assert_eq!(saved["stream_preset"], "reference");
     }
     #[test]
+    fn encoder_focus_offers_only_its_opt_in_values() {
+        let setting = GLOBAL
+            .iter()
+            .find(|setting| setting.key == "encoder_focus")
+            .unwrap();
+        let Choice(choices) = setting.control else {
+            panic!("a choice")
+        };
+        for choice in choices {
+            assert!(
+                butterpollo_core::encoder_focus::Requested::parse(choice).is_ok(),
+                "{choice}"
+            );
+        }
+        assert!(!choices.contains(&"auto"));
+        let html = i18n::render(
+            &render(
+                "cfg_",
+                GLOBAL,
+                &serde_json::json!({"encoder_focus": "static"}),
+            ),
+            "en",
+        );
+        assert!(html.contains("value=\"static\" selected>Still areas</option>"));
+        assert!(html.contains("value=\"centre\">Still areas and centre</option>"));
+    }
+    #[test]
     fn encoder_settings_save_keys_the_encoders_read() {
         for setting in GLOBAL {
-            if setting.key.starts_with("amd_") {
+            if setting.key.starts_with("amd_") || setting.key == "encoder_focus" {
                 assert!(
                     butterpollo_core::config::override_allowed(setting.key),
                     "{} is not an encoder setting",

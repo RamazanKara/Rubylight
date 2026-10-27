@@ -3,10 +3,10 @@
 //! references of the GPU map shader (`focus_map_cs` in `color.hlsl`); see
 //! `docs/encoder-focus-design.md`.
 
-/// The `encoder_focus` setting.
+/// The `encoder_focus` setting. It is opt-in: unset is `off`, and there is
+/// no `auto` until a codec measures better with focus (design, section 9).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Requested {
-    Auto,
     Off,
     Static,
     Centre,
@@ -15,38 +15,34 @@ pub enum Requested {
 impl Requested {
     pub fn parse(value: &str) -> Result<Self, String> {
         match value.trim().to_ascii_lowercase().as_str() {
-            "" | "auto" => Ok(Self::Auto),
-            "off" => Ok(Self::Off),
+            "" | "off" => Ok(Self::Off),
             "static" => Ok(Self::Static),
             "centre" | "center" => Ok(Self::Centre),
             other => Err(format!(
-                "encoder_focus={other:?} is not one of auto, off, static, centre"
+                "encoder_focus={other:?} is not one of off, static, centre"
             )),
         }
     }
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Auto => "auto",
             Self::Off => "off",
             Self::Static => "static",
             Self::Centre => "centre",
         }
     }
-    /// The value of the session atomic.
+    /// The value of the session atomic; 0 is off.
     pub fn wire(self) -> u8 {
         match self {
-            Self::Auto => 0,
-            Self::Off => 1,
-            Self::Static => 2,
-            Self::Centre => 3,
+            Self::Off => 0,
+            Self::Static => 1,
+            Self::Centre => 2,
         }
     }
     pub fn from_wire(value: u8) -> Option<Self> {
         Some(match value {
-            0 => Self::Auto,
-            1 => Self::Off,
-            2 => Self::Static,
-            3 => Self::Centre,
+            0 => Self::Off,
+            1 => Self::Static,
+            2 => Self::Centre,
             _ => return None,
         })
     }
@@ -253,7 +249,7 @@ pub struct Context {
     pub packed_444: bool,
     /// The encoder converts on the D3D12 compute path.
     pub d3d12: bool,
-    /// AMF pre-analysis is on.
+    /// AMF pre-analysis is on; focus still runs, and the log says so.
     pub preanalysis: bool,
     pub support: Support,
 }
@@ -267,24 +263,11 @@ pub enum Resolved {
     },
 }
 
-/// What `auto` means per codec (0 H.264, 1 HEVC, 2 AV1). Every codec stays
-/// off until the measurements in the design's section 9 pass.
-pub const AUTO: [(u8, Option<Mode>); 3] = [(0, None), (1, None), (2, None)];
-
 pub fn resolve(requested: Requested, context: &Context) -> Resolved {
     let mode = match requested {
         Requested::Off => return Resolved::Off { reason: None },
         Requested::Static => Mode::Static,
         Requested::Centre => Mode::Centre,
-        Requested::Auto => {
-            if context.preanalysis {
-                return Resolved::Off { reason: None };
-            }
-            match AUTO.iter().find(|(codec, _)| *codec == context.codec) {
-                Some((_, Some(mode))) => *mode,
-                _ => return Resolved::Off { reason: None },
-            }
-        }
     };
     let reason = if context.pyrowave || context.codec == 3 {
         Some(Reason::Pyrowave)
@@ -436,22 +419,19 @@ mod tests {
 
     #[test]
     fn requested_parses_and_round_trips() {
-        assert_eq!(Requested::parse(""), Ok(Requested::Auto));
-        assert_eq!(Requested::parse(" Auto "), Ok(Requested::Auto));
-        assert_eq!(Requested::parse("off"), Ok(Requested::Off));
+        assert_eq!(Requested::parse(""), Ok(Requested::Off));
+        assert_eq!(Requested::parse(" Off "), Ok(Requested::Off));
         assert_eq!(Requested::parse("static"), Ok(Requested::Static));
         assert_eq!(Requested::parse("center"), Ok(Requested::Centre));
         assert!(Requested::parse("bogus").is_err());
-        for r in [
-            Requested::Auto,
-            Requested::Off,
-            Requested::Static,
-            Requested::Centre,
-        ] {
+        // Opt-in only: there is no automatic choice to fall back on.
+        assert!(Requested::parse("auto").is_err());
+        for r in [Requested::Off, Requested::Static, Requested::Centre] {
             assert_eq!(Requested::from_wire(r.wire()), Some(r));
             assert_eq!(Requested::parse(r.as_str()), Ok(r));
         }
-        assert_eq!(Requested::from_wire(4), None);
+        assert_eq!(Requested::Off.wire(), 0, "a zeroed atomic is off");
+        assert_eq!(Requested::from_wire(3), None);
     }
 
     #[test]
@@ -523,18 +503,6 @@ mod tests {
     }
 
     #[test]
-    fn auto_is_off_for_every_codec() {
-        let verified = Support::Verified { delta: 4.0 };
-        for codec in 0..=2 {
-            assert_eq!(
-                resolve(Requested::Auto, &context(codec, verified.clone())),
-                Resolved::Off { reason: None }
-            );
-        }
-        assert!(AUTO.iter().all(|(_, mode)| mode.is_none()));
-    }
-
-    #[test]
     fn explicit_modes_run_only_where_verified() {
         let verified = Support::Verified { delta: 4.0 };
         assert_eq!(
@@ -577,13 +545,9 @@ mod tests {
             resolve(Requested::Static, &context(2, Support::NotProbed)),
             off(Reason::NotProbed)
         );
-        // Pre-analysis turns auto off, but an explicit mode still runs.
+        // An explicit mode runs with pre-analysis too.
         let mut pa = context(1, verified);
         pa.preanalysis = true;
-        assert_eq!(
-            resolve(Requested::Auto, &pa),
-            Resolved::Off { reason: None }
-        );
         assert_eq!(resolve(Requested::Static, &pa), Resolved::On(Mode::Static));
     }
 

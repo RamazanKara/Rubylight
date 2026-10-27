@@ -43,7 +43,7 @@ impl Focus {
             .get("encoder_focus_levels")
             .map(|value| Levels::parse(value));
         let parsed =
-            Requested::parse(config.get("encoder_focus", "auto")).and_then(
+            Requested::parse(config.get("encoder_focus", "off")).and_then(
                 |requested| match &levels {
                     Some(Err(error)) => Err(error.clone()),
                     _ => Ok(requested),
@@ -120,6 +120,7 @@ impl Focus {
             effective = effective.map_or("off", |mode| mode.as_str()),
             reason = reason.map(|reason| reason.wire()),
             codec = self.context.codec,
+            preanalysis = self.context.preanalysis,
             levels = %self.levels,
             "encoder focus"
         );
@@ -221,11 +222,20 @@ mod tests {
         assert!(warnings.snapshot().is_empty());
     }
     #[test]
-    fn auto_stays_off_without_a_warning() {
-        let (focus, _, state, warnings) = start("", Support::Verified { delta: 10.0 });
+    fn unset_stays_off_without_a_warning() {
+        let (focus, requested, state, warnings) = start("", Support::Verified { delta: 10.0 });
         assert!(!focus.on());
+        assert_eq!(requested.load(Ordering::Relaxed), Requested::Off.wire());
         assert_eq!(*state.lock().unwrap(), FocusState::default());
         assert!(warnings.snapshot().is_empty());
+    }
+    #[test]
+    fn auto_is_not_a_value() {
+        let (focus, _, state, warnings) =
+            start("encoder_focus=auto", Support::Verified { delta: 10.0 });
+        assert!(!focus.on());
+        assert_eq!(state.lock().unwrap().reason, Some(Reason::InvalidValue));
+        assert_eq!(warnings.snapshot()[0].code, "encoder_focus");
     }
     #[test]
     fn a_mode_the_check_refused_warns_with_its_message() {

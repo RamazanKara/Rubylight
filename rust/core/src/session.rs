@@ -2703,7 +2703,7 @@ impl<P, A> Session<P, A> {
             link_notices: Default::default(),
             media_epoch: Default::default(),
             timing_record: Default::default(),
-            encoder_focus: AtomicU8::new(crate::encoder_focus::Requested::Auto.wire()),
+            encoder_focus: AtomicU8::new(crate::encoder_focus::Requested::Off.wire()),
             encoder_focus_state: Default::default(),
             roam: std::sync::Mutex::new(Roam {
                 client: launch_peer,

@@ -265,16 +265,28 @@ fn token_user_sid(token: &OwnedHandle) -> Result<String> {
         sid.context("Windows returned an invalid user SID")
     }
 }
+/// SYSTEM and Administrators own it and alone have access.
+const ADMINISTRATORS_ONLY: &str = "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)";
+/// As [`ADMINISTRATORS_ONLY`], and Users may read (list, read data,
+/// attributes and permissions, never write).
+const USERS_READ: &str = "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)";
 /// Give only SYSTEM and Administrators access to `folder` and the files in
 /// it, replacing inherited permissions, as Vibepollo does for the service's
 /// credentials.
 pub fn restrict_to_administrators(folder: &Path) -> Result<()> {
+    restrict(folder, ADMINISTRATORS_ONLY)
+}
+/// As [`restrict_to_administrators`], but Users may read `folder` and its
+/// files, for what holds nothing secret and an unelevated host must read.
+pub fn restrict_to_administrators_readable(folder: &Path) -> Result<()> {
+    restrict(folder, USERS_READ)
+}
+/// The permissions `sddl` describes on `folder` and the files in it.
+fn restrict(folder: &Path, sddl: &str) -> Result<()> {
     use windows::Win32::Security::Authorization::{
         ConvertStringSecurityDescriptorToSecurityDescriptorW, SE_FILE_OBJECT, SetNamedSecurityInfoW,
     };
-    let sddl = wide(std::ffi::OsStr::new(
-        "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)",
-    ))?;
+    let sddl = wide(std::ffi::OsStr::new(sddl))?;
     let mut descriptor = PSECURITY_DESCRIPTOR::default();
     // SAFETY: `sddl` and `path` are NUL-terminated and outlive the calls, and `dacl` points into
     // `descriptor`, which is freed once after its last use.
@@ -328,6 +340,10 @@ pub fn restrict_to_administrators(folder: &Path) -> Result<()> {
 pub enum Target {
     User { elevated: bool },
     SystemSession(u32),
+}
+/// Whether this process runs with administrator rights (elevated, or as SYSTEM).
+pub fn elevated() -> Result<bool> {
+    token_elevated(&token()?)
 }
 pub(crate) fn token_elevated(token: &OwnedHandle) -> Result<bool> {
     let mut info = TOKEN_ELEVATION::default();
@@ -2010,6 +2026,57 @@ mod tests {
         let mut text = String::new();
         reader.read_to_string(&mut text).unwrap();
         assert_eq!(text, "ping");
+    }
+    #[test]
+    fn users_may_read_but_never_change_a_readable_folder() {
+        use super::*;
+        use windows::Win32::Security::Authorization::ConvertStringSecurityDescriptorToSecurityDescriptorW;
+        use windows::Win32::Storage::FileSystem::{
+            DELETE, FILE_APPEND_DATA, FILE_DELETE_CHILD, FILE_LIST_DIRECTORY,
+            FILE_WRITE_ATTRIBUTES, FILE_WRITE_DATA, FILE_WRITE_EA, READ_CONTROL, WRITE_DAC,
+            WRITE_OWNER,
+        };
+        let users = USERS_READ
+            .split('(')
+            .find(|ace| ace.ends_with(";;;BU)"))
+            .unwrap();
+        let mask = u32::from_str_radix(
+            users.split(';').nth(2).unwrap().trim_start_matches("0x"),
+            16,
+        )
+        .unwrap();
+        let write = DELETE.0
+            | FILE_APPEND_DATA.0
+            | FILE_DELETE_CHILD.0
+            | FILE_WRITE_ATTRIBUTES.0
+            | FILE_WRITE_DATA.0
+            | FILE_WRITE_EA.0
+            | WRITE_DAC.0
+            | WRITE_OWNER.0
+            | 0xf000_0000;
+        assert_eq!(mask & write, 0, "{mask:#x}");
+        // Open to check and read, as a host without administrator rights does.
+        assert_eq!(
+            mask & (FILE_LIST_DIRECTORY.0 | READ_CONTROL.0),
+            FILE_LIST_DIRECTORY.0 | READ_CONTROL.0
+        );
+        // The rest is the administrators-only one's.
+        assert!(USERS_READ.starts_with(ADMINISTRATORS_ONLY));
+        for sddl in [ADMINISTRATORS_ONLY, USERS_READ] {
+            let text = wide(std::ffi::OsStr::new(sddl)).unwrap();
+            let mut descriptor = PSECURITY_DESCRIPTOR::default();
+            // SAFETY: `text` is NUL-terminated and outlives the call; `descriptor` is freed once.
+            unsafe {
+                ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                    PCWSTR(text.as_ptr()),
+                    1,
+                    &mut descriptor,
+                    None,
+                )
+                .unwrap();
+                let _ = LocalFree(Some(HLOCAL(descriptor.0)));
+            }
+        }
     }
     #[test]
     fn a_file_is_checked_and_read_through_one_handle_in_a_folder_that_stays() {

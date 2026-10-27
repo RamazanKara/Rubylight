@@ -40,7 +40,9 @@ struct Record {
     path: PathBuf,
     legacy: PathBuf,
     /// Make SYSTEM and Administrators alone the folder's (or file's) owner
-    /// and users.
+    /// and writers. Users may read it: it holds nothing secret, and a host
+    /// without administrator rights reads it to say why child sessions are
+    /// unavailable in it ([`unverified`]).
     restrict: fn(&Path) -> Result<()>,
     /// Err unless SYSTEM or Administrators own the open file or folder, which
     /// `path` names.
@@ -52,7 +54,7 @@ impl Record {
         Self {
             path: logic::setup_record(),
             legacy: directory.join(logic::SETUP_FILE),
-            restrict: butterpollo_windows::process::restrict_to_administrators,
+            restrict: butterpollo_windows::process::restrict_to_administrators_readable,
             trusted: administrators_own,
         }
     }
@@ -238,12 +240,14 @@ pub(crate) fn log_mode(config: &Config) {
 /// refuses until setup runs again).
 pub(crate) fn check_at_startup(h: &Shared) {
     let record = Record::new(&h.directory);
+    let elevated = elevated();
     std::thread::spawn(move || {
         let mut last = None;
         loop {
             watch(
                 &record,
                 &mut last,
+                elevated,
                 native_enforce,
                 std::thread::sleep,
                 report,
@@ -257,13 +261,23 @@ pub(crate) fn check_at_startup(h: &Shared) {
 const WATCH_EVERY: std::time::Duration = std::time::Duration::from_secs(60);
 /// One [`secure_rdp`] round of [`check_at_startup`]: a problem is reported
 /// when it is new (`last` holds the one before), not every round it stays.
+/// A host that is not `elevated` checks nothing and changes nothing; while
+/// setup ran here it says once that child sessions are unavailable in it.
 fn watch(
     record: &Record,
     last: &mut Option<String>,
+    elevated: bool,
     enforce: impl FnMut(Option<u16>, bool) -> Result<Vec<String>>,
     wait: impl FnMut(std::time::Duration),
     mut report: impl FnMut(String),
 ) {
+    if let Some(reason) = unverified(record, elevated) {
+        if last.as_ref() != Some(&reason) {
+            tracing::warn!("{reason}");
+        }
+        *last = Some(reason);
+        return;
+    }
     let problem = secure_rdp(record, enforce, wait);
     if let Some(problem) = &problem
         && last.as_ref() != Some(problem)
@@ -271,6 +285,35 @@ fn watch(
         report(problem.clone());
     }
     *last = problem;
+}
+
+/// Whether this host has administrator rights; when that can't be told, as
+/// if it had, so [`secure_rdp`] checks and fails closed.
+fn elevated() -> bool {
+    butterpollo_windows::process::elevated().unwrap_or_else(|error| {
+        tracing::warn!(
+            "could not tell whether this host is elevated, so it checks the firewall: {error:#}"
+        );
+        true
+    })
+}
+/// Why child sessions are unavailable in a host that is not `elevated` while
+/// setup ran here (or that can't be told): it can't take the settings locks,
+/// check the firewall or turn Remote Desktop off. None when it is elevated,
+/// or setup never ran. Never a failure: the service, or a host run as
+/// administrator, checks the firewall and starts them.
+fn unverified(record: &Record, elevated: bool) -> Option<String> {
+    if elevated || !record.may_exist() {
+        return None;
+    }
+    let found = match record.load() {
+        Ok(None) => return None,
+        Ok(Some(_)) => "child sessions are set up on this PC".to_owned(),
+        Err(error) => format!("Rubylight's child-session record could not be read ({error:#})"),
+    };
+    Some(format!(
+        "{found}, but this host runs without administrator rights, so it can't check that the firewall keeps Remote Desktop on this PC: child sessions are unavailable in this host. The Rubylight service, or a host run as administrator, checks it and starts them."
+    ))
 }
 
 /// Setup, restore and the firewall checks change the same Windows settings,
@@ -596,6 +639,9 @@ pub(crate) fn start(h: &Shared, password: Option<logic::Secret>) -> Result<()> {
     // The port setup recorded, which RDP and the block rule must still match;
     // on a mismatch, or a check that cannot run, RDP goes off.
     let record = Record::new(&h.directory);
+    if let Some(reason) = unverified(&record, elevated()) {
+        bail!("{reason}");
+    }
     if let Some(problem) = secure_rdp(&record, native_enforce, std::thread::sleep) {
         report(problem.clone());
         bail!("{problem}");
@@ -1361,7 +1407,7 @@ mod tests {
         // Not set up: no check.
         let empty = scratch();
         let never = |_, _| -> Result<Vec<String>> { panic!("no setup, no check") };
-        watch(&record_in(&empty), &mut last, never, no_wait, |p| {
+        watch(&record_in(&empty), &mut last, true, never, no_wait, |p| {
             reports.push(p)
         });
         std::fs::remove_dir_all(empty).unwrap();
@@ -1373,6 +1419,7 @@ mod tests {
             watch(
                 &record,
                 &mut last,
+                true,
                 |port, _| {
                     assert_eq!(port, Some(3390));
                     checks += 1;
@@ -1390,6 +1437,68 @@ mod tests {
         assert_eq!(reports.len(), 2, "{reports:?}");
         assert!(reports[0].contains("the block rule is not in effect"));
         assert!(WATCH_EVERY <= std::time::Duration::from_secs(60));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn a_host_without_administrator_rights_says_child_sessions_are_unavailable_in_it() {
+        let never = |_, _| -> Result<Vec<String>> { panic!("an unelevated host checks nothing") };
+        let mut reports = Vec::new();
+        // Not set up: nothing to say.
+        let empty = scratch();
+        let mut last = None;
+        assert_eq!(unverified(&record_in(&empty), false), None);
+        watch(&record_in(&empty), &mut last, false, never, no_wait, |p| {
+            reports.push(p)
+        });
+        assert_eq!(last, None);
+        std::fs::remove_dir_all(empty).unwrap();
+        // Set up and readable: unavailable here, said in the log, never reported as a problem.
+        let (directory, record) = set_up_record();
+        let reason = unverified(&record, false).unwrap();
+        assert!(
+            reason.starts_with("child sessions are set up on this PC"),
+            "{reason}"
+        );
+        assert!(reason.contains("unavailable in this host"), "{reason}");
+        for _ in 0..2 {
+            watch(&record, &mut last, false, never, no_wait, |p| {
+                reports.push(p)
+            });
+        }
+        assert_eq!(last.as_deref(), Some(reason.as_str()));
+        // A record it can't read (an older one only administrators may read): the same, with why.
+        let unreadable = Record {
+            trusted: |_, path| bail!("Access is denied reading {}", path.display()),
+            ..record.clone()
+        };
+        let reason = unverified(&unreadable, false).unwrap();
+        assert!(
+            reason.starts_with(
+                "Rubylight's child-session record could not be read (Access is denied"
+            ),
+            "{reason}"
+        );
+        assert!(reason.contains("unavailable in this host"), "{reason}");
+        watch(&unreadable, &mut last, false, never, no_wait, |p| {
+            reports.push(p)
+        });
+        assert!(reports.is_empty(), "{reports:?}");
+        // Elevated: it checks, as before.
+        assert_eq!(unverified(&unreadable, true), None);
+        let mut checks = 0;
+        watch(
+            &record,
+            &mut last,
+            true,
+            |_, _| {
+                checks += 1;
+                Ok(Vec::new())
+            },
+            no_wait,
+            |p| reports.push(p),
+        );
+        assert_eq!((checks, last), (1, None));
         std::fs::remove_dir_all(directory).unwrap();
     }
 

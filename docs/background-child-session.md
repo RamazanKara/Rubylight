@@ -49,8 +49,12 @@ default, and it is what Windows Home uses: Home has no child sessions.
      (`RemoteDesktop_SuppressWhenMinimized = 2`);
    - records every original value first, in one record for the whole PC
      (`%ProgramData%\Butterpollo\windows-settings\child_session_setup.json`,
-     which only SYSTEM and Administrators can change; Rubylight refuses a
-     record anyone else owns), whichever Rubylight host set it up. Setup
+     which only SYSTEM and Administrators can change and anyone can read;
+     Rubylight refuses a record anyone else owns), whichever Rubylight host
+     set it up. A host without administrator rights (a portable one) can't
+     check the firewall or turn Remote Desktop off, so it starts no child
+     session and says why in its log; the service, or a host run as
+     administrator, does. Setup
      refuses on a PC another Rubylight host set up without that record:
      restore it there first. Only the main host sets up and restores, in
      child-session mode; the child session's own host never does.

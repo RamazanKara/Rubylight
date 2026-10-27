@@ -1483,6 +1483,7 @@ impl Media {
         let metadata = self.set_display_hdr_metadata(s, first.gpu.hdr_metadata());
         if let Some(encoder) = encoder.as_mut() {
             encoder.set_hdr_metadata(metadata);
+            encoder.set_hdr_target(s.hdr_target_nits());
         }
         Ok(())
     }
@@ -2781,8 +2782,9 @@ impl Media {
                                     &tuning,
                                     &s.launch.warnings,
                                 ) {
-                                    Ok(created) => {
+                                    Ok(mut created) => {
                                         *s.encoder.write().unwrap() = created.backend().into();
+                                        created.set_hdr_target(s.hdr_target_nits());
                                         encoder = Some(created);
                                         focus.encoder_recreated();
                                     },
@@ -2903,6 +2905,8 @@ impl Media {
                             if Instant::now() >= metadata_due {
                                 let metadata = m.set_display_hdr_metadata(&s, image.gpu.hdr_metadata());
                                 active.set_hdr_metadata(metadata);
+                                // A receiver's report (0x5531) arrives after the stream starts.
+                                active.set_hdr_target(s.hdr_target_nits());
                                 metadata_due = Instant::now() + Duration::from_secs(1);
                             }
                             let invalidation = s.invalidation.lock().unwrap().take();
@@ -3810,7 +3814,7 @@ impl Media {
                                             peak_nits = update.caps.max_nits().unwrap_or(0),
                                             average_nits = update.caps.max_average_nits().unwrap_or(0),
                                             black_decimillinits = update.caps.min_decimillinits,
-                                            applied = "diagnostic only; source HDR metadata retained",
+                                            applied = "diagnostic and HDR10+ target only; source HDR metadata retained",
                                             "display caps"
                                         );
                                     }

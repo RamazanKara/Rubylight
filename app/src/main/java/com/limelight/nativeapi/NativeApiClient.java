@@ -27,6 +27,14 @@ public final class NativeApiClient {
     }
 
     /**
+     * The capabilities JSON with the file, USB and shared folder permissions, for
+     * {@link com.limelight.nvstream.http.HostCapabilities#withNativeCapabilities}.
+     */
+    public String fileCapabilities() throws NativeApiException {
+        return call("files.capabilities", "").toString();
+    }
+
+    /**
      * Closes the game through the native API when this device has the host control permission.
      * Returns false, having done nothing, when it does not: the caller then quits the classic way
      * through /cancel, which needs no such permission.

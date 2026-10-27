@@ -220,6 +220,16 @@ cases:
     status: pending
     note: the WIP is on the couch-menu branch (a9e2fb927); run last in its batch
 
+  - id: audio-passthrough-tv
+    device: user
+    title: Audio passthrough to the TCL C6K and its receiver or soundbar (AC3, E-AC3, PCM)
+    command: 'Nightjar Android on the TV, Settings > Audio: Audio passthrough on, New streaming engine; stream Desktop at 5.1 with a 5.1 test clip on the PC, then again with the soundbar or receiver on HDMI ARC and on the TV speakers'
+    preconditions: [idle]
+    pass: the receiver or soundbar shows Dolby Digital or Dolby Digital Plus (or the TV its Dolby badge), every channel plays from its speaker, no drop-outs over 5 minutes; the TV speakers alone get PCM or Opus with the message saying why
+    output: Nightjar's "Audio output: ... passthrough" log line and the host log around the stream (read after the user's run)
+    status: pending
+    note: Experimental until this passes; see user-tests.md audio-passthrough-tv. Lip sync against Opus is the format's 32 ms frames plus the sink's own decode buffer
+
   - id: smoke-laptop
     device: laptop
     title: Real-client smoke from the laptop (Moonlight-qt, AV1 and HEVC, 1968x2184 HDR 120 fps, 30 s each)

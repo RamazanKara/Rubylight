@@ -31,10 +31,13 @@ default, and it is what Windows Home uses: Home has no child sessions.
      check refuses until you set up child sessions again, which follows the
      new port; the port is read both from the registry and from the port the
      Remote Desktop service really listens on, and setup refuses while the
-     two differ (restart the PC first). That check runs at setup, again at
-     every host start and before every child-session start. When it fails
-     after setup, or cannot run at all (or Rubylight's setup record cannot be
-     read), Rubylight turns Remote Desktop off at once
+     two differ (restart the PC first). When the Remote Desktop service
+     shares its process with other Windows services, only the sockets that
+     process opened for Remote Desktop count. That check runs at setup, again
+     at every host start and before every child-session start. When it fails
+     after setup, or cannot run at all (tried three times, 5 s apart, as
+     while Windows starts; or Rubylight's setup record cannot be read),
+     Rubylight turns Remote Desktop off at once
      (`fDenyTSConnections = 1`), reads that back, says so loudly in the
      console and the log, and refuses to start the child session until you
      fix the firewall and set up child sessions again. A group policy that
@@ -60,6 +63,19 @@ program listens on it (TCP or UDP, IPv4 or IPv6), and that RDP is still on, on
 that port. The client's own automatic reconnect is off, so every reconnect
 goes through that check. On any mismatch it refuses, says why in the panel
 and the log, and does not retry.
+
+What the check cannot rule out: a program that binds the RDP port on
+`127.0.0.1` between the check and the connect, while running as the Remote
+Desktop service's own account (Network Service), as SYSTEM or as an elevated
+administrator. The client would then send your password to that program.
+Windows refuses that bind to other accounts. Measured on this PC (Windows 11
+26200): from an administrator's unelevated token, which has a standard user's
+rights, binding `127.0.0.1`, the IPv4-mapped `::ffff:127.0.0.1` or the
+wildcard address with `SO_REUSEADDR` on a port another account's service
+listens on failed every time with `WSAEACCES` (10013). The same bind from the
+listening socket's own account succeeded and took the loopback connections.
+A program running with those rights can already change Remote Desktop's
+settings itself. The viewer does not pin the server's certificate.
 Windows shortcuts stay on
 your own desktop. The panel
 starts and stops the child session and its host, sets its resolution and scale

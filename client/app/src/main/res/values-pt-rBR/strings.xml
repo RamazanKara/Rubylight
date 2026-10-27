@@ -425,7 +425,7 @@
     <string name="keyboard_shortcuts_exported">Atalhos exportados.</string>
     <string name="keyboard_shortcuts_file_error">Não foi possível ler ou gravar o arquivo de atalhos. Verifique o acesso a arquivos e use uma exportação de atalhos válida com no máximo 32 atalhos.</string>
     <string name="title_disable_hevc_low_latency">Opções de baixa latência HEVC</string>
-    <string name="summary_disable_hevc_low_latency">Automático usa as opções em todos os decodificadores HEVC, exceto os da Amlogic, cuja imagem trava com elas; Ativado as usa também neles. Desative se o vídeo HEVC travar ou engasgar. Desativado ignora as opções opcionais de baixa latência do Android e do chipset e a invalidação de quadros de referência para HEVC. As opções de compatibilidade necessárias são mantidas em decodificadores Fire TV antigos. Os outros codecs e as dicas de desempenho do decodificador mantêm suas próprias configurações. Aplica-se à próxima transmissão.</string>
+    <string name="summary_disable_hevc_low_latency">Automático usa as opções em todos os decodificadores HEVC, exceto os Amlogic mais novos (Codec2) fora do Fire TV, cuja imagem trava com elas; Ativado as usa também neles. Desative se o vídeo HEVC travar ou engasgar. Desativado ignora as opções opcionais de baixa latência do Android e do chipset e a invalidação de quadros de referência para HEVC. As opções de compatibilidade necessárias são mantidas em decodificadores Fire TV antigos. Os outros codecs e as dicas de desempenho do decodificador mantêm suas próprias configurações. Aplica-se à próxima transmissão.</string>
     <string name="hevc_low_latency_auto">Automático</string>
     <string name="hevc_low_latency_on">Ativado</string>
     <string name="hevc_low_latency_off">Desativado</string>

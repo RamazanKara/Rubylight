@@ -425,7 +425,7 @@
     <string name="keyboard_shortcuts_exported">已导出快捷键。</string>
     <string name="keyboard_shortcuts_file_error">无法读取或写入快捷键文件。请检查文件访问权限，并使用有效的快捷键导出文件（最多 32 个快捷键）。</string>
     <string name="title_disable_hevc_low_latency">HEVC 低延迟标志</string>
-    <string name="summary_disable_hevc_low_latency">自动：除 Amlogic 外的所有 HEVC 解码器都使用这些标志（Amlogic 使用后画面会停滞）；开启：Amlogic 也使用。如果 HEVC 视频卡顿或冻结，请关闭。关闭后，HEVC 会跳过可选的 Android 和芯片组低延迟标志以及参考帧失效。在较旧的 Fire TV 解码器上会保留必需的兼容性标志。其他编解码器和解码器性能提示保持各自的设置。下次串流时生效。</string>
+    <string name="summary_disable_hevc_low_latency">自动：除 Fire TV 以外的较新 Amlogic（Codec2）解码器外，所有 HEVC 解码器都使用这些标志（它们使用后画面会停滞）；开启：它们也使用。如果 HEVC 视频卡顿或冻结，请关闭。关闭后，HEVC 会跳过可选的 Android 和芯片组低延迟标志以及参考帧失效。在较旧的 Fire TV 解码器上会保留必需的兼容性标志。其他编解码器和解码器性能提示保持各自的设置。下次串流时生效。</string>
     <string name="hevc_low_latency_auto">自动</string>
     <string name="hevc_low_latency_on">开启</string>
     <string name="hevc_low_latency_off">关闭</string>

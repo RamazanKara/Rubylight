@@ -880,6 +880,59 @@ fn the_firewall_is_checked_again_after_setup() {
 }
 
 #[test]
+fn a_firewall_that_stops_holding_rdp_turns_it_off() {
+    let rdp = |fake: &Fake| {
+        fake.read_dword(&Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections")
+            .unwrap()
+    };
+    let mut fake = Fake::new();
+    let state = set_up(&mut fake);
+    // The firewall still holds it: nothing found, RDP stays on.
+    assert!(
+        enforce_firewall(&mut fake, state.rdp_port)
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(rdp(&fake), Some(0));
+    // The firewall goes off later: RDP goes off with it, and the report says both.
+    fake.machine.firewall_problem = Some("Windows Firewall is off for the Public profile".into());
+    let found = enforce_firewall(&mut fake, state.rdp_port).unwrap();
+    assert_eq!(rdp(&fake), Some(1));
+    assert!(found[0].contains("Windows Firewall is off"), "{found:?}");
+    assert!(
+        found
+            .last()
+            .unwrap()
+            .contains("Remote Desktop was turned off (fDenyTSConnections = 1)"),
+        "{found:?}"
+    );
+    // So does a firewall that cannot even turn RDP off.
+    let mut stuck = Fake::new();
+    set_up(&mut stuck);
+    stuck.machine.policy_overrides = vec!["Domain".into()];
+    stuck.fail_writes.insert("fDenyTSConnections".into());
+    let found = enforce_firewall(&mut stuck, 3389).unwrap();
+    assert_eq!(rdp(&stuck), Some(0));
+    assert!(
+        found
+            .last()
+            .unwrap()
+            .contains("turning Remote Desktop off failed"),
+        "{found:?}"
+    );
+    // Restore still puts back the value from before setup, and setting up
+    // again (with the firewall fixed) turns RDP back on.
+    fake.machine.firewall_problem = None;
+    setup(&mut fake, Some(state.clone()), SID, |_| {
+        panic!("saved once")
+    })
+    .unwrap();
+    assert_eq!(rdp(&fake), Some(0));
+    restore(&mut fake, &state).unwrap();
+    assert_eq!(rdp(&fake), Some(1));
+}
+
+#[test]
 fn a_moved_rdp_port_is_refused_until_setup_runs_again() {
     let mut fake = Fake::new();
     let state = set_up(&mut fake);

@@ -30,9 +30,11 @@ default, and it is what Windows Home uses: Home has no child sessions.
      and no Remote Desktop allow rule is. When RDP moves to another port, the
      check refuses until you set up child sessions again, which follows the
      new port. That check runs at setup, again at
-     every host start (a failure is reported loudly in the console and the
-     log), and before every child-session start, which refuses until it
-     passes;
+     every host start and before every child-session start. When it fails
+     after setup, Rubylight turns Remote Desktop off at once
+     (`fDenyTSConnections = 1`), says so loudly in the console and the log,
+     and refuses to start the child session until you fix the firewall and
+     set up child sessions again;
    - raises the session frame rate (`DWMFRAMEINTERVAL = 8`, about 120 fps);
    - lets the Remote Desktop client keep drawing while minimized
      (`RemoteDesktop_SuppressWhenMinimized = 2`);

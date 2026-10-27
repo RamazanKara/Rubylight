@@ -1392,6 +1392,17 @@ pub fn missing(
     user_sid: &str,
     rdp_port: Option<u16>,
 ) -> Result<Vec<String>> {
+    let mut missing = settings_missing(system, user_sid)?;
+    let rdp_port = match rdp_port {
+        Some(port) => port,
+        None => live_rdp_port(system)?,
+    };
+    missing.extend(firewall_missing(system, rdp_port)?);
+    Ok(missing)
+}
+
+/// [`missing`] short of the firewall: the Windows settings setup changes.
+pub fn settings_missing(system: &dyn SystemSettings, user_sid: &str) -> Result<Vec<String>> {
     let mut missing = Vec::new();
     if !system.child_sessions_enabled()? {
         missing.push("Windows child sessions are off".to_string());
@@ -1406,12 +1417,41 @@ pub fn missing(
     if !system.enabled_rules(REMOTE_DESKTOP_RULES)?.is_empty() {
         missing.push("Windows' Remote Desktop firewall rules are on".to_string());
     }
-    let rdp_port = match rdp_port {
-        Some(port) => port,
-        None => live_rdp_port(system)?,
-    };
-    missing.extend(firewall_missing(system, rdp_port)?);
     Ok(missing)
+}
+
+/// [`firewall_missing`] on a set-up PC, and when it finds anything, Remote
+/// Desktop turned off at once (`fDenyTSConnections = 1`, read back): a
+/// firewall that no longer keeps RDP on this PC never leaves it open to the
+/// network. The host runs it at its start and before every child-session
+/// start. Empty when the check passed; otherwise what it found, then what
+/// was done about it. Setting up again turns RDP back on, and restore still
+/// puts back the value from before setup.
+pub fn enforce_firewall(system: &mut dyn SystemSettings, rdp_port: u16) -> Result<Vec<String>> {
+    let mut found = firewall_missing(system, rdp_port)?;
+    if found.is_empty() {
+        return Ok(found);
+    }
+    let change = &CHANGES[0];
+    let off = system
+        .write_dword(&Hive::LocalMachine, change.path, change.name, 1)
+        .and_then(
+            |()| match system.read_dword(&Hive::LocalMachine, change.path, change.name)? {
+                Some(1) => Ok(()),
+                now => bail!("it reads {now:?} after writing 1"),
+            },
+        );
+    found.push(match off {
+        Ok(()) => format!(
+            "Remote Desktop was turned off ({} = 1), so it is not open to the network",
+            change.name
+        ),
+        Err(error) => format!(
+            "turning Remote Desktop off failed ({}: {error:#}): turn it off in Windows' settings or choose Restore Windows settings now",
+            change.name
+        ),
+    });
+    Ok(found)
 }
 
 /// What keeps the firewall from holding RDP to this PC now, empty when it

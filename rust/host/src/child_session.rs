@@ -74,18 +74,19 @@ pub(crate) fn log_mode(config: &Config) {
 }
 
 /// At the host's start, when child sessions are set up here: RDP stays on until
-/// restore, so a firewall that no longer keeps it on this PC is said loudly
-/// (and [`start`] refuses until it is fixed).
+/// restore, so a firewall that no longer keeps it on this PC turns RDP off and
+/// is said loudly (and [`start`] refuses until setup runs again).
 pub(crate) fn check_at_startup(h: &Shared) {
     let directory = h.directory.clone();
     std::thread::spawn(move || {
-        let firewall = |port| logic::firewall_missing(&native::NativeSettings::new()?, port);
+        let firewall = |port| logic::enforce_firewall(&mut native::NativeSettings::new()?, port);
         if let Some(problem) = startup_problem(&directory, firewall) {
             report(problem);
         }
     });
 }
-/// `firewall` checks the firewall for the RDP port setup recorded.
+/// `firewall` checks the firewall for the RDP port setup recorded, turning
+/// RDP off when it fails ([`logic::enforce_firewall`]).
 fn startup_problem(
     directory: &Path,
     firewall: impl FnOnce(u16) -> Result<Vec<String>>,
@@ -93,16 +94,20 @@ fn startup_problem(
     match load_saved(directory) {
         Ok(None) => None,
         Err(error) => Some(format!("{error:#}")),
-        Ok(Some(state)) => match firewall(state.rdp_port) {
-            Ok(missing) if missing.is_empty() => None,
-            Ok(missing) => Some(format!(
-                "child sessions are set up, so Remote Desktop is on, but the firewall no longer keeps it on this PC: {}. Fix that, or choose Restore Windows settings; the child session does not start until then.",
-                missing.join("; ")
-            )),
-            Err(error) => Some(format!(
-                "child sessions are set up, so Remote Desktop is on, but the firewall could not be checked: {error:#}"
-            )),
-        },
+        Ok(Some(state)) => firewall_problem(firewall(state.rdp_port)),
+    }
+}
+/// What [`logic::enforce_firewall`] found, for the log and the console.
+fn firewall_problem(found: Result<Vec<String>>) -> Option<String> {
+    match found {
+        Ok(found) if found.is_empty() => None,
+        Ok(found) => Some(format!(
+            "child sessions are set up, but the firewall no longer keeps Remote Desktop on this PC: {}. Fix that, then set up child sessions again (or choose Restore Windows settings); the child session does not start until then.",
+            found.join("; ")
+        )),
+        Err(error) => Some(format!(
+            "child sessions are set up, so Remote Desktop is on, but the firewall could not be checked: {error:#}"
+        )),
     }
 }
 
@@ -219,13 +224,22 @@ pub(crate) fn start(h: &Shared, password: Option<logic::Secret>) -> Result<()> {
         config.get(logic::RESOLUTION_KEY, ""),
         config.get(logic::SCALE_KEY, ""),
     )?;
-    // The port setup recorded, which RDP and the block rule must still match.
-    let rdp_port = load_saved(&h.directory)?.map(|state| state.rdp_port);
-    let missing = logic::missing(
-        &native::NativeSettings::new()?,
-        &native::console_user()?,
-        rdp_port,
-    )?;
+    let mut system = native::NativeSettings::new()?;
+    let user = native::console_user()?;
+    let missing = match load_saved(&h.directory)? {
+        // The port setup recorded, which RDP and the block rule must still
+        // match; on a mismatch RDP goes off.
+        Some(state) => {
+            if let Some(problem) =
+                firewall_problem(logic::enforce_firewall(&mut system, state.rdp_port))
+            {
+                report(problem.clone());
+                bail!("{problem}");
+            }
+            logic::settings_missing(&system, &user)?
+        }
+        None => logic::missing(&system, &user, None)?,
+    };
     if !missing.is_empty() {
         bail!("set up child sessions first: {}", missing.join("; "));
     }
@@ -659,12 +673,16 @@ mod tests {
             None
         );
         let problem = startup_problem(&directory, |_| {
-            Ok(vec!["the block rule is not in effect".into()])
+            Ok(vec![
+                "the block rule is not in effect".into(),
+                "Remote Desktop was turned off (fDenyTSConnections = 1), so it is not open to the network".into(),
+            ])
         })
         .unwrap();
         assert!(
-            problem.contains("the block rule is not in effect")
-                && problem.contains("Restore Windows settings"),
+            problem.contains("the block rule is not in effect; Remote Desktop was turned off")
+                && problem.contains("set up child sessions again")
+                && !problem.contains("so Remote Desktop is on"),
             "{problem}"
         );
         let problem = startup_problem(&directory, |_| bail!("COM failed")).unwrap();

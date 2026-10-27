@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use butterpollo_core::library::{self, Game, Launch, Source};
 use serde::Serialize;
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     io::Read,
     path::{Path, PathBuf},
 };
@@ -228,7 +228,84 @@ fn launcher(installs: &[Installed], name: &str, relative: &[&str]) -> Option<Pat
     paths.into_iter().find(|path| path.is_file())
 }
 
-pub fn discover() -> Discovery {
+/// The values of a `SOFTWARE\GOG.com\Games\<id>` key that [`library::gog_registry`] reads.
+const GOG_VALUES: [&str; 7] = [
+    "gameID",
+    "gameName",
+    "path",
+    "exe",
+    "launchParam",
+    "workingDir",
+    "dependsOn",
+];
+/// How many files and folders the scan looks at in one game folder.
+const GAME_FOLDER_ENTRIES: usize = 2000;
+/// The programs in a game folder and up to two folders below it, leaving out the folders
+/// that never hold the game's own program, and not following links.
+fn programs(folder: &Path, errors: &mut Vec<String>) -> Vec<library::Program> {
+    let mut found = vec![];
+    let mut pending = vec![(PathBuf::new(), 0)];
+    let mut seen = 0;
+    while let Some((relative, depth)) = pending.pop() {
+        for path in files(&folder.join(&relative), errors) {
+            seen += 1;
+            if seen > GAME_FOLDER_ENTRIES {
+                tracing::debug!(folder = %folder.display(), "the game folder scan stopped at its entry limit");
+                return found;
+            }
+            let (Some(name), Ok(metadata)) = (path.file_name(), std::fs::symlink_metadata(&path))
+            else {
+                continue;
+            };
+            let lower = name.to_string_lossy().to_lowercase();
+            let relative = relative.join(name);
+            if metadata.is_dir() {
+                if depth < 2 && !library::LOCAL_SKIPPED_FOLDERS.contains(&lower.as_str()) {
+                    pending.push((relative, depth + 1));
+                }
+            } else if metadata.is_file() && lower.ends_with(".exe") {
+                found.push(library::Program {
+                    path: relative,
+                    size: metadata.len(),
+                });
+            }
+        }
+    }
+    found
+}
+
+/// One game per subfolder of the configured game folders. A folder that is missing is an
+/// error of its own; the other folders are still read.
+fn local(settings: &library::Settings, games: &mut Vec<Game>, errors: &mut Vec<String>) {
+    for root in &settings.local_folders {
+        if !root.is_absolute() || !root.is_dir() {
+            errors.push(format!(
+                "The game folder {} is not a folder on this PC.",
+                root.display()
+            ));
+            continue;
+        }
+        for folder in files(root, errors) {
+            if !folder.is_dir() || settings.excluded(&folder) {
+                continue;
+            }
+            let found = programs(&folder, errors);
+            add(Ok(library::local(&folder, &found)), games, errors);
+        }
+    }
+}
+
+impl Discovery {
+    /// The sources the settings turned off, which the scan did not read.
+    pub fn skipped(&self) -> impl Iterator<Item = Source> + '_ {
+        self.sources
+            .iter()
+            .filter(|status| status.state == "disabled")
+            .map(|status| status.source)
+    }
+}
+
+pub fn discover(settings: &library::Settings) -> Discovery {
     let mut registry_errors = vec![];
     let installs = installed(&mut registry_errors);
     let program_folders = program_folders();
@@ -237,7 +314,19 @@ pub fn discover() -> Discovery {
     let mut sources = vec![];
     let mut games = vec![];
     for source in Source::ALL {
-        let mut errors = if matches!(source, Source::Steam | Source::Epic | Source::Microsoft) {
+        if !settings.enabled(source) {
+            sources.push(SourceStatus {
+                source,
+                name: source.name(),
+                state: "disabled",
+                errors: vec![],
+            });
+            continue;
+        }
+        let mut errors = if matches!(
+            source,
+            Source::Steam | Source::Epic | Source::Microsoft | Source::Local
+        ) {
             vec![]
         } else {
             registry_errors.clone()
@@ -448,11 +537,28 @@ pub fn discover() -> Discovery {
                             .map(|root| root.join(r"GOG Galaxy\GalaxyClient.exe"))
                             .find(|path| path.is_file())
                     });
-                let mut folders: BTreeSet<PathBuf> =
-                    folders(r"SOFTWARE\GOG.com\Games", &mut errors)
+                // Each game's registry values, for installs without a goggame-<id>.info.
+                let registered: Vec<BTreeMap<String, String>> =
+                    records(r"SOFTWARE\GOG.com\Games", &mut errors)
                         .into_iter()
-                        .map(|(_, path)| path)
+                        .map(|(root, path, id)| {
+                            let mut values: BTreeMap<String, String> = GOG_VALUES
+                                .into_iter()
+                                .filter_map(|name| {
+                                    registry_string(root, &path, name)
+                                        .map(|value| (name.to_owned(), value))
+                                })
+                                .collect();
+                            values.entry("gameID".into()).or_insert(id);
+                            values
+                        })
                         .collect();
+                let mut folders: BTreeSet<PathBuf> = registered
+                    .iter()
+                    .filter_map(|values| values.get("path"))
+                    .filter(|path| !path.trim().is_empty())
+                    .map(PathBuf::from)
+                    .collect();
                 folders.extend(
                     installs
                         .iter()
@@ -486,7 +592,25 @@ pub fn discover() -> Discovery {
                         );
                     }
                 }
+                for values in &registered {
+                    let id = values.get("gameID").map(|id| id.trim());
+                    if games
+                        .iter()
+                        .any(|game| game.source == Source::Gog && Some(game.id.as_str()) == id)
+                    {
+                        continue;
+                    }
+                    add(
+                        library::gog_registry(values, galaxy.as_deref()),
+                        &mut games,
+                        &mut errors,
+                    );
+                }
                 available
+            }
+            Source::Local => {
+                local(settings, &mut games, &mut errors);
+                true
             }
             Source::Microsoft => {
                 // Packages, not the registry: the scan reports its own errors.
@@ -496,6 +620,14 @@ pub fn discover() -> Discovery {
                 scan.available
             }
         };
+        if !errors.is_empty() {
+            // One launcher's trouble never hides the others: its games found so far stay.
+            tracing::warn!(
+                source = source.key(),
+                ?errors,
+                "the launcher scan is incomplete"
+            );
+        }
         sources.push(SourceStatus {
             source,
             name: source.name(),
@@ -509,10 +641,10 @@ pub fn discover() -> Discovery {
             errors,
         });
     }
-    let mut seen = BTreeSet::new();
-    games.retain(|game| seen.insert((game.source, game.id.clone())));
-    games.sort_by_cached_key(|game| (game.name.to_lowercase(), game.source, game.id.clone()));
-    Discovery { sources, games }
+    Discovery {
+        sources,
+        games: library::finish(games),
+    }
 }
 
 pub fn launch(
@@ -612,6 +744,66 @@ mod tests {
                 .unwrap_err()
                 .to_string()
                 .contains("too large")
+        );
+    }
+
+    #[test]
+    fn game_folders_are_read_two_folders_deep_and_a_missing_one_hides_no_other() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("Spiele");
+        let write = |relative: &str, size: u64| {
+            let path = root.join(relative);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::File::create(path).unwrap().set_len(size).unwrap();
+        };
+        write("Hades/Hades.exe", 2048);
+        write("Hades/unins000.exe", 4096);
+        write("Hades/cover.jpg", 10);
+        write("Witcher/bin/x64/witcher3.exe", 4096);
+        write("Witcher/_CommonRedist/game.exe", 8192);
+        write("Deep/a/b/c/deep.exe", 4096);
+        write("Leave Out/game.exe", 4096);
+        write("loose.exe", 4096);
+        let mut programs_found = programs(&root.join("Witcher"), &mut vec![]);
+        programs_found.sort_by(|a, b| a.path.cmp(&b.path));
+        assert_eq!(
+            programs_found
+                .iter()
+                .map(|program| (program.path.clone(), program.size))
+                .collect::<Vec<_>>(),
+            [(PathBuf::from(r"bin\x64\witcher3.exe"), 4096)],
+            "redistributable folders are not read"
+        );
+        let settings = library::Settings {
+            local_folders: vec![temp.path().join("missing"), root.clone()],
+            local_exclude: vec!["leave out".into()],
+            ..Default::default()
+        };
+        let (mut games, mut errors) = (vec![], vec![]);
+        local(&settings, &mut games, &mut errors);
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert!(errors[0].contains("missing"));
+        let found: Vec<_> = library::finish(games)
+            .into_iter()
+            .map(|game| (game.name, game.launch.unwrap().command(), game.cover))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                (
+                    "Hades".to_owned(),
+                    format!("\"{}\"", root.join(r"Hades\Hades.exe").display()),
+                    Some(root.join("Hades").join("cover.jpg"))
+                ),
+                (
+                    "Witcher".to_owned(),
+                    format!(
+                        "\"{}\"",
+                        root.join(r"Witcher\bin\x64\witcher3.exe").display()
+                    ),
+                    None
+                ),
+            ]
         );
     }
 

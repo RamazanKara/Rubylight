@@ -707,7 +707,7 @@ async fn library_discovery_and_import_require_authentication_and_validate_identi
         StatusCode::OK,
     )
     .await;
-    assert_eq!(discovery["sources"].as_array().unwrap().len(), 7);
+    assert_eq!(discovery["sources"].as_array().unwrap().len(), 8);
     assert!(
         discovery["sources"]
             .as_array()
@@ -715,6 +715,43 @@ async fn library_discovery_and_import_require_authentication_and_validate_identi
             .iter()
             .any(|source| source["source"] == "microsoft"),
         "the Microsoft Store and Xbox source is scanned"
+    );
+    let state = |key: &str| {
+        discovery["sources"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|source| source["source"] == key)
+            .map(|source| source["state"].clone())
+    };
+    assert_eq!(
+        state("local"),
+        Some(json!("disabled")),
+        "no game folders by default"
+    );
+    assert_ne!(state("epic"), Some(json!("disabled")));
+    assert_ne!(state("gog"), Some(json!("disabled")));
+    // Turned off in the settings: the next scan skips the launcher.
+    *f.host.config.write().unwrap() =
+        butterpollo_core::config::Config::parse("library_epic_enabled = false").unwrap();
+    let discovery = value(
+        request(&f, "GET", "/api/library/discovery", Value::Null).await,
+        StatusCode::OK,
+    )
+    .await;
+    let epic = discovery["sources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|source| source["source"] == "epic")
+        .unwrap();
+    assert_eq!(epic["state"], "disabled");
+    assert!(
+        discovery["games"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|game| game["source"] != "epic")
     );
     assert!(discovery["games"].is_array());
     for game in discovery["games"].as_array().unwrap() {

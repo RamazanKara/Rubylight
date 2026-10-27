@@ -39,13 +39,18 @@ fn lock_caches() -> MutexGuard<'static, HashMap<PathBuf, Cache>> {
     CACHES.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// Which launchers the scan reads, from the host's settings.
+fn settings(h: &Shared) -> library::Settings {
+    library::Settings::from_config(&h.config.read().unwrap())
+}
 #[cfg(not(test))]
-fn scan_installed() -> Scan {
-    Scan::from_games(&butterpollo_windows::library::discover().games)
+fn scan_installed(settings: library::Settings) -> Scan {
+    let discovery = butterpollo_windows::library::discover(&settings);
+    Scan::from_games(&discovery.games).skipping(discovery.skipped())
 }
 /// Tests never read the registry and the launchers' folders.
 #[cfg(test)]
-fn scan_installed() -> Scan {
+fn scan_installed(_: library::Settings) -> Scan {
     Scan::default()
 }
 
@@ -53,7 +58,8 @@ fn scan_installed() -> Scan {
 /// one has finished. A scan runs on its own thread, at most every five
 /// minutes and after an import, so a request never waits for it.
 pub fn installed(h: &Shared) -> Option<Scan> {
-    refresh(&h.directory, scan_installed)
+    let settings = settings(h);
+    refresh(&h.directory, move || scan_installed(settings))
 }
 /// Tests set what the last scan found.
 #[cfg(test)]
@@ -70,7 +76,10 @@ pub fn invalidate(h: &Shared) {
     }
     installed(h);
 }
-fn refresh(directory: &Path, scanner: fn() -> Scan) -> Option<Scan> {
+fn refresh(
+    directory: &Path,
+    scanner: impl FnOnce() -> Scan + Send + std::panic::UnwindSafe + 'static,
+) -> Option<Scan> {
     let mut caches = lock_caches();
     let cache = caches.entry(directory.to_owned()).or_default();
     let due = cache.stale || cache.at.is_none_or(|at| at.elapsed() >= SCAN_EVERY);
@@ -106,7 +115,7 @@ fn refresh(directory: &Path, scanner: fn() -> Scan) -> Option<Scan> {
 }
 
 pub fn discovery(h: &Shared) -> Result<Value> {
-    let mut catalog = butterpollo_windows::library::discover();
+    let mut catalog = butterpollo_windows::library::discover(&settings(h));
     let apps: Vec<Value> = h
         .apps
         .read()
@@ -133,7 +142,11 @@ pub fn discovery(h: &Shared) -> Result<Value> {
 
 pub fn import(h: &Shared, selected: &[Selection]) -> Result<Value> {
     ensure!(!selected.is_empty(), "Select at least one installed game.");
-    let result = import_games(h, butterpollo_windows::library::discover().games, selected);
+    let result = import_games(
+        h,
+        butterpollo_windows::library::discover(&settings(h)).games,
+        selected,
+    );
     invalidate(h);
     result
 }

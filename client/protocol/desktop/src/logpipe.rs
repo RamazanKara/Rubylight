@@ -101,7 +101,7 @@ pub fn start() {
     *ACTIVE.lock().unwrap_or_else(|e| e.into_inner()) = Some(Active { redirect, reader, writer, done });
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| panic_hook(&*previous, info)));
-    say(&format!("{} {} log started, pid {}", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::process::id()));
+    say(&format!("{} {} log started, pid {}", crate::VERSION, std::env::consts::OS, std::process::id()));
 }
 
 fn panic_hook(previous: &(dyn Fn(&PanicHookInfo<'_>) + Sync + Send), info: &PanicHookInfo<'_>) {

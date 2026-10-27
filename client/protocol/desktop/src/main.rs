@@ -34,7 +34,13 @@ mod strings;
 mod theme;
 mod timing_csv;
 mod ui;
+// build.rs uses the parser; here only its tests do.
+#[cfg_attr(not(test), allow(dead_code))]
+mod version_name;
 mod wol;
+
+/// The release version: the `versionName` of the Android app, embedded by build.rs.
+const VERSION: &str = env!("NIGHTJAR_VERSION");
 
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver};
@@ -140,7 +146,7 @@ fn display_of(window: *mut SDL_Window) -> Display {
 
 fn main() {
     // Every request to a host says which Nightjar asks: `User-Agent: Nightjar/<version>`.
-    nightjar_core::http::set_app_version(env!("CARGO_PKG_VERSION"));
+    nightjar_core::http::set_app_version(VERSION);
     // Package checks run without a window: `nightjar --check-pyrowave <report file>`.
     let mut args = std::env::args_os().skip(1);
     if args.next().is_some_and(|flag| flag == "--check-pyrowave") {

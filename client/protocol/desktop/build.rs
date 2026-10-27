@@ -1,5 +1,17 @@
+#[path = "src/version_name.rs"]
+mod version_name;
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    // The release version is Android's versionName, so both clients report the same one.
+    let gradle = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app/build.gradle");
+    println!("cargo:rerun-if-changed={}", gradle.display());
+    println!("cargo:rerun-if-changed=src/version_name.rs");
+    let gradle_text = std::fs::read_to_string(&gradle)
+        .unwrap_or_else(|e| panic!("read {}: {e}", gradle.display()));
+    let version = version_name::parse(&gradle_text)
+        .unwrap_or_else(|| panic!("no versionName \"<version>\" line in {}", gradle.display()));
+    println!("cargo:rustc-env=NIGHTJAR_VERSION={version}");
     println!("cargo:rerun-if-env-changed=NIGHTJAR_FFMPEG_DIR");
     let windows = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows");
     let prefix = std::env::var("NIGHTJAR_FFMPEG_DIR")

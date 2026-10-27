@@ -196,17 +196,17 @@
 {/if}
 
 <style>
-  .hero { overflow: hidden; border: 1px solid #303641; border-radius: var(--radius-lg); background-color: #121419; background-size: cover; background-position: center; color: #f4f5f7; }
-  .hero-body { padding: 36px; min-height: 260px; background: linear-gradient(90deg, #121419ee 0%, #121419a6 45%, transparent 78%); }
+  .hero { overflow: hidden; border: 1px solid var(--media-line); border-radius: var(--radius-lg); background-color: var(--media-bg); background-size: cover; background-position: center; color: var(--media-ink); }
+  .hero-body { padding: 36px; min-height: 260px; background: linear-gradient(90deg, color-mix(in srgb, var(--media-bg) 93%, transparent) 0%, color-mix(in srgb, var(--media-bg) 65%, transparent) 45%, transparent 78%); }
   .hero h2 { display: flex; align-items: center; gap: 14px; font-size: clamp(26px, 3vw, 38px); max-width: 680px; }
-  .status-dot { width: 14px; height: 14px; flex: none; border-radius: 50%; background: #a6aebc; }
-  .status-dot.ready { background: #4edba5; }
-  .status-dot.warn { background: #f0a742; }
-  .hero-copy { max-width: 480px; font-size: 19px; color: #d4dae5; margin-top: 16px; }
+  .status-dot { width: 14px; height: 14px; flex: none; border-radius: 50%; background: var(--media-idle); }
+  .status-dot.ready { background: var(--media-ok); }
+  .status-dot.warn { background: var(--media-warn); }
+  .hero-copy { max-width: 480px; font-size: 19px; color: var(--media-ink-2); margin-top: 16px; }
   .hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 24px; margin-top: 24px; }
-  .hero-actions :global(.primary) { min-width: 200px; min-height: 48px; background: #c42045; color: white; border-color: #c42045; }
+  .hero-actions :global(.primary) { min-width: 200px; min-height: 48px; background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
   .text-action { display: inline-flex; gap: 8px; align-items: center; padding: 10px 0; min-height: 44px; border: 0; background: none; color: inherit; text-decoration: underline; text-underline-offset: 4px; cursor: pointer; }
-  .hero-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 28px; padding: 10px 32px; background: #121419cc; border-top: 1px solid #303641; font-size: 14px; }
+  .hero-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 28px; padding: 10px 32px; background: color-mix(in srgb, var(--media-bg) 80%, transparent); border-top: 1px solid var(--media-line); font-size: 14px; }
   .hero-foot > span, .hero-foot > a { display: inline-flex; align-items: center; gap: 10px; }
   .hero-foot > a { text-decoration: none; }
   .checks-link { margin-left: auto; }

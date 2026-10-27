@@ -226,7 +226,7 @@
     color: var(--muted);
   }
   .kind {
-    color: var(--accent);
+    color: var(--accent-text);
   }
   .kind.file {
     color: var(--muted);

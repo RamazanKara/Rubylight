@@ -826,6 +826,23 @@ impl VirtualDisplay {
         self.mode = previous;
         None
     }
+    /// Give the display another size at its refresh in place, for a stream
+    /// that turned between portrait and landscape. False when Windows did not
+    /// show that size; the display goes back to its previous mode then.
+    pub(super) fn reshape(&mut self, width: u32, height: u32) -> bool {
+        let previous = self.mode;
+        self.mode.0 = width;
+        self.mode.1 = height;
+        self.driver
+            .offer_mode(self.id, Mode::new(width, height, self.mode.2));
+        self.apply_mode("stream turned");
+        if self.applied_size() == Some((width, height)) {
+            return true;
+        }
+        self.mode = previous;
+        self.apply_mode("stream turn refused");
+        false
+    }
     /// Make a resolution the user chose in Windows the one later layouts,
     /// resumes and recoveries put back. Windows shows it, so the driver offers
     /// it. The refresh stays the stream's (VRR's 1000 Hz, say); one Windows

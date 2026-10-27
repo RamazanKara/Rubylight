@@ -362,6 +362,8 @@ pub struct Ready {
     /// The launch's policy, or the stream request's once `retime` raised it.
     framegen: Mutex<Policy>,
     mode_report: ModeReport,
+    /// The size a stream turned to, for the heartbeat to give its display.
+    turned: Arc<Mutex<Option<(u32, u32)>>>,
     stop: Arc<AtomicBool>,
     active: Arc<AtomicUsize>,
     retained: Option<Arc<Retained>>,
@@ -385,6 +387,8 @@ impl Ready {
         let worker_state = state.clone();
         let worker_target = target.clone();
         let worker_stop = stop.clone();
+        let turned = Arc::new(Mutex::new(None));
+        let worker_turned = turned.clone();
         let active = Arc::new(AtomicUsize::new(1));
         let worker_active = active.clone();
         let worker = std::thread::Builder::new()
@@ -397,6 +401,12 @@ impl Ready {
                     let mut prepared = worker_state.lock().unwrap();
                     let active = worker_active.load(Ordering::Acquire) != 0;
                     let result = prepared.feed(active);
+                    let taken = worker_turned.lock().unwrap().take();
+                    if let Some(to) = taken
+                        && let Err(error) = prepared.follow_shape(to)
+                    {
+                        tracing::warn!(error = %format!("{error:#}"), "the stream's display could not follow the turned stream; its picture is scaled instead");
+                    }
                     let tick = if active || result.is_err() || prepared.recovery.pending {
                         Duration::from_millis(100)
                     } else {
@@ -426,6 +436,7 @@ impl Ready {
             exclusive_layout,
             framegen: Mutex::new(framegen),
             mode_report,
+            turned,
             stop,
             active,
             retained,
@@ -499,6 +510,15 @@ impl Ready {
     pub fn capture(&self) -> String {
         self.framegen.lock().unwrap().capture.clone()
     }
+    /// The stream turned between portrait and landscape (0x5532): its display
+    /// follows on the heartbeat, off the stream loop, when the device's
+    /// `dd_rotation_option` is auto.
+    pub fn follow_shape(&self, size: (u32, u32)) {
+        *self.turned.lock().unwrap() = Some(size);
+        if let Some(worker) = &self.worker {
+            worker.thread().unpark();
+        }
+    }
 }
 
 /// Only copies and publication hold this lock. Lease renewal, topology queries
@@ -555,6 +575,9 @@ pub struct Prepared {
     /// The scale the display showed once the stream set up, when the device keeps the scale
     /// the user picks (`remember_display_mode` and no configured scale).
     scale_baseline: Option<u32>,
+    /// How the stream's own display follows a stream that turns, when
+    /// `dd_rotation_option` is auto.
+    follow: Option<Follow>,
     /// A topology fixture keeps lifecycle tests independent of the real desktop.
     #[cfg(test)]
     layout_snapshot: Option<Vec<(String, bool)>>,
@@ -931,7 +954,99 @@ fn adjust_physical(lease: &mut impl PhysicalAdjust, turn: Option<u16>, scale: i6
     Ok(())
 }
 
+/// How a stream's own display follows a stream that turns between portrait
+/// and landscape (`dd_rotation_option = auto`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Follow {
+    /// Its virtual display changes shape.
+    Virtual,
+    /// Its physical display turns.
+    Physical,
+}
+
+/// What following a turned stream needs of the display lease, so tests can
+/// stand in for it.
+trait TurnLease: PhysicalAdjust {
+    fn virtual_size(&self) -> Option<(u32, u32)>;
+    fn reshape_virtual(&self, width: u32, height: u32) -> Result<()>;
+}
+impl TurnLease for Guard {
+    fn virtual_size(&self) -> Option<(u32, u32)> {
+        Guard::virtual_size(self)
+    }
+    fn reshape_virtual(&self, width: u32, height: u32) -> Result<()> {
+        Guard::reshape_virtual(self, width, height)
+    }
+}
+
+/// Gives the stream's display the shape of a stream that turned to `to`: a
+/// virtual display is reshaped, a physical one turned (`read` gives its
+/// rotation and desktop size). Returns the desktop size it shows now, or None
+/// when the display already has the stream's shape or keeps its own.
+fn follow_turn(
+    lease: &mut impl TurnLease,
+    follow: Follow,
+    to: (u32, u32),
+    mut read: impl FnMut() -> Result<(u16, (u32, u32))>,
+) -> Result<Option<(u32, u32)>> {
+    use butterpollo_core::config::DisplayAdjust;
+    match follow {
+        Follow::Virtual => {
+            let size = lease
+                .virtual_size()
+                .context("the virtual display is shared or not at the stream's size, so it keeps its shape")?;
+            let shaped =
+                butterpollo_core::display_policy::virtual_shape(DisplayAdjust::Auto, 0, size, to);
+            if shaped == size {
+                return Ok(None);
+            }
+            lease.reshape_virtual(shaped.0, shaped.1)?;
+            Ok(Some(shaped))
+        }
+        Follow::Physical => {
+            let (current, desktop) =
+                read().context("the display's rotation could not be read to follow the stream")?;
+            let Some(degrees) = butterpollo_core::display_policy::physical_rotation(
+                DisplayAdjust::Auto,
+                0,
+                current,
+                desktop,
+                to,
+            ) else {
+                return Ok(None);
+            };
+            lease.rotate(degrees)?;
+            // A display another stream uses keeps its rotation.
+            let (_, turned) = read().context("the turned display could not be read")?;
+            Ok((turned != desktop).then_some(turned))
+        }
+    }
+}
+
 impl Prepared {
+    /// Follows a stream that turned to `to` mid-stream when the device's
+    /// display follows it. A display that cannot follow fails loudly and keeps
+    /// streaming as it is: the colour conversion scales its picture.
+    fn follow_shape(&mut self, to: (u32, u32)) -> Result<()> {
+        let Some(follow) = self.follow else {
+            return Ok(());
+        };
+        let output = self.output.clone();
+        let Some(display) = self.display.as_mut() else {
+            return Ok(());
+        };
+        let Some(size) = follow_turn(display, follow, to, || {
+            butterpollo_windows::display::stream_display_rotation(&output)
+        })?
+        else {
+            return Ok(());
+        };
+        tracing::info!(output = %self.output, width = size.0, height = size.1, "the stream's display turned with the stream");
+        self.recovery_dimensions = size;
+        self.mode_report.adopt(size);
+        self.mode_report.publish(applied_mode(&self.output));
+        Ok(())
+    }
     fn capture_target(&self) -> (String, u64) {
         self._retained.as_ref().map_or_else(
             || (self.output.clone(), self.revision),
@@ -1271,6 +1386,9 @@ impl Prepared {
         // read once it is on. Its mode is asked for in the shape it has before
         // the turn, and its highest refresh looked up at that mode.
         let physical = !virtual_mode && retained.is_none();
+        let follow = (config.dd_rotation_option() == butterpollo_core::config::DisplayAdjust::Auto
+            && retained.is_none())
+        .then_some(if virtual_mode { Follow::Virtual } else { Follow::Physical });
         let turn = if physical {
             plan_physical_turn(
                 config,
@@ -1532,6 +1650,7 @@ impl Prepared {
                     .then(|| inherited_layout(config, app.as_ref()).to_owned()),
                 resolution_owner: (remember && owns_display).then(|| launch.client.uuid.clone()),
                 scale_baseline,
+                follow,
                 #[cfg(test)]
                 layout_snapshot: None,
                 #[cfg(test)]
@@ -2161,6 +2280,22 @@ pub(crate) mod tests {
     struct FakeLease {
         calls: Vec<String>,
         refuse_turn: bool,
+        /// The size its own virtual display shows; None for a shared one.
+        size: Option<(u32, u32)>,
+        reshaped: Cell<Option<(u32, u32)>>,
+        refuse_shape: bool,
+    }
+    impl TurnLease for FakeLease {
+        fn virtual_size(&self) -> Option<(u32, u32)> {
+            self.size
+        }
+        fn reshape_virtual(&self, width: u32, height: u32) -> Result<()> {
+            self.reshaped.set(Some((width, height)));
+            if self.refuse_shape {
+                anyhow::bail!("Windows did not show {width}x{height}");
+            }
+            Ok(())
+        }
     }
     impl PhysicalAdjust for FakeLease {
         fn rotate(&mut self, degrees: u16) -> Result<()> {
@@ -2194,6 +2329,100 @@ pub(crate) mod tests {
         };
         assert!(adjust_physical(&mut lease, Some(90), 150).is_err());
         assert_eq!(lease.calls, ["rotate 90"]);
+    }
+
+    #[test]
+    fn a_virtual_display_changes_shape_when_its_stream_turns() -> Result<()> {
+        let unread = || -> Result<(u16, (u32, u32))> { panic!("a virtual display is not read") };
+        let mut lease = FakeLease {
+            size: Some((2400, 1080)),
+            ..Default::default()
+        };
+        // The phone turned to portrait: the display takes the portrait shape.
+        assert_eq!(
+            follow_turn(&mut lease, Follow::Virtual, (1080, 2400), unread)?,
+            Some((1080, 2400))
+        );
+        assert_eq!(lease.reshaped.get(), Some((1080, 2400)));
+        assert!(lease.calls.is_empty(), "a virtual display is never turned");
+        // A rate change or a stream in the display's shape leaves it.
+        let mut lease = FakeLease {
+            size: Some((2400, 1080)),
+            ..Default::default()
+        };
+        assert_eq!(follow_turn(&mut lease, Follow::Virtual, (1920, 1080), unread)?, None);
+        assert_eq!(lease.reshaped.get(), None);
+        // A shared display, or one Windows refused, keeps its shape and says so.
+        let mut lease = FakeLease::default();
+        assert!(follow_turn(&mut lease, Follow::Virtual, (1080, 2400), unread).is_err());
+        let mut lease = FakeLease {
+            size: Some((2400, 1080)),
+            refuse_shape: true,
+            ..Default::default()
+        };
+        assert!(follow_turn(&mut lease, Follow::Virtual, (1080, 2400), unread).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn a_physical_display_turns_with_its_stream_and_back() -> Result<()> {
+        // Upright landscape; the phone turned to portrait.
+        let reads = std::cell::RefCell::new(vec![(90, (1440, 2560)), (0, (2560, 1440))]);
+        let read = || Ok(reads.borrow_mut().pop().unwrap());
+        let mut lease = FakeLease::default();
+        assert_eq!(
+            follow_turn(&mut lease, Follow::Physical, (1080, 2400), read)?,
+            Some((1440, 2560))
+        );
+        assert_eq!(lease.calls, ["rotate 90"]);
+        assert_eq!(lease.reshaped.get(), None, "a physical display is turned, not reshaped");
+        // Turned, and the phone went back to landscape: the display turns upright.
+        let reads = std::cell::RefCell::new(vec![(0, (2560, 1440)), (90, (1440, 2560))]);
+        let read = || Ok(reads.borrow_mut().pop().unwrap());
+        let mut lease = FakeLease::default();
+        assert_eq!(
+            follow_turn(&mut lease, Follow::Physical, (2400, 1080), read)?,
+            Some((2560, 1440))
+        );
+        assert_eq!(lease.calls, ["rotate 0"]);
+        // Already in the stream's shape: read once and left.
+        let mut lease = FakeLease::default();
+        let reads = std::cell::RefCell::new(vec![(0, (2560, 1440))]);
+        let read = || Ok(reads.borrow_mut().pop().unwrap());
+        assert_eq!(follow_turn(&mut lease, Follow::Physical, (2400, 1080), read)?, None);
+        assert!(lease.calls.is_empty());
+        // Another stream keeps the display's rotation: nothing turned.
+        let reads = std::cell::RefCell::new(vec![(0, (2560, 1440)), (0, (2560, 1440))]);
+        let read = || Ok(reads.borrow_mut().pop().unwrap());
+        let mut lease = FakeLease::default();
+        assert_eq!(follow_turn(&mut lease, Follow::Physical, (1080, 2400), read)?, None);
+        // A refused turn or an unreadable display fails.
+        let mut lease = FakeLease {
+            refuse_turn: true,
+            ..Default::default()
+        };
+        assert!(follow_turn(&mut lease, Follow::Physical, (1080, 2400), || Ok((0, (2560, 1440)))).is_err());
+        let mut lease = FakeLease::default();
+        assert!(
+            follow_turn(&mut lease, Follow::Physical, (1080, 2400), || anyhow::bail!("display unavailable"))
+                .is_err()
+        );
+        assert!(lease.calls.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn only_an_auto_rotation_with_a_lease_follows_a_turned_stream() -> Result<()> {
+        let fixture = crate::state::test_support::Fixture::new();
+        let mut prepared = test_prepared(&fixture.host);
+        let before = prepared.recovery_dimensions;
+        // Not auto: a turned stream leaves the display alone.
+        prepared.follow_shape((before.1, before.0))?;
+        // Auto, but without a lease of its own (a remote monitor): nothing to turn.
+        prepared.follow = Some(Follow::Physical);
+        prepared.follow_shape((before.1, before.0))?;
+        assert_eq!(prepared.recovery_dimensions, before);
+        Ok(())
     }
 
     #[test]
@@ -2263,6 +2492,7 @@ pub(crate) mod tests {
             inherited_layout: Some("extended".into()),
             resolution_owner: None,
             scale_baseline: None,
+            follow: None,
             layout_snapshot: None,
             size_snapshot: None,
             scale_snapshot: None,
@@ -3254,6 +3484,7 @@ pub(crate) mod tests {
             inherited_layout: None,
             resolution_owner: None,
             scale_baseline: None,
+            follow: None,
             layout_snapshot: None,
             size_snapshot: None,
             scale_snapshot: None,

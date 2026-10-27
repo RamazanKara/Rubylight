@@ -2546,8 +2546,11 @@ impl Media {
                             // The client's display changed and it asked for another size or
                             // rate (0x5532). Its latest request is applied here, between
                             // frames: the encoder is rebuilt at the new size and starts it
-                            // with a keyframe. The display keeps its mode; the colour
-                            // conversion scales its picture to the new size.
+                            // with a keyframe. The display keeps its mode, and the colour
+                            // conversion scales its picture to the new size, unless the
+                            // stream turned and the device's display follows it
+                            // (dd_rotation_option = auto): the heartbeat reshapes or
+                            // turns it then, off this loop.
                             let requested = s.reconfigure.lock().unwrap().take_due(Instant::now());
                             if let Some(to) = requested {
                                 let from = butterpollo_core::reconfigure::Mode::of(&stream);
@@ -2559,6 +2562,9 @@ impl Media {
                                     None => {
                                         tracing::info!(client = %s.launch.client.name, from = %from, to = %to, "reconfigure requested");
                                         to.apply_to(&mut stream);
+                                        if (to.width, to.height) != (from.width, from.height) {
+                                            prepared.follow_shape((stream.width, stream.height));
+                                        }
                                         s.rebuild_link_rate(&stream, c.link_rate_adaptation(), c.integer("max_bitrate", 0).clamp(0, 500_000) as u32);
                                         switching.get_or_insert((from, Instant::now()));
                                         rebuild_encoder = true;

@@ -930,6 +930,23 @@ impl Guard {
         }
         display.lock().unwrap().raise_rate(rate.0)
     }
+    /// Give this guard's own virtual display another size at the stream's
+    /// refresh without recreating it, for a stream that turned between
+    /// portrait and landscape. A display another stream shares keeps its
+    /// shape, and one Windows refused keeps its previous size: both fail.
+    pub fn reshape_virtual(&self, width: u32, height: u32) -> Result<()> {
+        let display = self
+            .virtual_display
+            .as_ref()
+            .context("a physical display turns rather than changes shape")?;
+        if std::sync::Arc::strong_count(display) > 1 {
+            bail!("another stream shares this virtual display, so it keeps its shape");
+        }
+        if !display.lock().unwrap().reshape(width, height) {
+            bail!("Windows did not show {width}x{height} on the virtual display");
+        }
+        Ok(())
+    }
     /// The resolution this guard sets on its own virtual display. None
     /// without one, when another stream shares it, or when Windows did not
     /// show that resolution after it was last set.

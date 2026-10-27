@@ -232,6 +232,8 @@ mod tests {
     use super::*;
     use crate::rtsp::Negotiated;
 
+    mod stock_announce;
+
     const ALL_ON: Offered = Offered {
         hdr_formats: hdr::ALL,
         client_fec: true,

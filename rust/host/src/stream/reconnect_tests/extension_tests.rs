@@ -40,6 +40,48 @@ async fn describe_for_a_default_config_is_byte_identical() -> Result<()> {
     h.finish().await
 }
 
+/// With experimental packed 4:4:4 on and every packed mode probed, the packed lines
+/// come before the microphone's, and nothing else changes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn describe_with_packed_444_and_the_microphone_is_byte_identical() -> Result<()> {
+    let h = Harness::configured(10_000, 1, "experimental_packed_444=true\n").await?;
+    h.h.packed_modes.store(
+        butterpollo_core::packed444::ALL_MODES,
+        std::sync::atomic::Ordering::Release,
+    );
+    let launch = h.launch(0, false).await?;
+    let describe = h.rtsp(&launch, 10, "DESCRIBE", "").await?;
+    let (_, body) = describe.split_once("\r\n\r\n").unwrap();
+    let flags = butterpollo_windows::input::capabilities(&h.h.config.read().unwrap());
+    let mic = h.ports.mic;
+    assert_eq!(
+        body,
+        format!(
+            "a=x-ss-general.featureFlags:{flags}\r\n\
+             a=x-ss-general.encryptionSupported:13\r\n\
+             a=x-ss-general.encryptionRequested:9\r\n\
+             a=x-rl-control:0x5530,0x5531,0x5532,0x5533,0x5534,0x5535,0x5536,0x5537,0x5538\r\n\
+             a=x-rl-roaming:1\r\n\
+             a=fmtp:97 surround-params=21101\r\n\
+             a=fmtp:97 surround-params=642014523\r\n\
+             a=fmtp:97 surround-params=85301456723\r\n\
+             a=fmtp:97 surround-params=21101\r\n\
+             a=fmtp:97 surround-params=660014523\r\n\
+             a=fmtp:97 surround-params=88001456723\r\n\
+             a=x-rl-video.packed444Version:1\r\n\
+             a=x-rl-video.packed444Modes:15\r\n\
+             a=x-rl-video.packed444LayeredModes:10\r\n\
+             m=audio {mic} RTP/AVP 96\r\n\
+             a=rtpmap:96 opus/48000/1\r\n\
+             a=fmtp:96 minptime=10;useinbandfec=1\r\n"
+        ),
+        "{body}"
+    );
+    let (session, client) = h.play(&launch).await?;
+    h.end(&session, client).await?;
+    h.finish().await
+}
+
 /// An ANNOUNCE that picks a 3.0 extension the host did not offer is refused,
 /// naming it, and the stock ANNOUNCE that follows streams as before.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

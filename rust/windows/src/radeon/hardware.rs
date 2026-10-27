@@ -977,7 +977,9 @@ fn xacct_dir() -> PathBuf {
 
 /// Who this process is and in which Windows session, as `whoami` and the session id.
 fn identity() -> String {
-    let who = Command::new("whoami")
+    // Windows' own whoami, not one a PATH with Git's usr\bin finds first.
+    let windir = std::env::var_os("WINDIR").unwrap_or_else(|| r"C:\Windows".into());
+    let who = Command::new(PathBuf::from(windir).join(r"System32\whoami.exe"))
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_else(|e| format!("unknown ({e})"));

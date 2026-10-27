@@ -2474,8 +2474,16 @@ mod tests {
         assert!(environment.contains_key("USERPROFILE"));
         let directory = tempfile::tempdir().unwrap();
         let output = directory.path().join("groups.txt");
+        // Windows' own whoami: a PATH with Git's usr\bin first finds one without /groups.
+        let windir = std::path::PathBuf::from(std::env::var_os("WINDIR").unwrap());
+        let whoami = windir.join("System32\\whoami.exe");
         let child = Process::shell(
-            &format!("whoami /groups 1>\"{}\" 2>&1", output.display()),
+            // Unquoted: cmd /c would strip the first and last of several quotes.
+            &format!(
+                "{} /groups 1>\"{}\" 2>&1",
+                whoami.display(),
+                output.display()
+            ),
             None,
             false,
             &BTreeMap::new(),

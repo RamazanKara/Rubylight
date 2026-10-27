@@ -352,7 +352,10 @@ public class HostCapabilitiesTest {
         assertFalse(older.has(CURSOR_SHAPE));
     }
 
-    /** Matches the Rust test of the same name: each 3.0 extension follows its own serverinfo field. */
+    /**
+     * Each 3.0 extension follows its own serverinfo field. The cases are this test's own; the shared contract
+     * fixtures (HostCapabilitiesContractTest) are what holds the Java and Rust parsers to the same answers.
+     */
     @Test
     public void the30ExtensionsFollowTheirServerinfoBits() {
         String host = "<RustHostVersion>3.1.0</RustHostVersion><PairStatus>1</PairStatus>"
@@ -414,11 +417,15 @@ public class HostCapabilitiesTest {
         assertReason(caps(host + "<Permission>0</Permission>").withNativeCapabilities(offered), IMAGE_CLIPBOARD,
                 Reason.CLIPBOARD_PERMISSION);
         assertNever(caps.withNativeCapabilities(withdrawn), USB_FORWARDING, IMAGE_CLIPBOARD, SHARED_FOLDERS);
-        try {
-            caps.withNativeCapabilities(offered.replace("\"usb\":true", "\"usb\":\"true\""));
-            fail("usb as a string");
-        } catch (JSONException expected) {
-            // Thrown, as it should be.
+        // A 3.0 permission that is not a boolean is refused; file transfer beside it still counts.
+        String files = offered.replace("\"folders\"]", "\"folders\",\"files.upload\"]")
+                .replace("\"host_control\":false,", "\"host_control\":false,\"file_upload\":true,");
+        for (String odd : new String[] {"\"true\"", "1", "null", "{}"}) {
+            HostCapabilities read = caps.withNativeCapabilities(files.replace("\"usb\":true", "\"usb\":" + odd)
+                    .replace("\"shared_folders\":true", "\"shared_folders\":" + odd));
+            assertReason(read, USB_FORWARDING, Reason.USB_PERMISSION);
+            assertReason(read, SHARED_FOLDERS, Reason.FOLDER_PERMISSION);
+            assertTrue(odd, read.has(FILE_UPLOAD));
         }
     }
 

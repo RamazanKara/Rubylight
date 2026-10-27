@@ -38,8 +38,8 @@ pub const CHILD_BASE_PORT: u16 = 48989;
 pub const CHILD_WEBRTC_PORTS: (u16, u16) = (8100, 8101);
 /// What setup changed ([`SetupState`]): one record for the PC, whichever
 /// Rubylight profile set it up ([`setup_record`]); while it is there, restore
-/// (and the uninstaller) have something to put back. Before, each profile kept
-/// its own, under this name in the profile.
+/// (and the uninstaller) have something to put back. A file of this name
+/// anywhere else, such as in a profile its user can write, is never read.
 pub const SETUP_FILE: &str = "child_session_setup.json";
 /// The folder under [`crate::paths::data_root`] [`setup_record`] is in; only
 /// SYSTEM and Administrators can write it.

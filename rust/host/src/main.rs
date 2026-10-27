@@ -135,9 +135,8 @@ struct Args {
     /// signed-in user; stdin carries commands, stdout the status.
     #[arg(long, hide = true)]
     child_session_viewer: bool,
-    /// Put back the Windows settings child-session setup changed (the
-    /// uninstaller runs it). Without --config-dir this uses the installed
-    /// host's profile. Needs administrator rights.
+    /// Put back the Windows settings child-session setup changed, from the
+    /// PC's record (the uninstaller runs it). Needs administrator rights.
     #[arg(long, hide = true)]
     child_session_restore: bool,
 }
@@ -160,7 +159,7 @@ fn main() -> Result<()> {
         return butterpollo_windows::child_session::viewer::run();
     }
     if args.child_session_restore {
-        std::process::exit(child_session::restore_exit_code(args.config_dir.clone()));
+        std::process::exit(child_session::restore_exit_code());
     }
     if let Some(paths) = &args.playnite_install {
         std::process::exit(playnite::helper_exit_code(&playnite::install_worker(
@@ -470,7 +469,7 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
         "Butterpollo Rust host started"
     );
     child_session::log_mode(&h.config.read().unwrap());
-    child_session::check_at_startup(&h);
+    child_session::check_at_startup();
     h.power.log_availability();
     // A block rule, left when Windows' "allow access" prompt was dismissed,
     // overrides the installer's allow rule: say so rather than leave users to

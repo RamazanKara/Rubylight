@@ -34,12 +34,11 @@ const CHILD_PROFILE: &str = "child-session";
 /// The PC's one record of what setup changed ([`logic::setup_record`]),
 /// whichever Rubylight profile set it up: two profiles (the service's, a host
 /// started by hand) each with their own would record each other's changes as
-/// the originals. A profile's own record from before (in `legacy`) moves to it
-/// once ([`Record::take_over`]).
+/// the originals. A record in a profile folder, which its user can write, is
+/// never read: restore would put back what it says.
 #[derive(Clone)]
 struct Record {
     path: PathBuf,
-    legacy: PathBuf,
     /// Make SYSTEM and Administrators alone the folder's (or file's) owner
     /// and writers. Users may read it: it holds nothing secret, and a host
     /// without administrator rights reads it to say why child sessions are
@@ -50,11 +49,10 @@ struct Record {
     trusted: fn(&File, &Path) -> Result<()>,
 }
 impl Record {
-    /// This PC's record, and the profile in `directory`'s own from before.
-    fn new(directory: &Path) -> Self {
+    /// This PC's record.
+    fn new() -> Self {
         Self {
             path: logic::setup_record(),
-            legacy: directory.join(logic::SETUP_FILE),
             restrict: butterpollo_windows::process::restrict_to_administrators_readable,
             trusted: administrators_own,
         }
@@ -62,33 +60,19 @@ impl Record {
     fn folder(&self) -> &Path {
         self.path.parent().unwrap_or(&self.path)
     }
-    /// Whether setup may have run: either record is there, or that can't be told.
+    /// Whether setup may have run: the record is there, or that can't be told.
     fn may_exist(&self) -> bool {
-        !matches!(
-            (self.path.try_exists(), self.legacy.try_exists()),
-            (Ok(false), Ok(false))
-        )
+        !matches!(self.path.try_exists(), Ok(false))
     }
-    /// The record, the profile's own from before when the PC has none yet.
-    /// None when setup never ran; Err for one SYSTEM or Administrators do not
-    /// own (any program can write `%ProgramData%`), which is never used.
+    /// The record; None when setup never ran. Err for one SYSTEM or
+    /// Administrators do not own (any program can write `%ProgramData%`),
+    /// which is never used. Checked and read through one handle, so what is
+    /// read is what was checked.
     fn load(&self) -> Result<Option<SetupState>> {
-        match self.read(&self.path, true)? {
-            Some(state) => Ok(Some(state)),
-            None => self.read(&self.legacy, false),
-        }
-    }
-    /// The record at `path` (in the PC's folder when `in_folder`), checked and
-    /// read through one handle, so what is read is what was checked.
-    fn read(&self, path: &Path, in_folder: bool) -> Result<Option<SetupState>> {
+        let path = &self.path;
         // Held until the file is read: it can't be swapped for another folder meanwhile.
-        let _folder = if in_folder {
-            match self.open_folder()? {
-                Some(folder) => Some(folder),
-                None => return Ok(None),
-            }
-        } else {
-            None
+        let Some(_folder) = self.open_folder()? else {
+            return Ok(None);
         };
         let mut file = match butterpollo_windows::process::open_unfollowed(path, false) {
             Ok(file) => file,
@@ -137,39 +121,12 @@ impl Record {
     }
     /// Forget it, once everything is restored.
     fn remove(&self) -> Result<()> {
-        for path in [&self.path, &self.legacy] {
-            match std::fs::remove_file(path) {
-                Err(error) if error.kind() != ErrorKind::NotFound => {
-                    return Err(error).with_context(|| format!("removing {}", path.display()));
-                }
-                _ => {}
+        match std::fs::remove_file(&self.path) {
+            Err(error) if error.kind() != ErrorKind::NotFound => {
+                Err(error).with_context(|| format!("removing {}", self.path.display()))
             }
+            _ => Ok(()),
         }
-        Ok(())
-    }
-    /// Move the profile's own record from before to the PC's, once, under the
-    /// settings locks. The PC's record is never overwritten: with both there,
-    /// the profile's goes, into the log.
-    fn take_over(&self) -> Result<()> {
-        let Some(old) = self.read(&self.legacy, false)? else {
-            return Ok(());
-        };
-        if self.read(&self.path, true)?.is_some() {
-            tracing::warn!(
-                record = %self.path.display(),
-                superseded = ?old,
-                "the PC's child-session record is kept; this profile's own from before is deleted"
-            );
-        } else {
-            self.save(&old)?;
-            tracing::info!(
-                from = %self.legacy.display(),
-                to = %self.path.display(),
-                "moved the child-session record to the PC's"
-            );
-        }
-        std::fs::remove_file(&self.legacy)
-            .with_context(|| format!("removing {}", self.legacy.display()))
     }
 }
 /// [`Record`]'s check on this PC, on the open `file` (`path` names it):
@@ -239,8 +196,8 @@ pub(crate) fn log_mode(config: &Config) {
 /// set up here: RDP stays on until restore, so a firewall that no longer
 /// keeps it on this PC turns RDP off and is said loudly (and [`start`]
 /// refuses until setup runs again).
-pub(crate) fn check_at_startup(h: &Shared) {
-    let record = Record::new(&h.directory);
+pub(crate) fn check_at_startup() {
+    let record = Record::new();
     let elevated = elevated();
     std::thread::spawn(move || {
         let mut last = None;
@@ -393,7 +350,7 @@ fn secure_rdp(
                 break;
             }
         };
-        let port = match record.take_over().and_then(|()| record.load()) {
+        let port = match record.load() {
             Ok(None) => return None,
             Ok(Some(state)) => Some(state.rdp_port),
             Err(error) => {
@@ -467,10 +424,9 @@ fn enforce_with<S: SystemSettings>(
 /// or setup never ran here, 1 with the reason on stderr. It fails closed, as
 /// [`secure_rdp`] does: a restore that failed, or could not get the settings
 /// lock, turns RDP off, without the lock.
-pub(crate) fn restore_exit_code(config_dir: Option<PathBuf>) -> i32 {
-    let directory = config_dir.unwrap_or_else(butterpollo_core::paths::installed_profile);
+pub(crate) fn restore_exit_code() -> i32 {
     restore_exit_code_with(
-        &Record::new(&directory),
+        &Record::new(),
         |record| restore_saved(record, native::NativeSettings::new),
         || logic::turn_rdp_off(&mut native::NativeRegistry),
     )
@@ -518,7 +474,6 @@ fn restore_saved<S: SystemSettings>(
     record: &Record,
     open: impl FnOnce() -> Result<S>,
 ) -> Result<bool> {
-    record.take_over()?;
     let Some(state) = record.load()? else {
         return Ok(false);
     };
@@ -568,11 +523,7 @@ pub(crate) fn setup(h: &Shared) -> Result<SetupState> {
         );
     }
     let user = native::console_user()?;
-    let state = setup_in(
-        &Record::new(&h.directory),
-        &user,
-        native::NativeSettings::new,
-    );
+    let state = setup_in(&Record::new(), &user, native::NativeSettings::new);
     // Even a setup that failed may have changed some.
     RULES.forget();
     let state = state?;
@@ -587,7 +538,6 @@ fn setup_in<S: SystemSettings>(
     open: impl FnOnce() -> Result<S>,
 ) -> Result<SetupState> {
     let _settings = settings_lock()?;
-    record.take_over()?;
     let saved = record.load()?;
     logic::setup(
         &mut open()?,
@@ -613,7 +563,7 @@ fn refuse_inside(config: &Config) -> Result<()> {
 /// so no start comes in between.
 pub(crate) fn restore(h: &Shared) -> Result<bool> {
     refuse_inside(&h.config.read().unwrap_or_else(PoisonError::into_inner))?;
-    let restored = restore_locked(&Record::new(&h.directory), |record| {
+    let restored = restore_locked(&Record::new(), |record| {
         quit();
         restore_saved(record, native::NativeSettings::new)
     });
@@ -645,7 +595,7 @@ pub(crate) fn start(h: &Shared, password: Option<logic::Secret>) -> Result<()> {
     )?;
     // The port setup recorded, which RDP and the block rule must still match;
     // on a mismatch, or a check that cannot run, RDP goes off.
-    let record = Record::new(&h.directory);
+    let record = Record::new();
     if let Some(reason) = unverified(&record, elevated()) {
         bail!("{reason}");
     }
@@ -657,7 +607,6 @@ pub(crate) fn start(h: &Shared, password: Option<logic::Secret>) -> Result<()> {
     let _settings = settings_lock()?;
     let system = native::NativeSettings::new()?;
     let user = native::console_user()?;
-    record.take_over()?;
     let missing = match record.load()? {
         Some(_) => logic::settings_missing(&system, &user)?,
         None => logic::missing(&system, &user, None)?,
@@ -990,7 +939,7 @@ pub(crate) fn status(h: &Shared) -> Value {
         .unwrap_or_else(PoisonError::into_inner)
         .clone();
     let decision = decision(&config);
-    let record = Record::new(&h.directory);
+    let record = Record::new();
     let missing = (|| {
         let rdp_port = record.load()?.map(|state| state.rdp_port);
         let system = native::NativeSettings::new()?;
@@ -1034,7 +983,7 @@ pub(crate) fn status(h: &Shared) -> Value {
         "edition": native::edition_id(),
         "missing": missing.as_ref().ok(),
         "missing_error": missing.as_ref().err().map(|error| format!("{error:#}")),
-        "set_up": record.path.is_file() || record.legacy.is_file(),
+        "set_up": record.path.is_file(),
         "display": display.as_ref().ok(),
         "display_error": display.as_ref().err().map(|error| format!("{error:#}")),
         "viewer": viewer,
@@ -1080,13 +1029,10 @@ mod tests {
         std::fs::create_dir_all(&directory).unwrap();
         directory
     }
-    /// The PC's record and a profile's own from before, in `directory`.
+    /// The PC's record, in `directory`.
     fn record_in(directory: &Path) -> Record {
-        let profile = directory.join("config");
-        std::fs::create_dir_all(&profile).unwrap();
         Record {
             path: directory.join(logic::SETUP_FOLDER).join(logic::SETUP_FILE),
-            legacy: profile.join(logic::SETUP_FILE),
             restrict: |_| Ok(()),
             trusted: |_, _| Ok(()),
         }
@@ -1269,10 +1215,8 @@ mod tests {
         let pc = Pc::new();
         let before = pc.now();
         let b = record_in(&directory.join("b"));
-        let a = Record {
-            legacy: directory.join("a").join(logic::SETUP_FILE),
-            ..b.clone()
-        };
+        // Every profile's host has the PC's record.
+        let a = b.clone();
         let first = setup_in(&b, USER, pc.open()).unwrap();
         assert_eq!(first.deny_ts_connections, Some(1));
         let set_up = pc.now();
@@ -1285,7 +1229,7 @@ mod tests {
         assert!(!b.path.exists() && !a.path.exists());
         assert!(!restore_saved(&a, pc.open()).unwrap());
         assert_eq!(pc.now(), before, "RDP stays off");
-        // A record of its own (from a build before the PC's) is refused, not filled with B's.
+        // A record of its own elsewhere (another data folder) is refused, not filled with B's.
         let own = record_in(&directory.join("own"));
         setup_in(&b, USER, pc.open()).unwrap();
         let error = format!("{:#}", setup_in(&own, USER, pc.open()).unwrap_err());
@@ -1394,40 +1338,51 @@ mod tests {
     }
 
     #[test]
-    fn a_profiles_own_record_moves_to_the_pcs_once() {
+    fn a_planted_profile_record_is_ignored() {
+        // A profile folder is writable by its user; a record there would
+        // make restore put back what that user wrote.
         let directory = scratch();
         let record = record_in(&directory);
-        let old = |port| SetupState {
-            rdp_port: port,
+        let profile = directory.join("config");
+        std::fs::create_dir_all(&profile).unwrap();
+        // It would turn RDP on at restore.
+        let planted = SetupState {
+            deny_ts_connections: Some(0),
+            rdp_port: 3391,
             ..recorded()
         };
-        std::fs::write(&record.legacy, serde_json::to_vec(&old(3391)).unwrap()).unwrap();
-        // Read where it is until the settings locks are held.
-        assert!(record.may_exist());
-        assert_eq!(record.load().unwrap(), Some(old(3391)));
-        assert!(record.legacy.is_file() && !record.path.exists());
-        record.take_over().unwrap();
-        assert!(!record.legacy.exists());
-        assert_eq!(record.load().unwrap(), Some(old(3391)));
-        // The PC's record is never overwritten by another profile's from before.
-        std::fs::write(&record.legacy, serde_json::to_vec(&old(3392)).unwrap()).unwrap();
-        record.take_over().unwrap();
-        assert!(!record.legacy.exists());
-        assert_eq!(record.load().unwrap(), Some(old(3391)));
-        // Restore forgets both.
-        std::fs::write(&record.legacy, serde_json::to_vec(&old(3392)).unwrap()).unwrap();
-        record.remove().unwrap();
+        std::fs::write(
+            profile.join(logic::SETUP_FILE),
+            serde_json::to_vec(&planted).unwrap(),
+        )
+        .unwrap();
         assert!(!record.may_exist());
+        assert_eq!(record.load().unwrap(), None);
+        let never = |_: Option<u16>, _: bool| -> Result<Vec<String>> { panic!("checked") };
+        assert_eq!(secure_rdp(&record, never, |_| panic!("waited")), None);
+        assert!(!restore_saved(&record, unopened).unwrap());
+        // Setup records the PC's values, not the planted ones.
+        let pc = Pc::new();
+        let saved = setup_in(&record, USER, pc.open()).unwrap();
+        assert_eq!(saved.deny_ts_connections, Some(1));
+        assert_eq!(record.load().unwrap(), Some(saved.clone()));
+        assert!(restore_saved(&record, pc.open()).unwrap());
+        assert_eq!(
+            pc.read_dword(
+                &logic::Hive::LocalMachine,
+                logic::TERMINAL_SERVER,
+                "fDenyTSConnections"
+            )
+            .unwrap(),
+            Some(1),
+            "RDP stays off"
+        );
         std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn the_record_is_the_pcs_not_the_profiles() {
-        let directory = scratch();
-        let record = Record::new(&directory);
-        assert_eq!(record.path, logic::setup_record());
-        assert_eq!(record.legacy, directory.join(logic::SETUP_FILE));
-        std::fs::remove_dir_all(directory).unwrap();
+        assert_eq!(Record::new().path, logic::setup_record());
     }
 
     #[test]

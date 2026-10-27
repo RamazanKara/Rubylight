@@ -58,29 +58,24 @@ pub fn install_location() -> Option<PathBuf> {
 }
 /// The record child-session setup leaves
 /// (`butterpollo_core::child_session::SETUP_FILE`), in its folder beside the
-/// profile (`SETUP_FOLDER`), or in the profile itself before that.
+/// profile (`SETUP_FOLDER`). One of that name in the profile, which its user
+/// can write, is never read.
 const CHILD_SESSION_SETUP_FILE: &str = "child_session_setup.json";
 const CHILD_SESSION_SETUP_FOLDER: &str = "windows-settings";
 /// The host's flag that puts back what that setup changed
 /// (`butterpollo_core::child_session::RESTORE_FLAG`).
 const CHILD_SESSION_RESTORE_FLAG: &str = "--child-session-restore";
-/// The records child-session setup can leave for `profile`: the PC's one
-/// (`butterpollo_core::child_session::setup_record`), and the profile's own
-/// from before it, which the host moves there.
-fn child_session_records(profile: &Path) -> [PathBuf; 2] {
-    [
-        profile
-            .parent()
-            .unwrap_or(profile)
-            .join(CHILD_SESSION_SETUP_FOLDER)
-            .join(CHILD_SESSION_SETUP_FILE),
-        profile.join(CHILD_SESSION_SETUP_FILE),
-    ]
+/// The PC's child-session setup record
+/// (`butterpollo_core::child_session::setup_record`), beside `profile`.
+fn child_session_record(profile: &Path) -> PathBuf {
+    profile
+        .parent()
+        .unwrap_or(profile)
+        .join(CHILD_SESSION_SETUP_FOLDER)
+        .join(CHILD_SESSION_SETUP_FILE)
 }
 fn child_session_recorded(profile: &Path) -> bool {
-    child_session_records(profile)
-        .iter()
-        .any(|record| record.is_file())
+    child_session_record(profile).is_file()
 }
 /// The installed host when child-session setup left a record for `profile`
 /// for it to restore; None when there is nothing to put back or no host to
@@ -200,7 +195,7 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<Removed> {
     remove_leftover_folders(&install, &touched);
     if options.factory_reset {
         progress.set("Deleting settings and paired devices…");
-        let records: Vec<PathBuf> = child_session_records(&profile())
+        let records: Vec<PathBuf> = [child_session_record(&profile())]
             .into_iter()
             .filter(|record| unrestored.is_some() && record.is_file())
             .collect();
@@ -256,13 +251,10 @@ fn restore_child_session(install: &Path, progress: &Progress) -> Option<String> 
         });
     };
     progress.set("Restoring the Windows settings child sessions changed…");
+    // The record is the PC's, not the profile's: no --config-dir.
     let restored = system::run(
         &program.display().to_string(),
-        &[
-            CHILD_SESSION_RESTORE_FLAG,
-            "--config-dir",
-            &profile.display().to_string(),
-        ],
+        &[CHILD_SESSION_RESTORE_FLAG],
         Duration::from_secs(180),
     );
     match restored {
@@ -486,28 +478,30 @@ mod tests {
             child_session_restore_pending(&profile, install.path()),
             None
         );
-        // The PC's record, or the profile's own from before it.
-        let [machine, legacy] = child_session_records(&profile);
+        // One in the profile, which its user can write, is ignored.
+        write(&profile.join(CHILD_SESSION_SETUP_FILE), "{}");
+        assert_eq!(
+            child_session_restore_pending(&profile, install.path()),
+            None
+        );
+        // Only the PC's record.
+        let machine = child_session_record(&profile);
         assert_eq!(
             machine,
             root.path()
                 .join("windows-settings")
                 .join(CHILD_SESSION_SETUP_FILE)
         );
-        for record in [&machine, &legacy] {
-            write(record, "{}");
-            assert_eq!(
-                child_session_restore_pending(&profile, install.path()),
-                Some(install.path().join("butterpollo.exe")),
-                "{}",
-                record.display()
-            );
-            std::fs::remove_file(record).unwrap();
-            assert_eq!(
-                child_session_restore_pending(&profile, install.path()),
-                None
-            );
-        }
+        write(&machine, "{}");
+        assert_eq!(
+            child_session_restore_pending(&profile, install.path()),
+            Some(install.path().join("butterpollo.exe"))
+        );
+        std::fs::remove_file(&machine).unwrap();
+        assert_eq!(
+            child_session_restore_pending(&profile, install.path()),
+            None
+        );
         write(&machine, "{}");
         std::fs::remove_file(install.path().join("butterpollo.exe")).unwrap();
         assert_eq!(
@@ -519,7 +513,7 @@ mod tests {
     fn a_factory_reset_keeps_the_child_session_record_a_failed_restore_needs() {
         let root = tempfile::tempdir().unwrap();
         let profile = root.path().join("config");
-        let records = child_session_records(&profile).to_vec();
+        let records = vec![child_session_record(&profile)];
         let fill = || {
             for record in &records {
                 write(record, "{}");
@@ -529,6 +523,8 @@ mod tests {
             write(&profile.join("logs").join("butterpollo.log"), "x");
             write(&root.path().join("state.json"), "x");
             write(&records[0].with_file_name("other.json"), "x");
+            // Not a record: it goes with the profile.
+            write(&profile.join(CHILD_SESSION_SETUP_FILE), "{}");
         };
         fill();
         remove_profile(root.path(), &records);
@@ -540,7 +536,7 @@ mod tests {
             left, kept,
             "the records stay for a retry, everything else goes"
         );
-        assert_eq!(std::fs::read_dir(&profile).unwrap().count(), 1);
+        assert!(!profile.exists());
 
         // Restored, or nothing to restore: the whole profile goes.
         fill();
@@ -571,7 +567,7 @@ mod tests {
         );
         // Beside the installed profile: the PC's record is the host's.
         assert_eq!(
-            child_session_records(&profile())[0],
+            child_session_record(&profile()),
             butterpollo_core::child_session::setup_record()
         );
         assert_eq!(

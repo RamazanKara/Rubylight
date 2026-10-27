@@ -3543,6 +3543,7 @@ impl Media {
                                     steam_attributes_refused: false,
                                     controller_audio: [0; 16],
                                     controller_pcm: Default::default(),
+                                    rumble: Default::default(),
                                     command_at: None,
                                     roaming: false,
                                     couch: Default::default(),
@@ -4180,7 +4181,11 @@ impl Media {
                                 PadReport::Feedback { id, kind, data } => messages.extend(
                                     feedback_packets(id, kind, &data).into_iter().filter(
                                         |(kind, payload)| {
-                                            i.feedback_allowed(*kind) || rumble_stop(*kind, payload)
+                                            p.rumble.forward(
+                                                i.feedback_allowed(*kind),
+                                                *kind,
+                                                payload,
+                                            )
                                         },
                                     ),
                                 ),
@@ -4369,6 +4374,7 @@ struct ControlPeer {
     steam_attributes_refused: bool,
     controller_audio: [u8; 16],
     controller_pcm: controller_audio::PcmTraffic,
+    rumble: RumbleForwarded,
     command_at: Option<Instant>,
     /// Whether the session is in the control socket's roaming table.
     roaming: bool,
@@ -4433,10 +4439,38 @@ fn haptics_negotiated(config: &butterpollo_core::rtsp::Negotiated, channels: usi
         && config.moonlight_features & haptics::FEATURE != 0
         && channels > usize::from(haptics::CHANNEL)
 }
-/// A rumble packet that stops both motors. It goes out even with rumble off:
-/// clearing rumble after the client turned haptics off must reach the motors.
-fn rumble_stop(kind: u16, payload: &[u8]) -> bool {
-    kind == RUMBLE_DATA && payload.len() == 10 && payload[6..].iter().all(|byte| *byte == 0)
+/// Whether each controller's main and trigger motors ran in the last rumble
+/// this client was sent.
+#[derive(Default)]
+struct RumbleForwarded {
+    running: [[bool; 2]; 16],
+}
+impl RumbleForwarded {
+    /// Whether a feedback packet goes out, given whether the injector allows
+    /// its kind. With rumble off, a stop still goes out once for motors the
+    /// client was last told to run, so they don't keep buzzing; other stops
+    /// stay blocked, as VHF repeats them with every lightbar or trigger change.
+    fn forward(&mut self, allowed: bool, kind: u16, payload: &[u8]) -> bool {
+        let (motor, id, strengths) = match kind {
+            RUMBLE_DATA if payload.len() == 10 => (0, &payload[4..6], &payload[6..]),
+            RUMBLE_TRIGGER_DATA if payload.len() == 6 => (1, &payload[..2], &payload[2..]),
+            _ => return allowed,
+        };
+        let id = usize::from(u16::from_le_bytes([id[0], id[1]]));
+        let Some(running) = self.running.get_mut(id).map(|motors| &mut motors[motor]) else {
+            return allowed;
+        };
+        let runs = strengths.iter().any(|byte| *byte != 0);
+        if allowed {
+            *running = runs;
+            true
+        } else if !runs && *running {
+            *running = false;
+            true
+        } else {
+            false
+        }
+    }
 }
 pub(crate) fn feedback_packets(id: u16, kind: u16, data: &[u8]) -> Vec<(u16, Vec<u8>)> {
     if kind == controller_audio::CONTROL && data.len() == 12 {
@@ -4584,15 +4618,36 @@ mod tests {
         assert!(!haptics_negotiated(&Default::default(), 9));
     }
     #[test]
-    fn only_a_rumble_stop_passes_with_rumble_off() {
-        // The stop the gamepad thread sends when haptics turn off, a
-        // controller leaves or the pads are released.
-        let (kind, stop) = feedback_packets(3, RUMBLE_DATA, &[0; 4]).remove(0);
-        assert!(rumble_stop(kind, &stop));
-        let (kind, running) = feedback_packets(3, RUMBLE_DATA, &[0, 0, 1, 0]).remove(0);
-        assert!(!rumble_stop(kind, &running));
-        assert!(!rumble_stop(RUMBLE_TRIGGER_DATA, &[3, 0, 0, 0, 0, 0]));
-        assert!(!rumble_stop(RUMBLE_DATA, &[0; 6]));
+    fn with_rumble_off_only_the_first_stop_after_a_buzz_goes_out() {
+        // An Xbox report: main and trigger motors, as VHF reports kind 4.
+        let packets = |data: [u8; 8]| feedback_packets(3, 4, &data);
+        let (on, off) = (packets([0, 9, 0, 7, 1, 0, 2, 0]), packets([0; 8]));
+        const NONE: [u16; 0] = [];
+        let mut rumble = RumbleForwarded::default();
+        let mut forward = |allowed: bool, packets: &[(u16, Vec<u8>)]| {
+            packets
+                .iter()
+                .filter(|(kind, payload)| rumble.forward(allowed, *kind, payload))
+                .map(|(kind, _)| *kind)
+                .collect::<Vec<_>>()
+        };
+        // Nothing ran: rumble off sends no stops, however often VHF repeats
+        // its report for a lightbar or trigger effect change.
+        assert_eq!(forward(false, &off), NONE);
+        assert_eq!(forward(false, &off), NONE);
+        // A buzz while rumble is on, then the client turns rumble off.
+        assert_eq!(forward(true, &on), [RUMBLE_DATA, RUMBLE_TRIGGER_DATA]);
+        assert_eq!(forward(false, &on), NONE);
+        // Both motors' stops go out once, then no more.
+        assert_eq!(forward(false, &off), [RUMBLE_DATA, RUMBLE_TRIGGER_DATA]);
+        assert_eq!(forward(false, &off), NONE);
+        // Rumble on forwards everything, stops included.
+        assert_eq!(forward(true, &off), [RUMBLE_DATA, RUMBLE_TRIGGER_DATA]);
+        // Other controllers and kinds follow the injector alone.
+        let other = feedback_packets(4, RUMBLE_DATA, &[0; 4]);
+        assert_eq!(forward(false, &other), NONE);
+        assert!(!rumble.forward(false, 0x5502, &[3, 0, 1, 2, 3]));
+        assert!(rumble.forward(true, 0x5502, &[3, 0, 1, 2, 3]));
     }
     #[test]
     fn composite_feedback_preserves_partial_trigger_flags_and_rumble_layout() {

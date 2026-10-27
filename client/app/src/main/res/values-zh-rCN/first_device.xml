@@ -27,6 +27,8 @@
     <string name="perf_overlay_onscreenfps">屏幕显示：%1$s</string>
     <string name="perf_overlay_shownfps">已渲染：%1$s</string>
     <string name="perf_overlay_presentdrops">估计显示丢帧：%1$d</string>
+    <string name="perf_overlay_frame_pacing">帧节奏：%1$s ms · 抖动 %2$s ms · 卡顿 %3$s%%</string>
+    <string name="perf_overlay_vsyncs_per_frame">每帧 VSync：%1$s</string>
     <string name="perf_overlay_low_latency">低延迟模式：%1$s</string>
     <string name="perf_overlay_low_latency_android_vendor">Android + 芯片厂商</string>
     <string name="perf_overlay_low_latency_android">Android</string>

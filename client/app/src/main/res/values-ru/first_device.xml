@@ -27,6 +27,8 @@
     <string name="perf_overlay_onscreenfps">На экране: %1$s</string>
     <string name="perf_overlay_shownfps">Отрисовано: %1$s</string>
     <string name="perf_overlay_presentdrops">Оценка пропусков вывода: %1$d</string>
+    <string name="perf_overlay_frame_pacing">Темп кадров: %1$s мс · джиттер %2$s мс · рывки %3$s%%</string>
+    <string name="perf_overlay_vsyncs_per_frame">VSync на кадр: %1$s</string>
     <string name="perf_overlay_low_latency">Режим низкой задержки: %1$s</string>
     <string name="perf_overlay_low_latency_android_vendor">Android + производитель чипа</string>
     <string name="perf_overlay_low_latency_android">Android</string>

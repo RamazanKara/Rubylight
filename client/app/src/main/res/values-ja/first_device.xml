@@ -27,6 +27,8 @@
     <string name="perf_overlay_onscreenfps">画面表示: %1$s</string>
     <string name="perf_overlay_shownfps">描画: %1$s</string>
     <string name="perf_overlay_presentdrops">推定表示ドロップ数: %1$d</string>
+    <string name="perf_overlay_frame_pacing">フレーム間隔: %1$s ms · ジッター %2$s ms · カクつき %3$s%%</string>
+    <string name="perf_overlay_vsyncs_per_frame">フレームあたりのVSync: %1$s</string>
     <string name="perf_overlay_low_latency">低遅延モード: %1$s</string>
     <string name="perf_overlay_low_latency_android_vendor">Android + チップベンダー</string>
     <string name="perf_overlay_low_latency_android">Android</string>

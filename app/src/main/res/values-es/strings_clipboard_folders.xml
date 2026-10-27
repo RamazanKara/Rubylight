@@ -1,15 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">Enviar imagen del portapapeles al servidor</string>
-    <string name="stream_clipboard_image_receive">Copiar imagen del portapapeles del servidor</string>
+    <string name="stream_clipboard_image_send">Enviar imagen del portapapeles al servidor (experimental)</string>
+    <string name="stream_clipboard_image_receive">Copiar imagen del portapapeles del servidor (experimental)</string>
     <string name="stream_clipboard_image_empty">El portapapeles no tiene ninguna imagen</string>
     <string name="stream_clipboard_image_sent">Imagen del portapapeles enviada al servidor</string>
     <string name="stream_clipboard_image_none">El portapapeles del servidor no tiene ninguna imagen</string>
     <string name="stream_clipboard_image_received">Imagen del servidor copiada al portapapeles</string>
     <string name="clipboard_image_too_large">La imagen es demasiado grande para el portapapeles del servidor</string>
     <string name="clipboard_image_not_png">No se pudo leer la imagen</string>
-    <string name="clipboard_image_unsupported">Este servidor no puede compartir imágenes del portapapeles</string>
+    <string name="clipboard_image_no_host">Este servidor no puede compartir imágenes del portapapeles</string>
     <string name="clipboard_image_forbidden">El servidor no permite a este dispositivo usar su portapapeles</string>
+    <string name="clipboard_image_unsupported">El servidor no pudo convertir esta imagen</string>
+    <string name="stream_clipboard_not_copied">Texto no copiado: la transmisión se cerró</string>
+    <string name="stream_clipboard_image_not_copied">Imagen no copiada: la transmisión se cerró</string>
     <string name="folders_title">Carpetas compartidas</string>
     <string name="folders_on_pc">Carpetas que %1$s comparte con este dispositivo</string>
     <string name="folders_loading">Cargando…</string>
@@ -43,4 +46,9 @@
     <string name="folders_no_console_user">No hay nadie con la sesión iniciada en el PC.</string>
     <string name="folders_busy">Hay otra transferencia de este dispositivo en curso. Inténtalo cuando termine.</string>
     <string name="folders_size_unknown">Se desconoce el tamaño del archivo, así que no se puede subir.</string>
+    <string name="folders_unsupported">Este PC no ofrece carpetas compartidas: su host es demasiado antiguo o aún no comparte ninguna. Comparte una en la interfaz web del PC.</string>
+    <string name="folders_save_lost">El archivo que se iba a guardar se perdió mientras el diálogo de guardado estaba abierto. No se guardó nada.</string>
+    <string name="folders_partial_left">%1$s Queda un archivo parcial en %2$s.</string>
+    <string name="folders_bad_path">Nightjar no puede abrir esta ruta: %1$s</string>
+    <string name="host_menu_folders_note">Experimental</string>
 </resources>

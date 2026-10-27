@@ -1,15 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">Envoyer l’image du presse-papiers à l’hôte</string>
-    <string name="stream_clipboard_image_receive">Copier l’image du presse-papiers de l’hôte</string>
+    <string name="stream_clipboard_image_send">Envoyer l’image du presse-papiers à l’hôte (expérimental)</string>
+    <string name="stream_clipboard_image_receive">Copier l’image du presse-papiers de l’hôte (expérimental)</string>
     <string name="stream_clipboard_image_empty">Le presse-papiers ne contient aucune image</string>
     <string name="stream_clipboard_image_sent">Image du presse-papiers envoyée à l’hôte</string>
     <string name="stream_clipboard_image_none">Le presse-papiers de l’hôte ne contient aucune image</string>
     <string name="stream_clipboard_image_received">Image de l’hôte copiée dans le presse-papiers</string>
     <string name="clipboard_image_too_large">L’image est trop grande pour le presse-papiers de l’hôte</string>
     <string name="clipboard_image_not_png">Impossible de lire l’image</string>
-    <string name="clipboard_image_unsupported">Cet hôte ne peut pas partager d’images du presse-papiers</string>
+    <string name="clipboard_image_no_host">Cet hôte ne peut pas partager d’images du presse-papiers</string>
     <string name="clipboard_image_forbidden">L’hôte n’autorise pas cet appareil à utiliser son presse-papiers</string>
+    <string name="clipboard_image_unsupported">L’hôte n’a pas pu convertir cette image</string>
+    <string name="stream_clipboard_not_copied">Texte non copié : le streaming s’est arrêté</string>
+    <string name="stream_clipboard_image_not_copied">Image non copiée : le streaming s’est arrêté</string>
     <string name="folders_title">Dossiers partagés</string>
     <string name="folders_on_pc">Dossiers que %1$s partage avec cet appareil</string>
     <string name="folders_loading">Chargement…</string>
@@ -43,4 +46,9 @@
     <string name="folders_no_console_user">Personne n’est connecté sur le PC.</string>
     <string name="folders_busy">Un autre transfert de cet appareil est en cours. Réessayez quand il sera terminé.</string>
     <string name="folders_size_unknown">La taille du fichier est inconnue, il ne peut donc pas être envoyé.</string>
+    <string name="folders_unsupported">Ce PC ne propose aucun dossier partagé : son hôte est trop ancien ou il n’en partage encore aucun. Partagez-en un dans l’interface web du PC.</string>
+    <string name="folders_save_lost">Le fichier à enregistrer a été perdu pendant que la boîte d’enregistrement était ouverte. Rien n’a été enregistré.</string>
+    <string name="folders_partial_left">%1$s Un fichier partiel reste à %2$s.</string>
+    <string name="folders_bad_path">Nightjar ne peut pas ouvrir ce chemin : %1$s</string>
+    <string name="host_menu_folders_note">Expérimental</string>
 </resources>

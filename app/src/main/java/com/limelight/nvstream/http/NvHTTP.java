@@ -1540,22 +1540,23 @@ public class NvHTTP {
     }
 
     /**
-     * The PNG on the PC's clipboard ({@code type=png}), or null while it holds no image. Each refusal the route
-     * documents is a {@link ClipboardImageException}; a body that is not a PNG within the host's limits never
-     * comes back.
+     * Streams the PNG on the PC's clipboard ({@code type=png}) into {@code out}, or returns false while it holds no
+     * image. Each refusal the route documents is a {@link ClipboardImageException}; a body that is not a PNG within
+     * the host's limits is refused as it arrives, leaving a part in {@code out} for the caller to drop.
      */
-    public byte[] getClipboardImage() throws IOException {
+    public boolean getClipboardImage(java.io.OutputStream out) throws IOException {
         try (HostCall call = hostCall("GET", "actions/clipboard", "type=png", null)) {
             if (call.response.code() == 404) {
-                return null;
+                return false;
             }
             ClipboardImageException.check(call.response.code(), call.response.message());
-            return ClipboardImageException.readPng(call.response.body());
+            ClipboardImageException.writePng(call.response.body(), out);
+            return true;
         }
     }
 
-    /** Puts {@code png} on the PC's clipboard, checked against the host's limits first. */
-    public void sendClipboardImage(byte[] png) throws IOException {
+    /** Puts the PNG in {@code png} on the PC's clipboard, checked against the host's limits first. */
+    public void sendClipboardImage(java.io.File png) throws IOException {
         ClipboardImageException.pngSize(png);
         RequestBody body = RequestBody.create(png, MediaType.get("image/png"));
         try (HostCall call = hostCall("POST", "actions/clipboard", "type=png", body)) {

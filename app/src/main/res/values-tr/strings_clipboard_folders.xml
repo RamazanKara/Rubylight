@@ -1,15 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">Pano görüntüsünü ana bilgisayara gönder</string>
-    <string name="stream_clipboard_image_receive">Ana bilgisayarın pano görüntüsünü kopyala</string>
+    <string name="stream_clipboard_image_send">Pano görüntüsünü ana bilgisayara gönder (Deneysel)</string>
+    <string name="stream_clipboard_image_receive">Ana bilgisayarın pano görüntüsünü kopyala (Deneysel)</string>
     <string name="stream_clipboard_image_empty">Panoda görüntü yok</string>
     <string name="stream_clipboard_image_sent">Pano görüntüsü ana bilgisayara gönderildi</string>
     <string name="stream_clipboard_image_none">Ana bilgisayarın panosunda görüntü yok</string>
     <string name="stream_clipboard_image_received">Ana bilgisayarın görüntüsü panoya kopyalandı</string>
     <string name="clipboard_image_too_large">Görüntü ana bilgisayarın panosu için çok büyük</string>
     <string name="clipboard_image_not_png">Görüntü okunamadı</string>
-    <string name="clipboard_image_unsupported">Bu ana bilgisayar pano görüntüsü paylaşamıyor</string>
+    <string name="clipboard_image_no_host">Bu ana bilgisayar pano görüntüsü paylaşamıyor</string>
     <string name="clipboard_image_forbidden">Ana bilgisayar bu cihazın panosunu kullanmasına izin vermiyor</string>
+    <string name="clipboard_image_unsupported">Ana bilgisayar bu görüntüyü dönüştüremedi</string>
+    <string name="stream_clipboard_not_copied">Metin kopyalanmadı: yayın kapandı</string>
+    <string name="stream_clipboard_image_not_copied">Görüntü kopyalanmadı: yayın kapandı</string>
     <string name="folders_title">Paylaşılan klasörler</string>
     <string name="folders_on_pc">%1$s adlı bilgisayarın bu cihazla paylaştığı klasörler</string>
     <string name="folders_loading">Yükleniyor…</string>
@@ -43,4 +46,9 @@
     <string name="folders_no_console_user">PC\'de oturum açmış kimse yok.</string>
     <string name="folders_busy">Bu cihazdan başka bir aktarım sürüyor. Bittiğinde yeniden deneyin.</string>
     <string name="folders_size_unknown">Dosyanın boyutu bilinmiyor, bu yüzden yüklenemiyor.</string>
+    <string name="folders_unsupported">Bu bilgisayar paylaşılan klasör sunmuyor: ana bilgisayar yazılımı bunun için çok eski ya da henüz klasör paylaşmıyor. Bilgisayarın web arayüzünden bir klasör paylaşın.</string>
+    <string name="folders_save_lost">Kaydetme penceresi açıkken kaydedilecek dosya kayboldu. Hiçbir şey kaydedilmedi.</string>
+    <string name="folders_partial_left">%1$s Yarım kalan bir dosya %2$s konumunda duruyor.</string>
+    <string name="folders_bad_path">Nightjar bu yolu açamıyor: %1$s</string>
+    <string name="host_menu_folders_note">Deneysel</string>
 </resources>

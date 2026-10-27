@@ -71,7 +71,7 @@ impl Drop for Open {
     }
 }
 pub fn read() -> Result<String> {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = lock(&LOCK);
     let _open = Open::new()?;
     // SAFETY: the clipboard stays open for `_open`, so the handle stays valid, and the locked
     // memory is read only within its GlobalSize bytes before it is unlocked.
@@ -102,7 +102,7 @@ pub fn write(text: &str) -> Result<()> {
     }
     let text: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
     let bytes: Vec<u8> = text.iter().flat_map(|unit| unit.to_le_bytes()).collect();
-    let _lock = LOCK.lock().unwrap();
+    let _lock = lock(&LOCK);
     let _open = Open::new()?;
     // SAFETY: the clipboard is open for `_open`.
     unsafe { EmptyClipboard()? };
@@ -170,20 +170,40 @@ fn with_data<T>(format: u32, read: impl FnOnce(&[u8]) -> Result<T>) -> Result<Op
 /// `max_bytes` fails with [`ImageError::TooLarge`], one this can't read with
 /// [`ImageError::Unsupported`].
 pub fn read_png(max_bytes: usize) -> Result<Option<Vec<u8>>> {
-    let png = png_format()?;
-    let _lock = LOCK.lock().unwrap();
+    image_png(png_format()?, max_bytes, copied)
+}
+
+/// The bytes `take` copies out of the clipboard's `format`, or `None` while
+/// it doesn't hold that format. The clipboard is open, and [`LOCK`] held,
+/// only while they are copied.
+fn copied(format: u32, take: &dyn Fn(&[u8]) -> Result<Vec<u8>>) -> Result<Option<Vec<u8>>> {
+    let _lock = lock(&LOCK);
     let _open = Open::new()?;
-    let fits = |bytes: Vec<u8>| -> Result<Vec<u8>> {
+    with_data(format, take)
+}
+
+/// [`read_png`] with the clipboard's formats from `copy`, as [`copied`]
+/// returns them, so a bitmap is converted with the clipboard closed and
+/// unlocked again.
+fn image_png(
+    png: u32,
+    max_bytes: usize,
+    mut copy: impl FnMut(u32, &dyn Fn(&[u8]) -> Result<Vec<u8>>) -> Result<Option<Vec<u8>>>,
+) -> Result<Option<Vec<u8>>> {
+    let fits = move |bytes: Vec<u8>| -> Result<Vec<u8>> {
         if bytes.len() > max_bytes {
             Err(ImageError::TooLarge.into())
         } else {
             Ok(bytes)
         }
     };
-    let passed = with_data(png, |bytes| {
+    let passed = copy(png, &|bytes| {
         let end = clipboard_image::png_extent(bytes)
             .ok_or_else(|| ImageError::Malformed("the clipboard's PNG is cut short".into()))?;
-        fits(bytes[..end].to_vec())
+        if end > max_bytes {
+            return Err(ImageError::TooLarge.into());
+        }
+        Ok(bytes[..end].to_vec())
     });
     match passed {
         Ok(Some(bytes)) => return Ok(Some(bytes)),
@@ -195,13 +215,23 @@ pub fn read_png(max_bytes: usize) -> Result<Option<Vec<u8>>> {
         Err(error) => return Err(error),
     }
     for format in [CF_DIBV5, CF_DIB] {
-        let converted = with_data(format, |bytes| {
-            let image = clipboard_image::decode_dib(bytes)?;
+        // Longer than any bitmap within the limits: refused before a copy.
+        let Some(dib) = copy(format, &|bytes| {
+            if bytes.len() > clipboard_image::MAX_DIB_BYTES {
+                Err(ImageError::TooLarge.into())
+            } else {
+                Ok(bytes.to_vec())
+            }
+        })?
+        else {
+            continue;
+        };
+        return converting(move || {
+            let image = clipboard_image::decode_dib(&dib)?;
+            drop(dib);
             fits(clipboard_image::encode_png(&image)?)
-        })?;
-        if converted.is_some() {
-            return Ok(converted);
-        }
+        })
+        .map(Some);
     }
     Ok(None)
 }
@@ -217,7 +247,7 @@ pub fn write_png(png: &[u8]) -> Result<()> {
         Ok((png, clipboard_image::encode_dibv5(&image)?))
     })?;
     let format = png_format()?;
-    let _lock = LOCK.lock().unwrap();
+    let _lock = lock(&LOCK);
     let _open = Open::new()?;
     // SAFETY: the clipboard is open for `_open`.
     unsafe { EmptyClipboard()? };
@@ -230,6 +260,85 @@ mod tests {
     use super::*;
     use butterpollo_core::clipboard_image::Image;
     use std::sync::mpsc;
+
+    /// A clipboard of `formats`, copied out as [`copied`] would, with the
+    /// formats asked for in order.
+    fn fake(
+        formats: Vec<(u32, Vec<u8>)>,
+        asked: &mut Vec<u32>,
+    ) -> impl FnMut(u32, &dyn Fn(&[u8]) -> Result<Vec<u8>>) -> Result<Option<Vec<u8>>> + '_ {
+        move |format, take| {
+            asked.push(format);
+            let _lock = lock(&LOCK);
+            formats
+                .iter()
+                .find(|(held, _)| *held == format)
+                .map(|(_, bytes)| take(bytes))
+                .transpose()
+        }
+    }
+    const PNG: u32 = 0xc000;
+
+    fn picture() -> Image {
+        Image {
+            width: 3,
+            height: 2,
+            rgba: (0..24).map(|n| n * 10).collect(),
+        }
+    }
+
+    #[test]
+    fn a_bitmap_is_copied_out_and_converted_after_the_clipboard_closes() {
+        let image = picture();
+        let dib = clipboard_image::encode_dibv5(&image).unwrap();
+        let mut asked = Vec::new();
+        let png = image_png(PNG, 1 << 20, fake(vec![(CF_DIBV5, dib)], &mut asked))
+            .unwrap()
+            .expect("an image");
+        assert_eq!(clipboard_image::decode_png(&png).unwrap(), image);
+        assert_eq!(asked, [PNG, CF_DIBV5]);
+        // A PNG there passes without what follows it, within the limit.
+        let held = clipboard_image::encode_png(&image).unwrap();
+        let mut padded = held.clone();
+        padded.extend_from_slice(&[0; 64]);
+        let mut asked = Vec::new();
+        let read = image_png(PNG, 1 << 20, fake(vec![(PNG, padded.clone())], &mut asked));
+        assert_eq!(read.unwrap(), Some(held));
+        let too_large = image_png(PNG, 16, fake(vec![(PNG, padded)], &mut asked)).unwrap_err();
+        assert_eq!(too_large.downcast_ref(), Some(&ImageError::TooLarge));
+        assert_eq!(image_png(PNG, 1 << 20, fake(vec![], &mut asked)).unwrap(), None);
+    }
+
+    #[test]
+    fn a_bitmap_longer_than_any_within_the_limits_is_not_copied() {
+        let huge = vec![0u8; clipboard_image::MAX_DIB_BYTES + 1];
+        let copied = std::cell::Cell::new(false);
+        let error = image_png(PNG, 1 << 20, |format, take: &dyn Fn(&[u8]) -> Result<Vec<u8>>| {
+            if format != CF_DIBV5 {
+                return Ok(None);
+            }
+            let bytes = take(&huge)?;
+            copied.set(true);
+            Ok(Some(bytes))
+        })
+        .unwrap_err();
+        assert_eq!(error.downcast_ref(), Some(&ImageError::TooLarge));
+        assert!(!copied.get());
+    }
+
+    #[test]
+    fn a_panic_holding_the_clipboard_lock_does_not_end_clipboard_access() {
+        let panicked = std::thread::spawn(|| {
+            let _lock = lock(&LOCK);
+            panic!("a conversion failed");
+        })
+        .join();
+        assert!(panicked.is_err());
+        assert!(LOCK.is_poisoned());
+        drop(lock(&LOCK));
+        let _ = std::thread::spawn(|| converting(|| panic!("a conversion failed"))).join();
+        assert_eq!(converting(|| 7), 7);
+    }
 
     #[test]
     fn image_conversions_take_turns() {
@@ -282,7 +391,7 @@ mod tests {
             ));
             // Without the PNG format, the bitmap is converted.
             {
-                let _lock = LOCK.lock().unwrap();
+                let _lock = lock(&LOCK);
                 let _open = Open::new()?;
                 // SAFETY: the clipboard is open for `_open`.
                 unsafe { EmptyClipboard()? };

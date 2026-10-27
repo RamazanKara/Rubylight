@@ -12,6 +12,10 @@ use std::io::Cursor;
 pub const MAX_SIDE: u32 = 16384;
 /// The most pixels an image may have: 32 Mi, 128 MiB as RGBA.
 pub const MAX_PIXELS: u64 = 1 << 25;
+/// The longest packed DIB of at most [`MAX_PIXELS`]: its pixels, at most 4
+/// bytes each with row padding, and room for headers, masks and a color
+/// table. Clipboard memory longer than this is refused unread.
+pub const MAX_DIB_BYTES: usize = (MAX_PIXELS as usize) * 4 + (1 << 20);
 /// What the PNG decoder may allocate besides the pixels (chunk data and
 /// decompression state).
 const DECODER_BYTES: usize = 16 << 20;

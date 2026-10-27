@@ -52,6 +52,8 @@ pub mod ptype {
         rubylight_protocol::keyboard_layout::KEYBOARD_LAYOUT_MESSAGE_TYPE;
     pub const CURSOR_SHAPE_REQUEST: u16 = 0x5540;
     pub const CURSOR_SHAPE: u16 = 0x5541;
+    /// Rubylight's USB forwarding (both ways).
+    pub const USB: u16 = rubylight_protocol::usb::USB_MESSAGE_TYPE;
 }
 
 /// ENet channels of the control stream (`CTRL_CHANNEL_*`).

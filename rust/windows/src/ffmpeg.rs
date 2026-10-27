@@ -7,7 +7,7 @@
 use anyhow::{Context, Result, bail};
 use std::{
     ffi::{CStr, c_char, c_int, c_void},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 /// avcodec imports avutil, so avutil loads first and Windows reuses it for avcodec.
@@ -51,6 +51,27 @@ fn channel_mask(channels: u8) -> Option<u64> {
         8 => Some(0x63F),
         _ => None,
     }
+}
+
+/// The absolute path of `name` in `directory`, which `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR` needs.
+fn beside(directory: &Path, name: &str) -> Result<PathBuf> {
+    std::path::absolute(directory.join(name))
+        .with_context(|| format!("locating {name} in {}", directory.display()))
+}
+
+/// Loads the library at the absolute `path`, its imports (avcodec's avutil) from its own folder
+/// and System32 only: never from the current directory or `PATH`, where another FFmpeg or a
+/// planted DLL could stand in.
+///
+/// # Safety
+/// Loading runs the library's initialisers.
+unsafe fn load_beside(path: &Path) -> Result<libloading::Library> {
+    use windows::Win32::System::LibraryLoader::{
+        LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR, LOAD_LIBRARY_SEARCH_SYSTEM32,
+    };
+    let flags = LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR.0 | LOAD_LIBRARY_SEARCH_SYSTEM32.0;
+    // SAFETY: the caller accepts the library's initialisers; `path` is absolute.
+    Ok(unsafe { libloading::os::windows::Library::load_with_flags(path, flags)? }.into())
 }
 
 type Version = unsafe extern "C" fn() -> u32;
@@ -109,9 +130,8 @@ impl Library {
         // anything else is called, and both libraries are kept in `Self` with their pointers.
         unsafe {
             let open = |name: &str| {
-                let path = directory.join(name);
-                libloading::Library::new(&path)
-                    .with_context(|| format!("loading {}", path.display()))
+                let path = beside(directory, name)?;
+                load_beside(&path).with_context(|| format!("loading {}", path.display()))
             };
             let avutil = open(AVUTIL)?;
             let avcodec = open(AVCODEC)?;

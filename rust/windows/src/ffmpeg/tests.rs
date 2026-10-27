@@ -114,6 +114,29 @@ fn a_missing_ffmpeg_is_refused_by_name() {
     assert!(error.contains(AVUTIL), "{error}");
 }
 
+/// `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR` takes only absolute paths: a relative folder is made one.
+#[test]
+fn ffmpeg_is_loaded_by_its_absolute_path() {
+    let path = beside(Path::new("no-ffmpeg-here"), AVUTIL).unwrap();
+    assert!(path.is_absolute(), "{}", path.display());
+    assert!(path.ends_with(Path::new("no-ffmpeg-here").join(AVUTIL)));
+    let error = format!("{:#}", probe(Path::new("no-ffmpeg-here")).unwrap_err());
+    assert!(error.contains(&path.display().to_string()), "{error}");
+}
+
+#[test]
+#[ignore = "needs BUTTERPOLLO_TEST_FFMPEG_ROOT"]
+fn ffmpeg_loads_from_a_folder_named_without_its_drive() {
+    // `\src\...` is relative on Windows (no drive), and loads only once made absolute.
+    let root = root();
+    let relative: PathBuf = root
+        .components()
+        .filter(|c| !matches!(c, std::path::Component::Prefix(_)))
+        .collect();
+    assert!(!relative.is_absolute());
+    probe(&relative).unwrap();
+}
+
 #[test]
 #[ignore = "needs BUTTERPOLLO_TEST_FFMPEG_ROOT"]
 fn each_channel_round_trips_at_the_protocols_bitrates() {

@@ -86,6 +86,63 @@ public class ControllerButtonMapTest {
         assertTrue(ControllerButtonMap.deserialize("").isEmpty());
     }
 
+    private static final int C = 98, Z = 101, BUTTON_16 = 203, MEDIA_RECORD = 130;
+
+    @Test
+    public void extraButtonsMapToTheExtendedButtonsTheHostPassesThrough() {
+        ControllerButtonMap map = new ControllerButtonMap();
+        map.put(C, ControllerButtonMap.TARGET_TOUCHPAD);
+        map.put(Z, ControllerButtonMap.TARGET_MISC);
+        map.put(BUTTON_1, ControllerButtonMap.TARGET_PADDLE1);
+        map.put(BUTTON_16, ControllerButtonMap.TARGET_PADDLE4);
+        map.put(MEDIA_RECORD, ControllerButtonMap.TARGET_PADDLE2);
+        assertEquals(ControllerButtonMap.TARGET_TOUCHPAD, map.map(C));
+        assertEquals(ControllerButtonMap.TARGET_MISC, map.map(Z));
+        assertEquals(TOUCHPAD_FLAG | MISC_FLAG | PADDLE1_FLAG | PADDLE2_FLAG | PADDLE4_FLAG, map.targetButtonFlags());
+        assertEquals(0, new ControllerButtonMap().targetButtonFlags());
+
+        // Standard targets add no extended flags to the arrival.
+        ControllerButtonMap standard = new ControllerButtonMap();
+        standard.put(C, A);
+        assertEquals(0, standard.targetButtonFlags());
+
+        // Extended buttons are targets only: nothing presses them as Android keys.
+        assertThrows(IllegalArgumentException.class, () -> map.put(ControllerButtonMap.TARGET_TOUCHPAD, A));
+    }
+
+    @Test
+    public void usbReportsMapStandardButtonsToExtendedButtons() {
+        ControllerButtonMap map = new ControllerButtonMap();
+        map.put(A, ControllerButtonMap.TARGET_TOUCHPAD);
+        map.put(B, ControllerButtonMap.TARGET_MISC);
+        map.put(X, ControllerButtonMap.TARGET_PADDLE3);
+        assertEquals(TOUCHPAD_FLAG | MISC_FLAG | PADDLE3_FLAG | Y_FLAG,
+                map.mapButtonFlags(A_FLAG | B_FLAG | X_FLAG | Y_FLAG, false));
+        // A real touchpad click still passes through beside a mapped one.
+        assertEquals(TOUCHPAD_FLAG, map.mapButtonFlags(TOUCHPAD_FLAG, false));
+        assertEquals(TOUCHPAD_FLAG, map.mapButtonFlags(A_FLAG | TOUCHPAD_FLAG, false));
+        assertEquals(0, map.mapButtonFlags(0, false));
+    }
+
+    @Test
+    public void storedMappingsFromEarlierVersionsLoadUnchanged() {
+        // The value format and key codes of earlier versions: C to A, Z disabled, 1 to Start, 16 to Guide.
+        String earlier = "98:96,101:0,188:108,203:110";
+        ControllerButtonMap map = ControllerButtonMap.deserialize(earlier);
+        assertEquals(earlier, map.serialize());
+        assertEquals(A, map.map(C));
+        assertEquals(ControllerButtonMap.DISABLED, map.map(Z));
+        assertEquals(START, map.map(BUTTON_1));
+        assertEquals(A_FLAG, map.mapButtonFlags(A_FLAG, false));
+
+        // Extended targets are stored beside them, and a code this version does not know is skipped.
+        map.put(X, ControllerButtonMap.TARGET_TOUCHPAD);
+        ControllerButtonMap restored = ControllerButtonMap.deserialize(map.serialize() + ",100:65543");
+        assertEquals("98:96,99:65537,101:0,188:108,203:110", restored.serialize());
+        assertEquals(ControllerButtonMap.TARGET_TOUCHPAD, restored.map(X));
+        assertEquals(ControllerButtonMap.UNMAPPED, restored.map(Y));
+    }
+
     @Test
     public void deviceKeyGroupsModelsAndFallsBackToName() {
         assertEquals("usb:045e:0b13", ControllerButtonMap.deviceKey(0x045e, 0x0b13, "Xbox Wireless Controller"));

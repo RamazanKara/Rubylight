@@ -17,5 +17,8 @@
     <string name="controller_button_select">Back</string>
     <string name="controller_button_guide">Guide</string>
     <string name="controller_button_number">버튼 %1$d</string>
+    <string name="controller_button_touchpad">터치패드 클릭</string>
+    <string name="controller_button_misc">공유 / 캡처</string>
+    <string name="controller_button_paddle">후면 버튼 %1$d</string>
     <string name="pc_tap_to_pair">%1$s\n탭하여 페어링</string>
 </resources>

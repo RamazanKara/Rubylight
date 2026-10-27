@@ -21,23 +21,39 @@ public final class ControllerButtonMap {
     static final int BUTTON_A = 96, BUTTON_B = 97, BUTTON_C = 98, BUTTON_X = 99, BUTTON_Y = 100,
             BUTTON_Z = 101, BUTTON_L1 = 102, BUTTON_R1 = 103, BUTTON_L2 = 104, BUTTON_R2 = 105,
             BUTTON_THUMBL = 106, BUTTON_THUMBR = 107, BUTTON_START = 108, BUTTON_SELECT = 109,
-            BUTTON_MODE = 110, BUTTON_1 = 188, BUTTON_16 = 203;
+            BUTTON_MODE = 110, BUTTON_1 = 188, BUTTON_16 = 203, MEDIA_RECORD = 130;
+
+    /**
+     * Extended buttons the host passes through. They have no Android key code, so they are stored
+     * as codes above every key code; an older Nightjar ignores them as unsupported entries.
+     */
+    public static final int TARGET_TOUCHPAD = 0x10001, TARGET_MISC = 0x10002,
+            TARGET_PADDLE1 = 0x10003, TARGET_PADDLE2 = 0x10004, TARGET_PADDLE3 = 0x10005, TARGET_PADDLE4 = 0x10006;
 
     /** Buttons that may be sent to the host, in display order. */
     public static final int[] TARGETS = {
             BUTTON_A, BUTTON_B, BUTTON_X, BUTTON_Y, BUTTON_L1, BUTTON_R1,
-            BUTTON_THUMBL, BUTTON_THUMBR, BUTTON_START, BUTTON_SELECT, BUTTON_MODE, DISABLED
+            BUTTON_THUMBL, BUTTON_THUMBR, BUTTON_START, BUTTON_SELECT, BUTTON_MODE,
+            TARGET_TOUCHPAD, TARGET_MISC, TARGET_PADDLE1, TARGET_PADDLE2, TARGET_PADDLE3, TARGET_PADDLE4,
+            DISABLED
+    };
+
+    /** The buttons a USB driver report can remap, as the key codes of their flags. */
+    private static final int[] FLAG_SOURCES = {
+            BUTTON_A, BUTTON_B, BUTTON_X, BUTTON_Y, BUTTON_L1, BUTTON_R1,
+            BUTTON_THUMBL, BUTTON_THUMBR, BUTTON_START, BUTTON_SELECT, BUTTON_MODE
     };
 
     private final TreeMap<Integer, Integer> mappings = new TreeMap<>();
 
     /**
      * Digital buttons only. D-pad and trigger keys are left alone because their
-     * hat/axis events would still arrive alongside a remapped key event.
+     * hat/axis events would still arrive alongside a remapped key event. Extra buttons such as
+     * C, Z, 1-16 and an Xbox pad's Share (MEDIA_RECORD) are sources too.
      */
     public static boolean isRemappableSource(int keyCode) {
         return (keyCode >= BUTTON_A && keyCode <= BUTTON_MODE && keyCode != BUTTON_L2 && keyCode != BUTTON_R2) ||
-                (keyCode >= BUTTON_1 && keyCode <= BUTTON_16);
+                (keyCode >= BUTTON_1 && keyCode <= BUTTON_16) || keyCode == MEDIA_RECORD;
     }
 
     public static boolean isTarget(int keyCode) {
@@ -64,8 +80,8 @@ public final class ControllerButtonMap {
 
     public int mapButtonFlags(int flags, boolean flipFaceButtons) {
         int result = flags;
-        for (int source : TARGETS) result &= ~buttonFlag(source);
-        for (int source : TARGETS) {
+        for (int source : FLAG_SOURCES) result &= ~buttonFlag(source);
+        for (int source : FLAG_SOURCES) {
             if ((flags & buttonFlag(source)) == 0) continue;
             int target = map(source);
             if (target == UNMAPPED) {
@@ -83,8 +99,26 @@ public final class ControllerButtonMap {
         return result;
     }
 
-    private static int buttonFlag(int keyCode) {
+    /**
+     * The extended buttons the mappings target, for the controller arrival: a pad sends one
+     * once a mapping targets it, so the host must hear that it has one.
+     */
+    public int targetButtonFlags() {
+        int flags = 0;
+        for (int target : mappings.values()) {
+            if (target >= TARGET_TOUCHPAD && target <= TARGET_PADDLE4) flags |= buttonFlag(target);
+        }
+        return flags;
+    }
+
+    static int buttonFlag(int keyCode) {
         switch (keyCode) {
+            case TARGET_TOUCHPAD: return TOUCHPAD_FLAG;
+            case TARGET_MISC: return MISC_FLAG;
+            case TARGET_PADDLE1: return PADDLE1_FLAG;
+            case TARGET_PADDLE2: return PADDLE2_FLAG;
+            case TARGET_PADDLE3: return PADDLE3_FLAG;
+            case TARGET_PADDLE4: return PADDLE4_FLAG;
             case BUTTON_A: return A_FLAG;
             case BUTTON_B: return B_FLAG;
             case BUTTON_X: return X_FLAG;

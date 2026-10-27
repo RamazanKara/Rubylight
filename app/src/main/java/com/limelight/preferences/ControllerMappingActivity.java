@@ -330,6 +330,13 @@ public class ControllerMappingActivity extends NightjarActivity {
             case KeyEvent.KEYCODE_BUTTON_START: return getString(R.string.controller_button_start);
             case KeyEvent.KEYCODE_BUTTON_SELECT: return getString(R.string.controller_button_select);
             case KeyEvent.KEYCODE_BUTTON_MODE: return getString(R.string.controller_button_guide);
+            case ControllerButtonMap.TARGET_TOUCHPAD: return getString(R.string.controller_button_touchpad);
+            case KeyEvent.KEYCODE_MEDIA_RECORD:
+            case ControllerButtonMap.TARGET_MISC: return getString(R.string.controller_button_misc);
+            case ControllerButtonMap.TARGET_PADDLE1: return getString(R.string.controller_button_paddle, 1);
+            case ControllerButtonMap.TARGET_PADDLE2: return getString(R.string.controller_button_paddle, 2);
+            case ControllerButtonMap.TARGET_PADDLE3: return getString(R.string.controller_button_paddle, 3);
+            case ControllerButtonMap.TARGET_PADDLE4: return getString(R.string.controller_button_paddle, 4);
             default:
                 if (keyCode >= KeyEvent.KEYCODE_BUTTON_1 && keyCode <= KeyEvent.KEYCODE_BUTTON_16) {
                     return getString(R.string.controller_button_number, keyCode - KeyEvent.KEYCODE_BUTTON_1 + 1);

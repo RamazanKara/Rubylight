@@ -17,5 +17,8 @@
     <string name="controller_button_select">Back</string>
     <string name="controller_button_guide">Guide</string>
     <string name="controller_button_number">Pulsante %1$d</string>
+    <string name="controller_button_touchpad">Clic del touchpad</string>
+    <string name="controller_button_misc">Condividi / Cattura</string>
+    <string name="controller_button_paddle">Paletta %1$d</string>
     <string name="pc_tap_to_pair">%1$s\nTocca per accoppiare</string>
 </resources>

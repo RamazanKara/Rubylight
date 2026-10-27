@@ -942,7 +942,11 @@ fn restart_on_new_path(s: &Session, c: &Config) {
 }
 /// Host bitrate adaptation (`host_adaptive_bitrate`), from scratch.
 fn configure_adaptive_bitrate(s: &Session, c: &Config) {
-    let maximum = if s.config.codec == 3 { 2_000_000 } else { 500_000 };
+    let maximum = if s.config.codec == 3 {
+        2_000_000
+    } else {
+        500_000
+    };
     s.configure_adaptive_bitrate(
         c.boolean("host_adaptive_bitrate", false),
         c.integer("max_bitrate", 0).clamp(0, maximum) as u32,

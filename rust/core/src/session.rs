@@ -324,10 +324,16 @@ mod tests {
             session.configure_adaptive_bitrate(true, 0);
             session.adaptive_bitrate.lock().unwrap().snapshot()["wire_ceiling_kbps"].clone()
         };
-        assert_eq!((session.client_link_mbps(), session.client_pace_mbps()), (100, 150));
+        assert_eq!(
+            (session.client_link_mbps(), session.client_pace_mbps()),
+            (100, 150)
+        );
         assert_eq!(ceiling(&session), 95_000);
         session.roamed("10.0.0.7".parse().unwrap(), Instant::now());
-        assert_eq!((session.client_link_mbps(), session.client_pace_mbps()), (0, 0));
+        assert_eq!(
+            (session.client_link_mbps(), session.client_pace_mbps()),
+            (0, 0)
+        );
         assert_eq!(ceiling(&session), 250_000);
     }
     #[test]

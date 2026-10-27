@@ -23,6 +23,7 @@ mod probe;
 mod remote_check;
 mod serverinfo;
 mod transport;
+mod usb;
 mod xml;
 
 pub use apps::{app_control, parse_app_list, App, AppControl, AppRole};
@@ -48,6 +49,10 @@ pub use probe::{probe_start_kbps, LINK_PROBE_BYTES, PROBE_FLOOR_KBPS, PROBE_STAR
 pub use remote_check::{ConnectionTestStats, RemoteCheck, RemoteOutcome, REMOTE_CHECK_PROBES};
 pub use serverinfo::ServerInfo;
 pub use transport::set_app_version;
+pub use usb::{
+    UsbTunnel, TOKEN_HEADER as USB_TOKEN_HEADER, TUNNEL_PATH as USB_TUNNEL_PATH,
+    UPGRADE as USB_UPGRADE,
+};
 
 /// The Rubylight native API v1 wire types, for callers of the `HostClient` native methods.
 pub use rubylight_native_api as native_api;

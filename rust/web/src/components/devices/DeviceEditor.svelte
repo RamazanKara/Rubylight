@@ -8,6 +8,7 @@
   import { failed, notify } from '../../lib/feedback.svelte';
   import {
     changes,
+    DISPLAY_OVERRIDE_OPTIONS,
     fullControl,
     permissionSummary,
     PERMISSION_GROUPS,
@@ -17,6 +18,7 @@
     VIRTUAL_DISPLAY_LAYOUTS,
     VIRTUAL_DISPLAY_MODES,
     validDisplayMode,
+    type DisplayOverride,
     type Draft,
   } from './device';
   import { link } from '../../lib/router.svelte';
@@ -156,6 +158,11 @@
     presets.find((preset) => preset.id === draft.stream_preset)?.description ??
       'Fills the encoder settings you have not set. Follows the preset in Settings unless this device names its own.',
   );
+  /** A stored display override none of its choices shows, as the preset select does. */
+  function unknownDisplay(key: DisplayOverride): boolean {
+    const value = draft.display[key];
+    return value !== '' && !DISPLAY_OVERRIDE_OPTIONS[key].some((option) => option.value === value);
+  }
   const presetUnknown = $derived(draft.stream_preset !== '' && !presets.some((preset) => preset.id === draft.stream_preset));
 
   function setPermission(bit: number, granted: boolean) {
@@ -354,6 +361,56 @@
           <option value="">Use the host setting</option>
           {#each VIRTUAL_DISPLAY_LAYOUTS as layout (layout.value)}
             <option value={layout.value}>{layout.label}</option>
+          {/each}
+        </select>
+      </Field>
+      <Field
+        label="Rotate the display (Experimental)"
+        id="{uid}-rotation"
+        hint="Match the device gives this device's virtual display its portrait or landscape shape, and turns a monitor to it, also when the device turns during the stream. A monitor turns back after the stream and needs Windows Graphics Capture. Experimental."
+        error={unknownDisplay('dd_rotation_option') ? `“${draft.display.dd_rotation_option}” is not a choice, so the host ignores it. Choose one.` : undefined}
+      >
+        <select id="{uid}-rotation" class="select" bind:value={draft.display.dd_rotation_option}>
+          <option value="">Use the host setting</option>
+          {#if unknownDisplay('dd_rotation_option')}
+            <option value={draft.display.dd_rotation_option}>{draft.display.dd_rotation_option} (not a choice)</option>
+          {/if}
+          {#each DISPLAY_OVERRIDE_OPTIONS.dd_rotation_option as option (option.value)}
+            <option value={option.value}>{option.label}</option>
+          {/each}
+        </select>
+      </Field>
+      {#if draft.display.dd_rotation_option === 'manual'}
+        <Field
+          label="Rotation (Experimental)"
+          id="{uid}-angle"
+          hint="The angle the display turns to, clockwise. A virtual display is made in the turned shape instead. Experimental."
+          error={unknownDisplay('dd_manual_rotation') ? `${draft.display.dd_manual_rotation} is not an angle the host takes. Choose one.` : undefined}
+        >
+          <select id="{uid}-angle" class="select" bind:value={draft.display.dd_manual_rotation}>
+            <option value="">Use the host setting</option>
+            {#if unknownDisplay('dd_manual_rotation')}
+              <option value={draft.display.dd_manual_rotation}>{draft.display.dd_manual_rotation} (not an angle)</option>
+            {/if}
+            {#each DISPLAY_OVERRIDE_OPTIONS.dd_manual_rotation as option (option.value)}
+              <option value={option.value}>{option.label}</option>
+            {/each}
+          </select>
+        </Field>
+      {/if}
+      <Field
+        label="Display scale"
+        id="{uid}-scale"
+        hint="The Windows scale of this device's stream display. Set here, it also scales a monitor, which gets its own scale back after the stream (Experimental)."
+        error={unknownDisplay('dd_virtual_display_scale') ? `${draft.display.dd_virtual_display_scale} is not a scale the host takes. Choose one.` : undefined}
+      >
+        <select id="{uid}-scale" class="select" bind:value={draft.display.dd_virtual_display_scale}>
+          <option value="">Use the host setting</option>
+          {#if unknownDisplay('dd_virtual_display_scale')}
+            <option value={draft.display.dd_virtual_display_scale}>{draft.display.dd_virtual_display_scale} (not a scale)</option>
+          {/if}
+          {#each DISPLAY_OVERRIDE_OPTIONS.dd_virtual_display_scale as option (option.value)}
+            <option value={option.value}>{option.label}</option>
           {/each}
         </select>
       </Field>

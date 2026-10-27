@@ -2,6 +2,8 @@
 import { FULL_CONTROL, PERM, PERM_ALL, type Client } from '../../lib/api';
 import { grantsValue, readGrants, type FolderGrants } from '../../lib/shared-folders';
 import { SETTING as STREAM_PRESET, presets } from '../../lib/stream-presets';
+import { settings as displaySettings } from '../../lib/schema/display';
+import { settings as extensionSettings } from '../../lib/schema/extensions';
 
 export const VIEW_ONLY = PERM.LIST_APPS | PERM.VIEW_STREAMS;
 
@@ -113,6 +115,10 @@ export interface Draft {
   stream_preset: string;
   /** The preset exactly as stored (any spelling, any type), sent back while the choice is untouched. */
   stored_preset?: unknown;
+  /** The device's display overrides (dd_rotation_option, dd_manual_rotation, dd_virtual_display_scale) as the selects show them; empty follows the host. */
+  display: Record<DisplayOverride, string>;
+  /** Those overrides exactly as stored, sent back while their choice is untouched. */
+  stored_display: Partial<Record<DisplayOverride, unknown>>;
   /** The device's other config overrides, kept and sent back untouched. */
   other_overrides: Record<string, unknown>;
   /** Lets the device change Radeon settings and close games; off unless granted here. */
@@ -175,11 +181,37 @@ function savedPreset(value: unknown): string {
   return presets.some((preset) => preset.id === id) ? id : name;
 }
 
+/** The display settings the device page sets for the device alone, in its config overrides. */
+export const DISPLAY_OVERRIDES = ['dd_rotation_option', 'dd_manual_rotation', 'dd_virtual_display_scale'] as const;
+export type DisplayOverride = (typeof DISPLAY_OVERRIDES)[number];
+
+/** The choices each display override offers, as the host settings offer them. */
+export const DISPLAY_OVERRIDE_OPTIONS = Object.fromEntries(
+  DISPLAY_OVERRIDES.map((key) => {
+    const control = [...displaySettings, ...extensionSettings].find((setting) => setting.key === key)?.control;
+    if (control?.kind !== 'select') throw new Error(`${key} is not a select setting`);
+    return [key, control.options.map(({ value, label }) => ({ value, label }))];
+  }),
+) as Record<DisplayOverride, { value: string; label: string }[]>;
+
+/** A stored display override as its select shows it: a number as written, a choice in lower case. */
+function shownDisplay(value: unknown): string {
+  return typeof value === 'number' ? String(value) : text(value).toLowerCase();
+}
+
 export function toDraft(client: Client): Draft {
   const sdr = flag(client.prefer_10bit_sdr);
   const stored = client.config_overrides;
-  const { [STREAM_PRESET]: preset, ...other } =
+  const { [STREAM_PRESET]: preset, ...rest } =
     stored && typeof stored === 'object' && !Array.isArray(stored) ? (stored as Record<string, unknown>) : {};
+  const other = { ...rest };
+  const storedDisplay: Partial<Record<DisplayOverride, unknown>> = {};
+  for (const key of DISPLAY_OVERRIDES) {
+    if (key in other) {
+      storedDisplay[key] = other[key];
+      delete other[key];
+    }
+  }
   return {
     name: client.name,
     enabled: flag(client.enabled) !== false,
@@ -199,6 +231,11 @@ export function toDraft(client: Client): Draft {
     allow_client_commands: flag(client.allow_client_commands) !== false,
     stream_preset: savedPreset(preset),
     stored_preset: preset,
+    display: Object.fromEntries(DISPLAY_OVERRIDES.map((key) => [key, shownDisplay(storedDisplay[key])])) as Record<
+      DisplayOverride,
+      string
+    >,
+    stored_display: storedDisplay,
     other_overrides: other,
     // As the host reads it: only true and "true" are on, so 1 and "yes" stay off.
     host_control: client.host_control === true || client.host_control === 'true',
@@ -223,14 +260,25 @@ function commands(rows: CommandRow[]): Command[] {
 }
 
 /**
- * The device's overrides: its other overrides plus its preset; null when there are none. A preset
- * the user did not touch goes back as it was stored, so a name this console cannot show (another
- * type, an unknown name) is not rewritten or lost by saving something else.
+ * The device's overrides: its other overrides plus its display overrides and preset; null when
+ * there are none. A preset or display override the user did not touch goes back as it was stored,
+ * so a value this console cannot show (another type, an unknown name) is not rewritten or lost by
+ * saving something else.
  */
 function overrides(draft: Draft): Record<string, unknown> | null {
   const untouched = draft.stored_preset !== undefined && savedPreset(draft.stored_preset) === draft.stream_preset;
   const preset = untouched ? { [STREAM_PRESET]: draft.stored_preset } : draft.stream_preset ? { [STREAM_PRESET]: draft.stream_preset } : {};
-  const next = { ...draft.other_overrides, ...preset };
+  const display: Record<string, unknown> = {};
+  for (const key of DISPLAY_OVERRIDES) {
+    const value = draft.display[key];
+    if (key in draft.stored_display && shownDisplay(draft.stored_display[key]) === value) {
+      display[key] = draft.stored_display[key];
+    } else if (value !== '') {
+      // The angle and the scale are numbers to the host; the option is a word.
+      display[key] = key === 'dd_rotation_option' ? value : Number(value);
+    }
+  }
+  const next = { ...draft.other_overrides, ...display, ...preset };
   return Object.keys(next).length > 0 ? next : null;
 }
 

@@ -511,7 +511,7 @@ test('shared folders are a live, Experimental list beside file transfer, empty b
 });
 
 // The 3.0 settings whose features have shipped (settings30.rs keeps the same list).
-const live = ['audio_surround_714'];
+const live = ['audio_surround_714', 'dd_rotation_option', 'dd_manual_rotation'];
 
 test('settings still pending stay out of the console, and shipped ones are in it', () => {
   assert.equal(pending.length, 15);
@@ -528,6 +528,22 @@ test('7.1.4 surround is Experimental and says the heights need a 7.1.4 device', 
   assert.match(setting.label, /\(Experimental\)$/);
   assert.match(setting.description, /Height channels stay silent/);
   assert.equal(setting.default, true);
+});
+
+test('display rotation is Experimental, off by default, and its angle shows only when chosen', () => {
+  const option = settings.get('dd_rotation_option');
+  const angle = settings.get('dd_manual_rotation');
+  for (const setting of [option, angle]) {
+    assert.match(setting.label, /\(Experimental\)$/, setting.key);
+    assert.match(setting.description, / Experimental\.$/, setting.key);
+    assert.equal(setting.group, 'Streamed display', setting.key);
+  }
+  assert.equal(option.default, 'disabled');
+  assert.deepEqual(option.control.options.map(o => o.value), ['disabled', 'auto', 'manual']);
+  assert.deepEqual(angle.control.options.map(o => o.value), ['0', '90', '180', '270']);
+  assert.equal(angle.visibleWhen({ dd_rotation_option: 'manual' }), true);
+  assert.equal(angle.visibleWhen({ dd_rotation_option: 'auto' }), false);
+  assert.equal(angle.visibleWhen({}), false);
 });
 
 test('PCM and Dolby Digital audio defaults on, keeps Opus for other devices and follows Stream audio', () => {

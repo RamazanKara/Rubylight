@@ -147,7 +147,9 @@ pub struct FecBlock {
 fn blocks_never_seen(last: &FecBlock, next: &FecBlock) -> (u32, u32) {
     let frames = next.frame.wrapping_sub(last.frame);
     if frames == 0 {
-        let skipped = next.block_index.saturating_sub(last.block_index.saturating_add(1));
+        let skipped = next
+            .block_index
+            .saturating_sub(last.block_index.saturating_add(1));
         return (0, u32::from(skipped));
     }
     if frames > MAX_SKIPPED_FRAMES + 1 {
@@ -156,7 +158,8 @@ fn blocks_never_seen(last: &FecBlock, next: &FecBlock) -> (u32, u32) {
     let rest = if last.unrecovered {
         0
     } else {
-        last.block_count.saturating_sub(last.block_index.saturating_add(1))
+        last.block_count
+            .saturating_sub(last.block_index.saturating_add(1))
     };
     (u32::from(rest), frames - 1 + u32::from(next.block_index))
 }
@@ -184,7 +187,10 @@ impl FecTally {
         let (sent, missing) = if block.unrecovered {
             (total, total.saturating_sub(block.arrived_shards))
         } else {
-            let seen = block.arrived_shards.saturating_add(block.missing_shards).min(total);
+            let seen = block
+                .arrived_shards
+                .saturating_add(block.missing_shards)
+                .min(total);
             (seen, block.missing_shards.min(seen))
         };
         let data = sent.min(block.data_shards);
@@ -319,7 +325,14 @@ mod tests {
     }
 
     /// A finished block of `data` + `parity` shards at frame `frame`, block 0 of 1.
-    fn block(frame: u32, data: u32, parity: u32, arrived: u32, missing: u32, lost: bool) -> FecBlock {
+    fn block(
+        frame: u32,
+        data: u32,
+        parity: u32,
+        arrived: u32,
+        missing: u32,
+        lost: bool,
+    ) -> FecBlock {
         FecBlock {
             frame,
             block_index: 0,
@@ -393,7 +406,12 @@ mod tests {
             now += 1_000;
             let r = tally.take(now).unwrap();
             assert!(r.missing_shards <= r.data_shards + r.parity_shards);
-            (r.data_shards, r.parity_shards, r.missing_shards, r.unrecovered_blocks)
+            (
+                r.data_shards,
+                r.parity_shards,
+                r.missing_shards,
+                r.unrecovered_blocks,
+            )
         };
         // Complete before its parity arrived: the parity in flight is neither sent nor lost.
         assert_eq!(counted(block(1, 10, 4, 10, 0, false)), (10, 0, 0, 0));
@@ -402,10 +420,7 @@ mod tests {
         // Given up: every shard of the block was due.
         assert_eq!(counted(block(3, 10, 4, 7, 2, true)), (10, 4, 7, 1));
         // Frames 4 and 5 never arrived: lost whole, the size of the next one.
-        assert_eq!(
-            counted(block(6, 10, 4, 10, 0, false)),
-            (10 + 20, 8, 28, 2)
-        );
+        assert_eq!(counted(block(6, 10, 4, 10, 0, false)), (10 + 20, 8, 28, 2));
         // Block 1 of frame 7 never arrived, then the next frame begins after block 2 of 3.
         let first = FecBlock {
             block_count: 3,
@@ -435,7 +450,10 @@ mod tests {
         // The longest gap that counts.
         let gap = far - 5 + MAX_SKIPPED_FRAMES + 1;
         let (_, _, missing, lost) = counted(block(gap, 10, 4, 10, 0, false));
-        assert_eq!((missing, lost), (14 * MAX_SKIPPED_FRAMES, MAX_SKIPPED_FRAMES as u16));
+        assert_eq!(
+            (missing, lost),
+            (14 * MAX_SKIPPED_FRAMES, MAX_SKIPPED_FRAMES as u16)
+        );
         // Frame numbers wrap.
         let mut wrap = FecTally::default();
         wrap.block(block(u32::MAX, 10, 4, 14, 0, false), 0);

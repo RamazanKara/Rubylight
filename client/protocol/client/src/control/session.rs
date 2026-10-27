@@ -739,7 +739,11 @@ mod tests {
         let idle = reports(&mut s);
         assert_eq!(idle.len(), 1);
         assert_eq!(
-            (idle[0].1.seq, idle[0].1.data_shards, idle[0].1.parity_shards),
+            (
+                idle[0].1.seq,
+                idle[0].1.data_shards,
+                idle[0].1.parity_shards
+            ),
             (1, 0, 0)
         );
         let second = first + Duration::from_millis(2100);

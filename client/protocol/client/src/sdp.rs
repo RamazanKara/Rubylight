@@ -264,11 +264,13 @@ fn one_offered_bit(asked: u8, offered: u8) -> Option<u8> {
     (asked.count_ones() == 1 && asked & offered != 0).then_some(asked)
 }
 
-/// The HDR format the description asks for, if the stream can carry it.
+/// The HDR format the description asks for, if the stream can carry it: a 10-bit HEVC or AV1
+/// stream (PyroWave's 10-bit formats carry none), and Dolby Vision only on HEVC.
 fn announced_hdr_format(p: &SdpParams<'_>) -> Option<u8> {
     let format = p.negotiated_video_format;
     one_offered_bit(p.hdr_format, p.hdr_formats_offered).filter(|&bit| {
         format & VIDEO_FORMAT_MASK_10BIT != 0
+            && format & (VIDEO_FORMAT_MASK_H265 | VIDEO_FORMAT_MASK_AV1) != 0
             && (bit & rubylight_protocol::hdr::DOLBY_VISION == 0
                 || format & VIDEO_FORMAT_MASK_H265 != 0)
     })

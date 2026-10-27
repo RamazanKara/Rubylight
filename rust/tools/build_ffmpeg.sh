@@ -40,7 +40,9 @@ PREFIX=$(cd "$PREFIX" && pwd)
 SRC=$WORKDIR/ffmpeg-$VERSION
 BUILD=$WORKDIR/build
 LICENSE_DIR=$PREFIX/share/licenses/ffmpeg
-SOURCE_SHA256=$(sha256sum "$TARBALL" | cut -d' ' -f1)
+# build.ps1 passes the hash it checked: MSYS sha256sum fails without a console
+# ("failed to set file descriptor text/binary mode") in a scheduled task.
+SOURCE_SHA256=${FFMPEG_SOURCE_SHA256:-$(sha256sum "$TARBALL" </dev/null | cut -d' ' -f1)}
 
 # The two codecs only, shared, no external libraries.
 CONFIGURE=(

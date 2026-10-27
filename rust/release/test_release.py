@@ -363,6 +363,17 @@ class Signing(unittest.TestCase):
         includes = {element.get('path') for element in self.configurations['binaries'].iter(f'{NS}include')}
         self.assertEqual(includes - {'drivers/rubylight-display/*.dll'}, staged)
 
+    def test_the_ffmpeg_build_takes_the_checked_hash_instead_of_sha256sum(self):
+        # MSYS sha256sum failed in the laptop gate's scheduled task (no
+        # console), so build.ps1 hands the script the hash it already checked.
+        build = (ROOT / 'rust/build.ps1').read_text(encoding='utf-8')
+        pinned = re.search(r"\$ffmpegSha256 = '([0-9a-f]{64})'", build)
+        self.assertIsNotNone(pinned)
+        self.assertIn("ffmpeg-8.1.2.tar.xz' $tarball $ffmpegSha256", build)
+        self.assertIn('$env:FFMPEG_SOURCE_SHA256 = $ffmpegSha256', build)
+        script = (ROOT / 'rust/tools/build_ffmpeg.sh').read_text(encoding='utf-8')
+        self.assertIn('SOURCE_SHA256=${FFMPEG_SOURCE_SHA256:-', script)
+
     def test_the_display_driver_is_packaged_where_setup_and_signing_look(self):
         # rust/build.ps1 lays the package out; setup and the signing steps
         # each name the same folder.

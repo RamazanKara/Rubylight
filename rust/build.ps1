@@ -52,9 +52,12 @@ if ($FetchDependencies) {
         # The official source release, built with only the AC3 and E-AC3 codecs (LGPL).
         $FfmpegRoot = Join-Path $Dependencies 'ffmpeg-8.1.2'
         $tarball = Join-Path $Dependencies 'ffmpeg-8.1.2.tar.xz'
-        Get-PinnedArchive 'https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz' $tarball '464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c'
+        $ffmpegSha256 = '464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c'
+        Get-PinnedArchive 'https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz' $tarball $ffmpegSha256
         $cygpath = "$MsysRoot\usr\bin\cygpath.exe"
         $env:FFMPEG_WORKDIR = & $cygpath -u (Join-Path $Dependencies 'ffmpeg-work')
+        # Checked above; MSYS sha256sum fails in a scheduled task without a console.
+        $env:FFMPEG_SOURCE_SHA256 = $ffmpegSha256
         $env:MSYSTEM = 'UCRT64'
         & "$MsysRoot\usr\bin\bash.exe" (& $cygpath -u (Join-Path $repo 'rust\tools\build_ffmpeg.sh')) (& $cygpath -u $tarball) (& $cygpath -u $FfmpegRoot)
         Assert-NativeExit 'FFmpeg AC3 build'

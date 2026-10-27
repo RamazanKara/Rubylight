@@ -168,7 +168,7 @@ impl Hdr10Plus {
         // identifier 4 (ST 2094-40), application version 1.
         let mut bits = BitWriter::with_prefix(&[0xB5, 0x00, 0x3C, 0x00, 0x01, 4, 1]);
         bits.put(2, 1); // num_windows
-        bits.put(27, u32::from(self.target_nits));
+        bits.put(27, u32::from(self.target_nits.min(10_000)));
         bits.put(1, 0); // targeted_system_display_actual_peak_luminance_flag
         for _ in 0..3 {
             bits.put(17, self.maxscl.min(100_000));

@@ -252,6 +252,13 @@ fn hdr10plus_round_trips_through_an_independent_parser() {
     assert_eq!(percentiles, metadata.distribution);
     assert_eq!(parsed.fraction_bright_pixels, 0);
     assert!(!parsed.tone_mapping && !parsed.saturation_mapping);
+
+    // Built by hand past ST 2094-40's range: written at the 10000-nit limit.
+    let over = Hdr10Plus {
+        target_nits: 40_000,
+        ..metadata
+    };
+    assert_eq!(parse_hdr10plus(&over.to_t35()).target, 10_000);
 }
 
 #[test]
@@ -543,12 +550,26 @@ fn av1_without_an_insertion_point_stays_unchanged() {
     truncated.extend([(1 << 3) | 0x02, 40, 0x00]);
     let mut endless_leb = td.clone();
     endless_leb.extend([(1 << 3) | 0x02, 0xFF, 0xFF]);
+    // A size of zero padded to eight leb128 bytes is still valid; nine are not.
+    let padded_size = |bytes: usize| {
+        let mut frame = td.clone();
+        frame.push((1 << 3) | 0x02);
+        frame.extend(std::iter::repeat_n(0x80, bytes - 1));
+        frame.push(0x00);
+        [frame, obu(6, &[0x10, 0x20])].concat()
+    };
+    assert_eq!(
+        insert_offset(Codec::Av1, &padded_size(8)),
+        Some(td.len() + 9)
+    );
+    let overlong_leb = padded_size(9);
     let forbidden = [td.clone(), vec![0x80 | (6 << 3) | 0x02, 0]].concat();
     for frame in [
         headers_only,
         sizeless,
         truncated,
         endless_leb,
+        overlong_leb,
         forbidden,
         vec![],
     ] {
@@ -639,11 +660,16 @@ fn smoothing_follows_slowly_and_snaps_at_a_scene_cut() {
     assert!(cut.scene_cut);
     assert_eq!(cut.stats, dark);
 
-    // Invalid samples change nothing.
-    let mut broken = dark;
-    broken.mean_pq = f32::NAN;
-    assert_eq!(smoother.update(&broken), None);
-    assert_eq!(smoother.update(&dark).unwrap().stats, dark);
+    // Invalid samples change nothing: neither the smoothed state nor the cut reference.
+    let mut nan = dark;
+    nan.mean_pq = f32::NAN;
+    assert_eq!(smoother.update(&nan), None);
+    let mut bright_but_broken = sample();
+    bright_but_broken.min_pq = -0.1;
+    assert_eq!(smoother.update(&bright_but_broken), None);
+    let after = smoother.update(&dark).unwrap();
+    assert!(!after.scene_cut, "compared with the last valid sample");
+    assert_eq!(after.stats, dark);
 
     smoother.reset();
     let fresh = smoother.update(&sample()).unwrap();

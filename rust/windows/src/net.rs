@@ -2142,6 +2142,66 @@ mod tests {
         drain.join().unwrap();
         Ok(())
     }
+    /// The receive path's own cost on loopback, per datagram, as the control
+    /// thread pays it before input is applied: "before" is recv_from,
+    /// "settled" WSARecvMsg and answer_from for a peer checked within
+    /// ROUTE_CHECK, "checked" the same with Windows' route asked every time,
+    /// as happens once a second per peer. Run with --release.
+    #[test]
+    #[ignore = "timing; run with --release --ignored --nocapture"]
+    fn receive_path_cost() -> Result<()> {
+        let modes = ["before", "settled", "checked"];
+        let sender = UdpSocket::bind("127.0.0.1:0")?;
+        let datagram = [5u8; 64];
+        let mut receivers = Vec::new();
+        for mode in modes {
+            let mut receiver = ReplySocket::bind("0.0.0.0:0")?;
+            configure_udp(&receiver)?;
+            if mode == "checked" {
+                // Every lookup is a route check: the clock jumps past ROUTE_CHECK.
+                static TICKS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+                static BASE: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+                receiver.now = || {
+                    *BASE.get_or_init(std::time::Instant::now)
+                        + ROUTE_CHECK * TICKS.fetch_add(2, Ordering::Relaxed) as u32
+                };
+            }
+            let port = receiver.local_addr()?.port();
+            let target = SocketAddr::from(([127, 0, 0, 1], port));
+            receivers.push((mode, receiver, target, Vec::new()));
+        }
+        let mut buffer = [0u8; 2048];
+        for round in 0..40 {
+            for i in 0..modes.len() {
+                let (mode, receiver, target, costs) = &mut receivers[(i + round) % modes.len()];
+                let mut elapsed = std::time::Duration::ZERO;
+                for _ in 0..500 {
+                    sender.send_to(&datagram, *target)?;
+                    while !wait_readable(receiver.as_raw_socket(), 100)? {}
+                    let started = std::time::Instant::now();
+                    if *mode == "before" {
+                        receiver.socket.recv_from(&mut buffer)?;
+                    } else {
+                        let (_, peer, local) = receiver.receive(&mut buffer)?;
+                        assert!(local.is_some(), "{mode}");
+                        receiver.answer_from(peer, local);
+                    }
+                    elapsed += started.elapsed();
+                }
+                costs.push(elapsed.as_nanos() / 500);
+            }
+        }
+        for (mode, _, _, costs) in &mut receivers {
+            costs.sort();
+            println!(
+                "{mode}: datagram mean {} ns, median {} ns, max turn {} ns",
+                costs.iter().sum::<u128>() / costs.len() as u128,
+                costs[costs.len() / 2],
+                costs[costs.len() - 1]
+            );
+        }
+        Ok(())
+    }
     fn dual_stack() -> std::io::Result<UdpSocket> {
         let socket = socket2::Socket::new(
             socket2::Domain::IPV6,

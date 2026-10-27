@@ -85,6 +85,16 @@ The host's UDP sockets answer each client from the local address its datagrams a
 
 **A LAN client Windows already routes from the address it reached costs what it did before**, within the spread between runs, for batches and single datagrams. A pinned reply costs about 0.6 µs more CPU per single datagram (about 5 %) and no measurable difference per 64-datagram batch. The figures are higher than earlier single-mode runs (about 6.7 µs a datagram) because this PC's send cost roughly doubles a few seconds into the run on every path alike; the rotation spreads that over all four senders. An earlier version of this section put a pinned reply at twice `sendto`: it timed each mode in its own block with pinned always second, so it measured that slowdown, not the pin. Not measured: a real NIC, a VPN, and a stream's end-to-end latency.
 
+`receive_path_cost` (same file, `--release --ignored`) times the receive side the control thread pays before it applies input, per 64 B datagram on loopback: "before" is `recv_from`, "settled" `WSARecvMsg` and `answer_from` for a peer checked within the last second, "checked" the same with Windows' route asked every time, as happens once a second per peer. 40 rounds of 500 datagrams per receiver in rotating order, the time from readiness to the datagram's handling; means of three runs on October 27, with a 4K120 stream to an Xbox running:
+
+| Receive | Per datagram |
+| --- | --- |
+| Before (`recv_from`) | 0.71 µs (0.71 to 0.73) |
+| Settled peer | 0.79 µs (0.78 to 0.79) |
+| Route checked | 3.25 µs (3.22 to 3.28) |
+
+**Input waits about 0.08 µs longer per datagram, and 2.5 µs once a second per peer.** The same Xbox stream's host stages matched 2.5.6 (present to send 7.04 ms mean, 8.16 ms p99, against 7.03 and 8.16), and its jitter showed in ICMP pings too (1 to 7 ms, the router under 1 to 3 ms), so it is the path to the client, not the host.
+
 ## October 26: VRR claims follow the game's pictures
 
 A 120 Hz game on a 60 fps VRR stream kept an age p95 of 3.7 ms on [October 24](#october-24-predictive-claim-waits-under-vrr): some claims still took a picture close to a game frame old. The pacing traces (`--record`) show why. WGC on this PC's 240 Hz VRR display delivers each frame of a 120 Hz game twice, the second composition 0.1 to 1 ms after the first, and in some sessions a third time 3 to 4 ms later. The median of the capture intervals then reads about 7 ms, or 3 ms with the third composition, for a game that presents every 8.3 ms. A claim predicted the game's next frame too early, stopped waiting at the end of its budget, and took the latest composition, 7 to 8 ms old, just before the game's next frame arrived. The claim-wait commit `abb803c67` and 3.0.0-rc.2 measure the same today (age p95 7.67 and 7.27 ms, two runs each), so the share of late claims depends on the capture pattern, not on a commit.

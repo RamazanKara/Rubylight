@@ -1,9 +1,11 @@
 package com.limelight.binding.video;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
@@ -32,8 +34,9 @@ final class VendorLowLatencyKeys {
             "vendor.mtk.vdec.no.reorder.enable", "vendor.mtk.vdec.disable.reorder",
             "vendor.mtk.vdec.no.clock.adjust"};
     // Snapdragon keys from Moonlight V+ that are sent only when the decoder declares them
-    // (Android 12 and newer), never by name: no Snapdragon here has confirmed them, and a
-    // Snapdragon key the decoder accepted has hung the Retroid before (picture-order = 0).
+    // (Android 12 and newer), never by name, and on the first configure try only: no Snapdragon
+    // here has confirmed them, and a Snapdragon key the decoder accepted has hung the Retroid
+    // before (picture-order = 0).
     static final Collection<String> QUALCOMM_DECLARED_ONLY = Collections.unmodifiableList(Arrays.asList(
             "vendor.qti-ext-dec-info-misr.disable", "vendor.qti-ext-dec-instant-decode.enable",
             "vendor.qti-ext-dec-error-correction.conceal"));
@@ -162,6 +165,17 @@ final class VendorLowLatencyKeys {
             }
         }
         return keys;
+    }
+
+    /** The QUALCOMM_DECLARED_ONLY keys among a decoder's integer vendor parameters, for the log. */
+    static List<String> declaredQualcommExtras(Collection<String> integerParams) {
+        List<String> declared = new ArrayList<>();
+        for (String key : QUALCOMM_DECLARED_ONLY) {
+            if (containsIgnoreCase(integerParams, key)) {
+                declared.add(key);
+            }
+        }
+        return declared;
     }
 
     /**

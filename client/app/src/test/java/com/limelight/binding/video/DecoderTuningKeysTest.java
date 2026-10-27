@@ -250,8 +250,13 @@ public class DecoderTuningKeysTest {
         for (int attempt = 0; attempt <= 5; attempt++) {
             MediaFormat format = MediaFormat.createVideoFormat(HEVC, 1920, 1080);
             MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder, attempt, true, true, false, false);
+            // The first try only: a decoder that rejects one of them keeps the confirmed keys.
             for (String key : QTI_EXTRAS) {
-                assertEquals("try " + attempt + " " + key, attempt < 4, format.containsKey(key));
+                assertEquals("try " + attempt + " " + key, attempt == 0, format.containsKey(key));
+            }
+            for (String key : QTI_KEYS) {
+                assertEquals("try " + attempt + " " + key,
+                        attempt < 4 || (attempt == 4 && VendorLowLatencyKeys.isCoreSwitch(key)), format.containsKey(key));
             }
             // Never the picture-order value that hung the Retroid.
             if (format.containsKey("vendor.qti-ext-dec-picture-order.enable")) {
@@ -281,6 +286,40 @@ public class DecoderTuningKeysTest {
         MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder("c2.qti.hevc.decoder.low_latency", QTI_KEYS),
                 0, true, true, true, false);
         assertAbsent("undeclared", format, QTI_EXTRAS);
+    }
+
+    @Test
+    @Config(sdk = 33)
+    public void eachSnapdragonDecoderLogsTheExtrasItDeclaresOnce() {
+        List<String> lines = new java.util.ArrayList<>();
+        java.util.logging.Handler handler = new java.util.logging.Handler() {
+            @Override public void publish(java.util.logging.LogRecord record) {
+                if (record.getMessage().contains("Snapdragon extras")) lines.add(record.getMessage());
+            }
+            @Override public void flush() {}
+            @Override public void close() {}
+        };
+        java.util.logging.Logger logger = java.util.logging.Logger.getLogger(com.limelight.LimeLog.class.getName());
+        logger.addHandler(handler);
+        try {
+            MediaCodecInfo some = decoder("c2.qti.log-test.decoder", QTI_EXTRAS[0], QTI_EXTRAS[2], QTI_KEYS[0]);
+            MediaCodecInfo none = decoder("c2.qti.log-test-none.decoder", QTI_KEYS);
+            for (int attempt = 0; attempt <= 2; attempt++) {
+                for (MediaCodecInfo decoder : new MediaCodecInfo[] {some, some, none}) {
+                    MediaCodecHelper.setDecoderLowLatencyOptions(MediaFormat.createVideoFormat(HEVC, 1920, 1080),
+                            decoder, attempt, true, true, false, false);
+                }
+            }
+            assertEquals(Arrays.asList(
+                    "c2.qti.log-test.decoder declares Snapdragon extras: [" + QTI_EXTRAS[0] + ", " + QTI_EXTRAS[2] + "]",
+                    "c2.qti.log-test-none.decoder declares Snapdragon extras: []"), lines);
+            // Not for other vendors' decoders.
+            MediaCodecHelper.setDecoderLowLatencyOptions(MediaFormat.createVideoFormat(HEVC, 1920, 1080),
+                    decoder("c2.acme.log-test.decoder", QTI_EXTRAS), 0, true, true, false, false);
+            assertEquals(2, lines.size());
+        } finally {
+            logger.removeHandler(handler);
+        }
     }
 
     @Test

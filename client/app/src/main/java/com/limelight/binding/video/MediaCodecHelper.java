@@ -500,6 +500,8 @@ public class MediaCodecHelper {
 
     private static final Map<String, List<String>> vendorParameterCache = new ConcurrentHashMap<>();
     private static final Set<String> unprobeableDecoders = ConcurrentHashMap.newKeySet();
+    // Snapdragon decoders whose declared extras were logged, once each.
+    private static final Set<String> snapdragonExtrasLogged = ConcurrentHashMap.newKeySet();
 
     /**
      * Integer vendor parameters the decoder declares, or null below Android 12 or when the codec
@@ -793,8 +795,18 @@ public class MediaCodecHelper {
         List<String> vendorParams = useVendorOptions ? getIntegerVendorParameters(decoderInfo.getName()) : null;
         if (vendorParams != null && !vendorParams.isEmpty() && tryNumber < 5) {
             // Android 12+: set exactly the low-latency keys this decoder declares. The full set goes
-            // first; the last vendor try keeps only the low-latency switches themselves.
+            // first; the last vendor try keeps only the low-latency switches themselves. The
+            // declared-only Snapdragon extras go on the first try alone, so a decoder that rejects
+            // one of them still gets the confirmed Qualcomm keys on the next tries.
+            if (tryNumber == 0 && isDecoderInList(qualcommDecoderPrefixes, decoderInfo.getName()) &&
+                    snapdragonExtrasLogged.add(decoderInfo.getName())) {
+                LimeLog.info(decoderInfo.getName() + " declares Snapdragon extras: " +
+                        VendorLowLatencyKeys.declaredQualcommExtras(vendorParams));
+            }
             for (Map.Entry<String, Integer> key : VendorLowLatencyKeys.forSupported(vendorParams).entrySet()) {
+                if (tryNumber > 0 && VendorLowLatencyKeys.QUALCOMM_DECLARED_ONLY.contains(key.getKey())) {
+                    continue;
+                }
                 if (tryNumber < 4 || VendorLowLatencyKeys.isCoreSwitch(key.getKey())) {
                     videoFormat.setInteger(key.getKey(), key.getValue());
                     setNewOption = true;

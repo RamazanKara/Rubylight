@@ -2,6 +2,8 @@
 <resources>
     <string name="title_packed_444">Deneysel tam kroma</string>
     <string name="summary_packed_444">Rubylight’ın deneysel tam kroma seçeneği, yeni akış motoru ve uyumlu bir HEVC/AV1 donanım çözücüsü gerekir. Desteklenmeyen modlar bağlantıyı durdurur. HDR ayrıca uyumlu bir 10 bit HDR görüntüleme yüzeyi gerektirir.</string>
+    <string name="title_experimental_chipset_tuning">Deneysel yonga seti ayarı</string>
+    <string name="summary_experimental_chipset_tuning">MediaTek Dimensity ve Samsung Exynos kod çözücüleri için ek düşük gecikme ayarları. Görüntü durursa veya takılırsa bunu kapatın.</string>
     <string name="scut_deleted_pc">Bilgisayar silindi</string>
     <string name="scut_not_paired">Bilgisayar eşleştirilmedi</string>
     <string name="scut_pc_not_found">Bilgisayar bulunamadı</string>

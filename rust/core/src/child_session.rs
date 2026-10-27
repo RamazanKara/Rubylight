@@ -1270,14 +1270,22 @@ fn live_rdp_port(system: &dyn SystemSettings) -> Result<u16> {
     u16::try_from(port).context("the RDP port is out of range")
 }
 
+/// How often setup looks for RDP's listener once RDP is on, through `wait`
+/// in between.
+const LISTENER_TRIES: u32 = 10;
+const LISTENER_WAIT: std::time::Duration = std::time::Duration::from_secs(1);
+
 /// Set up child sessions. The original values are recorded and saved (through
 /// `save`) before the first change, unless an earlier setup saved them
 /// already: setting up again never overwrites what was there before Rubylight.
+/// Once RDP is on, the firewall is checked again when RDP listens (`wait`s
+/// for that).
 pub fn setup(
     system: &mut dyn SystemSettings,
     saved: Option<SetupState>,
     user_sid: &str,
     save: impl FnOnce(&SetupState) -> Result<()>,
+    wait: impl FnMut(std::time::Duration),
 ) -> Result<SetupState> {
     // RDP is reachable only over loopback because the firewall blocks it;
     // with the firewall off, or group policy overriding the local rules, it
@@ -1336,7 +1344,7 @@ pub fn setup(
         );
     }
     // From the first write on, RDP may be on: whatever fails after it turns RDP off again.
-    if let Err(error) = turn_on(system, user_sid) {
+    if let Err(error) = turn_on(system, user_sid, state.rdp_port, wait) {
         let outcome = match rdp_off(system) {
             Ok(()) => format!("Remote Desktop was turned off again ({} = 1)", CHANGES[0].name),
             Err(off) => format!(
@@ -1347,8 +1355,14 @@ pub fn setup(
     }
     Ok(state)
 }
-/// Setup's changes once the firewall keeps RDP on this PC: RDP on, then child sessions.
-fn turn_on(system: &mut dyn SystemSettings, user_sid: &str) -> Result<()> {
+/// Setup's changes once the firewall keeps RDP on this PC: RDP on, then child
+/// sessions, then the firewall checked again once RDP listens, as it is then.
+fn turn_on(
+    system: &mut dyn SystemSettings,
+    user_sid: &str,
+    rdp_port: u16,
+    mut wait: impl FnMut(std::time::Duration),
+) -> Result<()> {
     for change in &CHANGES {
         system
             .write_dword(
@@ -1364,6 +1378,21 @@ fn turn_on(system: &mut dyn SystemSettings, user_sid: &str) -> Result<()> {
         .context("turning on Windows child sessions")?;
     if !system.child_sessions_enabled()? {
         bail!("Windows did not turn on child sessions; this edition may not have them");
+    }
+    // The service starts listening a moment after RDP is on; without a listener the rest of
+    // the check still runs.
+    for _ in 1..LISTENER_TRIES {
+        if !rdp_ports(system)?.is_empty() {
+            break;
+        }
+        wait(LISTENER_WAIT);
+    }
+    let open = firewall_missing(system, rdp_port)?;
+    if !open.is_empty() {
+        bail!(
+            "{}, so Remote Desktop would be open to the network",
+            open.join("; ")
+        );
     }
     Ok(())
 }

@@ -73,16 +73,45 @@ pub(crate) fn log_mode(config: &Config) {
     }
 }
 
-/// At the host's start, when child sessions are set up here: RDP stays on until
-/// restore, so a firewall that no longer keeps it on this PC turns RDP off and
-/// is said loudly (and [`start`] refuses until setup runs again).
+/// From the host's start on, every [`WATCH_EVERY`], when child sessions are
+/// set up here: RDP stays on until restore, so a firewall that no longer
+/// keeps it on this PC turns RDP off and is said loudly (and [`start`]
+/// refuses until setup runs again).
 pub(crate) fn check_at_startup(h: &Shared) {
     let directory = h.directory.clone();
     std::thread::spawn(move || {
-        if let Some(problem) = secure_rdp(&directory, native_enforce, std::thread::sleep) {
-            report(problem);
+        let mut last = None;
+        loop {
+            watch(
+                &directory,
+                &mut last,
+                native_enforce,
+                std::thread::sleep,
+                report,
+            );
+            std::thread::sleep(WATCH_EVERY);
         }
     });
+}
+/// How often the host checks the firewall while child sessions are set up:
+/// one firewall read, off any stream's path.
+const WATCH_EVERY: std::time::Duration = std::time::Duration::from_secs(60);
+/// One [`secure_rdp`] round of [`check_at_startup`]: a problem is reported
+/// when it is new (`last` holds the one before), not every round it stays.
+fn watch(
+    directory: &Path,
+    last: &mut Option<String>,
+    enforce: impl FnMut(Option<u16>, bool) -> Result<Vec<String>>,
+    wait: impl FnMut(std::time::Duration),
+    mut report: impl FnMut(String),
+) {
+    let problem = secure_rdp(directory, enforce, wait);
+    if let Some(problem) = &problem
+        && last.as_ref() != Some(problem)
+    {
+        report(problem.clone());
+    }
+    *last = problem;
 }
 
 /// Setup, restore and the firewall checks change the same Windows settings,
@@ -331,9 +360,13 @@ fn setup_in<S: SystemSettings>(
 ) -> Result<SetupState> {
     let _settings = settings_lock()?;
     let saved = load_saved(directory)?;
-    logic::setup(&mut open()?, saved, user, |state| {
-        save_state(directory, state)
-    })
+    logic::setup(
+        &mut open()?,
+        saved,
+        user,
+        |state| save_state(directory, state),
+        std::thread::sleep,
+    )
 }
 
 /// Stop the viewer and the child session's host, then put back what setup
@@ -792,6 +825,43 @@ mod tests {
         assert_eq!(written.get("port", ""), logic::CHILD_BASE_PORT.to_string());
         assert_eq!(written.get("sunshine_name", ""), "Den (background)");
         assert!(written.boolean(logic::CHILD_HOST_KEY, false));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn the_firewall_is_watched_while_child_sessions_are_set_up() {
+        let mut last = None;
+        let mut reports = Vec::new();
+        // Not set up: no check.
+        let empty = scratch();
+        let never = |_, _| -> Result<Vec<String>> { panic!("no setup, no check") };
+        watch(&empty, &mut last, never, no_wait, |p| reports.push(p));
+        std::fs::remove_dir_all(empty).unwrap();
+        // Set up: every round checks, and a problem is reported once while it stays.
+        let directory = set_up_record();
+        let rounds = [false, true, true, false, true];
+        let mut checks = 0;
+        for open in rounds {
+            watch(
+                &directory,
+                &mut last,
+                |port, _| {
+                    assert_eq!(port, Some(3390));
+                    checks += 1;
+                    Ok(if open {
+                        vec!["the block rule is not in effect".into()]
+                    } else {
+                        Vec::new()
+                    })
+                },
+                no_wait,
+                |problem| reports.push(problem),
+            );
+        }
+        assert_eq!(checks, rounds.len());
+        assert_eq!(reports.len(), 2, "{reports:?}");
+        assert!(reports[0].contains("the block rule is not in effect"));
+        assert!(WATCH_EVERY <= std::time::Duration::from_secs(60));
         std::fs::remove_dir_all(directory).unwrap();
     }
 

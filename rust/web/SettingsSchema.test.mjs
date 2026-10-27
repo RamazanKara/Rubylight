@@ -434,11 +434,27 @@ test('sleep after idle takes 0 or 5 to 1440 minutes, as the host does, and its s
   assert.equal(suspended.visibleWhen({ sleep_after_idle_minutes: 0 }), false);
 });
 
+test('the keyboard follows text fields without their text, typing with the device layout', () => {
+  const follows = settings.get('keyboard_follows_focus');
+  const surrounding = settings.get('text_input_surrounding_text');
+  const layout = settings.get('keyboard_layout');
+  assert.deepEqual([follows.default, surrounding.default, layout.default], [true, false, 'client']);
+  for (const setting of [follows, surrounding, layout]) {
+    assert.equal(setting.group, 'Keyboard', setting.key);
+    assert.match(setting.label, /\(Experimental\)$/, setting.key);
+    assert.match(setting.description, / Experimental\.$/, setting.key);
+    assert.equal(setting.visibleWhen({ keyboard: false }), false, setting.key);
+    assert.equal(setting.visibleWhen({}), true, setting.key);
+  }
+  assert.match(surrounding.description, /never from password fields/);
+  assert.equal(surrounding.visibleWhen({ keyboard_follows_focus: false }), false);
+});
+
 // The 3.0 settings whose features have shipped (settings30.rs keeps the same list).
 const live = ['audio_surround_714'];
 
 test('settings still pending stay out of the console, and shipped ones are in it', () => {
-  assert.equal(pending.length, 27);
+  assert.equal(pending.length, 24);
   for (const setting of pending) {
     const shipped = live.includes(setting.key);
     assert.equal(setting.pending === true, !shipped, setting.key);

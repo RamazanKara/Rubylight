@@ -15,10 +15,7 @@ pub const SETTINGS_30: &[(&str, &str)] = &[
     ("usb_max_devices", "4"),
     ("audio_surround_714", "true"),
     ("pen_barrel_roll", "true"),
-    ("keyboard_follows_focus", "true"),
-    ("text_input_surrounding_text", "false"),
     ("touch_keyboard_digitizer", "false"),
-    ("keyboard_layout", "client"),
     ("touch_mode", "client"),
     ("touch_sensitivity", "100"),
     ("touch_gestures", "true"),
@@ -37,17 +34,6 @@ pub const SETTINGS_30: &[(&str, &str)] = &[
     ("child_session_scale", "100"),
     ("child_session_port", "48289"),
 ];
-
-/// `keyboard_layout`: the layout the host types with.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum KeyboardLayoutSetting {
-    /// The layout the device reports (0x553E).
-    Client,
-    /// US English.
-    Us,
-    /// A Windows keyboard layout id (KLID), written as 8 hex digits.
-    Klid(u32),
-}
 
 /// `touch_mode`: how touches reach the PC.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -139,32 +125,9 @@ impl Config {
     pub fn pen_barrel_roll(&self) -> bool {
         self.boolean("pen_barrel_roll", true)
     }
-    /// Show the device's keyboard when a text field gets the focus (on by default).
-    pub fn keyboard_follows_focus(&self) -> bool {
-        self.boolean("keyboard_follows_focus", true)
-    }
-    /// Send the text around the cursor to the device's keyboard (off by
-    /// default; never for sensitive fields).
-    pub fn text_input_surrounding_text(&self) -> bool {
-        self.boolean("text_input_surrounding_text", false)
-    }
     /// Let the Windows touch keyboard open for a device's touches (off by default).
     pub fn touch_keyboard_digitizer(&self) -> bool {
         self.boolean("touch_keyboard_digitizer", false)
-    }
-    /// `keyboard_layout`: `client` (the default), `us` or an 8-hex-digit KLID.
-    pub fn keyboard_layout(&self) -> KeyboardLayoutSetting {
-        match self.text30("keyboard_layout", "client") {
-            "client" => KeyboardLayoutSetting::Client,
-            "us" => KeyboardLayoutSetting::Us,
-            other => match parse_klid(other) {
-                Some(klid) => KeyboardLayoutSetting::Klid(klid),
-                None => {
-                    invalid("keyboard_layout", other);
-                    KeyboardLayoutSetting::Client
-                }
-            },
-        }
     }
     /// `touch_mode`: `client` (the default), `mouse` or `trackpad`.
     pub fn touch_mode(&self) -> TouchMode {
@@ -290,13 +253,6 @@ impl Config {
     }
 }
 
-/// A KLID as Windows writes it: exactly 8 hex digits, such as `00000407`.
-fn parse_klid(text: &str) -> Option<u32> {
-    (text.len() == 8 && text.bytes().all(|b| b.is_ascii_hexdigit()))
-        .then(|| u32::from_str_radix(text, 16).ok())
-        .flatten()
-}
-
 fn parse_shared_folders(text: &str) -> Result<Vec<SharedFolderConfig>, String> {
     let folders: Vec<SharedFolderConfig> = serde_json::from_str(text)
         .map_err(|e| format!("shared_folders is not a JSON list of folders: {e}"))?;
@@ -327,9 +283,6 @@ mod tests {
         "hdr_dolby_vision",
         "hdr_hlg",
         "audio_surround_714",
-        "keyboard_follows_focus",
-        "text_input_surrounding_text",
-        "keyboard_layout",
         "touch_mode",
         "touch_sensitivity",
         "touch_gestures",
@@ -357,12 +310,9 @@ mod tests {
                     c.usb_max_devices(),
                     c.audio_surround_714(),
                     c.pen_barrel_roll(),
-                    c.keyboard_follows_focus(),
                 ),
                 (
-                    c.text_input_surrounding_text(),
                     c.touch_keyboard_digitizer(),
-                    c.keyboard_layout(),
                     c.touch_mode(),
                     c.touch_sensitivity(),
                     c.touch_gestures(),
@@ -388,9 +338,9 @@ mod tests {
     }
 
     #[test]
-    fn there_are_27_unique_settings() {
+    fn there_are_24_unique_settings() {
         let keys: std::collections::BTreeSet<_> = SETTINGS_30.iter().map(|(k, _)| k).collect();
-        assert_eq!((SETTINGS_30.len(), keys.len()), (27, 27));
+        assert_eq!((SETTINGS_30.len(), keys.len()), (24, 24));
     }
 
     #[test]
@@ -400,9 +350,7 @@ mod tests {
         assert!(!c.usb_forwarding());
         assert_eq!(c.usb_max_devices(), 4);
         assert!(c.audio_surround_714());
-        assert!(c.pen_barrel_roll() && c.keyboard_follows_focus());
-        assert!(!c.text_input_surrounding_text() && !c.touch_keyboard_digitizer());
-        assert_eq!(c.keyboard_layout(), KeyboardLayoutSetting::Client);
+        assert!(c.pen_barrel_roll() && !c.touch_keyboard_digitizer());
         assert_eq!(c.touch_mode(), TouchMode::Client);
         assert_eq!(c.touch_sensitivity(), 100);
         assert!(c.touch_gestures() && c.client_cursor() && c.clipboard_image());
@@ -445,9 +393,6 @@ mod tests {
             "hdr_hlg = maybe",
             "usb_max_devices = 0",
             "usb_max_devices = 17",
-            "keyboard_layout = de",
-            "keyboard_layout = 0000040",
-            "keyboard_layout = 0000040G",
             "touch_mode = pen",
             "touch_sensitivity = 24",
             "touch_sensitivity = 401",
@@ -483,7 +428,6 @@ mod tests {
     fn values_in_range_are_read() {
         let c = config(concat!(
             "usb_max_devices = 16\n",
-            "keyboard_layout = 00000407\n",
             "touch_mode = trackpad\n",
             "touch_sensitivity = 25\n",
             "clipboard_image_max_mb = 64\n",
@@ -497,15 +441,6 @@ mod tests {
             "child_session_port = 50000\n",
         ));
         assert_eq!(c.usb_max_devices(), 16);
-        assert_eq!(c.keyboard_layout(), KeyboardLayoutSetting::Klid(0x407));
-        assert_eq!(
-            config("keyboard_layout = us").keyboard_layout(),
-            KeyboardLayoutSetting::Us
-        );
-        assert_eq!(
-            config("keyboard_layout = 0001041f").keyboard_layout(),
-            KeyboardLayoutSetting::Klid(0x1041F)
-        );
         assert_eq!(c.touch_mode(), TouchMode::Trackpad);
         assert_eq!(c.touch_sensitivity(), 25);
         assert_eq!(c.clipboard_image_max_bytes(), 64 * 1024 * 1024);
@@ -550,7 +485,7 @@ mod tests {
                 "{key}"
             );
         }
-        assert_eq!(PER_DEVICE.len(), 14);
+        assert_eq!(PER_DEVICE.len(), 11);
     }
 
     /// The settings whose features have shipped, so the console shows them.

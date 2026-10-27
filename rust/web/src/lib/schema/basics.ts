@@ -791,6 +791,41 @@ const input: Setting[] = [
     visibleWhen: keyboardOn,
   },
   {
+    key: 'keyboard_follows_focus',
+    label: 'Keyboard follows text fields (Experimental)',
+    description: "Show the device's keyboard when a text field on the host gets the focus, and hide it after. Experimental.",
+    category: 'input',
+    group: 'Keyboard',
+    control: { kind: 'toggle' },
+    default: true,
+    inactiveHint: "Turn on Keyboard under Input to use this setting. Paired devices also need the Keyboard permission.",
+    visibleWhen: keyboardOn,
+  },
+  {
+    key: 'text_input_surrounding_text',
+    label: 'Send the text around the cursor (Experimental)',
+    description:
+      "Send the text around the cursor to the device's keyboard for its suggestions, never from password fields. Experimental.",
+    category: 'input',
+    group: 'Keyboard',
+    control: { kind: 'toggle' },
+    default: false,
+    inactiveHint: 'Turn on Keyboard and Keyboard follows text fields under Input to use this setting.',
+    visibleWhen: (values) => keyboardOn(values) && on(values, 'keyboard_follows_focus', true),
+  },
+  {
+    key: 'keyboard_layout',
+    label: 'Keyboard layout (Experimental)',
+    description:
+      "The layout that turns the device's keys into scan codes: client for the one the device reports, us for US English, or a Windows layout id. Experimental.",
+    category: 'input',
+    group: 'Keyboard',
+    control: { kind: 'text', placeholder: 'client, us or 00000407', mono: true },
+    default: 'client',
+    inactiveHint: "Turn on Keyboard under Input to use this setting. Paired devices also need the Keyboard permission.",
+    visibleWhen: keyboardOn,
+  },
+  {
     key: 'high_resolution_scrolling',
     label: 'High-resolution scrolling',
     description:

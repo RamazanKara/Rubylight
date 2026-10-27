@@ -9,10 +9,7 @@ use std::{
 };
 
 mod settings30;
-pub use settings30::{
-    BackgroundMode, DisplayAdjust, KeyboardLayoutSetting, SETTINGS_30, SharedFolderConfig,
-    TouchMode,
-};
+pub use settings30::{BackgroundMode, DisplayAdjust, SETTINGS_30, SharedFolderConfig, TouchMode};
 
 /// Setting values Rubylight no longer offers, and what replaces each:
 /// the ViGEmBus controllers, which Sunshine, Apollo, Vibepollo and earlier
@@ -516,6 +513,34 @@ impl Config {
     pub fn bandwidth_probe(&self) -> bool {
         self.boolean("bandwidth_probe", true)
     }
+    /// Show the device's keyboard when a text field on the host gets the focus
+    /// (`keyboard_follows_focus`, on by default, Experimental): the host offers
+    /// text input (0x553B) and watches the focus for devices that ask.
+    pub fn keyboard_follows_focus(&self) -> bool {
+        self.boolean("keyboard_follows_focus", true)
+    }
+    /// Send the text around the cursor to the device's keyboard
+    /// (`text_input_surrounding_text`, off by default); never for password or
+    /// other sensitive fields.
+    pub fn text_input_surrounding_text(&self) -> bool {
+        self.boolean("text_input_surrounding_text", false)
+    }
+    /// `keyboard_layout`: `client` (the default, the layout the device reports
+    /// in 0x553E), `us` or an 8-hex-digit Windows layout id such as `00000407`.
+    /// The host turns a device's keys into scan codes with it.
+    pub fn keyboard_layout(&self) -> KeyboardLayoutSetting {
+        match unquote(self.get("keyboard_layout", "client").trim()).trim() {
+            "" | "client" => KeyboardLayoutSetting::Client,
+            "us" => KeyboardLayoutSetting::Us,
+            other => match parse_klid(other) {
+                Some(klid) => KeyboardLayoutSetting::Klid(klid),
+                None => {
+                    invalid("keyboard_layout", other);
+                    KeyboardLayoutSetting::Client
+                }
+            },
+        }
+    }
     /// The WebRTC server for TV and browser clients (off by default).
     pub fn webrtc_server(&self) -> bool {
         self.boolean("webrtc_server", false)
@@ -924,6 +949,24 @@ const PORTS: std::ops::RangeInclusive<i64> = 1029..=65514;
 pub const WEBRTC_PORT: u16 = 8000;
 pub const WEBRTC_MEDIA_PORT: u16 = 8001;
 const WEBRTC_PORTS: std::ops::RangeInclusive<i64> = 1024..=65535;
+/// `keyboard_layout`: the layout the host types a device's keys with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyboardLayoutSetting {
+    /// The layout the device reports (0x553E).
+    Client,
+    /// US English.
+    Us,
+    /// A Windows keyboard layout id (KLID), written as 8 hex digits.
+    Klid(u32),
+}
+
+/// A KLID as Windows writes it: exactly 8 hex digits, such as `00000407`.
+pub fn parse_klid(text: &str) -> Option<u32> {
+    (text.len() == 8 && text.bytes().all(|b| b.is_ascii_hexdigit()))
+        .then(|| u32::from_str_radix(text, 16).ok())
+        .flatten()
+}
+
 /// Whether a device or an app may override `key` for its streams. As in
 /// Vibepollo, overrides cover stream, input, display and encoder behaviour;
 /// identity, network, paths and integrations stay host-wide.
@@ -1372,6 +1415,24 @@ mod tests {
     }
 
     #[test]
+    fn the_keyboard_follows_text_fields_without_their_text_by_default() {
+        let c = super::Config::default();
+        assert!(c.keyboard_follows_focus() && !c.text_input_surrounding_text());
+        let c = super::Config::parse(
+            "keyboard_follows_focus = disabled\ntext_input_surrounding_text = enabled\n",
+        )
+        .unwrap();
+        assert!(!c.keyboard_follows_focus() && c.text_input_surrounding_text());
+        for key in [
+            "keyboard_follows_focus",
+            "text_input_surrounding_text",
+            "keyboard_layout",
+        ] {
+            assert!(super::override_allowed(key), "{key}");
+        }
+    }
+
+    #[test]
     fn the_bandwidth_probe_is_on_unless_turned_off() {
         assert!(super::Config::default().bandwidth_probe());
         for (text, on) in [
@@ -1384,6 +1445,26 @@ mod tests {
                 on,
                 "{text}"
             );
+        }
+    }
+
+    #[test]
+    fn keyboard_layout_takes_client_us_or_a_klid() {
+        use super::KeyboardLayoutSetting::{Client, Klid, Us};
+        let layout = |text: &str| super::Config::parse(text).unwrap().keyboard_layout();
+        assert_eq!(super::Config::default().keyboard_layout(), Client);
+        for (text, expected) in [
+            ("keyboard_layout = client", Client),
+            ("keyboard_layout = us", Us),
+            ("keyboard_layout = 00000407", Klid(0x407)),
+            ("keyboard_layout = \"0001041f\"", Klid(0x1041F)),
+            // What the host can't use is reported and the device's layout applies.
+            ("keyboard_layout = de", Client),
+            ("keyboard_layout = 0000040", Client),
+            ("keyboard_layout = 0000040G", Client),
+            ("keyboard_layout = 000004070", Client),
+        ] {
+            assert_eq!(layout(text), expected, "{text}");
         }
     }
 

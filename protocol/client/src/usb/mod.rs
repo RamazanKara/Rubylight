@@ -96,6 +96,21 @@ impl Tunnel for TcpTunnel {
     }
 }
 
+static WARN: std::sync::OnceLock<fn(&str)> = std::sync::OnceLock::new();
+
+/// Where forwarding's warnings go, things that don't end an attachment but should be seen:
+/// stderr until the platform names its log (Android's has no stderr). The first call wins.
+pub fn warn_with(warn: fn(&str)) {
+    let _ = WARN.set(warn);
+}
+
+pub(crate) fn warn(message: &str) {
+    match WARN.get() {
+        Some(warn) => warn(message),
+        None => eprintln!("nightjar: {message}"),
+    }
+}
+
 /// Reads exactly `bytes`; `Ok(false)` when the peer closed before the first byte.
 pub(crate) fn read_whole(tunnel: &dyn Tunnel, bytes: &mut [u8]) -> std::io::Result<bool> {
     let mut at = 0;

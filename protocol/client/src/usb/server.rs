@@ -1,7 +1,7 @@
 //! The USB/IP server one forwarded device runs: the driver's import, then its submits and
 //! unlinks, answered as the device completes them.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use rubylight_protocol::usbip::{self as wire, Base, Header, IsoPacket};
@@ -145,10 +145,21 @@ struct Shared {
     state: Mutex<State>,
 }
 
+/// The transfers one device may have in flight. The driver queues a few per endpoint; one
+/// that queues more than this would pile up buffers on the client.
+pub(crate) const MAX_IN_FLIGHT: usize = 1024;
+/// The bytes those transfers may ask for together, each up to [`wire::MAX_TRANSFER`].
+pub(crate) const MAX_BUFFERED: u64 = 64 << 20;
+
 #[derive(Default)]
 struct State {
-    /// Submits the device has yet to complete; a completion for any other is dropped.
-    pending: HashSet<u32>,
+    /// Submits the device has yet to complete, with the bytes each asked for; a completion for
+    /// any other is dropped.
+    pending: HashMap<u32, u64>,
+    /// The sum of `pending`'s bytes.
+    buffered: u64,
+    /// A submit was refused for going past [`MAX_IN_FLIGHT`] or [`MAX_BUFFERED`]: said once.
+    refused: bool,
     /// Set once serving ends: late completions write nothing.
     closed: bool,
     /// What made a completion close the tunnel.
@@ -159,7 +170,22 @@ impl Shared {
     fn state(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
+}
 
+impl State {
+    /// Takes `seqnum` out of `pending`: whether it was there.
+    fn settle(&mut self, seqnum: u32) -> bool {
+        match self.pending.remove(&seqnum) {
+            Some(bytes) => {
+                self.buffered -= bytes;
+                true
+            }
+            None => false,
+        }
+    }
+}
+
+impl Shared {
     /// Ends serving with `error` unless it already ended; the read loop wakes and returns it.
     fn fail(&self, state: &mut State, error: ServeError) {
         if !state.closed && state.failure.is_none() {
@@ -208,7 +234,7 @@ impl Drop for Completion {
 
 fn finish(shared: &Shared, asked: &Asked, reply: Reply) {
     let mut state = shared.state();
-    if state.closed || !state.pending.remove(&asked.seqnum) {
+    if state.closed || !state.settle(asked.seqnum) {
         return;
     }
     let message = match ret_submit(asked, reply) {
@@ -299,6 +325,7 @@ pub fn serve(tunnel: Arc<dyn Tunnel>, device: Arc<dyn UsbDevice>) -> Result<(), 
         let mut state = shared.state();
         state.closed = true;
         state.pending.clear();
+        state.buffered = 0;
         state.failure.take()
     };
     tunnel.close();
@@ -376,21 +403,48 @@ fn run(shared: &Arc<Shared>, device: &dyn UsbDevice) -> Result<(), ServeError> {
                     .ok_or_else(|| ServeError::Protocol("short packet descriptors".into()))?
                     .collect();
                 body.truncate(body.len() - iso.len() * wire::ISO_PACKET_BYTES);
-                if !shared.state().pending.insert(base.seqnum) {
+                let asked = Asked {
+                    seqnum: base.seqnum,
+                    direction,
+                    length,
+                    packets,
+                    iso: iso.clone(),
+                };
+                let bytes = u64::from(length);
+                let mut state = shared.state();
+                if state.pending.contains_key(&base.seqnum) {
                     return Err(ServeError::Protocol(format!(
                         "seqnum {} reused while in flight",
                         base.seqnum
                     )));
                 }
+                if state.pending.len() >= MAX_IN_FLIGHT || state.buffered + bytes > MAX_BUFFERED {
+                    // Refused as Linux refuses a submit it has no memory for. Answered under
+                    // the lock, like every completion.
+                    let first = !std::mem::replace(&mut state.refused, true);
+                    let (count, buffered) = (state.pending.len(), state.buffered);
+                    let answer = ret_submit(&asked, Reply::failed(wire::ENOMEM))
+                        .map_err(ServeError::Device)?;
+                    tunnel.write_all(&answer)?;
+                    drop(state);
+                    if first {
+                        super::warn(&format!(
+                            "USB {}: the host's driver has {count} transfers ({} KiB) in flight; \
+                             a device takes at most {MAX_IN_FLIGHT} or {} KiB, so more fail with \
+                             ENOMEM until some complete",
+                            described.busid,
+                            buffered >> 10,
+                            MAX_BUFFERED >> 10
+                        ));
+                    }
+                    continue;
+                }
+                state.pending.insert(base.seqnum, bytes);
+                state.buffered += bytes;
+                drop(state);
                 let done = Completion {
                     shared: shared.clone(),
-                    asked: Some(Asked {
-                        seqnum: base.seqnum,
-                        direction,
-                        length,
-                        packets,
-                        iso: iso.clone(),
-                    }),
+                    asked: Some(asked),
                 };
                 device.submit(
                     Transfer {
@@ -410,7 +464,7 @@ fn run(shared: &Arc<Shared>, device: &dyn UsbDevice) -> Result<(), ServeError> {
             }
             Some(Header::Unlink { base, unlink }) => {
                 // Out of `pending` first, so its completion, however close, is dropped.
-                let cancelled = shared.state().pending.remove(&unlink);
+                let cancelled = shared.state().settle(unlink);
                 // Stopped before it is answered, as Linux's own USB/IP host does: once the
                 // driver hears, the endpoint's next transfer gets what the device sends next,
                 // not the transfer it gave up on. Out of the lock, because stopping it may

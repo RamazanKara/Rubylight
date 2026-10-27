@@ -37,6 +37,7 @@ pub const DIR_IN: u32 = 1;
 
 /// Linux errno values, negated, as the statuses carry them.
 pub const ENOENT: i32 = -2;
+pub const ENOMEM: i32 = -12;
 pub const ENODEV: i32 = -19;
 pub const EINVAL: i32 = -22;
 pub const EPIPE: i32 = -32;

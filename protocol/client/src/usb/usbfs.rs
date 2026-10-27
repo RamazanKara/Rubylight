@@ -846,7 +846,10 @@ impl<K: Kernel> UsbDevice for UsbfsDevice<K> {
             return;
         };
         // Still ours under the lock: the reaper removes it only after taking it. It comes back
-        // with -ENOENT, which the server drops, or completed already (EINVAL here).
+        // with -ENOENT, which the server drops, or completed already (EINVAL here). The lock
+        // stays held: the kernel finds the URB by its address, which a reaped and freed URB
+        // could hand to the next submit, and DISCARDURB only starts the unlink
+        // (usb_unlink_urb), so the reaper waits no longer than the ioctl.
         let _ = self.inner.kernel.discard(flight.urb.as_ptr());
     }
 

@@ -4,4 +4,6 @@
     <string name="summary_fec_choice">Скільки даних для відновлення ПК з Rubylight додає до відео. «Автоматично» підлаштовується під втрати цього пристрою. Інші ПК використовують власне налаштування.</string>
     <string name="fec_choice_host">Налаштування ПК</string>
     <string name="fec_choice_auto">Автоматично</string>
+    <string name="title_link_probe">Перевірка каналу перед першим бітрейтом (експериментально)</string>
+    <string name="summary_link_probe">Новий потік з автоматичним бітрейтом спершу перевіряє канал до ПК з Rubylight і починає не вище того, що він витримує.</string>
 </resources>

@@ -210,11 +210,12 @@ pub fn stream_mode(settings: &Settings, display: Display) -> (u32, u32, u32, u32
     (w, h, fps, bitrate)
 }
 
-/// A new stream at the automatic bitrate times the link first when the PC offers the test
+/// With the link test switched on (`link_probe`, off by default because it measured worse), a new
+/// stream at the automatic bitrate times the link first when the PC offers the test
 /// (`Feature::BandwidthProbe`), and starts no higher than it holds. PyroWave has its own test and
 /// a minimum bitrate; a resume keeps the bitrate of the running session's launch.
 fn probes_first_bitrate(settings: &Settings, resume: bool, info: &ServerInfo) -> bool {
-    !resume && settings.bitrate_kbps == 0
+    settings.link_probe && !resume && settings.bitrate_kbps == 0
         && !matches!(settings.codec, CodecPreference::PyroWave | CodecPreference::PyroWave444)
         && info.paired && info.capabilities.has(Feature::BandwidthProbe)
 }
@@ -3051,12 +3052,13 @@ mod tests {
     fn only_a_new_stream_at_the_automatic_bitrate_tests_the_link_first() {
         let info = |paired: u8, version: &str| ServerInfo::parse(&format!("<root status_code=\"200\"><uniqueid>pc</uniqueid><state>SERVER_FREE</state><PairStatus>{paired}</PairStatus><BandwidthProbeVersion>{version}</BandwidthProbeVersion></root>"), 47989).unwrap();
         let offered = info(1, "1");
-        let auto = Settings::default();
+        assert!(!probes_first_bitrate(&Settings::default(), false, &offered), "the link test is off by default");
+        let auto = Settings { link_probe: true, ..Default::default() };
         assert!(probes_first_bitrate(&auto, false, &offered));
         assert!(!probes_first_bitrate(&auto, true, &offered), "a resume keeps the session's bitrate");
-        assert!(!probes_first_bitrate(&Settings { bitrate_kbps: 30_000, ..Default::default() }, false, &offered));
+        assert!(!probes_first_bitrate(&Settings { bitrate_kbps: 30_000, ..auto.clone() }, false, &offered));
         for codec in [CodecPreference::PyroWave, CodecPreference::PyroWave444] {
-            assert!(!probes_first_bitrate(&Settings { codec, ..Default::default() }, false, &offered));
+            assert!(!probes_first_bitrate(&Settings { codec, ..auto.clone() }, false, &offered));
         }
         assert!(!probes_first_bitrate(&auto, false, &info(1, "0")), "a PC that does not offer the test");
         assert!(!probes_first_bitrate(&auto, false, &info(0, "1")), "an unpaired PC");

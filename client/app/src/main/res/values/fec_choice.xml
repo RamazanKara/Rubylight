@@ -10,4 +10,6 @@
     <string name="fec_choice_50" translatable="false">50 %</string>
     <string-array name="fec_choice_names"><item>@string/fec_choice_host</item><item>@string/fec_choice_auto</item><item>@string/fec_choice_10</item><item>@string/fec_choice_20</item><item>@string/fec_choice_30</item><item>@string/fec_choice_50</item></string-array>
     <string-array name="fec_choice_values" translatable="false"><item>host</item><item>auto</item><item>10</item><item>20</item><item>30</item><item>50</item></string-array>
+    <string name="title_link_probe">Link test before the first bitrate (Experimental)</string>
+    <string name="summary_link_probe">A new stream at the automatic bitrate tests the link to a Rubylight PC first and starts no higher than it holds.</string>
 </resources>

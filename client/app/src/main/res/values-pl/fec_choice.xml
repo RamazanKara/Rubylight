@@ -4,4 +4,6 @@
     <string name="summary_fec_choice">Ile danych naprawczych komputer z Rubylight dodaje do obrazu. Automatycznie dopasowuje się do strat tego urządzenia. Inne komputery używają własnych ustawień.</string>
     <string name="fec_choice_host">Ustawienie komputera</string>
     <string name="fec_choice_auto">Automatycznie</string>
+    <string name="title_link_probe">Test łącza przed pierwszą przepływnością (eksperymentalne)</string>
+    <string name="summary_link_probe">Nowa transmisja z automatyczną przepływnością najpierw testuje łącze z komputerem z Rubylight i nie zaczyna powyżej tego, co ono wytrzyma.</string>
 </resources>

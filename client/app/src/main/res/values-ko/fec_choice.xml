@@ -4,4 +4,6 @@
     <string name="summary_fec_choice">Rubylight PC가 영상에 추가하는 복구 데이터의 양입니다. 자동은 이 기기의 손실에 맞춥니다. 다른 PC는 자체 설정을 사용합니다.</string>
     <string name="fec_choice_host">PC 설정</string>
     <string name="fec_choice_auto">자동</string>
+    <string name="title_link_probe">첫 비트레이트 전에 연결 테스트(실험적)</string>
+    <string name="summary_link_probe">자동 비트레이트의 새 스트림은 먼저 Rubylight PC와의 연결을 테스트하고, 연결이 감당할 수 있는 것보다 높게 시작하지 않습니다.</string>
 </resources>

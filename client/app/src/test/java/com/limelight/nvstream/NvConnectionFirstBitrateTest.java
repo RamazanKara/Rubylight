@@ -1,6 +1,8 @@
 package com.limelight.nvstream;
 
 import android.app.Application;
+import android.content.SharedPreferences;
+import android.preference.PreferenceManager;
 
 import com.limelight.nvstream.av.video.VideoDecoderRenderer;
 import com.limelight.nvstream.http.ComputerDetails;
@@ -8,6 +10,7 @@ import com.limelight.nvstream.http.FecChoice;
 import com.limelight.nvstream.http.LimelightCryptoProvider;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.jni.MoonBridge;
+import com.limelight.preferences.PreferenceConfiguration;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -61,6 +64,33 @@ public class NvConnectionFirstBitrateTest {
         start(NEW + PROBE, 40000, true, null);
         assertEquals(List.of("bandwidth-probe", "launch"), NvConnectionRecoveryTest.FakeHost.requests);
         assertEquals(40000, NvConnectionHapticsFlagTest.CapturingBridge.bitrate);
+    }
+
+    // The link test measured worse on the NUC (rust/PERFORMANCE.md), so it runs only when switched
+    // on: by default a new stream at the automatic bitrate on a PC with the test is not tested.
+    @Test public void theLinkTestIsOffByDefaultAndRunsOnlyWhenSwitchedOn() throws Exception {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication());
+        prefs.edit().clear().commit();
+        NvConnectionRecoveryTest.FakeHost.linkMbps = 25;
+        PreferenceConfiguration defaults = PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication());
+        assertTrue(defaults.automaticBitrate);
+        assertFalse(defaults.linkProbe);
+        assertFalse(defaults.probesFirstBitrate());
+        start(NEW + PROBE, 40000, defaults.probesFirstBitrate(), null);
+        assertEquals(List.of("launch"), NvConnectionRecoveryTest.FakeHost.requests);
+        assertEquals(40000, NvConnectionHapticsFlagTest.CapturingBridge.bitrate);
+
+        prefs.edit().putBoolean("checkbox_link_probe", true).commit();
+        PreferenceConfiguration on = PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication());
+        assertTrue(on.probesFirstBitrate());
+        start(NEW + PROBE, 40000, on.probesFirstBitrate(), null);
+        assertEquals(List.of("bandwidth-probe", "launch"), NvConnectionRecoveryTest.FakeHost.requests);
+        assertEquals(20000, NvConnectionHapticsFlagTest.CapturingBridge.bitrate);
+
+        // A bitrate the user set is never tested, switched on or not.
+        prefs.edit().putInt("seekbar_bitrate_kbps", 40000).putBoolean("bitrate_user_set", true).commit();
+        assertFalse(PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication()).probesFirstBitrate());
+        prefs.edit().clear().commit();
     }
 
     // A bitrate the user chose, a PC without the test and a resume (the PC refuses the test while

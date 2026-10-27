@@ -433,6 +433,18 @@ public class PerformanceOverlayTest {
     }
 
     @Test
+    public void framePacingFromReleaseTimesSaysSo() {
+        PresentJitter.Snapshot window = pacingWindow();
+        window.releaseTime = true;
+        String text = PerformanceOverlay.presentJitterText(context(Locale.US), window);
+        assertTrue(text, text.startsWith(String.format(Locale.US,
+                "Frame pacing (release time): %.1f ms · jitter %.2f ms · judder 5.0%%\n", window.averageMs, window.jitterMs)));
+        assertTrue(text, text.endsWith("Vsyncs per frame: 0: 2.5% · 1: 95.0% · 3: 2.5%\n▁▁▃▁▁▁▁▁▁▁"));
+        text = PerformanceOverlay.presentJitterText(context(Locale.GERMANY), window);
+        assertTrue(text, text.startsWith("Bildtakt (Freigabezeit): "));
+    }
+
+    @Test
     public void framePacingUsesTheLocaleAndIsLeftOutWithoutAWindow() {
         String text = PerformanceOverlay.presentJitterText(context(Locale.GERMANY), pacingWindow());
         assertTrue(text, text.startsWith("Bildtakt: "));

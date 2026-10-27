@@ -28,6 +28,7 @@
     <string name="perf_overlay_shownfps">Rendered: %1$s</string>
     <string name="perf_overlay_presentdrops">Estimated display drops: %1$d</string>
     <string name="perf_overlay_frame_pacing">Frame pacing: %1$s ms · jitter %2$s ms · judder %3$s%%</string>
+    <string name="perf_overlay_frame_pacing_release">Frame pacing (release time): %1$s ms · jitter %2$s ms · judder %3$s%%</string>
     <string name="perf_overlay_vsyncs_per_frame">Vsyncs per frame: %1$s</string>
     <string name="perf_overlay_low_latency">Low latency mode: %1$s</string>
     <string name="perf_overlay_low_latency_android_vendor">Android + chip vendor</string>

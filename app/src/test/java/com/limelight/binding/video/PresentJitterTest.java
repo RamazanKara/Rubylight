@@ -139,6 +139,22 @@ public class PresentJitterTest {
         assertEquals(1, window.histogram[1]);
     }
 
+    @Test public void releaseTimesAndPresentsNeverShareAWindow() {
+        PresentJitter jitter = enabled();
+        long ns = 1_000_000_000L;
+        for (int i = 0; i <= 5; i++) jitter.record(ns + i * VSYNC_60, true);
+        assertEquals(5, jitter.size());
+        assertTrue(jitter.snapshot(VSYNC_60).releaseTime);
+        // The first present starts a new window instead of adding an interval to a release time.
+        jitter.record(ns + 6 * VSYNC_60);
+        assertEquals(0, jitter.size());
+        jitter.record(ns + 7 * VSYNC_60);
+        assertEquals(1, jitter.size());
+        assertFalse(jitter.snapshot(VSYNC_60).releaseTime);
+        jitter.record(ns + 8 * VSYNC_60, true);
+        assertEquals(0, jitter.size());
+    }
+
     @Test public void disabledRecordsNothingAndSwitchingStartsAnEmptyWindow() {
         PresentJitter jitter = new PresentJitter();
         assertFalse(jitter.isEnabled());

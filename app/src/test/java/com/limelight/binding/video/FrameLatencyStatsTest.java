@@ -1411,6 +1411,39 @@ public class FrameLatencyStatsTest {
         assertNull(stats.presentJitter(vsync));
     }
 
+    @Test public void presentJitterTakesReleaseTimesWithoutRenderCallbacks() {
+        // The GL upscaler and Android 5 never report a render: the release is the closest time.
+        long vsync = 16_666_667L;
+        FrameLatencyStats stats = new FrameLatencyStats();
+        stats.setPresentJitterEnabled(true);
+        for (int i = 1; i <= 11; i++) {
+            long outputNs = 1_000_000_000L + i * vsync;
+            stats.onDecoderInput(i, i, outputNs - 3_000_000L, outputNs - 3_000_000L, outputNs - 3_000_000L, (char) 0);
+            stats.onDecoderQueued(i, outputNs - 3_000_000L);
+            stats.onDecoderOutput(0, i, outputNs);
+            stats.onOutputReleased(0, outputNs + 1_000_000L, true, false);
+        }
+        // A dropped frame is no present either way.
+        stats.onDecoderInput(12, 12, 2_000_000_000L, 2_000_000_000L, 2_000_000_000L, (char) 0);
+        stats.onDecoderQueued(12, 2_000_000_000L);
+        stats.onDecoderOutput(0, 12, 2_000_000_000L);
+        stats.onOutputReleased(0, 1_000_000_000L + 12 * vsync, false, false);
+        PresentJitter.Snapshot window = stats.presentJitter(vsync);
+        assertEquals(10, window.count);
+        assertEquals(10, window.histogram[1]);
+        assertTrue(window.releaseTime);
+
+        // Render reports replace the release times; the window starts over with them.
+        for (int i = 13; i <= 15; i++) {
+            long outputNs = 1_000_000_000L + i * vsync;
+            releasedForDisplay(stats, i, outputNs);
+            stats.onFrameRendered(i, outputNs + 2_000_000L);
+        }
+        window = stats.presentJitter(vsync);
+        assertEquals(2, window.count);
+        assertFalse(window.releaseTime);
+    }
+
     @Test public void presentJitterTakesVulkanQueueTimesAndForgetsTheLastPresentOnReset() {
         long vsync = 8_333_333L;
         FrameLatencyStats stats = new FrameLatencyStats();

@@ -27,6 +27,7 @@ use tower::ServiceExt;
 mod compat;
 mod couch_menu;
 mod files;
+mod folders;
 mod launcher;
 mod radeon;
 mod usb;
@@ -236,6 +237,10 @@ async fn an_unpaired_request_gets_403_not_paired_on_every_endpoint() {
         ("POST", "/radeon/settings"),
         ("POST", "/radeon/restore"),
         ("GET", "/wake"),
+        ("GET", "/folders"),
+        ("GET", "/folders/games/entries?path="),
+        ("GET", "/folders/games/content?path=a"),
+        ("PUT", "/folders/games/content?path=a"),
     ];
     let certificate_less = Connection {
         certificate: None,
@@ -320,12 +325,13 @@ async fn unknown_paths_and_methods_answer_404_not_found_in_the_error_shape() {
         ("GET", "/session/close-game"),
         ("GET", "/session/couch-menu"),
         ("POST", "/usb/tunnel"),
+        ("POST", "/folders"),
+        ("PUT", "/folders/games/entries?path="),
+        ("DELETE", "/folders/games/content?path=a"),
+        ("GET", "/folders/games"),
         // Defined for 3.0, not yet served.
-        ("GET", "/folders"),
-        ("GET", "/folders/games/entries?path="),
-        ("GET", "/folders/games/content?path=a"),
-        ("PUT", "/folders/games/content?path=a"),
         ("PROPFIND", "/folders/games/dav/"),
+        ("GET", "/folders/games/dav/"),
     ] {
         api(&s.f, &s.connection, method, path)
             .await
@@ -419,7 +425,7 @@ async fn usb_and_shared_folders_show_what_the_device_holds_and_list_no_feature()
         (granted.permissions.usb, granted.permissions.shared_folders),
         (true, true)
     );
-    // USB forwarding is off by default and shared folders are not served yet, so the features
+    // USB forwarding is off by default and the host shares no folder, so the features
     // stay what a 2.x client reads.
     assert_eq!(granted.features, none.features);
 }

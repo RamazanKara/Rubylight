@@ -8,6 +8,7 @@
 //! a copy taken at launch: a grant or revoke in the console applies to the
 //! next request.
 pub(crate) mod files;
+mod folders;
 pub(crate) mod radeon;
 pub(crate) mod wake;
 
@@ -18,7 +19,7 @@ use axum::{
     extract::{DefaultBodyLimit, Request, State},
     http::{StatusCode, header},
     response::{IntoResponse, Response},
-    routing::{any, get, post},
+    routing::{any, get, post, put},
 };
 use butterpollo_core::{
     native::{self, FILE_DOWNLOAD, FILE_UPLOAD, LAUNCH, LIST, VIEW},
@@ -178,6 +179,17 @@ pub fn router() -> Router<Shared> {
         .route(
             &path("/files/content"),
             get(files::content).fallback(unknown),
+        )
+        .route(&path("/folders"), get(folders::list).fallback(unknown))
+        .route(
+            &path("/folders/{id}/entries"),
+            get(folders::entries).fallback(unknown),
+        )
+        .route(
+            &path("/folders/{id}/content"),
+            get(folders::content)
+                .merge(put(folders::upload).layer(DefaultBodyLimit::disable()))
+                .fallback(unknown),
         )
         .route(&path("/wake"), get(wake::read).fallback(unknown))
         .route(

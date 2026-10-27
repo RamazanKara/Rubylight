@@ -67,6 +67,10 @@ All paths start with `/api/native/v1`. "Owner" means the caller owns the current
 | GET | `/files` | Download files, File transfer on | FileList |
 | POST | `/files?name=` | Upload files, File transfer on | 201 Uploaded |
 | GET | `/files/content?name=` | Download files, File transfer on | The file's bytes |
+| GET | `/folders` | a folder grant | FolderList (feature `folders`) |
+| GET | `/folders/{id}/entries?path=` | a grant for `id` | FolderEntries |
+| GET | `/folders/{id}/content?path=` | a grant for `id` | The file's bytes |
+| PUT | `/folders/{id}/content?path=` | a `write` grant for `id` | 201 Uploaded |
 
 Permission bits are the existing ones: List `1 << 24`, View `1 << 25`, Launch `1 << 26`, Upload files `1 << 18`, Download files `1 << 19`. Host control is a separate per-device flag (see below).
 
@@ -416,6 +420,37 @@ The image clipboard (Experimental) is `type=png` on Vibepollo's `/actions/clipbo
 - `GET /actions/clipboard?type=png` answers `image/png`, or 404 while the clipboard holds no image. A `PNG` another program put on the clipboard is passed on as it is; a bitmap (`CF_DIBV5` or `CF_DIB`, 24 or 32 bits a pixel) is converted. An image larger than the limit below is 413, one the host can't convert 415.
 - `POST /actions/clipboard?type=png` takes `Content-Type: image/png` (415 without it) of at most `clipboard_image_max_mb` (16 MiB by default, 1 to 64), and is 413 above that: by its `Content-Length` before a byte is read, or once the body passes the limit. The 1 MiB limit of the other routes, text on this one included, doesn't apply to it. The host checks the image's size before it decodes the pixels (at most 16384 a side and 32 megapixels, else 413), then puts them on the clipboard as `CF_DIBV5` and `PNG`, re-encoded, so no other chunk of the file reaches the PC's programs. A body that isn't a PNG is 400, one the host can't decode 415.
 
+## Shared folders
+
+Shared folders (Experimental) let a paired device browse folders of the PC, download from them and, with a `write` grant, upload to them. The host's `shared_folders` setting names the folders: a JSON list of `{"id": "games", "name": "Games", "path": "D:\\Games"}`, where `id` is 1 to 64 ASCII letters, digits, `-` or `_` and `path` is a folder on a drive of this PC (no network share, `\\?\` or `\\.\` path, `.`, `..` or stream name). The host lists the feature `folders` while it shares at least one; `folders.mount` (WebDAV) is not served.
+
+A device sees a folder only with a grant for it: `"shared_folders": {"<folder id>": "read" | "write"}` in its `extra` map, set in the console. No `perm` bit or Full control grants a folder, and the File transfer setting isn't needed. `permissions.shared_folders` is `true` when the device holds at least one grant; it is missing from older hosts and then `false`. `/api/clients/update` refuses any other grant value, and `null` clears them; a hand-edited grant it would refuse, such as `"../x"`, grants nothing. Taking a grant away, or a `write` grant back to `read`, disconnects the device, as removing `perm` bits does. The setting and the grant are read on every request and every 250 ms while a transfer runs: dropping either, or pointing the folder's id at another path, ends a running upload with `403` and deletes its `.part` file, and ends a running download before its last byte.
+
+| Method | Path | Needs | Result |
+|---|---|---|---|
+| GET | `/folders` | a grant for a shared folder | FolderList: the device's grants only, in the host's order |
+| GET | `/folders/{id}/entries?path=` | a grant for `id` | FolderEntries |
+| GET | `/folders/{id}/content?path=` | a grant for `id` | The file's bytes |
+| PUT | `/folders/{id}/content?path=` | a `write` grant for `id` | `201` with `{ "name": ..., "size": ... }`, as an upload to `/files` |
+
+```json
+{ "folders": [ { "id": "games", "name": "Games", "access": "read" } ] }
+{ "path": "saves", "entries": [ { "name": "slot1.sav", "kind": "file", "size": 4096, "modified_unix_ms": 1792000000000 } ] }
+```
+
+- `path` is percent-encoded UTF-8, as `name` is for `/files`: names below the folder separated by `/`, missing or empty for the folder itself. Each name follows the `/files` rules (up to 255 UTF-16 units here, and no `.part` name), and a path has at most 64. An empty name (a leading, trailing or double `/`), `.`, `..`, `\`, a stream name (`:`), a device name such as `CON`, or more than one `path` is `invalid_name`.
+- Files are opened as the signed-in Windows user, only below the folder. Each name is checked against what Windows opened, so a link, junction or other reparse point (even one back into the folder) or an 8.3 short name is `not_found`, like anything missing; names match in any case, as Windows matches them. A shared folder may itself be reached through a junction.
+- `entries` lists folders first, then plain files, each by name. Links, `.part` files and names a path can't hold are skipped. `kind` is `file` or `dir`; an unknown `access` or `kind` decodes as `Unknown`. `size` is 0 for a folder.
+- `content` is sent as `GET /files/content` sends it: exact `Content-Length`, ended early if the file changes, the download caps and `transfer_busy`.
+- A PUT's last name is the file, written into its folder, which must exist (`not_found`). It follows `POST /files`: a `.part` name is `invalid_name`; `length_required`, `too_large` (`file_transfer_max_mb`), `insufficient_storage`, `incomplete_upload` and `transfer_busy` (one upload per device, shared with `/files`); the `.part` file renamed once all of it arrived; a taken name numbered; a refused body answered with `Connection: close`.
+- Uploads and downloads count against file transfer's caps and move at `file_transfer_stream_mbps` while a stream runs, together with `/files`.
+
+| HTTP | `code` | When |
+|---|---|---|
+| 403 | `folders_disabled` | The host shares no folders |
+| 403 | `forbidden` | The device has no grant for the folder (or for any, on `GET /folders`), or only `read` for a PUT |
+| 404 | `not_found` | The host no longer shares the granted folder, or the path isn't in it |
+
 ## The host control permission
 
 - It is stored per device as `"host_control": true` in that client's `extra` map in the paired state, like `allow_client_commands`. The host reads `true` and `"true"` as on, like the other boolean keys in `extra`; a missing key or anything else means off. That covers new pairings, migrated Vibepollo or Apollo state and old backups, so the flag is off by default.
@@ -426,7 +461,9 @@ The image clipboard (Experimental) is `type=png` on Vibepollo's `/actions/clipbo
 
 ## USB forwarding
 
-Feature `usb` is listed while the host's USB forwarding setting (`usb_forwarding`, off by default) is on and its USB/IP driver (usbip-win2) is installed. The device needs the `usb` permission, described with the shared folders' below.
+Feature `usb` is listed while the host's USB forwarding setting (`usb_forwarding`, off by default) is on and its USB/IP driver (usbip-win2) is installed. The device needs the `usb` permission.
+
+`usb` is a boolean in `permissions`, missing from older hosts and then `false`. Like host control, it is not a `perm` bit, and only the admin console sets it. Unlike host control, turning `allow_usb` off disconnects the device, as removing `perm` bits does. It is `"allow_usb": true` in the device's `extra` map: only a JSON `true`, never a string, a number, a `perm` bit or Full control. `/api/clients/update` accepts `true`, `false` or `null` for it.
 
 | Method | Path | Needs | Result |
 |---|---|---|---|
@@ -446,28 +483,11 @@ These are defined for 3.0 in `rubylight-native-api` and not yet served: no host 
 
 | Feature | Listed while | Permission |
 | --- | --- | --- |
-| `folders` | the host shares at least one folder | `shared_folders` |
 | `folders.mount` | as `folders`, for WebDAV | `shared_folders` |
-
-Both permissions are booleans in `permissions`, missing from older hosts and then `false`. Like host control, neither is a `perm` bit, and only the admin console sets them. Unlike host control, taking one away (turning `allow_usb` off, dropping a folder grant, or a `write` grant back to `read`) disconnects the device, as removing `perm` bits does:
-
-- `usb` is `"allow_usb": true` in the device's `extra` map: only a JSON `true`, never a string, a number, a `perm` bit or Full control. `/api/clients/update` accepts `true`, `false` or `null` for it.
-- `shared_folders` is `true` when the device holds at least one folder grant. The grants are `"shared_folders": {"<folder id>": "read" | "write"}` in `extra`; `/api/clients/update` refuses anything else, and `null` clears them. A hand-edited grant it would refuse, such as `"../x"`, grants nothing.
 
 | Method | Path | Needs | Result |
 |---|---|---|---|
-| GET | `/folders` | `shared_folders` | FolderList: the device's grants only |
-| GET | `/folders/{id}/entries?path=` | a grant for `id` | FolderEntries |
-| GET | `/folders/{id}/content?path=` | a grant for `id` | The file's bytes |
-| PUT | `/folders/{id}/content?path=` | a `write` grant for `id` | as an upload to `/files` |
 | any | `/folders/{id}/dav/` | a grant for `id` | WebDAV class 1 |
-
-- A folder answers `{"folders": [{"id": "games", "name": "Games", "access": "read"}]}` and its entries `{"path": "saves", "entries": [{"name": "slot1.sav", "kind": "file", "size": 4096, "modified_unix_ms": 1792000000000}]}`. `kind` is `file` or `dir`. An unknown `access` or `kind` decodes as `Unknown`. A PUT reuses `length_required`, `too_large` and `insufficient_storage`.
-
-| HTTP | `code` | When |
-|---|---|---|
-| 403 | `folders_disabled` | The host's shared folders are off |
-| 403 | `forbidden` | The device has no grant for the folder, or only `read` for a PUT |
 
 ## Errors
 

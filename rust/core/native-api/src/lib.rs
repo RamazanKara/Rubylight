@@ -57,10 +57,10 @@ pub mod feature {
     /// driver is ready.
     pub const USB: &str = "usb";
     /// `GET` and `POST /actions/clipboard?type=png` carry images, while the host's
-    /// `clipboard_image` setting is on. Defined for 3.0; not yet served.
+    /// `clipboard_image` setting is on.
     pub const CLIPBOARD_IMAGE: &str = "clipboard.image";
     /// The [`crate::folders`] routes browse and transfer the device's shared
-    /// folders. Defined for 3.0; not yet served.
+    /// folders, while the host shares at least one.
     pub const FOLDERS: &str = "folders";
     /// `/folders/{id}/dav/` mounts a shared folder over WebDAV (class 1).
     /// Defined for 3.0; not yet served.

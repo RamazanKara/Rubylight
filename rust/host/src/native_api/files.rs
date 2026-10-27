@@ -29,6 +29,7 @@ use butterpollo_core::{
 use butterpollo_windows::user_folder::{PartFile, UserFolder, UserFolderError};
 use std::{
     collections::HashMap,
+    fs::File,
     io::{self, Read, Write},
     path::{Path, PathBuf},
     pin::Pin,
@@ -219,14 +220,18 @@ fn room(uploads: &HashMap<String, u64>, free: u64, total: u64) -> u64 {
 /// A device's upload slot, given back when the upload ends however it ends.
 /// The upload's writer holds it, so the slot frees only once the `.part`
 /// file is renamed or gone.
-struct UploadSlot {
+pub(super) struct UploadSlot {
     host: Shared,
     device: String,
 }
 impl UploadSlot {
     /// Holds room for `length` bytes on the folder's volume, if it has that
     /// much beside the reserve and the bytes other uploads still write.
-    fn hold_room(&self, folder: &UserFolder, length: u64) -> Result<(), UserFolderError> {
+    pub(super) fn hold_room(
+        &self,
+        folder: &UserFolder,
+        length: u64,
+    ) -> Result<(), UserFolderError> {
         let transfers = &self.host.file_transfers;
         // The space is read under the lock, so two uploads can't both
         // count on the same room.
@@ -284,7 +289,7 @@ fn begin_upload(h: &Shared, device: &str) -> Result<UploadSlot, Failure> {
 }
 
 /// A device's download slot, given back once the download's file is closed.
-struct DownloadSlot {
+pub(super) struct DownloadSlot {
     host: Shared,
     device: String,
 }
@@ -304,7 +309,7 @@ impl Drop for DownloadSlot {
         }
     }
 }
-fn begin_download(h: &Shared, device: &str) -> Result<DownloadSlot, Failure> {
+pub(super) fn begin_download(h: &Shared, device: &str) -> Result<DownloadSlot, Failure> {
     let mut downloads = h
         .file_transfers
         .downloads
@@ -354,22 +359,22 @@ fn allowed(h: &Shared, c: &Connection, bit: u32, name: &str) -> Result<Client, F
     }
     Ok(client)
 }
-/// [`allowed`] again every [`PACE_CHECK`] while a transfer runs, so turning
-/// File transfer off, revoking the bit or unpairing the device ends it.
-struct Recheck {
-    host: Shared,
-    connection: Connection,
-    bit: u32,
-    name: &'static str,
+/// A transfer's permission check, again every [`PACE_CHECK`] while it runs.
+/// For file transfer it is [`allowed`], so turning File transfer off,
+/// revoking the bit or unpairing the device ends the transfer.
+pub(super) struct Recheck {
+    allowed: Box<dyn FnMut() -> Result<(), Failure> + Send>,
     at: Instant,
 }
 impl Recheck {
     fn new(h: &Shared, c: &Connection, bit: u32, name: &'static str) -> Self {
+        let (h, c) = (h.clone(), c.clone());
+        Self::with(move || allowed(&h, &c, bit, name).map(drop))
+    }
+    /// Runs `allowed` again every [`PACE_CHECK`].
+    pub(super) fn with(allowed: impl FnMut() -> Result<(), Failure> + Send + 'static) -> Self {
         Self {
-            host: h.clone(),
-            connection: c.clone(),
-            bit,
-            name,
+            allowed: Box::new(allowed),
             at: Instant::now(),
         }
     }
@@ -379,7 +384,7 @@ impl Recheck {
             return Ok(());
         }
         self.at = now;
-        allowed(&self.host, &self.connection, self.bit, self.name).map(drop)
+        (self.allowed)()
     }
 }
 /// Waits out a pacer's `wait`, still checking the device's permission.
@@ -443,7 +448,7 @@ fn name_of(query: Option<&str>) -> Result<String, Failure> {
     }
     found.ok_or_else(|| invalid("Send the file name as ?name=."))
 }
-fn decode(value: &str) -> Option<String> {
+pub(super) fn decode(value: &str) -> Option<String> {
     let mut bytes = Vec::with_capacity(value.len());
     let mut rest = value.as_bytes();
     while let Some((&byte, tail)) = rest.split_first() {
@@ -462,7 +467,7 @@ fn decode(value: &str) -> Option<String> {
 
 /// A folder failure as the error the spec gives it. Anything unexpected is
 /// logged and answered as `internal`.
-fn failure(what: &str, error: UserFolderError) -> Failure {
+pub(super) fn failure(what: &str, error: UserFolderError) -> Failure {
     match error {
         UserFolderError::NoConsoleUser => Failure::new(
             ErrorCode::NoConsoleUser,
@@ -502,7 +507,7 @@ fn no_room() -> Failure {
         "The PC has no room for this file.",
     )
 }
-async fn blocking<T: Send + 'static>(
+pub(super) async fn blocking<T: Send + 'static>(
     what: &'static str,
     work: impl FnOnce() -> Result<T, UserFolderError> + Send + 'static,
 ) -> Result<T, Failure> {
@@ -575,11 +580,27 @@ pub(super) async fn content(
         }
         Err(error) => return Err(failure("open the file", error)),
     };
+    let recheck = Recheck::new(&h, &c, FILE_DOWNLOAD, "Download files");
+    Ok(send_file(h, slot, file, length, recheck))
+}
+fn not_found() -> Failure {
+    Failure::new(ErrorCode::NotFound, "There is no such file on the PC.")
+}
+
+/// Answers with the `length` bytes of `file`, read on a blocking thread
+/// through the pacer while `recheck` holds. The slot frees once the file is
+/// closed.
+pub(super) fn send_file(
+    h: Shared,
+    slot: DownloadSlot,
+    file: File,
+    length: u64,
+    mut recheck: Recheck,
+) -> Response {
     let (tx, rx) = mpsc::channel(QUEUE);
     let (fail, failed) = oneshot::channel();
     let runtime = tokio::runtime::Handle::current();
     let idle = h.file_transfers.limits().idle;
-    let mut recheck = Recheck::new(&h, &c, FILE_DOWNLOAD, "Download files");
     tokio::task::spawn_blocking(move || {
         // Dropped after the file, so the slot frees once it is closed.
         let _slot = slot;
@@ -622,7 +643,7 @@ pub(super) async fn content(
         },
         CHUNK,
     ));
-    Ok((
+    (
         StatusCode::OK,
         [
             (header::CONTENT_TYPE, "application/octet-stream".to_owned()),
@@ -631,10 +652,7 @@ pub(super) async fn content(
         ],
         body,
     )
-        .into_response())
-}
-fn not_found() -> Failure {
-    Failure::new(ErrorCode::NotFound, "There is no such file on the PC.")
+        .into_response()
 }
 
 /// Hands `length` bytes of `file` to `send`, and fails if the file holds
@@ -744,7 +762,7 @@ pub(super) async fn upload(
     }
     response
 }
-fn refused_upload(c: &Connection, failure: &Failure) {
+pub(super) fn refused_upload(c: &Connection, failure: &Failure) {
     tracing::warn!(
         "File transfer refused an upload from {}: {}",
         c.peer.ip(),
@@ -752,7 +770,7 @@ fn refused_upload(c: &Connection, failure: &Failure) {
     );
 }
 /// The connection closes after this answer.
-fn closing(mut response: Response) -> Response {
+pub(super) fn closing(mut response: Response) -> Response {
     response
         .headers_mut()
         .insert(header::CONNECTION, HeaderValue::from_static("close"));
@@ -761,7 +779,7 @@ fn closing(mut response: Response) -> Response {
 /// Reads and drops the rest of a refused upload, through the pacer, for at
 /// most `drain_bytes` or `drain_time`. Dropping the body then closes the
 /// connection, as its answer said.
-async fn drain(h: Shared, mut body: Body) {
+pub(super) async fn drain(h: Shared, mut body: Body) {
     let limits = h.file_transfers.limits();
     let until = tokio::time::Instant::now() + limits.drain_time;
     let mut drained = 0u64;
@@ -830,11 +848,49 @@ async fn receive(
     let name = name_of(query)?;
     butterpollo_core::file_transfer::check_name(&name)
         .map_err(|error| failure("check the name", error.into()))?;
+    let dir = transfer_dir(h);
+    let recheck = Recheck::new(h, c, FILE_UPLOAD, "Upload files");
+    let uploaded = accept(
+        h,
+        &client.uuid,
+        headers,
+        body,
+        recheck,
+        failure,
+        move |slot, length| {
+            let folder = open_folder(dir.as_deref())?;
+            slot.hold_room(&folder, length)?;
+            folder.create_part(&name)
+        },
+    )
+    .await?;
+    tracing::info!(
+        "File transfer received {} ({} bytes) from {}",
+        uploaded.name,
+        uploaded.size,
+        client.name
+    );
+    Ok(json(StatusCode::CREATED, &uploaded))
+}
+/// Takes an upload of its `Content-Length` within the file transfer limits,
+/// through the pacer while `recheck` holds. `create` holds room on the
+/// target's volume and starts the `.part` file, on a blocking thread; its
+/// failures and the writer's are answered as `failure` has them.
+pub(super) async fn accept(
+    h: &Shared,
+    device: &str,
+    headers: &HeaderMap,
+    body: &mut Body,
+    mut recheck: Recheck,
+    failure: fn(&str, UserFolderError) -> Failure,
+    create: impl FnOnce(&UploadSlot, u64) -> Result<PartFile, UserFolderError> + Send + 'static,
+) -> Result<Uploaded, Failure> {
     let length = content_length(headers)?;
-    let (max, dir) = {
-        let config = h.config.read().unwrap_or_else(PoisonError::into_inner);
-        (config.file_transfer_max_bytes(), config.file_transfer_dir())
-    };
+    let max = h
+        .config
+        .read()
+        .unwrap_or_else(PoisonError::into_inner)
+        .file_transfer_max_bytes();
     if length > max {
         return Err(Failure::new(
             ErrorCode::TooLarge,
@@ -844,11 +900,11 @@ async fn receive(
             ),
         ));
     }
-    let slot = begin_upload(h, &client.uuid)?;
+    let slot = begin_upload(h, device)?;
     let (ready_tx, ready) = oneshot::channel();
     let (tx, rx) = mpsc::channel(QUEUE);
     let writer =
-        tokio::task::spawn_blocking(move || write_part(slot, dir, name, length, ready_tx, rx));
+        tokio::task::spawn_blocking(move || write_part(slot, length, create, ready_tx, rx));
     match ready.await {
         Ok(Ok(())) => {}
         Ok(Err(error)) => return Err(failure("start the upload", error)),
@@ -861,7 +917,6 @@ async fn receive(
     }
 
     let limits = h.file_transfers.limits();
-    let mut recheck = Recheck::new(h, c, FILE_UPLOAD, "Upload files");
     let started = Instant::now();
     // Time spent on the pacer and the disk, which the device isn't slow for.
     let mut held = Duration::ZERO;
@@ -946,42 +1001,30 @@ async fn receive(
             ));
         }
     };
-    tracing::info!(
-        "File transfer received {name} ({received} bytes) from {}",
-        client.name
-    );
-    Ok(json(
-        StatusCode::CREATED,
-        &Uploaded {
-            name,
-            size: received,
-        },
-    ))
+    Ok(Uploaded {
+        name,
+        size: received,
+    })
 }
 enum ToDisk {
     Chunk(Bytes),
     /// The whole body arrived: rename the `.part` file.
     Finish,
 }
-/// Holds room for the upload and creates its `.part` file, says whether
-/// that worked on `ready`, then writes the queued chunks. The `.part` file
-/// lives and dies on this blocking thread, as it is opened as the user:
+/// Holds room for the upload and creates its `.part` file (`create`), says
+/// whether that worked on `ready`, then writes the queued chunks. The `.part`
+/// file lives and dies on this blocking thread, as it is opened as the user:
 /// [`ToDisk::Finish`] renames it and returns the name, while a queue closed
 /// early (a refused or cancelled upload) or a failed write deletes it. The
 /// device's slot and the room it held free only then.
 fn write_part(
     slot: UploadSlot,
-    dir: Option<PathBuf>,
-    name: String,
     length: u64,
+    create: impl FnOnce(&UploadSlot, u64) -> Result<PartFile, UserFolderError>,
     ready: oneshot::Sender<Result<(), UserFolderError>>,
     mut rx: mpsc::Receiver<ToDisk>,
 ) -> Result<Option<String>, UserFolderError> {
-    let created = open_folder(dir.as_deref()).and_then(|folder| {
-        slot.hold_room(&folder, length)?;
-        folder.create_part(&name)
-    });
-    let mut part = match created {
+    let mut part = match create(&slot, length) {
         Ok(part) => part,
         Err(error) => {
             #[cfg(test)]

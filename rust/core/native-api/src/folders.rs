@@ -1,12 +1,11 @@
 //! `GET /folders` and the routes under it: the folders the PC shares with
-//! this device (features `folders` and `folders.mount`). Defined for 3.0; not
-//! yet served.
+//! this device (feature `folders`).
 //!
 //! A device sees only the folders it has a grant for. `GET` of
-//! `/folders/{id}/entries?path=` lists a directory, `GET` and `PUT` of
+//! `/folders/{id}/entries?path=` lists a directory, and `GET` and `PUT` of
 //! `/folders/{id}/content?path=` move a file (`PUT` needs `write` and answers
-//! as `POST /files` does), and `/folders/{id}/dav/` serves the folder over
-//! WebDAV class 1.
+//! as `POST /files` does). `/folders/{id}/dav/` would serve the folder over
+//! WebDAV class 1 (`folders.mount`); it is defined for 3.0, not yet served.
 use serde::{Deserialize, Serialize};
 
 /// Path under [`crate::PREFIX`].

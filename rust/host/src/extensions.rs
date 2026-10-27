@@ -177,7 +177,13 @@ fn clipboard_image_feature(_h: &Shared, config: &Config) -> Vec<&'static str> {
     }
 }
 
-/// Features (G): `folders` and `folders.mount`.
-fn folders_features(_h: &Shared, _config: &Config) -> Vec<&'static str> {
-    Vec::new()
+/// Features (G): `folders`, while the host shares at least one folder. Each
+/// device's grants still decide what it sees. `folders.mount` (WebDAV) is
+/// not served yet.
+fn folders_features(_h: &Shared, config: &Config) -> Vec<&'static str> {
+    if config.shared_folders().is_empty() {
+        Vec::new()
+    } else {
+        vec![feature::FOLDERS]
+    }
 }

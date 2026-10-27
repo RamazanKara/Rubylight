@@ -5,8 +5,9 @@
 
 use super::depacketizer::Depacketizer;
 use super::{
-    is_before16, is_before32, le32, FecStatus, Io, Packet, VideoConfig, VideoSignal, VideoSink,
-    FLAG_CONTAINS_PIC_DATA, FLAG_EOF, FLAG_SOF, MAX_RTP_HEADER_SIZE, NV_VIDEO_PACKET_SIZE,
+    is_before16, is_before32, le32, FecBlock, FecStatus, Io, Packet, VideoConfig, VideoSignal,
+    VideoSink, FLAG_CONTAINS_PIC_DATA, FLAG_EOF, FLAG_SOF, MAX_RTP_HEADER_SIZE,
+    NV_VIDEO_PACKET_SIZE,
 };
 use crate::fec::ReedSolomon;
 
@@ -132,6 +133,24 @@ impl RtpQueue {
             fec_percentage: self.fec_percentage as u8,
             block_index: self.current_block,
             block_count: self.last_block + 1,
+        }));
+    }
+
+    /// Counts the pending block for the FEC report as it finishes: `unrecovered` when the next
+    /// block begins before this one completed, so every shard that has not arrived is lost.
+    fn finish_fec_block<S: VideoSink>(&self, io: &mut Io<S>, unrecovered: bool) {
+        let total = self.buffer_data_packets + self.buffer_parity_packets;
+        let arrived = self.received_data_packets + self.received_parity_packets;
+        let missing_shards = if unrecovered {
+            total.saturating_sub(arrived)
+        } else {
+            self.missing_packets.min(total)
+        };
+        io.sink.signal(VideoSignal::FecBlock(FecBlock {
+            data_shards: self.buffer_data_packets,
+            parity_shards: self.buffer_parity_packets,
+            missing_shards,
+            unrecovered,
         }));
     }
 
@@ -402,6 +421,7 @@ impl RtpQueue {
         if frame != self.current_frame || block != self.current_block {
             if !self.pending.is_empty() {
                 self.report_fec_status(io);
+                self.finish_fec_block(io, true);
                 // Keep every data packet of the incomplete block; the records survive holes.
                 self.stage_complete_fec_block(depacketizer, io);
             }
@@ -457,6 +477,7 @@ impl RtpQueue {
         if self.pending.is_empty() || self.current_frame != frame || self.current_block != block {
             if !self.pending.is_empty() {
                 self.report_fec_status(io);
+                self.finish_fec_block(io, true);
                 // Losing one block loses the rest of its frame.
                 if self.last_block != 0 && self.current_frame == frame {
                     self.purge_pending(io);
@@ -568,6 +589,7 @@ impl RtpQueue {
         }
 
         if self.reconstruct_frame(depacketizer, io) == 0 {
+            self.finish_fec_block(io, false);
             self.stage_complete_fec_block(depacketizer, io);
             if self.current_block < self.last_block {
                 self.current_block += 1;

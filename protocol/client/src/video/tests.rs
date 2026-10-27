@@ -157,6 +157,55 @@ fn recovers_lost_data_from_parity() {
         .any(|e| matches!(e, VideoEvent::Signal(VideoSignal::FecStatus(_)))));
 }
 
+fn fec_blocks(events: &[VideoEvent]) -> Vec<FecBlock> {
+    events
+        .iter()
+        .filter_map(|e| match e {
+            VideoEvent::Signal(VideoSignal::FecBlock(block)) => Some(*block),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn finished_blocks_are_counted_for_the_fec_report() {
+    let mut host = Host::new();
+    let mut rx = VideoReceiver::new(config(0x1000));
+    let mut events = Vec::new();
+    let payload: Vec<u8> = (0..9000u32).map(|i| (i * 7) as u8).collect();
+    // Nine data shards and two parity: two lost and recovered.
+    for (i, packet) in host.frame(&payload, 2).iter().enumerate() {
+        if i != 0 && i != 3 {
+            rx.receive(packet, 5, &mut events);
+        }
+    }
+    let recovered = FecBlock {
+        data_shards: 9,
+        parity_shards: 2,
+        missing_shards: 2,
+        unrecovered: false,
+    };
+    assert_eq!(fec_blocks(&events), [recovered]);
+
+    // Three lost are past the parity: the block ends unrecovered when the next one begins.
+    events.clear();
+    for (i, packet) in host.frame(&payload, 1).iter().enumerate() {
+        if ![1, 4, 6].contains(&i) {
+            rx.receive(packet, 6, &mut events);
+        }
+    }
+    assert!(fec_blocks(&events).is_empty(), "still waiting for shards");
+    for packet in host.frame(&payload, 1) {
+        rx.receive(&packet, 7, &mut events);
+    }
+    let lost = FecBlock {
+        missing_shards: 3,
+        unrecovered: true,
+        ..recovered
+    };
+    assert_eq!(fec_blocks(&events)[0], lost);
+}
+
 #[test]
 fn lost_frame_requests_idr_without_rfi() {
     let mut host = Host::new();

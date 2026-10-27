@@ -22,6 +22,23 @@ pub struct Options {
     pub factory_reset: bool,
     pub remove_drivers: bool,
 }
+/// The uninstaller's exit code when Rubylight was removed but the Windows
+/// settings child-session setup changed were not restored.
+pub const UNRESTORED_EXIT: i32 = 2;
+/// A removal that went through.
+pub struct Removed {
+    /// Problems the user must see.
+    pub notes: Vec<String>,
+    /// The Windows settings child-session setup changed were not restored.
+    pub unrestored: bool,
+}
+impl Removed {
+    /// 0, or [`UNRESTORED_EXIT`] so a quiet uninstall's caller can tell the
+    /// settings were not put back.
+    pub fn exit_code(&self) -> i32 {
+        if self.unrestored { UNRESTORED_EXIT } else { 0 }
+    }
+}
 /// The installation to remove: the registered one, else the folder this
 /// program runs from when it holds a Rubylight package. Never a guess:
 /// run from Downloads on a PC without Rubylight, this is None.
@@ -82,7 +99,7 @@ fn is_package(folder: &Path) -> bool {
 }
 /// Remove Rubylight; the notes are problems the user must see, though the
 /// removal itself went through.
-pub fn uninstall(options: &Options, progress: &Progress) -> Result<Vec<String>> {
+pub fn uninstall(options: &Options, progress: &Progress) -> Result<Removed> {
     let Some(install) = install_location() else {
         bail!("Rubylight is not installed on this PC");
     };
@@ -100,8 +117,10 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<Vec<String>> 
     remove_earlier_folder(&install);
     // Child-session setup (Experimental) turned on Remote Desktop, child
     // sessions and firewall rules; the host that recorded them puts them back
-    // while it is still installed. On failure its record stays for a retry,
-    // even through a factory reset.
+    // while it is still installed. A restore that fails turns Remote Desktop
+    // off, and its record stays, even through a factory reset: Rubylight
+    // installed again restores the rest (Restore Windows settings). The
+    // uninstaller then exits with UNRESTORED_EXIT.
     let mut notes = Vec::new();
     let unrestored = restore_child_session(&install, progress);
     if let Some(problem) = &unrestored {
@@ -218,7 +237,10 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<Vec<String>> 
     } else {
         let _ = std::fs::remove_dir(&install);
     }
-    Ok(notes)
+    Ok(Removed {
+        notes,
+        unrestored: unrestored.is_some(),
+    })
 }
 /// Put back the Windows settings child-session setup changed, through the
 /// installed host; the reason when they were not restored and its record
@@ -524,6 +546,18 @@ mod tests {
         fill();
         remove_profile(root.path(), &[]);
         assert!(!root.path().exists());
+    }
+    #[test]
+    fn a_removal_whose_restore_failed_has_its_own_exit_code() {
+        let removed = |unrestored| Removed {
+            notes: Vec::new(),
+            unrestored,
+        };
+        assert_eq!(removed(false).exit_code(), 0);
+        let code = removed(true).exit_code();
+        assert_eq!(code, UNRESTORED_EXIT);
+        // Not done, failed, cancelled or done-but-restart.
+        assert!(![0, 1, 1223, 3010].contains(&code));
     }
     #[test]
     fn child_session_restore_uses_the_hosts_record_and_flag() {

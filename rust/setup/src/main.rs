@@ -118,7 +118,7 @@ A quiet setup refuses to install while Rubylight is streaming; --end-streams end
 --usbip-driver installs the bundled Steam Deck and DualSense USB audio and haptics driver. It is optional, off by default, and its choice is kept for updates. --no-usbip-driver skips it without removing a shared driver.\n\n\
 --wake-on-lan turns on the wake settings of the wired network adapters, so a client can wake this PC from sleep. It is optional, off by default, and its choice is kept for updates. --no-wake-on-lan leaves the adapters as they are.\n\n\
 Rubylight 3.0 needs an AMD Radeon GPU with its AMF video encoder; setup explains and stops on any other PC. NVIDIA and Intel graphics stay on Rubylight 2.6.x.\n\n\
-Exit codes: 0 done, 3010 done but Windows must restart, 1223 cancelled, 1 failed.";
+Exit codes: 0 done, 3010 done but Windows must restart, 1223 cancelled, 1 failed, 2 removed but the Windows settings child-session setup changed were not restored.";
 
 fn main() {
     let args = match arguments() {
@@ -437,17 +437,21 @@ fn run_uninstall(args: &Arguments) -> i32 {
         uninstall::uninstall(&options, &progress)
     });
     match result {
-        Ok(notes) => {
+        Ok(removed) => {
             if !args.quiet {
                 ui::finished(
                     TITLE,
-                    "Rubylight was removed",
-                    &notes.join("\n\n"),
-                    true,
+                    if removed.unrestored {
+                        "Rubylight was removed, but the Windows settings were not restored"
+                    } else {
+                        "Rubylight was removed"
+                    },
+                    &removed.notes.join("\n\n"),
+                    !removed.unrestored,
                     None,
                 );
             }
-            0
+            removed.exit_code()
         }
         Err(error) => failed(args.quiet, "Rubylight could not be removed", &error),
     }

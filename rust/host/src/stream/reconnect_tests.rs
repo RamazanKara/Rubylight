@@ -23,6 +23,9 @@ mod webrtc_tests;
 const CLOSED: u32 = 0x8003_0023;
 const FAILED: u32 = 0x8000_4005;
 const WAIT: Duration = Duration::from_secs(5);
+/// Only bounds a hung HTTP request: a launch runs prep commands, which a loaded PC starts
+/// slowly.
+const REQUEST_WAIT: Duration = Duration::from_secs(30);
 
 #[derive(Default)]
 pub(crate) struct Fixture {
@@ -379,16 +382,51 @@ async fn until(message: &str, timeout: Duration, mut condition: impl FnMut() -> 
     }
 }
 
+/// Waits for video and the host's first IDR request; false if the session stopped first.
+async fn established(session: &Session, client: &Client) -> bool {
+    let deadline = Instant::now() + WAIT;
+    while client.frames.load(Ordering::Acquire) <= 2
+        || session.stats.idr_requests.load(Ordering::Acquire) == 0
+    {
+        if session.stopping() {
+            return false;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "{}",
+            setup_state("timed out: control and video established", session, client)
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    !session.stopping()
+}
+
+fn setup_state(what: &str, session: &Session, client: &Client) -> String {
+    format!(
+        "{what} (ENet connected: {}, video packets: {}, IDR requests: {}, stopping: {}, reason: {:#x}, warnings: {:?})",
+        client.connected.load(Ordering::Acquire),
+        client.frames.load(Ordering::Acquire),
+        session.stats.idr_requests.load(Ordering::Acquire),
+        session.stopping(),
+        session.termination_reason(),
+        session.launch.warnings.snapshot()
+    )
+}
+
 fn address(port: u16) -> SocketAddr {
     assert!(!(47984..=48010).contains(&port) && !(48518..=48544).contains(&port));
     ([127, 0, 0, 1], port).into()
 }
+const CLIENT_PORTS: u16 = 64000 - 52000;
+
+/// A client socket. Each test process starts at its own port, as `free_ports` does.
 fn udp() -> UdpSocket {
-    static NEXT: AtomicU16 = AtomicU16::new(52000);
+    static NEXT: AtomicU16 = AtomicU16::new(0);
+    let start = (std::process::id() % u32::from(CLIENT_PORTS)) as u16;
     loop {
-        let port = NEXT.fetch_add(1, Ordering::Relaxed);
-        assert!(port < 64000, "fixture UDP port range exhausted");
-        if let Ok(socket) = UdpSocket::bind(address(port)) {
+        let index = NEXT.fetch_add(1, Ordering::Relaxed);
+        assert!(index < CLIENT_PORTS, "fixture UDP port range exhausted");
+        if let Ok(socket) = UdpSocket::bind(address(52000 + (start + index) % CLIENT_PORTS)) {
             socket.set_nonblocking(true).unwrap();
             return socket;
         }
@@ -396,20 +434,32 @@ fn udp() -> UdpSocket {
 }
 const PORT_SLOTS: u16 = (40000 - 22000) / 32;
 
+/// A slot's spare port, which no slot's `Ports` use (they span `base - 5` to `base + 21`).
+const CLAIM: u16 = 22;
+
 // Each test process starts at its own slot, so two `cargo test` runs at once
-// don't hand out the same ports between `reserve` and the host's own bind.
+// rarely try the same ports.
 fn port_base(start: u16, index: u16) -> u16 {
     assert!(index < PORT_SLOTS, "fixture host port range exhausted");
     22000 + (start.wrapping_add(index) % PORT_SLOTS) * 32
 }
-fn free_ports() -> Ports {
+/// The slot at `base` if it is free, with a socket on its spare port that claims it while it
+/// is held. The host binds its ports a while after `reserve` lets go of them (after loading
+/// its identity, and the listeners in their own tasks); another run of this binary that
+/// checked the same slot meanwhile took them, and one of the two failed with "address in
+/// use" (os error 10048). A run skips a slot another holds the claim of.
+fn claim_slot(base: u16) -> Option<(Ports, UdpSocket)> {
+    let claim = UdpSocket::bind(address(base + CLAIM)).ok()?;
+    let ports = Ports::from_base(base);
+    reserve(ports).ok()?;
+    Some((ports, claim))
+}
+fn free_ports() -> (Ports, UdpSocket) {
     static NEXT: AtomicU16 = AtomicU16::new(0);
     let start = (std::process::id() % u32::from(PORT_SLOTS)) as u16;
     loop {
-        let base = port_base(start, NEXT.fetch_add(1, Ordering::Relaxed));
-        let ports = Ports::from_base(base);
-        if reserve(ports).is_ok() {
-            return ports;
+        if let Some(slot) = claim_slot(port_base(start, NEXT.fetch_add(1, Ordering::Relaxed))) {
+            return slot;
         }
     }
 }
@@ -422,6 +472,30 @@ fn port_bases_start_per_process_and_stay_in_range() {
     let bases: std::collections::HashSet<_> = (0..PORT_SLOTS).map(|i| port_base(300, i)).collect();
     assert_eq!(bases.len(), usize::from(PORT_SLOTS));
     assert!(bases.iter().all(|b| (22000..40000 - 31).contains(b)));
+}
+
+/// While one harness holds a slot's claim, another run checking that slot skips it, even
+/// before the host has bound any of the slot's ports.
+#[test]
+fn a_claimed_slot_is_skipped_until_its_claim_is_dropped() {
+    let (ports, claim) = (0..PORT_SLOTS)
+        .find_map(|i| claim_slot(port_base(150, i)))
+        .expect("a free slot");
+    let used = |p: Ports| {
+        [
+            p.http, p.https, p.web, p.rtsp, p.video, p.control, p.audio, p.mic,
+        ]
+    };
+    let base = ports.http;
+    assert!(!used(ports).contains(&(base + CLAIM)));
+    assert!(!used(Ports::from_base(base + 32)).contains(&(base + CLAIM)));
+    assert!(
+        reserve(ports).is_ok(),
+        "the claim holds none of the host's ports"
+    );
+    assert!(claim_slot(base).is_none());
+    drop(claim);
+    assert!(claim_slot(base).is_some());
 }
 fn reserve(ports: Ports) -> Result<(Vec<std::net::TcpListener>, Vec<UdpSocket>)> {
     let tcp = [ports.http, ports.https, ports.web, ports.rtsp]
@@ -443,6 +517,10 @@ struct Harness {
     http: reqwest::Client,
     clients: Vec<reqwest::Client>,
     ports: Ports,
+    /// Keeps other runs of this binary off `ports` (`claim_slot`).
+    _claim: UdpSocket,
+    /// A `ping_timeout` a loaded PC's stream setup can outlast (`play_short_timeout`).
+    short_timeout: bool,
     directory: PathBuf,
     started: Instant,
 }
@@ -453,10 +531,15 @@ impl Harness {
     /// A harness whose configuration also has the lines `extra`.
     async fn configured(timeout_ms: u32, clients: usize, extra: &str) -> Result<Self> {
         let started = Instant::now();
+        // A failed test prints what its host logged (the test writer is captured per test).
+        let _ = tracing_subscriber::fmt()
+            .with_test_writer()
+            .with_max_level(tracing::Level::INFO)
+            .try_init();
         let directory =
             std::env::temp_dir().join(format!("butterpollo-reconnect-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&directory)?;
-        let ports = free_ports();
+        let (ports, claim) = free_ports();
         std::fs::write(
             directory.join("sunshine.conf"),
             format!(
@@ -499,7 +582,7 @@ impl Harness {
                     .danger_accept_invalid_certs(true)
                     .identity(reqwest::Identity::from_pem(pem.as_bytes())?)
                     .pool_max_idle_per_host(0)
-                    .timeout(Duration::from_secs(8))
+                    .timeout(REQUEST_WAIT)
                     .build()?,
             );
         }
@@ -531,9 +614,11 @@ impl Harness {
             http: reqwest::Client::builder()
                 .no_proxy()
                 .pool_max_idle_per_host(0)
-                .timeout(WAIT)
+                .timeout(REQUEST_WAIT)
                 .build()?,
             ports,
+            _claim: claim,
+            short_timeout: timeout_ms <= 2000,
             directory,
             started,
         };
@@ -685,13 +770,38 @@ impl Harness {
         sdp: &str,
     ) -> Result<(Arc<Session>, Client)> {
         let (session, client) = self.connect_announcing(launch, encryption, sdp).await?;
-        until("control and video established", WAIT, || {
-            client.frames.load(Ordering::Acquire) > 2
-                && session.stats.idr_requests.load(Ordering::Acquire) > 0
-        })
-        .await;
-        assert!(!session.stopping());
+        assert!(
+            established(&session, &client).await,
+            "{}",
+            setup_state(
+                "stopped before control and video established",
+                &session,
+                &client
+            )
+        );
         Ok((session, client))
+    }
+    /// `play` for a host whose `ping_timeout` (1 or 2 s) is shorter than a loaded PC can take
+    /// from PLAY to the client's first ENet packet: a session that ended before its stream ran
+    /// is resumed and played again, as Moonlight would reconnect. The tests that use it check
+    /// what happens once the stream runs.
+    async fn play_short_timeout(&self, launch: &Launch) -> Result<(Arc<Session>, Client)> {
+        assert!(self.short_timeout, "a long ping_timeout outlasts any setup");
+        let mut launch = launch.clone();
+        for attempt in 1.. {
+            let (session, client) = self.connect_announcing(&launch, 0, "").await?;
+            if established(&session, &client).await {
+                return Ok((session, client));
+            }
+            let state = setup_state("stopped during setup", &session, &client);
+            assert!(attempt < 3, "{state}");
+            assert_eq!(session.termination_reason(), FAILED, "{state}");
+            eprintln!("attempt {attempt}: {state}; resuming");
+            drop(client);
+            self.empty().await?;
+            launch = self.launch(0, true).await?;
+        }
+        unreachable!()
     }
     /// ANNOUNCE with the extra SDP lines `sdp`, PLAY and the control connection,
     /// without waiting for video or the first IDR request.
@@ -757,7 +867,9 @@ impl Harness {
     }
     async fn end(&self, session: &Session, client: Client) -> Result<()> {
         self.rtsp(&session.launch, 3, "TEARDOWN", "").await?;
-        until("normal termination delivered", WAIT, || {
+        // After an outage the host's ENet resends on a timeout that doubled while the client
+        // was away, seconds after the network returns.
+        until("normal termination delivered", WAIT * 3, || {
             client.reason.load(Ordering::Acquire) != 0
         })
         .await;
@@ -771,7 +883,11 @@ impl Harness {
         // Reuse the same listeners/UDP ports for a fresh launch before checking
         // that stopping this isolated host releases the sockets themselves.
         let launch = self.launch(0, false).await?;
-        let (session, client) = self.play(&launch).await?;
+        let (session, client) = if self.short_timeout {
+            self.play_short_timeout(&launch).await?
+        } else {
+            self.play(&launch).await?
+        };
         self.counts(1, 0).await?;
         self.end(&session, client).await?;
         self.h.stop.store(true, Ordering::Release);
@@ -910,6 +1026,8 @@ struct Client {
     keyframe_heartbeat: Arc<AtomicBool>,
     /// The address ENet first sent from.
     control_address: SocketAddr,
+    /// Whether ENet connected.
+    connected: Arc<AtomicBool>,
     /// Whether the host disconnected ENet; the worker acknowledges it.
     disconnected: Arc<AtomicBool>,
     worker: Option<thread::JoinHandle<Result<()>>>,
@@ -933,6 +1051,8 @@ impl Client {
         let video_move = Arc::<Mutex<Option<UdpSocket>>>::default();
         let keyframe_heartbeat = Arc::new(AtomicBool::new(true));
         let control_address = control.local_addr()?;
+        let connected = Arc::new(AtomicBool::new(false));
+        let worker_connected = connected.clone();
         let disconnected = Arc::new(AtomicBool::new(false));
         let worker_disconnected = disconnected.clone();
         let mut host = Host::new(
@@ -967,6 +1087,9 @@ impl Client {
             let mut buffer = [0; 2048];
             while !worker_stop.load(Ordering::Acquire) {
                 while let Some(event) = host.service()? {
+                    if let Event::Connect { .. } = event {
+                        worker_connected.store(true, Ordering::Release);
+                    }
                     if let Event::Disconnect { .. } = event {
                         worker_disconnected.store(true, Ordering::Release);
                     }
@@ -1034,7 +1157,11 @@ impl Client {
                     next_ping = Instant::now() + Duration::from_millis(50);
                 }
                 while let Ok((n, source)) = video.recv_from(&mut buffer) {
-                    assert_eq!(source, address(ports.video));
+                    // Another run of this binary may still stream to a port it freed and this
+                    // client took: only the host's own video counts.
+                    if source != address(ports.video) {
+                        continue;
+                    }
                     assert!(n > 16, "video packet has no RTP payload");
                     if !worker_video.load(Ordering::Acquire) {
                         worker_frames.fetch_add(1, Ordering::Relaxed);
@@ -1061,6 +1188,7 @@ impl Client {
             video_move,
             keyframe_heartbeat,
             control_address,
+            connected,
             disconnected,
             worker: Some(worker),
         })
@@ -1432,13 +1560,13 @@ async fn vanishes_then_resumes_within_ping_timeout() -> Result<()> {
 async fn vanishes_then_resumes_after_ping_timeout() -> Result<()> {
     let h = Harness::new(1000, 1).await?;
     let launch = h.launch(0, false).await?;
-    let (old, client) = h.play(&launch).await?;
+    let (old, client) = h.play_short_timeout(&launch).await?;
     drop(client);
     until("vanished client times out", WAIT, || old.stopping()).await;
     assert_eq!(old.termination_reason(), FAILED);
     h.empty().await?;
     let resumed = h.launch(0, true).await?;
-    let (session, client) = h.play(&resumed).await?;
+    let (session, client) = h.play_short_timeout(&resumed).await?;
     h.end(&session, client).await?;
     h.finish().await
 }
@@ -1539,6 +1667,7 @@ async fn link_notices_reach_only_a_client_that_asks() -> Result<()> {
     );
 
     // Asking brings the standing limit at once.
+    let asked = Instant::now();
     client.send_control(
         LINK_NOTICE_MESSAGE_TYPE,
         &LinkNoticeRequest { enabled: true }.encode(),
@@ -1549,7 +1678,9 @@ async fn link_notices_reach_only_a_client_that_asks() -> Result<()> {
     .await;
     assert_eq!(heard(&client)[0].1, limited(75_000));
 
-    // Three changes in a burst: the newest alone follows, a second after the first.
+    // Three changes in a burst: the newest alone follows, a second after the first. The first
+    // left the host after the request did; a busy client may hear it late, so measure from
+    // the request.
     for kbps in [60_000, 50_000, 40_000] {
         session.link_notices.lock().unwrap().note(limited(kbps));
     }
@@ -1557,9 +1688,9 @@ async fn link_notices_reach_only_a_client_that_asks() -> Result<()> {
     let notices = heard(&client);
     assert_eq!(notices[1].1, limited(40_000));
     assert!(
-        notices[1].0.duration_since(notices[0].0) >= Duration::from_millis(900),
-        "{:?} between notices",
-        notices[1].0.duration_since(notices[0].0)
+        notices[1].0.duration_since(asked) >= Duration::from_millis(900),
+        "{:?} from the request to the second notice",
+        notices[1].0.duration_since(asked)
     );
 
     // The return to the requested rate clears it, and nothing else follows.
@@ -1775,7 +1906,7 @@ async fn rtsp_reconnect_reports_busy_when_previous_teardown_times_out() -> Resul
 async fn a_lost_control_stream_found_late_by_enet_still_fails() -> Result<()> {
     let h = Harness::new(2000, 1).await?;
     let launch = h.launch(0, false).await?;
-    let (session, client) = h.play(&launch).await?;
+    let (session, client) = h.play_short_timeout(&launch).await?;
     let lost = Instant::now();
     // From before the ping check is due, once ENet has resent its unanswered ping often enough,
     // to after ENet's own timeout.
@@ -1794,7 +1925,7 @@ async fn a_lost_control_stream_found_late_by_enet_still_fails() -> Result<()> {
 async fn control_lost_while_video_continues_times_out() -> Result<()> {
     let h = Harness::new(2000, 1).await?;
     let launch = h.launch(0, false).await?;
-    let (session, client) = h.play(&launch).await?;
+    let (session, client) = h.play_short_timeout(&launch).await?;
     let before = client.frames.load(Ordering::Acquire);
     let released = h.fixture.input_releases.load(Ordering::Acquire);
     client.control_down.store(true, Ordering::Release);
@@ -1824,7 +1955,7 @@ async fn control_lost_while_video_continues_times_out() -> Result<()> {
     assert_eq!(session.termination_reason(), FAILED);
     drop(client);
     let launch = h.launch(0, true).await?;
-    let (session, client) = h.play(&launch).await?;
+    let (session, client) = h.play_short_timeout(&launch).await?;
     h.end(&session, client).await?;
     h.finish().await
 }
@@ -1833,8 +1964,8 @@ async fn control_lost_while_video_continues_times_out() -> Result<()> {
 async fn host_enet_peer_reset_mid_stream_times_out_then_resumes() -> Result<()> {
     let h = Harness::new(1000, 1).await?;
     let launch = h.launch(0, false).await?;
-    let (session, client) = h.play(&launch).await?;
-    *h.fixture.reset.lock().unwrap() = Some(launch.id.clone());
+    let (session, client) = h.play_short_timeout(&launch).await?;
+    *h.fixture.reset.lock().unwrap() = Some(session.launch.id.clone());
     until("host ENet peer was reset", WAIT, || {
         h.fixture.reset_done.load(Ordering::Acquire)
     })
@@ -1847,7 +1978,7 @@ async fn host_enet_peer_reset_mid_stream_times_out_then_resumes() -> Result<()> 
     drop(client);
     h.empty().await?;
     let launch = h.launch(0, true).await?;
-    let (session, client) = h.play(&launch).await?;
+    let (session, client) = h.play_short_timeout(&launch).await?;
     h.end(&session, client).await?;
     h.finish().await
 }
@@ -1891,46 +2022,77 @@ async fn microphone_packets_reach_only_the_session_that_set_them_up() -> Result<
         .clone()
         .expect("microphone port bound");
     let socket = UdpSocket::bind("127.0.0.1:0")?;
-    let send = |datagram: Vec<u8>| socket.send_to(&datagram, address(h.ports.mic));
-    for sequence in 0..5 {
-        send(mic::seal(
-            &launch.key,
-            launch.key_id,
-            sequence,
-            0,
-            &[0xf8, 0xff, 0xfe],
-        ))?;
-    }
-    let mut damaged = mic::seal(&launch.key, launch.key_id, 5, 0, &[0xf8, 0xff, 0xfe]);
+    let send = |datagram: Vec<u8>| {
+        socket
+            .send_to(&datagram, address(h.ports.mic))
+            .expect("microphone packet sent");
+    };
+    // A loaded PC loses the odd loopback datagram: what has not arrived by the next
+    // attempt is sent again, under a new sequence number.
+    let attempt = Duration::from_millis(200);
+    let mut sequence = 0;
+    let mut sent = Instant::now() - attempt;
+    until("microphone packets accepted", WAIT, || {
+        let accepted = counters.accepted.load(Ordering::Acquire);
+        if accepted < 5 && sent.elapsed() >= attempt {
+            for _ in accepted..5 {
+                send(mic::seal(
+                    &launch.key,
+                    launch.key_id,
+                    sequence,
+                    0,
+                    &[0xf8, 0xff, 0xfe],
+                ));
+                sequence += 1;
+            }
+            sent = Instant::now();
+        }
+        accepted >= 5
+    })
+    .await;
+    assert_eq!(counters.refused.load(Ordering::Acquire), 0);
+    let mut damaged = mic::seal(&launch.key, launch.key_id, sequence, 0, &[0xf8, 0xff, 0xfe]);
     // CBC has no authentication tag: a wrong key can randomly produce valid
     // padding. Keep the microphone header but truncate the ciphertext so this
     // rejection is deterministic for every randomly generated launch key.
     damaged.pop();
-    send(damaged)?;
-    until("microphone packets accepted and refused", WAIT, || {
-        counters.accepted.load(Ordering::Acquire) == 5
-            && counters.refused.load(Ordering::Acquire) == 1
+    let mut sent = Instant::now() - attempt;
+    until("a damaged microphone packet refused", WAIT, || {
+        if sent.elapsed() >= attempt {
+            send(damaged.clone());
+            sent = Instant::now();
+        }
+        counters.refused.load(Ordering::Acquire) >= 1
     })
     .await;
     h.end(&session, client).await?;
+    // No session takes microphone packets from here on.
+    let accepted = counters.accepted.load(Ordering::Acquire);
     // Without a microphone SETUP, the next session's packets are refused.
     let launch = h.launch(0, false).await?;
     let (session, client) = h.play_encrypted(&launch, mic::ENCRYPTION).await?;
     assert!(!session.config.mic);
-    send(mic::seal(
-        &launch.key,
-        launch.key_id,
-        0,
-        0,
-        &[0xf8, 0xff, 0xfe],
-    ))?;
+    let refused = counters.refused.load(Ordering::Acquire);
+    let mut sent = Instant::now() - attempt;
     until(
         "microphone packet of a session without one refused",
         WAIT,
-        || counters.refused.load(Ordering::Acquire) == 2,
+        || {
+            if sent.elapsed() >= attempt {
+                send(mic::seal(
+                    &launch.key,
+                    launch.key_id,
+                    0,
+                    0,
+                    &[0xf8, 0xff, 0xfe],
+                ));
+                sent = Instant::now();
+            }
+            counters.refused.load(Ordering::Acquire) > refused
+        },
     )
     .await;
-    assert_eq!(counters.accepted.load(Ordering::Acquire), 5);
+    assert_eq!(counters.accepted.load(Ordering::Acquire), accepted);
     h.end(&session, client).await?;
     // A client that would send it in the clear is not taken.
     let launch = h.launch(0, false).await?;

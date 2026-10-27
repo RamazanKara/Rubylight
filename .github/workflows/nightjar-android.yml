@@ -43,14 +43,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - name: Test and lint the desktop client
+      # Twice the job sat silent in apt-get until the job timeout: a fresh runner's own
+      # package updates can hold the dpkg lock, and -qq hides the wait. Bounded and visible.
+      - name: Install desktop build packages
+        timeout-minutes: 10
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends cmake ninja-build pkg-config libclang-dev \
+          apt='-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o DPkg::Lock::Timeout=300'
+          sudo apt-get $apt update -q
+          sudo apt-get $apt install -y -q --no-install-recommends cmake ninja-build pkg-config libclang-dev \
             libavcodec-dev libavutil-dev libopus-dev libva-dev libx11-dev libxext-dev libxrandr-dev \
             libxcursor-dev libxi-dev libxss-dev libxfixes-dev libxtst-dev libxkbcommon-dev libwayland-dev \
             wayland-protocols libegl-dev libgl-dev libgles-dev libdrm-dev libgbm-dev libpulse-dev \
             libasound2-dev libpipewire-0.3-dev libudev-dev libdbus-1-dev libdecor-0-dev
+      - name: Test and lint the desktop client
+        run: |
           cd protocol
           cargo clippy -p nightjar-desktop --all-targets --locked -- -D warnings
           cargo test -p nightjar-desktop --locked

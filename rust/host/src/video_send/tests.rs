@@ -1657,10 +1657,13 @@ fn a_streamed_frame_goes_out_in_order_and_is_timed_once() {
     // The first block reaches the client before the encoder produced the rest.
     let mut packets = Vec::new();
     let mut buffer = [0; 2048];
-    // The packetizer thread sends it: on a busy PC that took over 500 ms.
+    // The packetizer thread sends it: on a busy PC it stalled for over 500 ms,
+    // before the first packet or within the block.
     receiver.set_read_timeout(Some(WAIT)).unwrap();
-    let early = receiver.recv(&mut buffer).unwrap();
-    packets.push(buffer[..early].to_vec());
+    while packets.len() <= 20 {
+        let len = receiver.recv(&mut buffer).unwrap();
+        packets.push(buffer[..len].to_vec());
+    }
     receiver
         .set_read_timeout(Some(Duration::from_millis(500)))
         .unwrap();

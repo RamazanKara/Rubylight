@@ -782,9 +782,9 @@ impl Harness {
         Ok((session, client))
     }
     /// `play` for a host whose `ping_timeout` (1 or 2 s) is shorter than a loaded PC can take
-    /// from PLAY to the client's first ENet packet: a session that ended before its stream ran
-    /// is resumed and played again, as Moonlight would reconnect. The tests that use it check
-    /// what happens once the stream runs.
+    /// from PLAY to the client's first ENet packet: a session that ended before ENet connected
+    /// is resumed and played again, as Moonlight would reconnect. One that ended after it
+    /// connected fails the test. The tests that use it check what happens once the stream runs.
     async fn play_short_timeout(&self, launch: &Launch) -> Result<(Arc<Session>, Client)> {
         assert!(self.short_timeout, "a long ping_timeout outlasts any setup");
         let mut launch = launch.clone();
@@ -796,6 +796,7 @@ impl Harness {
             let state = setup_state("stopped during setup", &session, &client);
             assert!(attempt < 3, "{state}");
             assert_eq!(session.termination_reason(), FAILED, "{state}");
+            assert!(!client.connected.load(Ordering::Acquire), "{state}");
             eprintln!("attempt {attempt}: {state}; resuming");
             drop(client);
             self.empty().await?;

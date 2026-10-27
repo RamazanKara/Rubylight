@@ -1,0 +1,2 @@
+- **Setup on a busy PC.** Setup's driver steps (USB/IP, the virtual display) now run as SYSTEM at normal priority. Windows ran them below normal with low I/O priority, so on a loaded PC the USB/IP checks took about 11 minutes where they take seconds. A step that is still running at setup's deadline is reported as still going on in the background, not as "could not be set up".
+- **Display recovery on a busy PC.** Stopping a stalled display recovery helper no longer fails because Windows took longer than 100 ms to end it; the host waits up to 2 s after killing it.

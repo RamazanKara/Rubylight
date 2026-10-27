@@ -1,0 +1,216 @@
+# Hardware test cases. tools/hw/run.ps1 -Batch <device> runs every ready case
+# of one device in a row after its precondition checks and collects the
+# results into C:\src\butterpollo-release\hw\<date>\<device>\<id>\ with a
+# summary.md. Prove what you can with unit, fake-device and interop tests
+# first; a case here is only for what needs the hardware.
+#
+# Fields:
+#   id             unique, used with -Only
+#   device         desktop (this PC) | laptop (ramaz@192.168.4.12) | nuc (ssh nuc)
+#                  | retroid (adb) | user (the user runs it: steps, never run)
+#   title          one line
+#   command        PowerShell, run from the repository root on this PC (remote
+#                  devices through ssh). {{name}} takes vars below, -Var name=value,
+#                  {{out}} (the case's output dir) or {{repo}} (the checkout).
+#   preconditions  checked on this PC before the case, in this order:
+#                    idle            serverinfo session counts 0 (or no host), no
+#                                    input for 10 minutes, no fullscreen app
+#                    isolated-ports  nothing listens on 48123 or 48518-48544
+#                    system          the ButterpolloReleaseElevated task exists
+#                                    (rust/release/elevation.ps1) for SYSTEM steps
+#                    gpu-lock        C:\src\butterpollo-release\GPU-LOCK is free;
+#                                    the batch holds it until it ends
+#   pass           what passing means. The verdict is the exit code (0 passes,
+#                  3 is an AMD encoder hang and stops the batch) unless
+#                  verdict: review (a person reads the output against `pass`).
+#   pass_regex     optional: the output must also match it
+#   output         where the command writes its results
+#   collect        optional: more paths or globs copied into the case dir
+#                  (screenshots, overlay stats, logs outside {{out}})
+#   status         ready (default) or pending: no runnable command yet, or it
+#                  needs a branch that is not on main. Batches skip pending
+#                  cases; -Only <id> runs one anyway.
+#   note           optional
+vars:
+  python: python
+  release: 3.0.0-rc.3
+  package: C:\src\butterpollo-release\{{release}}\release\butterpollo-rust-release
+  fixtures: C:\src\butterpollo-release\fixtures
+  laptop: ramaz@192.168.4.12
+
+cases:
+  - id: e2e-hevc
+    device: desktop
+    title: Packaged host streams HEVC to the independent moonlight-common-c receiver (12 s)
+    command: '& {{python}} rust\release\e2e.py --package {{package}} --work {{out}} --client {{fixtures}}\moonlight-client.exe --codec hevc --seconds 12'
+    preconditions: [idle, isolated-ports, gpu-lock]
+    pass: exit 0, result.json passed; exit 3 is an encoder hang
+    output: '{{out}}\e2e-*\result.json'
+
+  - id: e2e-av1-1440p120
+    device: desktop
+    title: AV1 at 2560x1440, 120 FPS through the packaged host (12 s)
+    command: '& {{python}} rust\release\e2e.py --package {{package}} --work {{out}} --client {{fixtures}}\moonlight-client.exe --codec av1 --mode 2560x1440x120 --seconds 12'
+    preconditions: [idle, isolated-ports, gpu-lock]
+    pass: exit 0, result.json passed
+    output: '{{out}}\e2e-*\result.json'
+
+  - id: release-check
+    device: desktop
+    title: rust/release/check.ps1 on the published release (download, streams, protocol, SYSTEM self-test, install)
+    command: 'pwsh -NoProfile -File rust\release\check.ps1 v{{release}} -NoUpload; exit $LASTEXITCODE'
+    preconditions: [idle, isolated-ports, system, gpu-lock]
+    pass: exit 0 and VALIDATION.json all passed; installs over the running host, so only with the host idle
+    output: C:\src\butterpollo-release\{{release}}\VALIDATION.json and e2e-*\result.json
+    collect:
+      - C:\src\butterpollo-release\{{release}}\VALIDATION.json
+      - C:\src\butterpollo-release\{{release}}\e2e-*\result.json
+
+  - id: soak-short
+    device: desktop
+    title: Isolated stream, reconnect and fault checks, short mode (25 s cases)
+    command: 'pwsh -NoProfile -File rust\release\soak.ps1 -Mode short -Package {{package}} -Client {{fixtures}}\moonlight-client.exe -GpuLoad {{fixtures}}\gpu_load.exe -Work {{out}}; exit $LASTEXITCODE'
+    preconditions: [idle, isolated-ports, gpu-lock]
+    pass: exit 0 (PASS or LIMITED); soak.py skips the remaining cases after an encoder hang
+    output: '{{out}}\<UTC time>\result.json'
+
+  - id: soak-30min
+    device: desktop
+    title: 30-minute release candidate soak, HEVC 2560x1440 at 120 FPS on one stream
+    command: '& {{python}} rust\release\e2e.py --package {{package}} --work {{out}} --client {{fixtures}}\moonlight-client.exe --codec hevc --mode 2560x1440x120 --seconds 1800 --name soak-30min'
+    preconditions: [idle, isolated-ports, gpu-lock]
+    pass: exit 0 after 1800 s, no hang; the stream timings stay flat over the run
+    output: '{{out}}\e2e-soak-30min\result.json'
+
+  - id: browser-e2e
+    device: desktop
+    title: Browser streaming end to end from the web console (WebRTC)
+    command: 'powershell -NoProfile -ExecutionPolicy Bypass -File C:\src\butterpollo-release\train\handoff\b1-e2e.ps1 -Name hw-browser'
+    preconditions: [idle, gpu-lock]
+    pass: prints EXITCODE 0 (the script itself exits 0, or 9 when its idle check fails)
+    pass_regex: '(?m)^EXITCODE 0\s*$'
+    output: C:\tests\webrtc\runs\hw-browser, screenshot C:\src\rl-b1-stream.png
+    collect:
+      - C:\tests\webrtc\runs\hw-browser
+      - C:\src\rl-b1-stream.png
+    note: paths in b1-e2e.ps1 are fixed to the B1 worktree and the 3.0.0-rc.2 package
+
+  - id: browser-e2e-off
+    device: desktop
+    title: Web console screenshots with browser streaming turned off
+    command: 'powershell -NoProfile -ExecutionPolicy Bypass -File C:\src\butterpollo-release\train\handoff\b1-e2e.ps1 -Mode off'
+    preconditions: [idle]
+    pass: prints EXITCODE 0
+    pass_regex: '(?m)^EXITCODE 0\s*$'
+    output: C:\src\rl-b1-stream*.png
+    collect:
+      - C:\src\rl-b1-stream*.png
+
+  - id: issue56-exclusive-layout
+    device: desktop
+    title: 'Issue #56: exclusive layout stream plus a Windows layout recall on an isolated host'
+    command: 'Write-Error "not scripted yet: see note"; exit 1'
+    preconditions: [idle, isolated-ports, system, gpu-lock]
+    pass: the stream starts on the exclusive layout, the physical displays come back after the stream, and after a Windows layout recall (Win+P Extend) the host recovers normally with no stuck virtual display
+    output: '{{out}}'
+    status: pending
+    note: isolated host (butterpollo.exe --config-dir C:\tests\i56 --port 48123 --bind 127.0.0.1, virtual_display_layout = exclusive, virtual display as SYSTEM through rust/release/elevated.ps1); then ask the 9070 XT reporter to confirm on #56
+
+  - id: sleep-evidence
+    device: nuc
+    title: Sleep PC from a client, then wake this PC from the NUC (Wake-on-LAN)
+    command: 'Write-Error "not scripted yet: see note"; exit 1'
+    preconditions: [idle]
+    pass: the System log shows Kernel-Power 42 (sleep) then 107 (resume) and the NUC's magic packet woke it; the host serves serverinfo again after resume
+    output: '{{out}}\sleep-evidence.txt (wevtutil qe System for Kernel-Power 42/107/1, powercfg /lastwake)'
+    status: pending
+    note: needs a reboot-safe window (nothing in flight); the laptop has Modern Standby only and cannot be the sleeper
+
+  - id: couch-audio-71
+    device: desktop
+    title: Couch audio 7.1 tone test (headphone surround on and off, night mode on and off)
+    command: |
+      $t = 'C:\tests\audio-h2\tools'
+      $arms = @(
+        @("$t\h2-arm8.ps1", '-Name', 'surround-on8', '-Pattern', 'sweep', '-Config', 'audio_headphone_surround=on'),
+        @("$t\h2-arm8.ps1", '-Name', 'surround-off8', '-Pattern', 'sweep'),
+        @("$t\h2-arm.ps1", '-Name', 'night-on', '-Pattern', 'levels', '-Config', 'audio_night_mode=on'),
+        @("$t\h2-arm.ps1", '-Name', 'night-off', '-Pattern', 'levels'))
+      foreach ($arm in $arms) {
+        $script, $rest = $arm
+        & $script @rest
+        if ($LASTEXITCODE -eq 3) { exit 3 }
+      }
+      $d = '{{repo}}\rust\core\src\audio_dsp'
+      foreach ($arm in 'surround-on8', 'surround-off8') {
+        & {{python}} "$t\tone_analysis.py" sweep "C:\tests\audio-h2\e2e-$arm" "$d\hrir_sadie2_ku100_48k.bin" "$d\hrir_sadie2_ku100_48k.json"
+      }
+      foreach ($arm in 'night-on', 'night-off') { & {{python}} "$t\tone_analysis.py" levels "C:\tests\audio-h2\e2e-$arm" }
+    preconditions: [idle, isolated-ports, gpu-lock]
+    verdict: review
+    pass: surround-on8 log has "headphone surround active (8 to 2)", channels 8 mask 0x63f, every row heard and ok (ILD within 2 dB, ITD within 2 samples); latency median within 1 ms of surround-off8; night-on range_db clearly below night-off (about 34 dB). Expected e2e failures "receiver interoperability failed" and "the captured audio tone was silent or interrupted" only
+    output: C:\tests\audio-h2\e2e-{surround-on8,surround-off8,night-on,night-off}
+    collect:
+      - C:\tests\audio-h2\e2e-surround-on8\result.json
+      - C:\tests\audio-h2\e2e-surround-off8\result.json
+      - C:\tests\audio-h2\e2e-night-on\result.json
+      - C:\tests\audio-h2\e2e-night-off\result.json
+      - C:\tests\audio-h2\e2e-surround-on8\config\logs\butterpollo.log
+    status: pending
+    note: needs the audio-h2 branch (audio_dsp and webrtc_tone in C:\src\rl-target-audio); run with -Var repo=<audio-h2 worktree>
+
+  - id: audio-bench
+    device: desktop
+    title: Audio bench rerun on a quiet PC
+    command: 'Write-Error "not scripted yet: see note"; exit 1'
+    preconditions: [idle, gpu-lock]
+    pass: the bench numbers match the audio-h2 branch's claims within their noise
+    output: '{{out}}'
+    status: pending
+    note: no bench command is written down yet (HANDOFF-rubylight.md mentions only "the audio bench rerun on a quiet PC")
+
+  - id: encoder-focus-amf-quality
+    device: desktop
+    title: Encoder focus, amf_quality --focus static for 60 s
+    command: 'cargo +1.98.1-x86_64-pc-windows-gnu run --release -p butterpollo-windows --example amf_quality -- --codec hevc --width 1920 --height 1080 --fps 120 --bitrate 20000 --frames 7200 --focus static --out {{out}}\amf_quality.json; exit $LASTEXITCODE'
+    preconditions: [idle, gpu-lock]
+    pass: exit 0, focus_maps > 0 and the first map under the cap in the amf_quality JSON line and the "encoder focus check:" log
+    output: '{{out}}\amf_quality.json'
+    status: pending
+    note: --focus exists only on the encoder-focus branch; run from that worktree with -Var repo=<worktree>
+
+  - id: encoder-focus-ab
+    device: desktop
+    title: Encoder focus A/B, 10 minutes of ABBA legs through focus_ab
+    command: '& {{python}} rust\release\focus_ab.py --package {{package}} --client {{fixtures}}\moonlight-client.exe --minutes 10 --work {{out}}'
+    preconditions: [idle, isolated-ports, gpu-lock]
+    pass: B (focus on) no worse than A on latency and frame pacing, better on the focused region quality; keep only if better (revert otherwise)
+    output: '{{out}}\result.json'
+    status: pending
+    note: focus_ab.py does not exist yet (docs/encoder-focus-design.md); align it with the config key first
+
+  - id: couch-menu-stream
+    device: user
+    title: Couch menu, a real stream with the menu open
+    command: 'stream Desktop from a phone, open the couch menu with its chord and hold, use each entry, close it'
+    preconditions: [idle]
+    pass: the menu opens and closes without a stall; the stream timings lines around it stay at their normal values
+    output: the host log's stream timings lines (read after the user's run)
+    status: pending
+    note: the WIP is on the couch-menu branch (a9e2fb927); run last in its batch
+
+  - id: smoke-laptop
+    device: laptop
+    title: Real-client smoke from the laptop (Moonlight-qt, AV1 and HEVC, 1968x2184 HDR 120 fps, 30 s each)
+    command: |
+      ssh {{laptop}} "New-Item -ItemType Directory -Force C:\tests\hw | Out-Null"
+      scp rust\release\smoke.ps1 "{{laptop}}:C:/tests/hw/smoke.ps1"
+      if ($LASTEXITCODE) { exit 1 }
+      ssh {{laptop}} "pwsh -NoProfile -File C:\tests\hw\smoke.ps1 -Out C:\tests\hw\smoke.json"
+      $code = $LASTEXITCODE
+      scp "{{laptop}}:C:/tests/hw/smoke.json" "{{out}}\smoke.json"
+      exit $code
+    preconditions: [idle]
+    pass: exit 0, at least 115 fps received and host processing under 5 ms per codec (smoke.json)
+    output: '{{out}}\smoke.json'
+    note: no -Version, so nothing is uploaded to the release

@@ -879,6 +879,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         color_space: if settings.hdr { COLORSPACE_REC_2020 } else { COLORSPACE_REC_709 },
         color_range: if settings.full_range { COLOR_RANGE_FULL } else { COLOR_RANGE_LIMITED },
         microphone: settings.microphone && role != AppRole::RemoteMonitor,
+        audio_passthrough: pipeline::passthrough_codecs(settings.audio_passthrough),
         haptics_pcm: settings.controllers && settings.controller_audio && role != AppRole::RemoteMonitor,
         pyrowave_link_mbps: sent_link_mbps as i32,
         pyrowave_pace_mbps: pace_mbps as i32,
@@ -903,11 +904,12 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
     // Started before the handshake so a change during it still reaches the session.
     let watch = roam_watch(settings, &plan.record.address, &shared);
     let roam_shared = shared.clone();
+    let passthrough = stream.audio_passthrough;
     let session = Session::start(
         &host,
         session_config(settings, role, stream, location_override(), watch.is_some()),
         Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early).with_beam_race(slices).with_gpu_decoder(plan.gpu_decoder)),
-        Box::new(pipeline::Audio::new(shared.clone())),
+        Box::new(pipeline::Audio::new(shared.clone(), passthrough)),
         Arc::new(pipeline::Events { shared }),
         interrupt,
     )
@@ -1516,6 +1518,7 @@ impl Streaming {
                     self.exit.get_or_insert(Exit::Terminated(code));
                 }
                 Notice::DecoderFallback(text) => self.show_toast(text),
+                Notice::PassthroughOpus => self.show_toast(tr("The PC did not offer PCM audio. This stream plays Opus.")),
                 Notice::DecoderFailed(text) => {
                     self.exit.get_or_insert(Exit::Ended(Some(text)));
                 }

@@ -67,6 +67,8 @@ pub enum Notice {
     /// The GPU PyroWave decoder broke; the stream ends with this message (nothing falls back).
     DecoderFailed(String),
     MicrophoneFailed(String),
+    /// Audio passthrough was asked for, but the PC sends Opus; the stream plays on with a message.
+    PassthroughOpus,
     Clipboard(Result<Option<String>, String>),
     ServerCommand(Result<Vec<u8>, String>),
     /// The host's answer to opening its menu; the error is the text to show.
@@ -560,11 +562,46 @@ impl VideoDecoder for Decoder {
     }
 }
 
-/// Opus to an SDL audio stream, with the queue kept short. What runs dry between packets is
-/// concealed from SDL's request callback (see [`Playout`]).
+/// What the stream's packets are.
+pub(super) enum AudioDecoder {
+    Opus(media::OpusDecoder),
+    /// s16le samples, `channels` interleaved.
+    Pcm { channels: usize },
+}
+
+impl AudioDecoder {
+    pub(super) fn channels(&self) -> usize {
+        match self {
+            Self::Opus(decoder) => decoder.channels,
+            Self::Pcm { channels } => *channels,
+        }
+    }
+
+    /// Decodes `packet` into `pcm`, or conceals a lost one for all of `pcm`: Opus with its
+    /// concealment, PCM with silence. Returns the samples per channel written.
+    pub(super) fn decode(&mut self, packet: Option<&[u8]>, pcm: &mut [f32]) -> i32 {
+        match self {
+            Self::Opus(decoder) => decoder.decode(packet, pcm),
+            Self::Pcm { channels } => {
+                media::pcm_s16le(packet, *channels, pcm.len() / (*channels).max(1), pcm) as i32
+            }
+        }
+    }
+}
+
+/// The passthrough codecs SDL plays here: PCM, which it mixes like decoded Opus to any output.
+/// AC3 and E-AC3 need a bitstream output, which SDL has not, so they are never asked for.
+pub fn passthrough_codecs(enabled: bool) -> u8 {
+    if enabled { rubylight_protocol::audio_ext::CODEC_PCM } else { 0 }
+}
+
+/// Opus or PCM to an SDL audio stream, with the queue kept short. What runs dry between packets
+/// is concealed from SDL's request callback (see [`Playout`]).
 pub struct Audio {
     pub shared: Arc<Shared>,
     playout: Option<Arc<Mutex<Playout>>>,
+    /// The passthrough codecs the stream asked for (`passthrough_codecs`).
+    passthrough: u8,
     stream: *mut SDL_AudioStream,
     /// The callback's reference to `playout`, released after the stream is destroyed.
     callback: *const Mutex<Playout>,
@@ -575,10 +612,11 @@ pub struct Audio {
 unsafe impl Send for Audio {}
 
 impl Audio {
-    pub fn new(shared: Arc<Shared>) -> Self {
+    pub fn new(shared: Arc<Shared>, passthrough: u8) -> Self {
         Self {
             shared,
             playout: None,
+            passthrough,
             stream: std::ptr::null_mut(),
             callback: std::ptr::null(),
         }
@@ -625,16 +663,34 @@ unsafe extern "C" fn conceal(userdata: *mut c_void, stream: *mut SDL_AudioStream
 
 impl AudioRenderer for Audio {
     fn init(&mut self, setup: &AudioSetup) -> Result<(), i32> {
+        use rubylight_protocol::audio_ext::{CODEC_OPUS, CODEC_PCM};
         let opus = &setup.opus;
-        let decoder = media::OpusDecoder::new(
-            opus.channel_count,
-            opus.streams,
-            opus.coupled_streams,
-            &opus.mapping,
-        )?;
+        let channels = setup.configuration.channel_count;
+        let name = nightjar_core::audio::passthrough::codec_name(setup.codec);
+        let decoder = match setup.codec {
+            CODEC_PCM => AudioDecoder::Pcm { channels: usize::from(channels) },
+            CODEC_OPUS => AudioDecoder::Opus(media::OpusDecoder::new(
+                opus.channel_count,
+                opus.streams,
+                opus.coupled_streams,
+                &opus.mapping,
+            )?),
+            _ => {
+                // Never asked for (`passthrough_codecs`): refuse rather than play noise.
+                eprintln!("nightjar: audio: the stream is {name}, which this client cannot play");
+                return Err(-1);
+            }
+        };
+        if setup.codec == CODEC_PCM {
+            eprintln!("nightjar: audio: PCM passthrough, {channels} channels, {} ms packets", setup.packet_duration_ms);
+        } else if self.passthrough != 0 {
+            eprintln!("nightjar: audio: the PC did not offer PCM audio for {channels} channels; playing Opus");
+            self.shared.notify(Notice::PassthroughOpus);
+        }
+        let channels = decoder.channels();
         let spec = SDL_AudioSpec {
             format: SDL_AUDIO_F32,
-            channels: i32::from(opus.channel_count),
+            channels: channels as i32,
             freq: 48000,
         };
         // SAFETY: SDL's audio subsystem is initialised; the spec outlives the call. The
@@ -674,7 +730,7 @@ impl AudioRenderer for Audio {
         self.shared
             .counters
             .audio_channels
-            .store(u64::from(opus.channel_count), Ordering::Relaxed);
+            .store(channels as u64, Ordering::Relaxed);
         Ok(())
     }
 

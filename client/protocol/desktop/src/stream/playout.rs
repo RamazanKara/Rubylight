@@ -2,9 +2,10 @@
 //! than is queued, are both filled with Opus packet loss concealment, one packet's length at a
 //! time, instead of silence. A packet whose time concealment already played is skipped when it
 //! arrives, so riding out a late burst never adds latency. Silence is played only before the
-//! first packet and after an outage longer than concealment covers.
+//! first packet and after an outage longer than concealment covers. PCM has no concealment: what
+//! it lacks is filled with silence on the same terms.
 
-use crate::media::OpusDecoder;
+use super::pipeline::AudioDecoder;
 
 /// Silence led with on an empty queue (the start, or after an outage), in ms, or the device's
 /// own buffer when that is longer: enough that the next packet's jitter does not starve the
@@ -30,7 +31,7 @@ pub enum Fed {
 }
 
 pub struct Playout {
-    decoder: OpusDecoder,
+    decoder: AudioDecoder,
     pcm: Vec<f32>,
     /// Samples (per channel) `pcm` holds.
     len: usize,
@@ -55,11 +56,11 @@ pub struct Playout {
 
 impl Playout {
     /// `device_frames` is how much the device takes at once (0 when unknown).
-    pub fn new(decoder: OpusDecoder, packet_ms: u32, device_frames: usize) -> Self {
+    pub fn new(decoder: AudioDecoder, packet_ms: u32, device_frames: usize) -> Self {
         let frame = 48 * packet_ms.max(1) as usize;
         let lead = (48 * LEAD_MS).max(device_frames).min(5760 - frame);
         Self {
-            pcm: vec![0.0; 5760 * decoder.channels],
+            pcm: vec![0.0; 5760 * decoder.channels()],
             decoder,
             len: 0,
             frame,
@@ -75,12 +76,12 @@ impl Playout {
     }
 
     pub fn channels(&self) -> usize {
-        self.decoder.channels
+        self.decoder.channels()
     }
 
     /// What the last call put out, interleaved.
     pub fn pcm(&self) -> &[f32] {
-        &self.pcm[..self.len * self.decoder.channels]
+        &self.pcm[..self.len * self.decoder.channels()]
     }
 
     /// One packet from the stream, or `None` for a lost one, with `queued` samples per channel
@@ -100,7 +101,7 @@ impl Playout {
         } else {
             0
         };
-        let channels = self.decoder.channels;
+        let channels = self.decoder.channels();
         // A lost packet is concealed for exactly its own length: given the whole buffer, Opus
         // would conceal 120 ms.
         let frame = if packet.is_some() {
@@ -141,7 +142,7 @@ impl Playout {
             self.dry = true;
             return &[];
         }
-        let channels = self.decoder.channels;
+        let channels = self.decoder.channels();
         let samples = self
             .decoder
             .decode(None, &mut self.pcm[..frames * self.frame * channels]);
@@ -228,7 +229,7 @@ mod tests {
 
     fn playout(device_frames: usize) -> Playout {
         Playout::new(
-            OpusDecoder::new(2, 1, 1, &[0, 1]).expect("the Opus decoder"),
+            AudioDecoder::Opus(crate::media::OpusDecoder::new(2, 1, 1, &[0, 1]).expect("the Opus decoder")),
             5,
             device_frames,
         )
@@ -337,6 +338,27 @@ mod tests {
             "concealment continues the tone"
         );
         assert_eq!(playout.take_concealed(), 1);
+    }
+
+    #[test]
+    fn pcm_plays_its_packets_and_fills_what_is_missing_with_silence() {
+        let mut playout = Playout::new(AudioDecoder::Pcm { channels: 2 }, 5, 0);
+        // 240 stereo frames at half scale.
+        let packet: Vec<u8> = (0..480).flat_map(|_| 16384i16.to_le_bytes()).collect();
+        assert!(matches!(
+            playout.packet(Some(&packet), 0),
+            Fed::Play { lead: 480, .. }
+        ));
+        assert_eq!(playout.pcm().len(), (480 + 240) * 2);
+        assert!(playout.pcm()[480 * 2..].iter().all(|&v| v == 0.5));
+        assert_eq!(playout.packet(None, 720), Fed::Play { lead: 0, underrun: false });
+        assert_eq!(playout.pcm().len(), 240 * 2, "one packet of silence");
+        assert!(playout.pcm().iter().all(|&v| v == 0.0));
+        // The device asks for 500 samples: whole packets of silence cover it, as Opus
+        // concealment does, and the packets they stand for are skipped when they arrive.
+        let filled = playout.starve(500).len();
+        assert_eq!(filled, 3 * 240 * 2);
+        assert_eq!(playout.packet(Some(&packet), 0), Fed::Dropped);
     }
 
     #[test]

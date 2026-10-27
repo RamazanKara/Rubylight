@@ -10,6 +10,7 @@ mod device_recovery;
 #[cfg(test)]
 mod encoder_tests;
 mod game_audio;
+mod keyboard_layout;
 mod qos;
 mod roaming;
 pub(crate) mod slices;
@@ -3636,6 +3637,7 @@ impl Media {
                                     roaming: false,
                                     couch: Default::default(),
                                     audio_haptics: Default::default(),
+                                    keyboard_layout: Default::default(),
                                     focus_watch: None,
                                 },
                             );
@@ -3965,21 +3967,39 @@ impl Media {
                                 }
                                 // Only a device that may type picks the layout keys go with.
                                 if !s.launch.client.allows(input::KEYBOARD_PERMISSION) {
-                                    tracing::debug!("keyboard layout report without the keyboard permission");
+                                    tracing::debug!(
+                                        "keyboard layout report without the keyboard permission"
+                                    );
                                     continue;
                                 }
                                 match butterpollo_core::keyboard_layout::KeyboardLayout::decode(
                                     &payload,
                                 ) {
                                     Some(layout) => {
-                                        tracing::info!(
-                                            client = %s.launch.client.name,
-                                            source = ?layout.source,
-                                            klid = format_args!("{:08X}", layout.klid),
-                                            tag = %layout.tag,
-                                            "keyboard layout"
+                                        // Resolved once here; the layout is read on this
+                                        // loop, never with input.
+                                        let klid = butterpollo_core::keyboard_layout::reported_klid(
+                                            &layout,
                                         );
-                                        *s.keyboard_layout.lock().unwrap() = Some(layout);
+                                        let before = std::mem::replace(
+                                            &mut *s.keyboard_layout.lock().unwrap(),
+                                            klid,
+                                        );
+                                        if before != klid {
+                                            tracing::info!(
+                                                client = %s.launch.client.name,
+                                                source = ?layout.source,
+                                                reported = format_args!("{:08X}", layout.klid),
+                                                tag = %layout.tag,
+                                                klid = ?klid.map(|klid| format!("{klid:08X}")),
+                                                "keyboard layout"
+                                            );
+                                        }
+                                        p.keyboard_layout.report(
+                                            klid,
+                                            &s.launch.warnings,
+                                            Instant::now(),
+                                        );
                                     }
                                     None => tracing::debug!(
                                         len = payload.len(),
@@ -4325,10 +4345,20 @@ impl Media {
                                 i.set_feedback_waker(self.control_wake.clone());
                                 i.set_stream_size(s.config.width, s.config.height);
                                 p.injector = Some(i);
+                                p.keyboard_layout.refresh();
                             }
                             Err(e) => s.launch.warnings.set("input_initialization", format!("Input initialization failed ({e:#}); controls are unavailable. Check Input settings and the selected display, then reconnect.")),
                         }
                     }
+                    // The keyboard layout follows saves of `keyboard_layout` and a coalesced
+                    // report; it is read here, and the injector only takes it.
+                    p.keyboard_layout.follow(
+                        h.config_version.load(Ordering::Acquire),
+                        &s.launch.warnings,
+                        Instant::now(),
+                        || *s.keyboard_layout.lock().unwrap(),
+                        || effective_config(&h, &s.launch),
+                    );
                     if let Some(i) = &mut p.injector {
                         // The stream's display can be created or renamed after
                         // input began; absolute input follows it.
@@ -4337,14 +4367,10 @@ impl Media {
                         let mode = s.stream_mode();
                         i.set_stream_size(mode.width, mode.height);
                         // And keys the device's keyboard layout (0x553E).
-                        match i.follow_keyboard_layout(s.keyboard_layout.lock().unwrap().as_ref()) {
-                            Ok(true) => s.launch.warnings.clear("keyboard_layout"),
-                            Ok(false) => {}
-                            Err(error) => {
-                                tracing::warn!(error = %format!("{error:#}"), "keyboard layout unavailable");
-                                s.launch.warnings.set("keyboard_layout", format!("The device's keyboard layout could not be read ({error:#}); keys follow this PC's layout. Set Keyboard layout under Input to a layout id this PC has, or to us."));
-                            }
+                        if let Some(layout) = p.keyboard_layout.take() {
+                            i.set_keyboard_layout(layout);
                         }
+                        i.follow_keyboard_layout();
                     }
                     p.audio_haptics.follow(
                         h.config_version.load(Ordering::Acquire),
@@ -4602,6 +4628,8 @@ struct ControlPeer {
     couch: crate::couch_menu::PeerMenu,
     /// Haptics from game audio for this peer's controllers.
     audio_haptics: audio_haptics::PeerHaptics,
+    /// The keyboard layout keys go with (0x553E, `keyboard_layout`).
+    keyboard_layout: keyboard_layout::PeerLayout,
     /// The text field watcher, from the client's first text input request (0x553B); paused
     /// while the client turned it off, and dropped with the peer at session end.
     focus_watch: Option<butterpollo_windows::text_focus::FocusWatch>,

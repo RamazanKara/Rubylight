@@ -275,7 +275,7 @@ The host sends a report unreliably at the asked interval until the client turns 
 | 4 | u32 | klid | for example `0x00000407` (de-DE), 0 when unknown |
 | 8 | bytes | tag | ASCII, for example `de-DE` or `de(nodeadkeys)` |
 
-The client sends it when the stream starts and whenever the layout changes; the host keeps the latest while `keyboard_layout = client`, and maps the keys that are not normalized with it.
+The client sends it when the stream starts and whenever the layout changes; the host keeps the latest while `keyboard_layout = client`, and maps the keys that are not normalized with it. Reports from a device without the Keyboard permission are ignored. The host applies at most one report every 125 ms, always the newest, and reads each layout's file once per stream, up to 16 layouts; a setting change applies without a reconnect.
 
 With `always_send_scancodes` on (the default), a key the client did not normalize gets the scan code it has on that layout, so it lands where it is on the device's keyboard; keys the layout file does not name (AltGr, the numpad, the keys between the main block and the numpad) keep the host's mapping, which is the same on every layout. Normalized keys keep the US table. A new layout takes over only once no key is held, so every release sends its press's scan code. The host reads the scan code table from the layout's file (`Layout File` under `HKLM\SYSTEM\CurrentControlSet\Control\Keyboard Layouts`) and loads no layout into Windows: the user's input switcher shows nothing new during a stream. A layout this PC does not know leaves keys to the host's layout and raises a stream warning.
 

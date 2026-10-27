@@ -41,7 +41,7 @@ pub mod hotkey;
 pub mod image;
 pub mod input;
 mod ipc;
-mod keylayout;
+pub mod keylayout;
 pub mod launcher;
 pub mod library;
 pub mod limiter;

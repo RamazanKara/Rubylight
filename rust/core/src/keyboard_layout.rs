@@ -123,13 +123,14 @@ fn lookup(table: &[(&str, u32)], tag: &str) -> Option<u32> {
 }
 
 /// The layout the host maps a device's keys that are not normalized with: the
-/// `keyboard_layout` setting when it names one, else the device's report. `None` keeps the
-/// host's own layout, as before 3.0.
-pub fn effective(setting: KeyboardLayoutSetting, reported: Option<&KeyboardLayout>) -> Option<u32> {
+/// `keyboard_layout` setting when it names one, else the layout id the device's report
+/// resolved to ([`reported_klid`], once on arrival). `None` keeps the host's own layout, as
+/// before 3.0.
+pub fn effective(setting: KeyboardLayoutSetting, reported: Option<u32>) -> Option<u32> {
     match setting {
         KeyboardLayoutSetting::Us => Some(US),
         KeyboardLayoutSetting::Klid(klid) => Some(klid),
-        KeyboardLayoutSetting::Client => reported.and_then(reported_klid),
+        KeyboardLayoutSetting::Client => reported,
     }
 }
 
@@ -177,18 +178,17 @@ mod tests {
 
     #[test]
     fn the_setting_wins_over_the_report() {
-        let german = report(LayoutSource::Klid, 0x0407, "de-DE");
+        // A report resolves to its layout id once, on arrival.
+        let german = reported_klid(&report(LayoutSource::Bcp47, 0, "de-DE"));
+        assert_eq!(german, Some(0x0407));
         assert_eq!(
-            effective(KeyboardLayoutSetting::Client, Some(&german)),
+            effective(KeyboardLayoutSetting::Client, german),
             Some(0x0407)
         );
         assert_eq!(effective(KeyboardLayoutSetting::Client, None), None);
+        assert_eq!(effective(KeyboardLayoutSetting::Us, german), Some(US));
         assert_eq!(
-            effective(KeyboardLayoutSetting::Us, Some(&german)),
-            Some(US)
-        );
-        assert_eq!(
-            effective(KeyboardLayoutSetting::Klid(0x0809), Some(&german)),
+            effective(KeyboardLayoutSetting::Klid(0x0809), german),
             Some(0x0809)
         );
         assert_eq!(

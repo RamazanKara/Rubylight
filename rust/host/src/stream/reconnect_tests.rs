@@ -2018,8 +2018,9 @@ async fn keyboard_layout_reports_keep_the_newest() -> Result<()> {
     for layout in [report(0x0407, "de-DE"), report(0x040C, "fr-FR")] {
         client.send_control(KEYBOARD_LAYOUT_MESSAGE_TYPE, &layout.encode().unwrap());
     }
+    // Kept as the layout id it resolved to on arrival.
     until("the newest report is kept", WAIT, || {
-        *session.keyboard_layout.lock().unwrap() == Some(report(0x040C, "fr-FR"))
+        *session.keyboard_layout.lock().unwrap() == Some(0x040C)
     })
     .await;
     h.end(&session, client).await?;

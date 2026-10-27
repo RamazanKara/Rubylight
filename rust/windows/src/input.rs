@@ -92,10 +92,6 @@ pub struct Injector {
     /// The display's desktop rectangle, None until the display exists.
     rect: Option<RECT>,
     policy: butterpollo_core::input_policy::Policy,
-    /// The layout `keyboard_layout` maps keys with, and the layout id asked for last,
-    /// read or not.
-    layout_setting: butterpollo_core::config::KeyboardLayoutSetting,
-    layout_klid: Option<u32>,
     /// The layout that gives keys the client did not normalize their scan codes (None:
     /// the host's), and the one asked for since. It takes over once no key is held, so
     /// a release sends its press's scan code.
@@ -260,8 +256,6 @@ impl Injector {
             pen_refreshed: std::time::Instant::now(),
             gamepads: std::sync::Arc::new(GamepadThread::new(profile, policy.clone(), warnings)?),
             policy,
-            layout_setting: config.keyboard_layout(),
-            layout_klid: None,
             layout: None,
             next_layout: None,
             key_flags: BTreeMap::new(),
@@ -282,32 +276,20 @@ impl Injector {
         injector.look_up(output);
         Ok(injector)
     }
-    /// Follows the device's keyboard layout (0x553E) as `keyboard_layout` says. A
-    /// layout that cannot be read fails once, and keys keep the host's layout. True
-    /// when another layout was read, so a warning about the last one can go.
-    pub fn follow_keyboard_layout(
-        &mut self,
-        reported: Option<&butterpollo_core::keyboard_layout::KeyboardLayout>,
-    ) -> Result<bool> {
-        let klid = butterpollo_core::keyboard_layout::effective(self.layout_setting, reported);
-        let mut result = Ok(false);
-        if klid != self.layout_klid {
-            self.layout_klid = klid;
-            result = Ok(true);
-            self.next_layout = klid
-                .map(crate::keylayout::Layout::load)
-                .transpose()
-                .unwrap_or_else(|error| {
-                    result = Err(error);
-                    None
-                });
-        }
+    /// The keyboard layout keys the client did not normalize go with (None: the host's),
+    /// read by the control loop from the device's report (0x553E) and `keyboard_layout`.
+    /// It takes over at [`Self::follow_keyboard_layout`].
+    pub fn set_keyboard_layout(&mut self, layout: Option<crate::keylayout::Layout>) {
+        self.next_layout = layout;
+    }
+    /// Each pass: the layout set last takes over once no key is held, so a release sends
+    /// its press's scan code.
+    pub fn follow_keyboard_layout(&mut self) {
         let klid = |layout: &Option<crate::keylayout::Layout>| layout.as_ref().map(|l| l.klid());
         if self.keys.is_empty() && klid(&self.layout) != klid(&self.next_layout) {
             self.layout = self.next_layout.clone();
             tracing::info!(layout = ?self.layout, "keys follow a keyboard layout");
         }
-        result
     }
     /// The stream's size, so absolute input skips the bars around a display of
     /// another shape, as the encoder adds them.
@@ -1614,12 +1596,11 @@ mod tests {
             down,
         }
     }
-    fn reported(klid: u32) -> butterpollo_core::keyboard_layout::KeyboardLayout {
-        butterpollo_core::keyboard_layout::KeyboardLayout {
-            source: butterpollo_core::keyboard_layout::LayoutSource::Klid,
-            klid,
-            tag: String::new(),
-        }
+    /// Sets the layout with this id and lets it take over if it can.
+    fn use_layout(injector: &mut Injector, klid: Option<u32>) {
+        injector
+            .set_keyboard_layout(klid.map(|klid| crate::keylayout::Layout::load(klid).unwrap()));
+        injector.follow_keyboard_layout();
     }
     /// The scan code and flags of each key sent since the last look.
     fn scans() -> Vec<(u16, u32)> {
@@ -1639,18 +1620,12 @@ mod tests {
     #[test]
     fn non_normalized_keys_follow_the_device_layout_between_presses() {
         let mut injector = recording();
-        injector
-            .follow_keyboard_layout(Some(&reported(0x0407)))
-            .unwrap();
+        use_layout(&mut injector, Some(0x0407));
         injector.apply(&non_normalized(0x5a, true)).unwrap();
-        injector
-            .follow_keyboard_layout(Some(&reported(0x040c)))
-            .unwrap();
+        use_layout(&mut injector, Some(0x040c));
         assert_eq!(injector.layout.as_ref().map(|l| l.klid()), Some(0x0407));
         injector.apply(&non_normalized(0x5a, false)).unwrap();
-        injector
-            .follow_keyboard_layout(Some(&reported(0x040c)))
-            .unwrap();
+        injector.follow_keyboard_layout();
         injector.apply(&non_normalized(0x5a, true)).unwrap();
         injector.apply(&non_normalized(0x5a, false)).unwrap();
         // Normalized keys keep the US table whatever the layout.
@@ -1673,7 +1648,7 @@ mod tests {
         injector.apply(&non_normalized(0xde, false)).unwrap();
         assert_eq!(scans(), [(0, 0), (0, KEYEVENTF_KEYUP.0)]);
         // A client that stops reporting leaves keys to the host's layout again.
-        injector.follow_keyboard_layout(None).unwrap();
+        use_layout(&mut injector, None);
         assert!(injector.layout.is_none());
     }
 
@@ -1691,9 +1666,7 @@ mod tests {
             (0x0809, 0x34, 0x05),
         ] {
             let mut injector = recording();
-            injector
-                .follow_keyboard_layout(Some(&reported(klid)))
-                .unwrap();
+            use_layout(&mut injector, Some(klid));
             for event in [
                 non_normalized(0xa5, true),
                 non_normalized(key, true),
@@ -1713,44 +1686,5 @@ mod tests {
                 "{klid:08X}"
             );
         }
-    }
-
-    /// A layout this PC cannot read fails once and leaves keys to the host's layout; the
-    /// setting's layout wins over the device's.
-    #[test]
-    fn an_unreadable_layout_fails_once_and_the_setting_wins() {
-        let mut injector = recording();
-        assert!(
-            injector
-                .follow_keyboard_layout(Some(&reported(0x0407)))
-                .unwrap()
-        );
-        let error = injector
-            .follow_keyboard_layout(Some(&reported(0x0bad_0407)))
-            .unwrap_err();
-        assert!(format!("{error:#}").contains("0BAD0407"), "{error:#}");
-        assert!(
-            !injector
-                .follow_keyboard_layout(Some(&reported(0x0bad_0407)))
-                .unwrap()
-        );
-        assert!(injector.layout.is_none());
-        injector.layout_setting = butterpollo_core::config::KeyboardLayoutSetting::Us;
-        assert!(
-            injector
-                .follow_keyboard_layout(Some(&reported(0x0407)))
-                .unwrap()
-        );
-        assert_eq!(injector.layout.as_ref().map(|l| l.klid()), Some(0x0409));
-        let configured = Injector::new_options(
-            r"\\.\DISPLAY99",
-            "vhf",
-            &butterpollo_core::config::Config::parse("keyboard_layout = 00000809\n").unwrap(),
-        )
-        .unwrap();
-        assert_eq!(
-            configured.layout_setting,
-            butterpollo_core::config::KeyboardLayoutSetting::Klid(0x0809)
-        );
     }
 }

@@ -2869,8 +2869,9 @@ pub struct Session<P = (), A = ()> {
     /// Keyboard follows focus for a client that asked (0x553B): fed by the focus watcher,
     /// sent by the control loop.
     pub text_input: std::sync::Mutex<crate::text_input::TextInputs>,
-    /// The device's newest keyboard layout report (0x553E).
-    pub keyboard_layout: std::sync::Mutex<Option<crate::keyboard_layout::KeyboardLayout>>,
+    /// The layout id the device's newest keyboard layout report (0x553E) resolved to, on
+    /// arrival; None when it named none the host knows, or sent none.
+    pub keyboard_layout: std::sync::Mutex<Option<u32>>,
     /// Zero of the video stream's RTP clock, set when its sender starts; clock sync
     /// replies (0x5537) are on this clock.
     pub media_epoch: std::sync::RwLock<Option<Instant>>,

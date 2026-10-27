@@ -181,6 +181,54 @@ impl Layout {
     }
 }
 
+/// The most layout ids one [`Layouts`] reads.
+pub const MAX_LAYOUTS: usize = 16;
+
+/// The layouts read for one peer by id, read or failed: each id's file is loaded at most
+/// once however often a device reports it, and at most [`MAX_LAYOUTS`] ids are.
+pub struct Layouts {
+    load: fn(u32) -> anyhow::Result<Layout>,
+    read: std::collections::HashMap<u32, Result<Layout, String>>,
+    refused: bool,
+}
+
+impl Default for Layouts {
+    fn default() -> Self {
+        Self::with_loader(Layout::load)
+    }
+}
+
+impl Layouts {
+    /// Reads layouts with `load` instead of [`Layout::load`], for tests.
+    pub fn with_loader(load: fn(u32) -> anyhow::Result<Layout>) -> Self {
+        Self {
+            load,
+            read: Default::default(),
+            refused: false,
+        }
+    }
+
+    /// The layout with this id, or why it cannot be read, and whether that is new: the
+    /// first time this id was asked for, or the first refusal past [`MAX_LAYOUTS`].
+    pub fn get(&mut self, klid: u32) -> (Result<Layout, String>, bool) {
+        if let Some(read) = self.read.get(&klid) {
+            return (read.clone(), false);
+        }
+        if self.read.len() >= MAX_LAYOUTS {
+            let first = !std::mem::replace(&mut self.refused, true);
+            return (
+                Err(format!(
+                    "keyboard layout {klid:08X} is one more than the {MAX_LAYOUTS} this stream reads"
+                )),
+                first,
+            );
+        }
+        let read = (self.load)(klid).map_err(|error| format!("{error:#}"));
+        self.read.insert(klid, read.clone());
+        (read, true)
+    }
+}
+
 /// Why tables are refused that point out of the layout file's image.
 const OUTSIDE: &str = "has keyboard layout tables outside its image";
 
@@ -425,6 +473,42 @@ mod tests {
         // SAFETY: Opened above.
         let _ = unsafe { RegCloseKey(key) };
         assert!(loaded > 50, "{loaded} layouts loaded");
+    }
+
+    /// Each id is loaded once, a failed one too, and past the cap nothing more is.
+    #[test]
+    fn layouts_load_each_id_once_up_to_the_cap() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static LOADS: AtomicUsize = AtomicUsize::new(0);
+        fn load(klid: u32) -> anyhow::Result<Layout> {
+            LOADS.fetch_add(1, Ordering::SeqCst);
+            if klid == 0x0bad {
+                anyhow::bail!("no {klid:08X}");
+            }
+            Ok(Layout::from_table(klid, &[0, 0, u16::from(b'1')]))
+        }
+        let mut layouts = Layouts::with_loader(load);
+        let (first, new) = layouts.get(0x0407);
+        assert_eq!(first.unwrap().klid(), 0x0407);
+        assert!(new);
+        let (again, new) = layouts.get(0x0407);
+        assert_eq!(again.unwrap().klid(), 0x0407);
+        assert!(!new);
+        assert!(layouts.get(0x0bad).1);
+        let (failed, new) = layouts.get(0x0bad);
+        assert!(failed.unwrap_err().contains("00000BAD"));
+        assert!(!new);
+        assert_eq!(LOADS.load(Ordering::SeqCst), 2);
+        for klid in 0..MAX_LAYOUTS as u32 - 2 {
+            layouts.get(0x1_0000 + klid).0.unwrap();
+        }
+        let (refused, new) = layouts.get(0x0409);
+        assert!(refused.unwrap_err().contains("00000409"));
+        assert!(new);
+        assert!(!layouts.get(0x0809).1);
+        assert_eq!(LOADS.load(Ordering::SeqCst), MAX_LAYOUTS);
+        // Ids read before still come from the cache.
+        assert!(layouts.get(0x0407).0.is_ok());
     }
 
     /// The first of two scan codes for one key wins; flags in the high byte are ignored.

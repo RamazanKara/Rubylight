@@ -122,6 +122,51 @@ fn dolby_chunks_recovered_by_fec_come_out_as_whole_frames() {
     assert_eq!(played, frames[2..].iter().cloned().map(Some).collect::<Vec<_>>());
 }
 
+/// The FEC failures counted after each data packet of `seqs`, given at its time in ms.
+fn fec_failures_at(rx: &mut AudioReceiver, seqs: &[(u16, u64)]) -> Vec<u32> {
+    let packets = stream(32, 60);
+    let data = |seq: u16| {
+        packets
+            .iter()
+            .find(|p| p[1] == 97 && u16::from_be_bytes([p[2], p[3]]) == seq)
+            .unwrap()
+    };
+    seqs.iter()
+        .map(|&(seq, ms)| {
+            rx.receive(data(seq), ms * 1000, &mut |_| {});
+            rx.stats().packet_count_fec_failed
+        })
+        .collect()
+}
+
+#[test]
+fn a_chunked_stream_gives_up_a_block_from_when_the_next_started_arriving() {
+    // Seq 0 synchronizes on block 1, which plays; old seq 1 then counts as out of sequence, so
+    // the queue waits for block 2's lost seq 10 (its parity is lost too) once block 3 starts.
+    let mut seqs = vec![(0, 0), (4, 1), (5, 1), (6, 1), (7, 1), (1, 1)];
+    seqs.extend([(8, 10), (9, 10), (11, 10), (12, 42), (13, 50), (14, 53)]);
+    let failed = |rx: &mut AudioReceiver| fec_failures_at(rx, &seqs)[6..].to_vec();
+    let dolby = || {
+        let mut rx = AudioReceiver::new(AudioConfig {
+            packet_duration_ms: 32,
+            ..config()
+        });
+        rx.packets_to_drop = 0;
+        rx
+    };
+    // AC3 frames: block 3 started 32 ms after block 2, so 10 ms after that block 2 is lost,
+    // not after four 32 ms frames and 10 ms (138 ms).
+    let mut rx = dolby();
+    rx.assemble_frames();
+    assert_eq!(failed(&mut rx), [0, 0, 0, 0, 0, 1]);
+    let mut unchunked = dolby();
+    assert_eq!(failed(&mut unchunked), [0; 6]);
+    // Opus keeps four packet durations and 10 ms: 30 ms after block 2 started.
+    let mut opus = AudioReceiver::new(config());
+    opus.packets_to_drop = 0;
+    assert_eq!(failed(&mut opus), [0, 0, 0, 1, 1, 1]);
+}
+
 #[test]
 fn recovers_two_lost_packets_per_block() {
     let packets = stream(200, 60);

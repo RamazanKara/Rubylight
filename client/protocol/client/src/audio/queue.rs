@@ -125,6 +125,8 @@ pub(super) struct AudioQueue {
     synchronizing: bool,
     incompatible_server: bool,
     packet_duration: u32,
+    /// AC3 and E-AC3 streams: a frame's chunks go out together, not one per packet duration.
+    chunked: bool,
     pub(super) stats: AudioStats,
 }
 
@@ -145,8 +147,15 @@ impl AudioQueue {
             synchronizing: true,
             incompatible_server: !modern,
             packet_duration: packet_duration_ms,
+            chunked: false,
             stats: AudioStats::default(),
         }
+    }
+
+    /// The stream sends each 32 ms frame as a burst of chunks, so a block's packets arrive over
+    /// less time than four packet durations, often in one burst.
+    pub(super) fn frames_in_chunks(&mut self) {
+        self.chunked = true;
     }
 
     fn allocate_block(&mut self, block_size: u16) -> FecBlock {
@@ -357,8 +366,16 @@ impl AudioQueue {
         if self.blocks.len() == 1 {
             return;
         }
-        let wait_us = u64::from(self.packet_duration) * DATA_SHARDS as u64 * 1000
+        let mut wait_us = u64::from(self.packet_duration) * DATA_SHARDS as u64 * 1000
             + RTPQ_OOS_WAIT_TIME_MS * 1000;
+        if self.chunked {
+            // Four packet durations would be four 32 ms frames, a stall of about 138 ms and
+            // then a burst: the head block was due when the next one started arriving.
+            let span = self.blocks[1]
+                .queue_time_us
+                .saturating_sub(head.queue_time_us);
+            wait_us = wait_us.min(span + RTPQ_OOS_WAIT_TIME_MS * 1000);
+        }
         if !self.received_oos_data || now_us.wrapping_sub(head.queue_time_us) > wait_us {
             self.stats.packet_count_fec_failed += 1;
             self.blocks[0].allow_discontinuity = true;

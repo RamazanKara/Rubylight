@@ -92,6 +92,7 @@ impl AudioReceiver {
     /// chunks, and [`AudioOutput::Lost`] once per frame lost.
     pub fn assemble_frames(&mut self) {
         self.frames = Some(passthrough::FrameAssembler::default());
+        self.queue.frames_in_chunks();
     }
 
     /// Processes one datagram received at `now_us` (monotonic microseconds) and passes the

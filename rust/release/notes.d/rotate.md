@@ -1,0 +1,3 @@
+# Display rotation
+- **Rotate the display (Experimental)** (`dd_rotation_option`, `dd_manual_rotation`): a device's own virtual display is made in its stream's portrait or landscape shape, and a monitor turns to it and back after the stream, or after a crash on the next start. With Match the device, the display follows a device that turns during the stream. Set it in Settings, Display, or per device under Display overrides. A turned monitor needs Windows Graphics Capture.
+- **Display scale per device** (`dd_virtual_display_scale`): set for one device, the scale also applies to a monitor it streams, which gets its own scale back after the stream (Experimental).

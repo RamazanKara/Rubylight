@@ -91,6 +91,12 @@ pub fn amf_intra_refresh(stream: &Negotiated) -> bool {
     stream.intra_refresh && !(stream.codec == 0 && stream.references == 1)
 }
 
+/// AV1 refresh when negotiated: AMF's continuous mode, one stripe of the
+/// picture per frame over 300 frames. The native backend checks that the
+/// driver offers both before asking for them.
+pub const AMF_AV1_INTRA_REFRESH_MODE: i64 = 2;
+pub const AMF_AV1_INTRA_REFRESH_STRIPES: i64 = 300;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AmfHevcIntraRefresh {
     pub gop_frames: i64,
@@ -531,10 +537,14 @@ pub fn amf(config: &Config, stream: &Negotiated) -> Result<Vec<Property>> {
     }
     if intra_refresh {
         if codec == 2 {
-            add("Av1IntraRefreshMode".into(), Value::Integer(2), true);
+            add(
+                "Av1IntraRefreshMode".into(),
+                Value::Integer(AMF_AV1_INTRA_REFRESH_MODE),
+                true,
+            );
             add(
                 "Av1IntraRefreshNumOfStripes".into(),
-                Value::Integer(300),
+                Value::Integer(AMF_AV1_INTRA_REFRESH_STRIPES),
                 true,
             );
         } else {

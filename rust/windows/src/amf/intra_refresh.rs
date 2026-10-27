@@ -1,10 +1,90 @@
 //! Apply the optional HEVC refresh workaround as a verified pair. A driver
 //! that rejects either half keeps the previous policy, not a partial override.
+//! Negotiated AV1 refresh is used only where the driver offers it.
 use anyhow::{Context, Result, bail};
-use butterpollo_core::{encoder_policy::AmfHevcIntraRefresh, session::Warnings};
+use butterpollo_core::{
+    encoder_policy::{
+        AMF_AV1_INTRA_REFRESH_MODE, AMF_AV1_INTRA_REFRESH_STRIPES, AmfHevcIntraRefresh,
+    },
+    rtsp::Negotiated,
+    session::Warnings,
+};
 
 pub(super) const GOP: &str = "HevcGOPSize";
 pub(super) const CTBS: &str = "HevcIntraRefreshCTBsNumberPerSlot";
+pub(super) const AV1_MODE: &str = "Av1IntraRefreshMode";
+pub(super) const AV1_STRIPES: &str = "Av1IntraRefreshNumOfStripes";
+
+/// An integer property's bounds as AMF describes it before Init.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct Range {
+    pub minimum: Option<i64>,
+    pub maximum: Option<i64>,
+}
+
+/// Why the driver cannot take the negotiated AV1 refresh; `None` when it
+/// describes both properties with room for the policy's values. Asking
+/// anyway fails the encoder, because the policy requires both.
+pub(super) fn av1_unsupported(mode: Option<Range>, stripes: Option<Range>) -> Option<String> {
+    let check = |name: &str, range: Option<Range>, value: i64| {
+        let Some(range) = range else {
+            return Some(format!("the driver has no {name}"));
+        };
+        let fits = range.minimum.is_none_or(|minimum| value >= minimum)
+            && range.maximum.is_none_or(|maximum| value <= maximum);
+        (!fits).then(|| {
+            format!(
+                "{name} accepts {:?} to {:?}, not {value}",
+                range.minimum, range.maximum
+            )
+        })
+    };
+    check(AV1_MODE, mode, AMF_AV1_INTRA_REFRESH_MODE)
+        .or_else(|| check(AV1_STRIPES, stripes, AMF_AV1_INTRA_REFRESH_STRIPES))
+}
+
+/// The stream to configure instead when the client negotiated AV1 refresh
+/// and the driver cannot take it: the same stream without the request, so
+/// it recovers as one that never asked. `None` keeps the stream. Encoders
+/// are rebuilt on resets and codec changes; the log line comes once.
+pub(super) fn av1_without_refresh(
+    stream: &Negotiated,
+    describe: impl FnOnce() -> (Option<Range>, Option<Range>),
+) -> Option<Negotiated> {
+    if stream.codec != 2 || !stream.intra_refresh {
+        return None;
+    }
+    let (mode, stripes) = describe();
+    let reason = av1_unsupported(mode, stripes)?;
+    static LOGGED: std::sync::Once = std::sync::Once::new();
+    LOGGED.call_once(|| {
+        tracing::warn!(
+            "AMF cannot refresh AV1 pictures on this driver ({reason}); the client asked for intra refresh, so lost frames are recovered with a keyframe or a long-term reference instead. Update the AMD driver, or use HEVC if recovery stutters"
+        )
+    });
+    Some(Negotiated {
+        intra_refresh: false,
+        ..stream.clone()
+    })
+}
+
+/// Init may change a preset. A refresh the driver dropped is reported, not
+/// assumed; recovery then rests on the keyframes a client requests.
+pub(super) fn av1_validate(mode: Option<i64>, stripes: Option<i64>, warnings: &Warnings) {
+    if mode == Some(AMF_AV1_INTRA_REFRESH_MODE) && stripes == Some(AMF_AV1_INTRA_REFRESH_STRIPES) {
+        tracing::info!(
+            mode = AMF_AV1_INTRA_REFRESH_MODE,
+            stripes = AMF_AV1_INTRA_REFRESH_STRIPES,
+            "AMF AV1 intra-refresh settings verified"
+        );
+        return;
+    }
+    let message = format!(
+        "AMF AV1 intra refresh did not hold after encoder initialization (driver reports mode {mode:?}, {stripes:?} stripes); lost frames are recovered with keyframes. Update the AMD driver, or use HEVC if recovery stutters"
+    );
+    tracing::warn!("{message}");
+    warnings.set("encoder_intra_refresh", message);
+}
 
 /// Only an Init failure after the verified override permits a fresh baseline
 /// attempt. Other encoder failures keep their original diagnostics and policy.
@@ -140,6 +220,111 @@ mod tests {
             gop_frames: 120,
             ctbs_per_slot: 60,
             fallback_ctbs_per_slot: 7,
+        }
+    }
+
+    #[test]
+    fn av1_refresh_is_asked_for_only_where_the_driver_describes_room_for_it() {
+        let range = |minimum, maximum| Some(Range { minimum, maximum });
+        for (mode, stripes) in [
+            (range(Some(0), Some(2)), range(Some(1), Some(1000))),
+            // A description without integer bounds leaves the check to the
+            // readback after Init.
+            (range(None, None), range(None, None)),
+            (range(Some(0), None), range(None, Some(300))),
+        ] {
+            assert_eq!(av1_unsupported(mode, stripes), None);
+        }
+        for (mode, stripes, named) in [
+            (None, range(Some(1), Some(1000)), AV1_MODE),
+            (range(Some(0), Some(2)), None, AV1_STRIPES),
+            (
+                range(Some(0), Some(1)),
+                range(Some(1), Some(1000)),
+                AV1_MODE,
+            ),
+            (
+                range(Some(0), Some(2)),
+                range(Some(1), Some(255)),
+                AV1_STRIPES,
+            ),
+            (range(Some(0), Some(2)), range(Some(301), None), AV1_STRIPES),
+        ] {
+            let reason = av1_unsupported(mode, stripes).expect("unsupported");
+            assert!(reason.contains(named), "{reason}");
+        }
+    }
+
+    #[test]
+    fn a_driver_without_av1_refresh_gets_the_stream_that_never_asked() -> Result<()> {
+        use butterpollo_core::encoder_policy::{amf, amf_ltr_frames};
+        let asked = Negotiated {
+            codec: 2,
+            width: 2560,
+            height: 1440,
+            intra_refresh: true,
+            ..Default::default()
+        };
+        let options = Default::default();
+        let supported = || {
+            let range = Some(Range {
+                minimum: Some(0),
+                maximum: Some(1000),
+            });
+            (range, range)
+        };
+        assert!(av1_without_refresh(&asked, supported).is_none());
+        let stream = av1_without_refresh(&asked, || (None, None)).expect("fallback");
+        let never_asked = Negotiated {
+            intra_refresh: false,
+            ..asked.clone()
+        };
+        assert_eq!(format!("{stream:?}"), format!("{never_asked:?}"));
+        let names = |stream: &Negotiated| -> Result<Vec<String>> {
+            Ok(amf(&options, stream)?.into_iter().map(|p| p.name).collect())
+        };
+        assert_eq!(names(&stream)?, names(&never_asked)?);
+        assert!(
+            !names(&stream)?
+                .iter()
+                .any(|name| name.contains("IntraRefresh"))
+        );
+        assert_eq!(
+            amf_ltr_frames(&options, &stream),
+            amf_ltr_frames(&options, &never_asked)
+        );
+        // Other codecs and streams without the request are not described.
+        for stream in [
+            never_asked.clone(),
+            Negotiated {
+                codec: 1,
+                ..asked.clone()
+            },
+        ] {
+            assert!(
+                av1_without_refresh(&stream, || panic!("not an AV1 refresh request")).is_none()
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn av1_refresh_dropped_after_init_warns_the_session() {
+        let warnings = Warnings::default();
+        av1_validate(
+            Some(AMF_AV1_INTRA_REFRESH_MODE),
+            Some(AMF_AV1_INTRA_REFRESH_STRIPES),
+            &warnings,
+        );
+        assert!(warnings.snapshot().is_empty());
+        for (mode, stripes) in [
+            (Some(0), Some(AMF_AV1_INTRA_REFRESH_STRIPES)),
+            (Some(AMF_AV1_INTRA_REFRESH_MODE), Some(34)),
+            (None, None),
+        ] {
+            let warnings = Warnings::default();
+            av1_validate(mode, stripes, &warnings);
+            assert_eq!(warnings.snapshot()[0].code, "encoder_intra_refresh");
         }
     }
 

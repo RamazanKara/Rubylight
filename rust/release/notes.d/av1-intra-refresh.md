@@ -1,0 +1,2 @@
+# AV1 intra refresh
+- **AV1 intra refresh only where the driver has it.** The host checks that the AMF driver offers AV1 intra refresh before asking for it and reads it back after the encoder starts. Where the driver lacks it, the stream runs without refresh, recovers from a lost frame by reference invalidation, and the log says so once. Measured on the RX 7900 XT (driver 32.0.32015.7029, AV1 1440p120 at 50 Mbps): with refresh, recovering from a lost frame took a 101 KB keyframe; without it, a 48 KB invalidated frame. Refresh alone never recovered.

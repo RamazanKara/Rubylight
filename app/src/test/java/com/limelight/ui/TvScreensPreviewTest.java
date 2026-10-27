@@ -163,7 +163,7 @@ public class TvScreensPreviewTest {
         target.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, keyCode));
     }
 
-    static void settle(Activity screen) {
+    public static void settle(Activity screen) {
         ShadowLooper.idleMainLooper(400, TimeUnit.MILLISECONDS);
         screen.getFragmentManager().executePendingTransactions();
         View root = screen.getWindow().getDecorView();

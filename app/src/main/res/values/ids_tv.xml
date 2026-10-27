@@ -1,0 +1,4 @@
+<resources>
+    <!-- The tag a rebuilt screen uses to put focus back on the same row or button. -->
+    <item name="focus_key" type="id" />
+</resources>

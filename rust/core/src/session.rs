@@ -299,9 +299,29 @@ mod tests {
             session.automatic_pacing.lock().unwrap().snapshot()["ceiling_kbps"].clone()
         };
         assert_ne!(ceiling(&session), 0);
+        session.configure_adaptive_bitrate(true, 0);
+        {
+            let mut bitrate = session.adaptive_bitrate.lock().unwrap();
+            bitrate.on_block(crate::adaptive_fec::Block::Clean);
+            let start = Instant::now();
+            for i in 0..2 {
+                let now = start + Duration::from_secs(i);
+                bitrate.on_ping(now, &[4, 0, 0, 0, 0, 0, 0, 0]);
+                bitrate.tick(
+                    now,
+                    Default::default(),
+                    Duration::from_millis(2),
+                    20,
+                    Duration::from_millis(16),
+                    20_000,
+                );
+            }
+            assert_eq!(bitrate.minimum_rtt(), Some(Duration::from_millis(2)));
+        }
         session.new_network_path();
         assert!(!session.keyframe_loss_active());
         assert_eq!(ceiling(&session), 0);
+        assert_eq!(session.adaptive_bitrate.lock().unwrap().minimum_rtt(), None);
         assert!(session.automatic_pacing_enabled());
         // The guard still watches the new path.
         lose(&session);
@@ -2722,10 +2742,12 @@ impl<P, A> Session<P, A> {
         std::mem::take(&mut self.roam.lock().unwrap().new_path)
     }
     /// The client's video now takes the path it roamed to: what pacing learned about
-    /// the old path no longer holds. The automatic pacing estimate starts over, and so
-    /// does the keyframe-loss guard, without the old path's latch.
+    /// the old path no longer holds. The automatic pacing estimate starts over, host
+    /// bitrate adaptation forgets the old path's RTT baseline, and the keyframe-loss
+    /// guard starts over without the old path's latch.
     pub fn new_network_path(&self) {
         self.configure_automatic_pacing(self.automatic_pacing_enabled());
+        self.adaptive_bitrate.lock().unwrap().new_path();
         {
             let mut loss = self.keyframe_loss.lock().unwrap();
             *loss = crate::keyframe_loss::KeyframeLoss::new(loss.enabled());

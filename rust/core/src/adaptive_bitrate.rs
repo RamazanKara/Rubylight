@@ -238,6 +238,24 @@ impl AdaptiveBitrate {
         }
     }
 
+    /// The client's traffic takes another network path (a roam): the old path's
+    /// minimum RTT, congestion and losses say nothing about it. A 2 ms Wi-Fi baseline
+    /// would otherwise count every sample of a 40 ms mobile path as queued.
+    pub fn new_path(&mut self) {
+        self.minimum_rtt = None;
+        self.congested_samples = 0;
+        self.clean_since = None;
+        self.last_change = None;
+        self.queued_loss = false;
+        self.severe_loss = false;
+    }
+
+    /// The lowest RTT seen on this path.
+    #[cfg(test)]
+    pub(crate) fn minimum_rtt(&self) -> Option<Duration> {
+        self.minimum_rtt
+    }
+
     pub fn client_takeover(&mut self) {
         self.client_owned = true;
         self.reason = "client_controlled";
@@ -509,6 +527,54 @@ mod tests {
                 let period = Duration::from_secs_f64(1. / 120.);
                 let rate = budget.encoder_kbps(30_000_000, 100_000, fec, period);
                 assert!(budget.video_bps(rate, fec, period) + budget.audio_bps <= 30_000_000);
+            }
+        }
+    }
+    /// Busy, pinged rounds at `rtt` from round `from`.
+    fn steady(c: &mut AdaptiveBitrate, start: Instant, from: u64, rounds: u64, rtt: u64) {
+        let mut rate = 20_000;
+        for i in from..from + rounds {
+            let now = start + Duration::from_secs(i);
+            c.on_ping(now, &[4, 0, 0, 0, 0, 0, 0, 0]);
+            rate = c
+                .tick(
+                    now,
+                    Traffic {
+                        frames: i * 60,
+                        bytes: i * 2_500_000,
+                        send_losses: 0,
+                    },
+                    Duration::from_millis(rtt),
+                    20,
+                    Duration::from_secs_f64(1. / 60.),
+                    rate,
+                )
+                .unwrap_or(rate);
+        }
+    }
+    #[test]
+    fn a_new_path_learns_its_own_minimum_rtt() {
+        let start = Instant::now();
+        for roam in [false, true] {
+            let mut c = controller();
+            c.on_block(Block::Clean);
+            steady(&mut c, start, 0, 5, 2);
+            assert_eq!(c.current_bps, c.ceiling_bps);
+            if roam {
+                c.new_path();
+            }
+            steady(&mut c, start, 5, 10, 40);
+            if roam {
+                assert_eq!(
+                    c.current_bps, c.ceiling_bps,
+                    "a steady 40 ms path is not congested"
+                );
+            } else {
+                assert!(
+                    c.current_bps < c.ceiling_bps,
+                    "40 ms over a 2 ms baseline is queueing"
+                );
+                assert_eq!(c.reason, "rising_rtt");
             }
         }
     }

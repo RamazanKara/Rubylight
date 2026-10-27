@@ -1799,8 +1799,8 @@ impl Media {
                     batch.waits = trace_send.then(Default::default);
                     let mut network_pacer = butterpollo_core::network_pacing::Pacer::new(Instant::now());
                     let mut link = None;
-                    // The session's roams when `link` was routed.
-                    let mut roams = s.roams();
+                    // The address `link` was routed for.
+                    let mut routed = None;
                     let mut link_due = Instant::now();
                     let mut reported_pacing = None;
                     // Encoder admission needs the route before its very first
@@ -2118,8 +2118,7 @@ impl Media {
                             let fec_limited = packetizer.fec_limited(frame.bytes.len());
                             let packet_bytes = packetizer.packet_size + 16 + if packetizer.key.is_some() { 32 } else { 0 };
                             // A client that roamed takes another route.
-                            if s.roams() != roams {
-                                roams = s.roams();
+                            if crate::video_send::recovery::new_route(&mut routed, peer) {
                                 link = None;
                             }
                             let first_link = link.is_none();

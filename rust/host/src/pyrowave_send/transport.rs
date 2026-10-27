@@ -18,7 +18,7 @@ pub(super) fn run(
     let mut batch = Batch::default();
     let mut pacer = Pacer::new(Instant::now());
     let mut route = butterpollo_windows::net::Link::default();
-    let mut route_check = RouteCheck::new(Instant::now(), current.roams());
+    let mut route_check = RouteCheck::new(Instant::now());
     while !shared.stop.load(Ordering::Acquire)
         && !current.stopping()
         && !host.stop.load(Ordering::Acquire)
@@ -35,7 +35,7 @@ pub(super) fn run(
             ready.take()
         };
         let Some(frame) = frame else { continue };
-        let report = route_check.due(Instant::now(), current.roams());
+        let report = route_check.due(Instant::now(), frame.peer);
         if report {
             route = butterpollo_windows::net::routed_link(frame.peer);
         }
@@ -157,24 +157,26 @@ pub(super) fn run(
 const ROUTE_INTERVAL: Duration = Duration::from_secs(2);
 
 /// When the sender routes its client's address again: every [`ROUTE_INTERVAL`], and at
-/// once after a roam, whose path takes another route, as H.26x video does.
+/// once for a new address (a roam), whose path takes another route, as H.26x video does.
 struct RouteCheck {
     due: Instant,
-    /// The session's roams when the route was last routed.
-    roams: u32,
+    /// The address last routed.
+    routed: Option<SocketAddr>,
 }
 
 impl RouteCheck {
-    fn new(now: Instant, roams: u32) -> Self {
-        Self { due: now, roams }
+    fn new(now: Instant) -> Self {
+        Self {
+            due: now,
+            routed: None,
+        }
     }
 
-    /// Whether to route again now, with the session at `roams`.
-    fn due(&mut self, now: Instant, roams: u32) -> bool {
-        if now < self.due && roams == self.roams {
+    /// Whether to route again now, to send to `peer`.
+    fn due(&mut self, now: Instant, peer: SocketAddr) -> bool {
+        if !crate::video_send::recovery::new_route(&mut self.routed, peer) && now < self.due {
             return false;
         }
-        self.roams = roams;
         self.due = now + ROUTE_INTERVAL;
         true
     }
@@ -233,12 +235,16 @@ mod tests {
     #[test]
     fn a_roam_routes_the_new_path_at_once() {
         let now = Instant::now();
-        let mut check = RouteCheck::new(now, 0);
-        assert!(check.due(now, 0), "the first picture");
-        assert!(!check.due(now + Duration::from_millis(10), 0));
-        assert!(check.due(now + Duration::from_millis(20), 1), "a roam");
-        assert!(!check.due(now + Duration::from_millis(30), 1));
-        assert!(check.due(now + Duration::from_millis(20) + ROUTE_INTERVAL, 1));
+        let (old, new): (SocketAddr, SocketAddr) = (
+            "192.0.2.1:9".parse().unwrap(),
+            "198.51.100.4:9".parse().unwrap(),
+        );
+        let mut check = RouteCheck::new(now);
+        assert!(check.due(now, old), "the first picture");
+        assert!(!check.due(now + Duration::from_millis(10), old));
+        assert!(check.due(now + Duration::from_millis(20), new), "a roam");
+        assert!(!check.due(now + Duration::from_millis(30), new));
+        assert!(check.due(now + Duration::from_millis(20) + ROUTE_INTERVAL, new));
     }
 
     /// A client's link and pace hints pace a PyroWave stream until the client roams:

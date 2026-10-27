@@ -91,6 +91,16 @@ fn select(
     }
 }
 
+/// Whether the route cached for `routed` must be routed again to send to `peer`: none
+/// was routed yet, or the client moved (a roam). Records `peer` as routed. Keyed on the
+/// address rather than the session's roams, as a picture queued before a roam still
+/// goes to the old one.
+pub(crate) fn new_route(routed: &mut Option<SocketAddr>, peer: SocketAddr) -> bool {
+    let new = *routed != Some(peer);
+    *routed = Some(peer);
+    new
+}
+
 /// Once per stream, when the client's link hint is below the encoder bitrate
 /// and the pace is floored at 1.1 times the bitrate instead.
 pub(crate) fn warn_if_client_link_below_stream(session: &Session, route: Link) {
@@ -164,6 +174,27 @@ mod tests {
     use super::*;
     use butterpollo_core::session::Role;
     use std::time::Instant;
+
+    /// A roam routes the first picture sent to the new address, even when a picture
+    /// queued before it went to the old one after the roam.
+    #[test]
+    fn a_route_follows_the_address_it_sends_to() {
+        let (old, new): (SocketAddr, SocketAddr) = (
+            "192.0.2.1:9".parse().unwrap(),
+            "198.51.100.4:9".parse().unwrap(),
+        );
+        let mut routed = None;
+        assert!(new_route(&mut routed, old), "the first picture");
+        assert!(!new_route(&mut routed, old));
+        // The session roamed, but this picture was already queued for `old`.
+        assert!(!new_route(&mut routed, old));
+        assert!(
+            new_route(&mut routed, new),
+            "the first picture on the new path"
+        );
+        assert!(!new_route(&mut routed, new));
+        assert!(new_route(&mut routed, old), "a roam back");
+    }
 
     #[test]
     fn a_clients_link_hint_caps_the_startup_pace_for_conventional_codecs() {

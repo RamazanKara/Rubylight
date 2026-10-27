@@ -824,6 +824,8 @@ public class NvConnection {
             context.videoCapabilities = renderer.getCapabilities(context.negotiatedVideoFormats);
             // 10-bit SDR offers 10-bit formats without asking for HDR in the launch.
             context.negotiatedHdr = context.negotiated10Bit && !context.streamConfig.isSdr10Bit();
+            context.hdrFormat = context.negotiatedHdr ? renderer.pickHdrFormat(details.caps.hdrFormats(),
+                    context.negotiatedVideoFormats, context.streamConfig.isPacked444()) : 0;
             if (pyroWaveHdrLost(commonFormats, context.negotiatedVideoFormats)) {
                 // The host and this device both offer PyroWave HDR, but its output could not be
                 // created here; AV1 or HEVC HDR carries the stream instead. Say so once per PC.
@@ -1205,6 +1207,7 @@ public class NvConnection {
                         MoonBridge.requestRustEngine(prefs.rustEngine);
                         // The session's choice (Game turns it off after a packed failure), not the saved setting.
                         MoonBridge.requestPacked444(context.streamConfig.isPacked444());
+                        MoonBridge.requestHdrFormat(context.hdrFormat);
                         MoonBridge.requestRoaming(prefs.clientRoaming, prefs.roamingMetered);
                         MoonBridge.requestAudioPassthrough(audioPassthroughCodecs(prefs.audioPassthrough,
                                 context.streamConfig.getAudioConfiguration().channelCount));

@@ -269,6 +269,14 @@ public final class HostCapabilities {
         return Collections.unmodifiableSet(supported);
     }
 
+    /**
+     * The HdrFormats bits (rubylight_protocol::hdr) this host can encode, 0 when it lists none; this
+     * stream's DESCRIBE still has to offer the one the client asks for.
+     */
+    public int hdrFormats() {
+        return has(Feature.DOLBY_VISION) || has(Feature.HLG) ? evidence.hdrFormats & 15 : 0;
+    }
+
     /** Feature bits for the native stream, which has no other way to learn them. */
     public int nativeFeatures() {
         return has(Feature.PYROWAVE_RECORDS) ? NATIVE_PYROWAVE_RECORDS : 0;

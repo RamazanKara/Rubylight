@@ -2,6 +2,7 @@
 #include "Rtsp.h"
 #include "pyrowave_protocol.h"
 #include "control_negotiation.h"
+#include "hdr_format.h"
 #include "android_microphone.h"
 #include "android_rtsp_receive.h"
 
@@ -1129,6 +1130,13 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
             EncryptionFeaturesRequested = 0;
         }
         EncryptionFeaturesEnabled = 0;
+
+        // Rubylight 3.0 hosts list the HDR formats this stream can use beyond stock HDR10.
+        RlHdrFormatsOffered = rlParseHdrFormats(response.payload);
+        if (RlHdrFormatsOffered != 0) {
+            Limelog("Host HDR formats: %u
+", RlHdrFormatsOffered);
+        }
 
         // Rubylight 2.2.0+ hosts list the extra control messages they accept.
         {

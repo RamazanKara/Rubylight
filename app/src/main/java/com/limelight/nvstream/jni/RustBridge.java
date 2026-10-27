@@ -81,7 +81,7 @@ final class RustBridge {
                                       boolean clientWireless, int networkGracePeriodMs, boolean packed444,
                                       int packed444Modes, boolean remoteMonitor, boolean unbatchedInput,
                                       boolean networkPriority, boolean roaming, boolean roamingMetered,
-                                      int audioPassthrough);
+                                      int audioPassthrough, int hdrFormat);
     static native void stopConnection();
     static native void interruptConnection();
     static native boolean networkChanged(boolean metered);
@@ -111,6 +111,7 @@ final class RustBridge {
     static native boolean sendDisplayCaps(boolean hdr, float maxNits, float maxAverageNits, float minNits);
     static native int getMicrophoneState();
     static native int getHostPacked444Modes();
+    static native int getAnnouncedHdrFormat();
     static native int sendMicrophonePcm(short[] pcm, int samples);
     static native boolean requestReconfigure(int width, int height, int fpsMillihz);
     static native boolean sendHostTimingRequest(boolean enabled);

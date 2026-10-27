@@ -1,5 +1,6 @@
 use crate::state::{Launch, Session, Shared};
 use butterpollo_core::{controller_audio, haptics};
+mod audio_haptics;
 mod audio_sink;
 mod background;
 mod capture;
@@ -3229,6 +3230,7 @@ impl Media {
             )),
         };
         let frames = 48 * usize::from(s.config.audio_packet_ms);
+        let client_channels = usize::from(s.config.audio_channels);
         let start = Instant::now();
         let interval = Duration::from_millis(u64::from(s.config.audio_packet_ms));
         let mut loss = butterpollo_core::audio::HostLoss::default();
@@ -3387,6 +3389,9 @@ impl Media {
                     for _ in 0..output.send(&opus.encode(samples)?, now, at)? {
                         loss.unsent();
                     }
+                    // Haptics from game audio analyse a copy of what went out,
+                    // on the control thread; one atomic load while unused.
+                    s.audio_haptics.push(samples, client_channels);
                 }
             } else if s.media_wait_start(start).elapsed() > crate::network::ping_timeout(&config) {
                 anyhow::bail!("client audio ping timed out");
@@ -3559,6 +3564,7 @@ impl Media {
                                     command_at: None,
                                     roaming: false,
                                     couch: Default::default(),
+                                    audio_haptics: Default::default(),
                                 },
                             );
                         } else {
@@ -3880,6 +3886,7 @@ impl Media {
                                         {
                                             s.launch.warnings.set("input_steam_input", hint);
                                         }
+                                        p.audio_haptics.arbiter.input(&event);
                                         if p.inputs.last_mut().is_some_and(|last| {
                                             last.merge(&event) == input::Batch::Merged
                                         }) {
@@ -4113,6 +4120,11 @@ impl Media {
                         let mode = s.stream_mode();
                         i.set_stream_size(mode.width, mode.height);
                     }
+                    p.audio_haptics.follow(
+                        h.config_version.load(Ordering::Acquire),
+                        &s.launch.warnings,
+                        || effective_config(&h, &s.launch),
+                    );
                     if p.couch.follow(&s, || effective_config(&h, &s.launch)) {
                         let wake = self.control_wake.clone();
                         s.couch_menu.set_control_wake(move || {
@@ -4173,13 +4185,16 @@ impl Media {
                                         waveforms.push((controller_audio::SPEAKER, payload));
                                     }
                                 }
-                                PadReport::Haptics(frame) => {
+                                PadReport::Haptics(mut frame) => {
                                     if i.feedback_allowed(haptics::PACKET_TYPE)
                                         && haptics_negotiated(
                                             &s.config,
                                             host.peer(*peer_id).channel_count(),
                                         )
                                         && frame.created.elapsed() <= haptics::MAX_AGE
+                                        && p.audio_haptics
+                                            .arbiter
+                                            .game_frame(&mut frame, Instant::now())
                                         && let Some(payload) = frame.payload()
                                     {
                                         p.controller_pcm.observe(
@@ -4190,8 +4205,16 @@ impl Media {
                                         waveforms.push((haptics::PACKET_TYPE, payload));
                                     }
                                 }
-                                PadReport::Feedback { id, kind, data } => messages.extend(
-                                    feedback_packets(id, kind, &data).into_iter().filter(
+                                PadReport::Feedback { id, kind, data } => {
+                                    let packets = feedback_packets(id, kind, &data);
+                                    for (kind, payload) in &packets {
+                                        p.audio_haptics.arbiter.game_feedback(
+                                            *kind,
+                                            payload,
+                                            Instant::now(),
+                                        );
+                                    }
+                                    messages.extend(packets.into_iter().filter(
                                         |(kind, payload)| {
                                             p.rumble.forward(
                                                 i.feedback_allowed(*kind),
@@ -4199,11 +4222,27 @@ impl Media {
                                                 payload,
                                             )
                                         },
-                                    ),
-                                ),
+                                    ))
+                                }
                                 PadReport::Motion { id, capabilities } => {
                                     messages.extend(motion_requests(id, capabilities))
                                 }
+                            }
+                        }
+                        // Haptics from game audio, for the waveform controllers
+                        // the game leaves without haptics or rumble.
+                        let allowed = i.feedback_allowed(haptics::PACKET_TYPE)
+                            && haptics_negotiated(&s.config, host.peer(*peer_id).channel_count());
+                        let now = Instant::now();
+                        for frame in
+                            p.audio_haptics
+                                .arbiter
+                                .generate(allowed, &s.audio_haptics, now)
+                        {
+                            if let Some(payload) = frame.payload() {
+                                p.controller_pcm
+                                    .observe(frame.id, haptics::PACKET_TYPE, now);
+                                waveforms.push((haptics::PACKET_TYPE, payload));
                             }
                         }
                     }
@@ -4294,6 +4333,7 @@ impl Media {
                         [
                             p.injector.as_ref().and_then(Injector::next_due),
                             p.couch.next_due(),
+                            p.audio_haptics.arbiter.next_due(),
                         ]
                     })
                     .flatten()
@@ -4392,11 +4432,16 @@ struct ControlPeer {
     roaming: bool,
     /// The couch menu's filter for this peer's session.
     couch: crate::couch_menu::PeerMenu,
+    /// Haptics from game audio for this peer's controllers.
+    audio_haptics: audio_haptics::PeerHaptics,
 }
 impl Drop for ControlPeer {
     fn drop(&mut self) {
         if let Some(injector) = &mut self.injector {
             injector.detach_gamepads();
+        }
+        if let Some(s) = &self.session {
+            self.audio_haptics.arbiter.release(&s.audio_haptics);
         }
     }
 }

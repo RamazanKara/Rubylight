@@ -680,6 +680,15 @@ impl Arbiter {
     pub fn generating(&self) -> u16 {
         self.generating
     }
+
+    /// The peer is gone: the audio thread stops copying if it copied for it.
+    pub fn release(&mut self, tap: &Tap) {
+        if self.generating != 0 {
+            self.generating = 0;
+            self.at = None;
+            tap.set_wanted(false);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1004,6 +1013,17 @@ mod tests {
             sticks: [0; 4],
         });
         assert!(run(&mut arbiter, &tap, &mut at, 4).is_empty());
+        assert!(!tap.wanted());
+        assert_eq!(arbiter.next_due(), None);
+    }
+
+    #[test]
+    fn a_peer_that_goes_away_stops_the_copy_only_if_it_wanted_it() {
+        let (mut arbiter, tap, _) = generating_arbiter();
+        let mut idle = Arbiter::default();
+        idle.release(&tap);
+        assert!(tap.wanted());
+        arbiter.release(&tap);
         assert!(!tap.wanted());
         assert_eq!(arbiter.next_due(), None);
     }

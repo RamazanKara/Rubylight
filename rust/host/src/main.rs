@@ -470,6 +470,7 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
         "Butterpollo Rust host started"
     );
     child_session::log_mode(&h.config.read().unwrap());
+    child_session::check_at_startup(&h);
     h.power.log_availability();
     // A block rule, left when Windows' "allow access" prompt was dismissed,
     // overrides the installer's allow rule: say so rather than leave users to

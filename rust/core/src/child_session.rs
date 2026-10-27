@@ -1002,8 +1002,13 @@ pub trait SystemSettings {
     fn delete_value(&mut self, hive: &Hive, path: &str, name: &str) -> Result<()>;
     fn child_sessions_enabled(&self) -> Result<bool>;
     fn set_child_sessions(&mut self, enabled: bool) -> Result<()>;
-    /// Whether Windows Firewall is on for every network profile.
-    fn firewall_on(&self) -> Result<bool>;
+    /// Why Windows Firewall can't keep RDP on this PC, None when it can: it is
+    /// off for a network profile, or group policy keeps local rules from
+    /// taking effect.
+    fn firewall_problem(&self) -> Result<Option<String>>;
+    /// What is in effect now (the active store: local rules merged with
+    /// group policy), for a rule group and the block rules under a name.
+    fn active_firewall(&self, group: &str, block_rule: &str) -> Result<ActiveFirewall>;
     /// IDs of the enabled rules in a firewall group. An ID is the rule's
     /// unique name in the firewall store (`Get-NetFirewallRule`'s `Name`),
     /// not its display name, which several rules can share.
@@ -1016,6 +1021,22 @@ pub trait SystemSettings {
     /// Remove the rules [`SystemSettings::add_block_rule`] added; removing
     /// rules that do not exist succeeds.
     fn remove_rule(&mut self, name: &str) -> Result<()>;
+    /// Make `HKEY_USERS\<sid>` writable: load the account's own hive when it
+    /// is signed out. True when this call loaded it, so it is unloaded after.
+    fn load_user_hive(&mut self, sid: &str) -> Result<bool>;
+    fn unload_user_hive(&mut self, sid: &str) -> Result<()>;
+}
+
+/// The firewall as it is in effect now ([`SystemSettings::active_firewall`]);
+/// every field is required, so a short answer never reads as safe.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+pub struct ActiveFirewall {
+    /// IDs of the group's enabled inbound allow rules.
+    pub allowed: Vec<String>,
+    /// Enabled inbound block rules under the name, for TCP and UDP both.
+    pub blocked: bool,
+    /// Network profiles where the firewall is off or ignores local rules.
+    pub unprotected: Vec<String>,
 }
 
 /// Every value setup changes, as it was before setup; saved once, before the
@@ -1111,13 +1132,14 @@ pub fn setup(
     save: impl FnOnce(&SetupState) -> Result<()>,
 ) -> Result<SetupState> {
     // RDP is reachable only over loopback because the firewall blocks it;
-    // with the firewall off it would be open to the network.
-    if !system
-        .firewall_on()
+    // with the firewall off, or group policy overriding the local rules, it
+    // would be open to the network.
+    if let Some(problem) = system
+        .firewall_problem()
         .context("reading the Windows Firewall state")?
     {
         bail!(
-            "Windows Firewall is off for at least one network profile, so turning on RDP would open it to the network. Turn the firewall on, then set up child sessions again. Nothing was changed."
+            "{problem}, so turning on RDP would open it to the network. Fix that, then set up child sessions again. Nothing was changed."
         );
     }
     let state = match saved {
@@ -1140,6 +1162,14 @@ pub fn setup(
             .set_rule_enabled(REMOTE_DESKTOP_RULES, &id, false)
             .with_context(|| format!("turning off the firewall rule {id}"))?;
     }
+    // Checked where it counts, before RDP is on: what is in effect now.
+    let open = firewall_missing(system)?;
+    if !open.is_empty() {
+        bail!(
+            "{}, so turning on RDP would open it to the network. RDP was not turned on; Restore Windows settings puts the firewall rules back.",
+            open.join("; ")
+        );
+    }
     for change in &CHANGES {
         system
             .write_dword(
@@ -1160,7 +1190,9 @@ pub fn setup(
 }
 
 /// Put every value back as it was before setup. Every step runs even when an
-/// earlier one fails; the failures come back together.
+/// earlier one fails; the failures come back together. The firewall rules
+/// come back only once RDP reads back as it was: until then the block rule
+/// keeps it on this PC.
 pub fn restore(system: &mut dyn SystemSettings, state: &SetupState) -> Result<()> {
     let mut problems = Vec::new();
     let originals = [
@@ -1168,23 +1200,54 @@ pub fn restore(system: &mut dyn SystemSettings, state: &SetupState) -> Result<()
         state.dwm_frame_interval,
         state.suppress_when_minimized,
     ];
-    for (change, original) in CHANGES.iter().zip(originals) {
+    let mut rdp_restored = false;
+    for (index, (change, original)) in CHANGES.iter().zip(originals).enumerate() {
         let hive = hive(change, &state.user_sid);
+        // A signed-out account's hive is not under HKEY_USERS until loaded.
+        let loaded = match &hive {
+            Hive::User(sid) => match system.load_user_hive(sid) {
+                Ok(loaded) => loaded.then(|| sid.clone()),
+                Err(error) => {
+                    problems.push(format!("{}: {error:#}", change.name));
+                    continue;
+                }
+            },
+            Hive::LocalMachine => None,
+        };
         let done = match original {
             Some(value) => system.write_dword(&hive, change.path, change.name, value),
             None => system.delete_value(&hive, change.path, change.name),
-        };
-        if let Err(error) = done {
-            problems.push(format!("{}: {error:#}", change.name));
+        }
+        .and_then(
+            |()| match system.read_dword(&hive, change.path, change.name)? {
+                now if now == original => Ok(()),
+                now => bail!("it reads {now:?} after restoring {original:?}"),
+            },
+        );
+        match done {
+            Ok(()) => rdp_restored |= index == 0,
+            Err(error) => problems.push(format!("{}: {error:#}", change.name)),
+        }
+        if let Some(sid) = loaded
+            && let Err(error) = system.unload_user_hive(&sid)
+        {
+            problems.push(format!("unloading the registry hive of {sid}: {error:#}"));
         }
     }
-    for id in &state.remote_desktop_rule_ids {
-        if let Err(error) = system.set_rule_enabled(REMOTE_DESKTOP_RULES, id, true) {
-            problems.push(format!("firewall rule {id}: {error:#}"));
+    if rdp_restored {
+        for id in &state.remote_desktop_rule_ids {
+            if let Err(error) = system.set_rule_enabled(REMOTE_DESKTOP_RULES, id, true) {
+                problems.push(format!("firewall rule {id}: {error:#}"));
+            }
         }
-    }
-    if let Err(error) = system.remove_rule(BLOCK_RULE) {
-        problems.push(format!("firewall rule {BLOCK_RULE}: {error:#}"));
+        if let Err(error) = system.remove_rule(BLOCK_RULE) {
+            problems.push(format!("firewall rule {BLOCK_RULE}: {error:#}"));
+        }
+    } else {
+        problems.push(format!(
+            "the firewall rules stay as setup left them (\"{BLOCK_RULE}\" on, Remote Desktop's own rules off) until {} is restored",
+            CHANGES[0].name
+        ));
     }
     if let Err(error) = system.set_child_sessions(state.child_sessions) {
         problems.push(format!("child sessions: {error:#}"));
@@ -1215,8 +1278,40 @@ pub fn missing(system: &dyn SystemSettings, user_sid: &str) -> Result<Vec<String
     if !system.enabled_rules(REMOTE_DESKTOP_RULES)?.is_empty() {
         missing.push("Windows' Remote Desktop firewall rules are on".to_string());
     }
-    if !system.firewall_on()? {
-        missing.push("Windows Firewall is off for a network profile".to_string());
+    missing.extend(firewall_missing(system)?);
+    Ok(missing)
+}
+
+/// What keeps the firewall from holding RDP to this PC now, empty when it
+/// does. Setup checks it before RDP goes on, the host at its start and every
+/// child-session start through [`missing`].
+pub fn firewall_missing(system: &dyn SystemSettings) -> Result<Vec<String>> {
+    let mut missing = Vec::new();
+    if let Some(problem) = system
+        .firewall_problem()
+        .context("reading the Windows Firewall state")?
+    {
+        missing.push(problem);
+    }
+    let active = system
+        .active_firewall(REMOTE_DESKTOP_RULES, BLOCK_RULE)
+        .context("reading the firewall rules in effect")?;
+    if !active.unprotected.is_empty() {
+        missing.push(format!(
+            "Windows Firewall is off or ignores local rules (group policy) for the {} profile",
+            active.unprotected.join(", ")
+        ));
+    }
+    if !active.blocked {
+        missing.push(format!(
+            "the firewall rule \"{BLOCK_RULE}\" is not in effect"
+        ));
+    }
+    if !active.allowed.is_empty() {
+        missing.push(format!(
+            "Remote Desktop firewall rules are in effect: {}",
+            active.allowed.join(", ")
+        ));
     }
     Ok(missing)
 }

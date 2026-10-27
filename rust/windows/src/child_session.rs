@@ -13,12 +13,13 @@ pub mod viewer;
 
 use crate::text::{from_wide, to_wide};
 use anyhow::{Context, Result, bail};
-use butterpollo_core::child_session::{Adapter, Hive, SystemSettings};
+use butterpollo_core::child_session::{ActiveFirewall, Adapter, Hive, SystemSettings};
+use std::os::windows::io::FromRawHandle;
 use windows::{
     Win32::{
         Foundation::{
-            ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND, HLOCAL, LocalFree, VARIANT_TRUE,
-            WIN32_ERROR,
+            ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND, ERROR_SUCCESS, GetLastError, HANDLE,
+            HLOCAL, LUID, LocalFree, SetLastError, VARIANT_TRUE, WIN32_ERROR,
         },
         Graphics::{
             Direct3D::D3D_FEATURE_LEVEL_11_0,
@@ -29,22 +30,29 @@ use windows::{
             Dxgi::{CreateDXGIFactory1, DXGI_ADAPTER_FLAG_SOFTWARE, IDXGIAdapter1, IDXGIFactory1},
         },
         NetworkManagement::WindowsFirewall::*,
-        Security::Cryptography::{
-            CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData, CryptUnprotectData,
+        Security::{
+            AdjustTokenPrivileges,
+            Cryptography::{
+                CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData, CryptUnprotectData,
+            },
+            LUID_AND_ATTRIBUTES, LookupPrivilegeValueW, SE_PRIVILEGE_ENABLED,
+            TOKEN_ADJUST_PRIVILEGES, TOKEN_PRIVILEGES, TOKEN_QUERY,
         },
         System::{
             Com::*,
             Registry::{
-                HKEY, HKEY_LOCAL_MACHINE, HKEY_USERS, REG_DWORD, RRF_RT_REG_DWORD, RRF_RT_REG_SZ,
-                RegDeleteKeyValueW, RegGetValueW, RegSetKeyValueW,
+                HKEY, HKEY_LOCAL_MACHINE, HKEY_USERS, KEY_READ, REG_DWORD, RRF_RT_REG_DWORD,
+                RRF_RT_REG_SZ, RegCloseKey, RegDeleteKeyValueW, RegGetValueW, RegLoadKeyW,
+                RegOpenKeyExW, RegSetKeyValueW, RegUnLoadKeyW,
             },
             RemoteDesktop::{
                 WTSEnableChildSessions, WTSGetChildSessionId, WTSIsChildSessionsEnabled,
                 WTSLogoffSession,
             },
+            Threading::{GetCurrentProcess, OpenProcessToken},
         },
     },
-    core::{BOOL, BSTR, PCWSTR},
+    core::{BOOL, BSTR, PCWSTR, w},
 };
 use zeroize::Zeroizing;
 
@@ -180,6 +188,7 @@ fn run_rules_script(mode: &str, environment: &[(&str, &str)]) -> Result<String> 
         .env_remove("PSModulePath")
         .env_remove("BUTTERPOLLO_FIREWALL_RULE")
         .env_remove("BUTTERPOLLO_FIREWALL_ENABLED")
+        .env_remove("BUTTERPOLLO_FIREWALL_BLOCK")
         .envs(environment.iter().copied())
         .creation_flags(CREATE_NO_WINDOW);
     let (status, stdout, stderr) =
@@ -269,18 +278,33 @@ impl SystemSettings for NativeSettings {
             .ok()
             .context("WTSEnableChildSessions failed")
     }
-    fn firewall_on(&self) -> Result<bool> {
-        for profile in [
-            NET_FW_PROFILE2_DOMAIN,
-            NET_FW_PROFILE2_PRIVATE,
-            NET_FW_PROFILE2_PUBLIC,
+    fn firewall_problem(&self) -> Result<Option<String>> {
+        for (profile, label) in [
+            (NET_FW_PROFILE2_DOMAIN, "Domain"),
+            (NET_FW_PROFILE2_PRIVATE, "Private"),
+            (NET_FW_PROFILE2_PUBLIC, "Public"),
         ] {
             // SAFETY: `policy` is a live firewall policy object.
             if !unsafe { self.policy.get_FirewallEnabled(profile) }?.as_bool() {
-                return Ok(false);
+                return Ok(Some(format!(
+                    "Windows Firewall is off for the {label} profile"
+                )));
             }
         }
-        Ok(true)
+        // SAFETY: `policy` is a live firewall policy object.
+        let state = unsafe { self.policy.LocalPolicyModifyState() }
+            .context("asking Windows Firewall whether local rules take effect")?;
+        Ok(modify_state_problem(state))
+    }
+    fn active_firewall(&self, group: &str, block_rule: &str) -> Result<ActiveFirewall> {
+        let output = run_rules_script(
+            "active",
+            &[
+                ("BUTTERPOLLO_FIREWALL_GROUP", group),
+                ("BUTTERPOLLO_FIREWALL_BLOCK", block_rule),
+            ],
+        )?;
+        parse_active(&output)
     }
     fn enabled_rules(&self, group: &str) -> Result<Vec<String>> {
         parse_rule_ids(&run_rules_script(
@@ -305,7 +329,197 @@ impl SystemSettings for NativeSettings {
         Ok(())
     }
     fn add_block_rule(&mut self, name: &str, port: u16) -> Result<()> {
-        self.remove_rule(name)?;
+        // The new rules go in beside the old ones, which stay until then: the
+        // port is never left without a block rule.
+        let staged = staging_name(name);
+        self.remove_named(&staged)?;
+        self.add_block_rules(&staged, port)?;
+        self.remove_named(name)?;
+        for (_, label) in PROTOCOLS {
+            let (from, to) = (format!("{staged} ({label})"), format!("{name} ({label})"));
+            // SAFETY: `policy` is a live firewall policy object and each BSTR outlives its call.
+            unsafe {
+                self.policy
+                    .Rules()?
+                    .Item(&BSTR::from(from.as_str()))?
+                    .SetName(&BSTR::from(to.as_str()))
+            }
+            .with_context(|| format!("renaming the firewall rule {from} to {to}"))?;
+        }
+        Ok(())
+    }
+    fn remove_rule(&mut self, name: &str) -> Result<()> {
+        self.remove_named(&staging_name(name))?;
+        self.remove_named(name)
+    }
+    fn load_user_hive(&mut self, sid: &str) -> Result<bool> {
+        load_user_hive(sid)
+    }
+    fn unload_user_hive(&mut self, sid: &str) -> Result<()> {
+        with_privileges(&[w!("SeRestorePrivilege"), w!("SeBackupPrivilege")], || {
+            let key = to_wide(sid);
+            // SAFETY: `key` is NUL-terminated and outlives the call.
+            unsafe { RegUnLoadKeyW(HKEY_USERS, PCWSTR(key.as_ptr())) }
+                .ok()
+                .with_context(|| format!(r"unloading HKU\{sid}"))
+        })
+    }
+}
+
+/// Where [`SystemSettings::add_block_rule`] puts the new rules before the old
+/// ones go.
+fn staging_name(name: &str) -> String {
+    format!("{name} [new]")
+}
+
+/// Why local firewall rules don't take effect now, None when they do.
+fn modify_state_problem(state: NET_FW_MODIFY_STATE) -> Option<String> {
+    match state {
+        NET_FW_MODIFY_STATE_OK => None,
+        NET_FW_MODIFY_STATE_GP_OVERRIDE => Some(
+            "group policy overrides the local Windows Firewall rules for the current network profile"
+                .into(),
+        ),
+        NET_FW_MODIFY_STATE_INBOUND_BLOCKED => Some(
+            "Windows Firewall ignores local inbound rules for the current network profile".into(),
+        ),
+        other => Some(format!(
+            "Windows Firewall reports local rules in state {} it does not document",
+            other.0
+        )),
+    }
+}
+
+/// The JSON object the script's `active` mode prints.
+fn parse_active(output: &str) -> Result<ActiveFirewall> {
+    serde_json::from_str(output.trim().trim_start_matches('\u{feff}'))
+        .with_context(|| format!("the firewall rules in effect are not readable: {output:?}"))
+}
+
+/// Run `f` with these privileges of the process enabled, then put them back.
+fn with_privileges<T>(names: &[PCWSTR], f: impl FnOnce() -> Result<T>) -> Result<T> {
+    let mut token = HANDLE::default();
+    // SAFETY: `token` is a live local the call writes once; it is closed below.
+    unsafe {
+        OpenProcessToken(
+            GetCurrentProcess(),
+            TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
+            &mut token,
+        )
+    }
+    .context("opening this process's token")?;
+    // SAFETY: the token was just opened here, and only this guard closes it.
+    let _close = unsafe { std::os::windows::io::OwnedHandle::from_raw_handle(token.0) };
+    let mut previous = Vec::new();
+    let mut enabled = || -> Result<()> {
+        for name in names {
+            let mut luid = LUID::default();
+            // SAFETY: `name` is a static NUL-terminated string and `luid` is writable.
+            unsafe { LookupPrivilegeValueW(None, *name, &mut luid) }?;
+            let privileges = TOKEN_PRIVILEGES {
+                PrivilegeCount: 1,
+                Privileges: [LUID_AND_ATTRIBUTES {
+                    Luid: luid,
+                    Attributes: SE_PRIVILEGE_ENABLED,
+                }],
+            };
+            let mut before = TOKEN_PRIVILEGES::default();
+            let mut size = 0;
+            // SAFETY: the token is open for adjusting; `before` and `size` are writable and
+            // `before` is as large as the length given.
+            unsafe {
+                SetLastError(ERROR_SUCCESS);
+                AdjustTokenPrivileges(
+                    token,
+                    false,
+                    Some(&privileges),
+                    size_of::<TOKEN_PRIVILEGES>() as u32,
+                    Some(&mut before),
+                    Some(&mut size),
+                )?;
+                previous.push(before);
+                // Success without the privilege reports ERROR_NOT_ALL_ASSIGNED.
+                if GetLastError() != ERROR_SUCCESS {
+                    bail!(
+                        "this process does not hold {}; run it as an administrator",
+                        name.display()
+                    );
+                }
+            }
+        }
+        Ok(())
+    };
+    let result = enabled().and_then(|()| f());
+    for before in previous.iter().rev() {
+        // SAFETY: as above; `before` is what the matching call returned.
+        let _ = unsafe { AdjustTokenPrivileges(token, false, Some(before), 0, None, None) };
+    }
+    result
+}
+
+/// Load a signed-out account's hive (`NTUSER.DAT` in its profile folder) as
+/// `HKU\<sid>`; false when it is there already.
+fn load_user_hive(sid: &str) -> Result<bool> {
+    let key = to_wide(sid);
+    let mut open = HKEY::default();
+    // SAFETY: `key` is NUL-terminated and outlives the call; `open` is closed below.
+    match unsafe { RegOpenKeyExW(HKEY_USERS, PCWSTR(key.as_ptr()), None, KEY_READ, &mut open) } {
+        error if error.is_ok() => {
+            // SAFETY: `open` is the key the call opened.
+            let _ = unsafe { RegCloseKey(open) };
+            return Ok(false);
+        }
+        error if absent(error) => {}
+        error => {
+            return Err(windows::core::Error::from(error.to_hresult()))
+                .with_context(|| format!(r"opening HKU\{sid}"));
+        }
+    }
+    let folder = profile_folder(sid)?;
+    let file = std::path::Path::new(&folder).join("NTUSER.DAT");
+    let wide = to_wide(&file.to_string_lossy());
+    with_privileges(&[w!("SeRestorePrivilege"), w!("SeBackupPrivilege")], || {
+        // SAFETY: both strings are NUL-terminated and outlive the call.
+        unsafe { RegLoadKeyW(HKEY_USERS, PCWSTR(key.as_ptr()), PCWSTR(wide.as_ptr())) }
+            .ok()
+            .with_context(|| format!(r"loading {} as HKU\{sid}", file.display()))
+    })?;
+    Ok(true)
+}
+
+/// The account's profile folder, as `ProfileList` names it.
+fn profile_folder(sid: &str) -> Result<String> {
+    let key = to_wide(&format!(
+        r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\{sid}"
+    ));
+    let name = to_wide("ProfileImagePath");
+    let mut buffer = vec![0u16; 1024];
+    let mut size = (buffer.len() * 2) as u32;
+    // SAFETY: `key` and `name` are NUL-terminated and outlive the call, and `buffer` is
+    // writable for the `size` bytes passed; RegGetValueW expands REG_EXPAND_SZ and
+    // NUL-terminates what it returns.
+    unsafe {
+        RegGetValueW(
+            HKEY_LOCAL_MACHINE,
+            PCWSTR(key.as_ptr()),
+            PCWSTR(name.as_ptr()),
+            RRF_RT_REG_SZ,
+            None,
+            Some(buffer.as_mut_ptr().cast()),
+            Some(&mut size),
+        )
+    }
+    .ok()
+    .with_context(|| format!("reading the profile folder of {sid}"))?;
+    let folder = from_wide(&buffer);
+    if folder.is_empty() {
+        bail!("the account {sid} has no profile folder");
+    }
+    Ok(folder)
+}
+
+impl NativeSettings {
+    fn add_block_rules(&mut self, name: &str, port: u16) -> Result<()> {
         for (protocol, label) in PROTOCOLS {
             // SAFETY: COM is initialised (see `new`); the rule is a fresh in-process object and
             // each BSTR outlives its call.
@@ -330,7 +544,7 @@ impl SystemSettings for NativeSettings {
         }
         Ok(())
     }
-    fn remove_rule(&mut self, name: &str) -> Result<()> {
+    fn remove_named(&mut self, name: &str) -> Result<()> {
         for (_, label) in PROTOCOLS {
             let full = format!("{name} ({label})");
             // Several rules can share a name; remove until none is left.
@@ -525,6 +739,48 @@ mod tests {
                 .unwrap_err()
         );
         assert!(error.contains("is not in the group"), "{error}");
+    }
+
+    #[test]
+    fn the_firewall_in_effect_is_readable() {
+        // Read-only: the active store, and this account's hive, which is loaded.
+        let mut settings = super::NativeSettings::new().unwrap();
+        let active = settings
+            .active_firewall(
+                butterpollo_core::child_session::REMOTE_DESKTOP_RULES,
+                "Rubylight test rule that does not exist",
+            )
+            .unwrap();
+        assert!(!active.blocked);
+        assert!(
+            active.allowed.iter().all(|id| !id.contains(' ')),
+            "{active:?}"
+        );
+        settings.firewall_problem().unwrap();
+        let session = crate::process::current_session().unwrap();
+        if let Ok(sid) = crate::process::session_user_sid(session) {
+            assert!(!settings.load_user_hive(&sid).unwrap(), "{sid} is loaded");
+        }
+        assert!(super::profile_folder("S-1-5-21-0-0-0-1").is_err());
+    }
+
+    #[test]
+    fn the_active_firewall_parses_and_local_rule_states_are_named() {
+        use windows::Win32::NetworkManagement::WindowsFirewall::*;
+        let active = super::parse_active(
+            "\u{feff}{\"allowed\":[\"RemoteDesktop-UserMode-In-TCP\"],\"blocked\":true,\"unprotected\":[\"Domain\"]}\r\n",
+        )
+        .unwrap();
+        assert_eq!(active.allowed, ["RemoteDesktop-UserMode-In-TCP"]);
+        assert!(active.blocked);
+        assert_eq!(active.unprotected, ["Domain"]);
+        assert!(super::parse_active("{\"blocked\":true}").is_err());
+        assert!(super::modify_state_problem(NET_FW_MODIFY_STATE_OK).is_none());
+        let problem = super::modify_state_problem(NET_FW_MODIFY_STATE_GP_OVERRIDE).unwrap();
+        assert!(problem.contains("group policy"), "{problem}");
+        assert!(super::modify_state_problem(NET_FW_MODIFY_STATE_INBOUND_BLOCKED).is_some());
+        assert!(super::modify_state_problem(NET_FW_MODIFY_STATE(7)).is_some());
+        assert_eq!(super::staging_name("x"), "x [new]");
     }
 
     #[test]

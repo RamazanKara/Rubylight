@@ -12,6 +12,7 @@ use butterpollo_core::{
         ViewerCommand, ViewerStatus,
     },
     config::Config,
+    state::{Credentials, ProfileFiles, load_json, write_json},
 };
 use butterpollo_windows::{
     child_session as native,
@@ -69,6 +70,38 @@ pub(crate) fn log_mode(config: &Config) {
             error = format!("{error:#}"),
             "the child-session host could not read its GPUs"
         ),
+    }
+}
+
+/// At the host's start, when child sessions are set up here: RDP stays on until
+/// restore, so a firewall that no longer keeps it on this PC is said loudly
+/// (and [`start`] refuses until it is fixed).
+pub(crate) fn check_at_startup(h: &Shared) {
+    let directory = h.directory.clone();
+    std::thread::spawn(move || {
+        let firewall = || logic::firewall_missing(&native::NativeSettings::new()?);
+        if let Some(problem) = startup_problem(&directory, firewall) {
+            report(problem);
+        }
+    });
+}
+fn startup_problem(
+    directory: &Path,
+    firewall: impl FnOnce() -> Result<Vec<String>>,
+) -> Option<String> {
+    match load_saved(directory) {
+        Ok(None) => None,
+        Err(error) => Some(format!("{error:#}")),
+        Ok(Some(_)) => match firewall() {
+            Ok(missing) if missing.is_empty() => None,
+            Ok(missing) => Some(format!(
+                "child sessions are set up, so Remote Desktop is on, but the firewall no longer keeps it on this PC: {}. Fix that, or choose Restore Windows settings; the child session does not start until then.",
+                missing.join("; ")
+            )),
+            Err(error) => Some(format!(
+                "child sessions are set up, so Remote Desktop is on, but the firewall could not be checked: {error:#}"
+            )),
+        },
     }
 }
 
@@ -357,8 +390,13 @@ fn start_host(h: &Shared, child: u32) -> Result<Process> {
         let config = h.config.read().unwrap_or_else(PoisonError::into_inner);
         (config.get("sunshine_name", "").to_owned(), config.port()?)
     };
+    let credentials = h
+        .credentials
+        .read()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
     let profile = h.directory.join(CHILD_PROFILE);
-    write_child_profile(&profile, &name, port)?;
+    write_child_profile(&profile, &name, port, credentials.as_ref())?;
     let program = std::env::current_exe()?;
     let args = [
         OsString::from("--config-dir"),
@@ -374,8 +412,17 @@ fn start_host(h: &Shared, child: u32) -> Result<Process> {
     .with_context(|| format!("starting the host in child session {child}"))
 }
 
-/// The child host's settings over whatever its profile already holds.
-fn write_child_profile(profile: &Path, name: &str, port: u16) -> Result<()> {
+/// The child host's settings over whatever its profile already holds, and the
+/// main console's sign-in: a child host without one would let any program on
+/// this PC claim its console (it runs as SYSTEM), so it never starts without.
+fn write_child_profile(
+    profile: &Path,
+    name: &str,
+    port: u16,
+    credentials: Option<&Credentials>,
+) -> Result<()> {
+    let credentials = credentials
+        .context("set the console's sign-in first: the child session's host uses the same one")?;
     std::fs::create_dir_all(profile).with_context(|| format!("creating {}", profile.display()))?;
     let file = profile.join("sunshine.conf");
     let mut config = if file.is_file() {
@@ -386,7 +433,18 @@ fn write_child_profile(profile: &Path, name: &str, port: u16) -> Result<()> {
     for (key, value) in logic::child_host_config(name, port) {
         config.values.insert(key.to_owned(), value);
     }
-    std::fs::write(&file, config.text()).with_context(|| format!("writing {}", file.display()))
+    std::fs::write(&file, config.text()).with_context(|| format!("writing {}", file.display()))?;
+    // Into whichever file the child profile keeps its sign-in in, beside what
+    // that file holds (it can be the paired-devices file too).
+    let path = ProfileFiles::new(&config, profile).credentials;
+    let mut document = load_json(&path, json!({}))?;
+    let Value::Object(fields) = serde_json::to_value(credentials)? else {
+        bail!("the console's sign-in is not an object");
+    };
+    for (key, value) in fields {
+        document[key] = value;
+    }
+    write_json(&path, &document)
 }
 
 fn stop_host(running: &mut Running) {
@@ -512,12 +570,76 @@ mod tests {
         let profile = directory.join(CHILD_PROFILE);
         std::fs::create_dir_all(&profile).unwrap();
         std::fs::write(profile.join("sunshine.conf"), "port = 47989\nlocale = de\n").unwrap();
-        write_child_profile(&profile, "Den", 47989).unwrap();
+        let main = Credentials::new("admin".into(), "main-console").unwrap();
+        write_child_profile(&profile, "Den", 47989, Some(&main)).unwrap();
         let written = Config::load(&profile.join("sunshine.conf")).unwrap();
         assert_eq!(written.get("locale", ""), "de");
         assert_eq!(written.get("port", ""), logic::CHILD_BASE_PORT.to_string());
         assert_eq!(written.get("sunshine_name", ""), "Den (background)");
         assert!(written.boolean(logic::CHILD_HOST_KEY, false));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn a_set_up_pc_checks_its_firewall_at_the_hosts_start() {
+        let directory = scratch();
+        let never = || -> Result<Vec<String>> { panic!("no setup, no check") };
+        assert_eq!(startup_problem(&directory, never), None);
+        let state = SetupState {
+            version: 1,
+            user_sid: "S-1-5-21-1".into(),
+            deny_ts_connections: Some(1),
+            dwm_frame_interval: None,
+            suppress_when_minimized: None,
+            child_sessions: false,
+            remote_desktop_rule_ids: Vec::new(),
+            rdp_port: 3389,
+        };
+        save_state(&directory, &state).unwrap();
+        assert_eq!(startup_problem(&directory, || Ok(Vec::new())), None);
+        let problem = startup_problem(&directory, || {
+            Ok(vec!["the block rule is not in effect".into()])
+        })
+        .unwrap();
+        assert!(
+            problem.contains("the block rule is not in effect")
+                && problem.contains("Restore Windows settings"),
+            "{problem}"
+        );
+        let problem = startup_problem(&directory, || bail!("COM failed")).unwrap();
+        assert!(
+            problem.contains("could not be checked: COM failed"),
+            "{problem}"
+        );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn the_child_host_signs_in_like_the_main_console_and_never_starts_unclaimed() {
+        let directory = scratch();
+        let profile = directory.join(CHILD_PROFILE);
+        let error = write_child_profile(&profile, "Den", 47989, None).unwrap_err();
+        assert!(format!("{error:#}").contains("sign-in first"), "{error:#}");
+        assert!(
+            !profile.exists(),
+            "nothing is written for a host that cannot start"
+        );
+        // A paired device in the file that also holds the sign-in stays.
+        std::fs::create_dir_all(&profile).unwrap();
+        let state = profile.join("sunshine_state.json");
+        std::fs::write(&state, r#"{"root":{"named_devices":[1]},"username":"old"}"#).unwrap();
+        let main = Credentials::new("admin".into(), "main-console").unwrap();
+        write_child_profile(&profile, "Den", 47989, Some(&main)).unwrap();
+        let config = Config::load(&profile.join("sunshine.conf")).unwrap();
+        let files = ProfileFiles::new(&config, &profile);
+        assert_eq!(files.credentials, state);
+        let loaded = Credentials::load(&files.credentials).unwrap().unwrap();
+        assert!(loaded == main);
+        assert!(loaded.verifies("admin", "main-console"));
+        assert_eq!(
+            load_json(&state, json!({})).unwrap()["root"]["named_devices"][0],
+            1
+        );
         std::fs::remove_dir_all(directory).unwrap();
     }
 }

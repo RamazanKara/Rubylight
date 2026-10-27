@@ -494,10 +494,18 @@ fn stopping_detaches_and_does_not_reconnect() {
 struct Machine {
     values: BTreeMap<(Hive, String, String), u32>,
     child_sessions: bool,
-    firewall_on: bool,
+    /// What [`SystemSettings::firewall_problem`] says, None for a firewall on
+    /// for every profile that takes local rules.
+    firewall_problem: Option<String>,
+    /// Profiles where group policy keeps local rules from taking effect.
+    policy_overrides: Vec<String>,
+    /// Allow rules of the Remote Desktop group group policy turns on.
+    policy_allowed: Vec<String>,
     /// Rule ID -> (display name, group, enabled).
     rules: BTreeMap<String, (String, String, bool)>,
     block_rules: BTreeMap<String, u16>,
+    /// Accounts whose hive is under HKEY_USERS: signed in, or loaded.
+    loaded_hives: BTreeSet<String>,
 }
 struct Fake {
     machine: Machine,
@@ -556,9 +564,12 @@ impl Fake {
             machine: Machine {
                 values,
                 child_sessions: false,
-                firewall_on: true,
+                firewall_problem: None,
+                policy_overrides: Vec::new(),
+                policy_allowed: Vec::new(),
                 rules,
                 block_rules: BTreeMap::new(),
+                loaded_hives: [SID.to_string(), "S-1-5-21-other".to_string()].into(),
             },
             log: Rc::default(),
             fail_writes: BTreeSet::new(),
@@ -583,6 +594,12 @@ impl SystemSettings for Fake {
         if self.fail_writes.contains(name) {
             bail!("access denied");
         }
+        if let Hive::User(sid) = hive {
+            anyhow::ensure!(
+                self.machine.loaded_hives.contains(sid),
+                "the hive is not loaded"
+            );
+        }
         self.note(format!("write {name}"));
         self.machine
             .values
@@ -602,8 +619,21 @@ impl SystemSettings for Fake {
         self.machine.child_sessions = enabled;
         Ok(())
     }
-    fn firewall_on(&self) -> Result<bool> {
-        Ok(self.machine.firewall_on)
+    fn firewall_problem(&self) -> Result<Option<String>> {
+        Ok(self.machine.firewall_problem.clone())
+    }
+    fn active_firewall(&self, group: &str, block_rule: &str) -> Result<ActiveFirewall> {
+        // Local rules take effect only where no group policy overrides them.
+        let local = self.machine.policy_overrides.is_empty();
+        let mut allowed = self.machine.policy_allowed.clone();
+        if local {
+            allowed.extend(self.enabled_rules(group)?);
+        }
+        Ok(ActiveFirewall {
+            allowed,
+            blocked: local && self.machine.block_rules.contains_key(block_rule),
+            unprotected: self.machine.policy_overrides.clone(),
+        })
     }
     fn enabled_rules(&self, group: &str) -> Result<Vec<String>> {
         Ok(self
@@ -629,6 +659,19 @@ impl SystemSettings for Fake {
     fn remove_rule(&mut self, name: &str) -> Result<()> {
         self.note(format!("remove {name}"));
         self.machine.block_rules.remove(name);
+        Ok(())
+    }
+    fn load_user_hive(&mut self, sid: &str) -> Result<bool> {
+        if self.machine.loaded_hives.contains(sid) {
+            return Ok(false);
+        }
+        self.note(format!("load {sid}"));
+        self.machine.loaded_hives.insert(sid.into());
+        Ok(true)
+    }
+    fn unload_user_hive(&mut self, sid: &str) -> Result<()> {
+        self.note(format!("unload {sid}"));
+        anyhow::ensure!(self.machine.loaded_hives.remove(sid), "{sid} is not loaded");
         Ok(())
     }
 }
@@ -764,7 +807,7 @@ fn setting_up_again_keeps_the_first_originals() {
 #[test]
 fn setup_refuses_with_the_firewall_off_and_changes_nothing() {
     let mut fake = Fake::new();
-    fake.machine.firewall_on = false;
+    fake.machine.firewall_problem = Some("Windows Firewall is off for the Public profile".into());
     let before = fake.machine.clone();
     let error = setup(&mut fake, None, SID, |_| panic!("nothing is saved"))
         .unwrap_err()
@@ -772,6 +815,59 @@ fn setup_refuses_with_the_firewall_off_and_changes_nothing() {
     assert!(error.contains("Windows Firewall is off"), "{error}");
     assert_eq!(fake.machine, before);
     assert!(fake.log.borrow().is_empty());
+}
+
+#[test]
+fn setup_never_turns_on_rdp_when_group_policy_overrides_the_firewall_rules() {
+    let rdp = |fake: &Fake| {
+        fake.read_dword(&Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections")
+            .unwrap()
+    };
+    // Local rules ignored for a profile: the block rule would not take effect.
+    let mut fake = Fake::new();
+    fake.machine.policy_overrides = vec!["Domain".into()];
+    let error = format!("{:#}", set_up_err(&mut fake));
+    assert!(
+        error.contains("group policy") && error.contains("Domain"),
+        "{error}"
+    );
+    assert!(error.contains("RDP was not turned on"), "{error}");
+    assert_eq!(rdp(&fake), Some(1));
+    assert!(!fake.log.borrow().iter().any(|e| e.starts_with("write ")));
+    // A Remote Desktop allow rule group policy keeps on.
+    let mut fake = Fake::new();
+    fake.machine.policy_allowed = vec!["{gpo-rdp}".into()];
+    let error = format!("{:#}", set_up_err(&mut fake));
+    assert!(error.contains("{gpo-rdp}"), "{error}");
+    assert_eq!(rdp(&fake), Some(1));
+    // Either way, restore puts back what setup changed before it stopped.
+    let state = record(&Fake::new(), SID).unwrap();
+    restore(&mut fake, &state).unwrap();
+    assert!(fake.machine.block_rules.is_empty());
+}
+fn set_up_err(fake: &mut Fake) -> anyhow::Error {
+    setup(fake, None, SID, |_| Ok(())).unwrap_err()
+}
+
+#[test]
+fn the_firewall_is_checked_again_after_setup() {
+    let mut fake = Fake::new();
+    set_up(&mut fake);
+    assert!(firewall_missing(&fake).unwrap().is_empty());
+    // Someone removes the block rule, or group policy changes later: the
+    // host's start and every child-session start see it.
+    fake.machine.block_rules.clear();
+    let found = missing(&fake, SID).unwrap();
+    assert!(
+        found
+            .iter()
+            .any(|m| m.contains(BLOCK_RULE) && m.contains("not in effect")),
+        "{found:?}"
+    );
+    set_up(&mut fake);
+    fake.machine.policy_overrides = vec!["Public".into()];
+    let found = firewall_missing(&fake).unwrap();
+    assert!(found.iter().any(|m| m.contains("Public")), "{found:?}");
 }
 
 #[test]
@@ -801,13 +897,52 @@ fn restore_finishes_every_step_and_reports_what_failed() {
     fake.fail_writes.insert("fDenyTSConnections".into());
     let error = format!("{:#}", restore(&mut fake, &state).unwrap_err());
     assert!(error.contains("fDenyTSConnections"), "{error}");
-    // Everything else is back.
-    let mut expected = before;
+    assert!(error.contains("firewall rules stay"), "{error}");
+    // Everything else is back, but RDP is still on: the firewall keeps it on
+    // this PC, with the block rule on and Remote Desktop's own rules off.
+    let mut expected = before.clone();
     expected.values.insert(
         key(Hive::LocalMachine, TERMINAL_SERVER, "fDenyTSConnections"),
         0,
     );
+    expected.block_rules.insert(BLOCK_RULE.into(), 3389);
+    for id in &state.remote_desktop_rule_ids {
+        expected.rules.get_mut(id).unwrap().2 = false;
+    }
     assert_eq!(fake.machine, expected);
+    // Once RDP can be restored, so can the firewall.
+    fake.fail_writes.clear();
+    restore(&mut fake, &state).unwrap();
+    assert_eq!(fake.machine, before);
+}
+
+#[test]
+fn restore_loads_a_signed_out_accounts_hive_and_unloads_it_after() {
+    let mut fake = Fake::new();
+    let before = fake.machine.clone();
+    let state = set_up(&mut fake);
+    // The account signed out, or the uninstaller runs as another one.
+    fake.machine.loaded_hives.remove(SID);
+    fake.log.borrow_mut().clear();
+    restore(&mut fake, &state).unwrap();
+    let log = fake.log.borrow().clone();
+    let position = |entry: &str| log.iter().position(|e| e == entry).unwrap();
+    assert!(
+        position(&format!("load {SID}")) < position("write RemoteDesktop_SuppressWhenMinimized")
+    );
+    assert!(
+        position("write RemoteDesktop_SuppressWhenMinimized") < position(&format!("unload {SID}"))
+    );
+    let mut expected = before;
+    expected.loaded_hives.remove(SID);
+    assert_eq!(fake.machine, expected);
+    // A hive that was loaded already stays loaded.
+    fake.machine.loaded_hives.insert(SID.into());
+    let state = set_up(&mut fake);
+    fake.log.borrow_mut().clear();
+    restore(&mut fake, &state).unwrap();
+    assert!(!fake.log.borrow().iter().any(|e| e.contains("load")));
+    assert!(fake.machine.loaded_hives.contains(SID));
 }
 
 #[test]

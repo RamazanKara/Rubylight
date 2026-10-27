@@ -231,4 +231,42 @@ mod tests {
                 .any(|scope| scope.path.contains("child-session"))
         );
     }
+
+    #[tokio::test]
+    async fn an_unclaimed_child_host_cannot_be_claimed_even_from_this_pc() {
+        use axum::{Extension, body::Body, http::Request};
+        use tower::ServiceExt;
+        let first = |f: &Fixture| {
+            let request = Request::builder()
+                .method("POST")
+                .uri("/api/password")
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    json!({"newUsername": "intruder", "newPassword": "intruder-pass", "confirmNewPassword": "intruder-pass"})
+                        .to_string(),
+                ))
+                .unwrap();
+            super::super::router(f.host.clone())
+                .layer(Extension(f.connection(true)))
+                .oneshot(request)
+        };
+        let child = Fixture::new();
+        child.host.config.write().unwrap().values.insert(
+            butterpollo_core::child_session::CHILD_HOST_KEY.into(),
+            "true".into(),
+        );
+        let body = value(first(&child).await.unwrap(), StatusCode::FORBIDDEN).await;
+        assert!(
+            body["error"]
+                .as_str()
+                .unwrap()
+                .contains("main console's sign-in"),
+            "{body}"
+        );
+        assert!(child.host.credentials.read().unwrap().is_none());
+        // The main host still takes its first sign-in from this PC.
+        let main = Fixture::new();
+        value(first(&main).await.unwrap(), StatusCode::OK).await;
+        assert!(main.host.credentials.read().unwrap().is_some());
+    }
 }

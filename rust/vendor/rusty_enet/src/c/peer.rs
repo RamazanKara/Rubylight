@@ -101,6 +101,7 @@ pub(crate) struct ENetPeer<S: Socket> {
     // Rubylight: see enet_protocol_resend_after_silence.
     pub(crate) last_datagram_time: u32,
     pub(crate) resend_after_silence: bool,
+    pub(crate) resent_since_acknowledge: bool,
 }
 pub(crate) unsafe fn enet_peer_throttle_configure<S: Socket>(
     peer: *mut ENetPeer<S>,
@@ -484,6 +485,7 @@ pub(crate) unsafe fn enet_peer_reset<S: Socket>(peer: *mut ENetPeer<S>) {
     (*peer).total_waiting_data = 0_i32 as usize;
     (*peer).last_datagram_time = 0;
     (*peer).resend_after_silence = false;
+    (*peer).resent_since_acknowledge = false;
     (*peer).flags = 0_i32 as u16;
     write_bytes(((*peer).unsequenced_window).as_mut_ptr(), 0, 32);
     enet_peer_reset_queues(peer);

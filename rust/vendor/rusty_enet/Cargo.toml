@@ -8,8 +8,9 @@
 #   datagram, src/c/protocol.rs (enet_protocol_resend_after_silence, called from
 #   enet_protocol_handle_incoming_commands) lowers the backed-off retransmission timeouts of
 #   its outstanding reliable commands to round trip time plus four variances, so they go out
-#   with the next send instead of up to an outage later. src/c/peer.rs adds the two peer
-#   fields, cleared on reset; src/peer.rs the setter. The wire protocol is unchanged.
+#   with the next send instead of up to an outage later; once until the peer acknowledges
+#   something (enet_protocol_handle_acknowledge). src/c/peer.rs adds the three peer fields,
+#   cleared on reset; src/peer.rs the setter. The wire protocol is unchanged.
 # - src/c/protocol.rs, enet_protocol_check_timeouts: the `1 << (send_attempts - 1)` disconnect
 #   test saturates instead of overflowing past 32 attempts, which the resends can reach.
 [package]

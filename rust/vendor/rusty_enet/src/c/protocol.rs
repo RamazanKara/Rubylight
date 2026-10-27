@@ -1298,6 +1298,8 @@ unsafe fn enet_protocol_handle_acknowledge<S: Socket>(
         1_i32 as u32
     };
     (*peer).earliest_timeout = 0_i32 as u32;
+    // Rubylight: see enet_protocol_resend_after_silence.
+    (*peer).resent_since_acknowledge = false;
     let received_reliable_sequence_number =
         u16::from_be((*command).acknowledge.received_reliable_sequence_number) as u32;
     let command_number = enet_protocol_remove_sent_reliable_command(
@@ -1389,9 +1391,12 @@ unsafe fn enet_protocol_handle_verify_connect<S: Socket>(
 // doubled while it was silent and would otherwise hold them back for about as long as the
 // silence lasted (RFC 6069 reverts TCP's backoff after a connectivity disruption the same
 // way). Each backed-off command restarts from the base timeout, round trip time plus four
-// variances; its send attempts and the peer's earliest timeout stay, so ENet disconnects the
-// peer when it would have anyway. A connected peer is heard from at least every ping interval,
-// so loss alone rarely makes a silence this long: then at most one extra resend per command.
+// variances (from before the silence, so a slower path after it can cost a resend or two more);
+// its send attempts and the peer's earliest timeout stay, so ENet disconnects the peer when it
+// would have anyway. The timeouts restart once until the peer acknowledges something: a path
+// to the peer that stays dead while the peer's datagrams come and go gets one restart of the
+// doubling, not one per silence. A connected peer is heard from at least every ping interval,
+// so normal loss doesn't make a silence this long and resends exactly as stock ENet.
 unsafe fn enet_protocol_resend_after_silence<S: Socket>(
     host: *mut ENetHost<S>,
     peer: *mut ENetPeer<S>,
@@ -1400,6 +1405,7 @@ unsafe fn enet_protocol_resend_after_silence<S: Socket>(
     let last = (*peer).last_datagram_time;
     (*peer).last_datagram_time = if now > 1 { now } else { 1 };
     if !(*peer).resend_after_silence
+        || (*peer).resent_since_acknowledge
         || last == 0
         || enet_time_difference(now, last) < (*peer).ping_interval.saturating_mul(2)
     {
@@ -1427,6 +1433,7 @@ unsafe fn enet_protocol_resend_after_silence<S: Socket>(
     if !rearmed {
         return;
     }
+    (*peer).resent_since_acknowledge = true;
     // The sent list is in send order, not timeout order: the next check is due when the first
     // of its commands is.
     let sentinel = core::ptr::addr_of_mut!((*peer).sent_reliable_commands.sentinel);

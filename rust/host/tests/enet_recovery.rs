@@ -130,7 +130,7 @@ impl Net {
                 Event::Receive { .. } => {}
             }
         }
-        if self.client_connected && now % HEARTBEAT_MS == 0 {
+        if self.client_connected && now.is_multiple_of(HEARTBEAT_MS) {
             self.client
                 .peer_mut(self.client_peer)
                 .send(0, &Packet::always_unreliable_unsequenced(&[0, 2][..]))
@@ -233,7 +233,7 @@ fn delay_after_outage(resend_after_silence: bool, outage_ms: u64) -> Option<u64>
 #[test]
 fn messages_queued_in_an_outage_arrive_once_the_client_is_heard_again() {
     // Outages that end at different points of the doubled timeouts.
-    let mut stock_worst = Some(0);
+    let mut stock_backed_off = 0;
     for outage_ms in (0..4).map(|k| 10_000 + k * 250) {
         let stock = delay_after_outage(false, outage_ms);
         let delay = delay_after_outage(true, outage_ms);
@@ -246,24 +246,72 @@ fn messages_queued_in_an_outage_arrive_once_the_client_is_heard_again() {
             delay.is_some_and(|delay| delay <= HEARTBEAT_MS + 2 * DELAY_MS + 20),
             "{delay:?} ms after a {outage_ms} ms outage"
         );
-        stock_worst = stock_worst
-            .zip(stock)
-            .map(|(worst, stock)| worst.max(stock));
+        // Dropped, or a second late.
+        if stock.is_none_or(|stock| stock >= 1_000) {
+            stock_backed_off += 1;
+        }
     }
     assert!(
-        stock_worst.is_none_or(|worst| worst >= 1_000),
-        "stock ENet delivered within {stock_worst:?} ms: the cases no longer show the backoff"
+        stock_backed_off > 0,
+        "stock ENet delivered on time after every outage: the cases no longer show the backoff"
     );
 }
 
-/// The host's datagrams, the client's arrivals, when the host dropped the client and the
-/// datagrams lost over a run where the host sends a reliable message every 20 ms.
+/// The host's datagrams and when it dropped the client, after it queued 10 messages, while
+/// the path to the client is dead and the client's datagrams get through for 200 ms of every
+/// 1.7 s: each time the host hears from the client after a silence.
+fn return_path_comes_and_goes(resend_after_silence: bool) -> (u64, Option<u64>) {
+    let mut net = Net::new(resend_after_silence, 0);
+    net.to_client_down = true;
+    let start = net.host_sent;
+    for i in 0..10_u8 {
+        net.host_send(&[0x66, i]);
+    }
+    // 42.5 s: past the host's 30 s maximum, within the client's 60 s.
+    for _ in 0..25 {
+        net.to_host_down = true;
+        net.run(1_500);
+        net.to_host_down = false;
+        net.run(200);
+    }
+    (net.host_sent - start, net.host_disconnected_at)
+}
+
+#[test]
+fn a_return_path_that_comes_and_goes_restarts_the_resends_once() {
+    let stock = return_path_comes_and_goes(false);
+    let patched = return_path_comes_and_goes(true);
+    eprintln!(
+        "return path comes and goes: host sent {} datagrams stock, {} with the resend; \
+         dropped the client at {:?} and {:?}",
+        stock.0, patched.0, stock.1, patched.1
+    );
+    assert!(stock.1.is_some(), "stock ENet kept the client");
+    assert!(
+        patched.1.is_some(),
+        "the host kept a client it never reached"
+    );
+    // One restart of the doubling from 40 ms: about log2(30 s / 40 ms) resends of the 10
+    // messages, together in one datagram each time.
+    assert!(
+        patched.0 <= stock.0 + 12,
+        "{} datagrams against stock ENet's {}",
+        patched.0,
+        stock.0
+    );
+}
+
+/// The host's datagrams, the client's arrivals with their times, when the host dropped the
+/// client and the datagrams lost.
+type Traffic = (u64, Vec<(u64, Vec<u8>)>, Option<u64>, u64);
+
+/// A run where the host sends a reliable message every 20 ms.
 fn steady_traffic(
     resend_after_silence: bool,
     loss_percent: u64,
     to_client_down: bool,
     messages: u32,
-) -> (u64, Vec<(u64, Vec<u8>)>, Option<u64>, u64) {
+) -> Traffic {
     let mut net = Net::new(resend_after_silence, loss_percent);
     net.to_client_down = to_client_down;
     let start = net.host_sent;

@@ -8,4 +8,15 @@
     <string name="mic_status_not_offered">マイク: ホストが非対応</string>
     <string name="mic_status_unavailable">マイク: 使用不可</string>
     <string name="mic_status_no_permission">マイク: 権限が必要</string>
+    <string name="title_list_mic_echo_cancel">エコーキャンセル</string>
+    <string name="summary_list_mic_echo_cancel">スピーカーのゲーム音がマイクに入らないようにします。自動ではスピーカー使用時にオン、ヘッドホンや Bluetooth ヘッドセットではオフになり、ストリーム中の切り替えにも追従します。</string>
+    <string name="mic_echo_auto">自動</string>
+    <string name="mic_echo_on">オン</string>
+    <string name="mic_echo_off">オフ</string>
+    <string name="title_checkbox_mic_noise_suppression">ノイズ抑制</string>
+    <string name="summary_checkbox_mic_noise_suppression">ファンのような一定の背景ノイズをマイクから除去します</string>
+    <string name="title_checkbox_mic_auto_gain">自動ゲイン</string>
+    <string name="summary_checkbox_mic_auto_gain">小さい声と大きい声をデバイスがそろえます。下のマイクゲインはその上に適用されます。</string>
+    <string name="title_seekbar_mic_gain">マイクゲイン</string>
+    <string name="summary_seekbar_mic_gain">送信前にマイクを小さくまたは大きくします。大きなピークは音割れせず丸められます。</string>
 </resources>

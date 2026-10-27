@@ -8,4 +8,15 @@
     <string name="mic_status_not_offered">Micro : non proposé par l’hôte</string>
     <string name="mic_status_unavailable">Micro : indisponible</string>
     <string name="mic_status_no_permission">Micro : autorisation requise</string>
+    <string name="title_list_mic_echo_cancel">Annulation d\'écho</string>
+    <string name="summary_list_mic_echo_cancel">Empêche le son du jeu dans le haut-parleur d\'entrer dans le micro. Automatique l\'active avec le haut-parleur et la coupe avec un casque ou des écouteurs Bluetooth, et suit un changement pendant le stream.</string>
+    <string name="mic_echo_auto">Automatique</string>
+    <string name="mic_echo_on">Activée</string>
+    <string name="mic_echo_off">Désactivée</string>
+    <string name="title_checkbox_mic_noise_suppression">Réduction du bruit</string>
+    <string name="summary_checkbox_mic_noise_suppression">Filtre du micro les bruits de fond constants, comme un ventilateur</string>
+    <string name="title_checkbox_mic_auto_gain">Gain automatique</string>
+    <string name="summary_checkbox_mic_auto_gain">Laisse l\'appareil égaliser la voix faible et forte. Le gain du micro ci-dessous s\'ajoute.</string>
+    <string name="title_seekbar_mic_gain">Gain du micro</string>
+    <string name="summary_seekbar_mic_gain">Rend le micro plus faible ou plus fort avant l\'envoi. Les pics forts sont arrondis au lieu de saturer.</string>
 </resources>

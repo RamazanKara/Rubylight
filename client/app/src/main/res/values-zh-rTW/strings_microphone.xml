@@ -8,4 +8,15 @@
     <string name="mic_status_not_offered">麥克風：主機未提供</string>
     <string name="mic_status_unavailable">麥克風：無法使用</string>
     <string name="mic_status_no_permission">麥克風：需要權限</string>
+    <string name="title_list_mic_echo_cancel">回音消除</string>
+    <string name="summary_list_mic_echo_cancel">防止喇叭裡的遊戲聲音進入麥克風。自動模式在使用喇叭時開啟，使用耳機和藍牙耳機時關閉，並在串流中切換時跟著改變。</string>
+    <string name="mic_echo_auto">自動</string>
+    <string name="mic_echo_on">開啟</string>
+    <string name="mic_echo_off">關閉</string>
+    <string name="title_checkbox_mic_noise_suppression">噪音抑制</string>
+    <string name="summary_checkbox_mic_noise_suppression">濾除麥克風中風扇等持續的背景噪音</string>
+    <string name="title_checkbox_mic_auto_gain">自動增益</string>
+    <string name="summary_checkbox_mic_auto_gain">讓裝置平衡小聲和大聲的說話。下方的麥克風增益會在此之上套用。</string>
+    <string name="title_seekbar_mic_gain">麥克風增益</string>
+    <string name="summary_seekbar_mic_gain">在傳送前調低或調高麥克風。響亮的峰值會被圓滑處理而不會削波。</string>
 </resources>

@@ -8,4 +8,15 @@
     <string name="mic_status_not_offered">Mikrofon: nieobsługiwany przez hosta</string>
     <string name="mic_status_unavailable">Mikrofon: niedostępny</string>
     <string name="mic_status_no_permission">Mikrofon: wymagane uprawnienie</string>
+    <string name="title_list_mic_echo_cancel">Usuwanie echa</string>
+    <string name="summary_list_mic_echo_cancel">Nie dopuszcza dźwięku gry z głośnika do mikrofonu. Automatycznie włącza je przy głośniku i wyłącza przy słuchawkach i zestawach Bluetooth, także po zmianie w trakcie streamu.</string>
+    <string name="mic_echo_auto">Automatycznie</string>
+    <string name="mic_echo_on">Włączone</string>
+    <string name="mic_echo_off">Wyłączone</string>
+    <string name="title_checkbox_mic_noise_suppression">Tłumienie szumów</string>
+    <string name="summary_checkbox_mic_noise_suppression">Odfiltrowuje z mikrofonu stały szum tła, na przykład wentylatora</string>
+    <string name="title_checkbox_mic_auto_gain">Automatyczne wzmocnienie</string>
+    <string name="summary_checkbox_mic_auto_gain">Urządzenie wyrównuje cichą i głośną mowę. Wzmocnienie mikrofonu poniżej działa dodatkowo.</string>
+    <string name="title_seekbar_mic_gain">Wzmocnienie mikrofonu</string>
+    <string name="summary_seekbar_mic_gain">Ścisza lub podgłaśnia mikrofon przed wysłaniem. Głośne szczyty są zaokrąglane zamiast przesterowania.</string>
 </resources>

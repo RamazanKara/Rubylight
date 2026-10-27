@@ -8,4 +8,15 @@
     <string name="mic_status_not_offered">Micrô: máy chủ không hỗ trợ</string>
     <string name="mic_status_unavailable">Micrô: không khả dụng</string>
     <string name="mic_status_no_permission">Micrô: cần cấp quyền</string>
+    <string name="title_list_mic_echo_cancel">Khử tiếng vọng</string>
+    <string name="summary_list_mic_echo_cancel">Ngăn âm thanh trò chơi từ loa lọt vào micrô. Tự động bật khi dùng loa, tắt khi dùng tai nghe và tai nghe Bluetooth, và theo kịp khi chuyển đổi trong lúc phát.</string>
+    <string name="mic_echo_auto">Tự động</string>
+    <string name="mic_echo_on">Bật</string>
+    <string name="mic_echo_off">Tắt</string>
+    <string name="title_checkbox_mic_noise_suppression">Khử tiếng ồn</string>
+    <string name="summary_checkbox_mic_noise_suppression">Lọc tiếng ồn nền đều đặn như quạt khỏi micrô</string>
+    <string name="title_checkbox_mic_auto_gain">Tự động tăng âm</string>
+    <string name="summary_checkbox_mic_auto_gain">Để thiết bị cân bằng giọng nói nhỏ và lớn. Mức tăng micrô bên dưới được áp dụng thêm.</string>
+    <string name="title_seekbar_mic_gain">Mức tăng micrô</string>
+    <string name="summary_seekbar_mic_gain">Làm micrô nhỏ hoặc to hơn trước khi gửi. Đỉnh âm lớn được làm tròn thay vì bị vỡ.</string>
 </resources>

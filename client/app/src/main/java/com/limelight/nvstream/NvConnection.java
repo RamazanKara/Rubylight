@@ -110,6 +110,12 @@ public class NvConnection {
     private volatile boolean micPermitted;
     private volatile boolean micMuted;
     private MicrophoneCapture microphone;
+    // The microphone settings read at connection start, and effects they asked for that this
+    // device lacks, waiting for the stream screen to say so.
+    private volatile com.limelight.binding.audio.MicProcessing micProcessing =
+            com.limelight.binding.audio.MicProcessing.DEFAULT;
+    private final java.util.concurrent.atomic.AtomicReference<java.util.List<com.limelight.binding.audio.MicProcessing.Effect>>
+            micNotice = new java.util.concurrent.atomic.AtomicReference<>();
     private static final class ControllerMicrophoneState {
         final boolean allowed, ready, hostMuted;
         ControllerMicrophoneState(boolean allowed, boolean ready, boolean hostMuted) {
@@ -263,7 +269,17 @@ public class NvConnection {
 
     // Package-visible factory keeps route transitions testable without an audio device.
     MicrophoneCapture createMicrophoneCapture(boolean muted) {
-        return new MicrophoneCapture(MoonBridge::sendMicrophonePcm, muted);
+        return new MicrophoneCapture(MoonBridge::sendMicrophonePcm, muted, micProcessing,
+                new com.limelight.binding.audio.MicRoute(appContext), this::noteMissingMicrophoneEffects);
+    }
+
+    void noteMissingMicrophoneEffects(java.util.List<com.limelight.binding.audio.MicProcessing.Effect> effects) {
+        micNotice.set(effects);
+    }
+
+    /** Effects the microphone settings ask for that this device lacks, once; null when there is nothing new. */
+    public java.util.List<com.limelight.binding.audio.MicProcessing.Effect> takeMicrophoneNotice() {
+        return micNotice.getAndSet(null);
     }
 
     private void stopMicrophone() {
@@ -1197,6 +1213,7 @@ public class NvConnection {
                         PreferenceConfiguration prefs = hintPrefs;
                         micEnabled = prefs.enableMic;
                         micPermitted = prefs.enableMic && hasMicrophonePermission();
+                        micProcessing = prefs.micProcessing();
                         if (micEnabled && !micPermitted) {
                             LimeLog.warning("Microphone: on in settings but the permission is not granted; not sending");
                         }

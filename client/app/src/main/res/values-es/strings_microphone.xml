@@ -8,4 +8,15 @@
     <string name="mic_status_not_offered">Micrófono: el servidor no lo ofrece</string>
     <string name="mic_status_unavailable">Micrófono: no disponible</string>
     <string name="mic_status_no_permission">Micrófono: se necesita permiso</string>
+    <string name="title_list_mic_echo_cancel">Cancelación de eco</string>
+    <string name="summary_list_mic_echo_cancel">Evita que el sonido del juego en el altavoz entre en el micrófono. Automático la activa con el altavoz y la desactiva con auriculares y cascos Bluetooth, y sigue los cambios durante la transmisión.</string>
+    <string name="mic_echo_auto">Automático</string>
+    <string name="mic_echo_on">Activada</string>
+    <string name="mic_echo_off">Desactivada</string>
+    <string name="title_checkbox_mic_noise_suppression">Supresión de ruido</string>
+    <string name="summary_checkbox_mic_noise_suppression">Filtra del micrófono el ruido de fondo constante, como un ventilador</string>
+    <string name="title_checkbox_mic_auto_gain">Ganancia automática</string>
+    <string name="summary_checkbox_mic_auto_gain">Deja que el dispositivo iguale la voz baja y alta. La ganancia del micrófono de abajo se aplica además.</string>
+    <string name="title_seekbar_mic_gain">Ganancia del micrófono</string>
+    <string name="summary_seekbar_mic_gain">Baja o sube el micrófono antes de enviarlo. Los picos fuertes se suavizan en lugar de saturar.</string>
 </resources>

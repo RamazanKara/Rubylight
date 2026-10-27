@@ -8,6 +8,8 @@ import android.preference.PreferenceManager;
 import android.hardware.display.DisplayManager;
 import android.view.Display;
 
+import com.limelight.binding.audio.MicGain;
+import com.limelight.binding.audio.MicProcessing;
 import com.limelight.binding.input.touch.PointerAcceleration;
 import com.limelight.binding.input.touch.FingerTapGesture;
 import com.limelight.binding.input.touch.TouchMode;
@@ -63,6 +65,10 @@ public class PreferenceConfiguration {
     private static final String DISABLE_TOASTS_PREF_STRING = "checkbox_disable_warnings";
     private static final String HOST_AUDIO_PREF_STRING = "checkbox_host_audio";
     public static final String ENABLE_MIC_PREF_STRING = "checkbox_enable_mic";
+    static final String MIC_ECHO_PREF_STRING = "list_mic_echo_cancel";
+    static final String MIC_NOISE_PREF_STRING = "checkbox_mic_noise_suppression";
+    static final String MIC_AUTO_GAIN_PREF_STRING = "checkbox_mic_auto_gain";
+    static final String MIC_GAIN_PREF_STRING = "seekbar_mic_gain";
     private static final String DEADZONE_PREF_STRING = "seekbar_deadzone";
     private static final String OSC_OPACITY_PREF_STRING = "seekbar_osc_opacity";
     static final String LANGUAGE_PREF_STRING = "list_languages";
@@ -244,6 +250,10 @@ public class PreferenceConfiguration {
     public int streamOrientation = StreamOrientation.AUTO;
     // Send this device's microphone to the host when the host offers to take it.
     public boolean enableMic;
+    // How the microphone is cleaned up before it is sent (MicProcessing).
+    public String micEcho = MicProcessing.Echo.AUTO.key;
+    public boolean micNoiseSuppression = true, micAutoGain;
+    public int micGainPercent = MicGain.DEFAULT_PERCENT;
     public String language;
     public boolean smallIconMode, multiController, usbDriver, usbDualSense, usbDualSenseHaptics, usbSwitchPro, flipFaceButtons;
     // Forward USB devices to a host that offers it during a stream (Rust engine only).
@@ -694,6 +704,11 @@ public class PreferenceConfiguration {
     }
 
     private static final String PC_PROFILES_OVERRIDES_PREF_STRING = "pc_profiles_overrides";
+
+    /** The microphone processing these settings ask for. */
+    public MicProcessing micProcessing() {
+        return new MicProcessing(MicProcessing.Echo.of(micEcho), micNoiseSuppression, micAutoGain, micGainPercent);
+    }
 
     public static PreferenceConfiguration readPreferences(Context context, String hostUuid) {
         return readPreferences(context, hostUuid, HostCapabilityCache.load(context, hostUuid));
@@ -1226,6 +1241,10 @@ public class PreferenceConfiguration {
                 prefs.getString(StreamOrientation.PREF, null));
         config.playHostAudio = prefs.getBoolean(HOST_AUDIO_PREF_STRING, DEFAULT_HOST_AUDIO);
         config.enableMic = prefs.getBoolean(ENABLE_MIC_PREF_STRING, DEFAULT_ENABLE_MIC);
+        config.micEcho = MicProcessing.Echo.of(prefs.getString(MIC_ECHO_PREF_STRING, null)).key;
+        config.micNoiseSuppression = prefs.getBoolean(MIC_NOISE_PREF_STRING, true);
+        config.micAutoGain = prefs.getBoolean(MIC_AUTO_GAIN_PREF_STRING, false);
+        config.micGainPercent = MicGain.clampPercent(prefs.getInt(MIC_GAIN_PREF_STRING, MicGain.DEFAULT_PERCENT));
         config.smallIconMode = prefs.getBoolean(SMALL_ICONS_PREF_STRING, getDefaultSmallMode(context));
         config.multiController = prefs.getBoolean(MULTI_CONTROLLER_PREF_STRING, DEFAULT_MULTI_CONTROLLER);
         config.usbDriver = prefs.getBoolean(USB_DRIVER_PREF_SRING, DEFAULT_USB_DRIVER);

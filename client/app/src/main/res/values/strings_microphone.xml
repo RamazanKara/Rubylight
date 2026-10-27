@@ -8,4 +8,17 @@
     <string name="mic_status_not_offered">Microphone: not offered by host</string>
     <string name="mic_status_unavailable">Microphone: unavailable</string>
     <string name="mic_status_no_permission">Microphone: permission needed</string>
+    <string name="title_list_mic_echo_cancel">Echo cancellation</string>
+    <string name="summary_list_mic_echo_cancel">Keeps game sound from the speaker out of the microphone. Automatic turns it on with the speaker and off with headphones and Bluetooth headsets, and follows a switch during the stream.</string>
+    <string name="mic_echo_auto">Automatic</string>
+    <string name="mic_echo_on">On</string>
+    <string name="mic_echo_off">Off</string>
+    <string name="title_checkbox_mic_noise_suppression">Noise suppression</string>
+    <string name="summary_checkbox_mic_noise_suppression">Filters steady background noise, such as a fan, out of the microphone</string>
+    <string name="title_checkbox_mic_auto_gain">Automatic gain</string>
+    <string name="summary_checkbox_mic_auto_gain">Lets the device even out quiet and loud speech. The microphone gain below applies on top.</string>
+    <string name="title_seekbar_mic_gain">Microphone gain</string>
+    <string name="summary_seekbar_mic_gain">Makes the microphone quieter or louder before it is sent. Loud peaks are rounded off instead of clipping.</string>
+    <string-array name="mic_echo_names"><item>@string/mic_echo_auto</item><item>@string/mic_echo_on</item><item>@string/mic_echo_off</item></string-array>
+    <string-array name="mic_echo_values" translatable="false"><item>auto</item><item>on</item><item>off</item></string-array>
 </resources>

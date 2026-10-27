@@ -8,4 +8,15 @@
     <string name="mic_status_not_offered">Мікрофон: хост не підтримує</string>
     <string name="mic_status_unavailable">Мікрофон: недоступний</string>
     <string name="mic_status_no_permission">Мікрофон: потрібен дозвіл</string>
+    <string name="title_list_mic_echo_cancel">Придушення луни</string>
+    <string name="summary_list_mic_echo_cancel">Не пускає звук гри з динаміка в мікрофон. «Автоматично» вмикає його з динаміком і вимикає з навушниками та Bluetooth-гарнітурами, а також стежить за перемиканням під час трансляції.</string>
+    <string name="mic_echo_auto">Автоматично</string>
+    <string name="mic_echo_on">Увімк.</string>
+    <string name="mic_echo_off">Вимк.</string>
+    <string name="title_checkbox_mic_noise_suppression">Шумозаглушення</string>
+    <string name="summary_checkbox_mic_noise_suppression">Прибирає з мікрофона рівний фоновий шум, наприклад вентилятора</string>
+    <string name="title_checkbox_mic_auto_gain">Автопідсилення</string>
+    <string name="summary_checkbox_mic_auto_gain">Пристрій вирівнює тиху й гучну мову. Підсилення мікрофона нижче застосовується додатково.</string>
+    <string name="title_seekbar_mic_gain">Підсилення мікрофона</string>
+    <string name="summary_seekbar_mic_gain">Робить мікрофон тихішим або гучнішим перед надсиланням. Гучні піки згладжуються, а не перевантажуються.</string>
 </resources>

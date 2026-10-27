@@ -14,6 +14,7 @@ import android.view.ViewGroup;
 import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.FrameLayout;
 
 public class StreamView extends FrameLayout {
@@ -24,6 +25,7 @@ public class StreamView extends FrameLayout {
     // the right and bottom uncropped (AV1 from AMD encoders at widths not divisible by 64).
     private float paddedScaleX = 1, paddedScaleY = 1;
     private InputCallbacks inputCallbacks;
+    private HostTextField hostTextField;
     private SurfaceView surfaceView;
     private TextureView textureView;
 
@@ -111,6 +113,21 @@ public class StreamView extends FrameLayout {
         this.inputCallbacks = callbacks;
     }
 
+    /**
+     * The host's focused text field the soft keyboard types into, or null to send raw keys
+     * (TYPE_NULL), as without text field notices. Restarts the IME's input with the field's type.
+     */
+    public void setHostTextField(HostTextField field) {
+        if (field == hostTextField) return;
+        hostTextField = field;
+        InputMethodManager inputManager = (InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (inputManager != null) inputManager.restartInput(this);
+    }
+
+    public HostTextField getHostTextField() {
+        return hostTextField;
+    }
+
     public StreamView(Context context) {
         super(context);
     }
@@ -134,6 +151,13 @@ public class StreamView extends FrameLayout {
 
     @Override
     public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
+        HostTextField field = hostTextField;
+        if (field != null) {
+            outAttrs.inputType = field.inputType();
+            outAttrs.imeOptions = field.imeOptions();
+            outAttrs.initialSelStart = outAttrs.initialSelEnd = field.cursor();
+            return new HostFieldConnection(field);
+        }
         outAttrs.inputType = InputType.TYPE_NULL;
         outAttrs.imeOptions = EditorInfo.IME_ACTION_NONE | EditorInfo.IME_FLAG_NO_EXTRACT_UI |
                 EditorInfo.IME_FLAG_NO_FULLSCREEN;
@@ -171,6 +195,92 @@ public class StreamView extends FrameLayout {
                         KeyEvent.FLAG_SOFT_KEYBOARD | KeyEvent.FLAG_KEEP_TOUCH_MODE));
             }
         };
+    }
+
+    /**
+     * Forwards the IME's edits of the host's text field as they happen: composing text, commits and
+     * deletions all go through {@link HostTextField} to {@link InputCallbacks#handleTextInput}, in
+     * order, and the IME is told where its cursor and composing text now are.
+     */
+    private final class HostFieldConnection extends BaseInputConnection {
+        private final HostTextField field;
+        private final HostTextField.Sink sink = edit -> inputCallbacks != null && inputCallbacks.handleTextInput(edit);
+
+        HostFieldConnection(HostTextField field) {
+            super(StreamView.this, false);
+            this.field = field;
+        }
+
+        @Override
+        public boolean setComposingText(CharSequence text, int newCursorPosition) {
+            return updated(field.compose(text, sink));
+        }
+
+        @Override
+        public boolean commitText(CharSequence text, int newCursorPosition) {
+            return updated(field.commit(text, sink));
+        }
+
+        @Override
+        public boolean finishComposingText() {
+            field.finishComposing();
+            return updated(true);
+        }
+
+        @Override
+        public boolean setComposingRegion(int start, int end) {
+            return updated(field.recompose(start, end));
+        }
+
+        @Override
+        public boolean deleteSurroundingText(int beforeLength, int afterLength) {
+            boolean sent = field.deleteBefore(beforeLength, sink);
+            // Text after the caret has no character here; the key goes straight on, in order.
+            for (int i = 0; i < afterLength && inputCallbacks != null; i++) {
+                long now = SystemClock.uptimeMillis();
+                int flags = KeyEvent.FLAG_SOFT_KEYBOARD | KeyEvent.FLAG_KEEP_TOUCH_MODE;
+                inputCallbacks.handleKeyDown(new KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_FORWARD_DEL,
+                        0, 0, KeyCharacterMap.VIRTUAL_KEYBOARD, 0, flags));
+                inputCallbacks.handleKeyUp(new KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_FORWARD_DEL,
+                        0, 0, KeyCharacterMap.VIRTUAL_KEYBOARD, 0, flags));
+            }
+            return updated(sent);
+        }
+
+        @Override
+        public boolean deleteSurroundingTextInCodePoints(int beforeLength, int afterLength) {
+            return deleteSurroundingText(beforeLength, afterLength);
+        }
+
+        @Override
+        public CharSequence getTextBeforeCursor(int length, int flags) {
+            return field.textBeforeCursor(length);
+        }
+
+        @Override
+        public CharSequence getTextAfterCursor(int length, int flags) {
+            return "";
+        }
+
+        @Override
+        public CharSequence getSelectedText(int flags) {
+            return null;
+        }
+
+        @Override
+        public boolean setSelection(int start, int end) {
+            // The host's caret stays where the typing left it.
+            return false;
+        }
+
+        private boolean updated(boolean result) {
+            InputMethodManager inputManager = (InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (inputManager != null) {
+                inputManager.updateSelection(StreamView.this, field.cursor(), field.cursor(),
+                        field.composingStart(), field.composingEnd());
+            }
+            return result;
+        }
     }
 
     @Override

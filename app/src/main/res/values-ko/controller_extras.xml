@@ -10,6 +10,8 @@
     <string name="summary_checkbox_back_as_meta">실물 키보드의 뒤로 키가 Windows 키(Mac에서는 Command)를 보냅니다. 스트림 메뉴는 Ctrl+Alt+Shift+M, Android 뒤로 제스처나 버튼, 컨트롤러 버튼 조합으로 엽니다.</string>
     <string name="title_checkbox_right_alt_as_meta">오른쪽 Alt를 Command로 사용</string>
     <string name="summary_checkbox_right_alt_as_meta">오른쪽 Alt가 Windows 키를 보내며, Mac은 이를 Command로 사용하므로 오른쪽 Alt+C로 복사할 수 있습니다. 왼쪽 Alt는 그대로입니다. AltGr로 문자를 입력한다면 꺼 두세요.</string>
+    <string name="title_checkbox_keyboard_follows_text_fields">텍스트 필드에 맞춰 키보드 표시</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">스트림의 텍스트 필드에 포커스가 가면 그 필드에 맞는 화면 키보드가 열립니다. 숫자 필드에는 숫자, 비밀번호에는 추천 단어 없음. 필드에서 포커스가 벗어나면 다시 닫힙니다. 물리 키보드가 연결되어 있으면 그 키보드로 계속 입력합니다.</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">컨트롤러 테스트</string>

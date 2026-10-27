@@ -10,6 +10,8 @@
     <string name="summary_checkbox_back_as_meta">物理キーボードの戻るキーで Windows キー (Mac では Command) を送信します。ストリームメニューは Ctrl+Alt+Shift+M、Android の戻るジェスチャーまたはボタン、コントローラのボタン同時押しで開きます。</string>
     <string name="title_checkbox_right_alt_as_meta">右 Alt を Command として使用</string>
     <string name="summary_checkbox_right_alt_as_meta">右 Alt で Windows キーを送信します。Mac ではこれが Command として使われるため、右 Alt+C でコピーできます。左 Alt は変わりません。AltGr で文字を入力する場合はオフのままにしてください。</string>
+    <string name="title_checkbox_keyboard_follows_text_fields">テキスト欄に合わせてキーボードを表示</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">ストリーム内のテキスト欄にフォーカスが移ると、その欄に合わせたスクリーンキーボードが開きます（数値欄には数字、パスワードには候補なし）。フォーカスが外れると閉じます。物理キーボードを接続している場合はそちらで入力を続けます。</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">コントローラのテスト</string>

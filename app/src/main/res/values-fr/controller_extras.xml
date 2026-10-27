@@ -10,6 +10,8 @@
     <string name="summary_checkbox_back_as_meta">La touche Retour d’un clavier physique envoie la touche Windows (Commande sur Mac). Ouvrez le menu du stream avec Ctrl+Alt+Shift+M, le geste ou le bouton Retour d’Android, ou la combinaison de boutons de la manette.</string>
     <string name="title_checkbox_right_alt_as_meta">Alt droite comme Commande</string>
     <string name="summary_checkbox_right_alt_as_meta">Alt droite envoie la touche Windows, qu’un Mac utilise comme Commande : Alt droite+C copie donc. Alt gauche ne change pas. Laissez désactivé si vous tapez des caractères avec AltGr.</string>
+    <string name="title_checkbox_keyboard_follows_text_fields">Le clavier suit les champs de texte</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">Le clavier à l’écran s’ouvre quand un champ de texte du stream reçoit le focus, adapté au champ : des chiffres pour un champ numérique, aucune suggestion pour un mot de passe. Il se referme quand le champ perd le focus. Avec un clavier physique branché, c’est lui qui continue de taper.</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">Test de la manette</string>

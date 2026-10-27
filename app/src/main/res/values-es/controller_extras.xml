@@ -10,6 +10,8 @@
     <string name="summary_checkbox_back_as_meta">La tecla Atrás de un teclado físico envía la tecla Windows (Comando en un Mac). Abre el menú de transmisión con Ctrl+Alt+Shift+M, el gesto o botón Atrás de Android o la combinación de botones del mando.</string>
     <string name="title_checkbox_right_alt_as_meta">Alt derecha como Comando</string>
     <string name="summary_checkbox_right_alt_as_meta">Alt derecha envía la tecla Windows, que un Mac usa como Comando, así que Alt derecha+C copia. Alt izquierda no cambia. Déjalo desactivado si escribes caracteres con AltGr.</string>
+    <string name="title_checkbox_keyboard_follows_text_fields">El teclado sigue a los campos de texto</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">El teclado en pantalla se abre cuando un campo de texto del stream recibe el foco, adaptado a él: números para un campo numérico, sin sugerencias para una contraseña. Se cierra de nuevo cuando el campo pierde el foco. Con un teclado físico conectado, se sigue escribiendo con él.</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">Prueba del mando</string>

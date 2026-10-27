@@ -10,6 +10,8 @@
     <string name="summary_checkbox_back_as_meta">The Back key on a physical keyboard sends the Windows key (Command on a Mac). Open the stream menu with Ctrl+Alt+Shift+M, Android\'s Back gesture or button, or the controller chord.</string>
     <string name="title_checkbox_right_alt_as_meta">Right Alt as Command</string>
     <string name="summary_checkbox_right_alt_as_meta">Right Alt sends the Windows key, which a Mac uses as Command, so Right Alt+C copies. Left Alt is unchanged. Leave off if you type characters with AltGr.</string>
+    <string name="title_checkbox_keyboard_follows_text_fields">Keyboard follows text fields</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">The on-screen keyboard opens when a text field in the stream gets focus, set up for it: numbers for a number field, no suggestions for a password. It closes again when the field loses focus. An attached hardware keyboard keeps typing instead.</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">Controller test</string>

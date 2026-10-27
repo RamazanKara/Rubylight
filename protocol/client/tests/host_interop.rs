@@ -64,7 +64,9 @@ fn sdp_for(
         high_quality_surround_supported: true,
         pyrowave_records_enabled: format & VIDEO_FORMAT_MASK_PYROWAVE != 0,
         hdr_format: 0,
+        hdr_formats_offered: 0,
         audio_codec: 0,
+        audio_codecs_offered: 0,
     })
     .text
 }

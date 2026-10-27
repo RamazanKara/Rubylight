@@ -238,12 +238,32 @@ pub struct SdpParams<'a> {
     pub mic_port: u16,
     pub high_quality_surround_supported: bool,
     pub pyrowave_records_enabled: bool,
-    /// The HDR format asked for (`x-rl-video[0].hdrFormat`, one `rubylight_protocol::hdr` bit
-    /// from the host's `DescribeInfo::hdr_formats`); 0 sends nothing and streams stock HDR.
+    /// The HDR format asked for (`x-rl-video[0].hdrFormat`, one `rubylight_protocol::hdr` bit);
+    /// 0 sends nothing and streams stock HDR. Sent only on a 10-bit (HDR) stream, Dolby Vision
+    /// only on HEVC, and only when `hdr_formats_offered` has it.
     pub hdr_format: u8,
-    /// The audio codec asked for (`x-rl-audio.codec`, one `audio_ext::CODEC_*` bit from the
-    /// host's `DescribeInfo::audio_codecs`); 0 sends nothing and streams Opus.
+    /// The host's `DescribeInfo::hdr_formats`.
+    pub hdr_formats_offered: u8,
+    /// The audio codec asked for (`x-rl-audio.codec`, one `audio_ext::CODEC_*` bit); 0 sends
+    /// nothing and streams Opus. Sent only when `audio_codecs_offered` has it.
     pub audio_codec: u8,
+    /// The host's `DescribeInfo::audio_codecs`.
+    pub audio_codecs_offered: u8,
+}
+
+/// `asked` when it is exactly one bit of `offered`.
+fn one_offered_bit(asked: u8, offered: u8) -> Option<u8> {
+    (asked.count_ones() == 1 && asked & offered != 0).then_some(asked)
+}
+
+/// The HDR format the description asks for, if the stream can carry it.
+fn announced_hdr_format(p: &SdpParams<'_>) -> Option<u8> {
+    let format = p.negotiated_video_format;
+    one_offered_bit(p.hdr_format, p.hdr_formats_offered).filter(|&bit| {
+        format & VIDEO_FORMAT_MASK_10BIT != 0
+            && (bit & rubylight_protocol::hdr::DOLBY_VISION == 0
+                || format & VIDEO_FORMAT_MASK_H265 != 0)
+    })
 }
 
 /// The description and the stream settings it fixes.
@@ -477,15 +497,13 @@ pub fn generate(p: &SdpParams<'_>) -> Sdp {
         if c.client_wireless {
             a.add("x-rl-video[0].clientWireless", 1);
         }
-        // The 3.0 extensions, only when asked for: a host without them never sees the keys.
-        if p.hdr_format != 0 {
-            a.add(rubylight_protocol::hdr::ANNOUNCE_ATTRIBUTE, p.hdr_format);
+        // The 3.0 extensions, only when asked for and offered: a host without them never sees
+        // the keys.
+        if let Some(hdr_format) = announced_hdr_format(p) {
+            a.add(rubylight_protocol::hdr::ANNOUNCE_ATTRIBUTE, hdr_format);
         }
-        if p.audio_codec != 0 {
-            a.add(
-                rubylight_protocol::audio_ext::CODEC_ANNOUNCE_ATTRIBUTE,
-                p.audio_codec,
-            );
+        if let Some(codec) = one_offered_bit(p.audio_codec, p.audio_codecs_offered) {
+            a.add(rubylight_protocol::audio_ext::CODEC_ANNOUNCE_ATTRIBUTE, codec);
         }
         if quad[0] >= 7 {
             a.add(

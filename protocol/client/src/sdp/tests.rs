@@ -34,7 +34,9 @@ fn params<'a>(
         high_quality_surround_supported: false,
         pyrowave_records_enabled: false,
         hdr_format: 0,
+        hdr_formats_offered: 0,
         audio_codec: 0,
+        audio_codecs_offered: 0,
     }
 }
 
@@ -364,31 +366,71 @@ fn wireless_route_is_flagged_for_every_codec_and_never_sent_as_zero() {
 }
 
 #[test]
-fn hdr_format_and_audio_codec_are_sent_only_when_asked_for() {
+fn hdr_format_and_audio_codec_are_sent_only_when_asked_for_and_offered() {
+    use rubylight_protocol::audio_ext::{CODECS_ALL, CODEC_AC3, CODEC_PCM};
+    use rubylight_protocol::hdr::{ALL, DV_81, DV_84, HLG, PQ};
     const HDR: &str = rubylight_protocol::hdr::ANNOUNCE_ATTRIBUTE;
     const CODEC: &str = rubylight_protocol::audio_ext::CODEC_ANNOUNCE_ATTRIBUTE;
     let config = StreamConfig::default();
-    for format in [VIDEO_FORMAT_H265_MAIN10, VIDEO_FORMAT_AV1_MAIN10, VIDEO_FORMAT_PYROWAVE] {
-        // Nothing asked for: the description is exactly what it was before the extensions.
+    let with = |format: u32, hdr: (u8, u8), codec: (u8, u8)| {
+        let mut p = params(&config, SUNSHINE, "10.0.0.7", format);
+        (p.hdr_format, p.hdr_formats_offered) = hdr;
+        (p.audio_codec, p.audio_codecs_offered) = codec;
+        generate(&p).text
+    };
+    let sent = |format: u32, hdr: (u8, u8), codec: (u8, u8)| {
+        let text = with(format, hdr, codec);
+        (
+            attribute(&text, HDR).map(str::to_owned),
+            attribute(&text, CODEC).map(str::to_owned),
+        )
+    };
+    let dv = Some("a=x-rl-video[0].hdrFormat:8".to_owned());
+    let pcm = Some("a=x-rl-audio.codec:2".to_owned());
+    let formats = [
+        VIDEO_FORMAT_H265,
+        VIDEO_FORMAT_H265_MAIN10,
+        VIDEO_FORMAT_AV1_MAIN10,
+        VIDEO_FORMAT_PYROWAVE,
+    ];
+    for format in formats {
+        // Nothing asked for: the description is exactly what it was before the extensions,
+        // whatever the host offers.
         let plain = generate(&params(&config, SUNSHINE, "10.0.0.7", format)).text;
         assert!(!plain.contains("hdrFormat") && !plain.contains("x-rl-audio"), "{format:#x}");
-
-        let mut p = params(&config, SUNSHINE, "10.0.0.7", format);
-        p.hdr_format = rubylight_protocol::hdr::DV_84;
-        p.audio_codec = rubylight_protocol::audio_ext::CODEC_PCM;
-        let asked = generate(&p).text;
-        assert_eq!(attribute(&asked, HDR), Some("a=x-rl-video[0].hdrFormat:8"), "{format:#x}");
-        assert_eq!(attribute(&asked, CODEC), Some("a=x-rl-audio.codec:2"), "{format:#x}");
-        // Only the two lines differ.
-        let removed: String = asked
-            .split_inclusive("\r\n")
-            .filter(|line| {
-                !line.starts_with("a=x-rl-video[0].hdrFormat:")
-                    && !line.starts_with("a=x-rl-audio.codec:")
-            })
-            .collect();
-        assert_eq!(removed, plain, "{format:#x}");
+        assert_eq!(with(format, (0, ALL), (0, CODECS_ALL)), plain, "{format:#x}");
+        // Not offered, or more than one bit: nothing either.
+        assert_eq!(with(format, (DV_84, 0), (CODEC_PCM, 0)), plain, "{format:#x}");
+        assert_eq!(with(format, (DV_84, HLG | PQ), (CODEC_AC3, CODEC_PCM)), plain);
+        assert_eq!(with(format, (DV_81 | DV_84, ALL), (CODEC_PCM | CODEC_AC3, CODECS_ALL)), plain);
+        // An offered codec goes on every stream.
+        assert_eq!(sent(format, (0, 0), (CODEC_PCM, CODECS_ALL)), (None, pcm.clone()));
     }
+
+    // An HDR format needs a 10-bit stream, and Dolby Vision HEVC.
+    let hdr = |format: u32, bit: u8| sent(format, (bit, ALL), (0, 0)).0;
+    assert_eq!(hdr(VIDEO_FORMAT_H265_MAIN10, DV_84), dv);
+    assert_eq!(hdr(VIDEO_FORMAT_H265_MAIN10, HLG), Some("a=x-rl-video[0].hdrFormat:2".into()));
+    assert_eq!(hdr(VIDEO_FORMAT_AV1_MAIN10, HLG), Some("a=x-rl-video[0].hdrFormat:2".into()));
+    assert_eq!(hdr(VIDEO_FORMAT_AV1_MAIN10, DV_84), None);
+    assert_eq!(hdr(VIDEO_FORMAT_H265, HLG), None);
+    assert_eq!(hdr(VIDEO_FORMAT_PYROWAVE, HLG), None);
+
+    // Only the two lines differ from the plain description.
+    let plain = generate(&params(&config, SUNSHINE, "10.0.0.7", VIDEO_FORMAT_H265_MAIN10)).text;
+    let asked = with(VIDEO_FORMAT_H265_MAIN10, (DV_84, ALL), (CODEC_PCM, CODECS_ALL));
+    assert_eq!(
+        (attribute(&asked, HDR).map(str::to_owned), attribute(&asked, CODEC).map(str::to_owned)),
+        (dv, pcm)
+    );
+    let removed: String = asked
+        .split_inclusive("\r\n")
+        .filter(|line| {
+            !line.starts_with("a=x-rl-video[0].hdrFormat:")
+                && !line.starts_with("a=x-rl-audio.codec:")
+        })
+        .collect();
+    assert_eq!(removed, plain);
 }
 
 #[test]

@@ -5,7 +5,8 @@
 //! are console-only: API tokens cannot reach them. A password sent to `start`
 //! goes straight to the viewer's pipe and is never logged or stored here:
 //! it is read from the raw body into a buffer wiped on drop, never through a
-//! `serde_json::Value`, and the body is wiped once read.
+//! `serde_json::Value`. The body itself is copied out and dropped at once;
+//! wiping it is best effort, as hyper's buffers may keep a copy.
 
 use super::error;
 use crate::state::Shared;
@@ -18,12 +19,16 @@ use axum::{
 use butterpollo_core::child_session::{Secret, ViewerCommand};
 use serde::Deserialize;
 use serde_json::{Value, json, value::RawValue};
+use zeroize::Zeroizing;
 
 pub(super) async fn handle(h: &Shared, method: &Method, path: &str, body: Bytes) -> Response {
     let h = h.clone();
     if (method.as_str(), path) == ("POST", "/api/child-session/start") {
-        let password = start_password(&body);
+        // Copied into a buffer wiped on drop, and the body let go at once.
+        let copy = Zeroizing::new(body.to_vec());
         wipe(body);
+        let password = start_password(&copy);
+        drop(copy);
         let password = match password {
             Ok(password) => password,
             Err(problem) => return error(StatusCode::BAD_REQUEST, problem),
@@ -111,9 +116,10 @@ fn start_password(body: &[u8]) -> Result<Option<Secret>, &'static str> {
         },
     }
 }
-/// Zero the request body once it is read, when this is its only reference
-/// (a shared buffer belongs to whoever holds the rest). The wiped buffer is
-/// returned for the tests.
+/// Zero the request body, best effort: only when this is its only reference
+/// (a shared buffer belongs to whoever holds the rest), which it usually is
+/// not, and hyper's receive buffers may still hold a copy either way. The
+/// wiped buffer is returned for the tests.
 fn wipe(body: Bytes) -> Option<impl std::ops::Deref<Target = [u8]>> {
     let mut body = body.try_into_mut().ok()?;
     zeroize::Zeroize::zeroize(&mut body[..]);

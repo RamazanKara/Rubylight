@@ -182,13 +182,13 @@ By default (`link_rate_adaptation`, [configuration](configuration.md#lower-bitra
 
 ## 3.0 extensions
 
-These are defined for 3.0, in the same crate. Rubylight offers `0x553D` pipeline rates; no host offers the others yet. A host that takes some of them adds a second line to its `DESCRIBE` answer, after the first:
+These are defined for 3.0, in the same crate. Rubylight offers `0x5539` FEC reports and `0x553D` pipeline rates, and text input (`0x553B`) and keyboard layouts (`0x553E`) while the keyboard is on, with `keyboard_follows_focus` on and `keyboard_layout = client` (both the default); no host offers the others yet. A host that takes some of them adds a second line to its `DESCRIBE` answer, after the first:
 
 ```
-a=x-rl-control:0x5539,0x553a,0x553d
+a=x-rl-control:0x553b,0x553e
 ```
 
-Read every `a=x-rl-control:` line and merge them. The second line appears only when the host offers something; Rubylight's is `a=x-rl-control:0x553d`, after the packed 4:4:4 lines and before the microphone's `m=audio`. Each feature is also announced in serverinfo; send its messages only when both say so.
+Read every `a=x-rl-control:` line and merge them. The second line appears only when the host offers something, and stock clients ignore it; Rubylight's default is `a=x-rl-control:0x5539,0x553b,0x553d,0x553e`, after the packed 4:4:4 lines and before the microphone's `m=audio`. Each feature is also announced in serverinfo; send its messages only when both say so.
 
 | Id | Name | Crate type | Direction | Serverinfo element |
 | --- | --- | --- | --- | --- |
@@ -254,6 +254,8 @@ The notice (host to client, 16 bytes and the text):
 
 Committed text still travels as Moonlight's UTF-8 text input.
 
+The host watches the focus (UI Automation) only while a client asked and the device has the Keyboard permission; otherwise it answers nothing and watches nothing. It sends the text around the cursor only over encrypted control. A notice goes out at most every 50 ms with the newest focus winning, and a lower only once no text field has had the focus for 150 ms, so moving between two fields does not flash the keyboard. Every request starts afresh: a client that asks while a field has the focus hears a raise at once. A client that never asks, such as stock Moonlight, hears nothing.
+
 ### 0x553D pipeline rates
 
 The request (client to host, 4 bytes): `0 version`, `1 enabled u8` (0 or 1), `2 interval_ms u16` (500-10000).
@@ -273,7 +275,9 @@ The host sends a report unreliably at the asked interval until the client turns 
 | 4 | u32 | klid | for example `0x00000407` (de-DE), 0 when unknown |
 | 8 | bytes | tag | ASCII, for example `de-DE` or `de(nodeadkeys)` |
 
-The client sends it when the stream starts and whenever the layout changes; the host keeps the latest.
+The client sends it when the stream starts and whenever the layout changes; the host keeps the latest while `keyboard_layout = client`, and maps the keys that are not normalized with it.
+
+With `always_send_scancodes` on (the default), a key the client did not normalize gets the scan code it has on that layout, so it lands where it is on the device's keyboard; keys the layout file does not name (AltGr, the numpad, the keys between the main block and the numpad) keep the host's mapping, which is the same on every layout. Normalized keys keep the US table. A new layout takes over only once no key is held, so every release sends its press's scan code. The host reads the scan code table from the layout's file (`Layout File` under `HKLM\SYSTEM\CurrentControlSet\Control\Keyboard Layouts`) and loads no layout into Windows: the user's input switcher shows nothing new during a stream. A layout this PC does not know leaves keys to the host's layout and raises a stream warning.
 
 ### 0x5540 and 0x5541 cursor shape
 

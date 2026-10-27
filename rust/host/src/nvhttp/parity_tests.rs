@@ -496,6 +496,8 @@ async fn serverinfo_for_a_default_config_is_byte_identical() {
              <BandwidthProbeVersion>1</BandwidthProbeVersion>\
              <AudioCodecs>3</AudioCodecs>\
              <AudioLayouts>15</AudioLayouts>\
+             <TextInputVersion>1</TextInputVersion>\
+             <KeyboardLayoutVersion>1</KeyboardLayoutVersion>\
              <PipelineRatesVersion>1</PipelineRatesVersion>\
              </root>"
         ),
@@ -550,6 +552,8 @@ async fn serverinfo_for_a_default_config_is_byte_identical() {
              <BandwidthProbeVersion>1</BandwidthProbeVersion>\
              <AudioCodecs>3</AudioCodecs>\
              <AudioLayouts>15</AudioLayouts>\
+             <TextInputVersion>1</TextInputVersion>\
+             <KeyboardLayoutVersion>1</KeyboardLayoutVersion>\
              <PipelineRatesVersion>1</PipelineRatesVersion>\
              </root>"
         ),

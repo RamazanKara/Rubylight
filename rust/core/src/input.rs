@@ -330,6 +330,9 @@ pub enum Batch {
     Skip,
     Stop,
 }
+/// The device permission for keyboard and text input, and for its keyboard following the
+/// host's text fields (0x553B).
+pub const KEYBOARD_PERMISSION: u32 = 1 << 12;
 impl Input {
     /// Only coalesce motion. Button, key and gesture transitions retain their order.
     pub fn merge(&mut self, newer: &Self) -> Batch {
@@ -505,7 +508,7 @@ impl Input {
     }
     pub fn required_permission(&self) -> u32 {
         match self {
-            Self::Keyboard { .. } | Self::Text(_) => 1 << 12,
+            Self::Keyboard { .. } | Self::Text(_) => KEYBOARD_PERMISSION,
             Self::Touch { .. } => 1 << 9,
             Self::Pen { .. } => 1 << 10,
             Self::Relative { .. }

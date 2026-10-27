@@ -217,7 +217,7 @@ async fn stream_with(
 }
 
 /// The host's control extensions Nightjar must know, in the order the host announces them.
-const CONTROL_EXTENSIONS: [u16; 11] = [
+const CONTROL_EXTENSIONS: [u16; 13] = [
     ptype::PHASE_LOCK_REPORT,
     ptype::DISPLAY_CAPS,
     ptype::RECONFIGURE,
@@ -227,8 +227,11 @@ const CONTROL_EXTENSIONS: [u16; 11] = [
     ptype::HOST_TIMING,
     ptype::CLOCK_SYNC,
     ptype::LINK_NOTICE,
+    // The second line: the 3.0 extensions on by default.
     FEC_REPORT_MESSAGE_TYPE,
+    butterpollo_core::text_input::TEXT_INPUT_MESSAGE_TYPE,
     ptype::PIPELINE_RATES,
+    butterpollo_core::keyboard_layout::KEYBOARD_LAYOUT_MESSAGE_TYPE,
 ];
 
 /// Launch, the RTSP handshake and the control stream both ways: Nightjar's keyframe request
@@ -554,6 +557,8 @@ const SERVERINFO_FIELDS: &[(&str, Reading)] = &[
     ("AudioCodecs", Reading::Read),
     ("AudioLayouts", Reading::Read),
     ("PipelineRatesVersion", Reading::Read),
+    ("TextInputVersion", Reading::Read),
+    ("KeyboardLayoutVersion", Reading::Read),
     (
         "RustHostSessionCount",
         Reading::Ignored("diagnostics for scripts and the release harness"),
@@ -666,6 +671,8 @@ fn expected(feature: Feature) -> Availability {
         // 7.1.4 and PCM audio are on by default.
         | Feature::Surround714
         | Feature::AudioPassthrough => Supported,
+        // Keyboard follows focus and the device's layout are on by default.
+        Feature::TextInput | Feature::ClientKeyboardLayout => Supported,
         Feature::ServerCommands => Unsupported(Some(Reason::NoCommands)),
         // Display modes are the virtual display's. Before Windows 11 (CI's Server 2022)
         // the default mode is disabled, so the host says it is off, not missing a driver.
@@ -687,8 +694,6 @@ fn expected(feature: Feature) -> Availability {
         Feature::DolbyVision
         | Feature::Hlg
         | Feature::UsbForwarding
-        | Feature::TextInput
-        | Feature::ClientKeyboardLayout
         | Feature::PenBarrelRoll
         | Feature::ImageClipboard
         | Feature::SharedFolders => Unsupported(None),

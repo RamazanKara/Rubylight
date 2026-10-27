@@ -43,6 +43,9 @@ pub(crate) struct Fixture {
     apps_prepared: AtomicUsize,
     resources_retained: AtomicUsize,
     pub(super) input_releases: AtomicUsize,
+    /// What the control worker did with the clients' text input requests (0x553B), in place
+    /// of starting the desktop's focus watcher.
+    pub(crate) text_watches: Mutex<Vec<butterpollo_core::text_input::Watch>>,
     video_after_input_release: AtomicUsize,
     hold_teardown: AtomicBool,
     in_teardown: AtomicBool,
@@ -1074,6 +1077,8 @@ struct Client {
     notices: Notices,
     /// HDR mode messages (0x010e) the host sent.
     hdr_modes: Notices,
+    /// Text input notices (0x553B) the host sent.
+    text_notices: Notices,
     /// Plain control messages for the worker to send, reliable.
     outbox: Arc<Mutex<Vec<Vec<u8>>>>,
     /// Sockets ENet and the video pings move to (`move_to`).
@@ -1104,6 +1109,7 @@ impl Client {
         let reason = Arc::new(AtomicU32::new(0));
         let notices = Arc::new(Mutex::new(Vec::new()));
         let hdr_modes = Notices::default();
+        let text_notices = Notices::default();
         let outbox = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
         let control_move = Arc::<Mutex<Option<UdpSocket>>>::default();
         let video_move = Arc::<Mutex<Option<UdpSocket>>>::default();
@@ -1138,6 +1144,7 @@ impl Client {
         );
         let (worker_notices, worker_outbox) = (notices.clone(), outbox.clone());
         let worker_hdr_modes = hdr_modes.clone();
+        let worker_text_notices = text_notices.clone();
         let worker_rounds = rounds.clone();
         let worker_keyframe_heartbeat = keyframe_heartbeat.clone();
         let worker = thread::spawn(move || -> Result<()> {
@@ -1165,6 +1172,12 @@ impl Client {
                         }
                         if kind == 0x010e {
                             worker_hdr_modes
+                                .lock()
+                                .unwrap()
+                                .push((Instant::now(), payload.clone()));
+                        }
+                        if kind == butterpollo_core::text_input::TEXT_INPUT_MESSAGE_TYPE {
+                            worker_text_notices
                                 .lock()
                                 .unwrap()
                                 .push((Instant::now(), payload.clone()));
@@ -1241,6 +1254,7 @@ impl Client {
             reason,
             notices,
             hdr_modes,
+            text_notices,
             outbox,
             control_move,
             video_move,
@@ -1759,6 +1773,266 @@ async fn link_notices_reach_only_a_client_that_asks() -> Result<()> {
     assert_eq!(clear.reason, LinkReason::None);
     tokio::time::sleep(Duration::from_millis(1300)).await;
     assert_eq!(heard(&client).len(), 3);
+    h.end(&session, client).await?;
+    h.finish().await
+}
+
+/// The text field a focus watcher would see.
+fn text_field(
+    input_type: butterpollo_core::text_input::InputType,
+) -> butterpollo_core::text_input::Focused {
+    use butterpollo_core::text_input::{Field, Focused, Surrounding};
+    Focused {
+        field: Field {
+            input_type,
+            sensitive: false,
+            no_autocorrect: false,
+            no_autocapitalize: false,
+            enter_action: false,
+        },
+        surrounding: Some(Surrounding {
+            text: "hello world".into(),
+            selection: Some((5, 5)),
+        }),
+    }
+}
+
+/// The text input notices (0x553B) `client` heard.
+fn text_notices(client: &Client) -> Vec<butterpollo_core::text_input::TextInputNotice> {
+    client
+        .text_notices
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, payload)| {
+            butterpollo_core::text_input::TextInputNotice::decode(payload).expect("a valid notice")
+        })
+        .collect()
+}
+
+/// Keyboard follows focus (0x553B): a client that never asks hears nothing, one that asks
+/// hears the field that has the focus, a lower once it left text fields, and nothing after
+/// it stops asking. Over plain control the text around the cursor stays on the host.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn text_input_notices_reach_only_a_client_that_asks() -> Result<()> {
+    use butterpollo_core::text_input::{
+        InputType, NoticeKind, TEXT_INPUT_MESSAGE_TYPE, TextInputRequest, Watch,
+    };
+    let h = Harness::configured(10_000, 1, "text_input_surrounding_text = enabled\n").await?;
+    let launch = h.launch(0, false).await?;
+    let (session, client) = h.play(&launch).await?;
+
+    // Stock Moonlight never asks: the focus stays the host's business.
+    session
+        .text_input
+        .lock()
+        .unwrap()
+        .note(Some(text_field(InputType::Text)), Instant::now());
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(text_notices(&client).is_empty());
+    assert!(h.fixture.text_watches.lock().unwrap().is_empty());
+
+    let ask = |notices: bool| TextInputRequest {
+        notices,
+        surrounding_text: true,
+        max_text: 64,
+    };
+    client.send_control(TEXT_INPUT_MESSAGE_TYPE, &ask(true).encode());
+    until("the watcher starts", WAIT, || {
+        !h.fixture.text_watches.lock().unwrap().is_empty()
+    })
+    .await;
+    // Plain control: no text, though the client asked and the host allows it.
+    assert_eq!(
+        *h.fixture.text_watches.lock().unwrap(),
+        [Watch::On { max_text: 0 }]
+    );
+    session
+        .text_input
+        .lock()
+        .unwrap()
+        .note(Some(text_field(InputType::Email)), Instant::now());
+    until("the raise arrives", WAIT, || {
+        text_notices(&client).len() == 1
+    })
+    .await;
+    let raise = &text_notices(&client)[0];
+    assert_eq!(
+        (raise.kind, raise.input_type),
+        (NoticeKind::Raise, InputType::Email)
+    );
+    assert_eq!(raise.text, "");
+
+    session
+        .text_input
+        .lock()
+        .unwrap()
+        .note(None, Instant::now());
+    until("the lower arrives", WAIT, || {
+        text_notices(&client).len() == 2
+    })
+    .await;
+    let lower = &text_notices(&client)[1];
+    assert_eq!(lower.kind, NoticeKind::Lower);
+    assert!(lower.serial > raise.serial);
+
+    client.send_control(TEXT_INPUT_MESSAGE_TYPE, &ask(false).encode());
+    until("the watcher stops", WAIT, || {
+        h.fixture.text_watches.lock().unwrap().len() == 2
+    })
+    .await;
+    assert_eq!(h.fixture.text_watches.lock().unwrap()[1], Watch::Off);
+    session
+        .text_input
+        .lock()
+        .unwrap()
+        .note(Some(text_field(InputType::Text)), Instant::now());
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(text_notices(&client).len(), 2);
+    h.end(&session, client).await?;
+    h.finish().await
+}
+
+/// Over encrypted control, with `text_input_surrounding_text` on, the notice carries the text
+/// around the cursor; never for a password field.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn text_input_sends_surrounding_text_only_over_encrypted_control() -> Result<()> {
+    use butterpollo_core::text_input::{
+        InputType, TEXT_INPUT_MESSAGE_TYPE, TextInputRequest, Watch,
+    };
+    let h = Harness::configured(10_000, 1, "text_input_surrounding_text = enabled\n").await?;
+    let launch = h.launch(0, false).await?;
+    let (session, client) = h.play(&launch).await?;
+    let request = TextInputRequest {
+        notices: true,
+        surrounding_text: true,
+        max_text: 64,
+    };
+    client
+        .outbox
+        .lock()
+        .unwrap()
+        .push(butterpollo_core::packet::encrypted_control(
+            &launch.key,
+            1,
+            TEXT_INPUT_MESSAGE_TYPE,
+            &request.encode(),
+            false,
+        )?);
+    until("the watcher starts", WAIT, || {
+        !h.fixture.text_watches.lock().unwrap().is_empty()
+    })
+    .await;
+    assert_eq!(
+        *h.fixture.text_watches.lock().unwrap(),
+        [Watch::On { max_text: 64 }]
+    );
+    session
+        .text_input
+        .lock()
+        .unwrap()
+        .note(Some(text_field(InputType::Text)), Instant::now());
+    until("the raise arrives", WAIT, || {
+        text_notices(&client).len() == 1
+    })
+    .await;
+    let raise = &text_notices(&client)[0];
+    assert_eq!(raise.text, "hello world");
+    assert_eq!((raise.selection_start, raise.selection_end), (5, 5));
+
+    session
+        .text_input
+        .lock()
+        .unwrap()
+        .note(Some(text_field(InputType::Password)), Instant::now());
+    until("the update arrives", WAIT, || {
+        text_notices(&client).len() == 2
+    })
+    .await;
+    let update = &text_notices(&client)[1];
+    assert_eq!(update.input_type, InputType::Password);
+    assert_eq!(update.text, "", "a password field's text left the host");
+    h.end(&session, client).await?;
+    h.finish().await
+}
+
+/// A device without the keyboard permission, or a host with `keyboard_follows_focus` off,
+/// starts no watcher and hears nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn text_input_needs_the_keyboard_permission_and_the_setting() -> Result<()> {
+    use butterpollo_core::text_input::{
+        InputType, TEXT_INPUT_MESSAGE_TYPE, TextInputRequest, Watch,
+    };
+    for (config, perm) in [
+        ("", !butterpollo_core::input::KEYBOARD_PERMISSION),
+        ("keyboard_follows_focus = disabled\n", u32::MAX),
+    ] {
+        let h = Harness::configured(10_000, 1, config).await?;
+        h.h.paired.write().unwrap().clients[0].perm = perm;
+        let launch = h.launch(0, false).await?;
+        let (session, client) = h.play(&launch).await?;
+        let request = TextInputRequest {
+            notices: true,
+            surrounding_text: false,
+            max_text: 0,
+        };
+        client.send_control(TEXT_INPUT_MESSAGE_TYPE, &request.encode());
+        until("the request is handled", WAIT, || {
+            !h.fixture.text_watches.lock().unwrap().is_empty()
+        })
+        .await;
+        assert_eq!(
+            *h.fixture.text_watches.lock().unwrap(),
+            [Watch::Off],
+            "{config}"
+        );
+        session
+            .text_input
+            .lock()
+            .unwrap()
+            .note(Some(text_field(InputType::Text)), Instant::now());
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(text_notices(&client).is_empty(), "{config}");
+        h.end(&session, client).await?;
+        h.finish().await?;
+    }
+    Ok(())
+}
+
+/// The device's keyboard layout report (0x553E) is kept, the newest winning, while the host
+/// leaves the layout to the device; with `keyboard_layout = us` it is not taken.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn keyboard_layout_reports_keep_the_newest() -> Result<()> {
+    use butterpollo_core::keyboard_layout::{
+        KEYBOARD_LAYOUT_MESSAGE_TYPE, KeyboardLayout, LayoutSource,
+    };
+    let report = |klid: u32, tag: &str| KeyboardLayout {
+        source: LayoutSource::Klid,
+        klid,
+        tag: tag.into(),
+    };
+    let h = Harness::new(10_000, 1).await?;
+    let launch = h.launch(0, false).await?;
+    let (session, client) = h.play(&launch).await?;
+    for layout in [report(0x0407, "de-DE"), report(0x040C, "fr-FR")] {
+        client.send_control(KEYBOARD_LAYOUT_MESSAGE_TYPE, &layout.encode().unwrap());
+    }
+    until("the newest report is kept", WAIT, || {
+        *session.keyboard_layout.lock().unwrap() == Some(report(0x040C, "fr-FR"))
+    })
+    .await;
+    h.end(&session, client).await?;
+    h.finish().await?;
+
+    let h = Harness::configured(10_000, 1, "keyboard_layout = us\n").await?;
+    let launch = h.launch(0, false).await?;
+    let (session, client) = h.play(&launch).await?;
+    client.send_control(
+        KEYBOARD_LAYOUT_MESSAGE_TYPE,
+        &report(0x0407, "de-DE").encode().unwrap(),
+    );
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(*session.keyboard_layout.lock().unwrap(), None);
     h.end(&session, client).await?;
     h.finish().await
 }

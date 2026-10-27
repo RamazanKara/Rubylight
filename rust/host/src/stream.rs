@@ -27,6 +27,7 @@ use butterpollo_core::{
     input,
     packet::{AudioPacketizer, VideoPacketizer},
     session::Role,
+    text_input::Watch as TextWatch,
 };
 use butterpollo_windows::device_loss::DeviceLost;
 fn server_command(
@@ -3635,6 +3636,7 @@ impl Media {
                                     roaming: false,
                                     couch: Default::default(),
                                     audio_haptics: Default::default(),
+                                    focus_watch: None,
                                 },
                             );
                         } else {
@@ -3916,6 +3918,70 @@ impl Media {
                                     ),
                                 }
                             }
+                            // Keyboard follows focus: only for a device that may type, and
+                            // the text around the cursor only over encrypted control.
+                            butterpollo_core::text_input::TEXT_INPUT_MESSAGE_TYPE => {
+                                let Ok(config) = effective_config(&h, &s.launch) else {
+                                    continue;
+                                };
+                                let offered = crate::extensions::offered(&h, &config).text_input
+                                    && s.launch.client.allows(input::KEYBOARD_PERMISSION);
+                                let surrounding = encrypted && config.text_input_surrounding_text();
+                                let watch = s.text_input.lock().unwrap().on_request(
+                                    &payload,
+                                    offered,
+                                    surrounding,
+                                );
+                                match watch {
+                                    Some(watch) => {
+                                        tracing::info!(
+                                            client = %s.launch.client.name,
+                                            ?watch,
+                                            offered,
+                                            "text input"
+                                        );
+                                        // The fixture's tests note the focus themselves.
+                                        #[cfg(test)]
+                                        if let Some(fixture) = &h.reconnect_fixture {
+                                            fixture.text_watches.lock().unwrap().push(watch);
+                                            continue;
+                                        }
+                                        p.watch_focus(&s, watch, &self.control_wake);
+                                    }
+                                    None => tracing::debug!(
+                                        len = payload.len(),
+                                        "invalid text input request"
+                                    ),
+                                }
+                            }
+                            // The latest report wins; the injector maps keys with it.
+                            butterpollo_core::keyboard_layout::KEYBOARD_LAYOUT_MESSAGE_TYPE => {
+                                let Ok(config) = effective_config(&h, &s.launch) else {
+                                    continue;
+                                };
+                                if !crate::extensions::offered(&h, &config).keyboard_layout {
+                                    tracing::debug!("keyboard layout report not offered");
+                                    continue;
+                                }
+                                match butterpollo_core::keyboard_layout::KeyboardLayout::decode(
+                                    &payload,
+                                ) {
+                                    Some(layout) => {
+                                        tracing::info!(
+                                            client = %s.launch.client.name,
+                                            source = ?layout.source,
+                                            klid = format_args!("{:08X}", layout.klid),
+                                            tag = %layout.tag,
+                                            "keyboard layout"
+                                        );
+                                        *s.keyboard_layout.lock().unwrap() = Some(layout);
+                                    }
+                                    None => tracing::debug!(
+                                        len = payload.len(),
+                                        "invalid keyboard layout report"
+                                    ),
+                                }
+                            }
                             butterpollo_core::display_caps::DISPLAY_CAPS_MESSAGE_TYPE => {
                                 match s.record_display_caps(&payload) {
                                     Some(update) if update.changed => {
@@ -4186,6 +4252,28 @@ impl Media {
                             }
                         }
                     }
+                    // The text field notice for a client that asked (0x553B): reliable,
+                    // the newest focus at most every 50 ms.
+                    let notice = s.text_input.lock().unwrap().take(Instant::now());
+                    if let Some(notice) = notice {
+                        match p.encrypt(
+                            &s,
+                            butterpollo_core::text_input::TEXT_INPUT_MESSAGE_TYPE,
+                            &notice,
+                        ) {
+                            Ok(message) => {
+                                if let Err(e) = host
+                                    .peer_mut(*peer_id)
+                                    .send(0, &Packet::new(message, PacketKind::Reliable))
+                                {
+                                    tracing::warn!(error = %e, "text input notice not sent");
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!(error = %format!("{e:#}"), "text input notice not encrypted");
+                            }
+                        }
+                    }
                     // Made before input comes; after a failure, again when it
                     // does. Making it with the first input held that input up.
                     if p.injector.is_none() && (!p.inputs.is_empty() || !p.injector_tried) {
@@ -4243,6 +4331,15 @@ impl Media {
                         // So does the stream's size, which the client can change (0x5532).
                         let mode = s.stream_mode();
                         i.set_stream_size(mode.width, mode.height);
+                        // And keys the device's keyboard layout (0x553E).
+                        match i.follow_keyboard_layout(s.keyboard_layout.lock().unwrap().as_ref()) {
+                            Ok(true) => s.launch.warnings.clear("keyboard_layout"),
+                            Ok(false) => {}
+                            Err(error) => {
+                                tracing::warn!(error = %format!("{error:#}"), "keyboard layout unavailable");
+                                s.launch.warnings.set("keyboard_layout", format!("The device's keyboard layout could not be read ({error:#}); keys follow this PC's layout. Set Keyboard layout under Input to a layout id this PC has, or to us."));
+                            }
+                        }
                     }
                     p.audio_haptics.follow(
                         h.config_version.load(Ordering::Acquire),
@@ -4500,6 +4597,9 @@ struct ControlPeer {
     couch: crate::couch_menu::PeerMenu,
     /// Haptics from game audio for this peer's controllers.
     audio_haptics: audio_haptics::PeerHaptics,
+    /// The text field watcher and how much text it reads, while the client asked for text
+    /// input (0x553B); dropped with the peer at session end.
+    focus_watch: Option<(usize, butterpollo_windows::text_focus::FocusWatch)>,
 }
 impl Drop for ControlPeer {
     fn drop(&mut self) {
@@ -4509,6 +4609,47 @@ impl Drop for ControlPeer {
     }
 }
 impl ControlPeer {
+    /// Starts, restarts or stops the text field watcher after a client's text input request
+    /// (0x553B). The watcher notes the newest focus in the session and wakes this loop, which
+    /// sends the notice; one that stopped reports nothing more.
+    fn watch_focus(&mut self, s: &Arc<Session>, watch: TextWatch, wake: &Arc<UdpSocket>) {
+        let max_text = match watch {
+            TextWatch::Off => {
+                self.focus_watch = None;
+                return;
+            }
+            TextWatch::On { max_text } => max_text,
+        };
+        if self
+            .focus_watch
+            .as_ref()
+            .is_some_and(|(reads, _)| *reads == max_text)
+        {
+            return;
+        }
+        self.focus_watch = None;
+        let session = Arc::downgrade(s);
+        let failed = session.clone();
+        let wake = wake.clone();
+        let started = butterpollo_windows::text_focus::FocusWatch::start(
+            max_text,
+            move |focused| {
+                if let Some(s) = session.upgrade() {
+                    s.text_input.lock().unwrap().note(focused, Instant::now());
+                    let _ = wake.send(&[1]);
+                }
+            },
+            move |error| {
+                if let Some(s) = failed.upgrade() {
+                    focus_watch_failed(&s, &error);
+                }
+            },
+        );
+        match started {
+            Ok(watcher) => self.focus_watch = Some((max_text, watcher)),
+            Err(error) => focus_watch_failed(s, &error),
+        }
+    }
     /// Speaker and haptics waveforms go unreliable on their own channel: a
     /// late one is useless.
     fn send_waveform(
@@ -4537,6 +4678,16 @@ impl ControlPeer {
             s.config.encryption & 1 != 0,
         )
     }
+}
+/// Says on the stream card that the device's keyboard cannot follow text fields.
+fn focus_watch_failed(s: &Session, error: &anyhow::Error) {
+    tracing::warn!(client = %s.launch.client.name, error = %format!("{error:#}"), "focus watcher failed");
+    s.launch.warnings.set(
+        "text_input",
+        format!(
+            "The device's keyboard cannot follow text fields: the focus watcher failed ({error:#}). Type with the device's keyboard button instead."
+        ),
+    );
 }
 const MOTION_EVENT_REQUEST: u16 = 0x5501;
 pub(crate) const RUMBLE_TRIGGER_DATA: u16 = 0x5500;

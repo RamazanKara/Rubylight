@@ -1,5 +1,6 @@
 //! What a client that asks for nothing new sees through the real RTSP server: the DESCRIBE
-//! answer of a host with the default configuration, byte for byte.
+//! answer of a host with the default configuration, byte for byte. Of the 3.0 extensions
+//! only lines stock clients ignore are added.
 use super::*;
 
 /// The DESCRIBE answer's body. Only the input feature flags (what this PC's Windows can
@@ -30,14 +31,15 @@ async fn describe_for_a_default_config_is_byte_identical() -> Result<()> {
              a=x-rl-audio.codecs:3\r\n\
              a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
              a=x-rl-audio.layout714Hq:12,12,0,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
-             a=x-rl-control:0x5539,0x553d\r\n\
+             a=x-rl-control:0x5539,0x553b,0x553d,0x553e\r\n\
              m=audio {mic} RTP/AVP 96\r\n\
              a=rtpmap:96 opus/48000/1\r\n\
              a=fmtp:96 minptime=10;useinbandfec=1\r\n"
         ),
         "{body}"
     );
-    // The default host's 3.0 control messages (FEC report, pipeline rates) are a second line.
+    // The default host's 3.0 control messages (FEC report, text input, pipeline rates and
+    // keyboard layout) are a second line, which stock clients ignore.
     assert_eq!(body.matches("a=x-rl-control:").count(), 2, "{body}");
     assert!(body.contains(butterpollo_core::rtsp::CONTROL_MESSAGES));
     let (session, client) = h.play(&launch).await?;
@@ -79,7 +81,7 @@ async fn describe_with_packed_444_and_the_microphone_is_byte_identical() -> Resu
              a=x-rl-audio.codecs:3\r\n\
              a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
              a=x-rl-audio.layout714Hq:12,12,0,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
-             a=x-rl-control:0x5539,0x553d\r\n\
+             a=x-rl-control:0x5539,0x553b,0x553d,0x553e\r\n\
              m=audio {mic} RTP/AVP 96\r\n\
              a=rtpmap:96 opus/48000/1\r\n\
              a=fmtp:96 minptime=10;useinbandfec=1\r\n"

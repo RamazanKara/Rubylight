@@ -1,8 +1,9 @@
 //! What this host offers of the 3.0 protocol extensions
 //! (`butterpollo_core::extensions`), one function per offer so each
 //! workstream turns on only its own. An offer adds serverinfo fields and
-//! DESCRIBE lines that stock clients don't read; an ANNOUNCE that picks an
-//! extension that is off is refused.
+//! DESCRIBE lines that stock clients ignore, and the messages behind it go
+//! only to a client that asks; an ANNOUNCE that picks an extension that is
+//! not offered is refused.
 use butterpollo_core::config::Config;
 use butterpollo_core::extensions::Offered;
 
@@ -89,14 +90,17 @@ fn surround_714(_h: &Shared, config: &Config) -> bool {
     config.audio_surround_714()
 }
 
-/// Input (F): IME text input.
-fn text_input(_h: &Shared, _config: &Config) -> bool {
-    false
+/// Input (F): the device's keyboard follows the host's text fields, while the
+/// keyboard and `keyboard_follows_focus` are on.
+fn text_input(_h: &Shared, config: &Config) -> bool {
+    config.boolean("keyboard", true) && config.keyboard_follows_focus()
 }
 
-/// Input (F): the client's keyboard layout.
-fn keyboard_layout(_h: &Shared, _config: &Config) -> bool {
-    false
+/// Input (F): the client's keyboard layout, while the keyboard is on and
+/// `keyboard_layout` leaves the layout to the device.
+fn keyboard_layout(_h: &Shared, config: &Config) -> bool {
+    config.boolean("keyboard", true)
+        && config.keyboard_layout() == butterpollo_core::config::KeyboardLayoutSetting::Client
 }
 
 /// Input (F): pen barrel roll.

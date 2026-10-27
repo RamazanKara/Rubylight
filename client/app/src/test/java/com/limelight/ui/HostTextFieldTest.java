@@ -139,6 +139,64 @@ public class HostTextFieldTest {
     }
 
     @Test
+    public void deletingBeforeTheComposingTextKeepsIt() {
+        HostTextField field = new HostTextField(TYPE_TEXT, 0);
+        HostTextField.Sink recorded = edit -> sent.add(edit) && typing.send(edit);
+        field.commit("hello ", typing);
+        field.compose("wor", typing);
+        // The space before the composing word goes; the word stays composing.
+        assertTrue(field.deleteBefore(1, recorded));
+        assertEquals(List.of("\b\b\b\bwor"), sent);
+        assertEquals("hellowor", host.toString());
+        assertEquals("hellowor", field.textBeforeCursor(100));
+        assertEquals(5, field.composingStart());
+        assertEquals(8, field.composingEnd());
+        field.commit("world", typing);
+        assertEquals("helloworld", host.toString());
+        // A failed send leaves the mirror as the host has it.
+        field.compose("x", typing);
+        assertFalse(field.deleteBefore(2, edit -> false));
+        assertEquals("helloworldx", field.textBeforeCursor(100));
+        assertEquals(10, field.composingStart());
+    }
+
+    @Test
+    public void codePointDeletionsAreConvertedOverTheMirror() {
+        HostTextField field = new HostTextField(TYPE_TEXT, 0);
+        field.commit("a😀😀", typing);
+        // Two code points are both emoji, four UTF-16 units.
+        assertTrue(field.deleteBeforeInCodePoints(2, typing));
+        assertEquals("a", host.toString());
+        assertEquals("a", field.textBeforeCursor(10));
+        // Past the mirror, one backspace per code point.
+        field.commit("😀", sink);
+        assertTrue(field.deleteBeforeInCodePoints(3, sink));
+        assertEquals("\b\b\b", sent.get(sent.size() - 1));
+        assertEquals("", field.textBeforeCursor(10));
+        // Before composing text, which is kept.
+        host.setLength(0);
+        field.commit("😀", typing);
+        field.compose("x", typing);
+        assertTrue(field.deleteBeforeInCodePoints(1, typing));
+        assertEquals("x", host.toString());
+        assertEquals(0, field.composingStart());
+    }
+
+    @Test
+    public void graphemesOfSeveralCodePointsAreABackspaceEach() {
+        // An IME deletes a whole grapheme in UTF-16 units; the host gets one backspace per code
+        // point, which a field that deletes per grapheme takes as that many graphemes.
+        String family = "👨‍👩‍👧", flag = "🇩🇪";
+        HostTextField field = new HostTextField(TYPE_TEXT, 0);
+        field.commit(flag + family, sink);
+        assertTrue(field.deleteBefore(family.length(), sink));
+        assertEquals("five code points: three people, two joiners", "\b\b\b\b\b", sent.get(1));
+        assertTrue(field.deleteBeforeInCodePoints(2, sink));
+        assertEquals("a flag is two regional indicators", "\b\b", sent.get(2));
+        assertEquals("", field.textBeforeCursor(10));
+    }
+
+    @Test
     public void onlyTextEndingAtTheCursorRecomposes() {
         HostTextField field = new HostTextField(TYPE_TEXT, 0);
         field.commit("hello world", typing);

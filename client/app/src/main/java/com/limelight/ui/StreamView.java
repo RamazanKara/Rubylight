@@ -258,7 +258,20 @@ public class StreamView extends FrameLayout {
         @Override
         public boolean deleteSurroundingText(int beforeLength, int afterLength) {
             boolean sent = field.deleteBefore(beforeLength, sink);
-            // Text after the caret has no character here; the key goes straight on, in order.
+            forwardDelete(afterLength);
+            return updated(sent);
+        }
+
+        @Override
+        public boolean deleteSurroundingTextInCodePoints(int beforeLength, int afterLength) {
+            boolean sent = field.deleteBeforeInCodePoints(beforeLength, sink);
+            forwardDelete(afterLength);
+            return updated(sent);
+        }
+
+        // Text after the caret has no character here: a forward delete per character goes straight
+        // on, in order (per UTF-16 unit for deleteSurroundingText, which over-deletes an emoji).
+        private void forwardDelete(int afterLength) {
             for (int i = 0; i < afterLength && inputCallbacks != null; i++) {
                 long now = SystemClock.uptimeMillis();
                 int flags = KeyEvent.FLAG_SOFT_KEYBOARD | KeyEvent.FLAG_KEEP_TOUCH_MODE;
@@ -267,12 +280,6 @@ public class StreamView extends FrameLayout {
                 inputCallbacks.handleKeyUp(new KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_FORWARD_DEL,
                         0, 0, KeyCharacterMap.VIRTUAL_KEYBOARD, 0, flags));
             }
-            return updated(sent);
-        }
-
-        @Override
-        public boolean deleteSurroundingTextInCodePoints(int beforeLength, int afterLength) {
-            return deleteSurroundingText(beforeLength, afterLength);
         }
 
         @Override

@@ -331,7 +331,9 @@ impl Host {
             next.save(&self.paired_path)?;
         }
         *state = next;
+        let mut agents = self.client_agents.lock().unwrap();
         for id in ids {
+            agents.remove(&id);
             let epoch = epochs.entry(id).or_default();
             *epoch = epoch.wrapping_add(1);
         }

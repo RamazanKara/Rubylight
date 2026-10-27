@@ -60,10 +60,16 @@ pub const RULES: &[Rule] = &[
     Rule {
         id: "encoder_hang",
         category: Category::Encoder,
-        // Only AMF's own calls: a conversion shader also reports here, and a
-        // PC that slept during one reports hours.
-        all: &["slow encoder call", "call=\"AMF "],
-        any: &[],
+        // Only AMF's start and per-frame calls: a conversion shader also reports here
+        // (a PC that slept during one reports hours), and the teardown after a
+        // GPU reset takes seconds without being a hang of its own.
+        all: &["slow encoder call"],
+        any: &[
+            "call=\"AMF Init\"",
+            "call=\"AMF SubmitInput\"",
+            "call=\"AMF QueryOutput\"",
+            "call=\"AMF surface wrap\"",
+        ],
         at_least: Some(("elapsed_ms", 2000)),
         title: "The AMD encoder hung",
         explanation: "A call into AMD's video encoder took more than two seconds. The encoder hung inside the AMD driver, and Windows may reset the GPU after it.",
@@ -73,10 +79,9 @@ pub const RULES: &[Rule] = &[
     Rule {
         id: "encoder_stall",
         category: Category::Encoder,
-        all: &[
-            "stream thread stopped making progress",
-            "phase=\"encoding\"",
-        ],
+        // The stopped line is written once, at half a second; the resumed
+        // line carries the whole stall.
+        all: &["stream thread resumed after a stall", "phase=\"encoding\""],
         any: &[],
         // Half-second stalls are a busy GPU; an encoder hang lasts seconds.
         at_least: Some(("stalled_ms", 2000)),
@@ -153,11 +158,7 @@ pub const RULES: &[Rule] = &[
         id: "encoder_start_failed",
         category: Category::Encoder,
         all: &[],
-        any: &[
-            "encoder capability initialization failed",
-            "No video encoder available",
-            "AMF could not start",
-        ],
+        any: &["No video encoder available", "AMF could not start"],
         at_least: None,
         title: "The AMD encoder did not start",
         explanation: "AMF, the encoder in AMD's driver, could not start. Common causes are Windows at the sign-in screen or a disconnected Remote Desktop session, a GPU reset, or a missing or broken driver.",
@@ -229,12 +230,14 @@ pub const RULES: &[Rule] = &[
     Rule {
         id: "capture_stall",
         category: Category::Capture,
+        // Reopening capture after a mode change stalls by design.
         all: &[
-            "stream thread stopped making progress",
+            "stream thread resumed after a stall",
             "thread=\"capture\"",
+            "phase=\"capturing\"",
         ],
         any: &[],
-        at_least: None,
+        at_least: Some(("stalled_ms", 2000)),
         title: "Capture stalled",
         explanation: "Capture stopped delivering pictures for a while. The picture froze while audio and input went on.",
         fix: "Compare WGC against Desktop Duplication in Settings, Video, Capture method, one reconnect each, and keep the log of the freeze.",
@@ -348,10 +351,9 @@ pub const RULES: &[Rule] = &[
         id: "virtual_display_mode",
         category: Category::Driver,
         all: &[],
-        any: &[
-            "virtual display mode not applied",
-            "Windows refused the requested display mode",
-        ],
+        // Not "Windows refused the requested display mode": restoring a
+        // physical monitor's layout reports that too.
+        any: &["virtual display mode not applied", "was not applied; using"],
         at_least: None,
         title: "Windows refused the display mode",
         explanation: "Windows did not apply the resolution or refresh rate the device asked for, so the stream uses another mode and scales.",

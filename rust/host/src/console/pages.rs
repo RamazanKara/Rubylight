@@ -564,6 +564,8 @@ async fn devices(
             "cert",
             "webrtc",
             "network_loss_routes",
+            "client_agent",
+            "client_warning",
         ] {
             advanced.as_object_mut().unwrap().remove(key);
         }

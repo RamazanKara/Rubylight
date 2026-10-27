@@ -572,9 +572,20 @@ mod tests {
             &f,
             json!({"uuid": client.uuid, "client_agent": "x", "client_warning": {"problem": "y"}}),
         );
-        let paired = f.host.paired.read().unwrap();
-        assert!(!paired.clients[0].extra.contains_key("client_agent"));
-        assert!(!paired.clients[0].extra.contains_key("client_warning"));
+        {
+            let paired = f.host.paired.read().unwrap();
+            assert!(!paired.clients[0].extra.contains_key("client_agent"));
+            assert!(!paired.clients[0].extra.contains_key("client_warning"));
+        }
+        // An unpaired device's client is forgotten with it.
+        handle(
+            &f.host,
+            "POST",
+            "/api/clients/unpair",
+            &json!({"uuid": client.uuid}),
+        )
+        .unwrap();
+        assert!(f.host.client_agents.lock().unwrap().is_empty());
     }
 
     #[test]

@@ -17,7 +17,7 @@ const LINES: &[(&str, &str)] = &[
     ),
     (
         "encoder_stall",
-        "2026-10-10T12:00:15.002113Z  WARN butterpollo::stall_watch: stream thread stopped making progress thread=\"session\" stream_id=9f494955-1d87-4f7e-a80e-f0e8c0c0fdeb phase=\"encoding\" stalled_ms=3012 gpu_query_outstanding_ms=2990",
+        "2026-10-26T23:32:24.097971Z  WARN butterpollo::stall_watch: stream thread resumed after a stall thread=\"session\" stream_id=9f986184-4b55-405e-8ead-be60f61e6943 phase=\"encoding\" stalled_ms=3377 gpu_query_last_ms=1",
     ),
     (
         "gpu_reset",
@@ -38,10 +38,6 @@ const LINES: &[(&str, &str)] = &[
     (
         "no_display",
         "2026-10-22T13:37:42.162737Z  WARN butterpollo_core::session: No video encoder available: no desktop display or hardware GPU. Retrying. code=\"video_encoder\"",
-    ),
-    (
-        "encoder_start_failed",
-        "2026-10-06T17:50:11.416050Z  WARN butterpollo::state: encoder capability initialization failed error=AMF error 1 codec=1 hdr=false",
     ),
     (
         "encoder_start_failed",
@@ -73,7 +69,7 @@ const LINES: &[(&str, &str)] = &[
     ),
     (
         "capture_stall",
-        "2026-10-09T21:02:10.551000Z  WARN butterpollo::stall_watch: stream thread stopped making progress thread=\"capture\" stream_id=\\\\.\\DISPLAY28 phase=\"reopening capture\" stalled_ms=2040",
+        "2026-10-20T12:40:20.151120Z  WARN butterpollo::stall_watch: stream thread resumed after a stall thread=\"capture\" stream_id=\\\\.\\DISPLAY32 phase=\"capturing\" stalled_ms=31552",
     ),
     (
         "port_in_use",
@@ -122,6 +118,10 @@ const LINES: &[(&str, &str)] = &[
     (
         "virtual_display_mode",
         "2026-10-17T10:00:02.000000Z  WARN butterpollo_windows::display::virtual_display: virtual display mode not applied requested=3840x2160@240 actual=3840x2160@120 error=Windows refused the requested display mode (-2)",
+    ),
+    (
+        "virtual_display_mode",
+        "2026-10-22T04:33:28.725063Z  WARN butterpollo_core::session: Display resolution 2184x1968 was not applied; using 5120x1440 and scaling the stream. The mode may be unsupported or shared with another stream; select a supported mode or a virtual display. code=\"display_resolution\"",
     ),
     (
         "virtual_display_deadline",
@@ -204,6 +204,16 @@ fn ordinary_and_unrelated_lines_find_nothing() {
         "2026-10-21T00:48:41.605829Z  WARN butterpollo_windows::amf: slow encoder call call=\"compute conversion\" elapsed_ms=6860818",
         // A half-second encoding stall is a busy GPU, not a hang.
         "2026-10-26T23:32:21.229472Z  WARN butterpollo::stall_watch: stream thread stopped making progress thread=\"session\" stream_id=9f986184 phase=\"encoding\" stalled_ms=509 gpu_query_last_ms=1",
+        "2026-10-26T23:40:00.000000Z  WARN butterpollo::stall_watch: stream thread resumed after a stall thread=\"session\" stream_id=9f986184 phase=\"encoding\" stalled_ms=1138 gpu_query_last_ms=1",
+        // The stopped line comes at half a second, whatever the stall becomes.
+        "2026-10-20T12:39:49.100000Z  WARN butterpollo::stall_watch: stream thread stopped making progress thread=\"capture\" stream_id=\\\\.\\DISPLAY32 phase=\"capturing\" stalled_ms=501",
+        // Reopening capture after a mode change stalls by design.
+        "2026-10-09T21:02:10.551000Z  WARN butterpollo::stall_watch: stream thread resumed after a stall thread=\"capture\" stream_id=\\\\.\\DISPLAY28 phase=\"reopening capture\" stalled_ms=2040",
+        // Tearing the encoder down after a GPU reset is slow, not a second hang.
+        "2026-10-20T12:40:26.000000Z  WARN butterpollo_windows::amf: slow encoder call call=\"AMF Terminate\" elapsed_ms=6002",
+        "2026-10-20T12:40:34.000000Z  WARN butterpollo_windows::amf: slow encoder call call=\"AMF context Terminate\" elapsed_ms=8043",
+        // Restoring a physical monitor's layout is no virtual display problem.
+        "2026-10-20T12:41:00.000000Z  WARN butterpollo::display_arrangement: display layout restored except Odyssey G93SC (\\\\.\\DISPLAY29) mode 5120x1440@64.000: Windows refused the requested display mode",
         // A matching message at INFO is not a failure.
         "2026-10-10T14:37:07.355876Z  INFO butterpollo::stream: client control stream timed out client=x",
         "2026-10-02T05:37:03.588446Z  INFO butterpollo::tls: HTTP listener ready address=0.0.0.0:47989 tls=false",

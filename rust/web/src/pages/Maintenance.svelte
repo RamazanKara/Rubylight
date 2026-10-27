@@ -2,6 +2,7 @@
   import Button from '../components/Button.svelte';
   import { onMount } from 'svelte';
   import PageHeader from '../components/PageHeader.svelte';
+  import ChildSessionPanel from '../components/maintenance/ChildSessionPanel.svelte';
   import CrashPanel from '../components/maintenance/CrashPanel.svelte';
   import LogAnalysisPanel from '../components/maintenance/LogAnalysisPanel.svelte';
   import DisplaysPanel from '../components/maintenance/DisplaysPanel.svelte';
@@ -49,6 +50,7 @@
   <Section title="Displays and Windows session">
     <DisplaysPanel />
     <WindowsSessionPanel />
+    <ChildSessionPanel />
   </Section>
   <Section title="Troubleshooting">
     <LogAnalysisPanel />

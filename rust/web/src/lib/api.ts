@@ -561,6 +561,42 @@ export interface LimiterStatus {
   process_running: boolean;
   message: string;
 }
+export type ChildSessionPhase =
+  | 'idle'
+  | 'needs_password'
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'
+  | 'signing_out'
+  | 'sign_in_failed'
+  | 'signed_out';
+/** What the child-session viewer last reported. */
+export interface ChildSessionViewer {
+  phase: ChildSessionPhase;
+  message: string;
+  child: number;
+  generation: number;
+  password_saved: boolean;
+  notice: string | null;
+}
+/** `GET /api/child-session`: background streaming in a Windows child session (Experimental). */
+export interface ChildSessionStatus {
+  mode: 'child_session' | 'virtual_display' | 'inside_child_session';
+  label: string;
+  reason: string;
+  edition: string;
+  /** What setup still has to change; null when it could not be read (`missing_error`). */
+  missing: string[] | null;
+  missing_error: string | null;
+  /** Rubylight changed Windows settings that Restore puts back. */
+  set_up: boolean;
+  display: { width: number; height: number; scale: number } | null;
+  display_error: string | null;
+  viewer: { status: ChildSessionViewer | null; host_child: number | null } | null;
+  host_port: number | null;
+  problem: string | null;
+  limits: string[];
+}
 export interface VulkanLayerStatus {
   status: true;
   installed: boolean;
@@ -831,6 +867,17 @@ export const api = {
     deleteGolden: () => json<Ok>('DELETE', '/api/display/golden'),
     disconnectVirtual: () => post<Ok>('/api/display/terminate_virtual', {}, ACTION_TIMEOUT_MS),
     resetPersistence: () => post<Ok>('/api/reset-display-device-persistence', {}, ACTION_TIMEOUT_MS),
+  },
+  childSession: {
+    status: () => get<ChildSessionStatus>('/api/child-session'),
+    setup: () => post<Ok>('/api/child-session/setup'),
+    restore: () => post<Ok & { restored: boolean }>('/api/child-session/restore'),
+    /** A newly typed Windows password goes to the viewer once; leave it out to use the saved one. */
+    start: (password?: string) => post<Ok>('/api/child-session/start', password ? { password } : {}),
+    stop: () => post<Ok>('/api/child-session/stop'),
+    show: () => post<Ok>('/api/child-session/show'),
+    end: (child: number, generation: number) => post<Ok>('/api/child-session/end', { child, generation }),
+    forgetPassword: () => post<Ok>('/api/child-session/forget-password'),
   },
   health: {
     limiter: () => get<LimiterStatus>('/api/frame-limiter/status'),

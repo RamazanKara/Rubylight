@@ -8,7 +8,7 @@
   import Panel from '../Panel.svelte';
   import { api, type ChildSessionStatus } from '../../lib/api';
   import { confirm, failed, notify } from '../../lib/feedback.svelte';
-  import { phases, step } from './child-session';
+  import { phases, statusLoader, step } from './child-session';
   import { reason } from './util';
 
   type Action = 'setup' | 'restore' | 'start' | 'stop' | 'show' | 'end' | 'forget';
@@ -23,14 +23,17 @@
   const viewer = $derived(status?.viewer?.status ?? null);
   const current = $derived(status ? step(status) : null);
 
-  async function load() {
-    try {
-      status = await api.childSession.status();
+  const loader = statusLoader(
+    () => api.childSession.status(),
+    (value) => {
+      status = value;
       loadError = '';
-    } catch (error) {
+    },
+    (error) => {
       loadError = reason(error);
-    }
-  }
+    },
+  );
+  const load = loader.load;
 
   async function run(action: Action, task: () => Promise<unknown>, done: string, failure: string) {
     running = action;
@@ -88,7 +91,7 @@
   onMount(() => {
     load();
     timer = setInterval(() => {
-      if (status?.viewer && !running) load();
+      if (status?.viewer && !running) loader.tick();
     }, 3000);
   });
   onDestroy(() => clearInterval(timer));

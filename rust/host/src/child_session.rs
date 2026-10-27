@@ -25,6 +25,7 @@ use std::{
     io::{ErrorKind, Read, Write},
     path::{Path, PathBuf},
     sync::{Mutex, MutexGuard, PoisonError},
+    time::Instant,
 };
 
 /// The child-session host's own profile, inside this host's.
@@ -571,7 +572,10 @@ pub(crate) fn setup(h: &Shared) -> Result<SetupState> {
         &Record::new(&h.directory),
         &user,
         native::NativeSettings::new,
-    )?;
+    );
+    // Even a setup that failed may have changed some.
+    RULES.forget();
+    let state = state?;
     tracing::info!("child sessions are set up; restore puts the Windows settings back");
     Ok(state)
 }
@@ -612,7 +616,10 @@ pub(crate) fn restore(h: &Shared) -> Result<bool> {
     let restored = restore_locked(&Record::new(&h.directory), |record| {
         quit();
         restore_saved(record, native::NativeSettings::new)
-    })?;
+    });
+    // Even a restore that failed may have put some back.
+    RULES.forget();
+    let restored = restored?;
     if restored {
         tracing::info!("the Windows settings child-session setup changed are restored");
     }
@@ -940,6 +947,41 @@ fn stop_host(running: &mut Running) {
     });
 }
 
+/// How long [`status`] keeps the firewall rules it read: each read starts
+/// Windows PowerShell twice, and the console asks every few seconds.
+const RULES_FOR: std::time::Duration = std::time::Duration::from_secs(30);
+/// The firewall rules [`status`] read last, and when; setup and restore,
+/// which change them, forget them.
+struct RulesCache(Mutex<Option<(Instant, logic::FirewallRules)>>);
+impl RulesCache {
+    const fn new() -> Self {
+        Self(Mutex::new(None))
+    }
+    /// The rules read less than [`RULES_FOR`] before `now`, or those `read`
+    /// reads now. Held while reading, so status asked twice at once reads
+    /// once. A read that fails is not kept.
+    fn get(
+        &self,
+        now: Instant,
+        read: impl FnOnce() -> Result<logic::FirewallRules>,
+    ) -> Result<logic::FirewallRules> {
+        let mut kept = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some((at, rules)) = kept.as_ref()
+            && now.saturating_duration_since(*at) < RULES_FOR
+        {
+            return Ok(rules.clone());
+        }
+        *kept = None;
+        let rules = read()?;
+        *kept = Some((now, rules.clone()));
+        Ok(rules)
+    }
+    fn forget(&self) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = None;
+    }
+}
+static RULES: RulesCache = RulesCache::new();
+
 /// What the console shows.
 pub(crate) fn status(h: &Shared) -> Value {
     let config = h
@@ -951,11 +993,9 @@ pub(crate) fn status(h: &Shared) -> Value {
     let record = Record::new(&h.directory);
     let missing = (|| {
         let rdp_port = record.load()?.map(|state| state.rdp_port);
-        logic::missing(
-            &native::NativeSettings::new()?,
-            &native::console_user()?,
-            rdp_port,
-        )
+        let system = native::NativeSettings::new()?;
+        let rules = RULES.get(Instant::now(), || logic::FirewallRules::read(&system))?;
+        logic::missing_with(&system, &native::console_user()?, rdp_port, &rules)
     })();
     let display = DisplaySettings::parse(
         config.get(logic::RESOLUTION_KEY, ""),
@@ -1398,6 +1438,47 @@ mod tests {
         assert_eq!(written.get("sunshine_name", ""), "Den (background)");
         assert!(written.boolean(logic::CHILD_HOST_KEY, false));
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn status_reads_the_firewall_rules_once_in_30_seconds_until_setup_or_restore() {
+        let cache = RulesCache::new();
+        let reads = std::cell::Cell::new(0);
+        let rules = |id: &str| logic::FirewallRules {
+            enabled: vec![id.to_owned()],
+            active: logic::ActiveFirewall::default(),
+        };
+        let read = |id: &'static str| {
+            let reads = &reads;
+            move || {
+                reads.set(reads.get() + 1);
+                Ok(rules(id))
+            }
+        };
+        let start = Instant::now();
+        assert_eq!(cache.get(start, read("first")).unwrap(), rules("first"));
+        let soon = start + RULES_FOR - std::time::Duration::from_millis(1);
+        assert_eq!(cache.get(soon, read("second")).unwrap(), rules("first"));
+        assert_eq!(reads.get(), 1);
+        // Read again once they are 30 s old.
+        assert_eq!(
+            cache.get(start + RULES_FOR, read("third")).unwrap(),
+            rules("third")
+        );
+        assert_eq!(reads.get(), 2);
+        // Setup and restore forget them.
+        cache.forget();
+        assert_eq!(
+            cache.get(start + RULES_FOR, read("fourth")).unwrap(),
+            rules("fourth")
+        );
+        assert_eq!(reads.get(), 3);
+        // A read that fails is said, and not kept: the next status reads again.
+        let later = start + RULES_FOR * 3;
+        let failed = cache.get(later, || bail!("powershell exited with code 1"));
+        assert!(failed.is_err());
+        assert_eq!(cache.get(later, read("fifth")).unwrap(), rules("fifth"));
+        assert!(RULES_FOR <= std::time::Duration::from_secs(30));
     }
 
     #[test]

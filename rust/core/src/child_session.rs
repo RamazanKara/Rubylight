@@ -1509,17 +1509,58 @@ pub fn missing(
     user_sid: &str,
     rdp_port: Option<u16>,
 ) -> Result<Vec<String>> {
-    let mut missing = settings_missing(system, user_sid)?;
+    missing_with(system, user_sid, rdp_port, &FirewallRules::read(system)?)
+}
+/// [`missing`] with the firewall rules read already.
+pub fn missing_with(
+    system: &dyn SystemSettings,
+    user_sid: &str,
+    rdp_port: Option<u16>,
+    rules: &FirewallRules,
+) -> Result<Vec<String>> {
+    let mut missing = settings_missing_with(system, user_sid, &rules.enabled)?;
     let rdp_port = match rdp_port {
         Some(port) => port,
         None => live_rdp_port(system)?,
     };
-    missing.extend(firewall_missing(system, rdp_port)?);
+    missing.extend(firewall_missing_with(system, rdp_port, &rules.active)?);
     Ok(missing)
+}
+
+/// What [`missing`] reads of the firewall rules, through Windows PowerShell
+/// (once for each field): the console's status keeps it a while.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FirewallRules {
+    /// The enabled rules of [`REMOTE_DESKTOP_RULES`].
+    pub enabled: Vec<String>,
+    /// What is in effect for them and [`BLOCK_RULE`].
+    pub active: ActiveFirewall,
+}
+impl FirewallRules {
+    pub fn read(system: &dyn SystemSettings) -> Result<Self> {
+        Ok(Self {
+            enabled: system.enabled_rules(REMOTE_DESKTOP_RULES)?,
+            active: system
+                .active_firewall(REMOTE_DESKTOP_RULES, BLOCK_RULE)
+                .context("reading the firewall rules in effect")?,
+        })
+    }
 }
 
 /// [`missing`] short of the firewall: the Windows settings setup changes.
 pub fn settings_missing(system: &dyn SystemSettings, user_sid: &str) -> Result<Vec<String>> {
+    settings_missing_with(
+        system,
+        user_sid,
+        &system.enabled_rules(REMOTE_DESKTOP_RULES)?,
+    )
+}
+/// [`settings_missing`] with the enabled Remote Desktop rules read already.
+fn settings_missing_with(
+    system: &dyn SystemSettings,
+    user_sid: &str,
+    enabled_rules: &[String],
+) -> Result<Vec<String>> {
     let mut missing = Vec::new();
     if !system.child_sessions_enabled()? {
         missing.push("Windows child sessions are off".to_string());
@@ -1531,7 +1572,7 @@ pub fn settings_missing(system: &dyn SystemSettings, user_sid: &str) -> Result<V
             missing.push(format!("{} is not {}", change.name, change.value));
         }
     }
-    if !system.enabled_rules(REMOTE_DESKTOP_RULES)?.is_empty() {
+    if !enabled_rules.is_empty() {
         missing.push("Windows' Remote Desktop firewall rules are on".to_string());
     }
     Ok(missing)
@@ -1607,6 +1648,17 @@ fn rdp_off(system: &mut dyn Registry) -> Result<()> {
 /// on and the block rule must still close. Setup checks it before RDP goes
 /// on, the host at its start and every child-session start.
 pub fn firewall_missing(system: &dyn SystemSettings, rdp_port: u16) -> Result<Vec<String>> {
+    let active = system
+        .active_firewall(REMOTE_DESKTOP_RULES, BLOCK_RULE)
+        .context("reading the firewall rules in effect")?;
+    firewall_missing_with(system, rdp_port, &active)
+}
+/// [`firewall_missing`] with what is in effect read already.
+fn firewall_missing_with(
+    system: &dyn SystemSettings,
+    rdp_port: u16,
+    active: &ActiveFirewall,
+) -> Result<Vec<String>> {
     let mut missing = Vec::new();
     let live = live_rdp_port(system)?;
     if live != rdp_port {
@@ -1629,9 +1681,6 @@ pub fn firewall_missing(system: &dyn SystemSettings, rdp_port: u16) -> Result<Ve
     {
         missing.push(problem);
     }
-    let active = system
-        .active_firewall(REMOTE_DESKTOP_RULES, BLOCK_RULE)
-        .context("reading the firewall rules in effect")?;
     if !active.unprotected.is_empty() {
         missing.push(format!(
             "Windows Firewall is off or ignores local rules (group policy) for the {} profile",

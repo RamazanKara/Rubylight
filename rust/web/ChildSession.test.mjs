@@ -5,7 +5,7 @@ import { createTestServer } from './test-server.mjs';
 globalThis.location = new URL('http://localhost/');
 globalThis.window = new EventTarget();
 const server = await createTestServer();
-const { phases, step } = await server.ssrLoadModule('/src/components/maintenance/child-session.ts');
+const { phases, statusLoader, step } = await server.ssrLoadModule('/src/components/maintenance/child-session.ts');
 const { render } = await server.ssrLoadModule('svelte/server');
 const Panel = (await server.ssrLoadModule('/src/components/maintenance/ChildSessionPanel.svelte')).default;
 const { settings } = await server.ssrLoadModule('/src/lib/schema/display.ts');
@@ -57,4 +57,33 @@ test('child sessions stay off by default and their display settings show only wh
   assert.equal(resolution.visibleWhen({}), false);
   assert.equal(resolution.visibleWhen({ background_mode: 'auto' }), true);
   assert.equal(resolution.visibleWhen({ background_mode: 'child_session' }), true);
+});
+
+test('a poll tick waits for the status load in flight, and a slow load never overwrites a newer one', async () => {
+  const pending = [];
+  const applied = [];
+  const failed = [];
+  const loader = statusLoader(
+    () => new Promise((resolve, reject) => pending.push({ resolve, reject })),
+    (value) => applied.push(value),
+    (error) => failed.push(error),
+  );
+  const slow = loader.load();
+  await loader.tick();
+  assert.equal(pending.length, 1, 'no second status request while one is in flight');
+  // An action's own load still goes out, and its answer wins over the slower one.
+  const asked = loader.load();
+  assert.equal(pending.length, 2);
+  pending[1].resolve('newer');
+  await asked;
+  pending[0].resolve('older');
+  await slow;
+  assert.deepEqual(applied, ['newer']);
+  // Nothing in flight: the next tick loads.
+  const next = loader.tick();
+  assert.equal(pending.length, 3);
+  pending[2].reject(new Error('host gone'));
+  await next;
+  assert.equal(failed.length, 1);
+  assert.deepEqual(applied, ['newer']);
 });

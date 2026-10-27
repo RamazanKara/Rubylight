@@ -1371,6 +1371,32 @@ fn other_services_in_the_remote_desktop_svchost_are_not_drift() {
 }
 
 #[test]
+fn firewall_rules_read_once_say_what_missing_reads_itself() {
+    // The console's status keeps the rules a while: from them it finds what missing does.
+    let mut fake = Fake::new();
+    let unset = FirewallRules::read(&fake).unwrap();
+    assert_eq!(
+        missing_with(&fake, SID, None, &unset).unwrap(),
+        missing(&fake, SID, None).unwrap()
+    );
+    let state = set_up(&mut fake);
+    let rules = FirewallRules::read(&fake).unwrap();
+    assert!(
+        missing_with(&fake, SID, Some(state.rdp_port), &rules)
+            .unwrap()
+            .is_empty()
+    );
+    // Rules read before setup find the firewall as it was then.
+    let stale = missing_with(&fake, SID, Some(state.rdp_port), &unset).unwrap();
+    assert!(
+        stale.iter().any(|m| m.contains("is not in effect")),
+        "{stale:?}"
+    );
+    fake.firewall_unreadable = true;
+    assert!(FirewallRules::read(&fake).is_err());
+}
+
+#[test]
 fn a_moved_rdp_port_is_refused_until_setup_runs_again() {
     let mut fake = Fake::new();
     let state = set_up(&mut fake);

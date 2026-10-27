@@ -767,6 +767,16 @@ impl Config {
         {
             bail!("stream_preset must be lowest_latency, balanced or reference");
         }
+        if changed(crate::child_session::MODE_KEY) {
+            crate::child_session::ModeSetting::parse(&next.values[crate::child_session::MODE_KEY])?;
+        }
+        if changed(crate::child_session::RESOLUTION_KEY) || changed(crate::child_session::SCALE_KEY)
+        {
+            crate::child_session::DisplaySettings::parse(
+                next.get(crate::child_session::RESOLUTION_KEY, ""),
+                next.get(crate::child_session::SCALE_KEY, ""),
+            )?;
+        }
         if changed("hardware_metrics_interval")
             && next.values.contains_key("hardware_metrics_interval")
             && !(500..=10000).contains(&next.integer("hardware_metrics_interval", 0))
@@ -2028,6 +2038,27 @@ webrtc_media_port = 99999
         )
         .unwrap();
         assert_eq!(loaded.get("stream_preset", ""), "fastest");
+    }
+    #[test]
+    fn background_mode_and_child_session_display_save_only_valid_values() {
+        let mut config = super::Config::default();
+        for value in ["auto", "child_session", "virtual_display"] {
+            change(&mut config, "background_mode", value).unwrap();
+            assert_eq!(config.get("background_mode", ""), value);
+        }
+        assert!(change(&mut config, "background_mode", "rdp").is_err());
+        assert_eq!(config.get("background_mode", ""), "virtual_display");
+        change(&mut config, "child_session_resolution", "2560x1440").unwrap();
+        change(&mut config, "child_session_scale", "150").unwrap();
+        for (key, value) in [
+            ("child_session_resolution", "wide"),
+            ("child_session_resolution", "100x100"),
+            ("child_session_scale", "50"),
+        ] {
+            assert!(change(&mut config, key, value).is_err(), "{key} = {value}");
+        }
+        assert_eq!(config.get("child_session_resolution", ""), "2560x1440");
+        assert_eq!(config.get("child_session_scale", ""), "150");
     }
     #[test]
     fn hardware_metrics_saves_validate_interval_and_selection() {

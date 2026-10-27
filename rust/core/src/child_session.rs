@@ -36,6 +36,11 @@ pub const SCALE_KEY: &str = "child_session_scale";
 pub const CHILD_BASE_PORT: u16 = 48989;
 /// The child-session host's WebRTC ports, beside the main host's 8000/8001.
 pub const CHILD_WEBRTC_PORTS: (u16, u16) = (8100, 8101);
+/// What setup changed ([`SetupState`]), in the host's profile; while it is
+/// there, restore (and the uninstaller) have something to put back.
+pub const SETUP_FILE: &str = "child_session_setup.json";
+/// The flag that restores it: `butterpollo.exe --child-session-restore`.
+pub const RESTORE_FLAG: &str = "--child-session-restore";
 
 /// What the host setting asks for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -45,11 +50,13 @@ pub enum ModeSetting {
     VirtualDisplay,
 }
 impl ModeSetting {
+    /// Unset means `virtual_display`: child sessions are Experimental and
+    /// only run when `auto` or `child_session` asks for them.
     pub fn parse(text: &str) -> Result<Self> {
         match text.trim().to_ascii_lowercase().as_str() {
-            "" | "auto" => Ok(Self::Auto),
+            "auto" => Ok(Self::Auto),
             "child_session" => Ok(Self::ChildSession),
-            "virtual_display" => Ok(Self::VirtualDisplay),
+            "" | "virtual_display" => Ok(Self::VirtualDisplay),
             other => bail!(
                 "{MODE_KEY} = {other} is not a mode: use auto, child_session or virtual_display"
             ),
@@ -131,7 +138,9 @@ pub fn decide(setting: ModeSetting, edition_id: &str, inside_child_session: bool
         (ModeSetting::VirtualDisplay, _) => decision(
             Mode::VirtualDisplay,
             virtual_display,
-            format!("{MODE_KEY} = virtual_display (Windows edition {shown})"),
+            format!(
+                "{MODE_KEY} = virtual_display, the default; child sessions are Experimental and need {MODE_KEY} = auto or child_session (Windows edition {shown})"
+            ),
         ),
         (_, Edition::Home) => decision(
             Mode::VirtualDisplay,
@@ -227,6 +236,31 @@ impl DisplaySettings {
 /// neither the caller's own nor the console's.
 pub fn is_target(target: u32, current: u32, console: u32) -> bool {
     target > 0 && target <= i32::MAX as u32 && target != current && target != console
+}
+
+/// Whether the host may start the child-session host in `child`: a real
+/// session that is not the console's, signed in by the same Windows account
+/// (SIDs) as the console. The session ID comes from the viewer, a process of
+/// the unprivileged user, so the SYSTEM host checks it before it attaches
+/// anything there: another account's session is refused, never streamed.
+pub fn check_child_owner(
+    child: u32,
+    console: u32,
+    child_user: &str,
+    console_user: &str,
+) -> Result<()> {
+    if child == 0 || child > i32::MAX as u32 || child == console {
+        bail!("session {child} is not a child session of this PC's screen; nothing is attached");
+    }
+    if console_user.trim().is_empty() {
+        bail!("nobody is signed in at this PC's screen; the child session is not attached");
+    }
+    if !child_user.eq_ignore_ascii_case(console_user) {
+        bail!(
+            "session {child} belongs to another Windows account ({child_user}) than the one at this PC's screen ({console_user}); it is not attached or streamed"
+        );
+    }
+    Ok(())
 }
 
 /// Requests are stamped with a generation and only accepted while the same
@@ -840,10 +874,13 @@ pub trait SystemSettings {
     fn set_child_sessions(&mut self, enabled: bool) -> Result<()>;
     /// Whether Windows Firewall is on for every network profile.
     fn firewall_on(&self) -> Result<bool>;
-    /// Names of the enabled rules in a firewall group.
+    /// IDs of the enabled rules in a firewall group. An ID is the rule's
+    /// unique name in the firewall store (`Get-NetFirewallRule`'s `Name`),
+    /// not its display name, which several rules can share.
     fn enabled_rules(&self, group: &str) -> Result<Vec<String>>;
-    /// Turn every rule of that name in the group on or off.
-    fn set_rule_enabled(&mut self, group: &str, name: &str, enabled: bool) -> Result<()>;
+    /// Turn exactly the rule with this ID on or off; it fails when the rule
+    /// is gone or is not in the group.
+    fn set_rule_enabled(&mut self, group: &str, id: &str, enabled: bool) -> Result<()>;
     /// Add (or replace) inbound TCP and UDP block rules for a port under this name.
     fn add_block_rule(&mut self, name: &str, port: u16) -> Result<()>;
     /// Remove the rules [`SystemSettings::add_block_rule`] added; removing
@@ -861,7 +898,9 @@ pub struct SetupState {
     pub dwm_frame_interval: Option<u32>,
     pub suppress_when_minimized: Option<u32>,
     pub child_sessions: bool,
-    pub remote_desktop_rules_enabled: Vec<String>,
+    /// The IDs (see [`SystemSettings::enabled_rules`]) of the Remote Desktop
+    /// rules that were on; restore turns on exactly these.
+    pub remote_desktop_rule_ids: Vec<String>,
     pub rdp_port: u16,
 }
 
@@ -925,7 +964,7 @@ pub fn record(system: &dyn SystemSettings, user_sid: &str) -> Result<SetupState>
         child_sessions: system
             .child_sessions_enabled()
             .context("asking Windows whether child sessions are on")?,
-        remote_desktop_rules_enabled: system
+        remote_desktop_rule_ids: system
             .enabled_rules(REMOTE_DESKTOP_RULES)
             .context("listing the Remote Desktop firewall rules")?,
         rdp_port: u16::try_from(port).context("the RDP port is out of range")?,
@@ -966,10 +1005,10 @@ pub fn setup(
     system
         .add_block_rule(BLOCK_RULE, state.rdp_port)
         .context("adding the firewall rule that keeps RDP on this PC")?;
-    for name in system.enabled_rules(REMOTE_DESKTOP_RULES)? {
+    for id in system.enabled_rules(REMOTE_DESKTOP_RULES)? {
         system
-            .set_rule_enabled(REMOTE_DESKTOP_RULES, &name, false)
-            .with_context(|| format!("turning off the firewall rule {name}"))?;
+            .set_rule_enabled(REMOTE_DESKTOP_RULES, &id, false)
+            .with_context(|| format!("turning off the firewall rule {id}"))?;
     }
     for change in &CHANGES {
         system
@@ -1009,9 +1048,9 @@ pub fn restore(system: &mut dyn SystemSettings, state: &SetupState) -> Result<()
             problems.push(format!("{}: {error:#}", change.name));
         }
     }
-    for name in &state.remote_desktop_rules_enabled {
-        if let Err(error) = system.set_rule_enabled(REMOTE_DESKTOP_RULES, name, true) {
-            problems.push(format!("firewall rule {name}: {error:#}"));
+    for id in &state.remote_desktop_rule_ids {
+        if let Err(error) = system.set_rule_enabled(REMOTE_DESKTOP_RULES, id, true) {
+            problems.push(format!("firewall rule {id}: {error:#}"));
         }
     }
     if let Err(error) = system.remove_rule(BLOCK_RULE) {

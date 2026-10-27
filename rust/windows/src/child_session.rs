@@ -9,14 +9,16 @@
 //! child-session calls of `src/Annex.cs` and the RDP client hosting of
 //! `src/LauncherApplication.cs`.
 
+pub mod viewer;
+
 use crate::text::{from_wide, to_wide};
 use anyhow::{Context, Result, bail};
 use butterpollo_core::child_session::{Adapter, Hive, SystemSettings};
 use windows::{
     Win32::{
         Foundation::{
-            ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND, HLOCAL, LocalFree, VARIANT_FALSE,
-            VARIANT_TRUE, WIN32_ERROR,
+            ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND, HLOCAL, LocalFree, VARIANT_TRUE,
+            WIN32_ERROR,
         },
         Graphics::{
             Direct3D::D3D_FEATURE_LEVEL_11_0,
@@ -32,7 +34,6 @@ use windows::{
         },
         System::{
             Com::*,
-            Ole::IEnumVARIANT,
             Registry::{
                 HKEY, HKEY_LOCAL_MACHINE, HKEY_USERS, REG_DWORD, RRF_RT_REG_DWORD, RRF_RT_REG_SZ,
                 RegDeleteKeyValueW, RegGetValueW, RegSetKeyValueW,
@@ -41,10 +42,9 @@ use windows::{
                 WTSEnableChildSessions, WTSGetChildSessionId, WTSIsChildSessionsEnabled,
                 WTSLogoffSession,
             },
-            Variant::{VARIANT, VariantClear},
         },
     },
-    core::{BOOL, BSTR, Interface, PCWSTR},
+    core::{BOOL, BSTR, PCWSTR},
 };
 use zeroize::Zeroizing;
 
@@ -95,6 +95,24 @@ pub fn child_session_id() -> Option<u32> {
         .filter(|session| *session != 0 && *session != u32::MAX)
 }
 
+/// Refuse, with the reason, unless `child` is a session of the account signed
+/// in at this PC's screen ([`butterpollo_core::child_session::check_child_owner`]).
+/// Needs SYSTEM, as the host runs.
+pub fn verify_child_owner(child: u32) -> Result<()> {
+    let console = crate::process::console_session();
+    let console_user = crate::process::session_user_sid(console)
+        .context("reading the account signed in at this PC's screen")?;
+    let child_user = crate::process::session_user_sid(child)
+        .with_context(|| format!("reading the account of session {child}"))?;
+    butterpollo_core::child_session::check_child_owner(child, console, &child_user, &console_user)
+}
+
+/// The account signed in at this PC's screen, as a SID string. Needs SYSTEM.
+pub fn console_user() -> Result<String> {
+    crate::process::session_user_sid(crate::process::console_session())
+        .context("reading the account signed in at this PC's screen")
+}
+
 /// Sign out a session, closing every app in it. Callers check the session
 /// with [`butterpollo_core::child_session::end_confirmed_session`] first.
 pub fn sign_out(session: u32) -> Result<()> {
@@ -136,41 +154,53 @@ impl NativeSettings {
             })
         }
     }
-    fn rules(&self) -> Result<Vec<INetFwRule>> {
-        // SAFETY: the Rules enumerator yields VT_DISPATCH variants, so `pdispVal` is read before
-        // VariantClear releases it.
-        unsafe {
-            let items: IEnumVARIANT = self.policy.Rules()?._NewEnum()?.cast()?;
-            let mut rules = Vec::new();
-            loop {
-                let mut item = [VARIANT::default()];
-                let mut fetched = 0;
-                if items.Next(&mut item, &mut fetched).is_err() || fetched == 0 {
-                    break;
-                }
-                let rule = item[0]
-                    .Anonymous
-                    .Anonymous
-                    .Anonymous
-                    .pdispVal
-                    .as_ref()
-                    .and_then(|dispatch| dispatch.cast::<INetFwRule>().ok());
-                let _ = VariantClear(&mut item[0]);
-                rules.extend(rule);
-            }
-            Ok(rules)
-        }
+}
+
+/// Lists and switches group rules by ID; the COM firewall API names rules
+/// only by their display name, which several rules can share.
+const RULES_SCRIPT: &str = include_str!("child_session_rules.ps1");
+const RULES_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+fn run_rules_script(mode: &str, environment: &[(&str, &str)]) -> Result<String> {
+    use std::{os::windows::process::CommandExt, process::Command};
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let root = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+    let mut command = Command::new(
+        std::path::Path::new(&root).join("System32\\WindowsPowerShell\\v1.0\\powershell.exe"),
+    );
+    command
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &format!("& ([scriptblock]::Create([Console]::In.ReadToEnd())) {mode}"),
+        ])
+        // A PowerShell 7 parent's module path breaks Windows PowerShell's modules.
+        .env_remove("PSModulePath")
+        .env_remove("BUTTERPOLLO_FIREWALL_RULE")
+        .env_remove("BUTTERPOLLO_FIREWALL_ENABLED")
+        .envs(environment.iter().copied())
+        .creation_flags(CREATE_NO_WINDOW);
+    let (status, stdout, stderr) =
+        crate::wake::output_within(&mut command, RULES_SCRIPT.as_bytes(), RULES_TIMEOUT)
+            .with_context(|| format!("the firewall rule script ({mode})"))?;
+    if !status.success() {
+        bail!(
+            "the firewall rule script ({mode}) failed with {status}: {}",
+            stderr.trim()
+        );
     }
-    fn in_group(rule: &INetFwRule, group: &str) -> bool {
-        // SAFETY: `rule` is a live firewall rule; Grouping returns an owned BSTR.
-        unsafe { rule.Grouping() }.is_ok_and(|g| g.to_string().eq_ignore_ascii_case(group))
-    }
-    fn name(rule: &INetFwRule) -> String {
-        // SAFETY: `rule` is a live firewall rule; Name returns an owned BSTR.
-        unsafe { rule.Name() }
-            .map(|name| name.to_string())
-            .unwrap_or_default()
-    }
+    Ok(stdout)
+}
+/// The JSON array of rule IDs the script's `list` mode prints.
+fn parse_rule_ids(output: &str) -> Result<Vec<String>> {
+    let mut ids: Vec<String> =
+        serde_json::from_str(output.trim().trim_start_matches('\u{feff}'))
+            .with_context(|| format!("the firewall rule list is not a JSON array: {output:?}"))?;
+    ids.sort();
+    ids.dedup();
+    Ok(ids)
 }
 const PROTOCOLS: [(NET_FW_IP_PROTOCOL, &str); 2] = [
     (NET_FW_IP_PROTOCOL_TCP, "TCP"),
@@ -253,31 +283,25 @@ impl SystemSettings for NativeSettings {
         Ok(true)
     }
     fn enabled_rules(&self, group: &str) -> Result<Vec<String>> {
-        let mut names: Vec<String> = self
-            .rules()?
-            .iter()
-            .filter(|rule| Self::in_group(rule, group))
-            // SAFETY: `rule` is a live firewall rule.
-            .filter(|rule| unsafe { rule.Enabled() }.is_ok_and(|e| e.as_bool()))
-            .map(Self::name)
-            .collect();
-        names.sort();
-        names.dedup();
-        Ok(names)
+        parse_rule_ids(&run_rules_script(
+            "list",
+            &[("BUTTERPOLLO_FIREWALL_GROUP", group)],
+        )?)
+        .with_context(|| format!("listing the firewall rules of {group}"))
     }
-    fn set_rule_enabled(&mut self, group: &str, name: &str, enabled: bool) -> Result<()> {
-        let mut found = false;
-        for rule in self.rules()? {
-            if Self::in_group(&rule, group) && Self::name(&rule) == name {
-                found = true;
-                // SAFETY: `rule` is a live firewall rule.
-                unsafe { rule.SetEnabled(if enabled { VARIANT_TRUE } else { VARIANT_FALSE }) }
-                    .with_context(|| format!("switching the firewall rule {name}"))?;
-            }
-        }
-        if !found {
-            bail!("the firewall rule {name} no longer exists");
-        }
+    fn set_rule_enabled(&mut self, group: &str, id: &str, enabled: bool) -> Result<()> {
+        run_rules_script(
+            "set",
+            &[
+                ("BUTTERPOLLO_FIREWALL_GROUP", group),
+                ("BUTTERPOLLO_FIREWALL_RULE", id),
+                (
+                    "BUTTERPOLLO_FIREWALL_ENABLED",
+                    if enabled { "1" } else { "0" },
+                ),
+            ],
+        )
+        .with_context(|| format!("switching the firewall rule {id}"))?;
         Ok(())
     }
     fn add_block_rule(&mut self, name: &str, port: u16) -> Result<()> {
@@ -481,5 +505,35 @@ mod tests {
         settings.child_sessions_enabled().unwrap();
         let (adapters, _) = super::adapters().unwrap();
         assert!(!adapters.is_empty());
+    }
+
+    #[test]
+    fn firewall_rules_are_named_by_id() {
+        // Read-only: listing, and a switch that matches no rule.
+        let mut settings = super::NativeSettings::new().unwrap();
+        let ids = settings
+            .enabled_rules(butterpollo_core::child_session::REMOTE_DESKTOP_RULES)
+            .unwrap();
+        // IDs, not display names such as "Remote Desktop - User Mode (TCP-In)".
+        assert!(ids.iter().all(|id| !id.contains(' ')), "{ids:?}");
+        let group = "Rubylight test group that does not exist";
+        assert!(settings.enabled_rules(group).unwrap().is_empty());
+        let error = format!(
+            "{:#}",
+            settings
+                .set_rule_enabled(group, "RemoteDesktop-UserMode-In-TCP", true)
+                .unwrap_err()
+        );
+        assert!(error.contains("is not in the group"), "{error}");
+    }
+
+    #[test]
+    fn rule_lists_parse_with_or_without_a_bom() {
+        assert_eq!(
+            super::parse_rule_ids("\u{feff}[\"b\",\"a\",\"a\"]\r\n").unwrap(),
+            ["a", "b"]
+        );
+        assert!(super::parse_rule_ids("[]").unwrap().is_empty());
+        assert!(super::parse_rule_ids("\"one\"").is_err());
     }
 }

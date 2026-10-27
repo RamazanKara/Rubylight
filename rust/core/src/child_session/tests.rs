@@ -64,7 +64,9 @@ fn an_unknown_edition_is_never_switched_silently() {
 
 #[test]
 fn mode_setting_parses_and_rejects_typos() {
-    assert_eq!(ModeSetting::parse("").unwrap(), ModeSetting::Auto);
+    // Off by default: child sessions ship Experimental.
+    assert_eq!(ModeSetting::parse("").unwrap(), ModeSetting::VirtualDisplay);
+    assert_eq!(ModeSetting::parse(" auto ").unwrap(), ModeSetting::Auto);
     assert_eq!(
         ModeSetting::parse(" Child_Session ").unwrap(),
         ModeSetting::ChildSession
@@ -493,8 +495,8 @@ struct Machine {
     values: BTreeMap<(Hive, String, String), u32>,
     child_sessions: bool,
     firewall_on: bool,
-    /// Rule name -> (group, enabled).
-    rules: BTreeMap<String, (String, bool)>,
+    /// Rule ID -> (display name, group, enabled).
+    rules: BTreeMap<String, (String, String, bool)>,
     block_rules: BTreeMap<String, u16>,
 }
 struct Fake {
@@ -527,25 +529,28 @@ impl Fake {
             1,
         );
         let mut rules = BTreeMap::new();
-        for (name, group, enabled) in [
+        for (id, name, group, enabled) in [
             (
+                "RemoteDesktop-UserMode-In-TCP",
                 "Remote Desktop - User Mode (TCP-In)",
                 REMOTE_DESKTOP_RULES,
                 true,
             ),
             (
+                "RemoteDesktop-UserMode-In-UDP",
                 "Remote Desktop - User Mode (UDP-In)",
                 REMOTE_DESKTOP_RULES,
                 true,
             ),
             (
+                "RemoteDesktop-Shadow-In-TCP",
                 "Remote Desktop - Shadow (TCP-In)",
                 REMOTE_DESKTOP_RULES,
                 false,
             ),
-            ("Rubylight", "", true),
+            ("Rubylight-In", "Rubylight", "", true),
         ] {
-            rules.insert(name.to_string(), (group.to_string(), enabled));
+            rules.insert(id.into(), (name.into(), group.into(), enabled));
         }
         Self {
             machine: Machine {
@@ -605,15 +610,15 @@ impl SystemSettings for Fake {
             .machine
             .rules
             .iter()
-            .filter(|(_, (g, enabled))| g == group && *enabled)
-            .map(|(name, _)| name.clone())
+            .filter(|(_, (_, g, enabled))| g == group && *enabled)
+            .map(|(id, _)| id.clone())
             .collect())
     }
-    fn set_rule_enabled(&mut self, group: &str, name: &str, enabled: bool) -> Result<()> {
-        self.note(format!("rule {name} {enabled}"));
-        let rule = self.machine.rules.get_mut(name).context("no such rule")?;
-        anyhow::ensure!(rule.0 == group, "{name} is not in {group}");
-        rule.1 = enabled;
+    fn set_rule_enabled(&mut self, group: &str, id: &str, enabled: bool) -> Result<()> {
+        self.note(format!("rule {id} {enabled}"));
+        let rule = self.machine.rules.get_mut(id).context("no such rule")?;
+        anyhow::ensure!(rule.1 == group, "{id} is not in {group}");
+        rule.2 = enabled;
         Ok(())
     }
     fn add_block_rule(&mut self, name: &str, port: u16) -> Result<()> {
@@ -652,9 +657,9 @@ fn setup_saves_the_originals_before_the_first_change() {
             dwm_frame_interval: None,
             suppress_when_minimized: Some(0),
             child_sessions: false,
-            remote_desktop_rules_enabled: vec![
-                "Remote Desktop - User Mode (TCP-In)".into(),
-                "Remote Desktop - User Mode (UDP-In)".into(),
+            remote_desktop_rule_ids: vec![
+                "RemoteDesktop-UserMode-In-TCP".into(),
+                "RemoteDesktop-UserMode-In-UDP".into(),
             ],
             rdp_port: 3389,
         }
@@ -712,6 +717,32 @@ fn uninstall_restores_every_original_value() {
         fake.log
             .borrow()
             .contains(&"delete DWMFRAMEINTERVAL".to_string())
+    );
+}
+
+#[test]
+fn restore_turns_on_only_the_rules_that_were_on_when_names_repeat() {
+    // Two rules can share a display name (one per profile, or a copy); only
+    // the one that was on before setup comes back on.
+    let mut fake = Fake::new();
+    fake.machine.rules.insert(
+        "RemoteDesktop-UserMode-In-TCP-Copy".into(),
+        (
+            "Remote Desktop - User Mode (TCP-In)".into(),
+            REMOTE_DESKTOP_RULES.into(),
+            false,
+        ),
+    );
+    let before = fake.machine.clone();
+    let state = set_up(&mut fake);
+    assert!(fake.enabled_rules(REMOTE_DESKTOP_RULES).unwrap().is_empty());
+    restore(&mut fake, &state).unwrap();
+    assert_eq!(fake.machine, before);
+    assert!(
+        !fake
+            .log
+            .borrow()
+            .contains(&"rule RemoteDesktop-UserMode-In-TCP-Copy true".to_string())
     );
 }
 
@@ -1010,6 +1041,21 @@ fn without_d3d12_memory_size_decides_integrated() {
     assert!(!adapter("big", 0x1002, 16_384, None).is_integrated());
     // D3D12's answer wins over the memory size.
     assert!(!adapter("small but discrete", 0x1002, 256, Some(false)).is_integrated());
+}
+
+#[test]
+fn only_the_console_users_own_child_session_is_attached() {
+    assert!(check_child_owner(5, 1, SID, SID).is_ok());
+    // SIDs compare without case.
+    assert!(check_child_owner(5, 1, &SID.to_lowercase(), SID).is_ok());
+    let other = check_child_owner(5, 1, "S-1-5-21-other", SID)
+        .unwrap_err()
+        .to_string();
+    assert!(other.contains("another Windows account"), "{other}");
+    for (child, console) in [(0, 1), (1, 1), (u32::MAX, 1), (0x8000_0000, 1)] {
+        assert!(check_child_owner(child, console, SID, SID).is_err());
+    }
+    assert!(check_child_owner(5, 1, "", "").is_err());
 }
 
 #[test]

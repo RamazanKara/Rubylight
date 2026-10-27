@@ -716,7 +716,7 @@ fn session_has_user(session: u32) -> Result<bool> {
     }
 }
 
-fn session_user_sid(session: u32) -> Result<String> {
+pub(crate) fn session_user_sid(session: u32) -> Result<String> {
     let mut token = HANDLE::default();
     // SAFETY: WTS returns an owned token for this session's signed-in user.
     // OwnedHandle closes it after reading its SID; no token is exposed or used

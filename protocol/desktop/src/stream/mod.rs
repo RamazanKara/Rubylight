@@ -8,6 +8,7 @@
 
 pub mod packed444;
 pub mod pipeline;
+mod playout;
 pub mod present;
 mod microphone;
 mod cursor;
@@ -1137,7 +1138,7 @@ pub struct Streaming {
     rtp_clock: RtpClock,
     last_probe: Instant,
     window: Window,
-    last_counters: (u64, u64, u64, u64, u64, u64),
+    last_counters: (u64, u64, u64, u64, u64, u64, u64),
     host_average: HostAverage,
     /// Early frames and fallbacks at the last overlay update.
     last_early: (u64, u64),
@@ -1257,7 +1258,7 @@ impl Streaming {
             rtp_clock: RtpClock::default(),
             last_probe: Instant::now(),
             window: Window::default(),
-            last_counters: (0, 0, 0, 0, 0, 0),
+            last_counters: (0, 0, 0, 0, 0, 0, 0),
             host_average: HostAverage::default(),
             last_early: (0, 0),
             last_video: (0, 0),
@@ -2227,6 +2228,7 @@ impl Streaming {
             c.decode_errors.load(Ordering::Relaxed),
             c.audio_dropped.load(Ordering::Relaxed),
             c.audio_underruns.load(Ordering::Relaxed),
+            c.audio_concealed.load(Ordering::Relaxed),
         );
         let last = self.last_counters;
         self.last_counters = now;
@@ -2373,6 +2375,9 @@ impl Streaming {
         }
         if now.5 > last.5 {
             audio.push_str(&format!(", {} underruns", now.5 - last.5));
+        }
+        if now.6 > last.6 {
+            audio.push_str(&format!(", {} packets concealed", now.6 - last.6));
         }
         lines.push(("Audio".into(), audio));
         lines.push(("Bitrate".into(), format!("{:.1} Mbps{}", f64::from(self.facts.bitrate_kbps) / 1000.0,

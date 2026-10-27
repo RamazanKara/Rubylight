@@ -119,7 +119,8 @@ fn halves(grid: &focus::Grid) -> [f64; 6] {
 /// `FOCUS_DIAG_CASES` `codec:WxH:kbps[:10]` comma-separated (codec 0/1/2),
 /// `FOCUS_DIAG_VARIANTS` `|`-separated `key=value;key=value` host settings
 /// (`default` for none), `FOCUS_DIAG_PATTERNS` of `lr`, `rl`, `tb`, `row1`,
-/// `above2`, `below2`, `ramp`, `zero`, `ten` (anything else is 5),
+/// `above2`, `below2`, `ramp`, `zero`, `ten`, `uN` (every block N), `hA-B`
+/// (left A, right B; anything else is 5), or `>`-chained per frame,
 /// `FOCUS_DIAG_GRAIN` 0 or 1, `FOCUS_DIAG_FRAMES` per arm, `FOCUS_DIAG_OUT`
 /// a JSON file of every grid.
 #[test]
@@ -200,7 +201,7 @@ fn focus_native_diag() -> Result<()> {
                 settings.join(" ")
             );
             for pattern in env("FOCUS_DIAG_PATTERNS", "lr").split(',') {
-                let map = focus::Grid {
+                let map = |pattern: &str| focus::Grid {
                     width: columns,
                     height: lines,
                     values: (0..columns * lines)
@@ -216,13 +217,26 @@ fn focus_native_diag() -> Result<()> {
                                 "above2" => u32::from(y < 2) * 10,
                                 "rl" => u32::from(x >= columns / 2) * 10,
                                 "row1" => u32::from(y == 1) * 10,
+                                // `uN`: every block at N; `hA-B`: left A, right B.
+                                _ if pattern.starts_with('u') => pattern[1..].parse().unwrap_or(5),
+                                _ if pattern.starts_with('h') => {
+                                    let (left, right) =
+                                        pattern[1..].split_once('-').unwrap_or(("5", "5"));
+                                    let side = if x < columns / 2 { left } else { right };
+                                    side.parse().unwrap_or(5)
+                                }
                                 _ => 5,
                             }
                         })
                         .collect(),
                 };
+                // `a>b>c`: one map per frame, the last repeated; `none` is no map.
+                let steps: Vec<Option<focus::Grid>> = pattern
+                    .split('>')
+                    .map(|step| (step != "none").then(|| map(step)))
+                    .collect();
                 let mut maps = vec![None; frames];
-                maps.extend(std::iter::repeat_n(Some(map), frames));
+                maps.extend((0..frames).map(|index| steps[index.min(steps.len() - 1)].clone()));
                 let measured = encoder.focus_diag(4, &maps, grain)?;
                 for (index, (grid, size)) in measured.iter().enumerate() {
                     let arm = if index < frames { "ctrl" } else { pattern };

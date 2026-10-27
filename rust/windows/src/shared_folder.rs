@@ -543,8 +543,8 @@ mod tests {
         // A lone surrogate, which NTFS allows in a name.
         let mut name: Vec<u16> = r"\\?\D:\".encode_utf16().collect();
         name.push(0xd800);
-        let odd = local_root(root, &PathBuf::from(std::ffi::OsString::from_wide(&name)))
-            .unwrap_err();
+        let odd =
+            local_root(root, &PathBuf::from(std::ffi::OsString::from_wide(&name))).unwrap_err();
         assert_eq!(odd.kind(), io::ErrorKind::InvalidData);
         assert!(odd.to_string().contains("not valid Unicode"), "{odd}");
         assert!(!odd.to_string().contains("network"), "{odd}");

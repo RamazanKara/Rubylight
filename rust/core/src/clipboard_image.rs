@@ -114,9 +114,7 @@ pub fn decode_png(bytes: &[u8]) -> Result<Image, ImageError> {
     // One buffer of the RGBA size: the frame is decoded into its start and
     // spread to RGBA in place, so an image never takes twice its pixels.
     let mut rgba = vec![0; rgba_bytes];
-    let frame = reader
-        .next_frame(&mut rgba[..size])
-        .map_err(malformed)?;
+    let frame = reader.next_frame(&mut rgba[..size]).map_err(malformed)?;
     if frame.bit_depth != png::BitDepth::Eight {
         return Err(ImageError::Unsupported(format!(
             "{:?} bits per channel",
@@ -557,7 +555,12 @@ mod tests {
             &decode_png(&indexed).unwrap().rgba[..8],
             &[10, 20, 30, 255, 40, 50, 60, 255]
         );
-        let wide = encode(png::ColorType::Grayscale, png::BitDepth::Sixteen, &[7; 12], None);
+        let wide = encode(
+            png::ColorType::Grayscale,
+            png::BitDepth::Sixteen,
+            &[7; 12],
+            None,
+        );
         assert_eq!(decode_png(&wide).unwrap().rgba, [7, 7, 7, 255].repeat(6));
     }
 
@@ -569,9 +572,7 @@ mod tests {
         spread_to_rgba(&mut buffer, 7, 3, 2).unwrap();
         assert_eq!(
             buffer,
-            [
-                1, 2, 3, 255, 4, 5, 6, 255, 7, 8, 9, 255, 10, 11, 12, 255
-            ]
+            [1, 2, 3, 255, 4, 5, 6, 255, 7, 8, 9, 255, 10, 11, 12, 255]
         );
         // A row longer than its RGBA would overwrite pixels not yet read.
         assert!(spread_to_rgba(&mut [0; 16], 9, 3, 2).is_err());

@@ -173,10 +173,13 @@ pub fn read_png(max_bytes: usize) -> Result<Option<Vec<u8>>> {
     image_png(png_format()?, max_bytes, copied)
 }
 
+/// Copies what is needed out of a format's bytes while the clipboard is open.
+type Take<'a> = &'a dyn Fn(&[u8]) -> Result<Vec<u8>>;
+
 /// The bytes `take` copies out of the clipboard's `format`, or `None` while
 /// it doesn't hold that format. The clipboard is open, and [`LOCK`] held,
 /// only while they are copied.
-fn copied(format: u32, take: &dyn Fn(&[u8]) -> Result<Vec<u8>>) -> Result<Option<Vec<u8>>> {
+fn copied(format: u32, take: Take<'_>) -> Result<Option<Vec<u8>>> {
     let _lock = lock(&LOCK);
     let _open = Open::new()?;
     with_data(format, take)
@@ -188,7 +191,7 @@ fn copied(format: u32, take: &dyn Fn(&[u8]) -> Result<Vec<u8>>) -> Result<Option
 fn image_png(
     png: u32,
     max_bytes: usize,
-    mut copy: impl FnMut(u32, &dyn Fn(&[u8]) -> Result<Vec<u8>>) -> Result<Option<Vec<u8>>>,
+    mut copy: impl FnMut(u32, Take<'_>) -> Result<Option<Vec<u8>>>,
 ) -> Result<Option<Vec<u8>>> {
     let fits = move |bytes: Vec<u8>| -> Result<Vec<u8>> {
         if bytes.len() > max_bytes {
@@ -283,7 +286,7 @@ mod tests {
     fn fake(
         formats: Vec<(u32, Vec<u8>)>,
         asked: &mut Vec<u32>,
-    ) -> impl FnMut(u32, &dyn Fn(&[u8]) -> Result<Vec<u8>>) -> Result<Option<Vec<u8>>> + '_ {
+    ) -> impl FnMut(u32, Take<'_>) -> Result<Option<Vec<u8>>> + '_ {
         move |format, take| {
             asked.push(format);
             let _lock = lock(&LOCK);
@@ -323,7 +326,10 @@ mod tests {
         assert_eq!(read.unwrap(), Some(held));
         let too_large = image_png(PNG, 16, fake(vec![(PNG, padded)], &mut asked)).unwrap_err();
         assert_eq!(too_large.downcast_ref(), Some(&ImageError::TooLarge));
-        assert_eq!(image_png(PNG, 1 << 20, fake(vec![], &mut asked)).unwrap(), None);
+        assert_eq!(
+            image_png(PNG, 1 << 20, fake(vec![], &mut asked)).unwrap(),
+            None
+        );
     }
 
     #[test]
@@ -337,31 +343,36 @@ mod tests {
         let png = image_png(
             PNG,
             1 << 20,
-            fake(vec![(CF_DIBV5, palette.clone()), (CF_DIB, dib.clone())], &mut asked),
+            fake(
+                vec![(CF_DIBV5, palette.clone()), (CF_DIB, dib.clone())],
+                &mut asked,
+            ),
         )
         .unwrap()
         .expect("the CF_DIB image");
         assert_eq!(clipboard_image::decode_png(&png).unwrap(), image);
         assert_eq!(asked, [PNG, CF_DIBV5, CF_DIB]);
         // So does a CF_DIBV5 Windows fails to give.
-        let png = image_png(PNG, 1 << 20, |format, take: &dyn Fn(&[u8]) -> Result<Vec<u8>>| {
-            match format {
-                CF_DIBV5 => bail!("GetClipboardData failed"),
-                CF_DIB => take(&dib).map(Some),
-                _ => Ok(None),
-            }
+        let png = image_png(PNG, 1 << 20, |format, take: Take<'_>| match format {
+            CF_DIBV5 => bail!("GetClipboardData failed"),
+            CF_DIB => take(&dib).map(Some),
+            _ => Ok(None),
         })
         .unwrap();
         assert!(png.is_some());
         // With nothing after it, what was wrong is the answer, not "no image".
-        let error = image_png(PNG, 1 << 20, fake(vec![(CF_DIBV5, palette)], &mut asked))
-            .unwrap_err();
+        let error =
+            image_png(PNG, 1 << 20, fake(vec![(CF_DIBV5, palette)], &mut asked)).unwrap_err();
         assert!(matches!(
             error.downcast_ref(),
             Some(ImageError::Unsupported(_))
         ));
-        let error = image_png(PNG, 1 << 20, fake(vec![(PNG, b"\x89PNG\r\n".to_vec())], &mut asked))
-            .unwrap_err();
+        let error = image_png(
+            PNG,
+            1 << 20,
+            fake(vec![(PNG, b"\x89PNG\r\n".to_vec())], &mut asked),
+        )
+        .unwrap_err();
         assert!(matches!(
             error.downcast_ref(),
             Some(ImageError::Malformed(_))
@@ -372,7 +383,7 @@ mod tests {
     fn a_bitmap_longer_than_any_within_the_limits_is_not_copied() {
         let huge = vec![0u8; clipboard_image::MAX_DIB_BYTES + 1];
         let copied = std::cell::Cell::new(false);
-        let error = image_png(PNG, 1 << 20, |format, take: &dyn Fn(&[u8]) -> Result<Vec<u8>>| {
+        let error = image_png(PNG, 1 << 20, |format, take: Take<'_>| {
             if format != CF_DIBV5 {
                 return Ok(None);
             }

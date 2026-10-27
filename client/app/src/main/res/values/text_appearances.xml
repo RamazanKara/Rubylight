@@ -44,13 +44,13 @@
         <item name="lineHeight">20sp</item>
         <item name="android:fontFamily">sans-serif-medium</item>
         <item name="fontFamily">sans-serif-medium</item>
-        <item name="android:letterSpacing">0.01</item>
+        <item name="android:letterSpacing">0</item>
     </style>
 
     <style name="TextAppearance.Nightjar.Caption" parent="TextAppearance.Material3.BodySmall">
         <item name="android:textSize">12sp</item>
         <item name="lineHeight">16sp</item>
-        <item name="android:letterSpacing">0.01</item>
+        <item name="android:letterSpacing">0</item>
     </style>
 
     <!-- Stream statistics: tabular figures that stay aligned while values change. -->

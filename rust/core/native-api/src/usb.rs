@@ -1,5 +1,5 @@
 //! `GET /usb/tunnel`: the byte pipe of one forwarded USB device (feature
-//! `usb`). Defined for 3.0; not yet served.
+//! `usb`).
 //!
 //! The client asks for a device on the `0x553A` control channel and gets a
 //! token back in its `TUNNEL_READY` message. It then opens this path on the

@@ -198,6 +198,8 @@ pub struct Host {
     pub bandwidth_probes: Mutex<butterpollo_core::bandwidth_probe::Limiter>,
     /// File transfer uploads and downloads, all paced together.
     pub file_transfers: crate::native_api::files::Transfers,
+    /// The USB devices clients forward to this host.
+    pub usb: crate::usb_forward::UsbForwarding,
     /// The session state machine and its journal.
     pub session: Mutex<crate::session_control::Control>,
     pub confirmations: Mutex<butterpollo_core::remote::Confirmations>,
@@ -511,6 +513,7 @@ impl Host {
             power: Default::default(),
             bandwidth_probes: Default::default(),
             file_transfers: Default::default(),
+            usb: Default::default(),
             session: Mutex::new(session),
             confirmations: Mutex::new(Default::default()),
             app_audio: Mutex::new(None),

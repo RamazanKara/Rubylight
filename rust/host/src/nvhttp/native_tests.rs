@@ -29,6 +29,7 @@ mod couch_menu;
 mod files;
 mod launcher;
 mod radeon;
+mod usb;
 mod wake;
 
 const LIST: u32 = 1 << 24;
@@ -318,8 +319,8 @@ async fn unknown_paths_and_methods_answer_404_not_found_in_the_error_shape() {
         ("GET", "/session/end"),
         ("GET", "/session/close-game"),
         ("GET", "/session/couch-menu"),
+        ("POST", "/usb/tunnel"),
         // Defined for 3.0, not yet served.
-        ("GET", "/usb/tunnel"),
         ("GET", "/folders"),
         ("GET", "/folders/games/entries?path="),
         ("GET", "/folders/games/content?path=a"),
@@ -417,7 +418,8 @@ async fn usb_and_shared_folders_show_what_the_device_holds_and_list_no_feature()
         (granted.permissions.usb, granted.permissions.shared_folders),
         (true, true)
     );
-    // Neither is served yet, so the features stay what a 2.x client reads.
+    // USB forwarding is off by default and shared folders are not served yet, so the features
+    // stay what a 2.x client reads.
     assert_eq!(granted.features, none.features);
 }
 

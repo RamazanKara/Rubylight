@@ -213,6 +213,8 @@ fn token_catalog() -> Vec<auth::Scope> {
         ("/api/clients/unpair", &["POST"][..]),
         ("/api/clients/disconnect", &["POST"][..]),
         ("/api/clients/reset-network-history", &["POST"][..]),
+        ("/api/usb", &["GET"][..]),
+        ("/api/usb/detach", &["POST"][..]),
         ("/api/session/status", &["GET"][..]),
         ("/api/session/console", &["GET", "POST"][..]),
         ("/api/rtsp/sessions", &["GET"][..]),
@@ -1082,6 +1084,16 @@ pub(crate) async fn api(
             | ("GET", "/api/clients/pending") => clients::handle(&h, method.as_str(), path, &data)?,
             ("GET", "/api/rtsp/sessions") | ("GET", "/api/session/status") => {
                 session::handle(&h, method.as_str(), path)?
+            }
+            ("GET", "/api/usb") => json!({"status":true,"devices":h.usb.list()}),
+            ("POST", "/api/usb/detach") => {
+                let Some(id) = data.get("id").and_then(Value::as_u64) else {
+                    anyhow::bail!("id is missing");
+                };
+                if !h.usb.detach(id) {
+                    anyhow::bail!("no forwarded USB device {id}");
+                }
+                json!({"status":true})
             }
             ("GET" | "POST", "/api/session/console") => {
                 session::console(&h, method.as_str(), &data)?

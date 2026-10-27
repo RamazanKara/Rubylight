@@ -100,25 +100,7 @@ impl<D: Device> UsbPad<D> {
     pub(super) fn plug(exe: &Path, device: D, period: Duration) -> Result<Self> {
         let export = Export::listen(device, period).context("starting the USB/IP server")?;
         let tcp = export.port().to_string();
-        let out = usbip(
-            exe,
-            &[
-                "--tcp-port",
-                &tcp,
-                "attach",
-                "--remote",
-                "127.0.0.1",
-                "--bus-id",
-                BUS_ID,
-                "--terse",
-                "--once",
-            ],
-        )?;
-        let port = out
-            .lines()
-            .rev()
-            .find_map(|line| line.trim().parse().ok())
-            .with_context(|| format!("usbip.exe attach printed no port: {}", out.trim()))?;
+        let port = attach(exe, &tcp, BUS_ID)?;
         Ok(Self {
             export: Some(export),
             exe: exe.to_owned(),
@@ -139,18 +121,68 @@ impl<D: Device> Drop for UsbPad<D> {
         // Closing the server would otherwise leave the driver trying to
         // attach the controller again.
         drop(self.export.take());
-        let _ = usbip(
-            &self.exe,
-            &[
-                "--tcp-port",
-                &self.tcp,
-                "attach",
-                "--remote",
-                "127.0.0.1",
-                "--bus-id",
-                BUS_ID,
-                "--stop",
-            ],
-        );
+        let _ = stop(&self.exe, &self.tcp, BUS_ID);
+    }
+}
+
+/// Attaches `busid` from the USB/IP server on loopback port `tcp`; returns the hub port.
+fn attach(exe: &Path, tcp: &str, busid: &str) -> Result<u32> {
+    let out = usbip(
+        exe,
+        &[
+            "--tcp-port",
+            tcp,
+            "attach",
+            "--remote",
+            "127.0.0.1",
+            "--bus-id",
+            busid,
+            "--terse",
+            "--once",
+        ],
+    )?;
+    out.lines()
+        .rev()
+        .find_map(|line| line.trim().parse().ok())
+        .with_context(|| format!("usbip.exe attach printed no port: {}", out.trim()))
+}
+
+/// Stops the driver attaching `busid` from loopback port `tcp` again.
+fn stop(exe: &Path, tcp: &str, busid: &str) -> Result<String> {
+    usbip(
+        exe,
+        &[
+            "--tcp-port",
+            tcp,
+            "attach",
+            "--remote",
+            "127.0.0.1",
+            "--bus-id",
+            busid,
+            "--stop",
+        ],
+    )
+}
+
+/// usbip-win2 for USB forwarding: attaches a client's device that the host relays on a
+/// loopback port.
+pub struct UsbipDriver {
+    exe: PathBuf,
+}
+impl UsbipDriver {
+    /// None when usbip-win2 is not installed.
+    pub fn find() -> Option<Self> {
+        usbip_exe().map(|exe| Self { exe })
+    }
+    /// Attaches `busid`, served on 127.0.0.1:`tcp_port`; returns the hub port. Blocks until the
+    /// driver imported the device or failed, at most 15 s.
+    pub fn attach(&self, tcp_port: u16, busid: &str) -> Result<u32> {
+        attach(&self.exe, &tcp_port.to_string(), busid)
+    }
+    /// Unplugs hub `port` and stops the driver attaching the device again.
+    pub fn detach(&self, port: u32, tcp_port: u16, busid: &str) -> Result<()> {
+        let detached = usbip(&self.exe, &["detach", "--port", &port.to_string()]);
+        stop(&self.exe, &tcp_port.to_string(), busid)?;
+        detached.map(drop)
     }
 }

@@ -46,9 +46,10 @@ pub fn bandwidth_probe(_h: &Shared, config: &Config) -> bool {
     config.bandwidth_probe()
 }
 
-/// USB forwarding (C): the 0x553A channel.
-fn usb(_h: &Shared, _config: &Config) -> bool {
-    false
+/// USB forwarding (C): the 0x553A channel, while `usb_forwarding` is on and the USB/IP driver
+/// is ready.
+fn usb(h: &Shared, config: &Config) -> bool {
+    config.usb_forwarding() && h.usb.ready()
 }
 
 /// Audio (E): `audio_ext::CODEC_*` bits besides Opus, while `audio_passthrough` is on: PCM,
@@ -133,8 +134,12 @@ pub fn native_features(h: &Shared, config: &Config) -> Vec<&'static str> {
 
 /// USB forwarding (C): `usb`, while `usb_forwarding` is on and the USB/IP
 /// driver is ready.
-fn usb_feature(_h: &Shared, _config: &Config) -> Vec<&'static str> {
-    Vec::new()
+fn usb_feature(h: &Shared, config: &Config) -> Vec<&'static str> {
+    if usb(h, config) {
+        vec![butterpollo_core::native_api::feature::USB]
+    } else {
+        Vec::new()
+    }
 }
 
 /// Features (G): `clipboard.image`, while `clipboard_image` is on.

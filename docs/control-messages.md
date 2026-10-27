@@ -182,7 +182,7 @@ By default (`link_rate_adaptation`, [configuration](configuration.md#lower-bitra
 
 ## 3.0 extensions
 
-These are defined for 3.0, in the same crate. Rubylight offers `0x5539` FEC reports and `0x553D` pipeline rates, and text input (`0x553B`) and keyboard layouts (`0x553E`) while the keyboard is on, with `keyboard_follows_focus` on and `keyboard_layout = client` (both the default); no host offers the others yet. A host that takes some of them adds a second line to its `DESCRIBE` answer, after the first:
+These are defined for 3.0, in the same crate. Rubylight offers `0x5539` FEC reports and `0x553D` pipeline rates, text input (`0x553B`) and keyboard layouts (`0x553E`) while the keyboard is on, with `keyboard_follows_focus` on and `keyboard_layout = client` (both the default), and `0x553A` USB forwarding while its USB forwarding setting is on and its USB/IP driver is installed; no host offers the others yet. A host that takes some of them adds a second line to its `DESCRIBE` answer, after the first:
 
 ```
 a=x-rl-control:0x553b,0x553e
@@ -227,7 +227,7 @@ Every message starts with an 8-byte header: `0 version u8`, `1 kind u8`, `2 rese
 | Kind | Direction | Body after the header | Size |
 | --- | --- | --- | --- |
 | 0 ATTACH_REQUEST | client to host | `8 vid u16`, `10 pid u16`, `12 class u8` (bDeviceClass, or the first interface's class when that is 0), `13 speed u8` (USB/IP: 1 low, 2 full, 3 high, 4 wireless, 5 super, 6 super+), `14 busid_len u8` (1-31), `15 name_len u8` (0-64), then the USB/IP busid in ASCII and the name in UTF-8 | 16 + busid + name |
-| 1 TUNNEL_READY | host to client | `8 token [u8; 16]`: open the [USB tunnel](native-api.md#defined-not-yet-served) within 30 s | 24 |
+| 1 TUNNEL_READY | host to client | `8 token [u8; 16]`: open the [USB tunnel](native-api.md#usb-forwarding) within 30 s | 24 |
 | 2 DETACH | both | none. From the client: the user detached or unplugged the device. From the host: it detached the device (console, limit, end of session), so the client stops exporting it. | 8 |
 | 3 STATUS | host to client | `8 state u8` (0 attached, 1 detached, 2 refused, 3 failed), `9 reason u8` (0 none, 1 permission, 2 disabled, 3 limit, 4 driver, 5 tunnel timeout, 6 device error, 7 session end), `10 reserved u16` | 12 |
 

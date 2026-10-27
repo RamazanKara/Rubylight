@@ -28,3 +28,4 @@ pub mod roaming;
 pub mod steam_controller;
 pub mod text_input;
 pub mod usb;
+pub mod usbip;

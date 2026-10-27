@@ -36,6 +36,7 @@ mod telemetry;
 mod timing_record;
 mod tls;
 mod updater;
+mod usb_forward;
 mod video_send;
 mod wake;
 mod web;

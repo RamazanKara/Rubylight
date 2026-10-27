@@ -805,6 +805,142 @@ impl<R: Read + ?Sized> Reader<'_, R> {
     }
 }
 
+/// The most of an error body read from a refused upgrade.
+const UPGRADE_ERROR_BYTES: usize = 64 * 1024;
+
+/// Asks the host to switch `request`, over TLS, to `protocol`, with `fields` in the head.
+/// Any answer but `101 Switching Protocols` comes back as the response it is, for its error.
+pub(crate) fn upgrade(request: &Request<'_>, cancel: &Cancel, protocol: &str, fields: &[(&str, &str)])
+    -> Result<Result<Upgraded, Response>, Error> {
+    let config = request.tls.clone().ok_or_else(|| Error::InvalidArgument("an upgrade needs TLS".into()))?;
+    let tcp = connect(request.host, request.port, request.timeouts.connect, None)?;
+    let id = cancel.register(&tcp)?;
+    let result = (|| {
+        tcp.set_read_timeout(request.timeouts.read)?;
+        tcp.set_write_timeout(Some(write_timeout(request)))?;
+        tcp.set_nodelay(true)?;
+        let name = ServerName::try_from(request.host.name.clone())
+            .map_err(|_| Error::InvalidArgument(format!("invalid host name: {}", request.host.name)))?;
+        let mut stream = StreamOwned::new(ClientConnection::new(config, name).map_err(tls_error)?, tcp.try_clone()?);
+        while stream.conn.is_handshaking() {
+            stream.conn.complete_io(&mut stream.sock).map_err(io_tls_error)?;
+        }
+        let mut head = format!(
+            "GET /{} HTTP/1.1\r\nHost: {}:{}\r\nConnection: Upgrade\r\nUpgrade: {protocol}\r\nUser-Agent: {}\r\n",
+            request.target,
+            request.host.url_host(),
+            request.port,
+            user_agent()
+        );
+        for (name, value) in fields {
+            head.push_str(&format!("{name}: {value}\r\n"));
+        }
+        head.push_str("\r\n");
+        stream.write_all(head.as_bytes()).map_err(io_tls_error)?;
+        stream.flush().map_err(io_tls_error)?;
+        let mut reader = Reader { stream: &mut stream, buffer: Vec::new(), eof: false };
+        let head = read_head(&mut reader)?;
+        if head.status != 101 {
+            let body = read_body(&mut reader, &head, UPGRADE_ERROR_BYTES)?;
+            return Ok(Err(head.into_response(body)));
+        }
+        if !head.header("Upgrade").is_some_and(|upgrade| upgrade.eq_ignore_ascii_case(protocol)) {
+            return Err(Error::Malformed(format!("the host switched to {:?}, not {protocol}", head.header("Upgrade"))));
+        }
+        // Whatever the host sent after its head is the new protocol's.
+        let early = std::mem::take(&mut reader.buffer);
+        let StreamOwned { conn, sock } = stream;
+        sock.set_read_timeout(None)?;
+        sock.set_write_timeout(None)?;
+        Ok(Ok(Upgraded { socket: sock.try_clone()?, tls: Mutex::new(UpgradedTls { conn, socket: sock, early }) }))
+    })();
+    cancel.unregister(id);
+    match result {
+        Err(_) if cancel.is_cancelled() => Err(Error::Cancelled),
+        other => other,
+    }
+}
+
+/// A TLS connection the host switched to another protocol. One thread may read while others
+/// write: a read waits for bytes without holding the TLS state.
+pub struct Upgraded {
+    /// Waits for bytes and closes the connection.
+    socket: TcpStream,
+    tls: Mutex<UpgradedTls>,
+}
+
+struct UpgradedTls {
+    conn: ClientConnection,
+    socket: TcpStream,
+    /// Plaintext read past the response head.
+    early: Vec<u8>,
+}
+
+impl Upgraded {
+    fn tls(&self) -> std::sync::MutexGuard<'_, UpgradedTls> {
+        self.tls.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Reads what arrived, waiting for it; 0 once the host closed.
+    pub fn read(&self, bytes: &mut [u8]) -> std::io::Result<usize> {
+        loop {
+            {
+                let mut tls = self.tls();
+                if !tls.early.is_empty() {
+                    let n = bytes.len().min(tls.early.len());
+                    bytes[..n].copy_from_slice(&tls.early[..n]);
+                    tls.early.drain(..n);
+                    return Ok(n);
+                }
+                match tls.conn.reader().read(bytes) {
+                    Ok(n) => return Ok(n),
+                    Err(e) if e.kind() == ErrorKind::WouldBlock => {}
+                    // The host closed without close_notify.
+                    Err(e) if e.kind() == ErrorKind::UnexpectedEof => return Ok(0),
+                    Err(e) => return Err(e),
+                }
+            }
+            let mut probe = [0];
+            self.socket.peek(&mut probe)?;
+            let mut tls = self.tls();
+            let UpgradedTls { conn, socket, .. } = &mut *tls;
+            if conn.read_tls(socket)? == 0 {
+                return Ok(0);
+            }
+            conn.process_new_packets().map_err(|e| std::io::Error::new(ErrorKind::InvalidData, e))?;
+        }
+    }
+
+    /// Fills `bytes`; `UnexpectedEof` when the host closed first.
+    pub fn read_exact(&self, mut bytes: &mut [u8]) -> std::io::Result<()> {
+        while !bytes.is_empty() {
+            match self.read(bytes)? {
+                0 => return Err(ErrorKind::UnexpectedEof.into()),
+                n => bytes = &mut bytes[n..],
+            }
+        }
+        Ok(())
+    }
+
+    /// Sends `bytes` whole, as one write.
+    pub fn write_all(&self, bytes: &[u8]) -> std::io::Result<()> {
+        let mut tls = self.tls();
+        let UpgradedTls { conn, socket, .. } = &mut *tls;
+        conn.writer().write_all(bytes)?;
+        while conn.wants_write() {
+            conn.write_tls(socket)?;
+        }
+        Ok(())
+    }
+
+    /// Closes the connection, waking a blocked read or write.
+    pub fn close(&self) {
+        let _ = self.socket.shutdown(Shutdown::Both);
+        #[cfg(windows)]
+        abort_blocked_io(&self.socket);
+    }
+}
+
 /// Accepts exactly the pinned certificate, whatever its name or issuer.
 #[derive(Debug)]
 struct PinnedCertificate {

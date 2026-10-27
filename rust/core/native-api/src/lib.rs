@@ -54,7 +54,7 @@ pub mod feature {
     pub const FILES_DOWNLOAD: &str = "files.download";
     /// USB forwarding: the `0x553A` control channel and [`crate::usb::TUNNEL_PATH`]
     /// answer, while the host's `usb_forwarding` setting is on and its USB/IP
-    /// driver is ready. Defined for 3.0; not yet served.
+    /// driver is ready.
     pub const USB: &str = "usb";
     /// `GET` and `POST /actions/clipboard?type=png` carry images, while the host's
     /// `clipboard_image` setting is on. Defined for 3.0; not yet served.

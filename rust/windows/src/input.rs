@@ -44,6 +44,7 @@ use keyboard_mouse::{
     EXPLICIT_EXTENDED_KEY, inject, is_modifier, keyboard_identity, mapped_keyboard_identity,
 };
 use touch_pen::{inject_pointer, refresh_due};
+pub use usbip_pad::UsbipDriver;
 
 static HELD: std::sync::Mutex<BTreeMap<(bool, u32), usize>> =
     std::sync::Mutex::new(BTreeMap::new());

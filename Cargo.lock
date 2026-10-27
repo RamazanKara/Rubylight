@@ -354,6 +354,7 @@ dependencies = [
  "clap",
  "embed-resource",
  "hex",
+ "hyper",
  "hyper-util",
  "if-addrs",
  "igd-next",

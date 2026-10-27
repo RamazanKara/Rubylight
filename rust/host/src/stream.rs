@@ -3680,6 +3680,9 @@ impl Media {
                             }
                             let canceled = h.sessions.lock().unwrap().request_stop(Some(&p.id));
                             drop(canceled);
+                            // Its forwarded USB devices detach; the client is gone, so nobody
+                            // hears.
+                            drop(h.usb.end_session(&p.id));
                             if let Some(session) = session
                                 && session.launch.role == Role::RemoteMonitor
                                 && h.config.read().unwrap().boolean(
@@ -4007,6 +4010,28 @@ impl Media {
                                     ),
                                 }
                             }
+                            // The registry checks the setting and the device's permission and
+                            // queues the answer, which the pass below sends.
+                            butterpollo_core::usb_forward::USB_MESSAGE_TYPE if encrypted => {
+                                match butterpollo_core::usb_forward::UsbMessage::decode(&payload) {
+                                    Some(message) => {
+                                        let (enabled, limit) = {
+                                            let config = h.config.read().unwrap();
+                                            (config.usb_forwarding(), config.usb_max_devices())
+                                        };
+                                        h.usb.on_message(
+                                            &p.id,
+                                            &s.launch.client,
+                                            enabled,
+                                            limit,
+                                            message,
+                                        );
+                                    }
+                                    None => {
+                                        tracing::debug!(len = payload.len(), "invalid USB message")
+                                    }
+                                }
+                            }
                             butterpollo_core::display_caps::DISPLAY_CAPS_MESSAGE_TYPE => {
                                 match s.record_display_caps(&payload) {
                                     Some(update) if update.changed => {
@@ -4138,6 +4163,28 @@ impl Media {
                             s.fail();
                         }
                         host.socket_mut().roaming.set_stopping(&p.id);
+                        // Its forwarded USB devices detach, and the client hears so before the
+                        // termination.
+                        for usb in h.usb.end_session(&p.id) {
+                            let sent = usb
+                                .encode()
+                                .context("the USB message does not encode")
+                                .and_then(|payload| {
+                                    p.encrypt(
+                                        &s,
+                                        butterpollo_core::usb_forward::USB_MESSAGE_TYPE,
+                                        &payload,
+                                    )
+                                })
+                                .and_then(|message| {
+                                    host.peer_mut(*peer_id)
+                                        .send(0, &Packet::new(message, PacketKind::Reliable))
+                                        .map_err(|e| anyhow::anyhow!("{e}"))
+                                });
+                            if let Err(e) = sent {
+                                tracing::warn!(error = %format!("{e:#}"), ?usb, "USB message not sent");
+                            }
+                        }
                         let reason = s.termination_reason();
                         if let Ok(message) = p.encrypt(&s, 0x0109, &reason.to_be_bytes()) {
                             let peer = host.peer_mut(*peer_id);
@@ -4299,6 +4346,27 @@ impl Media {
                             }
                         }
                     }
+                    // USB forwarding's answers and detaches (0x553A), reliable and in order.
+                    for usb in h.usb.take(&p.id, Instant::now()) {
+                        let sent = usb
+                            .encode()
+                            .context("the USB message does not encode")
+                            .and_then(|payload| {
+                                p.encrypt(
+                                    &s,
+                                    butterpollo_core::usb_forward::USB_MESSAGE_TYPE,
+                                    &payload,
+                                )
+                            })
+                            .and_then(|message| {
+                                host.peer_mut(*peer_id)
+                                    .send(0, &Packet::new(message, PacketKind::Reliable))
+                                    .map_err(|e| anyhow::anyhow!("{e}"))
+                            });
+                        if let Err(e) = sent {
+                            tracing::warn!(error = %format!("{e:#}"), ?usb, "USB message not sent");
+                        }
+                    }
                     // Made before input comes; after a failure, again when it
                     // does. Making it with the first input held that input up.
                     if p.injector.is_none() && (!p.inputs.is_empty() || !p.injector_tried) {
@@ -4442,6 +4510,7 @@ impl Media {
                         }
                     }
                 } else if !pending || p.seen.elapsed() > ping_timeout {
+                    drop(h.usb.end_session(&p.id));
                     host.peer_mut(*peer_id).disconnect_now(0);
                     remove.push(*peer_id);
                 }

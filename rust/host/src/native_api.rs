@@ -180,6 +180,10 @@ pub fn router() -> Router<Shared> {
             get(files::content).fallback(unknown),
         )
         .route(&path("/wake"), get(wake::read).fallback(unknown))
+        .route(
+            &path(native_api::usb::TUNNEL_PATH),
+            get(usb_tunnel).fallback(unknown),
+        )
         .route(native_api::PREFIX, any(unknown))
         .route(&path("/"), any(unknown))
         .route(&path("/{*rest}"), any(unknown))
@@ -505,4 +509,87 @@ async fn couch_menu(
         StatusCode::OK,
         &native_api::session::CouchMenu { open },
     ))
+}
+
+/// Upgrades to the USB/IP pipe of the device a `TunnelReady` token names, and relays it to the
+/// driver until it detaches.
+async fn usb_tunnel(
+    State(h): State<Shared>,
+    Extension(c): Extension<Connection>,
+    mut request: Request,
+) -> Reply {
+    use native_api::usb::{TOKEN_HEADER, UPGRADE};
+    let client = caller(&h, &c)?;
+    let enabled = h
+        .config
+        .read()
+        .unwrap_or_else(PoisonError::into_inner)
+        .usb_forwarding();
+    if !enabled {
+        return Err(Failure::new(
+            ErrorCode::UsbDisabled,
+            "USB forwarding is off on this host.",
+        )
+        .for_setting("usb_forwarding"));
+    }
+    if !client.allows_usb() {
+        return Err(Failure::new(
+            ErrorCode::UsbDisabled,
+            "Turn on USB forwarding for this device in the Rubylight console.",
+        ));
+    }
+    let headers = request.headers();
+    let upgrades = headers
+        .get(header::UPGRADE)
+        .is_some_and(|value| value.as_bytes().eq_ignore_ascii_case(UPGRADE.as_bytes()));
+    let token = headers
+        .get(TOKEN_HEADER)
+        .and_then(|value| usb_token(value.to_str().ok()?));
+    let (true, Some(token)) = (upgrades, token) else {
+        return Err(Failure::new(
+            ErrorCode::InvalidRequest,
+            format!("Open the tunnel with Upgrade: {UPGRADE} and the token in {TOKEN_HEADER}."),
+        ));
+    };
+    let opened = h
+        .usb
+        .claim(&token, &client.cert, std::time::Instant::now())
+        .map_err(|refused| match refused {
+            crate::usb_forward::Refused::Unknown => Failure::new(
+                ErrorCode::NotFound,
+                "This USB tunnel token is unknown or expired. Ask for the device again.",
+            ),
+            crate::usb_forward::Refused::Used => Failure::new(
+                ErrorCode::UsbLimit,
+                "This USB tunnel token was already used.",
+            ),
+        })?;
+    let upgrade = hyper::upgrade::on(&mut request);
+    tokio::spawn(async move {
+        match upgrade.await {
+            Ok(tunnel) => {
+                h.usb
+                    .serve(opened, hyper_util::rt::TokioIo::new(tunnel))
+                    .await
+            }
+            Err(error) => h.usb.abandon(opened, error),
+        }
+    });
+    Ok((
+        StatusCode::SWITCHING_PROTOCOLS,
+        [(header::CONNECTION, "upgrade"), (header::UPGRADE, UPGRADE)],
+    )
+        .into_response())
+}
+
+/// A tunnel token: 32 hex digits.
+fn usb_token(hex: &str) -> Option<[u8; native_api::usb::TOKEN_BYTES]> {
+    let mut token = [0; native_api::usb::TOKEN_BYTES];
+    if hex.len() != token.len() * 2 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    for (byte, pair) in token.iter_mut().zip(hex.as_bytes().chunks(2)) {
+        *byte = u8::from_str_radix(std::str::from_utf8(pair).ok()?, 16).ok()?;
+    }
+    Some(token)
 }

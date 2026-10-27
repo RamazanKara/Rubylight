@@ -53,6 +53,14 @@ default values and L1 limits of the dolby_vision crate 3.4.0 of dovi_tool
 (https://github.com/quietvoid/dovi_tool, tag libdovi-3.4.0), Copyright (c) 2026
 quietvoid, MIT. The MIT terms are included in rust/THIRD_PARTY.md.
 
+Annex
+
+Background streaming in a Windows child session (rust/core/src/child_session.rs,
+rust/windows/src/child_session.rs and its viewer, rust/host/src/child_session.rs)
+is ported from Annex (https://github.com/mattxslv/annex), Copyright (c) 2026
+mattxslv, MIT licensed, with ocr1n's launcher rework (mattxslv/annex#2). The MIT
+license text is in third-party/licenses/annex-LICENSE.txt.
+
 InputPlumber and SDL
 
 The virtual Steam Deck controller (rust/core/src/steam_deck.rs) uses the Steam Deck's

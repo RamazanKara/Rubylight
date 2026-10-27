@@ -74,6 +74,16 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+## Annex
+
+Background streaming in a Windows child session (Experimental) is ported from [Annex](https://github.com/mattxslv/annex) by mattxslv, with ocr1n's launcher rework ([mattxslv/annex#2](https://github.com/mattxslv/annex/pull/2)), under the MIT License: the request gate and confirmation, the end-session checks and display settings, the peer rule, the viewer's poll loop, the RDP client settings and the Windows settings that setup changes and restore puts back (`rust/core/src/child_session.rs`, `rust/windows/src/child_session.rs`, `rust/windows/src/child_session/viewer.rs`, `rust/host/src/child_session.rs`). The ported parts carry the notice below; the full text is in `third-party/licenses/annex-LICENSE.txt`.
+
+```text
+MIT License
+
+Copyright (c) 2026 mattxslv
+```
+
 ## PyroWave patches from Punktfunk
 
 The PyroWave SDK patches `0002-payload-data-444-sizing` and `0003-decoder-reject-short-block` in `rust/codec-patches/pyrowave` are adapted from patches 0001 and 0008 of [Punktfunk](https://git.unom.io/unom/punktfunk) (MIT OR Apache-2.0), used here under the MIT License. They are compiled into the shipped `libpyrowave-shared-1.dll`.

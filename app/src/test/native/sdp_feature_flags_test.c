@@ -168,8 +168,8 @@ static long hdrFormatSent(int videoFormat, uint8_t asked, uint8_t offered) {
     return value;
 }
 
-// The 3.0 HDR format goes out only when asked for and offered, as one bit, on a 10-bit stream,
-// Dolby Vision on HEVC alone; as the Rust client's hdr_format test.
+// The 3.0 HDR format goes out only when asked for and offered, as one bit, on a 10-bit HEVC or
+// AV1 stream, Dolby Vision on HEVC alone; as the Rust client's hdr_format test.
 static void hdrFormat(void) {
     static const int formats[] = {VIDEO_FORMAT_H265, VIDEO_FORMAT_H265_MAIN10, VIDEO_FORMAT_AV1_MAIN10,
                                   VIDEO_FORMAT_PYROWAVE};
@@ -186,6 +186,17 @@ static void hdrFormat(void) {
     CHECK(hdrFormatSent(VIDEO_FORMAT_AV1_MAIN10, RL_HDR_DV_84, RL_HDR_ALL) == -1);
     CHECK(hdrFormatSent(VIDEO_FORMAT_H265, RL_HDR_HLG, RL_HDR_ALL) == -1);
     CHECK(hdrFormatSent(VIDEO_FORMAT_PYROWAVE, RL_HDR_HLG, RL_HDR_ALL) == -1);
+    // PyroWave's 10-bit formats are in VIDEO_FORMAT_MASK_10BIT but carry no HDR format: the host
+    // refuses one in the ANNOUNCE.
+    static const int pyroWave10[] = {VIDEO_FORMAT_PYROWAVE_MAIN10, VIDEO_FORMAT_PYROWAVE_MAIN10_444};
+    static const uint8_t bits[] = {RL_HDR_PQ, RL_HDR_HLG, RL_HDR_DV_81, RL_HDR_DV_84};
+    for (int i = 0; i < 2; i++) {
+        CHECK((pyroWave10[i] & VIDEO_FORMAT_MASK_10BIT) != 0);
+        for (int bit = 0; bit < 4; bit++) {
+            CHECK(hdrFormatSent(pyroWave10[i], bits[bit], RL_HDR_ALL) == -1);
+            CHECK(rlAnnouncedHdrFormat(bits[bit], RL_HDR_ALL, pyroWave10[i]) == 0);
+        }
+    }
 
     // Only the one line differs from the plain description.
     hdrFormatSent(VIDEO_FORMAT_H265_MAIN10, 0, RL_HDR_ALL);

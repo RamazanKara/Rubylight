@@ -54,10 +54,12 @@ static inline uint8_t rlParseHdrFormats(const char* sdp) {
 }
 
 // The format the ANNOUNCE asks for, or 0 for none: exactly one offered bit, on a 10-bit (HDR)
-// stream, and Dolby Vision only on HEVC. The same rule as the Rust client's announced_hdr_format.
+// HEVC or AV1 stream (PyroWave's 10-bit formats carry none), and Dolby Vision only on HEVC. The
+// same rule as the Rust client's announced_hdr_format.
 static inline uint8_t rlAnnouncedHdrFormat(uint8_t asked, uint8_t offered, int videoFormat) {
     if (asked == 0 || (asked & (asked - 1)) != 0 || (asked & offered & RL_HDR_ALL) == 0) return 0;
     if ((videoFormat & VIDEO_FORMAT_MASK_10BIT) == 0) return 0;
+    if ((videoFormat & (VIDEO_FORMAT_MASK_H265 | VIDEO_FORMAT_MASK_AV1)) == 0) return 0;
     if ((asked & RL_HDR_DOLBY_VISION) != 0 && (videoFormat & VIDEO_FORMAT_MASK_H265) == 0) return 0;
     return asked;
 }

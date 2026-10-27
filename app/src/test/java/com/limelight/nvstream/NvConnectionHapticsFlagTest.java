@@ -77,11 +77,9 @@ public class NvConnectionHapticsFlagTest {
         assertEquals(0, CapturingBridge.paceMbps);
     }
 
-    // With the setting on, a Wi-Fi or cellular route reaches the stream configuration, and a wired
-    // or unknown one does not, whatever the link speed is.
+    // A Wi-Fi or cellular route reaches the stream configuration, and a wired or unknown one does
+    // not, whatever the link speed is.
     @Test public void wirelessRouteReachesTheStreamConfiguration() throws Exception {
-        PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication()).edit()
-                .putBoolean("checkbox_tell_host_wireless", true).commit();
         for (boolean wireless : new boolean[] {true, false, true}) {
             FakeWiredLink.mbps = 0;
             FakeWiredLink.wireless = wireless;
@@ -97,22 +95,21 @@ public class NvConnectionHapticsFlagTest {
         assertEquals(2500, CapturingBridge.linkMbps);
     }
 
-    // The wireless hint goes only to a Rubylight host and only while the setting is on. It is off
-    // by default: the host's Wi-Fi pacing budget held phone RTT at 30-45 ms (3.2.3); the wired
-    // link speed is not affected by either.
+    // The wireless hint goes only to a Rubylight host and only while the setting is on (it is on
+    // by default); the wired link speed is not affected by either.
     @Test public void wirelessHintNeedsTheSettingAndARubylightHost() throws Exception {
         PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication()).edit()
                 .remove("checkbox_tell_host_wireless").commit();
         FakeWiredLink.wireless = true;
-        CapturingBridge.clientWireless = true;
-        startStream();
-        assertFalse("off by default", CapturingBridge.clientWireless);
-
-        PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication()).edit()
-                .putBoolean("checkbox_tell_host_wireless", true).commit();
         CapturingBridge.clientWireless = false;
         startStream();
-        assertTrue("switched on", CapturingBridge.clientWireless);
+        assertTrue("on by default", CapturingBridge.clientWireless);
+
+        PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication()).edit()
+                .putBoolean("checkbox_tell_host_wireless", false).commit();
+        CapturingBridge.clientWireless = true;
+        startStream();
+        assertFalse("switched off", CapturingBridge.clientWireless);
 
         PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication()).edit()
                 .putBoolean("checkbox_tell_host_wireless", true).commit();

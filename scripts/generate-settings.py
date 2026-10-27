@@ -133,7 +133,7 @@ ADVICE = {
     "export_latency_csv": "Choose a destination for the latest local frame-timing CSV. Each row holds the measured stage timings.",
     "low_latency_decoding": "Leave on. Sets Android low-latency mode, Chipset low-latency mode and Phone performance hints together; turn off only to test a decoding problem. The individual switches are behind Customize; the row says when one is off.",
     "low_latency_customize": "Opens or closes the individual switches under Low-latency decoding: Android low-latency mode, Chipset low-latency mode, Phone performance hints, Decoder performance hints and HEVC low-latency flags. Settings search finds them while it is closed.",
-    "checkbox_tell_host_wireless": "Off by default. Turn on to tell a Rubylight PC when this device streams over Wi-Fi, so it paces the stream for Wi-Fi from the start. Other PCs are not told.",
+    "checkbox_tell_host_wireless": "On by default. Tells a Rubylight PC when this device streams over Wi-Fi, so it paces the stream for Wi-Fi from the start. Other PCs are not told.",
     "checkbox_tell_host_link_speed": "On by default. Tells a Rubylight PC this device's wired port speed, so it never sends faster than the port can take. Other PCs are not told.",
     "pin_lock": "Off until a PIN is set. Asks for a PIN to open Nightjar or to start a stream. A forgotten PIN can only be reset by clearing Nightjar's app data in Android's settings, which also removes paired PCs.",
 }

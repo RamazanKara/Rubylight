@@ -1692,7 +1692,7 @@ impl Launcher {
                                 commands.push(Command::FolderDownload { host: id, name: entry.name.clone() });
                             }
                         }
-                        // Neither a file nor a folder (a link the PC does not follow): shown, not opened.
+                        // A kind this version does not know: shown, not opened.
                         EntryKind::Unknown => {
                             folder_line(ui, &entry.name, tr("Neither a file nor a folder"), |ui| ui.label(String::new()));
                         }

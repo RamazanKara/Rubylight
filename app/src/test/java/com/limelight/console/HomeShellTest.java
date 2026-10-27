@@ -877,4 +877,20 @@ public class HomeShellTest {
         }
         return false;
     }
+
+    /** Home on a 1080p TV: no text under the TV caption size, and nothing read or focused in the overscan band. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+    public void onTelevisionHomeKeepsItsTextReadableAndInsideTheOverscan() throws Exception {
+        ActivityController<Home> controller = home();
+        try {
+            Home home = controller.get();
+            showHosts(home, 6, true, nativeHost("tower", "Tower", true), nativeHost("attic", "Attic", false));
+            assertEquals(Collections.emptyList(), com.limelight.ui.TvAudit.findings(home));
+            com.limelight.ui.TvScreensPreviewTest.previewIfRequested(home, "Home-shelves");
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
 }

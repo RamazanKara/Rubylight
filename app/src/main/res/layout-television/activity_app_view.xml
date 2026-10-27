@@ -11,7 +11,11 @@
         android:importantForAccessibility="no" />
     <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent"
         android:orientation="vertical" android:clipChildren="false" android:clipToPadding="false">
-        <include android:id="@+id/library_toolbar" layout="@layout/view_top_app_bar" />
+        <!-- AdaptiveLayout's TV margin is 24dp; the bar's Back and menu buttons go the rest of the way to the 48dp overscan. -->
+        <include android:id="@+id/library_toolbar" layout="@layout/view_top_app_bar"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/shell_overscan_past_margin"
+            android:layout_marginEnd="@dimen/shell_overscan_past_margin" />
         <androidx.appcompat.widget.SearchView android:id="@+id/library_search"
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginStart="@dimen/screen_gutter" android:layout_marginEnd="@dimen/screen_gutter"

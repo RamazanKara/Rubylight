@@ -864,4 +864,33 @@ public class PcViewLifecycleTest {
             controller.pause().stop().destroy();
         }
     }
+
+    /** The PC list and its pairing PIN on a 1080p TV: readable text, nothing read or focused in the overscan band. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+    public void onATelevisionThePcListAndItsPinKeepTheirTextReadableAndInsideTheOverscan() throws Exception {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(1), 47989);
+        Thread worker = null;
+        try {
+            Library screen = controller.get();
+            // The PIN for the one unpaired PC first, then the list once two more PCs have joined it.
+            GridView grid = screen.findViewById(R.id.fragmentView);
+            grid.performItemClick(null, 0, 0);
+            worker = ReflectionHelpers.getField(screen.hostActions(), "pairingThread");
+            AlertDialog dialog = ReflectionHelpers.getField(screen.hostActions(), "pairingDialog");
+            assertTrue(dialog.isShowing());
+            assertEquals(java.util.Collections.emptyList(), com.limelight.ui.TvAudit.findings(dialog));
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            report(pc("b", "Beta", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED));
+            report(pc("c", "Gamma", ComputerDetails.State.OFFLINE, PairingManager.PairState.PAIRED));
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertEquals(java.util.Collections.emptyList(), com.limelight.ui.TvAudit.findings(screen));
+            com.limelight.ui.TvScreensPreviewTest.previewIfRequested(screen, "PcView-three");
+        } finally {
+            controller.pause().stop().destroy();
+            if (worker != null) worker.join(5000);
+        }
+    }
 }

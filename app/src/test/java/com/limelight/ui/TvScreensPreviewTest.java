@@ -181,6 +181,20 @@ public class TvScreensPreviewTest {
         return directory;
     }
 
+    /**
+     * Captures {@code screen} as {@code group/tv-<name>.png} under NIGHTJAR_PREVIEW_OUTPUT when a local capture was
+     * asked for, so a screen another test sets up (a library, PCs, shelves) can be looked at too; a no-op otherwise.
+     */
+    public static void previewIfRequested(Activity screen, String name) throws IOException {
+        String output = System.getenv("NIGHTJAR_PREVIEW_OUTPUT");
+        if (output == null || output.isBlank()) return;
+        boolean night = (screen.getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        File directory = new File(output, night ? "night" : "day");
+        assertTrue(directory.isDirectory() || directory.mkdirs());
+        capture(screen, new File(directory, "tv-" + name + ".png"));
+    }
+
     static void capture(Activity screen, File destination) throws IOException {
         Shadows.shadowOf(Looper.getMainLooper()).idle();
         View root = screen.getWindow().getDecorView();

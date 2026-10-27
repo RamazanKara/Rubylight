@@ -255,13 +255,14 @@ fn invalid(message: &str) -> String {
 }
 
 /// Runs the started transfer `id` on `file`: reads it for an upload, writes it for a download.
-/// `host` is the client, or why there is none (the transfer then fails with it). Answers with
+/// `host` is the client and `file` the opened file, or why there is none: the transfer then
+/// fails with it instead of staying started. Answers with
 /// `{"ok": <row>}`, or an error when the handle is gone or `id` was not started.
 pub fn run<H: FileHost>(
     handle: i64,
     id: u64,
     host: Result<H, Error>,
-    mut file: File,
+    file: std::io::Result<File>,
     progress: &mut dyn FnMut(u64, u64),
 ) -> String {
     let Some(entry) = entry(handle) else {
@@ -270,7 +271,8 @@ pub fn run<H: FileHost>(
     let Some(start) = lock(&entry).started.remove(&id) else {
         return invalid("that transfer was not started");
     };
-    let result = host.map_err(FileError::Host).and_then(|host| {
+    let result = file.map_err(FileError::Local).and_then(|mut file| {
+        let host = host.map_err(FileError::Host)?;
         let mut report = |done: u64, total: u64| {
             if lock(&entry).transfers.progress(id, done, total) {
                 progress(done, total);
@@ -542,10 +544,7 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_FileTransferBridge_run(
         &client_certificate_der,
         &client_private_key_pkcs8,
     );
-    let Some(file) = file else {
-        let result = invalid("no file descriptor");
-        return reply(&mut env, result);
-    };
+    let file = file.ok_or_else(|| std::io::Error::other("the file could not be opened"));
     let transfer = id(transfer);
     let answer = {
         let mut progress = |done: u64, total: u64| {
@@ -717,7 +716,7 @@ mod tests {
             handle,
             id,
             Ok(&host),
-            temp(b"0123456789"),
+            Ok(temp(b"0123456789")),
             &mut |done, total| reports.push((done, total)),
         ));
         assert_eq!(reports, [(4, 10), (8, 10), (10, 10)]);
@@ -730,7 +729,7 @@ mod tests {
             (Some(10), Some(10))
         );
         // A transfer runs once per start.
-        let again = parse(&run(handle, id, Ok(&host), temp(b""), &mut |_, _| {}));
+        let again = parse(&run(handle, id, Ok(&host), Ok(temp(b"")), &mut |_, _| {}));
         assert_eq!(again["error"]["problem"], "local");
         destroy(handle);
     }
@@ -749,7 +748,7 @@ mod tests {
             handle,
             id,
             Ok(&host),
-            file.try_clone().unwrap(),
+            file.try_clone(),
             &mut |_, _| {},
         ));
         assert_eq!(reply["ok"]["state"], "done");
@@ -783,7 +782,7 @@ mod tests {
                 refuse: Some((refusal, status)),
                 ..Fake::default()
             };
-            let row = &parse(&run(handle, id, Ok(&host), temp(b""), &mut |_, _| {}))["ok"];
+            let row = &parse(&run(handle, id, Ok(&host), Ok(temp(b"")), &mut |_, _| {}))["ok"];
             assert_eq!(row["state"], "failed", "{refusal:?}");
             assert_eq!(row["problem"], problem, "{refusal:?}");
             assert_eq!(row["console_fix"], console, "{refusal:?}");
@@ -802,11 +801,29 @@ mod tests {
             handle,
             id,
             Err(Error::InvalidIdentity("bad".into())),
-            temp(b"abcd"),
+            Ok(temp(b"abcd")),
             &mut |_, _| {},
         ));
         assert_eq!(reply["ok"]["state"], "failed");
         assert_eq!(reply["ok"]["problem"], "host");
+        destroy(handle);
+    }
+
+    #[test]
+    fn a_file_that_would_not_open_fails_the_transfer() {
+        let handle = create();
+        let id = queue_download(handle, "a.bin", "a.bin", 0) as u64;
+        started(handle);
+        let reply = parse(&run(
+            handle,
+            id,
+            Ok(&Fake::default()),
+            Err(std::io::Error::other("gone")),
+            &mut |_, _| {},
+        ));
+        assert_eq!(reply["ok"]["state"], "failed");
+        assert_eq!(reply["ok"]["problem"], "local");
+        assert_eq!(reply["ok"]["can_retry"], true);
         destroy(handle);
     }
 
@@ -819,13 +836,25 @@ mod tests {
         let rows = parse(&snapshot(handle));
         assert_eq!(rows[0]["cancelling"], true);
         let host = Fake::default();
-        let row = &parse(&run(handle, id, Ok(&host), temp(&[0; 12]), &mut |_, _| {}))["ok"];
+        let row = &parse(&run(
+            handle,
+            id,
+            Ok(&host),
+            Ok(temp(&[0; 12])),
+            &mut |_, _| {},
+        ))["ok"];
         assert_eq!(row["state"], "cancelled");
         assert_eq!(row["cancelling"], false);
         assert!(host.received.lock().unwrap().is_empty());
         assert!(retry(handle, id));
         assert_eq!(started(handle), [id]);
-        let row = &parse(&run(handle, id, Ok(&host), temp(&[7; 12]), &mut |_, _| {}))["ok"];
+        let row = &parse(&run(
+            handle,
+            id,
+            Ok(&host),
+            Ok(temp(&[7; 12])),
+            &mut |_, _| {},
+        ))["ok"];
         assert_eq!(row["state"], "done");
         destroy(handle);
     }
@@ -846,7 +875,13 @@ mod tests {
             content: vec![1],
             ..Fake::default()
         };
-        run(handle, down[0] as u64, Ok(&host), temp(b""), &mut |_, _| {});
+        run(
+            handle,
+            down[0] as u64,
+            Ok(&host),
+            Ok(temp(b"")),
+            &mut |_, _| {},
+        );
         assert_eq!(started(handle), [down[2] as u64]);
         destroy(handle);
     }
@@ -867,7 +902,7 @@ mod tests {
             handle,
             id,
             Ok(&Fake::default()),
-            temp(b""),
+            Ok(temp(b"")),
             &mut |_, _| {},
         ));
         assert_eq!(reply["error"]["problem"], "local");

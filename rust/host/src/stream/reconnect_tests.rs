@@ -900,6 +900,8 @@ struct Client {
     keyframe_heartbeat: Arc<AtomicBool>,
     /// The address ENet first sent from.
     control_address: SocketAddr,
+    /// Whether the host disconnected ENet; the worker acknowledges it.
+    disconnected: Arc<AtomicBool>,
     worker: Option<thread::JoinHandle<Result<()>>>,
 }
 impl Client {
@@ -921,6 +923,8 @@ impl Client {
         let video_move = Arc::<Mutex<Option<UdpSocket>>>::default();
         let keyframe_heartbeat = Arc::new(AtomicBool::new(true));
         let control_address = control.local_addr()?;
+        let disconnected = Arc::new(AtomicBool::new(false));
+        let worker_disconnected = disconnected.clone();
         let mut host = Host::new(
             LossySocket {
                 socket: control,
@@ -953,6 +957,9 @@ impl Client {
             let mut buffer = [0; 2048];
             while !worker_stop.load(Ordering::Acquire) {
                 while let Some(event) = host.service()? {
+                    if let Event::Disconnect { .. } = event {
+                        worker_disconnected.store(true, Ordering::Release);
+                    }
                     if let Event::Receive { packet, .. } = event {
                         let (_, kind, payload) = butterpollo_core::packet::decrypt_control(
                             &launch.key,
@@ -1044,6 +1051,7 @@ impl Client {
             video_move,
             keyframe_heartbeat,
             control_address,
+            disconnected,
             worker: Some(worker),
         })
     }

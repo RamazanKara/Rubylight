@@ -420,7 +420,7 @@ async fn a_client_can_roam_back_to_its_launch_address() -> Result<()> {
 
 /// Another client connecting from an address a roamed client left: while the roamed
 /// session lives the address is retired, so the connect is dropped and the roamed
-/// stream goes on; once that session ends, the same address connects.
+/// stream goes on; once that session's ENet peer is gone, the same address connects.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_connect_from_a_retired_address_waits_for_the_roamed_session() -> Result<()> {
     let h = Harness::new(20_000, 2).await?;
@@ -437,29 +437,33 @@ async fn a_connect_from_a_retired_address_waits_for_the_roamed_session() -> Resu
         video_peer(&h, &launch) == Some(moved_video)
     })
     .await;
-    let retired = rebind(client.control_address).await?;
+    let retired_address = client.control_address;
+    let retired = rebind(retired_address).await?;
     let other = h.launch(1, true).await?;
     h.rtsp(&other, 1, "ANNOUNCE", "a=x-nv-video[0].clientViewportWd:640\r\na=x-nv-video[0].clientViewportHt:480\r\na=x-ss-general.encryptionEnabled:0\r\n").await?;
     h.rtsp(&other, 2, "PLAY", "").await?;
     let other_session = h.h.sessions.lock().unwrap().active[&other.id].clone();
-    let other_client = Client::sending_from(h.ports, other.clone(), retired)?;
+    let dropped = Client::sending_from(h.ports, other.clone(), retired)?;
     let frames = client.frames.load(Ordering::Acquire);
     tokio::time::sleep(Duration::from_secs(1)).await;
     assert_eq!(keyframes(&other_session), 0, "its ENet connect was dropped");
     assert!(client.frames.load(Ordering::Acquire) > frames + 2);
     assert!(!session.stopping());
+    // Its connect retries back off for seconds; a fresh client connects at once.
+    drop(dropped);
     h.rtsp(&launch, 3, "TEARDOWN", "").await?;
-    until("normal termination delivered", WAIT, || {
-        client.reason.load(Ordering::Acquire) != 0
+    // The roamed peer goes once the moved client acknowledges the host's disconnect.
+    until("the roamed client disconnected", WAIT, || {
+        client.disconnected.load(Ordering::Acquire)
     })
     .await;
+    assert_eq!(client.reason.load(Ordering::Acquire), CLOSED);
     drop(client);
-    // ENet retries the connect, which now reaches the host.
-    until(
-        "the retired address connects",
-        Duration::from_secs(15),
-        || keyframes(&other_session) > 0 && other_client.frames.load(Ordering::Acquire) > 2,
-    )
+    let other_client =
+        Client::sending_from(h.ports, other.clone(), rebind(retired_address).await?)?;
+    until("the retired address connects", WAIT, || {
+        keyframes(&other_session) > 0 && other_client.frames.load(Ordering::Acquire) > 2
+    })
     .await;
     assert!(!other_session.stopping());
     h.end(&other_session, other_client).await?;

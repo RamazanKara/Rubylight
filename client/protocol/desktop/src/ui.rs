@@ -2287,8 +2287,8 @@ impl Launcher {
                         }
                     }).response
             });
-            setting_row(ui, s, &mut rows, &["virtual_display_scale"], "PC display scaling", "Text and interface size on the virtual display.", |ui, s| {
-                ui.add(egui::Slider::new(&mut s.virtual_display_scale, 100..=300).step_by(25.0).suffix("%"))
+            setting_row(ui, s, &mut rows, &["virtual_display_scale"], "PC render resolution", "Percent of the stream resolution that the PC renders at. The size of the transmitted video does not change. To send fewer pixels and upscale on this device, lower Resolution.", |ui, s| {
+                ui.add(egui::Slider::new(&mut s.virtual_display_scale, crate::config::RENDER_SCALE).step_by(5.0).suffix("%"))
             });
             setting_row(ui, s, &mut rows, &["window_mode"], "Window", "Borderless covers the display without changing its mode.", |ui, s| {
                 egui::ComboBox::from_id_salt("window")
@@ -4587,6 +4587,24 @@ mod tests {
         f.l.edit_overrides.capture(&Settings { client_roaming: false, ..Settings::default() }, &["client_roaming"]);
         f.settle();
         assert!(shows(&f, "Client roaming") && !shows(&f, "Instant mouse and pen input"), "{:?}", f.drawn);
+    }
+
+    #[test]
+    fn the_pc_render_resolution_is_named_and_ranged_as_on_android() {
+        let mut f = Frames::new(record("PC", true, false), Reach::Online);
+        f.size = vec2(1280.0, 12000.0);
+        f.l.unfolded.insert("Display & image");
+        f.l.go(Screen::Settings);
+        f.settle();
+        assert!(shows(&f, "PC render resolution"), "{:?}", f.drawn);
+        assert!(shows(&f, "Percent of the stream resolution that the PC renders at. The size of the transmitted video does not change. To send fewer pixels and upscale on this device, lower Resolution."));
+        assert!(!f.drawn.iter().any(|t| t.contains("display scaling") || t.contains("Text and interface size")), "{:?}", f.drawn);
+        // The slider holds Android's 50-200 %.
+        for (set, kept) in [(300, 200), (25, 50), (135, 135)] {
+            f.l.settings.virtual_display_scale = set;
+            f.settle();
+            assert_eq!(f.l.settings.virtual_display_scale, kept, "{set} %");
+        }
     }
 
     #[test]

@@ -204,11 +204,12 @@ pub(crate) mod tests {
     // ---- The table against the sources. ----
 
     /// The UI sources, up to their test modules.
-    const SOURCES: [(&str, &str); 15] = [
+    const SOURCES: [(&str, &str); 16] = [
         ("ui.rs", include_str!("ui.rs")),
         ("ui/files.rs", include_str!("ui/files.rs")),
         ("host_page.rs", include_str!("host_page.rs")),
         ("folders_page.rs", include_str!("folders_page.rs")),
+        ("coop_page.rs", include_str!("coop_page.rs")),
         ("session_ui.rs", include_str!("session_ui.rs")),
         ("session_page.rs", include_str!("session_page.rs")),
         ("main.rs", include_str!("main.rs")),
@@ -539,6 +540,7 @@ pub(crate) mod tests {
         let shown = |file: &str, text: &str| marked().iter().any(|m| m.file == file && m.text == text);
         for (file, text) in [
             ("ui.rs", "Shared folders (Experimental)"),
+            ("ui.rs", "Co-op (Experimental)"),
             ("main.rs", "Send image to PC (Experimental)"),
             ("main.rs", "Copy PC image here (Experimental)"),
         ] {

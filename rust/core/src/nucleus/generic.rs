@@ -295,6 +295,63 @@ pub fn refused_path(exe_path: &str, windows: &str) -> Option<String> {
     below(local, &normalized(windows)).map(|_| format!("{exe_path} is part of Windows, not a game"))
 }
 
+/// Whether `exe_path` is a launcher rather than a game: Nucleus would hook
+/// the launcher, which starts the game outside its hooks (Steam's
+/// `-applaunch`, Bethesda's and Rockstar's launchers) or a whole library.
+pub fn launcher(exe_path: &str) -> bool {
+    let name = file_name(&normalized(exe_path)).to_ascii_lowercase();
+    name.ends_with("launcher.exe")
+        || [
+            "steam.exe",
+            "playnite.desktopapp.exe",
+            "playnite.fullscreenapp.exe",
+            "galaxyclient.exe",
+            "eadesktop.exe",
+            "origin.exe",
+            "upc.exe",
+            "ubisoftconnect.exe",
+            "battle.net.exe",
+            "playgtav.exe",
+            "xboxpcapp.exe",
+        ]
+        .contains(&name.as_str())
+}
+
+/// The game an Unreal root stub starts: for `<root>\<Game>.exe` beside
+/// `<root>\Engine`, the one `<root>\<Project>\Binaries\Win64\
+/// *-Win64-Shipping.exe`. The stub only starts it and exits, so Nucleus
+/// would hook nothing. None when there is none or more than one.
+pub fn unreal_shipping(exe_path: &str) -> Option<String> {
+    let exe_path = normalized(exe_path);
+    let root = parent(&exe_path);
+    if shared_folder(root) || !Path::new(root).join("Engine").is_dir() {
+        return None;
+    }
+    let mut found = std::fs::read_dir(root)
+        .ok()?
+        .flatten()
+        .filter(|project| project.file_type().is_ok_and(|kind| kind.is_dir()))
+        .flat_map(|project| {
+            std::fs::read_dir(project.path().join("Binaries").join("Win64"))
+                .into_iter()
+                .flatten()
+                .flatten()
+        })
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name().is_some_and(|name| {
+                name.to_string_lossy()
+                    .to_ascii_lowercase()
+                    .ends_with("-win64-shipping.exe")
+            })
+        });
+    let first = found.next()?;
+    found
+        .next()
+        .is_none()
+        .then(|| first.to_string_lossy().into_owned())
+}
+
 /// The anti-cheat `setup`'s game ships: one known from elsewhere (Steam's
 /// Valve Anti-Cheat flag), else from the .exe's name and the files and
 /// folders beside it and in the folders above it up to the game's root,
@@ -568,6 +625,55 @@ mod tests {
                 .all(|l| l.starts_with("Game.") || l.starts_with("//"))
         );
         assert!(!text.contains("StartArguments"));
+    }
+
+    #[test]
+    fn a_launcher_is_no_game() {
+        for exe in [
+            r"C:\Program Files (x86)\Steam\steam.exe",
+            r"C:\Program Files\Epic Games\Launcher\Portal\Binaries\Win64\EpicGamesLauncher.exe",
+            r"C:\Users\Player\AppData\Local\Playnite\Playnite.FullscreenApp.exe",
+            r"D:\Steam\steamapps\common\Fallout 4\Fallout4Launcher.exe",
+            r"D:\Steam\steamapps\common\Skyrim Special Edition\SkyrimSELauncher.exe",
+            r"D:\Games\GTAV\PlayGTAV.exe",
+        ] {
+            assert!(launcher(exe), "{exe}");
+        }
+        for game in [
+            r"D:\Steam\steamapps\common\Fallout 4\Fallout4.exe",
+            r"D:\Games\GTAV\GTA5.exe",
+            r"D:\Games\Ice\Ice.exe",
+        ] {
+            assert!(!launcher(game), "{game}");
+        }
+    }
+
+    #[test]
+    fn an_unreal_root_stub_starts_its_one_shipping_exe() {
+        let root = tempfile::tempdir().unwrap();
+        let game = root.path().join("Stray");
+        let win64 = game.join("Hk_project").join("Binaries").join("Win64");
+        std::fs::create_dir_all(&win64).unwrap();
+        std::fs::create_dir_all(game.join("Engine").join("Binaries").join("Win64")).unwrap();
+        std::fs::write(game.join("Stray.exe"), b"").unwrap();
+        std::fs::write(win64.join("Stray-Win64-Shipping.exe"), b"").unwrap();
+        let stub = game.join("Stray.exe").to_string_lossy().into_owned();
+        assert_eq!(
+            unreal_shipping(&stub).unwrap(),
+            win64.join("Stray-Win64-Shipping.exe").to_string_lossy()
+        );
+        // The Shipping exe itself is the game.
+        let shipping = win64.join("Stray-Win64-Shipping.exe");
+        assert_eq!(unreal_shipping(&shipping.to_string_lossy()), None);
+        // Two to choose from: neither.
+        let other = game.join("Other").join("Binaries").join("Win64");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(other.join("Other-Win64-Shipping.exe"), b"").unwrap();
+        assert_eq!(unreal_shipping(&stub), None);
+        // Not an Unreal game: no Engine beside it.
+        std::fs::remove_dir_all(other.parent().unwrap().parent().unwrap()).unwrap();
+        std::fs::remove_dir_all(game.join("Engine")).unwrap();
+        assert_eq!(unreal_shipping(&stub), None);
     }
 
     #[test]

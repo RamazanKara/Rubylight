@@ -33,7 +33,10 @@ the host writes its own one-player handler into Nucleus Co-op's `handlers`
 folder (`Rubylight-<game>-<hash>.js`) and adds the game to your Nucleus Co-op
 game list, as Nucleus' own "add game" would. It does that only while Nucleus
 Co-op isn't running, and never over a file it did not write. A hub handler for
-the same .exe always wins, and co-op still needs one.
+the game you added at the same path always wins, and co-op still needs one:
+once you add the game with a hub handler, the next session removes the host's
+handler and its entry from your game list. Another game with an .exe of the
+same name (Portal's and Half-Life 2's `hl2.exe`) keeps its own.
 
 The game runs from its own folder: nothing is copied, linked or written there,
 and Nucleus Co-op needs no extra tools for it. Its window keeps running and
@@ -41,16 +44,29 @@ reading the pad without focus, and it never sees the PC's keyboard or moves
 the PC's cursor.
 
 - **The app names the game's .exe, or is a Steam link.** For
-  `steam://rungameid/<id>` the host starts the .exe Steam would, found from
+  `steam://rungameid/<id>` the host starts the .exe Steam would, with that
+  launch option's arguments (Portal is `hl2.exe -game portal`), found from
   the game's install folder and Steam's launch option for Windows, and starts
   Nucleus Co-op with the game's Steam app id (`SteamAppId`, `SteamGameId`), so
   the game runs without restarting through Steam. Steam must know the game:
   one that is not installed, or that Steam's app cache does not list yet, is
   refused with the reason (start it once in Steam). Other launchers' links
-  are refused: set the app's command to the game's .exe.
+  are refused: set the app's command to the game's .exe. The game gets the
+  arguments the app's command passes it.
+- **The game, not its launcher.** A launcher (`steam.exe -applaunch`, the Epic
+  Games Launcher, Playnite, `Fallout4Launcher.exe`, `PlayGTAV.exe` and the
+  like) is refused. The small .exe at an Unreal game's root starts the one
+  `<Project>\Binaries\Win64\*-Win64-Shipping.exe` instead.
+- **On this PC's own drives, and no part of Windows.** A game on a network
+  share, or a program in the Windows folder, is refused before the host opens
+  it. Your user folders are fine.
 - **No anti-cheat.** A game that ships anti-cheat, such as Easy Anti-Cheat,
-  BattlEye or Riot Vanguard, is refused before anything is written: Nucleus
-  Co-op's hooks would look like cheating. Its Play together panel says so.
+  BattlEye or Riot Vanguard, or that Steam lists with Valve Anti-Cheat, is
+  refused before anything is written: Nucleus Co-op's hooks would look like
+  cheating. Well-known ones without anti-cheat files in their folder
+  (Counter-Strike 2, Dota 2, Overwatch and others) are known by name. The
+  host looks only in the game's own folder, never in a folder many games
+  share. Its Play together panel says so.
 - **Controllers only**, as for every background stream.
 - **Some games pause anyway** when their window is not in front, despite the
   focus hooks. Those need a hub handler made for them.

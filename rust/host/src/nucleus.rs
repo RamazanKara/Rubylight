@@ -592,9 +592,26 @@ impl Chosen {
 /// hub handler. A game shipping anti-cheat is refused: Nucleus Co-op's
 /// hooks would look like cheating.
 fn own_handler(pc: &dyn Pc, catalog: &Catalog, app: &App) -> Result<Chosen, Refusal> {
-    let setup = pc.one_player(app)?;
+    let mut setup = pc.one_player(app)?;
     // Before the anti-cheat scan reads its folders.
     refuse_path(&setup.exe_path)?;
+    if generic::launcher(&setup.exe_path) {
+        let launcher = setup.exe_path.rsplit('\\').next().unwrap_or_default();
+        return Err(Refusal {
+            status: 404,
+            message: format!(
+                "{launcher} is a launcher, not the game: set the app's command to the game's .exe"
+            ),
+        });
+    }
+    if let Some(shipping) = generic::unreal_shipping(&setup.exe_path) {
+        tracing::info!(
+            stub = setup.exe_path,
+            shipping,
+            "Nucleus Co-op: an Unreal game's stub starts its Shipping .exe"
+        );
+        setup.exe_path = shipping;
+    }
     // Found by another path than the app's command: the game the user added
     // at exactly that path keeps its hub handler. A file-name match is
     // another game's (Portal's hl2.exe is not Half-Life 2).
@@ -3107,6 +3124,43 @@ mod tests {
         background(&registry, &apps[1], "a", &owner, &config).unwrap();
         assert_eq!(registry.sessions()[0].session.game, fake::GUID);
         assert_eq!(*pc.removed.lock().unwrap(), [ours.file()]);
+    }
+
+    #[test]
+    fn a_launcher_is_refused_and_an_unreal_stub_starts_its_game() {
+        let (registry, pc, _) = setup();
+        let owner = client("A", false);
+        let config = Config::default();
+        // Steam would start the game outside Nucleus' hooks.
+        let steam = app(
+            "Portal",
+            r#""C:\Program Files (x86)\Steam\steam.exe" -applaunch 400"#,
+        );
+        let refused = background(&registry, &steam, "a", &owner, &config).unwrap_err();
+        assert_eq!(refused.status, 404);
+        assert_eq!(
+            refused.message,
+            "Portal can't stream in the background: steam.exe is a launcher, not the game: set the app's command to the game's .exe"
+        );
+        assert!(pc.own.lock().unwrap().is_empty());
+        // The stub at an Unreal game's root only starts its Shipping .exe.
+        let root = std::env::temp_dir().join(format!("nucleus-ue-{}", uuid::Uuid::new_v4()));
+        let win64 = root.join("Stray").join("Binaries").join("Win64");
+        std::fs::create_dir_all(&win64).unwrap();
+        std::fs::create_dir_all(root.join("Engine")).unwrap();
+        std::fs::write(win64.join("Stray-Win64-Shipping.exe"), b"").unwrap();
+        let stub = root.join("Stray.exe");
+        std::fs::write(&stub, b"").unwrap();
+        let stray = app("Stray", &format!("\"{}\" -dx12", stub.display()));
+        let started = background(&registry, &stray, "b", &owner, &config);
+        std::fs::remove_dir_all(&root).unwrap();
+        started.unwrap();
+        let own = pc.own.lock().unwrap().clone();
+        assert_eq!(
+            own[0].exe_path,
+            win64.join("Stray-Win64-Shipping.exe").to_string_lossy()
+        );
+        assert_eq!(own[0].arguments, "-dx12");
     }
 
     #[test]

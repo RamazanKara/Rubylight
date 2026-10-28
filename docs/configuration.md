@@ -362,8 +362,9 @@ A background stream:
 A game needs no handler from Nucleus Co-op's handler hub for this: without
 one, the host writes its own one-player handler. The app's command must be the
 game's .exe or a Steam link; a Steam game starts with its Steam app id, so it
-doesn't restart through Steam. Other launchers' links and games with
-anti-cheat are refused, and some games pause anyway when their window is not
+doesn't restart through Steam. Other launchers' links, launchers' .exe files,
+games with anti-cheat and games on a network share are refused, and some games
+pause anyway when their window is not
 in front ([Games without a handler](nucleus-coop.md#games-without-a-handler)).
 Co-op still needs a hub handler. Nucleus Co-op needs the host running as the
 Windows service and an administrator account signed in on the PC;

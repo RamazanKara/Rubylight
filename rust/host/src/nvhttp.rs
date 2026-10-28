@@ -1818,9 +1818,10 @@ pub(crate) fn terminate_refused(h: &Shared, client: &str) -> bool {
 }
 /// A Nucleus Co-op player's quit (Moonlight's cancel, WebRTC's stop-host-session): its own
 /// streams end, never the other players' or the host's app, and its slot is kept for the grace
-/// period; its private background session ends with it. `None` when `client` streams nothing of
-/// Nucleus's, else the ids of the streams it stopped. The caller holds `launch_transition`.
-fn quit_nucleus_player(h: &Shared, client: &str) -> Option<Vec<String>> {
+/// period; its private background session ends with it unless only `disconnect`ing. `None` when
+/// `client` streams nothing of Nucleus's, else the ids of the streams it stopped. The caller holds
+/// `launch_transition`.
+fn quit_nucleus_player(h: &Shared, client: &str, disconnect: bool) -> Option<Vec<String>> {
     let (canceled, ids, seats) = {
         let mut sessions = h.sessions.lock().unwrap();
         let mine = |l: &Launch| l.role == Role::Stream && l.client.uuid == client;
@@ -1849,7 +1850,7 @@ fn quit_nucleus_player(h: &Shared, client: &str) -> Option<Vec<String>> {
             listed.session.id == seat.session
                 && listed.session.kind == butterpollo_core::nucleus::coop::Kind::Background
         });
-        if background {
+        if background && !disconnect {
             tracing::info!(
                 client,
                 session = seat.session,
@@ -1859,6 +1860,24 @@ fn quit_nucleus_player(h: &Shared, client: &str) -> Option<Vec<String>> {
         }
     }
     Some(ids)
+}
+/// The native End session (or Disconnect, `disconnect`) of a Nucleus Co-op player, who owns no
+/// host session: [`quit_nucleus_player`], waiting up to five seconds for its streams. False when
+/// `client` streams nothing of Nucleus's; `Busy` while a launch holds the launch lock, as the
+/// session's own actions answer.
+pub(crate) fn quit_nucleus_stream(
+    h: &Shared,
+    client: &str,
+    disconnect: bool,
+) -> Result<bool, butterpollo_core::session_state::Refusal> {
+    let _transition = h.transition()?;
+    let Some(ids) = quit_nucleus_player(h, client, disconnect) else {
+        return Ok(false);
+    };
+    if !wait_for_teardown(&h.sessions, &ids, Duration::from_secs(5)) {
+        tracing::warn!(client, "a co-op player's streams did not stop within 5 s");
+    }
+    Ok(true)
 }
 /// What `stop_streams` did.
 #[derive(Debug, PartialEq, Eq)]
@@ -1874,7 +1893,7 @@ pub(crate) enum StopStreams {
 /// and Remote Input sessions stay, and are not waited for.
 pub(crate) fn stop_streams(h: &Shared, terminate_app: Option<&str>) -> StopStreams {
     let _transition = h.launch_transition.lock().unwrap();
-    if let Some(ids) = terminate_app.and_then(|client| quit_nucleus_player(h, client)) {
+    if let Some(ids) = terminate_app.and_then(|client| quit_nucleus_player(h, client, false)) {
         return if wait_for_teardown(&h.sessions, &ids, Duration::from_secs(10)) {
             StopStreams::Stopped
         } else {
@@ -2509,7 +2528,7 @@ fn cancel_app(h: Shared, connection: Connection) -> Response {
         Err(e) => return xml(401, &[], Some(e.to_string())),
     };
     let _transition = h.launch_transition.lock().unwrap();
-    if quit_nucleus_player(&h, &client.uuid).is_some() {
+    if quit_nucleus_player(&h, &client.uuid, false).is_some() {
         return xml(200, &[("cancel", "1".into())], None);
     }
     if remote_game(&h).is_none() {

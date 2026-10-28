@@ -3338,8 +3338,8 @@ async fn webrtc_co_op_launches_take_seats_and_answer_refusals() -> Result<()> {
 }
 
 /// A co-op launch never takes the host's session from its owner, and a co-op
-/// player's stock /cancel ends only its own launch: the other player's launch
-/// and the host's app stay.
+/// player's stock /cancel or native End session ends only its own launch: the
+/// other player's launch and the host's app stay.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_co_op_player_neither_owns_the_session_nor_cancels_the_others() -> Result<()> {
     let (h, _pc, id) = coop_harness().await?;
@@ -3371,9 +3371,21 @@ async fn a_co_op_player_neither_owns_the_session_nor_cancels_the_others() -> Res
         h.h.current_app.lock().unwrap().as_ref().unwrap().generation,
         generation
     );
-    let first = pending_of(&h, 0).unwrap().id;
-    let canceled = h.h.sessions.lock().unwrap().pending.remove(&first);
-    drop(canceled);
+    // Nightjar's End session from the player that is left ends its own launch
+    // too, though it owns no host session; the host's app stays.
+    let host = h.h.clone();
+    let client = h.h.paired.read().unwrap().clients[0].clone();
+    tokio::task::spawn_blocking(move || {
+        crate::native_api::session_action(&host, &client, crate::native_api::Action::End)
+    })
+    .await?
+    .map_err(|failure| anyhow::anyhow!("{failure:?}"))?;
+    assert!(pending_of(&h, 0).is_none());
+    assert_eq!(h.h.nucleus.sessions()[0].held, [false, false]);
+    assert_eq!(
+        h.h.current_app.lock().unwrap().as_ref().unwrap().generation,
+        generation
+    );
     h.finish().await
 }
 

@@ -500,6 +500,13 @@ pub(crate) fn session_action(h: &Shared, client: &Client, action: Action) -> Res
     // The actions check the session's owner themselves, under the launch lock.
     // With no session, Close game closes a game End session left running.
     let device = client.uuid.as_str();
+    // A Nucleus Co-op player owns no host session: End and Disconnect end its own streams.
+    let disconnect = matches!(action, Action::Disconnect);
+    if (disconnect || matches!(action, Action::End))
+        && crate::nvhttp::quit_nucleus_stream(h, device, disconnect)?
+    {
+        return Ok(());
+    }
     match action {
         Action::Disconnect => h.disconnect_session(Some(device)),
         Action::End => h.end_session(Some(device)),

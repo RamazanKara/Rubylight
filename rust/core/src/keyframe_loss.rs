@@ -22,6 +22,9 @@
 //! decode queue when it overflows and requests a keyframe. That request comes
 //! only after the queue filled up behind the keyframe, so it is told apart by
 //! the frames sent since the keyframe; slowing the send would not help it.
+//! A client that announces FEC status reports every frame it lost, so for it
+//! a repeated request with no report is its decoder asking again, at any
+//! distance from the keyframe: its requests are not evidence at all.
 //!
 //! Only losses on the network count. The host also changes the stream itself:
 //! a recreated encoder, a bitrate change, an HDR metadata update or a capture
@@ -158,6 +161,9 @@ pub struct KeyframeLoss {
     /// 10 s" is counted from it.
     last_loss_at: Option<Instant>,
     lifted_note: Option<String>,
+    /// The client sends FEC status for frames it lost; its keyframe requests
+    /// are not loss evidence.
+    reports_losses: bool,
 }
 impl KeyframeLoss {
     pub fn new(enabled: bool) -> Self {
@@ -173,6 +179,17 @@ impl KeyframeLoss {
             kind: Some(LatchKind::Sustained),
             ..Default::default()
         }
+    }
+    /// The client announced FEC status (`ML_FF_FEC_STATUS`): it reports every
+    /// frame it could not repair (0x5502), so a lost keyframe shows up as
+    /// "arrived incomplete" or three unrecoverable frames. A repeated request
+    /// with no such report comes from its decoder (Moonlight's
+    /// `requestDecoderRefresh` sends the same 0x0302), not the network.
+    pub fn set_reports_losses(&mut self, yes: bool) {
+        self.reports_losses = yes;
+    }
+    pub fn reports_losses(&self) -> bool {
+        self.reports_losses
     }
     /// A frame about to be sent with this wire number.
     pub fn sending(&mut self, frame: u32, keyframe: bool) {
@@ -509,6 +526,13 @@ impl KeyframeLoss {
         }
         self.last_request = Some(now);
         if !repeated {
+            return None;
+        }
+        if self.reports_losses {
+            self.ignored = Some(format!(
+                "repeated keyframe request {} ms after the first from a client that reports its own losses: its decoder asked again",
+                gap.unwrap_or_default().as_millis()
+            ));
             return None;
         }
         let keyframe =
@@ -1096,6 +1120,59 @@ mod tests {
         );
         assert!(latched.detail.contains("150"), "{latched:?}");
         assert_eq!(loss.bps(FAST, SAFE), SAFE);
+    }
+
+    /// The rc.4 run-1 chain (#59): the client asks, keyframe 2509 goes out,
+    /// 11 frames follow, and it asks again 128 ms after the first request.
+    /// It reported no loss at all.
+    fn asked_again(loss: &mut KeyframeLoss, t: Instant) -> Option<Latched> {
+        assert_eq!(loss.requested(t), None);
+        loss.sending_at(2509, true, t + Duration::from_millis(10));
+        for frame in 2510..=2520 {
+            loss.sending_at(frame, false, t + Duration::from_millis(10) + PERIOD);
+        }
+        loss.requested(t + Duration::from_millis(128))
+    }
+
+    #[test]
+    fn a_client_that_reports_its_losses_does_not_latch_on_a_repeated_request() {
+        let t = Instant::now();
+        let mut loss = running(2500);
+        loss.set_reports_losses(true);
+        assert_eq!(asked_again(&mut loss, t), None);
+        let note = loss.take_ignored().unwrap();
+        assert!(note.contains("128 ms"), "{note}");
+        assert!(note.contains("reports its own losses"), "{note}");
+        assert!(!loss.latched());
+        assert_eq!(loss.bps(FAST, SAFE), FAST);
+        // A client without FEC status latches on the same chain, as before.
+        let mut loss = running(2500);
+        let latched = asked_again(&mut loss, t).unwrap();
+        assert_eq!(
+            latched.reason,
+            "the client asked again for the keyframe it was just sent"
+        );
+        assert_eq!(loss.bps(FAST, SAFE), SAFE);
+    }
+
+    #[test]
+    fn a_client_that_reports_its_losses_still_latches_on_an_incomplete_keyframe() {
+        let t = Instant::now();
+        let mut loss = running(2500);
+        loss.set_reports_losses(true);
+        assert_eq!(asked_again(&mut loss, t), None);
+        let latched = loss
+            .unrecoverable(2509, 2520, PERIOD, t + Duration::from_millis(130))
+            .unwrap();
+        assert_eq!(latched.reason, "a keyframe arrived incomplete");
+        assert_eq!(loss.bps(FAST, SAFE), SAFE);
+        // So do three unrecoverable frames.
+        let mut loss = running(2500);
+        loss.set_reports_losses(true);
+        for frame in [2400, 2450] {
+            assert_eq!(loss.unrecoverable(frame, 2500, PERIOD, t), None);
+        }
+        assert!(loss.unrecoverable(2490, 2500, PERIOD, t).is_some());
     }
 
     #[test]

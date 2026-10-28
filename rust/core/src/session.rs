@@ -328,6 +328,42 @@ mod tests {
         assert!(session.keyframe_loss_active());
     }
     #[test]
+    fn fec_status_clients_do_not_latch_on_requests_even_after_a_roam() {
+        const FAST: u64 = 800_000_000;
+        const SAFE: u64 = 62_000_000;
+        for features in [1, 0] {
+            let s = Session::new(
+                launch("fec-status", Role::Stream),
+                Negotiated {
+                    moonlight_features: features,
+                    ..Default::default()
+                },
+            );
+            s.configure_keyframe_loss(true);
+            // Asked, sent keyframe 41, asked again right after it.
+            let ask_twice = |s: &Session, first: u32| {
+                for frame in first..first + 40 {
+                    s.keyframe_loss_bps(FAST, SAFE, frame, frame == first);
+                }
+                s.keyframe_loss.lock().unwrap().settle();
+                s.request_recovery_keyframe();
+                s.keyframe_loss_bps(FAST, SAFE, first + 40, true);
+                s.keyframe_loss_bps(FAST, SAFE, first + 41, false);
+                s.request_recovery_keyframe();
+            };
+            ask_twice(&s, 1);
+            assert_eq!(s.keyframe_loss_active(), features == 0, "{features}");
+            s.new_network_path();
+            assert!(!s.keyframe_loss_active());
+            ask_twice(&s, 100);
+            assert_eq!(
+                s.keyframe_loss_active(),
+                features == 0,
+                "after a roam, {features}"
+            );
+        }
+    }
+    #[test]
     fn a_roam_drops_the_clients_hints_about_the_old_path() {
         let session = Session::new(
             launch("hints", Role::Stream),
@@ -3255,7 +3291,9 @@ impl<P, A> Session<P, A> {
         self.adaptive_bitrate.lock().unwrap().new_path();
         {
             let mut loss = self.keyframe_loss.lock().unwrap();
+            let reports_losses = loss.reports_losses();
             *loss = crate::keyframe_loss::KeyframeLoss::new(loss.enabled());
+            loss.set_reports_losses(reports_losses);
         }
         self.launch.warnings.clear("network_keyframe_loss");
     }
@@ -4009,11 +4047,15 @@ impl<P, A> Session<P, A> {
     /// disabled adaptation and PyroWave retain their own policies.
     pub fn configure_remembered_keyframe_loss(&self, enabled: bool, remembered: bool) {
         let remembered = remembered && enabled && self.config.codec != 3;
-        *self.keyframe_loss.lock().unwrap() = if remembered {
+        let mut loss = if remembered {
             crate::keyframe_loss::KeyframeLoss::remembered("remembered from the previous session")
         } else {
             crate::keyframe_loss::KeyframeLoss::new(enabled)
         };
+        loss.set_reports_losses(
+            self.config.moonlight_features & crate::rtsp::FEC_STATUS_FEATURE != 0,
+        );
+        *self.keyframe_loss.lock().unwrap() = loss;
         if remembered {
             tracing::info!(stream_id = %self.launch.id, "pacing video like Wi-Fi from the first frame: remembered from the previous session");
             self.launch.warnings.set("network_keyframe_loss", "This device lost video frames in a previous stream at this address. Video starts at the Wi-Fi pacing rate to limit packet bursts without reducing the encoder bitrate. This memory expires after 24 hours and the host periodically tests the fast rate. Reset it in Devices after changing the network.");
@@ -4027,7 +4069,7 @@ impl<P, A> Session<P, A> {
         ignored: Option<String>,
     ) {
         if let Some(why) = ignored {
-            tracing::info!(stream_id = %self.launch.id, why, "video loss evidence not counted: the host caused it");
+            tracing::info!(stream_id = %self.launch.id, why, "video loss evidence not counted");
         }
         if let Some(crate::keyframe_loss::Latched {
             reason,

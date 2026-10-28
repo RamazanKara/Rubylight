@@ -247,7 +247,7 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
 
     private TextView text(LinearLayout parent, int appearance) {
         TextView view = new TextView(this);
-        view.setTextAppearance(appearance);
+        view.setTextAppearance(this, appearance);
         view.setPadding(0, dp(8), 0, dp(4));
         parent.addView(view);
         return view;

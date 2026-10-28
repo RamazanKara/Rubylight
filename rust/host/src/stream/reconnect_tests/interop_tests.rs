@@ -745,6 +745,7 @@ const SERVERINFO_FIELDS: &[(&str, Reading)] = &[
     ("PipelineRatesVersion", Reading::Read),
     ("TextInputVersion", Reading::Read),
     ("KeyboardLayoutVersion", Reading::Read),
+    ("PenBarrelRollVersion", Reading::Read),
     (
         "RustHostSessionCount",
         Reading::Ignored("diagnostics for scripts and the release harness"),
@@ -861,8 +862,8 @@ fn expected(feature: Feature) -> Availability {
         // (hdr_dolby_vision and hdr_hlg are on).
         | Feature::DolbyVision
         | Feature::Hlg => Supported,
-        // Keyboard follows focus and the device's layout are on by default.
-        Feature::TextInput | Feature::ClientKeyboardLayout => Supported,
+        // Keyboard follows focus, the device's layout and pen barrel roll are on by default.
+        Feature::TextInput | Feature::ClientKeyboardLayout | Feature::PenBarrelRoll => Supported,
         Feature::ServerCommands => Unsupported(Some(Reason::NoCommands)),
         // Display modes are the virtual display's. Before Windows 11 (CI's Server 2022)
         // the default mode is disabled, so the host says it is off, not missing a driver.
@@ -881,9 +882,7 @@ fn expected(feature: Feature) -> Availability {
         // File transfer is off; listed by the native API only when on.
         Feature::FileUpload | Feature::FileDownload => Unsupported(None),
         // The 3.0 extensions are defined but offered by nothing yet.
-        Feature::UsbForwarding
-        | Feature::PenBarrelRoll
-        | Feature::SharedFolders => Unsupported(None),
+        Feature::UsbForwarding | Feature::SharedFolders => Unsupported(None),
         // clipboard_image is on by default.
         Feature::ImageClipboard => Supported,
     }

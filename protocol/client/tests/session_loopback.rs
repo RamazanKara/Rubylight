@@ -1113,7 +1113,7 @@ fn a_session_roams_control_and_media_to_a_new_address() {
         host.video.send_to(&packet, client).unwrap();
     }
     until("a frame", || record.lock().unwrap().frames.len() == 1);
-    let audio = audio_stream(400);
+    let audio = audio_stream(1300);
     let (before, after) = audio.split_at(300);
     let client = host.peer_from(Media::Audio, old);
     for packet in before {
@@ -1156,11 +1156,14 @@ fn a_session_roams_control_and_media_to_a_new_address() {
     });
     let played = record.lock().unwrap().audio.len();
     let client = host.peer_from(Media::Audio, new);
-    for packet in after {
-        host.audio.send_to(packet, client).unwrap();
-        thread::sleep(Duration::from_micros(200));
-    }
+    // Sent as a host streams, until enough of it plays: one burst could all
+    // land before a slow (sanitizer) client reads the new socket, and the
+    // wait then timed out with nothing more coming.
+    let mut packets = after.iter();
     until("audio after the roam", || {
+        if let Some(packet) = packets.next() {
+            host.audio.send_to(packet, client).unwrap();
+        }
         record.lock().unwrap().audio.len() >= played + 50
     });
     session.send_microphone(b"after").unwrap();

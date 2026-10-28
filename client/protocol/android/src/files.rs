@@ -909,6 +909,36 @@ mod tests {
     }
 
     #[test]
+    fn a_handle_destroyed_while_its_transfer_runs_cancels_it_and_the_run_still_answers() {
+        // The screen closes (main thread) while a worker is between two chunks.
+        let handle = create();
+        let id = queue_upload(handle, "big.bin", 12) as u64;
+        started(handle);
+        let host = Fake::default();
+        let mut destroyed = false;
+        let reply = parse(&run(
+            handle,
+            id,
+            Ok(&host),
+            Ok(temp(&[0; 12])),
+            &mut |done, _| {
+                if done > 0 && !destroyed {
+                    destroyed = true;
+                    destroy(handle);
+                }
+            },
+        ));
+        assert!(destroyed);
+        assert_eq!(reply["ok"]["state"], "cancelled");
+        assert_eq!(
+            host.received.lock().unwrap().len(),
+            4,
+            "no chunk after the close"
+        );
+        assert_eq!(snapshot(handle), "[]");
+    }
+
+    #[test]
     fn the_list_and_its_errors_keep_the_status_and_code() {
         let reply = parse(&list(Ok(&Fake::default())));
         assert_eq!(reply["ok"]["files"][0]["name"], "a.txt");

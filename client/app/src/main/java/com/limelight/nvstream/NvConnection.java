@@ -241,6 +241,14 @@ public class NvConnection {
         return appContext.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
     }
 
+    // A Remote Monitor session is view-only, so it never opens this device's microphone (and asks the host
+    // for no microphone stream), whatever the setting says.
+    void readMicrophoneSettings(PreferenceConfiguration prefs) {
+        micEnabled = prefs.enableMic && context.streamConfig.getApp().getRole() != NvApp.Role.REMOTE_MONITOR;
+        micPermitted = micEnabled && hasMicrophonePermission();
+        micProcessing = prefs.micProcessing();
+    }
+
     // Starts only once the native connection is ready; the final lock check also
     // serializes fallback creation with connection stop and a newly ready USB mic.
     private void startMicrophone() {
@@ -1233,9 +1241,7 @@ public class NvConnection {
                         }
                         MoonBridge.setupBridge(videoDecoderRenderer, audioRenderer, connectionListener, () -> stopRequested);
                         PreferenceConfiguration prefs = hintPrefs;
-                        micEnabled = prefs.enableMic;
-                        micPermitted = prefs.enableMic && hasMicrophonePermission();
-                        micProcessing = prefs.micProcessing();
+                        readMicrophoneSettings(prefs);
                         if (micEnabled && !micPermitted) {
                             LimeLog.warning("Microphone: on in settings but the permission is not granted; not sending");
                         }

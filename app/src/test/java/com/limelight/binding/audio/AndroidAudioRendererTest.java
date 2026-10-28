@@ -393,7 +393,11 @@ public class AndroidAudioRendererTest {
             return attached;
         }
 
+        // Thrown once a track exists, as when the framework fails it before it plays.
+        RuntimeException trackFailure;
+
         @Override int trackPerformanceMode() {
+            if (trackFailure != null) throw trackFailure;
             return perfMode;
         }
 
@@ -455,6 +459,17 @@ public class AndroidAudioRendererTest {
         renderer.stop();
         assertTrue(renderer.recreateAudioTrack());
         assertEquals(List.of("open", "close", "open", "close"), effectSessions);
+        renderer.cleanup();
+    }
+
+    @Test public void noTrackLeavesNoReserveForTheLateBound() {
+        UnavailableOutput renderer = new UnavailableOutput(RuntimeEnvironment.getApplication());
+        assertEquals(0, renderer.setup(STEREO, 48000, 240));
+        assertTrue((int) ReflectionHelpers.getField(renderer, "reserveFrames") > 0);
+        // Every track is built and sized, then fails before it plays: the reserve it was given goes too.
+        renderer.trackFailure = new IllegalStateException("track died");
+        assertFalse(renderer.recreateAudioTrack());
+        assertEquals(0, (int) ReflectionHelpers.getField(renderer, "reserveFrames"));
         renderer.cleanup();
     }
 

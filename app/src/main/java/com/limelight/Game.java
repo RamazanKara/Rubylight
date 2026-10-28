@@ -4126,7 +4126,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     /** The stream started again, {@code why} (a {@link LaunchSource}); the log keeps the start that opened it. */
     private Intent createStreamHandoffIntent(String why) {
         rememberMicrophoneMute();
-        return LaunchSource.put(new Intent(getIntent()), LaunchSource.again(why, getIntent()));
+        Intent again = LaunchSource.put(new Intent(getIntent()), LaunchSource.again(why, getIntent()));
+        // The game this start replaced may be long gone: another device's could be running by now.
+        again.removeExtra(EXTRA_REPLACED_APP_NAME);
+        return again;
     }
 
     private Intent createReconnectIntent() {

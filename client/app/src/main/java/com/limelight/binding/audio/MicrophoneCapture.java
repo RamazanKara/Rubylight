@@ -31,10 +31,19 @@ public class MicrophoneCapture {
         void missing(List<MicProcessing.Effect> effects);
     }
 
+    /**
+     * Hears, once, that capture failed on its own rather than through {@link #stop}. The microphone
+     * and its effects are released by then, so the owner can drop this capture and open a fresh one.
+     */
+    public interface FailureListener {
+        void failed(MicrophoneCapture capture);
+    }
+
     private final FrameSink sink;
     private final MicProcessing processing;
     private final MicRoute route;
     private final EffectsListener effectsListener;
+    private final FailureListener failureListener;
     // Set when an output device came or went; the capture thread checks the route at its next frame.
     private volatile boolean routeChanged;
     private final Object lock = new Object();
@@ -51,11 +60,17 @@ public class MicrophoneCapture {
     /** {@code route} may be null: the capture then treats the output as this device's speaker. */
     public MicrophoneCapture(FrameSink sink, boolean muted, MicProcessing processing, MicRoute route,
                              EffectsListener effectsListener) {
+        this(sink, muted, processing, route, effectsListener, null);
+    }
+
+    public MicrophoneCapture(FrameSink sink, boolean muted, MicProcessing processing, MicRoute route,
+                             EffectsListener effectsListener, FailureListener failureListener) {
         this.sink = sink;
         this.muted = muted;
         this.processing = processing == null ? MicProcessing.DEFAULT : processing;
         this.route = route;
         this.effectsListener = effectsListener;
+        this.failureListener = failureListener;
     }
 
     public MicProcessing processing() {
@@ -200,6 +215,29 @@ public class MicrophoneCapture {
         } finally {
             LimeLog.info("Microphone: stopped after " + counts[0] + " packets sent" +
                     (counts[1] > 0 ? " (" + counts[1] + " not sent)" : ""));
+            if (failed) {
+                releaseFailed();
+            }
+        }
+    }
+
+    // Runs on the capture thread once the record and its effects are released. Whichever of this and
+    // stop() takes the thread first does the cleanup, so a stop is never reported as a failure.
+    private void releaseFailed() {
+        synchronized (this) {
+            if (thread != Thread.currentThread()) {
+                return;
+            }
+            thread = null;
+        }
+        if (route != null) {
+            route.watch(null);
+        }
+        synchronized (lock) {
+            running = false;
+        }
+        if (failureListener != null) {
+            failureListener.failed(this);
         }
     }
 

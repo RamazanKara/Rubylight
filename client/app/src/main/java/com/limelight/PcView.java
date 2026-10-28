@@ -510,7 +510,8 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         pcMenu = sheet;
         sheet.setOnDismissListener(dialog -> {
             pcMenu = null;
-            startComputerUpdates();
+            // Pair from the menu stopped the polling, which would race the pairing; it restarts once that ends.
+            if (!hostActions.isPairing()) startComputerUpdates();
         });
         sheet.show();
     }

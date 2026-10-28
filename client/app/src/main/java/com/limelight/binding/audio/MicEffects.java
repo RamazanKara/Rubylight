@@ -11,7 +11,7 @@ import com.limelight.LimeLog;
  * Android's capture effects on one recording session. Each effect the device has is created and set
  * to what the plan says, so "off" also turns off an effect the voice source would add by itself.
  */
-public final class MicEffects implements MicProcessing.Availability {
+public class MicEffects implements MicProcessing.Availability {
     private final AudioEffect[] effects = new AudioEffect[MicProcessing.Effect.values().length];
 
     /** What this device offers, from Android's effect list. */
@@ -35,7 +35,7 @@ public final class MicEffects implements MicProcessing.Availability {
 
     /**
      * Attaches the effects to {@code session} as {@code plan} says. Returns the effects that were on
-     * the plan but could not be created; the caller reports them.
+     * the plan but could not be created or turned on; the caller reports them.
      */
     public java.util.List<MicProcessing.Effect> attach(int session, MicProcessing.Plan plan) {
         java.util.List<MicProcessing.Effect> failed = new java.util.ArrayList<>(0);
@@ -46,7 +46,11 @@ public final class MicEffects implements MicProcessing.Availability {
             try {
                 created = create(effect, session);
                 if (created != null) {
-                    created.setEnabled(on);
+                    // Some HALs, and any after an audio server restart, refuse without throwing.
+                    int status = created.setEnabled(on);
+                    if (status != AudioEffect.SUCCESS) {
+                        throw new IllegalStateException("setEnabled(" + on + ") returned " + status);
+                    }
                 }
             } catch (RuntimeException e) {
                 LimeLog.warning("Microphone: " + effect + " failed: " + e);
@@ -59,7 +63,8 @@ public final class MicEffects implements MicProcessing.Availability {
         return failed;
     }
 
-    private static AudioEffect create(MicProcessing.Effect effect, int session) {
+    // Package-visible so tests can hand in effects that refuse to turn on.
+    AudioEffect create(MicProcessing.Effect effect, int session) {
         switch (effect) {
             case ECHO_CANCELER: return AcousticEchoCanceler.create(session);
             case NOISE_SUPPRESSOR: return NoiseSuppressor.create(session);

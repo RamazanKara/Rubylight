@@ -184,7 +184,7 @@ public class ComputerManagerLifecycleTest {
             found.remoteAddress = address;
             ReflectionHelpers.callInstanceMethod(service, "runPoll",
                     ReflectionHelpers.ClassParameter.from(ComputerDetails.class, found),
-                    ReflectionHelpers.ClassParameter.from(boolean.class, true),
+                    ReflectionHelpers.ClassParameter.from(PollingTuple.class, null),
                     ReflectionHelpers.ClassParameter.from(int.class, 0));
 
             assertEquals(Collections.singletonList("Den PC"), shown);
@@ -307,7 +307,7 @@ public class ComputerManagerLifecycleTest {
             found.remoteAddress = found.activeAddress;
             ReflectionHelpers.callInstanceMethod(service, "runPoll",
                     ReflectionHelpers.ClassParameter.from(ComputerDetails.class, found),
-                    ReflectionHelpers.ClassParameter.from(boolean.class, true),
+                    ReflectionHelpers.ClassParameter.from(PollingTuple.class, null),
                     ReflectionHelpers.ClassParameter.from(int.class, 0));
             awaitWakeRequests(service);
 
@@ -354,7 +354,7 @@ public class ComputerManagerLifecycleTest {
             found.remoteAddress = found.activeAddress;
             ReflectionHelpers.callInstanceMethod(this, "runPoll",
                     ReflectionHelpers.ClassParameter.from(ComputerDetails.class, found),
-                    ReflectionHelpers.ClassParameter.from(boolean.class, true),
+                    ReflectionHelpers.ClassParameter.from(PollingTuple.class, null),
                     ReflectionHelpers.ClassParameter.from(int.class, 0));
             return found;
         }
@@ -397,6 +397,72 @@ public class ComputerManagerLifecycleTest {
         }
     }
 
+    /** Holds every poll until the test releases it; it answers or not as the test says. */
+    public static class HeldPollManager extends Manager {
+        final CountDownLatch polling = new CountDownLatch(1);
+        final CountDownLatch release = new CountDownLatch(1);
+        volatile boolean answers;
+
+        @Override boolean pollComputer(ComputerDetails details) throws InterruptedException {
+            polling.countDown();
+            assertTrue(release.await(10, TimeUnit.SECONDS));
+            if (answers) details.state = ComputerDetails.State.ONLINE;
+            return answers;
+        }
+    }
+
+    @Test
+    public void aPcRemovedWhileItIsPolledIsNeitherSavedNorShownAgain() throws Exception {
+        android.content.Context context = org.robolectric.RuntimeEnvironment.getApplication();
+        for (boolean answers : new boolean[] {false, true}) {
+            ComputerDetails stored = new ComputerDetails();
+            stored.uuid = "removed-host";
+            stored.name = "PC";
+            stored.activeAddress = new ComputerDetails.AddressTuple("192.168.1.9", 47989);
+            stored.remoteAddress = stored.activeAddress;
+            ComputerDatabaseManager database = new ComputerDatabaseManager(context);
+            database.updateComputer(stored);
+            database.close();
+            ServiceController<HeldPollManager> controller = Robolectric.buildService(HeldPollManager.class).create();
+            HeldPollManager service = controller.get();
+            Thread poller = null;
+            try {
+                service.answers = answers;
+                List<String> shown = new java.util.concurrent.CopyOnWriteArrayList<>();
+                ReflectionHelpers.setField(service, "listener", (ComputerManagerListener) details ->
+                        shown.add(details.uuid));
+                List<PollingTuple> tuples = ReflectionHelpers.getField(service, "pollingTuples");
+                PollingTuple tuple = tuples.get(0);
+                java.util.concurrent.atomic.AtomicReference<Boolean> modified = new java.util.concurrent.atomic.AtomicReference<>();
+                // Past its tries, so a poll that gets no answer reports the PC offline.
+                poller = new Thread(() -> modified.set(ReflectionHelpers.callInstanceMethod(service, "runPoll",
+                        ReflectionHelpers.ClassParameter.from(ComputerDetails.class, tuple.computer),
+                        ReflectionHelpers.ClassParameter.from(PollingTuple.class, tuple),
+                        ReflectionHelpers.ClassParameter.from(int.class, 3))));
+                poller.start();
+                assertTrue(service.polling.await(10, TimeUnit.SECONDS));
+
+                service.removeComputer(tuple.computer);
+                service.release.countDown();
+                poller.join(10000);
+
+                assertEquals("answers " + answers, Boolean.FALSE, modified.get());
+                assertEquals("the removed PC is not shown again", Collections.emptyList(), shown);
+                assertNull(tupleOf(service, "removed-host"));
+                ComputerDatabaseManager after = new ComputerDatabaseManager(context);
+                try {
+                    assertNull("the removed PC is not saved again", after.getComputerByUUID("removed-host"));
+                } finally {
+                    after.close();
+                }
+            } finally {
+                service.release.countDown();
+                if (poller != null) poller.join(10000);
+                controller.destroy();
+            }
+        }
+    }
+
     @Test
     public void aPollStillRunningWhenTheServiceGoesAwayAsksNothingAndKeepsNoReservation() throws Exception {
         ServiceController<SlowNativeManager> controller = Robolectric.buildService(SlowNativeManager.class).create();
@@ -424,14 +490,18 @@ public class ComputerManagerLifecycleTest {
         ComputerDetails computer = new ComputerDetails();
         computer.uuid = "pc";
         computer.state = ComputerDetails.State.OFFLINE;
+        addTuple(service, computer);
+        List<PollingTuple> tuples = ReflectionHelpers.getField(service, "pollingTuples");
+        PollingTuple tuple = tuples.get(0);
         ReflectionHelpers.setField(service, "listener", (ComputerManagerListener) details -> {
             throw new IllegalStateException("Listener failed");
         });
-        Method poll = ComputerManagerService.class.getDeclaredMethod("runPoll", ComputerDetails.class, boolean.class, int.class);
+        Method poll = ComputerManagerService.class.getDeclaredMethod("runPoll", ComputerDetails.class,
+                PollingTuple.class, int.class);
         poll.setAccessible(true);
         try {
             InvocationTargetException failure = assertThrows(InvocationTargetException.class,
-                    () -> poll.invoke(service, computer, false, 3));
+                    () -> poll.invoke(service, computer, tuple, 3));
             assertEquals("Listener failed", failure.getCause().getMessage());
             AtomicInteger references = ReflectionHelpers.getField(service, "dbRefCount");
             assertEquals(1, references.get());

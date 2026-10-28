@@ -360,6 +360,53 @@ public class PcViewLifecycleTest {
         }
     }
 
+    /** The menu closes after Pair has stopped the polling; closing it must not start it again mid-pairing. */
+    @Test
+    public void pairFromTheMenuKeepsPollingStoppedUntilPairingEnds() throws Exception {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(1), 47989);
+        Thread worker = null;
+        try {
+            Library screen = controller.get();
+            GridView grid = screen.findViewById(R.id.fragmentView);
+            screen.showComputerMenu((PcView.ComputerObject) grid.getItemAtPosition(0));
+            com.limelight.ui.ActionSheet sheet = (com.limelight.ui.ActionSheet) ShadowDialog.getLatestDialog();
+            android.view.View pair = button(sheet.findViewById(android.R.id.content),
+                    screen.getString(R.string.pcview_menu_pair_pc));
+            assertNotNull(pair);
+            pair.performClick();
+            // The sheet's dismiss listener runs from the main looper, after the pairing has started.
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            worker = ReflectionHelpers.getField(screen.hostActions(), "pairingThread");
+            assertTrue(screen.hostActions().isPairing());
+            assertNull(ReflectionHelpers.getField(screen, "pcMenu"));
+            assertFalse("polling restarted during pairing", ReflectionHelpers.<Boolean>getField(screen, "runningPolling"));
+
+            AlertDialog dialog = ReflectionHelpers.getField(screen.hostActions(), "pairingDialog");
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            worker.join(5000);
+            assertTrue(ReflectionHelpers.<Boolean>getField(screen, "runningPolling"));
+        } finally {
+            controller.pause().stop().destroy();
+            if (worker != null) worker.join(5000);
+        }
+    }
+
+    private static android.view.View button(android.view.View view, String label) {
+        if (view instanceof com.google.android.material.button.MaterialButton
+                && label.contentEquals(((com.google.android.material.button.MaterialButton) view).getText())) {
+            return view;
+        }
+        if (view instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                android.view.View found = button(group.getChildAt(i), label);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
     @Test
     public void pairingShowsPinDuringHostCheckAndSupportsRetryAfterFailure() throws Exception {
         try (ServerSocket host = new ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))) {

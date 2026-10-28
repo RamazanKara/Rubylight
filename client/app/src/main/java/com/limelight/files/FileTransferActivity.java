@@ -1,5 +1,6 @@
 package com.limelight.files;
 
+import android.app.Application;
 import android.content.ComponentName;
 import android.content.ContentResolver;
 import android.content.Context;
@@ -31,6 +32,8 @@ import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.lifecycle.AndroidViewModel;
+import androidx.lifecycle.ViewModelProvider;
 
 import com.limelight.LimeLog;
 import com.limelight.R;
@@ -66,30 +69,22 @@ import java.util.concurrent.Executors;
  * menu and the stream menu with {@link #EXTRA_PC_UUID}; a share always asks which PC first, and sends only
  * another app's files.
  *
- * <p>Transfers run while the screen exists, also in the background; leaving it cancels what has not finished.
+ * <p>Transfers run while the screen exists, also in the background, and through a configuration change (dark
+ * theme, font or display size, language: {@link TransferWork}); leaving it cancels what has not finished.
  */
 public class FileTransferActivity extends NightjarActivity implements FileTransferController.Ui {
     public static final String EXTRA_PC_UUID = "files_pc_uuid";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private final ExecutorService workers = Executors.newCachedThreadPool(r -> new Thread(r, "File transfer"));
-    private final Map<String, ComputerDetails> computers = new LinkedHashMap<>();
-    /** Shared with this screen and waiting for a PC that may receive them. */
-    private final List<Uri> waiting = new ArrayList<>();
 
+    TransferWork work;
     private ComputerManagerService.ComputerManagerBinder manager;
     private boolean bound;
     private boolean foreground;
     private boolean polling;
-    private String uuid;
-    private ComputerDetails computer;
-    private FileTransferEngine engine;
-    private FileTransferController controller;
     private FileProblems.Access uploadAccess = FileProblems.Access.CHECKING;
     private FileProblems.Access downloadAccess = FileProblems.Access.CHECKING;
     private int generation;
-    private RemoteFiles.Entry pendingDownload;
-    private long pendingRetry = -1;
 
     private TextView status;
     private LinearLayout pcs;
@@ -110,13 +105,13 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
     private final ServiceConnection service = new ServiceConnection() {
         @Override public void onServiceConnected(ComponentName name, IBinder binder) {
             ComputerManagerService.ComputerManagerBinder candidate = (ComputerManagerService.ComputerManagerBinder) binder;
-            workers.execute(() -> {
+            work.workers.execute(() -> {
                 if (!candidate.waitForReady()) return;
                 handler.post(() -> {
                     if (isFinishing() || isDestroyed()) return;
                     manager = candidate;
-                    if (uuid != null) {
-                        ComputerDetails known = manager.getComputer(uuid);
+                    if (work.uuid != null) {
+                        ComputerDetails known = manager.getComputer(work.uuid);
                         if (known != null) onComputer(new ComputerDetails(known));
                     }
                     startPolling();
@@ -137,20 +132,27 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
         super.onCreate(state);
         FrameLayout content = TopAppBar.setUpPage(this, R.string.files_title, this::finish);
         content.addView(buildPage());
-        uuid = chosenPc(getIntent());
-        int refused = 0;
-        for (Uri uri : sharedUris(getIntent())) {
-            if (sendable(uri, getPackageName(), providerPackage(uri))) waiting.add(uri);
-            else refused++;
+        work = new ViewModelProvider(this).get(TransferWork.class);
+        // Recreated after a configuration change, the screen goes on with what it had: a share is taken once.
+        if (!work.opened) {
+            work.opened = true;
+            work.uuid = chosenPc(getIntent());
+            int refused = 0;
+            for (Uri uri : sharedUris(getIntent())) {
+                if (sendable(uri, getPackageName(), providerPackage(uri))) work.waiting.add(uri);
+                else refused++;
+            }
+            if (refused > 0) {
+                LimeLog.warning("File transfer: refused " + refused + " shared items that are not another app's files");
+                Toast.makeText(this, getString(R.string.files_share_refused, refused), Toast.LENGTH_LONG).show();
+            }
+            work.engine = FileTransferEngine.jni();
         }
-        if (refused > 0) {
-            LimeLog.warning("File transfer: refused " + refused + " shared items that are not another app's files");
-            Toast.makeText(this, getString(R.string.files_share_refused, refused), Toast.LENGTH_LONG).show();
-        }
-        engine = FileTransferEngine.jni();
-        if (engine != null) {
+        work.screen = this;
+        if (work.engine != null) {
             bound = bindService(new Intent(this, ComputerManagerService.class), service, BIND_AUTO_CREATE);
         }
+        if (work.controller != null) loadAccess();
         render();
         UiHelper.notifyNewRootView(this);
     }
@@ -232,7 +234,9 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
         page.addView(transfers);
         clearFinished = button(page, R.string.files_clear_finished);
         clearFinished.setOnClickListener(v -> {
-            if (controller != null) controller.clearFinished();
+            work.leftovers.clear();
+            if (work.controller != null) work.controller.clearFinished();
+            render();
         });
 
         filesHeading = text(page, android.R.style.TextAppearance_Material_Title);
@@ -285,29 +289,30 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
 
     private void onComputer(ComputerDetails details) {
         if (isFinishing() || isDestroyed() || details.uuid == null) return;
-        computers.put(details.uuid, details);
-        if (uuid != null && uuid.equalsIgnoreCase(details.uuid)) {
-            boolean first = computer == null;
-            computer = details;
+        work.computers.put(details.uuid, details);
+        if (work.uuid != null && work.uuid.equalsIgnoreCase(details.uuid)) {
+            boolean first = work.computer == null;
+            work.computer = details;
             // The first time the PC is reachable: its endpoint and what this device may do there.
-            if (controller == null && details.state == ComputerDetails.State.ONLINE) {
+            if (work.controller == null && details.state == ComputerDetails.State.ONLINE) {
                 HostEndpoint endpoint = manager == null ? null : HostEndpoint.of(details, manager.getUniqueId(),
                         PlatformBinding.getCryptoProvider(getApplicationContext()));
                 if (endpoint != null) {
-                    controller = new FileTransferController(engine, endpoint, workers, handler::post, this);
+                    work.controller = new FileTransferController(work.engine, endpoint, work.workers,
+                            work.handler::post, work);
                     loadAccess();
                 }
             } else if (first) {
                 render();
             }
         }
-        if (uuid == null) render();
+        if (work.uuid == null) render();
     }
 
     /** Asks the PC what this device may do, then reads its folder. */
     private void loadAccess() {
-        FileTransferController current = controller;
-        if (current == null || computer == null) {
+        FileTransferController current = work.controller;
+        if (current == null || work.computer == null) {
             render();
             return;
         }
@@ -315,8 +320,8 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
         uploadAccess = FileProblems.Access.CHECKING;
         downloadAccess = FileProblems.Access.CHECKING;
         status.setText(R.string.files_checking);
-        HostCapabilities known = computer.caps;
-        workers.execute(() -> {
+        HostCapabilities known = work.computer.caps;
+        work.workers.execute(() -> {
             String failure = null;
             HostCapabilities caps = known;
             try {
@@ -328,7 +333,7 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
             RemoteFiles list = null;
             if (failure == null && (FileProblems.access(caps, true) == FileProblems.Access.READY
                     || FileProblems.access(caps, false) == FileProblems.Access.READY)) {
-                list = RemoteFiles.parse(engine.list(current.host()));
+                list = RemoteFiles.parse(work.engine.list(current.host()));
             }
             HostCapabilities read = caps;
             String problem = failure;
@@ -352,11 +357,11 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
     }
 
     private void refreshFiles() {
-        FileTransferController current = controller;
+        FileTransferController current = work.controller;
         if (current == null) return;
         int asked = generation;
-        workers.execute(() -> {
-            RemoteFiles list = RemoteFiles.parse(engine.list(current.host()));
+        work.workers.execute(() -> {
+            RemoteFiles list = RemoteFiles.parse(work.engine.list(current.host()));
             handler.post(() -> {
                 if (asked == generation && !isFinishing() && !isDestroyed()) showFiles(list);
             });
@@ -364,16 +369,16 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
     }
 
     private void sendWaiting() {
-        if (uploadAccess != FileProblems.Access.READY || controller == null) return;
-        List<Uri> now = new ArrayList<>(waiting);
-        waiting.clear();
+        if (uploadAccess != FileProblems.Access.READY || work.controller == null) return;
+        List<Uri> now = new ArrayList<>(work.waiting);
+        work.waiting.clear();
         for (Uri uri : now) queueUpload(uri);
         render();
     }
 
     private void onPicked(List<Uri> uris) {
         if (uris == null || uris.isEmpty()) return;
-        waiting.addAll(uris);
+        work.waiting.addAll(uris);
         sendWaiting();
     }
 
@@ -403,7 +408,7 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
             status.setText(getString(R.string.files_size_unknown, name));
             return;
         }
-        controller.send(name, size, () -> detach(resolver.openFileDescriptor(uri, "r")));
+        work.controller.send(name, size, () -> detach(resolver.openFileDescriptor(uri, "r")));
     }
 
     private static int detach(ParcelFileDescriptor fd) throws IOException {
@@ -412,33 +417,34 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
     }
 
     private void download(RemoteFiles.Entry entry) {
-        pendingDownload = entry;
-        pendingRetry = -1;
+        work.pendingDownload = entry;
+        work.pendingRetry = -1;
         creator.launch(entry.name);
     }
 
-    private void onCreated(Uri uri) {
-        RemoteFiles.Entry entry = pendingDownload;
-        long retry = pendingRetry;
-        pendingDownload = null;
-        pendingRetry = -1;
-        if (uri == null || controller == null) return;
-        ContentResolver resolver = getContentResolver();
+    /** The save dialog's document for the download it was opened for; package-private for tests. */
+    void onCreated(Uri uri) {
+        RemoteFiles.Entry entry = work.pendingDownload;
+        long retry = work.pendingRetry;
+        work.pendingDownload = null;
+        work.pendingRetry = -1;
+        if (uri == null) return;
+        String name = displayName(uri, entry != null ? entry.name : String.valueOf(uri.getLastPathSegment()));
+        Runnable discard = work.discard(uri, name);
+        FileTransferController current = work.controller;
+        if (current == null || (entry == null && retry < 0)) {
+            // Android closed Nightjar while the save dialog was open: the download it was for is gone, and the
+            // document the dialog made would stay behind empty.
+            Toast.makeText(this, R.string.files_save_lost, Toast.LENGTH_LONG).show();
+            work.workers.execute(discard);
+            return;
+        }
+        ContentResolver resolver = getApplicationContext().getContentResolver();
         FileTransferController.Opener opener = () -> detach(resolver.openFileDescriptor(uri, "w"));
-        Runnable discard = () -> {
-            try {
-                DocumentsContract.deleteDocument(resolver, uri);
-            } catch (FileNotFoundException | RuntimeException e) {
-                LimeLog.warning("File transfer: could not delete an unfinished download: " + e.getMessage());
-            }
-        };
         if (retry >= 0) {
-            controller.retryDownload(retry, opener, discard);
-        } else if (entry != null) {
-            controller.download(entry.name, displayName(uri, entry.name), entry.size, opener, discard);
+            current.retryDownload(retry, opener, discard);
         } else {
-            // The screen was recreated while the picker was open: nothing to download into it.
-            workers.execute(discard);
+            current.download(entry.name, name, entry.size, opener, discard);
         }
     }
 
@@ -465,26 +471,26 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
 
     private void render() {
         if (status == null) return;
-        boolean picking = uuid == null;
+        boolean picking = work.uuid == null;
         pcs.removeAllViews();
         int note;
-        if (engine == null) {
+        if (work.engine == null) {
             note = R.string.files_no_library;
         } else if (picking) {
             note = showPcs() ? R.string.files_pick_pc : R.string.files_no_pc;
-        } else if (computer == null || controller == null) {
-            note = computer == null ? R.string.files_checking : R.string.files_offline;
+        } else if (work.computer == null || work.controller == null) {
+            note = work.computer == null ? R.string.files_checking : R.string.files_offline;
         } else if (uploadAccess != FileProblems.Access.READY) {
             note = FileProblems.accessText(uploadAccess, true);
         } else {
             note = FileProblems.accessText(downloadAccess, false);
         }
         status.setText(note == 0 ? "" : getString(note));
-        status.setVisibility(note == 0 && waiting.isEmpty() ? View.GONE : View.VISIBLE);
-        if (!waiting.isEmpty() && !picking) {
-            status.append((note == 0 ? "" : "\n\n") + getString(R.string.files_waiting_to_send, waiting.size()));
+        status.setVisibility(note == 0 && work.waiting.isEmpty() ? View.GONE : View.VISIBLE);
+        if (!work.waiting.isEmpty() && !picking) {
+            status.append((note == 0 ? "" : "\n\n") + getString(R.string.files_waiting_to_send, work.waiting.size()));
         }
-        boolean open = controller != null;
+        boolean open = work.controller != null;
         send.setVisibility(open ? View.VISIBLE : View.GONE);
         send.setEnabled(uploadAccess == FileProblems.Access.READY);
         refresh.setVisibility(open ? View.VISIBLE : View.GONE);
@@ -492,13 +498,13 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
         filesHeading.setVisibility(listed ? View.VISIBLE : View.GONE);
         folder.setVisibility(listed ? View.VISIBLE : View.GONE);
         files.setVisibility(listed ? View.VISIBLE : View.GONE);
-        showTransfers(open ? controller.rows() : Collections.emptyList());
+        showTransfers(open ? work.controller.rows() : Collections.emptyList());
     }
 
     /** The PCs a share can go to; false when there is none. */
     private boolean showPcs() {
         boolean any = false;
-        for (ComputerDetails details : computers.values()) {
+        for (ComputerDetails details : work.computers.values()) {
             if (details.state != ComputerDetails.State.ONLINE || details.pairState != PairingManager.PairState.PAIRED
                     || !details.caps.has(HostCapabilities.Feature.NATIVE_API)) {
                 continue;
@@ -507,8 +513,8 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
             Button pick = button(pcs, 0);
             pick.setText(details.displayName());
             pick.setOnClickListener(v -> {
-                uuid = details.uuid;
-                computer = null;
+                work.uuid = details.uuid;
+                work.computer = null;
                 onComputer(details);
                 render();
             });
@@ -523,8 +529,19 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
             transfers.addView(transferRow(row));
             finished |= row.isFinished();
         }
-        transfersHeading.setVisibility(rows.isEmpty() ? View.GONE : View.VISIBLE);
-        clearFinished.setVisibility(finished ? View.VISIBLE : View.GONE);
+        for (String name : work.leftovers) {
+            text(transfers, android.R.style.TextAppearance_Material_Body1)
+                    .setText(getString(R.string.files_partial_left, name));
+        }
+        boolean shown = !rows.isEmpty() || !work.leftovers.isEmpty();
+        transfersHeading.setVisibility(shown ? View.VISIBLE : View.GONE);
+        clearFinished.setVisibility(finished || !work.leftovers.isEmpty() ? View.VISIBLE : View.GONE);
+    }
+
+    /** A download's document that could not be deleted is named under the transfers. */
+    void onLeftoversChanged() {
+        if (isFinishing() || isDestroyed()) return;
+        render();
     }
 
     private View transferRow(FileRow row) {
@@ -547,16 +564,16 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
         LinearLayout actions = new LinearLayout(this);
         item.addView(actions);
         if (!row.isFinished() && !row.cancelling) {
-            button(actions, android.R.string.cancel).setOnClickListener(v -> controller.cancel(row.id));
+            button(actions, android.R.string.cancel).setOnClickListener(v -> work.controller.cancel(row.id));
         }
         if (row.canRetry) {
             button(actions, R.string.files_retry).setOnClickListener(v -> {
-                if (controller.needsNewDocument(row.id)) {
-                    pendingDownload = null;
-                    pendingRetry = row.id;
+                if (work.controller.needsNewDocument(row.id)) {
+                    work.pendingDownload = null;
+                    work.pendingRetry = row.id;
                     creator.launch(row.localName);
                 } else {
-                    controller.retry(row.id);
+                    work.controller.retry(row.id);
                 }
             });
         }
@@ -633,10 +650,74 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
     @Override
     protected void onDestroy() {
         generation++;
-        if (controller != null) controller.close();
+        // The transfers stay with the work: it closes them once the screen is gone for good.
+        if (work.screen == this) work.screen = null;
         stopPolling();
         if (bound) unbindService(service);
-        workers.shutdown();
         super.onDestroy();
+    }
+
+    /**
+     * The screen's transfers and what they are for, kept across a configuration change, which recreates the
+     * screen: cancelling there would delete the documents of unfinished downloads, and a share taken again would
+     * be sent twice. Read and written on the main thread. Cleared when the screen goes for good, which cancels
+     * what has not finished.
+     */
+    public static final class TransferWork extends AndroidViewModel implements FileTransferController.Ui {
+        final Handler handler = new Handler(Looper.getMainLooper());
+        final ExecutorService workers = Executors.newCachedThreadPool(r -> new Thread(r, "File transfer"));
+        final Map<String, ComputerDetails> computers = new LinkedHashMap<>();
+        /** Shared with this screen and waiting for a PC that may receive them. */
+        final List<Uri> waiting = new ArrayList<>();
+        /** Unfinished downloads whose documents could not be deleted, by name, until Clear finished. */
+        final List<String> leftovers = new ArrayList<>();
+        /** The intent was read: its share is in {@link #waiting} or sent. */
+        boolean opened;
+        String uuid;
+        ComputerDetails computer;
+        FileTransferEngine engine;
+        FileTransferController controller;
+        RemoteFiles.Entry pendingDownload;
+        long pendingRetry = -1;
+        /** The screen showing the work; null between the old screen's end and the new one's start. */
+        FileTransferActivity screen;
+
+        public TransferWork(Application application) { super(application); }
+
+        @Override public void onTransfersChanged(List<FileRow> rows) {
+            if (screen != null) screen.onTransfersChanged(rows);
+        }
+
+        @Override public void onUploaded() {
+            if (screen != null) screen.onUploaded();
+        }
+
+        /** Deletes a download's document on a worker; one that stays is named on the screen. */
+        Runnable discard(Uri uri, String name) {
+            ContentResolver resolver = getApplication().getContentResolver();
+            return () -> {
+                if (deleteDocument(resolver, uri)) return;
+                handler.post(() -> {
+                    leftovers.add(name);
+                    if (screen != null) screen.onLeftoversChanged();
+                });
+            };
+        }
+
+        static boolean deleteDocument(ContentResolver resolver, Uri uri) {
+            try {
+                if (DocumentsContract.deleteDocument(resolver, uri)) return true;
+                LimeLog.warning("File transfer: an unfinished download was not deleted: " + uri);
+            } catch (FileNotFoundException | RuntimeException e) {
+                LimeLog.warning("File transfer: could not delete an unfinished download: " + e.getMessage());
+            }
+            return false;
+        }
+
+        @Override protected void onCleared() {
+            screen = null;
+            if (controller != null) controller.close();
+            workers.shutdown();
+        }
     }
 }

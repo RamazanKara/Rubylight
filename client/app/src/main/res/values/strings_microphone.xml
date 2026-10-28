@@ -29,4 +29,5 @@
     <string name="stream_mic_button_hide">Hide microphone button</string>
     <string name="mic_effects_missing">Not on this device: %1$s. The microphone is sent without this processing.</string>
     <string name="mic_effect_not_on_device">Not on this device</string>
+    <string name="mic_failed">The microphone stopped working, so it is muted now. Unmute it to try again.</string>
 </resources>

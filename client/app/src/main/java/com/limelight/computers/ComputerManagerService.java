@@ -110,13 +110,14 @@ public class ComputerManagerService extends Service {
         }
     };
 
-    // Returns true if the details object was modified
-    private boolean runPoll(ComputerDetails details, boolean newPc, int offlineCount) throws InterruptedException {
+    // Returns true if the details object was modified. A PC being added has no tuple yet.
+    private boolean runPoll(ComputerDetails details, PollingTuple tuple, int offlineCount) throws InterruptedException {
         if (!getLocalDatabaseReference()) {
             return false;
         }
 
         try {
+            final boolean newPc = tuple == null;
             final int pollTriesBeforeOffline = details.state == ComputerDetails.State.UNKNOWN ?
                     INITIAL_POLL_TRIES : OFFLINE_POLL_TRIES;
 
@@ -137,8 +138,9 @@ public class ComputerManagerService extends Service {
             }
 
             // If it's online, update our persistent state
+            ComputerDetails existingComputer = null;
             if (details.state == ComputerDetails.State.ONLINE) {
-                ComputerDetails existingComputer = dbManager.getComputerByUUID(details.uuid);
+                existingComputer = dbManager.getComputerByUUID(details.uuid);
 
                 // Check if it's in the database because it could have been
                 // removed after this was issued
@@ -147,16 +149,7 @@ public class ComputerManagerService extends Service {
                     return false;
                 }
 
-                // If we already have an entry for this computer in the DB, we must
-                // combine the existing data with this new data (which may be partially available
-                // due to detecting the PC via mDNS) without the saved external address. If we
-                // write to the DB without doing this first, we can overwrite our existing data.
-                HostCapabilityCache.save(this, details.uuid, details.caps);
-                if (existingComputer != null) {
-                    existingComputer.update(details);
-                    dbManager.updateComputer(existingComputer);
-                }
-                else {
+                if (existingComputer == null) {
                     try {
                         // If the active address is a site-local address (RFC 1918),
                         // then use STUN to populate the external address field if
@@ -168,23 +161,44 @@ public class ComputerManagerService extends Service {
                             }
                         }
                     } catch (UnknownHostException ignored) {}
-
-                    dbManager.updateComputer(details);
                 }
             }
 
-            // Don't call the listener if this is a failed lookup of a new PC
-            ComputerManagerListener currentListener = listener;
-            if ((!newPc || details.state == ComputerDetails.State.ONLINE) && currentListener != null) {
-                if (newPc) {
-                    // A rediscovered PC keeps the user's name from the first update on.
-                    details.alias = HostNames.get(this, details.uuid);
+            // removeComputer drops the tuple under this lock before it deletes the PC, so a PC removed while
+            // it was polled is neither saved again nor shown, and its wake targets are not asked for again.
+            synchronized (pollingTuples) {
+                if (!newPc && !pollingTuples.contains(tuple)) {
+                    return false;
                 }
-                currentListener.notifyComputerUpdated(details);
-            }
 
-            // After the listener, so a PC that answers is shown before its native API is asked.
-            wakeTargets.polled(details);
+                if (details.state == ComputerDetails.State.ONLINE) {
+                    // If we already have an entry for this computer in the DB, we must
+                    // combine the existing data with this new data (which may be partially available
+                    // due to detecting the PC via mDNS) without the saved external address. If we
+                    // write to the DB without doing this first, we can overwrite our existing data.
+                    HostCapabilityCache.save(this, details.uuid, details.caps);
+                    if (existingComputer != null) {
+                        existingComputer.update(details);
+                        dbManager.updateComputer(existingComputer);
+                    }
+                    else {
+                        dbManager.updateComputer(details);
+                    }
+                }
+
+                // Don't call the listener if this is a failed lookup of a new PC
+                ComputerManagerListener currentListener = listener;
+                if ((!newPc || details.state == ComputerDetails.State.ONLINE) && currentListener != null) {
+                    if (newPc) {
+                        // A rediscovered PC keeps the user's name from the first update on.
+                        details.alias = HostNames.get(this, details.uuid);
+                    }
+                    currentListener.notifyComputerUpdated(details);
+                }
+
+                // After the listener, so a PC that answers is shown before its native API is asked.
+                wakeTargets.polled(details);
+            }
             return true;
         } finally {
             releaseLocalDatabaseReference();
@@ -202,7 +216,7 @@ public class ComputerManagerService extends Service {
                         // Only allow one request to the machine at a time
                         synchronized (tuple.networkLock) {
                             // Check if this poll has modified the details
-                            if (!runPoll(tuple.computer, false, offlineCount)) {
+                            if (!runPoll(tuple.computer, tuple, offlineCount)) {
                                 LimeLog.info("PC is offline (try " + offlineCount + ")");
                                 offlineCount++;
                             } else {
@@ -524,7 +538,7 @@ public class ComputerManagerService extends Service {
 
             // Poll again, possibly with the pinned cert, to get accurate pairing information.
             // This will insert the host into the database too.
-            runPoll(fakeDetails, true, 0);
+            runPoll(fakeDetails, null, 0);
         }
 
         // If the machine is reachable, it was successful
@@ -557,6 +571,21 @@ public class ComputerManagerService extends Service {
         }
 
         try {
+            // Its polling first: a poll that ends after this saves and shows nothing (see runPoll).
+            synchronized (pollingTuples) {
+                for (PollingTuple tuple : pollingTuples) {
+                    if (tuple.computer.uuid.equals(computer.uuid)) {
+                        if (tuple.thread != null) {
+                            // Interrupt the thread on this entry
+                            tuple.thread.interrupt();
+                            tuple.thread = null;
+                        }
+                        pollingTuples.remove(tuple);
+                        break;
+                    }
+                }
+            }
+
             // Remove it from the database
             dbManager.deleteComputer(computer);
             // Before its stored targets go, so an ask still in flight can't store them again.
@@ -574,21 +603,6 @@ public class ComputerManagerService extends Service {
                     .edit().remove(computer.uuid).apply();
             CacheHelper.deleteCacheFile(getCacheDir(), "applist", computer.uuid);
             new DiskAssetLoader(this).deleteAssetsForComputer(computer.uuid);
-
-            synchronized (pollingTuples) {
-                // Remove the computer from the computer list
-                for (PollingTuple tuple : pollingTuples) {
-                    if (tuple.computer.uuid.equals(computer.uuid)) {
-                        if (tuple.thread != null) {
-                            // Interrupt the thread on this entry
-                            tuple.thread.interrupt();
-                            tuple.thread = null;
-                        }
-                        pollingTuples.remove(tuple);
-                        break;
-                    }
-                }
-            }
 
             // Discovery skips hosts that already answered, so the deleted PC would never return.
             DiscoveryService.DiscoveryBinder discovery = discoveryBinder;

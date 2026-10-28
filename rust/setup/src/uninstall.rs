@@ -152,27 +152,30 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<Removed> {
             "-Uninstall",
             "-InstallerBestEffort",
         ];
-        match system::run_as_system(&powershell, &arguments, Duration::from_secs(600)) {
-            Ok((code, output)) if code != 0 || output.contains("DRIVER_WARNING") => line(format!(
-                "warning: removing the Rubylight display driver: {output}"
-            )),
-            Ok(_) => {}
-            Err(error) => line(format!(
-                "warning: removing the Rubylight display driver: {error:#}"
-            )),
-        }
+        let result = system::run_as_system(&powershell, &arguments, Duration::from_secs(600));
+        notes.extend(removal_note(
+            "Rubylight display",
+            "Its device (Root\\RubylightVDisplay) or driver package may still be installed",
+            result,
+        ));
     }
     if options.remove_drivers {
         progress.set("Removing the virtual drivers…");
-        for (script, args) in [
+        for (script, name, args) in [
             (
                 "drivers\\gamepad\\cleanup.ps1",
+                "virtual gamepad",
                 vec!["-InstallerBestEffort", "-RemoveDriverStorePackage:1"],
             ),
             // Left by an installation from before Rubylight's own driver.
-            ("drivers\\display\\install.ps1", vec!["-Uninstall"]),
+            (
+                "drivers\\display\\install.ps1",
+                "earlier virtual display",
+                vec!["-Uninstall"],
+            ),
             (
                 crate::install::LIBVIRTUALDISPLAY_REMOVAL,
+                "old libvirtualdisplay",
                 vec!["-InstallerBestEffort"],
             ),
         ] {
@@ -189,7 +192,9 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<Removed> {
                     path.as_str(),
                 ];
                 arguments.extend(args);
-                let _ = system::run_as_system(&powershell, &arguments, Duration::from_secs(600));
+                let result =
+                    system::run_as_system(&powershell, &arguments, Duration::from_secs(600));
+                notes.extend(removal_note(name, "It may still be installed", result));
             }
         }
     }
@@ -206,7 +211,12 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<Removed> {
             .into_iter()
             .filter(|record| unrestored.is_some() && record.is_file())
             .collect();
-        remove_profile(profile().parent().unwrap_or(&profile()), &records);
+        let root = profile().parent().unwrap_or(&profile()).to_path_buf();
+        let left = remove_profile(&root, &records);
+        if let Some(note) = profile_note(&root, &left) {
+            line(format!("warning: {note}"));
+            notes.push(note);
+        }
         if !records.is_empty() {
             let kept = format!(
                 "The factory reset kept {} so the Windows settings can still be restored: install Rubylight again and choose Restore Windows settings under Maintenance in the console.",
@@ -398,15 +408,71 @@ fn turn_rdp_off(registry: &mut dyn MachineRegistry) -> String {
         ),
     }
 }
-/// Delete `root` for a factory reset, all but `keep` (files inside it). Best
-/// effort, like the rest of the removal.
-fn remove_profile(root: &Path, keep: &[PathBuf]) {
+/// The note for a driver removal that failed: it exited with an error,
+/// reported a `DRIVER_WARNING`, or did not run. `left` says what may remain.
+fn removal_note(name: &str, left: &str, result: Result<(i32, String)>) -> Option<String> {
+    let reason = match result {
+        Ok((code, output)) if code != 0 || output.contains("DRIVER_WARNING") => {
+            line(format!("warning: removing the {name} driver: {output}"));
+            let after = |marker: &str| {
+                output
+                    .lines()
+                    .find_map(|line| line.split_once(marker))
+                    .map(|(_, reason)| reason.trim().to_owned())
+                    .filter(|reason| !reason.is_empty())
+            };
+            after("driver action failed: ")
+                .or_else(|| after("DRIVER_WARNING: "))
+                .unwrap_or_else(|| format!("its script exited with code {code}"))
+        }
+        Ok(_) => return None,
+        Err(error) => {
+            line(format!("warning: removing the {name} driver: {error:#}"));
+            format!("{error:#}")
+        }
+    };
+    Some(format!(
+        "The {name} driver could not be removed: {}. {left}: remove it in Device Manager; the setup log has the details.",
+        reason.trim_end_matches('.')
+    ))
+}
+/// The note for a factory reset that left `left` (from [`remove_profile`])
+/// in `root`; None when it removed everything.
+fn profile_note(root: &Path, left: &[PathBuf]) -> Option<String> {
+    const LISTED: usize = 5;
+    if left.is_empty() {
+        return None;
+    }
+    let mut paths: Vec<String> = left
+        .iter()
+        .take(LISTED)
+        .map(|path| path.display().to_string())
+        .collect();
+    if left.len() > LISTED {
+        paths.push(format!("{} more", left.len() - LISTED));
+    }
+    Some(format!(
+        "The factory reset could not delete everything in {}, so credentials, paired devices or their certificates may remain on this PC. Still there: {}. Close the programs using them and delete that folder.",
+        root.display(),
+        paths.join(", ")
+    ))
+}
+/// Delete `root` for a factory reset, all but `keep` (files inside it).
+/// Every step is tried; what is still there afterwards is returned.
+fn remove_profile(root: &Path, keep: &[PathBuf]) -> Vec<PathBuf> {
     let keep: Vec<&PathBuf> = keep
         .iter()
         .filter(|keep| keep.starts_with(root) && keep.is_file())
         .collect();
-    if keep.is_empty() {
-        let _ = std::fs::remove_dir_all(root);
+    remove_profile_entries(root, &keep);
+    let mut left = Vec::new();
+    leftovers(root, &keep, &mut left);
+    left
+}
+/// One file that cannot be deleted (open in an indexer or antivirus) stops
+/// `remove_dir_all`; the rest of that folder is then deleted one by one.
+fn remove_profile_entries(root: &Path, keep: &[&PathBuf]) {
+    if keep.is_empty() && std::fs::remove_dir_all(root).is_ok() {
         return;
     }
     let Ok(entries) = std::fs::read_dir(root) else {
@@ -417,13 +483,50 @@ fn remove_profile(root: &Path, keep: &[PathBuf]) {
         if keep.contains(&&path) {
             continue;
         }
-        if keep.iter().any(|keep| keep.starts_with(&path)) {
-            let inside: Vec<PathBuf> = keep.iter().map(|keep| keep.to_path_buf()).collect();
-            remove_profile(&path, &inside);
-        } else if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
-            let _ = std::fs::remove_dir_all(&path);
+        let inside: Vec<&PathBuf> = keep
+            .iter()
+            .copied()
+            .filter(|keep| keep.starts_with(&path))
+            .collect();
+        if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            remove_profile_entries(&path, &inside);
         } else {
-            let _ = std::fs::remove_file(&path);
+            // A link to a folder goes with remove_dir on Windows.
+            let _ = std::fs::remove_file(&path).or_else(|_| std::fs::remove_dir(&path));
+        }
+    }
+    if keep.is_empty() {
+        let _ = std::fs::remove_dir(root);
+    }
+}
+/// What is still in `root` but `keep`: files, links, and folders that could
+/// not be read; folders only through what is in them. Links are not followed.
+fn leftovers(root: &Path, keep: &[&PathBuf], left: &mut Vec<PathBuf>) {
+    match root.symlink_metadata() {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+        Ok(metadata) if metadata.is_dir() => {}
+        _ => {
+            left.push(root.to_path_buf());
+            return;
+        }
+    }
+    let Ok(entries) = std::fs::read_dir(root) else {
+        left.push(root.to_path_buf());
+        return;
+    };
+    for entry in entries {
+        let Ok(entry) = entry else {
+            left.push(root.to_path_buf());
+            return;
+        };
+        let path = entry.path();
+        if keep.contains(&&path) {
+            continue;
+        }
+        if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            leftovers(&path, keep, left);
+        } else {
+            left.push(path);
         }
     }
 }
@@ -938,7 +1041,7 @@ mod tests {
             write(&profile.join(CHILD_SESSION_SETUP_FILE), "{}");
         };
         fill();
-        remove_profile(root.path(), &records);
+        assert!(remove_profile(root.path(), &records).is_empty());
         let mut kept = records.clone();
         kept.sort();
         let mut left = files_in(root.path()).unwrap();
@@ -951,8 +1054,72 @@ mod tests {
 
         // Restored, or nothing to restore: the whole profile goes.
         fill();
-        remove_profile(root.path(), &[]);
+        assert!(remove_profile(root.path(), &[]).is_empty());
         assert!(!root.path().exists());
+        assert_eq!(profile_note(root.path(), &[]), None);
+    }
+    #[test]
+    fn a_factory_reset_that_leaves_files_says_which_and_that_pairings_may_remain() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let profile = root.path().join("config");
+        let records = [child_session_record(&profile)];
+        let key = profile.join("credentials").join("cakey.pem");
+        write(&key, "x");
+        write(&profile.join("sunshine.conf"), "x");
+        write(&records[0], "{}");
+        // An indexer or antivirus holds the key open.
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&key)
+            .unwrap();
+        for keep in [&records[..], &[]] {
+            let left = remove_profile(root.path(), keep);
+            assert_eq!(left, std::slice::from_ref(&key));
+            assert!(!profile.join("sunshine.conf").exists());
+            let note = profile_note(root.path(), &left).unwrap();
+            assert!(note.contains("credentials, paired devices"), "{note}");
+            assert!(note.contains(&key.display().to_string()), "{note}");
+            assert!(note.contains(&root.path().display().to_string()), "{note}");
+        }
+        drop(held);
+        // Long lists are cut short.
+        let many: Vec<PathBuf> = (0..7).map(|n| root.path().join(n.to_string())).collect();
+        let note = profile_note(root.path(), &many).unwrap();
+        assert!(note.contains("2 more"), "{note}");
+        assert!(!note.contains(&many[5].display().to_string()), "{note}");
+    }
+    #[test]
+    fn failed_driver_removals_become_notes() {
+        let warning = "WARNING: [RubylightVirtualDisplay] DRIVER_WARNING: Rubylight display driver setup did not complete.\nWARNING: [RubylightVirtualDisplay] Installer best-effort driver action failed: pnputil /delete-driver oem9.inf /uninstall /force failed with exit code 5\n";
+        let left = "Its device (Root\\RubylightVDisplay) or driver package may still be installed";
+        assert_eq!(
+            removal_note("Rubylight display", left, Ok((0, warning.into()))).unwrap(),
+            "The Rubylight display driver could not be removed: pnputil /delete-driver oem9.inf /uninstall /force failed with exit code 5. Its device (Root\\RubylightVDisplay) or driver package may still be installed: remove it in Device Manager; the setup log has the details."
+        );
+        let note = removal_note(
+            "virtual gamepad",
+            "It may still be installed",
+            Ok((1, String::new())),
+        )
+        .unwrap();
+        assert!(note.contains("exited with code 1"), "{note}");
+        let note = removal_note(
+            "old libvirtualdisplay",
+            "It may still be installed",
+            Err(anyhow::anyhow!("the task did not start")),
+        )
+        .unwrap();
+        assert!(note.contains("the task did not start"), "{note}");
+        assert_eq!(
+            removal_note(
+                "virtual gamepad",
+                "It may still be installed",
+                Ok((0, "done\n".into()))
+            ),
+            None
+        );
     }
     #[test]
     fn a_removal_whose_restore_failed_has_its_own_exit_code() {

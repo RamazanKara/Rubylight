@@ -27,4 +27,5 @@
     <string name="stream_mic_button_hide">Masquer le bouton du micro</string>
     <string name="mic_effects_missing">Absent de cet appareil : %1$s. Le micro est envoyé sans ce traitement.</string>
     <string name="mic_effect_not_on_device">Absent de cet appareil</string>
+    <string name="mic_failed">Le micro ne fonctionne plus, il est donc coupé. Réactivez-le pour réessayer.</string>
 </resources>

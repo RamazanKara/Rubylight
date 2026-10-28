@@ -27,4 +27,5 @@
     <string name="stream_mic_button_hide">隱藏麥克風按鈕</string>
     <string name="mic_effects_missing">此裝置不支援：%1$s。麥克風會在沒有這些處理的情況下傳送。</string>
     <string name="mic_effect_not_on_device">此裝置不支援</string>
+    <string name="mic_failed">麥克風已停止運作，因此已靜音。取消靜音即可重試。</string>
 </resources>

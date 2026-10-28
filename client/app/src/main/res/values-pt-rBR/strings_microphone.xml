@@ -27,4 +27,5 @@
     <string name="stream_mic_button_hide">Ocultar botão do microfone</string>
     <string name="mic_effects_missing">Não disponível neste dispositivo: %1$s. O microfone é enviado sem esse processamento.</string>
     <string name="mic_effect_not_on_device">Não disponível neste dispositivo</string>
+    <string name="mic_failed">O microfone parou de funcionar e agora está silenciado. Ative-o para tentar de novo.</string>
 </resources>

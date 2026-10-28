@@ -58,6 +58,97 @@ public class TvScreensPreviewTest {
         screens("night");
     }
 
+    @Test public void searchAndMenuDay() throws Exception {
+        searchAndMenu("day");
+    }
+
+    @Test @Config(qualifiers = "+night")
+    public void searchAndMenuNight() throws Exception {
+        searchAndMenu("night");
+    }
+
+    /** Settings' search results with the focus back on the rail, and a PC menu with its first row focused. */
+    private void searchAndMenu(String name) throws Exception {
+        File directory = new File(outputDirectory(), name);
+        assertTrue(directory.isDirectory() || directory.mkdirs());
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup().visible()) {
+            StreamSettings screen = controller.get();
+            leaveTouchMode(screen);
+            settle(screen);
+            key(screen, KeyEvent.KEYCODE_DPAD_UP);
+            key(screen, KeyEvent.KEYCODE_DPAD_CENTER);
+            settle(screen);
+            androidx.appcompat.widget.SearchView field = screen.findViewById(R.id.settings_search);
+            field.setQuery("controller", true);
+            settle(screen);
+            ListView sections = (ListView) screen.getFragmentManager().findFragmentById(R.id.settings_sections).getView()
+                    .findViewById(android.R.id.list);
+            sections.requestFocus();
+            settle(screen);
+            describe(screen, name + " search");
+            capture(screen, new File(directory, "tv-settings-search.png"));
+        }
+        try (ActivityController<ToolbarIconTintTest.Screen> controller =
+                     Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible()) {
+            Activity screen = controller.get();
+            ActionSheet sheet = new ActionSheet(screen, "homepc");
+            var pair = sheet.addAction(R.drawable.ic_lock, screen.getString(R.string.pcview_menu_pair_pc));
+            var pin = sheet.addAction(R.drawable.ic_keyboard, screen.getString(R.string.pair_otp_title));
+            sheet.addAction(R.drawable.ic_settings, screen.getString(R.string.pc_menu_settings));
+            sheet.addAction(R.drawable.ic_edit, screen.getString(R.string.host_menu_rename));
+            sheet.addAction(R.drawable.ic_help, screen.getString(R.string.discovery_help));
+            sheet.addDivider();
+            sheet.addDestructiveAction(R.drawable.ic_delete, screen.getString(R.string.pcview_menu_delete_pc));
+            sheet.show();
+            ShadowLooper.idleMainLooper(100, TimeUnit.MILLISECONDS);
+            // The sheet is its own window, with its own touch mode: a remote's press leaves it there too.
+            Object sheetRoot = ReflectionHelpers.callInstanceMethod(sheet.getWindow().getDecorView(), "getViewRootImpl");
+            assertTrue("the sheet is on screen", sheetRoot != null);
+            ReflectionHelpers.callInstanceMethod(sheetRoot, "ensureTouchMode",
+                    ReflectionHelpers.ClassParameter.from(boolean.class, false));
+            for (int focus = 0; focus < 2; focus++) {
+                var row = focus == 0 ? pair : pin;
+                assertTrue(row.requestFocus());
+                ShadowLooper.idleMainLooper(400, TimeUnit.MILLISECONDS);
+                // The sheet's window draws no frames here, so its rows' focus animators would stay at their start.
+                pair.jumpDrawablesToCurrentState();
+                pin.jumpDrawablesToCurrentState();
+                captureDialog(screen, sheet, new File(directory, "tv-pc-menu-" + focus + ".png"));
+            }
+            sheet.dismiss();
+        }
+    }
+
+    /** The screen with {@code dialog} drawn over it at its own size, centred. */
+    private static void captureDialog(Activity screen, android.app.Dialog dialog, File destination) throws IOException {
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
+        View root = screen.getWindow().getDecorView();
+        root.measure(View.MeasureSpec.makeMeasureSpec(W, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(H, View.MeasureSpec.EXACTLY));
+        root.layout(0, 0, W, H);
+        View sheet = dialog.getWindow().getDecorView();
+        android.view.WindowManager.LayoutParams params = dialog.getWindow().getAttributes();
+        int widthSpec = params.width > 0 ? View.MeasureSpec.makeMeasureSpec(params.width, View.MeasureSpec.EXACTLY) :
+                View.MeasureSpec.makeMeasureSpec(W, params.width == android.view.ViewGroup.LayoutParams.MATCH_PARENT ?
+                        View.MeasureSpec.EXACTLY : View.MeasureSpec.AT_MOST);
+        int heightSpec = params.height > 0 ? View.MeasureSpec.makeMeasureSpec(params.height, View.MeasureSpec.EXACTLY) :
+                View.MeasureSpec.makeMeasureSpec(H, params.height == android.view.ViewGroup.LayoutParams.MATCH_PARENT ?
+                        View.MeasureSpec.EXACTLY : View.MeasureSpec.AT_MOST);
+        sheet.measure(widthSpec, heightSpec);
+        sheet.layout(0, 0, sheet.getMeasuredWidth(), sheet.getMeasuredHeight());
+        Bitmap bitmap = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888);
+        try (FileOutputStream output = new FileOutputStream(destination)) {
+            Canvas canvas = new Canvas(bitmap);
+            root.draw(canvas);
+            canvas.drawColor(0x99000000);
+            canvas.translate((W - sheet.getWidth()) / 2f, (H - sheet.getHeight()) / 2f);
+            sheet.draw(canvas);
+            assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output));
+        } finally {
+            bitmap.recycle();
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private void screens(String name) throws Exception {
         File directory = new File(outputDirectory(), name);

@@ -52,7 +52,7 @@
     <string name="controller_test_needs_android_12">Requiere Android 12 o posterior.</string>
 
     <!-- USB Switch Pro driver -->
-    <string name="title_usb_switch_pro">Controlador USB de Switch Pro</string>
+    <string name="title_usb_switch_pro">Controlador USB de Switch Pro (experimental)</string>
     <string name="summary_usb_switch_pro">Experimental. Lee directamente un Nintendo Switch Pro Controller conectado por cable, con sensores de movimiento, vibración, Home y Capture.</string>
     <string name="usb_switch_pro_denied">Sin acceso USB; el Switch Pro Controller sigue usando la entrada de Android.\nVuelve a conectar el cable para reintentarlo.</string>
 </resources>

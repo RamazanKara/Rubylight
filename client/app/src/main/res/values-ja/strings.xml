@@ -324,7 +324,7 @@
     <string name="stream_permissions_help">権限はホストの設定またはウェブ UI で変更してください。</string>
     <string name="stream_input_denied">PC がこのデバイスからの入力をブロックしています。ホストの設定またはウェブ UI で許可してください。</string>
     <string name="stream_bitrate">ビットレート</string>
-    <string name="stream_bitrate_help">このセッションの Mbps を設定します。\n自動ビットレートはオフになります。</string>
+    <string name="stream_bitrate_help">このセッションの Mbps を設定します。\n「デバイスがビットレートを制御」はオフになります。</string>
     <string name="stream_bitrate_invalid">0.5～2000 Mbps のビットレートを入力してください</string>
     <string name="stream_bitrate_applied">ホストが %1$.1f Mbps を適用しました</string>
     <string name="stream_pyrowave_bitrate_low">%1$.1f Mbps は PyroWave の最低値 %2$d Mbps（%3$d×%4$d、%5$d FPS）を下回っています。映像が崩れます。</string>

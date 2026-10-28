@@ -51,5 +51,4 @@
     <string name="folders_save_lost">保存ダイアログを開いている間に保存するファイルの情報が失われました。何も保存されていません。</string>
     <string name="folders_partial_left">%1$s 途中までのファイルが %2$s に残っています。</string>
     <string name="folders_bad_path">Nightjar はこのパスを開けません: %1$s</string>
-    <string name="host_menu_folders_note">試験運用</string>
 </resources>

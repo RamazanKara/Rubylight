@@ -236,8 +236,10 @@ Done, on Windows and Linux unless noted:
   is open (the session every 2 s, the Radeon state at most once a second), on its own
   thread. A controller and the keyboard drive it; Esc or B closes it.
 - Settings in seven sections, in the Android app's order (Video, Display & image, Controls,
-  Audio, Streaming, App, Advanced). Every stream setting can be overridden per PC and per
-  game. Profiles are picked by hand or by network (mobile, home Wi-Fi, other Wi-Fi), with a
+  Audio, Streaming, App, Advanced), each showing Android's main rows first and the rest
+  behind "More … settings"; Advanced folds a Diagnostics group. Every
+  stream setting can be overridden per PC and per game, and an overridden folded row stays
+  in view. Profiles are picked by hand or by network (mobile, home Wi-Fi, other Wi-Fi), with a
   bitrate cap on mobile data. The launcher is in English and German.
 - Video: H.264, HEVC and AV1 with hardware decoding (D3D11VA zero-copy on Windows, VAAPI on
   Linux). A fallback to software decoding is announced, never silent. PyroWave decodes on
@@ -253,7 +255,7 @@ Done, on Windows and Linux unless noted:
   the host's commands (with the device permission), host cursor shapes, automatic bitrate,
   automatic resolution and frame rate, phase lock reports (Windows) and display caps (on
   Windows with the display's luminance).
-- Reconnect after an interruption (off by default): up to five tries within one minute.
+- Recover interrupted streams (on by default; settings saved before were switched on once): up to five tries within one minute.
   Network interruption grace, instant mouse and pen input, and on Linux "Prioritize stream
   traffic".
 - Performance overlay in Android's three modes: Compact (one line behind a health mark, with

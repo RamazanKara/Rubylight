@@ -50,7 +50,7 @@ public class AdvancedOptionsTest {
     private static final String GPU_BOOST = PreferenceConfiguration.GPU_MAX_CLOCKS_PREF_STRING;
     private static final String HEVC = PreferenceConfiguration.DISABLE_HEVC_LOW_LATENCY_PREF_STRING;
     private static final String HEVC_MODE = PreferenceConfiguration.HEVC_LOW_LATENCY_MODE_PREF_STRING;
-    /** The controls Advanced shows without any further tap. The individual decoding switches sit behind Customize. */
+    /** The controls Advanced shows with its More row open. The individual decoding switches sit behind Customize. */
     private static final String[] ADVANCED_CONTROLS = {
             "low_latency_customize", "checkbox_unbatched_input",
             "checkbox_network_priority", "checkbox_texture_view", "checkbox_vulkan_render", "checkbox_full_range",
@@ -195,7 +195,12 @@ public class AdvancedOptionsTest {
             settle(screen);
             assertEquals(screen.getString(R.string.settings_section_advanced),
                     ((MaterialToolbar) screen.findViewById(R.id.settings_toolbar)).getTitle().toString());
-            PreferenceScreen advanced = ((StreamSettings.SettingsFragment) shown(screen)).getPreferenceScreen();
+            StreamSettings.SettingsFragment restored = (StreamSettings.SettingsFragment) shown(screen);
+            PreferenceScreen advanced = restored.getPreferenceScreen();
+            Preference more = advanced.findPreference("more_advanced");
+            assertNotNull("Advanced ends on its More row", more);
+            more.getOnPreferenceClickListener().onPreferenceClick(more);
+            settle(screen);
             for (String key : ADVANCED_CONTROLS) assertNotNull(key, advanced.findPreference(key));
             assertNull(advanced.findPreference("list_resolution"));
             assertNull(advanced.findPreference("performance_overlay_mode"));

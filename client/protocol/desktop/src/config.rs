@@ -245,7 +245,13 @@ pub struct Settings {
     /// "Prioritize stream traffic": socket and thread priority for the stream, which the engine
     /// sets on Linux only. On by default, as on Android.
     pub network_priority: bool,
+    /// "Recover interrupted streams". On by default, as on Android.
     pub auto_reconnect: bool,
+    /// The once-only switch of `auto_reconnect` to on has run (Android's
+    /// `auto_reconnect_default_on`). Missing from files written before it, so those are switched
+    /// once; a choice made after that is kept.
+    #[serde(default)]
+    pub auto_reconnect_default_on: bool,
     pub virtual_display: bool,
     pub virtual_display_scale: u32,
     pub host_display: HostDisplay,
@@ -423,6 +429,15 @@ impl From<ErrorCorrection> for rubylight_protocol::fec_report::FecChoice {
     }
 }
 
+impl Settings {
+    /// Turns Recover interrupted streams on once in settings saved before it became the default.
+    fn migrate(&mut self) {
+        if !self.auto_reconnect_default_on {
+            (self.auto_reconnect, self.auto_reconnect_default_on) = (true, true);
+        }
+    }
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -484,7 +499,8 @@ impl Default for Settings {
             tell_host_link_speed: true,
             unbatched_input: true,
             network_priority: true,
-            auto_reconnect: false,
+            auto_reconnect: true,
+            auto_reconnect_default_on: true,
             virtual_display: false,
             virtual_display_scale: 100,
             host_display: HostDisplay::HostDefault,
@@ -862,7 +878,9 @@ impl Store {
     }
 
     pub fn settings(&self) -> Settings {
-        read_json(&self.dir.join("settings.json")).unwrap_or_default()
+        let mut settings: Settings = read_json(&self.dir.join("settings.json")).unwrap_or_default();
+        settings.migrate();
+        settings
     }
 
     pub fn save_settings(&self, settings: &Settings) -> std::io::Result<()> {
@@ -1478,6 +1496,20 @@ mod tests {
         assert!(old.client_roaming && !old.roaming_metered);
         let set: Settings = serde_json::from_str(r#"{"client_roaming":false,"roaming_metered":true}"#).unwrap();
         assert!(!set.client_roaming && set.roaming_metered);
+    }
+
+    #[test]
+    fn recover_interrupted_streams_turns_on_once_and_a_later_off_is_kept() {
+        assert!(Settings::default().auto_reconnect);
+        let dir = std::env::temp_dir().join(format!("nightjar-reconnect-{}", std::process::id()));
+        let store = Store::at(dir.clone()).unwrap();
+        std::fs::write(dir.join("settings.json"), r#"{"auto_reconnect": false}"#).unwrap();
+        let mut settings = store.settings();
+        assert!(settings.auto_reconnect, "an old file's off is switched on once");
+        settings.auto_reconnect = false;
+        store.save_settings(&settings).unwrap();
+        assert!(!store.settings().auto_reconnect, "the user's off after the switch is kept");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

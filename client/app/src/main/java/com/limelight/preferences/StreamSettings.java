@@ -84,6 +84,7 @@ public class StreamSettings extends NightjarActivity {
     private static final int EXPORT_LATENCY_REQUEST = 1;
     private static final String STATE_SECTION = "section";
     private static final String STATE_CUSTOMIZE = "customize_open";
+    private static final String STATE_MORE_OPEN = "more_open";
     /** Opens this section of {@link #SECTIONS} instead of the list; an unknown name opens the list. */
     public static final String EXTRA_SECTION = "com.limelight.preferences.SECTION";
     /** The key of the setting to scroll to and select once the section shows; see {@link #open}. */
@@ -95,18 +96,48 @@ public class StreamSettings extends NightjarActivity {
     static final List<String> LOW_LATENCY_CUSTOMIZED = Arrays.asList(
             "checkbox_codec_low_latency", "checkbox_vendor_low_latency", "checkbox_phone_performance_hints",
             "checkbox_codec_performance", PreferenceConfiguration.HEVC_LOW_LATENCY_MODE_PREF_STRING);
-    // Top-level screen keys (preferences_root.xml) and the preference categories each one shows
+    // Top-level screen keys (preferences_root.xml) and the preference categories each one shows. The last one
+    // of each holds only its More row (MORE_PREFIX).
     static final Map<String, String[]> SECTIONS = new LinkedHashMap<>();
     static {
-        SECTIONS.put("video", new String[] {"category_basic_settings"});
-        SECTIONS.put("display", new String[] {"category_display_refresh", "category_upscaling", "category_host_display"});
+        SECTIONS.put("video", new String[] {"category_basic_settings", "category_more_video"});
+        SECTIONS.put("display", new String[] {"category_display_refresh", "category_upscaling", "category_host_display",
+                "category_more_display"});
         SECTIONS.put("input", new String[] {"category_gamepad_settings", "category_usb_controllers", "category_input_settings",
-                "category_onscreen_controls", "category_keyboard_shortcuts"});
-        SECTIONS.put("audio", new String[] {"category_audio_settings"});
-        SECTIONS.put("streaming", new String[] {"category_streaming"});
-        SECTIONS.put("app", new String[] {"category_ui_settings", "category_accessibility"});
+                "category_onscreen_controls", "category_keyboard_shortcuts", "category_more_input"});
+        SECTIONS.put("audio", new String[] {"category_audio_settings", "category_more_audio"});
+        SECTIONS.put("streaming", new String[] {"category_streaming", "category_more_streaming"});
+        SECTIONS.put("app", new String[] {"category_ui_settings", "category_accessibility", "category_more_app"});
         SECTIONS.put("advanced", new String[] {"category_advanced_settings", "category_advanced_decoder",
-                "category_advanced_compatibility", "category_advanced_input", "category_advanced_diagnostics"});
+                "category_advanced_compatibility", "category_advanced_input", "category_advanced_experimental",
+                "category_advanced_diagnostics", "category_more_advanced"});
+    }
+    /**
+     * The row ending each section, "more_" and the section: it shows and hides the rows settings_tiers.xml does not
+     * list as main. Folded rows keep their key and group, and search, deep links and resets still find them.
+     */
+    static final String MORE_PREFIX = "more_";
+
+    /** The main rows of a section (settings_tiers.xml); every other row of it folds. */
+    static List<String> mainKeys(Context context, String section) {
+        int tier;
+        switch (section) {
+            case "video": tier = R.array.settings_tier_video; break;
+            case "display": tier = R.array.settings_tier_display; break;
+            case "input": tier = R.array.settings_tier_input; break;
+            case "audio": tier = R.array.settings_tier_audio; break;
+            case "streaming": tier = R.array.settings_tier_streaming; break;
+            case "app": tier = R.array.settings_tier_app; break;
+            case "advanced": tier = R.array.settings_tier_advanced; break;
+            default: throw new IllegalArgumentException("No settings section " + section);
+        }
+        return Arrays.asList(context.getResources().getStringArray(tier));
+    }
+
+    /** Whether this row of the section sits behind its More row: not main, not the More row, not behind Customize. */
+    static boolean foldsInSection(Context context, String section, String key) {
+        return section != null && key != null && !key.equals(MORE_PREFIX + section) &&
+                !LOW_LATENCY_CUSTOMIZED.contains(key) && !mainKeys(context, section).contains(key);
     }
     // Kept by a reset: the language is applied by the OS, the others are actions
     private static final List<String> RESET_EXCLUDED_KEYS = Arrays.asList(
@@ -120,6 +151,8 @@ public class StreamSettings extends NightjarActivity {
     private String section;
     /** Customize under Low-latency decoding is open: the individual switches show. */
     private boolean customizeOpen;
+    /** The sections whose More row is open: all their rows show. */
+    final Set<String> moreOpen = new HashSet<>();
     /** The two-pane screen shows a section before one is picked; this one is only that default, not the user's choice. */
     private boolean sectionDefaulted;
     private MaterialToolbar toolbar;
@@ -428,8 +461,14 @@ public class StreamSettings extends NightjarActivity {
         }
         searchResultKey = key;
         if (LOW_LATENCY_CUSTOMIZED.contains(key)) customizeOpen = true;
+        unfoldFor(targetSection, key);
         enterPane = focusRow = twoPane && inContentPane(focusOwner());
         setSearchQuery("");
+    }
+
+    /** A search result or a link that lands on a folded row opens its section's More row first. */
+    private void unfoldFor(String keySection, String key) {
+        if (keySection != null && foldsInSection(this, keySection, key)) moreOpen.add(keySection);
     }
 
     /** The section the user picked: not the one a wide screen shows before any is, which a narrow screen would open inside. */
@@ -553,6 +592,8 @@ public class StreamSettings extends NightjarActivity {
             returnSearchSection = normalizeSection(savedInstanceState.getString("return_section"));
             searchResultKey = savedInstanceState.getString("search_result");
             customizeOpen = savedInstanceState.getBoolean(STATE_CUSTOMIZE, false);
+            ArrayList<String> open = savedInstanceState.getStringArrayList(STATE_MORE_OPEN);
+            if (open != null) moreOpen.addAll(open);
         } else {
             String named = getIntent().getStringExtra(EXTRA_SECTION);
             String focusKey = getIntent().getStringExtra(EXTRA_FOCUS_KEY);
@@ -565,6 +606,7 @@ public class StreamSettings extends NightjarActivity {
             // A deep link names the setting to land on; it only makes sense inside a section.
             if (section != null) searchResultKey = focusKey;
             if (LOW_LATENCY_CUSTOMIZED.contains(focusKey)) customizeOpen = true;
+            unfoldFor(keySection, focusKey);
             enterPane = focusRow = searchResultKey != null;
         }
         super.onCreate(savedInstanceState);
@@ -657,6 +699,7 @@ public class StreamSettings extends NightjarActivity {
         outState.putString("return_section", returnSearchSection);
         outState.putString("search_result", searchResultKey);
         outState.putBoolean(STATE_CUSTOMIZE, customizeOpen);
+        outState.putStringArrayList(STATE_MORE_OPEN, new ArrayList<>(moreOpen));
     }
 
     @Override
@@ -1089,8 +1132,10 @@ public class StreamSettings extends NightjarActivity {
         private final Map<String, PreferenceGroup> homes = new HashMap<>();
         /** Settings that do not apply right now: out of the list and out of search. */
         private final Set<String> hidden = new HashSet<>();
-        /** Settings behind Customize while it is closed: out of the list, still found by search. */
+        /** Settings behind Customize or their section's More row while it is closed: out of the list, still found by search. */
         private final Set<String> folded = new HashSet<>();
+        /** Each section's main rows (settings_tiers.xml), read once. */
+        private final Map<String, Set<String>> mainKeys = new HashMap<>();
         private int displayedResultCount;
 
         @Override
@@ -1129,7 +1174,11 @@ public class StreamSettings extends NightjarActivity {
             for (Map.Entry<PreferenceCategory, List<Preference>> entry : searchCategories.entrySet()) {
                 PreferenceCategory category = entry.getKey();
                 if (query.isEmpty()) {
-                    if (categories == null || Arrays.asList(categories).contains(category.getKey())) screen.addPreference(category);
+                    // A group whose rows are all folded waits for its More row (showGroups).
+                    if ((categories == null || Arrays.asList(categories).contains(category.getKey())) &&
+                            category.getPreferenceCount() > 0) {
+                        screen.addPreference(category);
+                    }
                     continue;
                 }
                 final String resultSection = sectionOf(category.getKey());
@@ -1140,7 +1189,7 @@ public class StreamSettings extends NightjarActivity {
                         getString(R.string.settings_search_breadcrumb, sectionTitle, category.getTitle()));
                 screen.addPreference(results);
                 for (Preference pref : entry.getValue()) {
-                    if (hidden.contains(pref.getKey())) continue;
+                    if (hidden.contains(pref.getKey()) || pref.getKey().startsWith(MORE_PREFIX)) continue;
                     if (SettingsSearch.matches(query, pref.getTitle(), pref.getSummary(),
                             results.getTitle() + " " + java.util.Objects.toString(descriptions.get(pref.getKey()), ""))) {
                         // Search rows navigate to the original setting so dependency and dialog behavior stay intact.
@@ -1190,10 +1239,10 @@ public class StreamSettings extends NightjarActivity {
             updateValueSummaries(getPreferenceScreen());
         }
 
+        /** Records whether a setting applies; placeRows then puts it in or out of the list. */
         private void setShown(String key, boolean shown) {
             if (shown) hidden.remove(key);
             else hidden.add(key);
-            place(key, shown);
         }
 
         private void place(String key, boolean attached) {
@@ -1230,11 +1279,70 @@ public class StreamSettings extends NightjarActivity {
             boolean modern = SettingRules.modernControllerApplies(prefs);
             setShown(PreferenceConfiguration.OSC_STICK_MODE_PREF_STRING, modern);
             setShown(PreferenceConfiguration.OSC_STICK_DEADZONE_PREF_STRING, modern);
-            boolean open = customizeOpen();
-            for (String key : LOW_LATENCY_CUSTOMIZED) {
-                if (open) folded.remove(key);
-                else folded.add(key);
-                place(key, open);
+            placeRows();
+        }
+
+        /**
+         * Puts every row in or out of its group: out while it does not apply, or while Customize or its section's More
+         * row is closed. Rows come back in XML order, so a setting is attached before the ones that depend on it. Then
+         * the More row counts what it holds, and only groups with a row show.
+         */
+        private void placeRows() {
+            StreamSettings activity = (StreamSettings) getActivity();
+            if (activity == null) return;
+            folded.clear();
+            Map<String, Integer> foldedCount = new HashMap<>();
+            for (Map.Entry<PreferenceCategory, List<Preference>> entry : searchCategories.entrySet()) {
+                String rowSection = sectionOf(entry.getKey().getKey());
+                if (rowSection != null && !mainKeys.containsKey(rowSection)) {
+                    mainKeys.put(rowSection, new HashSet<>(StreamSettings.mainKeys(activity, rowSection)));
+                }
+                for (Preference pref : entry.getValue()) {
+                    String key = pref.getKey();
+                    boolean behindMore = rowSection != null && !key.equals(MORE_PREFIX + rowSection) &&
+                            !LOW_LATENCY_CUSTOMIZED.contains(key) && !mainKeys.get(rowSection).contains(key);
+                    if (behindMore && !hidden.contains(key)) foldedCount.merge(rowSection, 1, Integer::sum);
+                    if (LOW_LATENCY_CUSTOMIZED.contains(key) ? !activity.customizeOpen :
+                            behindMore && !activity.moreOpen.contains(rowSection)) {
+                        folded.add(key);
+                    }
+                }
+            }
+            for (String section : SECTIONS.keySet()) {
+                String key = MORE_PREFIX + section;
+                Preference more = allPreferences.get(key);
+                Integer count = foldedCount.get(section);
+                // A section whose other rows this device cannot use, or that do not apply now, has nothing to unfold.
+                if (count == null) {
+                    hidden.add(key);
+                } else {
+                    hidden.remove(key);
+                    if (more != null) {
+                        String title = getString(sectionTitle(section));
+                        more.setTitle(activity.moreOpen.contains(section) ? getString(R.string.settings_fewer, title) :
+                                getString(R.string.settings_more_count, title, count));
+                    }
+                }
+            }
+            for (List<Preference> rows : searchCategories.values()) {
+                for (Preference pref : rows) {
+                    String key = pref.getKey();
+                    place(key, !hidden.contains(key) && !folded.contains(key));
+                }
+            }
+            showGroups();
+        }
+
+        /** The section's groups that have a row to show are in the list, in their place; the others are out of it. */
+        private void showGroups() {
+            String section = normalizeSection(getArguments() == null ? null : getArguments().getString(ARG_SECTION));
+            PreferenceScreen screen = getPreferenceScreen();
+            if (section == null || screen == null || !((StreamSettings) getActivity()).searchQuery.isEmpty()) return;
+            for (String key : SECTIONS.get(section)) {
+                Preference group = allPreferences.get(key);
+                if (!(group instanceof PreferenceGroup)) continue;
+                if (((PreferenceGroup) group).getPreferenceCount() > 0) screen.addPreference(group);
+                else screen.removePreference(group);
             }
         }
 
@@ -1678,6 +1786,37 @@ public class StreamSettings extends NightjarActivity {
             return getActivity() != null && ((StreamSettings) getActivity()).customizeOpen;
         }
 
+        /**
+         * Opens or closes a section's More row in place. With a D-pad the selection goes to the first row it showed,
+         * or back to the More row when it closes, instead of staying on whatever row now sits there.
+         */
+        private void toggleMore(String section) {
+            StreamSettings activity = (StreamSettings) getActivity();
+            boolean open = !activity.moreOpen.remove(section);
+            if (open) activity.moreOpen.add(section);
+            refreshState();
+            String first = open ? firstUnfolded(section) : null;
+            String select = first != null ? first : MORE_PREFIX + section;
+            ListView list = getView() == null ? null : getView().findViewById(android.R.id.list);
+            if (list == null || list.isInTouchMode()) return;
+            list.post(() -> {
+                int position = RootFragment.positionOf(list, select);
+                if (position >= 0) list.setSelection(position);
+            });
+        }
+
+        /** The first row, in list order, that the section's More row holds and that applies now; null when none. */
+        String firstUnfolded(String section) {
+            for (Map.Entry<PreferenceCategory, List<Preference>> entry : searchCategories.entrySet()) {
+                if (!section.equals(sectionOf(entry.getKey().getKey()))) continue;
+                for (Preference pref : entry.getValue()) {
+                    String key = pref.getKey();
+                    if (!hidden.contains(key) && foldsInSection(getActivity(), section, key)) return key;
+                }
+            }
+            return null;
+        }
+
         private static int storedVideoScaling(SharedPreferences prefs) {
             return VideoScaling.resolve(prefs.getString(VideoScaling.PREF, null),
                     prefs.getBoolean(VideoScaling.STRETCH_PREF, false));
@@ -1860,6 +1999,12 @@ public class StreamSettings extends NightjarActivity {
                 refreshState();
                 return true;
             });
+            for (String moreSection : SECTIONS.keySet()) {
+                findPreference(MORE_PREFIX + moreSection).setOnPreferenceClickListener(preference -> {
+                    toggleMore(moreSection);
+                    return true;
+                });
+            }
             findPreference("controller_button_mapping").setOnPreferenceClickListener(preference -> {
                 startActivity(new Intent(getActivity(), ControllerMappingActivity.class));
                 return true;

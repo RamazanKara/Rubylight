@@ -68,11 +68,7 @@ public final class HostMenu {
             }
         }
         if (hasSharedFolders(details, state)) {
-            sheet.addAction(R.drawable.ic_folder, activity.getString(R.string.folders_title),
-                    activity.getString(R.string.host_menu_folders_note)).setOnClickListener(v -> {
-                        sheet.dismiss();
-                        onAction.accept(SHARED_FOLDERS);
-                    });
+            add(sheet, onAction, SHARED_FOLDERS, R.drawable.ic_folder, activity.getString(R.string.folders_title));
         }
         if (state == PcGridAdapter.RowState.NOT_PAIRED) {
             add(sheet, onAction, PAIR, R.drawable.ic_lock, activity.getString(R.string.pcview_menu_pair_pc));

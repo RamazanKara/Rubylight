@@ -51,5 +51,4 @@
     <string name="folders_save_lost">Файл для збереження було втрачено, поки було відкрито вікно збереження. Нічого не збережено.</string>
     <string name="folders_partial_left">%1$s Неповний файл залишився в %2$s.</string>
     <string name="folders_bad_path">Nightjar не може відкрити цей шлях: %1$s</string>
-    <string name="host_menu_folders_note">Експериментально</string>
 </resources>

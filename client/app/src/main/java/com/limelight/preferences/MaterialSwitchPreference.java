@@ -28,6 +28,16 @@ public class MaterialSwitchPreference extends SwitchPreference {
         setWidgetLayoutResource(R.layout.settings_switch);
     }
 
+    /**
+     * android:summaryOn and android:summaryOff count as the summary, not only in the bound row: search results and
+     * the row's value line both read getSummary(), which the framework leaves at android:summary.
+     */
+    @Override
+    public CharSequence getSummary() {
+        CharSequence state = isChecked() ? getSummaryOn() : getSummaryOff();
+        return android.text.TextUtils.isEmpty(state) ? super.getSummary() : state;
+    }
+
     public CharSequence getExplanation() {
         return explanation;
     }

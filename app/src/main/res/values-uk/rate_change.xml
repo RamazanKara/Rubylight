@@ -23,6 +23,8 @@
     <string name="stream_rate_change_reason_other">The host could not apply it.</string>
     <string name="stream_rate_change_auto_stopped">Automatic bitrate stopped for this stream: the host refused a change. %1$s</string>
     <string name="stream_rate_change_auto_not_sent">Automatic bitrate stopped for this stream: a change could not be sent to the host.</string>
+    <string name="stream_rate_change_no_answer">The host did not answer the change.</string>
+    <string name="stream_rate_change_auto_no_answer">Automatic bitrate stopped for this stream: the host did not answer a change.</string>
     <string name="title_rate_change_bitrate">Automatic bitrate on this device</string>
     <string name="summary_rate_change_bitrate">Nightjar watches frame loss and network delay and asks the host for a lower or higher bitrate, in place of Automatic bitrate. Needs the Rust engine and a host that offers bitrate changes; other streams keep Automatic bitrate.</string>
 </resources>

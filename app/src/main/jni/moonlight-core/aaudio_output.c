@@ -150,23 +150,24 @@ static void audioFill(AudioOutput* output, int16_t* pcm, uint32_t frames) {
     } while (!atomic_compare_exchange_weak(&output->lateFrames, &late, next));
 }
 
-// Whether the decode thread skips this packet: the concealment already played its time, and it came
-// right behind the one before (under half its duration), as a stall's packets do once the network
-// is back. Audio that comes at its own pace, as after the host paused, is never skipped. Of a stall's
-// packets only the oldest go: the newest refill the reserve the ring needs to play again, so the
-// stall does not end in silence while live packets refill it.
-static bool audioSkipLate(AudioOutput* output, uint64_t nowNs, uint32_t frames) {
+// Whether the decode thread skips this packet: the concealment already played its time, and it is
+// part of a stall's burst: it came right behind the one before (under half its duration), or newer
+// packets already wait behind it (pendingFrames, the network queue). Audio that comes at its own
+// pace, as after the host paused, is never skipped. Of a stall's packets only the oldest go: a packet
+// is skipped only while the ring and the packets behind it still fill the reserve without it, so the
+// newest refill the ring and latency returns to the reserve. Counting only the ring, the whole network
+// queue was kept on top of the reserve, and the late bound dropped it a packet at a time.
+static bool audioSkipLate(AudioOutput* output, uint64_t nowNs, uint32_t frames, uint32_t pendingFrames) {
     uint64_t gap = nowNs - output->lastPacketNs;
     output->lastPacketNs = nowNs;
-    if (!frames || !output->rate || gap >= (uint64_t)frames * 500000000u / output->rate) return false;
+    if (!frames || !output->rate) return false;
+    if (gap >= (uint64_t)frames * 500000000u / output->rate && pendingFrames < frames) return false;
     uint32_t queued = atomic_load(&output->queue.writtenFrames) - atomic_load(&output->queue.readFrames);
-    uint32_t target = atomic_load(&output->queue.targetFrames);
-    uint32_t need = queued < target ? target - queued : 0;
+    uint64_t behind = (uint64_t)queued + pendingFrames;
+    if (behind < atomic_load(&output->queue.targetFrames)) return false;
     uint32_t late = atomic_load(&output->lateFrames);
     while (late >= frames) {
-        // A packet written to refill the reserve also covers stalled time.
         if (atomic_compare_exchange_weak(&output->lateFrames, &late, late - frames)) {
-            if (late - frames < need) return false;
             atomic_fetch_add_explicit(&output->skippedFrames, frames, memory_order_relaxed);
             return true;
         }
@@ -328,14 +329,16 @@ Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioQueued(JNIEnv* 
     return (jint)(atomic_load(&output->queue.writtenFrames) - atomic_load(&output->queue.readFrames));
 }
 
-// The decode thread, before writing a packet of frames frames: true to skip it as late (audioSkipLate).
+// The decode thread, before writing a packet of frames frames with pendingFrames waiting behind it in the
+// network queue: true to skip it as late (audioSkipLate).
 JNIEXPORT jboolean JNICALL
 Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeAudioSkipLate(JNIEnv* env, jclass clazz, jlong handle,
-        jint frames) {
+        jint frames, jint pendingFrames) {
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
     return audioSkipLate((AudioOutput*)(intptr_t)handle, (uint64_t)now.tv_sec * 1000000000u + (uint64_t)now.tv_nsec,
-                         frames > 0 ? (uint32_t)frames : 0) ? JNI_TRUE : JNI_FALSE;
+                         frames > 0 ? (uint32_t)frames : 0, pendingFrames > 0 ? (uint32_t)pendingFrames : 0)
+            ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL

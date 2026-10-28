@@ -25,10 +25,11 @@ use axum::{
     routing::get,
 };
 use butterpollo_core::{
+    config::Config,
     crypto,
     pairing::Pairing,
     remote::{self, Control},
-    session::{Role, Transport},
+    session::{Role, Seat, Transport},
     state::{App, Client},
 };
 #[cfg(not(test))]
@@ -1245,16 +1246,23 @@ async fn applist(
     }
     h.request_codec_probe();
     h.wait_for_startup_codecs(STARTUP_CODEC_WAIT).await;
-    let configured = h
-        .apps
-        .read()
-        .unwrap()
+    let apps = h.apps.read().unwrap().clone();
+    let config = h.config.read().unwrap().clone();
+    // The co-op entries follow the user's apps; reading Nucleus Co-op's
+    // handlers and games touches files.
+    let coop = {
+        let (h, apps) = (h.clone(), apps.clone());
+        let configured = crate::nucleus::configured(&config);
+        tokio::task::spawn_blocking(move || h.nucleus.entries(&apps, &configured))
+            .await
+            .unwrap_or_default()
+    };
+    let configured = apps
         .iter()
-        .enumerate()
-        .map(|(index, app)| remote::Entry {
+        .map(|app| remote::Entry {
             id: app.id(),
             title: app.name.clone(),
-            index,
+            index: 0,
             uuid: app
                 .extra
                 .get("uuid")
@@ -1263,8 +1271,16 @@ async fn applist(
                 .into(),
             art_version: app.id().to_string(),
         })
+        .chain(coop.iter().map(|coop| remote::Entry {
+            id: coop.id(),
+            title: coop.entry.name.clone(),
+            index: 0,
+            uuid: String::new(),
+            art_version: coop.id().to_string(),
+        }))
+        .enumerate()
+        .map(|(index, entry)| remote::Entry { index, ..entry })
         .collect();
-    let config = h.config.read().unwrap().clone();
     let game = remote_game(&h);
     let projection = remote::project(
         &client.uuid,
@@ -1400,7 +1416,7 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
             .try_into()
             .map_err(|_| anyhow::anyhow!("invalid stream key length"))?;
         let key_id = stream_key_id(args.get("rikeyid").context("missing stream key ID")?)?;
-        let (role, app, app_id) =
+        let (role, app, app_id, coop) =
             resolve_launch_app(&h, &args, &client, requested, control, owner, resume)?;
         if role != Role::InputOnly {
             h.wait_for_startup_codecs_blocking(STARTUP_CODEC_WAIT);
@@ -1417,7 +1433,9 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         butterpollo_core::extensions::fec_choice(&launch.options)?;
         // So does a refused `rlRateChange`, rather than a stream without 0x553C.
         butterpollo_core::rate_change::launch_choice(&launch.options)?;
-        launch.background = Some(validate_background_launch(&h, &launch)?);
+        // A co-op game runs in Nucleus Co-op's own session, never in the
+        // background session.
+        launch.background = Some(coop.is_none() && validate_background_launch(&h, &launch)?);
         let rtsp_port = h.config.read().unwrap().ports()?.rtsp;
         if !launch.rtsp_encrypted
             && crate::network::encryption_mode(&h.config.read().unwrap(), connection.peer.ip()) == 2
@@ -1429,7 +1447,7 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         } else {
             "rtsp"
         };
-        launch_back_half(&h, &args, launch, app, resume, owner)?;
+        launch_back_half(&h, &args, launch, app, coop, resume, owner)?;
         let host = match connection.local.ip() {
             std::net::IpAddr::V4(ip) => ip.to_string(),
             std::net::IpAddr::V6(ip) => format!("[{ip}]"),
@@ -1443,11 +1461,18 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
 /// Moonlight and a WebRTC launch: end the sessions it replaces, wait for their resources, begin
 /// the session state, queue the launch, prepare the display, controllers and app, and keep the
 /// app. The caller holds `launch_transition`. The launch stays queued until its transport starts it.
+/// A co-op launch (`coop`) takes a slot of Nucleus Co-op's session instead: the game it streams
+/// is Nucleus's, so the host's own app is neither replaced, started nor kept.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the launch's parts, as both transports parse them"
+)]
 fn launch_back_half(
     h: &Shared,
     args: &Args,
-    launch: Launch,
+    mut launch: Launch,
     app: Option<App>,
+    coop: Option<crate::nucleus::CoopApp>,
     resume: bool,
     owner: remote::Owner,
 ) -> Result<Launch> {
@@ -1482,7 +1507,29 @@ fn launch_back_half(
     // reply returns it to what it was.
     let mut session =
         (role == Role::Stream).then(|| h.session_begin(&launch.client.uuid, app.as_ref()));
-    replace_launch_app(h, &launch, resume, owner)?;
+    // Until the launch gets through, a failure gives its co-op slot back.
+    let mut seated = Seated {
+        h,
+        seat: None,
+        launch: &id,
+    };
+    match &coop {
+        Some(coop) => {
+            let config = crate::stream::effective_config(h, &launch)?;
+            let seat = h.nucleus.admit(crate::nucleus::Admission {
+                launch: &id,
+                client: &launch.client,
+                coop,
+                size: launch_size(args, &config)?,
+                config: &config,
+                warnings: launch.warnings.clone(),
+            })?;
+            tracing::info!(client = %launch.client.name, session = seat.session, slot = seat.slot, "Nucleus Co-op seat taken");
+            seated.seat = Some(seat);
+            launch.nucleus = Some(seat);
+        }
+        None => replace_launch_app(h, &launch, resume, owner)?,
+    }
     // Preparing can outlast the pending launch's 30 s (prep commands may
     // run for minutes); it expires only from the reply on, on every path.
     struct Preparing(std::sync::Arc<std::sync::atomic::AtomicBool>);
@@ -1524,7 +1571,12 @@ fn launch_back_half(
     if let Some(session) = &session {
         session.app_starting();
     }
-    let prepared_app = match prepare_launch_app(h, args, app.as_ref(), &launch) {
+    let prepared_app = match coop {
+        // Nucleus Co-op started the game when it admitted the launch.
+        Some(_) => Ok(None),
+        None => prepare_launch_app(h, args, app.as_ref(), &launch),
+    };
+    let prepared_app = match prepared_app {
         Ok(prepared_app) => prepared_app,
         Err(error) => {
             // Any failure here, including a config or app lookup error, must
@@ -1556,7 +1608,11 @@ fn launch_back_half(
         Some(pending) => pending.created = Instant::now(),
         None => bail!("the launch was replaced by a newer one from this device"),
     }
-    retain_launch_app(h, &launch, prepared_app);
+    if launch.nucleus.is_none() {
+        retain_launch_app(h, &launch, prepared_app);
+    }
+    // From here on the launch's stream, or its expiry, gives the slot back.
+    seated.seat = None;
     drop(preparing);
     let mode = args.get("mode").map_or("", String::as_str);
     let hdr = args.get("hdrMode").is_some_and(|v| v == "1");
@@ -1588,6 +1644,33 @@ fn launch_back_half(
     }
     Ok(launch)
 }
+/// A co-op launch's slot while the launch is still being prepared: dropped
+/// with its seat set, it gives the slot back.
+struct Seated<'a> {
+    h: &'a Shared,
+    seat: Option<Seat>,
+    launch: &'a str,
+}
+impl Drop for Seated<'_> {
+    fn drop(&mut self) {
+        if let Some(seat) = self.seat.take() {
+            self.h.nucleus.leave(seat, self.launch);
+        }
+    }
+}
+/// The width and height a launch asks for (`mode`, else `fallback_mode`),
+/// even like the stream's.
+fn launch_size(args: &Args, config: &Config) -> Result<(u32, u32)> {
+    let mode = args
+        .get("mode")
+        .map(String::as_str)
+        .unwrap_or(config.get("fallback_mode", "1920x1080x60"));
+    let mut dimensions = mode.split('x').map(str::parse::<u32>);
+    match (dimensions.next(), dimensions.next()) {
+        (Some(Ok(width)), Some(Ok(height))) => Ok((width & !1, height & !1)),
+        _ => bail!("launch mode must be WIDTHxHEIGHTxFPS"),
+    }
+}
 /// What a WebRTC start-session asks the launch for. The settings are the validated ones.
 pub(crate) struct WebRtcLaunch {
     pub client: Client,
@@ -1603,7 +1686,7 @@ pub(crate) struct WebRtcLaunch {
 pub(crate) enum WebRtcLaunchError {
     InvalidApplication,
     /// Another app, or another device's WebRTC stream, holds the host.
-    SessionActive(&'static str),
+    SessionActive(String),
     /// A stream operation of another session has not finished.
     HostBusy,
     Failed(String),
@@ -1638,7 +1721,7 @@ pub(crate) fn launch_webrtc(
             ),
         ]);
         let owner = remote_owner(h, &request.client.uuid);
-        let (role, app, app_id) = resolve_launch_app(
+        let (role, app, app_id, coop) = resolve_launch_app(
             h,
             &args,
             &request.client,
@@ -1648,11 +1731,13 @@ pub(crate) fn launch_webrtc(
             false,
         )
         .map_err(launch_app_error)?;
-        if h.current_app
-            .lock()
-            .unwrap()
-            .as_ref()
-            .is_some_and(|running| running.id != app_id)
+        // A co-op game runs beside the host's app, as on a Moonlight launch.
+        if coop.is_none()
+            && h.current_app
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|running| running.id != app_id)
         {
             return Err(LaunchFailure(
                 409,
@@ -1682,18 +1767,25 @@ pub(crate) fn launch_webrtc(
             rand::random(),
         );
         launch.transport = Transport::WebRtc;
-        launch.background = Some(validate_background_launch(h, &launch)?);
-        launch_back_half(h, &args, launch, app, false, owner)
+        launch.background = Some(coop.is_none() && validate_background_launch(h, &launch)?);
+        launch_back_half(h, &args, launch, app, coop, false, owner)
     })();
     outcome.map_err(|error| match error.downcast_ref::<LaunchFailure>() {
         Some(LaunchFailure(404, _)) => WebRtcLaunchError::InvalidApplication,
-        Some(LaunchFailure(409, message)) => WebRtcLaunchError::SessionActive(message),
+        Some(LaunchFailure(409, message)) => WebRtcLaunchError::SessionActive((*message).into()),
         Some(LaunchFailure(503, message))
             if *message != butterpollo_core::amd_gpu::NO_ENCODER_LAUNCH =>
         {
             WebRtcLaunchError::HostBusy
         }
-        _ => WebRtcLaunchError::Failed(format!("{error:#}")),
+        _ => match error.downcast_ref::<crate::nucleus::Refusal>() {
+            // Busy or refused by the session; a missing handler or an
+            // unavailable Nucleus keeps its own text.
+            Some(refusal) if refusal.status == 409 => {
+                WebRtcLaunchError::SessionActive(refusal.message.clone())
+            }
+            _ => WebRtcLaunchError::Failed(format!("{error:#}")),
+        },
     })
 }
 /// A failed app lookup keeps its own status: only an unknown app is a 404.
@@ -1870,7 +1962,7 @@ fn resolve_launch_app(
     control: Option<Control>,
     owner: remote::Owner,
     resume: bool,
-) -> Result<(Role, Option<App>, u32)> {
+) -> Result<(Role, Option<App>, u32, Option<crate::nucleus::CoopApp>)> {
     let mut role = match control {
         Some(Control::Monitor) => Role::RemoteMonitor,
         Some(Control::Input) => Role::InputOnly,
@@ -1920,11 +2012,23 @@ fn resolve_launch_app(
                 })
         })
         .cloned();
+    // The co-op entries come after the apps: an app keeps its id.
+    let coop = if role == Role::Stream && app.is_none() && !resume {
+        let apps = h.apps.read().unwrap().clone();
+        let configured = crate::nucleus::configured(&h.config.read().unwrap());
+        h.nucleus.resolve(&apps, &configured, app_id)
+    } else {
+        None
+    };
+    if let Some(coop) = coop {
+        let app_id = coop.id();
+        return Ok((role, Some(coop.app.clone()), app_id, Some(coop)));
+    }
     if role == Role::Stream && app.is_none() {
         bail!(APPLICATION_NOT_FOUND);
     }
     let app_id = app.as_ref().map_or(app_id, |a| a.id());
-    Ok((role, app, app_id))
+    Ok((role, app, app_id, None))
 }
 fn build_launch_session(
     connection: &Connection,
@@ -2325,13 +2429,13 @@ fn launch_response(
                 resume,
                 "Moonlight session launch failed"
             );
-            xml(
-                error
-                    .downcast_ref::<LaunchFailure>()
-                    .map_or(503, |failure| failure.0),
-                &[(reply, "0".into())],
-                Some(format!("{error:#}")),
-            )
+            let status = match error.downcast_ref::<LaunchFailure>() {
+                Some(failure) => failure.0,
+                None => error
+                    .downcast_ref::<crate::nucleus::Refusal>()
+                    .map_or(503, |refusal| refusal.status),
+            };
+            xml(status, &[(reply, "0".into())], Some(format!("{error:#}")))
         }
     }
 }

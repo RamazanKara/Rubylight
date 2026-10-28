@@ -126,6 +126,7 @@ impl dyn Instance {
 }
 
 /// This PC.
+#[cfg_attr(test, allow(dead_code, reason = "tests never reach the real PC"))]
 struct OnPc;
 impl Pc for OnPc {
     fn unavailable(&self) -> Option<String> {
@@ -207,6 +208,7 @@ impl Instance for OnPcInstance {
 
 /// Downloads with the updater's HTTPS client, which follows redirects to
 /// GitHub's asset hosts only. Blocks, so never on the async runtime.
+#[cfg_attr(test, allow(dead_code, reason = "tests never reach the real PC"))]
 struct Download(tokio::runtime::Handle);
 impl install::Fetch for Download {
     fn fetch(&mut self, url: &str, limit: u64) -> Result<Vec<u8>> {
@@ -548,17 +550,19 @@ impl Registry {
             Admit::Join(id) => {
                 let mut state = self.lock();
                 let entry = state.sessions.get_mut(&id).ok_or_else(|| {
-                    Refusal::busy(format!("The {} co-op session ended: launch it again", app.name))
+                    Refusal::busy(format!(
+                        "The {} co-op session ended: launch it again",
+                        app.name
+                    ))
                 })?;
                 let slot = entry
                     .instance
                     .session(|s| s.join(&client.uuid, &client.name, client.allows_coop_join()))
                     .map_err(|refused| Refusal::busy(refused.to_string()))?
                     .slot();
-                let holder = entry
-                    .holders
-                    .get_mut(slot)
-                    .ok_or_else(|| Refusal::unavailable(format!("the session has no slot {slot}")))?;
+                let holder = entry.holders.get_mut(slot).ok_or_else(|| {
+                    Refusal::unavailable(format!("the session has no slot {slot}"))
+                })?;
                 *holder = Some(request.launch.into());
                 tracing::info!(session = id, slot, client = %client.name, title = %app.name, "Nucleus Co-op: a player joined");
                 Ok(Seat { session: id, slot })
@@ -693,7 +697,12 @@ impl Registry {
         if let Some(holder) = entry.holders.get_mut(slot) {
             *holder = None;
         }
-        tracing::info!(session, slot, device, "Nucleus Co-op: player removed in the web console");
+        tracing::info!(
+            session,
+            slot,
+            device,
+            "Nucleus Co-op: player removed in the web console"
+        );
         Some(device)
     }
 
@@ -995,9 +1004,10 @@ mod tests {
         assert!(registry.resolve(&apps, "", apps[1].id()).is_none());
         // A detached command names the program too.
         let mut detached = app("Portal 2 detached", "");
-        detached
-            .extra
-            .insert("detached".into(), serde_json::json!([fake::EXE]));
+        detached.extra.insert(
+            "detached".into(),
+            serde_json::json!([format!("\"{}\"", fake::EXE)]),
+        );
         assert_eq!(registry.entries(&[detached], "").len(), 1);
         // A name an app already has is not listed twice.
         let taken = app("Co-op (Nucleus): Portal 2", "");
@@ -1017,7 +1027,10 @@ mod tests {
         let unavailable = Arc::new(fake::Pc::unavailable());
         registry.use_pc(unavailable);
         assert!(registry.entries(&apps, "").is_empty());
-        assert_eq!(registry.unavailable().as_deref(), Some("not on this test PC"));
+        assert_eq!(
+            registry.unavailable().as_deref(),
+            Some("not on this test PC")
+        );
     }
 
     #[test]
@@ -1112,7 +1125,10 @@ mod tests {
         pc.catalog.lock().unwrap().games.clear();
         let missing = admit(&registry, &coop, "a", &a).unwrap_err();
         assert_eq!(missing.status, 404);
-        assert!(missing.message.contains("the game is not added"), "{missing}");
+        assert!(
+            missing.message.contains("the game is not added"),
+            "{missing}"
+        );
         pc.catalog.lock().unwrap().handlers.clear();
         let missing = admit(&registry, &coop, "a", &a).unwrap_err();
         assert_eq!(

@@ -3028,3 +3028,252 @@ async fn a_stalled_rtsp_connection_is_closed_at_its_deadline() -> Result<()> {
     h.end(&session, client).await?;
     h.finish().await
 }
+
+/// A launch of app `id` from `client`, with the query a Moonlight launch sends.
+async fn launch_app(h: &Harness, client: usize, id: u32) -> Result<String> {
+    Ok(h.clients[client]
+        .get(format!("https://127.0.0.1:{}/launch", h.ports.https))
+        .query(&[
+            ("appid", id.to_string()),
+            ("rikey", hex::encode(crypto::random::<16>())),
+            ("rikeyid", "1".into()),
+            ("corever", "1".into()),
+            ("mode", "1281x721x60".into()),
+        ])
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?)
+}
+/// A harness whose host has Nucleus Co-op (the fake) and Portal 2, which it
+/// has a handler for; client 1 may join co-op. Returns the co-op entry's id.
+async fn coop_harness() -> Result<(Harness, Arc<crate::nucleus::fake::Pc>, u32)> {
+    let h = Harness::new(10_000, 2).await?;
+    let pc = Arc::new(crate::nucleus::fake::Pc::installed());
+    h.h.nucleus.use_pc(pc.clone());
+    h.h.apps.write().unwrap().push(App {
+        name: "Portal 2".into(),
+        cmd: format!("\"{}\"", crate::nucleus::fake::EXE),
+        working_dir: String::new(),
+        prep: Vec::new(),
+        computed_id: None,
+        aliases: Vec::new(),
+        extra: Default::default(),
+    });
+    h.h.paired.write().unwrap().clients[1]
+        .extra
+        .insert("coop_join".into(), true.into());
+    let apps = h.h.apps.read().unwrap().clone();
+    let entries = h.h.nucleus.entries(&apps, "");
+    assert_eq!(entries.len(), 1);
+    let id = entries[0].id();
+    Ok((h, pc, id))
+}
+/// A copy of the launch `client` has pending; it holds the launch's display lease.
+fn pending_of(h: &Harness, client: usize) -> Option<Launch> {
+    h.h.sessions
+        .lock()
+        .unwrap()
+        .pending
+        .values()
+        .find(|l| l.client.uuid == client.to_string())
+        .cloned()
+}
+
+/// Two devices launching the co-op entry share one Nucleus session, each in
+/// its own slot. Neither replaces, starts or keeps the host's app: Nucleus
+/// started the game. The pending launches carry the seats their streams use.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn co_op_launches_share_one_session_beside_the_running_app() -> Result<()> {
+    let (h, pc, id) = coop_harness().await?;
+    let generation =
+        h.h.current_app
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .generation
+            .clone();
+    let first = launch_app(&h, 0, id).await?;
+    assert!(first.contains("status_code=\"200\""), "{first}");
+    assert_eq!(xml(&first, "gamesession"), "1");
+    let second = launch_app(&h, 1, id).await?;
+    assert!(second.contains("status_code=\"200\""), "{second}");
+    h.counts(0, 2).await?;
+    let (a, b) = (pending_of(&h, 0).unwrap(), pending_of(&h, 1).unwrap());
+    let session = a.nucleus.unwrap().session;
+    assert_eq!(
+        a.nucleus,
+        Some(butterpollo_core::session::Seat { session, slot: 0 })
+    );
+    assert_eq!(
+        b.nucleus,
+        Some(butterpollo_core::session::Seat { session, slot: 1 })
+    );
+    assert_eq!((a.app_id, b.app_id), (id, id));
+    assert_eq!(a.background, Some(false));
+    assert_eq!(pc.started.lock().unwrap().len(), 1);
+    // The first window was parked at the stream's even size.
+    assert_eq!(pc.last().sizes.lock().unwrap().first(), Some(&(1280, 720)));
+    assert_eq!(h.fixture.apps_prepared.load(Ordering::Acquire), 0);
+    assert_eq!(h.fixture.resources_retained.load(Ordering::Acquire), 0);
+    assert_eq!(
+        h.h.current_app.lock().unwrap().as_ref().unwrap().generation,
+        generation
+    );
+    assert_eq!(h.fixture.displays.load(Ordering::Acquire), 2);
+    let listed = h.h.nucleus.sessions();
+    assert_eq!(listed[0].held, [true, true]);
+    assert_eq!(listed[0].app_id, id);
+    for launch in [a, b] {
+        let canceled = h.h.sessions.lock().unwrap().pending.remove(&launch.id);
+        drop(canceled);
+        h.h.nucleus.leave(launch.nucleus.unwrap(), &launch.id);
+    }
+    h.finish().await
+}
+
+/// A co-op launch Nucleus refuses answers with the refusal's status and text
+/// and leaves nothing pending: a device without Join co-op (409), a start
+/// that fails (503) and a game whose handler went away (404).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn refused_co_op_launches_answer_their_status_and_leave_nothing_pending() -> Result<()> {
+    let (h, pc, id) = coop_harness().await?;
+    *pc.start_error.lock().unwrap() = Some("Nucleus Co-op did not start".into());
+    let failed = launch_app(&h, 0, id).await?;
+    assert!(failed.contains("status_code=\"503\""), "{failed}");
+    assert!(failed.contains("Nucleus Co-op did not start"), "{failed}");
+    assert_eq!(xml(&failed, "gamesession"), "0");
+    *pc.start_error.lock().unwrap() = None;
+    assert!(launch_app(&h, 1, id).await?.contains("status_code=\"200\""));
+    let seated = pending_of(&h, 1).unwrap();
+    // Device 0 may not join the running session.
+    let refused = launch_app(&h, 0, id).await?;
+    assert!(refused.contains("status_code=\"409\""), "{refused}");
+    assert!(refused.contains("Join co-op"), "{refused}");
+    assert!(pending_of(&h, 0).is_none());
+    // The handler is gone by the time the next device launches.
+    h.h.paired.write().unwrap().clients[0]
+        .extra
+        .insert("coop_join".into(), true.into());
+    pc.catalog.lock().unwrap().handlers.clear();
+    let missing = launch_app(&h, 0, id).await?;
+    assert!(missing.contains("status_code=\"404\""), "{missing}");
+    assert!(missing.contains("portal2.exe"), "{missing}");
+    assert!(pending_of(&h, 0).is_none());
+    h.counts(0, 1).await?;
+    assert_eq!(h.fixture.displays.load(Ordering::Acquire), 1);
+    assert_eq!(h.h.nucleus.sessions()[0].held, [true, false]);
+    let canceled = h.h.sessions.lock().unwrap().pending.remove(&seated.id);
+    drop(canceled);
+    h.h.nucleus.leave(seated.nucleus.unwrap(), &seated.id);
+    // The copy holds the launch's display lease.
+    drop(seated);
+    h.finish().await
+}
+
+/// A co-op launch that fails after Nucleus seated it gives the slot back: the
+/// next launch of that device is not held off by a slot nobody streams.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_co_op_launch_that_fails_later_gives_its_slot_back() -> Result<()> {
+    let (h, pc, id) = coop_harness().await?;
+    h.fixture
+        .disconnect_during_preparation
+        .store(true, Ordering::Release);
+    let failed = launch_app(&h, 0, id).await?;
+    assert!(failed.contains("status_code=\"503\""), "{failed}");
+    assert!(failed.contains("disconnected or changing"), "{failed}");
+    assert!(pending_of(&h, 0).is_none());
+    let listed = h.h.nucleus.sessions();
+    assert_eq!(listed[0].held, [false, false]);
+    assert!(listed[0].session.players()[0].away);
+    h.empty().await?;
+    h.fixture
+        .disconnect_during_preparation
+        .store(false, Ordering::Release);
+    h.fixture
+        .session_disconnected
+        .store(false, Ordering::Release);
+    // The device gets its own slot back in the same session.
+    assert!(launch_app(&h, 0, id).await?.contains("status_code=\"200\""));
+    let launch = pending_of(&h, 0).unwrap();
+    assert_eq!(
+        launch.nucleus,
+        Some(butterpollo_core::session::Seat {
+            session: listed[0].session.id,
+            slot: 0
+        })
+    );
+    assert_eq!(pc.started.lock().unwrap().len(), 1);
+    let canceled = h.h.sessions.lock().unwrap().pending.remove(&launch.id);
+    drop(canceled);
+    h.h.nucleus.leave(launch.nucleus.unwrap(), &launch.id);
+    drop(launch);
+    h.finish().await
+}
+
+/// A WebRTC launch of the co-op entry takes a seat as a Moonlight launch
+/// does. Nucleus's refusals become start-session errors with their text:
+/// busy or refused is SessionActive, anything else a failure.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn webrtc_co_op_launches_take_seats_and_answer_refusals() -> Result<()> {
+    use crate::nvhttp::{WebRtcLaunch, WebRtcLaunchError};
+    let (h, pc, id) = coop_harness().await?;
+    let webrtc = |client: usize| {
+        let request = WebRtcLaunch {
+            client: h.h.paired.read().unwrap().clients[client].clone(),
+            peer: std::net::Ipv4Addr::LOCALHOST.into(),
+            app_id: id,
+            width: 1280,
+            height: 720,
+            fps: 60,
+            hdr: false,
+        };
+        let host = h.h.clone();
+        tokio::task::spawn_blocking(move || crate::nvhttp::launch_webrtc(&host, request))
+    };
+    *pc.start_error.lock().unwrap() = Some("Nucleus Co-op did not start".into());
+    match webrtc(0).await?.err() {
+        Some(WebRtcLaunchError::Failed(message)) => {
+            assert!(message.contains("did not start"), "{message}")
+        }
+        other => panic!("{other:?}"),
+    }
+    *pc.start_error.lock().unwrap() = None;
+    assert!(launch_app(&h, 1, id).await?.contains("status_code=\"200\""));
+    let (first, seat) = {
+        let launch = pending_of(&h, 1).unwrap();
+        (launch.id.clone(), launch.nucleus.unwrap())
+    };
+    match webrtc(0).await?.err() {
+        Some(WebRtcLaunchError::SessionActive(message)) => {
+            assert!(message.contains("Join co-op"), "{message}")
+        }
+        other => panic!("{other:?}"),
+    }
+    h.h.paired.write().unwrap().clients[0]
+        .extra
+        .insert("coop_join".into(), true.into());
+    let Ok(launch) = webrtc(0).await? else {
+        panic!("the co-op WebRTC launch failed");
+    };
+    assert_eq!(
+        launch.transport,
+        butterpollo_core::session::Transport::WebRtc
+    );
+    assert_eq!(
+        launch.nucleus,
+        Some(butterpollo_core::session::Seat {
+            session: seat.session,
+            slot: 1
+        })
+    );
+    assert_eq!(pc.started.lock().unwrap().len(), 1);
+    let canceled = h.h.sessions.lock().unwrap().pending.remove(&launch.id);
+    drop(canceled);
+    h.h.nucleus.leave(launch.nucleus.unwrap(), &launch.id);
+    h.h.nucleus.leave(seat, &first);
+    drop(launch);
+    h.finish().await
+}

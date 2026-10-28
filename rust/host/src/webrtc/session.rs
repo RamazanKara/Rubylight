@@ -921,7 +921,7 @@ impl Actor {
                         "The application does not exist".to_owned(),
                     ),
                     WebRtcLaunchError::SessionActive(message) => {
-                        (ErrorCode::SessionActive, message.to_owned())
+                        (ErrorCode::SessionActive, message)
                     }
                     WebRtcLaunchError::HostBusy => (
                         ErrorCode::HostOperationActive,

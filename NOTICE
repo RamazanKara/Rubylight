@@ -147,3 +147,12 @@ flags on Amlogic decoders (MediaCodecHelper.java), growing the decoder input buf
 instead of ending the stream (MediaCodecDecoderRenderer.java), and the controller
 gyroscope liveness check (GyroLivenessTracker.java, ControllerHandler.java), all
 under client/app/src/main/java/com/limelight.
+
+Clipboard sync (control message 0x5508) uses Moonlight V+'s frame and behaviour
+(moonlight-common-c PR #5 in the V+ fork, ClipboardSyncManager.kt, MoonBridge.java;
+GPL-3.0), so a V+ client syncs with the host unchanged: the frame and its echo tokens
+in client/protocol/core/src/clipboard_sync.rs, the rules in
+client/protocol/client/src/control/clipboard_sync.rs, the host's side in
+rust/host/src/stream/clipboard_sync.rs, and Nightjar's in
+client/app/src/main/java/com/limelight/utils/ClipboardSync.java and
+client/protocol/desktop/src/stream/clipboard_sync.rs.

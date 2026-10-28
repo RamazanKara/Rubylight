@@ -38,6 +38,7 @@ Each message travels on the control stream like Moonlight's client-to-host contr
 | `0x5536` | Host timing | `control::HostTimingRequest` | Sends reports of where each new picture's time went on the host, after its last packet left ([below](#0x5536-host-timing)). |
 | `0x5537` | Clock sync | `control::ClockSyncRequest` | Answers at once with a `control::ClockSyncReply` on the video RTP clock ([below](#0x5537-clock-sync)). |
 | `0x5538` | Link notice | `control::LinkNoticeRequest`, `control::LinkNotice` | Tells the client when it lowers the video bitrate for the network, and when it is back ([below](#0x5538-link-notice)). |
+| `0x5508` | Clipboard sync | `clipboard_sync::Frame` | Both ways: puts the client's copies on the PC's clipboard and sends the PC's copies back. Listed only for a `/launch` or `/resume` with `rlClipboardSync=1` from a device that may view and read or write the clipboard. The frame is version `1`, kind (`1` UTF-8 text, `2` PNG, `3` blob reference, which the host refuses), a u32 echo token, a u32 length and the payload, at most 65500 bytes in all. An empty text frame starts the PC's copies without touching its clipboard. The client's copies need "Write to the clipboard", the PC's "Read the clipboard", PNGs `clipboard_image`; a frame that comes back with a token the sender used recently is dropped. |
 
 ## 0x5536 host timing
 

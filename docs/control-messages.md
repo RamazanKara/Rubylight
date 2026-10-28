@@ -236,13 +236,13 @@ Nothing attaches by itself, and every attachment ends with the session or the co
 
 ### 0x553B text input
 
-The request (client to host, 4 bytes): `0 version`; `1 flags`, where bit 0 asks for raise and lower notices (0 stops them) and bit 1 for the text around the cursor; `2 max_text u16`, 0-4096 bytes, at which the host cuts the text on a UTF-8 boundary.
+The request (client to host, 4 bytes): `0 version`; `1 flags`, where bit 0 asks for raise and lower notices (0 stops them), bit 1 for the text around the cursor and bit 2 for element ids (`TextInputVersion` 2; an older host ignores it); `2 max_text u16`, 0-4096 bytes, at which the host cuts the text on a UTF-8 boundary.
 
-The notice (host to client, 16 bytes and the text):
+The notice (host to client, 16 bytes and the text, then from version 2 the element id):
 
 | Offset | Type | Field | Rule |
 | --- | --- | --- | --- |
-| 0 | u8 | version | 1 |
+| 0 | u8 | version | 1, or 2 with the element id |
 | 1 | u8 | kind | 0 lower, 1 raise, 2 update (the field changed while raised) |
 | 2 | u8 | input_type | 0 text, 1 number, 2 decimal, 3 phone, 4 email, 5 URL, 6 password, 7 search, 8 multiline |
 | 3 | u8 | flags | bit 0 sensitive (never any text), bit 1 no autocorrect, bit 2 no capitalisation, bit 3 Enter is an action |
@@ -252,10 +252,13 @@ The notice (host to client, 16 bytes and the text):
 | 12 | u16 | text_len | bytes; 0 unless the client asked, `text_input_surrounding_text` is on and the field is not sensitive |
 | 14 | u16 | reserved | 0 |
 | 16 | bytes | text | the text around the cursor, UTF-8 |
+| 16 + text_len | u32 | element | version 2 only: the focused element's id, never 0, the same while that element lives |
 
-Committed text still travels as Moonlight's UTF-8 text input.
+Committed text still travels as Moonlight's UTF-8 text input. A reader takes the fields it knows and ignores any bytes after them.
 
-The host watches the focus (UI Automation) only while a client asked and the device has the Keyboard permission; otherwise it answers nothing and watches nothing. It sends the text around the cursor only over encrypted control. A notice goes out at most every 50 ms with the newest focus winning, and a lower only once no text field has had the focus for 150 ms, so moving between two fields does not flash the keyboard. Every request starts afresh: a client that asks while a field has the focus hears a raise at once. A client that never asks, such as stock Moonlight, hears nothing.
+The host sends version 2 only to a client that set bit 2, and only in raises and updates; a lower names no element and is version 1, and every other client gets version 1 byte for byte. The id is a hash of the element's UI Automation runtime id, so a client can keep its keyboard closed for the one field the user closed it on, also when the focus comes back to that field, and open it for any other.
+
+The host watches the focus (UI Automation) only while a client asked and the device has the Keyboard permission; otherwise it answers nothing and watches nothing. It sends the text around the cursor only over encrypted control. A notice goes out at most every 50 ms with the newest focus winning, and a lower only once no text field has had the focus for 150 ms, so moving between two fields does not flash the keyboard. A focus event that leaves the focus where it was (a tooltip over the field, the host's own window, an app too busy to answer UI Automation) sends nothing. Every request starts afresh: a client that asks while a field has the focus hears a raise at once. A client that never asks, such as stock Moonlight, hears nothing.
 
 ### 0x553C rate change
 

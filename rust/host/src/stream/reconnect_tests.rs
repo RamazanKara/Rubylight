@@ -1882,6 +1882,7 @@ async fn text_input_notices_reach_only_a_client_that_asks() -> Result<()> {
     let ask = |notices: bool| TextInputRequest {
         notices,
         surrounding_text: true,
+        element_ids: false,
         max_text: 64,
     };
     client.send_control(TEXT_INPUT_MESSAGE_TYPE, &ask(true).encode());
@@ -1909,6 +1910,7 @@ async fn text_input_notices_reach_only_a_client_that_asks() -> Result<()> {
         (NoticeKind::Raise, InputType::Email)
     );
     assert_eq!(raise.text, "");
+    assert_eq!(raise.element, 0, "the client did not ask for element ids");
 
     session
         .text_input
@@ -1953,6 +1955,7 @@ async fn text_input_sends_surrounding_text_only_over_encrypted_control() -> Resu
     let request = TextInputRequest {
         notices: true,
         surrounding_text: true,
+        element_ids: true,
         max_text: 64,
     };
     client
@@ -1986,6 +1989,7 @@ async fn text_input_sends_surrounding_text_only_over_encrypted_control() -> Resu
     let raise = &text_notices(&client)[0];
     assert_eq!(raise.text, "hello world");
     assert_eq!((raise.selection_start, raise.selection_end), (5, 5));
+    assert_eq!(raise.element, 1, "the client asked for element ids");
 
     session
         .text_input
@@ -2021,6 +2025,7 @@ async fn text_input_needs_the_keyboard_permission_and_the_setting() -> Result<()
         let request = TextInputRequest {
             notices: true,
             surrounding_text: false,
+            element_ids: false,
             max_text: 0,
         };
         client.send_control(TEXT_INPUT_MESSAGE_TYPE, &request.encode());
@@ -2106,6 +2111,7 @@ async fn keyboard_layout_reports_need_the_keyboard_permission() -> Result<()> {
     let request = TextInputRequest {
         notices: true,
         surrounding_text: false,
+        element_ids: false,
         max_text: 0,
     };
     client.send_control(TEXT_INPUT_MESSAGE_TYPE, &request.encode());

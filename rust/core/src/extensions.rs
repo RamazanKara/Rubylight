@@ -128,8 +128,13 @@ impl Offered {
                     .to_string(),
             ));
         }
+        if self.text_input {
+            fields.push((
+                text_input::SERVERINFO_FIELD,
+                text_input::SERVERINFO_VERSION.to_string(),
+            ));
+        }
         for (offered, field) in [
-            (self.text_input, text_input::SERVERINFO_FIELD),
             (self.keyboard_layout, keyboard_layout::SERVERINFO_FIELD),
             (self.pen_barrel_roll, pen::SERVERINFO_FIELD),
             (self.cursor_shape, cursor_shape::SERVERINFO_FIELD),
@@ -312,7 +317,7 @@ mod tests {
                 ("BandwidthProbeVersion", "1"),
                 ("AudioCodecs", "15"),
                 ("AudioLayouts", "15"),
-                ("TextInputVersion", "1"),
+                ("TextInputVersion", "2"),
                 ("KeyboardLayoutVersion", "1"),
                 ("PenBarrelRollVersion", "1"),
                 ("CursorShapeVersion", "1"),

@@ -5,7 +5,9 @@
 //!
 //! UI Automation calls the handlers on its own threads. They only wake the watcher, which
 //! reads the newest focus itself, so a burst of changes costs one read and nothing here
-//! runs on the video or input paths.
+//! runs on the video or input paths. A focus event that leaves the focus where it was (a
+//! tooltip, the host's own window, an app too busy to answer) reports nothing, so the
+//! keyboard does not lower and raise again for it.
 
 use anyhow::{Context, Result};
 use butterpollo_core::text_input::{self, Field, Focused, FocusedElement, Surrounding, Watch};
@@ -22,6 +24,7 @@ use windows::{
                 CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
                 CoUninitialize,
             },
+            Ole::{SafeArrayAccessData, SafeArrayDestroy, SafeArrayUnaccessData},
             Threading::GetCurrentThreadId,
         },
         UI::{
@@ -34,8 +37,9 @@ use windows::{
                 UIA_AriaRolePropertyId, UIA_AutomationIdPropertyId, UIA_ClassNamePropertyId,
                 UIA_ControlTypePropertyId, UIA_EVENT_ID, UIA_IsEnabledPropertyId,
                 UIA_IsPasswordPropertyId, UIA_LocalizedControlTypePropertyId, UIA_NamePropertyId,
-                UIA_Text_TextChangedEventId, UIA_Text_TextSelectionChangedEventId,
-                UIA_TextPatternId, UIA_ValueIsReadOnlyPropertyId, UIA_ValuePatternId,
+                UIA_ProcessIdPropertyId, UIA_RuntimeIdPropertyId, UIA_Text_TextChangedEventId,
+                UIA_Text_TextSelectionChangedEventId, UIA_TextPatternId,
+                UIA_ValueIsReadOnlyPropertyId, UIA_ValuePatternId,
             },
             WindowsAndMessaging::{
                 DispatchMessageW, GetMessageW, MSG, PM_NOREMOVE, PM_REMOVE, PeekMessageW,
@@ -43,7 +47,7 @@ use windows::{
             },
         },
     },
-    core::{BSTR, Ref, implement},
+    core::{BSTR, HRESULT, Ref, implement},
 };
 
 /// The focus moved.
@@ -332,7 +336,8 @@ struct Watcher {
     max_text: usize,
     /// The focused text field.
     field: Option<(IUIAutomationElement, Field)>,
-    /// Counts on each time the focus moves to another text field ([`Focused::element`]).
+    /// The focused text field's id ([`Focused::element`]), from its runtime id each time the
+    /// focus moves to another one.
     element: u32,
     /// The field whose text events are followed.
     followed: Option<IUIAutomationElement>,
@@ -358,6 +363,8 @@ impl Watcher {
                 UIA_AutomationIdPropertyId,
                 UIA_ClassNamePropertyId,
                 UIA_LocalizedControlTypePropertyId,
+                UIA_RuntimeIdPropertyId,
+                UIA_ProcessIdPropertyId,
             ] {
                 cache.AddProperty(property)?;
             }
@@ -381,8 +388,8 @@ impl Watcher {
         }
     }
 
-    /// Pauses for [`Watch::Off`]: no handlers and no field, so the next `On` counts the
-    /// field it finds as another one. `On` follows the focus again and reports it.
+    /// Pauses for [`Watch::Off`]: no handlers and no field, so the next `On` reads the id of
+    /// the field it finds again. `On` follows the focus again and reports it.
     unsafe fn apply(&mut self, watch: Watch, report: &dyn Fn(Option<Focused>)) -> Result<()> {
         // SAFETY: on the watcher's thread, with COM initialized.
         unsafe {
@@ -416,16 +423,54 @@ impl Watcher {
     unsafe fn focus_moved(&mut self, report: &dyn Fn(Option<Focused>)) {
         // SAFETY: on the watcher's thread, with COM initialized.
         unsafe {
-            // The focus may be nowhere, or in an app that UI Automation cannot reach (a
-            // secure desktop, or an elevated app under a host that is not): no text field.
-            let field = self
-                .automation
-                .GetFocusedElementBuildCache(&self.cache)
-                .ok()
-                .and_then(|element| {
-                    let field = text_input::classify(&describe(&element))?;
-                    Some((element, field))
-                });
+            let focused = match self.automation.GetFocusedElementBuildCache(&self.cache) {
+                Ok(element) => {
+                    let described = describe(&element);
+                    let own = element
+                        .CachedProcessId()
+                        .is_ok_and(|process| u32::try_from(process) == Ok(std::process::id()));
+                    if text_input::passes_over(&described, own) {
+                        tracing::debug!(
+                            control_type = described.control_type,
+                            class = %described.class_name,
+                            own,
+                            "a focus event that leaves the focus where it was"
+                        );
+                        return;
+                    }
+                    Some((element, described))
+                }
+                // The app is busy or the element went away as it was read: the next focus
+                // event says where the focus went, and a lower and raise now would flap.
+                Err(error) if passing(error.code()) => {
+                    tracing::debug!(%error, "the focus could not be read for now");
+                    return;
+                }
+                // The focus may be nowhere, or in an app that UI Automation cannot reach (a
+                // secure desktop, or an elevated app under a host that is not): no text field.
+                Err(error) => {
+                    if self.field.is_some() {
+                        tracing::info!(%error, "the focus left the text field for one UI Automation cannot read");
+                    }
+                    None
+                }
+            };
+            if self.field.is_some()
+                && let Some((element, described)) = &focused
+                && text_input::classify(described).is_none()
+            {
+                // Says what took the focus when the keyboard lowers without the user.
+                tracing::info!(
+                    control_type = described.control_type,
+                    class = %described.class_name,
+                    process = element.CachedProcessId().unwrap_or_default(),
+                    "the focus left the text field"
+                );
+            }
+            let field = focused.and_then(|(element, described)| {
+                let field = text_input::classify(&described)?;
+                Some((element, field))
+            });
             let read = field
                 .as_ref()
                 .filter(|(_, field)| self.max_text > 0 && !field.sensitive)
@@ -439,8 +484,18 @@ impl Watcher {
                     .is_ok_and(|same| same.as_bool()),
                 _ => false,
             };
-            if field.is_some() && !same {
-                self.element = self.element.wrapping_add(1);
+            if let Some((element, _)) = &field
+                && !same
+            {
+                self.element = match runtime_id(element) {
+                    Some(runtime_id) => text_input::element_id(&runtime_id),
+                    None => {
+                        // Still another element: the client hears the move, but cannot tell
+                        // this field from one it closed the keyboard on before.
+                        tracing::debug!("the focused field has no UI Automation runtime id");
+                        self.element.wrapping_add(1).max(1)
+                    }
+                };
             }
             self.field = field;
             self.report(report);
@@ -526,6 +581,22 @@ impl Watcher {
     }
 }
 
+/// Whether UI Automation failed to read the focus only for now: the app took too long or
+/// refused the call while busy, or the element went away as it was read.
+fn passing(error: HRESULT) -> bool {
+    const UIA_E_ELEMENTNOTAVAILABLE: HRESULT = HRESULT(0x8004_0201_u32 as i32);
+    const UIA_E_TIMEOUT: HRESULT = HRESULT(0x8013_1505_u32 as i32);
+    const RPC_E_CALL_REJECTED: HRESULT = HRESULT(0x8001_0001_u32 as i32);
+    const RPC_E_SERVERCALL_RETRYLATER: HRESULT = HRESULT(0x8001_010A_u32 as i32);
+    [
+        UIA_E_ELEMENTNOTAVAILABLE,
+        UIA_E_TIMEOUT,
+        RPC_E_CALL_REJECTED,
+        RPC_E_SERVERCALL_RETRYLATER,
+    ]
+    .contains(&error)
+}
+
 /// What the focus watcher needs to know about `element`, from its cached properties.
 unsafe fn describe(element: &IUIAutomationElement) -> FocusedElement {
     let string = |value: windows::core::Result<BSTR>| {
@@ -559,6 +630,32 @@ unsafe fn describe(element: &IUIAutomationElement) -> FocusedElement {
             class_name: string(element.CachedClassName()),
             localized_type: string(element.CachedLocalizedControlType()),
         }
+    }
+}
+
+/// The UI Automation runtime id of `element`, cached with the focused element and read only
+/// when the focus moves to another field, on the watcher's thread.
+unsafe fn runtime_id(element: &IUIAutomationElement) -> Option<Vec<i32>> {
+    // SAFETY: the caller holds `element` on its COM thread; the array UI Automation returns
+    // is ours, read while locked and destroyed once.
+    unsafe {
+        let array = element.GetRuntimeId().ok()?;
+        if array.is_null() {
+            return None;
+        }
+        let ids = (|| {
+            if (*array).cDims != 1 || (*array).cbElements as usize != size_of::<i32>() {
+                return None;
+            }
+            let len = usize::try_from((*array).rgsabound[0].cElements).ok()?;
+            let mut data = std::ptr::null_mut();
+            SafeArrayAccessData(array, &mut data).ok()?;
+            let ids = std::slice::from_raw_parts(data.cast::<i32>(), len).to_vec();
+            let _ = SafeArrayUnaccessData(array);
+            Some(ids)
+        })();
+        let _ = SafeArrayDestroy(array);
+        ids
     }
 }
 
@@ -720,6 +817,51 @@ mod tests {
         assert_eq!(watch.control.state().thread, thread);
         assert_eq!(SPAWNED.load(Ordering::SeqCst), spawned + 1);
         watch.stop_and_wait();
+    }
+
+    /// The id the client gets is the same for one element read twice, and another for another.
+    #[test]
+    fn element_ids_come_from_the_runtime_id() {
+        std::thread::spawn(|| {
+            // SAFETY: COM is initialized on this thread and every object is dropped before
+            // CoUninitialize.
+            unsafe {
+                CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok().unwrap();
+                {
+                    let automation: IUIAutomation =
+                        CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).unwrap();
+                    let root = automation.GetRootElement().unwrap();
+                    let again = automation.GetRootElement().unwrap();
+                    let id = runtime_id(&root).expect("the desktop has a runtime id");
+                    assert!(!id.is_empty());
+                    assert_eq!(runtime_id(&again), Some(id.clone()));
+                    let child = automation
+                        .CreateTreeWalker(&automation.CreateTrueCondition().unwrap())
+                        .unwrap()
+                        .GetFirstChildElement(&root);
+                    if let Ok(child) = child
+                        && let Some(child) = runtime_id(&child)
+                    {
+                        assert_ne!(text_input::element_id(&child), text_input::element_id(&id));
+                    }
+                }
+                CoUninitialize();
+            }
+        })
+        .join()
+        .unwrap();
+    }
+
+    /// A busy app or an element that went away keeps the last report; access denied and
+    /// anything else is a focus UI Automation cannot read, no text field.
+    #[test]
+    fn only_passing_errors_keep_the_last_report() {
+        for code in [0x8004_0201_u32, 0x8013_1505, 0x8001_0001, 0x8001_010A] {
+            assert!(passing(HRESULT(code as i32)), "{code:#x}");
+        }
+        for code in [0x8007_0005_u32, 0x8000_4005, 0x8000_4002] {
+            assert!(!passing(HRESULT(code as i32)), "{code:#x}");
+        }
     }
 
     /// A watcher stuck in UI Automation holds up the next one, which fails instead of

@@ -12,7 +12,9 @@
 //!
 //! The text around the cursor goes out only when the client asked for it,
 //! `text_input_surrounding_text` is on and the field is not a password or otherwise
-//! sensitive field, cut to the client's `max_text` around the cursor ([`bound`]).
+//! sensitive field, cut to the client's `max_text` around the cursor ([`bound`]). The focused
+//! element's id goes out only to a client that asked for element ids (`TextInputVersion` 2);
+//! every other client gets the version 1 notice, byte for byte.
 pub use rubylight_protocol::text_input::{
     InputType, MAX_TEXT_BYTES, NoticeKind, SELECTION_UNKNOWN, TEXT_INPUT_MESSAGE_TYPE,
     TextInputNotice, TextInputRequest,
@@ -30,6 +32,7 @@ pub mod control_type {
     pub const EDIT: i32 = 50004;
     pub const SPINNER: i32 = 50016;
     pub const DOCUMENT: i32 = 50030;
+    pub const TOOL_TIP: i32 = 50022;
 }
 
 /// What UI Automation says about the focused element.
@@ -131,6 +134,14 @@ pub fn classify(element: &FocusedElement) -> Option<Field> {
     })
 }
 
+/// Whether a focus event for `element` leaves the focus where it was, so the watcher reports
+/// nothing: a tooltip shows over the field without taking its keys, and a window of the host's
+/// own (`own`) is not the user's app. Either would lower the keyboard and raise it again a
+/// moment later.
+pub fn passes_over(element: &FocusedElement, own: bool) -> bool {
+    own || element.control_type == control_type::TOOL_TIP
+}
+
 /// The text around the cursor as the watcher read it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Surrounding {
@@ -144,11 +155,26 @@ pub struct Surrounding {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Focused {
     pub field: Field,
-    /// Which element has the focus: the watcher counts on each time it moves to another one.
-    /// Two fields of one kind look the same without their text, and the client must still
-    /// hear the move, or it keeps composing a word typed into the field before.
+    /// Which element has the focus, never 0: the same while one element lives, another for
+    /// another element. Two fields of one kind look the same without their text, and the
+    /// client must still hear the move, or it keeps composing a word typed into the field
+    /// before. A client that asked for element ids gets it, to keep its keyboard closed only
+    /// for the field the user closed it on.
     pub element: u32,
     pub surrounding: Option<Surrounding>,
+}
+
+/// The [`Focused::element`] of an element with this UI Automation runtime id, never 0: the
+/// runtime id stays the same while the element lives and differs between live elements, so
+/// its FNV-1a hash does too, but for a 1 in 2^32 collision.
+pub fn element_id(runtime_id: &[i32]) -> u32 {
+    let hash = runtime_id
+        .iter()
+        .flat_map(|part| part.to_le_bytes())
+        .fold(0x811C_9DC5_u32, |hash, byte| {
+            (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
+        });
+    hash.max(1)
 }
 
 /// Cuts `surrounding` to at most `max_bytes` of UTF-8 around the selection, on character
@@ -326,12 +352,14 @@ impl TextInputs {
         self.serial = self.serial.wrapping_add(1);
         self.sent_at = Some(now);
         self.raised = context.clone();
+        // A client that did not ask gets version 1 notices, without the id.
+        let ids = self.request.element_ids;
         let notice = match context {
             Some(Context {
                 field,
+                element,
                 text,
                 selection,
-                ..
             }) => TextInputNotice {
                 kind,
                 input_type: field.input_type,
@@ -343,6 +371,7 @@ impl TextInputs {
                 selection_start: selection.0,
                 selection_end: selection.1,
                 text,
+                element: if ids { element } else { 0 },
             },
             None => TextInputNotice {
                 kind,
@@ -355,6 +384,7 @@ impl TextInputs {
                 selection_start: SELECTION_UNKNOWN,
                 selection_end: SELECTION_UNKNOWN,
                 text: String::new(),
+                element: 0,
             },
         };
         // `context` leaves out the text of sensitive fields and bounds the rest, so the
@@ -492,6 +522,28 @@ mod tests {
         }
     }
 
+    /// A tooltip over the field or the host's own window takes no keys from the field: the
+    /// watcher reports nothing, so no lower and raise go out for it.
+    #[test]
+    fn tooltips_and_the_hosts_own_windows_leave_the_focus_where_it_was() {
+        let tooltip = FocusedElement {
+            control_type: control_type::TOOL_TIP,
+            ..FocusedElement::default()
+        };
+        assert!(passes_over(&tooltip, false));
+        assert!(passes_over(&FocusedElement::default(), true));
+        assert!(passes_over(&edit("Name"), true));
+        let button = FocusedElement {
+            control_type: 50000,
+            ..edit("OK")
+        };
+        assert!(
+            !passes_over(&button, false),
+            "another app's button takes the focus"
+        );
+        assert!(!passes_over(&edit("Name"), false));
+    }
+
     #[test]
     fn keyboards_match_the_field() {
         let password = classify(&FocusedElement {
@@ -563,7 +615,17 @@ mod tests {
         TextInputRequest {
             notices: true,
             surrounding_text,
+            element_ids: false,
             max_text,
+        }
+        .encode()
+    }
+
+    fn request_ids() -> [u8; 4] {
+        TextInputRequest {
+            notices: true,
+            element_ids: true,
+            ..TextInputRequest::default()
         }
         .encode()
     }
@@ -739,5 +801,62 @@ mod tests {
             (NoticeKind::Update, InputType::Text, 2)
         );
         assert!(update.text.is_empty());
+    }
+
+    #[test]
+    fn element_ids_are_stable_per_runtime_id_and_never_0() {
+        // An edit box's runtime id: UiaAppendRuntimeId (3), the window, then the provider's.
+        let first = element_id(&[42, 0x0004_0A3C, 4, 1]);
+        assert_eq!(first, element_id(&[42, 0x0004_0A3C, 4, 1]));
+        assert_ne!(first, element_id(&[42, 0x0004_0A3C, 4, 2]));
+        assert_ne!(first, element_id(&[42, 0x0004_0A3D, 4, 1]));
+        assert_ne!(element_id(&[1, 2]), element_id(&[2, 1]));
+        assert_ne!(element_id(&[]), 0);
+        assert_eq!(element_id(&[]), 0x811C_9DC5, "FNV-1a of nothing");
+    }
+
+    /// A client that asked for element ids hears which element has the focus, the same id
+    /// again when it comes back to it; every other client gets version 1 notices.
+    #[test]
+    fn element_ids_go_only_to_a_client_that_asked() {
+        let now = Instant::now();
+        let mut inputs = TextInputs::default();
+        inputs.on_request(&request_ids(), true, false);
+        inputs.note(in_element("First name", "", 0x1234_5678), now);
+        let wire = inputs.take(now).expect("a raise");
+        assert_eq!(wire[0], 2);
+        let raise = TextInputNotice::decode(&wire).unwrap();
+        assert_eq!(
+            (raise.kind, raise.element),
+            (NoticeKind::Raise, 0x1234_5678)
+        );
+        let later = now + INTERVAL;
+        inputs.note(in_element("Last name", "", 99), later);
+        assert_eq!(notice(inputs.take(later)).element, 99);
+        let back = later + INTERVAL;
+        inputs.note(in_element("First name", "", 0x1234_5678), back);
+        let update = notice(inputs.take(back));
+        assert_eq!(
+            (update.kind, update.element),
+            (NoticeKind::Update, 0x1234_5678)
+        );
+        // A lower names no element and is version 1.
+        let left = back + INTERVAL;
+        inputs.note(None, left);
+        let wire = inputs.take(left + LOWER_DELAY).expect("a lower");
+        assert_eq!(wire[0], 1);
+        assert_eq!(TextInputNotice::decode(&wire).unwrap().element, 0);
+
+        // Not asked: the same focus goes out as version 1, without the id.
+        let mut inputs = TextInputs::default();
+        inputs.on_request(&request(false, 0), true, false);
+        inputs.note(in_element("First name", "", 0x1234_5678), now);
+        let wire = inputs.take(now).expect("a raise");
+        assert_eq!(wire[0], 1);
+        assert_eq!(
+            wire.len(),
+            rubylight_protocol::text_input::TEXT_INPUT_NOTICE_HEADER_BYTES
+        );
+        assert_eq!(TextInputNotice::decode(&wire).unwrap().element, 0);
     }
 }

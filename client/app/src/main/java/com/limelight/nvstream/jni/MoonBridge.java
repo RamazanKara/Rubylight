@@ -968,6 +968,7 @@ public class MoonBridge {
     public static final int CONTROL_MESSAGE_FEC_REPORT = 0x5539;
     public static final int CONTROL_MESSAGE_USB = 0x553A;
     public static final int CONTROL_MESSAGE_TEXT_INPUT = 0x553B;
+    public static final int CONTROL_MESSAGE_RATE_CHANGE = 0x553C;
     public static final int CONTROL_MESSAGE_PIPELINE_RATES = 0x553D;
     public static final int CONTROL_MESSAGE_KEYBOARD_LAYOUT = 0x553E;
 

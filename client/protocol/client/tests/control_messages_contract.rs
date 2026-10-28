@@ -5,7 +5,7 @@
 
 use rubylight_protocol::ids::{CONTROL_IDS, RUBYLIGHT_3_CONTROL_IDS};
 use rubylight_protocol::{
-    cursor_shape, fec_report, keyboard_layout, pipeline_rates, text_input, usb,
+    cursor_shape, fec_report, keyboard_layout, pipeline_rates, rate_change, text_input, usb,
 };
 use std::collections::BTreeMap;
 
@@ -40,6 +40,10 @@ fn moonbridge_names_the_3_0_control_messages_as_rubylight_protocol_defines_them(
             (
                 "CONTROL_MESSAGE_TEXT_INPUT",
                 text_input::TEXT_INPUT_MESSAGE_TYPE
+            ),
+            (
+                "CONTROL_MESSAGE_RATE_CHANGE",
+                rate_change::RATE_CHANGE_MESSAGE_TYPE
             ),
             (
                 "CONTROL_MESSAGE_PIPELINE_RATES",

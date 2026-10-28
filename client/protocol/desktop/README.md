@@ -255,7 +255,7 @@ Done, on Windows and Linux unless noted:
   the host's commands (with the device permission), host cursor shapes, automatic bitrate,
   automatic resolution and frame rate, phase lock reports (Windows) and display caps (on
   Windows with the display's luminance).
-- Recover interrupted streams (off by default): up to five tries within one minute.
+- Recover interrupted streams (on by default; settings saved before were switched on once): up to five tries within one minute.
   Network interruption grace, instant mouse and pen input, and on Linux "Prioritize stream
   traffic".
 - Performance overlay in Android's three modes: Compact (one line behind a health mark, with

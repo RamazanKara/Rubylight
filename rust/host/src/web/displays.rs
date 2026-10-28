@@ -101,7 +101,9 @@ fn reset_persistence(
     reset: impl FnOnce() -> anyhow::Result<()>,
 ) -> anyhow::Result<Value> {
     let Some(_gate) = crate::power_action::idle(h) else {
-        anyhow::bail!("disconnect active sessions before resetting display persistence");
+        anyhow::bail!(
+            "end every stream and quit the running app before resetting display persistence; a launch, teardown or controller session may still be in progress"
+        );
     };
     reset()?;
     Ok(json!({"status":true}))

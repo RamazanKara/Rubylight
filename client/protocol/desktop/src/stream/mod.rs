@@ -1426,6 +1426,11 @@ pub enum Wait {
     For(Duration),
 }
 
+/// [`Streaming::sends_controllers`] for `settings` in a session of `role`.
+fn sends_controllers(settings: &Settings, role: AppRole) -> bool {
+    settings.controllers && role != AppRole::RemoteMonitor
+}
+
 impl Streaming {
     pub fn new(connecting: Connecting, session: Session, facts: Facts, display: Display) -> Self {
         let min_interval = if display.refresh_hz > 0.0 {
@@ -1775,7 +1780,13 @@ impl Streaming {
     }
 
     pub fn controller_audio_available(&self) -> bool {
-        self.settings.controllers && self.settings.controller_audio && self.facts.role != AppRole::RemoteMonitor
+        self.sends_controllers() && self.settings.controller_audio
+    }
+
+    /// Whether this session tells the host about controllers: not with Controllers off, and never
+    /// from a view-only remote monitor.
+    fn sends_controllers(&self) -> bool {
+        sends_controllers(&self.settings, self.facts.role)
     }
 
     pub fn mute_microphone(&mut self, muted: bool, pads: &mut Gamepads) {
@@ -3290,16 +3301,18 @@ impl Streaming {
                     self.session.input(|q| self.touch.handle(event, rect, area, density, q));
                 }
                 SDL_EVENT_GAMEPAD_ADDED => {
-                    pads.added(event.gdevice.which);
+                    if let Err(why) = pads.added(event.gdevice.which) {
+                        self.show_toast(why.message());
+                    }
                     if self.controller_audio_available() { pads.auto_audio(); }
-                    if self.settings.controllers && self.facts.role != AppRole::RemoteMonitor {
+                    if self.sends_controllers() {
                         self.session.input(|q| pads.announce_new(q));
                     }
                 }
                 SDL_EVENT_GAMEPAD_REMOVED => {
                     self.session.input(|q| pads.release_mouse(event.gdevice.which, q));
                     if let Some(index) = pads.removed(event.gdevice.which) {
-                        if self.settings.controllers && self.facts.role != AppRole::RemoteMonitor {
+                        if self.sends_controllers() {
                             self.session.input(|q| pads.send_removed(index, q));
                         }
                     }
@@ -3312,7 +3325,9 @@ impl Streaming {
                 }
                 SDL_EVENT_AUDIO_DEVICE_REMOVED => {
                     pads.removed_audio_device(event.adevice.which);
-                    self.session.input(|q| pads.announce_new(q));
+                    if self.sends_controllers() {
+                        self.session.input(|q| pads.announce_new(q));
+                    }
                 }
                 _ => {
                     let focused = SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS != 0;
@@ -3658,6 +3673,16 @@ mod tests {
         assert!(!stream.remote_monitor && !stream.input_only);
         let input = config(AppRole::InputOnly);
         assert!(!input.remote_monitor && input.input_only);
+    }
+
+    #[test]
+    fn controllers_reach_the_host_only_when_on_and_not_from_a_remote_monitor() {
+        let on = Settings { controllers: true, ..Settings::default() };
+        let off = Settings { controllers: false, ..Settings::default() };
+        assert!(sends_controllers(&on, AppRole::Stream));
+        assert!(sends_controllers(&on, AppRole::InputOnly));
+        assert!(!sends_controllers(&on, AppRole::RemoteMonitor));
+        assert!(!sends_controllers(&off, AppRole::Stream));
     }
 
     #[test]

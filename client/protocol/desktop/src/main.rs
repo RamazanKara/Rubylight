@@ -540,7 +540,11 @@ impl App {
         unsafe {
             match SDL_EventType(event.r#type) {
                 SDL_EVENT_QUIT | SDL_EVENT_WINDOW_CLOSE_REQUESTED => self.running = false,
-                SDL_EVENT_GAMEPAD_ADDED => self.pads.added(event.gdevice.which),
+                SDL_EVENT_GAMEPAD_ADDED => {
+                    if let Err(why) = self.pads.added(event.gdevice.which) {
+                        self.launcher.message(tr("Controller not connected"), why.message());
+                    }
+                }
                 SDL_EVENT_GAMEPAD_REMOVED => {
                     self.pads.removed(event.gdevice.which);
                 }

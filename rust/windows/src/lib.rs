@@ -49,6 +49,7 @@ pub mod limiter;
 pub mod lossless;
 pub mod mic;
 pub mod net;
+pub mod nucleus;
 pub mod overlay;
 pub mod playnite;
 pub mod power;

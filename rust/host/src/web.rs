@@ -1,6 +1,7 @@
 mod apps;
 mod child_session;
 mod clients;
+mod coop;
 #[cfg(test)]
 pub(crate) use clients::handle as update_clients;
 #[cfg(test)]
@@ -838,6 +839,9 @@ pub(crate) async fn api(
         }
     };
     let text = |k: &str| data.get(k).and_then(Value::as_str).unwrap_or("");
+    if path == "/api/coop" || path.starts_with("/api/coop/") {
+        return coop::handle(&h, &method, path, &data).await;
+    }
     if method == Method::POST && path == "/api/covers/upload" {
         return apps::upload_cover(&h, &data).await;
     }

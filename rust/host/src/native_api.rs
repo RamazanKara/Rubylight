@@ -7,7 +7,7 @@
 //! device's permissions and Host control flag from `h.paired` then, never from
 //! a copy taken at launch: a grant or revoke in the console applies to the
 //! next request.
-mod coop;
+pub(crate) mod coop;
 pub(crate) mod files;
 mod folders;
 pub(crate) mod radeon;

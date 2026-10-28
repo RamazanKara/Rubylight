@@ -856,7 +856,8 @@ public class NvConnection {
                     context.negotiatedVideoFormats, context.streamConfig.isPacked444()) : 0;
             int hdrFormatVideoFormats = renderer.videoFormatsForHdrFormat(context.hdrFormat, context.negotiatedVideoFormats);
             if (hdrFormatVideoFormats != context.negotiatedVideoFormats) {
-                // Dolby Vision on the automatic codec: HEVC instead of AV1, whose decoder sets the capabilities.
+                // Dolby Vision on the automatic codec: a codec that carries it (HEVC, not AV1), whose decoder
+                // sets the capabilities.
                 context.negotiatedVideoFormats = hdrFormatVideoFormats;
                 context.videoCapabilities = renderer.getCapabilities(context.negotiatedVideoFormats);
             }

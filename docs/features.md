@@ -2,7 +2,66 @@
 
 [Documentation](README.md) · [Getting started](getting-started.md) · [Configuration](configuration.md) · [Performance](performance.md)
 
-Everything Rubylight does, grouped by what you will notice while streaming. Features marked experimental are off until you turn them on. For the numbers behind the speed, see [Performance](performance.md).
+Everything Rubylight does, grouped by what you will notice while streaming. Features that need something from the device, such as Dolby Vision or a clipboard, are offered to devices that ask for them; every other Moonlight client streams as before. For the numbers behind the speed, see [Performance](performance.md).
+
+## Everything it does in 3.0
+
+<a id="everything-it-does"></a>
+
+**Picture**
+
+- AMD AMF encoding for H.264, HEVC and AV1 on every Radeon with an AMF encoder, and PyroWave for devices that ask for it.
+- Frames straight from Rubylight's virtual display driver, converted on a compute queue beside the game.
+- Dolby Vision (profiles 8.1 and 8.4 on HEVC, 10.1 on AV1), HDR10+ and HDR Vivid scene data, and HLG, for devices whose screens show them ([details](configuration.md#capture-and-video)).
+- Windows HDR Calibration profiles on virtual displays, when you turn it on.
+- Encoder focus: more bits for text and HUDs that stay still, when you choose it.
+
+**Smooth over real networks**
+
+- Scene cuts too large to protect are encoded again as keyframes that fit: lost scene cuts went from 16 and 15 to 0 and 0 in our test ([numbers](../rust/PERFORMANCE.md#october-28-oversize-scene-cuts-encoded-again-as-keyframes)).
+- Recovery keyframes keep their full error correction inside Moonlight's four FEC blocks.
+- Long-term reference recovery on H.264 and HEVC, as on AV1: a short loss is repaired with a frame built on a picture the device still has, for every client.
+- AV1 repairs a loss by invalidating the lost frame instead of using intra refresh.
+- Error correction the device chooses, and a bandwidth test before the first bitrate.
+- Bitrate and frame rate change mid-stream without reconnecting.
+- Roaming: a phone moving from Wi-Fi to mobile data keeps its stream.
+- Control messages resent as soon as the device is heard from after an outage.
+- The bitrate steps down only when the link cannot carry the stream, and comes back by itself.
+
+**Sound**
+
+- PCM up to 7.1.4, Dolby Digital and Dolby Digital Plus for TVs, soundbars and receivers that decode them.
+- 7.1.4 surround, night mode and headphone surround.
+- Haptics from game audio on a DualSense.
+- The device's microphone into the PC.
+
+**Playing together and from the couch**
+
+- Split-screen co-op through Nucleus Co-op: a "(Co-op)" entry next to the game, each player with their own picture, sound and controller.
+- Background streaming: a device plays while someone keeps using the PC.
+- The couch menu: hold L3+R3, press Ctrl+Alt+Backspace or hold the top-left corner for Back to game, Disconnect, End session and Close game.
+- The device's keyboard opens when a text field on the PC gets the focus.
+- Keyboard layouts from the device, a device-drawn cursor, touch as a mouse or a trackpad, and pen barrel roll.
+- Rotate the display to the device's portrait or landscape shape, and follow it when the device turns.
+- Keep monitors off while a device is away ([#56](https://github.com/RamazanKara/Rubylight/issues/56)).
+
+**Sharing with your devices**
+
+- Clipboard sync for text, and images both ways.
+- Shared folders to browse, download from and upload to.
+- File transfer to and from the PC.
+- USB forwarding: a USB device plugged into the device is attached to the PC during a stream.
+
+**The console**
+
+- Home walks you through pair, see your games, play, and shows running co-op games.
+- Games lists every launcher in one place: Steam, Playnite, Epic Games, Battle.net, EA app, Ubisoft Connect, GOG, Microsoft Store and Xbox, and game folders.
+- Settings shows the ten settings most people change; search finds every other one.
+- Help reads the host log and explains the known failures it finds.
+- Pair with a QR code; a device you pair from the console can play games right away.
+- Client build warnings, frame rates for each stage of the pipeline, webhooks, wake and sleep after idle, Sleep PC from a device, Radeon presets per game, and the WebRTC server with a stream in the console tab.
+
+The sections below describe each area in more detail.
 
 ## Fast video on Radeon
 
@@ -10,20 +69,24 @@ Everything Rubylight does, grouped by what you will notice while streaming. Feat
 - **Adaptive AMF backlog.** The encoder learns the driver's required depth and times the next input to preserve conversion and network overlap. The [Radeon measurements](../rust/PERFORMANCE_WORK.md#october-13-adaptive-amf-backlog-candidate) show lower picture age under saturation; normal-load tails and broader compatibility remain unresolved.
 - **Radeon compute.** Frame copies, colour conversion and letterboxing run on D3D12 compute queues beside the game's graphics work, so your game and your stream stop waiting on each other.
 - **HDR from capture to screen.** Ten-bit BT.2020/PQ through HEVC and AV1, with HDR metadata in the keyframes, and ten-bit SDR where you want it.
+- **Dolby Vision, HDR10+ and HLG.** HDR streams carry per-scene brightness data, measured on the GPU while the frame encodes, so a display can follow each scene instead of one fixed peak. Dolby Vision works on HEVC (8.1 and 8.4) and AV1 (10.1); screens that show only HLG get HLG, on PyroWave too. Devices without them, stock Moonlight among them, get the HDR10 stream underneath. [Details](configuration.md#capture-and-video) · [Numbers](../rust/PERFORMANCE.md#october-27-hdr10-and-hdr-vivid-dynamic-metadata).
 - **PyroWave HDR 4:4:4.** A colour sample for every pixel, so coloured text and fine edges stay crisp, on [Nightjar](https://github.com/RamazanKara/nightjar) for Android or any other PyroWave-capable Moonlight client over a fast local network.
+- **Scene cuts that do not freeze.** A scene cut that comes out of the encoder too large for its error correction is encoded again as a keyframe that fits. In a 250 Mbps HEVC test with 0.3 % random loss, freezes after scene cuts went from 15 to 0. [Numbers](../rust/PERFORMANCE.md#october-28-oversize-scene-cuts-encoded-again-as-keyframes).
 - **Link-rate adaptation.** When a device loses frames that error correction cannot repair, for example 150 Mbps asked of a 100 Mbps link, the host steps the bitrate down to what the link delivered, says so on the stream card, probes back up in small steps and returns to your rate after ten clean seconds. On a 50 Mbit/s link asked for 75 Mbps, under 2 % of frames were lost after the start-up (6.7 % before the 3.0 fix). A link that carries the stream sees no change, including an emulated 150 Mbit/s Wi-Fi link with 0.5 % loss. [Details](configuration.md#lower-bitrate-when-the-link-cannot-carry-it) · [Numbers](performance.md#30-results).
+- **Error correction the device chooses.** A device that supports it picks its own share of recovery packets, or lets the host follow its loss reports, up to `fec_max_percentage`. [Details](configuration.md#error-correction-chosen-by-the-device).
 - **Stream presets.** Lowest latency, Balanced and Reference quality fill in the encoder settings you did not set, for the whole host, one device or one app. Lowest latency made the first keyframe 29 % smaller on HEVC and 38 to 40 % smaller on H.264, with the same median end to end time. [Details](configuration.md#stream-presets).
 - **VRR-aware capture.** With variable refresh, the host waits for the game's next frame when it is close, so the picture reaches the encoder fresh: 0.25 ms old instead of 4.68 ms for a 120 Hz game in a 60 fps stream. [Numbers](performance.md#vrr-capture-age).
-- **Slice delivery (experimental).** `video_slice_delivery = 4` hands H.264 and HEVC frames to the network slice by slice while the encoder works on the rest. It needs no client change and brought a 4K60 HEVC picture 1.2 to 1.5 ms sooner over loopback and Wi-Fi 6E to the Nightjar desktop client. Android phone: no measurable gain; the emulated Wi-Fi run missed the 1 ms gate. [Details](b2-slice-delivery.md) · [Numbers](../rust/PERFORMANCE.md#october-23-slice-delivery-b2-step-2f).
-- **Beam-raced PyroWave (experimental).** A client that asks gets each PyroWave frame in display order, so Nightjar on the desktop can decode and present the top of the picture while the bottom is still arriving. The picture's middle row was on screen 1.4 ms sooner on loopback. Off unless the client turns it on. [Numbers](../rust/PERFORMANCE.md#october-24-beam-raced-pyrowave-gate-b10-step-4-opt-in-missed-its-default-on-gate).
+- **Encoder focus** (off by default). Still parts of the picture, such as a HUD, text or an editor, get more of the bitrate than moving ones. [Details](configuration.md#encoder-focus).
+- **Slice delivery** (off by default). `video_slice_delivery = 4` hands H.264 and HEVC frames to the network slice by slice while the encoder works on the rest. It needs no client change and brought a 4K60 HEVC picture 1.2 to 1.5 ms sooner over loopback and Wi-Fi 6E to the Nightjar desktop client. Android phone: no measurable gain; the emulated Wi-Fi run missed the 1 ms gate. [Details](b2-slice-delivery.md) · [Numbers](../rust/PERFORMANCE.md#october-23-slice-delivery-b2-step-2f).
+- **Beam-raced PyroWave** (when the client asks). A client that asks gets each PyroWave frame in display order, so Nightjar on the desktop can decode and present the top of the picture while the bottom is still arriving. The picture's middle row was on screen 1.4 ms sooner on loopback. [Numbers](../rust/PERFORMANCE.md#october-24-beam-raced-pyrowave-gate-b10-step-4-opt-in-missed-its-default-on-gate).
 - **A timing record for every frame.** Set `BUTTERPOLLO_TIMING_RECORD` and each video stream writes capture, convert, encode, packetize and send times on one clock, ready to join with a client's frame log. [Details](timing-record.md).
-- **Loss recovery that skips the keyframe.** Lost frames are repaired with reference frame invalidation, and forward error correction covers short bursts of loss. When the host's own Wi-Fi briefly stops taking packets, the host sends a keyframe at once instead of waiting for the client to ask.
-- **Experimental host bitrate adaptation.** Opt-in adaptation for conventional Moonlight streams uses observed feedback, accounts for FEC and audio, and yields to client bitrate control. [Policy and limits](configuration.md#host-bitrate-adaptation).
-- **Optional adaptive packet pacing.** The existing fast route policy remains the default. Experimental adaptation starts conservatively and responds to reported loss without lowering picture bitrate, at the cost of slower startup and possible probe losses. A suitable fixed limit remains the simpler option for a known constrained path. [Pacing policy](configuration.md#capture-and-video).
+- **Loss recovery that skips the keyframe.** A short loss is repaired with a frame built on an older picture the device still has, on H.264, HEVC and AV1, and forward error correction covers short bursts of loss. When the host's own Wi-Fi briefly stops taking packets, the host sends a keyframe at once instead of waiting for the client to ask. [Numbers](../rust/PERFORMANCE.md#october-28-ltr-recovery-on-h264-and-hevc-with-header-rewrites-on-by-default).
+- **Host bitrate adaptation** (off by default). Adaptation for conventional Moonlight streams uses observed feedback, accounts for FEC and audio, and yields to client bitrate control. [Policy and limits](configuration.md#host-bitrate-adaptation).
+- **Optional adaptive packet pacing.** The fast route policy is the default, and devices on Wi-Fi get adaptive pacing automatically. Turned on for every stream, it starts conservatively and responds to reported loss without lowering picture bitrate, at the cost of slower startup and possible probe losses. A suitable fixed limit remains the simpler option for a known constrained path. [Pacing policy](configuration.md#capture-and-video).
 - **Aspect ratio kept.** A source of another shape sits between black bars.
 - **Antialiased GPU downscaling.** Streams below the desktop's resolution average the covered source pixels to reduce thin-line shimmer. Native resolution, enlargement and aligned 2× reduction retain their existing pixels; reduction above 8× retains the previous bounded filter.
 
-Rubylight 3.0 encodes on AMD GPUs only: any Radeon with a working AMF video encoder. NVIDIA and Intel graphics stay on [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0). H.264 and HEVC work on all of them; AV1 is offered where the GPU's encoder has it.
+Rubylight 3.0 encodes on AMD GPUs: any Radeon with a working AMF video encoder. NVIDIA and Intel graphics use [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0). H.264 and HEVC work on all of them; AV1 is offered where the GPU's encoder has it.
 
 ## Capture that keeps working
 
@@ -39,28 +102,37 @@ Rubylight 3.0 encodes on AMD GPUs only: any Radeon with a working AMF video enco
 - **Your layout back.** The golden layout is restored after a stream or a crash, with a hotkey for the times you want it sooner.
 - **Per-device modes.** A device's display mode sets the resolution and refresh of its display, and the stream keeps the client's frame rate.
 - **The client chooses the display.** A Rubylight client can ask, per PC, for the virtual display alone, a virtual display beside your monitors, or no virtual display at all, without changing the host settings ([configuration](configuration.md#display-choice-from-the-client)).
+- **Rotate the display.** A device's own virtual display is made in its stream's portrait or landscape shape, and a monitor turns to it and back after the stream; with Match the device, the display follows a device that turns ([configuration](configuration.md#displays-and-rtss)).
+- **Keep monitors off while paused** (off by default). A monitor that wakes over HDMI while a device is away stays off until the device returns ([#56](https://github.com/RamazanKara/Rubylight/issues/56)).
 - **Two clients at once**, each on its own virtual display.
-- **Background streaming.** A device can play while someone keeps using the PC, in its own Nucleus Co-op instance of the game (Experimental): the PC's displays and focus stay with the PC user, only the game's sound is streamed, and only the device's controllers reach it ([setup and limits](configuration.md#background-streaming)).
-- **Co-op on one PC (Experimental).** Several devices play the same game together through Nucleus Co-op, each in its own instance with its own virtual controller, up to 4 players; Nightjar lists the sessions and joins a free slot ([details](nucleus-coop.md)).
-- **Resolution changes mid-stream.** A Rubylight client can switch the stream's size and frame rate without reconnecting, as a foldable does when it opens ([control messages](control-messages.md)).
+- **Background streaming.** A device can play while someone keeps using the PC, in its own Nucleus Co-op instance of the game: the PC's displays and focus stay with the PC user, only the game's sound is streamed, and only the device's controllers reach it ([setup and limits](configuration.md#background-streaming)).
+- **Co-op on one PC.** Several devices play the same game together through Nucleus Co-op, each in its own instance with its own virtual controller, up to 4 players; Home shows who is playing, and Nightjar lists the sessions and joins a free slot ([details](nucleus-coop.md)).
+- **Resolution, bitrate and frame rate changes mid-stream.** A Rubylight client can switch the stream's size, bitrate and frame rate without reconnecting, as a foldable does when it opens ([control messages](control-messages.md)).
+- **Roaming.** A device whose address changes, such as a phone moving from Wi-Fi to mobile data, keeps its stream ([configuration](configuration.md#roaming)).
 
 ## Input, audio and microphone
 
 - **Keyboard, mouse, touch, pen and controllers.** Standard profiles use the signed VHF driver included in the installer.
+- **The keyboard follows text fields.** When a text field on the PC gets the focus, Nightjar opens its keyboard, with digits for number fields and no suggestions for passwords. The device's keyboard layout, a device-drawn cursor, touch as a mouse or a trackpad, and pen barrel roll are in [configuration](configuration.md#keyboard-touch-pen-and-cursor).
 - **The right pad for the client.** PlayStation-type clients get a DualSense with adaptive triggers, Nintendo-type clients a Switch Pro, and others an Xbox Series pad. Two touchpads from a Steam Deck sit side by side on one surface.
 - **Steam Deck and DualSense advanced controls.** Steam Input handles gyro aiming and radial menus using forwarded motion and touchpads. DualSense USB support includes waveform haptics, adaptive triggers, speaker/headset audio and microphone input with a matching client such as [Nightjar](https://github.com/RamazanKara/nightjar). Controller identities survive stream reconnects. [Setup and limits](dualsense-haptics.md).
-- **Haptics from game audio (Experimental).** A client's DualSense feels the game's bass and impacts when the game sends it no vibration, with strength, response and noise-gate settings that apply mid-stream. [How it works](dualsense-haptics.md#haptics-from-game-audio-experimental).
+- **Haptics from game audio** (off by default). A client's DualSense feels the game's bass and impacts when the game sends it no vibration, with strength, response and noise-gate settings that apply mid-stream. [How it works](dualsense-haptics.md#haptics-from-game-audio).
+- **The couch menu.** Hold L3+R3, press Ctrl+Alt+Backspace or hold the top-left corner, and a menu drawn into the stream offers Back to game, Disconnect, End session and Close game, for any Moonlight client. [Configuration](configuration.md#couch-menu).
 - **Back grips.** Steam Deck L4/R4/L5/R5 and Xbox Elite paddles press the buttons you choose, under **Back grips**.
 - **A real Steam Deck controller.** With usbip-win2 installed, a Steam Deck client shows up on the host as a Steam Deck with trackpads, gyro and back grips.
 - **Steam Controller input from clients.** The host reads the Steam Controller attribute messages a client sends and turns Steam's haptic reports into rumble, as Vibepollo does; a motor whose off never arrives stops after at most 10 seconds. Neither reaches a game yet: that needs a driver with the Steam Controller profile, which the host does not ship.
-- **Audio.** Endpoint matching by id, name, description or adapter, Steam Streaming Speakers, and surround Opus.
+- **USB forwarding** (off by default). A USB device plugged into a device can be attached to this PC during a stream, over USB/IP inside a TLS tunnel. [Setup](usb-forwarding.md).
+- **Audio.** Endpoint matching by id, name, description or adapter, Steam Streaming Speakers, and surround Opus up to 7.1.4.
+- **Sound for your receiver.** A device that asks gets uncompressed PCM (up to 7.1.4) or Dolby Digital and Dolby Digital Plus, so a TV, soundbar or receiver decodes the sound itself. [Details](configuration.md#pcm-and-dolby-digital-audio).
+- **Night mode and headphone surround** (off by default) even out loud and quiet passages, and render surround for headphones on a stereo device. [Details](configuration.md#surround-night-mode-and-headphone-surround).
 - **Game-only audio.** Optional capture of a verified launched game and its descendants on supported Windows versions, with explicit silence and warnings when identification fails. [Setup and limits](configuration.md#game-only-audio).
 - **Microphone.** A client's microphone plays into Steam Streaming Microphone, encrypted. See [Microphone](microphone.md).
 
 ## Library and frame pacing
 
+- **Every installed game, from every launcher.** Steam, Playnite, Epic Games, Battle.net, EA app, Ubisoft Connect, GOG, Microsoft Store and Xbox PC games, and the games in folders such as `D:\Games`, appear in one Games list with the same switches and one Sync now.
 - **Close apps on disconnect.** An optional global default closes the app when its last streaming device leaves. Each app can inherit that default or explicitly turn it on or off. [Configuration](configuration.md#close-apps-on-disconnect).
-
+- **A confirmed game switch.** Starting another game closes the running one only when the person on the device confirms.
 - **Apps.** Commands, preparation and undo, detached commands, URLs and documents, working folder inference, and starting before sign-in.
 - **Steam.** Sync on demand and every 30 seconds, with covers from Steam's cache or store. A Steam app's stream ends when the game's processes exit.
 - **Playnite.** Library sync, launches through Playnite with the stream's environment, a "Playnite (Fullscreen)" app, and the game brought to the front.
@@ -70,37 +142,44 @@ Rubylight 3.0 encodes on AMD GPUs only: any Radeon with a working AMF video enco
 
 ## Pairing and the web console
 
-- **Pairing** with a PIN or a one-time PIN, with per-device permissions and an enable switch. When you pair from the console you choose what the device can do: Play games (the default), Watch only or Everything; the first device gets everything. WebRTC devices, and pairings made through the API without a choice, start view-only until you grant more. **Host control** is a separate per-device switch, off until you turn it on ([details](configuration.md#host-control-for-a-device)).
-- **A console for everyday play.** Home shows setup, readiness and the current stream, with your game shelf below. Games & apps, Devices and Settings cover the library, pairing and stream options; Help & diagnostics holds logs, display recovery and updates. A stream card shows frame rate, bitrate and encoder timing together and explains what the host did and why.
+- **Pairing** with a PIN, a one-time PIN or a QR code that Nightjar scans, with per-device permissions and an enable switch. When you pair from the console you choose what the device can do: Play games (the default), Watch only or Everything; the first device gets everything. WebRTC devices, and pairings made through the API without a choice, start view-only until you grant more. **Host control** is a separate per-device switch, off until you turn it on ([details](configuration.md#host-control-for-a-device)).
+- **A console for everyday play.** Home walks you through pairing and playing and shows the current stream and running co-op games, with your game shelf below. Games, Devices and Settings cover the library, pairing and stream options; Settings shows the ten settings most people change, and search finds every other one. A stream card shows frame rate, bitrate and encoder timing together, the frame rate at each stage of the pipeline, and explains what the host did and why.
+- **Help that reads the log.** Help reads the host log and explains the known failures it finds, such as AMD encoder hangs, lost capture, ports in use, network loss and an old display driver, with what to do.
+- **Client build warnings.** The device list shows the build each device last reported and warns when that build has a known problem with this host.
+- **Wake and sleep.** The Power section shows whether devices can wake this PC and each adapter's wake settings, and can put the PC to sleep after it sits idle.
+- **Webhooks.** Signed events to your own URLs when devices pair, apps start and stop, and streams begin and end. [Webhooks](webhooks.md).
 - **A tray icon** with notifications for pairing requests, new versions and apps launching, pausing and stopping.
 - **Logs and support.** Rotating logs, a live tail in the console, crash dumps and a support bundle.
 - **Hardware readings for client overlays.** Opt-in CPU usage and available AMD GPU readings, collected on request during a paired client's video stream. Compatible clients draw their own overlay; see the [hardware-metrics protocol](hardware-metrics.md).
 - **Private connection-path diagnosis.** An authenticated client can check whether its current Tailscale peer route is direct, relayed or unknown, without exposing other peers. [Protocol and limits](network-path.md).
 
-## Control from the couch (3.0)
+## Control from the couch
+
+<a id="control-from-the-couch-30"></a>
 
 - **Native API v1.** A paired client on the streaming HTTPS port can read the host's capabilities, your game library with covers, and the session state. Stock Moonlight and Artemis are unaffected. [Contract](native-api.md).
 - **A console on your phone.** [Nightjar](https://github.com/RamazanKara/nightjar) 0.8.0 and newer open on Home when the host offers the API: favourites, what is running, your library across every paired PC with covers, and a page for each game with Play or Resume. A session menu closes the game, ends the session or changes Radeon settings without leaving the stream.
 - **Session actions.** Disconnect leaves the game running, End session stops the stream and keeps the game, Close game also quits it. [Details](configuration.md#session-actions).
 - **Host control.** A per-device permission that lets a device close games and change Radeon settings. Off until you turn it on in the console. [Details](configuration.md#host-control-for-a-device).
-- **Sleep PC.** A per-device permission that lets a device put the PC to sleep while nothing is running, with the same requests as Vibepollo. Off until you turn it on in the console; a grant imported from Vibepollo is kept. It needs a PC with S1, S2 or S3 sleep; on a PC with only Modern Standby the host offers no Sleep PC and the console says why.
-- **File transfer.** Devices you allow send files to the PC and fetch them back through the native API, into the signed-in user's Downloads\Rubylight or a folder you choose, paced while a stream runs. Off until you turn it on in the console, and each device needs Upload files or Download files. [Details](configuration.md#file-transfer-experimental).
-- **Stream in the console.** With the WebRTC server on, the console's Stream page plays a game in the browser tab, signed in with the console session instead of pairing: H.264 1080p60, stereo, keyboard and mouse. [Details](webrtc.md#stream-in-the-console-experimental).
+- **Sleep PC.** A per-device permission that lets a device put the PC to sleep while nothing is running, with the same requests as Vibepollo. Off until you turn it on in the console; a grant imported from Vibepollo is kept. It needs a PC with S1, S2 or S3 sleep; on a PC with only Modern Standby the host offers no Sleep PC and the console says why. [Details](configuration.md#sleep-pc-and-sleep-after-idle).
+- **Clipboard sync.** Text copied on the device goes on the PC's clipboard and back as you copy it, and images can be copied both ways, for devices you give the clipboard permissions. [Details](configuration.md#clipboard-files-and-usb).
+- **Shared folders.** Folders you share with a device can be browsed, downloaded from and, with a write grant, uploaded to. [Details](configuration.md#shared-folders).
+- **File transfer.** Devices you allow send files to the PC and fetch them back through the native API, into the signed-in user's Downloads\Rubylight or a folder you choose, paced while a stream runs. Off until you turn it on in the console, and each device needs Upload files or Download files. [Details](configuration.md#file-transfer).
+- **Stream in the console.** With the WebRTC server on, the console's Stream page plays a game in the browser tab, signed in with the console session instead of pairing: H.264 1080p60, stereo, keyboard and mouse. [Details](webrtc.md#stream-in-the-console).
 - **Radeon settings with restore.** A device with host control changes Radeon settings during a stream, such as Anti-Lag and Radeon Chill; every change is journaled and put back when the session ends. [Details](configuration.md#radeon-settings-with-restore).
 - **A Radeon profile for each game.** In the app editor, **Radeon** picks Competitive (Anti-Lag on), Smoothness (the game's frame rate capped at the stream's), Quality (anisotropic filtering and the driver's anti-aliasing enhancement) or a list of your own. The host writes the settings when the game starts and puts the originals back when the session ends, also after a crash. [Details](configuration.md#radeon-settings-per-game).
-- **Microsoft Store and Xbox PC games** appear in **Add games** next to Steam, Epic Games, Battle.net, EA app, Ubisoft Connect and GOG, and start the way the Start menu starts them.
 - **Launcher hints.** If a Steam, Epic Games, EA app or Ubisoft Connect window is waiting for an update or a sign in, the session says so and a client can show it. The host only reads window titles; it never clicks or types into a launcher.
 - **Rust engine and an on-screen keyboard in Nightjar.** The Rust streaming engine is Nightjar's default on Android, and a full PC keyboard works with touch, a controller or a TV remote. [Nightjar docs](https://github.com/RamazanKara/nightjar/blob/main/docs/index.md).
 
 ## Install and update
 
-- **One installer** that sets up the service, drivers, firewall rule and shortcuts, and upgrades in place. The installer bundles optional usbip-win2 for native Steam Deck controllers and DualSense USB audio and waveform haptics. It imports an existing Vibepollo or Apollo profile and keeps your settings, paired devices, apps and covers.
+- **One installer** that sets up the service, drivers, firewall rule and shortcuts, and upgrades in place. The installer bundles optional usbip-win2 for native Steam Deck controllers, DualSense USB audio and waveform haptics, and USB forwarding. It imports an existing Vibepollo or Apollo profile and keeps your settings, paired devices, apps and covers.
 - **Updates notify you first.** Automatic installation is opt-in; the host downloads the exact installer from the official release, verifies its size and SHA-256 digest, waits for an idle minute and upgrades through the service. A failed copy or start restores the previous files.
 - **A service that restarts the host** after a crash.
 - **Separate instances** with independent profile folders and base ports. Copied portable packages can use an adjacent `config` folder from 2.2.6; older packages support explicit `--config-dir` paths. See [multiple instances](configuration.md#multiple-instances).
 
 ## Clients
 
-Rubylight speaks the Moonlight protocol, so **Moonlight and every other Sunshine-compatible client works with it**: on Windows, macOS, Linux, Android, iOS, Apple TV, Android TV, game consoles and handhelds. H.264, HEVC and AV1 work in SDR and HDR wherever the client's device can decode them. PyroWave needs a PyroWave-capable client such as [Nightjar](https://github.com/RamazanKara/nightjar) on Android. Nightjar 0.8.0 and newer also use the native API above, and The [Desktop client for Windows and Linux](https://github.com/RamazanKara/nightjar/blob/main/protocol/desktop/README.md) is on the [releases page](https://github.com/RamazanKara/nightjar/releases).
+Rubylight speaks the Moonlight protocol, so **Moonlight and every other Sunshine-compatible client works with it**: on Windows, macOS, Linux, Android, iOS, Apple TV, Android TV, game consoles and handhelds. H.264, HEVC and AV1 work in SDR and HDR wherever the client's device can decode them. PyroWave needs a PyroWave-capable client such as [Nightjar](https://github.com/RamazanKara/nightjar) on Android. Nightjar 0.8.0 and newer also use the native API above, and the [desktop client for Windows and Linux](https://github.com/RamazanKara/nightjar/blob/main/protocol/desktop/README.md) is on the [releases page](https://github.com/RamazanKara/nightjar/releases).
 
 See [Getting started](getting-started.md#choose-your-stream-format) to pick a stream format.

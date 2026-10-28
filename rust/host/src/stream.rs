@@ -4298,14 +4298,9 @@ impl Media {
                                         {
                                             s.launch.warnings.set("input_steam_input", hint);
                                         }
-                                        if p.inputs.last_mut().is_some_and(|last| {
-                                            last.merge(&event) == input::Batch::Merged
-                                        }) {
-                                            continue;
-                                        }
-                                        if p.inputs.len() < 512 {
-                                            p.inputs.push(event);
-                                        } else {
+                                        if !queue_input(&mut p.inputs, event) {
+                                            // Warnings::set logs it as well.
+                                            s.launch.warnings.set("input_overflow", INPUT_OVERFLOW);
                                             s.stop();
                                         }
                                     }
@@ -4647,6 +4642,7 @@ impl Media {
                             Ok(pads) => pads,
                             Err(error) => {
                                 s.launch.warnings.set("input_initialization", format!("Controller recovery is still in progress ({error:#}); retrying."));
+                                drop_uninjectable_input(&mut p.inputs);
                                 p.injector_tried = false;
                                 continue;
                             }
@@ -5073,6 +5069,35 @@ fn first_steam_attributes_refusal(
 ) -> Option<input::SteamAttributesError> {
     let refusal = *error.downcast_ref::<input::SteamAttributesError>()?;
     (!std::mem::replace(warned, true)).then_some(refusal)
+}
+
+/// Decoded input waiting for the next injection pass.
+const INPUT_QUEUE: usize = 512;
+const INPUT_OVERFLOW: &str = "Input queue overflow: more than 512 input events waited for injection, so the stream was stopped. Reconnect to continue.";
+
+/// Queues `event` for the next pass, merged into the last one where it can
+/// be. False when the queue is full: the caller stops the stream with
+/// `INPUT_OVERFLOW`.
+fn queue_input(inputs: &mut Vec<input::Input>, event: input::Input) -> bool {
+    if inputs
+        .last_mut()
+        .is_some_and(|last| last.merge(&event) == input::Batch::Merged)
+    {
+        return true;
+    }
+    if inputs.len() >= INPUT_QUEUE {
+        return false;
+    }
+    inputs.push(event);
+    true
+}
+
+/// While the controllers can't be acquired there is nothing to inject into:
+/// keys, clicks and moves are dropped rather than replayed in one late burst
+/// when acquire succeeds. Arrivals stay, so the pads keep the kind the
+/// client announced.
+fn drop_uninjectable_input(inputs: &mut Vec<input::Input>) {
+    inputs.retain(|event| matches!(event, input::Input::Arrival { .. }));
 }
 
 /// What a pass sends for the gamepad thread's reports: feedback messages
@@ -6210,6 +6235,62 @@ mod tests {
         assert_eq!(first_steam_attributes_refusal(&mut warned, &refused), None);
         let mut other_device = false;
         assert!(first_steam_attributes_refusal(&mut other_device, &refused).is_some());
+    }
+    #[test]
+    fn a_full_input_queue_is_refused_not_grown() {
+        let key = |down| input::Input::Keyboard {
+            key: 0x41,
+            modifiers: 0,
+            flags: 0,
+            down,
+        };
+        let mut inputs = vec![];
+        for i in 0..INPUT_QUEUE {
+            assert!(queue_input(&mut inputs, key(i % 2 == 0)));
+        }
+        assert!(!queue_input(&mut inputs, key(true)));
+        assert_eq!(inputs.len(), INPUT_QUEUE);
+        // A move that merges into the last queued one still fits.
+        inputs.pop();
+        assert!(queue_input(
+            &mut inputs,
+            input::Input::Relative { x: 1, y: 1 }
+        ));
+        assert!(queue_input(
+            &mut inputs,
+            input::Input::Relative { x: 2, y: 3 }
+        ));
+        assert_eq!(inputs.len(), INPUT_QUEUE);
+        assert!(matches!(
+            inputs.last(),
+            Some(input::Input::Relative { x: 3, y: 4 })
+        ));
+        assert!(INPUT_OVERFLOW.contains("overflow"));
+    }
+    #[test]
+    fn input_waiting_on_a_refused_controller_acquire_is_not_replayed_later() {
+        let arrival = input::Input::Arrival {
+            id: 1,
+            kind: 2,
+            capabilities: 0,
+            buttons: 0,
+        };
+        let mut inputs = vec![
+            input::Input::Keyboard {
+                key: 0x41,
+                modifiers: 0,
+                flags: 0,
+                down: true,
+            },
+            arrival.clone(),
+            input::Input::MouseButton {
+                button: 1,
+                down: true,
+            },
+            input::Input::Relative { x: 5, y: 5 },
+        ];
+        drop_uninjectable_input(&mut inputs);
+        assert_eq!(inputs, vec![arrival]);
     }
     #[test]
     fn an_arrived_pad_is_asked_for_the_sensors_it_has() {

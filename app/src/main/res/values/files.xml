@@ -52,4 +52,6 @@
     <string name="files_problem_network">The connection to the PC failed.</string>
     <string name="files_problem_local">The file on this device could not be read or written.</string>
     <string name="files_problem_host">The PC answered with an error.</string>
+    <string name="files_save_lost">The download was lost while the save dialog was open, so nothing was saved. Tap Download again.</string>
+    <string name="files_partial_left">An unfinished download could not be deleted: %1$s is still where you saved it, and it is not the complete file. Delete it there.</string>
 </resources>

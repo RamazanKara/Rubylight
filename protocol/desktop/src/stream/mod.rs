@@ -44,7 +44,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use nightjar_core::control::{ClientMessage, ControlEvent};
-use nightjar_core::http::{App, AppRole, ClientIdentity, Feature, HardwareMetrics, HostApiError, HostClient, LaunchRequest, ServerInfo};
+use nightjar_core::http::{App, AppRole, Availability, ClientIdentity, Feature, HardwareMetrics, HostApiError, HostClient, LaunchRequest, ServerInfo};
 use nightjar_core::input::packets::{modifier, mouse_button};
 use nightjar_core::sdp::*;
 use nightjar_core::session::{self, HostInfo, Interrupt, Location, NetworkHint, RoamingConfig, Session, SessionConfig, Stage};
@@ -135,6 +135,9 @@ pub struct Facts {
     pub reconfigure: bool,
     /// The host takes mid-stream bitrate and rate changes (0x553C).
     pub rate_change: bool,
+    /// Whether the PC forwards USB devices and lets this device attach them; asked only while
+    /// the setting is on.
+    pub usb: Availability,
     pub touch: bool,
     pub phase_lock: bool,
     /// PyroWave decodes blocks while a frame arrives (`Settings::early_decode`, or the
@@ -960,6 +963,11 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
     // Started before the handshake so a change during it still reaches the session.
     let watch = roam_watch(settings, &plan.record.address, &shared);
     let roam_shared = shared.clone();
+    // Asked beside the handshake: the stream controls offer USB devices only when the PC does.
+    let usb_ask = (settings.usb_forwarding && plan.info.capabilities.has(Feature::NativeApi)).then(|| {
+        let client = client.clone();
+        std::thread::spawn(move || client.native_capabilities_with_files().map_err(|e| e.to_string()))
+    });
     let passthrough = stream.audio_passthrough;
     let session = Session::start(
         &host,
@@ -1000,6 +1008,10 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         reconfigure: outcome.host_control_messages.contains(&RECONFIGURE_MESSAGE_TYPE)
             && !outcome.config.experimental_packed_444 && outcome.negotiated_video_format & VIDEO_FORMAT_MASK_PYROWAVE == 0 && role == AppRole::Stream,
         rate_change: rate_change::offered(&outcome.host_control_messages, role),
+        usb: if settings.usb_forwarding {
+            let native = usb_ask.map(|ask| ask.join().unwrap_or_else(|_| Err("the request panicked".into())));
+            crate::usb::availability(&plan.info.capabilities, native)
+        } else { Availability::Unknown },
         touch: outcome.sunshine_feature_flags & nightjar_core::control::negotiation::feature::PEN_TOUCH_EVENTS != 0
             && role != AppRole::RemoteMonitor,
         phase_lock: outcome.host_control_messages.contains(&rubylight_protocol::phase_lock::REPORT_MESSAGE_TYPE),
@@ -1219,8 +1231,10 @@ pub struct Streaming {
     settings: Settings,
     plan: LaunchPlan,
     microphone: Option<microphone::Microphone>,
-    /// USB forwarding, while the setting is on.
+    /// USB forwarding, while the setting is on and the PC forwards this device's.
     pub usb: Option<crate::usb::Panel>,
+    /// Why the setting is on but the stream controls offer no USB devices.
+    pub usb_refused: Option<&'static str>,
     cursor: cursor::Cursor,
     cursor_warning: bool,
     text_field: text_field::TextField,
@@ -1353,10 +1367,13 @@ impl Streaming {
             bitrate_kbps, facts.fps.max(1) as u32 * 1000, settings.client_hint_bitrate, connecting.plan.bitrate_limit_kbps, 0));
         let backlog = connecting.shared.pacer_backlog.clone();
         // The stream controls read the attachments each time they are drawn.
-        let usb = if settings.usb_forwarding { lock(&connecting.shared.host_client).clone() } else { None }
+        let usb_refused = if settings.usb_forwarding { crate::usb::refusal(facts.usb) } else { None };
+        if let Some(why) = usb_refused { eprintln!("nightjar: USB forwarding is on, but no USB devices are offered: {why}"); }
+        let usb = if settings.usb_forwarding && usb_refused.is_none() { lock(&connecting.shared.host_client).clone() } else { None }
             .map(|host| crate::usb::Panel::new(session.usb_forwarder(host, || {})));
         let mut streaming = Self {
             usb,
+            usb_refused,
             session,
             shared: connecting.shared,
             facts,

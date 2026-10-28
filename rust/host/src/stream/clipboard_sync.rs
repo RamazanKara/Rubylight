@@ -847,7 +847,8 @@ pub(crate) mod tests {
     fn a_copy_kept_from_a_device_without_read_is_warned_on_the_stream_card_once() {
         let fake = Fake::default();
         let watch = Watch::new(fake.clone(), Allowed { read: false, ..ALL });
-        let (items, worker) = mpsc::channel();
+        let items = Mailbox(Arc::default());
+        let worker = items.0.clone();
         let outbox = Arc::new(Mutex::new(None));
         let wake = Arc::new(UdpSocket::bind("127.0.0.1:0").unwrap());
         let warnings = Arc::new(Warnings::default());

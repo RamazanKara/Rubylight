@@ -401,13 +401,13 @@ struct Authenticated {
 
 struct Pairing {
     request_id: String,
-    entered: oneshot::Receiver<(String, String)>,
+    entered: oneshot::Receiver<crate::state::PinEntry>,
     deadline: tokio::time::Instant,
 }
 
 /// What came of a pairing request.
 enum Outcome {
-    Entered(Result<(String, String), oneshot::error::RecvError>),
+    Entered(Result<crate::state::PinEntry, oneshot::error::RecvError>),
     Expired,
 }
 
@@ -974,7 +974,7 @@ impl Connection {
                     "The pairing request was cancelled",
                 ));
             }
-            Outcome::Entered(Ok((entered, name))) => {
+            Outcome::Entered(Ok((entered, name, _))) => {
                 match self
                     .h
                     .webrtc

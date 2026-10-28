@@ -17,11 +17,14 @@ pub const MAX_PLAYERS: usize = 4;
 /// client's extra field, granted by the administrator like Host control).
 pub const DEVICE_KEY: &str = "coop_join";
 
-/// Whether the administrator let this device join co-op sessions.
-pub fn may_join(extra: &BTreeMap<String, serde_json::Value>) -> bool {
-    extra
-        .get(DEVICE_KEY)
-        .is_some_and(|v| v == true || v == "true")
+/// Whether the administrator let this device join co-op sessions. Without
+/// the field, a device that may launch apps (`perm`) may join: a device paired
+/// to play games can play together too.
+pub fn may_join(perm: u32, extra: &BTreeMap<String, serde_json::Value>) -> bool {
+    match extra.get(DEVICE_KEY) {
+        Some(v) => v == true || v == "true",
+        None => perm & crate::state::LAUNCH_APPS != 0,
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -459,16 +462,36 @@ mod tests {
             Err(Refused::NotPermitted)
         );
         assert_eq!(s.join("owner", "Phone", false), Ok(Joined::Returned(0)));
+        let view = crate::state::LATER_DEVICE_PERMISSION;
+        let play = crate::state::PLAY_DEVICE_PERMISSION;
         assert!(may_join(
+            view,
             &serde_json::from_value(json!({"coop_join": true})).unwrap()
         ));
         assert!(may_join(
+            view,
             &serde_json::from_value(json!({"coop_join": "true"})).unwrap()
         ));
         assert!(!may_join(
+            play,
             &serde_json::from_value(json!({"coop_join": 1})).unwrap()
         ));
-        assert!(!may_join(&BTreeMap::new()));
+        assert!(!may_join(
+            play,
+            &serde_json::from_value(json!({"coop_join": false})).unwrap()
+        ));
+    }
+
+    #[test]
+    fn without_the_field_joining_follows_the_launch_permission() {
+        assert!(may_join(
+            crate::state::PLAY_DEVICE_PERMISSION,
+            &BTreeMap::new()
+        ));
+        assert!(!may_join(
+            crate::state::LATER_DEVICE_PERMISSION,
+            &BTreeMap::new()
+        ));
     }
 
     #[test]

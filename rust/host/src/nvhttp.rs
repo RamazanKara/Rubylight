@@ -1045,41 +1045,31 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
         if let Some(auth) = args.get("otpauth") {
             // One-time PIN pairing (Artemis). A wrong hash still gets an
             // ordinary answer, with a random PIN that fails the next step.
-            let mut otp = h
-                .otp
-                .lock()
-                .unwrap()
-                .take()
-                .filter(|otp| otp.created.elapsed() < Duration::from_secs(180))
-                .context("OTP pairing is not available")?;
+            // The QR code's PIN and the one typed in Artemis are tried both.
             let salt_text = args.get("salt").map_or("", String::as_str);
-            let expected = hex::encode_upper(crypto::hash(
-                format!("{}{salt_text}{}", otp.pin, otp.passphrase).as_bytes(),
-            ));
-            let (pin, name) = if expected.eq_ignore_ascii_case(auth) {
+            let matched = h.otp.lock().unwrap().take_matching(auth, salt_text)?;
+            let (pin, name, permission) = if let Some(otp) = matched {
                 tracing::info!(client=%name, "Pairing with a one-time PIN");
                 let name = if otp.device_name.is_empty() {
                     name
                 } else {
                     otp.device_name
                 };
-                (otp.pin, name)
+                (otp.pin, name, otp.permission)
             } else {
                 tracing::warn!(client=%name, "One-time PIN pairing failed");
-                otp.attempts += 1;
-                if otp.attempts < 5 {
-                    *h.otp.lock().unwrap() = Some(otp);
-                }
                 (
                     format!(
                         "{:04}",
                         rand::Rng::gen_range(&mut rand::thread_rng(), 0..10_000u16)
                     ),
                     name,
+                    None,
                 )
             };
             let mut pair = Pairing::new(id, name, certificate, &salt, &pin)?;
             pair.peer = Some(peer);
+            pair.permission = permission;
             h.pairings.lock().unwrap().insert(pair)?;
             return Ok(vec![
                 ("paired".into(), "1".into()),
@@ -1126,11 +1116,12 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
                 pins.remove(&id);
             }
         }
-        let (pin, name) = response
+        let (pin, name, permission) = response
             .context("PIN entry timed out")?
             .context("pairing cancelled")?;
         let mut pair = Pairing::new(id, name, certificate, &salt, &pin)?;
         pair.peer = Some(peer);
+        pair.permission = permission;
         h.pairings.lock().unwrap().insert(pair)?;
         return Ok(vec![
             ("paired".into(), "1".into()),
@@ -1196,7 +1187,7 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
             Step::Secret(secret) => {
                 p.finish(secret)?;
                 let mut state = h.paired.write().unwrap();
-                let perm = state.new_device_permission();
+                let perm = state.paired_device_permission(p.permission);
                 let uuid = uuid::Uuid::new_v4().to_string();
                 state.add(
                     &h.paired_path,

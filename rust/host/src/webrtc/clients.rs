@@ -358,7 +358,7 @@ impl Registry {
         h: &Host,
         pin: &str,
         name: &str,
-    ) -> (String, oneshot::Receiver<(String, String)>) {
+    ) -> (String, oneshot::Receiver<crate::state::PinEntry>) {
         let now = self.now();
         let request = PendingPin::new(&mut OsRng, pin, name, now);
         let id = request.request_id().to_owned();

@@ -702,12 +702,13 @@ fn otp_request(f: &Fixture) -> Args {
     ])
 }
 fn set_otp(f: &Fixture, age: Duration) {
-    *f.host.otp.lock().unwrap() = Some(OneTimePin {
+    f.host.otp.lock().unwrap().typed = Some(OneTimePin {
         pin: "1234".into(),
         passphrase: "passphrase".into(),
         device_name: "Console name".into(),
         created: Instant::now() - age,
         attempts: 0,
+        permission: None,
     });
 }
 
@@ -719,7 +720,7 @@ async fn otp_handshake_persists_the_device_name_and_consumes_the_pin_once() {
     let peer = "127.0.0.1".parse().unwrap();
     let start = do_pair(f.host.clone(), &args, peer).await.unwrap();
     assert_eq!(start[0], ("paired".into(), "1".into()));
-    assert!(f.host.otp.lock().unwrap().is_none());
+    assert!(f.host.otp.lock().unwrap().typed.is_none());
     let aes = crypto::pin_key(&[0x12; 16], "1234");
     let challenge = [0x34; 16];
     let step = |name: &str, value: Vec<u8>| {
@@ -802,11 +803,11 @@ async fn otp_expiry_wrong_auth_and_pairing_disable_do_not_create_devices() {
     let peer = "127.0.0.1".parse().unwrap();
     set_otp(&f, Duration::from_secs(181));
     assert!(do_pair(f.host.clone(), &args, peer).await.is_err());
-    assert!(f.host.otp.lock().unwrap().is_none());
+    assert!(f.host.otp.lock().unwrap().typed.is_none());
     set_otp(&f, Duration::ZERO);
     args.insert("otpauth".into(), "wrong".into());
     assert!(do_pair(f.host.clone(), &args, peer).await.is_ok());
-    assert!(f.host.otp.lock().unwrap().is_some());
+    assert!(f.host.otp.lock().unwrap().typed.is_some());
     assert!(f.host.paired.read().unwrap().clients.is_empty());
     f.host
         .config
@@ -821,7 +822,7 @@ async fn otp_expiry_wrong_auth_and_pairing_disable_do_not_create_devices() {
             .to_string(),
         "pairing is disabled"
     );
-    assert!(f.host.otp.lock().unwrap().is_some());
+    assert!(f.host.otp.lock().unwrap().typed.is_some());
 }
 
 #[tokio::test]
@@ -837,13 +838,192 @@ async fn one_time_pin_is_disabled_after_five_wrong_attempts() {
                 .is_ok()
         );
     }
-    assert!(f.host.otp.lock().unwrap().is_none());
+    assert!(f.host.otp.lock().unwrap().typed.is_none());
     assert!(
         do_pair(f.host.clone(), &args, "127.0.0.1".parse().unwrap())
             .await
             .is_err()
     );
     assert!(f.host.paired.read().unwrap().clients.is_empty());
+}
+
+/// A certificate request from `client`, named `id`, with the one-time PIN
+/// hash of `pin` and `passphrase` when given.
+fn device_request(client: &crypto::Identity, id: &str, otp: Option<(&str, &str)>) -> Args {
+    let mut args = Args::from([
+        ("uniqueid".into(), id.into()),
+        ("phrase".into(), "getservercert".into()),
+        ("salt".into(), hex::encode([0x12; 16])),
+        (
+            "clientcert".into(),
+            hex::encode(client.certificate.as_bytes()),
+        ),
+        ("devicename".into(), id.into()),
+    ]);
+    if let Some((pin, passphrase)) = otp {
+        args.insert(
+            "otpauth".into(),
+            hex::encode(crypto::hash(
+                format!("{pin}{}{passphrase}", hex::encode([0x12; 16])).as_bytes(),
+            )),
+        );
+    }
+    args
+}
+/// The rest of `client`'s handshake after its certificate request, with `pin`.
+async fn finish_pairing(f: &Fixture, client: &crypto::Identity, id: &str, pin: &str) -> Result<()> {
+    let peer = "127.0.0.1".parse().unwrap();
+    let aes = crypto::pin_key(&[0x12; 16], pin);
+    let step = |name: &str, value: Vec<u8>| {
+        Args::from([
+            ("uniqueid".into(), id.into()),
+            (name.into(), hex::encode(value)),
+        ])
+    };
+    let challenge = crypto::ecb(&aes, &[0x34; 16], true)?;
+    let response = do_pair(f.host.clone(), &step("clientchallenge", challenge), peer).await?;
+    let response = crypto::ecb(&aes, &hex::decode(&response[1].1)?, false)?;
+    let secret = [0x56; 16];
+    let proof = crypto::hash(&[&response[32..], &client.signature, &secret].concat());
+    let proof = crypto::ecb(&aes, &proof, true)?;
+    do_pair(f.host.clone(), &step("serverchallengeresp", proof), peer).await?;
+    let secret = [&secret[..], &client.sign(&secret)].concat();
+    do_pair(f.host.clone(), &step("clientpairingsecret", secret), peer).await?;
+    Ok(())
+}
+fn permission_of(f: &Fixture, name: &str) -> u32 {
+    let saved = butterpollo_core::state::PairedState::load(&f.host.paired_path).unwrap();
+    saved.clients.iter().find(|c| c.name == name).unwrap().perm
+}
+fn one_time_pin(pin: &str, passphrase: &str, permission: Option<u32>) -> OneTimePin {
+    OneTimePin {
+        pin: pin.into(),
+        passphrase: passphrase.into(),
+        device_name: String::new(),
+        created: Instant::now(),
+        attempts: 0,
+        permission,
+    }
+}
+
+#[tokio::test]
+async fn the_qr_code_and_the_typed_pin_each_pair_once_with_their_own_access() {
+    use butterpollo_core::state::{LATER_DEVICE_PERMISSION, PLAY_DEVICE_PERMISSION};
+    let f = Fixture::new();
+    // The first device, so the next ones get the access chosen for them.
+    f.client(butterpollo_core::state::FIRST_DEVICE_PERMISSION);
+    let peer = "127.0.0.1".parse().unwrap();
+    {
+        let mut otp = f.host.otp.lock().unwrap();
+        otp.qr = Some(one_time_pin(
+            "5678",
+            "qr phrase",
+            Some(PLAY_DEVICE_PERMISSION),
+        ));
+        otp.typed = Some(one_time_pin("1234", "typed phrase", None));
+    }
+    let (scanned, typed) = (
+        crypto::Identity::generate().unwrap(),
+        crypto::Identity::generate().unwrap(),
+    );
+
+    let request = device_request(&scanned, "scanned", Some(("5678", "qr phrase")));
+    do_pair(f.host.clone(), &request, peer).await.unwrap();
+    // Consuming the QR code's PIN keeps the typed one.
+    assert!(f.host.otp.lock().unwrap().qr.is_none());
+    assert!(f.host.otp.lock().unwrap().typed.is_some());
+    finish_pairing(&f, &scanned, "scanned", "5678")
+        .await
+        .unwrap();
+    assert_eq!(permission_of(&f, "scanned"), PLAY_DEVICE_PERMISSION);
+
+    let request = device_request(&typed, "typed", Some(("1234", "typed phrase")));
+    do_pair(f.host.clone(), &request, peer).await.unwrap();
+    finish_pairing(&f, &typed, "typed", "1234").await.unwrap();
+    // No access chosen: view only, as before.
+    assert_eq!(permission_of(&f, "typed"), LATER_DEVICE_PERMISSION);
+
+    // Each worked once.
+    let again = device_request(&scanned, "scanned", Some(("5678", "qr phrase")));
+    let error = do_pair(f.host.clone(), &again, peer).await.unwrap_err();
+    assert!(error.to_string().contains("not available"), "{error}");
+}
+
+#[tokio::test]
+async fn a_wrong_one_time_pin_counts_against_each_live_slot_and_expiry_closes_one() {
+    let f = Fixture::new();
+    let peer = "127.0.0.1".parse().unwrap();
+    let client = crypto::Identity::generate().unwrap();
+    {
+        let mut otp = f.host.otp.lock().unwrap();
+        otp.qr = Some(one_time_pin("5678", "qr phrase", None));
+        otp.typed = Some(one_time_pin("1234", "typed phrase", None));
+        otp.qr.as_mut().unwrap().created -= Duration::from_secs(181);
+    }
+    // The expired QR code's PIN no longer matches; the typed one counts a miss.
+    let expired = device_request(&client, "device", Some(("5678", "qr phrase")));
+    do_pair(f.host.clone(), &expired, peer).await.unwrap();
+    assert!(f.host.otp.lock().unwrap().qr.is_none());
+    assert_eq!(
+        f.host.otp.lock().unwrap().typed.as_ref().unwrap().attempts,
+        1
+    );
+    assert!(finish_pairing(&f, &client, "device", "5678").await.is_err());
+
+    f.host.otp.lock().unwrap().qr = Some(one_time_pin("5678", "qr phrase", None));
+    let wrong = device_request(&client, "device", Some(("0000", "guess")));
+    for _ in 0..4 {
+        do_pair(f.host.clone(), &wrong, peer).await.unwrap();
+    }
+    // The typed PIN's fifth miss closed it; the QR code has four.
+    assert!(f.host.otp.lock().unwrap().typed.is_none());
+    assert_eq!(f.host.otp.lock().unwrap().qr.as_ref().unwrap().attempts, 4);
+    do_pair(f.host.clone(), &wrong, peer).await.unwrap();
+    assert!(f.host.otp.lock().unwrap().qr.is_none());
+    assert!(do_pair(f.host.clone(), &wrong, peer).await.is_err());
+    assert!(f.host.paired.read().unwrap().clients.is_empty());
+}
+
+#[tokio::test]
+async fn the_access_typed_with_a_console_pin_is_applied_and_the_first_device_gets_everything() {
+    use butterpollo_core::state::{
+        FIRST_DEVICE_PERMISSION, LATER_DEVICE_PERMISSION, PLAY_DEVICE_PERMISSION,
+    };
+    let f = Fixture::new();
+    let peer = "127.0.0.1".parse().unwrap();
+    for (name, access, granted) in [
+        // The first device gets everything whatever was chosen.
+        (
+            "first",
+            Some(LATER_DEVICE_PERMISSION),
+            FIRST_DEVICE_PERMISSION,
+        ),
+        (
+            "second",
+            Some(PLAY_DEVICE_PERMISSION),
+            PLAY_DEVICE_PERMISSION,
+        ),
+        ("third", None, LATER_DEVICE_PERMISSION),
+    ] {
+        let client = crypto::Identity::generate().unwrap();
+        let request = device_request(&client, name, None);
+        let host = f.host.clone();
+        let task = tokio::spawn(async move { do_pair(host, &request, peer).await });
+        let key = pairing_id(name, peer);
+        let pending = loop {
+            if let Some(pending) = f.host.pins.lock().unwrap().remove(&key) {
+                break pending;
+            }
+            tokio::task::yield_now().await;
+        };
+        pending
+            .sender
+            .send(("4321".into(), name.into(), access))
+            .unwrap();
+        task.await.unwrap().unwrap();
+        finish_pairing(&f, &client, name, "4321").await.unwrap();
+        assert_eq!(permission_of(&f, name), granted, "{name}");
+    }
 }
 
 #[tokio::test]

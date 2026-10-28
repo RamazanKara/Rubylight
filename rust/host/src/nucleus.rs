@@ -22,7 +22,7 @@ use butterpollo_core::session::{Seat, Warnings};
 use butterpollo_core::state::{App, Client};
 use butterpollo_windows::input::PadReport;
 use butterpollo_windows::nucleus::pads::{self, Dropped};
-use butterpollo_windows::nucleus::session::{Opened, Running, Start, already_running};
+use butterpollo_windows::nucleus::session::{Opened, Running, Start};
 use butterpollo_windows::nucleus::{files, install};
 use butterpollo_windows::process::AudioProcess;
 use serde_json::Value;
@@ -350,7 +350,7 @@ impl CoopApp {
 
 /// Where one app's co-op entry stands in the library.
 enum Listing {
-    Listed(CoopApp),
+    Listed(Box<CoopApp>),
     /// Its app hides it ([`ENTRY_KEY`]).
     Hidden(Handler),
     /// An app or an earlier entry already has its id.
@@ -386,11 +386,11 @@ fn listings(catalog: &Catalog, apps: &[App]) -> Vec<Listing> {
             if !taken.insert(entry.id()) {
                 return Listing::Taken;
             }
-            Listing::Listed(CoopApp {
+            Listing::Listed(Box::new(CoopApp {
                 entry,
                 app: app.clone(),
                 handler: found.handler,
-            })
+            }))
         })
         .collect()
 }
@@ -402,7 +402,7 @@ fn entries_of(catalog: &Catalog, apps: &[App]) -> Vec<CoopApp> {
     listings(catalog, apps)
         .into_iter()
         .filter_map(|listing| match listing {
-            Listing::Listed(coop) => Some(coop),
+            Listing::Listed(coop) => Some(*coop),
             _ => None,
         })
         .collect()
@@ -728,12 +728,27 @@ impl Registry {
 
     /// Run the install this caller claimed (`installing` set), keep its
     /// result and wake the calls waiting for it.
+    /// A panic in it is a failure too: the waiting launches must wake.
     fn run_install(&self, pc: &dyn Pc, configured: &str) -> Result<PathBuf, Refusal> {
-        let result = pc
-            .ensure(configured, &|received| {
+        let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            pc.ensure(configured, &|received| {
                 self.lock().installing = Some(received);
             })
-            .map_err(|error| format!("Nucleus Co-op is not ready: {error:#}"));
+        }));
+        let result = match run {
+            Ok(result) => result.map_err(|error| format!("Nucleus Co-op is not ready: {error:#}")),
+            Err(panic) => {
+                let why = panic
+                    .downcast_ref::<&str>()
+                    .map(|s| s.to_string())
+                    .or_else(|| panic.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "it panicked".into());
+                tracing::error!(why, "Nucleus Co-op: the install panicked");
+                Err(format!(
+                    "Nucleus Co-op is not ready: the install stopped: {why}"
+                ))
+            }
+        };
         let mut state = self.lock();
         state.installing = None;
         state.installs += 1;
@@ -807,16 +822,6 @@ impl Registry {
                 )));
             }
         };
-        let running = self.lock().sessions.values().find_map(|entry| {
-            entry
-                .instance
-                .session(|s| (!s.ended()).then(|| s.title.clone()))
-        });
-        if let Some(title) = running {
-            return Err(Refusal::busy(format!(
-                "Nucleus Co-op is running {title}: end that session first"
-            )));
-        }
         // A launch being admitted may start Nucleus Co-op any moment.
         let _one = match self.admit.try_lock() {
             Ok(one) => one,
@@ -827,6 +832,17 @@ impl Registry {
                 ));
             }
         };
+        // Read with no launch being admitted, so a session can't slip in.
+        let running = self.lock().sessions.values().find_map(|entry| {
+            entry
+                .instance
+                .session(|s| (!s.ended()).then(|| s.title.clone()))
+        });
+        if let Some(title) = running {
+            return Err(Refusal::busy(format!(
+                "Nucleus Co-op is running {title}: end that session first"
+            )));
+        }
         let mut opened = self.opened.lock().unwrap_or_else(PoisonError::into_inner);
         let ours = opened.as_ref().map(|window| window.pid());
         match pc.running() {
@@ -855,7 +871,9 @@ impl Registry {
         Ok(())
     }
 
-    /// Whether the Nucleus Co-op the console opened still runs.
+    /// Whether the Nucleus Co-op the console opened still runs. One that
+    /// can't be read counts as open, so the console offers Close, which then
+    /// says why.
     pub fn opened(&self) -> bool {
         match self.opened.try_lock() {
             Ok(opened) => opened
@@ -909,18 +927,19 @@ impl Registry {
         let Some(window) = opened.as_ref() else {
             return Ok(());
         };
-        if !window.running().unwrap_or(true) {
+        let pid = window.pid();
+        let refuse = |error: anyhow::Error| {
+            tracing::warn!(pid, error = %format!("{error:#}"), "Nucleus Co-op: the console's window did not close for a session");
+            Refusal::unavailable(format!("Nucleus Co-op did not start {title}: {error:#}"))
+        };
+        let running = window
+            .running()
+            .with_context(|| format!("Nucleus Co-op's window (process {pid}) could not be read"));
+        if !running.map_err(refuse)? {
             *opened = None;
             return Ok(());
         }
-        let pid = window.pid();
-        if let Err(error) = window.close(CLOSE_WAIT) {
-            tracing::warn!(pid, error = %format!("{error:#}"), "Nucleus Co-op: the console's window did not close for a session");
-            return Err(Refusal::unavailable(format!(
-                "Nucleus Co-op did not start {title}: {}",
-                already_running(pid)
-            )));
-        }
+        window.close(CLOSE_WAIT).map_err(refuse)?;
         *opened = None;
         Ok(())
     }
@@ -1034,7 +1053,6 @@ impl Registry {
                 Ok(Seat { session: id, slot })
             }
             Admit::Start => {
-                self.close_for_session(&app.name)?;
                 let free = pc.free_pads().map_err(|error| {
                     Refusal::unavailable(format!(
                         "Nucleus Co-op could not count the free controller slots: {error:#}"
@@ -1051,6 +1069,9 @@ impl Registry {
                 .map_err(Refusal::unavailable)?;
                 let policy = Policy::resolve(request.config)
                     .map_err(|error| Refusal::unavailable(format!("{error:#}")))?;
+                // Last, so a launch refused for another reason leaves the
+                // user's window open.
+                self.close_for_session(&app.name)?;
                 let id = {
                     let mut state = self.lock();
                     state.next += 1;
@@ -1597,6 +1618,8 @@ pub(crate) mod fake {
         pub installed_error: Mutex<Option<String>>,
         /// What an install fails with.
         pub install_error: Mutex<Option<String>>,
+        /// Whether an install panics instead.
+        pub install_panics: Mutex<bool>,
         /// What an install downloads, checked as the pinned release is;
         /// None installs without a download.
         pub archive: Mutex<Option<Vec<u8>>>,
@@ -1630,6 +1653,7 @@ pub(crate) mod fake {
                 installed: Mutex::new(Some(PathBuf::from(r"C:\Nucleus"))),
                 installed_error: Mutex::new(None),
                 install_error: Mutex::new(None),
+                install_panics: Mutex::new(false),
                 archive: Mutex::new(None),
                 hold: Mutex::new(false),
                 release: std::sync::Condvar::new(),
@@ -1684,6 +1708,9 @@ pub(crate) mod fake {
                 hold = self.release.wait(hold).unwrap();
             }
             drop(hold);
+            if *self.install_panics.lock().unwrap() {
+                panic!("the unpacker broke");
+            }
             if let Some(error) = self.install_error.lock().unwrap().clone() {
                 anyhow::bail!(error);
             }
@@ -1736,7 +1763,7 @@ pub(crate) mod fake {
             }
             // As the PC's session refuses while Nucleus Co-op runs.
             if let Some(pid) = super::Pc::running(self)? {
-                anyhow::bail!(already_running(pid));
+                anyhow::bail!(butterpollo_windows::nucleus::session::already_running(pid));
             }
             let pads: Vec<u8> = (0..start.players as u8).collect();
             let session = coop::Session::new(
@@ -2079,12 +2106,20 @@ mod tests {
     #[test]
     fn a_launch_during_set_up_waits_for_that_install_and_shares_its_result() {
         use std::sync::atomic::Ordering::Relaxed;
-        for error in [None, Some("the download failed")] {
+        // A panicking install still ends the wait, with its reason.
+        for (error, panics) in [
+            (None, false),
+            (Some("the download failed"), false),
+            (Some("the install stopped: the unpacker broke"), true),
+        ] {
             let (registry, pc, apps) = setup();
             let registry = Arc::new(registry);
             let coop = registry.entries(&apps, "").remove(0);
             *pc.installed.lock().unwrap() = None;
-            *pc.install_error.lock().unwrap() = error.map(String::from);
+            *pc.install_panics.lock().unwrap() = panics;
+            if !panics {
+                *pc.install_error.lock().unwrap() = error.map(String::from);
+            }
             *pc.hold.lock().unwrap() = true;
             assert_eq!(registry.set_up("").unwrap(), SetUp::Started);
             let console = {
@@ -2223,7 +2258,7 @@ mod tests {
             (refused.status, refused.message.as_str()),
             (
                 503,
-                "Nucleus Co-op did not start Portal 2: Nucleus Co-op is already running on the PC (process 9000): close it, then start the stream again"
+                "Nucleus Co-op did not start Portal 2: Nucleus Co-op (process 9000) did not close within 5 s: close it on the PC"
             )
         );
         // Asked to close, never ended.
@@ -2275,7 +2310,7 @@ mod tests {
     fn open_twice_is_refused_and_close_closes_it_once() {
         use std::sync::atomic::Ordering::Relaxed;
         let (registry, pc, _apps) = setup();
-        assert_eq!(registry.close().unwrap(), false, "nothing to close");
+        assert!(!registry.close().unwrap(), "nothing to close");
         registry.open("").unwrap();
         let refused = registry.open("").unwrap_err();
         assert_eq!(
@@ -2293,9 +2328,9 @@ mod tests {
         assert!(refused.message.contains("did not close"), "{refused}");
         assert!(registry.opened());
         pc.window().stuck.store(false, Relaxed);
-        assert_eq!(registry.close().unwrap(), true);
+        assert!(registry.close().unwrap());
         assert!(!registry.opened());
-        assert_eq!(registry.close().unwrap(), false);
+        assert!(!registry.close().unwrap());
         // Closed, it opens again.
         registry.open("").unwrap();
         assert_eq!(pc.opened.load(Relaxed), 2);

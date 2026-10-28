@@ -40,15 +40,21 @@ pub(super) async fn handle(h: &Shared, method: &Method, path: &str, data: &Value
         ("GET", "/api/coop") => blocking(move || Ok(status(&h))).await,
         ("POST", "/api/coop/install") => {
             let configured = configured(&h);
-            let set_up = {
-                let (h, configured) = (h.clone(), configured.clone());
-                tokio::task::spawn_blocking(move || h.nucleus.set_up(&configured)).await
-            };
-            match set_up {
+            // One blocking task claims the install and runs it, so a dropped
+            // request can't leave it claimed with nothing running it.
+            let (answer, set_up) = tokio::sync::oneshot::channel();
+            tokio::task::spawn_blocking(move || {
+                let started = h.nucleus.set_up(&configured);
+                let run = matches!(started, Ok(SetUp::Started));
+                let _ = answer.send(started);
+                if run {
+                    h.nucleus.install_now(&configured);
+                }
+            });
+            match set_up.await {
                 Ok(Ok(SetUp::Started)) => {
                     // The download runs on; `GET /api/coop` shows its progress
                     // and, loudly, a refusal.
-                    tokio::task::spawn_blocking(move || h.nucleus.install_now(&configured));
                     (StatusCode::ACCEPTED, Json(json!({"state": "installing"}))).into_response()
                 }
                 Ok(Ok(SetUp::Installing)) => {

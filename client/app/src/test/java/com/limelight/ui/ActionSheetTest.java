@@ -37,19 +37,81 @@ public class ActionSheetTest {
             var first = sheet.addAction(R.drawable.ic_play, "Play");
             var second = sheet.addAction(R.drawable.ic_settings, "Settings");
             sheet.show();
+            int ring = Math.round(3 * first.getResources().getDisplayMetrics().density);
+            int rest = Math.round(first.getResources().getDisplayMetrics().density);
             first.requestFocus();
             first.jumpDrawablesToCurrentState();
-            assertEquals(1.025f, first.getScaleX(), 0.001f);
+            assertEquals(ring, first.getStrokeWidth());
             second.requestFocus();
             first.jumpDrawablesToCurrentState();
             second.jumpDrawablesToCurrentState();
-            assertEquals(1f, first.getScaleX(), 0.001f);
-            assertEquals(1.025f, second.getScaleX(), 0.001f);
+            assertEquals(rest, first.getStrokeWidth());
+            assertEquals(ring, second.getStrokeWidth());
             assertEquals(R.style.TvSheetAnimation, sheet.getWindow().getAttributes().windowAnimations);
             sheet.dismiss();
         }
     }
 
+    /**
+     * TV run on a TCL C6K: the focused row of the PC menu grew 2.5 % and its left edge stood about 12 px out of line
+     * with the rows under it. A row takes the ring and keeps its size; a side-by-side toggle may still grow.
+     */
+    @Test @Config(qualifiers = "television")
+    public void tvMenuRowsTakeTheRingWithoutZooming() {
+        try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible()) {
+            ActionSheet sheet = new ActionSheet(controller.get(), "Menu");
+            var row = sheet.addAction(R.drawable.ic_play, "Play");
+            var page = sheet.addPageAction(R.drawable.ic_settings, "Settings");
+            var toggles = sheet.addToggleRow();
+            var toggle = sheet.addToggle(toggles, R.drawable.ic_play, "Toggle", false);
+            sheet.show();
+            for (var button : new com.google.android.material.button.MaterialButton[] {row, page}) {
+                button.requestFocus();
+                button.jumpDrawablesToCurrentState();
+                assertTrue(button.isFocused());
+                assertEquals(1f, button.getScaleX(), 0.001f);
+                assertEquals(1f, button.getScaleY(), 0.001f);
+                assertEquals(Math.round(3 * button.getResources().getDisplayMetrics().density), button.getStrokeWidth());
+            }
+            toggle.requestFocus();
+            toggle.jumpDrawablesToCurrentState();
+            assertEquals(1.025f, toggle.getScaleX(), 0.001f);
+            sheet.dismiss();
+        }
+    }
+
+    /** High contrast keeps its thicker ring on a row, still without the zoom. */
+    @Test @Config(qualifiers = "television")
+    public void tvMenuRowsInHighContrastTakeTheThickRingWithoutZooming() {
+        try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible()) {
+            controller.get().getTheme().applyStyle(R.style.ThemeOverlay_Nightjar_HighContrast, true);
+            ActionSheet sheet = new ActionSheet(controller.get(), "Menu");
+            var row = sheet.addAction(R.drawable.ic_play, "Play");
+            sheet.addAction(R.drawable.ic_settings, "Settings");
+            sheet.show();
+            row.requestFocus();
+            row.jumpDrawablesToCurrentState();
+            assertEquals(1f, row.getScaleX(), 0.001f);
+            assertEquals(Math.round(4 * row.getResources().getDisplayMetrics().density), row.getStrokeWidth());
+            sheet.dismiss();
+        }
+    }
+
+    /** A phone's menu rows keep their look: no TV ring and no zoom. */
+    @Test
+    public void phoneMenuRowsTakeNoTvRing() {
+        try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible()) {
+            ActionSheet sheet = new ActionSheet(controller.get(), "Menu");
+            var row = sheet.addAction(R.drawable.ic_play, "Play");
+            sheet.addAction(R.drawable.ic_settings, "Settings");
+            sheet.show();
+            row.requestFocus();
+            row.jumpDrawablesToCurrentState();
+            assertEquals(0, row.getStrokeWidth());
+            assertEquals(1f, row.getScaleX(), 0.001f);
+            sheet.dismiss();
+        }
+    }
     @Test @Config(qualifiers = "television")
     public void tvPageChangesStayVisibleWhenSystemAnimationsAreDisabled() {
         org.robolectric.util.ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",

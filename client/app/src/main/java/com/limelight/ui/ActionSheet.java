@@ -201,6 +201,7 @@ public final class ActionSheet extends BottomSheetDialog {
                 MaterialColors.getColor(context, com.google.android.material.R.attr.colorPrimaryContainer, 0),
                 android.graphics.Color.TRANSPARENT}));
         row.addView(button, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
+        styleToggle(button);
         claimFirstAction(button);
         return button;
     }
@@ -279,7 +280,6 @@ public final class ActionSheet extends BottomSheetDialog {
     }
 
     private void claimFirstAction(MaterialButton button) {
-        styleRow(button);
         if (firstAction == null) {
             firstAction = button;
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) button.setFocusedByDefault(true);
@@ -368,7 +368,16 @@ public final class ActionSheet extends BottomSheetDialog {
     }
 
     /** The TV focus look of a row, for rows a page adds itself. */
+    /** A full-width row on a TV: the amber ring with no zoom, so its edges stay in line with the rows around it. */
     public void styleRow(MaterialButton button) {
+        if (television) {
+            button.setStrokeColor(androidx.appcompat.content.res.AppCompatResources.getColorStateList(getContext(), R.color.card_stroke));
+            button.setStateListAnimator(Motion.rowFocus(getContext()));
+        }
+    }
+
+    /** A toggle on a TV: side by side with room between them, so it may grow a little under the ring. */
+    private void styleToggle(MaterialButton button) {
         if (television) {
             button.setStrokeColor(androidx.appcompat.content.res.AppCompatResources.getColorStateList(getContext(), R.color.card_stroke));
             button.setStateListAnimator(Motion.controlFocus(getContext()));
@@ -427,11 +436,8 @@ public final class ActionSheet extends BottomSheetDialog {
         button.setIconSize(spacing * 3);
         parent.addView(button, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
-        if (parent == content) {
-            claimFirstAction(button);
-        } else {
-            styleRow(button);
-        }
+        styleRow(button);
+        if (parent == content) claimFirstAction(button);
         return button;
     }
 

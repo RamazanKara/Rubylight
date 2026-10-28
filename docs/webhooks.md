@@ -40,12 +40,12 @@ X-Rubylight-Signature: sha256=<hex HMAC-SHA256 of the body with the secret>
  "host":{"name":"GAMING-PC","unique_id":"..."},"data":{"app":{"id":1,"name":"Desktop"},"device":null}}
 ```
 
-`X-Rubylight-Timestamp` and `time_unix_ms` are the same: when the event happened, in Unix milliseconds.
+`X-Rubylight-Timestamp` and `time_unix_ms` are the same: when this try was sent, in Unix milliseconds. Each try of a delivery is stamped and signed anew and keeps its `delivery` id.
 
 ## Verify a delivery
 
 1. Compute HMAC-SHA256 of the raw body bytes with the secret (the text the console showed, used as UTF-8 bytes) and compare `sha256=<hex>` with `X-Rubylight-Signature` in constant time.
-2. **Replay window:** refuse a delivery whose `time_unix_ms` is more than 5 minutes from your clock. Retries resend the same body, so they all fall inside it.
+2. **Replay window:** refuse a delivery whose `time_unix_ms` is more than 5 minutes from your clock. Every try carries its own time, so a delivery that waited in the host's queue still falls inside it; the host drops one still waiting 5 minutes after its event.
 3. Remember the `delivery` ids you accepted for those 5 minutes and drop repeats: a retry after a lost answer arrives again with the same id.
 
 ```python
@@ -65,4 +65,4 @@ def verify(secret: str, headers, body: bytes) -> dict:
 
 Answer with any 2xx status to accept a delivery. The host tries each delivery up to 4 times, waiting 1, 2 and 4 seconds between tries, and gives each try 5 seconds. It retries on no answer, on connection errors and on 5xx, 408 and 429; another 4xx ends the delivery. It does not follow redirects.
 
-Each hook has its own queue of 32 deliveries and sends them in order; a slow or dead receiver delays only its own events, never a stream or another hook. When the queue is full, new events for that hook are dropped. Every dropped or failed delivery is logged as a warning and shown as the hook's last status in the console.
+Each hook has its own queue of 32 deliveries and sends them in order; a slow or dead receiver delays only its own events, never a stream or another hook. When the queue is full, new events for that hook are dropped, and so are deliveries still queued 5 minutes after their event, which a receiver would refuse as replays. Every dropped or failed delivery is logged as a warning and shown as the hook's last status in the console.

@@ -6,16 +6,19 @@
 //! has its own task, so a slow receiver holds up only its own deliveries,
 //! which arrive in order. A delivery is tried [`Policy::attempts`] times, each
 //! within [`Policy::timeout`], waiting [`Policy::backoff`] doubled between
-//! tries; retries resend the same body, signature and delivery id. A failure
-//! is logged with the hook's origin only, since a URL's path or query may hold
-//! a token, and the secret is never logged.
+//! tries. Each try is stamped with its own time and signed again, keeping the
+//! delivery id a receiver de-duplicates by, so a delivery that waited behind a
+//! dead receiver still falls in its replay window; one raised longer than
+//! [`Policy::max_age`] ([`webhook::REPLAY_WINDOW_MS`]) ago is dropped instead.
+//! A failure is logged with the hook's origin only, since a URL's path or
+//! query may hold a token, and the secret is never logged.
 use crate::state::Host;
 use butterpollo_core::webhook::{self, Delivery, DeliveryHost, Webhook};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 
 /// Deliveries waiting per hook before new ones are dropped.
@@ -30,15 +33,19 @@ pub struct Policy {
     pub attempts: u32,
     /// The wait after the first failed attempt, doubled after each next one.
     pub backoff: Duration,
+    /// How long after its event a delivery may still be tried; an older one
+    /// is dropped, as a receiver would refuse it as a replay.
+    pub max_age: Duration,
 }
 
 impl Policy {
-    /// At most 4 tries over about 27 s, well within
-    /// [`webhook::REPLAY_WINDOW_MS`].
+    /// At most 4 tries over about 27 s, each stamped anew; a delivery still
+    /// queued [`webhook::REPLAY_WINDOW_MS`] after its event is dropped.
     pub const DEFAULT: Self = Self {
         timeout: Duration::from_secs(5),
         attempts: 4,
         backoff: Duration::from_secs(1),
+        max_age: Duration::from_millis(webhook::REPLAY_WINDOW_MS),
     };
 }
 
@@ -55,12 +62,49 @@ pub struct Status {
     pub attempts: u32,
 }
 
+/// One delivery to one hook. Its body is written at each try, with that
+/// try's time.
+#[derive(Clone)]
 struct Job {
     hook: Webhook,
     event: String,
     delivery: String,
+    /// When the event happened, for the console.
     time_unix_ms: u64,
-    body: Arc<Vec<u8>>,
+    /// When the event happened, for [`Policy::max_age`].
+    raised: Instant,
+    host_name: Arc<str>,
+    host_id: Arc<str>,
+    data: Arc<Value>,
+}
+
+impl Job {
+    fn new(hook: &Webhook, host: DeliveryHost<'_>, event: &str, data: Value) -> Self {
+        Self {
+            hook: hook.clone(),
+            event: event.to_owned(),
+            delivery: uuid::Uuid::new_v4().to_string(),
+            time_unix_ms: now_ms(),
+            raised: Instant::now(),
+            host_name: host.name.into(),
+            host_id: host.unique_id.into(),
+            data: Arc::new(data),
+        }
+    }
+
+    /// The body, stamped `time_unix_ms`.
+    fn body(&self, time_unix_ms: u64) -> serde_json::Result<Vec<u8>> {
+        serde_json::to_vec(&Delivery {
+            event: &self.event,
+            delivery: &self.delivery,
+            time_unix_ms,
+            host: DeliveryHost {
+                name: &self.host_name,
+                unique_id: &self.host_id,
+            },
+            data: self.data.as_ref().clone(),
+        })
+    }
 }
 
 pub struct Webhooks {
@@ -108,29 +152,14 @@ impl Webhooks {
         if hooks.is_empty() {
             return 0;
         }
-        let delivery = uuid::Uuid::new_v4().to_string();
-        let time_unix_ms = now_ms();
-        let body = match serde_json::to_vec(&Delivery {
-            event,
-            delivery: &delivery,
-            time_unix_ms,
-            host,
-            data,
-        }) {
-            Ok(body) => Arc::new(body),
-            Err(error) => {
-                tracing::error!(%error, event, "a webhook body could not be written");
-                return 0;
-            }
-        };
+        // One delivery id and event time for every hook.
+        let first = Job::new(hooks[0], host, event, data);
+        let (delivery, time_unix_ms) = (first.delivery.clone(), first.time_unix_ms);
         let mut queued = 0;
         for hook in hooks {
             let job = Job {
                 hook: hook.clone(),
-                event: event.to_owned(),
-                delivery: delivery.clone(),
-                time_unix_ms,
-                body: body.clone(),
+                ..first.clone()
             };
             match self.enqueue(job) {
                 Ok(()) => queued += 1,
@@ -195,23 +224,7 @@ impl Webhooks {
 
     /// Sends [`webhook::TEST_EVENT`] to `hook` once, now, and returns how it went.
     pub async fn test(&self, hook: &Webhook, host: DeliveryHost<'_>) -> Status {
-        let delivery = uuid::Uuid::new_v4().to_string();
-        let time_unix_ms = now_ms();
-        let body = serde_json::to_vec(&Delivery {
-            event: webhook::TEST_EVENT,
-            delivery: &delivery,
-            time_unix_ms,
-            host,
-            data: serde_json::json!({}),
-        })
-        .expect("a test delivery serializes");
-        let job = Job {
-            hook: hook.clone(),
-            event: webhook::TEST_EVENT.to_owned(),
-            delivery,
-            time_unix_ms,
-            body: Arc::new(body),
-        };
+        let job = Job::new(hook, host, webhook::TEST_EVENT, serde_json::json!({}));
         let once = Policy {
             attempts: 1,
             ..self.policy
@@ -246,11 +259,6 @@ struct Outcome {
 }
 
 async fn deliver(client: &reqwest::Client, policy: Policy, job: &Job) -> Outcome {
-    let signature = format!(
-        "{}{}",
-        webhook::SIGNATURE_PREFIX,
-        webhook::sign(&job.hook.secret, &job.body)
-    );
     let mut outcome = Outcome {
         attempts: 0,
         http_status: None,
@@ -262,15 +270,38 @@ async fn deliver(client: &reqwest::Client, policy: Policy, job: &Job) -> Outcome
             tokio::time::sleep(wait).await;
             wait = wait.saturating_mul(2);
         }
+        // A receiver following docs/webhooks.md would refuse it as a replay.
+        if job.raised.elapsed() > policy.max_age {
+            outcome.http_status = None;
+            outcome.error = Some(format!(
+                "dropped after waiting longer than the {} s replay window",
+                policy.max_age.as_secs()
+            ));
+            break;
+        }
+        // Each try has its own time and signature, and the same delivery id.
+        let time_unix_ms = now_ms();
+        let body = match job.body(time_unix_ms) {
+            Ok(body) => body,
+            Err(error) => {
+                outcome.error = Some(format!("the body could not be written: {error}"));
+                break;
+            }
+        };
+        let signature = format!(
+            "{}{}",
+            webhook::SIGNATURE_PREFIX,
+            webhook::sign(&job.hook.secret, &body)
+        );
         outcome.attempts = attempt;
         let sent = client
             .post(&job.hook.url)
             .header(reqwest::header::CONTENT_TYPE, "application/json")
             .header(webhook::HEADER_EVENT, &job.event)
             .header(webhook::HEADER_DELIVERY, &job.delivery)
-            .header(webhook::HEADER_TIMESTAMP, job.time_unix_ms.to_string())
+            .header(webhook::HEADER_TIMESTAMP, time_unix_ms.to_string())
             .header(webhook::HEADER_SIGNATURE, &signature)
-            .body(job.body.as_ref().clone())
+            .body(body)
             .timeout(policy.timeout)
             .send()
             .await;
@@ -512,6 +543,7 @@ pub(crate) mod tests {
         timeout: Duration::from_secs(5),
         attempts: 3,
         backoff: Duration::from_millis(10),
+        max_age: Duration::from_millis(webhook::REPLAY_WINDOW_MS),
     };
     const HOST: DeliveryHost<'static> = DeliveryHost {
         name: "Test PC",
@@ -590,17 +622,71 @@ pub(crate) mod tests {
         let (url, mut received) = receiver(vec![503, 200]).await;
         let webhooks = Webhooks::new(QUICK).unwrap();
         let hooks = [hook(&url, &["session.started"])];
-        webhooks.emit(&hooks, HOST, "session.started", json!({}));
+        webhooks.emit(&hooks, HOST, "session.started", json!({"n": 1}));
         let first = received.recv().await.unwrap();
         let second = received.recv().await.unwrap();
-        assert_eq!(first.body, second.body);
+        // Each try is stamped and signed anew, keeping the delivery id to de-duplicate by.
+        let mut times = Vec::new();
+        for request in [&first, &second] {
+            let body: Value = serde_json::from_slice(&request.body).unwrap();
+            assert_eq!(
+                request.headers["x-rubylight-signature"],
+                format!("sha256={}", webhook::sign("receiver secret", &request.body))
+            );
+            assert_eq!(
+                body["time_unix_ms"].to_string(),
+                request.headers["x-rubylight-timestamp"]
+            );
+            assert_eq!(
+                body["delivery"],
+                first.headers["x-rubylight-delivery"].as_str()
+            );
+            assert_eq!(body["data"], json!({"n": 1}));
+            times.push(body["time_unix_ms"].as_u64().unwrap());
+        }
         assert_eq!(
-            first.headers["x-rubylight-signature"],
-            second.headers["x-rubylight-signature"]
+            first.headers["x-rubylight-delivery"],
+            second.headers["x-rubylight-delivery"]
         );
+        // The retry waited 10 ms.
+        assert!(times[1] > times[0], "{times:?}");
         let status = settled(&webhooks, &url).await;
         assert!(status.ok, "{status:?}");
         assert_eq!((status.http_status, status.attempts), (Some(200), 2));
+    }
+
+    #[tokio::test]
+    async fn a_delivery_queued_past_the_replay_window_is_dropped() {
+        // A receiver that never answers holds the queue; what waited behind it is too old.
+        let (url, mut received) = receiver(vec![0]).await;
+        let webhooks = Webhooks::new(Policy {
+            timeout: Duration::from_millis(300),
+            attempts: 1,
+            max_age: Duration::from_millis(100),
+            ..QUICK
+        })
+        .unwrap();
+        let hooks = [hook(&url, &["app.started", "app.stopped"])];
+        webhooks.emit(&hooks, HOST, "app.started", json!({}));
+        webhooks.emit(&hooks, HOST, "app.stopped", json!({}));
+        received.recv().await.unwrap();
+        let mut status = None;
+        for _ in 0..1000 {
+            status = webhooks.status(&url).filter(|s| s.event == "app.stopped");
+            if status.is_some() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let status = status.expect("the second delivery finished");
+        assert!(!status.ok);
+        assert_eq!((status.http_status, status.attempts), (None, 0));
+        assert!(
+            status.error.as_deref().unwrap().contains("replay window"),
+            "{status:?}"
+        );
+        // Never sent.
+        assert!(received.try_recv().is_err());
     }
 
     #[tokio::test]
@@ -622,6 +708,7 @@ pub(crate) mod tests {
             timeout: Duration::from_millis(200),
             attempts: 2,
             backoff: Duration::from_millis(10),
+            ..QUICK
         })
         .unwrap();
         let hooks = [hook(&url, &["app.stopped"])];

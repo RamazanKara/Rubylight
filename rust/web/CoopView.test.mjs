@@ -54,6 +54,12 @@ const fixtures = {
   added: status({}, { status: 'not_added', handler: null, players: null }),
   ready: status(),
   launcher: status({ install: install({ state: 'missing' }) }, { name: 'Counter-Strike 2', status: 'launcher', handler: null, players: null }),
+  taken: status({}, {
+    status: 'taken',
+    reason: 'Another app already lists as "Portal 2 (Co-op)", so the library can\'t show this one: rename one of them',
+    handler: null,
+    players: null,
+  }),
 };
 const expected = {
   hidden: 'hidden',
@@ -67,6 +73,7 @@ const expected = {
   added: 'handler',
   ready: 'ready',
   launcher: 'launcher',
+  taken: 'taken',
 };
 const html = (value, app = 'portal') => render(PlayTogether, { props: { uuid: app, draft: new AppDraft({ name: 'Portal 2', uuid: app }), initial: value } }).body;
 
@@ -150,6 +157,14 @@ test('ready: the players, how to start it, the library switch on by default, and
   assert.equal(draft.record()['coop-entry'], false);
   draft.setFlag('coop-entry', true);
   assert.equal('coop-entry' in draft.record(), false);
+});
+
+test('a second app of the same name is not shown as ready: the library lists only the first one’s entry', () => {
+  const view = playTogether(fixtures.taken, 'portal');
+  assert.equal(view.reason, 'Another app already lists as "Portal 2 (Co-op)", so the library can\'t show this one: rename one of them.');
+  const out = html(fixtures.taken);
+  assert.match(out, /Co-op isn’t in the library/);
+  assert.doesNotMatch(out, /Up to 2 players|Show “Portal 2 \(Co-op\)” in the library/);
 });
 
 test('a game a launcher starts says how to make co-op possible, with nothing to download or open', () => {

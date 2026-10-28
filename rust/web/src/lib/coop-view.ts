@@ -8,7 +8,8 @@ import { PERM, type Client, type CoopEnd, type CoopGame, type CoopSession, type 
  * the game not added in Nucleus Co-op yet) and `ready`. Around them: `hidden` (the app starts nothing,
  * or the host is older), `unavailable` (this PC can't run co-op: setting it up would download for
  * nothing), `launcher` (a launcher's link starts the app, so no handler can match it), `installing`
- * and `failed` (the download), and `broken` (the handlers didn't load).
+ * and `failed` (the download), `broken` (the handlers didn't load) and `taken` (another app of the same
+ * name already lists the co-op entry, so the library shows this one's nowhere).
  */
 export type PlayTogetherView =
   | { kind: 'hidden' }
@@ -20,6 +21,7 @@ export type PlayTogetherView =
   | { kind: 'broken'; error: string }
   | { kind: 'checking' }
   | { kind: 'handler'; added: boolean; text: string; steps: string }
+  | { kind: 'taken'; reason: string }
   | { kind: 'ready'; players: string; entry: string; start: string };
 
 /** Megabytes as the release page counts them, kept on one line. */
@@ -92,6 +94,8 @@ export function playTogether(status: CoopStatus, app: string): PlayTogetherView 
         start: `Start “${game.entry}” from Nightjar or Moonlight. Each device that starts it next joins as the next player.`,
       };
     }
+    case 'taken':
+      return { kind: 'taken', reason: sentence(game.reason ?? `Another app already lists as “${game.entry}”: rename one of them`) };
     case 'no_handler':
       return {
         kind: 'handler',

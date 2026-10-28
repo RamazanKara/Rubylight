@@ -137,6 +137,8 @@
         </Banner>
       {:else if view.kind === 'broken'}
         <Banner tone="danger" title="Nucleus Co-op’s handlers didn’t load">{view.error}</Banner>
+      {:else if view.kind === 'taken'}
+        <Banner tone="warn" title="Co-op isn’t in the library">{view.reason}</Banner>
       {:else if view.kind === 'checking'}
         <p class="muted" role="status">Checking Nucleus Co-op’s handlers…</p>
       {:else if view.kind === 'handler'}

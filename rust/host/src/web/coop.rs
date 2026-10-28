@@ -179,6 +179,14 @@ fn status(h: &Shared) -> Value {
                     };
                     (status, Some(missing.to_string()), None, None)
                 }
+                Some(GameStatus::Taken { entry }) => (
+                    "taken",
+                    Some(format!(
+                        "Another app already lists as \"{entry}\", so the library can't show this one: rename one of them"
+                    )),
+                    None,
+                    None,
+                ),
             };
             Some(json!({
                 "app": uuid,
@@ -712,6 +720,36 @@ mod tests {
         .await;
         assert_eq!(body["games"][0]["status"], "unknown");
         assert_eq!(body["games"][1]["status"], "unknown");
+    }
+
+    #[tokio::test]
+    async fn a_second_app_of_the_same_name_is_not_ready_as_the_library_lists_one_entry() {
+        let f = Fixture::new();
+        let pc = Arc::new(fake::Pc::installed());
+        f.host.nucleus.use_pc(pc.clone());
+        let app = |uuid: &str| App {
+            name: "Portal 2".into(),
+            cmd: format!("\"{}\"", fake::EXE),
+            working_dir: String::new(),
+            prep: Vec::new(),
+            computed_id: None,
+            aliases: Vec::new(),
+            extra: [("uuid".to_string(), json!(uuid))].into_iter().collect(),
+        };
+        let apps = vec![app("first"), app("second")];
+        *f.host.apps.write().unwrap() = apps.clone();
+        assert_eq!(f.host.nucleus.entries(&apps, "").len(), 1);
+        let body = value(
+            request(&f, "GET", "/api/coop", Value::Null).await,
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(body["games"][0]["status"], "ready");
+        assert_eq!(body["games"][1]["status"], "taken");
+        assert_eq!(
+            body["games"][1]["reason"],
+            "Another app already lists as \"Portal 2 (Co-op)\", so the library can't show this one: rename one of them"
+        );
     }
 
     #[test]

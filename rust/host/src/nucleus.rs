@@ -356,18 +356,32 @@ impl CoopApp {
     }
 }
 
-/// The co-op entries of `apps`, in their order. An entry whose id an app
-/// or an earlier entry already has is left out, and so is one its app hides
-/// ([`ENTRY_KEY`]).
-fn entries_of(catalog: &Catalog, apps: &[App]) -> Vec<CoopApp> {
+/// Where one app's co-op entry stands in the library.
+enum Listing {
+    Listed(CoopApp),
+    /// Its app hides it ([`ENTRY_KEY`]).
+    Hidden(Handler),
+    /// An app or an earlier entry already has its id.
+    Taken,
+    Missing(Missing),
+}
+
+/// Each app's [`Listing`], in the order of `apps`: what the library lists
+/// and what the console's game page says come from this one place.
+fn listings(catalog: &Catalog, apps: &[App]) -> Vec<Listing> {
     let mut taken: BTreeSet<u32> = apps
         .iter()
         .flat_map(|app| std::iter::once(app.id()).chain(app.aliases.iter().copied()))
         .collect();
     apps.iter()
-        .filter(|app| entry_shown(app))
-        .filter_map(|app| {
-            let found = catalog.find(&app.name, executable(app)).ok()?;
+        .map(|app| {
+            let found = match catalog.find(&app.name, executable(app)) {
+                Ok(found) => found,
+                Err(missing) => return Listing::Missing(missing),
+            };
+            if !entry_shown(app) {
+                return Listing::Hidden(found.handler);
+            }
             let entry = App {
                 name: entry_name(&app.name),
                 cmd: String::new(),
@@ -377,11 +391,27 @@ fn entries_of(catalog: &Catalog, apps: &[App]) -> Vec<CoopApp> {
                 aliases: Vec::new(),
                 extra: BTreeMap::new(),
             };
-            taken.insert(entry.id()).then(|| CoopApp {
+            if !taken.insert(entry.id()) {
+                return Listing::Taken;
+            }
+            Listing::Listed(CoopApp {
                 entry,
                 app: app.clone(),
                 handler: found.handler,
             })
+        })
+        .collect()
+}
+
+/// The co-op entries of `apps`, in their order. An entry whose id an app
+/// or an earlier entry already has is left out, and so is one its app hides
+/// ([`ENTRY_KEY`]).
+fn entries_of(catalog: &Catalog, apps: &[App]) -> Vec<CoopApp> {
+    listings(catalog, apps)
+        .into_iter()
+        .filter_map(|listing| match listing {
+            Listing::Listed(coop) => Some(coop),
+            _ => None,
         })
         .collect()
 }
@@ -440,6 +470,9 @@ pub enum GameStatus {
     },
     /// Why not: the host's text, as a launch would answer it.
     Missing(Missing),
+    /// The entry's name gives it the id another app or an earlier entry
+    /// already has (two apps named alike): the library can't list it.
+    Taken { entry: String },
 }
 
 /// What a launch asks Nucleus Co-op to run.
@@ -906,19 +939,27 @@ impl Registry {
             Ok(catalog) => catalog,
             Err(error) => return Some(Err(error)),
         };
-        let statuses = apps
-            .iter()
-            .map(|app| match catalog.find(&app.name, executable(app)) {
-                Ok(found) => GameStatus::Ready {
-                    players: coop::players(
-                        found.handler.max_players,
-                        config.nucleus_coop_players(),
-                        coop::MAX_PLAYERS,
-                    )
-                    .unwrap_or(1),
-                    handler: found.handler.name,
+        let ready = |handler: Handler| GameStatus::Ready {
+            players: coop::players(
+                handler.max_players,
+                config.nucleus_coop_players(),
+                coop::MAX_PLAYERS,
+            )
+            .unwrap_or(1),
+            handler: handler.name,
+        };
+        // As the library lists them: a hidden entry is ready (its switch is
+        // off), one whose id is taken is not.
+        let statuses = listings(&catalog, apps)
+            .into_iter()
+            .zip(apps)
+            .map(|(listing, app)| match listing {
+                Listing::Listed(coop) => ready(coop.handler),
+                Listing::Hidden(handler) => ready(handler),
+                Listing::Taken => GameStatus::Taken {
+                    entry: entry_name(&app.name),
                 },
-                Err(missing) => GameStatus::Missing(missing),
+                Listing::Missing(missing) => GameStatus::Missing(missing),
             })
             .collect();
         Some(Ok(statuses))

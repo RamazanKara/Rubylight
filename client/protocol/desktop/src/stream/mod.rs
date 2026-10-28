@@ -1094,6 +1094,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         } else { String::new() },
         virtual_display: settings.virtual_display,
         virtual_display_scale: settings.virtual_display_scale,
+        virtual_display_dpi: settings.virtual_display_dpi,
         host_display: settings.host_display.into(),
         fec: Some(settings.error_correction.into()),
         small_stream_input_only: plan.small_stream_input_only,

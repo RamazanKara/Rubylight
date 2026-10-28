@@ -835,6 +835,17 @@ fn virtual_display_scale(virtual_layout: bool, configured: i64) -> i64 {
     if virtual_layout { configured } else { 0 }
 }
 
+/// The virtual display scale a stream asks for: the client's `rlDisplayScale`,
+/// else the merged `dd_virtual_display_scale` (device, app, host). Either is a
+/// configured scale, so a scale picked in Windows is not learned over it.
+fn configured_display_scale(
+    config: &Config,
+    options: &std::collections::BTreeMap<String, String>,
+) -> Result<i64> {
+    Ok(butterpollo_core::display_policy::client_display_scale(options)?
+        .unwrap_or_else(|| config.integer("dd_virtual_display_scale", 0)))
+}
+
 /// Whether a paused stream keeps its layout's physical monitors off. Only an
 /// exclusive layout switches them off, and only on request: by default a paused
 /// stream leaves local display changes alone.
@@ -1673,7 +1684,9 @@ impl Prepared {
         // display layout.
         let virtual_layout = virtual_mode || retained.is_some();
         // A remote monitor's retained display too: the lease never sets the scale.
-        let configured_scale = config.integer("dd_virtual_display_scale", 0);
+        // The client's own scale (`rlDisplayScale`, checked at /launch) comes
+        // before the device, app and host setting.
+        let configured_scale = configured_display_scale(config, &launch.options)?;
         let scale = virtual_display_scale(virtual_layout, configured_scale);
         // Without a configured scale, the one the device kept from Windows.
         let remembered = kept_scale(remember, &launch.client.extra);
@@ -2415,6 +2428,34 @@ pub(crate) mod tests {
             .values
             .insert("dd_manual_rotation".into(), manual.into());
         config
+    }
+
+    #[test]
+    fn the_clients_display_scale_comes_before_the_configured_one() {
+        let mut config = Config::default();
+        let options = |pairs: &[(&str, &str)]| -> std::collections::BTreeMap<String, String> {
+            pairs
+                .iter()
+                .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+                .collect()
+        };
+        assert_eq!(configured_display_scale(&config, &options(&[])).unwrap(), 0);
+        config
+            .values
+            .insert("dd_virtual_display_scale".into(), "125".into());
+        assert_eq!(configured_display_scale(&config, &options(&[])).unwrap(), 125);
+        assert_eq!(
+            configured_display_scale(&config, &options(&[("rlDisplayScale", "200")])).unwrap(),
+            200
+        );
+        // The render scale (`scaleFactor`) never sets the Windows scale.
+        assert_eq!(
+            configured_display_scale(&config, &options(&[("scaleFactor", "200")])).unwrap(),
+            125
+        );
+        assert!(configured_display_scale(&config, &options(&[("rlDisplayScale", "275")])).is_err());
+        // A physical display keeps the user's scale whatever the client asks.
+        assert_eq!(virtual_display_scale(false, 200), 0);
     }
 
     #[test]

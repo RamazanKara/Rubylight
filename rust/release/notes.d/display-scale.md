@@ -1,0 +1,2 @@
+# Display scale
+- **A device can set the Windows scale of its virtual display.** A client that sends `rlDisplayScale` (100 to 500 %, a scale Windows offers) gets that text and interface size on its virtual display, ahead of the device, app and host **Virtual display scale**; the resolution stays as asked. A scale Windows does not offer fails the launch with the reason. Nightjar for desktop sends it as **PC display scaling**; stock Moonlight is unchanged.

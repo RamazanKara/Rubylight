@@ -89,6 +89,12 @@ impl References {
     pub fn disable(&mut self) {
         *self = Self::default();
     }
+    /// What [`Self::plan`] makes of a keyframe once [`Self::disable`]d, known
+    /// before: a re-encode submits it and disables the references only once
+    /// the encoder has accepted it.
+    pub fn disabled_keyframe_plan() -> Plan {
+        Self::default().plan(0, true)
+    }
     /// Repairs whatever a decoder can still order, even where a keyframe
     /// would be smaller: for measuring what [`Self::invalidate`] weighs.
     pub fn repair_whatever_it_costs(&mut self) {
@@ -276,6 +282,28 @@ impl References {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_disabled_keyframe_plan_is_known_before_the_references_are_disabled() {
+        // AMF rejecting a re-encode's LTR properties plans this keyframe but
+        // disables the references only after SubmitInput succeeds: a failed
+        // SubmitInput leaves them as they were.
+        let mut references = References::new(4, Counter::Explicit);
+        for frame in 1..=20 {
+            let plan = references.plan(frame, frame == 1);
+            references.accepted(frame, &plan);
+        }
+        assert!(references.invalidate(17, 18));
+        let plan = References::disabled_keyframe_plan();
+        assert!(references.enabled() && references.invalidation_pending());
+        assert_eq!((plan.mark, plan.reference, plan.skipped), (None, None, 0));
+
+        references.disable();
+        assert_eq!(plan, references.plan(21, true));
+        references.accepted(21, &plan);
+        assert!(!references.enabled());
+        let next = references.plan(24, false);
+        assert_eq!((next.mark, next.reference), (None, None));
+    }
     #[test]
     fn feedback_for_frames_before_an_idr_does_not_request_another_idr() {
         let mut references = References::new(0, Counter::Explicit);

@@ -1634,16 +1634,24 @@ impl Encoder {
         surface: *mut AMFSurface,
         idr: bool,
     ) -> Result<(butterpollo_core::ltr::Plan, bool)> {
-        self.prepare_surface_at(surface, self.index as u64 + 1, idr)
+        let (plan, idr, ltr_rejected) =
+            self.prepare_surface_at(surface, self.index as u64 + 1, idr)?;
+        if ltr_rejected {
+            self.references.disable();
+        }
+        Ok((plan, idr))
     }
     /// [`Self::prepare_surface`] for wire frame `frame`: a re-encode prepares
-    /// the frame already submitted again.
+    /// the frame already submitted again. It changes only the surface: when
+    /// the surface rejects the LTR properties, the plan is the keyframe of
+    /// disabled references and the caller disables them (the third value)
+    /// once that is certain.
     fn prepare_surface_at(
         &mut self,
         surface: *mut AMFSurface,
         frame: u64,
         mut idr: bool,
-    ) -> Result<(butterpollo_core::ltr::Plan, bool)> {
+    ) -> Result<(butterpollo_core::ltr::Plan, bool, bool)> {
         let mut plan = self.references.plan(frame, idr);
         let [_, _, mark, reference] = self.ltr_properties();
         let apply = |name: &str, value: AMFVariantStruct| -> Result<()> {
@@ -1667,11 +1675,11 @@ impl Encoder {
             }
             Ok(())
         })();
+        let ltr_rejected = ltr.is_err();
         if let Err(error) = ltr {
             tracing::warn!(%error,"AMF LTR surface rejected; requesting a larger IDR recovery frame. Disable amd_ltr_frames if this repeats");
-            self.references.disable();
             idr = true;
-            plan = self.references.plan(frame, true);
+            plan = butterpollo_core::ltr::References::disabled_keyframe_plan();
         }
         if idr {
             apply(
@@ -1696,7 +1704,7 @@ impl Encoder {
         }
         // LTR rejection can force a keyframe here even when the caller did not
         // request one. Retain that effective type for acknowledgements and output.
-        Ok((plan, idr))
+        Ok((plan, idr, ltr_rejected))
     }
     fn expire_unreturned(&mut self) {
         // A submission the driver never answers would otherwise keep every
@@ -2313,12 +2321,16 @@ impl Encoder {
                 surface.0,
                 10_000_000_000 / i64::from(self.config.fps_millihz()),
             );
-            let (plan, _) = self.prepare_surface_at(surface.0, frame, true)?;
+            let (plan, _, ltr_rejected) = self.prepare_surface_at(surface.0, frame, true)?;
             let result = timed("AMF SubmitInput", || {
                 ((*(*self.component).pVtbl).SubmitInput.unwrap())(self.component, surface.0.cast())
             });
             self.last_submit = Some(result);
             check(result).context("AMF SubmitInput of the keyframe")?;
+            // Only now: had SubmitInput failed, the references stay as they were.
+            if ltr_rejected {
+                self.references.disable();
+            }
             acknowledge_keyframe(true, result, &mut self.recover, &mut self.hdr_metadata);
             let accepted = Instant::now();
             self.last_accepted = Some(accepted);

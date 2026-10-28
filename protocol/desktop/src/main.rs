@@ -453,6 +453,26 @@ impl App {
         save_hosts(&self.store, &self.hosts);
     }
 
+    /// Add PC: an address adds the PC; a QR pairing link adds it and pairs with the link's
+    /// one-time PIN and certificate.
+    fn add_entry(&mut self, text: &str) {
+        match hosts::parse_entry(text) {
+            Ok(hosts::Entry::Address(address, port)) => {
+                self.hosts.add_manual(&address, port);
+                self.save_hosts();
+            }
+            Ok(hosts::Entry::Link(link)) => {
+                let id = self.hosts.add_manual(&link.host, Some(link.port));
+                self.save_hosts();
+                self.launcher.dialog = Dialog::Pairing { host: id, pin: String::new() };
+                self.hosts.pair_link(id, *link);
+            }
+            // The link holds a PIN and passphrase: it is not shown back.
+            Err(hosts::LINK_INVALID) => self.launcher.message(tr("Could not pair"), tr(hosts::LINK_INVALID)),
+            Err(why) => self.launcher.message(tr(why), text.trim()),
+        }
+    }
+
     /// Gamepad buttons and the left stick become arrow keys, Enter and Escape for egui.
     fn navigate(&mut self, event: &SDL_Event) {
         // SAFETY: union members read by event type.
@@ -1010,12 +1030,10 @@ impl App {
                 }
             }
             Command::CancelPair => self.hosts.cancel_pairing(),
-            Command::AddHost(text) => match config::parse_address(&text) {
-                Some((address, port)) => {
-                    self.hosts.add_manual(&address, port);
-                    self.save_hosts();
-                }
-                None => self.launcher.message(tr("That address is not valid"), text),
+            Command::AddHost(text) => self.add_entry(&text),
+            Command::AddFromClipboard => match gui::clipboard_text() {
+                Some(text) if text.trim().starts_with(rubylight_protocol::pairing_uri::PREFIX) => self.add_entry(&text),
+                _ => self.launcher.message(tr("No pairing link to paste"), tr(hosts::CLIPBOARD_NO_LINK)),
             },
             Command::Unpair(host) => {
                 // The library and the certificate go when the PC has answered (see the event).

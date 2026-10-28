@@ -69,7 +69,10 @@ pub enum Command {
     /// Choose a file here and upload it into the listed directory.
     FolderUpload(u64),
     CancelPair,
+    /// An address, or a QR pairing link to add and pair with (see `hosts::parse_entry`).
     AddHost(String),
+    /// Add PC from a pairing link on the clipboard.
+    AddFromClipboard,
     Unpair(u64),
     Remove(u64),
     Refresh(u64),
@@ -2924,6 +2927,10 @@ impl Launcher {
                             RichText::new(tr("Its IP address or name, with :port if the host uses another HTTP port."))
                                 .color(ON_SURFACE_VARIANT),
                         );
+                        ui.label(
+                            RichText::new(tr("Or paste the pairing link from the PC's QR code to add and pair it at once."))
+                                .color(ON_SURFACE_VARIANT),
+                        );
                         ui.add_space(8.0);
                         let edit = ui.add(
                             egui::TextEdit::singleline(text)
@@ -2943,6 +2950,10 @@ impl Launcher {
                         ui.horizontal(|ui| {
                             if (primary_button(ui, "Add").clicked() || submitted) && !text.trim().is_empty() {
                                 commands.push(Command::AddHost(text.trim().to_owned()));
+                                close = true;
+                            }
+                            if quiet_button(ui, "Paste link").clicked() {
+                                commands.push(Command::AddFromClipboard);
                                 close = true;
                             }
                             if quiet_button(ui, "Cancel").clicked() {
@@ -5322,6 +5333,26 @@ mod tests {
         f.settle();
         f.press(Key::Enter);
         assert!(matches!(f.l.dialog, Dialog::Otp { .. }), "a one-time PIN failure goes back to the PIN form");
+    }
+
+    #[test]
+    fn add_pc_takes_a_pasted_pairing_link_or_one_from_the_clipboard() {
+        let mut f = Frames::new(record("PC", false, false), Reach::Online);
+        let link = "rubylight://pair?v=1&host=192.168.4.2&port=47989&otp=4821&fp=00";
+        f.l.dialog = Dialog::AddHost { text: link.into(), error: None };
+        f.l.focus_dialog = true;
+        f.settle();
+        let add = f.placed.iter().rev().find(|(t, ..)| t == tr("Add")).map(|(_, rect, _)| rect.center()).expect("Add is drawn");
+        let commands = f.click_at(add, egui::PointerButton::Primary);
+        assert!(commands.iter().any(|c| matches!(c, Command::AddHost(text) if text == link)), "the link goes to Add PC as typed");
+        assert!(f.no_dialog());
+
+        f.l.dialog = Dialog::AddHost { text: String::new(), error: None };
+        f.settle();
+        let paste = f.placed.iter().rev().find(|(t, ..)| t == tr("Paste link")).map(|(_, rect, _)| rect.center()).expect("Paste link is drawn");
+        let commands = f.click_at(paste, egui::PointerButton::Primary);
+        assert!(commands.iter().any(|c| matches!(c, Command::AddFromClipboard)), "Paste link reads the clipboard");
+        assert!(f.no_dialog());
     }
 
     /// Screenshots of the main pages in both palettes, painted on the CPU from made-up PCs (no

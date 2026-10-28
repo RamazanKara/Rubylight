@@ -6,6 +6,7 @@
   import LogAnalysisPanel from '../components/maintenance/LogAnalysisPanel.svelte';
   import DisplaysPanel from '../components/maintenance/DisplaysPanel.svelte';
   import HostPanel from '../components/maintenance/HostPanel.svelte';
+  import NucleusPanel from '../components/maintenance/NucleusPanel.svelte';
   import Section from '../components/maintenance/Section.svelte';
   import WindowsSessionPanel from '../components/maintenance/WindowsSessionPanel.svelte';
   import { link } from '../lib/router.svelte';
@@ -27,6 +28,7 @@
   <Section title="Displays and Windows session">
     <DisplaysPanel />
     <WindowsSessionPanel />
+    <NucleusPanel />
   </Section>
   <Section title="Logs">
     <LogAnalysisPanel />

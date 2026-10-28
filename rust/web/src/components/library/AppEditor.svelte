@@ -311,7 +311,7 @@
         {@render flag(
           'background-stream',
           'Stream in the background',
-          'Plays on an isolated virtual display while someone uses the PC: no focus, game sound only, controllers only. Devices can turn this on for every app under Devices.',
+          'Runs in Nucleus Co-op while someone uses the PC: the game’s own window, game sound only, controllers only. The game needs a Nucleus Co-op handler. Devices can turn this on for every app under Devices.',
         )}
       </div>
       <div class="form-grid behaviour-numbers">

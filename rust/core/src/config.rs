@@ -767,8 +767,9 @@ impl Config {
         {
             bail!("stream_preset must be lowest_latency, balanced or reference");
         }
-        if changed(crate::child_session::MODE_KEY) {
-            crate::child_session::ModeSetting::parse(&next.values[crate::child_session::MODE_KEY])?;
+        if changed(crate::nucleus::mode::KEY) {
+            crate::nucleus::mode::parse(&next.values[crate::nucleus::mode::KEY])
+                .map_err(anyhow::Error::msg)?;
         }
         if changed(crate::child_session::RESOLUTION_KEY) || changed(crate::child_session::SCALE_KEY)
         {
@@ -2043,12 +2044,12 @@ webrtc_media_port = 99999
     #[test]
     fn background_mode_and_child_session_display_save_only_valid_values() {
         let mut config = super::Config::default();
-        for value in ["auto", "child_session", "virtual_display"] {
+        for value in ["auto", "child_session", "virtual_display", "nucleus"] {
             change(&mut config, "background_mode", value).unwrap();
             assert_eq!(config.get("background_mode", ""), value);
         }
         assert!(change(&mut config, "background_mode", "rdp").is_err());
-        assert_eq!(config.get("background_mode", ""), "virtual_display");
+        assert_eq!(config.get("background_mode", ""), "nucleus");
         change(&mut config, "child_session_resolution", "2560x1440").unwrap();
         change(&mut config, "child_session_scale", "150").unwrap();
         for (key, value) in [

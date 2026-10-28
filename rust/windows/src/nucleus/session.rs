@@ -343,12 +343,13 @@ pub struct Start<'a> {
     pub size: (u32, u32),
 }
 
-/// A session that runs until [`stop`](Running::stop) or drop.
+/// A session that runs until [`stop`](Running::stop) or drop. Its calls
+/// never wait for a stop, which can take seconds.
 pub struct Running {
     shared: Arc<Shared>,
     pads: Box<dyn Pads>,
-    stop: Option<mpsc::Sender<()>>,
-    thread: Option<JoinHandle<()>>,
+    stop: Mutex<Option<mpsc::Sender<()>>>,
+    thread: Mutex<Option<JoinHandle<()>>>,
     players: usize,
 }
 
@@ -465,8 +466,8 @@ pub fn start(
     Ok(Running {
         shared,
         pads,
-        stop: Some(stop),
-        thread: Some(thread),
+        stop: Mutex::new(Some(stop)),
+        thread: Mutex::new(Some(thread)),
         players: start.players,
     })
 }
@@ -555,10 +556,12 @@ impl Running {
             .with_context(|| format!("Player {}'s game instance", slot + 1))
     }
 
-    /// End the session and wait until Nucleus and the instances closed.
-    pub fn stop(&mut self) {
-        drop(self.stop.take());
-        if let Some(thread) = self.thread.take()
+    /// End the session and wait until Nucleus and the instances closed; a
+    /// second call waits for the first.
+    pub fn stop(&self) {
+        drop(self.stop.lock().unwrap().take());
+        let mut thread = self.thread.lock().unwrap();
+        if let Some(thread) = thread.take()
             && thread.join().is_err()
         {
             tracing::error!("the Nucleus Co-op session thread panicked");
@@ -1083,7 +1086,7 @@ mod tests {
             &screen,
             &probe,
         );
-        let mut running = running.unwrap();
+        let running = running.unwrap();
         let error = running.capture_target(0, r"\\.\DISPLAY1").unwrap_err();
         assert_eq!(error.to_string(), "Player 1's game window is not open");
         // One pad per player, skipping the PC's own at index 1.
@@ -1349,7 +1352,7 @@ mod tests {
             size: (1280, 720),
         };
         let policy = butterpollo_core::input_policy::Policy::resolve(&Default::default())?;
-        let mut running = start_on_pc(&request, policy, warnings.clone())?;
+        let running = start_on_pc(&request, policy, warnings.clone())?;
         println!(
             "pads {:?}",
             running.with_session(|s| s.slots.iter().map(|s| s.pad).collect::<Vec<_>>())

@@ -70,6 +70,8 @@ pub enum Command {
     FolderDownload { host: u64, name: String, size: u64 },
     /// Choose a file here and upload it into the listed directory.
     FolderUpload(u64),
+    /// Open the details page's list of a PC's Nucleus Co-op sessions.
+    Coop(u64),
     CancelPair,
     /// An address, or a QR pairing link to add and pair with (see `hosts::parse_entry`).
     AddHost(String),
@@ -321,6 +323,8 @@ pub struct Launcher {
     pub remote: crate::host_page::RemoteAccess,
     /// The details page's shared folder browser.
     pub folders: crate::folders_page::SharedFolders,
+    /// The details page's list of Nucleus Co-op sessions.
+    pub coop: crate::coop_page::CoopSessions,
     /// The Files page and its transfers.
     pub files: files::Files,
     /// A short notice over the launcher, such as the game quitting after leaving its stream.
@@ -484,6 +488,7 @@ impl Launcher {
             look: None,
             remote: Default::default(),
             folders: Default::default(),
+            coop: Default::default(),
             files: Default::default(),
             toast: None,
         }
@@ -765,6 +770,10 @@ impl Launcher {
         });
         self.remote.poll(page);
         self.folders.poll(page);
+        // A co-op join that went through streams its slot: the session's entry, launched as any.
+        if let Some((host, app)) = self.coop.poll(page) {
+            commands.push(Command::Launch { host, app, resume: false });
+        }
         // Likewise a Files page that was left cancels its transfers.
         let files = std::iter::once(&self.screen).chain(self.trail.iter().map(|(screen, _)| screen)).find_map(|screen| match screen {
             Screen::Files(id) => Some(*id),
@@ -1711,7 +1720,94 @@ impl Launcher {
             if caps.has(nightjar_core::http::Feature::SharedFolders) {
                 self.shared_folders(ui, id, commands);
             }
+            if caps.has(nightjar_core::http::Feature::Coop) {
+                self.coop_sessions(ui, id, commands);
+            }
         });
+    }
+
+    /// The details page's Nucleus Co-op sessions (Experimental): their players, free slots and
+    /// this device's own seat, and a join that then streams the slot.
+    fn coop_sessions(&mut self, ui: &mut Ui, id: u64, commands: &mut Vec<Command>) {
+        use crate::coop_page::{join_label, phase_text, slot_text};
+        section(ui, "Co-op");
+        let Some(open) = self.coop.state_for(id) else {
+            let button = row(ui, "Co-op sessions", "Play a game together with other devices, each in its own copy of the game on this PC, through Nucleus Co-op. Join a running session here, or start one from its Co-op (Nucleus) entry in the library.", |ui| {
+                quiet_button(ui, "Show sessions")
+            });
+            self.focus_item(&button, "coop", false);
+            if button.clicked() {
+                commands.push(Command::Coop(id));
+            }
+            if let Some(error) = self.coop.failure_for(id) {
+                ui.label(RichText::new(error).color(ERROR));
+            }
+            return;
+        };
+        let (mut refresh, mut close, mut join) = (false, false, None);
+        ui.horizontal_wrapped(|ui| {
+            refresh = ui.add_enabled_ui(!open.loading, |ui| quiet_button(ui, "Refresh")).inner.clicked();
+            close = text_button(ui, "Close").clicked();
+        });
+        if open.loading || open.joining.is_some() {
+            ui.horizontal(|ui| {
+                spinner(ui, 10.0);
+                let doing = if open.joining.is_some() { tr("Joining…") } else { tr("Loading…") };
+                ui.label(RichText::new(doing).color(ON_SURFACE_VARIANT));
+            });
+        }
+        if let Some(error) = &open.error {
+            ui.label(RichText::new(error).color(ERROR));
+        }
+        if let Some(done) = &open.done {
+            ui.label(RichText::new(done).color(ON_SURFACE));
+        }
+        ui.add_space(6.0);
+        if let Some(coop) = &open.coop {
+            if !coop.available {
+                let why = coop.reason.as_deref().unwrap_or_else(|| tr("The PC gave no reason."));
+                ui.label(RichText::new(trf("The PC cannot run co-op sessions right now: {}", &[&why])).color(ERROR));
+            }
+            if coop.available && coop.sessions.is_empty() {
+                ui.label(RichText::new(tr("No co-op session is running. Start one from its Co-op (Nucleus) entry in the library.")).color(ON_SURFACE_VARIANT));
+            }
+            for session in &coop.sessions {
+                let line = folder_line(ui, &session.title, &phase_text(session), |ui| {
+                    if session.joinable {
+                        ui.add_enabled_ui(open.joining.is_none(), |ui| primary_button(ui, join_label(session))).inner
+                    } else {
+                        ui.label(String::new())
+                    }
+                });
+                if session.joinable && line.clicked() {
+                    join = Some(session.id);
+                }
+                ui.label(RichText::new(trf("Free slots: {}", &[&session.free_slots])).font(regular(text::CAPTION)).color(OUTLINE));
+                for player in &session.players {
+                    let text = slot_text(player.slot, player.name.as_deref(), player.you, player.away);
+                    let color = if player.you { ON_SURFACE } else { ON_SURFACE_VARIANT };
+                    ui.label(RichText::new(text).color(color));
+                }
+                if let Some(refusal) = session.refusal.as_deref().filter(|_| !session.joinable) {
+                    ui.label(RichText::new(refusal).color(ERROR));
+                }
+                ui.add_space(6.0);
+            }
+            if !coop.games.is_empty() {
+                ui.label(RichText::new(tr("Co-op games on this PC")).font(semibold(text::BODY)).color(ON_SURFACE));
+                for game in &coop.games {
+                    folder_line(ui, &game.title, &trf("Up to {} players", &[&game.max_players]), |ui| ui.label(String::new()));
+                }
+            }
+            ui.label(RichText::new(tr("Co-op streams take controllers only: keyboard and mouse stay on the PC.")).font(regular(text::CAPTION)).color(OUTLINE));
+        }
+        if refresh {
+            self.coop.refresh();
+        } else if close {
+            self.coop.close();
+        } else if let Some(session) = join {
+            self.coop.join(id, session);
+        }
     }
 
     /// The details page's browser of the folders the PC shares with this device (Experimental).
@@ -5096,6 +5192,71 @@ mod tests {
         assert!(!shows(&f, "Open in browser") && f.drawn.iter().any(|t| t.contains("zone ID (fe80::1%12)")), "{:?}", f.drawn);
         let commands = f.press(Key::Enter);
         assert!(commands.iter().any(|c| matches!(c, Command::RemoteCheck(_))), "the check is the first item then");
+    }
+
+    /// Clicks the first `text` drawn on the last frame.
+    fn click_text(f: &mut Frames, text: &str) -> Vec<Command> {
+        let at = f.placed.iter().find(|(t, ..)| t == text).unwrap_or_else(|| panic!("{text:?} is not drawn: {:?}", f.drawn)).1.center();
+        f.click_at(at, egui::PointerButton::Primary)
+    }
+
+    #[test]
+    fn the_details_page_lists_co_op_sessions_only_where_the_pc_offers_them_and_joins_a_free_slot() {
+        use crate::coop_page::tests::{api, waker, Fake};
+        use nightjar_core::http::native_api::error::ErrorCode;
+        let native = "<NativeApiVersion>1</NativeApiVersion>";
+        let mut f = details(Reach::Online, "SUNSHINE_SERVER_FREE", native);
+        f.size = vec2(1280.0, 12000.0);
+        f.settle();
+        assert!(!shows(&f, "CO-OP"), "a PC that has not said it offers co-op shows none: {:?}", f.drawn);
+        let offer = |f: &mut Frames, coop_offered: bool| {
+            let info = f.hosts.list[0].info.as_mut().unwrap();
+            let evidence = info.capabilities.evidence().unwrap().clone();
+            info.capabilities = nightjar_core::http::HostCapabilities::from_evidence(nightjar_core::http::Evidence { native_capabilities: true, coop_offered, ..evidence });
+            f.settle();
+        };
+        offer(&mut f, false);
+        assert!(!shows(&f, "CO-OP"), "a PC without Nucleus Co-op shows none");
+        offer(&mut f, true);
+        assert!(shows(&f, "CO-OP") && shows(&f, "Show sessions"), "{:?}", f.drawn);
+        let id = f.hosts.list[0].id;
+        let commands = click_text(&mut f, "Show sessions");
+        assert!(commands.iter().any(|c| matches!(c, Command::Coop(h) if *h == id)), "Show sessions opens the list");
+        // The list as main opens it: the sessions, the free slot, then a join that launches.
+        let fake = Arc::new(Fake { app_id: 1234567, ..Fake::default() });
+        f.l.coop.open(id, fake.clone(), waker());
+        // Frames until the answers are in, as the waker would bring them; what they asked for.
+        let listed = |f: &mut Frames| {
+            let mut commands = Vec::new();
+            for _ in 0..500 {
+                commands.extend(f.frame(Vec::new()));
+                if f.l.coop.state_for(id).is_some_and(|open| !open.loading && open.joining.is_none()) {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            commands.extend(f.settle());
+            commands
+        };
+        let mut commands = listed(&mut f);
+        assert!(shows(&f, "Portal 2") && shows(&f, "Free slots: 1") && shows(&f, "Player 1: Fold7") && shows(&f, "Player 2: Free"), "{:?}", f.drawn);
+        assert!(shows(&f, "Co-op (Nucleus): Portal 2") && shows(&f, "Up to 2 players"));
+        commands.extend(click_text(&mut f, "Join"));
+        commands.extend(listed(&mut f));
+        let launches: Vec<_> = commands.iter().filter_map(|c| match c {
+            Command::Launch { host, app, resume } => Some((*host, *app, *resume)),
+            _ => None,
+        }).collect();
+        assert_eq!(launches, [(id, 1234567, false)], "the join launches the session's entry once");
+        assert!(shows(&f, "Player 2: This device") && shows(&f, "Return to my slot") && shows(&f, "Joined Portal 2 as player 2. Starting the stream…"), "{:?}", f.drawn);
+        // A refusal is drawn with the PC's own words, and launches nothing.
+        let fake = Arc::new(Fake { refuse: Some(api(403, ErrorCode::PermissionRequired, "Turn on Join co-op for this device in the Rubylight console.")), ..Fake::default() });
+        f.l.coop.open(id, fake, waker());
+        let mut commands = listed(&mut f);
+        commands.extend(click_text(&mut f, "Join"));
+        commands.extend(listed(&mut f));
+        assert!(!commands.iter().any(|c| matches!(c, Command::Launch { .. })), "a refused join launches nothing");
+        assert!(shows(&f, "This device may not join co-op sessions on this PC.\nTurn on Join co-op for this device in the Rubylight console."), "{:?}", f.drawn);
     }
 
     /// Whether `text` is drawn on the widget with focus.

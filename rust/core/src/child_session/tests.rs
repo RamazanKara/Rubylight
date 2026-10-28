@@ -10,78 +10,16 @@ const SID: &str = "S-1-5-21-1000-2000-3000-1001";
 const PASSWORD: &str = "correct horse battery staple";
 
 #[test]
-fn home_keeps_the_virtual_display_and_says_why() {
-    for id in ["Core", "CoreSingleLanguage", "CoreCountrySpecific", "CoreN"] {
-        for setting in [ModeSetting::Auto, ModeSetting::ChildSession] {
-            let decision = decide(setting, id, false);
-            assert_eq!(decision.mode, Mode::VirtualDisplay, "{id}");
-            assert_eq!(
-                decision.label,
-                "Background streaming (virtual display): Windows Home"
-            );
-            assert!(decision.reason.contains(id), "{}", decision.reason);
-        }
+fn no_setting_picks_a_child_session() {
+    for setting in ["", "nucleus", "auto", "child_session", "virtual_display"] {
+        let decision = decide(setting, false);
+        assert_eq!(decision.mode, Mode::Nucleus, "{setting}");
+        assert_eq!(decision.label, "Background streaming (Nucleus Co-op)");
     }
-}
-
-#[test]
-fn pro_and_higher_use_the_child_session() {
-    for id in [
-        "Professional",
-        "ProfessionalWorkstation",
-        "ProfessionalEducation",
-        "Education",
-        "Enterprise",
-        "EnterpriseS",
-        "IoTEnterprise",
-        "ServerStandard",
-    ] {
-        let decision = decide(ModeSetting::Auto, id, false);
-        assert_eq!(decision.mode, Mode::ChildSession, "{id}");
-        assert!(decision.reason.contains(id));
-        // The setting can still keep the virtual display, and says so.
-        let kept = decide(ModeSetting::VirtualDisplay, id, false);
-        assert_eq!(kept.mode, Mode::VirtualDisplay);
-        assert!(kept.reason.contains("background_mode = virtual_display"));
-        // Help shows the reason: no Experimental label there.
-        assert!(
-            !kept.reason.to_lowercase().contains("experiment"),
-            "{}",
-            kept.reason
-        );
-    }
-}
-
-#[test]
-fn an_unknown_edition_is_never_switched_silently() {
-    let auto = decide(ModeSetting::Auto, "", false);
-    assert_eq!(auto.mode, Mode::VirtualDisplay);
-    assert!(auto.reason.contains("unknown"));
-    assert!(auto.reason.contains("background_mode = child_session"));
-    assert_eq!(
-        decide(ModeSetting::ChildSession, "SomethingNew", false).mode,
-        Mode::ChildSession
-    );
-    assert_eq!(
-        decide(ModeSetting::Auto, "Professional", true).mode,
-        Mode::InsideChildSession
-    );
-}
-
-#[test]
-fn mode_setting_parses_and_rejects_typos() {
-    // Off by default: child sessions ship Experimental.
-    assert_eq!(ModeSetting::parse("").unwrap(), ModeSetting::VirtualDisplay);
-    assert_eq!(ModeSetting::parse(" auto ").unwrap(), ModeSetting::Auto);
-    assert_eq!(
-        ModeSetting::parse(" Child_Session ").unwrap(),
-        ModeSetting::ChildSession
-    );
-    assert_eq!(
-        ModeSetting::parse("virtual_display").unwrap(),
-        ModeSetting::VirtualDisplay
-    );
-    assert!(ModeSetting::parse("child").is_err());
+    let bad = decide("child", false);
+    assert_eq!(bad.mode, Mode::Unavailable);
+    assert!(bad.reason.contains("is not a mode"), "{}", bad.reason);
+    assert_eq!(decide("auto", true).mode, Mode::InsideChildSession);
 }
 
 #[test]

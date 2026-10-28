@@ -26,6 +26,7 @@ import com.limelight.nativeapi.JniNativeApiTransport;
 import com.limelight.nativeapi.NativeApiClient;
 import com.limelight.nativeapi.NativeApiException;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.http.PairingLink;
 import com.limelight.nvstream.http.PairingManager;
@@ -33,6 +34,7 @@ import com.limelight.nvstream.http.PairingManager.PairState;
 import com.limelight.nvstream.wol.WakeOnLanSender;
 import com.limelight.nvstream.wol.WakeTargets;
 import com.limelight.ui.NavigationDialogBuilder;
+import com.limelight.utils.LaunchSource;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.UiHelper;
 
@@ -48,7 +50,7 @@ import java.util.function.LongSupplier;
 
 /**
  * What a person can do to a PC on the list besides opening it: pair (with a PIN shown here or a
- * one-time PIN typed here), wake, sleep, rename, unpair and remove. It belongs to one screen and its binder.
+ * one-time PIN typed here), wake, sleep, join co-op, rename, unpair and remove. It belongs to one screen and its binder.
  *
  * <p>Each pairing gets a generation. Cancelling, starting another pairing or leaving the screen
  * bumps it, and a result that carries an older one is dropped, so a pairing that was cancelled never
@@ -100,6 +102,8 @@ public final class HostActions {
     // The newest Sleep PC flow, and its progress while the host is asked.
     private SleepRoute sleepRoute;
     private AlertDialog sleepProgress;
+    // The open Join co-op sheet.
+    private CoopSheet coopSheet;
     // The PC being woken and waited for.
     private HostWaker waker;
     private ComputerDetails wakeComputer;
@@ -142,6 +146,7 @@ public final class HostActions {
             sleepRoute = null;
         }
         dismissSleepProgress();
+        closeCoop();
     }
 
     // Pairing
@@ -675,6 +680,72 @@ public final class HostActions {
             } else {
                 toast(sleepFailedText(app, error));
             }
+        }
+    }
+
+    // Join co-op
+
+    /**
+     * Join co-op: the PC's running co-op sessions, and a join that seats this device and starts its stream into the
+     * slot. Only the newest sheet speaks: opening another closes the older one.
+     */
+    public void joinCoop(final ComputerDetails computer) {
+        if (computer.state != ComputerDetails.State.ONLINE || computer.activeAddress == null) {
+            showError(R.string.host_menu_coop, activity.getString(R.string.error_pc_offline), null);
+            return;
+        }
+        final ComputerManagerService.ComputerManagerBinder binder = callbacks.binder();
+        if (binder == null) {
+            showError(R.string.host_menu_coop, activity.getString(R.string.error_manager_not_running), null);
+            return;
+        }
+        final Context app = activity.getApplicationContext();
+        openCoop(computer, () -> {
+            HostEndpoint endpoint = HostEndpoint.of(computer, binder.getUniqueId(),
+                    PlatformBinding.getCryptoProvider(app));
+            if (endpoint == null) {
+                throw new NativeApiException(NativeApiException.Kind.NOT_PAIRED,
+                        "No address or pinned certificate for the PC");
+            }
+            return new NativeApiClient(new JniNativeApiTransport(), endpoint);
+        }, task -> new Thread(task, "Join co-op").start());
+    }
+
+    @VisibleForTesting
+    CoopSheet openCoop(ComputerDetails computer, CoopSheet.Client client, Executor worker) {
+        closeCoop();
+        if (gone()) {
+            return null;
+        }
+        coopSheet = new CoopSheet(activity, computer, client, worker, main::post, new CoopSheet.Ui() {
+            @Override
+            public void problem(CharSequence title, CharSequence message, Runnable retry) {
+                showError(title, message, retry);
+            }
+
+            @Override
+            public void start(NvApp app) {
+                ComputerManagerService.ComputerManagerBinder binder = callbacks.binder();
+                if (binder == null) {
+                    showError(R.string.host_menu_coop, activity.getString(R.string.error_manager_not_running), null);
+                    return;
+                }
+                ServerHelper.doStart(activity, app, computer, binder, LaunchSource.COOP_JOIN);
+            }
+
+            @Override
+            public void reopen() {
+                joinCoop(computer);
+            }
+        });
+        coopSheet.show();
+        return coopSheet;
+    }
+
+    private void closeCoop() {
+        if (coopSheet != null) {
+            coopSheet.close();
+            coopSheet = null;
         }
     }
 

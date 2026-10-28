@@ -41,7 +41,7 @@ GET /api/native/v1/capabilities
 ```
 
 - `features` says what the host implements and has turned on, the same for every client. `radeon.read`, `radeon.write` and `radeon.profile` appear only where the host started its Radeon worker; `files.upload` and `files.download` only while the host's File transfer setting is on. Clients ignore feature strings they don't know.
-- `permissions` belongs to the calling device. `file_upload` and `file_download` (bits `1 << 18` and `1 << 19`) are missing from hosts before file transfer and decode as `false`. With a feature listed but its permission off, the client shows the control disabled, with the sentence from the matching error (for example "Turn on Host control for this device in the Rubylight console").
+- `permissions` belongs to the calling device. `file_upload` and `file_download` (bits `1 << 18` and `1 << 19`) are missing from hosts before file transfer and decode as `false`. `coop_join` is the device's own Join co-op flag, never a permission bit; hosts before 3.0 leave it out, which decodes as `false`. With a feature listed but its permission off, the client shows the control disabled, with the sentence from the matching error (for example "Turn on Host control for this device in the Rubylight console").
 
 ## Endpoints
 
@@ -71,6 +71,8 @@ All paths start with `/api/native/v1`. "Owner" means the caller owns the current
 | GET | `/folders/{id}/entries?path=` | a grant for `id` | FolderEntries |
 | GET | `/folders/{id}/content?path=` | a grant for `id` | The file's bytes |
 | PUT | `/folders/{id}/content?path=` | a `write` grant for `id` | 201 Uploaded |
+| GET | `/coop` | List apps | Coop: the co-op games and the co-op sessions, with this device's seat, `joinable` and `refusal`; player names only for a device with Join co-op or a seat (feature `coop`, Experimental; 503 with the reason while Nucleus Co-op cannot run) |
+| POST | `/coop/join` `{"session": N}` | Launch; **Join co-op** to take another device's free slot | Joined `{"session", "slot", "app_id"}`: the slot is held until this device launches `app_id`. 403 `permission_required`, 409 `no_session` or `coop_refused` |
 
 Permission bits are the existing ones: List `1 << 24`, View `1 << 25`, Launch `1 << 26`, Upload files `1 << 18`, Download files `1 << 19`. Host control is a separate per-device flag (see below).
 

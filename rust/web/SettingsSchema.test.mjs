@@ -540,6 +540,9 @@ const live = [
   'touch_mode',
   'touch_sensitivity',
   'touch_gestures',
+  // Nucleus Co-op.
+  'nucleus_path',
+  'nucleus_coop_players',
 ];
 
 test('settings still pending stay out of the console, and shipped ones are in it', () => {

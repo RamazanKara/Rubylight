@@ -6,7 +6,7 @@
   import AccessChoice from './AccessChoice.svelte';
   import CommandList from './CommandList.svelte';
   import { accessOf, withAccess, type Access } from './access';
-  import { api, type Client, type DisplayDevice } from '../../lib/api';
+  import { api, PERM, type Client, type DisplayDevice } from '../../lib/api';
   import { failed, notify } from '../../lib/feedback.svelte';
   import {
     changes,
@@ -56,9 +56,15 @@
     dirty = changed;
   });
 
-  // Custom permissions, or a granted Host control, Sleep PC or USB devices, open the section.
+  // Custom permissions, or a granted Host control, Sleep PC, USB devices or Join co-op, open the section.
   // Nothing closes it again: unticking a box must not snap it shut under the cursor.
-  const granted = () => accessOf(draft.perm) === 'custom' || draft.host_control || draft.allow_sleep || draft.allow_usb;
+  // Join co-op comes with Launch apps when a device pairs, so only a grant beyond that opens it.
+  const granted = () =>
+    accessOf(draft.perm) === 'custom' ||
+    draft.host_control ||
+    draft.allow_sleep ||
+    draft.allow_usb ||
+    (draft.coop_join && (draft.perm & PERM.LAUNCH_APPS) === 0);
   let permissionsOpen = $state(untrack(granted));
   $effect(() => {
     if (granted()) permissionsOpen = true;
@@ -260,6 +266,10 @@
             <label class="check">
               <input type="checkbox" bind:checked={draft.allow_usb} />
               USB devices: attach USB devices plugged into this device to this PC during a stream
+            </label>
+            <label class="check">
+              <input type="checkbox" bind:checked={draft.coop_join} />
+              Join co-op: take a free player slot in a co-op game another device started on this PC
             </label>
           {/if}
         </fieldset>
@@ -463,12 +473,12 @@
   <section>
     <Toggle
       label="Stream in the background"
-      hint="Lets this device play while someone keeps using the PC. Its games open on a virtual display away from your monitors, take no focus and stream only their own sound. Controllers work; this device's keyboard, mouse, touch and clipboard are off."
+      hint="Lets this device play while someone keeps using the PC. Nucleus Co-op runs its games in their own window, away from your monitors, and only their own sound streams. Controllers work; this device's keyboard, mouse, touch and clipboard are off."
       bind:checked={draft.background_stream}
     />
     <p class="note">
-      The PC keeps the real focus; Rubylight tells the game it is active so it keeps its sound and frame rate. Games
-      that check focus directly, exclusive fullscreen and Steam Input do not work this way.
+      Nucleus Co-op tells the game it has the focus, so the PC keeps its own. A game needs a Nucleus Co-op handler;
+      without one the launch is refused and says why. Exclusive fullscreen and Steam Input do not work this way.
     </p>
   </section>
   </details>

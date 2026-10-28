@@ -1,41 +1,31 @@
-//! Which way a background stream runs: in a Windows child session where
-//! Windows offers one and the setting allows, else through Nucleus Co-op.
-//! The decision always carries its reason, which the log and the console
-//! show; a mode that was chosen but cannot run is an error, never another
-//! mode.
+//! The background mode. Nucleus Co-op runs every background stream: there is
+//! no other mode and nothing to choose. `background_mode` stays readable:
+//! the values earlier builds wrote (`auto`, `child_session`,
+//! `virtual_display`) read as `nucleus`, which the host logs once
+//! ([`legacy`]). A value that is no mode at all runs none and says why, never
+//! another mode.
 use serde::Serialize;
 
-/// The background mode Nucleus Co-op's decision takes. Until the host runs
-/// Nucleus sessions, `background_mode` is read by
-/// [`crate::child_session::ModeSetting`] alone, whose `virtual_display` this
-/// mode's `Nucleus` is to replace.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum BackgroundMode {
-    Auto,
-    ChildSession,
-    Nucleus,
-}
+/// The setting earlier builds chose the background mode with.
+pub const KEY: &str = "background_mode";
+/// The values earlier builds wrote, each read as `nucleus`.
+const LEGACY: [&str; 3] = ["auto", "child_session", "virtual_display"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Mode {
-    ChildSession,
     Nucleus,
+    /// `background_mode` holds no mode: background streams are refused with
+    /// the reason.
+    Unavailable,
 }
 impl Mode {
     pub fn label(self) -> &'static str {
         match self {
-            Self::ChildSession => "Background streaming (child session)",
             Self::Nucleus => "Background streaming (Nucleus Co-op)",
+            Self::Unavailable => "Background streaming: not available",
         }
     }
-}
-
-/// Whether this PC can run a child session, and if not, why.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ChildSupport {
-    Available,
-    Unavailable(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -54,23 +44,38 @@ impl Decision {
     }
 }
 
-pub fn decide(setting: BackgroundMode, child: &ChildSupport) -> Result<Decision, String> {
-    match (setting, child) {
-        (BackgroundMode::Auto, ChildSupport::Available) => Ok(Decision::new(
-            Mode::ChildSession,
-            "Automatic: Windows offers a child session here",
+/// Check a `background_mode` value; true for one an earlier build wrote.
+pub fn parse(text: &str) -> Result<bool, String> {
+    match text.trim().to_ascii_lowercase().as_str() {
+        "" | "nucleus" => Ok(false),
+        old if LEGACY.contains(&old) => Ok(true),
+        other => Err(format!(
+            "{KEY} = {other} is not a mode: Nucleus Co-op is the only background mode, so remove the line or set it to nucleus"
         )),
-        (BackgroundMode::Auto, ChildSupport::Unavailable(why)) => Ok(Decision::new(
+    }
+}
+
+/// The line the host logs once for a value an earlier build wrote, or None.
+pub fn legacy(text: &str) -> Option<String> {
+    matches!(parse(text), Ok(true)).then(|| {
+        format!(
+            "{KEY} = {} is from an earlier build and reads as nucleus: Nucleus Co-op is the only background mode",
+            text.trim()
+        )
+    })
+}
+
+pub fn decide(text: &str) -> Decision {
+    match parse(text) {
+        Ok(false) => Decision::new(Mode::Nucleus, "Nucleus Co-op runs background streams"),
+        Ok(true) => Decision::new(
             Mode::Nucleus,
-            format!("Automatic: no child session ({why})"),
-        )),
-        (BackgroundMode::ChildSession, ChildSupport::Available) => {
-            Ok(Decision::new(Mode::ChildSession, "chosen in the settings"))
-        }
-        (BackgroundMode::ChildSession, ChildSupport::Unavailable(why)) => Err(format!(
-            "Background streaming is set to a child session, which this PC cannot run ({why}): choose Automatic or Nucleus Co-op in the settings"
-        )),
-        (BackgroundMode::Nucleus, _) => Ok(Decision::new(Mode::Nucleus, "chosen in the settings")),
+            format!(
+                "{KEY} = {} from an earlier build reads as nucleus",
+                text.trim()
+            ),
+        ),
+        Err(reason) => Decision::new(Mode::Unavailable, reason),
     }
 }
 
@@ -78,47 +83,33 @@ pub fn decide(setting: BackgroundMode, child: &ChildSupport) -> Result<Decision,
 mod tests {
     use super::*;
 
-    fn home() -> ChildSupport {
-        ChildSupport::Unavailable("Windows Home has no child sessions".into())
-    }
-
     #[test]
-    fn automatic_takes_a_child_session_where_there_is_one() {
-        let d = decide(BackgroundMode::Auto, &ChildSupport::Available).unwrap();
-        assert_eq!(d.mode, Mode::ChildSession);
-        assert_eq!(d.label, "Background streaming (child session)");
-        let d = decide(BackgroundMode::Auto, &home()).unwrap();
-        assert_eq!(d.mode, Mode::Nucleus);
-        assert_eq!(d.label, "Background streaming (Nucleus Co-op)");
-        assert_eq!(
-            d.reason,
-            "Automatic: no child session (Windows Home has no child sessions)"
-        );
-    }
-
-    #[test]
-    fn a_chosen_mode_runs_or_fails_but_never_becomes_the_other() {
-        let error = decide(BackgroundMode::ChildSession, &home()).unwrap_err();
-        assert!(
-            error.contains("Windows Home has no child sessions"),
-            "{error}"
-        );
-        assert!(
-            error.contains("choose Automatic or Nucleus Co-op"),
-            "{error}"
-        );
-        assert_eq!(
-            decide(BackgroundMode::ChildSession, &ChildSupport::Available)
-                .unwrap()
-                .mode,
-            Mode::ChildSession
-        );
-        for child in [ChildSupport::Available, home()] {
-            let d = decide(BackgroundMode::Nucleus, &child).unwrap();
-            assert_eq!(
-                (d.mode, d.reason.as_str()),
-                (Mode::Nucleus, "chosen in the settings")
-            );
+    fn every_mode_an_earlier_build_wrote_runs_nucleus_and_says_so() {
+        for text in ["", " nucleus ", "Nucleus"] {
+            let d = decide(text);
+            assert_eq!(d.mode, Mode::Nucleus, "{text}");
+            assert_eq!(d.label, "Background streaming (Nucleus Co-op)");
+            assert_eq!(legacy(text), None, "{text}");
         }
+        // `auto` used to pick a child session on Pro and higher: never now.
+        for text in ["auto", " Child_Session ", "virtual_display"] {
+            let d = decide(text);
+            assert_eq!(d.mode, Mode::Nucleus, "{text}");
+            assert!(d.reason.contains("reads as nucleus"), "{}", d.reason);
+            let line = legacy(text).unwrap();
+            assert!(line.contains(text.trim()), "{line}");
+            assert!(line.contains("only background mode"), "{line}");
+        }
+    }
+
+    #[test]
+    fn a_value_that_is_no_mode_runs_none_and_says_why() {
+        let d = decide("rdp");
+        assert_eq!(d.mode, Mode::Unavailable);
+        assert_eq!(d.label, "Background streaming: not available");
+        assert!(d.reason.contains("background_mode = rdp"), "{}", d.reason);
+        assert!(d.reason.contains("set it to nucleus"), "{}", d.reason);
+        assert!(parse("child").is_err());
+        assert_eq!(legacy("rdp"), None);
     }
 }

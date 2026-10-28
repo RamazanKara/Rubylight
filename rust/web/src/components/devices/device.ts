@@ -112,6 +112,8 @@ export interface Draft {
   allow_sleep: boolean;
   /** Lets the device attach its USB devices to the host; off unless granted here. */
   allow_usb: boolean;
+  /** Lets the device join other devices' co-op sessions; off unless granted here. */
+  coop_join: boolean;
   /** Read or write by shared folder id; a folder not named here is not shared with the device. */
   shared_folders: FolderGrants;
   do: CommandRow[];
@@ -228,6 +230,8 @@ export function toDraft(client: Client): Draft {
     allow_sleep: client.allow_sleep === true,
     // As the host reads it (Client::allows_usb): only a JSON true.
     allow_usb: client.allow_usb === true,
+    // As the host reads it (coop::may_join): true and "true".
+    coop_join: client.coop_join === true || client.coop_join === 'true',
     shared_folders: readGrants(client.shared_folders),
     do: commandRows(client.do),
     undo: commandRows(client.undo),
@@ -292,6 +296,7 @@ function serialise(draft: Draft): Changes {
     host_control: draft.host_control ? true : null,
     allow_sleep: draft.allow_sleep ? true : null,
     allow_usb: draft.allow_usb ? true : null,
+    coop_join: draft.coop_join ? true : null,
     // null removes every grant.
     shared_folders: grantsValue(draft.shared_folders),
     // The host rejects a null command list, so an empty list is sent instead.

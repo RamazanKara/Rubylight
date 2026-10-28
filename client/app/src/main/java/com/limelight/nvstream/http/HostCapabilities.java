@@ -98,7 +98,12 @@ public final class HostCapabilities {
         /** PNG clipboard (native "clipboard.image"). Known only after {@link #withNativeCapabilities}. */
         IMAGE_CLIPBOARD(0),
         /** Shared folders (native "folders"). Known only after {@link #withNativeCapabilities}. */
-        SHARED_FOLDERS(0);
+        SHARED_FOLDERS(0),
+        /**
+         * Nucleus Co-op sessions to list and join (native "coop"). Known only after {@link #withNativeCapabilities}.
+         * Whether this device may take a free slot is per session.
+         */
+        COOP(0);
 
         @StringRes public final int label;
 
@@ -321,8 +326,8 @@ public final class HostCapabilities {
     }
 
     /**
-     * These capabilities with what the native API's GET /capabilities adds: the file transfer, USB, image clipboard
-     * and shared folder features and this device's permissions for them. Read it again after every serverinfo
+     * These capabilities with what the native API's GET /capabilities adds: the file transfer, USB, image clipboard,
+     * shared folder and co-op features and this device's permissions for them. Read it again after every serverinfo
      * refresh; until then those features are unknown. A host never reached stays unknown. Throws for a body that is
      * not a capabilities object, field by field as the Rust client reads it, even for a host never reached.
      */
@@ -347,6 +352,7 @@ public final class HostCapabilities {
         boolean usb = false;
         boolean imageClipboard = false;
         boolean folders = false;
+        boolean coop = false;
         for (int i = 0; i < features.length(); i++) {
             Object feature = features.get(i);
             if (!(feature instanceof String)) {
@@ -357,6 +363,7 @@ public final class HostCapabilities {
             usb |= "usb".equals(feature);
             imageClipboard |= "clipboard.image".equals(feature);
             folders |= "folders".equals(feature);
+            coop |= "coop".equals(feature);
         }
         boolean uploadPermission = permission(permissions, "file_upload");
         boolean downloadPermission = permission(permissions, "file_download");
@@ -377,6 +384,7 @@ public final class HostCapabilities {
         native_.imageClipboardOffered = imageClipboard;
         native_.foldersOffered = folders;
         native_.folderPermission = folderPermission;
+        native_.coopOffered = coop;
         return new HostCapabilities(native_);
     }
 
@@ -565,6 +573,8 @@ public final class HostCapabilities {
         boolean imageClipboardOffered;
         boolean foldersOffered;
         boolean folderPermission;
+        /** coop in the native features. */
+        boolean coopOffered;
 
         static Evidence parse(String serverInfo) throws XmlPullParserException, IOException {
             Evidence evidence = new Evidence();
@@ -905,6 +915,10 @@ public final class HostCapabilities {
                 }
                 case SHARED_FOLDERS:
                     return nativeFeature(foldersOffered, folderPermission ? null : Reason.FOLDER_PERMISSION);
+                case COOP:
+                    // No permission reason: a device without Join co-op still sees the sessions and returns to its
+                    // own slot; each session says why it cannot take a free one.
+                    return nativeFeature(coopOffered, null);
                 default:
                     throw new IllegalArgumentException(feature.name());
             }
@@ -960,7 +974,8 @@ public final class HostCapabilities {
                     .put("penBarrelRollVersion", penBarrelRollVersion)
                     .put("pipelineRatesVersion", pipelineRatesVersion).put("usbOffered", usbOffered)
                     .put("usbPermission", usbPermission).put("imageClipboardOffered", imageClipboardOffered)
-                    .put("foldersOffered", foldersOffered).put("folderPermission", folderPermission);
+                    .put("foldersOffered", foldersOffered).put("folderPermission", folderPermission)
+                    .put("coopOffered", coopOffered);
             if (rustHostVersion != null) object.put("rustHostVersion", rustHostVersion);
             if (frameLimiter != null) object.put("frameLimiter", frameLimiter);
             if (virtualDisplayCapable != null) object.put("virtualDisplayCapable", virtualDisplayCapable);
@@ -1015,6 +1030,7 @@ public final class HostCapabilities {
             evidence.imageClipboardOffered = object.optBoolean("imageClipboardOffered", false);
             evidence.foldersOffered = object.optBoolean("foldersOffered", false);
             evidence.folderPermission = object.optBoolean("folderPermission", false);
+            evidence.coopOffered = object.optBoolean("coopOffered", false);
             if (evidence.permission < -1 || evidence.permission > 0xFFFFFFFFL || evidence.serverCommands < 0 ||
                     (evidence.rustHostVersion != null && evidence.rustHostVersion.isEmpty())) {
                 throw new JSONException("Invalid stored capabilities");
@@ -1058,7 +1074,8 @@ public final class HostCapabilities {
                     penBarrelRollVersion == that.penBarrelRollVersion &&
                     pipelineRatesVersion == that.pipelineRatesVersion && usbOffered == that.usbOffered &&
                     usbPermission == that.usbPermission && imageClipboardOffered == that.imageClipboardOffered &&
-                    foldersOffered == that.foldersOffered && folderPermission == that.folderPermission;
+                    foldersOffered == that.foldersOffered && folderPermission == that.folderPermission &&
+                    coopOffered == that.coopOffered;
         }
 
         @Override
@@ -1071,7 +1088,7 @@ public final class HostCapabilities {
                     filesDownload, fileUploadPermission, fileDownloadPermission, hdrFormats, fecControlVersion,
                     bandwidthProbeVersion, audioCodecs, audioLayouts, textInputVersion, keyboardLayoutVersion,
                     penBarrelRollVersion, pipelineRatesVersion, usbOffered, usbPermission, imageClipboardOffered,
-                    foldersOffered, folderPermission);
+                    foldersOffered, folderPermission, coopOffered);
         }
     }
 }

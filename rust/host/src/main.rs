@@ -13,6 +13,7 @@ mod mic;
 mod native_api;
 mod network;
 mod network_path;
+mod nucleus;
 mod nvhttp;
 mod playnite;
 mod power_action;

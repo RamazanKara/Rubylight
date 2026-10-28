@@ -7,6 +7,7 @@
 //! device's permissions and Host control flag from `h.paired` then, never from
 //! a copy taken at launch: a grant or revoke in the console applies to the
 //! next request.
+pub(crate) mod coop;
 pub(crate) mod files;
 mod folders;
 pub(crate) mod radeon;
@@ -192,6 +193,8 @@ pub fn router() -> Router<Shared> {
                 .fallback(unknown),
         )
         .route(&path("/wake"), get(wake::read).fallback(unknown))
+        .route(&path("/coop"), get(coop::list).fallback(unknown))
+        .route(&path("/coop/join"), post(coop::join).fallback(unknown))
         .route(
             &path(native_api::usb::TUNNEL_PATH),
             get(usb_tunnel).fallback(unknown),
@@ -313,6 +316,7 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
             crate::extensions::native_features(&h, &config),
         )
     };
+    let coop = h.nucleus.unavailable().is_none();
     Ok(json(
         StatusCode::OK,
         &Capabilities {
@@ -360,6 +364,8 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
                 (couch_menu && (client.allows(VIEW) || client.allows(LAUNCH)))
                     .then_some(feature::COUCH_MENU),
             )
+            // While this host can run Nucleus Co-op sessions.
+            .chain(coop.then_some(feature::COOP))
             .chain(extension_features)
             .map(String::from)
             .collect(),
@@ -372,6 +378,7 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
                 file_download: client.allows(FILE_DOWNLOAD),
                 usb: client.allows_usb(),
                 shared_folders: client.has_folders(),
+                coop_join: client.allows_coop_join(),
             },
         },
     ))
@@ -385,11 +392,16 @@ async fn library(State(h): State<Shared>, Extension(c): Extension<Connection>) -
     Ok(json(StatusCode::OK, &library))
 }
 fn library_of(h: &Shared) -> native_api::library::Library {
-    let apps = h
+    let mut apps = h
         .apps
         .read()
         .unwrap_or_else(PoisonError::into_inner)
         .clone();
+    // The co-op entries follow the user's apps, as in `/applist`.
+    let configured =
+        crate::nucleus::configured(&h.config.read().unwrap_or_else(PoisonError::into_inner));
+    let coop = h.nucleus.entries(&apps, &configured);
+    apps.extend(coop.into_iter().map(|coop| coop.entry));
     let current = h
         .current_app
         .lock()
@@ -488,6 +500,13 @@ pub(crate) fn session_action(h: &Shared, client: &Client, action: Action) -> Res
     // The actions check the session's owner themselves, under the launch lock.
     // With no session, Close game closes a game End session left running.
     let device = client.uuid.as_str();
+    // A Nucleus Co-op player owns no host session: End and Disconnect end its own streams.
+    let disconnect = matches!(action, Action::Disconnect);
+    if (disconnect || matches!(action, Action::End))
+        && crate::nvhttp::quit_nucleus_stream(h, device, disconnect)?
+    {
+        return Ok(());
+    }
     match action {
         Action::Disconnect => h.disconnect_session(Some(device)),
         Action::End => h.end_session(Some(device)),

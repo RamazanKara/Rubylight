@@ -287,10 +287,15 @@ public final class ActionSheet extends BottomSheetDialog {
     }
 
     public void addSection(int title) {
+        content.addView(sectionHeading(getContext().getText(title)));
+    }
+
+    /** A heading from the host's words, such as a session's game. */
+    public void addSection(CharSequence title) {
         content.addView(sectionHeading(title));
     }
 
-    private TextView sectionHeading(int title) {
+    private TextView sectionHeading(CharSequence title) {
         TextView heading = new TextView(getContext());
         heading.setText(title);
         heading.setTextAppearance(getContext(), R.style.TextAppearance_Nightjar_Label);
@@ -318,7 +323,7 @@ public final class ActionSheet extends BottomSheetDialog {
     }
 
     public void addSection(android.view.ViewGroup parent, int title) {
-        parent.addView(sectionHeading(title));
+        parent.addView(sectionHeading(getContext().getText(title)));
     }
 
     public MaterialButton addAction(android.view.ViewGroup parent, int icon, CharSequence label) {

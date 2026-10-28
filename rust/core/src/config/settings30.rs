@@ -160,6 +160,8 @@ impl Config {
     }
     /// The child session's base port, as `port` is for the host
     /// ([`super::Ports::from_base`]); 48289 by default, so its ports are 48284 to 48310.
+    /// Inert: the child session's host takes
+    /// [`crate::child_session::CHILD_BASE_PORT`] until this goes live.
     pub fn child_session_port(&self) -> u16 {
         self.integer30("child_session_port", 48289, |n| PORTS.contains(&n)) as u16
     }
@@ -358,6 +360,9 @@ mod tests {
         "touch_mode",
         "touch_sensitivity",
         "touch_gestures",
+        // Nucleus Co-op.
+        "nucleus_path",
+        "nucleus_coop_players",
     ];
 
     /// Each setting's key and default in extensions.ts, with LF or CRLF line

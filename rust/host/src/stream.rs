@@ -586,7 +586,11 @@ pub(crate) fn effective_config(h: &Shared, launch: &Launch) -> Result<Config> {
     }
     // Last, so no override hands the device's keyboard and mouse back to the
     // desktop the person at the PC is using.
-    if launch.role == Role::Stream
+    config.values.remove(crate::nucleus::PLAYER);
+    if launch.nucleus.is_some() {
+        crate::nucleus::isolate(&mut config);
+        config.values.remove(butterpollo_core::background::SETTING);
+    } else if launch.role == Role::Stream
         && launch.background.unwrap_or_else(|| {
             butterpollo_core::background::enabled(&config)
                 || butterpollo_core::background::requested(
@@ -1623,7 +1627,10 @@ impl Media {
                 let timing_record = crate::timing_record::Detach(s.clone());
                 #[cfg(test)]
                 let mut fixture_preparation = None;
+                // A co-op player's stream ends with its Nucleus Co-op session.
+                let mut coop_watch = None;
                 let result = (|| -> Result<()> {
+                    coop_watch = crate::nucleus::Watch::start(&h, &s)?;
                     #[cfg(test)]
                     if let Some(fixture) = &h.reconnect_fixture {
                         fixture_preparation = s.launch.preparation.lock().unwrap().take();
@@ -1670,8 +1677,9 @@ impl Media {
                         .take();
                     // A stream request at another rate than the launch keeps an
                     // owned virtual display and raises its refresh where needed.
+                    // A co-op player's window follows the stream's size instead.
                     let initial = match initial {
-                        Some(p) if !p.prepared().display.matches(&s.config) => Some(
+                        Some(p) if s.launch.nucleus.is_none() && !p.prepared().display.matches(&s.config) => Some(
                             crate::display_session::retime(p.into_prepared(), &h, &s.launch, &s.config, &c)?,
                         ),
                         Some(p) => Some(Ok(p.into_prepared())),
@@ -1686,14 +1694,18 @@ impl Media {
                             drop(previous);
                             let previous = h.app_display.lock().unwrap().remove(&s.launch.client.uuid);
                             drop(previous);
-                            crate::display_session::prepare_stream(
-                                &h, &s.launch, &s.config, &c,
-                            )?
+                            match s.launch.nucleus {
+                                Some(_) => crate::nucleus::prepare(&h, &s.launch, &s.config, &c, crate::nucleus::WINDOW_WAIT)?,
+                                None => crate::display_session::prepare_stream(
+                                    &h, &s.launch, &s.config, &c,
+                                )?,
+                            }
                         }
                     });
                     stream_preparation.report_limiter(&s.launch.warnings, &c);
                     let prepared = stream_preparation.display.clone();
-                    if s.launch.role == Role::Stream {
+                    // A game window is no display to keep for the device.
+                    if s.launch.role == Role::Stream && s.launch.nucleus.is_none() {
                         let mut displays = h.app_display.lock().unwrap();
                         if !s.stopping() {
                             displays.insert(s.launch.client.uuid.clone(), (prepared.clone(), None));
@@ -2592,7 +2604,15 @@ impl Media {
                                         tracing::info!(client = %s.launch.client.name, from = %from, to = %to, "reconfigure requested");
                                         to.apply_to(&mut stream);
                                         if (to.width, to.height) != (from.width, from.height) {
-                                            prepared.follow_shape((stream.width, stream.height));
+                                            match s.launch.nucleus {
+                                                // A co-op player's window follows the stream's size.
+                                                Some(seat) => {
+                                                    if let Err(error) = crate::nucleus::resize(&h, seat, (stream.width, stream.height)) {
+                                                        tracing::warn!(client = %s.launch.client.name, error = %format!("{error:#}"), "co-op window resize refused");
+                                                    }
+                                                }
+                                                None => prepared.follow_shape((stream.width, stream.height)),
+                                            }
                                         }
                                         s.rebuild_link_rate(&stream, c.link_rate_adaptation(), c.integer("max_bitrate", 0).clamp(0, 500_000) as u32);
                                         switching.get_or_insert((from, Instant::now()));
@@ -3677,6 +3697,8 @@ impl Media {
                                     id: l.id.clone(),
                                     injector: None,
                                     injector_tried: false,
+                                    coop: None,
+                                    coop_tried: false,
                                     sequence: 0,
                                     received: Default::default(),
                                     hdr_metadata: None,
@@ -4625,9 +4647,24 @@ impl Media {
                             tracing::warn!(error = %format!("{e:#}"), ?usb, "USB message not sent");
                         }
                     }
+                    // A co-op player's input drives its slot's pad and never
+                    // the desktop: it gets no injector.
+                    if s.launch.nucleus.is_some() && !p.coop_tried {
+                        p.coop_tried = true;
+                        p.coop = effective_config(&h, &s.launch)
+                            .inspect_err(|e| tracing::warn!(error = %format!("{e:#}"), "co-op input configuration unavailable"))
+                            .ok()
+                            .and_then(|c| crate::nucleus::Player::of(&h, &s.launch, &c));
+                        if p.coop.is_none() {
+                            tracing::warn!(client = %s.launch.client.name, "co-op input has no Nucleus Co-op session: this player's input is dropped");
+                        }
+                    }
                     // Made before input comes; after a failure, again when it
                     // does. Making it with the first input held that input up.
-                    if p.injector.is_none() && (!p.inputs.is_empty() || !p.injector_tried) {
+                    if s.launch.nucleus.is_none()
+                        && p.injector.is_none()
+                        && (!p.inputs.is_empty() || !p.injector_tried)
+                    {
                         p.injector_tried = true;
                         let c = match effective_config(&h, &s.launch) {
                             Ok(c) => c,
@@ -4710,6 +4747,15 @@ impl Media {
                             let _ = wake.send(&[1]);
                         });
                     }
+                    // Nor the couch menu, which the PC's display would show.
+                    if s.launch.nucleus.is_some() {
+                        let events = std::mem::take(&mut p.inputs);
+                        if let Some(player) = &mut p.coop {
+                            for event in events {
+                                player.input(event, &s.launch.warnings);
+                            }
+                        }
+                    }
                     // The couch menu takes what it needs; the game gets the rest.
                     let batch = crate::couch_menu::apply_batch(
                         &mut p.couch,
@@ -4744,8 +4790,8 @@ impl Media {
                     }
                     // The gamepad thread polls feedback every 8 ms; pass on
                     // what it found, and the sensors an arrived pad has.
-                    let sends = match &p.injector {
-                        Some(i) => pad_reports(
+                    let sends = match (&p.injector, &p.coop) {
+                        (Some(i), _) => pad_reports(
                             i.gamepad_reports(),
                             |kind| i.feedback_allowed(kind),
                             haptics_negotiated(&s.config, host.peer(*peer_id).channel_count()),
@@ -4754,7 +4800,16 @@ impl Media {
                             &mut p.audio_haptics.arbiter,
                             &mut p.rumble,
                         ),
-                        None => PadSends::default(),
+                        (None, Some(player)) if poll_feedback => pad_reports(
+                            player.feedback(&h),
+                            |kind| player.feedback_allowed(kind),
+                            haptics_negotiated(&s.config, host.peer(*peer_id).channel_count()),
+                            &p.controller_audio,
+                            &mut p.controller_pcm,
+                            &mut p.audio_haptics.arbiter,
+                            &mut p.rumble,
+                        ),
+                        _ => PadSends::default(),
                     };
                     s.reserve_controller_pcm(p.controller_pcm.streams(Instant::now()));
                     for (kind, payload) in sends.waveforms {
@@ -4935,6 +4990,10 @@ struct ControlPeer {
     injector: Option<Injector>,
     /// Whether making the injector was tried.
     injector_tried: bool,
+    /// A co-op player's slot, which takes its input instead of an injector.
+    coop: Option<crate::nucleus::Player>,
+    /// Whether finding the co-op player was tried.
+    coop_tried: bool,
     sequence: u32,
     received: butterpollo_core::packet::ReplayWindow,
     hdr_metadata: Option<[u8; 27]>,

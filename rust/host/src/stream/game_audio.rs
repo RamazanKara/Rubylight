@@ -44,20 +44,24 @@ impl GameAudio {
                         && !s.stopping()
                         && !h.stop.load(Ordering::Acquire)
                     {
-                        let selected = h
-                            .current_app
-                            .lock()
-                            .unwrap()
-                            .as_ref()
-                            .filter(|app| {
-                                app.id == s.launch.app_id
-                                    && Some(&app.generation) == generation.as_ref()
-                            })
-                            .ok_or_else(|| {
-                                anyhow::anyhow!("this stream has no matching launched game")
-                            })
-                            .and_then(crate::process::RunningApp::audio_process)
-                            .map_err(|error| format!("{error:#}"));
+                        // A co-op player hears its own slot's game instance.
+                        let selected = match s.launch.nucleus {
+                            Some(seat) => crate::nucleus::audio(&h, seat),
+                            None => h
+                                .current_app
+                                .lock()
+                                .unwrap()
+                                .as_ref()
+                                .filter(|app| {
+                                    app.id == s.launch.app_id
+                                        && Some(&app.generation) == generation.as_ref()
+                                })
+                                .ok_or_else(|| {
+                                    anyhow::anyhow!("this stream has no matching launched game")
+                                })
+                                .and_then(crate::process::RunningApp::audio_process),
+                        }
+                        .map_err(|error| format!("{error:#}"));
                         *target.lock().unwrap() = selected;
                         thread::park_timeout(Duration::from_secs(1));
                     }

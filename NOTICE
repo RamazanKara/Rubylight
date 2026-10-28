@@ -61,6 +61,16 @@ is ported from Annex (https://github.com/mattxslv/annex), Copyright (c) 2026
 mattxslv, MIT licensed, with ocr1n's launcher rework (mattxslv/annex#2). The MIT
 license text is in third-party/licenses/annex-LICENSE.txt.
 
+Nucleus Co-op
+
+Background streaming and co-op (rust/core/src/nucleus/, rust/windows/src/nucleus/)
+launch games through Nucleus Co-op (https://github.com/SplitScreen-Me/splitscreenme-nucleus)
+by SplitScreen.Me, GPL-3.0 licensed, which includes ProtoInput by Ilyaki, MIT
+licensed. Rubylight does not bundle them: the host downloads Nucleus Co-op 2.4.2
+from its GitHub release at first use and checks its size and SHA-256, or uses a
+copy the user names in nucleus_path. Game handlers come from Nucleus Co-op's
+handler hub and are the user's own content.
+
 InputPlumber and SDL
 
 The virtual Steam Deck controller (rust/core/src/steam_deck.rs) uses the Steam Deck's

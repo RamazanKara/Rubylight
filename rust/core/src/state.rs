@@ -167,6 +167,12 @@ impl Client {
     pub fn allows_usb(&self) -> bool {
         self.enabled && self.extra.get("allow_usb") == Some(&Value::Bool(true))
     }
+    /// Whether the administrator let this device join other devices' co-op
+    /// sessions (`coop_join`, `nucleus::coop::may_join`). No permission bit or
+    /// Host control implies it, and a disabled device may not.
+    pub fn allows_coop_join(&self) -> bool {
+        self.enabled && crate::nucleus::coop::may_join(&self.extra)
+    }
     /// This device's grant for shared folder `id`, from
     /// `shared_folders: {"<id>": "read" | "write"}`. Any other value, or an id
     /// the console would refuse (a hand-edited `"../x"`), grants nothing, and a
@@ -530,6 +536,16 @@ impl PairedState {
             later => chosen.unwrap_or(later),
         }
     }
+    /// The grants a device paired with `perm` gets besides its permission
+    /// bits: one that may launch apps may also join co-op sessions
+    /// (`coop_join`), which the owner can take away on the device's page.
+    pub fn paired_device_extra(perm: u32) -> BTreeMap<String, Value> {
+        let mut extra = BTreeMap::new();
+        if perm & LAUNCH_APPS != 0 {
+            extra.insert(crate::nucleus::coop::DEVICE_KEY.into(), Value::Bool(true));
+        }
+        extra
+    }
     /// Pair a WebRTC device. `client` must be a WebRTC device ([`Client::is_webrtc`]);
     /// its `perm` is replaced by [`Self::new_device_permission`], or everything for
     /// a console's own device ([`Client::console_over_webrtc`]).
@@ -809,6 +825,21 @@ mod tests {
         assert!(!disabled.allows_usb());
     }
     #[test]
+    fn coop_join_is_its_own_grant_never_a_permission_bit() {
+        assert!(!client_with(u32::MAX, json!({"host_control":true})).allows_coop_join());
+        assert!(client_with(0, json!({"coop_join":true})).allows_coop_join());
+        assert!(client_with(0, json!({"coop_join":"true"})).allows_coop_join());
+        for value in [json!(false), json!(1), json!(null), json!("yes")] {
+            assert!(
+                !client_with(u32::MAX, json!({"coop_join":value})).allows_coop_join(),
+                "{value}"
+            );
+        }
+        let mut disabled = client_with(0, json!({"coop_join":true}));
+        disabled.enabled = false;
+        assert!(!disabled.allows_coop_join());
+    }
+    #[test]
     fn folder_grants_read_only_read_and_write() {
         use rubylight_native_api::folders::FolderAccess;
         let client = client_with(
@@ -1017,6 +1048,16 @@ mod tests {
             Some(FIRST_DEVICE_PERMISSION)
         );
         assert!(pairing_access("Play").is_err());
+        // Play games and Everything may join co-op too; view only may not.
+        for (perm, joins) in [
+            (PLAY_DEVICE_PERMISSION, true),
+            (FIRST_DEVICE_PERMISSION, true),
+            (LATER_DEVICE_PERMISSION, false),
+        ] {
+            let mut client = client_with(perm, json!({}));
+            client.extra = PairedState::paired_device_extra(perm);
+            assert_eq!(client.allows_coop_join(), joins, "{perm:#x}");
+        }
         let d = tempfile::tempdir().unwrap();
         let p = d.path().join("state.json");
         let mut s = PairedState::load(&p).unwrap();

@@ -1006,6 +1006,8 @@ fn expected(feature: Feature) -> Availability {
         Feature::FileUpload | Feature::FileDownload => Unsupported(None),
         // The 3.0 extensions are defined but offered by nothing yet.
         Feature::UsbForwarding | Feature::SharedFolders => Unsupported(None),
+        // Nucleus Co-op runs only in the service host, which the fixture is not.
+        Feature::Coop => Unsupported(None),
         // clipboard_image is on by default.
         Feature::ImageClipboard => Supported,
     }

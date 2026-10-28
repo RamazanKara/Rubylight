@@ -26,9 +26,11 @@
   } from '../components/settings/values';
   import { api, type Config, type ConfigValue } from '../lib/api';
   import { confirm, failed, notify } from '../lib/feedback.svelte';
-  import { guardNavigation, match, navigate } from '../lib/router.svelte';
+  import { guardNavigation, match, navigate, query as queryParam, route } from '../lib/router.svelte';
   import { refreshMetadata } from '../lib/session.svelte';
-  import { schema, settingGroups, settingsGroup } from '../lib/settings-schema';
+  import { categoriesOf, schema, settingGroups, settingsGroup } from '../lib/settings-schema';
+  import { DEBUG_GROUP, EXPERT_GROUPS } from '../lib/schema/main';
+  import SaveBar from '../components/settings/SaveBar.svelte';
   import { SETTING as PRESET, covered, presetById, presetId, presetNotice, withPreset } from '../lib/stream-presets';
   import type { Category, CategoryId, Setting } from '../lib/settings-types';
 
@@ -49,7 +51,8 @@
   let edits = $state<Edits>({});
   /** Invalid number or JSON drafts by key. Saving waits for correction. */
   let invalid = $state<Record<string, string>>({});
-  let query = $state('');
+  // Search from the Settings home arrives as ?q=.
+  let query = $state(queryParam('q') ?? '');
   let review = $state<'all' | 'changed' | 'invalid'>('all');
   // Keep reviewed rows mounted while they are corrected or reverted.
   let reviewKeys = $state<string[]>([]);
@@ -140,11 +143,13 @@
     settings: Setting[];
   }
 
-  /** Groups shown collapsed under their heading, for options that only help when troubleshooting. */
-  const FOLDED_GROUPS = new Set(['Capture troubleshooting']);
+  // Every setting shows; only the expert groups start collapsed (EXPERT_GROUPS).
   let foldOpen = $state<Record<string, boolean>>({});
 
-  /** Settings under their group headings, groups in order of first use. */
+  /** Expert groups after the others, Debug switches last. */
+  const rank = (name: string) => (name === DEBUG_GROUP ? 2 : EXPERT_GROUPS.has(name) ? 1 : 0);
+
+  /** Settings under their group headings, groups in order of first use, expert groups last. */
   function grouped(list: Setting[]): Group[] {
     const groups: Group[] = [];
     for (const setting of list) {
@@ -156,20 +161,36 @@
       }
       group.settings.push(setting);
     }
-    return groups;
+    return groups.sort((a, b) => rank(a.name) - rank(b.name));
   }
 
   const inCategory = $derived(described.filter((setting) => settingsGroup(setting.category) === active?.id));
   // Keep a pending control reachable if editing its parent makes it inactive.
   const shown = $derived(inCategory.filter((setting) => visible(setting) || pending.has(setting.key)));
-  const basic = $derived(grouped(shown.filter((setting) => (!setting.advanced || missing(setting)))));
-  const advanced = $derived(shown.filter((setting) => setting.advanced && !missing(setting)));
-  const advancedModified = $derived(new Set(advanced.filter(setting => differsFromDefault(setting, edits, config)).map(setting => setting.key)).size);
-  const advancedChanged = $derived(advanced.filter((setting) => pending.has(setting.key)).length);
-  // Opened by the user, per category. Unsaved advanced changes open it too, and
-  // undoing them must not collapse the section the user is working in.
-  let advancedOpen = $state<Partial<Record<CategoryId, boolean>>>({});
-  const showAdvanced = $derived(['encoders', 'commands', 'advanced'].includes(section) || advancedChanged > 0 || (active ? advancedOpen[active.id] === true : false));
+  const shownGroups = $derived(grouped(shown));
+
+  // A link to one setting (?setting=key, from the Settings home's search)
+  // opens its group, then brings the row into view and marks it.
+  // A setting the current choices hide is shown through search instead.
+  let jumped = '';
+  $effect(() => {
+    const key = new URLSearchParams(route.search).get('setting');
+    if (!key || stored === null || jumped === route.path + route.search) return;
+    jumped = route.path + route.search;
+    const group = byKey.get(key)?.group;
+    if (group) foldOpen[group] = true;
+    void tick().then(() => {
+      const row = document.querySelector<HTMLElement>(`[data-setting="${CSS.escape(key)}"]`);
+      if (!row) {
+        query = key;
+        return;
+      }
+      row.scrollIntoView({ block: 'center' });
+      row.querySelector<HTMLElement>('input, select, textarea, button')?.focus({ preventScroll: true });
+      const mark = getComputedStyle(row).getPropertyValue('--accent-soft').trim();
+      if (mark) row.animate([{ backgroundColor: mark }, { backgroundColor: 'transparent' }], { duration: 1800, easing: 'ease-out' });
+    });
+  });
 
   // ---------- search ----------
 
@@ -186,7 +207,7 @@
         settings: described.filter(
           (setting) =>
             settingsGroup(setting.category) === category.id &&
-            inReview(setting.key) && (matchesSetting(setting, category, words) || matchesSetting(setting, schema.categories.find(item => item.id === setting.category)!, words)),
+            inReview(setting.key) && categoriesOf(setting).some((shownUnder) => matchesSetting(setting, shownUnder, words)),
         ),
         unknown: category.id === 'general' ? unknownKeys.filter((key) => inReview(key) && matchesWords(key, words)) : [],
       }))
@@ -320,7 +341,8 @@
     const warn = (event: BeforeUnloadEvent) => event.preventDefault();
     window.addEventListener('beforeunload', warn);
     const unguard = guardNavigation((to) =>
-      to.startsWith('/settings')
+      // Other categories keep the edits; the Settings home is another page.
+      to.startsWith('/settings/')
         ? true
         : confirm({
             title: 'Leave without saving?',
@@ -368,12 +390,12 @@
 
 {#snippet groups(list: Group[])}
   {#each list as group (group.name)}
-    {#if FOLDED_GROUPS.has(group.name)}
+    {#if EXPERT_GROUPS.has(group.name)}
       {@const fold = foldStatus(group.settings, edits, config, pending)}
-      <!-- Opened by the user; an unsaved change inside opens it too. -->
+      <!-- Opened by the user. A customized value opens it until the user closes it; an unsaved one keeps it open. -->
       <details
         class="group fold"
-        open={foldOpen[group.name] === true || fold.mustOpen}
+        open={(foldOpen[group.name] ?? fold.customized > 0) || fold.mustOpen}
         ontoggle={(event) => {
           foldOpen[group.name] = event.currentTarget.open;
         }}
@@ -415,7 +437,7 @@
   />
 {/snippet}
 
-<PageHeader title="Settings" subtitle="How this host captures, encodes and streams your games.">
+<PageHeader title="All settings" subtitle="Every setting this host reads, by topic. The few most people change are on the Settings page.">
   {#snippet actions()}
     <label class="show-keys">
       <span>Show config keys</span>
@@ -538,76 +560,41 @@
                 <p>There are no {active.label.toLowerCase()} settings available.</p>
               </EmptyState>
             {/if}
-          {:else if basic.length === 0}
-            <!-- Nothing to fold advanced settings behind. -->
+          {:else}
             <div class="rows">
-              {@render groups(grouped(advanced))}
+              {@render groups(shownGroups)}
               {#if shown.length === 0}
                 <p class="placeholder muted">None of these settings apply with the current choices.</p>
               {/if}
             </div>
-          {:else}
-            <div class="rows">
-              {@render groups(basic)}
-            </div>
-            {#if advanced.length}
-              <details
-                class="advanced"
-                open={showAdvanced}
-                ontoggle={(event) => {
-                  if (active) advancedOpen[active.id] = event.currentTarget.open;
-                }}
-              >
-                <summary>
-                  <Icon name="chevron" size={15} />
-                  Advanced
-                  <span class="count">
-                    {advanced.length}
-                    {advanced.length === 1 ? 'setting' : 'settings'}{advancedModified ? `, ${advancedModified} customized` : ''}{advancedChanged ? `, ${advancedChanged} unsaved` : ''}
-                  </span>
-                </summary>
-                <div class="rows">
-                  {@render groups(grouped(advanced))}
-                </div>
-              </details>
-            {/if}
           {/if}
           {#if active.id === 'general'}
-            <details class="custom-config" open={section === 'advanced'}><summary>Custom configuration keys <span class="count">{unknownKeys.length} stored</span></summary>{@render otherKeys(unknownKeys, true)}</details>
+            <details class="fold custom-config" open={section === 'advanced'}>
+              <summary><Icon name="chevron" size={15} />Custom configuration keys <span class="count">{unknownKeys.length} stored</span></summary>
+              {@render otherKeys(unknownKeys, true)}
+            </details>
           {/if}
         </Panel>
-        {#if active.id === 'network'}<div class="row"><Button href="/tokens" icon="key">API tokens</Button><Button href="/webhooks" icon="link">Webhooks</Button><Button href="/maintenance#account">Account & sign-in</Button></div>{/if}
-        {#if active.id === 'general'}<div class="row"><Button href="/maintenance#host">Updates & restart</Button><Button href="/logs" icon="logs">View logs</Button></div>{/if}
+        {#if active.id === 'network'}<div class="row"><Button href="/tokens" icon="key">API tokens</Button><Button href="/webhooks" icon="link">Webhooks</Button><Button href="/settings#security">Sign-in and security</Button></div>{/if}
+        {#if active.id === 'general'}<div class="row"><Button href="/settings#updates">Updates</Button><Button href="/logs" icon="logs">View logs</Button></div>{/if}
       {/if}
     </div>
   </div>
 </div>
 
-{#if stored && (pending.size > 0 || saved)}
-  <div class="save-bar">
-    {#if pending.size > 0}
-      <p class="status" role="status">
-        <span class="dot" aria-hidden="true"></span>
-        <span>{pending.size} unsaved {pending.size === 1 ? 'change' : 'changes'}</span>
-        {#if invalidCount}<span class="problem">{invalidCount} {invalidCount === 1 ? 'setting needs' : 'settings need'} correction before saving.</span>{/if}
-      </p>
-      <div class="actions">
-        <Button variant="ghost" onclick={() => reviewChanges(invalidCount ? 'invalid' : 'changed')}>
-          {invalidCount ? 'Review errors' : 'Review changes'}
-        </Button>
-        <Button disabled={saving} onclick={discard}>Discard</Button>
-        <Button variant="primary" busy={saving} disabled={invalidCount > 0} onclick={save}>Save changes</Button>
-      </div>
-    {:else}
-      <p class="status" role="status">Saved. Some changes apply after the host restarts.</p>
-      <div class="actions">
-        <Button icon="refresh" busy={restarting} onclick={restart}>Restart now</Button>
-        <Button variant="ghost" icon="x" title="Dismiss" onclick={() => (saved = false)}>
-          <span class="visually-hidden">Dismiss</span>
-        </Button>
-      </div>
-    {/if}
-  </div>
+{#if stored}
+  <SaveBar
+    pending={pending.size}
+    invalid={invalidCount}
+    {saving}
+    {saved}
+    {restarting}
+    onreview={() => reviewChanges(invalidCount ? 'invalid' : 'changed')}
+    ondiscard={discard}
+    onsave={save}
+    onrestart={restart}
+    ondismiss={() => (saved = false)}
+  />
 {/if}
 
 <style>
@@ -620,7 +607,6 @@
   .preset-note strong { color: var(--ink); }
   .preset-error, .preset-error strong { color: var(--danger); }
   .custom-config { border-top: 1px solid var(--line); }
-  .custom-config > summary { padding: var(--space-4) var(--space-5); }
   .frame {
     /* The layout follows the room the page has, whatever the shell around it. */
     container-type: inline-size;
@@ -751,32 +737,6 @@
   .group + .group:not(:has(.group-title)) {
     border-top: 1px solid var(--line);
   }
-  .advanced {
-    border-top: 1px solid var(--line);
-  }
-  .advanced summary {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    padding: var(--space-4) var(--space-5);
-    font-size: var(--text);
-    font-weight: var(--weight-semibold);
-    cursor: pointer;
-    list-style: none;
-  }
-  .advanced summary::-webkit-details-marker {
-    display: none;
-  }
-  .advanced summary:hover {
-    background: var(--sunken);
-  }
-  .advanced summary :global(svg) {
-    color: var(--muted);
-    transition: transform var(--duration-fast);
-  }
-  .advanced[open] summary :global(svg) {
-    transform: rotate(90deg);
-  }
   .count {
     font-weight: var(--weight-regular);
     font-size: var(--text-sm);
@@ -808,16 +768,8 @@
   .fold[open] > summary :global(svg) {
     transform: rotate(90deg);
   }
-  /* Undo the open Advanced section's turn of every chevron inside it. */
-  .fold:not([open]) > summary :global(svg) {
-    transform: none;
-  }
   .fold > :global(.setting) {
     border-top: 1px solid var(--line);
-  }
-  /* The headings inside read as subsections of Advanced. */
-  .advanced .group:first-child .group-title {
-    padding-top: 0;
   }
   .show-keys {
     display: inline-flex;
@@ -828,38 +780,6 @@
     font-weight: var(--weight-medium);
     color: var(--ink-2);
     cursor: pointer;
-  }
-  .save-bar {
-    position: sticky;
-    bottom: var(--space-3);
-    z-index: 5;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: var(--space-2) var(--space-4);
-    padding: var(--space-3) var(--space-4);
-    border: 1px solid var(--line-strong);
-    border-radius: var(--radius-lg);
-    background: var(--panel-raised);
-    box-shadow: var(--shadow-pop);
-  }
-  .status {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: var(--space-1) var(--space-2);
-    font-size: var(--text-sm);
-    font-weight: var(--weight-medium);
-  }
-  .problem {
-    color: var(--danger);
-    font-weight: var(--weight-regular);
-  }
-  .actions {
-    display: flex;
-    gap: var(--space-2);
-    flex-wrap: wrap;
   }
   @container (max-width: 720px) {
     .layout {
@@ -883,14 +803,12 @@
       grid-template-columns: minmax(0, 1fr);
     }
     .group-title,
-    .fold > summary,
-    .advanced summary {
+    .fold > summary {
       padding-left: var(--space-4);
       padding-right: var(--space-4);
     }
     .show-keys,
-    .fold > summary,
-    .advanced summary {
+    .fold > summary {
       min-height: var(--control-height);
     }
   }

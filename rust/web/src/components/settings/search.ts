@@ -9,6 +9,20 @@ export function matchesWords(text: string, words: readonly string[]): boolean {
   return words.every((word) => lower.includes(word));
 }
 
+/**
+ * Every setting the query finds, in schema order. A setting matches through
+ * any of the categories it is shown under (its own and its settings group).
+ */
+export function searchSettings(
+  settings: readonly Setting[],
+  categoriesOf: (setting: Setting) => readonly Category[],
+  query: string,
+): Setting[] {
+  const words = searchWords(query);
+  if (!words.length) return [];
+  return settings.filter((setting) => categoriesOf(setting).some((category) => matchesSetting(setting, category, words)));
+}
+
 /** Search what users see, including choices inside menus and category context. */
 export function matchesSetting(setting: Setting, category: Category, words: readonly string[]): boolean {
   const options = setting.control.kind === 'select'

@@ -189,7 +189,7 @@
           <Button variant="primary" busy={applying || pending} disabled={checking || pending || (!changes.length && !fastStartupOff)} onclick={apply}>Apply changes</Button>
         {/if}
         <Button icon="refresh" busy={checking} disabled={applying || pending} onclick={check}>Check again</Button>
-        <a class="small" href="/settings/general" use:link>Change sleep after idle</a>
+        <a class="small" href="/settings/general?setting=sleep_after_idle_minutes" use:link>Change sleep after idle</a>
       </div>
     </div>
   {:else}<LoadState error={loadError} what="the wake status" onretry={() => load(true)} />{/if}

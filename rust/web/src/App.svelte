@@ -18,6 +18,7 @@
   import Stream from './pages/Stream.svelte';
   import Devices from './pages/Devices.svelte';
   import Settings from './pages/Settings.svelte';
+  import SettingsHome from './pages/SettingsHome.svelte';
   import Logs from './pages/Logs.svelte';
   import Maintenance from './pages/Maintenance.svelte';
   import Tokens from './pages/Tokens.svelte';
@@ -72,7 +73,8 @@
     if (match('/library') || match('/library/:uuid')) return Library;
     if (route.path === '/stream') return Stream;
     if (route.path === '/devices') return Devices;
-    if (match('/settings') || match('/settings/:section')) return Settings;
+    if (route.path === '/settings') return SettingsHome;
+    if (match('/settings/:section')) return Settings;
     if (route.path === '/logs') return Logs;
     if (route.path === '/maintenance') return Maintenance;
     if (route.path === '/tokens') return Tokens;

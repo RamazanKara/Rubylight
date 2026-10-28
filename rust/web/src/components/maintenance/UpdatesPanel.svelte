@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, type Snippet } from 'svelte';
   import Badge from '../Badge.svelte';
   import Button from '../Button.svelte';
   import Icon from '../Icon.svelte';
@@ -11,6 +11,9 @@
   import { link } from '../../lib/router.svelte';
   import { refreshMetadata, session } from '../../lib/session.svelte';
   import { localTime, reason } from './util';
+
+  /** `settings`: update settings shown above the status (the Settings home). */
+  let { title = 'Updates', settings }: { title?: string; settings?: Snippet } = $props();
 
   let updates = $state<UpdatesState | null>(null);
   let loadError = $state('');
@@ -75,11 +78,12 @@
   });
 </script>
 
-<Panel title="Updates" level={3}>
+<Panel {title} level={3}>
   {#snippet actions()}
     {#if available}<Badge tone="accent">Update available</Badge>
     {:else if latest && !updates?.check_failed}<Badge tone="ok">Up to date</Badge>{/if}
   {/snippet}
+  {#if settings}<div class="settings">{@render settings()}</div>{/if}
   {#if updates}
     <div class="stack">
       <dl class="facts">
@@ -136,7 +140,7 @@
         </details>
         {#if latest && notes}<details><summary>Release notes for {latest.name || latest.tag_name}</summary><pre class="notes">{notes}</pre></details>{/if}
         <div class="row small">
-          <a href="/settings/general" use:link>Change update settings</a>
+          <a href="/settings/general?setting=update_check_interval" use:link>Change update settings</a>
           {#if latest}<a class="release" href={latest.html_url} target="_blank" rel="noreferrer">Open the release page<Icon name="external" size={14} /></a>{/if}
         </div>
       </div>
@@ -145,6 +149,16 @@
 </Panel>
 
 <style>
+  /* Setting rows reach the panel's edges, above the status. */
+  .settings {
+    margin: calc(-1 * var(--space-5)) calc(-1 * var(--space-5)) var(--space-4);
+    border-bottom: 1px solid var(--line);
+  }
+  @media (max-width: 520px) {
+    .settings {
+      margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-4)) var(--space-4);
+    }
+  }
   .links {
     display: grid;
     gap: var(--space-2);

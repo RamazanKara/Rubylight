@@ -454,6 +454,14 @@ fn io_error(error: windows::core::Error) -> std::io::Error {
 /// inside it is skipped; an allowing entry of another kind is named by its
 /// type ("ACE type 9"), never skipped.
 pub fn open_file_writers(file: &std::fs::File) -> Result<Vec<String>> {
+    open_file_allowed(file, WRITE)
+}
+/// Who may move or delete what the folder `file` has open holds (delete children), or change the
+/// folder's permissions or owner: as [`open_file_writers`], without those who may only add to it.
+pub fn open_file_child_movers(file: &std::fs::File) -> Result<Vec<String>> {
+    open_file_allowed(file, CHILD_MOVE)
+}
+fn open_file_allowed(file: &std::fs::File, mask: u32) -> Result<Vec<String>> {
     use windows::Win32::Security::Authorization::{GetSecurityInfo, SE_FILE_OBJECT};
     let mut dacl: *mut ACL = std::ptr::null_mut();
     let mut descriptor = crate::ipc::Descriptor(PSECURITY_DESCRIPTOR::default());
@@ -471,26 +479,20 @@ pub fn open_file_writers(file: &std::fs::File) -> Result<Vec<String>> {
         )
         .ok()
         .context("reading the permissions")?;
-        dacl_writers(dacl)
+        dacl_allowed(dacl, mask)
     }
 }
-/// [`open_file_writers`] of `dacl`.
+// Write data or add a file, append or add a folder, write extended attributes, delete
+// children, write attributes, delete, write permissions, take ownership, all, write.
+const WRITE: u32 =
+    0x2 | 0x4 | 0x10 | 0x40 | 0x100 | 0x1_0000 | 0x4_0000 | 0x8_0000 | 0x1000_0000 | 0x4000_0000;
+// Delete children, write permissions, take ownership, all, write.
+const CHILD_MOVE: u32 = 0x40 | 0x4_0000 | 0x8_0000 | 0x1000_0000 | 0x4000_0000;
+/// The SIDs `dacl` allows any of `mask`, as [`open_file_writers`] names them.
 ///
 /// # Safety
 /// `dacl` is null or points at a valid ACL.
-unsafe fn dacl_writers(dacl: *const ACL) -> Result<Vec<String>> {
-    // Write data or add a file, append or add a folder, write extended attributes, delete
-    // children, write attributes, delete, write permissions, take ownership, all, write.
-    const WRITE: u32 = 0x2
-        | 0x4
-        | 0x10
-        | 0x40
-        | 0x100
-        | 0x1_0000
-        | 0x4_0000
-        | 0x8_0000
-        | 0x1000_0000
-        | 0x4000_0000;
+unsafe fn dacl_allowed(dacl: *const ACL, mask: u32) -> Result<Vec<String>> {
     const INHERIT_ONLY: u8 = 0x8;
     if dacl.is_null() {
         return Ok(vec!["S-1-1-0".into()]);
@@ -510,7 +512,7 @@ unsafe fn dacl_writers(dacl: *const ACL) -> Result<Vec<String>> {
                 // ACCESS_ALLOWED_ACE_TYPE.
                 0 => {
                     let allowed = &*ace.cast::<ACCESS_ALLOWED_ACE>();
-                    if allowed.Mask & WRITE != 0 {
+                    if allowed.Mask & mask != 0 {
                         writers.push(sid_text(PSID(
                             (&raw const allowed.SidStart).cast_mut().cast(),
                         ))?);
@@ -2305,7 +2307,7 @@ mod tests {
     fn child_session_record_writers_are_read_from_its_permissions() {
         use super::*;
         use windows::Win32::Security::Authorization::ConvertStringSecurityDescriptorToSecurityDescriptorW;
-        let writers = |sddl: &str| {
+        let allowed = |sddl: &str, mask: u32| {
             let text = wide(std::ffi::OsStr::new(sddl)).unwrap();
             let mut descriptor = crate::ipc::Descriptor(PSECURITY_DESCRIPTOR::default());
             // SAFETY: `text` is NUL-terminated and outlives the call, and `dacl` points into
@@ -2323,9 +2325,23 @@ mod tests {
                 GetSecurityDescriptorDacl(descriptor.0, &mut present, &mut dacl, &mut defaulted)
                     .unwrap();
                 assert!(present.as_bool(), "{sddl}");
-                dacl_writers(dacl).unwrap()
+                dacl_allowed(dacl, mask).unwrap()
             }
         };
+        let writers = |sddl: &str| allowed(sddl, WRITE);
+        // Who may move a folder's contents: not those who may only add to it, as
+        // Authenticated Users may to C:\.
+        assert_eq!(
+            allowed("D:P(A;;FA;;;SY)(A;;0x4;;;AU)", CHILD_MOVE),
+            ["S-1-5-18"]
+        );
+        for rights in ["WD", "WO", "GA", "GW", "0x40"] {
+            assert_eq!(
+                allowed(&format!("D:P(A;;{rights};;;AU)"), CHILD_MOVE),
+                ["S-1-5-11"],
+                "{rights}"
+            );
+        }
         assert_eq!(writers(USERS_READ), ["S-1-5-18", "S-1-5-32-544"]);
         assert_eq!(writers(ADMINISTRATORS_ONLY), ["S-1-5-18", "S-1-5-32-544"]);
         assert_eq!(

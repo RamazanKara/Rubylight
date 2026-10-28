@@ -40,7 +40,10 @@ downloads Nucleus Co-op 2.4.2 (`NucleusApp.zip` from its GitHub release). It
 checks the archive's size and SHA-256 and refuses one that doesn't match, then
 unpacks it into `C:\ProgramData\Butterpollo\nucleus\2.4.2`, which only SYSTEM
 and Administrators can change. To use your own copy instead, set
-`nucleus_path` to the folder that holds `NucleusCoop.exe`. Maintenance shows
+`nucleus_path` to the folder that holds `NucleusCoop.exe`. Nucleus Co-op runs
+elevated, so that folder, the exe and the folder's parent must be ones only
+SYSTEM and Administrators can change (under `C:\Program Files`, for example);
+a copy in a folder you can change without elevation is refused. Maintenance shows
 the install state and any download or check error. While Nucleus Co-op cannot
 be installed, launches answer 503 with the reason.
 
@@ -71,8 +74,12 @@ Moonlight client can join this way.
 Joining a session that someone else started needs the device permission
 **Join co-op** (`coop_join`, Experimental) on the device's page in the console.
 Without it, the join is refused with "Turn on Join co-op for this device in the
-Rubylight console." A device that already holds a slot can always go back to
-it. When a device's stream ends, its slot is held for 120 s so it can come back.
+Rubylight console." A device that holds a slot can go back to it while it has
+the permission; turning Join co-op off ends the device's stream and keeps it
+out. The device that started the session needs no permission to return. When a
+device's stream ends, its slot is held for 120 s so it can come back. A
+player's Quit ends only its own stream: the other players keep playing.
+Sessions list who plays only to devices with Join co-op.
 
 Nightjar lists the running co-op sessions on a PC with their free slots and
 this device's own seat: on Android under **Join co-op** in the PC's menu, on

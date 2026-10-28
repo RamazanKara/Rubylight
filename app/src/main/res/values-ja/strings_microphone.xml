@@ -27,4 +27,5 @@
     <string name="stream_mic_button_hide">マイクボタンを非表示</string>
     <string name="mic_effects_missing">このデバイスにはありません: %1$s。マイクはこの処理なしで送信されます。</string>
     <string name="mic_effect_not_on_device">このデバイスにはありません</string>
+    <string name="mic_failed">マイクが動作しなくなったため、ミュートしました。もう一度試すにはミュートを解除してください。</string>
 </resources>

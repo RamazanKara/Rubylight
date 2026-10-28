@@ -27,4 +27,5 @@
     <string name="stream_mic_button_hide">Сховати кнопку мікрофона</string>
     <string name="mic_effects_missing">Немає на цьому пристрої: %1$s. Мікрофон передається без цієї обробки.</string>
     <string name="mic_effect_not_on_device">Немає на цьому пристрої</string>
+    <string name="mic_failed">Мікрофон перестав працювати, тому звук вимкнено. Увімкніть його, щоб спробувати знову.</string>
 </resources>

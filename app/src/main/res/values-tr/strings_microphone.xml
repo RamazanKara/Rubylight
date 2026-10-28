@@ -27,4 +27,5 @@
     <string name="stream_mic_button_hide">Mikrofon düğmesini gizle</string>
     <string name="mic_effects_missing">Bu cihazda yok: %1$s. Mikrofon bu işlem olmadan gönderilir.</string>
     <string name="mic_effect_not_on_device">Bu cihazda yok</string>
+    <string name="mic_failed">Mikrofon çalışmayı durdurdu, bu yüzden sessize alındı. Yeniden denemek için sesini açın.</string>
 </resources>

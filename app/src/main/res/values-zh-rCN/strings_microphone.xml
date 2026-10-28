@@ -27,4 +27,5 @@
     <string name="stream_mic_button_hide">隐藏麦克风按钮</string>
     <string name="mic_effects_missing">此设备不支持：%1$s。麦克风将不经过这些处理直接发送。</string>
     <string name="mic_effect_not_on_device">此设备不支持</string>
+    <string name="mic_failed">麦克风已停止工作，因此已静音。取消静音即可重试。</string>
 </resources>

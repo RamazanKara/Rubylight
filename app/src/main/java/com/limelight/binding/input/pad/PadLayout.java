@@ -127,23 +127,54 @@ public final class PadLayout {
         return control.shape == Shape.PILL ? .12f : baseWidth(control);
     }
 
-    /** The default center of a control, in pixels, from the nearest edges of the surface. */
-    static void defaultCenter(Control control, float width, float height, float u, float[] out) {
+    /**
+     * Width and height of a control in pixels at {@code scale}: never below a 48 dp touch, and the
+     * pill shoulders and triggers never narrower than 72 dp, whatever the surface or the scale.
+     */
+    static float width(Control control, float u, float density, float scale) {
+        return Math.max(baseWidth(control) * u * scale,
+                (control.shape == Shape.PILL ? MIN_PILL_WIDTH_DP : MIN_TOUCH_DP) * density);
+    }
+
+    static float height(Control control, float u, float density, float scale) {
+        return Math.max(baseHeight(control) * u * scale, MIN_TOUCH_DP * density);
+    }
+
+    /** The smallest touch a control offers, and the narrowest a pill gets so it still reads as one. */
+    static final float MIN_TOUCH_DP = 48, MIN_PILL_WIDTH_DP = 72;
+
+    /**
+     * The default center of a control, in pixels, from the nearest edges of the surface. Edge controls
+     * keep their margins from their own size, so a control grown to its minimum touch on a small
+     * surface still clears its neighbours: the shoulder pair, the top row and the stick clicks below
+     * the clusters.
+     */
+    static void defaultCenter(Control control, float width, float height, float u, float density, float[] out) {
+        float pillW = width(Control.LT, u, density, 1), pillH = height(Control.LT, u, density, 1);
+        float round = width(Control.HOME, u, density, 1), click = width(Control.L3, u, density, 1);
+        float rowStep = Math.max(.17f * u, round + 8 * density);
+        float clickTop = height - .035f * u - click - .02f * u;
         float x, y;
         switch (control) {
-            case LEFT_STICK: x = .28f * u; y = height - .44f * u; break;
+            case LEFT_STICK:
+                x = .28f * u;
+                y = Math.min(height - .44f * u, clickTop - height(control, u, density, 1) / 2);
+                break;
             case DPAD: x = .66f * u; y = height - .17f * u; break;
-            case FACE: x = width - .27f * u; y = height - .44f * u; break;
+            case FACE:
+                x = width - .27f * u;
+                y = Math.min(height - .44f * u, clickTop - height(control, u, density, 1) / 2);
+                break;
             case RIGHT_STICK: x = width - .68f * u; y = height - .19f * u; break;
-            case LT: x = .17f * u; y = .10f * u; break;
-            case LB: x = .17f * u; y = .25f * u; break;
-            case RT: x = width - .17f * u; y = .10f * u; break;
-            case RB: x = width - .17f * u; y = .25f * u; break;
-            case L3: x = .10f * u; y = height - .09f * u; break;
-            case R3: x = width - .10f * u; y = height - .09f * u; break;
-            case SELECT: x = width / 2 - .17f * u; y = .09f * u; break;
-            case START: x = width / 2 + .17f * u; y = .09f * u; break;
-            default: x = width / 2; y = .09f * u; break; // HOME
+            case LT: x = .045f * u + pillW / 2; y = .04f * u + pillH / 2; break;
+            case LB: x = .045f * u + pillW / 2; y = .07f * u + pillH * 1.5f; break;
+            case RT: x = width - .045f * u - pillW / 2; y = .04f * u + pillH / 2; break;
+            case RB: x = width - .045f * u - pillW / 2; y = .07f * u + pillH * 1.5f; break;
+            case L3: x = .035f * u + click / 2; y = height - .035f * u - click / 2; break;
+            case R3: x = width - .035f * u - click / 2; y = height - .035f * u - click / 2; break;
+            case SELECT: x = width / 2 - rowStep; y = .035f * u + round / 2; break;
+            case START: x = width / 2 + rowStep; y = .035f * u + round / 2; break;
+            default: x = width / 2; y = .035f * u + round / 2; break; // HOME
         }
         out[0] = x;
         out[1] = y;
@@ -156,7 +187,7 @@ public final class PadLayout {
     public float[] bounds(Control control, float width, float height, float density, float[] out) {
         Spec spec = spec(control);
         float u = unit(width, height, density);
-        float w = baseWidth(control) * u * spec.scale, h = baseHeight(control) * u * spec.scale;
+        float w = width(control, u, density, spec.scale), h = height(control, u, density, spec.scale);
         // A control larger than the surface is shrunk to fit, keeping its shape.
         float fit = Math.min(1, Math.min(width / Math.max(1, w), height / Math.max(1, h)));
         w *= fit;
@@ -166,7 +197,7 @@ public final class PadLayout {
             cx = spec.cx * width;
             cy = spec.cy * height;
         } else {
-            defaultCenter(control, width, height, u, out);
+            defaultCenter(control, width, height, u, density, out);
             cx = out[0];
             cy = out[1];
         }

@@ -1134,8 +1134,7 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
         // Rubylight 3.0 hosts list the HDR formats this stream can use beyond stock HDR10.
         RlHdrFormatsOffered = rlParseHdrFormats(response.payload);
         if (RlHdrFormatsOffered != 0) {
-            Limelog("Host HDR formats: %u
-", RlHdrFormatsOffered);
+            Limelog("Host HDR formats: %u\n", RlHdrFormatsOffered);
         }
 
         // Rubylight 2.2.0+ hosts list the extra control messages they accept.

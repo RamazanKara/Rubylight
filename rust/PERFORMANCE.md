@@ -8351,7 +8351,7 @@ Not run: decoders other than FFmpeg's on this PC (Android MediaCodec, Apple Vide
 the laptop). A separate NUC run, HEVC with LTR, repaired 40 ms bursts and decoded 2215/2215 frames. Limits:
 HEVC repairs only within 128 frames of the last one shown; the skipped-frame history keeps 64 repairs
 per IDR; the size estimate is linear; the rewriters have mutation tests (3000 per codec), not a fuzz
-harness.
+harness. Android MediaCodec checked in the rc.4 hardware pass.
 
 ## Hardware covered
 

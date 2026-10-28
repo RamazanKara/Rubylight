@@ -1136,6 +1136,8 @@ fn wgc_window_capture_follows_resize_and_fails_on_minimise_and_close() -> Result
             SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
         )?;
     }
+    // The STATIC window draws once after the resize and then never again, like
+    // a paused game: its new-size frame comes only from the restarted capture.
     let resized = next(&mut capture, &|image| image.width != first.width)?;
     assert!(resized.width > first.width && resized.height > first.height);
     // SAFETY: The window was created on this thread.

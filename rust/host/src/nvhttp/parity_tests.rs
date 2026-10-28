@@ -1686,6 +1686,70 @@ async fn clipboard_images_travel_as_png_within_the_limit() {
     assert_eq!(get().await.status(), StatusCode::NOT_FOUND);
 }
 
+#[test]
+fn unpaired_size_refusals_are_logged_once_a_minute_per_address() {
+    let log = RefusalLog::new();
+    let now = Instant::now();
+    let a: std::net::IpAddr = "192.168.1.20".parse().unwrap();
+    let b: std::net::IpAddr = "192.168.1.21".parse().unwrap();
+    assert_eq!(log.admit(a, now), Some(0));
+    assert_eq!(log.admit(a, now + Duration::from_secs(1)), None);
+    // As an IPv4-mapped IPv6 address it is the same device.
+    let mapped = std::net::IpAddr::V6(std::net::Ipv4Addr::new(192, 168, 1, 20).to_ipv6_mapped());
+    assert_eq!(log.admit(mapped, now + Duration::from_secs(59)), None);
+    // Another address has its own minute.
+    assert_eq!(log.admit(b, now + Duration::from_secs(2)), Some(0));
+    // The next line says how many went unlogged.
+    assert_eq!(log.admit(a, now + Duration::from_secs(60)), Some(2));
+    assert_eq!(log.admit(a, now + Duration::from_secs(61)), None);
+    // Addresses quiet for a minute are forgotten once another is logged.
+    let c: std::net::IpAddr = "192.168.1.22".parse().unwrap();
+    assert_eq!(log.admit(c, now + Duration::from_secs(120)), Some(0));
+    assert_eq!(log.0.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn an_unpaired_device_over_the_clipboard_limit_is_logged_once() {
+    let f = Fixture::new();
+    // Only this test uses the address, so the shared log starts empty for it.
+    let unpaired = Connection {
+        peer: "192.0.2.77:50000".parse().unwrap(),
+        local: "127.0.0.1:47984".parse().unwrap(),
+        certificate: None,
+        tls: true,
+    };
+    let path = f.host.directory.join("unpaired-limit.log");
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::WARN)
+        .without_time()
+        .with_ansi(false)
+        .with_writer(std::sync::Mutex::new(std::fs::File::create(&path).unwrap()))
+        .finish();
+    let guard = tracing::subscriber::set_default(subscriber);
+    for _ in 0..3 {
+        let request = Request::builder()
+            .method("POST")
+            .uri("/actions/clipboard?type=text")
+            .header(header::CONTENT_LENGTH, 2 * 1024 * 1024)
+            .body(Body::empty())
+            .unwrap();
+        let status = router(f.host.clone(), true)
+            .layer(Extension(unpaired.clone()))
+            .oneshot(request)
+            .await
+            .unwrap()
+            .status();
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    }
+    drop(guard);
+    let log = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(log.lines().count(), 1, "{log}");
+    assert!(
+        log.contains("refused a copy of 2097152 bytes by its Content-Length from unpaired 192.0.2.77, over the limit of 1048576 bytes (0 more from it unlogged)"),
+        "{log}"
+    );
+}
+
 #[tokio::test]
 async fn image_clipboard_requests_take_turns_one_per_device() {
     let turns = ImageTurns::new();

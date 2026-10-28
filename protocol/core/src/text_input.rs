@@ -8,10 +8,13 @@
 //! input. Surrounding text is sent only when the client asked, the host allows it, and the
 //! field is not sensitive.
 //!
-//! Request, little-endian: version u8, flags u8 (bit 0 notices, bit 1 surrounding text),
-//! max_text u16 (0-4096 bytes). Notice: version u8, kind u8, input_type u8, flags u8, serial
-//! u32, selection_start u16, selection_end u16 (UTF-16 code units, 0xFFFF unknown), text_len
-//! u16, reserved u16, then the UTF-8 text.
+//! Request, little-endian: version u8, flags u8 (bit 0 notices, bit 1 surrounding text, bit 2
+//! element ids), max_text u16 (0-4096 bytes). Notice: version u8, kind u8, input_type u8,
+//! flags u8, serial u32, selection_start u16, selection_end u16 (UTF-16 code units, 0xFFFF
+//! unknown), text_len u16, reserved u16, then the UTF-8 text. From version 2 (`TextInputVersion`
+//! 2, only to a client that set bit 2) a u32 element id follows the text: the same for one
+//! focused element as long as it lives, another for another element. A host before 2 ignores
+//! bit 2 and a client before 2 the bytes past the text.
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -28,8 +31,14 @@ pub const MAX_TEXT_BYTES: u16 = 4096;
 pub const SELECTION_UNKNOWN: u16 = 0xFFFF;
 /// Serverinfo element: the host sends notices.
 pub const SERVERINFO_FIELD: &str = "TextInputVersion";
+/// The [`SERVERINFO_FIELD`] value of a host that sends element ids on request; 1 sends none.
+pub const SERVERINFO_VERSION: u8 = 2;
 
 const VERSION: u8 = 1;
+/// The notice version that carries an element id.
+const ELEMENT_VERSION: u8 = 2;
+/// Bytes of the element id after a version 2 notice's text.
+const ELEMENT_BYTES: usize = 4;
 
 /// Client to host: start or stop notices.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -38,6 +47,8 @@ pub struct TextInputRequest {
     pub notices: bool,
     /// The client wants the field's surrounding text.
     pub surrounding_text: bool,
+    /// The client reads version 2 notices, with the focused element's id.
+    pub element_ids: bool,
     /// Most text per notice, in bytes; the host cuts at a UTF-8 boundary.
     pub max_text: u16,
 }
@@ -45,14 +56,17 @@ pub struct TextInputRequest {
 impl TextInputRequest {
     const NOTICES: u8 = 1;
     const SURROUNDING_TEXT: u8 = 2;
+    const ELEMENT_IDS: u8 = 4;
 
     pub fn encode(&self) -> [u8; TEXT_INPUT_REQUEST_BYTES] {
-        let flags = if self.notices { Self::NOTICES } else { 0 }
-            | if self.surrounding_text {
-                Self::SURROUNDING_TEXT
-            } else {
-                0
-            };
+        let flags = [
+            (self.notices, Self::NOTICES),
+            (self.surrounding_text, Self::SURROUNDING_TEXT),
+            (self.element_ids, Self::ELEMENT_IDS),
+        ]
+        .iter()
+        .filter(|(set, _)| *set)
+        .fold(0, |flags, (_, bit)| flags | bit);
         let max = self.max_text.to_le_bytes();
         [VERSION, flags, max[0], max[1]]
     }
@@ -66,6 +80,7 @@ impl TextInputRequest {
         (max_text <= MAX_TEXT_BYTES).then_some(Self {
             notices: data[1] & Self::NOTICES != 0,
             surrounding_text: data[1] & Self::SURROUNDING_TEXT != 0,
+            element_ids: data[1] & Self::ELEMENT_IDS != 0,
             max_text,
         })
     }
@@ -155,6 +170,9 @@ pub struct TextInputNotice {
     pub selection_end: u16,
     /// Surrounding text, empty unless allowed.
     pub text: String,
+    /// The focused element's id, 0 when unknown: a lower, or a version 1 notice. Not 0, the
+    /// notice is encoded as version 2.
+    pub element: u32,
 }
 
 impl TextInputNotice {
@@ -184,28 +202,43 @@ impl TextInputNotice {
         .iter()
         .filter(|(set, _)| *set)
         .fold(0, |flags, (_, bit)| flags | bit);
-        let mut out = Vec::with_capacity(TEXT_INPUT_NOTICE_HEADER_BYTES + self.text.len());
-        out.extend_from_slice(&[VERSION, self.kind.wire(), self.input_type.wire(), flags]);
+        let version = if self.element == 0 {
+            VERSION
+        } else {
+            ELEMENT_VERSION
+        };
+        let mut out =
+            Vec::with_capacity(TEXT_INPUT_NOTICE_HEADER_BYTES + self.text.len() + ELEMENT_BYTES);
+        out.extend_from_slice(&[version, self.kind.wire(), self.input_type.wire(), flags]);
         out.extend_from_slice(&self.serial.to_le_bytes());
         out.extend_from_slice(&self.selection_start.to_le_bytes());
         out.extend_from_slice(&self.selection_end.to_le_bytes());
         out.extend_from_slice(&(self.text.len() as u16).to_le_bytes());
         out.extend_from_slice(&[0, 0]);
         out.extend_from_slice(self.text.as_bytes());
+        if self.element != 0 {
+            out.extend_from_slice(&self.element.to_le_bytes());
+        }
         Some(out)
     }
 
     /// Parses a notice. Version 0, an unknown kind or input type, text that is not UTF-8,
-    /// past 4096 bytes or in a sensitive or password field, and a short message reject it.
-    /// Bytes past the text are ignored.
+    /// past 4096 bytes or in a sensitive or password field, a short message and, from
+    /// version 2, a missing element id reject it. Bytes past those are ignored.
     pub fn decode(data: &[u8]) -> Option<Self> {
         if data.len() < TEXT_INPUT_NOTICE_HEADER_BYTES || data[0] == 0 {
             return None;
         }
         let u16_at = |at: usize| u16::from_le_bytes([data[at], data[at + 1]]);
         let text_len = usize::from(u16_at(12));
-        let text =
-            data.get(TEXT_INPUT_NOTICE_HEADER_BYTES..TEXT_INPUT_NOTICE_HEADER_BYTES + text_len)?;
+        let text_end = TEXT_INPUT_NOTICE_HEADER_BYTES + text_len;
+        let text = data.get(TEXT_INPUT_NOTICE_HEADER_BYTES..text_end)?;
+        let element = if data[0] >= ELEMENT_VERSION {
+            let id = data.get(text_end..text_end + ELEMENT_BYTES)?;
+            u32::from_le_bytes([id[0], id[1], id[2], id[3]])
+        } else {
+            0
+        };
         let notice = Self {
             kind: NoticeKind::from_wire(data[1])?,
             input_type: InputType::from_wire(data[2])?,
@@ -217,6 +250,7 @@ impl TextInputNotice {
             selection_start: u16_at(8),
             selection_end: u16_at(10),
             text: String::from_utf8(text.to_vec()).ok()?,
+            element,
         };
         notice.text_allowed().then_some(notice)
     }
@@ -243,6 +277,7 @@ mod tests {
             selection_start: 3,
             selection_end: 3,
             text: "zoë@".into(),
+            element: 0,
         }
     }
 
@@ -251,10 +286,17 @@ mod tests {
         let request = TextInputRequest {
             notices: true,
             surrounding_text: true,
+            element_ids: false,
             max_text: 4096,
         };
         assert_eq!(request.encode(), [1, 3, 0x00, 0x10]);
         assert_eq!(TextInputRequest::decode(&request.encode()), Some(request));
+        let ids = TextInputRequest {
+            element_ids: true,
+            ..request
+        };
+        assert_eq!(ids.encode(), [1, 7, 0x00, 0x10]);
+        assert_eq!(TextInputRequest::decode(&ids.encode()), Some(ids));
         let stop = TextInputRequest::default();
         assert_eq!(stop.encode(), [1, 0, 0, 0]);
         assert_eq!(
@@ -262,6 +304,7 @@ mod tests {
             Some(TextInputRequest {
                 notices: true,
                 surrounding_text: false,
+                element_ids: false,
                 max_text: 256,
             })
         );
@@ -282,10 +325,18 @@ mod tests {
         assert_eq!(wire[4..8], 41u32.to_le_bytes());
         assert_eq!(wire[12..16], [5, 0, 0, 0]);
         assert_eq!(TextInputNotice::decode(&wire), Some(notice()));
+        // A later version: the element id after the text, then bytes this one ignores.
         let mut longer = wire.clone();
-        longer[0] = 2;
+        longer[0] = 3;
+        longer.extend_from_slice(&7u32.to_le_bytes());
         longer.extend_from_slice(b"tail");
-        assert_eq!(TextInputNotice::decode(&longer), Some(notice()));
+        assert_eq!(
+            TextInputNotice::decode(&longer),
+            Some(TextInputNotice {
+                element: 7,
+                ..notice()
+            })
+        );
         assert_eq!(TextInputNotice::decode(&wire[..wire.len() - 1]), None);
 
         for (wire, input_type) in InputType::ALL.into_iter().enumerate() {
@@ -311,6 +362,40 @@ mod tests {
         assert_eq!(encoded[1], 0);
         assert_eq!(encoded[3], 1 | 2 | 4 | 8);
         assert_eq!(TextInputNotice::decode(&encoded), Some(lower));
+    }
+
+    /// A notice with an element id is version 2 with the id after the text; one without is
+    /// byte for byte version 1, which older clients read, and they skip the id of a version 2.
+    #[test]
+    fn element_ids_follow_the_text_from_version_2() {
+        let v1 = notice().encode().unwrap();
+        assert_eq!(v1[0], 1);
+        assert_eq!(v1.len(), TEXT_INPUT_NOTICE_HEADER_BYTES + 5);
+        let with_id = TextInputNotice {
+            element: 0xA1B2_C3D4,
+            ..notice()
+        };
+        let v2 = with_id.encode().unwrap();
+        assert_eq!(v2[0], 2);
+        assert_eq!(v2[1..v1.len()], v1[1..]);
+        assert_eq!(v2[v1.len()..], [0xD4, 0xC3, 0xB2, 0xA1]);
+        assert_eq!(TextInputNotice::decode(&v2), Some(with_id.clone()));
+        // A version 1 reader: the same header and text, the id ignored as trailing bytes.
+        let mut as_v1 = v2.clone();
+        as_v1[0] = 1;
+        assert_eq!(TextInputNotice::decode(&as_v1), Some(notice()));
+        // Version 2 without its id is short.
+        assert_eq!(TextInputNotice::decode(&v2[..v2.len() - 1]), None);
+        let mut no_id = v1.clone();
+        no_id[0] = 2;
+        assert_eq!(TextInputNotice::decode(&no_id), None);
+        // A lower has no element and stays version 1.
+        let lower = TextInputNotice {
+            kind: NoticeKind::Lower,
+            text: String::new(),
+            ..notice()
+        };
+        assert_eq!(lower.encode().unwrap()[0], 1);
     }
 
     #[test]

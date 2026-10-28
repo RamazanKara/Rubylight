@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A PC tile's ring (tv_tile_ring_shape) around a pill: the button's background is inset 5dp inside the view; 3dp amber from
+     1dp to 4dp out, then a 1dp hairline that keeps the amber ring apart from the amber pill. Radii clamp to the pill's ends. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:top="2.5dp" android:bottom="2.5dp" android:left="2.5dp" android:right="2.5dp">
+        <shape android:shape="rectangle">
+            <corners android:radius="999dp" />
+            <stroke android:width="3dp" android:color="?attr/colorPrimary" />
+        </shape>
+    </item>
+    <item android:top="4.5dp" android:bottom="4.5dp" android:left="4.5dp" android:right="4.5dp">
+        <shape android:shape="rectangle">
+            <corners android:radius="999dp" />
+            <stroke android:width="1dp" android:color="@color/tv_ring_hairline" />
+        </shape>
+    </item>
+</layer-list>

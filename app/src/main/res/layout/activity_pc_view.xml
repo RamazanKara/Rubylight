@@ -45,7 +45,7 @@
             <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton android:id="@+id/manuallyAddPc"
                 android:nextFocusUp="@id/fragmentView" android:accessibilityTraversalAfter="@id/fragmentView"
                 android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="bottom|end"
-                android:layout_margin="@dimen/screen_gutter" android:minHeight="56dp" android:text="@string/title_add_pc" app:icon="@drawable/ic_add" />
+                android:layout_margin="@dimen/screen_gutter" android:minHeight="@dimen/extended_fab_min_height" android:text="@string/title_add_pc" app:icon="@drawable/ic_add" />
         </FrameLayout>
         <TextView android:id="@+id/pc_options_hint" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter"

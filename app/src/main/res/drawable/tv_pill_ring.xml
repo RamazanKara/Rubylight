@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A TV pill button's focus ring (the amber Add PC pill), fading like a PC tile's (tv_tile_ring). -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android" android:enterFadeDuration="120" android:exitFadeDuration="90">
+    <item android:state_pressed="true" android:drawable="@drawable/tv_pill_ring_shape" />
+    <item android:state_focused="true" android:drawable="@drawable/tv_pill_ring_shape" />
+    <item android:state_hovered="true" android:drawable="@drawable/tv_pill_ring_shape" />
+    <item android:drawable="@android:color/transparent" />
+</selector>

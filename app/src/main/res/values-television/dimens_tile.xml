@@ -5,4 +5,6 @@
     <dimen name="pcs_max_width">4096dp</dimen>
     <dimen name="pcs_grid_bleed">-24dp</dimen>
     <bool name="pcs_clip">false</bool>
+    <!-- Add PC: the 56dp pill plus 5dp a side for its focus ring (Widget.Nightjar.ExtendedFab's insets). -->
+    <dimen name="extended_fab_min_height">66dp</dimen>
 </resources>

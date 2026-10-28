@@ -255,8 +255,21 @@ pub struct Performance {
     /// Gaps before each reported highest sequence, not unsent trailing parity.
     fec_missing_packets: u64,
     fec_frames: VecDeque<FecFrame>,
+    /// 0x5539 statistical FEC reports, which `fec_reports` (0x5502) doesn't count.
+    fec_loss_reports: u64,
+    fec_loss_refused_reports: u64,
 }
 impl Performance {
+    /// Counts one 0x5539 statistical FEC report: taken (also when only logged),
+    /// or refused as malformed or out of sequence.
+    pub fn record_fec_loss_report(&mut self, taken: bool) {
+        let counter = if taken {
+            &mut self.fec_loss_reports
+        } else {
+            &mut self.fec_loss_refused_reports
+        };
+        *counter = counter.saturating_add(1);
+    }
     /// Counts one block report and returns what it says, or `None` for an
     /// invalid, unsent, stale or duplicate report.
     pub fn record_fec_status(
@@ -486,6 +499,8 @@ impl Performance {
             fec_recovered_frames: self.fec_recovered_frames,
             fec_unrecoverable_frames: self.fec_unrecoverable_frames,
             fec_missing_packets: self.fec_missing_packets,
+            fec_loss_reports: self.fec_loss_reports,
+            fec_loss_refused_reports: self.fec_loss_refused_reports,
         }
     }
     pub fn snapshot(&self, now: Instant) -> Value {
@@ -505,6 +520,8 @@ pub struct Window {
     fec_recovered_frames: u64,
     fec_unrecoverable_frames: u64,
     fec_missing_packets: u64,
+    fec_loss_reports: u64,
+    fec_loss_refused_reports: u64,
 }
 impl Window {
     /// Mean, p95 and p99 of each stage over the last five seconds' new
@@ -599,6 +616,8 @@ impl Window {
             "fec_recovered_frames":self.fec_recovered_frames,
             "fec_unrecoverable_frames":self.fec_unrecoverable_frames,
             "fec_missing_packets":self.fec_missing_packets,
+            "fec_loss_reports":self.fec_loss_reports,
+            "fec_loss_refused_reports":self.fec_loss_refused_reports,
             "stages":self.stage_snapshot(),
             "sample_frames":frames.len(),"history":self.history.iter().map(Second::json).collect::<Vec<_>>()
         })

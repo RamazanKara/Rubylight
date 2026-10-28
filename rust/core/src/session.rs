@@ -394,12 +394,47 @@ mod tests {
         assert_eq!(info["performance"]["fec_reports"], 2);
         assert_eq!(info["performance"]["fec_recovered_frames"], 1);
         assert_eq!(info["performance"]["fec_invalid_reports"], 1);
+        assert_eq!(info["performance"]["fec_loss_reports"], 0);
         assert_eq!(session.bitrate.load(Ordering::Relaxed), bitrate);
         assert!(!session.idr.load(Ordering::Relaxed));
         assert!(session.invalidation.lock().unwrap().is_none());
         assert_eq!(info["idr_requests"], 0);
         assert_eq!(info["reference_invalidations"], 0);
         assert!(!session.stopping());
+    }
+    #[test]
+    fn statistical_fec_reports_show_in_the_stream_timings() {
+        use crate::extensions::FecChoice;
+        use crate::statistical_fec::FecReport;
+        let report = |seq| {
+            FecReport {
+                seq,
+                data_shards: 600,
+                interval_ms: 1000,
+                ..Default::default()
+            }
+            .encode()
+        };
+        let start = Instant::now();
+        // The Retroid run: B3 reports moved statistical FEC 20 → 0 while
+        // `fec_reports`, which counts only 0x5502, stayed 0.
+        for choice in [FecChoice::Auto, FecChoice::Host] {
+            let session = Session::new(launch("fec", Role::Stream), Negotiated::default());
+            session.configure_fec_choice(choice, true, 20, 50);
+            let used = choice == FecChoice::Auto;
+            assert_eq!(
+                session.record_fec_report_at(&report(0), start).unwrap().1,
+                used
+            );
+            session
+                .record_fec_report_at(&report(1), start + Duration::from_secs(1))
+                .unwrap();
+            assert!(session.record_fec_report_at(&[1; 3], start).is_err());
+            let performance = &session.info()["performance"];
+            assert_eq!(performance["fec_loss_reports"], 2, "{choice:?}");
+            assert_eq!(performance["fec_loss_refused_reports"], 1, "{choice:?}");
+            assert_eq!(performance["fec_reports"], 0, "{choice:?}");
+        }
     }
     fn fec_report(frame: u32, received_data: u16, received_parity: u16) -> [u8; 21] {
         // Ten data and two parity packets at 20 %, one block.
@@ -3383,6 +3418,19 @@ impl<P, A> Session<P, A> {
         self.record_fec_report_at(payload, Instant::now())
     }
     fn record_fec_report_at(
+        &self,
+        payload: &[u8],
+        now: Instant,
+    ) -> std::result::Result<(crate::statistical_fec::FecReport, bool), String> {
+        let result = self.take_fec_report(payload, now);
+        self.stats
+            .performance
+            .lock()
+            .unwrap()
+            .record_fec_loss_report(result.is_ok());
+        result
+    }
+    fn take_fec_report(
         &self,
         payload: &[u8],
         now: Instant,

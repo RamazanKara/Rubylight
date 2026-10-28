@@ -2527,6 +2527,8 @@ impl Media {
                                             fec_recovered_frames=timing["fec_recovered_frames"].as_u64().unwrap_or(0),
                                             fec_unrecoverable_frames=timing["fec_unrecoverable_frames"].as_u64().unwrap_or(0),
                                             fec_missing_packets=timing["fec_missing_packets"].as_u64().unwrap_or(0),
+                                            fec_loss_reports=timing["fec_loss_reports"].as_u64().unwrap_or(0),
+                                            fec_loss_refused_reports=timing["fec_loss_refused_reports"].as_u64().unwrap_or(0),
                                             bitrate_kbps=s.bitrate.load(Ordering::Relaxed),
                                             sent_mbps=ms("bitrate_mbps"),
                                             link_state=%link["state"].as_str().unwrap_or(""),

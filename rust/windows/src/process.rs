@@ -1780,13 +1780,41 @@ impl Process {
         Ok(())
     }
     pub fn stop_graceful(&self, timeout: Duration) -> Result<()> {
+        if timeout.is_zero() || self.active_processes()? == 0 {
+            return self.stop();
+        }
+        if self.close_windows()? {
+            let deadline = std::time::Instant::now() + timeout;
+            while self.active_processes()? != 0 && std::time::Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+        self.stop()
+    }
+    /// Ask the job's windows to close and wait up to `timeout` for every
+    /// process in it to exit. Nothing is ended: whether they all exited.
+    pub fn close(&self, timeout: Duration) -> Result<bool> {
+        if self.active_processes()? == 0 {
+            return Ok(true);
+        }
+        if self.close_windows()? {
+            let deadline = std::time::Instant::now() + timeout;
+            while self.active_processes()? != 0 && std::time::Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+        Ok(self.active_processes()? == 0)
+    }
+    /// Post WM_CLOSE to each top-level window of the job's processes: whether
+    /// one was sent.
+    fn close_windows(&self) -> Result<bool> {
         use windows::Win32::UI::WindowsAndMessaging::*;
         struct Closing {
             ids: std::collections::BTreeSet<u32>,
             sent: bool,
         }
         unsafe extern "system" fn close_window(window: HWND, data: LPARAM) -> BOOL {
-            // SAFETY: EnumWindows passes the `&mut Closing` from stop_graceful as `data`, which
+            // SAFETY: EnumWindows passes the `&mut Closing` from close_windows as `data`, which
             // outlives the enumeration and is not otherwise used during it.
             unsafe {
                 let closing = &mut *(data.0 as *mut Closing);
@@ -1800,42 +1828,19 @@ impl Process {
                 BOOL(1)
             }
         }
-        if timeout.is_zero() || self.active_processes()? == 0 {
-            return self.stop();
-        }
-        let mut words = vec![0usize; 4098];
-        let list = words.as_mut_ptr().cast::<JOBOBJECT_BASIC_PROCESS_ID_LIST>();
-        // SAFETY: `words` is usize-aligned with its byte size passed, `count` is checked before the
-        // slice, and `closing` outlives the synchronous EnumWindows call.
+        let mut closing = Closing {
+            ids: self.process_ids()?.into_iter().collect(),
+            sent: false,
+        };
+        // SAFETY: `closing` outlives the synchronous EnumWindows call that reads it through
+        // `close_window`.
         unsafe {
-            QueryInformationJobObject(
-                Some(raw(&self.job)),
-                JobObjectBasicProcessIdList,
-                list.cast(),
-                (words.len() * size_of::<usize>()) as u32,
-                None,
-            )?;
-            let count = (*list).NumberOfProcessIdsInList as usize;
-            if count > 4096 {
-                bail!("application process group exceeds its limit");
-            }
-            let ids = std::slice::from_raw_parts((*list).ProcessIdList.as_ptr(), count)
-                .iter()
-                .filter_map(|id| u32::try_from(*id).ok())
-                .collect();
-            let mut closing = Closing { ids, sent: false };
             EnumWindows(
                 Some(close_window),
                 LPARAM((&mut closing as *mut Closing) as isize),
             )?;
-            if closing.sent {
-                let deadline = std::time::Instant::now() + timeout;
-                while self.active_processes()? != 0 && std::time::Instant::now() < deadline {
-                    std::thread::sleep(Duration::from_millis(20));
-                }
-            }
         }
-        self.stop()
+        Ok(closing.sent)
     }
     pub fn shutdown_host(&self) -> Result<HostShutdown> {
         if let Some(code) = self.exit_code()? {
@@ -2501,6 +2506,9 @@ mod tests {
             OsString::from("127.0.0.1"),
         ];
         let mut long = Process::spawn_piped(&system32.join("ping.exe"), &args, target()).unwrap();
+        assert_eq!(long.process.exit_code().unwrap(), None);
+        // Close only asks: a child without a window to close keeps running.
+        assert!(!long.process.close(Duration::from_millis(200)).unwrap());
         assert_eq!(long.process.exit_code().unwrap(), None);
         long.process.terminate().unwrap();
         let mut rest = String::new();

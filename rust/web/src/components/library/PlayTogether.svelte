@@ -8,7 +8,7 @@
   import Panel from '../Panel.svelte';
   import Toggle from '../Toggle.svelte';
   import { api, type CoopStatus } from '../../lib/api';
-  import { AWAY_FROM_PC, COOP_LIMITS, playTogether, pollsView } from '../../lib/coop-view';
+  import { AWAY_FROM_PC, COOP_LIMITS, OPEN_ON_PC, playTogether, pollsView } from '../../lib/coop-view';
   import { failed, notify } from '../../lib/feedback.svelte';
   import { statusLoader } from '../maintenance/status-loader';
   import { reason } from '../maintenance/util';
@@ -29,7 +29,7 @@
 
   let status = $state<CoopStatus | null>(untrack(() => initial));
   let loadError = $state('');
-  /** 'install' or 'open' while its request is out. */
+  /** 'install', 'open' or 'close' while its request is out. */
   let busy = $state('');
   let timer: ReturnType<typeof setInterval> | undefined;
 
@@ -69,6 +69,20 @@
     } finally {
       busy = '';
     }
+    await load();
+  }
+
+  async function close() {
+    busy = 'close';
+    try {
+      const { closed } = await api.coop.close();
+      notify(closed ? 'Nucleus Co-op closed on the PC.' : 'Nucleus Co-op was already closed.', 'ok');
+    } catch (error) {
+      failed('Closing Nucleus Co-op failed', error);
+    } finally {
+      busy = '';
+    }
+    await load();
   }
 
   onMount(() => {
@@ -79,6 +93,10 @@
   });
   onDestroy(() => clearInterval(timer));
 </script>
+
+{#snippet closeAction()}
+  <Button busy={busy === 'close'} disabled={busy !== '' && busy !== 'close'} onclick={close}>Close Nucleus Co-op</Button>
+{/snippet}
 
 {#if loadError && !status}
   <Panel title="Play together">
@@ -124,7 +142,8 @@
       {:else if view.kind === 'handler'}
         <p class="lead">{view.text}</p>
         <div class="action">
-          <Button variant="primary" busy={busy === 'open'} onclick={open}>Open Nucleus Co-op on this PC</Button>
+          <Button variant="primary" busy={busy === 'open'} disabled={status?.opened === true} onclick={open}>Open Nucleus Co-op on this PC</Button>
+          {#if status?.opened}{@render closeAction()}{/if}
         </div>
         <p class="muted note">{view.steps}</p>
         <details class="away">
@@ -139,6 +158,12 @@
           bind:checked={() => draft.flag('coop-entry'), (value) => draft.setFlag('coop-entry', value)}
         />
         <p class="muted note">{COOP_LIMITS}</p>
+        {#if status?.opened}
+          <div class="action">
+            <span class="muted note">{OPEN_ON_PC}</span>
+            {@render closeAction()}
+          </div>
+        {/if}
       {/if}
     </div>
   </Panel>

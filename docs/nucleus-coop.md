@@ -60,8 +60,12 @@ come from Nucleus Co-op's handler hub and are your own content: Rubylight
 ships none. When a game has none, its Play together panel says so: **Open
 Nucleus Co-op on this PC** opens Nucleus Co-op on the PC's screen, where you
 search its handler hub for the game, download the handler and add the game.
-The panel moves on by itself once the handler is there. A game without a
-handler is refused
+The panel moves on by itself once the handler is there. **Close Nucleus
+Co-op** beside it closes that window again, and the next co-op or background
+stream closes it by itself first; if it won't close (it is asking you
+something), the stream is refused until you answer it at the PC. A Nucleus
+Co-op you started yourself is never closed: Open and launches are refused
+while it runs. A game without a handler is refused
 with "No Nucleus Co-op handler for <exe>: add one in Nucleus Co-op's handler
 hub".
 

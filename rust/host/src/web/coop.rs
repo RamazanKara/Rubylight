@@ -3,7 +3,8 @@
 //! Co-op's install with its download progress, each app's co-op status and
 //! every session the host has. `POST /api/coop/install` sets Nucleus Co-op
 //! up (the pinned, checked release) and `POST /api/coop/open` opens its
-//! window on the PC for adding a handler. `POST /api/coop/kick` removes a
+//! window on the PC for adding a handler; `POST /api/coop/close` closes that
+//! window again, and a session closes it first. `POST /api/coop/kick` removes a
 //! player and `POST /api/coop/end` ends a session, and each ends the streams
 //! they held. Console-only: API tokens cannot reach them.
 
@@ -62,6 +63,13 @@ pub(super) async fn handle(h: &Shared, method: &Method, path: &str, data: &Value
             let configured = configured(&h);
             match tokio::task::spawn_blocking(move || h.nucleus.open(&configured)).await {
                 Ok(Ok(())) => Json(json!({})).into_response(),
+                Ok(Err(refusal)) => refused(&refusal),
+                Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+            }
+        }
+        ("POST", "/api/coop/close") => {
+            match tokio::task::spawn_blocking(move || h.nucleus.close()).await {
+                Ok(Ok(closed)) => Json(json!({"closed": closed})).into_response(),
                 Ok(Err(refusal)) => refused(&refusal),
                 Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
             }
@@ -248,6 +256,8 @@ fn status(h: &Shared) -> Value {
         "catalog_error": catalog_error,
         "available": unavailable.is_none(),
         "reason": unavailable,
+        // The Nucleus Co-op window the console opened is still open.
+        "opened": h.nucleus.opened(),
         "sessions": sessions,
     })
 }
@@ -614,6 +624,31 @@ mod tests {
         )
         .await;
         assert_eq!(pc.opened.load(std::sync::atomic::Ordering::Relaxed), 1);
+        let body = value(
+            request(&f, "GET", "/api/coop", Value::Null).await,
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(body["opened"], true);
+        // Opening it again is refused; Close closes the one the console opened.
+        value(
+            request(&f, "POST", "/api/coop/open", json!({})).await,
+            StatusCode::CONFLICT,
+        )
+        .await;
+        let body = value(
+            request(&f, "POST", "/api/coop/close", json!({})).await,
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(body, json!({"closed": true}));
+        assert!(!pc.window().open.load(std::sync::atomic::Ordering::Relaxed));
+        let body = value(
+            request(&f, "GET", "/api/coop", Value::Null).await,
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(body["opened"], false);
     }
 
     #[tokio::test]

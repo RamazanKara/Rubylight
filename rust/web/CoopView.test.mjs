@@ -118,6 +118,20 @@ test('no handler: what is missing, the button that opens Nucleus Co-op on the PC
   assert.match(added.steps, /add Portal 2 once/);
 });
 
+test('the window the console opened can be closed from the panel, and Open waits for it', () => {
+  // Closed (or an older host): Open only.
+  assert.doesNotMatch(html(fixtures.handler), /Close Nucleus Co-op/);
+  assert.doesNotMatch(html(fixtures.ready), /Close Nucleus Co-op/);
+  const open = html({ ...fixtures.handler, opened: true });
+  assert.match(open, /Close Nucleus Co-op/);
+  // A second Open would be refused while it runs.
+  assert.match(open, /<button[^>]*disabled[^>]*>(<!--[^>]*-->|\s|<[^>]+>)*Open Nucleus Co-op on this PC/);
+  // Once the handler is in, the window may still be open: say so, and offer Close there too.
+  const ready = html({ ...fixtures.ready, opened: true });
+  assert.match(ready, /Close Nucleus Co-op/);
+  assert.ok(ready.includes(home.OPEN_ON_PC));
+});
+
 test('ready: the players, how to start it, the library switch on by default, and the limits', () => {
   const view = playTogether(fixtures.ready, 'portal');
   assert.equal(view.players, 'Up to 2 players.');

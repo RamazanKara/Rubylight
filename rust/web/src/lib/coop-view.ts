@@ -241,5 +241,8 @@ export function endConfirmation(session: CoopSession): Confirmation {
   };
 }
 
+/** Beside Close Nucleus Co-op once the game is ready: the window the console opened is still on the PC's screen. */
+export const OPEN_ON_PC = 'Nucleus Co-op is still open on the PC’s screen. Co-op closes it when a game starts.';
+
 /** For a console opened away from the PC: what happens where. */
 export const AWAY_FROM_PC = 'Nucleus Co-op opens on the PC’s own screen, not on this device. Do the steps at the PC; this page shows the game as ready once the handler is in.';

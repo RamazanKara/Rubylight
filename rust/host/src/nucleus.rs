@@ -22,7 +22,7 @@ use butterpollo_core::session::{Seat, Warnings};
 use butterpollo_core::state::{App, Client};
 use butterpollo_windows::input::PadReport;
 use butterpollo_windows::nucleus::pads::{self, Dropped};
-use butterpollo_windows::nucleus::session::{Running, Start};
+use butterpollo_windows::nucleus::session::{Opened, Running, Start, already_running};
 use butterpollo_windows::nucleus::{files, install};
 use butterpollo_windows::process::AudioProcess;
 use serde_json::Value;
@@ -52,6 +52,8 @@ const FEEDBACK_KEPT: usize = 16;
 pub const WINDOW_WAIT: Duration = Duration::from_secs(90);
 /// How often a co-op stream looks at its session.
 const WATCH: Duration = Duration::from_millis(100);
+/// How long the Nucleus Co-op window the console opened gets to close.
+const CLOSE_WAIT: Duration = Duration::from_secs(5);
 
 /// Why a co-op launch is refused, and the status its answer carries.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -101,7 +103,9 @@ pub trait Pc: Send + Sync {
     fn ensure(&self, configured: &str, progress: &(dyn Fn(u64) + Sync)) -> Result<PathBuf>;
     /// Open Nucleus Co-op's own window at `folder` on the PC's screen, as the
     /// signed-in user, so they can add a handler or a game.
-    fn open(&self, folder: &Path) -> Result<()>;
+    fn open(&self, folder: &Path) -> Result<Box<dyn Window>>;
+    /// A Nucleus Co-op process running on the PC, whoever started it.
+    fn running(&self) -> Result<Option<u32>>;
     /// The handlers and the signed-in user's games of the Nucleus at `folder`.
     fn catalog(&self, folder: &Path) -> Result<Catalog>;
     /// The XInput slots the PC's own controllers leave free.
@@ -112,6 +116,27 @@ pub trait Pc: Send + Sync {
         policy: Policy,
         warnings: Arc<Warnings>,
     ) -> Result<Box<dyn Instance>>;
+}
+
+/// The Nucleus Co-op [`Pc::open`] started for the user:
+/// `butterpollo_windows::nucleus::session::Opened`.
+pub trait Window: Send {
+    fn pid(&self) -> u32;
+    /// Whether it still runs.
+    fn running(&self) -> Result<bool>;
+    /// Ask it to close and wait up to `timeout`; it is never ended.
+    fn close(&self, timeout: Duration) -> Result<()>;
+}
+impl Window for butterpollo_windows::nucleus::session::Opened {
+    fn pid(&self) -> u32 {
+        Opened::pid(self)
+    }
+    fn running(&self) -> Result<bool> {
+        Opened::running(self)
+    }
+    fn close(&self, timeout: Duration) -> Result<()> {
+        Opened::close(self, timeout)
+    }
 }
 
 /// A running session: `butterpollo_windows::nucleus::session::Running`.
@@ -173,8 +198,13 @@ impl Pc for OnPc {
             &mut download,
         )
     }
-    fn open(&self, folder: &Path) -> Result<()> {
-        butterpollo_windows::nucleus::session::open(folder)
+    fn open(&self, folder: &Path) -> Result<Box<dyn Window>> {
+        Ok(Box::new(butterpollo_windows::nucleus::session::open(
+            folder,
+        )?))
+    }
+    fn running(&self) -> Result<Option<u32>> {
+        butterpollo_windows::nucleus::session::running()
     }
     fn catalog(&self, folder: &Path) -> Result<Catalog> {
         let appdata = butterpollo_windows::user_folder::roaming_app_data().map_err(|error| {
@@ -511,6 +541,9 @@ pub struct Registry {
     admit: Mutex<()>,
     state: Mutex<State>,
     catalog: Mutex<Option<Cached>>,
+    /// The Nucleus Co-op the console opened: the only one the host closes,
+    /// for a session or the user.
+    opened: Mutex<Option<Box<dyn Window>>>,
 }
 
 impl Registry {
@@ -520,6 +553,7 @@ impl Registry {
             admit: Mutex::new(()),
             state: Mutex::default(),
             catalog: Mutex::new(None),
+            opened: Mutex::new(None),
         }
     }
     /// This PC; in tests a PC without Nucleus Co-op, so no test reads the
@@ -692,8 +726,9 @@ impl Registry {
     }
 
     /// Open Nucleus Co-op's window on the PC, where the user adds a handler
-    /// or a game. Refused where it can't run, before it is set up, and while
-    /// a session runs, which holds it.
+    /// or a game. Refused where it can't run, before it is set up, while a
+    /// session runs or starts, which holds it, and while Nucleus Co-op
+    /// already runs. The next session closes it first.
     pub fn open(&self, configured: &str) -> Result<(), Refusal> {
         let pc = self.pc();
         if let Some(why) = pc.unavailable() {
@@ -722,10 +757,111 @@ impl Registry {
                 "Nucleus Co-op is running {title}: end that session first"
             )));
         }
-        pc.open(&folder).map_err(|error| {
+        // A launch being admitted may start Nucleus Co-op any moment.
+        let _one = match self.admit.try_lock() {
+            Ok(one) => one,
+            Err(std::sync::TryLockError::Poisoned(one)) => one.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return Err(Refusal::busy(
+                    "A co-op or background stream is starting: open Nucleus Co-op once it has",
+                ));
+            }
+        };
+        let mut opened = self.opened.lock().unwrap_or_else(PoisonError::into_inner);
+        let ours = opened.as_ref().map(|window| window.pid());
+        match pc.running() {
+            Ok(Some(pid)) if Some(pid) == ours => {
+                return Err(Refusal::busy(
+                    "Nucleus Co-op is already open on the PC's screen: use it there, or close it here",
+                ));
+            }
+            Ok(Some(pid)) => {
+                return Err(Refusal::busy(format!(
+                    "Nucleus Co-op is already running on the PC (process {pid}): close it there first"
+                )));
+            }
+            Ok(None) => {}
+            Err(error) => {
+                return Err(Refusal::unavailable(format!(
+                    "Nucleus Co-op's processes could not be listed: {error:#}"
+                )));
+            }
+        }
+        let window = pc.open(&folder).map_err(|error| {
             Refusal::unavailable(format!("Nucleus Co-op did not open: {error:#}"))
         })?;
-        tracing::info!(folder = %folder.display(), "Nucleus Co-op: opened on the PC from the console");
+        tracing::info!(pid = window.pid(), folder = %folder.display(), "Nucleus Co-op: opened on the PC from the console");
+        *opened = Some(window);
+        Ok(())
+    }
+
+    /// Whether the Nucleus Co-op the console opened still runs.
+    pub fn opened(&self) -> bool {
+        match self.opened.try_lock() {
+            Ok(opened) => opened
+                .as_ref()
+                .is_some_and(|window| window.running().unwrap_or(true)),
+            // Being opened or closed right now.
+            Err(std::sync::TryLockError::WouldBlock) => true,
+            Err(std::sync::TryLockError::Poisoned(opened)) => opened
+                .into_inner()
+                .as_ref()
+                .is_some_and(|window| window.running().unwrap_or(true)),
+        }
+    }
+
+    /// The console's Close Nucleus Co-op: closes the window [`Self::open`]
+    /// opened, whether it was still open. A Nucleus Co-op the host did not
+    /// start is refused, never ended.
+    pub fn close(&self) -> Result<bool, Refusal> {
+        let mut opened = self.opened.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(window) = opened.as_ref() {
+            let running = window.running().map_err(|error| {
+                Refusal::unavailable(format!(
+                    "Nucleus Co-op's window could not be read: {error:#}"
+                ))
+            })?;
+            if running {
+                window
+                    .close(CLOSE_WAIT)
+                    .map_err(|error| Refusal::busy(format!("{error:#}")))?;
+                *opened = None;
+                return Ok(true);
+            }
+            *opened = None;
+        }
+        match self.pc().running() {
+            Ok(Some(pid)) => Err(Refusal::busy(format!(
+                "Nucleus Co-op (process {pid}) was not opened from this console: close it on the PC"
+            ))),
+            Ok(None) => Ok(false),
+            Err(error) => Err(Refusal::unavailable(format!(
+                "Nucleus Co-op's processes could not be listed: {error:#}"
+            ))),
+        }
+    }
+
+    /// Before a session starts Nucleus Co-op: close the window the console
+    /// opened. One that won't close refuses the session, loudly, as a
+    /// Nucleus Co-op the host didn't start does.
+    fn close_for_session(&self, title: &str) -> Result<(), Refusal> {
+        let mut opened = self.opened.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(window) = opened.as_ref() else {
+            return Ok(());
+        };
+        if !window.running().unwrap_or(true) {
+            *opened = None;
+            return Ok(());
+        }
+        let pid = window.pid();
+        if let Err(error) = window.close(CLOSE_WAIT) {
+            tracing::warn!(pid, error = %format!("{error:#}"), "Nucleus Co-op: the console's window did not close for a session");
+            return Err(Refusal::unavailable(format!(
+                "Nucleus Co-op did not start {title}: {}",
+                already_running(pid)
+            )));
+        }
+        *opened = None;
         Ok(())
     }
 
@@ -830,6 +966,7 @@ impl Registry {
                 Ok(Seat { session: id, slot })
             }
             Admit::Start => {
+                self.close_for_session(&app.name)?;
                 let free = pc.free_pads().map_err(|error| {
                     Refusal::unavailable(format!(
                         "Nucleus Co-op could not count the free controller slots: {error:#}"
@@ -1395,6 +1532,10 @@ pub(crate) mod fake {
         pub archive: Mutex<Option<Vec<u8>>>,
         /// How often Nucleus Co-op's window was opened.
         pub opened: AtomicUsize,
+        /// The windows opened, the last one last.
+        pub windows: Mutex<Vec<Arc<Window>>>,
+        /// A Nucleus Co-op the host did not start.
+        pub foreign: Mutex<Option<u32>>,
         pub catalog: Mutex<Catalog>,
         pub free: Mutex<usize>,
         pub start_error: Mutex<Option<String>>,
@@ -1417,6 +1558,8 @@ pub(crate) mod fake {
                 install_error: Mutex::new(None),
                 archive: Mutex::new(None),
                 opened: AtomicUsize::new(0),
+                windows: Mutex::new(Vec::new()),
+                foreign: Mutex::new(None),
                 catalog: Mutex::new(Catalog {
                     handlers: vec![Handler {
                         file: "Portal 2.js".into(),
@@ -1467,9 +1610,28 @@ pub(crate) mod fake {
             *self.installed.lock().unwrap() = Some(folder.clone());
             Ok(folder)
         }
-        fn open(&self, _folder: &Path) -> Result<()> {
-            self.opened.fetch_add(1, Ordering::Relaxed);
-            Ok(())
+        fn open(&self, _folder: &Path) -> Result<Box<dyn super::Window>> {
+            let count = self.opened.fetch_add(1, Ordering::Relaxed);
+            let window = Arc::new(Window {
+                pid: 9000 + count as u32,
+                open: AtomicBool::new(true),
+                stuck: AtomicBool::new(false),
+                closes: AtomicUsize::new(0),
+            });
+            self.windows.lock().unwrap().push(window.clone());
+            Ok(Box::new(window))
+        }
+        fn running(&self) -> Result<Option<u32>> {
+            if let Some(pid) = *self.foreign.lock().unwrap() {
+                return Ok(Some(pid));
+            }
+            Ok(self
+                .windows
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|window| window.open.load(Ordering::Relaxed))
+                .map(|window| window.pid))
         }
         fn catalog(&self, _folder: &Path) -> Result<Catalog> {
             self.reads.fetch_add(1, Ordering::Relaxed);
@@ -1486,6 +1648,10 @@ pub(crate) mod fake {
         ) -> Result<Box<dyn super::Instance>> {
             if let Some(error) = self.start_error.lock().unwrap().clone() {
                 anyhow::bail!(error);
+            }
+            // As the PC's session refuses while Nucleus Co-op runs.
+            if let Some(pid) = super::Pc::running(self)? {
+                anyhow::bail!(already_running(pid));
             }
             let pads: Vec<u8> = (0..start.players as u8).collect();
             let session = coop::Session::new(
@@ -1506,6 +1672,41 @@ pub(crate) mod fake {
             });
             self.started.lock().unwrap().push(instance.clone());
             Ok(Box::new(instance))
+        }
+    }
+
+    /// Nucleus Co-op's window as the user would leave it: open until closed,
+    /// or `stuck` on a question it asks.
+    pub(crate) struct Window {
+        pub pid: u32,
+        pub open: AtomicBool,
+        pub stuck: AtomicBool,
+        /// How often it was asked to close.
+        pub closes: AtomicUsize,
+    }
+    impl Pc {
+        /// The window opened last.
+        pub(crate) fn window(&self) -> Arc<Window> {
+            self.windows.lock().unwrap().last().unwrap().clone()
+        }
+    }
+    impl super::Window for Arc<Window> {
+        fn pid(&self) -> u32 {
+            self.pid
+        }
+        fn running(&self) -> Result<bool> {
+            Ok(self.open.load(Ordering::Relaxed))
+        }
+        fn close(&self, timeout: Duration) -> Result<()> {
+            self.closes.fetch_add(1, Ordering::Relaxed);
+            anyhow::ensure!(
+                !self.stuck.load(Ordering::Relaxed),
+                "Nucleus Co-op (process {}) did not close within {} s: close it on the PC",
+                self.pid,
+                timeout.as_secs()
+            );
+            self.open.store(false, Ordering::Relaxed);
+            Ok(())
         }
     }
 
@@ -1821,6 +2022,128 @@ mod tests {
             )
         );
         assert_eq!(pc.opened.load(std::sync::atomic::Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn a_session_closes_the_window_the_console_opened_first() {
+        use std::sync::atomic::Ordering::Relaxed;
+        let (registry, pc, apps) = setup();
+        registry.open("").unwrap();
+        assert!(registry.opened());
+        let window = pc.window();
+        let coop = registry.entries(&apps, "").remove(0);
+        admit(&registry, &coop, "a", &client("A", false)).unwrap();
+        assert_eq!(window.closes.load(Relaxed), 1);
+        assert!(!window.open.load(Relaxed));
+        assert!(!registry.opened());
+        assert_eq!(pc.started.lock().unwrap().len(), 1);
+
+        // A background session closes it too.
+        let (registry, pc, apps) = setup();
+        registry.open("").unwrap();
+        registry
+            .admit(Admission {
+                launch: "b",
+                client: &client("B", false),
+                game: Game::Background(&apps[1]),
+                size: (1920, 1080),
+                config: &Config::default(),
+                warnings: Default::default(),
+            })
+            .unwrap();
+        assert!(!pc.window().open.load(Relaxed));
+        assert_eq!(pc.started.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_window_that_wont_close_refuses_the_session_and_stays_open() {
+        use std::sync::atomic::Ordering::Relaxed;
+        let (registry, pc, apps) = setup();
+        registry.open("").unwrap();
+        let window = pc.window();
+        window.stuck.store(true, Relaxed);
+        let coop = registry.entries(&apps, "").remove(0);
+        let refused = admit(&registry, &coop, "a", &client("A", false)).unwrap_err();
+        assert_eq!(
+            (refused.status, refused.message.as_str()),
+            (
+                503,
+                "Nucleus Co-op did not start Portal 2: Nucleus Co-op is already running on the PC (process 9000): close it, then start the stream again"
+            )
+        );
+        // Asked to close, never ended.
+        assert_eq!(window.closes.load(Relaxed), 1);
+        assert!(window.open.load(Relaxed));
+        assert!(registry.opened());
+        assert!(pc.started.lock().unwrap().is_empty());
+        // Once the user closes it at the PC, the next launch starts.
+        window.stuck.store(false, Relaxed);
+        window.open.store(false, Relaxed);
+        admit(&registry, &coop, "a", &client("A", false)).unwrap();
+        assert_eq!(window.closes.load(Relaxed), 1);
+    }
+
+    #[test]
+    fn open_and_close_leave_a_nucleus_the_host_did_not_start_alone() {
+        use std::sync::atomic::Ordering::Relaxed;
+        let (registry, pc, apps) = setup();
+        *pc.foreign.lock().unwrap() = Some(77);
+        let refused = registry.open("").unwrap_err();
+        assert_eq!(
+            (refused.status, refused.message.as_str()),
+            (
+                409,
+                "Nucleus Co-op is already running on the PC (process 77): close it there first"
+            )
+        );
+        assert_eq!(pc.opened.load(Relaxed), 0);
+        let refused = registry.close().unwrap_err();
+        assert_eq!(
+            (refused.status, refused.message.as_str()),
+            (
+                409,
+                "Nucleus Co-op (process 77) was not opened from this console: close it on the PC"
+            )
+        );
+        // A launch is refused as before, loudly.
+        let coop = registry.entries(&apps, "").remove(0);
+        let refused = admit(&registry, &coop, "a", &client("A", false)).unwrap_err();
+        assert!(
+            refused
+                .message
+                .ends_with("Nucleus Co-op is already running on the PC (process 77): close it, then start the stream again"),
+            "{refused}"
+        );
+    }
+
+    #[test]
+    fn open_twice_is_refused_and_close_closes_it_once() {
+        use std::sync::atomic::Ordering::Relaxed;
+        let (registry, pc, _apps) = setup();
+        assert_eq!(registry.close().unwrap(), false, "nothing to close");
+        registry.open("").unwrap();
+        let refused = registry.open("").unwrap_err();
+        assert_eq!(
+            (refused.status, refused.message.as_str()),
+            (
+                409,
+                "Nucleus Co-op is already open on the PC's screen: use it there, or close it here"
+            )
+        );
+        assert_eq!(pc.opened.load(Relaxed), 1);
+        // A question it asks keeps it open, and says so.
+        pc.window().stuck.store(true, Relaxed);
+        let refused = registry.close().unwrap_err();
+        assert_eq!(refused.status, 409);
+        assert!(refused.message.contains("did not close"), "{refused}");
+        assert!(registry.opened());
+        pc.window().stuck.store(false, Relaxed);
+        assert_eq!(registry.close().unwrap(), true);
+        assert!(!registry.opened());
+        assert_eq!(registry.close().unwrap(), false);
+        // Closed, it opens again.
+        registry.open("").unwrap();
+        assert_eq!(pc.opened.load(Relaxed), 2);
     }
 
     #[test]

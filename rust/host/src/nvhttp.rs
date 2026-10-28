@@ -38,7 +38,7 @@ use butterpollo_windows::clipboard;
 use parity_tests::clipboard;
 use serde_json::json;
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap},
     ops::ControlFlow,
     sync::Mutex,
     time::{Duration, Instant},

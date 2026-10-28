@@ -68,9 +68,11 @@ public class SettingsRailTest {
         root.layout(0, 0, width, height);
         View rail = screen.findViewById(R.id.settings_rail);
         if (rail == null) return;
-        // A pre-draw that snaps a cut top row (SettingsRail.snapTopRow) skips its frame; a device lays out and draws
-        // again, so do the same until a frame would draw.
+        // A pre-draw that snaps a cut top row (SettingsRail.snapTopRow) skips its frame; a device measures, lays out and
+        // draws again (a changed padding is read when the list is measured), so do the same until a frame would draw.
         for (int i = 0; i < 5 && rail.getViewTreeObserver().dispatchOnPreDraw(); i++) {
+            root.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY));
             root.layout(0, 0, width, height);
         }
     }

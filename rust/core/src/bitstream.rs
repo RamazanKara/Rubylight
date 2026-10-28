@@ -1,4 +1,12 @@
 //! Minimal bounded SPS edit for H.264 long-term reference packet-loss recovery.
+mod h264;
+mod hevc;
+mod rbsp;
+
+pub use h264::FrameNumbers;
+pub use hevc::{ORDER_WINDOW, POC_LSB_BITS, PictureOrder};
+pub use rbsp::Unsupported;
+
 struct Bits<'a> {
     bytes: &'a mut [u8],
     at: usize,

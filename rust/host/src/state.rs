@@ -282,6 +282,15 @@ pub struct Host {
     /// The macroblocks per second the H.264, HEVC and AV1 encoders take (AMF throughput caps), 0 until probed.
     pub encoder_mb_rates: [std::sync::atomic::AtomicU64; 3],
     pub packed_modes: std::sync::atomic::AtomicU8,
+    /// Bumped by a save that changes the packed 4:4:4 settings: a probe that
+    /// read the settings before it publishes nothing.
+    packed_generation: Mutex<u64>,
+    /// A save asked for the packed 4:4:4 modes to be probed again.
+    packed_probe_requested: std::sync::atomic::AtomicBool,
+    /// A thread waits to probe them again, or probes them.
+    packed_reprobing: std::sync::atomic::AtomicBool,
+    /// One packed 4:4:4 probe at a time, at startup or after a save.
+    packed_probe: Mutex<()>,
     /// The encoder focus check per codec and bit depth, indexed by
     /// [`butterpollo_core::encoder_focus::support_index`].
     focus_support: Mutex<[butterpollo_core::encoder_focus::Support; 5]>,
@@ -629,6 +638,10 @@ impl Host {
             codecs: std::sync::atomic::AtomicU32::new(0),
             encoder_mb_rates: Default::default(),
             packed_modes: std::sync::atomic::AtomicU8::new(0),
+            packed_generation: Mutex::new(0),
+            packed_probe_requested: std::sync::atomic::AtomicBool::new(false),
+            packed_reprobing: std::sync::atomic::AtomicBool::new(false),
+            packed_probe: Mutex::new(()),
             focus_support: Mutex::new(std::array::from_fn(|_| {
                 butterpollo_core::encoder_focus::Support::NotProbed
             })),
@@ -710,12 +723,13 @@ impl Host {
                 }
                 h.codec_probe_requested.store(false, Ordering::Release);
                 h.probing_codecs.store(true, Ordering::Release);
+                let packed_generation = *h.packed_generation.lock().unwrap();
                 let mut config = h.config.read().unwrap().clone();
                 // Probe the driver's ability independently of the stream's
                 // opt-in: the default asks for long-term references in AV1.
                 config.values.remove("amd_ltr_frames");
                 let result = butterpollo_windows::input::on_input_desktop(|| {
-                    h.probe_codecs_once(&config, retrying)
+                    h.probe_codecs_once(&config, packed_generation, retrying)
                 });
                 retrying = true;
                 let Some((flags, error, retry_pyrowave)) =
@@ -802,6 +816,7 @@ impl Host {
     fn probe_codecs_once(
         &self,
         config: &Config,
+        packed_generation: u64,
         yield_to_streams: bool,
     ) -> Result<Option<(u32, Option<String>, bool)>> {
         let _com = butterpollo_windows::capture::ComGuard::new()?;
@@ -926,46 +941,15 @@ impl Host {
         self.codecs
             .store(flags | pyrowave, std::sync::atomic::Ordering::Release);
         let mut retry_pyrowave = false;
-        let mut packed_modes = 0;
-        if config.boolean("experimental_packed_444", false) {
-            for (codec, ten_bit) in [(1, false), (1, true), (2, false), (2, true)] {
-                if busy() {
-                    return Ok(None);
-                }
-                let mode = config.integer(if codec == 1 { "hevc_mode" } else { "av1_mode" }, 0);
-                if mode == 1 || (ten_bit && mode == 2) {
-                    continue;
-                }
-                let negotiated = butterpollo_core::rtsp::Negotiated {
-                    width: 640,
-                    height: 480,
-                    fps: 30,
-                    bitrate_kbps: 2000,
-                    codec,
-                    sdr_10bit: ten_bit,
-                    chroma_packing: butterpollo_core::packed444::VERSION,
-                    ..Default::default()
-                };
-                let probing = std::time::Instant::now();
-                match butterpollo_windows::codec_probe::packed(config, &negotiated) {
-                    Ok(()) => packed_modes |= butterpollo_core::packed444::mode_bit(codec, ten_bit),
-                    // Packed 4:4:4 is opt-in: a mode the user turned on but
-                    // clients are not offered must show in the log.
-                    Err(error) => tracing::warn!(
-                        error = %format!("{error:#}"),
-                        mode = packed_mode_names(butterpollo_core::packed444::mode_bit(codec, ten_bit)),
-                        elapsed_ms = probing.elapsed().as_millis() as u64,
-                        "packed 4:4:4 probe failed; clients are not offered this mode"
-                    ),
-                }
-            }
-            tracing::info!(
-                modes = packed_mode_names(packed_modes),
-                "packed 4:4:4 modes offered to clients"
-            );
+        {
+            let _probe = self.packed_probe.lock().unwrap();
+            let Some(packed_modes) =
+                probe_packed_modes(config, busy, butterpollo_windows::codec_probe::packed)
+            else {
+                return Ok(None);
+            };
+            self.publish_packed_modes(packed_generation, packed_modes);
         }
-        self.packed_modes
-            .store(packed_modes, std::sync::atomic::Ordering::Release);
         self.startup_codecs.send_replace(true);
         if busy() {
             return Ok(None);
@@ -1035,6 +1019,110 @@ impl Host {
             }
             std::thread::sleep(Duration::from_millis(250));
         }
+    }
+    /// A save changed the settings from `before`. The packed 4:4:4 modes they
+    /// no longer allow are withdrawn at once, and modes they newly allow are
+    /// probed once no stream runs or starts. Until then the startup probe was
+    /// the only one, so turning full chroma on took a host restart.
+    pub fn packed_settings_saved(self: &Arc<Self>, before: &Config) {
+        self.packed_settings_saved_with(before, butterpollo_windows::codec_probe::packed);
+    }
+    pub(crate) fn packed_settings_saved_with(
+        self: &Arc<Self>,
+        before: &Config,
+        probe: PackedProbe,
+    ) {
+        use std::sync::atomic::Ordering;
+        let was = packed_modes_allowed(before);
+        let now = packed_modes_allowed(&self.config.read().unwrap());
+        if was == now {
+            return;
+        }
+        {
+            let mut generation = self.packed_generation.lock().unwrap();
+            *generation += 1;
+            self.packed_modes.fetch_and(now, Ordering::AcqRel);
+        }
+        if now & !was == 0 {
+            tracing::info!(
+                modes = packed_mode_names(self.packed_modes.load(Ordering::Acquire)),
+                "packed 4:4:4 modes offered to clients"
+            );
+            return;
+        }
+        self.packed_probe_requested.store(true, Ordering::Release);
+        if self.packed_reprobing.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let h = self.clone();
+        std::thread::spawn(move || {
+            loop {
+                while h.packed_probe_requested.load(Ordering::Acquire) {
+                    if !h.wait_for_packed_probe() {
+                        h.packed_reprobing.store(false, Ordering::Release);
+                        return;
+                    }
+                    h.reprobe_packed_modes(probe);
+                }
+                h.packed_reprobing.store(false, Ordering::Release);
+                // A save between the last check and the store found this
+                // thread still running and left its request to it.
+                if !h.packed_probe_requested.load(Ordering::Acquire)
+                    || h.packed_reprobing.swap(true, Ordering::AcqRel)
+                {
+                    return;
+                }
+            }
+        });
+    }
+    /// Wait until a user is signed in, no stream runs or starts and the
+    /// startup probe has finished. False when the host is stopping.
+    fn wait_for_packed_probe(&self) -> bool {
+        use std::sync::atomic::Ordering;
+        let mut waiting = false;
+        loop {
+            if self.stop.load(Ordering::Acquire) {
+                return false;
+            }
+            if !self.probing_codecs.load(Ordering::Acquire) && self.probe_session_ready() {
+                return true;
+            }
+            if !std::mem::replace(&mut waiting, true) {
+                tracing::info!("packed 4:4:4 probe waits until no stream runs");
+            }
+            std::thread::sleep(Duration::from_millis(250));
+        }
+    }
+    /// Probe the packed 4:4:4 modes the saved settings allow and publish them,
+    /// unless another save changed the settings meanwhile. A stream that
+    /// appears leaves the probe requested for after it.
+    fn reprobe_packed_modes(&self, probe: PackedProbe) -> bool {
+        use std::sync::atomic::Ordering;
+        let _probe = self.packed_probe.lock().unwrap();
+        self.packed_probe_requested.store(false, Ordering::Release);
+        let generation = *self.packed_generation.lock().unwrap();
+        let mut config = self.config.read().unwrap().clone();
+        config.values.remove("amd_ltr_frames");
+        let busy = || !self.sessions.lock().unwrap().idle();
+        match probe_packed_modes(&config, busy, probe) {
+            Some(modes) => self.publish_packed_modes(generation, modes),
+            None => {
+                self.packed_probe_requested.store(true, Ordering::Release);
+                tracing::info!("packed 4:4:4 probe paused for a stream");
+                false
+            }
+        }
+    }
+    /// Offer `modes` unless a save changed the packed 4:4:4 settings after
+    /// the probe read them at `generation`: that save's probe answers instead.
+    fn publish_packed_modes(&self, generation: u64, modes: u8) -> bool {
+        let current = self.packed_generation.lock().unwrap();
+        if *current != generation {
+            return false;
+        }
+        self.packed_modes
+            .store(modes, std::sync::atomic::Ordering::Release);
+        true
     }
     /// A user is signed in, and no stream runs or is being launched: a
     /// launch asks for a probe, which must wait until its stream has ended.
@@ -1312,6 +1400,71 @@ fn focus_summary(support: &[butterpollo_core::encoder_focus::Support; 5]) -> Str
         .map(|(name, support)| format!("{name}={}", support.summary()))
         .collect::<Vec<_>>()
         .join(" ")
+}
+/// Checks one packed 4:4:4 mode on the encoder: `codec_probe::packed`, or a
+/// fake in tests.
+pub(crate) type PackedProbe = fn(&Config, &butterpollo_core::rtsp::Negotiated) -> Result<()>;
+const PACKED_MODES: [(u8, bool); 4] = [(1, false), (1, true), (2, false), (2, true)];
+/// The packed 4:4:4 modes the settings let clients be offered: none while
+/// full chroma is off, and none for a codec or 10-bit mode turned off.
+fn packed_modes_allowed(config: &Config) -> u8 {
+    if !config.boolean("experimental_packed_444", false) {
+        return 0;
+    }
+    PACKED_MODES
+        .into_iter()
+        .filter(|&(codec, ten_bit)| {
+            let mode = config.integer(if codec == 1 { "hevc_mode" } else { "av1_mode" }, 0);
+            !(mode == 1 || (ten_bit && mode == 2))
+        })
+        .fold(0, |modes, (codec, ten_bit)| {
+            modes | butterpollo_core::packed444::mode_bit(codec, ten_bit)
+        })
+}
+/// Probe each packed 4:4:4 mode the settings allow. None once `busy` says a
+/// stream wants the encoder.
+fn probe_packed_modes(config: &Config, busy: impl Fn() -> bool, probe: PackedProbe) -> Option<u8> {
+    let allowed = packed_modes_allowed(config);
+    if !config.boolean("experimental_packed_444", false) {
+        return Some(0);
+    }
+    let mut packed_modes = 0;
+    for (codec, ten_bit) in PACKED_MODES {
+        if busy() {
+            return None;
+        }
+        let bit = butterpollo_core::packed444::mode_bit(codec, ten_bit);
+        if allowed & bit == 0 {
+            continue;
+        }
+        let negotiated = butterpollo_core::rtsp::Negotiated {
+            width: 640,
+            height: 480,
+            fps: 30,
+            bitrate_kbps: 2000,
+            codec,
+            sdr_10bit: ten_bit,
+            chroma_packing: butterpollo_core::packed444::VERSION,
+            ..Default::default()
+        };
+        let probing = std::time::Instant::now();
+        match probe(config, &negotiated) {
+            Ok(()) => packed_modes |= bit,
+            // Packed 4:4:4 is opt-in: a mode the user turned on but clients
+            // are not offered must show in the log.
+            Err(error) => tracing::warn!(
+                error = %format!("{error:#}"),
+                mode = packed_mode_names(bit),
+                elapsed_ms = probing.elapsed().as_millis() as u64,
+                "packed 4:4:4 probe failed; clients are not offered this mode"
+            ),
+        }
+    }
+    tracing::info!(
+        modes = packed_mode_names(packed_modes),
+        "packed 4:4:4 modes offered to clients"
+    );
+    Some(packed_modes)
 }
 /// Names of the packed 4:4:4 modes in a `packed444Modes` mask.
 fn packed_mode_names(modes: u8) -> String {

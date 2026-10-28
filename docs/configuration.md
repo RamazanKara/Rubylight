@@ -812,7 +812,7 @@ Every setting in the console, by the console's own groups, with its key and the 
 | Capture troubleshooting: Align capture with encoding | `wgc_slot_aligned_publish` | `false` | Holds a new frame until just before the next encode if a newer one could arrive first. Helps when the display refreshes much faster than the stream. |
 | Capture troubleshooting: Encode from GPU memory | `wgc_direct_encoder_input` | `true` | Hands captured frames straight to the encoder on the GPU. Turn off only to troubleshoot an encoder. |
 | Capture troubleshooting: Copy and convert on a compute queue | `gpu_compute_conversion` | `true` | On supported AMD GPUs, copies captured frames and converts their colors on compute queues beside a game. Turn off to compare or troubleshoot. |
-| Codecs: Full chroma | `experimental_packed_444` | `false` | Allow compatible Nightjar clients to request full-resolution color through HEVC or AV1 on AMD. Requires the client option and a host restart. |
+| Codecs: Full chroma | `experimental_packed_444` | `false` | Allow compatible Nightjar clients to request full-resolution color through HEVC or AV1 on AMD. Requires the client option. |
 | Codecs: HEVC support | `hevc_mode` | `0` (Automatic) | Which HEVC profiles devices may request. A profile the encoder fails when the host starts is never offered. |
 | Codecs: AV1 support | `av1_mode` | `0` (Automatic) | Which AV1 profiles devices may request. A profile the encoder fails when the host starts is never offered. |
 | Codecs: PyroWave | `pyrowave` | `true` | Lets compatible devices request PyroWave, a very low-latency GPU codec. It needs hundreds of Mbps and a fast wired network. |

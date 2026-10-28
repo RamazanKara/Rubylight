@@ -53,10 +53,11 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             if let Some(port) = h.port_override {
                 next.values.insert("port".into(), port.to_string());
             }
-            *h.config.write().unwrap() = next;
+            let before = std::mem::replace(&mut *h.config.write().unwrap(), next);
             h.config_version
                 .fetch_add(1, std::sync::atomic::Ordering::Release);
             ended_usb(h);
+            h.packed_settings_saved(&before);
             h.metadata.lock().unwrap().take();
             // The launchers to read changed: the last scan answers for the old ones.
             if object.keys().any(|key| key.starts_with("library_")) {
@@ -97,10 +98,11 @@ pub(super) fn save_setting(
     if let Some(port) = h.port_override {
         config.values.insert("port".into(), port.to_string());
     }
-    *h.config.write().unwrap() = config;
+    let before = std::mem::replace(&mut *h.config.write().unwrap(), config);
     h.config_version
         .fetch_add(1, std::sync::atomic::Ordering::Release);
     ended_usb(h);
+    h.packed_settings_saved(&before);
     Ok(())
 }
 

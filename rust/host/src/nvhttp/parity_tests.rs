@@ -643,6 +643,77 @@ async fn serverinfo_carries_the_packed_444_modes_only_when_packed_is_on() {
     assert_eq!(packed("").await, None);
 }
 
+/// Full chroma took a host restart: only the startup probe found its modes.
+/// A save now probes them once no stream runs, and turning a mode's codec or
+/// full chroma off withdraws it at once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn saving_packed_444_changes_the_offered_modes_without_a_restart() {
+    use butterpollo_core::packed444::mode_bit;
+    fn probe(
+        _: &butterpollo_core::config::Config,
+        stream: &butterpollo_core::rtsp::Negotiated,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(stream.codec == 1 || !stream.ten_bit(), "no 10-bit AV1 here");
+        Ok(())
+    }
+    let f = Fixture::new();
+    let client = f.client(0x071f1f01);
+    let offered = || {
+        let host = f.host.clone();
+        let connection = f.connection(true);
+        let client = client.clone();
+        async move {
+            let config = host.config.read().unwrap().clone();
+            let root = document(serverinfo_response(
+                &host,
+                &connection,
+                &config,
+                Some(&client),
+                true,
+                String::new(),
+                0,
+                false,
+            ))
+            .await;
+            root.get_child("Packed444Modes")
+                .map(|element| element.get_text().unwrap_or_default().into_owned())
+        }
+    };
+    let save = |key: &str, value: &str| {
+        let before = f.host.config.read().unwrap().clone();
+        f.host
+            .config
+            .write()
+            .unwrap()
+            .values
+            .insert(key.into(), value.into());
+        f.host.packed_settings_saved_with(&before, probe);
+    };
+    let probed = mode_bit(1, false) | mode_bit(1, true) | mode_bit(2, false);
+    // A save during a stream leaves the encoder to it.
+    f.host
+        .sessions
+        .lock()
+        .unwrap()
+        .teardown
+        .insert("stream".into(), Instant::now());
+    save("experimental_packed_444", "true");
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert_eq!(offered().await.as_deref(), Some("0"));
+    f.host.sessions.lock().unwrap().teardown.clear();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while f.host.packed_modes.load(Ordering::Acquire) != probed && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(offered().await, Some(probed.to_string()));
+    // Turning HEVC off withdraws its modes without waiting for a probe.
+    save("hevc_mode", "1");
+    assert_eq!(offered().await, Some(mode_bit(2, false).to_string()));
+    save("experimental_packed_444", "false");
+    assert_eq!(f.host.packed_modes.load(Ordering::Acquire), 0);
+    assert_eq!(offered().await, None);
+}
+
 #[tokio::test]
 async fn successful_launch_and_resume_xml_include_driver_readiness_and_the_called_endpoint() {
     for (reply, resume) in [("gamesession", false), ("resume", true)] {

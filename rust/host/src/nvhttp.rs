@@ -2075,6 +2075,7 @@ fn replacement_confirmed(h: &Shared, launch: &Launch, generation: &str) -> bool 
                 remote::Confirmation::Replace,
                 generation,
                 launch.app_id,
+                now,
             ) =>
         {
             true

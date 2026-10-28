@@ -229,18 +229,21 @@ impl Confirmations {
         debug_assert!(!redeemed);
     }
     /// Redeems the prompt `client` was shown for `action` with the user's
-    /// explicit answer: true only while one is pending for this `generation`
-    /// and `app`, however long the user took, so a confirmation never closes a
-    /// game that started after the prompt. Never asks; the caller asks again.
+    /// explicit answer: true only within the prompt's 60 seconds and for its
+    /// `generation` and `app`, so a confirmation never closes a game that
+    /// started after the prompt. Never asks; the caller asks again.
     pub fn answer(
         &mut self,
         client: &str,
         action: Confirmation,
         generation: &str,
         app: u32,
+        now: std::time::Instant,
     ) -> bool {
         self.pending.remove(&(client.into(), action)).is_some_and(
-            |(saved_generation, saved_app, _)| saved_generation == generation && saved_app == app,
+            |(saved_generation, saved_app, until)| {
+                until > now && saved_generation == generation && saved_app == app
+            },
         )
     }
     pub fn clear(&mut self, client: &str, action: Confirmation) {
@@ -373,18 +376,26 @@ mod tests {
         let now = Instant::now();
         let mut book = Confirmations::default();
         // No prompt shown: nothing to answer.
-        assert!(!book.answer("client", Confirmation::Replace, "game-1", 3));
+        assert!(!book.answer("client", Confirmation::Replace, "game-1", 3, now));
         // The game the prompt named ended and another one started.
         book.ask("client", Confirmation::Replace, "game-1", 3, now);
-        assert!(!book.answer("client", Confirmation::Replace, "game-2", 3));
+        assert!(!book.answer("client", Confirmation::Replace, "game-2", 3, now));
         // Another app than the one the prompt was for, or another client.
         book.ask("client", Confirmation::Replace, "game-1", 3, now);
-        assert!(!book.answer("client", Confirmation::Replace, "game-1", 4));
+        assert!(!book.answer("client", Confirmation::Replace, "game-1", 4, now));
         book.ask("client", Confirmation::Replace, "game-1", 3, now);
-        assert!(!book.answer("other", Confirmation::Replace, "game-1", 3));
-        assert!(book.answer("client", Confirmation::Replace, "game-1", 3));
+        assert!(!book.answer("other", Confirmation::Replace, "game-1", 3, now));
+        assert!(book.answer("client", Confirmation::Replace, "game-1", 3, now));
         // Once only.
-        assert!(!book.answer("client", Confirmation::Replace, "game-1", 3));
+        assert!(!book.answer("client", Confirmation::Replace, "game-1", 3, now));
+        // Within the prompt's 60 seconds only, whether or not another
+        // client's confirmation pruned it meanwhile.
+        let later = now + std::time::Duration::from_secs(59);
+        book.ask("client", Confirmation::Replace, "game-1", 3, now);
+        assert!(book.answer("client", Confirmation::Replace, "game-1", 3, later));
+        book.ask("client", Confirmation::Replace, "game-1", 3, now);
+        let late = now + std::time::Duration::from_secs(60);
+        assert!(!book.answer("client", Confirmation::Replace, "game-1", 3, late));
     }
     #[test]
     fn active_game_projection_has_a_distinct_stable_resumable_identity() {

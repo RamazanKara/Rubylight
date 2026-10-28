@@ -67,9 +67,13 @@ needed=$(for file in "${binaries[@]}"; do readelf -d "$file"; done |
 glibc=$(for file in "${binaries[@]}"; do objdump -T "$file"; done | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -n1)
 [[ -n $glibc ]] || { echo "error: no GLIBC_ symbol versions found in the binaries" >&2; exit 1; }
 # Opened with dlopen by SDL3 (X11, Wayland, audio, udev, D-Bus) and by the PyroWave SDK (Vulkan).
+# SDL does not start without a video and an audio driver: X11 (which Wayland desktops run too,
+# as XWayland) and ALSA (under PulseAudio and PipeWire as well) are the ones every desktop has, so
+# those are dependencies; the rest only add features.
+dlopened_required="libX11.so.6 libXext.so.6 libasound.so.2"
 dlopened="libvulkan.so.1 libEGL.so.1 libGL.so.1 libwayland-client.so.0 libwayland-egl.so.1 libwayland-cursor.so.0
-libxkbcommon.so.0 libdecor-0.so.0 libX11.so.6 libXext.so.6 libXcursor.so.1 libXi.so.6 libXrandr.so.2 libXss.so.1
-libXfixes.so.3 libasound.so.2 libpulse.so.0 libpipewire-0.3.so.0 libudev.so.1 libdbus-1.so.3"
+libxkbcommon.so.0 libdecor-0.so.0 libXcursor.so.1 libXi.so.6 libXrandr.so.2 libXss.so.1 libXfixes.so.3
+libpulse.so.0 libpipewire-0.3.so.0 libudev.so.1 libdbus-1.so.3"
 
 # The Debian/Ubuntu package of an installed library, by soname.
 deb_owner() {
@@ -93,6 +97,12 @@ for lib in $needed; do
 	[[ $lib == ld-linux* ]] && continue
 	owner=$(deb_owner "$lib")
 	[[ -n $owner ]] || { echo "error: no Debian package owns $lib, which the package links; install it on the build machine" >&2; exit 1; }
+	deb_depends+=("$owner")
+	rpm_depends+=("$lib()(64bit)")
+done
+for lib in $dlopened_required; do
+	owner=$(deb_owner "$lib")
+	[[ -n $owner ]] || { echo "error: no Debian package owns $lib, which SDL needs to start; install it on the build machine" >&2; exit 1; }
 	deb_depends+=("$owner")
 	rpm_depends+=("$lib()(64bit)")
 done

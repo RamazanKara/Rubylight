@@ -9,7 +9,8 @@ arch=('x86_64')
 url='https://github.com/RamazanKara/nightjar'
 license=('GPL-3.0-only')
 # What the binaries link (FFmpeg's decoders and dav1d are in the archive's lib/).
-depends=('glibc' 'gcc-libs' 'opus' 'libva' 'hicolor-icon-theme')
+# alsa-lib, libx11 and libxext: SDL3 opens them at run time and does not start without them.
+depends=('glibc' 'gcc-libs' 'opus' 'libva' 'alsa-lib' 'libx11' 'libxext' 'systemd-libs' 'hicolor-icon-theme')
 # Opened at run time by SDL3 and the PyroWave decoder.
 optdepends=('vulkan-icd-loader: PyroWave GPU decoding'
             'libva-mesa-driver: hardware decoding on AMD and Intel GPUs'

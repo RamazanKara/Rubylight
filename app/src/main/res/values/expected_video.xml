@@ -18,4 +18,7 @@
     <string name="stream_hdr_vulkan_shown_as_sdr">%1$s shown as SDR: the display refused HDR from “Render through Vulkan”.</string>
     <string name="stream_hdr_vulkan_no_dolby_vision">Dolby Vision needs “Render through Vulkan” off, so the stream is HDR10.</string>
     <string name="stream_hdr_vulkan_no_hdr10_plus">HDR10+ needs “Render through Vulkan” off, so the stream is HDR10 without it.</string>
+    <string name="stream_hdr_pyrowave_no_dolby_vision">Dolby Vision needs HEVC, so PyroWave streams %1$s.</string>
+    <string name="stream_hdr_pyrowave_no_hdr10_plus">HDR10+ needs HEVC or AV1, so PyroWave streams HDR10 without it.</string>
+    <string name="stream_hdr_pq_on_hlg_screen_host_update">This screen shows HDR only as HLG, but the PC sends HDR10 on PyroWave, so brightness and colors may look wrong. Updating the PC’s host adds HLG on PyroWave.</string>
 </resources>

@@ -67,6 +67,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile int announcedHdrFormat;
     // What the Vulkan renderer leaves out of this screen's HDR, set by pickHdrFormat and said once
     private volatile HdrFormatPolicy.DrawnLimit vulkanHdrLimit = HdrFormatPolicy.DrawnLimit.NONE;
+    // The same for PyroWave, and whether an HLG-only screen gets HDR10 there for want of a host update.
+    private volatile HdrFormatPolicy.DrawnLimit pyroWaveHdrLimit = HdrFormatPolicy.DrawnLimit.NONE;
+    private volatile boolean pyroWaveHlgNeedsHostUpdate;
     private volatile boolean dolbyVisionFailed;
     private volatile boolean dolbyVisionActive;
 
@@ -1735,37 +1738,50 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     @Override
     public int pickHdrFormat(int hostHdrFormats, int videoFormats, boolean packed444) {
         vulkanHdrLimit = HdrFormatPolicy.DrawnLimit.NONE;
+        pyroWaveHdrLimit = HdrFormatPolicy.DrawnLimit.NONE;
+        pyroWaveHlgNeedsHostUpdate = false;
         if (hostHdrFormats == 0) return 0;
         int[] displayTypes = HdrPolicy.displayHdrTypes(outputDisplay);
-        // Packed full chroma and PyroWave draw BT.2020/PQ surfaces, the Vulkan renderer PQ or HLG
-        // (HdrFormatPolicy).
+        // Packed full chroma draws a BT.2020/PQ surface, the Vulkan renderer PQ or HLG, PyroWave PQ
+        // or HLG where the host offers HLG on it (HdrFormatPolicy).
         String drawer = null;
         HdrFormatPolicy.DrawnSurface surface = HdrFormatPolicy.DrawnSurface.NONE;
         boolean vulkan = false;
-        if (packed444 || (videoFormats & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
-            drawer = packed444 ? "packed full chroma" : "PyroWave";
+        boolean pyroWave = false;
+        if (packed444) {
+            drawer = "packed full chroma";
             surface = HdrFormatPolicy.DrawnSurface.PQ_ONLY;
+        } else if ((videoFormats & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
+            drawer = "PyroWave";
+            surface = HdrFormatPolicy.pyroWaveSurface(hostHdrFormats);
+            pyroWave = true;
         } else if (vulkanPresents(prefs)) {
             drawer = "the Vulkan renderer";
             surface = vulkanSurface(prefs);
             vulkan = true;
         }
         int format = HdrFormatPolicy.pick(hostHdrFormats, displayTypes, dolbyVisionDecoder != null, surface);
+        // Game says these once per PC (takeVulkanHdrLimit, takePyroWaveHdrLimit).
         if (vulkan) {
-            // Game says it once per PC (takeVulkanHdrLimit).
             vulkanHdrLimit = HdrFormatPolicy.vulkanLimit(hostHdrFormats, displayTypes, dolbyVisionDecoder != null,
                     format);
+        } else if (pyroWave) {
+            pyroWaveHdrLimit = HdrFormatPolicy.pyroWaveLimit(hostHdrFormats, displayTypes, dolbyVisionDecoder != null,
+                    format);
+            pyroWaveHlgNeedsHostUpdate = HdrFormatPolicy.pyroWaveHlgNeedsHostUpdate(hostHdrFormats, displayTypes);
         }
+        HdrFormatPolicy.DrawnLimit limit = vulkan ? vulkanHdrLimit : pyroWaveHdrLimit;
         LimeLog.info("HDR formats: the PC offers 0x" + Integer.toHexString(hostHdrFormats) + ", asking for " +
                 HdrFormatPolicy.name(format) + (drawer != null ? " (" + drawer + " draws " +
                 (surface == HdrFormatPolicy.DrawnSurface.PQ_HLG ? "PQ and HLG" : "PQ only") + ")" :
                 dolbyVisionDecoder == null ? " (no Dolby Vision decoder)" : "") +
-                (vulkanHdrLimit != HdrFormatPolicy.DrawnLimit.NONE ? ", without " + vulkanHdrLimit : ""));
+                (limit != HdrFormatPolicy.DrawnLimit.NONE ? ", without " + limit : ""));
         if (surface == HdrFormatPolicy.DrawnSurface.PQ_ONLY && !HdrPolicy.hasHdr10(displayTypes) &&
                 HdrFormatPolicy.hlgInstead(hostHdrFormats, displayTypes)) {
             // Game names it on the status line (HdrPolicy.Status.PQ_ON_HLG_SCREEN).
             LimeLog.warning("The screen reports HLG and no HDR10, but " + drawer +
-                    " draws PQ only: this stream is HDR10");
+                    " draws PQ only" + (pyroWaveHlgNeedsHostUpdate ? " from this PC (HLG on PyroWave needs a host update)" :
+                    "") + ": this stream is HDR10");
         }
         return format;
     }
@@ -1819,6 +1835,22 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         HdrFormatPolicy.DrawnLimit limit = vulkanHdrLimit;
         vulkanHdrLimit = HdrFormatPolicy.DrawnLimit.NONE;
         return limit;
+    }
+
+    /**
+     * What PyroWave leaves out of this screen's HDR (Dolby Vision, HDR10+), once a PyroWave stream
+     * runs; NONE after the first call for the stream.
+     */
+    public HdrFormatPolicy.DrawnLimit takePyroWaveHdrLimit() {
+        if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0) return HdrFormatPolicy.DrawnLimit.NONE;
+        HdrFormatPolicy.DrawnLimit limit = pyroWaveHdrLimit;
+        pyroWaveHdrLimit = HdrFormatPolicy.DrawnLimit.NONE;
+        return limit;
+    }
+
+    /** A PyroWave stream is HDR10 on an HLG-only screen because the host offers no HLG on PyroWave. */
+    public boolean isPyroWaveHlgNeedingHostUpdate() {
+        return pyroWaveHlgNeedsHostUpdate && (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0;
     }
 
     /**

@@ -299,6 +299,101 @@ async fn nightjar_launches_and_streams_with_control_both_ways() -> Result<()> {
     h.finish().await
 }
 
+/// The device-drawn cursor (0x5540/0x5541) with Desktop Duplication capture: the host offers
+/// it in serverinfo and DESCRIBE, Nightjar's enable leaves the pointer out of the video, a
+/// pointer the stream notes reaches Nightjar as an image, a pointer it saw before comes back
+/// by id, and Nightjar's disable puts the pointer back into the video.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn nightjar_receives_the_cursor_it_draws() -> Result<()> {
+    use butterpollo_core::client_cursor::Pointer;
+    use nightjar_core::control::{ClientMessage, CursorShape};
+    let h = Harness::configured(10_000, 1, "capture=ddx\n").await?;
+    let client = device(&h, u32::MAX, &[])?;
+    assert!(
+        client
+            .server_info(true)?
+            .capabilities
+            .has(Feature::CursorShape)
+    );
+    let (_launch, session, stream, recorder) = stream(&h, &client).await?;
+    assert!(
+        stream
+            .outcome()
+            .host_control_messages
+            .contains(&ptype::CURSOR_SHAPE_REQUEST)
+    );
+    assert!(!session.client_cursor.active());
+    stream.send(ClientMessage::CursorShapeRequest { enabled: true })?;
+    until("the host leaves the pointer out", LOADED, || {
+        session.client_cursor.active()
+    })
+    .await;
+
+    // The fixture's capture notes nothing; the test notes the pointer as the stream does.
+    let images = || {
+        recorder.seen(|s| {
+            s.events
+                .iter()
+                .filter_map(|e| match e {
+                    ControlEvent::CursorShape(CursorShape::Image {
+                        id,
+                        width,
+                        height,
+                        hotspot_x,
+                        hotspot_y,
+                        ..
+                    }) => Some((*id, *width, *height, *hotspot_x, *hotspot_y)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        })
+    };
+    let arrow: Arc<[u8]> = [0, 0, 0, 255].repeat(8 * 8).into();
+    let beam: Arc<[u8]> = [255, 255, 255, 255].repeat(4 * 12).into();
+    let pointer = |pixels, width, height| Pointer {
+        width,
+        height,
+        hotspot: [1, 2],
+        logic: false,
+        pixels,
+    };
+    session
+        .client_cursor
+        .note(Some(pointer(&arrow, 8, 8)), "fake");
+    until("the arrow at Nightjar", LOADED, || images().len() == 1).await;
+    session
+        .client_cursor
+        .note(Some(pointer(&beam, 4, 12)), "fake");
+    until("the beam at Nightjar", LOADED, || images().len() == 2).await;
+    let shown = images();
+    assert_eq!(
+        (shown[0].1, shown[0].2, shown[0].3, shown[0].4),
+        (8, 8, 1, 2)
+    );
+    assert_eq!((shown[1].1, shown[1].2), (4, 12));
+    session
+        .client_cursor
+        .note(Some(pointer(&arrow, 8, 8)), "fake");
+    let arrow_id = shown[0].0;
+    until("the arrow again, by id", LOADED, || {
+        recorder.saw(|e| *e == ControlEvent::CursorShape(CursorShape::Show { id: arrow_id }))
+    })
+    .await;
+    assert_eq!(images().len(), 2, "a cached shape is not sent again");
+
+    stream.send(ClientMessage::CursorShapeRequest { enabled: false })?;
+    until("the pointer back in the video", LOADED, || {
+        !session.client_cursor.active()
+    })
+    .await;
+    stream.stop();
+    until("sessions released", LOADED, || {
+        h.h.sessions.lock().unwrap().idle()
+    })
+    .await;
+    h.finish().await
+}
+
 /// Nightjar's `rlFecPercentage`: `auto` keeps the host's percentage until 0x5539 reports
 /// arrive, then follows them up to `fec_max_percentage`; a fixed choice is capped by it; and
 /// a launch without one keeps the host's own FEC.

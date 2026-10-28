@@ -271,43 +271,38 @@ device (`background_stream`), or **Library → (app) → Behavior → Stream in 
 background** for one app (`background-stream`). Either one is enough; it applies
 from the next launch.
 
-A background stream:
+**Settings › Displays › Background mode** (`background_mode`, Experimental)
+picks how a background stream runs:
 
-- **Uses its own virtual display, isolated from the PC's monitors.** The
-  layout is always `extended_isolated` whatever the host, device, app or
-  client asks for: the PC's monitors and primary display stay as they are, and
-  the local mouse cannot reach the stream's display. If the virtual display is
-  unavailable the launch fails rather than stream the PC's own monitor.
-- **Moves the game's windows onto that display without activating them.**
-  Rubylight checks once a second and places windows of the launched game's
-  process tree there: a borderless or maximized window fills the display, any
-  other keeps its size. A window that keeps moving itself back is left alone
-  after five attempts, with a warning on the stream card.
+- **Nucleus Co-op** (`nucleus`, the default when unset): the game runs as a
+  [Nucleus Co-op](nucleus-coop.md) instance whose window is captured on its
+  own, away from the PC's monitors. The older value `virtual_display` reads as
+  `nucleus`.
+- **Child session** (`child_session`): the device plays on a
+  [Windows child session](background-child-session.md) of your account, with
+  its own desktop and input focus. Windows Pro and higher.
+- **Automatic** (`auto`): a child session where this PC can run one, otherwise
+  Nucleus Co-op.
+
+The console's Maintenance page and the host log say which mode runs and why. A
+mode this PC cannot run refuses background launches with the reason; it is
+never swapped for another one.
+
+A background stream in either mode:
+
+- **Leaves the PC's displays alone.** The PC's monitors, layout and primary
+  display stay as they are, and the PC user keeps the keyboard and mouse
+  focus.
 - **Accepts only controllers from the device.** Its keyboard, mouse, touch and
   pen would type and click into whatever the PC user has focused, so they are
   off, as is the clipboard. The virtual controllers work as usual.
 - **Streams only the game's sound** ([Game-only audio](#game-only-audio)), so the
   PC user's calls and music stay private. The game is still audible on the
   PC's speakers unless you route it to another playback device.
-- **Never takes focus for the game, but tells the game it has it.** Windows
-  has one keyboard focus per session and it stays with the PC user. Once a
-  second Rubylight sends the game's main window the messages Windows sends an
-  activated window, so games that mute or slow down while inactive keep
-  their sound and frame rate. Total War: Warhammer III, for example, goes
-  silent in the background and plays sound again this way. A cursor clip the
-  game then sets on the stream's display is released, so the PC's mouse is
-  never trapped there. Windows' background throttling (EcoQoS, coarse timers)
-  is turned off for the game's processes. Playnite launch focus and Lossless
-  Scaling are skipped, and launched programs get
-  `SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS=1` so SDL games read controllers
-  without focus.
 
-Games that ask Windows directly which window is in front are not fooled by
-the messages, and neither are games using exclusive fullscreen or Steam
-Input (which only feeds the focused game). Choose windowed or borderless mode
-in the game. Window placement needs a launch Rubylight can identify, as for
-game-only audio: a direct executable, a Steam game or a Playnite game. The
-Desktop entry and detached commands only get the isolated display.
+Nucleus Co-op needs a handler for the game from its handler hub, and the host
+running as the Windows service; [Nucleus Co-op](nucleus-coop.md) has the
+install, the limits, and co-op for several devices at once.
 
 ### Background streaming from a Hyper-V VM
 

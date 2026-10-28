@@ -7,15 +7,15 @@ mouse and keyboard focus and its own apps. A second Rubylight host runs inside
 it on its own ports, and clients pair with it like with any host. The way it
 works is ported from [Annex](https://github.com/mattxslv/annex) (MIT).
 
-It is **Experimental** and off by default. The isolated virtual display
-([Background streaming](configuration.md#background-streaming)) stays the
-default, and it is what Windows Home uses: Home has no child sessions.
+It is **Experimental** and off by default. [Nucleus Co-op](nucleus-coop.md)
+stays the default background mode, and it is what **Automatic** uses where
+there are no child sessions, as on Windows Home.
 
 ## Turning it on
 
 1. In the console, set **Background mode** to **Child session** (or **Automatic**,
    which uses child sessions where the Windows edition has them). The setting
-   is `background_mode = auto | child_session | virtual_display`. The console
+   is `background_mode = auto | child_session | nucleus`. The console
    and the host log say which mode runs and why.
 2. Under **Maintenance**, open **Background child session (Experimental)** and
    choose **Set up child sessions**. Setup:
@@ -118,8 +118,8 @@ default), reconnects it and signs it out.
   settings, or enable the group policy "Use hardware graphics adapter for all
   Remote Desktop Services sessions".
 - One child session per Windows account, and Windows Pro, Enterprise or
-  Education. **Windows Home keeps the virtual-display mode**, shown in the
-  console as "Background streaming (virtual display): Windows Home".
+  Education. **Windows Home uses Nucleus Co-op**, shown in the console as
+  "Background streaming (Nucleus Co-op)" with the reason.
 - The child session's host runs as administrator, so games that run as
   administrator get its input. Its console uses the main console's sign-in.
 

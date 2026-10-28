@@ -160,6 +160,60 @@ public class MediaCodecHdrMetadataTest {
     }
 
     @Test
+    public void metadataShowingInTheSixtiethOutputNeedsNoRestart() throws IOException {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            MediaCodecDecoderRenderer renderer = streaming(activity.get());
+            AtomicInteger type = ReflectionHelpers.getField(renderer, "codecRecoveryType");
+            renderer.setHdrMode(true, METADATA);
+            ReflectionHelpers.setField(renderer, "outputFormat", outputWith(new byte[25]));
+            for (int i = 1; i < MediaCodecDecoderRenderer.HDR_STATIC_INFO_OUTPUTS; i++) {
+                checkOutput(renderer);
+            }
+            ReflectionHelpers.setField(renderer, "outputFormat",
+                    outputWith(MediaCodecDecoderRenderer.createHdrStaticInfo(METADATA).array()));
+            checkOutput(renderer);
+            assertNull(ReflectionHelpers.getField(renderer, "uncheckedHdrStaticInfo"));
+            for (int i = 0; i < 2 * MediaCodecDecoderRenderer.HDR_STATIC_INFO_OUTPUTS; i++) {
+                checkOutput(renderer);
+            }
+            assertEquals(recovery("CR_RECOVERY_TYPE_NONE"), type.get());
+        }
+    }
+
+    @Test
+    public void newMetadataCountsSixtyOutputsAgainAndRestartsOnce() throws IOException {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            MediaCodecDecoderRenderer renderer = streaming(activity.get());
+            AtomicInteger type = ReflectionHelpers.getField(renderer, "codecRecoveryType");
+            renderer.setHdrMode(true, METADATA);
+            ReflectionHelpers.setField(renderer, "outputFormat", outputWith(new byte[25]));
+            for (int i = 1; i < MediaCodecDecoderRenderer.HDR_STATIC_INFO_OUTPUTS; i++) {
+                checkOutput(renderer);
+            }
+            // The PC's metadata changes one output before the restart: the new metadata gets its own 60.
+            byte[] brighter = METADATA.clone();
+            brighter[16] = (byte) 0xe8;
+            brighter[17] = 0x03;
+            renderer.setHdrMode(true, brighter);
+            assertEquals(2, RecordingCodec.parameters.size());
+            assertEquals(0, (int) ReflectionHelpers.getField(renderer, "hdrStaticInfoOutputs"));
+            for (int i = 1; i < MediaCodecDecoderRenderer.HDR_STATIC_INFO_OUTPUTS; i++) {
+                checkOutput(renderer);
+            }
+            assertEquals(recovery("CR_RECOVERY_TYPE_NONE"), type.get());
+            checkOutput(renderer);
+            assertEquals(recovery("CR_RECOVERY_TYPE_RESTART"), type.get());
+
+            // The restart is the only one: later outputs without the metadata ask for none.
+            type.set(recovery("CR_RECOVERY_TYPE_NONE"));
+            for (int i = 0; i < 2 * MediaCodecDecoderRenderer.HDR_STATIC_INFO_OUTPUTS; i++) {
+                checkOutput(renderer);
+            }
+            assertEquals(recovery("CR_RECOVERY_TYPE_NONE"), type.get());
+        }
+    }
+
+    @Test
     public void aRefusedParameterRestartsTheDecoder() throws IOException {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
             MediaCodecDecoderRenderer renderer = streaming(activity.get());

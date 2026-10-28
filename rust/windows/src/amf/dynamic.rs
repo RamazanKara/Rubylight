@@ -59,12 +59,13 @@ impl Wanted {
 /// HEVC or AV1 HDR streams with `hdr_dynamic_metadata` on (HEVC only for HLG:
 /// HDR Vivid has no AV1 carriage and HDR10+ describes PQ only), and HEVC
 /// streams whose client picked Dolby Vision 8.1 or 8.4. `None` leaves every
-/// output byte as AMF wrote it.
+/// output byte as AMF wrote it. Ten-bit SDR never gets any, even if a path
+/// marked it SDR without clearing `hdr`.
 pub(super) fn wanted(
     config: &butterpollo_core::rtsp::Negotiated,
     options: &butterpollo_core::config::Config,
 ) -> Option<Wanted> {
-    if !config.hdr {
+    if !config.hdr || config.sdr_10bit {
         return None;
     }
     let codec = Codec::from_video_format(config.codec)?;
@@ -611,6 +612,29 @@ mod tests {
         assert_eq!(wanted(&config(3, true), &on), None, "PyroWave");
         for codec in [1, 2] {
             assert_eq!(wanted(&config(codec, true), &off), None, "setting off");
+        }
+    }
+
+    #[test]
+    fn ten_bit_sdr_never_gets_dynamic_metadata() {
+        // Hardware lane 4a: a 10-bit SDR launch streamed as HDR switched HDR10+ on.
+        let on = butterpollo_core::config::Config::default();
+        for codec in [1, 2] {
+            // RTSP reads dynamicRangeMode=1 as HDR; hdrMode=0 at launch makes it SDR.
+            let mut stream = butterpollo_core::rtsp::Negotiated {
+                codec,
+                hdr: true,
+                ..Default::default()
+            };
+            assert!(wanted(&stream, &on).is_some(), "an HDR launch keeps it");
+            assert!(butterpollo_core::stream_policy::infer_sdr_10bit(
+                &mut stream,
+                true
+            ));
+            assert_eq!(wanted(&stream, &on), None, "codec {codec}");
+            // Marked SDR but with `hdr` left set: still none.
+            stream.hdr = true;
+            assert_eq!(wanted(&stream, &on), None, "codec {codec}, hdr left set");
         }
     }
 

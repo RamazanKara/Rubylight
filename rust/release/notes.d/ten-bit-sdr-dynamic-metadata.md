@@ -1,0 +1,1 @@
+- **10-bit SDR streams never carry HDR10+, HDR Vivid or Dolby Vision metadata**, whatever else the stream says; only HDR streams do.

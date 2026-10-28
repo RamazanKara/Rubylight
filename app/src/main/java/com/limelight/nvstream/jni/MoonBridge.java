@@ -77,6 +77,8 @@ public class MoonBridge {
     // experimental full chroma cannot be streamed with this PC (no packed mode both sides offer,
     // or the PC refused it), so the stream may reconnect without it
     public static final int CLIENT_ERROR_PACKED_444_REFUSED = -106;
+    // This device's own code, never sent by a PC: the video decoder failed and recovering it did not help
+    public static final int CLIENT_ERROR_DECODER = -107;
 
     public static final int ML_PORT_INDEX_TCP_47984 = 0;
     public static final int ML_PORT_INDEX_TCP_47989 = 1;

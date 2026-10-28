@@ -585,6 +585,9 @@ pub enum Failure {
     /// The frame did not decode (malformed, or the sequence does not match): counted, and the
     /// host is asked for a new IDR, as on the CPU path.
     Frame(String),
+    /// The frame lost too much of its data on the way: counted and an IDR asked for as with
+    /// `Frame`, but it says nothing about the decoder, so it never ends the stream.
+    Loss(String),
     /// Every plane set is held by a picture that has not been shown or dropped yet: the frame is
     /// dropped and counted with the replaced ones.
     NoPlanes,
@@ -1003,7 +1006,9 @@ impl GpuStream {
         // A slice decode marks the SDK's sequence as decoded, and `is_ready` is then false for the
         // rest of it. The slices' frame is complete if its chunks were the envelope (`finished`);
         // what the cache had to fill in is the loss the gate would have judged.
-        final_decode_gate(sliced, finished, loss_percent, || self.gpu.is_ready(true)).map_err(|why| Failure::Frame(why.into()))?;
+        // A frame the cache had to fill in failed for what the network lost, not for the decoder.
+        final_decode_gate(sliced, finished, loss_percent, || self.gpu.is_ready(true))
+            .map_err(|why| if loss_percent > 0.0 { Failure::Loss(why.into()) } else { Failure::Frame(why.into()) })?;
         let step = Instant::now();
         #[cfg(windows)]
         let fence_value = {

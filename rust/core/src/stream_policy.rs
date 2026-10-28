@@ -818,9 +818,9 @@ pub fn apply_color(stream: &mut Negotiated, config: &Config) {
 }
 /// Why a packed 4:4:4 stream never carries Dolby Vision, for the log, the
 /// session warning and the setting's note in the console.
-pub const PACKED_DOLBY_VISION: &str = "Dolby Vision is off for packed 4:4:4 streams: the device unpacks the packed picture itself, so a Dolby Vision decoder would tone-map the packed layout instead of the picture. The stream carries HDR10 and HDR10+ instead";
-/// A packed 4:4:4 stream whose client picked Dolby Vision streams HDR10, with
-/// HDR10+ while `hdr_dynamic_metadata` is on: the client decodes the packed
+pub const PACKED_DOLBY_VISION: &str = "Dolby Vision is off for packed 4:4:4 streams: the device unpacks the packed picture itself, so a Dolby Vision decoder would tone-map the packed layout instead of the picture. The stream carries static HDR10 instead";
+/// A packed 4:4:4 stream whose client picked Dolby Vision streams static
+/// HDR10, from the control channel: the client decodes the packed
 /// picture as plain sample data and unpacks it in its own shader, and the
 /// RPU would not survive the unpack. The log and the session's warnings say
 /// so; any other stream clears the warning. Returns whether it dropped it.
@@ -841,7 +841,7 @@ pub fn packed_drops_dolby_vision(
 }
 /// Why a packed 4:4:4 stream never carries HLG, for the log and the session
 /// warning.
-pub const PACKED_HLG: &str = "HLG is off for packed 4:4:4 streams: the device unpacks the packed picture itself and shows it as HDR10. The stream carries HDR10 and HDR10+ instead";
+pub const PACKED_HLG: &str = "HLG is off for packed 4:4:4 streams: the device unpacks the packed picture itself and shows it as HDR10. The stream carries static HDR10 instead";
 /// A packed 4:4:4 stream whose client picked HLG streams HDR10, like one that
 /// picked Dolby Vision ([`packed_drops_dolby_vision`], which drops 8.4 as
 /// Dolby Vision first): the client's unpack shader shows the picture as PQ.

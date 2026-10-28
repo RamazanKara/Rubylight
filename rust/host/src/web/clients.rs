@@ -288,7 +288,7 @@ fn one_time_pin(h: &Shared, passphrase: &str, device_name: &str) -> String {
         passphrase: passphrase.to_owned(),
         device_name: device_name.to_owned(),
         created: Instant::now(),
-        attempts: 0,
+        misses: Default::default(),
     });
     pin
 }

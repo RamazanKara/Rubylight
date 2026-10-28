@@ -109,7 +109,32 @@ pub struct OneTimePin {
     pub passphrase: String,
     pub device_name: String,
     pub created: Instant,
-    pub attempts: u8,
+    pub misses: OtpMisses,
+}
+/// Wrong one-time PIN answers by device address. Pairing needs no client
+/// certificate, so one global count let any LAN device use up the invitation
+/// meant for another.
+#[derive(Default)]
+pub struct OtpMisses {
+    by_peer: HashMap<std::net::IpAddr, u8>,
+    total: u8,
+}
+impl OtpMisses {
+    /// Wrong answers one address may give.
+    pub const PER_PEER: u8 = 5;
+    /// Wrong answers from all addresses before the PIN is spent.
+    pub const TOTAL: u8 = 32;
+    pub fn refuses(&self, peer: std::net::IpAddr) -> bool {
+        self.by_peer
+            .get(&peer)
+            .is_some_and(|misses| *misses >= Self::PER_PEER)
+    }
+    /// Counts a wrong answer from `peer`; false once the PIN is spent.
+    pub fn miss(&mut self, peer: std::net::IpAddr) -> bool {
+        *self.by_peer.entry(peer).or_default() += 1;
+        self.total += 1;
+        self.total < Self::TOTAL
+    }
 }
 pub struct PendingPin {
     pub name: String,
@@ -1057,8 +1082,8 @@ impl Host {
                 "the console sign-in was changed outside the console; browsers sign in again"
             );
         }
-        if let Err(error) = self.save_web_sessions(&Default::default()) {
-            tracing::warn!(error = %format!("{error:#}"), "browser sessions could not be cleared");
+        if let Err(error) = self.revoke_sign_ins() {
+            tracing::warn!(error = %format!("{error:#}"), "browser sessions and API tokens could not be cleared");
         }
         sessions.clear();
     }
@@ -1075,6 +1100,21 @@ impl Host {
                 .map(|(key, s)| web_sessions::record(key, s))
                 .collect(),
         );
+        butterpollo_core::state::write_json(&self.aliases_path, &document)?;
+        *aliases = document;
+        Ok(())
+    }
+    /// A changed console sign-in ends what the old one let in: browser
+    /// sessions and API tokens, in one write. A token is bound only to the
+    /// username, so it would otherwise outlive the password it was made with.
+    pub fn revoke_sign_ins(&self) -> Result<()> {
+        let mut aliases = self.aliases.lock().unwrap();
+        let mut document = aliases.clone();
+        if !document["root"].is_object() {
+            document["root"] = json!({});
+        }
+        document["root"]["session_tokens"] = json!([]);
+        document["root"]["api_tokens"] = json!([]);
         butterpollo_core::state::write_json(&self.aliases_path, &document)?;
         *aliases = document;
         Ok(())
@@ -1407,9 +1447,16 @@ mod tests {
             None,
         )
         .unwrap();
+        let tokens = |h: &Host| h.aliases.lock().unwrap()["root"]["api_tokens"].clone();
+        {
+            let mut aliases = h.aliases.lock().unwrap();
+            aliases["root"]["api_tokens"] = serde_json::json!([{"hash": "made with old-password"}]);
+            write_json(&h.aliases_path, &*aliases).unwrap();
+        }
         // The console's own write is no change from outside.
         h.reload_credentials();
         assert_eq!(h.web_sessions.lock().unwrap().len(), 1);
+        assert_eq!(tokens(h).as_array().map(Vec::len), Some(1));
         // --creds writes the file while the host runs.
         let set = |credentials: Option<&Credentials>| {
             let mut document = load_json(&h.credentials_path, serde_json::json!({})).unwrap();
@@ -1436,6 +1483,12 @@ mod tests {
         assert!(current.verifies("ramazan k", "new-password"));
         assert!(!current.verifies("apollo", "old-password"));
         assert!(h.web_sessions.lock().unwrap().is_empty());
+        // So are the API tokens made while the old password was in force.
+        assert_eq!(tokens(h), serde_json::json!([]));
+        assert_eq!(
+            load_json(&h.aliases_path, serde_json::json!({})).unwrap()["root"]["api_tokens"],
+            serde_json::json!([])
+        );
         // A later save of the paired state keeps the new sign-in.
         let paired = h.paired.read().unwrap();
         paired.save(&h.paired_path).unwrap();

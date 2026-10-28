@@ -111,11 +111,9 @@ fn on_this_pc_or_link(host: &url::Host<&str>) -> bool {
             let name = name.trim_end_matches('.').to_ascii_lowercase();
             name == "localhost" || name.ends_with(".localhost")
         }
-        url::Host::Ipv4(ip) => ip.is_loopback() || ip.is_link_local() || ip.is_unspecified(),
-        url::Host::Ipv6(ip) => match ip.to_ipv4_mapped() {
-            Some(ip) => ip.is_loopback() || ip.is_link_local() || ip.is_unspecified(),
-            None => ip.is_loopback() || ip.is_unicast_link_local() || ip.is_unspecified(),
-        },
+        // A name is checked again where it resolves, at each delivery.
+        url::Host::Ipv4(ip) => crate::webhooks::on_this_pc_or_link((*ip).into()),
+        url::Host::Ipv6(ip) => crate::webhooks::on_this_pc_or_link((*ip).into()),
     }
 }
 

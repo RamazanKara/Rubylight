@@ -863,7 +863,7 @@ impl Encoder {
             );
             e.frame_cap
                 .observe(e.read(rate_control::frame_cap_name(e.codec)));
-            e.dynamic = e.enable_dynamic(config, options);
+            e.dynamic = e.enable_dynamic(options);
             e.log_effective();
             Ok(e)
         }
@@ -1315,19 +1315,21 @@ impl Encoder {
     /// HDR10+ and HDR Vivid for an HDR stream with `hdr_dynamic_metadata` on,
     /// from the statistics pass behind its conversion, and Dolby Vision 8.1
     /// RPUs for a stream that picked it ([`dynamic::start`]). A stream that
-    /// gets less than it wanted says why.
+    /// gets less than it wanted says why. Asks with the stream's own config,
+    /// not the coded one: a packed 4:4:4 stream codes SDR, but what it
+    /// wanted decides what it says.
     fn enable_dynamic(
         &mut self,
-        config: &butterpollo_core::rtsp::Negotiated,
         options: &butterpollo_core::config::Config,
     ) -> Option<Box<dynamic::Dynamic>> {
-        let wanted = dynamic::wanted(config, options)?;
-        if self.compute.is_none() {
+        let wanted = dynamic::wanted(&self.config, options)?;
+        let packed = self.config.chroma_packing != 0;
+        if self.compute.is_none() && !packed {
             self.graphics_stats = Some(Box::new(crate::gpu_color::HdrStats::new(&self._device)));
         }
         dynamic::start(
             wanted,
-            config.chroma_packing != 0,
+            packed,
             stats(
                 self.compute.as_deref_mut(),
                 self.graphics_stats.as_deref_mut(),
@@ -1352,6 +1354,9 @@ impl Encoder {
         if let Some(dynamic) = self.dynamic.as_deref_mut() {
             dynamic.set_metadata(metadata);
         }
+        // A packed 4:4:4 bitstream signals full-range BT.709 SDR: the device
+        // unpacks it in its own shader and applies the control channel's
+        // copy, so mastering SEI here would contradict the stream's VUI.
         if !self.config.hdr || self.codec == 0 || self.config.chroma_packing != 0 {
             return;
         }

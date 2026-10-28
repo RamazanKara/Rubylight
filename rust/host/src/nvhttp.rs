@@ -1052,11 +1052,15 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
                 .take()
                 .filter(|otp| otp.created.elapsed() < Duration::from_secs(180))
                 .context("OTP pairing is not available")?;
+            if otp.misses.refuses(peer) {
+                *h.otp.lock().unwrap() = Some(otp);
+                bail!("too many wrong one-time PIN answers from this address");
+            }
             let salt_text = args.get("salt").map_or("", String::as_str);
-            let expected = hex::encode_upper(crypto::hash(
-                format!("{}{salt_text}{}", otp.pin, otp.passphrase).as_bytes(),
-            ));
-            let (pin, name) = if expected.eq_ignore_ascii_case(auth) {
+            let expected =
+                crypto::hash(format!("{}{salt_text}{}", otp.pin, otp.passphrase).as_bytes());
+            let matches = hex::decode(auth).is_ok_and(|auth| crypto::equal(&expected, &auth));
+            let (pin, name) = if matches {
                 tracing::info!(client=%name, "Pairing with a one-time PIN");
                 let name = if otp.device_name.is_empty() {
                     name
@@ -1066,8 +1070,7 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
                 (otp.pin, name)
             } else {
                 tracing::warn!(client=%name, "One-time PIN pairing failed");
-                otp.attempts += 1;
-                if otp.attempts < 5 {
+                if otp.misses.miss(peer) {
                     *h.otp.lock().unwrap() = Some(otp);
                 }
                 (

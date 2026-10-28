@@ -56,7 +56,7 @@ For requests that change state:
 
 - If an `Origin` header is present, it must match the host's HTTPS origin or an entry in `csrf_allowed_origins`. A CSRF token does not override a rejected origin.
 - Session authentication, whether through a cookie or a Bearer access token, requires `X-CSRF-Token` on protected routes. Read the session's token from `GET /api/csrf-token` using the same session.
-- Basic authentication and valid scoped API tokens do not require a session CSRF token. Origin checks still apply.
+- Basic authentication and valid scoped API tokens do not require a session CSRF token. Origin checks still apply. A Basic-authenticated request without `Origin` is refused with `403` when it has a form content type (`application/x-www-form-urlencoded`, `multipart/form-data`, `text/plain`) or `Sec-Fetch-Site` other than `same-origin` or `none`: send JSON or no body.
 - Before browser sign-in or first-time account creation, fetch `/api/csrf-token`, retain its anonymous cookie, and send the returned token as `X-CSRF-Token`. If that cookie is present, the host requires a matching header.
 
 ## Read-only examples

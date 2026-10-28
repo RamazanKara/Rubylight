@@ -707,7 +707,7 @@ fn set_otp(f: &Fixture, age: Duration) {
         passphrase: "passphrase".into(),
         device_name: "Console name".into(),
         created: Instant::now() - age,
-        attempts: 0,
+        misses: Default::default(),
     });
 }
 
@@ -825,23 +825,47 @@ async fn otp_expiry_wrong_auth_and_pairing_disable_do_not_create_devices() {
 }
 
 #[tokio::test]
-async fn one_time_pin_is_disabled_after_five_wrong_attempts() {
+async fn one_time_pin_refuses_an_address_after_five_wrong_attempts() {
     let f = Fixture::new();
     set_otp(&f, Duration::ZERO);
-    let mut args = otp_request(&f);
-    args.insert("otpauth".into(), "wrong".into());
+    let right = otp_request(&f);
+    let mut wrong = right.clone();
+    wrong.insert("otpauth".into(), "wrong".into());
+    let guesser: std::net::IpAddr = "192.0.2.9".parse().unwrap();
     for _ in 0..5 {
-        assert!(
-            do_pair(f.host.clone(), &args, "127.0.0.1".parse().unwrap())
-                .await
-                .is_ok()
-        );
+        assert!(do_pair(f.host.clone(), &wrong, guesser).await.is_ok());
+    }
+    // That address can't guess again, even with the right answer...
+    let refused = do_pair(f.host.clone(), &right, guesser).await.unwrap_err();
+    assert!(refused.to_string().contains("this address"), "{refused}");
+    assert!(f.host.paired.read().unwrap().clients.is_empty());
+    // ...and has not used up the invitation for the device it was made for.
+    let device = "192.0.2.10".parse().unwrap();
+    let start = do_pair(f.host.clone(), &right, device).await.unwrap();
+    assert_eq!(start[0], ("paired".into(), "1".into()));
+    assert!(f.host.otp.lock().unwrap().is_none());
+}
+
+#[tokio::test]
+async fn one_time_pin_is_spent_after_wrong_attempts_from_many_addresses() {
+    use crate::state::OtpMisses;
+    let f = Fixture::new();
+    set_otp(&f, Duration::ZERO);
+    let mut wrong = otp_request(&f);
+    wrong.insert("otpauth".into(), hex::encode([0u8; 32]));
+    for i in 0..OtpMisses::TOTAL {
+        let peer = std::net::IpAddr::from([192, 0, 2, 100 + i]);
+        assert!(do_pair(f.host.clone(), &wrong, peer).await.is_ok());
     }
     assert!(f.host.otp.lock().unwrap().is_none());
     assert!(
-        do_pair(f.host.clone(), &args, "127.0.0.1".parse().unwrap())
-            .await
-            .is_err()
+        do_pair(
+            f.host.clone(),
+            &otp_request(&f),
+            "192.0.2.10".parse().unwrap()
+        )
+        .await
+        .is_err()
     );
     assert!(f.host.paired.read().unwrap().clients.is_empty());
 }

@@ -51,6 +51,10 @@ enum Request {
         /// An event of the host's, duplicated into the helper, set after
         /// each frame it announces.
         wake: u64,
+        /// A game window (HWND) to capture instead of the display `name`.
+        /// Absent for displays, so their message is unchanged.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        window: Option<u64>,
     },
     Release {
         slot: usize,
@@ -346,8 +350,10 @@ pub struct Session {
     freed: Arc<Mutex<Vec<usize>>>,
 }
 impl Session {
+    /// Captures display `name`, or `window` (an HWND) with `name`'s GPU.
     pub(super) fn new(
         name: &str,
+        window: Option<usize>,
         hdr: bool,
         config: &Config,
         warnings: Arc<butterpollo_core::session::Warnings>,
@@ -404,6 +410,7 @@ impl Session {
             hdr,
             config: capture_config(config),
             wake: process.duplicate_into(frame.raw())?,
+            window: window.map(|window| window as u64),
         })?;
         let (handles, width, height, format, worker_compute) = loop {
             match pipe.receive::<Reply>()? {
@@ -779,7 +786,7 @@ fn worker(pipe: &Pipe) -> Result<()> {
         "WGC helper must run as the signed-in user"
     );
     let deadline = Instant::now() + START_TIMEOUT;
-    let (name, hdr, config, wake) = loop {
+    let (name, hdr, config, wake, window) = loop {
         match pipe.receive::<Request>()? {
             Some(Request::Start {
                 version,
@@ -787,11 +794,13 @@ fn worker(pipe: &Pipe) -> Result<()> {
                 hdr,
                 config,
                 wake,
+                window,
             }) => {
                 ensure!(version == VERSION, "unsupported WGC protocol version");
                 // The host duplicated it into this process; closed on exit.
                 let wake = owned(HANDLE(usize::try_from(wake)? as *mut _));
-                break (name, hdr, capture_config(&config), wake);
+                let window = window.map(usize::try_from).transpose()?;
+                break (name, hdr, capture_config(&config), wake, window);
             }
             Some(Request::Stop) => return Ok(()),
             Some(_) => bail!("unexpected WGC startup command"),
@@ -831,6 +840,7 @@ fn worker(pipe: &Pipe) -> Result<()> {
         gpu.clone(),
         hdr,
         config.boolean("wgc_high_rate_capture", false),
+        window,
     )?;
     capture.drain_to_newest = config.boolean("wgc_drain_to_newest", false);
     if let Err(error) = capture.enable_notifications() {
@@ -873,6 +883,9 @@ fn worker(pipe: &Pipe) -> Result<()> {
             timer.until(Instant::now() + Duration::from_micros(500));
         }
     };
+    // The shared textures below keep the first frame's size: a game window
+    // resized after it ends this helper, and the host reopens at the new size.
+    capture.follow_resize = false;
     let source = native_texture(first.as_ref().unwrap())?;
     let mut desc = D3D11_TEXTURE2D_DESC::default();
     // SAFETY: `source` is a live texture and `desc` a live local.
@@ -1186,6 +1199,7 @@ mod tests {
             hdr: true,
             config: filtered,
             wake: 0x1234,
+            window: None,
         };
         let encoded = serde_json::to_vec(&message).unwrap();
         assert!(encoded.len() < crate::ipc::MESSAGE_LIMIT);
@@ -1195,6 +1209,29 @@ mod tests {
             serde_json::from_str::<Request>(r#"{"type":"Release","slot":0,"command":"run"}"#)
                 .is_err()
         );
+    }
+    #[test]
+    fn a_window_rides_the_start_message_and_displays_send_what_they_did() {
+        let start = |window| Request::Start {
+            version: VERSION,
+            name: r"\\.\DISPLAY1".into(),
+            hdr: false,
+            config: Config::default(),
+            wake: 7,
+            window,
+        };
+        // A display's start message has no window key, as before.
+        let display = serde_json::to_string(&start(None)).unwrap();
+        assert!(!display.contains("window"), "{display}");
+        let Request::Start { window, .. } = serde_json::from_str(&display).unwrap() else {
+            panic!("not a start message");
+        };
+        assert_eq!(window, None);
+        let game = serde_json::to_string(&start(Some(0x2056c))).unwrap();
+        let Request::Start { window, name, .. } = serde_json::from_str(&game).unwrap() else {
+            panic!("not a start message");
+        };
+        assert_eq!((window, name.as_str()), (Some(0x2056c), r"\\.\DISPLAY1"));
     }
     #[test]
     fn shared_descriptors_must_match_the_supported_bounded_texture_contract() {

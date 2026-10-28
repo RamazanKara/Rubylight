@@ -732,7 +732,7 @@ fn wgc_low_rate_explicitly_disables_the_windows_capture_throttle() -> Result<()>
     let _com = ComGuard::new()?;
     let gpu = Device::new("")?;
     for (high_rate, ticks) in [(false, 0), (true, 10_000), (false, 0)] {
-        let capture = Wgc::new_device(gpu.clone(), false, high_rate)?;
+        let capture = Wgc::new_device(gpu.clone(), false, high_rate, None)?;
         assert_eq!(capture.session.MinUpdateInterval()?.Duration, ticks);
     }
     Ok(())
@@ -973,5 +973,203 @@ fn wgc_reconnect_and_com_teardown_keep_the_runtime_loaded() -> Result<()> {
         .join()
         .expect("capture worker panicked")?;
     }
+    Ok(())
+}
+
+/// A top-level window of the predefined STATIC class, destroyed on drop.
+struct TestWindow(windows::Win32::Foundation::HWND);
+impl TestWindow {
+    fn new(style: windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE) -> Result<Self> {
+        use windows::Win32::UI::WindowsAndMessaging::{CreateWindowExW, WINDOW_EX_STYLE};
+        // SAFETY: The class and title are static NUL-terminated literals; no other pointers.
+        let hwnd = unsafe {
+            CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                windows::core::w!("STATIC"),
+                windows::core::w!("Rubylight capture test"),
+                style,
+                100,
+                100,
+                640,
+                360,
+                None,
+                None,
+                None,
+                None,
+            )?
+        };
+        Ok(Self(hwnd))
+    }
+    fn target(&self, display: &str) -> String {
+        WindowTarget::new(self.0.0 as u64, display).to_string()
+    }
+    /// Handles its messages; the test thread owns the window.
+    fn pump(&self) {
+        use windows::Win32::UI::WindowsAndMessaging::{
+            DispatchMessageW, MSG, PM_REMOVE, PeekMessageW, TranslateMessage,
+        };
+        let mut message = MSG::default();
+        // SAFETY: `message` is a live local; the messages are this thread's.
+        unsafe {
+            while PeekMessageW(&mut message, None, 0, 0, PM_REMOVE).as_bool() {
+                let _ = TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
+        }
+    }
+}
+impl Drop for TestWindow {
+    fn drop(&mut self) {
+        // SAFETY: The window was created on this thread; a destroyed one only fails the call.
+        let _ = unsafe { windows::Win32::UI::WindowsAndMessaging::DestroyWindow(self.0) };
+    }
+}
+
+fn open_error(name: &str, kind: &str) -> String {
+    let warnings = std::sync::Arc::new(butterpollo_core::session::Warnings::default());
+    let error =
+        Capture::open_for_stream_reported(name, kind, false, &Default::default(), warnings.clone())
+            .err()
+            .expect("the window target opened");
+    // Nothing else was tried in its place.
+    assert!(
+        warnings.snapshot().is_empty(),
+        "{:?}",
+        warnings
+            .snapshot()
+            .into_iter()
+            .map(|warning| warning.message)
+            .collect::<Vec<_>>()
+    );
+    format!("{error:#}")
+}
+
+#[test]
+fn window_targets_never_fall_back_to_display_capture() -> Result<()> {
+    use windows::Win32::UI::WindowsAndMessaging::{WS_MINIMIZE, WS_POPUP};
+    // Hidden windows: nothing appears, and no GPU is opened before the refusals.
+    let normal = TestWindow::new(WS_POPUP)?;
+    let minimised = TestWindow::new(WS_POPUP | WS_MINIMIZE)?;
+    let display = r"\\.\DISPLAY1";
+    for kind in ["ddx", "dxgi", "idd-push"] {
+        let error = open_error(&normal.target(display), kind);
+        assert!(
+            error.contains("only be captured with Windows Graphics Capture"),
+            "{kind}: {error}"
+        );
+    }
+    for kind in ["wgc", "auto"] {
+        let error = open_error(&minimised.target(display), kind);
+        assert!(
+            error.starts_with("the game window is minimised"),
+            "{kind}: {error}"
+        );
+    }
+    let closed = normal.target(display);
+    drop(normal);
+    for kind in ["wgc", "auto"] {
+        let error = open_error(&closed, kind);
+        assert!(
+            error.starts_with("the game window closed"),
+            "{kind}: {error}"
+        );
+    }
+    let error = open_error("window:12@", "wgc");
+    assert!(error.contains("names no display"), "{error}");
+    // Recovery never swaps a window for the primary display: the reopen
+    // reports what is wrong with the window target.
+    assert!(display_present(&closed));
+    assert!(display_present(r"window:12@\\.\NO_SUCH_DISPLAY"));
+    assert!(display_present("window:garbage"));
+    assert!(!display_present(r"\\.\NO_SUCH_DISPLAY"));
+    Ok(())
+}
+
+#[test]
+#[ignore = "shows a test window and captures it with WGC; needs an idle interactive desktop"]
+fn wgc_window_capture_follows_resize_and_fails_on_minimise_and_close() -> Result<()> {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SW_MINIMIZE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER, SetWindowPos,
+        ShowWindow, WS_OVERLAPPEDWINDOW,
+    };
+    enable_dpi_awareness();
+    let _com = ComGuard::new()?;
+    let window = TestWindow::new(WS_OVERLAPPEDWINDOW)?;
+    // SAFETY: The window was created on this thread.
+    unsafe {
+        let _ = ShowWindow(window.0, SW_SHOWNOACTIVATE);
+    }
+    let display = primary_display().context("no display")?;
+    let mut capture = Capture::new(&window.target(&display), "wgc")?;
+    assert_eq!(capture.backend(), "wgc");
+    let next = |capture: &mut Capture, until: &dyn Fn(&GpuImage) -> bool| -> Result<GpuImage> {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            window.pump();
+            if let Some(image) = capture.next_gpu()?
+                && until(&image)
+            {
+                return Ok(image);
+            }
+            ensure!(
+                Instant::now() < deadline,
+                "no matching window frame within 5 s"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    };
+    let first = next(&mut capture, &|_| true)?;
+    tracing::info!(
+        width = first.width,
+        height = first.height,
+        "first window frame"
+    );
+    // SAFETY: The window was created on this thread.
+    unsafe {
+        SetWindowPos(
+            window.0,
+            None,
+            0,
+            0,
+            960,
+            540,
+            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+        )?;
+    }
+    let resized = next(&mut capture, &|image| image.width != first.width)?;
+    assert!(resized.width > first.width && resized.height > first.height);
+    // SAFETY: The window was created on this thread.
+    unsafe {
+        let _ = ShowWindow(window.0, SW_MINIMIZE);
+    }
+    let Err(error) = next(&mut capture, &|_| false) else {
+        unreachable!("no frame matches");
+    };
+    let error = format!("{error:#}");
+    assert!(error.starts_with("the game window is minimised"), "{error}");
+    let mut capture = {
+        // SAFETY: The window was created on this thread.
+        unsafe {
+            let _ = ShowWindow(window.0, SW_SHOWNOACTIVATE);
+        }
+        window.pump();
+        Capture::new(&window.target(&display), "wgc")?
+    };
+    next(&mut capture, &|_| true)?;
+    drop(window);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let error = loop {
+        match capture.next_gpu() {
+            Err(error) => break format!("{error:#}"),
+            Ok(_) => {
+                ensure!(
+                    Instant::now() < deadline,
+                    "the closed window kept capturing"
+                );
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+    };
+    assert!(error.starts_with("the game window closed"), "{error}");
     Ok(())
 }

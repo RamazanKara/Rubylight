@@ -1,5 +1,5 @@
 use crate::text::from_wide;
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use butterpollo_core::amd_gpu;
 use butterpollo_core::capture_policy::notification_wait_interval;
 use serde::Serialize;
@@ -112,9 +112,12 @@ fn select_display<'a>(choices: &'a [Display], name: &str) -> Result<Option<&'a D
         .with_context(|| format!("selected capture display is unavailable: {name}"))
 }
 /// Whether capture can open this display now. An empty name is the primary
-/// display.
+/// display. A game window target always counts as present: a closed window,
+/// a missing display or a malformed target is the capture's to report, never
+/// a reason to show the primary display in the window's place.
 pub fn display_present(name: &str) -> bool {
-    displays().is_ok_and(|choices| select_display(&choices, name).is_ok_and(|d| d.is_some()))
+    name.starts_with(window::PREFIX)
+        || displays().is_ok_and(|choices| select_display(&choices, name).is_ok_and(|d| d.is_some()))
 }
 /// The primary display's name, which capture opens when the stream's display
 /// did not come back.
@@ -1387,14 +1390,35 @@ pub struct Wgc {
     color_space: Option<DXGI_COLOR_SPACE_TYPE>,
     color_check: Instant,
     drain_to_newest: bool,
-    /// The captured display. When it leaves the desktop, even for a moment
-    /// (a layout change switching it off and on), its capture item closes and
-    /// WGC delivers no more frames, without an error.
+    /// The captured display or window. When a display leaves the desktop,
+    /// even for a moment (a layout change switching it off and on), or a
+    /// window closes, its capture item closes and WGC delivers no more
+    /// frames, without an error.
     item: GraphicsCaptureItem,
-    /// Its HMONITOR, kept as a number so the capture can move threads.
-    monitor: usize,
+    source: Source,
+    format: DirectXPixelFormat,
+    /// A window's new size recreates the frame pool in place. The helper
+    /// cannot: its shared textures keep the first size, so it fails and the
+    /// host reopens it at the new size.
+    follow_resize: bool,
     closed: std::sync::Arc<std::sync::atomic::AtomicBool>,
     closed_token: Option<i64>,
+}
+/// Handles kept as numbers so the capture can move threads.
+#[derive(Clone, Copy, Debug)]
+enum Source {
+    /// A display's HMONITOR.
+    Monitor(usize),
+    /// A game window's HWND.
+    Window(usize),
+}
+impl Source {
+    fn gone(self) -> &'static str {
+        match self {
+            Self::Monitor(_) => "the captured display left the desktop",
+            Self::Window(_) => "the game window closed",
+        }
+    }
 }
 pub(crate) fn qpc_frequency() -> i64 {
     *std::sync::OnceLock::get_or_init(&QPC_FREQUENCY, || {
@@ -1478,9 +1502,11 @@ impl Wgc {
         Self::new_format(name, false)
     }
     pub fn new_format(name: &str, hdr: bool) -> Result<Self> {
-        Self::new_device(Device::new(name)?, hdr, false)
+        Self::new_device(Device::new(name)?, hdr, false, None)
     }
-    fn new_device(gpu: Device, hdr: bool, high_rate: bool) -> Result<Self> {
+    /// Captures `window` (an HWND) instead of the display when given; the
+    /// display still chooses the GPU and colour space.
+    fn new_device(gpu: Device, hdr: bool, high_rate: bool, window: Option<usize>) -> Result<Self> {
         // SAFETY: `output` and `gpu.device` are live, `d.Monitor` is that output's monitor, and
         // every call returns owned COM or WinRT objects.
         unsafe {
@@ -1494,18 +1520,39 @@ impl Wgc {
             // use instead, before the generic COM error would hide it.
             use butterpollo_core::os_gate::{Feature, missing};
             let build = crate::display::windows_build();
-            for feature in [Feature::Wgc, Feature::WgcMonitor] {
-                if let Some(reason) = missing(build, feature) {
-                    bail!("{reason} Select Desktop Duplication in the capture settings.");
+            if window.is_some() {
+                window::require_capture(build)?;
+            } else {
+                for feature in [Feature::Wgc, Feature::WgcMonitor] {
+                    if let Some(reason) = missing(build, feature) {
+                        bail!("{reason} Select Desktop Duplication in the capture settings.");
+                    }
                 }
             }
             let interop: IGraphicsCaptureItemInterop =
                 windows::core::factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()
                     .context("Windows Graphics Capture is unavailable")?;
             pin_capture_runtime()?;
-            let item: GraphicsCaptureItem = interop
-                .CreateForMonitor(d.Monitor)
-                .context("Windows Graphics Capture cannot capture this display")?;
+            let (item, source): (GraphicsCaptureItem, _) = match window {
+                Some(hwnd) => (
+                    window::check(hwnd).and_then(|()| {
+                        interop
+                            .CreateForWindow(windows::Win32::Foundation::HWND(hwnd as *mut _))
+                            .with_context(|| {
+                                format!(
+                                    "Windows Graphics Capture cannot capture the game window {hwnd:#x}"
+                                )
+                            })
+                    })?,
+                    Source::Window(hwnd),
+                ),
+                None => (
+                    interop
+                        .CreateForMonitor(d.Monitor)
+                        .context("Windows Graphics Capture cannot capture this display")?,
+                    Source::Monitor(d.Monitor.0 as usize),
+                ),
+            };
             let closed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             let flag = closed.clone();
             let closed_token = item
@@ -1513,18 +1560,19 @@ impl Wgc {
                     flag.store(true, std::sync::atomic::Ordering::Release);
                     Ok(())
                 }))
-                .inspect_err(|error| tracing::warn!(%error, "WGC cannot report the display leaving; a capture that stops is found by its monitor check"))
+                .inspect_err(|error| tracing::warn!(%error, "WGC cannot report the display or window leaving; a capture that stops is found by its monitor or window check"))
                 .ok();
             let dxgi: IDXGIDevice = gpu.device.cast()?;
             let winrt: IDirect3DDevice = CreateDirect3D11DeviceFromDXGIDevice(&dxgi)?.cast()?;
             let size = item.Size()?;
+            let format = if native_hdr {
+                DirectXPixelFormat::R16G16B16A16Float
+            } else {
+                DirectXPixelFormat::B8G8R8A8UIntNormalized
+            };
             let pool = Direct3D11CaptureFramePool::CreateFreeThreaded(
                 &winrt,
-                if native_hdr {
-                    DirectXPixelFormat::R16G16B16A16Float
-                } else {
-                    DirectXPixelFormat::B8G8R8A8UIntNormalized
-                },
+                format,
                 WGC_FRAME_POOL_CAPACITY as i32,
                 size,
             )
@@ -1533,12 +1581,14 @@ impl Wgc {
                 .CreateCaptureSession(&item)
                 .context("Windows Graphics Capture session")?;
             // Each switch below needs a Windows build (see `os_gate`); older
-            // builds keep their fixed behaviour and the stream says so.
+            // builds keep their fixed behaviour and the stream says so. A
+            // game window's stream takes no mouse, so the PC's pointer is not
+            // drawn into it.
             if let Some(reason) = missing(build, Feature::WgcCursorSwitch) {
                 tracing::info!("{reason}");
             } else {
                 session
-                    .SetIsCursorCaptureEnabled(true)
+                    .SetIsCursorCaptureEnabled(window.is_none())
                     .context("Windows Graphics Capture cursor capture")?;
             }
             if let Some(reason) = missing(build, Feature::WgcBorderSwitch) {
@@ -1546,7 +1596,7 @@ impl Wgc {
             } else if let Err(error) = session.SetIsBorderRequired(false) {
                 // Windows asks the user for borderless access or refuses it
                 // for some sessions; the capture itself still works.
-                tracing::warn!(%error, "WGC border could not be removed; Windows draws a yellow border around the captured display");
+                tracing::warn!(%error, "WGC border could not be removed; Windows draws a yellow border around the captured display or window");
             }
             // Leaving this property untouched is not equivalent to zero:
             // Windows build 26200 reports a 16 ms default, which can deliver
@@ -1588,7 +1638,9 @@ impl Wgc {
                 color_check: Instant::now() + Duration::from_secs(1),
                 drain_to_newest: false,
                 item,
-                monitor: d.Monitor.0 as usize,
+                source,
+                format,
+                follow_resize: true,
                 closed,
                 closed_token,
             };
@@ -1694,11 +1746,11 @@ impl Wgc {
         self.last_publish = now;
         result
     }
-    fn next_native_frame(&self) -> Result<Option<Direct3D11CaptureFrame>> {
+    fn next_native_frame(&mut self) -> Result<Option<Direct3D11CaptureFrame>> {
         if self.closed.load(std::sync::atomic::Ordering::Acquire) {
-            bail!("the captured display left the desktop");
+            bail!("{}", self.source.gone());
         }
-        newest_capture_frame(
+        let newest = newest_capture_frame(
             if self.drain_to_newest {
                 WGC_FRAME_POOL_CAPACITY
             } else {
@@ -1707,7 +1759,76 @@ impl Wgc {
             || self.try_frame(),
             |frame| self.check_size(frame),
             |frame| frame.Close().map_err(Into::into),
-        )
+        )?;
+        match (self.source, newest) {
+            (Source::Window(_), Some(frame)) => self.window_frame(frame),
+            (_, newest) => Ok(newest),
+        }
+    }
+    /// A window's size changes with the game; the newest frame tells.
+    fn window_frame(
+        &mut self,
+        frame: Direct3D11CaptureFrame,
+    ) -> Result<Option<Direct3D11CaptureFrame>> {
+        let sizes = (|| -> Result<_> {
+            let content = frame.ContentSize()?;
+            let surface = frame.Surface()?.Description()?;
+            Ok((
+                (content.Width, content.Height),
+                (surface.Width, surface.Height),
+            ))
+        })();
+        let action = match sizes {
+            Ok((content, surface)) => window::frame(self.size, content, surface),
+            Err(error) => {
+                let _ = frame.Close();
+                return Err(error);
+            }
+        };
+        if action == window::Frame::Use {
+            return Ok(Some(frame));
+        }
+        frame.Close()?;
+        if let window::Frame::Resize(size) = action {
+            ensure!(
+                self.follow_resize,
+                "the game window was resized from {}x{} to {}x{}; reopening its capture",
+                self.size.0,
+                self.size.1,
+                size.0,
+                size.1
+            );
+            self.recreate_pool(size)?;
+        }
+        Ok(None)
+    }
+    fn recreate_pool(&mut self, size: (i32, i32)) -> Result<()> {
+        // Its frame came from the old buffers and shows the old size.
+        if let Some((frame, _, _, _)) = self.held.take() {
+            let _ = frame.Close();
+        }
+        let dxgi: IDXGIDevice = self.gpu.device.cast()?;
+        // SAFETY: `dxgi` is the live device the pool was made on.
+        let winrt: IDirect3DDevice =
+            unsafe { CreateDirect3D11DeviceFromDXGIDevice(&dxgi)? }.cast()?;
+        self.pool
+            .Recreate(
+                &winrt,
+                self.format,
+                WGC_FRAME_POOL_CAPACITY as i32,
+                windows::Graphics::SizeInt32 {
+                    Width: size.0,
+                    Height: size.1,
+                },
+            )
+            .context("Windows Graphics Capture could not follow the game window's new size")?;
+        tracing::info!(
+            from = ?self.size,
+            to = ?size,
+            "game window resized; WGC frame pool recreated"
+        );
+        self.size = size;
+        Ok(())
     }
     fn try_frame(&self) -> Result<Option<Direct3D11CaptureFrame>> {
         // Reset before checking the pool: a notification racing the check stays
@@ -1735,6 +1856,10 @@ impl Wgc {
         }
     }
     fn check_size(&self, frame: &Direct3D11CaptureFrame) -> Result<()> {
+        if let Source::Window(_) = self.source {
+            // Followed by `window_frame` instead.
+            return Ok(());
+        }
         let size = frame.ContentSize()?;
         if (size.Width, size.Height) != self.size {
             bail!("capture output dimensions changed");
@@ -1749,22 +1874,29 @@ impl Wgc {
         if let Some(loss) = crate::device_loss::DeviceLost::d3d11(&self.gpu.device) {
             return Err(loss.into());
         }
-        // A display that returned has a new monitor handle; the old one's
-        // capture stays silent, so reopen on the display that is there now.
-        let mut info = windows::Win32::Graphics::Gdi::MONITORINFO {
-            cbSize: size_of::<windows::Win32::Graphics::Gdi::MONITORINFO>() as u32,
-            ..Default::default()
-        };
-        // SAFETY: `info` is a live local whose size is set; a stale handle only fails the call.
-        if !unsafe {
-            windows::Win32::Graphics::Gdi::GetMonitorInfoW(
-                windows::Win32::Graphics::Gdi::HMONITOR(self.monitor as *mut _),
-                &mut info,
-            )
-        }
-        .as_bool()
-        {
-            bail!("the captured display left the desktop");
+        match self.source {
+            Source::Monitor(monitor) => {
+                // A display that returned has a new monitor handle; the old one's
+                // capture stays silent, so reopen on the display that is there now.
+                let mut info = windows::Win32::Graphics::Gdi::MONITORINFO {
+                    cbSize: size_of::<windows::Win32::Graphics::Gdi::MONITORINFO>() as u32,
+                    ..Default::default()
+                };
+                // SAFETY: `info` is a live local whose size is set; a stale handle only fails the
+                // call.
+                if !unsafe {
+                    windows::Win32::Graphics::Gdi::GetMonitorInfoW(
+                        windows::Win32::Graphics::Gdi::HMONITOR(monitor as *mut _),
+                        &mut info,
+                    )
+                }
+                .as_bool()
+                {
+                    bail!("{}", self.source.gone());
+                }
+            }
+            // A minimised window is not composed: no frames, no error.
+            Source::Window(hwnd) => window::check(hwnd)?,
         }
         let current = self.gpu.color_description()?;
         if output::mode_changed(self.color_space, current) {
@@ -1798,6 +1930,8 @@ impl Drop for Wgc {
 mod bridge;
 pub use bridge::run_worker as run_wgc_worker;
 mod idd_push;
+mod window;
+pub use window::WindowTarget;
 
 /// Whether WGC can capture the input desktop without crossing into Winlogon.
 pub fn wgc_desktop_available() -> bool {
@@ -1940,6 +2074,11 @@ impl Capture {
         warnings.clear("capture_helper_compute");
         warnings.clear("capture_adapter");
         warnings.clear("capture_idd_push");
+        // A game window opens with WGC or fails: no frame push, no Desktop
+        // Duplication of the display it is not on.
+        if WindowTarget::parse(name)?.is_some() {
+            return Self::new_options_reported(name, kind, hdr, config, warnings);
+        }
         // Rubylight's display driver pushes its frames itself; without it, or when it
         // fails, the stream keeps the usual WGC/DDX path.
         if idd_push::wanted_for(name, kind, config) {
@@ -1980,6 +2119,19 @@ impl Capture {
         config: &butterpollo_core::config::Config,
         warnings: std::sync::Arc<butterpollo_core::session::Warnings>,
     ) -> Result<Self> {
+        let target = WindowTarget::parse(name)?;
+        if let Some(target) = &target {
+            window::refuse_backend(kind)?;
+            window::require_capture(crate::display::windows_build())?;
+            // Refused before a helper starts; the capture checks again.
+            window::check(target.handle())?;
+        }
+        let window = target.as_ref().map(WindowTarget::handle);
+        let name = target
+            .as_ref()
+            .map_or(name, |target| target.display.as_str());
+        // A window target is WGC whatever else the setting would allow.
+        let kind = if window.is_some() { "wgc" } else { kind };
         if kind == "idd-push" {
             return Ok(Self::IddPush(Box::new(idd_push::Session::new(
                 name, hdr, config, warnings,
@@ -1989,7 +2141,7 @@ impl Capture {
             && (crate::process::is_system() || config.boolean("wgc_user_helper", false))
         {
             return Ok(Self::WgcWorker(Box::new(bridge::Session::new(
-                name, hdr, config, warnings,
+                name, window, hdr, config, warnings,
             )?)));
         }
         // WGC captures a display on any GPU, so it opens on the AMD one; Desktop
@@ -2046,8 +2198,12 @@ impl Capture {
             Ok(duplication)
         };
         let wgc = |gpu: Device| -> Result<Wgc> {
-            let mut capture =
-                Wgc::new_device(gpu, hdr, config.boolean("wgc_high_rate_capture", false))?;
+            let mut capture = Wgc::new_device(
+                gpu,
+                hdr,
+                config.boolean("wgc_high_rate_capture", false),
+                window,
+            )?;
             capture.owned.warnings = warnings.clone();
             capture.drain_to_newest = config.boolean("wgc_drain_to_newest", false);
             // The pool's textures can be shared with D3D12 on supported AMD

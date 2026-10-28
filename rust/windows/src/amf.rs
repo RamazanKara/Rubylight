@@ -1313,11 +1313,11 @@ impl Encoder {
         self.property_raw(&name, value)
     }
     /// HDR10+ and HDR Vivid for an HDR stream with `hdr_dynamic_metadata` on,
-    /// from the statistics pass behind its conversion, and Dolby Vision 8.1
-    /// RPUs for a stream that picked it ([`dynamic::start`]). A stream that
-    /// gets less than it wanted says why. Asks with the stream's own config,
-    /// not the coded one: a packed 4:4:4 stream codes SDR, but what it
-    /// wanted decides what it says.
+    /// from the statistics pass behind its conversion, and Dolby Vision 8.1,
+    /// 8.4 or 10.1 RPUs for a stream that picked it ([`dynamic::start`]). A
+    /// stream that gets less than it wanted says why. Asks with the stream's
+    /// own config, not the coded one: a packed 4:4:4 stream codes SDR, but
+    /// what it wanted decides what it says.
     fn enable_dynamic(
         &mut self,
         options: &butterpollo_core::config::Config,
@@ -1817,7 +1817,7 @@ impl Encoder {
                     units::Step::Whole(bytes) => (Unit::Whole, bytes),
                 };
                 // Dynamic metadata goes before the first slice or tile, the
-                // Dolby Vision RPU after the last.
+                // Dolby Vision RPU after the last (AV1: before the first).
                 let (spliced, frame_cap_bytes) = dynamic::output(
                     self.dynamic.as_deref_mut(),
                     unit,

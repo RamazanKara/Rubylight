@@ -1,7 +1,8 @@
 //! Dynamic HDR metadata in AMF's output: HDR10+ and HDR Vivid
 //! (`butterpollo_core::hdr_dynamic`; HDR Vivid alone on HLG streams) before
 //! each frame's first slice, and a Dolby Vision profile 8.1 or 8.4 RPU
-//! (`butterpollo_core::dovi`) after its last. The
+//! (`butterpollo_core::dovi`) after its last; on AV1, a profile 10.1 RPU
+//! metadata OBU goes before the frame too, after the HDR10+ one. The
 //! conversion's statistics pass (`compute_hdr_stats.rs` behind the compute
 //! conversion, `gpu_color/hdr_stats.rs` behind the D3D11 one) measures each
 //! frame once it went to the encoder; the newest finished sample is smoothed
@@ -23,8 +24,8 @@ pub(super) struct Wanted {
     /// HDR10+ and HDR Vivid (`hdr_dynamic_metadata`), HDR Vivid alone on an
     /// HLG stream.
     pub(super) t35: bool,
-    /// A Dolby Vision RPU on every frame ([`dovi::negotiated`]), profile 8.4
-    /// on an HLG stream, else 8.1.
+    /// A Dolby Vision RPU on every frame ([`dovi::negotiated`]): profile 10.1
+    /// on AV1, 8.4 on an HLG HEVC stream, else 8.1.
     pub(super) dolby_vision: bool,
     /// An HLG stream (`Negotiated::hlg`): HLG or Dolby Vision 8.4.
     pub(super) hlg: bool,
@@ -44,8 +45,11 @@ impl Wanted {
     /// The units the statistics become, and the RPU profile.
     fn writers(self, target_nits: u16) -> (Writer, Option<dovi::Writer>) {
         let writer = Writer::new(self.codec);
+        // AV1 carries Dolby Vision over PQ only (`dovi::negotiated`).
         let (writer, profile) = if self.hlg {
             (writer.with_hlg(), dovi::Profile::P84)
+        } else if self.codec == Codec::Av1 {
+            (writer, dovi::Profile::P101)
         } else {
             (writer, dovi::Profile::P81)
         };
@@ -57,10 +61,10 @@ impl Wanted {
 }
 
 /// HEVC or AV1 HDR streams with `hdr_dynamic_metadata` on (HEVC only for HLG:
-/// HDR Vivid has no AV1 carriage and HDR10+ describes PQ only), and HEVC
-/// streams whose client picked Dolby Vision 8.1 or 8.4. `None` leaves every
-/// output byte as AMF wrote it. Ten-bit SDR never gets any, even if a path
-/// marked it SDR without clearing `hdr`.
+/// HDR Vivid has no AV1 carriage and HDR10+ describes PQ only), HEVC streams
+/// whose client picked Dolby Vision 8.1 or 8.4, and AV1 streams whose client
+/// picked 10.1. `None` leaves every output byte as AMF wrote it. Ten-bit SDR
+/// never gets any, even if a path marked it SDR without clearing `hdr`.
 pub(super) fn wanted(
     config: &butterpollo_core::rtsp::Negotiated,
     options: &butterpollo_core::config::Config,
@@ -262,10 +266,11 @@ pub(super) fn sample(
 
 /// An output `unit` as the sender gets it, from the `bytes` AMF wrote and
 /// its frame `cap`: HDR10+ and HDR Vivid go before a frame's first slice or
-/// tile, the Dolby Vision RPU after its last (a whole frame gets both), and
-/// every unit of that frame gets a cap that counts what the frame gained.
-/// A `keyframe` refreshes the RPU's scene. The bytes are `None` to send them
-/// as they are: without dynamic metadata, a middle unit, or nothing added.
+/// tile, the Dolby Vision RPU after its last (a whole frame gets both) or,
+/// on AV1, before its first tile after HDR10+, and every unit of that frame
+/// gets a cap that counts what the frame gained. A `keyframe` refreshes the
+/// RPU's scene. The bytes are `None` to send them as they are: without
+/// dynamic metadata, a middle unit, or nothing added.
 pub(super) fn output(
     dynamic: Option<&mut Dynamic>,
     unit: Unit,
@@ -282,8 +287,8 @@ pub(super) fn output(
     );
     let mut out = None;
     if first {
-        out = dynamic.first_unit(bytes);
         dynamic.next_rpu(!bytes.is_empty(), keyframe);
+        out = dynamic.first_unit(bytes);
     }
     if matches!(unit, Unit::Whole | Unit::Last { .. }) {
         out = dynamic.last_unit(out, bytes);
@@ -305,7 +310,8 @@ pub(super) struct Dynamic {
     /// Bytes the current frame gained. Each of its units' caps grows by as
     /// much, so a streamed frame's payload stays within it.
     added: u64,
-    /// The current frame's RPU NAL unit, until its last unit takes it.
+    /// The current frame's RPU: an HEVC NAL unit until the frame's last unit
+    /// takes it, an AV1 metadata OBU until its first does.
     rpu: Vec<u8>,
     report: Report,
 }
@@ -459,8 +465,10 @@ impl Dynamic {
         }
     }
     /// The first unit of an output frame with the current HDR10+ and HDR
-    /// Vivid units in it, or `None` to send it as it is: without them, when
-    /// it has no insertion point, or when AMF produced nothing.
+    /// Vivid units in it, and on AV1 the frame's RPU OBU after them, or
+    /// `None` to send it as it is: without them, when it has no insertion
+    /// point, or when AMF produced nothing. Counts what the frame gains for
+    /// its cap, an HEVC frame's RPU ([`Dynamic::next_rpu`]) included.
     pub(super) fn first_unit(&mut self, bytes: &[u8]) -> Option<Vec<u8>> {
         let started = Instant::now();
         self.added = 0;
@@ -468,29 +476,49 @@ impl Dynamic {
             return None;
         }
         self.report.frames += 1;
-        let units = self.writer.units();
-        if !self.wanted.t35 {
+        let codec = self.writer.codec();
+        let t35 = if self.wanted.t35 {
+            self.writer.units()
+        } else {
+            &[]
+        };
+        // AV1 carries the RPU in a metadata OBU before the frame; HEVC's NAL
+        // unit ends the access unit (`last_unit`).
+        let rpu = if codec == Codec::Av1 {
+            std::mem::take(&mut self.rpu)
+        } else {
+            self.added = self.rpu.len() as u64;
+            Vec::new()
+        };
+        if t35.is_empty() && rpu.is_empty() {
             return None;
         }
-        let Some(spliced) = hdr_dynamic::spliced(self.writer.codec(), bytes, units) else {
+        let Some(at) = hdr_dynamic::insert_offset(codec, bytes) else {
             if self.report.no_insertion == 0 {
                 tracing::warn!(
-                    codec = ?self.writer.codec(),
+                    codec = ?codec,
                     bytes = bytes.len(),
+                    dolby_vision = !rpu.is_empty(),
                     "AMF output frame has no place for HDR dynamic metadata; sending it without. Report this with the host log"
                 );
             }
             self.report.no_insertion += 1;
             return None;
         };
-        self.added = units.len() as u64;
+        let mut spliced = Vec::with_capacity(bytes.len() + t35.len() + rpu.len());
+        spliced.extend_from_slice(&bytes[..at]);
+        spliced.extend_from_slice(t35);
+        spliced.extend_from_slice(&rpu);
+        spliced.extend_from_slice(&bytes[at..]);
+        self.added += (t35.len() + rpu.len()) as u64;
         self.report.spliced += 1;
-        self.report.stand_in += u64::from(!self.writer.measured());
+        self.report.stand_in += u64::from(!t35.is_empty() && !self.writer.measured());
         self.report.splice.add(started);
         Some(spliced)
     }
-    /// The RPU of a frame that starts, counted in its cap: none for a frame
-    /// AMF produced nothing for, or without Dolby Vision.
+    /// The RPU of a frame that starts, for [`Dynamic::first_unit`] to place
+    /// and count: none for a frame AMF produced nothing for, or without Dolby
+    /// Vision.
     fn next_rpu(&mut self, frame: bool, keyframe: bool) {
         self.rpu.clear();
         let Some(rpus) = self.dovi.as_mut().filter(|_| frame) else {
@@ -498,8 +526,7 @@ impl Dynamic {
         };
         let started = Instant::now();
         let measured = rpus.measured();
-        self.rpu = rpus.frame(keyframe).nal();
-        self.added += self.rpu.len() as u64;
+        self.rpu = rpus.frame(keyframe).unit();
         self.report.rpus += 1;
         self.report.unmeasured_rpus += u64::from(!measured);
         self.report.rpu.add(started);
@@ -911,10 +938,116 @@ mod tests {
         assert_eq!(wanted(&config(1, 4), &on), Some(dolby_vision(true)));
         // Its RPUs do not need HDR10+.
         assert_eq!(wanted(&config(1, 4), &off), Some(dolby_vision(false)));
-        // A stock pick (none), PQ, and AV1 carry none.
+        // A stock pick (none), PQ, profile 8 on AV1 and 10.1 on HEVC carry
+        // none.
         assert_eq!(wanted(&config(1, 0), &off), None);
         assert_eq!(wanted(&config(1, 1), &off), None);
         assert_eq!(wanted(&config(2, 4), &off), None);
+        assert_eq!(wanted(&config(1, 16), &off), None);
+        // AV1 that picked 10.1, with HDR10+ beside it while the setting is on.
+        assert_eq!(wanted(&config(2, 16), &on), Some(av1_dolby_vision(true)));
+        assert_eq!(wanted(&config(2, 16), &off), Some(av1_dolby_vision(false)));
+        let (writer, rpus) = av1_dolby_vision(true).writers(1000);
+        assert!(!writer.hlg());
+        assert_eq!(writer.codec(), Codec::Av1);
+        assert_eq!(rpus.unwrap().profile(), dovi::Profile::P101);
+    }
+
+    fn av1_dolby_vision(t35: bool) -> Wanted {
+        Wanted {
+            codec: Codec::Av1,
+            ..dolby_vision(t35)
+        }
+    }
+
+    /// An AV1 temporal unit as AMF writes it: a temporal delimiter, a
+    /// sequence header and one frame OBU, each with a size field.
+    fn av1_frame(tile: u8) -> Vec<u8> {
+        [
+            vec![0x12, 0x00],
+            vec![0x0A, 0x01, 0x00],
+            vec![0x32, 0x01, tile],
+        ]
+        .concat()
+    }
+
+    #[test]
+    fn an_av1_dolby_vision_frame_carries_its_rpu_obu_before_the_frame_after_hdr10_plus() {
+        let warnings = Warnings::default();
+        let mut stats = FakeStats {
+            readout: Some(readout(6, 100, 700)),
+            ..Default::default()
+        };
+        let mut slot = start(av1_dolby_vision(true), false, Some(&mut stats), &warnings);
+        sample(&mut slot, Some(&mut stats), &warnings);
+        let dynamic = slot.as_deref_mut().unwrap();
+        let measured = readout(6, 100, 700).frame_stats().unwrap();
+        let units = frame_units(Codec::Av1, &measured).unwrap();
+        let mut rpus = dovi::Writer::new(1000).with_profile(dovi::Profile::P101);
+        rpus.sample(
+            &hdr_dynamic::StatsSmoother::default()
+                .update(&measured)
+                .unwrap(),
+        );
+        let frame = av1_frame(0x10);
+        let at = insert_offset(Codec::Av1, &frame).unwrap();
+        assert_eq!(at, 5, "after the temporal delimiter and sequence header");
+        // A whole frame: HDR10+, then the RPU, then the frame OBU; nothing after.
+        let rpu = rpus.frame(true).obu();
+        let (bytes, cap) = output(Some(&mut *dynamic), Unit::Whole, &frame, Some(5000), true);
+        assert_eq!(
+            bytes,
+            Some([&frame[..at], &units, &rpu, &frame[at..]].concat())
+        );
+        assert_eq!(cap, Some(5000 + (units.len() + rpu.len()) as u64));
+        // Tiles streamed as units: the first takes both, the last nothing.
+        let rpu = rpus.frame(false).obu();
+        let grown = Some(5000 + (units.len() + rpu.len()) as u64);
+        let mut sequencer = super::super::units::Sequencer::default();
+        let tiles = vec![(1, av1_frame(0x21)), (2, vec![0x22, 0x01, 0x22])];
+        let sent = deliver(&mut sequencer, Some(&mut *dynamic), 2, STREAMED, &tiles);
+        let first = av1_frame(0x21);
+        assert_eq!(
+            sent,
+            [
+                (
+                    Unit::Slice { index: 0 },
+                    [&first[..at], &units, &rpu, &first[at..]].concat(),
+                    grown
+                ),
+                (Unit::Last { index: 1 }, vec![0x22, 0x01, 0x22], grown),
+            ]
+        );
+        assert_eq!(
+            (dynamic.report.rpus, dynamic.report.unmeasured_rpus),
+            (2, 0)
+        );
+        assert!(warnings.snapshot().is_empty());
+    }
+
+    #[test]
+    fn an_av1_dolby_vision_frame_without_hdr10_plus_or_a_place_says_so() {
+        // HDR10+ off: the RPU alone before the frame.
+        let mut dynamic = Dynamic::with(av1_dolby_vision(false), false);
+        let mut rpus = dovi::Writer::new(1000).with_profile(dovi::Profile::P101);
+        let frame = av1_frame(0x10);
+        let rpu = rpus.frame(false).obu();
+        let (bytes, cap) = output(Some(&mut dynamic), Unit::Whole, &frame, Some(5000), false);
+        assert_eq!(bytes, Some([&frame[..5], &rpu, &frame[5..]].concat()));
+        assert_eq!(cap, Some(5000 + rpu.len() as u64));
+        assert_eq!((dynamic.report.spliced, dynamic.report.stand_in), (1, 0));
+        // A temporal unit with no frame OBU has no place: it goes out as AMF
+        // wrote it, counted, and the RPU is not appended after it.
+        let (bytes, cap) = output(
+            Some(&mut dynamic),
+            Unit::Whole,
+            &frame[..5],
+            Some(5000),
+            false,
+        );
+        assert_eq!((bytes, cap), (None, Some(5000)));
+        assert_eq!(dynamic.report.no_insertion, 1);
+        assert!(dynamic.rpu.is_empty());
     }
 
     #[test]

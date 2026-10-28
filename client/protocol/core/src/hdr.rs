@@ -13,12 +13,19 @@ pub const HLG: u8 = 2;
 pub const DV_81: u8 = 4;
 /// Dolby Vision profile 8.4: an HLG base layer with RPU NAL units.
 pub const DV_84: u8 = 8;
+/// Dolby Vision profile 10.1: an HDR10-compatible AV1 Main10 PQ base layer with each RPU in an
+/// ITU-T T.35 metadata OBU (Dolby, provider-oriented code 0x800).
+pub const DV_101: u8 = 16;
 /// Every bit this version defines.
-pub const ALL: u8 = PQ | HLG | DV_81 | DV_84;
-/// The Dolby Vision bits; both need HEVC.
-pub const DOLBY_VISION: u8 = DV_81 | DV_84;
+pub const ALL: u8 = PQ | HLG | DV_81 | DV_84 | DV_101;
+/// The Dolby Vision bits.
+pub const DOLBY_VISION: u8 = DV_81 | DV_84 | DV_101;
+/// The Dolby Vision bits that need HEVC (profile 8).
+pub const DOLBY_VISION_HEVC: u8 = DV_81 | DV_84;
+/// The Dolby Vision bits that need AV1 (profile 10).
+pub const DOLBY_VISION_AV1: u8 = DV_101;
 
-/// Serverinfo element: the formats the host can encode, decimal 0-15.
+/// Serverinfo element: the formats the host can encode, decimal 0-31.
 pub const SERVERINFO_FIELD: &str = "HdrFormats";
 /// DESCRIBE attribute: the formats this stream can use.
 pub const DESCRIBE_ATTRIBUTE: &str = "x-rl-video.hdrFormats";
@@ -36,19 +43,21 @@ mod tests {
 
     #[test]
     fn bits_are_distinct() {
-        let bits = [PQ, HLG, DV_81, DV_84];
+        let bits = [PQ, HLG, DV_81, DV_84, DV_101];
         assert_eq!(bits.iter().fold(0, |all, bit| all | bit), ALL);
-        assert_eq!(bits.iter().map(|bit| bit.count_ones()).sum::<u32>(), 4);
-        assert_eq!(ALL, 15);
-        assert_eq!(DOLBY_VISION, 12);
+        assert_eq!(bits.iter().map(|bit| bit.count_ones()).sum::<u32>(), 5);
+        assert_eq!(ALL, 31);
+        assert_eq!(DOLBY_VISION, 28);
+        assert_eq!(DOLBY_VISION_HEVC | DOLBY_VISION_AV1, DOLBY_VISION);
+        assert_eq!(DOLBY_VISION_HEVC & DOLBY_VISION_AV1, 0);
     }
 
     #[test]
     fn single_bit_takes_one_known_format() {
-        for bit in [PQ, HLG, DV_81, DV_84] {
+        for bit in [PQ, HLG, DV_81, DV_84, DV_101] {
             assert!(single_bit(bit), "{bit}");
         }
-        for mask in [0, 3, 5, 12, 15, 16, 0x80, 0xFF] {
+        for mask in [0, 3, 5, 12, 15, 20, 31, 32, 0x80, 0xFF] {
             assert!(!single_bit(mask), "{mask}");
         }
     }

@@ -201,7 +201,9 @@ public final class HostCapabilities {
     public static final int NATIVE_PYROWAVE_RECORDS = 1;
     /** HdrFormats, AudioCodecs and AudioLayouts bits; keep in step with rubylight_protocol::hdr and audio_ext. */
     static final int HDR_HLG = 2;
-    static final int HDR_DOLBY_VISION = 4 | 8;
+    static final int HDR_DOLBY_VISION = 4 | 8 | 16;
+    /** Every HdrFormats bit this client knows: PQ, HLG and Dolby Vision 8.1, 8.4 and 10.1. */
+    static final int HDR_ALL = 1 | HDR_HLG | HDR_DOLBY_VISION;
     static final int AUDIO_CODEC_PCM = 2;
     static final int AUDIO_CODEC_AC3 = 4;
     static final int AUDIO_CODEC_EAC3 = 8;
@@ -279,7 +281,7 @@ public final class HostCapabilities {
      * stream's DESCRIBE still has to offer the one the client asks for.
      */
     public int hdrFormats() {
-        return has(Feature.DOLBY_VISION) || has(Feature.HLG) ? evidence.hdrFormats & 15 : 0;
+        return has(Feature.DOLBY_VISION) || has(Feature.HLG) ? evidence.hdrFormats & HDR_ALL : 0;
     }
 
     /** Feature bits for the native stream, which has no other way to learn them. */

@@ -26,19 +26,21 @@ pub const CLIPBOARD_TYPE_PNG: &str = "png";
 /// The `ServerCodecModeSupport` bit of HEVC Main10, which Dolby Vision
 /// profile 8 needs.
 const HEVC_MAIN10: u32 = 0x200;
-/// The `ServerCodecModeSupport` bit of AV1 Main10.
+/// The `ServerCodecModeSupport` bit of AV1 Main10, which Dolby Vision profile
+/// 10 needs.
 const AV1_MAIN10: u32 = 0x2_0000;
 
 /// The `hdr` formats a host with these `ServerCodecModeSupport` bits offers:
 /// HLG on HEVC or AV1 Main10 while `hlg` (`hdr_hlg`) is on, Dolby Vision 8.1
-/// on HEVC Main10 while `dolby_vision` (`hdr_dolby_vision`) is on, and Dolby
-/// Vision 8.4, which is HLG underneath, while both are, beside stock PQ. PQ
-/// alone is stock HDR and is not listed, so a host with nothing beyond it
-/// shows stock clients nothing new.
+/// on HEVC Main10 and 10.1 on AV1 Main10 while `dolby_vision`
+/// (`hdr_dolby_vision`) is on, and Dolby Vision 8.4, which is HLG underneath,
+/// while both are, beside stock PQ. PQ alone is stock HDR and is not listed,
+/// so a host with nothing beyond it shows stock clients nothing new.
 pub fn hdr_offer(codecs: u32, hlg: bool, dolby_vision: bool) -> u8 {
     let hevc = codecs & HEVC_MAIN10 != 0;
+    let av1 = codecs & AV1_MAIN10 != 0;
     let mut formats = 0;
-    if hlg && (hevc || codecs & AV1_MAIN10 != 0) {
+    if hlg && (hevc || av1) {
         formats |= hdr::HLG;
     }
     if dolby_vision && hevc {
@@ -46,6 +48,9 @@ pub fn hdr_offer(codecs: u32, hlg: bool, dolby_vision: bool) -> u8 {
         if hlg {
             formats |= hdr::DV_84;
         }
+    }
+    if dolby_vision && av1 {
+        formats |= hdr::DV_101;
     }
     if formats == 0 { 0 } else { formats | hdr::PQ }
 }
@@ -231,8 +236,11 @@ impl Offered {
             if !n.hdr {
                 bail!("{attribute} {format} needs HDR (x-nv-video[0].dynamicRangeMode)");
             }
-            if format & hdr::DOLBY_VISION != 0 && n.codec != 1 {
-                bail!("{attribute} {format} (Dolby Vision) needs HEVC");
+            if format & hdr::DOLBY_VISION_HEVC != 0 && n.codec != 1 {
+                bail!("{attribute} {format} (Dolby Vision profile 8) needs HEVC");
+            }
+            if format & hdr::DOLBY_VISION_AV1 != 0 && n.codec != 2 {
+                bail!("{attribute} {format} (Dolby Vision profile 10) needs AV1");
             }
             if format == hdr::HLG && !matches!(n.codec, 1 | 2) {
                 bail!("{attribute} {format} (HLG) needs HEVC or AV1");
@@ -321,7 +329,7 @@ mod tests {
         assert_eq!(
             fields,
             [
-                ("HdrFormats", "15"),
+                ("HdrFormats", "31"),
                 ("FecControlVersion", "1"),
                 ("BandwidthProbeVersion", "1"),
                 ("AudioCodecs", "15"),
@@ -335,7 +343,7 @@ mod tests {
         );
         assert_eq!(
             ALL_ON.describe_lines(),
-            "a=x-rl-video.hdrFormats:15\r\n\
+            "a=x-rl-video.hdrFormats:31\r\n\
              a=x-rl-audio.codecs:15\r\n\
              a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
              a=x-rl-audio.layout714Hq:12,12,0,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
@@ -394,7 +402,7 @@ mod tests {
             "a=x-rl-audio.codecs:3\r\na=x-rl-control:0x5539,0x5540\r\n"
         );
         let hdr = Offered {
-            hdr_formats: hdr::HLG | 0x30,
+            hdr_formats: hdr::HLG | 0xE0,
             ..Offered::NONE
         };
         assert_eq!(hdr.serverinfo_fields(), [("HdrFormats", "2".to_owned())]);
@@ -446,7 +454,7 @@ mod tests {
             &format!("{hdr}a=x-rl-video[0].hdrFormat:1\n"),
         );
         refused(&ALL_ON, &format!("{hdr}a=x-rl-video[0].hdrFormat:3\n"));
-        refused(&ALL_ON, &format!("{hdr}a=x-rl-video[0].hdrFormat:16\n"));
+        refused(&ALL_ON, &format!("{hdr}a=x-rl-video[0].hdrFormat:32\n"));
         let pq_only = Offered {
             hdr_formats: hdr::PQ,
             ..Offered::NONE
@@ -457,12 +465,13 @@ mod tests {
             &ALL_ON,
             "a=x-nv-vqos[0].bitStreamFormat:1\na=x-rl-video[0].hdrFormat:2\n",
         );
-        // Dolby Vision on H.264 or AV1.
-        for codec in [0, 2] {
+        // Dolby Vision 8.1 and 8.4 on H.264 or AV1, 10.1 on H.264 or HEVC, and
+        // any on PyroWave.
+        for (codec, format) in [(0, 4), (2, 4), (2, 8), (3, 4), (0, 16), (1, 16), (3, 16)] {
             refused(
                 &ALL_ON,
                 &format!(
-                    "a=x-nv-video[0].dynamicRangeMode:1\na=x-nv-vqos[0].bitStreamFormat:{codec}\na=x-rl-video[0].hdrFormat:4\n"
+                    "a=x-nv-video[0].dynamicRangeMode:1\na=x-nv-vqos[0].bitStreamFormat:{codec}\na=x-rl-video[0].hdrFormat:{format}\n"
                 ),
             );
         }
@@ -470,6 +479,14 @@ mod tests {
             ALL_ON
                 .check_announce(&announce(&format!(
                     "{hdr}a=x-rl-video[0].hdrFormat:{format}\n"
+                )))
+                .unwrap();
+        }
+        let av1 = "a=x-nv-video[0].dynamicRangeMode:1\na=x-nv-vqos[0].bitStreamFormat:2\n";
+        for format in [1, 2, 16] {
+            ALL_ON
+                .check_announce(&announce(&format!(
+                    "{av1}a=x-rl-video[0].hdrFormat:{format}\n"
                 )))
                 .unwrap();
         }
@@ -482,14 +499,27 @@ mod tests {
     fn hlg_and_dolby_vision_are_offered_by_codec_while_their_settings_are_on() {
         let hevc_main10 = 0x1 | 0x100 | 0x200;
         let av1_main10 = 0x1 | 0x100 | 0x2_0000;
-        // HLG on HEVC or AV1 Main10, Dolby Vision on HEVC Main10 only, and 8.4
-        // (HLG underneath) only with both.
+        // HLG on HEVC or AV1 Main10, Dolby Vision 8.1 on HEVC Main10, 8.4 (HLG
+        // underneath) only with both, and 10.1 on AV1 Main10.
         for (codecs, hlg, dolby_vision, formats) in [
-            (hevc_main10, true, true, hdr::ALL),
+            (
+                hevc_main10,
+                true,
+                true,
+                hdr::PQ | hdr::HLG | hdr::DV_81 | hdr::DV_84,
+            ),
             (hevc_main10, false, true, hdr::PQ | hdr::DV_81),
             (hevc_main10, true, false, hdr::PQ | hdr::HLG),
-            (av1_main10, true, true, hdr::PQ | hdr::HLG),
+            (av1_main10, true, true, hdr::PQ | hdr::HLG | hdr::DV_101),
+            (av1_main10, false, true, hdr::PQ | hdr::DV_101),
+            (av1_main10, true, false, hdr::PQ | hdr::HLG),
             (av1_main10 | 0x200, true, true, hdr::ALL),
+            (
+                av1_main10 | 0x200,
+                false,
+                true,
+                hdr::PQ | hdr::DV_81 | hdr::DV_101,
+            ),
         ] {
             assert_eq!(
                 hdr_offer(codecs, hlg, dolby_vision),
@@ -497,11 +527,11 @@ mod tests {
                 "{codecs:#x} {hlg} {dolby_vision}"
             );
         }
-        // Both off, or no Main10 encoder (AV1 Main10 without HLG): nothing
-        // beyond stock HDR, so serverinfo and DESCRIBE stay stock.
+        // Both off, or no Main10 encoder: nothing beyond stock HDR, so
+        // serverinfo and DESCRIBE stay stock.
         for (codecs, hlg, dolby_vision) in [
             (hevc_main10, false, false),
-            (av1_main10, false, true),
+            (av1_main10, false, false),
             (0x1 | 0x100 | 0x1_0000, true, true),
             (0, true, true),
         ] {
@@ -541,6 +571,25 @@ mod tests {
         assert_eq!(all.describe_lines(), "a=x-rl-video.hdrFormats:15\r\n");
         for format in [1, 2, 4, 8] {
             pick(&all, format).unwrap();
+        }
+        // An AV1-only host offers 10.1, and a client takes it on AV1 alone.
+        let av1 = Offered {
+            hdr_formats: hdr_offer(av1_main10, false, true),
+            ..Offered::NONE
+        };
+        assert_eq!(av1.serverinfo_fields(), [("HdrFormats", "17".to_owned())]);
+        assert_eq!(av1.describe_lines(), "a=x-rl-video.hdrFormats:17\r\n");
+        let error = pick(&av1, hdr::DV_101).unwrap_err().to_string();
+        assert!(
+            error.contains("(Dolby Vision profile 10) needs AV1"),
+            "{error}"
+        );
+        av1.check_announce(&announce(
+            "a=x-nv-video[0].dynamicRangeMode:1\na=x-nv-vqos[0].bitStreamFormat:2\na=x-rl-video[0].hdrFormat:16\n",
+        ))
+        .unwrap();
+        for format in [4, 8] {
+            pick(&av1, format).unwrap_err();
         }
     }
 

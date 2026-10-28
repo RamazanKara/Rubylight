@@ -50,7 +50,7 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 #[test]
-fn only_hdr_hevc_streams_that_picked_profile_8_carry_rpus() {
+fn only_hdr_hevc_and_av1_streams_that_picked_their_profile_carry_rpus() {
     use rubylight_protocol::hdr;
     let stream = |codec, hdr, hdr_format| crate::rtsp::Negotiated {
         codec,
@@ -60,19 +60,31 @@ fn only_hdr_hevc_streams_that_picked_profile_8_carry_rpus() {
     };
     assert_eq!(negotiated(&stream(1, true, hdr::DV_81)), Some(Profile::P81));
     assert_eq!(negotiated(&stream(1, true, hdr::DV_84)), Some(Profile::P84));
-    assert!(stream(1, true, hdr::DV_84).hlg(), "8.4 is HLG underneath");
     assert_eq!(
-        negotiated(&stream(1, true, 0)),
-        None,
-        "stock clients pick none"
+        negotiated(&stream(2, true, hdr::DV_101)),
+        Some(Profile::P101)
     );
+    assert!(stream(1, true, hdr::DV_84).hlg(), "8.4 is HLG underneath");
+    assert!(!stream(2, true, hdr::DV_101).hlg(), "10.1 is PQ");
+    for codec in [1, 2] {
+        assert_eq!(
+            negotiated(&stream(codec, true, 0)),
+            None,
+            "stock clients pick none"
+        );
+    }
     for (codec, hdr, format) in [
         (1, true, hdr::PQ),
         (1, true, hdr::HLG),
+        (2, true, hdr::PQ),
         (2, true, hdr::DV_81),
         (2, true, hdr::DV_84),
+        (1, true, hdr::DV_101),
+        (0, true, hdr::DV_101),
+        (3, true, hdr::DV_101),
         (1, false, hdr::DV_81),
         (1, false, hdr::DV_84),
+        (2, false, hdr::DV_101),
     ] {
         assert_eq!(
             negotiated(&stream(codec, hdr, format)),
@@ -156,6 +168,111 @@ const GOLDEN_84: &str = concat!(
     "030000030000030030103ec070a8803008005dc32000c02b238008008008008004000120c07d00064064",
     "001680ab7ef1fe80",
 );
+
+/// The bit at `at` of `bytes`, MSB first.
+fn bit(bytes: &[u8], at: usize) -> u64 {
+    u64::from(bytes[at / 8] >> (7 - at % 8) & 1)
+}
+
+fn bits_at(bytes: &[u8], at: usize, count: usize) -> u64 {
+    (at..at + count).fold(0, |value, at| value << 1 | bit(bytes, at))
+}
+
+#[test]
+fn a_profile_10_1_rpu_is_the_8_1_rpu_in_an_av1_metadata_obu() {
+    // Checked with dovi_tool's `dolby_vision` 3.4.0:
+    // `DoviRpu::parse_itu_t35_dovi_metadata_obu` reads the T.35 payload (from
+    // the country code to the OBU's trailing bits) as the RPU of GOLDEN (its
+    // `write_hevc_unspec62_nalu` gives GOLDEN's NAL unit), and
+    // `write_av1_rpu_metadata_obu_t35_complete` writes the payload back
+    // unchanged.
+    let frame = Frame {
+        profile: Profile::P101,
+        ..frame()
+    };
+    let rpu = frame.rpu();
+    assert_eq!(
+        rpu,
+        Frame {
+            profile: Profile::P81,
+            ..frame
+        }
+        .rpu(),
+        "the 8.1 RPU"
+    );
+    let obu = frame.obu();
+    assert_eq!(frame.unit(), obu);
+    assert_eq!(hex(&obu), GOLDEN_101);
+    // A metadata OBU (type 5) with a size field and no extension, its leb128
+    // size, metadata_type 4 (ITU-T T.35) and the trailing bits.
+    assert_eq!(obu[0], 5 << 3 | 0x02);
+    let size = usize::from(obu[1] & 0x7F) | usize::from(obu[2]) << 7;
+    assert!(obu[1] & 0x80 != 0 && obu[2] & 0x80 == 0);
+    assert_eq!(3 + size, obu.len());
+    assert_eq!(obu[3], 4);
+    assert_eq!(obu.last(), Some(&0x80));
+    // Country US, Dolby, provider-oriented code 0x800, then the EMDF container.
+    let t35 = &obu[4..obu.len() - 1];
+    assert_eq!(&t35[..7], &AV1_T35_HEADER);
+    let emdf = &t35[7..];
+    // emdf_version 0, key_id 6, emdf_payload_id 31 extended by variable_bits
+    // 6 (more) and 1 to 256, no offsets, discard_unknown_payload: FFmpeg's
+    // fixed 0x1be6841.
+    assert_eq!(bits_at(emdf, 0, 27), 0x1BE_6841);
+    // The payload size in variable_bits(8) and the RPU without its prefix.
+    let payload = rpu.len() - 1;
+    assert!(payload < 256, "one group: {payload}");
+    assert_eq!(bits_at(emdf, 27, 9), (payload as u64) << 1);
+    for (index, &byte) in rpu[1..].iter().enumerate() {
+        assert_eq!(bits_at(emdf, 36 + index * 8, 8), u64::from(byte), "{index}");
+    }
+    // The end of the payloads (payload id 0, 5 bits), the protection lengths 01 and 00 and eight
+    // zero protection bits, then one bits to a byte.
+    let end = 36 + payload * 8;
+    assert_eq!(bits_at(emdf, end, 17), 0b01 << 10);
+    assert_eq!(emdf.len() * 8, (end + 17).div_ceil(8) * 8);
+    for at in end + 17..emdf.len() * 8 {
+        assert_eq!(bit(emdf, at), 1, "padding bit {at}");
+    }
+    // A writer for 10.1 hands out OBUs.
+    let mut writer = Writer::new(600).with_profile(Profile::P101);
+    assert_eq!(writer.frame(false).unit()[0], 0x2A);
+    assert_eq!(
+        Writer::new(600).frame(false).unit()[..6],
+        [0, 0, 0, 1, 0x7C, 0x01]
+    );
+}
+
+const GOLDEN_101: &str = concat!(
+    "2a980104b5003b0000080037cd08310080908406136506f003ff801ffc00fffd00000080000068000004",
+    "0000034000002000001a2566000035ea2566f9fceb1c256644ca00000100000008000000080000001c36",
+    "224301860a5e308e0514000001a63e5affff000000000000000060207d80e15103008005dc32000c02b2",
+    "38008008008008004000120c07d00064064001680d76703ed800200780",
+);
+
+#[test]
+fn emdf_variable_bits_add_one_per_group() {
+    let written = |count: u32, value: u64| {
+        let mut bits = Bits::with_prefix(0);
+        bits.variable(count, value);
+        let used = bits.position() as usize - 8;
+        (bits_at(&bits.bytes[1..], 0, used), used)
+    };
+    // The payload id 256 as 31 plus 225: 6, more, 1, end.
+    assert_eq!(written(5, 225), ((6 << 7) | (1 << 6) | (1 << 1), 12));
+    assert_eq!(written(8, 0), (0, 9));
+    assert_eq!(written(8, 255), (0xFF << 1, 9));
+    // 256 and up: FFmpeg's (size >> 8) - 1, more, size & 0xFF, end.
+    assert_eq!(written(8, 256), (1 << 9, 18));
+    assert_eq!(written(8, 300), ((1 << 9) | (0x2C << 1), 18));
+    assert_eq!(written(8, 600), ((1 << 10) | (1 << 9) | (0x58 << 1), 18));
+    assert_eq!(
+        written(8, 65_791),
+        ((0xFF << 10) | (1 << 9) | (0xFF << 1), 18)
+    );
+    // Three groups from 65792 on.
+    assert_eq!(written(8, 65_792).1, 27);
+}
 
 #[test]
 fn the_nal_unit_is_type_62_with_emulation_prevention() {

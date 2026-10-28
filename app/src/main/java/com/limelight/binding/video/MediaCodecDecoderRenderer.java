@@ -67,6 +67,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile int announcedHdrFormat;
     private volatile boolean dolbyVisionFailed;
     private volatile boolean dolbyVisionActive;
+    // The first Dolby Vision frame's padding after the RPU was logged for this decoder.
+    private boolean dolbyVisionPaddingLogged;
+    // The decoder that gets frames without the host's HDR Vivid SEI (HdrBitstream.dropsVivid), or null;
+    // the first drop is logged.
+    private String vividSeiDropDecoder;
+    private boolean vividSeiDropLogged;
+    private final int[] vividSeiRange = new int[2];
 
     private final ArrayList<byte[]> vpsBuffers = new ArrayList<>();
     private final ArrayList<byte[]> spsBuffers = new ArrayList<>();
@@ -476,6 +483,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // Why the pending restart was requested. Problem reports keep warnings and "Decoder" lines,
     // so they show HDR, size and upscaler restarts as such instead of as a CodecException.
     private volatile String restartReason = "CodecException";
+    // Set with each decoder: a restart releases the codec and creates a new one instead of stop()
+    // and configure() (restartRecreates), and HDR metadata alone reaches it as a parameter.
+    private boolean restartRecreates, hdrMetadataAsParameter;
+    // The metadata setParameters gave the running decoder until its output format carries it, and
+    // the outputs seen since. Set and cleared under codecRecoveryMonitor.
+    private volatile byte[] uncheckedHdrStaticInfo;
+    private int hdrStaticInfoOutputs;
     private long nextFrameTimeNanos;
     private int pacingFrameRateMilliHz;
     private HandlerThread choreographerHandlerThread;
@@ -1740,6 +1754,17 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     @Override
+    public int videoFormatsForHdrFormat(int hdrFormat, int videoFormats) {
+        int formats = HdrFormatPolicy.videoFormats(hdrFormat, videoFormats,
+                prefs.videoFormat == PreferenceConfiguration.FormatOption.AUTO);
+        if (formats != videoFormats) {
+            LimeLog.info(HdrFormatPolicy.name(hdrFormat) + " needs " + HdrFormatPolicy.codecNames(HdrFormatPolicy.carriers(hdrFormat)) +
+                    ": the automatic codec choice leaves " + HdrFormatPolicy.codecNames(videoFormats & ~formats) + " out");
+        }
+        return formats;
+    }
+
+    @Override
     public void setAnnouncedHdrFormat(int format) {
         announcedHdrFormat = format;
         dolbyVisionFailed = false;
@@ -2247,6 +2272,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         boolean dolbyVision = HdrFormatPolicy.MIME_DOLBY_VISION.equals(mimeType);
         dolbyVisionActive = false;
+        dolbyVisionPaddingLogged = false;
+        vividSeiDropDecoder = HdrBitstream.dropsVivid(selectedDecoderInfo.getName(), mimeType) ?
+                selectedDecoderInfo.getName() : null;
+        vividSeiDropLogged = false;
         adaptivePlayback = MediaCodecHelper.decoderSupportsAdaptivePlayback(selectedDecoderInfo, mimeType);
         fusedIdrFrame = MediaCodecHelper.decoderSupportsFusedIdrFrame(selectedDecoderInfo, mimeType);
 
@@ -2291,6 +2320,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                         describeKeys(lowLatencyKeysApplied) + "; dropped after rejected configures: " +
                         describeKeys(lowLatencyKeysDropped));
                 dolbyVisionActive = dolbyVision;
+                restartRecreates = restartRecreates(selectedDecoderInfo.getName(), lowLatencyKeysApplied);
+                hdrMetadataAsParameter = takesHdrStaticInfoParameter(selectedDecoderInfo.getName());
+                if (restartRecreates) {
+                    LimeLog.info("Decoder " + selectedDecoderInfo.getName() + " restarts as a new codec: with its" +
+                            " vendor low-latency mode, stop() and configure() leave it without input buffers");
+                }
                 break;
             }
 
@@ -2509,82 +2544,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 if (codecRecoveryType.get() != CR_RECOVERY_TYPE_NONE) {
                     codecRecoveryAttempts++;
                     LimeLog.info("Codec recovery attempt: "+codecRecoveryAttempts);
-                }
 
-                // For "recoverable" exceptions, we can just stop, reconfigure, and restart.
-                if (codecRecoveryType.get() == CR_RECOVERY_TYPE_RESTART) {
-                    LimeLog.warning("Trying to restart decoder after " + restartReason);
+                    // The codec is configured again, with the current metadata.
+                    uncheckedHdrStaticInfo = null;
                     try {
-                        videoDecoder.stop();
-                        if (packing != null && upscalingPolicy.getReason() == UpscalingPolicy.Reason.NONE) {
-                            closeUpscaler();
-                            setupUpscaling();
+                        if (!CodecRecoverySteps.run(codecRecoveryType.get() == CR_RECOVERY_TYPE_RESTART,
+                                restartRecreates, restartReason, recoveryCodec)) {
+                            // Our Surface is probably invalid, so just stop
+                            stopping = true;
                         }
-                        configureAndStartDecoder(configuredFormat);
-                        codecRecoveryType.set(CR_RECOVERY_TYPE_NONE);
-                    } catch (IllegalArgumentException e) {
-                        e.printStackTrace();
-
-                        // Our Surface is probably invalid, so just stop
-                        stopping = true;
-                        codecRecoveryType.set(CR_RECOVERY_TYPE_NONE);
-                    } catch (IllegalStateException e) {
-                        e.printStackTrace();
-
-                        // Something went wrong during the restart, let's use a bigger hammer
-                        // and try a reset instead.
-                        codecRecoveryType.set(CR_RECOVERY_TYPE_RESET);
-                    }
-                }
-
-                // For "non-recoverable" exceptions on L+, we can call reset() to recover
-                // without having to recreate the entire decoder again.
-                if (codecRecoveryType.get() == CR_RECOVERY_TYPE_RESET) {
-                    LimeLog.warning("Trying to reset decoder after CodecException");
-                    try {
-                        videoDecoder.reset();
-                        if (packing != null && upscalingPolicy.getReason() == UpscalingPolicy.Reason.NONE) {
-                            closeUpscaler();
-                            setupUpscaling();
-                        }
-                        configureAndStartDecoder(configuredFormat);
-                        codecRecoveryType.set(CR_RECOVERY_TYPE_NONE);
-                    } catch (IllegalArgumentException e) {
-                        e.printStackTrace();
-
-                        // Our Surface is probably invalid, so just stop
-                        stopping = true;
-                        codecRecoveryType.set(CR_RECOVERY_TYPE_NONE);
-                    } catch (IllegalStateException e) {
-                        e.printStackTrace();
-
-                        // Something went wrong during the reset, we'll have to resort to
-                        // releasing and recreating the decoder now.
-                    }
-                }
-
-                // If we _still_ haven't managed to recover, go for the nuclear option and just
-                // throw away the old decoder and reinitialize a new one from scratch.
-                if (codecRecoveryType.get() == CR_RECOVERY_TYPE_RESET) {
-                    LimeLog.warning("Trying to recreate decoder after CodecException");
-                    videoDecoder.release();
-                    if (dolbyVisionActive) {
-                        // The same stream decodes as HEVC; the Dolby Vision decoder is not tried again.
-                        dolbyVisionFailed = true;
-                        LimeLog.warning("Dolby Vision decoder failed while streaming; recreating the decoder for HEVC");
-                    }
-
-                    try {
-                        int err = initializeDecoder(true);
-                        if (err != 0) {
-                            throw new IllegalStateException("Decoder reset failed: " + err);
-                        }
-                        codecRecoveryType.set(CR_RECOVERY_TYPE_NONE);
-                    } catch (IllegalArgumentException e) {
-                        e.printStackTrace();
-
-                        // Our Surface is probably invalid, so just stop
-                        stopping = true;
                         codecRecoveryType.set(CR_RECOVERY_TYPE_NONE);
                     } catch (IllegalStateException e) {
                         // If we failed to recover after all of these attempts, just crash
@@ -2623,6 +2591,55 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         return true;
     }
+
+    // The recovery steps on videoDecoder, with every thread quiesced under codecRecoveryMonitor.
+    private final CodecRecoverySteps.Codec recoveryCodec = new CodecRecoverySteps.Codec() {
+        @Override public void stop() {
+            videoDecoder.stop();
+        }
+
+        @Override public boolean recreate() {
+            // release() returns once the codec is gone; then a new one of the same name.
+            String name = videoDecoder.getName();
+            videoDecoder.release();
+            try {
+                videoDecoder = MediaCodec.createByCodecName(name);
+                return true;
+            } catch (IOException | IllegalArgumentException e) {
+                e.printStackTrace();
+                LimeLog.warning("Decoder " + name + " could not be created again after its release (" + e +
+                        "); setting the decoder up from scratch");
+                return false;
+            }
+        }
+
+        @Override public void reset() {
+            videoDecoder.reset();
+        }
+
+        @Override public void configure() {
+            if (packing != null && upscalingPolicy.getReason() == UpscalingPolicy.Reason.NONE) {
+                closeUpscaler();
+                setupUpscaling();
+            }
+            configureAndStartDecoder(configuredFormat);
+        }
+
+        @Override public void rebuild(boolean codecFailed) {
+            if (codecFailed) {
+                videoDecoder.release();
+                if (dolbyVisionActive) {
+                    // The same stream decodes as HEVC; the Dolby Vision decoder is not tried again.
+                    dolbyVisionFailed = true;
+                    LimeLog.warning("Dolby Vision decoder failed while streaming; recreating the decoder for HEVC");
+                }
+            }
+            int err = initializeDecoder(true);
+            if (err != 0) {
+                throw new IllegalStateException("Decoder reset failed: " + err);
+            }
+        }
+    };
 
     // Returns true if the exception is transient
     private boolean handleDecoderException(IllegalStateException e) {
@@ -3046,6 +3063,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                 long lastPtsUs = info.presentationTimeUs;
 
                                 numFramesOut++;
+                                checkRunningHdrStaticInfo();
 
                                 if (vulkanRenderer != null) {
                                     // The Vulkan renderer paces and drops frames itself, so hand each
@@ -3455,10 +3473,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 VulkanRendererBridge vulkan = vulkanRenderer;
                 if (vulkan != null) vulkan.setHdrMode(enabled, metadata);
                 if (enabled && upscaler != null) upscalingPolicy.fail(UpscalingPolicy.Reason.HDR);
-                if (previousMode == enabled && Arrays.equals(currentHdrMetadata, metadata)) {
+                HdrChange change = hdrChange(previousMode, enabled, currentHdrMetadata, metadata, Build.VERSION.SDK_INT,
+                        hdrMetadataAsParameter);
+                if (change == HdrChange.NONE) {
                     return;
                 }
                 currentHdrMetadata = metadata == null ? null : metadata.clone();
+                if (change == HdrChange.PARAMETERS && setRunningHdrStaticInfo(currentHdrMetadata)) {
+                    return;
+                }
 
                 // If we reach this point, we need to restart the MediaCodec instance to
                 // pick up the HDR metadata change. This will happen on the next input
@@ -3471,6 +3494,131 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 requestRestart(enabled ? (metadata != null ? "HDR metadata" : "HDR on") : "HDR off");
             }
         }
+    }
+
+    /** How the running decoder takes the PC's HDR report. */
+    enum HdrChange {
+        /** Nothing changed. */
+        NONE,
+        /** Only the mastering metadata of a running HDR stream: setParameters takes it. */
+        PARAMETERS,
+        /** A restart configures the codec with the new colour keys and metadata. */
+        RESTART,
+    }
+
+    /**
+     * The metadata alone goes to a running decoder that takes it as a parameter
+     * (takesHdrStaticInfoParameter). HDR turning on or off, the metadata going away, Android 9 and
+     * older and every other decoder restart it.
+     */
+    static HdrChange hdrChange(boolean previousMode, boolean enabled, byte[] previousMetadata, byte[] metadata,
+                               int sdkInt, boolean metadataAsParameter) {
+        if (previousMode == enabled && Arrays.equals(previousMetadata, metadata)) {
+            return HdrChange.NONE;
+        }
+        if (metadataAsParameter && previousMode == enabled && enabled && metadata != null &&
+                sdkInt >= Build.VERSION_CODES.Q) {
+            return HdrChange.PARAMETERS;
+        }
+        return HdrChange.RESTART;
+    }
+
+    /**
+     * Whether a decoder gets HDR metadata alone with setParameters instead of a restart. On the TCL
+     * C6K, c2.mtk.dvhe.st.decoder and c2.mtk.av1.decoder put it in their output format; OMX decoders
+     * (a Shield's OMX.Nvidia.h265.decode) may take the parameter and ignore it.
+     */
+    static boolean takesHdrStaticInfoParameter(String decoderName) {
+        return decoderName.toLowerCase(Locale.ROOT).startsWith("c2.mtk.");
+    }
+
+    /**
+     * Whether a restart releases the codec and creates a new one instead of stop() and configure().
+     * MediaTek's Codec2 decoders with their vendor low-latency mode had no input buffers after that
+     * (TCL C6K: 5000 ms dequeues, DecoderHung); without the mode they restarted fine.
+     */
+    static boolean restartRecreates(String decoderName, List<String> tuningKeys) {
+        if (!decoderName.toLowerCase(Locale.ROOT).startsWith("c2.mtk.")) return false;
+        for (String key : tuningKeys) {
+            if (key.startsWith("vendor.mtk.vdec.low-latency.mode=") && !key.endsWith("=0")) return true;
+        }
+        return false;
+    }
+
+    // Outputs after setParameters before the metadata must show in the output format.
+    static final int HDR_STATIC_INFO_OUTPUTS = 60;
+
+    // Gives the running decoder the PC's mastering metadata; false when it refused (then it restarts).
+    // A recovery that is already pending configures with the new metadata, as does setup.
+    private boolean setRunningHdrStaticInfo(byte[] metadata) {
+        MediaCodec decoder = videoDecoder;
+        if (decoder == null || codecRecoveryType.get() != CR_RECOVERY_TYPE_NONE) {
+            return true;
+        }
+        ByteBuffer info = createHdrStaticInfo(metadata);
+        Bundle params = new Bundle();
+        params.putByteArray(MediaFormat.KEY_HDR_STATIC_INFO, info.array());
+        try {
+            decoder.setParameters(params);
+        } catch (IllegalStateException e) {
+            LimeLog.warning("Decoder refused the HDR metadata as a parameter (" + e + "); restarting it");
+            return false;
+        }
+        LimeLog.info("HDR metadata set on the running decoder; its output format is checked for it");
+        uncheckedHdrStaticInfo = info.array();
+        hdrStaticInfoOutputs = 0;
+        return true;
+    }
+
+    // Restarts the decoder when its output format still lacks the metadata setParameters gave it.
+    private void checkRunningHdrStaticInfo() {
+        if (uncheckedHdrStaticInfo == null) {
+            return;
+        }
+        synchronized (codecRecoveryMonitor) {
+            byte[] expected = uncheckedHdrStaticInfo;
+            MediaFormat format = outputFormat;
+            if (expected == null || codecRecoveryType.get() != CR_RECOVERY_TYPE_NONE) {
+                return;
+            }
+            ByteBuffer carried = format != null && format.containsKey(MediaFormat.KEY_HDR_STATIC_INFO) ?
+                    format.getByteBuffer(MediaFormat.KEY_HDR_STATIC_INFO) : null;
+            if (carriesHdrStaticInfo(carried, expected)) {
+                uncheckedHdrStaticInfo = null;
+                LimeLog.info("Decoder output carries the HDR metadata after " + hdrStaticInfoOutputs + " frames");
+                return;
+            }
+            if (++hdrStaticInfoOutputs < HDR_STATIC_INFO_OUTPUTS) {
+                return;
+            }
+            uncheckedHdrStaticInfo = null;
+            LimeLog.warning("Decoder took the HDR metadata as a parameter, but its output format lacks it after " +
+                    HDR_STATIC_INFO_OUTPUTS + " frames; restarting it with the metadata");
+            codecRecoveryAttempts = 0;
+            requestRestart("HDR metadata missing from the output");
+        }
+    }
+
+    /**
+     * Whether an output format's HDR static info is the metadata given: the same descriptor and each
+     * of its twelve 16-bit values to within one, as Codec2 takes them through floats.
+     */
+    static boolean carriesHdrStaticInfo(ByteBuffer carried, byte[] expected) {
+        if (carried == null || carried.remaining() < expected.length || expected.length != 25) {
+            return false;
+        }
+        int at = carried.position();
+        if (carried.get(at) != expected[0]) {
+            return false;
+        }
+        for (int i = 1; i < expected.length; i += 2) {
+            int got = (carried.get(at + i) & 0xFF) | (carried.get(at + i + 1) & 0xFF) << 8;
+            int want = (expected[i] & 0xFF) | (expected[i + 1] & 0xFF) << 8;
+            if (Math.abs(got - want) > 1) {
+                return false;
+            }
+        }
+        return true;
     }
 
     // Promotes None/Flush to Restart and leaves Reset alone.
@@ -4064,14 +4212,34 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         numFramesIn++;
 
-        if (decodeUnitLength > nextInputBuffer.limit() - nextInputBuffer.position()) {
+        // The FEC padding after a Dolby Vision RPU breaks MediaTek's RPU parser; see HdrBitstream.
+        boolean dolbyVision = dolbyVisionActive;
+        int queuedLength = HdrBitstream.queuedLength(dolbyVision, decodeUnitData, decodeUnitLength);
+        if (dolbyVision && !dolbyVisionPaddingLogged) {
+            dolbyVisionPaddingLogged = true;
+            LimeLog.info("Dolby Vision: the first frame ends " + HdrBitstream.tail(decodeUnitData, queuedLength, 8) +
+                    ", dropped " + (decodeUnitLength - queuedLength) + " zero bytes after it");
+        }
+        // MediaTek shows a stream with HDR Vivid as SDR on displays without Vivid; see HdrBitstream.dropsVivid.
+        String vividDecoder = vividSeiDropDecoder;
+        int[] vividRange = vividDecoder != null &&
+                HdrBitstream.findVividSei(decodeUnitData, queuedLength, vividSeiRange) ? vividSeiRange : null;
+        if (vividRange != null && !vividSeiDropLogged) {
+            vividSeiDropLogged = true;
+            LimeLog.warning("HDR Vivid: " + vividDecoder + " shows Vivid as SDR on displays without it;" +
+                    " frames reach it without the host's Vivid SEI (" + (vividRange[1] - vividRange[0]) +
+                    " bytes), with HDR10+ and HDR10");
+        }
+        int putLength = HdrBitstream.putLength(queuedLength, vividRange);
+
+        if (putLength > nextInputBuffer.limit() - nextInputBuffer.position()) {
             // The recovery drops this buffer and frame; the IDR asked for then fits.
-            if (requestInputBufferGrowth((long) nextInputBuffer.position() + decodeUnitLength, nextInputBuffer.limit())) {
+            if (requestInputBufferGrowth((long) nextInputBuffer.position() + putLength, nextInputBuffer.limit())) {
                 doCodecRecoveryIfRequired(CR_FLAG_INPUT_THREAD);
                 return MoonBridge.DR_NEED_IDR;
             }
             IllegalArgumentException exception = new IllegalArgumentException(
-                    "Decode unit length "+decodeUnitLength+" too large for input buffer "+nextInputBuffer.limit()+
+                    "Decode unit length "+putLength+" too large for input buffer "+nextInputBuffer.limit()+
                     " (requested "+requiredInputBufferSize+")");
             if (!reportedCrash) {
                 reportedCrash = true;
@@ -4081,7 +4249,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
 
         // Copy data from our buffer list into the input buffer
-        nextInputBuffer.put(decodeUnitData, 0, decodeUnitLength);
+        HdrBitstream.put(nextInputBuffer, decodeUnitData, queuedLength, vividRange);
 
         // The queued timestamp comes back on the decoded image, which is how the renderer finds
         // the frame again

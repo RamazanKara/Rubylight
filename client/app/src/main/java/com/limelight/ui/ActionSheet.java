@@ -367,8 +367,10 @@ public final class ActionSheet extends BottomSheetDialog {
                 LinearLayout.LayoutParams.WRAP_CONTENT));
     }
 
-    /** The TV focus look of a row, for rows a page adds itself. */
-    /** A full-width row on a TV: the amber ring with no zoom, so its edges stay in line with the rows around it. */
+    /**
+     * The TV focus look of a full-width row, also for rows a page adds itself: the amber ring with no zoom, so its edges
+     * stay in line with the rows around it.
+     */
     public void styleRow(MaterialButton button) {
         if (television) {
             button.setStrokeColor(androidx.appcompat.content.res.AppCompatResources.getColorStateList(getContext(), R.color.card_stroke));

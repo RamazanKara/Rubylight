@@ -9,7 +9,7 @@
 - TV list dialogs such as the preset list mark the selected row with the amber outline instead of a grey block.
 - TV Settings: the list of sections never leaves its top row half hidden under the subtitle, and while search results show, the search row is the one marked.
 - TV menus: the focused row keeps its size and lines up with the rows around it.
-- Play away from home on a TV speaks of this device, not of a phone.
+- Play away from home on a TV speaks of this device, not of a phone or its mobile data.
 
 ## de
 - TV-Einstellungen: Hoch und Runter springen genau eine Zeile weiter, auch über Voreinstellungen, und Auswählen auf Voreinstellungen öffnet die Liste.
@@ -22,4 +22,4 @@
 - Listendialoge auf dem TV wie die Liste der Voreinstellungen markieren die gewählte Zeile mit dem orangefarbenen Rahmen statt mit einem grauen Block.
 - TV-Einstellungen: Die Liste der Bereiche lässt ihre oberste Zeile nie halb unter dem Untertitel verschwinden, und solange Suchergebnisse zu sehen sind, ist die Suchzeile markiert.
 - TV-Menüs: Die fokussierte Zeile behält ihre Größe und bleibt bündig mit den Zeilen darum.
-- Unterwegs spielen spricht auf dem TV von diesem Gerät, nicht von einem Telefon.
+- Unterwegs spielen spricht auf dem TV von diesem Gerät, nicht von einem Telefon oder Mobilfunk.

@@ -276,6 +276,30 @@ public class SettingsTiersTest {
         }
     }
 
+    @Test
+    public void theTwoBitrateControllersHaveDistinctNamesAndSearchFindsBoth() {
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            StreamSettings screen = controller.get();
+            StreamSettings.SettingsFragment video = SettingsStructureTest.open(screen, "video");
+            assertEquals("the loss-based switch left Video", -1, StreamSettings.RootFragment.positionOf(
+                    video.getView().findViewById(android.R.id.list), "checkbox_rate_change_bitrate"));
+            Preference loss = SettingsStructureTest.open(screen, "advanced").findPreference("checkbox_rate_change_bitrate");
+            assertNotNull(loss);
+            assertEquals("category_advanced_experimental", loss.getParent().getKey());
+            assertEquals("Loss-based bitrate (Rust engine)", String.valueOf(loss.getTitle()));
+            assertEquals("Off: uses Device controls bitrate. On: this device adjusts from frame loss and network delay.",
+                    String.valueOf(loss.getSummary()));
+
+            PreferenceScreen results = search(screen, "bitrate").getPreferenceScreen();
+            Preference device = results.findPreference("search_result_checkbox_auto_bitrate");
+            Preference lossResult = results.findPreference("search_result_checkbox_rate_change_bitrate");
+            assertNotNull(device);
+            assertNotNull("search finds the folded Experimental row", lossResult);
+            assertEquals("Device controls bitrate", String.valueOf(device.getTitle()));
+            assertEquals("Loss-based bitrate (Rust engine)", String.valueOf(lossResult.getTitle()));
+        }
+    }
+
     /** The summary line a row of the section's list shows, or null when it shows none. */
     private static String rowSummary(StreamSettings.SettingsFragment fragment, String key) {
         android.widget.ListView list = fragment.getView().findViewById(android.R.id.list);

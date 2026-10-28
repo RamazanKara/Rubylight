@@ -324,7 +324,7 @@
     <string name="stream_permissions_help">請在主機的設定或網頁 UI 中變更權限。</string>
     <string name="stream_input_denied">電腦封鎖了這部裝置的輸入。請在主機的設定或網頁 UI 中允許。</string>
     <string name="stream_bitrate">位元速率</string>
-    <string name="stream_bitrate_help">為這個工作階段設定 Mbps。\n這會關閉自動位元速率。</string>
+    <string name="stream_bitrate_help">為這個工作階段設定 Mbps。\n這會關閉「由裝置控制位元速率」。</string>
     <string name="stream_bitrate_invalid">請輸入 0.5 到 2000 Mbps 之間的位元速率</string>
     <string name="stream_bitrate_applied">主機已套用 %1$.1f Mbps</string>
     <string name="stream_pyrowave_bitrate_low">%1$.1f Mbps 低於 PyroWave 在 %3$d×%4$d、%5$d FPS 下的最低需求 %2$d Mbps，畫面會破碎。</string>

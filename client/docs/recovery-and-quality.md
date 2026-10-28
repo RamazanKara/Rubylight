@@ -38,9 +38,9 @@ Decode timing allows two frame intervals for pipeline latency before treating a 
 
 The quality request keeps the negotiated codec, HDR/color mode and host display selection. The host controls what display mode it can apply. If a requested size is rejected or has not appeared in decoded frames within ten seconds, automatic quality stops with a visible explanation and leaves the stream connected. FPS is shown as a requested target because this protocol has no separate frame-rate acknowledgement; received/rendered FPS in the existing overlay remains the measurement. A MediaCodec upscaler may fall back to direct output after a size change, as described in [upscaling](video-and-latency.md#upscaling).
 
-## Automatic bitrate
+## Device controls bitrate
 
-Automatic bitrate sends one bitrate request per change through the same host path as a manual change; the host's own controller stands down while it is on.
+Device controls bitrate sends one bitrate request per change through the same host path as a manual change; the host's own controller stands down while it is on.
 
 - **Cuts must help.** Loss of 3% or more, or the native connection warning, cuts 20% every 3 seconds. Jitter or queueing alone also cuts, but each cut is checked: if jitter or queueing is not at least 15% lower after a cut than before it, and two cuts in a row did not help, the rate is held instead of ratcheted down. Holding ends after 5 healthy seconds, and loss clears it at once. Wi-Fi jitter that does not follow the bitrate therefore stops above the floor, while loss still cuts to the floor.
 - **Fast recovery.** A rate with no poor sample for 10 seconds is remembered as stable. After trouble, once the link has been healthy for 5 seconds, the rate steps back toward the stable one by half the remaining gap (at least 250 kbps) every 3 seconds, so 2 to 50 Mbps takes about 30 seconds. Above the stable rate it probes by 5% every 15 seconds. If a step back brings poor samples again within 10 seconds, the rate returns to the one before it, the stable rate drops to halfway between the two, and the next try waits for 15 healthy seconds.

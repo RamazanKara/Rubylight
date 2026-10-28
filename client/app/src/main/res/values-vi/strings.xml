@@ -324,7 +324,7 @@
     <string name="stream_permissions_help">Thay đổi quyền trong cài đặt hoặc giao diện web của máy chủ.</string>
     <string name="stream_input_denied">PC chặn đầu vào từ thiết bị này. Hãy cho phép trong cài đặt hoặc giao diện web của máy chủ.</string>
     <string name="stream_bitrate">Tốc độ bit</string>
-    <string name="stream_bitrate_help">Đặt Mbps cho phiên này.\nThao tác này sẽ tắt tốc độ bit tự động.</string>
+    <string name="stream_bitrate_help">Đặt Mbps cho phiên này.\nThao tác này sẽ tắt “Thiết bị điều khiển tốc độ bit”.</string>
     <string name="stream_bitrate_invalid">Nhập tốc độ bit từ 0,5 đến 2000 Mbps</string>
     <string name="stream_bitrate_applied">Máy chủ đã áp dụng %1$.1f Mbps</string>
     <string name="stream_pyrowave_bitrate_low">%1$.1f Mbps thấp hơn mức tối thiểu %2$d Mbps của PyroWave ở %3$d×%4$d, %5$d FPS. Hình ảnh sẽ bị vỡ.</string>

@@ -72,7 +72,7 @@ public class SettingsTiersPreviewTest {
         Preference more = advanced.findPreference("more_advanced");
         more.getOnPreferenceClickListener().onPreferenceClick(more);
         SettingsStructureTest.settle(screen);
-        scrollTo(screen, advanced, "experimental_packed_444", width, height, 1);
+        scrollTo(screen, advanced, "checkbox_rate_change_bitrate", width, height, 1);
         write(screen.getWindow().getDecorView(), width, height, new File(directory, name + "-" + shot + "-advanced-open.png"));
     }
 

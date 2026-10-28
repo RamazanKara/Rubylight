@@ -1,3 +1,0 @@
-# PCM and Dolby Digital audio
-- **PCM, Dolby Digital and Dolby Digital Plus audio.** A client that asks for them gets uncompressed PCM (stereo up to 7.1.4) or Dolby Digital and Dolby Digital Plus (stereo and 5.1) instead of Opus, for TVs and receivers that decode them themselves. Dolby frames are 32 ms long, so their sound arrives a little later than Opus. A format this PC can't encode is refused with the reason before the stream starts, never swapped for another. On by default (Settings, Audio, "PCM and Dolby Digital audio"); stock Moonlight clients keep Opus.
-- Windows builds ship FFmpeg's AC3 and E-AC3 libraries (LGPL, license under `licenses\ffmpeg`). Without them the host offers PCM only.

@@ -1,3 +1,0 @@
-# Radeon presets and controls
-- A game's Radeon section has a preset picker (Off, Competitive, Smoothness, Quality, Custom) and plain controls under it: Anti-Lag, frame rate cap (off, same as the stream or a number), Chill, image sharpening, anisotropic filtering, anti-aliasing and Boost. Changing a control makes the preset Custom with the full list filled in; no setting ids to type.
-- The controls show only what the GPU reports as supported and changeable. Everything else, such as AFMF, vsync or RSR, stays under "Advanced: raw Radeon settings", and setting ids the console does not know keep working as typed.

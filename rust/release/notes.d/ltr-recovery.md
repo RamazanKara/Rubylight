@@ -1,4 +1,0 @@
-# Faster recovery after a lost frame on H.264 and HEVC
-- H.264 and HEVC now recover from a short loss the way AV1 does, for every client: instead of a full keyframe, the host sends a frame predicted from an older one the client still has. On our RX 7900 XT at 1440p120 that frame was 3% to 46% smaller than the keyframe when the client missed 1 or 2 frames. For longer losses the host still sends the keyframe, as that is the smaller frame there.
-- The host rewrites the frame headers so a decoder that skipped the lost frames can place the repair. Without that, earlier tests froze HEVC after 8 lost frames and left H.264 hardware decoders showing a damaged picture. With it, every repair from 1 to 130 lost frames decoded to the same pictures as the full stream in software and on d3d11va.
-- `amd_ltr_frames = 0` turns this off for all three codecs.

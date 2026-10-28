@@ -1,0 +1,7 @@
+• Preview of Nightjar 4.0 for Rubylight 3.0.
+• Split-screen co-op: join a free slot in a PC's co-op game.
+• Dolby Vision on HEVC and AV1; HDR10, HLG and HDR10+ through Vulkan; HLG on PyroWave.
+• TCL and other MediaTek TVs: Dolby Vision and HDR10+ show, HDR no longer freezes, steadier sound.
+• Clipboard sync, files, shared folders.
+• The keyboard follows text fields; microphone effects and a mute button; extra controller buttons.
+• Simpler settings; Recover interrupted streams on by default.

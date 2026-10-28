@@ -11,9 +11,11 @@
 //! Every 250 ms the counters are written to STATS as JSON.
 //!
 //! Usage:
-//!   udp_shaper LISTEN UPSTREAM RATE_KBPS QUEUE_BYTES STATS PORT[:shape|:tcp]...
-//!   udp_shaper --selftest
-//! RATE_KBPS 0 relays without shaping (the control).
+//!   udp_shaper [--loss PERCENT] LISTEN UPSTREAM RATE_KBPS QUEUE_BYTES STATS PORT[:shape|:tcp]...
+//!   udp_shaper --selftest [RATE_KBPS]
+//! RATE_KBPS 0 relays without shaping (the control). `--loss` drops that share
+//! of the shaped ports' datagrams at random (a fixed pattern), with or without
+//! a rate: loss with no bottleneck behind it.
 use anyhow::{Context, Result, bail, ensure};
 use std::{
     collections::VecDeque,
@@ -82,6 +84,35 @@ struct Counters {
     max_delay_us: AtomicU64,
     /// Drop events separated by at least 2 ms of admitted traffic.
     drop_bursts: AtomicU64,
+    /// Datagrams dropped at random (`--loss`), before the queue.
+    packets_lost_random: AtomicU64,
+}
+
+/// Independent random loss of `ppm` datagrams per million, as a lossy cable
+/// or a busy NIC loses them; a fixed seed repeats the same pattern.
+#[derive(Clone)]
+struct RandomLoss {
+    ppm: u64,
+    state: u64,
+}
+
+impl RandomLoss {
+    fn new(ppm: u64) -> Self {
+        Self {
+            ppm,
+            state: 0x9e37_79b9_7f4a_7c15,
+        }
+    }
+    fn drop(&mut self) -> bool {
+        if self.ppm == 0 {
+            return false;
+        }
+        // xorshift64*
+        self.state ^= self.state >> 12;
+        self.state ^= self.state << 25;
+        self.state ^= self.state >> 27;
+        self.state.wrapping_mul(0x2545_f491_4f6c_dd1d) % 1_000_000 < self.ppm
+    }
 }
 
 impl Counters {
@@ -99,6 +130,7 @@ impl Counters {
             "mean_delay_ms": if out > 0 { get(&self.delay_us) as f64 / out as f64 / 1000. } else { 0. },
             "max_delay_ms": get(&self.max_delay_us) as f64 / 1000.,
             "drop_bursts": get(&self.drop_bursts),
+            "packets_lost_random": get(&self.packets_lost_random),
         })
     }
 }
@@ -144,6 +176,7 @@ fn downward_plain(
     upstream: Arc<UdpSocket>,
     client: Arc<Mutex<Option<SocketAddr>>>,
     counters: Arc<Counters>,
+    mut loss: RandomLoss,
 ) {
     let mut buffer = vec![0; 65536];
     loop {
@@ -151,6 +184,10 @@ fn downward_plain(
             Ok(n) => {
                 counters.packets_in.fetch_add(1, Ordering::Relaxed);
                 counters.bytes_in.fetch_add(n as u64, Ordering::Relaxed);
+                if loss.drop() {
+                    counters.packets_lost_random.fetch_add(1, Ordering::Relaxed);
+                    continue;
+                }
                 let to = *client.lock().unwrap();
                 if let Some(to) = to
                     && listen.send_to(&buffer[..n], to).is_ok()
@@ -176,6 +213,7 @@ fn downward_shaped(
     client: Arc<Mutex<Option<SocketAddr>>>,
     counters: Arc<Counters>,
     mut link: Link,
+    mut loss: RandomLoss,
 ) -> Result<()> {
     // A switch port is never descheduled: keep the link's clock ahead of
     // builds and other load on the test machine.
@@ -198,6 +236,10 @@ fn downward_shaped(
                 let now = Instant::now();
                 counters.packets_in.fetch_add(1, Ordering::Relaxed);
                 counters.bytes_in.fetch_add(n as u64, Ordering::Relaxed);
+                if loss.drop() {
+                    counters.packets_lost_random.fetch_add(1, Ordering::Relaxed);
+                    continue;
+                }
                 match link.offer(now, n) {
                     Some(leaves) => {
                         counters
@@ -278,6 +320,7 @@ fn relay(
     upstream: IpAddr,
     bps: u64,
     capacity: u64,
+    loss_ppm: u64,
     ports: &[String],
 ) -> Result<Relay> {
     let mut relay = Relay { ports: Vec::new() };
@@ -293,6 +336,8 @@ fn relay(
             "port kind must be udp, shape or tcp: {spec}"
         );
         let shaped = kind == "shape" && bps > 0;
+        // Random loss applies to shaped ports, with or without a rate.
+        let loss = RandomLoss::new(if kind == "shape" { loss_ppm } else { 0 });
         let listen_socket = Arc::new(udp((listen, port).into())?);
         let upstream_socket = Arc::new(udp((upstream, 0).into())?);
         upstream_socket.connect((upstream, port))?;
@@ -313,11 +358,12 @@ fn relay(
                     client,
                     counters,
                     Link::new(bps, capacity),
+                    loss,
                 ) {
                     eprintln!("shaped relay {port}: {error:#}");
                 }
             } else {
-                downward_plain(listen_socket, upstream_socket, client, counters);
+                downward_plain(listen_socket, upstream_socket, client, counters, loss);
             }
         });
     }
@@ -342,44 +388,47 @@ impl Relay {
 }
 
 /// Accuracy check on loopback: a paced sender, the shaper and a receiver.
-fn selftest() -> Result<()> {
+/// The link runs at `link_kbps` (100 Mbps by default); the inputs are 0.8 and
+/// 2 times the link and the bursts 2.5 ms of it (250 KB at 100 Mbps).
+fn selftest(link_kbps: u64) -> Result<()> {
     struct Case {
         name: &'static str,
         input_bps: u64,
         burst_bytes: usize,
         capacity: u64,
     }
-    let link_bps = 100_000_000;
+    let link_bps = link_kbps * 1000;
     let payload = 1440usize;
+    let burst_bytes = (link_bps / 400) as usize;
     let cases = [
         Case {
-            name: "steady 80 Mbps below the link",
-            input_bps: 80_000_000,
+            name: "steady 0.8 times the link",
+            input_bps: link_bps * 4 / 5,
             burst_bytes: 0,
             capacity: 65536,
         },
         Case {
-            name: "steady 200 Mbps above the link",
-            input_bps: 200_000_000,
+            name: "steady 2 times the link",
+            input_bps: link_bps * 2,
             burst_bytes: 0,
             capacity: 65536,
         },
         Case {
-            name: "250 KB bursts into 16 KiB",
+            name: "2.5 ms bursts into 16 KiB",
             input_bps: 0,
-            burst_bytes: 250_000,
+            burst_bytes,
             capacity: 16384,
         },
         Case {
-            name: "250 KB bursts into 64 KiB",
+            name: "2.5 ms bursts into 64 KiB",
             input_bps: 0,
-            burst_bytes: 250_000,
+            burst_bytes,
             capacity: 65536,
         },
         Case {
-            name: "250 KB bursts into 256 KiB",
+            name: "2.5 ms bursts into 256 KiB",
             input_bps: 0,
-            burst_bytes: 250_000,
+            burst_bytes,
             capacity: 262144,
         },
     ];
@@ -393,6 +442,7 @@ fn selftest() -> Result<()> {
             "127.0.0.1".parse()?,
             link_bps,
             case.capacity,
+            0,
             &[format!("{host_port}:shape")],
         )?;
         let client = udp("127.0.0.3:0".parse()?)?;
@@ -518,14 +568,40 @@ fn selftest() -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::RandomLoss;
+
+    #[test]
+    fn random_loss_drops_about_its_share_and_none_at_zero() {
+        let mut loss = RandomLoss::new(3_000);
+        let dropped = (0..1_000_000).filter(|_| loss.drop()).count();
+        assert!((2_700..=3_300).contains(&dropped), "{dropped}");
+        let mut none = RandomLoss::new(0);
+        assert!((0..10_000).all(|_| !none.drop()));
+    }
+}
+
 fn main() -> Result<()> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(String::as_str) == Some("--selftest") {
-        return selftest();
+        let link_kbps = args.get(1).map_or(Ok(100_000), |rate| rate.parse())?;
+        ensure!(link_kbps > 0, "the self-test link rate must be above 0 Kbps");
+        return selftest(link_kbps);
+    }
+    let mut loss_ppm = 0;
+    if args.first().map(String::as_str) == Some("--loss") {
+        let percent: f64 = args.get(1).context("--loss needs a percentage")?.parse()?;
+        ensure!(
+            (0.0..=100.0).contains(&percent),
+            "--loss must be 0..100 percent"
+        );
+        loss_ppm = (percent * 10_000.).round() as u64;
+        args.drain(..2);
     }
     ensure!(
         args.len() >= 6,
-        "usage: udp_shaper LISTEN UPSTREAM RATE_KBPS QUEUE_BYTES STATS PORT[:shape|:tcp]..."
+        "usage: udp_shaper [--loss PERCENT] LISTEN UPSTREAM RATE_KBPS QUEUE_BYTES STATS PORT[:shape|:tcp]..."
     );
     let listen: IpAddr = args[0].parse()?;
     let upstream: IpAddr = args[1].parse()?;
@@ -536,10 +612,10 @@ fn main() -> Result<()> {
         "the queue must hold a full-size datagram"
     );
     let stats = std::path::PathBuf::from(&args[4]);
-    let relay = relay(listen, upstream, bps, capacity, &args[5..])?;
+    let relay = relay(listen, upstream, bps, capacity, loss_ppm, &args[5..])?;
     let started = Instant::now();
     println!(
-        "SHAPER ready listen={listen} upstream={upstream} rate_bps={bps} queue_bytes={capacity}"
+        "SHAPER ready listen={listen} upstream={upstream} rate_bps={bps} queue_bytes={capacity} loss_ppm={loss_ppm}"
     );
     let temporary = stats.with_extension("tmp");
     loop {

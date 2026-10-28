@@ -52,6 +52,12 @@ pub fn setup_record() -> PathBuf {
 }
 /// The flag that restores it: `butterpollo.exe --child-session-restore`.
 pub const RESTORE_FLAG: &str = "--child-session-restore";
+/// Its exit code when the restore failed after it had put Remote Desktop back
+/// as it was before setup ([`SetupState::rdp_restored`]): RDP is the user's
+/// own again, so neither it nor the uninstaller turns it off. 1 is any other
+/// failure, after which RDP is off. Not 2, which a command line the host
+/// cannot parse exits with.
+pub const RESTORE_PARTLY_EXIT: i32 = 4;
 
 /// What the host setting asks for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -65,6 +65,10 @@ const CHILD_SESSION_SETUP_FOLDER: &str = "windows-settings";
 /// The host's flag that puts back what that setup changed
 /// (`butterpollo_core::child_session::RESTORE_FLAG`).
 const CHILD_SESSION_RESTORE_FLAG: &str = "--child-session-restore";
+/// Its exit code when the restore failed after putting Remote Desktop back
+/// as it was before setup: RDP is the user's own again and stays as it is
+/// (`butterpollo_core::child_session::RESTORE_PARTLY_EXIT`).
+const CHILD_SESSION_RESTORE_PARTLY_EXIT: i32 = 4;
 /// The PC's child-session setup record
 /// (`butterpollo_core::child_session::setup_record`), beside `profile`.
 fn child_session_record(profile: &Path) -> PathBuf {
@@ -266,6 +270,8 @@ fn restore_child_session(install: &Path, progress: &Progress) -> Option<String> 
 /// off here too: a host that never ran (missing, not starting), timed out
 /// or crashed did not turn it off itself. Without a record, so does setup's
 /// block rule that `block_rule` finds still there ([`child_session_unrecorded`]).
+/// Except after a restore that put RDP back as the user had it and failed on
+/// the rest ([`CHILD_SESSION_RESTORE_PARTLY_EXIT`]): RDP is left as it is.
 fn restore_child_session_with(
     profile: &Path,
     install: &Path,
@@ -280,6 +286,14 @@ fn restore_child_session_with(
         None => format!("{} is missing", install.join("butterpollo.exe").display()),
         Some(program) => match run(&program) {
             Ok((0, _)) => return None,
+            // RDP is back as the user had it, and a later restore skips it: turned off now,
+            // it would stay off.
+            Ok((CHILD_SESSION_RESTORE_PARTLY_EXIT, output)) => {
+                return Some(format!(
+                    "The Windows settings child sessions changed were partly restored: {}. Remote Desktop was left as it is.",
+                    output.trim().trim_end_matches('.')
+                ));
+            }
             Ok((code, output)) => format!("({code}) {}", output.trim()),
             Err(error) => format!("{error:#}"),
         },
@@ -748,6 +762,34 @@ mod tests {
         assert_eq!((registry.rdp(), registry.writes), (Some(0), 0));
     }
     #[test]
+    fn a_partly_restored_remote_desktop_is_left_as_the_user_had_it() {
+        // The host put RDP back to the user's value (on), then failed on the rest: turned
+        // off now, it would stay off, as a later restore skips RDP.
+        let (install, _root, profile) = recorded(true);
+        let mut registry = FakeRegistry::rdp_on();
+        let note = restore_child_session_with(
+            &profile,
+            install.path(),
+            &mut registry,
+            || panic!("a record is there"),
+            |_| {
+                Ok((
+                    CHILD_SESSION_RESTORE_PARTLY_EXIT,
+                    "were partly restored: access denied.".into(),
+                ))
+            },
+        )
+        .unwrap();
+        assert_eq!((registry.rdp(), registry.writes), (Some(0), 0), "{note}");
+        assert!(
+            note.contains("partly restored: access denied")
+                && note.contains("Remote Desktop was left as it is")
+                && !note.contains("turned off"),
+            "{note}"
+        );
+        assert!(!note.contains(".."), "{note}");
+    }
+    #[test]
     fn remote_desktop_setups_block_rule_outlived_its_record_for_is_turned_off() {
         // No record, but setup's block rule is still there: RDP on is setup's, and nothing
         // restores it, so it goes off as the host's enforce_unrecorded turns it off.
@@ -946,6 +988,10 @@ mod tests {
         assert_eq!(
             CHILD_SESSION_BLOCK_RULE,
             butterpollo_core::child_session::BLOCK_RULE
+        );
+        assert_eq!(
+            CHILD_SESSION_RESTORE_PARTLY_EXIT,
+            butterpollo_core::child_session::RESTORE_PARTLY_EXIT
         );
     }
     fn package(root: &Path) {

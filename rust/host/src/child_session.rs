@@ -655,7 +655,9 @@ fn enforce_with<S: SystemSettings>(
 /// back the Windows settings child-session setup changed. 0 when they are back
 /// or setup never ran here, 1 with the reason on stderr. It fails closed, as
 /// [`secure_rdp`] does: a restore that failed, or could not get the settings
-/// lock, turns RDP off, without the lock.
+/// lock, turns RDP off, without the lock. Unless the record says RDP is back
+/// as before setup already ([`SetupState::rdp_restored`]): then RDP is left
+/// as it is, and the code is [`logic::RESTORE_PARTLY_EXIT`].
 pub(crate) fn restore_exit_code() -> i32 {
     restore_exit_code_with(
         &Record::new(),
@@ -682,6 +684,16 @@ fn restore_exit_code_with(
         Ok(false) => {
             println!("Child sessions were not set up by Rubylight here; nothing to restore.");
             0
+        }
+        // Remote Desktop is back as it was before setup (this restore or an earlier one put
+        // it back): it is the user's own again, and a later restore skips it, so turning it
+        // off now would lose it for good.
+        Err(error) if matches!(record.load(), Ok(Some(state)) if state.rdp_restored) => {
+            eprintln!(
+                "The Windows settings child-session setup changed were partly restored: {error:#}. Remote Desktop and its firewall rules are back as they were before setup, so Remote Desktop was left as it is. Rubylight keeps its record, so restoring again (Restore Windows settings in the console, or butterpollo.exe {}) puts back the rest.",
+                logic::RESTORE_FLAG
+            );
+            logic::RESTORE_PARTLY_EXIT
         }
         Err(error) => {
             let off = rdp_off();
@@ -2684,6 +2696,44 @@ mod tests {
         drop(lock);
         assert_eq!(code, 1);
         assert_eq!(off.load(SeqCst), 2);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn a_partly_restored_remote_desktop_is_left_as_the_user_had_it() {
+        use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
+        let off = AtomicU32::new(0);
+        let rdp_off = || {
+            off.fetch_add(1, SeqCst);
+            "Remote Desktop was turned off (fDenyTSConnections = 1), so it is not open to the network".to_string()
+        };
+        // This restore puts RDP back, then fails on the rest: RDP is the user's own again.
+        let (directory, record) = set_up_record();
+        let partly = |record: &Record| -> Result<bool> {
+            let mut state = record.load()?.unwrap();
+            state.rdp_restored = true;
+            record.save(&state)?;
+            bail!("child sessions could not be turned off: access denied")
+        };
+        assert_eq!(
+            restore_exit_code_with(&record, partly, rdp_off),
+            logic::RESTORE_PARTLY_EXIT
+        );
+        assert_eq!(off.load(SeqCst), 0);
+        // An earlier restore put it back; this one fails before the lock or the record.
+        let failed = |_: &Record| -> Result<bool> { bail!("access denied") };
+        assert_eq!(
+            restore_exit_code_with(&record, failed, rdp_off),
+            logic::RESTORE_PARTLY_EXIT
+        );
+        assert_eq!(off.load(SeqCst), 0);
+        // Without that mark it still fails closed.
+        let mut state = record.load().unwrap().unwrap();
+        state.rdp_restored = false;
+        record.save(&state).unwrap();
+        assert_eq!(restore_exit_code_with(&record, failed, rdp_off), 1);
+        assert_eq!(off.load(SeqCst), 1);
+        assert_ne!(logic::RESTORE_PARTLY_EXIT, 1);
         std::fs::remove_dir_all(directory).unwrap();
     }
 

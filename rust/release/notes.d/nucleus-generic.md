@@ -1,0 +1,5 @@
+# Nucleus Co-op
+- A one-player game streams in the background without a handler from Nucleus Co-op's hub, such as Assassin's Creed IV ([#59](https://github.com/RamazanKara/Rubylight/issues/59)): Rubylight writes its own handler and adds the game to Nucleus Co-op's list. The game runs from its own folder, and nothing is written there. A hub handler still wins, and co-op still needs one.
+- A Steam link streams in the background as the .exe Steam would start, and the game gets its Steam app id, so it doesn't restart through Steam. Links of other launchers say to set the app's command to the game's .exe.
+- A game with anti-cheat is refused before anything is written, and its Play together panel says why. A game without a hub handler says that background streams work and co-op needs a handler.
+- Nucleus Co-op sets a game's .exe to its DPI mode in your Windows compatibility settings and never puts them back. Rubylight now puts back what you had when the session ends, also after a crash or a failed start, for hub handlers too.

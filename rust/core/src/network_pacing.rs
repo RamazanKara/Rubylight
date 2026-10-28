@@ -493,8 +493,14 @@ mod tests {
             whole as u64
         );
         let unasked = || -> usize { panic!("fec_whole asked for") };
-        assert_eq!(fixed_fec_frame_cap(cap, 20, true, unasked, 200_000, period), cap);
-        assert_eq!(fixed_fec_frame_cap(cap, 0, false, unasked, 200_000, period), cap);
+        assert_eq!(
+            fixed_fec_frame_cap(cap, 20, true, unasked, 200_000, period),
+            cap
+        );
+        assert_eq!(
+            fixed_fec_frame_cap(cap, 0, false, unasked, 200_000, period),
+            cap
+        );
     }
 
     #[test]

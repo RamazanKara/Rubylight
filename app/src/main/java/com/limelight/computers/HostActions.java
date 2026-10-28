@@ -26,6 +26,7 @@ import com.limelight.nativeapi.JniNativeApiTransport;
 import com.limelight.nativeapi.NativeApiClient;
 import com.limelight.nativeapi.NativeApiException;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.HostHttpResponseException;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.http.PairingLink;
@@ -301,6 +302,10 @@ public final class HostActions {
                                         computer.runningGameId != 0 ? R.string.pair_pc_ingame : R.string.pair_fail);
                     }
                 }
+            } catch (HostHttpResponseException e) {
+                // The host answered and refused, so the network is fine: a used or expired code, say.
+                LimeLog.warning("Pairing refused: " + e.getMessage());
+                message = activity.getString(refusalMessage(link != null, oneTimePin != null));
             } catch (IOException | XmlPullParserException e) {
                 message = activity.getString(R.string.pair_connection_fix);
             }
@@ -315,6 +320,12 @@ public final class HostActions {
      * True when the host already knows this device and nothing is to be paired. A link pairs again while no
      * certificate is pinned, so its fingerprint is checked and the certificate pinned.
      */
+    /** What to show when the host answers a pairing request with an error, not with a pairing state. */
+    @VisibleForTesting
+    static int refusalMessage(boolean fromLink, boolean oneTimePin) {
+        return fromLink ? R.string.pair_qr_incorrect_pin : oneTimePin ? R.string.pair_otp_incorrect_pin : R.string.pair_fail;
+    }
+
     @VisibleForTesting
     static boolean alreadyPaired(PairState state, PairingLink link, java.security.cert.X509Certificate pinned) {
         return state == PairState.PAIRED && (link == null || pinned != null);

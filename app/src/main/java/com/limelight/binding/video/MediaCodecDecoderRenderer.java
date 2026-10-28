@@ -2327,6 +2327,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         boolean retryWithoutUpscaling = false;
         List<String> firstTryKeys = null;
+        boolean vendorLowLatency = MediaCodecHelper.usesVendorLowLatency(prefs.vendorLowLatency,
+                selectedDecoderInfo.getName(), wantVulkan);
+        if (prefs.vendorLowLatency && !vendorLowLatency) {
+            LimeLog.info("Decoder " + selectedDecoderInfo.getName() +
+                    " gets no vendor low-latency keys: the Vulkan renderer draws its frames");
+        }
         for (int tryNumber = 0;; tryNumber++) {
             LimeLog.info("Decoder configuration try: "+tryNumber);
 
@@ -2334,7 +2340,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
             // This will try low latency options until we find one that works (or we give up).
             boolean newFormat = MediaCodecHelper.setDecoderLowLatencyOptions(mediaFormat, selectedDecoderInfo, tryNumber,
-                    prefs.codecLowLatency, prefs.vendorLowLatency, prefs.codecPerformance, prefs.hevcLowLatency(), false);
+                    prefs.codecLowLatency, vendorLowLatency, prefs.codecPerformance, prefs.hevcLowLatency(), false);
 
             // Each rejected configure drops keys on the next try; keep a record of which ones went.
             List<String> vendorParams = MediaCodecHelper.getIntegerVendorParameters(selectedDecoderInfo.getName());

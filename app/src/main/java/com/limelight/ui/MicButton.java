@@ -89,6 +89,14 @@ public final class MicButton extends View {
         return new FrameLayout.LayoutParams(size, size, android.view.Gravity.TOP | android.view.Gravity.START);
     }
 
+    /**
+     * Whether the stream lets the button show at all: its setting on, the overlays not hidden (picture
+     * in picture) and this client allowed to send input. The host taking the microphone is asked apart.
+     */
+    public static boolean allowed(boolean setting, boolean hidingOverlays, boolean canSendInput) {
+        return setting && !hidingOverlays && canSendInput;
+    }
+
     /** Hides the button whatever the session says: picture-in-picture, no input permission, the setting off. */
     public void setSuppressed(boolean suppressed) {
         this.suppressed = suppressed;

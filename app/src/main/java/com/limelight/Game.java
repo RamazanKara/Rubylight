@@ -3245,15 +3245,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (read) com.limelight.ui.StreamMenuHint.markSeen(this);
     }
 
-    private String shownMicrophoneNotice;
+    private final com.limelight.binding.audio.MicNotice.Once microphoneNotice = new com.limelight.binding.audio.MicNotice.Once();
 
     // The microphone settings ask for processing this device lacks: say so in the stream, once per difference.
     private void showMicrophoneNotice() {
         if (conn == null || isFinishing() || isDestroyed()) return;
-        String text = com.limelight.binding.audio.MicNotice.text(this, conn.takeMicrophoneNotice());
-        if (text == null || text.equals(shownMicrophoneNotice)) return;
-        shownMicrophoneNotice = text;
-        messages.alert(text, Toast.LENGTH_LONG);
+        String text = microphoneNotice.next(com.limelight.binding.audio.MicNotice.text(this, conn.takeMicrophoneNotice()));
+        if (text != null) messages.alert(text, Toast.LENGTH_LONG);
     }
 
     private void toggleMicrophoneMute() {
@@ -3961,6 +3959,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                                         leftX, leftY, rightX, rightY, leftTrigger, rightTrigger);
                             }
                         }, prefConfig, game);
+                modernController.setOnLayoutChanged(() -> { if (micButton != null) micButton.place(); });
                 modernController.refreshLayout();
             }
             modernController.show();
@@ -3976,7 +3975,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // Shows the microphone button when its setting is on, the host takes the microphone and input is allowed.
     private void updateMicButton() {
         if (micButton == null) return;
-        micButton.setSuppressed(!prefConfig.micButton || isHidingOverlays || conn == null || !conn.canSendInput());
+        micButton.setSuppressed(!com.limelight.ui.MicButton.allowed(prefConfig.micButton, isHidingOverlays,
+                conn != null && conn.canSendInput()));
         micButton.place();
     }
 

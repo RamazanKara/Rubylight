@@ -32,4 +32,19 @@ public final class MicNotice {
         }
         return context.getString(R.string.mic_effects_missing, names);
     }
+
+    /**
+     * Lets each notice through once a stream: the microphone reopening after a pause or a reconnect
+     * asks again, and the same missing effects are not said twice. Different ones are.
+     */
+    public static final class Once {
+        private String shown;
+
+        /** {@code text} when it is new for this stream, otherwise null. */
+        public String next(String text) {
+            if (text == null || text.equals(shown)) return null;
+            shown = text;
+            return text;
+        }
+    }
 }

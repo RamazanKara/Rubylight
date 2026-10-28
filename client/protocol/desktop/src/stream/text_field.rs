@@ -57,7 +57,7 @@ pub fn props(notice: &TextInputNotice) -> Props {
 /// What a stream asks of a host that offers notices: raises and lowers, never the text around
 /// the cursor, which nothing here shows.
 pub fn request() -> TextInputRequest {
-    TextInputRequest { notices: true, surrounding_text: false, max_text: 0 }
+    TextInputRequest { notices: true, surrounding_text: false, element_ids: false, max_text: 0 }
 }
 
 #[derive(Default)]
@@ -250,6 +250,7 @@ mod tests {
             selection_start: rubylight_protocol::text_input::SELECTION_UNKNOWN,
             selection_end: rubylight_protocol::text_input::SELECTION_UNKNOWN,
             text: String::new(),
+            element: 0,
         }
     }
 
@@ -278,7 +279,7 @@ mod tests {
     #[test]
     fn the_request_asks_for_notices_only() {
         let wire = request().encode();
-        assert_eq!(TextInputRequest::decode(&wire), Some(TextInputRequest { notices: true, surrounding_text: false, max_text: 0 }));
+        assert_eq!(TextInputRequest::decode(&wire), Some(TextInputRequest { notices: true, surrounding_text: false, element_ids: false, max_text: 0 }));
     }
 
     #[test]

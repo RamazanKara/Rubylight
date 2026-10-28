@@ -21,6 +21,7 @@ import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.HostKeyboard;
 import com.limelight.ui.HostTextField;
+import com.limelight.ui.LegacyKeyboardInsets;
 import com.limelight.ui.StreamView;
 
 import org.junit.Test;
@@ -37,6 +38,10 @@ import org.robolectric.util.ReflectionHelpers.ClassParameter;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.List;
+import java.util.logging.Handler;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 
 import static org.junit.Assert.*;
 import static org.robolectric.Shadows.shadowOf;
@@ -144,6 +149,87 @@ public class GameHostKeyboardTest {
         assertEquals(0, stream.getTranslationY(), 0);
     }
 
+    /**
+     * Android 10 tells the adjustNothing window nothing of the keyboard; the legacy probe's
+     * measurement moves the stream up and back, and closing it is the user's dismissal, which
+     * the host's element id keeps for that field only.
+     */
+    @Test
+    public void onAndroid10TheLegacyProbeMovesTheStreamAndAClosedFieldStaysClosedByItsId() {
+        Game game = game();
+        StreamView stream = stream(game);
+        LegacyKeyboardInsets legacy = new LegacyKeyboardInsets(game, (View) stream.getParent(),
+                (visible, bottom) -> ReflectionHelpers.callInstanceMethod(game, "onKeyboardInsets",
+                        ClassParameter.from(boolean.class, visible), ClassParameter.from(int.class, bottom)));
+        ReflectionHelpers.setField(game, "legacyKeyboard", legacy);
+        HostKeyboard keyboard = ReflectionHelpers.getField(game, "hostKeyboard");
+        tap(game, stream, 1800);
+        raise(game, HostTextField.KIND_RAISE, 7);
+        assertTrue(keyboard.hostOpened());
+
+        // The window's own insets say nothing below Android 11.
+        insets(game, true, 1000);
+        assertEquals(0, stream.getTranslationY(), 0);
+        probe(game, legacy, 1400);
+        float margin = HostKeyboard.MARGIN_DP * game.getResources().getDisplayMetrics().density;
+        assertEquals(1400 - margin - 1800, stream.getTranslationY(), 0.5f);
+        assertEquals("the video surface keeps its size", 2400, stream.getHeight());
+
+        // The user closes it on element 7: back down, and the host repeating 7 leaves it closed.
+        probe(game, legacy, 2400);
+        assertEquals(0, stream.getTranslationY(), 0);
+        assertFalse(keyboard.hostOpened());
+        tap(game, stream, 1800);
+        raise(game, HostTextField.KIND_UPDATE, 7);
+        assertTrue(keyboard.dismissedHere());
+        assertFalse(keyboard.hostOpened());
+        // Another element right after a tap opens it.
+        tap(game, stream, 1800);
+        raise(game, HostTextField.KIND_UPDATE, 9);
+        assertTrue(keyboard.hostOpened());
+    }
+
+    /**
+     * The user closed the keyboard on element 7: the host lowering and raising 7 again, even
+     * right after a tap, leaves it closed and says why; element 9 after a tap opens it.
+     */
+    @Test
+    @Config(sdk = 36)
+    public void aKeyboardClosedOnAnElementStaysClosedWhenTheHostRaisesItAgain() {
+        Game game = game();
+        StreamView stream = stream(game);
+        HostKeyboard keyboard = ReflectionHelpers.getField(game, "hostKeyboard");
+        List<String> log = new ArrayList<>();
+        Handler handler = new Handler() {
+            @Override public void publish(LogRecord record) { log.add(record.getMessage()); }
+            @Override public void flush() { }
+            @Override public void close() { }
+        };
+        Logger logger = Logger.getLogger(LimeLog.class.getName());
+        logger.addHandler(handler);
+        try {
+            tap(game, stream, 1800);
+            raise(game, HostTextField.KIND_RAISE, 7);
+            insets(game, true, 1000);
+            insets(game, false, 0);
+            assertFalse(keyboard.hostOpened());
+
+            raise(game, HostTextField.KIND_LOWER, 0);
+            tap(game, stream, 1800);
+            raise(game, HostTextField.KIND_RAISE, 7);
+            assertTrue(keyboard.dismissedHere());
+            assertFalse(keyboard.hostOpened());
+            assertTrue(log.toString(), log.contains("Keyboard stays closed: closed for this field"));
+
+            tap(game, stream, 1800);
+            raise(game, HostTextField.KIND_UPDATE, 9);
+            assertFalse(keyboard.dismissedHere());
+            assertTrue(keyboard.hostOpened());
+        } finally {
+            logger.removeHandler(handler);
+        }
+    }
+
     private static Game game() {
         Game game = GameKeyboardOverlayTest.game(new GameKeyboardOverlayTest.RecordingConnection());
         ReflectionHelpers.setField(game, "prefConfig", new PreferenceConfiguration());
@@ -177,9 +263,20 @@ public class GameHostKeyboardTest {
     }
 
     private static void raise(Game game, int kind) {
+        raise(game, kind, 0);
+    }
+
+    private static void raise(Game game, int kind, int element) {
         ReflectionHelpers.callInstanceMethod(game, "onHostTextField",
                 ClassParameter.from(int.class, kind), ClassParameter.from(int.class, HostTextField.TYPE_TEXT),
-                ClassParameter.from(int.class, 0));
+                ClassParameter.from(int.class, 0), ClassParameter.from(int.class, element));
+    }
+
+    /** The legacy probe's window is visible down to {@code visibleBottom} of the 2400 px stream window. */
+    private static void probe(Game game, LegacyKeyboardInsets legacy, int visibleBottom) {
+        ReflectionHelpers.callInstanceMethod(legacy, "onFrame", ClassParameter.from(int.class, 2400),
+                ClassParameter.from(int.class, visibleBottom), ClassParameter.from(int.class, 2400));
+        shadowOf(Looper.getMainLooper()).idle();
     }
 
     private static void insets(Game game, boolean visible, int bottom) {

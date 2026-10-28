@@ -7,8 +7,11 @@ package com.limelight.ui;
  * the user closed stays closed for that field; and while it is open the stream moves up so the
  * point last pressed stays above it, without resizing the video surface.
  *
- * The host counts on each time its focus moves to another element and sends an update for it, and
- * Nightjar never asks for the text around the cursor, so every raise and update is another field.
+ * A host from TextInputVersion 2 names the focused element with an id that stays the same while the
+ * element lives, so a keyboard closed on one field stays closed for that field, also when the focus
+ * comes back to it, and opens for any other. An older host sends no id; it counts on each time its
+ * focus moves to another element and sends an update for it, and Nightjar never asks for the text
+ * around the cursor, so there every raise and update is another field.
  *
  * Ideas from Moonlight V+ (qiin2333/moonlight-vplus, GPL-3.0): auto-showing only for focus that
  * follows the user's input, never reopening against a dismissal of the same activation, and its
@@ -28,10 +31,12 @@ public final class HostKeyboard {
     // Where the last press was, as a fraction of the stream's height; NaN when it had no point.
     private float pressY = Float.NaN;
     private long pressAt;
-    // Counts the host's raises and updates: each one is another field.
-    private int field;
+    // The focused field: the host's element id (unsigned, above 0) when it sends one, else below
+    // 0, counting down on each raise and update, each one another field.
+    private long field;
+    private long anonymous;
     // The field whose keyboard the user closed, or 0.
-    private int dismissed;
+    private long dismissed;
     private boolean focused;
     private boolean hostOpened;
     private boolean visible;
@@ -54,9 +59,12 @@ public final class HostKeyboard {
         pressAt = now;
     }
 
-    /** A raise or an update: the focus is in another field. */
-    public void onFocus() {
-        field++;
+    /**
+     * A raise or an update: the focus is in the field with the host's {@code element} id, or in
+     * another field when that is 0 (a host before TextInputVersion 2).
+     */
+    public void onFocus(int element) {
+        field = element != 0 ? element & 0xFFFFFFFFL : --anonymous;
         focused = true;
     }
 
@@ -136,6 +144,7 @@ public final class HostKeyboard {
         input = false;
         pressY = Float.NaN;
         field = 0;
+        anonymous = 0;
         dismissed = 0;
         focused = false;
         hostOpened = false;

@@ -483,8 +483,8 @@ public class MoonBridge {
                     bitrateReason, fpsStatus, fpsReason));
         }
     }
-    public static void bridgeClTextInput(int kind, int inputType, int flags) {
-        if (connectionListener != null) connectionListener.textInput(kind, inputType, flags);
+    public static void bridgeClTextInput(int kind, int inputType, int flags, int element) {
+        if (connectionListener != null) connectionListener.textInput(kind, inputType, flags, element);
     }
     public static void bridgeClHostTiming(byte[] payload) {
         VideoDecoderRenderer renderer = videoRenderer;

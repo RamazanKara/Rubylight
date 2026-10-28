@@ -101,7 +101,7 @@ pub fn init(env: &mut JNIEnv) -> jni::errors::Result<()> {
         cursor_shape: id("bridgeClCursorShape", "([B)V")?,
         steam_haptic: id("bridgeClSteamHaptic", "(S[B)V")?,
         steam_settings: id("bridgeClSteamSettings", "(SB[B)V")?,
-        text_input: id("bridgeClTextInput", "(III)V")?,
+        text_input: id("bridgeClTextInput", "(IIII)V")?,
         usb_changed: id("bridgeClUsbChanged", "()V")?,
     };
     let bridge = Bridge {
